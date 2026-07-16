@@ -1,5 +1,7 @@
+import { Link } from '@tanstack/react-router';
 import {
   AlertTriangle,
+  ArrowRight,
   CloudOff,
   Inbox,
   LoaderCircle,
@@ -26,6 +28,14 @@ export function FoundationLab() {
       aria-labelledby="component-lab-title"
     >
       <PageHeader
+        action={
+          <Link
+            className="inline-flex h-9 items-center gap-2 rounded-md border border-border-strong bg-surface px-3.5 text-[13px] font-semibold text-text no-underline hover:bg-surface-muted"
+            to="/__components/interactions"
+          >
+            Interaction renderers <ArrowRight size={15} aria-hidden="true" />
+          </Link>
+        }
         description="Development-only reference for shared Gantry components and states."
         eyebrow="UI system"
         id="component-lab-title"

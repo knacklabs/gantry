@@ -2,10 +2,12 @@ import { Link } from '@tanstack/react-router';
 import {
   Activity,
   Bot,
+  Brain,
   CircleHelp,
   LayoutDashboard,
   Library,
   MessagesSquare,
+  MessageCircle,
   PauseCircle,
   PlugZap,
   Settings2,
@@ -28,6 +30,13 @@ const navigation = [
       { to: '/agents', label: 'Agents', icon: Bot },
       { to: '/sources', label: 'Sources & access', icon: Library },
       { to: '/pause', label: 'Pause everywhere', icon: PauseCircle },
+    ],
+  },
+  {
+    label: 'Conversations',
+    items: [
+      { to: '/chat', label: 'Chat', icon: MessageCircle },
+      { to: '/memory', label: 'What I remember', icon: Brain },
     ],
   },
 ] as const;
