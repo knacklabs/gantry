@@ -80,6 +80,12 @@ One-line settings migration.
 - P4: auto_mode.model move requires a classifier slot in the model-defaults API first; unified denylist must preserve kinds (command/path/host), yolo_mode.enabled, shipped defaults, hostname normalization, egress audit.
 - Egress stays evaluated at proxy dispatch time — never a sequencer step. Durable-rule validation stays distinct from runtime rule matching (wildcard semantics differ deliberately).
 
+## Decisions taken (user, 2026-07-16 — pre-user deployment, aggressive defaults approved)
+
+- DEFAULT FLIPS TO AUTO: deployments omitting `permission_mode` resolve to `auto` (allow-leaning), matching the product vision; `ask` remains available per agent/conversation. The silent-widening hazard is accepted — there are no external users yet.
+- `locked` stays a DISTINCT un-overridable value (technical necessity per validation: strips tool families, denies forged IPC; conversation-level mode precedence can never override it) but never appears in user-facing copy.
+- Migration = atomic cutover with reader-version bump; no shims; existing docs rewritten in place. Pre-user, so no staged compatibility window.
+
 ## Process
 
 MANDATORY Codex plan-validation pass on this doc before Stage P1 (per
