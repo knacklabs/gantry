@@ -9,6 +9,7 @@ import {
 } from './routes/foundation-routes';
 import { operationsRoutes } from './routes/operations-routes';
 import { runtimeRoutes } from './routes/runtime-routes';
+import { workflowRoutes } from './routes/workflow-routes';
 
 const productRoutes = [
   ...foundationRoutes,
@@ -16,6 +17,7 @@ const productRoutes = [
   ...administrationRoutes,
   ...conversationRoutes,
   ...runtimeRoutes,
+  ...workflowRoutes,
 ];
 
 const routeTree = developmentRoutes.length

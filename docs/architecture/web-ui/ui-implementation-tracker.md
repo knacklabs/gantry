@@ -12,8 +12,8 @@ Branch: `feature/gantry-web-ui-initiate`
 | P6     | Agent administration                                  | Complete | Tab matrix, validation, draft retention, pause gate  | `a2cbcb4a`  |
 | P7     | Chat and rich interactions                            | Complete | Renderer matrix, draft retention, rich action gates  | `4ac965b3`  |
 | P8     | Jobs, runtime, and activity                           | Complete | Route matrix, cursor, blockers, redaction review     | `f07a2c79`  |
-| P9     | People                                                | Complete | Identity matrix, invite draft, merge conflict checks | This commit |
-| P10    | Workflows                                             | Pending  | Builder, review, and run-view checks                 | Pending     |
+| P9     | People                                                | Complete | Identity matrix, invite draft, merge conflict checks | `a99ea954`  |
+| P10    | Workflows                                             | Complete | Builder matrix, local validation, command gates      | This commit |
 | P11    | Hardening and completion audit                        | Pending  | Full build, cleanup, responsive matrix               | Pending     |
 
 ## Browser Matrix
@@ -27,7 +27,7 @@ Branch: `feature/gantry-web-ui-initiate`
 | Chat             | Complete        | Complete        | Complete       | Basic complete | Complete    |
 | Jobs and runtime | Complete        | Complete        | Complete       | Basic complete | Complete    |
 | People           | Complete        | Complete        | Complete       | Basic complete | Complete    |
-| Workflows        | Pending         | Pending         | Pending        | Pending        | Pending     |
+| Workflows        | Complete        | Complete        | Complete       | Basic complete | Complete    |
 
 ## Deferred Work
 

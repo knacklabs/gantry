@@ -14,9 +14,11 @@ import {
   PauseCircle,
   PlugZap,
   Gauge,
+  ExternalLink,
   Settings2,
   ShieldCheck,
   Users,
+  Workflow,
 } from 'lucide-react';
 
 const navigation = [
@@ -55,6 +57,17 @@ const navigation = [
       { to: '/runtime/capacity', label: 'Capacity', icon: Gauge },
       { to: '/runtime/guardrails', label: 'Guardrails', icon: ShieldCheck },
       { to: '/activity', label: 'Activity', icon: Activity },
+    ],
+  },
+  {
+    label: 'Workflows',
+    items: [
+      { to: '/workflows', label: 'Definitions', icon: Workflow },
+      {
+        to: '/workflows/external',
+        label: 'External systems',
+        icon: ExternalLink,
+      },
     ],
   },
 ] as const;
