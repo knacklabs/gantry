@@ -56,7 +56,7 @@ export function ChatDetailRoute() {
     <div className="mx-auto grid w-full max-w-[1320px] gap-5">
       <div className="flex items-center justify-between gap-3">
         <Link
-          className="inline-flex items-center gap-2 text-xs font-semibold text-text-secondary no-underline hover:text-text"
+          className="inline-flex min-h-8 items-center gap-2 text-xs font-semibold text-text-secondary no-underline hover:text-text"
           search={{ q: '', status: 'all', agent: 'all' }}
           to="/chat"
         >

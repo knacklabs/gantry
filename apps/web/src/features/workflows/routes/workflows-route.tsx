@@ -110,7 +110,7 @@ export function WorkflowsRoute() {
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
                     <Link
-                      className="text-sm font-semibold text-text no-underline hover:underline"
+                      className="inline-flex min-h-8 items-center text-sm font-semibold text-text no-underline hover:underline"
                       params={{ workflowId: workflow.id }}
                       search={{ view: 'builder' }}
                       to="/workflows/$workflowId/edit"
@@ -128,7 +128,7 @@ export function WorkflowsRoute() {
                   </p>
                   {latestRun ? (
                     <Link
-                      className="mt-3 inline-flex items-center gap-2 text-xs font-semibold text-text no-underline hover:underline"
+                      className="mt-2 inline-flex min-h-8 items-center gap-2 text-xs font-semibold text-text no-underline hover:underline"
                       params={{ runId: latestRun.id, workflowId: workflow.id }}
                       to="/workflows/$workflowId/runs/$runId"
                     >

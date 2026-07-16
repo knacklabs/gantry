@@ -31,6 +31,7 @@ export function ChatComposer({ sessionTitle }: { sessionTitle: string }) {
         onChange={(event) => setDraft(event.target.value)}
       />
       <input
+        aria-label="Attach files"
         className="sr-only"
         multiple
         ref={fileInput}

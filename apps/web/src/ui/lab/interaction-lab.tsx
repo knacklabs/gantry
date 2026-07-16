@@ -113,7 +113,7 @@ export function InteractionLab() {
   return (
     <div className="mx-auto grid w-full max-w-[1240px] gap-6">
       <Link
-        className="inline-flex w-fit items-center gap-2 text-xs font-semibold text-text-secondary no-underline hover:text-text"
+        className="inline-flex min-h-8 w-fit items-center gap-2 text-xs font-semibold text-text-secondary no-underline hover:text-text"
         to="/__components"
       >
         <ArrowLeft size={15} aria-hidden="true" /> Component lab

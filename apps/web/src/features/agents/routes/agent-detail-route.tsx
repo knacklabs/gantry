@@ -63,7 +63,7 @@ export function AgentDetailRoute() {
   return (
     <div className="mx-auto grid w-full max-w-[1120px] gap-6">
       <Link
-        className="inline-flex w-fit items-center gap-2 text-xs font-semibold text-text-secondary no-underline hover:text-text"
+        className="inline-flex min-h-8 w-fit items-center gap-2 text-xs font-semibold text-text-secondary no-underline hover:text-text"
         search={{
           q: '',
           status: 'all',

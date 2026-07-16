@@ -1,7 +1,7 @@
 import * as Dialog from '@radix-ui/react-dialog';
 import { Outlet } from '@tanstack/react-router';
 import { Menu, Moon, Sun, X } from 'lucide-react';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 
 import { ConnectionState } from '../ui/compositions/connection-state';
 import { IconButton } from '../ui/primitives/icon-button';
@@ -10,8 +10,14 @@ import { AppNavigation } from './app-navigation';
 
 export function AppShell() {
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const drawerReturnFocusRef = useRef<HTMLElement | null>(null);
   const { effectiveTheme, setTheme } = usePreferences();
   const nextTheme = effectiveTheme === 'dark' ? 'light' : 'dark';
+
+  function changeDrawer(open: boolean) {
+    setDrawerOpen(open);
+    if (!open) queueMicrotask(() => drawerReturnFocusRef.current?.focus());
+  }
 
   return (
     <div className="grid min-h-dvh bg-canvas lg:grid-cols-[232px_minmax(0,1fr)]">
@@ -27,7 +33,7 @@ export function AppShell() {
       >
         <AppNavigation />
       </aside>
-      <Dialog.Root open={drawerOpen} onOpenChange={setDrawerOpen}>
+      <Dialog.Root open={drawerOpen} onOpenChange={changeDrawer}>
         <Dialog.Portal>
           <Dialog.Overlay className="fixed inset-0 z-20 bg-black/35 lg:hidden" />
           <Dialog.Content
@@ -44,7 +50,7 @@ export function AppShell() {
                 <X size={18} aria-hidden="true" />
               </IconButton>
             </Dialog.Close>
-            <AppNavigation onNavigate={() => setDrawerOpen(false)} />
+            <AppNavigation onNavigate={() => changeDrawer(false)} />
           </Dialog.Content>
         </Dialog.Portal>
       </Dialog.Root>
@@ -55,7 +61,10 @@ export function AppShell() {
               <IconButton
                 aria-label="Open navigation"
                 title="Open navigation"
-                onClick={() => setDrawerOpen(true)}
+                onClick={(event) => {
+                  drawerReturnFocusRef.current = event.currentTarget;
+                  setDrawerOpen(true);
+                }}
               >
                 <Menu size={18} aria-hidden="true" />
               </IconButton>
