@@ -11,8 +11,8 @@ Branch: `feature/gantry-web-ui-initiate`
 | P5     | Operations console                                    | Complete | Six-route Chromium matrix, filters, gate, drawer     | `e29bc6c3`  |
 | P6     | Agent administration                                  | Complete | Tab matrix, validation, draft retention, pause gate  | `a2cbcb4a`  |
 | P7     | Chat and rich interactions                            | Complete | Renderer matrix, draft retention, rich action gates  | `4ac965b3`  |
-| P8     | Jobs, runtime, and activity                           | Complete | Route matrix, cursor, blockers, redaction review     | This commit |
-| P9     | People                                                | Pending  | Detail, invite, and merge-preview checks             | Pending     |
+| P8     | Jobs, runtime, and activity                           | Complete | Route matrix, cursor, blockers, redaction review     | `f07a2c79`  |
+| P9     | People                                                | Complete | Identity matrix, invite draft, merge conflict checks | This commit |
 | P10    | Workflows                                             | Pending  | Builder, review, and run-view checks                 | Pending     |
 | P11    | Hardening and completion audit                        | Pending  | Full build, cleanup, responsive matrix               | Pending     |
 
@@ -26,7 +26,7 @@ Branch: `feature/gantry-web-ui-initiate`
 | Agents           | Complete        | Complete        | Complete       | Basic complete | Complete    |
 | Chat             | Complete        | Complete        | Complete       | Basic complete | Complete    |
 | Jobs and runtime | Complete        | Complete        | Complete       | Basic complete | Complete    |
-| People           | Pending         | Pending         | Pending        | Pending        | Pending     |
+| People           | Complete        | Complete        | Complete       | Basic complete | Complete    |
 | Workflows        | Pending         | Pending         | Pending        | Pending        | Pending     |
 
 ## Deferred Work

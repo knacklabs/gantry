@@ -16,6 +16,7 @@ import {
   Gauge,
   Settings2,
   ShieldCheck,
+  Users,
 } from 'lucide-react';
 
 const navigation = [
@@ -33,6 +34,7 @@ const navigation = [
     label: 'Administration',
     items: [
       { to: '/agents', label: 'Agents', icon: Bot },
+      { to: '/people', label: 'People', icon: Users },
       { to: '/sources', label: 'Sources & access', icon: Library },
       { to: '/pause', label: 'Pause everywhere', icon: PauseCircle },
     ],

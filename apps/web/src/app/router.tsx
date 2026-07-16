@@ -24,6 +24,10 @@ import {
   modelSearchSchema,
 } from '../features/runtime/runtime-search';
 import {
+  peopleSearchSchema,
+  personDetailSearchSchema,
+} from '../features/people/people-search';
+import {
   conversationSearchSchema,
   diagnosticSearchSchema,
   interactionSearchSchema,
@@ -237,6 +241,26 @@ const activityRoute = createRoute({
   ),
 });
 
+const peopleRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: 'people',
+  validateSearch: peopleSearchSchema,
+  component: lazyRouteComponent(
+    () => import('../features/people/routes/people-route'),
+    'PeopleRoute',
+  ),
+});
+
+const personDetailRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: 'people/$personId',
+  validateSearch: personDetailSearchSchema,
+  component: lazyRouteComponent(
+    () => import('../features/people/routes/person-detail-route'),
+    'PersonDetailRoute',
+  ),
+});
+
 const profileRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: 'profile',
@@ -287,6 +311,8 @@ const productRoutes = [
   capacityRoute,
   guardrailsRoute,
   activityRoute,
+  peopleRoute,
+  personDetailRoute,
   profileRoute,
 ];
 
