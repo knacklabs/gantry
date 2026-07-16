@@ -10,8 +10,8 @@ Branch: `feature/gantry-web-ui-initiate`
 | P4     | Primitive and composed component lab                  | Complete | Chromium review at 1440px and 390px                  | `a1d4728e`  |
 | P5     | Operations console                                    | Complete | Six-route Chromium matrix, filters, gate, drawer     | `e29bc6c3`  |
 | P6     | Agent administration                                  | Complete | Tab matrix, validation, draft retention, pause gate  | `a2cbcb4a`  |
-| P7     | Chat and rich interactions                            | Complete | Renderer matrix, draft retention, rich action gates  | This commit |
-| P8     | Jobs, runtime, and activity                           | Pending  | Table, timeline, and responsive checks               | Pending     |
+| P7     | Chat and rich interactions                            | Complete | Renderer matrix, draft retention, rich action gates  | `4ac965b3`  |
+| P8     | Jobs, runtime, and activity                           | Complete | Route matrix, cursor, blockers, redaction review     | This commit |
 | P9     | People                                                | Pending  | Detail, invite, and merge-preview checks             | Pending     |
 | P10    | Workflows                                             | Pending  | Builder, review, and run-view checks                 | Pending     |
 | P11    | Hardening and completion audit                        | Pending  | Full build, cleanup, responsive matrix               | Pending     |
@@ -25,7 +25,7 @@ Branch: `feature/gantry-web-ui-initiate`
 | Operations       | Complete        | Complete        | Complete       | Basic complete | Complete    |
 | Agents           | Complete        | Complete        | Complete       | Basic complete | Complete    |
 | Chat             | Complete        | Complete        | Complete       | Basic complete | Complete    |
-| Jobs and runtime | Pending         | Pending         | Pending        | Pending        | Pending     |
+| Jobs and runtime | Complete        | Complete        | Complete       | Basic complete | Complete    |
 | People           | Pending         | Pending         | Pending        | Pending        | Pending     |
 | Workflows        | Pending         | Pending         | Pending        | Pending        | Pending     |
 

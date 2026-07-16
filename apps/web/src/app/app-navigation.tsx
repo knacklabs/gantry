@@ -2,7 +2,10 @@ import { Link } from '@tanstack/react-router';
 import {
   Activity,
   Bot,
+  Boxes,
   Brain,
+  BrainCircuit,
+  CalendarClock,
   CircleHelp,
   LayoutDashboard,
   Library,
@@ -10,7 +13,9 @@ import {
   MessageCircle,
   PauseCircle,
   PlugZap,
+  Gauge,
   Settings2,
+  ShieldCheck,
 } from 'lucide-react';
 
 const navigation = [
@@ -37,6 +42,17 @@ const navigation = [
     items: [
       { to: '/chat', label: 'Chat', icon: MessageCircle },
       { to: '/memory', label: 'What I remember', icon: Brain },
+    ],
+  },
+  {
+    label: 'Runtime',
+    items: [
+      { to: '/jobs', label: 'Jobs', icon: CalendarClock },
+      { to: '/runtime/models', label: 'Models', icon: Boxes },
+      { to: '/runtime/memory', label: 'Memory engine', icon: BrainCircuit },
+      { to: '/runtime/capacity', label: 'Capacity', icon: Gauge },
+      { to: '/runtime/guardrails', label: 'Guardrails', icon: ShieldCheck },
+      { to: '/activity', label: 'Activity', icon: Activity },
     ],
   },
 ] as const;

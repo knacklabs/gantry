@@ -10,6 +10,7 @@ import {
 import { useState } from 'react';
 
 import { useConnectionGate } from '../../../ui/compositions/connection-gate';
+import { ResultReceipt } from '../../../ui/compositions/result-receipt';
 import { Badge } from '../../../ui/primitives/badge';
 import { Button } from '../../../ui/primitives/button';
 import type { InteractionPreview } from '../chat-preview';
@@ -244,25 +245,13 @@ function ReceiptInteraction({
       title="Result receipt"
       icon={<Check size={16} aria-hidden="true" />}
     >
-      <dl className="m-0 grid gap-2 text-xs">
-        <ReceiptRow label="Completed" value={descriptor.outcome} />
-        <ReceiptRow label="Used" value={descriptor.used} />
-        <ReceiptRow label="Changed" value={descriptor.changed} />
-        <ReceiptRow
-          label="Delegated"
-          value={descriptor.delegated ? 'yes' : 'no'}
-        />
-        <ReceiptRow label="Needs attention" value={descriptor.attention} />
-      </dl>
+      <ResultReceipt
+        attention={descriptor.attention}
+        changed={descriptor.changed}
+        completed={descriptor.outcome}
+        delegated={descriptor.delegated}
+        used={descriptor.used}
+      />
     </InteractionFrame>
-  );
-}
-
-function ReceiptRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="grid grid-cols-[110px_minmax(0,1fr)] gap-3">
-      <dt className="font-semibold text-text">{label}:</dt>
-      <dd className="m-0 text-text-secondary">{value}</dd>
-    </div>
   );
 }

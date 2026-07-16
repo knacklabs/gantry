@@ -23,7 +23,7 @@ export function AppShell() {
       </a>
       <aside
         aria-label="Primary navigation"
-        className="hidden min-h-dvh border-r border-border bg-surface px-3 pt-[18px] pb-4 lg:block"
+        className="sticky top-0 hidden h-dvh overflow-y-auto border-r border-border bg-surface px-3 pt-[18px] pb-4 lg:block"
       >
         <AppNavigation />
       </aside>
@@ -32,7 +32,7 @@ export function AppShell() {
           <Dialog.Overlay className="fixed inset-0 z-20 bg-black/35 lg:hidden" />
           <Dialog.Content
             aria-label="Navigation"
-            className="fixed inset-y-0 left-0 z-[21] w-[min(284px,calc(100vw-32px))] border-r border-border bg-surface px-3 pt-[18px] pb-4 shadow-drawer lg:hidden"
+            className="fixed inset-y-0 left-0 z-[21] w-[min(284px,calc(100vw-32px))] overflow-y-auto border-r border-border bg-surface px-3 pt-[18px] pb-4 shadow-drawer lg:hidden"
           >
             <Dialog.Title className="sr-only">Navigation</Dialog.Title>
             <Dialog.Close asChild>
