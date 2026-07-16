@@ -4,13 +4,13 @@ export function PageHeader({
   action,
   description,
   eyebrow,
-  id,
+  id = 'page-title',
   title,
 }: {
   action?: ReactNode;
   description?: ReactNode;
   eyebrow?: string;
-  id: string;
+  id?: string;
   title: ReactNode;
 }) {
   return (

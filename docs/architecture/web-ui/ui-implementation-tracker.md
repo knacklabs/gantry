@@ -6,9 +6,9 @@ Branch: `feature/gantry-web-ui-initiate`
 | ------ | ----------------------------------------------------- | -------- | ---------------------------------------------------- | ----------- |
 | P1     | Static workspace, shell, preferences, `/ui` hosting   | Complete | Web/root build and Chrome checks at 1440px and 390px | `62df6a5a`  |
 | P2     | Frontend-only docs and tracker                        | Complete | Prettier and diff checks pass                        | `31af0ced`  |
-| P3     | Dependencies, semantic tokens, shared action boundary | Complete | Typecheck, lint, build, boundary search              | This commit |
-| P4     | Primitive and composed component lab                  | Complete | Chromium review at 1440px and 390px                  | This commit |
-| P5     | Operations console                                    | Pending  | Route and interaction browser checks                 | Pending     |
+| P3     | Dependencies, semantic tokens, shared action boundary | Complete | Typecheck, lint, build, boundary search              | `a1d4728e`  |
+| P4     | Primitive and composed component lab                  | Complete | Chromium review at 1440px and 390px                  | `a1d4728e`  |
+| P5     | Operations console                                    | Complete | Six-route Chromium matrix, filters, gate, drawer     | This commit |
 | P6     | Agent administration                                  | Pending  | Route and draft browser checks                       | Pending     |
 | P7     | Chat and rich interactions                            | Pending  | Renderer and composer browser checks                 | Pending     |
 | P8     | Jobs, runtime, and activity                           | Pending  | Table, timeline, and responsive checks               | Pending     |
@@ -22,7 +22,7 @@ Branch: `feature/gantry-web-ui-initiate`
 | ---------------- | --------------- | --------------- | -------------- | -------------- | ----------- |
 | Foundation       | Light complete  | Pending         | Light complete | Basic complete | In progress |
 | Component lab    | Light complete  | Pending         | Light complete | Basic complete | In progress |
-| Operations       | Pending         | Pending         | Pending        | Pending        | Pending     |
+| Operations       | Complete        | Complete        | Complete       | Basic complete | Complete    |
 | Agents           | Pending         | Pending         | Pending        | Pending        | Pending     |
 | Chat             | Pending         | Pending         | Pending        | Pending        | Pending     |
 | Jobs and runtime | Pending         | Pending         | Pending        | Pending        | Pending     |

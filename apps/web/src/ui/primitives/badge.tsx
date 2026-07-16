@@ -1,6 +1,6 @@
 import type { ComponentPropsWithoutRef } from 'react';
 
-type BadgeTone = 'attention' | 'danger' | 'neutral' | 'success';
+export type BadgeTone = 'attention' | 'danger' | 'neutral' | 'success';
 
 const toneClasses: Record<BadgeTone, string> = {
   attention:

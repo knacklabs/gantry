@@ -2,7 +2,7 @@ import * as AlertDialog from '@radix-ui/react-alert-dialog';
 import { createContext, type ReactNode, use, useState } from 'react';
 
 type ConnectionGateValue = {
-  requireConnection: (action: string) => void;
+  requestConnection: (action: string) => void;
 };
 
 const ConnectionGateContext = createContext<ConnectionGateValue | null>(null);
@@ -11,7 +11,7 @@ export function ConnectionGateProvider({ children }: { children: ReactNode }) {
   const [action, setAction] = useState<string>();
 
   return (
-    <ConnectionGateContext value={{ requireConnection: setAction }}>
+    <ConnectionGateContext value={{ requestConnection: setAction }}>
       {children}
       <AlertDialog.Root
         open={action !== undefined}

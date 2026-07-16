@@ -18,7 +18,7 @@ import { StatusList } from '../compositions/status-list';
 import { TextField } from '../compositions/text-field';
 
 export function FoundationLab() {
-  const { requireConnection } = useConnectionGate();
+  const { requestConnection } = useConnectionGate();
 
   return (
     <section
@@ -36,7 +36,7 @@ export function FoundationLab() {
         <div className="flex flex-wrap items-center gap-2">
           <Button
             variant="primary"
-            onClick={() => requireConnection('Deploy agent')}
+            onClick={() => requestConnection('Deploy agent')}
           >
             Deploy agent
           </Button>
