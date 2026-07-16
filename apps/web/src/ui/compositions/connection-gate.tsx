@@ -1,5 +1,13 @@
 import * as AlertDialog from '@radix-ui/react-alert-dialog';
-import { createContext, type ReactNode, use, useRef, useState } from 'react';
+import {
+  createContext,
+  type ReactNode,
+  use,
+  useCallback,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 
 type ConnectionGateValue = {
   requestConnection: (action: string) => void;
@@ -11,21 +19,23 @@ export function ConnectionGateProvider({ children }: { children: ReactNode }) {
   const [action, setAction] = useState<string>();
   const returnFocusRef = useRef<HTMLElement | null>(null);
 
-  function requestConnection(nextAction: string) {
+  const requestConnection = useCallback((nextAction: string) => {
     returnFocusRef.current =
       document.activeElement instanceof HTMLElement
         ? document.activeElement
         : null;
     setAction(nextAction);
-  }
+  }, []);
 
-  function closeGate() {
+  const closeGate = useCallback(() => {
     setAction(undefined);
     queueMicrotask(() => returnFocusRef.current?.focus());
-  }
+  }, []);
+
+  const value = useMemo(() => ({ requestConnection }), [requestConnection]);
 
   return (
-    <ConnectionGateContext value={{ requestConnection }}>
+    <ConnectionGateContext value={value}>
       {children}
       <AlertDialog.Root
         open={action !== undefined}
