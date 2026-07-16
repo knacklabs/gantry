@@ -26,6 +26,7 @@ import {
 import { ChatSessionDrawer } from '../components/chat-session-drawer';
 import { ChatThread } from '../components/chat-thread';
 import { messagePreviewQuery, sessionPreviewQuery } from '../chat-queries';
+import type { ChatSessionPreview } from '../chat-preview';
 
 const inspectorTabs: RouteTab<ChatInspectorTab>[] = [
   { value: 'thread', label: 'Details' },
@@ -35,10 +36,7 @@ const inspectorTabs: RouteTab<ChatInspectorTab>[] = [
 
 export function ChatDetailRoute() {
   const { sessionId } = useParams({ from: '/chat/$sessionId' });
-  const search = useSearch({ from: '/chat/$sessionId' });
-  const navigate = useNavigate({ from: '/chat/$sessionId' });
   const { data: sessions } = useQuery(sessionPreviewQuery);
-  const { data: messages } = useQuery(messagePreviewQuery(sessionId));
   const session = sessions.find((item) => item.id === sessionId);
 
   if (!session) {
@@ -51,6 +49,20 @@ export function ChatDetailRoute() {
       />
     );
   }
+
+  return <KnownChatSession session={session} sessions={sessions} />;
+}
+
+function KnownChatSession({
+  session,
+  sessions,
+}: {
+  session: ChatSessionPreview;
+  sessions: ChatSessionPreview[];
+}) {
+  const search = useSearch({ from: '/chat/$sessionId' });
+  const navigate = useNavigate({ from: '/chat/$sessionId' });
+  const { data: messages } = useQuery(messagePreviewQuery(session.id));
 
   return (
     <div className="mx-auto grid w-full max-w-[1320px] gap-5">
