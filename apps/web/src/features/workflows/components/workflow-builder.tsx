@@ -1,5 +1,5 @@
 import { ArrowDown, ArrowUp, Plus, Trash2 } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 
 import { Badge } from '../../../ui/primitives/badge';
 import { IconButton } from '../../../ui/primitives/icon-button';
@@ -7,6 +7,10 @@ import type {
   WorkflowStepPreview,
   WorkflowStepType,
 } from '../workflows-preview';
+import {
+  MAX_WORKFLOW_STEPS,
+  validateWorkflowSteps,
+} from '../workflow-validation';
 
 const palette: {
   type: WorkflowStepType;
@@ -44,11 +48,16 @@ export function WorkflowBuilder({
     initialSteps.map((step) => ({ ...step })),
   );
   const [selectedId, setSelectedId] = useState(initialSteps[0]?.id ?? '');
+  const nextStepSequence = useRef(initialSteps.length + 1);
   const selected = steps.find((step) => step.id === selectedId);
-  const errors = useMemo(() => validateSteps(steps), [steps]);
+  const errors = useMemo(() => validateWorkflowSteps(steps), [steps]);
+  const atStepLimit = steps.length >= MAX_WORKFLOW_STEPS;
 
   function addStep(type: WorkflowStepType) {
-    const id = `draft-step-${steps.length + 1}`;
+    if (atStepLimit) return;
+    let id = `draft-step-${nextStepSequence.current++}`;
+    while (steps.some((step) => step.id === id))
+      id = `draft-step-${nextStepSequence.current++}`;
     const next: WorkflowStepPreview = {
       id,
       name: palette.find((item) => item.type === type)?.label ?? 'New step',
@@ -78,9 +87,10 @@ export function WorkflowBuilder({
   }
 
   function removeStep(id: string) {
-    setSteps((current) => current.filter((step) => step.id !== id));
+    const next = steps.filter((step) => step.id !== id);
+    setSteps(next);
     if (selectedId === id)
-      setSelectedId(steps.find((step) => step.id !== id)?.id ?? '');
+      setSelectedId(next[0]?.id ?? '');
   }
 
   return (
@@ -102,7 +112,8 @@ export function WorkflowBuilder({
         </div>
         {palette.map((item) => (
           <button
-            className="grid gap-1 rounded-md border border-border p-3 text-left hover:bg-surface-muted"
+            className="grid gap-1 rounded-md border border-border p-3 text-left hover:bg-surface-muted disabled:cursor-not-allowed disabled:opacity-45"
+            disabled={atStepLimit}
             key={item.type}
             type="button"
             onClick={() => addStep(item.type)}
@@ -116,6 +127,11 @@ export function WorkflowBuilder({
             </span>
           </button>
         ))}
+        {atStepLimit ? (
+          <p className="m-0 text-xs text-status-attention" role="status">
+            {MAX_WORKFLOW_STEPS}-step draft limit reached.
+          </p>
+        ) : null}
       </section>
 
       <section
@@ -282,24 +298,6 @@ export function WorkflowBuilder({
       </section>
     </div>
   );
-}
-
-function validateSteps(steps: WorkflowStepPreview[]) {
-  const errors: string[] = [];
-  if (!steps.length) errors.push('Workflow: add at least one step.');
-  steps.forEach((step, index) => {
-    const label = `Step ${index + 1} (${step.name || 'unnamed'})`;
-    if (!step.name.trim()) errors.push(`${label}: name is required.`);
-    if (!step.description.trim())
-      errors.push(`${label}: description is required.`);
-    if (step.type === 'agent' && !step.capability?.trim())
-      errors.push(`${label}: required capability is missing.`);
-    if (step.type === 'external' && !step.externalSystem?.trim())
-      errors.push(`${label}: external system is missing.`);
-    if (step.type === 'notification' && !step.notificationRoute?.trim())
-      errors.push(`${label}: notification route is missing.`);
-  });
-  return errors;
 }
 
 function Field({
