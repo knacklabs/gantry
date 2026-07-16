@@ -70,6 +70,16 @@ One-line settings migration.
   permissions parser shrinks to `yolo_mode` + `egress` (and later one unified
   `denylist` block with kinds: commands, paths, hosts — single mental model).
 
+## Validation findings (Codex gate, 2026-07-16 — PLAN NEEDS REVISION before P1)
+
+- The two lanes are deliberate defense-in-depth, NOT pure duplication: the runner-side denylist check runs before rule-based auto-allows that never reach the host; the host independently rechecks. P1's sequencer must be host-owned with the runner pre-check retained; drop the "identical decisions" golden test (lanes intentionally differ on YOLO handling).
+- Sanitized-input forced ask is host-owned — a runner-only or once-only sequencer could bypass it. Sequencer lives host-side.
+- P2: `locked` is NOT just a mode — it strips authority/admin tool families, forces pre-provisioned installs, denies forged IPC, and must not be overridable by conversation-level mode precedence. Keep it distinct or define an un-overridable lock semantics first.
+- Default-to-auto silently widens deployments omitting permission_mode (today they resolve to ask) — needs an explicit migration decision.
+- P3: approver/command split maps existing users to BOTH lists initially; parser+renderer+revision canonicalization change atomically with a reader-version bump; NO compatibility shims (AGENTS.md clean-cut rule) — atomic cutover.
+- P4: auto_mode.model move requires a classifier slot in the model-defaults API first; unified denylist must preserve kinds (command/path/host), yolo_mode.enabled, shipped defaults, hostname normalization, egress audit.
+- Egress stays evaluated at proxy dispatch time — never a sequencer step. Durable-rule validation stays distinct from runtime rule matching (wildcard semantics differ deliberately).
+
 ## Process
 
 MANDATORY Codex plan-validation pass on this doc before Stage P1 (per

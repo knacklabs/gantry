@@ -39,6 +39,10 @@ local, CI, staging, remote, or fleet state may be destroyed. Each affected
 finding therefore states its own reset, rewrite, schema, or coordinated-cutover
 prerequisite.
 
+## Validation verdict (Codex gate, 2026-07-16): NOT SAFE AS STAGED — execute via the 10-phase plan
+
+Phase 0 stabilize Stage C+D first (F7 gained a new consumer from that work; re-verify all consumers). Phase 1 prove live transition state (DB backup, deployment mode, migration head, latest revision; separate reset vs restamp procedures). Phase 2 settings authority cutover (F6,F7,F16,F23,AR1 together). Phase 3 canonical routing (AR2+F5,F9,F14). Phase 4 public contracts (AR3+F4,F17). Phase 5 adapters/CLI/rendering (AR4,AR5+F13,F20; split oversized Slack/Discord files). Phase 6 low-coupling deletions (F2,F8,F10-F12,F15,F18-F19,F21-F22,F24) after repeating consumer searches. Phase 7 generate final baseline (F1 last: SQL, journal, snapshot, stamp metadata, offline cutover doc). Phase 8 single-host offline cutover (stop service, backup, canonical revision append, baseline stamp with rollback stamps retained). Phase 9 remove transition reader (F3) only after rollback window closes. Full detail: codex session 019f6b9e-a92a-7f10-8872-63b01d73e20a.
+
 ## Ranked Findings
 
 Numbers are stable references rather than final sort order: findings 23 and 24
