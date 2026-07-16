@@ -70,6 +70,7 @@ export const runClaudeInlineAgentLoopLane: ProviderInlineAgentLoopLane = async (
   if (input.signal.aborted) return abortedOutput();
   const maxTurns = input.maxTurns ?? DEFAULT_INLINE_AGENT_MAX_TURNS;
   const responseSchema = input.input.responseSchema;
+  const toolsDisabled = input.input.disableTools === true;
   const configuredControls = resolveConfiguredAgentControlOptions(
     input.configuredThinking,
     input.effort,
@@ -117,11 +118,13 @@ export const runClaudeInlineAgentLoopLane: ProviderInlineAgentLoopLane = async (
     | Awaited<ReturnType<typeof createPinnedClaudeMcpProxies>>
     | undefined;
   try {
-    remoteMcp = await createPinnedClaudeMcpProxies({
-      servers: input.mcpServers,
-      egressDenylist: input.egressDenylist,
-      lookupHostname: input.mcpHostnameLookup,
-    });
+    if (!toolsDisabled) {
+      remoteMcp = await createPinnedClaudeMcpProxies({
+        servers: input.mcpServers,
+        egressDenylist: input.egressDenylist,
+        lookupHostname: input.mcpHostnameLookup,
+      });
+    }
     const persistSdkSession = !input.input.isScheduledJob;
     const sdkQuery = query({
       prompt,
@@ -151,14 +154,21 @@ export const runClaudeInlineAgentLoopLane: ProviderInlineAgentLoopLane = async (
         skills: [],
         settingSources: [],
         tools: [],
-        allowedTools: [
-          ...input.coreTools.tools.map(
-            ({ name }) => `mcp__${CORE_MCP_SERVER_NAME}__${name}`,
-          ),
-        ],
+        allowedTools: toolsDisabled
+          ? []
+          : input.coreTools.tools.map(
+              ({ name }) => `mcp__${CORE_MCP_SERVER_NAME}__${name}`,
+            ),
         permissionMode: 'dontAsk',
         hooks: remoteMcpAuditHooks(input, toolActivity),
         canUseTool: async (toolName, toolInput, options) => {
+          if (toolsDisabled) {
+            return {
+              behavior: 'deny',
+              message: `Tool ${toolName} is unavailable during response_schema repair.`,
+              toolUseID: options.toolUseID,
+            };
+          }
           const isCoreTool = input.coreTools.tools.some(
             ({ name }) => toolName === `mcp__${CORE_MCP_SERVER_NAME}__${name}`,
           );
@@ -197,15 +207,20 @@ export const runClaudeInlineAgentLoopLane: ProviderInlineAgentLoopLane = async (
         },
         includePartialMessages: true,
         strictMcpConfig: true,
-        mcpServers: {
-          [CORE_MCP_SERVER_NAME]: createCoreSdkMcpServer(input, toolActivity),
-          ...Object.fromEntries(
-            remoteMcp.servers.map((server) => [
-              server.name,
-              remoteSdkMcpConfig(server),
-            ]),
-          ),
-        },
+        mcpServers: toolsDisabled
+          ? {}
+          : {
+              [CORE_MCP_SERVER_NAME]: createCoreSdkMcpServer(
+                input,
+                toolActivity,
+              ),
+              ...Object.fromEntries(
+                (remoteMcp?.servers ?? []).map((server) => [
+                  server.name,
+                  remoteSdkMcpConfig(server),
+                ]),
+              ),
+            },
       },
     }) as AsyncIterable<unknown>;
 
@@ -482,21 +497,26 @@ function remoteMcpAuditHooks(
     if (hookInput.hook_event_name !== 'PostToolUse') return { continue: true };
     const tool = remoteMcpTool(input, hookInput.tool_name);
     if (!tool?.allowed) return { continue: true };
-    await input.coreTools.recordThirdPartyMcpToolActivity({
+    const result = hookInput.tool_response;
+    const outcome: 'failure' | 'success' =
+      objectRecord(result)?.isError === true ? 'failure' : 'success';
+    const activity = {
       serverName: tool.serverName,
       toolName: tool.toolName,
       toolInput: hookInput.tool_input,
-      outcome: 'success',
+      outcome,
       latencyMs: hookLatencyMs(
         hookInput.duration_ms,
         startedAt.get(hookInput.tool_use_id),
       ),
-    });
+      result,
+    };
+    await input.coreTools.recordThirdPartyMcpToolActivity(activity);
     startedAt.delete(hookInput.tool_use_id);
     await toolActivity.finish(
       hookInput.tool_use_id,
       hookInput.tool_name,
-      'success',
+      outcome,
     );
     return { continue: true };
   };
@@ -593,11 +613,12 @@ function jsonString(value: unknown): string | undefined {
 function structuredOutputError(
   error: string,
   newSessionId?: string,
-): RunnerOutputFrame {
+): RunnerOutputFrame & { structuredOutputValidationFailure: true } {
   return {
     status: 'error',
     result: null,
     error,
+    structuredOutputValidationFailure: true,
     ...(newSessionId ? { newSessionId } : {}),
   };
 }

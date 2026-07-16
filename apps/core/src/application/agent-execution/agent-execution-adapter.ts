@@ -17,6 +17,7 @@ import type { ExecutionProviderId } from '../../domain/sessions/sessions.js';
 import type { ModelCatalogEntry } from '../../shared/model-catalog.js';
 import type { AgentPersona } from '../../shared/agent-persona.js';
 import type { YoloModeSettings } from '../../shared/yolo-mode-policy.js';
+import type { PermissionMode } from '../../shared/permission-mode.js';
 import type { SemanticCapabilityDefinition } from '../../shared/semantic-capabilities.js';
 
 export type AgentExecutionProviderId = ExecutionProviderId;
@@ -65,6 +66,7 @@ export interface AgentExecutionRunInput {
   thinking?: ThinkingOverride;
   memoryContextBlock?: string;
   yoloMode?: YoloModeSettings;
+  permissionMode: PermissionMode;
 }
 
 export interface AgentExecutionAdapterOptions {

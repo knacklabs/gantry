@@ -221,8 +221,45 @@ describe('Claude inline lane', () => {
       status: 'error',
       result: null,
       error: 'Structured output did not match the schema.',
+      structuredOutputValidationFailure: true,
     });
     expect(input.emitOutput).toHaveBeenLastCalledWith(result);
+  });
+
+  it('does not project tools during response_schema repair', async () => {
+    sdk.query.mockImplementation(() => ({
+      async *[Symbol.asyncIterator]() {
+        yield {
+          ...resultMessage('structured-repair', 'ignored text'),
+          structured_output: { answer: 'repaired' },
+        };
+      },
+    }));
+    const input = laneInput({
+      input: {
+        ...laneInput().input,
+        responseSchema: { type: 'object' },
+        disableTools: true,
+      },
+    });
+
+    await runClaudeInlineAgentLoopLane(input);
+
+    const options = sdk.query.mock.calls[0]?.[0].options;
+    expect(options.allowedTools).toEqual([]);
+    expect(options.mcpServers).toEqual({});
+    expect(sdk.createServer).not.toHaveBeenCalled();
+    expect(remoteProxy.create).not.toHaveBeenCalled();
+    await expect(
+      options.canUseTool(
+        'mcp__gantry__send_message',
+        {},
+        {
+          signal: input.signal,
+          toolUseID: 'repair-tool',
+        },
+      ),
+    ).resolves.toMatchObject({ behavior: 'deny' });
   });
 
   it('emits and returns a named max_turns terminal error', async () => {
@@ -398,6 +435,30 @@ describe('Claude inline lane', () => {
         toolName: 'read',
         outcome: 'success',
         latencyMs: 5,
+        result: 'done',
+      }),
+    );
+    await queryOptions.hooks.PostToolUse[0].hooks[0](
+      {
+        hook_event_name: 'PostToolUse',
+        tool_name: 'mcp__crm__read',
+        tool_input: { id: 'crm-2' },
+        tool_response: { isError: true, content: [] },
+        tool_use_id: 'tool-3',
+        duration_ms: 4,
+      },
+      'tool-3',
+      { signal: input.signal },
+    );
+    expect(
+      input.coreTools.recordThirdPartyMcpToolActivity,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        serverName: 'crm',
+        toolName: 'read',
+        outcome: 'failure',
+        latencyMs: 4,
+        result: { isError: true, content: [] },
       }),
     );
     expect(remoteProxy.create).toHaveBeenCalledWith(

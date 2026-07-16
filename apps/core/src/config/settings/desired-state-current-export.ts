@@ -228,6 +228,7 @@ export async function exportCurrentDesiredState(input: {
       relationshipMode: existing?.relationshipMode ?? 'personal',
       model: existing?.model,
       agentHarness: existing?.agentHarness,
+      permissionMode: existing?.permissionMode,
       runtime: existing?.runtime === 'inline' ? 'inline' : undefined,
       maxTurns: existing?.maxTurns,
       maxRunTokens: existing?.maxRunTokens,
@@ -236,6 +237,7 @@ export async function exportCurrentDesiredState(input: {
       maxOutputTokens: existing?.maxOutputTokens,
       oneTimeJobDefaultModel: existing?.oneTimeJobDefaultModel,
       recurringJobDefaultModel: existing?.recurringJobDefaultModel,
+      toolRules: existing?.toolRules,
       bindings: existing?.bindings ?? {},
       sources: activeSources(
         skillBindingsByAgent.get(agent.id) ?? [],
@@ -326,7 +328,10 @@ export async function exportCurrentDesiredState(input: {
       route?.agentConfig &&
       typeof route.agentConfig === 'object' &&
       !Array.isArray(route.agentConfig)
-        ? (route.agentConfig as { model?: unknown })
+        ? (route.agentConfig as {
+            model?: unknown;
+            permissionMode?: unknown;
+          })
         : undefined;
     bindings[bindingId] = {
       agent: folder,
@@ -339,6 +344,11 @@ export async function exportCurrentDesiredState(input: {
         typeof routeAgentConfig?.model === 'string'
           ? routeAgentConfig.model
           : existingBinding?.model,
+      permissionMode:
+        routeAgentConfig?.permissionMode === 'ask' ||
+        routeAgentConfig?.permissionMode === 'auto'
+          ? routeAgentConfig.permissionMode
+          : existingBinding?.permissionMode,
     };
     conversations[conversationId].installedAgents[
       threadId ? `${folder}_${threadId}` : folder
@@ -352,6 +362,7 @@ export async function exportCurrentDesiredState(input: {
       trigger: bindings[bindingId].trigger,
       requiresTrigger,
       model: bindings[bindingId].model,
+      permissionMode: bindings[bindingId].permissionMode,
     };
   }
 
@@ -470,6 +481,7 @@ export async function exportCurrentDesiredState(input: {
       requiresTrigger: group.requiresTrigger !== false,
       memoryScope: 'conversation',
       model: group.agentConfig?.model,
+      permissionMode: group.agentConfig?.permissionMode,
     };
     conversations[conversationId].installedAgents[folder] = {
       agentId: folder,
@@ -480,6 +492,7 @@ export async function exportCurrentDesiredState(input: {
       trigger: group.trigger,
       requiresTrigger: group.requiresTrigger !== false,
       model: group.agentConfig?.model,
+      permissionMode: group.agentConfig?.permissionMode,
     };
     const bindingId = stableBindingId(jid, existing?.bindings ?? {});
     agents[folder] = {
@@ -492,6 +505,7 @@ export async function exportCurrentDesiredState(input: {
         'personal',
       model: existing?.model ?? group.agentConfig?.model,
       agentHarness: existing?.agentHarness,
+      permissionMode: existing?.permissionMode,
       runtime: existing?.runtime === 'inline' ? 'inline' : undefined,
       maxTurns: existing?.maxTurns,
       maxRunTokens: existing?.maxRunTokens,
@@ -500,6 +514,7 @@ export async function exportCurrentDesiredState(input: {
       maxOutputTokens: existing?.maxOutputTokens,
       oneTimeJobDefaultModel: existing?.oneTimeJobDefaultModel,
       recurringJobDefaultModel: existing?.recurringJobDefaultModel,
+      toolRules: existing?.toolRules,
       bindings: {
         ...(existing?.bindings ?? {}),
         [bindingId]: {
@@ -509,6 +524,7 @@ export async function exportCurrentDesiredState(input: {
           addedAt: group.added_at,
           requiresTrigger: group.requiresTrigger !== false,
           model: group.agentConfig?.model,
+          permissionMode: group.agentConfig?.permissionMode,
         },
       },
       sources: activeSources(

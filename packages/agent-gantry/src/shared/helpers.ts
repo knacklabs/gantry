@@ -185,6 +185,17 @@ export function parseJsonRecord(value: string): Record<string, unknown> {
     : new Error('Structured task model output must be valid JSON.');
 }
 
+export function parseCompleteJsonRecord(value: string): Record<string, unknown> {
+  const trimmed = value.trim();
+  const fenced = /^```(?:json|JSON)?\s*\r?\n?([\s\S]*?)\r?\n?```$/u.exec(trimmed);
+  const parsed = JSON.parse(fenced?.[1]?.trim() ?? trimmed) as unknown;
+  const record = asRecord(parsed);
+  if (!record) {
+    throw new Error('Structured task model output must be a JSON object.');
+  }
+  return record;
+}
+
 function stripOuterJsonFence(value: string): string {
   const trimmed = value.trim();
   const fenced = /^```(?:json|JSON)?\s*\r?\n?([\s\S]*?)\r?\n?```$/u.exec(

@@ -6,8 +6,7 @@ Scheduler jobs used `requiredTools` for two different meanings: access needed
 before a run and post-run evidence that each tool was used. That confused
 agents and users. A job that had browser access could still fail because it did
 not browse, even when browsing was only an available capability. Permission
-prompts also showed the five-minute timed grant in setup flows where the user
-was deciding durable readiness.
+prompts also mixed transient and durable readiness choices in setup flows.
 
 ## Decision
 
@@ -18,15 +17,13 @@ fallback. If any requirement is missing, setup pauses with one clear recovery
 action. A successful run is not checked afterward for whether every requirement
 was used.
 
-A Transient Approval is run-local permission such as `Allow once`. The
-`Allow 5 min` timed grant is also transient and appears only for live
-interactive SDK prompts.
+A Transient Approval is run-local permission such as `Allow once`.
 
 A Persistent Grant is durable selected authority for future runs, such as
 `browser.use`, `FileRead`, `WebRead`, `capability:<id>`, an exact
-`mcp__gantry__<admin_tool>`, or a scoped `RunCommand(...)` rule. Setup,
-scheduler, admin, and capability flows show only `Allow once`, `Always allow`,
-and `Cancel` where applicable.
+`mcp__gantry__<admin_tool>`, or a scoped `RunCommand(...)` rule. Permission
+prompts show only `Allow once`, `Allow for future` when a persistent suggestion
+exists, and `Cancel` where applicable.
 
 Revocation is agent-owned. `admin_permission_revoke` disables the current
 agent's selected tool binding, mirrors `settings.yaml`, removes same-run live
@@ -44,8 +41,8 @@ agent's grant.
 | SDK/contracts | Changed | Public job shape uses `accessRequirements`. |
 | CLI | Changed | Job rendering and mutation surfaces use `accessRequirements`. |
 | Gantry MCP tools/admin skill | Changed | Scheduler tools use `access_requirements`; `admin_permission_revoke` performs a real revoke. |
-| Channel/provider adapters | Unchanged by design | Live prompt rendering still supports timed grants; provider adapters only receive projected permissions. |
-| Docs/prompts | Changed | Scheduler and permission docs define access-only requirements and live-only timed grants. |
+| Channel/provider adapters | Changed | Prompt rendering offers one-shot approval, persistent approval when available, or cancellation. |
+| Docs/prompts | Changed | Scheduler and permission docs define access-only requirements and the current approval choices. |
 | Audit/events | Changed | Revocation records a permission decision; post-run must-use events are removed. |
 | Tests/verification | Changed | Unit tests cover access-only jobs, setup prompt choices, revoke rollback, and migration registration. |
 

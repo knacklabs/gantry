@@ -13,11 +13,10 @@ import type { ModelRouteId } from '../../../shared/model-catalog.js';
 import { logger } from '../../../infrastructure/logging/logger.js';
 
 /**
- * Brokered model-gateway access for host-side memory queries on non-Anthropic
- * model routes. Memory is system-owned: there is no agent engine in scope, so
- * the credential lane is chosen by the model route alone. This mirrors the
- * Anthropic memory-query authority path (Gantry loopback model gateway,
- * run-scoped bearer token) without sharing its module-private state.
+ * Brokered model-gateway access for host-side direct queries. Host work has no
+ * agent engine in scope, so the credential lane is chosen by the model route
+ * alone. This uses the same Gantry loopback gateway and run-scoped bearer-token
+ * authority as the Anthropic Agent SDK memory path.
  */
 let memoryCredentialBrokerPromise:
   | Promise<AgentCredentialBroker | undefined>

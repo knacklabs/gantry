@@ -64,8 +64,17 @@ export function writeResolvedInteractionResponse(
   if (!privateKey) return false;
 
   if (kind === 'permission') {
+    const rawMode = stringValue(resolution?.mode);
+    const mode =
+      rawMode === 'allow_once' ||
+      rawMode === 'allow_persistent_rule' ||
+      rawMode === 'cancel'
+        ? rawMode
+        : 'cancel';
     const approved =
-      status === 'cancelled' ? false : resolution?.approved === true;
+      status !== 'cancelled' &&
+      mode !== 'cancel' &&
+      resolution?.approved === true;
     writePermissionIpcResponse(
       ipcBaseDir,
       sourceAgentFolder,
@@ -75,9 +84,7 @@ export function writeResolvedInteractionResponse(
           ? { responseNonce: stringValue(callbackRoute?.responseNonce) }
           : {}),
         approved,
-        ...(stringValue(resolution?.mode)
-          ? { mode: stringValue(resolution?.mode) as never }
-          : {}),
+        mode,
         ...(stringValue(payload.approverRef)
           ? { decidedBy: stringValue(payload.approverRef) }
           : {}),
@@ -93,9 +100,6 @@ export function writeResolvedInteractionResponse(
                 resolution?.decisionClassification,
               ) as never,
             }
-          : {}),
-        ...(typeof resolution?.timedGrantExpiresAtMs === 'number'
-          ? { timedGrantExpiresAtMs: resolution.timedGrantExpiresAtMs }
           : {}),
       },
       privateKey,

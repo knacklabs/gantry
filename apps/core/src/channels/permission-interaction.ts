@@ -52,7 +52,6 @@ export {
   firstPersistentRule,
   persistentPermissionUpdates,
   persistentRules,
-  TIMED_GRANT_DURATION_MS,
 } from '../domain/permission-decision.js';
 
 const USER_FACING_TOOL_LABELS: Record<string, string> = {
@@ -82,7 +81,6 @@ export function normalizePermissionAction(
 ): PermissionApprovalDecisionMode | null {
   if (action === 'allow_once') return 'allow_once';
   if (action === 'allow_persistent_rule') return 'allow_persistent_rule';
-  if (action === 'allow_timed_grant') return 'allow_timed_grant';
   if (action === 'cancel') return 'cancel';
   return null;
 }
@@ -94,8 +92,8 @@ export function permissionDecisionOptions(
   const persistentRule = firstPersistentRule(request);
   if (!persistentRule) logPersistentOptionDrop(request);
   return persistentRule
-    ? ['allow_once', 'allow_timed_grant', 'allow_persistent_rule', 'cancel']
-    : ['allow_once', 'allow_timed_grant', 'cancel'];
+    ? ['allow_once', 'allow_persistent_rule', 'cancel']
+    : ['allow_once', 'cancel'];
 }
 
 function logPersistentOptionDrop(request: PermissionApprovalRequest): void {
@@ -135,9 +133,6 @@ export function permissionButtonLabel(
   _request: PermissionApprovalRequest,
 ): string {
   if (mode === 'allow_once') return 'Allow once';
-  if (mode === 'allow_timed_grant') {
-    return 'Allow 5 min';
-  }
   if (mode === 'cancel') return 'Cancel';
   return 'Allow for future';
 }
@@ -192,18 +187,6 @@ export function formatPermissionReceiptText(
   const summary = formatPermissionReceiptActionSummary(request);
   if (!decision.approved || decision.mode === 'cancel') {
     return limitPermissionMessage(`Canceled: ${summary}. Nothing changed.`);
-  }
-  if (decision.mode === 'allow_timed_grant') {
-    const expiresAt = decision.timedGrantExpiresAtMs;
-    const until = expiresAt
-      ? new Date(expiresAt).toLocaleTimeString([], {
-          hour: '2-digit',
-          minute: '2-digit',
-        })
-      : 'soon';
-    return limitPermissionMessage(
-      `Allowed for 5 min: ${summary}. This expires at ${until}.`,
-    );
   }
   if (decision.mode === 'allow_persistent_rule') {
     const agentName = request
@@ -385,6 +368,11 @@ function formatPermissionContextLines(
   ];
   if (requestHasThreadRoute(request)) {
     lines.push('Approval applies to the parent conversation.');
+  }
+  if (request.promotionHintCount) {
+    lines.push(
+      `You've allowed this ${request.promotionHintCount} times — 'Allow for future' makes it permanent.`,
+    );
   }
   lines.push('The agent cannot approve this itself.');
   return lines;
@@ -661,7 +649,13 @@ function formatPermissionReceiptActionSummary(
       const envSummary = env ? `; env: ${sanitizeReceiptDetail(env)}` : '';
       return `Selected skill action (${generatedSkillPath}${envSummary})`;
     }
-    const safeCommand = sanitizeReceiptDetail(command);
+    // Same treatment as the prompt: host-injected env plumbing is dropped;
+    // agent-supplied env stays part of what was allowed.
+    const safeCommand = sanitizeReceiptDetail(
+      [...displayCommand.runtimeEnvAssignments, displayCommand.command].join(
+        ' ',
+      ),
+    );
     return safeCommand ? `Command (${safeCommand})` : 'Command';
   }
   const filePath = input.file_path;

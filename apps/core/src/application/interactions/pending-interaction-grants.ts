@@ -33,7 +33,6 @@ interface PermissionInteractionGrantDependencies {
     runLeaseToken?: string | null;
     runLeaseFencingVersion?: number | null;
     grant: Record<string, unknown>;
-    expiresAtMs?: number;
   }): Promise<void>;
 }
 
@@ -74,7 +73,6 @@ export async function applyPendingInteractionGrantDecision(
       mode: input.decision.mode,
       requestId: input.requestId,
     },
-    expiresAtMs: input.decision.timedGrantExpiresAtMs,
   });
   return true;
 }

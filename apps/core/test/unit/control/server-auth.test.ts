@@ -3565,7 +3565,7 @@ describe('control server runtime hardening', () => {
     }
   });
 
-  it('rejects invalid session response schemas with a shaped error', async () => {
+  it('rejects invalid or uncompilable session response schemas with a shaped error', async () => {
     const port = await reservePort();
     process.env.GANTRY_CONTROL_PORT = String(port);
     process.env.GANTRY_CONTROL_API_KEYS_JSON = JSON.stringify([
@@ -3605,6 +3605,46 @@ describe('control server runtime hardening', () => {
           },
         });
       }
+      const uncompilableResponse = await requestWithRetry(
+        `http://127.0.0.1:${port}/v1/sessions/session-1/messages`,
+        'token-message-schema',
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            message: 'hello',
+            response_schema: { type: 'not-a-json-schema-type' },
+          }),
+        },
+      );
+      expect(uncompilableResponse.status).toBe(400);
+      await expect(uncompilableResponse.json()).resolves.toMatchObject({
+        error: {
+          code: 'INVALID_REQUEST',
+          message: expect.stringMatching(
+            /response_schema failed to compile:.*type/i,
+          ),
+        },
+      });
+      const asyncResponse = await requestWithRetry(
+        `http://127.0.0.1:${port}/v1/sessions/session-1/messages`,
+        'token-message-schema',
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            message: 'hello',
+            response_schema: { $async: true, type: 'object' },
+          }),
+        },
+      );
+      expect(asyncResponse.status).toBe(400);
+      await expect(asyncResponse.json()).resolves.toMatchObject({
+        error: {
+          code: 'INVALID_REQUEST',
+          message: 'response_schema async schemas are unsupported',
+        },
+      });
       expect(controlRepo.getAppSessionById).not.toHaveBeenCalled();
       expect(app.queue.enqueueMessageCheck).not.toHaveBeenCalled();
     } finally {

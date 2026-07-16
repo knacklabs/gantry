@@ -40,6 +40,7 @@ export interface InstallShutdownHandlersOptions {
    */
   closeFleetSubsystems?: () => Promise<void>;
   closeBrowserToolBackends?: () => Promise<void>;
+  closeLangfuseTracing?: () => Promise<void>;
 }
 
 function makeDefaultDeps(): ShutdownDeps {
@@ -155,6 +156,10 @@ export function installShutdownHandlers(
     await runStep(
       options.closeStorage,
       'Failed to close runtime storage during shutdown',
+    );
+    await runStep(
+      options.closeLangfuseTracing,
+      'Failed to shutdown Langfuse tracing during shutdown',
     );
     resolved.exit(0);
   };

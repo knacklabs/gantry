@@ -2551,18 +2551,13 @@ describe('Slack channel', () => {
       actionAffordances: [
         { kind: 'scheduler_run_now', label: 'Retry now', jobId: 'job-1' },
         { kind: 'scheduler_pause_job', label: 'Pause job', jobId: 'job-1' },
-        {
-          kind: 'scheduler_open',
-          label: 'Open in scheduler',
-          jobId: 'job-1',
-        },
       ],
     });
 
     const payload = appRef.current.client.chat.postMessage.mock.calls[0]?.[0];
     expect(
       payload.blocks[1].elements.map((button: any) => button.text.text),
-    ).toEqual(['Retry now', 'Pause job', 'Open in scheduler']);
+    ).toEqual(['Retry now', 'Pause job']);
     expect(payload.blocks[1].elements[0]).toEqual(
       expect.objectContaining({
         action_id: 'gantry_message_action',

@@ -611,7 +611,7 @@ describe('model provider registry', () => {
         },
       }),
     ).toEqual({
-      origin: 'https://bedrock-runtime.ap-south-1.amazonaws.com',
+      origin: 'https://bedrock-mantle.ap-south-1.api.aws',
       pathPrefix: '/v1',
     });
     expect(bedrock!.cacheSupport.prompt.mode).toBe('none');

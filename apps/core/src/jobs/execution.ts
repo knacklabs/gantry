@@ -1,25 +1,18 @@
 import { randomUUID } from 'crypto';
 import fs from 'fs';
-import {
-  ASSISTANT_NAME,
-  getEffectiveModelConfig,
-  getRuntimeSettingsForConfig,
-  getSelectedAgentHarness,
-} from '../config/index.js';
+// prettier-ignore
+import { ASSISTANT_NAME, getEffectiveModelConfig, getRuntimeSettingsForConfig, getSelectedAgentHarness } from '../config/index.js';
 import type { Job } from '../domain/types.js';
 import { logger } from '../infrastructure/logging/logger.js';
-import {
-  getRuntimeControlRepository,
-  getRuntimeEventExchange,
-  getConfiguredModelProvidersForApp,
-  getWorkerCoordinationRepository,
-} from '../adapters/storage/postgres/runtime-store.js';
+// prettier-ignore
+import { getRuntimeControlRepository, getRuntimeEventExchange, getConfiguredModelProvidersForApp, getWorkerCoordinationRepository } from '../adapters/storage/postgres/runtime-store.js';
 import { DEFAULT_JOB_RUNTIME_APP_ID } from '../application/jobs/job-access.js';
 import { splitAccessRequirements } from '../application/jobs/job-access-requirements.js';
 import * as jobToolPolicy from '../application/jobs/job-tool-policy.js';
 import { SETUP_REQUIRED_PAUSE_REASON } from '../application/jobs/job-readiness-service.js';
 import { RUNTIME_EVENT_TYPES } from '../domain/events/runtime-event-types.js';
 import { nowIso, nowMs, toIso } from '../shared/time/datetime.js';
+import { accumulateModelUsage } from '../shared/model-usage.js';
 import { resolveWorkspaceFolderPath } from '../platform/workspace-folder.js';
 import { AgentOutput, spawnAgent } from '../runtime/agent-spawn.js';
 import { resolveModelFamilyCandidatesForApp } from '../runtime/model-family-resolution.js';
@@ -37,10 +30,8 @@ import {
   resolveTurnSelectedMcpServerIds,
   resolveTurnSelectedSkillContext,
 } from '../runtime/group-run-context.js';
-import {
-  collectCompactBoundaryMemory,
-  collectJobCompletionMemory,
-} from './compact-memory.js';
+// prettier-ignore
+import { collectCompactBoundaryMemory, collectJobCompletionMemory } from './compact-memory.js';
 import { normalizeCleanupAfterMs } from './cleanup.js';
 import {
   buildExecutionTurnContextInput,
@@ -49,7 +40,6 @@ import {
 } from './execution-context.js';
 import {
   logMemoryDreamJobFailure,
-  notifySchedulerRunStart,
   notifySchedulerTerminalRunState,
 } from './execution-notifications.js';
 import {
@@ -67,18 +57,9 @@ import {
   modelUseKindForJobSchedule,
   resolveJobExecutionProviderId,
   resolveJobModel,
-  type NormalizedModelUsage,
 } from './model-resolution.js';
-import {
-  createJobRunDiagnostics,
-  createStreamingEventFlusher,
-  filterUnforwardedRunnerRuntimeEvents,
-  formatTerminalToolDenial,
-  forwardRunnerRuntimeEvents,
-  runnerRuntimeEventKey,
-  terminalDiagnosticsPayload,
-  toolDenialEventPayload,
-} from './execution-diagnostics.js';
+// prettier-ignore
+import { createJobRunDiagnostics, createStreamingEventFlusher, filterUnforwardedRunnerRuntimeEvents, formatTerminalToolDenial, forwardRunnerRuntimeEvents, runnerRuntimeEventKey, terminalDiagnosticsPayload, toolDenialEventPayload } from './execution-diagnostics.js';
 import { pauseJobForSetupIfNeeded } from './execution-readiness.js';
 import {
   bindSchedulerRunEventState,
@@ -260,8 +241,8 @@ export async function runJob(
       if (!delta) return;
       resultSummaryAccumulator.append(delta);
     };
-    let latestUsage: NormalizedModelUsage | undefined;
-    let startNotified = false;
+    let accumulatedUsage: AgentOutput['usage'];
+    const startNotified = false;
     try {
       const groupDir = resolveWorkspaceFolderPath(execution.group.folder);
       fs.mkdirSync(groupDir, { recursive: true });
@@ -272,15 +253,6 @@ export async function runJob(
       conversationKind: execution.group.conversationKind,
       executionJid: execution.executionJid,
     });
-    if (!(await deletionGuard.shouldSuppressDelivery())) {
-      startNotified = await notifySchedulerRunStart({
-        job: currentJob,
-        runId,
-        runShortId,
-        sendMessage: deps.sendMessage,
-      });
-      deletionGuard.resetDeliveryDeletionCheck();
-    }
     if (!error && currentJob.host_task) {
       const executor = getHostTaskExecutor(currentJob.host_task.executorId);
       if (!executor) {
@@ -554,7 +526,11 @@ export async function runJob(
                   diagnostics,
                   emitJobEvent,
                 });
-                if (streamedOutput.usage) latestUsage = streamedOutput.usage;
+                if (streamedOutput.usage)
+                  accumulatedUsage = accumulateModelUsage(
+                    accumulatedUsage,
+                    streamedOutput.usage,
+                  );
                 const streamedProviderSessionId =
                   providerSessionExternalSessionId(streamedOutput);
                 if (streamedProviderSessionId) {
@@ -807,7 +783,7 @@ export async function runJob(
         pause_reason: pauseReason,
         notified,
         summary,
-        ...jobCompletedModelPayload(resolvedModel, latestUsage),
+        ...jobCompletedModelPayload(resolvedModel, accumulatedUsage),
         diagnostics: terminalDiagnosticsPayload(diagnostics),
       },
     );

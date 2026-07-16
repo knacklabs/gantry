@@ -1,0 +1,115 @@
+:root {
+  color-scheme: light;
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  color: #18211b;
+  background: #f4f6f2;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+}
+
+main {
+  width: min(920px, calc(100% - 2rem));
+  margin: 0 auto;
+  padding: 3rem 0 5rem;
+}
+
+h1,
+h2,
+p {
+  margin-top: 0;
+}
+
+.intro {
+  max-width: 65ch;
+  color: #4c5a50;
+}
+
+.grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+}
+
+section {
+  padding: 1.25rem;
+  border: 1px solid #ccd5ce;
+  border-radius: 0.75rem;
+  background: #fff;
+}
+
+form,
+.fields,
+.actions {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.actions {
+  grid-template-columns: repeat(2, max-content);
+}
+
+label {
+  display: grid;
+  gap: 0.35rem;
+  font-weight: 600;
+}
+
+input,
+textarea,
+button {
+  font: inherit;
+}
+
+input,
+textarea {
+  width: 100%;
+  padding: 0.65rem;
+  border: 1px solid #aebbb1;
+  border-radius: 0.4rem;
+}
+
+textarea {
+  min-height: 6rem;
+  resize: vertical;
+}
+
+button {
+  width: fit-content;
+  padding: 0.6rem 0.9rem;
+  border: 0;
+  border-radius: 0.4rem;
+  color: #fff;
+  background: #17693a;
+  cursor: pointer;
+}
+
+button.secondary {
+  color: #17693a;
+  background: #e5efe8;
+}
+
+button:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+pre {
+  min-height: 3rem;
+  margin: 1rem 0 0;
+  padding: 0.75rem;
+  overflow: auto;
+  border-radius: 0.4rem;
+  background: #eef2ed;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.wide {
+  grid-column: 1 / -1;
+}

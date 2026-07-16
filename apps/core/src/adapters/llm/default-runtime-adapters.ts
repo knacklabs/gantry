@@ -19,6 +19,7 @@ import { createDeepAgentsLangChainExecutionAdapter } from './deepagents-langchai
 import { deepAgentsCheckpointSchema } from './deepagents-langchain/execution-adapter.js';
 import { createDeepAgentsInlineAgentLoopLane } from './deepagents-langchain/inline-lane/index.js';
 import { createAnthropicMemoryLlmClient } from './anthropic-claude-agent/memory-llm-client.js';
+import { createDirectAnthropicClassifierLlmClient } from './anthropic-claude-agent/permission-classifier-llm-client.js';
 import { createOpenAiMemoryLlmClient } from './openai-memory/openai-memory-llm-client.js';
 import { createRouteAwareMemoryLlmClient } from './route-aware-memory-llm-client.js';
 import {
@@ -79,6 +80,7 @@ export function createDefaultInlineAgentLoopLane(
 export function createDefaultMemoryLlmClient(): MemoryLlmClient {
   return createRouteAwareMemoryLlmClient({
     anthropic: createAnthropicMemoryLlmClient(),
+    anthropicSingleRequest: createDirectAnthropicClassifierLlmClient(),
     openai: createOpenAiMemoryLlmClient(),
   });
 }

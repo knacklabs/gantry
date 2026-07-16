@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
-import { and, asc, eq, gt, inArray, type SQL } from 'drizzle-orm';
+import { and, asc, eq, gt, gte, inArray, lt, sql, type SQL } from 'drizzle-orm';
 
 import type {
   EventBusPublisherPort,
@@ -11,9 +11,14 @@ import type {
   RuntimeEvent,
   RuntimeEventFilter,
   RuntimeEventPublishInput,
+  UsageAggregate,
+  UsageQuery,
 } from '../../../../domain/events/events.js';
 import type { LiveAdmissionWorkItemEnqueueResult } from '../../../../domain/ports/live-turns.js';
-import { requireRuntimeEventType } from '../../../../domain/events/runtime-event-types.js';
+import {
+  requireRuntimeEventType,
+  RUNTIME_EVENT_TYPES,
+} from '../../../../domain/events/runtime-event-types.js';
 import type { RuntimeEventRepository } from '../../../../domain/ports/repositories.js';
 import { logger } from '../../../../infrastructure/logging/logger.js';
 import * as pgSchema from '../schema/schema.js';
@@ -249,6 +254,89 @@ export class PostgresRuntimeEventRepository implements RuntimeEventRepository {
       .orderBy(asc(pgSchema.runtimeEventsPostgres.eventId))
       .limit(filter.limit ?? 100);
     return rows.map((row) => this.eventFromRow(row));
+  }
+
+  async queryUsage(input: UsageQuery): Promise<UsageAggregate[]> {
+    const events = pgSchema.runtimeEventsPostgres;
+    const payload = sql`${events.payloadJson}::jsonb`;
+    const usage = sql`${payload}->'usage'`;
+    const model = sql<string | null>`coalesce(
+      ${usage}->>'model',
+      ${payload}->>'modelAlias',
+      ${payload}->>'resolved_model_alias'
+    )`;
+    const apiKeyId = sql<string | null>`${payload}->>'apiKeyId'`;
+    const day = sql<string>`to_char(
+      date_trunc('day', ${events.createdAt} at time zone 'UTC'),
+      'YYYY-MM-DD'
+    )`;
+    const groupExpression =
+      input.groupBy === 'agent'
+        ? sql<string | null>`${events.agentId}`
+        : input.groupBy === 'api_key'
+          ? apiKeyId
+          : input.groupBy === 'model'
+            ? model
+            : input.groupBy === 'day'
+              ? day
+              : undefined;
+    const conditions: SQL[] = [
+      eq(events.appId, input.appId),
+      gte(events.createdAt, input.from),
+      lt(events.createdAt, input.to),
+      sql`jsonb_typeof(${usage}->'inputTokens') = 'number'`,
+      sql`jsonb_typeof(${usage}->'outputTokens') = 'number'`,
+      sql`(
+        ${events.eventType} = ${RUNTIME_EVENT_TYPES.MODEL_USAGE}
+        OR ${events.eventType} IN (
+          ${RUNTIME_EVENT_TYPES.JOB_COMPLETED},
+          ${RUNTIME_EVENT_TYPES.JOB_FAILED}
+        )
+        OR (
+          ${events.eventType} = ${RUNTIME_EVENT_TYPES.CREDENTIAL_MODEL_USED}
+          AND ${payload}->>'outcome' = 'forwarded'
+          AND ${apiKeyId} IS NOT NULL
+          AND ${payload}->>'tokenScope' LIKE 'api_key:%'
+        )
+      )`,
+    ];
+    if (input.agentId) conditions.push(eq(events.agentId, input.agentId));
+    if (input.apiKeyId) conditions.push(sql`${apiKeyId} = ${input.apiKeyId}`);
+    if (input.runId) conditions.push(eq(events.runId, input.runId));
+    if (input.jobId) conditions.push(eq(events.jobId, input.jobId));
+    if (input.model) conditions.push(sql`${model} = ${input.model}`);
+
+    const query = this.db
+      .select({
+        groupKey: groupExpression ?? sql<null>`null`,
+        requestCount: sql<number>`count(*)::int`,
+        inputTokens: sql<number>`coalesce(sum((${usage}->>'inputTokens')::bigint), 0)::bigint`,
+        outputTokens: sql<number>`coalesce(sum((${usage}->>'outputTokens')::bigint), 0)::bigint`,
+      })
+      .from(events)
+      .where(and(...conditions))
+      .$dynamic();
+    const rows = groupExpression
+      ? await query.groupBy(groupExpression).orderBy(asc(groupExpression))
+      : await query;
+
+    return rows.map((row) => ({
+      requestCount: Number(row.requestCount),
+      inputTokens: Number(row.inputTokens),
+      outputTokens: Number(row.outputTokens),
+      ...(input.groupBy === 'agent' && row.groupKey
+        ? { agentId: String(row.groupKey) }
+        : {}),
+      ...(input.groupBy === 'api_key' && row.groupKey
+        ? { apiKeyId: String(row.groupKey) }
+        : {}),
+      ...(input.groupBy === 'model' && row.groupKey
+        ? { model: String(row.groupKey) }
+        : {}),
+      ...(input.groupBy === 'day' && row.groupKey
+        ? { day: String(row.groupKey) }
+        : {}),
+    }));
   }
 
   private eventFromRow(row: RuntimeEventRow): RuntimeEvent {

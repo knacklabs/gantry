@@ -761,3 +761,15 @@ prefix_rule(
         "kubectl describe pod api-123",
     ],
 )
+
+prefix_rule(
+    pattern = ["python3", "/Users/ravikiranvemula/.claude/skills/autoreview/scripts/autoreview"],
+    decision = "allow",
+    justification = "The autoreview helper is the pipeline's review entrypoint; codex runs it as the review wrapper around its own exec engine.",
+    match = [
+        "python3 /Users/ravikiranvemula/.claude/skills/autoreview/scripts/autoreview --mode branch --base origin/main",
+    ],
+    not_match = [
+        "python3 -c 'import os'",
+    ],
+)

@@ -104,7 +104,15 @@ disposable database.
 
 ## Auto Review Loop
 
-Use the `autoreview` skill as part of this skill.
+Use the `autoreview` skill as part of this skill. When Claude Code
+orchestrates, each review round is a codex rescue handoff that runs the
+helper as ONE plain command (no shell wrapper, no env prefix, no chaining)
+and returns findings verbatim (user decision 2026-07-11, confirmed working).
+Enablers: `[sandbox_workspace_write] network_access=true` in the OPERATOR's
+`~/.codex/config.toml` (user-level on purpose — repo config must not relax
+egress) and an allow prefix_rule for the helper path in repo
+`.codex/rules/default.rules`. The plugin's native `review` command is not
+used.
 
 Before starting a new review, check whether one is already running:
 

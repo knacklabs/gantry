@@ -42,12 +42,17 @@ export class AgentService {
     });
   }
 
-  async createManualJob(sessionId: string) {
+  async createManualJob(session: { sessionId: string; chatJid: string }) {
     return this.gantry.client.jobs.create({
-      sessionId,
       name: 'manual-summary',
       kind: 'manual',
       prompt: 'Summarize the most recent session activity.',
+      executionContext: {
+        conversationJid: session.chatJid,
+        threadId: null,
+        workspaceKey: 'main_agent',
+        sessionId: session.sessionId,
+      },
     });
   }
 
@@ -61,6 +66,80 @@ export class AgentService {
 Normal sidecar calls derive `appId` from the API key. Pass `appId` only as an
 advanced assertion when the caller intentionally verifies a known app scope.
 
+## Structured output as a service method
+
+```ts
+async extractInvoice(sessionId: string, documentText: string) {
+  const accepted = await this.gantry.client.sessions.sendMessage({
+    sessionId,
+    message: `Extract the invoice fields:\n${documentText}`,
+    response_schema: {
+      type: 'object',
+      required: ['vendor', 'total'],
+      properties: {
+        vendor: { type: 'string' },
+        total: { type: 'number' },
+        dueDate: { type: 'string' },
+      },
+    },
+  });
+  const event = await this.gantry.client.sessions.wait(sessionId, {
+    afterEventId: accepted.acceptedEventId,
+    timeoutMs: 60_000,
+  });
+  return JSON.parse((event.payload as { text: string }).text);
+}
+```
+
+## Streaming to the browser
+
+```ts
+// events.controller.ts
+@Get('sessions/:sessionId/events')
+async stream(
+  @Param('sessionId') sessionId: string,
+  @Query('afterEventId') afterEventId: string,
+  @Res() res: Response,
+) {
+  res.setHeader('content-type', 'text/event-stream');
+  res.setHeader('cache-control', 'no-cache');
+  for await (const event of this.gantry.client.sessions.stream(sessionId, {
+    afterEventId: Number(afterEventId || 0),
+  })) {
+    res.write(`data: ${JSON.stringify(event)}\n\n`);
+  }
+  res.end();
+}
+```
+
+## Receiving lifecycle webhooks
+
+Register a webhook with `eventTypes` (for example `run.completed`,
+`interaction.pending`) and verify deliveries with the SDK helper. NestJS must
+expose the raw body: `NestFactory.create(AppModule, { rawBody: true })`.
+
+```ts
+// gantry-webhook.controller.ts
+import { verifyWebhookSignature } from '@gantry/sdk';
+
+@Post('hooks/gantry')
+handle(@Req() req: RawBodyRequest<Request>) {
+  const ok = verifyWebhookSignature({
+    secret: process.env.GANTRY_WEBHOOK_SECRET!,
+    timestamp: req.headers['x-gantry-webhook-timestamp'] as string,
+    eventId: req.headers['x-gantry-webhook-id'] as string,
+    eventType: req.headers['x-gantry-webhook-event'] as string,
+    signature: req.headers['x-gantry-webhook-signature'] as string,
+    rawBody: req.rawBody!.toString(),
+    toleranceMs: 5 * 60_000,
+  });
+  if (!ok) throw new UnauthorizedException('invalid signature');
+  const event = JSON.parse(req.rawBody!.toString());
+  // deduplicate on x-gantry-webhook-id; react to event.eventType
+  return { ok: true };
+}
+```
+
 ## Provision the agent locked
 
 A customer-facing example agent (a support or product assistant your end users
@@ -71,6 +150,16 @@ with capabilities an operator pre-provisioned. See
 [Locked Preset](../decisions/2026-06-11-locked-preset.md) and
 [Agent Internals For SDK Consumers](./agent-internals.md#locked-access-preset).
 The preset is set on the agent, not in SDK calls — your client code is unchanged.
+
+## Beyond chat turns
+
+The same session machinery drives headless workflow steps: send
+`response_schema` with a message to get validated JSON back from an
+inline-runtime agent, pass per-request `effort` / `max_output_tokens`, make raw
+model calls without an agent via the Direct LLM API (`baseURL` swap on official
+provider SDKs), and subscribe webhooks to `run.completed` /
+`interaction.pending` instead of polling. See the
+[SDK API Reference](./api-reference.md) for all of these.
 
 ## Going to production
 

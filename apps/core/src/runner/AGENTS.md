@@ -14,23 +14,16 @@
 - `SandboxNetworkAccess` is a transient SDK callback, not durable capability
   authority. The runner may suppress repeated SDK network prompts only when a
   recent approved tool-use token is still unexpired and the SDK prompt carries
-  that exact parent tool-use id, while a short-lived
-  eligible-tools/SDK-API-prompt timed grant is active for the same principal and
-  conversation, or, for scheduled jobs only, when a parentless SDK network
-  prompt arrives immediately after the same principal's approved Bash/RunCommand
-  invocation and matches a host hash derived from that latest run-local token.
+  that exact parent tool-use id or, for scheduled jobs only, when a parentless
+  SDK network prompt arrives immediately after the same principal's approved
+  Bash/RunCommand invocation and matches a host hash derived from that latest
+  run-local token.
   Local CLI host hashes may be added to that token only when the approved Bash
   command matches a reviewed local CLI command binding; flat host hints alone
   are not authority.
   Interactive parentless SDK network prompts fail closed, and scheduled
   parentless prompts without a host-bound approved command fail closed. Never log
   raw hostnames or tool inputs for this gate.
-- Permission `Allow 5 min` is intentionally a live-interactive-only short-lived
-  yolo grant for every eligible SDK tool call and SDK network/API prompt by the
-  same principal in the same conversation. Setup, scheduler, admin, and
-  capability flows must omit it. Keep protected-path, memory-boundary, and
-  fail-closed sandbox hard guards before the timed grant so this option reduces
-  live prompts without bypassing safety checks.
 - One-shot scheduled jobs must close the SDK prompt stream after the initial prompt is queued. Keeping that async iterable open is live-run behavior for IPC continuations; in scheduled jobs it can leave the SDK waiting for another user turn after tool execution and produce an idle stall instead of a terminal result.
 - Claude SDK session persistence is split by run type. Live channel turns may
   use `AgentInput.sessionId` to set `persistSession: true` and `resume`, but

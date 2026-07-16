@@ -11,12 +11,21 @@ import type {
 import {
   asNonEmptyString,
   asRecord,
+  fetchWithTimeout,
   parseJsonRecord,
 } from '../shared/helpers.js';
 import {
-  createGantryGenerationClient,
-  isRetryableGantryGenerationError,
-} from '../generation-client.js';
+  extractAnthropicUsageDetails,
+  observeGantryModelCall,
+} from './model-observability.js';
+import { buildCompatibleJsonSchema } from './json-schema-output-format.js';
+
+type AnthropicObservedResult = {
+  readonly payload: Record<string, unknown>;
+  readonly output: Record<string, unknown> | string;
+  readonly rawText: string;
+  readonly stopReason: string | null;
+};
 
 export function resolveStructuredModelProvider(
   config: GantryStructuredModelConfig,
@@ -33,11 +42,10 @@ export function resolveStructuredModelProvider(
 export function createAnthropicStructuredModelProvider(
   config: AnthropicStructuredModelConfig,
 ): StructuredJsonModelProvider {
-  const gantryBaseUrl = config.gantryBaseUrl?.trim();
-  const gantryApiKey = config.gantryApiKey?.trim();
-  if (!gantryBaseUrl || !gantryApiKey) {
+  const apiKey = config.apiKey?.trim();
+  if (!apiKey) {
     throw new Error(
-      'gantryBaseUrl and gantryApiKey are required for Anthropic structured model tasks.',
+      'ANTHROPIC_API_KEY is required for Anthropic structured model tasks.',
     );
   }
   const fetchImpl = config.fetchImpl ?? fetch;
@@ -48,24 +56,14 @@ export function createAnthropicStructuredModelProvider(
     retryBaseDelayMs,
     config.retryMaxDelayMs ?? 30_000,
   );
-  const client = createGantryGenerationClient({
-    baseUrl: gantryBaseUrl,
-    apiKey: gantryApiKey,
-    fetchImpl,
-    resolveOperation: (operationName) => ({
-      provider: 'anthropic',
-      model: resolveAnthropicTaskPolicy(operationName, config).model,
-    }),
-  });
+  const apiVersion = config.apiVersion ?? '2023-06-01';
 
   return {
     generateJson: async (input) => {
       const taskPolicy = resolveAnthropicTaskPolicy(input.taskType, config);
       const model = taskPolicy.model;
       let lastError: unknown = null;
-      let attemptsMade = 0;
       for (let attempt = 1; attempt <= maxRetries; attempt += 1) {
-        attemptsMade = attempt;
         try {
           const startedAt = Date.now();
           const promptCacheMetadata = resolvePromptCache(input);
@@ -76,61 +74,95 @@ export function createAnthropicStructuredModelProvider(
             temperature: taskPolicy.temperature,
             effort: taskPolicy.effort,
           });
-          const controller = new AbortController();
-          const timeout = setTimeout(() => controller.abort(), timeoutMs);
-          const result = await client
-            .invokeGeneration({
-              operationName: input.taskType,
-              system:
-                promptCacheMetadata?.prefix ??
-                buildAnthropicSystemPrompt(input),
-              content: {
-                text: buildGatewayUserText(input, Boolean(promptCacheMetadata)),
-                images: input.attachments
-                  ?.filter((attachment) =>
-                    attachment.mimeType.startsWith('image/'),
-                  )
-                  .map((attachment) => ({
-                    mimeType: attachment.mimeType,
-                    ...(attachment.base64 ? { base64: attachment.base64 } : {}),
-                    ...(attachment.localPath
-                      ? { localPath: attachment.localPath }
-                      : {}),
-                  })),
-              },
-              responseFormat: input.outputSchema
-                ? {
-                    type: 'json_schema',
-                    name: schemaName(input.taskType),
-                    schema: input.outputSchema,
-                    strict: true,
-                  }
-                : undefined,
-              promptCache: promptCacheMetadata
-                ? { ttl: promptCacheMetadata.ttl }
-                : undefined,
-              maxOutputTokens: taskPolicy.maxTokens,
-              temperature: taskPolicy.temperature,
-              thinking: { effort: taskPolicy.effort },
-              observability: {
-                ...input.observability,
-                serviceName: 'agent-gantry',
-                attempt,
+          const outputConfig = asRecord(body.output_config);
+          const structuredOutputMode = input.outputSchema
+            ? asRecord(outputConfig?.format)
+              ? 'native'
+              : 'local_validation'
+            : 'none';
+          const observed =
+            await observeGantryModelCall<AnthropicObservedResult>(
+              {
+                operationName: 'anthropic.generateJson',
+                taskType: input.taskType,
                 modelCallType: 'agent_step',
+                provider: 'anthropic',
+                model,
+                attempt,
+                input: {
+                  taskType: input.taskType,
+                  instructions: input.instructions,
+                  input: input.input,
+                  outputSchema: input.outputSchema ?? null,
+                  attachments:
+                    input.attachments?.map((attachment) => ({
+                      label: attachment.label ?? null,
+                      mimeType: attachment.mimeType,
+                      purpose: attachment.purpose ?? null,
+                      sourceStep: attachment.sourceStep ?? null,
+                      hasBase64: Boolean(attachment.base64),
+                      hasLocalPath: Boolean(attachment.localPath),
+                    })) ?? [],
+                },
+                output: (result: AnthropicObservedResult) => result.output,
+                usageDetails: (result: AnthropicObservedResult) =>
+                  extractAnthropicUsageDetails(result.payload),
+                modelParameters: {
+                  max_tokens: taskPolicy.maxTokens,
+                  max_retries: maxRetries,
+                  timeout_ms: timeoutMs,
+                  structured_output_mode: structuredOutputMode,
+                  ...(typeof taskPolicy.temperature === 'number'
+                    ? { temperature: taskPolicy.temperature }
+                    : {}),
+                  ...(taskPolicy.effort ? { effort: taskPolicy.effort } : {}),
+                },
                 metadata: {
-                  ...(input.observability?.metadata ?? {}),
-                  task_type: input.taskType,
                   correlation_id: input.correlationId ?? null,
                   prompt_cache_ttl: promptCacheMetadata?.ttl ?? null,
                   prompt_cache_prefix_hash:
                     promptCacheMetadata?.prefixHash ?? null,
                 },
+                observability: input.observability,
+                resultMetadata: (result: AnthropicObservedResult) => ({
+                  response_id:
+                    typeof result.payload.id === 'string'
+                      ? result.payload.id
+                      : null,
+                  stop_reason: result.stopReason,
+                  duration_ms: Date.now() - startedAt,
+                }),
               },
-              signal: controller.signal,
-            })
-            .finally(() => clearTimeout(timeout));
-          const payload = result.rawResponse as Record<string, unknown>;
-          const output = parseJsonRecord(result.text);
+              async () => {
+                const response = await fetchWithTimeout(
+                  fetchImpl,
+                  'https://api.anthropic.com/v1/messages',
+                  {
+                    method: 'POST',
+                    headers: {
+                      'anthropic-version': apiVersion,
+                      'content-type': 'application/json',
+                      'x-api-key': apiKey,
+                    },
+                    body: JSON.stringify(body),
+                  },
+                  timeoutMs,
+                );
+                const payload = (await response.json()) as Record<
+                  string,
+                  unknown
+                >;
+                if (!response.ok) {
+                  throw buildAnthropicError(response.status, payload);
+                }
+                const rawText = readAnthropicTextPayload(payload);
+                const stopReason = asNonEmptyString(payload.stop_reason);
+                const output = parseJsonRecordOrText(rawText);
+                return { payload, output, rawText, stopReason };
+              },
+            );
+          const payload = observed.payload;
+          const output = observed.output;
           return {
             output,
             modelUsage: readAnthropicModelUsage({
@@ -143,6 +175,8 @@ export function createAnthropicStructuredModelProvider(
               durationMs: Date.now() - startedAt,
               promptCacheMetadata,
             }),
+            rawText: observed.rawText,
+            stopReason: observed.stopReason,
           };
         } catch (error) {
           lastError = error;
@@ -158,7 +192,7 @@ export function createAnthropicStructuredModelProvider(
         }
       }
       throw new Error(
-        `Anthropic ${input.taskType} failed after ${attemptsMade} attempts: ${
+        `Anthropic ${input.taskType} failed after ${maxRetries} attempts: ${
           lastError instanceof Error ? lastError.message : String(lastError)
         }`,
       );
@@ -167,12 +201,22 @@ export function createAnthropicStructuredModelProvider(
 }
 
 function isRetryableAnthropicError(error: unknown): boolean {
-  if (isRetryableGantryGenerationError(error)) return true;
+  const statusCode = readAnthropicErrorStatusCode(error);
+  if (statusCode === null) return true;
   return (
-    error instanceof SyntaxError ||
-    (error instanceof Error &&
-      /structured task model output|valid json/i.test(error.message))
+    statusCode === 408 ||
+    statusCode === 429 ||
+    statusCode === 529 ||
+    (statusCode >= 500 && statusCode <= 599)
   );
+}
+
+function readAnthropicErrorStatusCode(error: unknown): number | null {
+  if (!error || typeof error !== 'object') return null;
+  const statusCode = (error as { readonly statusCode?: unknown }).statusCode;
+  return typeof statusCode === 'number' && Number.isFinite(statusCode)
+    ? statusCode
+    : null;
 }
 
 function calculateRetryDelayMs(input: {
@@ -259,7 +303,10 @@ function buildAnthropicRequestBody(input: {
     ...(input.temperature === undefined
       ? {}
       : { temperature: input.temperature }),
-    ...buildAnthropicEffortRequestFields(input.effort),
+    ...buildAnthropicOutputRequestFields(
+      input.effort,
+      input.input.outputSchema,
+    ),
     system: buildAnthropicSystemPrompt(input.input),
     messages: [
       {
@@ -270,14 +317,31 @@ function buildAnthropicRequestBody(input: {
   };
 }
 
-function buildAnthropicEffortRequestFields(
+function buildAnthropicOutputRequestFields(
   effort: AnthropicStructuredModelEffort,
+  outputSchema: Record<string, unknown> | undefined,
 ): Record<string, unknown> {
-  if (effort === 'off') return {};
+  const format = buildAnthropicOutputFormat(outputSchema);
+  if (effort === 'off' && !format) return {};
   return {
-    thinking: { type: 'adaptive' },
-    output_config: { effort },
+    ...(effort === 'off' ? {} : { thinking: { type: 'adaptive' } }),
+    output_config: {
+      ...(effort === 'off' ? {} : { effort }),
+      ...(format ? { format } : {}),
+    },
   };
+}
+
+function buildAnthropicOutputFormat(
+  schema: Record<string, unknown> | undefined,
+): Record<string, unknown> | null {
+  const compatibleSchema = buildCompatibleJsonSchema(schema, {
+    optionalParameters: 24,
+    unionParameters: 16,
+  });
+  return compatibleSchema
+    ? { type: 'json_schema', schema: compatibleSchema }
+    : null;
 }
 
 function buildAnthropicSystemPrompt(
@@ -374,27 +438,6 @@ function buildAnthropicUserContent(
   ];
 }
 
-function buildGatewayUserText(
-  input: Parameters<StructuredJsonModelProvider['generateJson']>[0],
-  hasCacheablePrefix: boolean,
-): string {
-  return buildAnthropicUserContent(input)
-    .filter(
-      (block): block is Extract<AnthropicUserContentBlock, { type: 'text' }> =>
-        block.type === 'text',
-    )
-    .filter((_block, index) => !hasCacheablePrefix || index > 0)
-    .map((block) => block.text)
-    .join('\n');
-}
-
-function schemaName(taskType: string): string {
-  return (
-    taskType.replace(/[^a-zA-Z0-9_-]+/gu, '_').slice(0, 64) ||
-    'structured_output'
-  );
-}
-
 function resolvePromptCache(
   input: Parameters<StructuredJsonModelProvider['generateJson']>[0],
 ): {
@@ -425,10 +468,51 @@ function readInlineImageAttachments(
     .filter((attachment) => attachment.base64.length > 0);
 }
 
+function buildAnthropicError(
+  status: number,
+  payload: Record<string, unknown>,
+): Error {
+  const errorRecord = asRecord(payload.error);
+  const message =
+    asNonEmptyString(errorRecord?.message) ??
+    asNonEmptyString(payload.message) ??
+    `Anthropic request failed with HTTP ${status}.`;
+  return Object.assign(
+    new Error(`Anthropic request failed with HTTP ${status}: ${message}`),
+    {
+      statusCode: status,
+    },
+  );
+}
+
+function readAnthropicTextPayload(payload: Record<string, unknown>): string {
+  const content = Array.isArray(payload.content) ? payload.content : [];
+  const text = content
+    .flatMap((entry) => {
+      const record = asRecord(entry);
+      return record?.type === 'text'
+        ? [typeof record.text === 'string' ? record.text : '']
+        : [];
+    })
+    .join('\n');
+  if (!text.trim()) {
+    throw new Error('Anthropic response did not include text content.');
+  }
+  return text;
+}
+
+function parseJsonRecordOrText(text: string): Record<string, unknown> | string {
+  try {
+    return parseJsonRecord(text);
+  } catch {
+    return text;
+  }
+}
+
 function readAnthropicModelUsage(input: {
   readonly payload: Record<string, unknown>;
   readonly body: Record<string, unknown>;
-  readonly output: Record<string, unknown>;
+  readonly output: Record<string, unknown> | string;
   readonly model: string;
   readonly taskType: string;
   readonly correlationId: string | null;
@@ -447,7 +531,7 @@ function readAnthropicModelUsage(input: {
   const cacheCreationInputTokens = readOptionalNumber(
     usage?.cache_creation_input_tokens,
   );
-  const cachedTokens = cacheReadInputTokens;
+  const cachedTokens = cacheReadInputTokens ?? cacheCreationInputTokens;
   const promptCacheMetadata = input.promptCacheMetadata;
   const promptCharCount = JSON.stringify(input.body).length;
   if (inputTokens !== null || outputTokens !== null) {
@@ -459,12 +543,7 @@ function readAnthropicModelUsage(input: {
       promptCharCount,
       inputTokens,
       outputTokens,
-      totalTokens: addOptionalNumbers(
-        inputTokens,
-        cacheReadInputTokens,
-        cacheCreationInputTokens,
-        outputTokens,
-      ),
+      totalTokens: addOptionalNumbers(inputTokens, outputTokens),
       cachedTokens,
       cacheCreationInputTokens,
       cacheReadInputTokens,
@@ -503,12 +582,11 @@ function readOptionalNumber(value: unknown): number | null {
 }
 
 function addOptionalNumbers(
-  ...values: readonly (number | null)[]
+  left: number | null,
+  right: number | null,
 ): number | null {
-  const defined = values.filter((value): value is number => value !== null);
-  return defined.length > 0
-    ? defined.reduce((total, value) => total + value, 0)
-    : null;
+  if (left === null && right === null) return null;
+  return (left ?? 0) + (right ?? 0);
 }
 
 function estimateTokensFromChars(charCount: number): number {
@@ -520,14 +598,31 @@ export function unwrapStructuredJsonModelProviderResult(
 ): {
   readonly output: Record<string, unknown> | string;
   readonly modelUsage: GantryStructuredModelUsage | null;
+  readonly rawText: string | null;
+  readonly stopReason: string | null;
 } {
   if (isStructuredModelProviderEnvelope(result)) {
     return {
       output: result.output,
       modelUsage: result.modelUsage ?? null,
+      rawText: result.rawText ?? null,
+      stopReason: result.stopReason ?? null,
     };
   }
-  return { output: result, modelUsage: null };
+  return {
+    output: result,
+    modelUsage: null,
+    rawText: typeof result === 'string' ? result : null,
+    stopReason: null,
+  };
+}
+
+export function readStructuredModelStopError(
+  stopReason: string | null,
+): 'model_output_truncated' | 'model_output_refused' | null {
+  if (stopReason === 'max_tokens') return 'model_output_truncated';
+  if (stopReason === 'refusal') return 'model_output_refused';
+  return null;
 }
 
 function isStructuredModelProviderEnvelope(
@@ -535,12 +630,14 @@ function isStructuredModelProviderEnvelope(
 ): value is {
   readonly output: Record<string, unknown> | string;
   readonly modelUsage?: GantryStructuredModelUsage | null;
+  readonly rawText?: string | null;
+  readonly stopReason?: string | null;
 } {
   return Boolean(
     value &&
     typeof value === 'object' &&
     !Array.isArray(value) &&
     'output' in value &&
-    'modelUsage' in value,
+    ('modelUsage' in value || 'rawText' in value || 'stopReason' in value),
   );
 }

@@ -146,7 +146,7 @@ function toolToCapabilityResponse(tool: ToolCatalogItem) {
   if (semanticCapability) {
     return {
       id: semanticCapability.capabilityId,
-      version: semanticCapability.version ?? 'builtin',
+      version: semanticCapability.version ?? 'catalog',
       displayName: semanticCapability.displayName,
       category: semanticCapability.category,
       risk: semanticCapability.risk,

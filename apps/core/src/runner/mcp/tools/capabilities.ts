@@ -44,7 +44,7 @@ const CapabilityTargetSchema = z.object({
   id: z
     .string()
     .min(1)
-    .describe('Reviewed semantic capability id, such as acme.invoices.read'),
+    .describe('Reviewed semantic capability id, such as app.resource.action'),
 });
 
 const RunCommandTargetSchema = z.object({

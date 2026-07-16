@@ -316,13 +316,14 @@ maybeDescribe('jobs, runs, memory, and scheduler flow', () => {
     );
 
     expect(harness.channel.streams).toHaveLength(0);
+    // Quiet-until-terminal: no start message, exactly one terminal outcome.
+    expect(
+      harness.channel.sent.filter((message) =>
+        message.text.includes('Running** · Job'),
+      ),
+    ).toHaveLength(0);
     expect(harness.channel.sent).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({
-          jid: 'tg:scheduler',
-          text: expect.stringContaining('Running** · Job'),
-          threadId: job.thread_id,
-        }),
         expect.objectContaining({
           jid: 'tg:scheduler',
           text: expect.stringContaining('Completed** · Job'),

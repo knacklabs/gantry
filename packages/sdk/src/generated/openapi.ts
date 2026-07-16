@@ -799,6 +799,26 @@ export interface paths {
         patch: operations["updateConversationInstall"];
         trace?: never;
     };
+    "/v1/usage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Query token usage
+         * @description Returns app-scoped token and request counts recorded from deployment forward; historical usage is not backfilled.
+         */
+        get: operations["queryUsage"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/llm/v1/messages": {
         parameters: {
             query?: never;
@@ -2442,6 +2462,19 @@ export interface components {
             status: "manual";
             instruction: string;
         };
+        UsageAggregate: {
+            requestCount: number;
+            inputTokens: number;
+            outputTokens: number;
+            agentId?: string;
+            apiKeyId?: string;
+            model?: string;
+            /** Format: date */
+            day?: string;
+        };
+        UsageQueryResponse: {
+            usage: components["schemas"]["UsageAggregate"][];
+        };
         Job: {
             id: string;
             name: string;
@@ -2623,7 +2656,7 @@ export interface components {
             /** Format: uri */
             url: string;
             enabled: boolean;
-            eventTypes: ("session.message.inbound" | "session.message.outbound" | "session.message.streaming" | "session.typing" | "session.progress" | "session.compaction.queued" | "session.compaction.running" | "session.compaction.ready" | "session.compaction.degraded" | "session.compaction.failed" | "session.compaction.timeout" | "conversation.message.inbound" | "conversation.message.outbound" | "job.triggered" | "job.run.started" | "job.started" | "job.streaming" | "job.heartbeat" | "job.setup_required" | "job.tool_denied" | "job.tool_activity" | "task.started" | "task.progress" | "task.updated" | "task.notification" | "job.completed" | "job.failed" | "job.run.completed" | "job.run.failed" | "permission.requested" | "permission.allowed" | "permission.denied" | "permission.cancelled" | "permission.persisted" | "permission.resumed" | "permission.final_outcome" | "permission.yolo_denylist_hit" | "interaction.pending" | "credential.capability.updated" | "credential.capability.removed" | "credential.model.updated" | "credential.model.disabled" | "credential.model.used" | "profile.file.read" | "profile.file.updated" | "egress.connect" | "mcp.tool_activity" | "sandbox.blocked" | "run.started" | "run.startup_diagnostic" | "run.failover" | "run.canceled" | "run.completed" | "run.failed" | "run.timeout" | "run.dead_lettered" | "proactive.surfacing.outcome" | "webhook.test")[] | null;
+            eventTypes: ("session.message.inbound" | "session.message.outbound" | "session.message.streaming" | "session.typing" | "session.progress" | "session.compaction.queued" | "session.compaction.running" | "session.compaction.ready" | "session.compaction.degraded" | "session.compaction.failed" | "session.compaction.timeout" | "conversation.message.inbound" | "conversation.message.outbound" | "job.triggered" | "job.run.started" | "job.started" | "job.streaming" | "job.heartbeat" | "job.setup_required" | "job.tool_denied" | "job.tool_activity" | "task.started" | "task.progress" | "task.updated" | "task.notification" | "job.completed" | "job.failed" | "job.run.completed" | "job.run.failed" | "permission.requested" | "permission.allowed" | "permission.denied" | "permission.cancelled" | "permission.persisted" | "permission.resumed" | "permission.final_outcome" | "permission.yolo_denylist_hit" | "permission.classifier_decision" | "interaction.pending" | "credential.capability.updated" | "credential.capability.removed" | "credential.model.updated" | "credential.model.disabled" | "credential.model.used" | "profile.file.read" | "profile.file.updated" | "egress.connect" | "mcp.tool_activity" | "sandbox.blocked" | "model.usage" | "run.started" | "run.startup_diagnostic" | "run.failover" | "run.canceled" | "run.completed" | "run.failed" | "run.timeout" | "run.dead_lettered" | "proactive.surfacing.outcome" | "webhook.test")[] | null;
             agentId: string | null;
             sessionId: string | null;
             jobId: string | null;
@@ -2641,7 +2674,7 @@ export interface components {
             url: string;
             secret?: string;
             enabled?: boolean;
-            eventTypes?: ("session.message.inbound" | "session.message.outbound" | "session.message.streaming" | "session.typing" | "session.progress" | "session.compaction.queued" | "session.compaction.running" | "session.compaction.ready" | "session.compaction.degraded" | "session.compaction.failed" | "session.compaction.timeout" | "conversation.message.inbound" | "conversation.message.outbound" | "job.triggered" | "job.run.started" | "job.started" | "job.streaming" | "job.heartbeat" | "job.setup_required" | "job.tool_denied" | "job.tool_activity" | "task.started" | "task.progress" | "task.updated" | "task.notification" | "job.completed" | "job.failed" | "job.run.completed" | "job.run.failed" | "permission.requested" | "permission.allowed" | "permission.denied" | "permission.cancelled" | "permission.persisted" | "permission.resumed" | "permission.final_outcome" | "permission.yolo_denylist_hit" | "interaction.pending" | "credential.capability.updated" | "credential.capability.removed" | "credential.model.updated" | "credential.model.disabled" | "credential.model.used" | "profile.file.read" | "profile.file.updated" | "egress.connect" | "mcp.tool_activity" | "sandbox.blocked" | "run.started" | "run.startup_diagnostic" | "run.failover" | "run.canceled" | "run.completed" | "run.failed" | "run.timeout" | "run.dead_lettered" | "proactive.surfacing.outcome" | "webhook.test")[] | null;
+            eventTypes?: ("session.message.inbound" | "session.message.outbound" | "session.message.streaming" | "session.typing" | "session.progress" | "session.compaction.queued" | "session.compaction.running" | "session.compaction.ready" | "session.compaction.degraded" | "session.compaction.failed" | "session.compaction.timeout" | "conversation.message.inbound" | "conversation.message.outbound" | "job.triggered" | "job.run.started" | "job.started" | "job.streaming" | "job.heartbeat" | "job.setup_required" | "job.tool_denied" | "job.tool_activity" | "task.started" | "task.progress" | "task.updated" | "task.notification" | "job.completed" | "job.failed" | "job.run.completed" | "job.run.failed" | "permission.requested" | "permission.allowed" | "permission.denied" | "permission.cancelled" | "permission.persisted" | "permission.resumed" | "permission.final_outcome" | "permission.yolo_denylist_hit" | "permission.classifier_decision" | "interaction.pending" | "credential.capability.updated" | "credential.capability.removed" | "credential.model.updated" | "credential.model.disabled" | "credential.model.used" | "profile.file.read" | "profile.file.updated" | "egress.connect" | "mcp.tool_activity" | "sandbox.blocked" | "model.usage" | "run.started" | "run.startup_diagnostic" | "run.failover" | "run.canceled" | "run.completed" | "run.failed" | "run.timeout" | "run.dead_lettered" | "proactive.surfacing.outcome" | "webhook.test")[] | null;
             agentId?: string | null;
             sessionId?: string | null;
             jobId?: string | null;
@@ -2652,7 +2685,7 @@ export interface components {
             url?: string;
             secret?: string;
             enabled?: boolean;
-            eventTypes?: ("session.message.inbound" | "session.message.outbound" | "session.message.streaming" | "session.typing" | "session.progress" | "session.compaction.queued" | "session.compaction.running" | "session.compaction.ready" | "session.compaction.degraded" | "session.compaction.failed" | "session.compaction.timeout" | "conversation.message.inbound" | "conversation.message.outbound" | "job.triggered" | "job.run.started" | "job.started" | "job.streaming" | "job.heartbeat" | "job.setup_required" | "job.tool_denied" | "job.tool_activity" | "task.started" | "task.progress" | "task.updated" | "task.notification" | "job.completed" | "job.failed" | "job.run.completed" | "job.run.failed" | "permission.requested" | "permission.allowed" | "permission.denied" | "permission.cancelled" | "permission.persisted" | "permission.resumed" | "permission.final_outcome" | "permission.yolo_denylist_hit" | "interaction.pending" | "credential.capability.updated" | "credential.capability.removed" | "credential.model.updated" | "credential.model.disabled" | "credential.model.used" | "profile.file.read" | "profile.file.updated" | "egress.connect" | "mcp.tool_activity" | "sandbox.blocked" | "run.started" | "run.startup_diagnostic" | "run.failover" | "run.canceled" | "run.completed" | "run.failed" | "run.timeout" | "run.dead_lettered" | "proactive.surfacing.outcome" | "webhook.test")[] | null;
+            eventTypes?: ("session.message.inbound" | "session.message.outbound" | "session.message.streaming" | "session.typing" | "session.progress" | "session.compaction.queued" | "session.compaction.running" | "session.compaction.ready" | "session.compaction.degraded" | "session.compaction.failed" | "session.compaction.timeout" | "conversation.message.inbound" | "conversation.message.outbound" | "job.triggered" | "job.run.started" | "job.started" | "job.streaming" | "job.heartbeat" | "job.setup_required" | "job.tool_denied" | "job.tool_activity" | "task.started" | "task.progress" | "task.updated" | "task.notification" | "job.completed" | "job.failed" | "job.run.completed" | "job.run.failed" | "permission.requested" | "permission.allowed" | "permission.denied" | "permission.cancelled" | "permission.persisted" | "permission.resumed" | "permission.final_outcome" | "permission.yolo_denylist_hit" | "permission.classifier_decision" | "interaction.pending" | "credential.capability.updated" | "credential.capability.removed" | "credential.model.updated" | "credential.model.disabled" | "credential.model.used" | "profile.file.read" | "profile.file.updated" | "egress.connect" | "mcp.tool_activity" | "sandbox.blocked" | "model.usage" | "run.started" | "run.startup_diagnostic" | "run.failover" | "run.canceled" | "run.completed" | "run.failed" | "run.timeout" | "run.dead_lettered" | "proactive.surfacing.outcome" | "webhook.test")[] | null;
             agentId?: string | null;
             sessionId?: string | null;
             jobId?: string | null;
@@ -5032,6 +5065,48 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ConversationInstall"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    queryUsage: {
+        parameters: {
+            query: {
+                /** @description Inclusive range start as an ISO 8601 date-time. */
+                from: string;
+                /** @description Exclusive range end as an ISO 8601 date-time. */
+                to: string;
+                /** @description Agent id filter. */
+                agentId?: string;
+                /** @description Control API key id filter. */
+                apiKeyId?: string;
+                /** @description Run id filter. */
+                runId?: string;
+                /** @description Job id filter. */
+                jobId?: string;
+                /** @description Model alias filter. */
+                model?: string;
+                /** @description Aggregation dimension. */
+                group_by?: "agent" | "api_key" | "model" | "day";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Request succeeded. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UsageQueryResponse"];
                 };
             };
             400: components["responses"]["BadRequest"];

@@ -28,7 +28,7 @@ import type { ModelWorkload } from './model-catalog.js';
 //     cerebras    -> https://api.cerebras.ai/v1/chat/completions
 //     perplexity  -> https://api.perplexity.ai/chat/completions (bare path)
 //     google gen  -> https://generativelanguage.googleapis.com/v1beta/openai/chat/completions
-//     bedrock     -> Bedrock Runtime regional /v1 chat-completions endpoint
+//     bedrock     -> Bedrock Mantle regional /v1 chat-completions endpoint
 //   assertProviderPathAllowed strips the per-provider prefix, leaving
 //   `/chat/completions`, which is allowlisted for the DeepAgents engine.
 //
@@ -386,7 +386,7 @@ function resolveBedrockUpstream(input: {
     'AWS region',
   );
   return {
-    origin: `https://bedrock-runtime.${region}.amazonaws.com`,
+    origin: `https://bedrock-mantle.${region}.api.aws`,
     pathPrefix: BEDROCK_CHAT_PATH_PREFIX,
   };
 }
@@ -512,7 +512,7 @@ export const OPENAI_COMPATIBLE_PROVIDER_DEFINITIONS = [
     credentialModes: BEDROCK_CREDENTIAL_MODES,
     gateway: {
       pathSegment: 'bedrock',
-      upstreamOrigin: 'https://bedrock-runtime.us-east-1.amazonaws.com',
+      upstreamOrigin: 'https://bedrock-mantle.us-east-1.api.aws',
       upstreamPathPrefix: BEDROCK_CHAT_PATH_PREFIX,
       upstreamResolver: resolveBedrockUpstream,
       sdkProjection: openAiCompatibleSdkProjection('bedrock'),

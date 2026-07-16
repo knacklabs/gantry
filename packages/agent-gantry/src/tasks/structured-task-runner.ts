@@ -15,6 +15,7 @@ import {
 } from '../shared/helpers.js';
 import { runGenericAgentTask } from './agent-task-runner.js';
 import {
+  readStructuredModelStopError,
   resolveStructuredModelProvider,
   unwrapStructuredJsonModelProviderResult,
 } from './model-provider.js';
@@ -64,6 +65,10 @@ export function createStructuredModelTaskRunner(
                 observability: input.observability,
               }),
             );
+            const stopError = readStructuredModelStopError(
+              generated.stopReason,
+            );
+            if (stopError) throw new Error(stopError);
             const modelOutput =
               typeof generated.output === 'string'
                 ? parseJsonRecord(generated.output)

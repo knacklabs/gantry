@@ -109,6 +109,8 @@ import type {
 } from '../../../../domain/ports/fleet-capability-state.js';
 import type { AsyncTaskRepository } from '../../../../domain/ports/async-tasks.js';
 import type { PatternCandidateRepository } from '../../../../domain/ports/pattern-candidates.js';
+import type { PermissionPromotionRepository } from '../../../../domain/ports/permission-promotion.js';
+import { PostgresPermissionPromotionRepository } from './permission-promotion-repository.postgres.js';
 export interface PostgresDomainRepositoryBundle {
   apps: AppRepository;
   agents: AgentRepository;
@@ -139,6 +141,7 @@ export interface PostgresDomainRepositoryBundle {
   asyncTasks: AsyncTaskRepository;
   patternCandidates: PatternCandidateRepository;
   proactiveSurfacing: PostgresProactiveSurfacingRepository;
+  permissionPromotions: PermissionPromotionRepository;
 }
 type JsonRecord = Record<string, unknown>;
 function encodeJson(value: unknown): string {
@@ -1738,5 +1741,6 @@ export function createPostgresDomainRepositories(
     asyncTasks: new PostgresAsyncTaskRepository(db),
     patternCandidates: new PostgresPatternCandidateRepository(db),
     proactiveSurfacing: new PostgresProactiveSurfacingRepository(db),
+    permissionPromotions: new PostgresPermissionPromotionRepository(db),
   };
 }

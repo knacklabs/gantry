@@ -3,15 +3,19 @@ import { randomUUID } from 'node:crypto';
 import type { CoreSendMessageDeps } from '../../application/core-tools/send-message.js';
 import type { CoreTaskLifecycleBackend } from '../../application/core-tools/task-lifecycle.js';
 import { runDurablePermissionInteraction } from '../../application/interactions/durable-interaction-handler.js';
+import { reviewedMcpReadBindingsForRuntimeAccess } from '../../application/agents/agent-tool-runtime-rules.js';
+import { synthesizeHostPermissionSuggestions } from '../../application/permissions/permission-suggestion-synthesis.js';
 import {
   classifyMcpToolAuditError,
   summarizeMcpToolArgumentPayload,
   summarizeMcpToolError,
+  type McpToolAuditResultClass,
 } from '../../application/mcp/mcp-tool-audit.js';
 import type { RuntimeEventPublishInput } from '../../domain/events/events.js';
 import type { RuntimeAgentSessionRepository } from '../../domain/repositories/ops-repo.js';
 import { RUNTIME_EVENT_TYPES } from '../../domain/events/runtime-event-types.js';
 import type { AsyncTaskRepository } from '../../domain/ports/async-tasks.js';
+import type { PermissionPromotionRepository } from '../../domain/ports/permission-promotion.js';
 import type {
   McpServerRepository,
   ToolCatalogRepository,
@@ -24,6 +28,14 @@ import type {
 } from '../../domain/types.js';
 import type { InlineAgentLoopLaneInput } from '../../runtime/agent-inline.js';
 import type { RunAgentOptions } from '../../runtime/agent-spawn-types.js';
+import { resolveWorkspaceFolderPath } from '../../platform/workspace-folder.js';
+import {
+  consultPermissionClassifierBeforePrompt,
+  permissionPromotionHintCount,
+  recordHumanPermissionPromotionSignal,
+  type PermissionClassifierPromptConsultInput,
+  type PermissionClassifierRuntimeConfig,
+} from '../../runtime/permission-classifier.js';
 import {
   resolveTurnSelectedMcpServerIds,
   resolveTurnSelectedSkillContext,
@@ -33,6 +45,7 @@ import {
 import {
   createCoreToolRegistry,
   type CoreToolRegistryDeps,
+  type McpCompatibleToolError,
 } from '../../runtime/core-tools/registry.js';
 import { createCoreToolSchemas } from '../../runtime/core-tools/schemas.js';
 import {
@@ -40,6 +53,7 @@ import {
   permissionDecisionName,
   permissionTelemetryContext,
 } from '../../runtime/ipc-permission-telemetry.js';
+import { sanitizeIpcToolInput } from '../../runtime/ipc-tool-input-sanitization.js';
 import {
   ToolExecutionClassifier,
   ToolExecutionPolicyService,
@@ -57,9 +71,21 @@ interface InlineCoreToolHostDeps extends CoreSendMessageDeps {
     request: PermissionApprovalRequest,
   ) => Promise<PermissionApprovalDecision>;
   publishRuntimeEvent?: (event: RuntimeEventPublishInput) => Promise<void>;
+  classifierConsult?: PermissionClassifierPromptConsultInput['classifierConsult'];
   getAgentAccessPreset(folder: string): 'full' | 'locked';
-  getYoloMode(): YoloModeSettings;
+  getPermissionRuntimeSettings(): {
+    agents?: Record<
+      string,
+      { capabilities?: Array<{ id: string }> } | null | undefined
+    >;
+    permissions: {
+      autoMode: { model?: string };
+      yoloMode: YoloModeSettings;
+    };
+    memory: { llm: { models: { extractor: string } } };
+  };
   getMcpServerRepository(): McpServerRepository | undefined;
+  getPermissionPromotionRepository(): PermissionPromotionRepository | undefined;
   createTaskLifecycleBackend(
     laneInput: InlineAgentLoopLaneInput,
   ): CoreTaskLifecycleBackend | undefined;
@@ -73,6 +99,26 @@ type InlineCoreToolSupport = Pick<
   | 'formatMemoryWriteResponse'
 > & { schemaFactory: Parameters<typeof createCoreToolSchemas>[0] };
 
+type ThirdPartyMcpToolActivity = {
+  serverName: string;
+  toolName: string;
+  toolInput: unknown;
+  outcome: 'attempt' | 'success' | 'failure';
+  latencyMs: number;
+  result?: unknown;
+  error?: unknown;
+  resultClass?: McpToolAuditResultClass;
+  structuredError?: McpCompatibleToolError;
+};
+
+function createToolSuccessLedger() {
+  const successfulTools = new Set<string>();
+  return {
+    recordSuccess: (toolName: string) => successfulTools.add(toolName),
+    hasSuccess: (toolName: string) => successfulTools.has(toolName),
+  };
+}
+
 let inlineCoreToolHostDeps: InlineCoreToolHostDeps | undefined;
 
 export function createInlineCoreTools(
@@ -84,18 +130,31 @@ export function createInlineCoreTools(
     input: unknown,
     context?: { signal?: AbortSignal },
   ): Promise<{ allowed: boolean; reason?: string }>;
-  recordThirdPartyMcpToolActivity(input: {
-    serverName: string;
-    toolName: string;
-    toolInput: unknown;
-    outcome: 'attempt' | 'success' | 'failure';
-    latencyMs: number;
-    error?: unknown;
-  }): Promise<void>;
+  recordThirdPartyMcpToolActivity(
+    input: ThirdPartyMcpToolActivity,
+  ): Promise<void>;
 } {
   const deps = inlineCoreToolHostDeps;
   if (!deps) throw new Error('Inline core tool host is not configured.');
   const run = laneInput.input;
+  const permissionSettings = deps.getPermissionRuntimeSettings();
+  const autoModeModel = permissionSettings.permissions.autoMode.model;
+  const permissionRuntimeConfig: PermissionClassifierRuntimeConfig = {
+    ...(autoModeModel ? { autoModeModel } : {}),
+    memoryExtractorModel: permissionSettings.memory.llm.models.extractor,
+  };
+  const approvedCapabilityIds =
+    permissionSettings.agents?.[laneInput.group.folder]?.capabilities?.map(
+      ({ id }) => id,
+    ) ?? [];
+  const reviewedMcpReadBindings = reviewedMcpReadBindingsForRuntimeAccess({
+    runtimeAccess: run.runtimeAccess,
+    semanticCapabilities: run.semanticCapabilities,
+  });
+  const yoloMode = run.yoloMode ?? permissionSettings.permissions.yoloMode;
+  const toolSuccessLedger = run.toolRules?.length
+    ? createToolSuccessLedger()
+    : undefined;
   const registry = createCoreToolRegistry({
     context: {
       sourceAgentFolder: laneInput.group.folder,
@@ -113,7 +172,11 @@ export function createInlineCoreTools(
       memoryUserId: run.memoryUserId,
       memoryBlock: run.memoryContextBlock,
       allowedToolRules: run.toolPolicyRules,
-      yoloMode: run.yoloMode ?? deps.getYoloMode(),
+      ...(toolSuccessLedger
+        ? { toolRules: run.toolRules, toolSuccessLedger }
+        : {}),
+      yoloMode,
+      permissionMode: run.permissionMode,
       accessPreset: deps.getAgentAccessPreset(laneInput.group.folder),
     },
     sendMessage: deps.sendMessage,
@@ -140,15 +203,108 @@ export function createInlineCoreTools(
   });
   const classifier = new ToolExecutionClassifier();
   const policy = new ToolExecutionPolicyService();
+  const recordThirdPartyMcpToolActivity = async (
+    activity: ThirdPartyMcpToolActivity,
+  ) => {
+    const repository = deps.getMcpServerRepository();
+    const appId = run.appId;
+    if (!repository || !appId) {
+      throw new Error('Inline MCP audit repository is unavailable.');
+    }
+    const capability = laneInput.mcpServers.find(
+      ({ name }) => name === activity.serverName,
+    );
+    const resultClass =
+      activity.resultClass ??
+      (activity.outcome === 'success' && isMcpErrorResult(activity.result)
+        ? 'failure'
+        : undefined) ??
+      (activity.outcome === 'failure'
+        ? classifyMcpToolAuditError(activity.error)
+        : activity.outcome);
+    const payload = {
+      serverName: activity.serverName,
+      toolName: activity.toolName,
+      requestedToolRule: `mcp__${activity.serverName}__${activity.toolName}`,
+      resultClass,
+      latencyMs: activity.latencyMs,
+      argumentSummary: summarizeMcpToolArgumentPayload(activity.toolInput),
+      ...(activity.structuredError
+        ? { error: activity.structuredError }
+        : activity.error
+          ? { error: summarizeMcpToolError(activity.error) }
+          : {}),
+    };
+    await repository.appendAuditEvent({
+      id: `mcp-audit:${randomUUID()}` as never,
+      appId: appId as never,
+      agentId: run.agentId as never,
+      serverId: capability?.serverId as never,
+      bindingId: capability?.bindingId as never,
+      eventType: 'tool_activity',
+      actorId: 'inline-agent',
+      metadata: payload,
+      createdAt: new Date().toISOString() as never,
+    });
+    if (isSuccessfulMcpActivity(activity)) {
+      toolSuccessLedger?.recordSuccess(
+        `mcp__${activity.serverName}__${activity.toolName}`,
+      );
+    }
+    if (!deps.publishRuntimeEvent) return;
+    await deps
+      .publishRuntimeEvent({
+        appId: appId as never,
+        agentId: run.agentId as never,
+        runId: run.runId as never,
+        eventType: RUNTIME_EVENT_TYPES.MCP_TOOL_ACTIVITY,
+        actor: 'inline-agent',
+        responseMode: 'none',
+        payload,
+      })
+      .catch(() => undefined);
+  };
   return {
     ...registry,
     authorizeThirdPartyMcpTool: async (name, toolInput, context) => {
       context?.signal?.throwIfAborted();
+      const toolRuleDenial = toolSuccessLedger
+        ? support.evaluateToolPreChecks({
+            toolName: name,
+            toolInput,
+            memoryBlock: run.memoryContextBlock ?? '',
+            yoloMode,
+            toolRules: run.toolRules,
+            successLedger: toolSuccessLedger,
+          })
+        : null;
+      if (toolRuleDenial) {
+        const error = toolRuleDenial.error ?? {
+          category: 'permission' as const,
+          isRetryable: false as const,
+          message: toolRuleDenial.reason,
+        };
+        const [, serverName = '', toolName = name] = name.split('__');
+        await recordThirdPartyMcpToolActivity({
+          serverName,
+          toolName,
+          toolInput,
+          outcome: 'failure',
+          latencyMs: 0,
+          resultClass:
+            error.category === 'validation' ? 'invalid_request' : 'denied',
+          structuredError: error,
+        });
+        return {
+          allowed: false,
+          reason: JSON.stringify(error),
+        };
+      }
       const precheck = support.evaluateToolPreChecks({
         toolName: name,
         toolInput,
         memoryBlock: run.memoryContextBlock ?? '',
-        yoloMode: run.yoloMode ?? deps.getYoloMode(),
+        yoloMode,
       });
       if (precheck) return { allowed: false, reason: precheck.reason };
       const decision = support.evaluateToolPolicy({
@@ -161,7 +317,7 @@ export function createInlineCoreTools(
           threadId: run.threadId,
           jobId: run.jobId,
           isScheduledJob: run.isScheduledJob,
-          yoloMode: run.yoloMode ?? deps.getYoloMode(),
+          yoloMode,
         },
         allowedToolRules: [
           ...(run.toolPolicyRules ?? []),
@@ -178,8 +334,94 @@ export function createInlineCoreTools(
             'capability not provisioned: this agent runs with a locked access preset.',
         };
       }
+      const permissionRequestId = `permission-${randomUUID()}`;
+      const suggestions = synthesizeHostPermissionSuggestions(name, toolInput);
+      const promotionRepository = deps.getPermissionPromotionRepository();
+      const promotion = promotionRepository
+        ? {
+            repository: promotionRepository,
+            offer: async (request: PermissionApprovalRequest) => {
+              const interaction = await runDurablePermissionInteraction({
+                request,
+                sourceAgentFolder: laneInput.group.folder,
+                prompt: deps.requestPermissionApproval,
+              });
+              if (interaction.resolved)
+                recordHumanPermissionPromotionSignal({
+                  repository: promotionRepository,
+                  appId: request.appId,
+                  agentFolder: laneInput.group.folder,
+                  request,
+                  decision: interaction.decision,
+                });
+              return interaction;
+            },
+          }
+        : undefined;
+      let classifierDecision:
+        | Awaited<ReturnType<typeof consultPermissionClassifierBeforePrompt>>
+        | undefined;
+      const classifierToolInput = sanitizeIpcToolInput(toolInput);
+      if (deps.publishRuntimeEvent) {
+        classifierDecision = await consultPermissionClassifierBeforePrompt({
+          permissionMode: run.permissionMode,
+          requestFamily: 'tool',
+          appId: run.appId,
+          agentId: run.agentId,
+          agentFolder: laneInput.group.folder,
+          runId: run.runId,
+          jobId: run.jobId,
+          conversationId: run.chatJid,
+          threadId: run.threadId,
+          correlationId: permissionRequestId,
+          actor: 'permission',
+          intentSource: 'operator_message',
+          turnIntentSummary: run.prompt,
+          canonicalToolName: name,
+          toolInput: classifierToolInput.toolInput,
+          toolInputSanitized: classifierToolInput.altered,
+          toolInputSanitizedPaths: classifierToolInput.alteredPaths,
+          policyDecisionReason: decision.reason,
+          approvedCapabilityIds,
+          workspaceRoot: resolveWorkspaceFolderPath(laneInput.group.folder),
+          reviewedMcpReadBindings,
+          yoloMode: permissionSettings.permissions.yoloMode,
+          suggestions,
+          ...(promotion ? { promotion } : {}),
+          classifierConfig: permissionRuntimeConfig,
+          signal: context?.signal,
+          publishRuntimeEvent: deps.publishRuntimeEvent,
+          classifierConsult: deps.classifierConsult,
+        });
+        if (classifierDecision?.decision === 'allow') return { allowed: true };
+      }
+      if (run.permissionMode === 'auto' && run.isScheduledJob === true) {
+        return {
+          allowed: false,
+          reason: classifierDecision
+            ? `Classifier requested human approval: ${classifierDecision.reason}`
+            : 'This tool is not eligible for unattended auto-permission.',
+        };
+      }
+      // Denylist-forced prompts must not offer a future grant the denylist
+      // would never honor.
+      const effectiveSuggestions = classifierDecision?.denylistHit
+        ? undefined
+        : suggestions;
+      const promotionHintCount = classifierDecision?.denylistHit
+        ? undefined
+        : (classifierDecision?.promotionHintCount ??
+          (await permissionPromotionHintCount({
+            promotion,
+            appId: run.appId,
+            agentFolder: laneInput.group.folder,
+            canonicalToolName: name,
+            toolInput,
+            suggestions,
+          })));
       const request: PermissionApprovalRequest = {
-        requestId: `permission-${randomUUID()}`,
+        requestId: permissionRequestId,
+        requestFamily: 'tool',
         sourceAgentFolder: laneInput.group.folder,
         appId: run.appId,
         agentId: run.agentId,
@@ -190,13 +432,22 @@ export function createInlineCoreTools(
         runLeaseFencingVersion: run.runLeaseFencingVersion,
         targetJid: run.chatJid,
         threadId: run.threadId,
+        ...(!run.isScheduledJob && run.memoryUserId
+          ? { senderId: run.memoryUserId }
+          : {}),
         toolName: name,
         displayName: name,
         description: 'Call a selected remote MCP tool.',
         decisionReason: decision.reason,
         closestRule: decision.closestRule,
         toolInput: toolInput as Record<string, unknown>,
-        decisionOptions: ['allow_once', 'cancel'],
+        toolInputSanitized: classifierToolInput.altered,
+        toolInputSanitizedPaths: classifierToolInput.alteredPaths,
+        suggestions: effectiveSuggestions,
+        ...(promotionHintCount ? { promotionHintCount } : {}),
+        decisionOptions: effectiveSuggestions
+          ? ['allow_once', 'allow_persistent_rule', 'cancel']
+          : ['allow_once', 'cancel'],
       };
       const interaction = await runDurablePermissionInteraction({
         request,
@@ -260,6 +511,14 @@ export function createInlineCoreTools(
           laneInput.jobActivity.finishPermissionRequest(request.requestId);
         },
       });
+      if (interaction.resolved)
+        recordHumanPermissionPromotionSignal({
+          repository: promotionRepository,
+          appId: request.appId,
+          agentFolder: laneInput.group.folder,
+          request,
+          decision: interaction.decision,
+        });
       return interaction.resolved && interaction.decision.approved
         ? { allowed: true }
         : {
@@ -269,54 +528,7 @@ export function createInlineCoreTools(
               'Remote MCP permission request was denied.',
           };
     },
-    recordThirdPartyMcpToolActivity: async (activity) => {
-      const repository = deps.getMcpServerRepository();
-      const appId = run.appId;
-      if (!repository || !appId) {
-        throw new Error('Inline MCP audit repository is unavailable.');
-      }
-      const capability = laneInput.mcpServers.find(
-        ({ name }) => name === activity.serverName,
-      );
-      const resultClass =
-        activity.outcome === 'failure'
-          ? classifyMcpToolAuditError(activity.error)
-          : activity.outcome;
-      const payload = {
-        serverName: activity.serverName,
-        toolName: activity.toolName,
-        requestedToolRule: `mcp__${activity.serverName}__${activity.toolName}`,
-        resultClass,
-        latencyMs: activity.latencyMs,
-        argumentSummary: summarizeMcpToolArgumentPayload(activity.toolInput),
-        ...(activity.error
-          ? { error: summarizeMcpToolError(activity.error) }
-          : {}),
-      };
-      await repository.appendAuditEvent({
-        id: `mcp-audit:${randomUUID()}` as never,
-        appId: appId as never,
-        agentId: run.agentId as never,
-        serverId: capability?.serverId as never,
-        bindingId: capability?.bindingId as never,
-        eventType: 'tool_activity',
-        actorId: 'inline-agent',
-        metadata: payload,
-        createdAt: new Date().toISOString() as never,
-      });
-      if (!deps.publishRuntimeEvent) return;
-      await deps
-        .publishRuntimeEvent({
-          appId: appId as never,
-          agentId: run.agentId as never,
-          runId: run.runId as never,
-          eventType: RUNTIME_EVENT_TYPES.MCP_TOOL_ACTIVITY,
-          actor: 'inline-agent',
-          responseMode: 'none',
-          payload,
-        })
-        .catch(() => undefined);
-    },
+    recordThirdPartyMcpToolActivity,
   };
 }
 
@@ -333,10 +545,23 @@ export function wireInlineAgentLoopTools(input: {
   channelWiring: ChannelWiring;
   interactionsEnabled: boolean;
   getAgentAccessPreset(folder: string): 'full' | 'locked';
-  getYoloMode(): YoloModeSettings;
+  getPermissionRuntimeSettings(): {
+    agents?: Record<
+      string,
+      { capabilities?: Array<{ id: string }> } | null | undefined
+    >;
+    permissions: {
+      autoMode: { model?: string };
+      yoloMode: YoloModeSettings;
+    };
+    memory: { llm: { models: { extractor: string } } };
+  };
   getToolRepository?: () => ToolCatalogRepository | undefined;
   getFileArtifactStore?: CoreSendMessageDeps['getFileArtifactStore'];
   getMcpServerRepository?: () => McpServerRepository | undefined;
+  getPermissionPromotionRepository?: () =>
+    | PermissionPromotionRepository
+    | undefined;
   getAsyncTaskRepository?: () => AsyncTaskRepository | undefined;
   opsRepository?: Pick<
     RuntimeAgentSessionRepository,
@@ -356,6 +581,7 @@ export function wireInlineAgentLoopTools(input: {
   publishRuntimeEvent?: (
     event: RuntimeEventPublishInput,
   ) => Promise<unknown> | unknown;
+  classifierConsult?: PermissionClassifierPromptConsultInput['classifierConsult'];
   warn(context: Record<string, unknown>, message: string): void;
 }): {
   requestPermissionApproval: ChannelWiring['requestPermissionApproval'];
@@ -391,8 +617,11 @@ export function wireInlineAgentLoopTools(input: {
     requestPermissionApproval,
     requestUserAnswer,
     getAgentAccessPreset: input.getAgentAccessPreset,
-    getYoloMode: input.getYoloMode,
+    getPermissionRuntimeSettings: input.getPermissionRuntimeSettings,
     getMcpServerRepository: input.getMcpServerRepository ?? (() => undefined),
+    getPermissionPromotionRepository:
+      input.getPermissionPromotionRepository ?? (() => undefined),
+    classifierConsult: input.classifierConsult,
     createTaskLifecycleBackend: (laneInput) =>
       createInlineAgentTaskLifecycle({
         laneInput,
@@ -486,4 +715,27 @@ async function publishInlinePermissionEvent(
       payload,
     })
     .catch(() => undefined);
+}
+
+function isSuccessfulMcpActivity(activity: ThirdPartyMcpToolActivity): boolean {
+  if (
+    activity.outcome !== 'success' ||
+    activity.error ||
+    activity.structuredError
+  )
+    return false;
+  if (isMcpErrorResult(activity.result)) return false;
+  if (activity.resultClass !== undefined) {
+    return activity.resultClass === 'success';
+  }
+  return activity.result !== undefined;
+}
+
+function isMcpErrorResult(result: unknown): boolean {
+  return (
+    result !== null &&
+    typeof result === 'object' &&
+    !Array.isArray(result) &&
+    (result as { isError?: unknown }).isError === true
+  );
 }

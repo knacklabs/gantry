@@ -22,6 +22,7 @@ import type {
 } from '../shared/model-catalog.js';
 import type { AgentPersona } from '../shared/agent-persona.js';
 import type { YoloModeSettings } from '../shared/yolo-mode-policy.js';
+import type { PermissionMode } from '../shared/permission-mode.js';
 import type { CapabilityRuntimeAccess } from '../shared/capability-runtime-access.js';
 import type { AgentRuntime } from '../shared/agent-runtime.js';
 import type { RuntimeEventPublishInput } from '../domain/events/events.js';
@@ -36,6 +37,20 @@ import type {
   RunnerSandboxProvider,
   RunnerSandboxSpawnInput,
 } from '../shared/runner-sandbox-provider.js';
+
+export type AgentToolRule =
+  | {
+      tool: string;
+      action: 'block';
+      reason: string;
+      when?: { arg: string; matches: string };
+    }
+  | {
+      tool: string;
+      action: 'require_prior';
+      prior: string;
+      reason: string;
+    };
 
 export interface AgentInput {
   prompt: string;
@@ -52,6 +67,7 @@ export interface AgentInput {
   persona?: AgentPersona;
   browserProfileName?: string;
   toolPolicyRules?: string[];
+  toolRules?: AgentToolRule[];
   toolAccessRequirements?: string[];
   attachedSkillSourceIds?: string[];
   selectedSkillDisplays?: string[];
@@ -75,6 +91,7 @@ export interface AgentInput {
   maxOutputTokens?: number;
   memoryContextBlock?: string;
   yoloMode?: YoloModeSettings;
+  permissionMode?: PermissionMode;
   runtimeAccess?: CapabilityRuntimeAccess[];
   runtime?: AgentRuntime;
   deepAgentSkills?: DeepAgentSkillProjection;

@@ -163,15 +163,39 @@ describe('contracts package', () => {
         maxTurns: 12,
         maxRunTokens: 8192,
         effort: 'xhigh',
+        permissionMode: 'auto',
         thinking: { mode: 'on', budgetTokens: 4096 },
         maxOutputTokens: 2048,
+        toolRules: [
+          {
+            tool: 'Bash',
+            action: 'block',
+            when: { arg: 'command', matches: '^rm\\s' },
+            reason: 'destructive command',
+          },
+          {
+            tool: 'Deploy',
+            action: 'require_prior',
+            prior: 'Test',
+            reason: 'tests must pass first',
+          },
+        ],
       }),
     ).toMatchObject({
       maxTurns: 12,
       maxRunTokens: 8192,
       effort: 'xhigh',
+      permissionMode: 'auto',
       thinking: { mode: 'on', budgetTokens: 4096 },
       maxOutputTokens: 2048,
+      toolRules: expect.arrayContaining([
+        expect.objectContaining({ action: 'block' }),
+        expect.objectContaining({ action: 'require_prior' }),
+      ]),
+    });
+    expectInvalid(RuntimeSettingsConfiguredAgentSchema, {
+      ...agent,
+      permissionMode: 'always',
     });
     expectInvalid(RuntimeSettingsConfiguredAgentSchema, {
       ...agent,
@@ -184,6 +208,17 @@ describe('contracts package', () => {
     expectInvalid(RuntimeSettingsConfiguredAgentSchema, {
       ...agent,
       maxOutputTokens: 0,
+    });
+    expectInvalid(RuntimeSettingsConfiguredAgentSchema, {
+      ...agent,
+      toolRules: [
+        {
+          tool: 'Bash',
+          action: 'block',
+          when: { arg: 'command', matches: '[' },
+          reason: 'bad regex',
+        },
+      ],
     });
   });
 
@@ -561,6 +596,7 @@ describe('contracts package', () => {
             relationshipMode: 'organization',
             model: 'sonnet',
             agentHarness: 'deepagents',
+            permissionMode: 'auto',
             oneTimeJobDefaultModel: 'inherit',
             recurringJobDefaultModel: 'inherit',
             bindings: {
@@ -674,6 +710,7 @@ describe('contracts package', () => {
         permissions: {
           yoloMode: { enabled: false, denylist: [], denylistPaths: [] },
           egress: { denylist: [] },
+          autoMode: { model: 'sonnet' },
         },
       },
     });
@@ -683,6 +720,17 @@ describe('contracts package', () => {
     );
     expect(parsed.settings.agent.agentHarness).toBe('auto');
     expect(parsed.settings.agents.main_agent?.agentHarness).toBe('deepagents');
+    expect(parsed.settings.agents.main_agent?.permissionMode).toBe('auto');
+    expect(parsed.settings.permissions.autoMode).toEqual({ model: 'sonnet' });
+    expectInvalid(RuntimeSettingsResponseSchema, {
+      settings: {
+        ...parsed.settings,
+        permissions: {
+          ...parsed.settings.permissions,
+          autoMode: { model: 'sonnet', timeoutMs: 3000 },
+        },
+      },
+    });
     expect(
       parsed.settings.conversationInstalls.main_agent_shared_channel?.threadId,
     ).toBe('171.222');

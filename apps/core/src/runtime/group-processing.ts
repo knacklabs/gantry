@@ -228,8 +228,13 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
         getBrowserStatus: () => getGroupBrowserStatus({ group, chatJid }),
         updateModelStatusSelection: modelStatus.updateSelection,
         getGroupThinkingOverride: () => group.agentConfig?.thinking,
-        setGroupThinkingOverride: async (value) =>
+        setGroupThinkingOverride: (value) =>
           deps.setGroupThinkingOverride(commandOverrideRouteKey, value),
+        getGroupPermissionModeOverride: () => group.agentConfig?.permissionMode,
+        getDefaultPermissionMode: () =>
+          config.getSelectedAgentPermissionMode(group.folder),
+        setGroupPermissionModeOverride: (value) =>
+          deps.setGroupPermissionModeOverride(commandOverrideRouteKey, value),
         ...createGroupProcessingSessionCommandHandlers({
           ops,
           appId: turnAppId,

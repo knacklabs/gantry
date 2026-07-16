@@ -45,6 +45,34 @@ describe('formatPermissionToolInputLines', () => {
     ]);
   });
 
+  it('hides host-injected proxy env from the prompt entirely', () => {
+    const lines = formatPermissionToolInputLines(
+      commandRequest({
+        command:
+          "GODEBUG=netdns=go HTTP_PROXY='http://127.0.0.1:18687/' HTTPS_PROXY='http://127.0.0.1:18687/' NODE_USE_ENV_PROXY='1' NO_PROXY='127.0.0.1,localhost,::1' ls -l docs",
+        description: 'Show docs listing',
+      }),
+      passthrough,
+    );
+    expect(lines).toContain('ls -l docs');
+    expect(lines.join('\n')).not.toContain('Runtime environment:');
+    expect(lines.join('\n')).not.toContain('127.0.0.1:18687');
+  });
+
+  it('still shows agent-supplied env assignments', () => {
+    const lines = formatPermissionToolInputLines(
+      commandRequest({
+        command:
+          "GODEBUG=netdns=go HTTP_PROXY='http://127.0.0.1:18687/' https_proxy='http://attacker.example/' curl https://example.com",
+      }),
+      passthrough,
+    );
+    expect(lines.join('\n')).toContain(
+      "Runtime environment: https_proxy='http://attacker.example/'",
+    );
+    expect(lines.join('\n')).not.toContain('127.0.0.1:18687');
+  });
+
   it('falls back to the command programs when no intent is provided', () => {
     expect(
       formatPermissionToolInputLines(

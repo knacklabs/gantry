@@ -34,11 +34,18 @@ export function formatRunStatusMessage(args: {
   const lines = [
     `**${statusEmoji(statusText)} ${statusText}** · ${args.job.name}${duration}`,
     `Completed: ${summary}`,
-    `Used: ${denial ? humanizeTechnicalIdentifier(denial.toolName) : 'none reported'}`,
-    'Changed: none',
-    'Delegated: no',
-    `Needs attention: ${action || 'none'}`,
   ];
+  if (denial)
+    lines.push(`Used: ${humanizeTechnicalIdentifier(denial.toolName)}`);
+  // A "Completed with issues" header must carry its blocker even when the
+  // compacted summary truncates it away.
+  const attention = hasMeaningfulReceiptValue(action)
+    ? action
+    : statusText === 'Completed with issues'
+      ? realNeedsAttention(displaySummary)
+      : null;
+  if (hasMeaningfulReceiptValue(attention))
+    lines.push(`Needs attention: ${attention}`);
   const next = nextRunLabel(args.nextRun, args.runStatus);
   if (next) lines.push(`Next: ${next}`);
   return lines.join('\n');
@@ -49,6 +56,8 @@ function statusEmoji(statusText: string): string {
     case 'Completed':
     case 'Completed, no report':
       return '✅';
+    case 'Completed with issues':
+      return '⚠️';
     case 'Needs permission':
       return '🔐';
     case 'Needs memory review':
@@ -82,7 +91,7 @@ export function selectJobNotificationSummary(summary: string): string {
   }
   const selected =
     markerIndex >= 0 ? normalized.slice(markerIndex) : normalized;
-  return selected.trim() || summary;
+  return stripTrailingEmptyReceiptLines(selected).trim() || summary;
 }
 
 function statusLabel(
@@ -92,6 +101,7 @@ function statusLabel(
 ): string {
   if (denial) return 'Needs permission';
   if (status === 'completed') {
+    if (realNeedsAttention(summary)) return 'Completed with issues';
     if (hasPendingMemoryReviewSummary(summary)) return 'Needs memory review';
     return hasReportableSummary(summary) ? 'Completed' : 'Completed, no report';
   }
@@ -259,14 +269,15 @@ function nextRunLabel(
   nextRun: string | null,
   status: 'completed' | 'failed' | 'timeout' | 'dead_lettered',
 ): string | null {
-  if (nextRun) return `Runs again ${formatNextRun(nextRun)}.`;
+  const formattedNextRun = nextRun ? formatNextRun(nextRun) : null;
+  if (formattedNextRun) return `Runs again ${formattedNextRun}.`;
   if (status === 'completed') return null;
   return 'Stopped until the job is fixed or rerun.';
 }
 
-function formatNextRun(nextRun: string): string {
+function formatNextRun(nextRun: string): string | null {
   const date = new Date(nextRun);
-  if (Number.isNaN(date.getTime())) return 'after the schedule is repaired';
+  if (Number.isNaN(date.getTime())) return null;
   return `at ${new Intl.DateTimeFormat(undefined, {
     year: 'numeric',
     month: 'short',
@@ -275,6 +286,33 @@ function formatNextRun(nextRun: string): string {
     minute: '2-digit',
     timeZoneName: 'short',
   }).format(date)}`;
+}
+
+function stripTrailingEmptyReceiptLines(summary: string): string {
+  const lines = summary.split('\n');
+  const emptyReceipt =
+    /^(?:Used:\s*none(?: reported)?|Changed:\s*none|Delegated:\s*no|Needs attention:\s*(?:none|no|n[/-]a))\.?$/i;
+  while (lines.length) {
+    const tail = lines.at(-1)?.trim() ?? '';
+    if (tail !== '' && !emptyReceipt.test(tail)) break;
+    lines.pop();
+  }
+  return lines.join('\n');
+}
+
+function realNeedsAttention(summary: string): string | null {
+  for (const match of summary.matchAll(/^Needs attention:\s*(.*?)\s*$/gim)) {
+    if (hasMeaningfulReceiptValue(match[1])) return match[1]!.trim();
+  }
+  return null;
+}
+
+function hasMeaningfulReceiptValue(
+  value: string | null | undefined,
+): value is string {
+  return (
+    Boolean(value?.trim()) && !/^(?:none|no|n[/-]a)\.?$/i.test(value!.trim())
+  );
 }
 
 function hasReportableSummary(summary: string): boolean {

@@ -123,6 +123,7 @@ export const GANTRY_OPENAPI_DOCUMENT = {
     { name: 'Conversations', description: 'Conversations and bindings.' },
     { name: 'Jobs', description: 'Scheduled and manual agent jobs.' },
     { name: 'Runs', description: 'Job run history and events.' },
+    { name: 'Usage', description: 'App-scoped token usage aggregation.' },
     { name: 'Webhooks', description: 'Outbound callback delivery.' },
     { name: 'External Ingresses', description: 'Signed inbound entrypoints.' },
     { name: 'Memory', description: 'App-scoped durable memory.' },

@@ -32,7 +32,9 @@ export async function initializeGantryLangfuseTracingFromEnv(
   const processor = new LangfuseSpanProcessor({
     publicKey,
     secretKey,
-    baseUrl: env.LANGFUSE_BASE_URL?.trim() || undefined,
+    baseUrl: normalizeLangfuseBaseUrl(
+      env.LANGFUSE_BASE_URL?.trim() || undefined,
+    ),
     environment: env.LANGFUSE_TRACING_ENVIRONMENT?.trim() || env.NODE_ENV,
     release: env.LANGFUSE_RELEASE?.trim() || undefined,
     flushAt: readPositiveInteger(env.LANGFUSE_FLUSH_AT),
@@ -551,10 +553,17 @@ function summarizePayload(value: unknown): unknown {
     return { sha256: digest, chars: serialized.length };
   }
   return {
-    preview: serialized.slice(0, 1000),
+    preview: serialized.slice(0, readPreviewCharLimit()),
     sha256: digest,
     chars: serialized.length,
   };
+}
+
+function readPreviewCharLimit(): number {
+  const parsed = Number(process.env.LANGFUSE_PAYLOAD_PREVIEW_CHARS);
+  return Number.isFinite(parsed) && parsed > 0
+    ? Math.min(Math.round(parsed), 8_000)
+    : 1_000;
 }
 
 function stringifyPayload(value: unknown): string {
@@ -597,6 +606,13 @@ function isLangfuseEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
 function readPositiveInteger(value: string | undefined): number | undefined {
   const parsed = Number.parseInt(value ?? '', 10);
   return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
+}
+
+function normalizeLangfuseBaseUrl(
+  value: string | undefined,
+): string | undefined {
+  if (!value) return undefined;
+  return /^https?:\/\//iu.test(value) ? value : `https://${value}`;
 }
 
 function readRecord(value: unknown): Record<string, unknown> | null {

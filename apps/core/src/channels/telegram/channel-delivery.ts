@@ -61,7 +61,9 @@ export abstract class TelegramChannelDelivery extends TelegramChannelConnect {
 
       // Split after escaping so each outbound envelope already matches the
       // exact payload Telegram receives.
-      const escapedText = escapeTelegramMarkdownV2(text);
+      const escapedText = escapeTelegramMarkdownV2(text, {
+        preserveStyleMarkers: true,
+      });
       const escapedChunks = splitTelegramDeliveryText(
         escapedText,
         TELEGRAM_STREAM_CHUNK_MAX_LENGTH,

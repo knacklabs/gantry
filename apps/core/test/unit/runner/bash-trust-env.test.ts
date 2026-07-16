@@ -71,14 +71,14 @@ describe('applyBashTrustEnv', () => {
   it('also prefixes RunCommand because it is enforced through SDK Bash', () => {
     const updated = applyBashTrustEnv(
       'RunCommand',
-      { command: '/opt/homebrew/bin/gog sheets get fake A1' },
+      { command: '/opt/tools/fake-cli records get record-id' },
       { REQUESTS_CA_BUNDLE: CA_PATH },
     );
 
     expect(updated).toEqual({
       command: `${['GODEBUG=netdns=go', `REQUESTS_CA_BUNDLE='${CA_PATH}'`].join(
         ' ',
-      )} /opt/homebrew/bin/gog sheets get fake A1`,
+      )} /opt/tools/fake-cli records get record-id`,
     });
   });
 

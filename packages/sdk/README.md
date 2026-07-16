@@ -14,7 +14,7 @@ sessions, jobs, agents, memory, webhooks, ingresses, and signing helpers.
 npm i @gantry/sdk
 ```
 
-Requires Node.js 24 (matches the Gantry runtime's supported range).
+Requires Node.js 24 or 25 (matches the Gantry runtime's supported range).
 
 ## Quickstart
 
@@ -58,18 +58,19 @@ The client exposes these resource namespaces, each backed by `/v1/*`
 endpoints on the running runtime:
 
 - `client.sessions` — `ensure`, `sendMessage`, `listEvents`, `stream` (SSE), `wait`
-- `client.jobs` — `create`, `list`, `get`, `update`, `delete`, `pause`, `resume`, `trigger`, `wait`
+- `client.jobs` — `create`, `list`, `get`, `update`, `events`, `delete`, `pause`, `resume`, `trigger`, `wait`
 - `client.runs` — `list`, `get`
+- `client.usage` — `query`
 - `client.models` — `list`, `defaults.get`, `defaults.update`, `preview`
-- `client.agents` — admin CRUD plus `skills`, `mcpServers`, `conversationInstalls`
-- `client.skills` — install, list, and inspect skills
+- `client.agents` — admin read and profile-file read/write plus `skills`, `mcpServers`, `conversationInstalls`
+- `client.skills` — install and list skills
 - `client.mcpServers` — catalog of MCP servers
 - `client.providers` — list channel providers
 - `client.providerAccounts` — CRUD plus `discoverConversations`
 - `client.conversations` — `list`, `get`, `messages`, get/set `approvers`
 - `client.webhooks` — `register`, `list`, `update`, `delete`, `test`, `replayDeadLetter`, `purgeDeadLetter`
 - `client.memory` — `save`, `search`, `list`, `patch`, `delete`, plus `dreaming.trigger` / `dreaming.status`
-- `client.settings` — read runtime settings
+- `client.settings` — read runtime settings, read/update desired state, list revisions
 - `client.ingresses` — manage external ingress configurations
 - `conversationMessageTarget` — build a typed signed-ingress target for an existing Gantry conversation/thread.
 

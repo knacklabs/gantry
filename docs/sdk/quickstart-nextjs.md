@@ -89,6 +89,65 @@ export async function GET(req: Request) {
 The route handler proxies the stream to the browser; the SDK client itself stays
 on the server.
 
+## Structured workflow step
+
+Sessions also work as typed pipeline steps, no chat UI involved: send
+`response_schema` and the inline-runtime agent must return JSON matching it
+(validated with one corrective retry server-side).
+
+```ts
+// app/api/triage/route.ts
+export async function POST(req: Request) {
+  const { ticketText } = await req.json();
+  const session = await client.sessions.ensure({
+    conversationId: TRIAGE_CONVERSATION_ID,
+  });
+
+  const accepted = await client.sessions.sendMessage({
+    sessionId: session.sessionId,
+    message: `Triage this support ticket:\n${ticketText}`,
+    response_schema: {
+      type: 'object',
+      required: ['category', 'priority', 'summary'],
+      properties: {
+        category: { type: 'string', enum: ['billing', 'bug', 'account', 'other'] },
+        priority: { type: 'string', enum: ['p0', 'p1', 'p2'] },
+        summary: { type: 'string' },
+      },
+    },
+    effort: 'low', // per-request override for this cheap step
+  });
+
+  const event = await client.sessions.wait(session.sessionId, {
+    afterEventId: accepted.acceptedEventId,
+    timeoutMs: 60_000,
+  });
+  const triage = JSON.parse((event.payload as { text: string }).text);
+  return Response.json(triage);
+}
+```
+
+## Raw model calls without an agent
+
+For single-shot classification or extraction, skip the agent loop entirely and
+point an official provider SDK at Gantry's LLM passthrough (the API key needs
+the `llm:invoke` scope):
+
+```ts
+import OpenAI from 'openai';
+
+const llm = new OpenAI({
+  apiKey: process.env.GANTRY_LLM_API_KEY!,
+  baseURL: `${process.env.GANTRY_BASE_URL}/llm/v1`,
+});
+
+const completion = await llm.chat.completions.create({
+  model: 'my-gantry-model-alias', // registered alias, not a raw provider id
+  max_tokens: 200,
+  messages: [{ role: 'user', content: 'Classify: "refund not received"' }],
+});
+```
+
 ## Provision the agent locked
 
 A customer-facing example agent (a support or product assistant your end users
@@ -99,6 +158,16 @@ with capabilities an operator pre-provisioned. See
 [Locked Preset](../decisions/2026-06-11-locked-preset.md) and
 [Agent Internals For SDK Consumers](./agent-internals.md#locked-access-preset).
 The preset is set on the agent, not in SDK calls — your client code is unchanged.
+
+## Beyond chat turns
+
+The same session machinery drives headless workflow steps: send
+`response_schema` with a message to get validated JSON back from an
+inline-runtime agent, pass per-request `effort` / `max_output_tokens`, make raw
+model calls without an agent via the Direct LLM API (`baseURL` swap on official
+provider SDKs), and subscribe webhooks to `run.completed` /
+`interaction.pending` instead of polling. See the
+[SDK API Reference](./api-reference.md) for all of these.
 
 ## Going to production
 

@@ -1,7 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { AgentCredentialBroker } from '@core/domain/ports/agent-credential-broker.js';
-import { getHostRuntimeCredentialEnv } from '@core/runtime/agent-spawn-host.js';
+import {
+  getHostRuntimeCredentialEnv,
+  withControls,
+} from '@core/runtime/agent-spawn-host.js';
+import { resolveEffectivePermissionMode } from '@core/shared/permission-mode.js';
 
 vi.mock('@core/config/index.js', () => ({
   AGENT_TIMEOUT: 30_000,
@@ -100,4 +104,62 @@ describe('getHostRuntimeCredentialEnv', () => {
       binding: expect.objectContaining({ runId: 'run:job-1' }),
     });
   });
+});
+
+describe('withControls', () => {
+  const input = {
+    prompt: 'hello',
+    workspaceFolder: 'main_agent',
+    chatJid: 'conversation:test',
+  };
+
+  it('uses only settings-owned tool rules', () => {
+    const configured = [
+      { tool: 'Bash', action: 'block' as const, reason: 'configured' },
+    ];
+    expect(
+      withControls(
+        {
+          ...input,
+          toolRules: [{ tool: 'Read', action: 'block', reason: 'untrusted' }],
+        },
+        { toolRules: configured },
+      ).toolRules,
+    ).toEqual(configured);
+  });
+
+  it('strips incoming tool rules when settings have none', () => {
+    const result = withControls(
+      {
+        ...input,
+        toolRules: [{ tool: 'Read', action: 'block', reason: 'untrusted' }],
+      },
+      { toolRules: [] },
+    );
+    expect(result).not.toHaveProperty('toolRules');
+  });
+
+  it('uses the host-resolved permission mode instead of incoming input', () => {
+    expect(
+      withControls(
+        { ...input, permissionMode: 'auto' },
+        { permissionMode: 'ask' },
+      ).permissionMode,
+    ).toBe('ask');
+  });
+});
+
+describe('resolveEffectivePermissionMode', () => {
+  it.each([
+    ['auto', 'ask', 'auto'],
+    [undefined, 'auto', 'auto'],
+    [undefined, undefined, 'ask'],
+  ] as const)(
+    'resolves conversation %s over agent %s to %s',
+    (conversationMode, agentMode, expected) => {
+      expect(resolveEffectivePermissionMode(conversationMode, agentMode)).toBe(
+        expected,
+      );
+    },
+  );
 });

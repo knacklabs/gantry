@@ -127,7 +127,7 @@ const telegramProvider: Provider = {
   folderPrefix: 'telegram_',
   isGroupJid: (jid: string) => jid.startsWith('tg:-'),
   canStreamToJid: (jid: string) => jid.startsWith('tg:-'),
-  formatting: 'telegram-html',
+  formatting: 'telegram-markdown-v2',
   isEnabled: (settings) => isChannelEnabled(settings, 'telegram'),
   create: createTelegramBuiltInChannel,
   setup: {

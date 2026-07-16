@@ -1,4 +1,5 @@
 import { parseBashCommand } from './bash-command-parser.js';
+import { stripHostInjectedEnvPrefix } from './runtime-env-command.js';
 
 export interface YoloModeSettings {
   enabled: boolean;
@@ -92,34 +93,51 @@ export function evaluateYoloModeDenylist(input: {
   return undefined;
 }
 
+// Both shell tool spellings carry a command string: SDK-native Bash and the
+// canonical RunCommand used by IPC/classifier paths.
+function isShellCommandTool(toolName: string): boolean {
+  return toolName === 'Bash' || toolName === 'RunCommand';
+}
+
+// Denylist matching must see through host-injected env prefixes: rule
+// matching normalizes them away, so the backstop evaluates both the raw
+// command and its stripped form.
+function shellCommandVariants(toolInput: unknown): string[] {
+  const command = commandText(toolInput);
+  if (!command) return [];
+  const stripped = stripHostInjectedEnvPrefix(command).command.trim();
+  return stripped && stripped !== command ? [command, stripped] : [command];
+}
+
 function extractCommandCandidates(
   toolName: string,
   toolInput: unknown,
 ): string[] {
-  if (toolName !== 'Bash') return [];
-  const command = commandText(toolInput);
-  if (!command) return [];
-  const parsed = parseBashCommand(command);
-  if (!parsed.ok) return [command];
-  return uniqueStable([
-    command,
-    ...parsed.leaves.map((leaf) => leaf.commandText),
-  ]);
+  if (!isShellCommandTool(toolName)) return [];
+  const candidates: string[] = [];
+  for (const command of shellCommandVariants(toolInput)) {
+    const parsed = parseBashCommand(command);
+    candidates.push(command);
+    if (parsed.ok) {
+      candidates.push(...parsed.leaves.map((leaf) => leaf.commandText));
+    }
+  }
+  return uniqueStable(candidates);
 }
 
 function extractPathCandidates(toolName: string, toolInput: unknown): string[] {
   const paths: string[] = [];
-  if (toolName === 'Bash') {
-    const command = commandText(toolInput);
-    if (!command) return paths;
-    const parsed = parseBashCommand(command);
-    if (parsed.ok) {
-      for (const leaf of parsed.leaves) {
-        paths.push(...leaf.argv.slice(1));
-        paths.push(...leaf.redirects.map((redirect) => redirect.target));
+  if (isShellCommandTool(toolName)) {
+    for (const command of shellCommandVariants(toolInput)) {
+      const parsed = parseBashCommand(command);
+      if (parsed.ok) {
+        for (const leaf of parsed.leaves) {
+          paths.push(...leaf.argv.slice(1));
+          paths.push(...leaf.redirects.map((redirect) => redirect.target));
+        }
+      } else {
+        paths.push(...splitShellish(command));
       }
-    } else {
-      paths.push(...splitShellish(command));
     }
     return uniqueStable(paths.filter(isPathToken));
   }
@@ -145,8 +163,13 @@ function collectPathFields(value: unknown, paths: string[]): void {
 
 function commandText(input: unknown): string | undefined {
   if (!input || typeof input !== 'object') return undefined;
-  const value = (input as Record<string, unknown>).command;
-  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+  const record = input as Record<string, unknown>;
+  // RunCommand accepts `cmd` as a command alias. Prefer whichever field is a
+  // usable string — a non-string `command` must not mask a real `cmd`.
+  for (const value of [record.command, record.cmd]) {
+    if (typeof value === 'string' && value.trim()) return value.trim();
+  }
+  return undefined;
 }
 
 function commandPatternMatches(pattern: string, command: string): boolean {

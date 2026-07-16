@@ -369,6 +369,28 @@ export type ModelResolution =
 
 export const MODEL_CATALOG: readonly ModelCatalogEntry[] = [
   executableModelEntry({
+    id: 'anthropic:fable-5',
+    route: anthropicRoute('claude-fable-5'),
+    displayName: 'Fable 5',
+    runnerModel: 'claude-fable-5',
+    aliases: ['fable', 'fable-5'],
+    recommendedAlias: 'fable',
+    source: CLAUDE_MODELS_OVERVIEW_SOURCE,
+    contextWindowTokens: 1_000_000,
+    maxOutputTokens: 128_000,
+    inputUsdPerMillionTokens: 10,
+    outputUsdPerMillionTokens: 50,
+    cachedInputUsdPerMillionTokens: 1,
+    cacheWriteUsdPerMillionTokens: 12.5,
+    cacheMode: DIRECT_PROMPT_CACHE_MODE,
+    cacheTokenFields: DIRECT_PROMPT_CACHE_TOKEN_FIELDS,
+    supportsThinking: true,
+    supportedEffortLevels: ALL_MODEL_EFFORT_LEVELS,
+    supportsAdaptiveThinking: true,
+    supportsTools: true,
+    supportedWorkloads: ['chat', 'one_time_job', 'recurring_job'],
+  }),
+  executableModelEntry({
     id: 'anthropic:opus-4.8',
     route: anthropicRoute('claude-opus-4-8'),
     displayName: 'Opus 4.8',

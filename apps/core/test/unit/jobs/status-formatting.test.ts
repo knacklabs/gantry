@@ -41,9 +41,9 @@ describe('job status formatting', () => {
     expect(message).toContain(
       'Completed: Memory dreaming needs attention: 4 sent to review.',
     );
-    expect(message).toContain('Used: none reported');
-    expect(message).toContain('Changed: none');
-    expect(message).toContain('Delegated: no');
+    expect(message).not.toContain('Used:');
+    expect(message).not.toContain('Changed:');
+    expect(message).not.toContain('Delegated:');
     expect(message).toContain(
       'Needs attention: 4 memory changes need your review.',
     );
@@ -68,9 +68,9 @@ describe('job status formatting', () => {
     expect(message).toContain(
       'Completed: memory dreaming deadline exceeded. 2 pending memory reviews need review.',
     );
-    expect(message).toContain('Used: none reported');
-    expect(message).toContain('Changed: none');
-    expect(message).toContain('Delegated: no');
+    expect(message).not.toContain('Used:');
+    expect(message).not.toContain('Changed:');
+    expect(message).not.toContain('Delegated:');
     expect(message).toContain(
       'Needs attention: 2 memory changes need your review.',
     );
@@ -80,7 +80,7 @@ describe('job status formatting', () => {
     expect(message).not.toContain('memory_review_pending');
   });
 
-  it('includes the full terminal receipt fields when no action is needed', () => {
+  it('omits empty receipt fields and Next without a concrete next run', () => {
     const message = formatRunStatusMessage({
       job: job(),
       runId: 'cb7f3c0a-c8f8-40eb-82f0-3b21d2cfc342',
@@ -92,9 +92,88 @@ describe('job status formatting', () => {
     });
 
     expect(message).toContain('Completed: Completed, no reportable output.');
-    expect(message).toContain('Used: none reported');
-    expect(message).toContain('Changed: none');
-    expect(message).toContain('Delegated: no');
-    expect(message).toContain('Needs attention: none');
+    expect(message).not.toContain('Used:');
+    expect(message).not.toContain('Changed:');
+    expect(message).not.toContain('Delegated:');
+    expect(message).not.toContain('Needs attention:');
+    expect(message).not.toContain('Next:');
+  });
+
+  it('presents completed reports with real attention as completed with issues', () => {
+    const message = formatRunStatusMessage({
+      job: job(),
+      runId: 'cb7f3c0a-c8f8-40eb-82f0-3b21d2cfc342',
+      runStatus: 'completed',
+      summary:
+        '## Final Job Report\nCompleted: Imported 3 records.\nNeeds attention: Approve the remaining record.',
+      nextRun: '2026-05-20T21:45:00.000Z',
+      retryCount: 0,
+    });
+
+    expect(message).toContain('**⚠️ Completed with issues**');
+    expect(message).toContain('Needs attention: Approve the remaining record.');
+    expect(message).toContain('Next: Runs again at ');
+  });
+
+  it('keeps the blocker line when the compacted summary truncates it away', () => {
+    const message = formatRunStatusMessage({
+      job: job(),
+      runId: 'cb7f3c0a-c8f8-40eb-82f0-3b21d2cfc342',
+      runStatus: 'completed',
+      summary: [
+        '## Final Job Report',
+        `Completed: ${'Long narrative detail. '.repeat(30)}`,
+        'Needs attention: LinkedIn session expired, re-authenticate.',
+      ].join('\n'),
+      nextRun: null,
+      retryCount: 0,
+    });
+
+    expect(message).toContain('**⚠️ Completed with issues**');
+    expect(message).toContain(
+      'Needs attention: LinkedIn session expired, re-authenticate.',
+    );
+  });
+
+  it('strips trailing agent-authored all-none receipt lines', () => {
+    const message = formatRunStatusMessage({
+      job: job(),
+      runId: 'cb7f3c0a-c8f8-40eb-82f0-3b21d2cfc342',
+      runStatus: 'completed',
+      summary: `${[
+        '## Final Job Report',
+        'Completed: Imported 3 records.',
+        'Used: none reported',
+        'Changed: none',
+        'Delegated: no',
+        'Needs attention: n/a',
+      ].join('\n')}\n`,
+      nextRun: null,
+      retryCount: 0,
+    });
+
+    expect(message).toContain(
+      'Completed: Final Job Report Completed: Imported 3 records.',
+    );
+    expect(message).not.toContain('Used:');
+    expect(message).not.toContain('Changed: none');
+    expect(message).not.toContain('Delegated: no');
+    expect(message).not.toContain('Needs attention:');
+  });
+
+  it('keeps Used only for a parsed terminal tool denial', () => {
+    const message = formatRunStatusMessage({
+      job: job(),
+      runId: 'cb7f3c0a-c8f8-40eb-82f0-3b21d2cfc342',
+      runStatus: 'failed',
+      summary:
+        'Tool not on autonomous run allowlist: RunCommand. Recovery: request_access {"target":{"kind":"run_command","argvPattern":"npm test *"},"temporaryOnly":false}',
+      nextRun: null,
+      retryCount: 1,
+    });
+
+    expect(message).toContain('Used: RunCommand');
+    expect(message).toContain('Needs attention: Approve the missing access');
+    expect(message).toContain('Next: Stopped until the job is fixed or rerun.');
   });
 });

@@ -372,6 +372,10 @@ function createRunnerFixture(): {
     path.join(sharedDir, 'permission-timeout.ts'),
   );
   fs.copyFileSync(
+    path.resolve('apps/core/src/shared/permission-mode.ts'),
+    path.join(sharedDir, 'permission-mode.ts'),
+  );
+  fs.copyFileSync(
     path.resolve('apps/core/src/shared/stable-hash.ts'),
     path.join(sharedDir, 'stable-hash.ts'),
   );

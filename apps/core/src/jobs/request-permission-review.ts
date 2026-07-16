@@ -134,11 +134,7 @@ export async function persistRequestPermissionRules(input: {
     mcpServerRepository: input.deps.getMcpServerRepository?.(),
     mirrorAgentToolRulesToSettings,
     permissionRepository: input.deps.getPermissionRepository?.(),
-    semanticCapabilityDefinitions:
-      input.semanticCapabilityDefinitions ??
-      (input.toolInput
-        ? semanticCapabilityDefinitionsForToolInput(input.toolInput)
-        : undefined),
+    semanticCapabilityDefinitions: input.semanticCapabilityDefinitions,
     ipcDir: input.ipcDir,
     runHandle: input.runHandle,
     requestId: input.requestId,
@@ -337,12 +333,6 @@ export function validateRequestPermissionSemanticCapability(
   if (!isValidSemanticCapabilityId(capabilityId)) {
     return 'Capability id must use lowercase dot-separated words such as app.resource.action.';
   }
-  return undefined;
-}
-
-export function semanticCapabilityDefinitionsForToolInput(
-  _toolInput: Record<string, unknown>,
-): Record<string, SemanticCapabilityDefinition> | undefined {
   return undefined;
 }
 

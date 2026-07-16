@@ -17,6 +17,7 @@ import { nowMs as currentTimeMs } from '../shared/time/datetime.js';
 import { RUNTIME_EVENT_TYPES } from '../domain/events/runtime-event-types.js';
 import { isValidWorkspaceFolder } from '../platform/workspace-folder.js';
 import { mcpToolPatternCovers } from '../shared/mcp-tool-scope.js';
+import type { PermissionMode } from '../shared/permission-mode.js';
 import {
   getHostRuntimeCredentialEnv,
   prepareInlineAgentHostContext,
@@ -93,7 +94,10 @@ export interface InlineJobActivity {
 
 export interface InlineAgentLoopLaneInput {
   group: ConversationRoute;
-  input: AgentInput & { compiledSystemPrompt: string };
+  input: AgentInput & {
+    compiledSystemPrompt: string;
+    permissionMode: PermissionMode;
+  };
   signal: AbortSignal;
   controlPort: InMemoryInlineRunnerControlPort;
   resolvedModel: Awaited<ReturnType<typeof resolveSpawnModel>>['resolvedModel'];
@@ -251,6 +255,8 @@ export async function runInlineAgent(
       input: {
         ...input,
         compiledSystemPrompt: hostContext.compiledSystemPrompt ?? '',
+        permissionMode: hostContext.permissionMode,
+        ...(hostContext.toolRules ? { toolRules: hostContext.toolRules } : {}),
       },
       onProcess,
       onOutput,
@@ -282,7 +288,10 @@ export async function runInlineAgent(
 
 async function executeInlineRun(input: {
   group: ConversationRoute;
-  input: AgentInput & { compiledSystemPrompt: string };
+  input: AgentInput & {
+    compiledSystemPrompt: string;
+    permissionMode: PermissionMode;
+  };
   onProcess: (proc: ChildProcess, runHandle: string) => void;
   onOutput?: (output: AgentOutput) => Promise<void>;
   options: InlineRunAgentOptions;

@@ -705,7 +705,7 @@ describe('agent-spawn timeout behavior', () => {
       'acme.invoices.read',
       'github.issues.create',
       'mcp.caw-ats.access',
-      'google.sheets.values.get',
+      'example.records.get',
       'skill.linkedin-posting.publish',
     ]);
     vi.mocked(getHostRuntimeCredentialEnv).mockReset();
@@ -1600,6 +1600,44 @@ describe('agent-spawn timeout behavior', () => {
       effort: 'low',
       configuredThinking: { mode: 'on' },
     });
+  });
+
+  it('projects the host-resolved permission mode instead of trusting runner input', async () => {
+    vi.mocked(getRuntimeSettingsForConfig).mockReturnValue({
+      permissions: {
+        yoloMode: { enabled: true, denylist: [], denylistPaths: [] },
+        egress: { denylist: [] },
+      },
+      runtime: {
+        sandbox: {
+          provider: 'direct',
+          resourceLimits: { cpuSeconds: 0, memoryMb: 0, maxProcesses: 0 },
+        },
+      },
+      agents: { 'test-group': { permissionMode: 'ask' } },
+    } as never);
+    const writeSpy = vi.spyOn(fakeProc.stdin, 'write');
+    const group = {
+      ...testGroup,
+      agentConfig: { permissionMode: 'auto' },
+    } as ConversationRoute;
+
+    const resultPromise = spawnTestAgent(
+      group,
+      { ...testInput, permissionMode: 'ask' },
+      () => {},
+    );
+    await vi.advanceTimersByTimeAsync(10);
+    fakeProc.emit('close', 0);
+    await vi.advanceTimersByTimeAsync(10);
+    await resultPromise;
+
+    expect(JSON.parse(String(writeSpy.mock.calls[0]?.[0]))).toMatchObject({
+      permissionMode: 'auto',
+    });
+    const env = vi.mocked(spawn).mock.calls.at(-1)?.[2]?.env;
+    expect(env?.GANTRY_PERMISSION_MODE).toBe('auto');
+    expect(env?.GANTRY_TURN_INTENT_SUMMARY).toBe('Hello');
   });
 
   it('passes memory context blocks through runner stdin only when input provides one', async () => {
@@ -2611,15 +2649,15 @@ describe('agent-spawn timeout behavior', () => {
     process.env.no_proxy = 'lower.internal,localhost';
     const runtimeAccess = [
       {
-        selectedCapabilityId: 'google.sheets.values.get',
+        selectedCapabilityId: 'example.records.get',
         sourceType: 'local_cli' as const,
-        auditLabel: 'Google Sheets get',
-        commandRules: ['RunCommand(/opt/homebrew/bin/gog sheets get *)'],
+        auditLabel: 'Example records get',
+        commandRules: ['RunCommand(/opt/tools/fake-cli records get *)'],
         credentialDirs: [],
         networkBindings: [
           {
-            commandRules: ['RunCommand(/opt/homebrew/bin/gog sheets get *)'],
-            hosts: ['oauth2.googleapis.com:443', 'sheets.googleapis.com:443'],
+            commandRules: ['RunCommand(/opt/tools/fake-cli records get *)'],
+            hosts: ['auth.example.com:443', 'records.example.com:443'],
           },
         ],
       },
@@ -2646,8 +2684,8 @@ describe('agent-spawn timeout behavior', () => {
         {
           ...testInput,
           toolPolicyRules: [
-            'capability:google.sheets.values.get',
-            'RunCommand(/opt/homebrew/bin/gog sheets get *)',
+            'capability:example.records.get',
+            'RunCommand(/opt/tools/fake-cli records get *)',
             'capability:skill.linkedin-posting.publish',
             'RunCommand(skills/linkedin-posting/post.py *)',
           ],
@@ -2667,8 +2705,8 @@ describe('agent-spawn timeout behavior', () => {
       expect(mockEnsureEgressGateway).toHaveBeenCalledWith(
         expect.objectContaining({
           networkAttribution: [
-            expect.objectContaining({ host: 'oauth2.googleapis.com:443' }),
-            expect.objectContaining({ host: 'sheets.googleapis.com:443' }),
+            expect.objectContaining({ host: 'auth.example.com:443' }),
+            expect.objectContaining({ host: 'records.example.com:443' }),
           ],
         }),
       );

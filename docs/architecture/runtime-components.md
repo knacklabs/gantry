@@ -272,11 +272,11 @@ Important permission boundaries:
 - Providers and model harnesses render, collect, stream, or execute projected
   work only. They do not decide permissions, approvers, durable grants,
   settings writes, stop authority, or continuation admission.
-- `permissions.yolo_mode` is a settings-owned safety valve for the 5-minute
-  all-tools timed grant only. The shipped command and path denylist is merged
-  with user entries; matches skip the timed-grant bypass, emit an audit event,
-  and fall through to the normal permission prompt. `enabled: false` disables
-  this check and makes YOLO total.
+- `permissions.yolo_mode` is the settings-owned denylist backstop for
+  auto-approval paths. Shipped command and path rules merge with user entries.
+  Matches emit `permission.yolo_denylist_hit`, skip auto-approval, and return to
+  normal explicit approval where the runner can prompt; otherwise they produce
+  an explicit denial. `enabled: false` disables this backstop.
 
 For the full security model, use [SECURITY.md](../SECURITY.md).
 

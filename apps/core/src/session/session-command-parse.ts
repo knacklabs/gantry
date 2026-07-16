@@ -1,4 +1,5 @@
 import type { ThinkingEffort, ThinkingOverride } from '../domain/types.js';
+import type { PermissionMode } from '../shared/permission-mode.js';
 
 // Host-managed slash-command parsing and authorization. Split out of
 // session-commands.ts (which owns command EXECUTION) so the pure text->command
@@ -20,7 +21,21 @@ export type SessionCommand =
   | { kind: 'model_default'; raw: '/model default' }
   | { kind: 'thinking_show'; raw: '/thinking' }
   | { kind: 'thinking_set'; raw: string; value: ThinkingOverride }
-  | { kind: 'thinking_default'; raw: '/thinking default' };
+  | { kind: 'thinking_default'; raw: '/thinking default' }
+  | { kind: 'permissions_show'; raw: '/permissions' }
+  | { kind: 'permissions_set'; raw: string; value: PermissionMode }
+  | { kind: 'permissions_default'; raw: '/permissions default' };
+
+function parsePermissionsCommand(text: string): SessionCommand | null {
+  if (text === '/permissions')
+    return { kind: 'permissions_show', raw: '/permissions' };
+  const value = text.match(/^\/permissions\s+(ask|auto|default)$/)?.[1];
+  if (value === 'default')
+    return { kind: 'permissions_default', raw: '/permissions default' };
+  return value === 'ask' || value === 'auto'
+    ? { kind: 'permissions_set', raw: `/permissions ${value}`, value }
+    : null;
+}
 
 function parseThinkingCommand(text: string): SessionCommand | null {
   if (text === '/thinking') return { kind: 'thinking_show', raw: '/thinking' };
@@ -130,6 +145,15 @@ function parseMentionFriendlySessionCommand(
     );
   }
 
+  const permissionsMatch = commandText.match(/^permissions(?:\s+(.+))?$/);
+  if (permissionsMatch) {
+    return parsePermissionsCommand(
+      permissionsMatch[1]
+        ? `/permissions ${permissionsMatch[1].trim()}`
+        : '/permissions',
+    );
+  }
+
   return null;
 }
 
@@ -204,6 +228,8 @@ export function extractSessionCommand(
 
   const thinking = parseThinkingCommand(text);
   if (thinking) return thinking;
+  const permissions = parsePermissionsCommand(text);
+  if (permissions) return permissions;
 
   if (hasTriggerPrefix) {
     const mentionFriendly = parseMentionFriendlySessionCommand(text);

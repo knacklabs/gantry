@@ -1,10 +1,16 @@
 function unquote(value: string): string {
   const trimmed = value.trim();
-  if (
-    (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
-    (trimmed.startsWith("'") && trimmed.endsWith("'"))
-  ) {
-    return trimmed.slice(1, -1);
+  if (trimmed.startsWith('"') && trimmed.endsWith('"')) {
+    try {
+      const parsed = JSON.parse(trimmed) as unknown;
+      if (typeof parsed === 'string') return parsed;
+    } catch (error) {
+      if (!(error instanceof SyntaxError)) throw error;
+      return trimmed.slice(1, -1);
+    }
+  }
+  if (trimmed.startsWith("'") && trimmed.endsWith("'")) {
+    return trimmed.slice(1, -1).replace(/''/g, "'");
   }
   return trimmed;
 }

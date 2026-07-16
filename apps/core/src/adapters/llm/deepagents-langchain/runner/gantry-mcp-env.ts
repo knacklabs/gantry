@@ -101,6 +101,8 @@ export function buildGantryMcpProjection(
     ...passthrough(env, 'GANTRY_BROWSER_PROFILE_NAME'),
     ...passthrough(env, 'GANTRY_AGENT_ACCESS_PRESET'),
     ...passthrough(env, 'GANTRY_DEPLOYMENT_MODE'),
+    ...passthrough(env, 'GANTRY_PERMISSION_MODE'),
+    ...passthrough(env, 'GANTRY_TURN_INTENT_SUMMARY'),
     ...passthrough(env, 'GANTRY_INTERACTIVE_PERMISSION_TIMEOUT_MS'),
     ...passthrough(env, 'GANTRY_PERMISSION_TIMEOUT_MS'),
     ...passthrough(env, 'GANTRY_ASYNC_TASK_TOOLS_ENABLED'),

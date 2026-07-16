@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { exportCurrentDesiredState } from '@core/config/settings/desired-state-current-export.js';
+import { SettingsDesiredStateService } from '@core/config/settings/desired-state-service.js';
 import {
   createDefaultRuntimeSettings,
   parseRuntimeSettings,
@@ -135,8 +136,16 @@ describe('exportCurrentDesiredState', () => {
     max_turns: 12
     max_run_tokens: 4096
     effort: high
+    permission_mode: auto
     thinking: on
     max_output_tokens: 2048
+    tool_rules:
+      - tool: Bash
+        action: block
+        reason: no shell
+permissions:
+  auto_mode:
+    model: sonnet
 `);
     settings.conversations = {
       shared_channel: {
@@ -307,11 +316,16 @@ describe('exportCurrentDesiredState', () => {
       maxTurns: 12,
       maxRunTokens: 4096,
       effort: 'high',
+      permissionMode: 'auto',
       thinking: { mode: 'on' },
       maxOutputTokens: 2048,
+      toolRules: [{ tool: 'Bash', action: 'block', reason: 'no shell' }],
     });
+    expect(exported.permissions.autoMode).toEqual({ model: 'sonnet' });
     const yaml = renderRuntimeSettingsYaml(exported as any);
     expect(yaml).toContain('installed_agents:');
+    expect(yaml).toContain('permission_mode: auto');
+    expect(yaml).toContain('auto_mode:');
     expect(yaml).toContain('      main_agent:');
     expect(yaml).toContain('      "main_agent_171.222":');
     expect(yaml).toContain('        agent: main_agent');
@@ -322,6 +336,8 @@ describe('exportCurrentDesiredState', () => {
       parsed.conversations.shared_channel.installedAgents['main_agent_171.222']
         ?.agentId,
     ).toBe('main_agent');
+    expect(parsed.agents.main_agent.permissionMode).toBe('auto');
+    expect(parsed.permissions.autoMode).toEqual({ model: 'sonnet' });
   });
 
   it('keeps disabled provider accounts needed by exported conversations', async () => {
@@ -445,6 +461,11 @@ describe('exportCurrentDesiredState', () => {
     effort: low
     thinking: off
     max_output_tokens: 1024
+    tool_rules:
+      - tool: Deploy
+        action: require_prior
+        prior: Test
+        reason: tests first
 `);
     settings.providerAccounts.slack_custom = {
       agentId: 'main_agent',
@@ -466,7 +487,7 @@ describe('exportCurrentDesiredState', () => {
         trigger: '@main',
         added_at: '2026-06-02T00:00:00.000Z',
         requiresTrigger: true,
-        agentConfig: { model: 'opus' },
+        agentConfig: { model: 'opus', permissionMode: 'auto' },
       },
     });
 
@@ -486,6 +507,7 @@ describe('exportCurrentDesiredState', () => {
       trigger: '@main',
       requiresTrigger: true,
       model: 'opus',
+      permissionMode: 'auto',
     });
     expect(exported.agents.main_agent?.runtime).toBe('inline');
     expect(exported.agents.main_agent).toMatchObject({
@@ -494,7 +516,42 @@ describe('exportCurrentDesiredState', () => {
       effort: 'low',
       thinking: { mode: 'off' },
       maxOutputTokens: 1024,
+      toolRules: [
+        {
+          tool: 'Deploy',
+          action: 'require_prior',
+          prior: 'Test',
+          reason: 'tests first',
+        },
+      ],
     });
+    expect(exported.agents.main_agent?.permissionMode).toBeUndefined();
+
+    const roundTripped = parseRuntimeSettings(
+      renderRuntimeSettingsYaml(exported),
+    );
+    const setConversationRoute = vi.fn(async () => undefined);
+    const service = new SettingsDesiredStateService({
+      ops: {
+        getAllConversationRoutes: vi.fn(async () => ({})),
+        setConversationRoute,
+      },
+      repositories: {
+        agents: { saveAgent: vi.fn(async () => undefined) },
+        tools: deps.repositories.tools,
+        skills: deps.repositories.skills,
+        mcpServers: deps.repositories.mcpServers,
+      },
+    } as any);
+
+    await service.reconcile(roundTripped);
+
+    expect(setConversationRoute).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        agentConfig: expect.objectContaining({ permissionMode: 'auto' }),
+      }),
+    );
   });
 
   it('keeps route-less channel installs trigger gated on export', async () => {

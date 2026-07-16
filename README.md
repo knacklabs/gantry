@@ -1,15 +1,34 @@
 # Gantry
 
-Gantry is a provider-neutral agent runtime. It gives AI agents a controlled
-host process, durable state, approved tools, channel adapters, memory, and audit
-records without tying application code to one model provider or chat surface.
+Gantry is a self-hosted, provider-neutral agent runtime for teams that run AI
+agents in production — in the channels where the team already works and inside
+their own products via SDK and API. It gives agents a controlled host process,
+durable state, approved tools, channel adapters, memory, and audit records
+without tying application code to one model provider or chat surface.
 
-Gantry is not a chatbot wrapper. It is the runtime boundary between:
+Gantry is not a chatbot wrapper and not a personal assistant. It is the
+runtime boundary between:
 
-- human channels such as Slack, Microsoft Teams, Telegram, and web/SDK clients;
-- application events and SDK calls;
+- human channels such as Slack, Microsoft Teams, Telegram, Discord, and
+  web/SDK clients;
+- application events, SDK calls, and scheduled jobs;
 - approved tools, local CLIs, browser automation, skills, and MCP servers;
 - Postgres-backed runtime state, artifacts, settings, credentials, and audit.
+
+What that buys a team in practice:
+
+- **Governed autonomy.** Capability grants, declarative per-agent `tool_rules`,
+  an optional LLM auto-permission mode that relieves prompt fatigue without
+  ever writing policy by itself, and one-tap durable approvals — every
+  decision audited.
+- **Fleet operations.** Multiple agents across conversations and channels,
+  scheduled jobs with delivery guarantees, sandboxed worker and lightweight
+  inline runtimes, and versioned desired-state settings.
+- **Developer surface.** A typed Node SDK generated from the OpenAPI doc,
+  lifecycle webhooks, a `/v1/usage` API, a provider-shaped direct LLM API, and
+  runnable NestJS/Next.js examples.
+- **Institutional memory.** Per-agent and shared memory with review flows, so
+  what agents learn stays inspectable and survives model or provider swaps.
 
 ## Status
 

@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { appendFile, mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import Ajv, { type ErrorObject, type ValidateFunction } from 'ajv';
 import type {
   GantryAgentTaskCancellationRequest,
   GantryAgentTaskInput,
@@ -12,7 +13,7 @@ import type {
   StructuredModelTaskRunnerConfig,
   StructuredJsonModelProvider,
 } from '../shared/types.js';
-import { asRecord, parseJsonRecord } from '../shared/helpers.js';
+import { asRecord, parseCompleteJsonRecord } from '../shared/helpers.js';
 import {
   buildAgentStepInstructions,
   buildAgentPromptMetrics,
@@ -31,10 +32,11 @@ import {
   runWithOptionalTimeout,
   summarizeAgentObservation,
 } from './agent-task-runner-helpers.js';
-import { unwrapStructuredJsonModelProviderResult } from './model-provider.js';
+import {
+  readStructuredModelStopError,
+  unwrapStructuredJsonModelProviderResult,
+} from './model-provider.js';
 import { observeGantryWorkflowSpan } from './model-observability.js';
-
-const SUPPORTED_AGENT_ACTIONS = new Set(['call_tool', 'final', 'needs_input']);
 
 export async function runGenericAgentTask(
   config: Omit<StructuredModelTaskRunnerConfig, 'model'> & {
@@ -50,6 +52,18 @@ export async function runGenericAgentTask(
   const warnings: string[] = [];
   const modelUsages: GantryStructuredModelUsage[] = [];
   const repeatedFailures = new Map<string, number>();
+  const actionSchema = buildGenericAgentActionSchema(input.finalSchema);
+  let validateAction: ValidateFunction | null = null;
+  let schemaCompilationError: string | null = null;
+  try {
+    validateAction = new Ajv({ allErrors: true, strict: false }).compile(
+      actionSchema,
+    );
+  } catch (error) {
+    schemaCompilationError =
+      error instanceof Error ? error.message : String(error);
+  }
+  let consecutiveModelOutputFailures = 0;
   const traceDir = resolveAgentModelTraceDir(input);
   const state: Record<string, unknown> = {
     input: input.input,
@@ -98,6 +112,17 @@ export async function runGenericAgentTask(
     readonly instruction?: string | null;
     readonly details?: Record<string, unknown> | null;
   }> => {
+    if (!validateAction?.({ action: 'final', output: inputArgs.output })) {
+      return {
+        accepted: false,
+        reason:
+          inputArgs.source === 'tool_final_output'
+            ? 'tool_final_output_schema_invalid'
+            : 'model_output_schema_invalid',
+        instruction: 'Return a final output that matches the supplied schema.',
+        details: { schemaErrors: formatSchemaErrors(validateAction?.errors) },
+      };
+    }
     if (!input.validateFinal) return { accepted: true };
     try {
       const result = await input.validateFinal({
@@ -216,6 +241,16 @@ export async function runGenericAgentTask(
     return result;
   };
 
+  if (schemaCompilationError || !validateAction) {
+    const error = 'invalid_final_schema';
+    return await finish(
+      'failed',
+      { status: 'failed', error, details: schemaCompilationError },
+      null,
+      error,
+    );
+  }
+
   for (let step = 1; step <= maxSteps; step += 1) {
     const remainingMs =
       deadlineMs === null ? null : deadlineMs - (Date.now() - startedAt);
@@ -251,7 +286,11 @@ export async function runGenericAgentTask(
         'agent_task_cancelled',
       );
     }
-    let action: Record<string, unknown>;
+    let action: Record<string, unknown> | null = null;
+    let modelOutputFailure: {
+      readonly code: string;
+      readonly details?: Record<string, unknown>;
+    } | null = null;
     let promptMetrics: Record<string, unknown> | null = null;
     const stepTools = await selectToolsForStep(input, {
       step,
@@ -265,7 +304,6 @@ export async function runGenericAgentTask(
         step,
         state,
       });
-      const actionSchema = buildGenericAgentActionSchema(input.finalSchema);
       let modelInput = await buildAgentModelInput(input, {
         step,
         state,
@@ -304,6 +342,8 @@ export async function runGenericAgentTask(
         promptMetrics,
       });
       let generated: unknown;
+      let generatedRawText: string | null = null;
+      let generatedStopReason: string | null = null;
       try {
         const generatedResult = unwrapStructuredJsonModelProviderResult(
           await runWithOptionalTimeout(
@@ -353,6 +393,8 @@ export async function runGenericAgentTask(
           ),
         );
         generated = generatedResult.output;
+        generatedRawText = generatedResult.rawText;
+        generatedStopReason = generatedResult.stopReason;
         recordModelUsage(modelUsages, generatedResult.modelUsage);
         promptMetrics = attachModelUsagePromptMetrics(
           promptMetrics,
@@ -448,16 +490,46 @@ export async function runGenericAgentTask(
           ),
         );
         generated = generatedResult.output;
+        generatedRawText = generatedResult.rawText;
+        generatedStopReason = generatedResult.stopReason;
         recordModelUsage(modelUsages, generatedResult.modelUsage);
         promptMetrics = attachModelUsagePromptMetrics(
           promptMetrics,
           generatedResult.modelUsage,
         );
       }
-      action =
-        typeof generated === 'string'
-          ? parseJsonRecord(generated)
-          : (generated as Record<string, unknown>);
+      const stopError = readStructuredModelStopError(generatedStopReason);
+      if (stopError) {
+        modelOutputFailure = {
+          code: stopError,
+          details: { stopReason: generatedStopReason },
+        };
+      } else {
+        try {
+          action = generatedRawText
+            ? parseCompleteJsonRecord(generatedRawText)
+            : typeof generated === 'string'
+              ? parseCompleteJsonRecord(generated)
+              : asRecord(generated);
+          if (!action)
+            throw new Error(
+              'Structured task model output must be a JSON object.',
+            );
+        } catch (error) {
+          modelOutputFailure = {
+            code: 'model_output_parse_invalid',
+            details: {
+              error: error instanceof Error ? error.message : String(error),
+            },
+          };
+        }
+      }
+      if (action && !validateAction(action)) {
+        modelOutputFailure = {
+          code: 'model_output_schema_invalid',
+          details: { schemaErrors: formatSchemaErrors(validateAction.errors) },
+        };
+      }
       await writeAgentModelTrace(traceDir, {
         kind: 'model_output',
         taskRunId,
@@ -465,8 +537,9 @@ export async function runGenericAgentTask(
         correlationId: input.correlationId ?? null,
         step,
         createdAt: new Date().toISOString(),
-        rawOutput: generated,
+        rawOutput: generatedRawText ?? generated,
         parsedAction: action,
+        modelOutputFailure,
         promptMetrics,
       });
     } catch (error) {
@@ -507,48 +580,56 @@ export async function runGenericAgentTask(
       );
     }
 
-    let parsed = parseGenericAgentAction(action);
-    let actionNormalization: Record<string, unknown> | null = null;
-    if (
-      !SUPPORTED_AGENT_ACTIONS.has(parsed.action) &&
-      input.normalizeUnsupportedModelAction
-    ) {
-      const unsupportedAction = parsed.action || 'empty_action';
-      try {
-        const normalized = asRecord(
-          await input.normalizeUnsupportedModelAction({
-            taskType: input.taskType,
-            correlationId: input.correlationId,
-            step,
-            state,
-            rawAction: action,
-            parsedAction: {
-              action: parsed.action,
-              toolName: parsed.toolName ?? null,
-              input: parsed.input,
-              output: parsed.output,
-              reason: parsed.reason ?? null,
-            },
-            unsupportedAction,
-          }),
-        );
-        if (normalized) {
-          const normalizedParsed = parseGenericAgentAction(normalized);
-          if (SUPPORTED_AGENT_ACTIONS.has(normalizedParsed.action)) {
-            action = normalized;
-            parsed = normalizedParsed;
-            actionNormalization = {
-              source: 'normalizeUnsupportedModelAction',
-              originalAction: unsupportedAction,
-              normalizedAction: parsed.action,
-            };
-          }
-        }
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        warnings.push(`normalize_unsupported_model_action_failed:${message}`);
-      }
+    if (modelOutputFailure) {
+      consecutiveModelOutputFailures += 1;
+      const terminal = consecutiveModelOutputFailures >= 2 || step >= maxSteps;
+      const error =
+        consecutiveModelOutputFailures >= 2
+          ? `${modelOutputFailure.code}_after_repair`
+          : modelOutputFailure.code;
+      state.recoveryHint = {
+        error: modelOutputFailure.code,
+        details: modelOutputFailure.details ?? null,
+        instruction:
+          'Return one complete JSON action matching the supplied schema. Keep it compact and do not include prose or markdown.',
+      };
+      recordAgentMemoryObservation(state, {
+        step,
+        toolName: 'model',
+        actionInput: null,
+        observation: {
+          status: 'failed',
+          error,
+          recoveryHint: state.recoveryHint,
+        },
+        status: 'failed',
+        error,
+      });
+      await recordStep({
+        step,
+        actionType: modelOutputFailure.code,
+        status: 'failed',
+        startedAt: stepStartedIso,
+        completedAt: new Date().toISOString(),
+        durationMs: Date.now() - stepStartedAt,
+        observation: {
+          status: 'failed',
+          error,
+          recoveryHint: state.recoveryHint,
+        },
+        error,
+        promptMetrics,
+      });
+      if (!terminal) continue;
+      return await finish('failed', { status: 'failed', error }, null, error);
     }
+    if (!action) {
+      const error = 'model_output_parse_invalid';
+      return await finish('failed', { status: 'failed', error }, null, error);
+    }
+
+    consecutiveModelOutputFailures = 0;
+    const parsed = parseGenericAgentAction(action);
     mergeModelProgressIntoAgentMemory(state, step, parsed);
     const progressTrace = {
       previousGoalEvaluation: parsed.previousGoalEvaluation ?? null,
@@ -607,7 +688,6 @@ export async function runGenericAgentTask(
         durationMs: Date.now() - stepStartedAt,
         observation: {
           ...summarizeAgentObservation(output),
-          ...(actionNormalization ? { actionNormalization } : {}),
         },
         promptMetrics,
         auditNote: parsed.auditNote,
@@ -653,66 +733,6 @@ export async function runGenericAgentTask(
         status: 'needs_review',
         reason: parsed.reason ?? 'agent_requested_input',
       });
-    }
-
-    if (parsed.action !== 'call_tool') {
-      const unsupportedAction = parsed.action || 'empty_action';
-      const message = `Unsupported agent action: ${parsed.action}`;
-      const repeatKey = `unsupported_action:${unsupportedAction}`;
-      const repeatCount = (repeatedFailures.get(repeatKey) ?? 0) + 1;
-      repeatedFailures.set(repeatKey, repeatCount);
-      state.recoveryHint = {
-        repeatKey,
-        repeatCount,
-        error: 'unsupported_agent_action',
-        unsupportedAction,
-        instruction:
-          'The previous model response did not choose a valid action. Continue with a valid action: call_tool, final, or needs_input. If the latest browser action filled/changed the page, call browser_inspect before any further browser action.',
-      };
-      recordAgentMemoryObservation(state, {
-        step,
-        toolName: unsupportedAction,
-        actionInput: null,
-        observation: {
-          status: 'failed',
-          error: message,
-          recoveryHint: state.recoveryHint,
-        },
-        status: 'failed',
-        error: message,
-      });
-      await recordStep({
-        step,
-        actionType: unsupportedAction,
-        status: 'failed',
-        startedAt: stepStartedIso,
-        completedAt: new Date().toISOString(),
-        durationMs: Date.now() - stepStartedAt,
-        observation: {
-          status: 'failed',
-          error: message,
-          recoveryHint: state.recoveryHint,
-        },
-        error: message,
-        promptMetrics,
-        auditNote: parsed.auditNote,
-        whyThisStep: parsed.whyThisStep,
-        expectedOutcome: parsed.expectedOutcome,
-        nextIfFails: parsed.nextIfFails,
-        visualSummary: parsed.visualSummary,
-        visibleTarget: parsed.visibleTarget,
-        whyThisAction: parsed.whyThisAction,
-        expectedStateChange: parsed.expectedStateChange,
-        fallbackIfWrong: parsed.fallbackIfWrong,
-        ...progressTrace,
-      });
-      if (repeatCount < 2 && step < maxSteps) continue;
-      return await finish(
-        'failed',
-        { status: 'failed', error: message },
-        null,
-        message,
-      );
     }
 
     const stepToolMap = new Map(stepTools.map((tool) => [tool.name, tool]));
@@ -1101,7 +1121,6 @@ export async function runGenericAgentTask(
               'Tool timeout recovery is active.',
               'Do not call tools. Return a final answer using the current state.',
             ].join('\n');
-          const actionSchema = buildGenericAgentActionSchema(input.finalSchema);
           const recoveryModelInput = await buildAgentModelInput(input, {
             step,
             state,
@@ -1192,10 +1211,18 @@ export async function runGenericAgentTask(
               recoveryPromptMetricsWithCache,
               generatedResult.modelUsage,
             );
-            const recoveryAction =
-              typeof generated === 'string'
-                ? parseJsonRecord(generated)
-                : (generated as Record<string, unknown>);
+            const stopError = readStructuredModelStopError(
+              generatedResult.stopReason,
+            );
+            if (stopError) throw new Error(stopError, { cause: error });
+            const recoveryAction = generatedResult.rawText
+              ? parseCompleteJsonRecord(generatedResult.rawText)
+              : typeof generated === 'string'
+                ? parseCompleteJsonRecord(generated)
+                : asRecord(generated);
+            if (!recoveryAction || !validateAction(recoveryAction)) {
+              throw new Error('model_output_schema_invalid', { cause: error });
+            }
             await writeAgentModelTrace(traceDir, {
               kind: 'model_output_tool_error_recovery',
               taskRunId,
@@ -1203,7 +1230,7 @@ export async function runGenericAgentTask(
               correlationId: input.correlationId ?? null,
               step,
               createdAt: new Date().toISOString(),
-              rawOutput: generated,
+              rawOutput: generatedResult.rawText ?? generated,
               parsedAction: recoveryAction,
               promptMetrics: recoveryPromptMetricsWithCache,
               previousError: message,
@@ -1689,6 +1716,17 @@ function fencedJson(value: unknown): string {
 function sanitizeTracePathSegment(value: string): string {
   const sanitized = value.replace(/[^a-zA-Z0-9._-]+/g, '-').slice(0, 160);
   return sanitized || 'trace';
+}
+
+function formatSchemaErrors(
+  errors: ErrorObject[] | null | undefined,
+): Array<Record<string, unknown>> {
+  return (errors ?? []).slice(0, 8).map((error) => ({
+    path: error.instancePath || '/',
+    keyword: error.keyword,
+    message: error.message ?? 'schema validation failed',
+    params: error.params,
+  }));
 }
 
 export { summarizeAgentObservation } from './agent-task-runner-helpers.js';

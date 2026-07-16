@@ -88,14 +88,14 @@ describe('AgentCapabilityAdministrationService', () => {
         tools: [{ id: 'browser', kind: 'builtin' }],
       },
       capabilities: [
-        { id: 'skill.one.publish', version: 'builtin' },
+        { id: 'skill.one.publish', version: 'catalog' },
         { id: 'browser.use', version: 'builtin' },
       ],
     });
 
     expect(response.sources.skills).toEqual([{ id: 'skill:one', name: 'One' }]);
     expect(response.capabilities).toEqual([
-      { id: 'skill.one.publish', version: 'builtin' },
+      { id: 'skill.one.publish', version: 'catalog' },
       { id: 'browser.use', version: 'builtin' },
     ]);
     expect(state.skillBindings).toEqual(
@@ -291,7 +291,7 @@ describe('AgentCapabilityAdministrationService', () => {
     state.tools.set('tool:generated-skill-command', {
       id: 'tool:generated-skill-command',
       appId: 'app:one',
-      name: 'RunCommand(/tmp/run/.llm-runtime/claude/skills/linkedin-posting/post.py *)',
+      name: 'RunCommand(/tmp/run/.llm-runtime/claude/skills/example-publishing/post.py *)',
       kind: 'host',
       provider: 'gantry',
       displayName: 'Generated skill command',
@@ -303,10 +303,10 @@ describe('AgentCapabilityAdministrationService', () => {
       createdAt: '2026-04-30T00:00:00.000Z',
       updatedAt: '2026-04-30T00:00:00.000Z',
     });
-    state.skills.set('skill:linkedin-posting', {
-      id: 'skill:linkedin-posting',
+    state.skills.set('skill:example-publishing', {
+      id: 'skill:example-publishing',
       appId: 'app:one',
-      name: 'linkedin-posting',
+      name: 'example-publishing',
       version: '1',
       source: 'admin_uploaded',
       status: 'installed',
@@ -316,20 +316,20 @@ describe('AgentCapabilityAdministrationService', () => {
       actionPermissions: [
         {
           id: 'publish',
-          capabilityId: 'skill.linkedin-posting.publish',
-          displayName: 'LinkedIn posting',
+          capabilityId: 'skill.example-publishing.publish',
+          displayName: 'Example publishing',
           risk: 'write',
-          can: 'Publish a prepared LinkedIn post through the installed script.',
+          can: 'Publish prepared content through the installed script.',
           cannot:
             'Use unrelated skills, credentials, settings, or broader commands.',
           requiredEnvVars: [],
-          commandTemplates: ['skills/linkedin-posting/post.py *'],
+          commandTemplates: ['skills/example-publishing/post.py *'],
         },
       ],
       storage: {
         storageType: 'local-filesystem',
-        storageRef: 'skills/linkedin-posting',
-        contentHash: 'sha256:linkedin',
+        storageRef: 'skills/example-publishing',
+        contentHash: 'sha256:example',
         sizeBytes: 1,
       },
       createdAt: '2026-04-30T00:00:00.000Z',
@@ -345,10 +345,10 @@ describe('AgentCapabilityAdministrationService', () => {
       updatedAt: '2026-04-30T00:00:00.000Z',
     });
     state.skillBindings.push({
-      id: 'agent-skill-binding:linkedin-posting',
+      id: 'agent-skill-binding:example-publishing',
       appId: 'app:one',
       agentId: 'agent:one',
-      skillId: 'skill:linkedin-posting',
+      skillId: 'skill:example-publishing',
       status: 'active',
       createdAt: '2026-04-30T00:00:00.000Z',
       updatedAt: '2026-04-30T00:00:00.000Z',
@@ -364,8 +364,8 @@ describe('AgentCapabilityAdministrationService', () => {
     });
 
     expect(response.capabilities).toContainEqual({
-      id: 'skill.linkedin-posting.publish',
-      version: 'builtin',
+      id: 'skill.example-publishing.publish',
+      version: 'catalog',
     });
     expect(response.capabilities).not.toEqual(
       expect.arrayContaining([

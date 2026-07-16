@@ -2,7 +2,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import http from 'node:http';
 import { createHash } from 'node:crypto';
 
-import { GantryModelGatewayBroker } from '@core/adapters/llm/anthropic-claude-agent/gantry-model-gateway.js';
+import {
+  extractGatewayResponseUsage,
+  GantryModelGatewayBroker,
+} from '@core/adapters/llm/anthropic-claude-agent/gantry-model-gateway.js';
 import { clearAwsDefaultCredentialProviderCacheForTest } from '@core/adapters/llm/anthropic-claude-agent/gantry-model-gateway-auth-aws-default.js';
 import { signAwsSigV4Request } from '@core/adapters/llm/anthropic-claude-agent/gantry-model-gateway-auth-sigv4.js';
 import {
@@ -308,7 +311,7 @@ describe('GantryModelGatewayBroker', () => {
     signAwsSigV4Request({
       method: 'POST',
       url: new URL(
-        'https://bedrock-runtime.us-east-1.amazonaws.com/v1/chat/completions?b=two&a=one&a=zero&space=a%20b',
+        'https://bedrock-mantle.us-east-1.api.aws/v1/chat/completions?b=two&a=one&a=zero&space=a%20b',
       ),
       headers,
       body: Buffer.from('{"model":"openai.gpt-oss-120b-1:0"}'),
@@ -327,7 +330,7 @@ describe('GantryModelGatewayBroker', () => {
       'e6f5b76929970d12f510677a95e505022a28268c8cfcc023e92171adbc006101',
     );
     expect(headers.authorization).toBe(
-      'AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/20260614/us-east-1/bedrock/aws4_request, SignedHeaders=content-type;host;x-amz-content-sha256;x-amz-date;x-amz-meta-a;x-amz-meta-z;x-amz-security-token, Signature=9ca220b8a1973977afd325d4d2bbf0b66aecb7526d9e58f88551693e5a863a91',
+      'AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/20260614/us-east-1/bedrock/aws4_request, SignedHeaders=content-type;host;x-amz-content-sha256;x-amz-date;x-amz-meta-a;x-amz-meta-z;x-amz-security-token, Signature=4cdbaf49e3dfc9fba8f49918ba3b3ba947962ef45872812d5fdce97ac16a38dc',
     );
   });
 
@@ -339,7 +342,7 @@ describe('GantryModelGatewayBroker', () => {
     signAwsSigV4Request({
       method: 'POST',
       url: new URL(
-        'https://bedrock-runtime.us-east-1.amazonaws.com/v1/chat/completions?x=a+b&plus=%2B',
+        'https://bedrock-mantle.us-east-1.api.aws/v1/chat/completions?x=a+b&plus=%2B',
       ),
       headers,
       body: Buffer.from('{"model":"openai.gpt-oss-120b-1:0"}'),
@@ -353,7 +356,7 @@ describe('GantryModelGatewayBroker', () => {
     });
 
     expect(headers.authorization).toBe(
-      'AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/20260614/us-east-1/bedrock/aws4_request, SignedHeaders=content-type;host;x-amz-content-sha256;x-amz-date, Signature=acea999188994dd6fd93f65f2b63331d18c89119e972a96823c9b3ff96e638ae',
+      'AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/20260614/us-east-1/bedrock/aws4_request, SignedHeaders=content-type;host;x-amz-content-sha256;x-amz-date, Signature=17644a21688828ebaed34d77b4061cb80824ff7eb88412c6ee7a666d3dfe120d',
     );
   });
 
@@ -766,6 +769,44 @@ describe('GantryModelGatewayBroker', () => {
     } finally {
       await broker.close();
     }
+  });
+
+  it.each([
+    [
+      'Anthropic',
+      {
+        model: 'claude-sonnet-4-6',
+        usage: { input_tokens: 12, output_tokens: 4 },
+      },
+      { inputTokens: 12, outputTokens: 4, model: 'sonnet' },
+    ],
+    [
+      'OpenAI-compatible',
+      { model: 'gpt-5.5', usage: { prompt_tokens: 9, completion_tokens: 3 } },
+      { inputTokens: 9, outputTokens: 3, model: 'gpt' },
+    ],
+  ])(
+    'extracts normalized %s non-streaming usage',
+    async (_name, payload, expected) => {
+      const usage = await extractGatewayResponseUsage(
+        new Response(JSON.stringify(payload), {
+          headers: { 'content-type': 'application/json' },
+        }),
+        Buffer.from(JSON.stringify({ model: payload.model })),
+      );
+      expect(usage).toMatchObject(expected);
+    },
+  );
+
+  it('skips streamed usage without parsing SSE frames', async () => {
+    await expect(
+      extractGatewayResponseUsage(
+        new Response('data: {"usage":{"input_tokens":12}}\n\n', {
+          headers: { 'content-type': 'text/event-stream' },
+        }),
+        Buffer.from(JSON.stringify({ stream: true })),
+      ),
+    ).resolves.toBeUndefined();
   });
 
   it('does not publish ephemeral credential revocation scopes as runtime run ids', async () => {
@@ -1477,9 +1518,7 @@ describe('GantryModelGatewayBroker', () => {
 
       expect(response.status).toBe(200);
       expect(upstreamFetch).toHaveBeenCalledWith(
-        new URL(
-          'https://bedrock-runtime.us-east-1.amazonaws.com/v1/chat/completions',
-        ),
+        new URL('https://bedrock-mantle.us-east-1.api.aws/v1/chat/completions'),
         expect.objectContaining({
           headers: expect.objectContaining({
             authorization: 'Bearer bedrock-upstream-key',
@@ -1530,9 +1569,7 @@ describe('GantryModelGatewayBroker', () => {
       });
       expect(awsDefaultCredentialProviderMock).toHaveBeenCalledTimes(1);
       expect(upstreamFetch).toHaveBeenCalledWith(
-        new URL(
-          'https://bedrock-runtime.us-east-1.amazonaws.com/v1/chat/completions',
-        ),
+        new URL('https://bedrock-mantle.us-east-1.api.aws/v1/chat/completions'),
         expect.objectContaining({
           headers: expect.objectContaining({
             authorization: expect.stringContaining(
@@ -1576,9 +1613,7 @@ describe('GantryModelGatewayBroker', () => {
         SecretId: 'prod/bedrock/api-key',
       });
       expect(upstreamFetch).toHaveBeenCalledWith(
-        new URL(
-          'https://bedrock-runtime.us-east-1.amazonaws.com/v1/chat/completions',
-        ),
+        new URL('https://bedrock-mantle.us-east-1.api.aws/v1/chat/completions'),
         expect.objectContaining({
           headers: expect.objectContaining({
             authorization: 'Bearer bedrock-secret-ref-key',

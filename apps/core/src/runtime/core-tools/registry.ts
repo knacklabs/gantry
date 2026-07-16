@@ -40,6 +40,25 @@ import type {
   CoreToolSchemas,
 } from './schemas.js';
 
+type CoreToolRule =
+  | {
+      tool: string;
+      action: 'block';
+      reason: string;
+      when?: { arg: string; matches: string };
+    }
+  | {
+      tool: string;
+      action: 'require_prior';
+      prior: string;
+      reason: string;
+    };
+
+interface CoreToolSuccessLedger {
+  recordSuccess(toolName: string): void;
+  hasSuccess(toolName: string): boolean;
+}
+
 export const CORE_TOOL_NAMES = [
   'send_message',
   'ask_user_question',
@@ -99,7 +118,10 @@ export interface CoreToolRunContext {
   memoryBlock?: string;
   allowedToolRules?: readonly string[];
   autonomousAllowedToolRules?: readonly string[];
+  toolRules?: readonly CoreToolRule[];
+  toolSuccessLedger?: CoreToolSuccessLedger;
   yoloMode?: YoloModeSettings;
+  permissionMode: import('../../shared/permission-mode.js').PermissionMode;
   accessPreset?: 'full' | 'locked';
 }
 
@@ -137,7 +159,12 @@ export interface CoreToolRegistryDeps extends CoreSendMessageDeps {
     toolInput: unknown;
     memoryBlock: string;
     yoloMode?: YoloModeSettings;
-  }): { reason: string } | null;
+    toolRules?: readonly CoreToolRule[];
+    successLedger?: CoreToolSuccessLedger;
+  }): {
+    reason: string;
+    error?: McpCompatibleToolError;
+  } | null;
   evaluateToolPolicy(input: {
     classifier: ToolExecutionClassifier;
     policy: ToolExecutionPolicyService;
@@ -317,10 +344,64 @@ export function createCoreToolRegistry(deps: CoreToolRegistryDeps): {
           false,
         );
       }
+      if (deps.context.toolRules?.length) {
+        const denial = deps.evaluateToolPreChecks({
+          toolName: name,
+          toolInput: parsed.data,
+          memoryBlock: deps.context.memoryBlock ?? '',
+          yoloMode: deps.context.yoloMode,
+          toolRules: deps.context.toolRules,
+          successLedger: deps.context.toolSuccessLedger,
+        });
+        if (denial) {
+          const error = denial.error ?? {
+            category: 'permission' as const,
+            isRetryable: false,
+            message: denial.reason,
+          };
+          if (
+            deps.context.isScheduledJob &&
+            deps.context.jobId &&
+            deps.publishRuntimeEvent
+          ) {
+            await deps
+              .publishRuntimeEvent({
+                appId: deps.context.appId as never,
+                agentId: deps.context.agentId as never,
+                runId: deps.context.runId as never,
+                jobId: deps.context.jobId as never,
+                conversationId: deps.context.conversationId as never,
+                threadId: deps.context.threadId as never,
+                eventType: RUNTIME_EVENT_TYPES.JOB_TOOL_ACTIVITY,
+                actor: 'inline-agent',
+                responseMode: 'none',
+                payload: {
+                  phase: 'deny',
+                  tool: name,
+                  ok: false,
+                  reason: error.message,
+                  error,
+                },
+              })
+              .catch(() => undefined);
+          }
+          return {
+            content: [{ type: 'text', text: error.message }],
+            isError: true,
+            error,
+          };
+        }
+      }
       const gate = await gateCoreTool(name, parsed.data, deps, id);
       if (gate) return gate;
       try {
-        return await tool.handler(parsed.data, context);
+        const result = await tool.handler(parsed.data, context);
+        if (!result.isError) {
+          deps.context.toolSuccessLedger?.recordSuccess(name);
+          const gateName = coreToolGateName(name);
+          if (gateName) deps.context.toolSuccessLedger?.recordSuccess(gateName);
+        }
+        return result;
       } catch (error) {
         return errorResult(
           error instanceof Error ? error.message : String(error),
@@ -356,18 +437,24 @@ async function gateCoreTool(
   deps: CoreToolRegistryDeps,
   id: (prefix: string) => string,
 ): Promise<McpCompatibleToolResult | null> {
-  const gateName =
-    name === 'delegate_task' || name === 'task_message'
-      ? 'AgentDelegation'
-      : null;
+  const gateName = coreToolGateName(name);
   if (!gateName) return null;
   const precheck = deps.evaluateToolPreChecks({
     toolName: gateName,
     toolInput: args,
     memoryBlock: deps.context.memoryBlock ?? '',
     yoloMode: deps.context.yoloMode,
+    toolRules: deps.context.toolRules,
+    successLedger: deps.context.toolSuccessLedger,
   });
-  if (precheck) return permissionDenied(precheck.reason);
+  if (precheck) {
+    const error = precheck.error ?? {
+      category: 'permission' as const,
+      isRetryable: false,
+      message: precheck.reason,
+    };
+    return errorResult(error.message, error.category, error.isRetryable);
+  }
   const decision = deps.evaluateToolPolicy({
     classifier: new ToolExecutionClassifier(),
     policy: new ToolExecutionPolicyService(),
@@ -387,7 +474,7 @@ async function gateCoreTool(
   if (deps.context.accessPreset === 'locked') {
     return permissionDenied(LOCKED_ACCESS_PRESET_DENY_REASON);
   }
-
+  // Auto classifier omitted: only ineligible AgentDelegation reaches this seam.
   const request: PermissionApprovalRequest = {
     requestId: id('permission'),
     sourceAgentFolder: deps.context.sourceAgentFolder,
@@ -413,9 +500,7 @@ async function gateCoreTool(
         destination: 'session',
       },
     ],
-    decisionOptions: deps.context.isScheduledJob
-      ? ['allow_once', 'allow_persistent_rule', 'cancel']
-      : ['allow_once', 'allow_timed_grant', 'allow_persistent_rule', 'cancel'],
+    decisionOptions: ['allow_once', 'allow_persistent_rule', 'cancel'],
   };
   const interaction = await runDurablePermissionInteraction({
     request,
@@ -484,6 +569,12 @@ async function gateCoreTool(
   return interaction.decision.approved
     ? null
     : permissionDenied(interaction.decision.reason ?? 'request cancelled');
+}
+
+function coreToolGateName(name: CoreToolName): 'AgentDelegation' | null {
+  return name === 'delegate_task' || name === 'task_message'
+    ? 'AgentDelegation'
+    : null;
 }
 
 async function memoryResult(

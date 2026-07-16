@@ -2,6 +2,7 @@ import type { RuntimePermissionSettings } from './runtime-settings-types.js';
 import { validateEgressDenylistPattern } from '../../shared/egress-policy.js';
 import {
   parseBooleanValue,
+  parseOptionalStringValue,
   parseStringArrayValue,
 } from './runtime-settings-parse-primitives.js';
 
@@ -17,6 +18,7 @@ export function parsePermissionSettings(
     egress: {
       denylist: [],
     },
+    autoMode: {},
   };
   if (raw === undefined) return defaults;
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
@@ -24,9 +26,9 @@ export function parsePermissionSettings(
   }
   const map = raw as Record<string, unknown>;
   for (const key of Object.keys(map)) {
-    if (key !== 'yolo_mode' && key !== 'egress') {
+    if (key !== 'yolo_mode' && key !== 'egress' && key !== 'auto_mode') {
       throw new Error(
-        `permissions.${key} is not supported. Configure permissions.yolo_mode.* or permissions.egress.*.`,
+        `permissions.${key} is not supported. Configure permissions.yolo_mode.*, permissions.egress.*, or permissions.auto_mode.*.`,
       );
     }
   }
@@ -62,6 +64,23 @@ export function parsePermissionSettings(
       );
     }
   }
+  const autoModeRaw = map.auto_mode;
+  if (
+    autoModeRaw !== undefined &&
+    (typeof autoModeRaw !== 'object' ||
+      autoModeRaw === null ||
+      Array.isArray(autoModeRaw))
+  ) {
+    throw new Error('permissions.auto_mode must be a mapping');
+  }
+  const autoMode = (autoModeRaw || {}) as Record<string, unknown>;
+  for (const key of Object.keys(autoMode)) {
+    if (key !== 'model') {
+      throw new Error(
+        `permissions.auto_mode.${key} is not supported. Configure model.`,
+      );
+    }
+  }
   return {
     yoloMode: {
       enabled: parseBooleanValue(
@@ -86,6 +105,12 @@ export function parsePermissionSettings(
         'permissions.egress.denylist',
         defaults.egress.denylist,
         validateEgressDenylistPattern,
+      ),
+    },
+    autoMode: {
+      model: parseOptionalStringValue(
+        autoMode.model,
+        'permissions.auto_mode.model',
       ),
     },
   };

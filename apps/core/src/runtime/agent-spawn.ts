@@ -147,7 +147,12 @@ export async function spawnAgent(
       error: resolvedModel.message,
     };
   }
-  input = host.withControls(input, runtimeSettings.agents?.[group.folder]);
+  const agentSettings = runtimeSettings.agents?.[group.folder];
+  input = host.withControls(
+    input,
+    agentSettings,
+    group.agentConfig?.permissionMode,
+  );
   const agentEngine = resolvedModel.value.agentEngine;
   const effectiveModel = resolvedModel.value.runnerModel;
   const preSpawnAdmissionError = hostStartup.measure(
@@ -168,7 +173,7 @@ export async function spawnAgent(
   const agentIdentifier = group.folder.toLowerCase().replace(/_/g, '-');
   const credentials = host.getHostRuntimeCredentialEnv;
   const agentAccessPolicy = resolveAgentAccessPolicy(
-    runtimeSettings.agents?.[group.folder]?.accessPreset,
+    agentSettings?.accessPreset,
   );
   const isLockedAgent = agentAccessPolicy.preset === 'locked';
   const compiledSystemPrompt = await compileSpawnSystemPrompt({
@@ -237,7 +242,7 @@ export async function spawnAgent(
     preparedExecution = await hostStartup.measureAsync('adapterPrepareMs', () =>
       executionAdapter.prepare({
         group,
-        input,
+        input: { ...input, permissionMode: input.permissionMode ?? 'ask' },
         hostRuntime,
         groupDir,
         effectiveModel,
@@ -547,6 +552,8 @@ export async function spawnAgent(
       hideAuthorityTools,
       agentAccessPreset: agentAccessPolicy.preset,
       deploymentMode: getDeploymentMode(),
+      permissionMode: input.permissionMode ?? 'ask',
+      turnIntentSummary: input.prompt,
       permissionTimeoutMs: PERMISSION_APPROVAL_TIMEOUT_MS,
       egressProxyUrl: egressGateway.proxyUrl,
       sandboxRuntimeProxy: runnerSandboxProviderId === 'sandbox_runtime',

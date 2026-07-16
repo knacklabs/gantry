@@ -83,6 +83,10 @@ class MemoryRuntimeEventRepository implements RuntimeEventRepository {
       )
       .slice(0, filter.limit ?? 100);
   }
+
+  async queryUsage() {
+    return [];
+  }
 }
 
 describe('RuntimeEventExchange', () => {

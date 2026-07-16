@@ -94,7 +94,7 @@ export function buildGenericAgentStepInstructions(
     '{"action":"call_tool","toolName":"tool_name","input":{...}}',
     '{"action":"final","output":{...}}',
     '{"action":"needs_input","reason":"..."}',
-    'Every response must also include previousGoalEvaluation, memoryUpdate, and nextGoal. Treat them as the agent progress ledger: evaluate the previous goal, record durable facts/failures, and name the next concrete goal.',
+    'When useful, include previousGoalEvaluation, memoryUpdate, and nextGoal as the agent progress ledger: evaluate the previous goal, record durable facts/failures, and name the next concrete goal.',
     'previousGoalEvaluation shape: {"goal":"...","status":"passed|failed|partial|not_evaluated","evidenceRefs":["..."],"reason":"..."}',
     'memoryUpdate shape: {"durableFacts":{...},"failedActions":[...],"notes":["..."]}. Only include facts that should survive long runs and compaction.',
     'nextGoal shape: {"goal":"...","requiredEvidence":["..."],"recommendedTool":"tool_name_or_null"}',
@@ -132,16 +132,16 @@ export async function buildAgentStepInstructions(
 }
 
 export function buildGenericAgentActionSchema(
-  finalSchema?: Record<string, unknown>,
+  finalSchema: Record<string, unknown> = { type: 'object' },
 ): Record<string, unknown> {
   return {
     type: 'object',
-    required: ['action', 'previousGoalEvaluation', 'memoryUpdate', 'nextGoal'],
+    required: ['action'],
     properties: {
       action: { type: 'string', enum: ['call_tool', 'final', 'needs_input'] },
       toolName: { type: 'string' },
       input: { type: 'object' },
-      output: finalSchema ?? { type: 'object' },
+      output: { type: 'object' },
       reason: { type: 'string' },
       auditNote: { type: 'string' },
       whyThisStep: { type: 'string' },
@@ -174,6 +174,23 @@ export function buildGenericAgentActionSchema(
         },
       },
     },
+    oneOf: [
+      {
+        required: ['action', 'toolName', 'input'],
+        properties: { action: { const: 'call_tool' } },
+      },
+      {
+        required: ['action', 'output'],
+        properties: {
+          action: { const: 'final' },
+          output: finalSchema,
+        },
+      },
+      {
+        required: ['action', 'reason'],
+        properties: { action: { const: 'needs_input' } },
+      },
+    ],
   };
 }
 

@@ -169,9 +169,7 @@ describe('skill CLI', () => {
             JSON.stringify({
               skill: {
                 id: 'skill:installed',
-                actionPermissions: [
-                  { capabilityId: 'skill.linkedin-posting.publish' },
-                ],
+                actionPermissions: [{ capabilityId: 'skill.example.publish' }],
               },
             }),
           );
@@ -236,11 +234,11 @@ describe('skill CLI', () => {
       sources: { skills: [], mcpServers: [], tools: [] },
       selections: [
         { id: 'browser.use', version: 'builtin' },
-        { id: 'skill.linkedin-posting.publish', version: 'builtin' },
+        { id: 'skill.example.publish', version: 'catalog' },
       ],
     });
     expect(note).toHaveBeenCalledWith(
-      expect.stringContaining('skill.linkedin-posting.publish'),
+      expect.stringContaining('skill.example.publish'),
       'Skill Installed',
     );
   });

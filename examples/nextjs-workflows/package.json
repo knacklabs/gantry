@@ -1,0 +1,24 @@
+{
+  "name": "@gantry/example-nextjs-workflows",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@gantry/sdk": "0.4.0",
+    "@types/node": "^24.0.0",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "next": "^16.0.0",
+    "openai": "^6.0.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "typescript": "^5.7.0"
+  },
+  "engines": {
+    "node": ">=24 <26"
+  }
+}

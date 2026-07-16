@@ -16,7 +16,7 @@ describe('job tool access requirements', () => {
         'FileWrite',
         'AgentDelegation',
         'mcp__gantry__settings_desired_state',
-        'capability:google_sheets',
+        'capability:example.records.append',
         'RunCommand(npm test *)',
         'Browser',
       ]),
@@ -27,7 +27,7 @@ describe('job tool access requirements', () => {
       'FileWrite',
       'AgentDelegation',
       'mcp__gantry__settings_desired_state',
-      'capability:google_sheets',
+      'capability:example.records.append',
       'RunCommand(npm test *)',
     ]);
   });

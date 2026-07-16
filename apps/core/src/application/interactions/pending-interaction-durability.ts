@@ -16,7 +16,7 @@ import type {
   LiveTurnCommandRepository,
   LiveTurnRepository,
 } from '../../domain/ports/live-turns.js';
-import { nowMs, parseIso, toIso } from '../../shared/time/datetime.js';
+import { nowMs, toIso } from '../../shared/time/datetime.js';
 import { enqueueResolvedInteractionCommand } from './pending-interaction-live-turn-delivery.js';
 import {
   applyPendingInteractionGrantDecision,
@@ -33,6 +33,11 @@ import {
 } from './pending-interaction-question-selections.js';
 const DEFAULT_INTERACTION_TTL_MS = 24 * 60 * 60_000;
 const DEFAULT_APP_ID = 'default';
+const RESERVED_PERMISSION_DECIDERS = new Set([
+  'runtime',
+  'system',
+  'auto_classifier',
+]);
 type InteractionDurabilityRepository = PendingInteractionRepository &
   RunLeaseRepository &
   TransientGrantRepository;
@@ -302,6 +307,12 @@ export async function resolveDurablePermissionInteractionByRequestId(input: {
 }): Promise<boolean> {
   const active = backend;
   if (!active) return false;
+  if (
+    input.mode !== 'cancel' &&
+    !isConcretePermissionApproverIdentity(input.approverRef)
+  ) {
+    return false;
+  }
   const appId = input.appId || DEFAULT_APP_ID;
   try {
     const pending = (
@@ -370,7 +381,6 @@ export async function resolveDurablePermissionInteractionByRequestId(input: {
         reason: decision.reason ?? input.reason ?? null,
         updatedPermissions: decision.updatedPermissions ?? null,
         decisionClassification: decision.decisionClassification ?? null,
-        timedGrantExpiresAtMs: decision.timedGrantExpiresAtMs ?? null,
       },
       approverRef: decision.decidedBy ?? input.approverRef ?? null,
     });
@@ -381,6 +391,13 @@ export async function resolveDurablePermissionInteractionByRequestId(input: {
     );
     return false;
   }
+}
+
+function isConcretePermissionApproverIdentity(
+  approverRef: string | null | undefined,
+): boolean {
+  const normalized = approverRef?.trim().toLowerCase();
+  return Boolean(normalized && !RESERVED_PERMISSION_DECIDERS.has(normalized));
 }
 
 export function applyPermissionInteractionDecision(
@@ -650,7 +667,6 @@ export async function recordRunScopedTransientGrant(input: {
   runLeaseToken?: string | null;
   runLeaseFencingVersion?: number | null;
   grant: Record<string, unknown>;
-  expiresAtMs?: number;
 }): Promise<void> {
   const active = backend;
   if (!active) return;
@@ -659,19 +675,13 @@ export async function recordRunScopedTransientGrant(input: {
     if (!lease) return;
     const leaseToken = input.runLeaseToken;
     if (!leaseToken) return;
-    const leaseExpiryMs =
-      parseIso(lease.expiresAt)?.getTime() ?? Number.MAX_SAFE_INTEGER;
-    const expiresAtMs = Math.min(
-      input.expiresAtMs ?? leaseExpiryMs,
-      leaseExpiryMs,
-    );
     await active.repository.createTransientGrant({
       id: globalThis.crypto.randomUUID(),
       appId: input.appId || DEFAULT_APP_ID,
       runId: input.runId,
       leaseToken,
       grant: input.grant,
-      expiresAt: toIso(expiresAtMs),
+      expiresAt: lease.expiresAt,
     });
   } catch (err) {
     active.warn?.(

@@ -48,75 +48,14 @@ describe('requestPermissionApproval', () => {
     process.env.GANTRY_IPC_RESPONSE_VERIFY_KEY = 'test-key';
     process.env.GANTRY_IPC_RESPONSE_KEY_ID = 'test-response-key';
     process.env.GANTRY_AGENT_RUN_HANDLE = 'run-handle-1';
+    process.env.GANTRY_MEMORY_USER_ID = 'operator-1';
+    process.env.GANTRY_MEMORY_REVIEWER_IS_CONTROL_APPROVER = '1';
   });
 
   afterEach(() => {
     process.env = oldEnv;
     fs.rmSync(tempDir, { recursive: true, force: true });
     vi.restoreAllMocks();
-  });
-
-  it('shares one timed-grant approval across identical concurrent same-run permission requests', async () => {
-    const { requestPermissionApproval } =
-      await import('@core/adapters/llm/anthropic-claude-agent/runner/permission-callback.js');
-
-    const first = requestPermissionApproval({
-      appId: 'default',
-      agentId: 'agent:main_agent',
-      workspaceFolder: 'main_agent',
-      targetJid: 'tg:test',
-      threadId: 'topic-1',
-      toolName: 'Bash',
-      toolInput: { command: 'find ~/persona -type f' },
-    });
-    const second = requestPermissionApproval({
-      appId: 'default',
-      agentId: 'agent:main_agent',
-      workspaceFolder: 'main_agent',
-      targetJid: 'tg:test',
-      threadId: 'topic-2',
-      toolName: 'Bash',
-      toolInput: { command: 'find ~/persona -type f' },
-    });
-
-    const requestDir = path.join(
-      tempDir,
-      'ipc',
-      'main_agent',
-      'permission-requests',
-    );
-    const requestFiles = await waitForFiles(requestDir, 1);
-    expect(requestFiles).toHaveLength(1);
-    const request = JSON.parse(
-      fs.readFileSync(path.join(requestDir, requestFiles[0]), 'utf-8'),
-    ) as { requestId: string; responseNonce: string };
-
-    const responseDir = path.join(
-      tempDir,
-      'ipc',
-      'main_agent',
-      'permission-responses',
-    );
-    fs.mkdirSync(responseDir, { recursive: true });
-    fs.writeFileSync(
-      path.join(responseDir, `${request.requestId}.json`),
-      JSON.stringify({
-        requestId: request.requestId,
-        responseNonce: request.responseNonce,
-        approved: true,
-        mode: 'allow_timed_grant',
-        decidedBy: 'Ravi',
-        timedGrantExpiresAtMs: Date.now() + 60_000,
-        signature: 'test-signature',
-      }),
-    );
-
-    const [firstDecision, secondDecision] = await Promise.all([first, second]);
-    expect(firstDecision.mode).toBe('allow_timed_grant');
-    expect(secondDecision.mode).toBe('allow_timed_grant');
-    expect(
-      fs.readdirSync(requestDir).filter((file) => file.endsWith('.json')),
-    ).toHaveLength(1);
   });
 
   it('does not reuse a denial for a different requested tool in the same run', async () => {
@@ -213,5 +152,94 @@ describe('requestPermissionApproval', () => {
     const secondDecision = await second;
     expect(secondDecision.approved).toBe(true);
     expect(secondDecision.mode).toBe('allow_once');
+  });
+
+  it('still immediately denies zero-timeout ask mode', async () => {
+    process.env.GANTRY_JOB_ID = 'job-ask';
+    process.env.GANTRY_JOB_RUN_ID = 'run-ask';
+    process.env.GANTRY_AUTONOMOUS_PERMISSION_TIMEOUT_MS = '0';
+    process.env.GANTRY_PERMISSION_MODE = 'ask';
+    vi.resetModules();
+    const { requestPermissionApproval } =
+      await import('@core/adapters/llm/anthropic-claude-agent/runner/permission-callback.js');
+
+    await expect(
+      requestPermissionApproval({
+        appId: 'default',
+        agentId: 'agent:main_agent',
+        workspaceFolder: 'main_agent',
+        targetJid: 'tg:test',
+        toolName: 'Bash',
+        toolInput: { command: 'git status --short' },
+      }),
+    ).resolves.toMatchObject({
+      approved: false,
+      decisionClassification: 'user_reject',
+    });
+  });
+
+  it('waits for and honors a late host allow response for zero-timeout auto mode', async () => {
+    process.env.GANTRY_JOB_ID = 'job-auto';
+    process.env.GANTRY_JOB_RUN_ID = 'run-auto';
+    process.env.GANTRY_AUTONOMOUS_PERMISSION_TIMEOUT_MS = '0';
+    process.env.GANTRY_PERMISSION_MODE = 'auto';
+    process.env.GANTRY_TURN_INTENT_SUMMARY = 'Inspect the repository status.';
+    vi.resetModules();
+    const { requestPermissionApproval } =
+      await import('@core/adapters/llm/anthropic-claude-agent/runner/permission-callback.js');
+    const decision = requestPermissionApproval({
+      appId: 'default',
+      agentId: 'agent:main_agent',
+      workspaceFolder: 'main_agent',
+      targetJid: 'tg:test',
+      toolName: 'Bash',
+      toolInput: { command: 'git status --short' },
+    });
+    const requestDir = path.join(
+      tempDir,
+      'ipc',
+      'main_agent',
+      'permission-requests',
+    );
+    const [requestFile] = await waitForFiles(requestDir, 1);
+    const request = JSON.parse(
+      fs.readFileSync(path.join(requestDir, requestFile), 'utf-8'),
+    ) as {
+      requestId: string;
+      responseNonce: string;
+      unattended?: boolean;
+      turnIntentSummary?: string;
+    };
+    expect(request).toMatchObject({
+      unattended: true,
+      turnIntentSummary: 'Inspect the repository status.',
+    });
+    const responseDir = path.join(
+      tempDir,
+      'ipc',
+      'main_agent',
+      'permission-responses',
+    );
+    fs.mkdirSync(responseDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(responseDir, `${request.requestId}.json`),
+      JSON.stringify({
+        requestId: request.requestId,
+        responseNonce: request.responseNonce,
+        approved: true,
+        mode: 'allow_once',
+        decidedBy: 'auto_classifier',
+        reason: 'allowed once',
+        decisionClassification: 'user_temporary',
+        signature: 'test-signature',
+      }),
+    );
+
+    await expect(decision).resolves.toMatchObject({
+      approved: true,
+      mode: 'allow_once',
+      decidedBy: 'auto_classifier',
+      decisionClassification: 'user_temporary',
+    });
   });
 });

@@ -265,8 +265,7 @@ Neutral extraction note: the runner-side tool gate decision core
 (`runner/tool-gate-core.ts`) and the file-IPC permission-approval client
 (`runner/permission-ipc-client.ts`) are provider-neutral and live under
 `apps/core/src/runner/`. The anthropic lane keeps its own
-`permission-callback.ts` (it owns run-scoped timed-grant batching the DeepAgents
-v1 lane does not need) and delegates its protected-capability guard to
+`permission-callback.ts` and delegates its protected-capability guard to
 `tool-gate-core.ts`.
 
 ## Locked v1 constraints

@@ -29,9 +29,7 @@ export function createMutableChannelRuntime(): {
         current.sendAdaptiveCard
           ? current.sendAdaptiveCard(chatJid, card, options)
           : Promise.reject(
-              new Error(
-                `Adaptive Card delivery is unavailable for ${chatJid}.`,
-              ),
+              new Error(`Adaptive Card delivery is unavailable for ${chatJid}.`),
             ),
       sendStreamingChunk: (chatJid, rawText, options) =>
         current.sendStreamingChunk(chatJid, rawText, options),

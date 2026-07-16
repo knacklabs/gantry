@@ -1,6 +1,8 @@
 import {
   query,
   type EffortLevel,
+  type HookInput,
+  type PostToolUseHookInput,
   type ThinkingConfig,
 } from '@anthropic-ai/claude-agent-sdk';
 import { randomUUID } from 'node:crypto';
@@ -71,10 +73,45 @@ import {
 import { runnerStartupTimingRuntimeEvent } from './runner-startup-diagnostic.js';
 import { startRuntimeSignalPump } from '../../../../runner/runtime-signal-pump.js';
 import { taskRuntimeEvent } from './task-runtime-event.js';
+import {
+  evaluateDeclarativeToolRules,
+  RunScopedToolSuccessLedger,
+} from '../../../../runner/tool-gate-core.js';
+import { canonicalGantryToolRuleName } from '../../../../shared/gantry-tool-facades.js';
+import { emitJobToolActivity } from './tool-permission-events.js';
 
 interface RunQueryOptions {
   enableIpcFollowups?: boolean;
   persistSdkSession?: boolean;
+}
+
+function toolResponseIsError(response: unknown): boolean {
+  if (Array.isArray(response)) return response.some(toolResponseIsError);
+  if (!response || typeof response !== 'object') return false;
+  const value = response as {
+    is_error?: unknown;
+    isError?: unknown;
+    status?: unknown;
+    error?: unknown;
+    content?: unknown;
+  };
+  return (
+    value.is_error === true ||
+    value.isError === true ||
+    value.status === 'error' ||
+    Boolean(value.error) ||
+    toolResponseIsError(value.content)
+  );
+}
+
+export function recordSuccessfulToolUse(
+  hookInput: Pick<PostToolUseHookInput, 'tool_name' | 'tool_response'>,
+  toolSuccessLedger: RunScopedToolSuccessLedger,
+): void {
+  if (toolResponseIsError(hookInput.tool_response)) return;
+  toolSuccessLedger.recordSuccess(
+    canonicalGantryToolRuleName(hookInput.tool_name),
+  );
 }
 
 function localCliCredentialDirectoriesFromRuntimeAccess(
@@ -108,6 +145,52 @@ export async function runQuery(
   const stream = new MessageStream();
   const queryRunId = randomUUID();
   const memoryBlock = readMemoryContextBlock(agentInput);
+  const toolSuccessLedger = agentInput.toolRules?.length
+    ? new RunScopedToolSuccessLedger()
+    : undefined;
+  const declarativePreToolUse = toolSuccessLedger
+    ? async (hookInput: {
+        hook_event_name: string;
+        tool_name?: string;
+        tool_input?: unknown;
+      }) => {
+        if (
+          hookInput.hook_event_name !== 'PreToolUse' ||
+          !hookInput.tool_name
+        ) {
+          return { continue: true as const };
+        }
+        const denial = evaluateDeclarativeToolRules({
+          toolName: canonicalGantryToolRuleName(hookInput.tool_name),
+          toolInput: hookInput.tool_input,
+          rules: agentInput.toolRules,
+          successLedger: toolSuccessLedger,
+        });
+        if (!denial) return { continue: true as const };
+        emitJobToolActivity(
+          agentInput,
+          () => newSessionId,
+          'deny',
+          hookInput.tool_name,
+          {
+            ok: false,
+            reason: denial.error.message,
+            decision: denial.decision,
+            error: denial.error,
+          },
+        );
+        return {
+          continue: false as const,
+          decision: 'block' as const,
+          reason: JSON.stringify(denial.error),
+          hookSpecificOutput: {
+            hookEventName: 'PreToolUse' as const,
+            permissionDecision: 'deny' as const,
+            permissionDecisionReason: denial.error.message,
+          },
+        };
+      }
+    : undefined;
   stream.pushInitialPrompt(prompt, memoryBlock);
   if (!enableIpcFollowups) {
     stream.end();
@@ -320,10 +403,27 @@ export async function runQuery(
                 memoryBlock,
                 agentInput.toolNetworkEnv ?? {},
               ),
+              ...(declarativePreToolUse ? [declarativePreToolUse] : []),
             ],
             timeout: 5,
           },
         ],
+        ...(toolSuccessLedger
+          ? {
+              PostToolUse: [
+                {
+                  hooks: [
+                    async (hookInput: HookInput) => {
+                      if (hookInput.hook_event_name === 'PostToolUse') {
+                        recordSuccessfulToolUse(hookInput, toolSuccessLedger);
+                      }
+                      return { continue: true as const };
+                    },
+                  ],
+                },
+              ],
+            }
+          : {}),
       },
       canUseTool: createCanUseToolCallback({
         agentInput,

@@ -1624,7 +1624,7 @@ describe('agent-runner MCP stdio tools', { timeout: 70_000 }, () => {
             credentialSource: 'configured_access',
             preflight: { kind: 'none' },
             implementationBindings: [
-              { kind: 'tool_rule', rule: 'google_sheets_append' },
+              { kind: 'tool_rule', rule: 'example.records.append' },
             ],
           },
         ]),

@@ -18,7 +18,10 @@ import {
   requestPermissionApprovalViaIpc,
   type PermissionIpcRuntimeEnv,
 } from '../../../../runner/permission-ipc-client.js';
-import type { ThirdPartyMcpGateConfig } from './third-party-mcp-gate.js';
+import {
+  gatedToolErrorResult,
+  type ThirdPartyMcpGateConfig,
+} from './third-party-mcp-gate.js';
 
 // Gantry-owned shell tool for the DeepAgents lane. The model-visible tool is
 // named `RunCommand` (the canonical public Gantry shell capability name) — NOT
@@ -38,7 +41,8 @@ import type { ThirdPartyMcpGateConfig } from './third-party-mcp-gate.js';
 //   2. tool-execution policy evaluation against the agent's selected rules,
 //   3. interactive-required -> requestPermissionApprovalViaIpc (the host writes
 //      the durable pending_interactions row BEFORE the prompt renders),
-//   4. deny -> return the deny string to the model (the command never runs).
+//   4. deny -> return the structured tool error to the model (the command never
+//      runs).
 //
 // On allow the command runs via child_process.spawn as a child of the
 // already-sandboxed runner, so it inherits the runner's OS sandbox confinement
@@ -54,7 +58,7 @@ export const GANTRY_SHELL_TOOL_NAME = 'RunCommand';
 // tool-execution-policy-service.ts and tool-rule-matcher.ts). We classify the
 // gated request under this name so the existing shell logic fires; the
 // model-visible tool name stays `RunCommand`.
-const SHELL_POLICY_TOOL_NAME = 'Bash';
+export const SHELL_POLICY_TOOL_NAME = 'Bash';
 
 // Output cap returned to the model. Large command output is truncated with a
 // trailing marker so the model knows the result was clipped.
@@ -155,10 +159,13 @@ export function createGantryShellTool(
   const classifier = new ToolExecutionClassifier();
   const policy = new ToolExecutionPolicyService();
 
-  const gatedFunc = async (input: { command: string }): Promise<string> => {
+  const gatedFunc = async (input: { command: string }): Promise<unknown> => {
     const command = typeof input?.command === 'string' ? input.command : '';
     if (!command.trim()) {
-      return 'RunCommand requires a non-empty command string.';
+      return gatedToolErrorResult(
+        'RunCommand requires a non-empty command string.',
+        'validation',
+      );
     }
     // Shape the input as a Bash policy request so the existing shell logic fires.
     const policyInput = { command };
@@ -231,15 +238,15 @@ export function createGantryShellTool(
 async function runShellCommand(
   command: string,
   config: GantryShellToolConfig,
-): Promise<string> {
+): Promise<unknown> {
   if (config.signal?.aborted) {
-    return formatResult({
+    return failedShellCommandResult({
       stdout: '',
       stderr: '',
       exitNote: 'Command aborted (run stopped).',
     });
   }
-  return new Promise<string>((resolve) => {
+  return new Promise<unknown>((resolve) => {
     let stdout = '';
     let stderr = '';
     let settled = false;
@@ -252,13 +259,13 @@ async function runShellCommand(
       detached: process.platform !== 'win32',
     });
 
-    const finish = (text: string) => {
+    const finish = (result: unknown) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
       if (forceKillTimer) clearTimeout(forceKillTimer);
       config.signal?.removeEventListener('abort', onAbort);
-      resolve(text);
+      resolve(result);
     };
 
     const terminate = (exitNote: string) => {
@@ -291,7 +298,7 @@ async function runShellCommand(
     });
     child.on('error', (err) => {
       finish(
-        formatResult({
+        failedShellCommandResult({
           stdout,
           stderr,
           exitNote: `Failed to start command: ${err.message}`,
@@ -304,9 +311,22 @@ async function runShellCommand(
         (signalName
           ? `Command terminated by signal ${signalName}.`
           : `Command exited with code ${code ?? 'null'}.`);
-      finish(formatResult({ stdout, stderr, exitNote }));
+      const text = formatResult({ stdout, stderr, exitNote });
+      finish(
+        !exitNoteOverride && !signalName && code === 0
+          ? text
+          : gatedToolErrorResult(text, 'business'),
+      );
     });
   });
+}
+
+function failedShellCommandResult(input: {
+  stdout: string;
+  stderr: string;
+  exitNote: string;
+}) {
+  return gatedToolErrorResult(formatResult(input), 'business');
 }
 
 function killShellProcessGroup(
@@ -346,8 +366,6 @@ function truncate(value: string): string {
   return `${value.slice(0, MAX_OUTPUT_CHARS)}\n…[truncated ${value.length - MAX_OUTPUT_CHARS} more characters]`;
 }
 
-function denyMessage(reason: string): string {
-  // Returned as the tool result string so the model sees the denial as a tool
-  // error and can recover, matching the third-party MCP gate's deny-to-model copy.
-  return reason;
+function denyMessage(reason: string) {
+  return gatedToolErrorResult(reason);
 }

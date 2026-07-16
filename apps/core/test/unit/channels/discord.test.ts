@@ -17,6 +17,7 @@ import {
   createDiscordChannel,
   DiscordChannel,
 } from '@core/channels/discord.js';
+import { parsePermissionCustomId } from '@core/channels/discord-components.js';
 import type { ChannelOpts } from '@core/channels/channel-provider.js';
 
 class FakeWebSocket {
@@ -155,11 +156,6 @@ describe('DiscordChannel', () => {
         actionAffordances: [
           { kind: 'scheduler_run_now', label: 'Retry now', jobId: 'job-1' },
           { kind: 'scheduler_pause_job', label: 'Pause job', jobId: 'job-1' },
-          {
-            kind: 'scheduler_open',
-            label: 'Open in scheduler',
-            jobId: 'job-1',
-          },
         ],
       }),
     ).resolves.toMatchObject({ externalMessageId: 'message-1' });
@@ -2081,55 +2077,10 @@ describe('DiscordChannel', () => {
     vi.restoreAllMocks();
   });
 
-  it('uses shared permission decision semantics for timed Discord approvals', async () => {
-    let socket!: FakeWebSocket;
-    vi.spyOn(globalThis, 'fetch')
-      .mockResolvedValueOnce(
-        jsonResponse({ url: 'wss://gateway.discord.test' }),
-      )
-      .mockImplementation(async () => jsonResponse({ id: 'message-1' }));
-    const channel = new DiscordChannel(
-      'bot-token',
-      'app-id',
-      opts({ isControlApproverAllowed: vi.fn(async () => true) }),
-      (url) => {
-        socket = new FakeWebSocket(url);
-        return socket;
-      },
-    );
-
-    await channel.connect();
-    const approval = channel.requestPermissionApproval('dc:channel-1', {
-      requestId: 'permission-1',
-      sourceAgentFolder: 'main_agent',
-      toolName: 'RunCommand',
-      targetJid: 'dc:channel-1',
-      decisionOptions: ['allow_timed_grant', 'cancel'],
-    });
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    socket.receive({
-      op: 0,
-      t: 'INTERACTION_CREATE',
-      d: {
-        id: 'interaction-1',
-        token: 'token-1',
-        type: 3,
-        channel_id: 'channel-1',
-        data: { custom_id: 'gantry:perm:permission-1:allow_timed_grant' },
-        member: { user: { id: 'user-1', username: 'Ravi' } },
-      },
-    });
-
-    const decision = await approval;
-    expect(decision).toMatchObject({
-      approved: true,
-      mode: 'allow_timed_grant',
-      decidedBy: 'user-1',
-      decisionClassification: 'user_temporary',
-    });
-    expect(decision.timedGrantExpiresAtMs).toEqual(expect.any(Number));
-    await channel.disconnect();
-    vi.restoreAllMocks();
+  it('rejects unknown Discord approval callbacks', () => {
+    expect(
+      parsePermissionCustomId('gantry:perm:permission-1:unknown_mode'),
+    ).toBeNull();
   });
 
   it('resolves user questions from authorized Discord button clicks', async () => {

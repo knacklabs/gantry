@@ -32,26 +32,28 @@ Gantry currently supports host runtime execution only. The primary boundary is h
 
 ### 2. Mount and Path Security
 
-**External Allowlist** - Mount permissions are stored at `~/.config/gantry/mount-allowlist.json`, which is:
+Directory exposure is decided by Gantry-owned policy state — `settings.yaml`
+plus reviewed capability grants — resolved by the control plane at spawn time.
+Runtime agents cannot edit that policy state from inside a run. It is a policy
+boundary, not a kernel isolation boundary.
 
-- outside project root
-- not writable by runtime agents by default
-
-In host runtime, this allowlist controls what paths are exposed to the agent runner. It is a policy boundary, not a kernel isolation boundary.
-
-**Default Blocked Patterns:**
+**Default Home Secret Deny Suffixes** (enforced when the `sandbox_runtime`
+runner sandbox provider is selected):
 
 ```
-.ssh, .gnupg, .aws, .azure, .gcloud, .kube, .docker,
-credentials, .env, .netrc, .npmrc, id_rsa, id_ed25519,
-private_key, .secret
+.ssh, .aws, .gnupg, .azure, .claude, .codex, .anthropic,
+.config/gh, .config/github-copilot, .config/codex, .config/gcloud,
+.kube, .docker, .npmrc, .pypirc, .netrc, .git-credentials, .env
 ```
 
 **Protections:**
 
-- symlink resolution before validation (prevents traversal attacks)
-- path validation (rejects `..` and unsafe absolute rewrites)
-- read-only mount defaults for conversations without explicit write capability
+- workspace folder-name validation plus base-directory escape checks (rejects
+  `..` and paths that resolve outside the workspace or IPC base directories)
+- protected capability paths (provider settings, skills, and MCP config files)
+  are blocked from tool-command mutation by policy
+- `.env` files in runtime, workspace, and cwd locations are denied to tool
+  processes under `sandbox_runtime`
 
 ### 3. Session Isolation
 
@@ -107,6 +109,19 @@ inventory only the current agent's persistent Gantry MCP grants, and
 `admin_permission_revoke` can revoke only a current-agent grant. They do not
 create new authority or expose cross-agent grant state.
 
+In `auto` permission mode, an inline LLM classifier may resolve an otherwise
+prompt-bound tool permission without interrupting a human. Deterministic
+policy tiers always run first; the classifier is consulted only for requests
+those tiers already routed to a human prompt, and only for eligible tools
+(`Bash`, `RunCommand`, and non-Gantry MCP tools) from trusted requesters. Its
+verdict space is `allow` or `ask` — it can never deny or persist authority —
+and an `allow` produces a single-run `allow_once` decision recorded with
+`decidedBy: auto_classifier`. Tool input is secret-redacted and truncated
+before it reaches the classifier model, pre-sanitized IPC input skips the
+model entirely, any failure (timeout, parse or validation error, unconfigured
+LLM) falls back to asking the human, and every consultation emits a
+`permission.classifier_decision` runtime event.
+
 `SandboxNetworkAccess` is a transient SDK defense-in-depth prompt, not a
 settings capability. Local CLI capabilities must pin executable identity,
 command templates, auth preflight, protected paths, denied environment
@@ -120,7 +135,7 @@ command authority.
 | Project root access                 | Configured mounts and selected host-tool capability         |
 | Group folder                        | Originating agent folder                                    |
 | Common app memory access            | Capability-specific memory policy and conversation approval |
-| Additional mounts                   | Mount allowlist plus selected capability                    |
+| Additional mounts                   | Gantry-owned runtime settings plus selected capability      |
 | Scheduler control scope             | Job capability and originating conversation policy          |
 | Session commands (`/new`, `/model`) | Sender policy and conversation control approvers            |
 
