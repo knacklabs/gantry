@@ -13,6 +13,11 @@ import {
   sourceSearchSchema,
 } from '../features/agents/agents-search';
 import {
+  chatDetailSearchSchema,
+  chatListSearchSchema,
+  memorySearchSchema,
+} from '../features/chat/chat-search';
+import {
   conversationSearchSchema,
   diagnosticSearchSchema,
   interactionSearchSchema,
@@ -129,6 +134,36 @@ const pauseRoute = createRoute({
   ),
 });
 
+const chatRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: 'chat',
+  validateSearch: chatListSearchSchema,
+  component: lazyRouteComponent(
+    () => import('../features/chat/routes/chat-route'),
+    'ChatRoute',
+  ),
+});
+
+const chatDetailRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: 'chat/$sessionId',
+  validateSearch: chatDetailSearchSchema,
+  component: lazyRouteComponent(
+    () => import('../features/chat/routes/chat-detail-route'),
+    'ChatDetailRoute',
+  ),
+});
+
+const memoryRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: 'memory',
+  validateSearch: memorySearchSchema,
+  component: lazyRouteComponent(
+    () => import('../features/chat/routes/memory-route'),
+    'MemoryRoute',
+  ),
+});
+
 const profileRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: 'profile',
@@ -146,6 +181,17 @@ const componentLabRoute = import.meta.env.DEV
     })
   : undefined;
 
+const interactionLabRoute = import.meta.env.DEV
+  ? createRoute({
+      getParentRoute: () => rootRoute,
+      path: '__components/interactions',
+      component: lazyRouteComponent(
+        () => import('../ui/lab/interaction-lab'),
+        'InteractionLab',
+      ),
+    })
+  : undefined;
+
 const productRoutes = [
   homeRoute,
   overviewRoute,
@@ -158,11 +204,18 @@ const productRoutes = [
   agentDetailRoute,
   sourcesRoute,
   pauseRoute,
+  chatRoute,
+  chatDetailRoute,
+  memoryRoute,
   profileRoute,
 ];
 
-const routeTree = componentLabRoute
-  ? rootRoute.addChildren([...productRoutes, componentLabRoute])
+const developmentRoutes = [componentLabRoute, interactionLabRoute].filter(
+  (route) => route !== undefined,
+);
+
+const routeTree = developmentRoutes.length
+  ? rootRoute.addChildren([...productRoutes, ...developmentRoutes])
   : rootRoute.addChildren(productRoutes);
 
 export const router = createRouter({
