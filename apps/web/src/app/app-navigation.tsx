@@ -1,9 +1,12 @@
 import { Link } from '@tanstack/react-router';
 import {
   Activity,
+  Bot,
   CircleHelp,
   LayoutDashboard,
+  Library,
   MessagesSquare,
+  PauseCircle,
   PlugZap,
   Settings2,
 } from 'lucide-react';
@@ -17,6 +20,14 @@ const navigation = [
       { to: '/providers', label: 'Providers', icon: PlugZap },
       { to: '/conversations', label: 'Conversations', icon: MessagesSquare },
       { to: '/diagnostics', label: 'Diagnostics', icon: Activity },
+    ],
+  },
+  {
+    label: 'Administration',
+    items: [
+      { to: '/agents', label: 'Agents', icon: Bot },
+      { to: '/sources', label: 'Sources & access', icon: Library },
+      { to: '/pause', label: 'Pause everywhere', icon: PauseCircle },
     ],
   },
 ] as const;

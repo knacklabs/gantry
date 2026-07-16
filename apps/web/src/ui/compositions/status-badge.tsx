@@ -3,10 +3,13 @@ import { Badge, type BadgeTone } from '../primitives/badge';
 const toneByStatus: Record<string, BadgeTone> = {
   active: 'success',
   blocked: 'danger',
+  deployed: 'success',
+  draft: 'neutral',
   failing: 'danger',
   healthy: 'success',
   offline: 'danger',
   passing: 'success',
+  paused: 'attention',
   quiet: 'neutral',
   ready: 'success',
   warning: 'attention',

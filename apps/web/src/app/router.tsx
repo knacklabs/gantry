@@ -8,6 +8,11 @@ import {
 
 import { AppShell } from './app-shell';
 import {
+  agentDetailSearchSchema,
+  agentListSearchSchema,
+  sourceSearchSchema,
+} from '../features/agents/agents-search';
+import {
   conversationSearchSchema,
   diagnosticSearchSchema,
   interactionSearchSchema,
@@ -85,6 +90,45 @@ const diagnosticsRoute = createRoute({
   ),
 });
 
+const agentsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: 'agents',
+  validateSearch: agentListSearchSchema,
+  component: lazyRouteComponent(
+    () => import('../features/agents/routes/agents-route'),
+    'AgentsRoute',
+  ),
+});
+
+const agentDetailRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: 'agents/$agentId',
+  validateSearch: agentDetailSearchSchema,
+  component: lazyRouteComponent(
+    () => import('../features/agents/routes/agent-detail-route'),
+    'AgentDetailRoute',
+  ),
+});
+
+const sourcesRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: 'sources',
+  validateSearch: sourceSearchSchema,
+  component: lazyRouteComponent(
+    () => import('../features/agents/routes/sources-route'),
+    'SourcesRoute',
+  ),
+});
+
+const pauseRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: 'pause',
+  component: lazyRouteComponent(
+    () => import('../features/agents/routes/pause-route'),
+    'PauseRoute',
+  ),
+});
+
 const profileRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: 'profile',
@@ -110,6 +154,10 @@ const productRoutes = [
   conversationsRoute,
   conversationDetailRoute,
   diagnosticsRoute,
+  agentsRoute,
+  agentDetailRoute,
+  sourcesRoute,
+  pauseRoute,
   profileRoute,
 ];
 
