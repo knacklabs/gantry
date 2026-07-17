@@ -5196,10 +5196,7 @@ describe('TelegramChannel', () => {
         'tg:100200300',
         permissionRequest,
       );
-      const answer = channel.requestUserAnswer(
-        'tg:100200300',
-        questionRequest,
-      );
+      const answer = channel.requestUserAnswer('tg:100200300', questionRequest);
       let resolved = 0;
       void approval.then(() => {
         resolved += 1;
@@ -6036,9 +6033,7 @@ describe('TelegramChannel', () => {
         ],
       });
       await flushPromises();
-      const pending = [
-        ...(channel as any).pendingUserQuestions.values(),
-      ][0];
+      const pending = [...(channel as any).pendingUserQuestions.values()][0];
       pending.selectedOptionIndexes.add(2);
       pending.selectedOptionIndexes.add(0);
 

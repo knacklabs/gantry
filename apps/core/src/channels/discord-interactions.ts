@@ -103,7 +103,8 @@ export class DiscordInteractionHandler {
     kind: 'permission' | 'question',
     request: PermissionApprovalRequest | UserQuestionRequest,
   ): void {
-    if (kind === 'permission') permissionPrompt.drop(this.pendingPermissions, request);
+    if (kind === 'permission')
+      permissionPrompt.drop(this.pendingPermissions, request);
     else dropPendingDiscordQuestions(this.pendingQuestions, request);
   }
   async renderRichInteraction(

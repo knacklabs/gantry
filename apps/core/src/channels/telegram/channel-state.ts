@@ -99,7 +99,14 @@ export abstract class TelegramChannelState implements ChannelAdapter {
     kind: 'permission' | 'question',
     request: PermissionApprovalRequest | UserQuestionRequest,
   ): void {
-    dropPendingTelegramInteraction(kind, request, this.pendingPermissionPrompts, this.pendingUserQuestions, this.pendingUserQuestionCallbackIds, this.pendingUserQuestionOtherPrompts);
+    dropPendingTelegramInteraction(
+      kind,
+      request,
+      this.pendingPermissionPrompts,
+      this.pendingUserQuestions,
+      this.pendingUserQuestionCallbackIds,
+      this.pendingUserQuestionOtherPrompts,
+    );
   }
   constructor(botToken: string, opts: ChannelOpts) {
     this.botToken = botToken;

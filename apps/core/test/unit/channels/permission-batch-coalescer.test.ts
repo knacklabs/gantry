@@ -583,10 +583,7 @@ describe('PermissionBatchCoalescer', () => {
       'permission',
       expect.objectContaining({
         permissionBatch: {
-          requestIds: [
-            'permission-persistence-1',
-            'permission-persistence-2',
-          ],
+          requestIds: ['permission-persistence-1', 'permission-persistence-2'],
           rows: ['1. exact command access', '2. exact command access'],
         },
       }),

@@ -59,10 +59,12 @@ export function asGroupDiscoverySource(
 
 export function asPermissionApprovalSurface(
   channel: ChannelAdapter,
-): Pick<
-  InteractionSurface,
-  'requestPermissionApproval' | 'dropPendingInteraction'
-> | undefined {
+):
+  | Pick<
+      InteractionSurface,
+      'requestPermissionApproval' | 'dropPendingInteraction'
+    >
+  | undefined {
   return typeof channel.requestPermissionApproval === 'function'
     ? (channel as unknown as Pick<
         InteractionSurface,

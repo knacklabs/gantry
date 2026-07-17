@@ -474,7 +474,11 @@ export class DiscordChannel implements ChannelAdapter {
     request: PermissionApprovalRequest,
     onPromptDelivered?: (messageId: string) => void,
   ): Promise<PermissionApprovalDecision> {
-    return this.interactions.requestPermissionApproval(jid, request, onPromptDelivered);
+    return this.interactions.requestPermissionApproval(
+      jid,
+      request,
+      onPromptDelivered,
+    );
   }
 
   async requestUserAnswer(
@@ -485,7 +489,10 @@ export class DiscordChannel implements ChannelAdapter {
     return this.interactions.requestUserAnswer(jid, request, onPromptDelivered);
   }
 
-  dropPendingInteraction(kind: 'permission' | 'question', request: PermissionApprovalRequest | UserQuestionRequest): void {
+  dropPendingInteraction(
+    kind: 'permission' | 'question',
+    request: PermissionApprovalRequest | UserQuestionRequest,
+  ): void {
     this.interactions.dropPendingInteraction(kind, request);
   }
 

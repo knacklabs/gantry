@@ -4198,7 +4198,11 @@ describe('Slack channel', () => {
       sourceAgentFolder: 'slack_main',
       toolName: 'Bash',
     };
-    const approval = requestSlackPermissionApproval(channel, 'sl:C123', request);
+    const approval = requestSlackPermissionApproval(
+      channel,
+      'sl:C123',
+      request,
+    );
     await flushSlackPromptRegistration();
     configurePendingInteractionDurability({
       repository: {

@@ -18,10 +18,7 @@ type PendingTelegramQuestion = {
   multiSelect: boolean;
   optionLabels: string[];
   selectedOptionIndexes: Set<number>;
-  resolve(value: {
-    selected: string | string[];
-    answeredBy: 'system';
-  }): void;
+  resolve(value: { selected: string | string[]; answeredBy: 'system' }): void;
 };
 type TelegramQuestionTarget = Pick<
   PendingTelegramQuestion,
@@ -112,7 +109,10 @@ export async function disconnectTelegramDelivery(input: {
 export function dropPendingTelegramInteraction(
   kind: 'permission' | 'question',
   request: InteractionIdentity | UserQuestionRequest,
-  permissions: Map<string, { timer: ReturnType<typeof setTimeout>; request: InteractionIdentity }>,
+  permissions: Map<
+    string,
+    { timer: ReturnType<typeof setTimeout>; request: InteractionIdentity }
+  >,
   questions: Map<string, PendingTelegramQuestion>,
   callbacks: Map<string, TelegramQuestionTarget>,
   otherPrompts: Map<string, TelegramQuestionTarget>,

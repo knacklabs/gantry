@@ -118,7 +118,12 @@ export class TeamsChannel implements ChannelAdapter {
     private readonly opts: TeamsChannelOpts,
     private readonly sdkClient: TeamsSdkClient,
   ) {}
-  dropPendingInteraction(kind: 'permission' | 'question', request: PermissionApprovalRequest | UserQuestionRequest): void { dropPendingTeamsInteraction(this.interactionContext(), kind, request); }
+  dropPendingInteraction(
+    kind: 'permission' | 'question',
+    request: PermissionApprovalRequest | UserQuestionRequest,
+  ): void {
+    dropPendingTeamsInteraction(this.interactionContext(), kind, request);
+  }
 
   async connect(
     options: { inbound?: boolean; interactionCallbacks?: boolean } = {},

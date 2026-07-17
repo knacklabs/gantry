@@ -611,7 +611,11 @@ export function startIpcWatcher(deps: IpcDeps): void {
                     { file, sourceAgentFolder, err },
                     'Withholding permission IPC response after durable persistence failure',
                   );
-                  runnerControlPort.archiveFailedRequest(sourceAgentFolder, file, claimedPath);
+                  runnerControlPort.archiveFailedRequest(
+                    sourceAgentFolder,
+                    file,
+                    claimedPath,
+                  );
                   continue;
                 }
                 if (requestId) {
@@ -755,7 +759,11 @@ export function startIpcWatcher(deps: IpcDeps): void {
                     { file, sourceAgentFolder, err },
                     'Withholding user question IPC response after durable persistence failure',
                   );
-                  runnerControlPort.archiveFailedRequest(sourceAgentFolder, file, claimedPath);
+                  runnerControlPort.archiveFailedRequest(
+                    sourceAgentFolder,
+                    file,
+                    claimedPath,
+                  );
                   continue;
                 }
                 if (requestId) {
