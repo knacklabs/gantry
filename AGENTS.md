@@ -43,6 +43,14 @@ Use `python3 .codex/scripts/stage_orchestrator.py` to get current phase commands
 - Do the work, critique the work, and make sure the task is completed properly end-to-end.
 - Do not take shortcuts. Keep work well-structured, neat, and clean.
 - Do not overcomplicate. Make a plan, seal the flaws, and execute that plan through completion.
+- Every Codex handoff prompt MUST include an escalation clause telling Codex:
+  "The orchestrator (Claude) is monitoring your run and can answer. If you hit
+  a contradiction, an ambiguous or missing requirement, or a decision that
+  changes behavior/security, STOP and state the question explicitly in your
+  output (a line beginning 'DECISION NEEDED:' or 'QUESTION:') and wait rather
+  than silently assuming or abandoning the task — the orchestrator will read it
+  and respond." The persistent Monitor keys on these markers, so a surfaced
+  question reaches the orchestrator promptly and it makes the judgement.
 - MANDATORY: arm a persistent `Monitor` over the Codex job logs whenever Codex
   tasks run, watching each `task-*.log` for question/blocker/decision markers
   (decision required, which option, please confirm, awaiting input/approval,

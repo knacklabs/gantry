@@ -38,6 +38,11 @@ note in the assumptions ledger so the decision is recorded.
 
 ## 2. Implementation handoffs
 
+ESCALATION CLAUSE IN EVERY HANDOFF: tell Codex the orchestrator is watching and
+can answer — on a contradiction, ambiguous/missing requirement, or
+behavior/security decision, STOP and emit an explicit `DECISION NEEDED:` /
+`QUESTION:` line and wait, rather than assuming silently or abandoning. The
+Monitor keys on those markers so the question reaches the orchestrator.
 MANDATORY MONITOR FOR CODEX QUESTIONS: whenever Codex handoffs run, arm a
 persistent Monitor over RECENTLY-MODIFIED Codex job logs (find -mmin -25, not
 all history) that emits on real question/decision phrasing (decision required,
