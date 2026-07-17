@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { ConversationRoute, Job } from '@core/domain/types.js';
+import { currentLogContext } from '@core/infrastructure/logging/logger.js';
+import { getOperationalErrorCount } from '@core/shared/operational-error-counters.js';
 
 const runtimeStoreMock = vi.hoisted(() => ({
   publish: vi.fn(async () => undefined),
@@ -216,9 +218,11 @@ describe('jobs/execution', () => {
 
   it('records a failed terminal run when execution throws before normal settlement', async () => {
     const job = makeJob();
+    let observedLogContext: ReturnType<typeof currentLogContext> = undefined;
     const opsRepository = {
       ...makeOpsRepository(job),
       getJobRunById: vi.fn(async () => {
+        observedLogContext = currentLogContext();
         throw new Error('run lookup down');
       }),
     };
@@ -238,6 +242,7 @@ describe('jobs/execution', () => {
           })) as never,
         },
         'tg:scheduler',
+        { runId: 'run-context', scheduledFor: '2026-05-08T00:00:00.000Z' },
       ),
     ).rejects.toThrow('run lookup down');
 
@@ -246,6 +251,47 @@ describe('jobs/execution', () => {
       'failed',
       null,
       'Scheduler run failed before terminal settlement.',
+    );
+    expect(observedLogContext).toEqual({
+      runId: 'run-context',
+      appId: 'default',
+      agentId: 'agent:scheduler_agent',
+    });
+  });
+
+  it('counts a rejecting terminal finalizer exactly once and rethrows', async () => {
+    const job = makeJob();
+    const settlementError = new Error(
+      'terminal settlement database unavailable',
+    );
+    const opsRepository = {
+      ...makeOpsRepository(job),
+      finalizeJobRunWithLease: vi.fn(async () => {
+        throw settlementError;
+      }),
+    };
+    const before = getOperationalErrorCount('jobs', 'terminal_settlement');
+
+    await expect(
+      runJob(
+        job,
+        {
+          conversationRoutes: () => ({ 'tg:scheduler': makeRoute() }),
+          queue: {} as never,
+          onProcess: () => {},
+          sendMessage: vi.fn(async () => undefined) as never,
+          opsRepository: opsRepository as never,
+          runAgent: vi.fn(async () => ({
+            status: 'success',
+            result: 'runtime flow completed',
+          })) as never,
+        },
+        'tg:scheduler',
+      ),
+    ).rejects.toBe(settlementError);
+
+    expect(getOperationalErrorCount('jobs', 'terminal_settlement')).toBe(
+      before + 1,
     );
   });
 
@@ -490,6 +536,7 @@ describe('jobs/execution', () => {
     const sendMessage = vi.fn(async () => undefined);
     const error =
       'Tool not on autonomous run allowlist: mcp__gantry__browser_act. Recovery: request_access { "target": { "kind": "capability", "id": "browser.use" }, "temporaryOnly": false }';
+    const before = getOperationalErrorCount('jobs', 'agent_run');
 
     await runJob(
       job,
@@ -524,6 +571,7 @@ describe('jobs/execution', () => {
       null,
       expect.stringContaining('Tool not on autonomous run allowlist'),
     );
+    expect(getOperationalErrorCount('jobs', 'agent_run')).toBe(before + 1);
     const deniedEvent = runtimeStoreMock.publish.mock.calls.find(
       ([event]) => event?.eventType === 'job.tool_denied',
     )?.[0];

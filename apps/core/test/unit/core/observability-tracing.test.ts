@@ -14,6 +14,11 @@ import {
   startTurnSpan,
   tracingEnabled,
 } from '@core/infrastructure/observability/tracing.js';
+import { createSpawnTurnTracker } from '@core/infrastructure/observability/spawn-turn-tracker.js';
+import {
+  currentLogContext,
+  withLogContext,
+} from '@core/infrastructure/logging/logger.js';
 
 afterEach(async () => {
   await shutdownTracing();
@@ -66,6 +71,7 @@ describe('observability tracing', () => {
     const activeSpan = getTurnSpan('run-1');
 
     expect(activeSpan).toBeDefined();
+    expect(handle.traceId).toBe(activeSpan?.spanContext().traceId);
     handle.setInput('hello');
     handle.setOutput('world');
     handle.end('success');
@@ -123,6 +129,7 @@ describe('observability tracing', () => {
     const handle = startTurnSpan({ runId: 'disabled', agentName: 'Agent' });
 
     expect(tracingEnabled()).toBe(false);
+    expect(handle.traceId).toBeUndefined();
     expect(getTurnSpan('disabled')).toBeUndefined();
     expect(() => {
       handle.setInput('input');
@@ -130,5 +137,50 @@ describe('observability tracing', () => {
       handle.end('error', 'failure');
     }).not.toThrow();
     expect(exporter.getFinishedSpans()).toEqual([]);
+  });
+
+  it('carries the real trace id and rotates it for a continuation', async () => {
+    const exporter = new InMemorySpanExporter();
+    initTracing(
+      { enabled: true, captureContent: false, sampleRate: 1 },
+      exporter,
+    );
+    const observedTraceIds: Array<string | undefined> = [];
+    const tracker = createSpawnTurnTracker(
+      'Researcher',
+      {
+        runId: 'run-continuation',
+        appId: 'app-1',
+        agentId: 'agent-1',
+        prompt: 'hello',
+      },
+      async () => {
+        observedTraceIds.push(currentLogContext()?.traceId);
+      },
+    );
+    const firstTraceId = tracker.traceId();
+
+    expect(firstTraceId).toMatch(/^[0-9a-f]{32}$/);
+    await withLogContext(
+      {
+        runId: tracker.correlationId,
+        appId: 'app-1',
+        agentId: 'agent-1',
+        traceId: firstTraceId,
+      },
+      async () => {
+        await tracker.onOutput?.({
+          status: 'success',
+          result: 'first',
+          continuedByFollowup: true,
+        });
+        expect(currentLogContext()?.traceId).toBe(tracker.traceId());
+        expect(tracker.traceId()).not.toBe(firstTraceId);
+        tracker.finish({ status: 'success', result: 'second' });
+      },
+    );
+
+    expect(observedTraceIds).toEqual([firstTraceId]);
+    expect(exporter.getFinishedSpans()).toHaveLength(2);
   });
 });

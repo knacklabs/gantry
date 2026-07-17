@@ -51,7 +51,12 @@ import {
 import { forwardRuntimeEvents } from './runtime-event-forwarding.js';
 import { isMissingProviderSessionError } from './failover-eligibility.js';
 import { createConfiguredRunTokenBudget } from './agent-spawn-host.js';
-import { logger, redactString } from '../infrastructure/logging/logger.js';
+import {
+  logger,
+  redactString,
+  updateLogContext,
+  withLogContext,
+} from '../infrastructure/logging/logger.js';
 import { memoryReviewerApproverAllowed } from './group-agent-runner-memory-review.js';
 import { prepareCompactionDeltaReplay } from './group-agent-runner-compaction-delta.js';
 import { maintenanceCompactionPromptForExecutionProvider } from './group-agent-runner-maintenance-compaction.js';
@@ -77,7 +82,7 @@ export function createGroupAgentRunner(input: {
   const { deps, ops } = input;
   const runAgentImpl = deps.runAgent ?? spawnAgent;
   const collectSessionMemory = deps.collectSessionMemory;
-  return async function runAgent(
+  async function runAgentWithContext(
     group: ConversationRoute,
     prompt: string,
     chatJid: string,
@@ -473,6 +478,12 @@ export function createGroupAgentRunner(input: {
                 : 'message',
           })
         : undefined;
+    updateLogContext({
+      runId: runState.runId,
+      appId: runtimeAppId,
+      agentId:
+        turnContext?.agentId ?? memoryAgentIdForWorkspaceFolder(group.folder),
+    });
     try {
       const credentialBroker = await deps.getCredentialBroker?.();
       const runOptions = buildRuntimeRunOptions({
@@ -550,14 +561,12 @@ export function createGroupAgentRunner(input: {
             ...(agentInput.resumeSessionId
               ? { sessionId: agentInput.resumeSessionId }
               : {}),
-            ...(options?.existingRunId && runState.runId
-              ? { runId: runState.runId }
-              : {}),
-            ...(options?.existingRunLeaseToken
-              ? { runLeaseToken: options.existingRunLeaseToken }
-              : {}),
-            ...(typeof options?.existingRunLeaseFencingVersion === 'number'
+            ...(options?.existingRunId &&
+            options.existingRunLeaseToken &&
+            typeof options.existingRunLeaseFencingVersion === 'number'
               ? {
+                  runId: options.existingRunId,
+                  runLeaseToken: options.existingRunLeaseToken,
                   runLeaseFencingVersion:
                     options.existingRunLeaseFencingVersion,
                 }
@@ -590,7 +599,7 @@ export function createGroupAgentRunner(input: {
             );
           },
           wrappedOnOutput,
-          runOptions,
+          { ...runOptions, correlationRunId: runState.runId },
         ).then((output) => runTokenBudget.enforce(output));
       let output = await invokeAgent({
         memoryContextBlock,
@@ -744,5 +753,16 @@ export function createGroupAgentRunner(input: {
       }
       return 'error';
     }
+  }
+
+  return (...args: Parameters<typeof runAgentWithContext>) => {
+    const [group, , chatJid] = args;
+    return withLogContext(
+      {
+        appId: appIdFromConversationJid(chatJid) ?? 'default',
+        agentId: memoryAgentIdForWorkspaceFolder(group.folder),
+      },
+      () => runAgentWithContext(...args),
+    );
   };
 }

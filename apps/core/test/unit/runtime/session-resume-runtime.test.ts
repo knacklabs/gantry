@@ -3,6 +3,7 @@ import type { RuntimeAgentSessionRepository } from '@core/domain/repositories/op
 import type { SkillArtifactStore } from '@core/domain/ports/skill-artifact-store.js';
 import type { SkillCatalogRepository } from '@core/domain/ports/repositories.js';
 import { createGroupAgentRunner } from '@core/runtime/group-agent-runner.js';
+import { currentLogContext } from '@core/infrastructure/logging/logger.js';
 import { buildProviderSessionAccessFingerprint } from '@core/runtime/provider-session-access-fingerprint.js';
 import {
   buildApprovedSkillContextBlock,
@@ -29,7 +30,9 @@ describe('session-resume-runtime', () => {
       at: '2026-07-11T00:00:00.000Z',
     } as const;
     const publishRuntimeEvent = vi.fn(async () => undefined);
-    const runAgent = vi.fn(async (_group, _input, _register, onOutput) => {
+    let observedLogContext: ReturnType<typeof currentLogContext> = undefined;
+    const runAgent = vi.fn(async (_group, input, _register, onOutput) => {
+      observedLogContext = currentLogContext();
       await onOutput?.({
         status: 'success',
         result: null,
@@ -121,6 +124,15 @@ describe('session-resume-runtime', () => {
         }),
       }),
     ]);
+    expect(runAgent.mock.calls[0]?.[1]).not.toHaveProperty('runId');
+    expect(runAgent.mock.calls[0]?.[4]).toMatchObject({
+      correlationRunId: 'run:live-turn-1',
+    });
+    expect(observedLogContext).toEqual({
+      runId: 'run:live-turn-1',
+      appId: 'app-one',
+      agentId: 'agent:main_agent',
+    });
   });
 
   it('runs maintenance-locked provider sessions without resume or head writes', async () => {

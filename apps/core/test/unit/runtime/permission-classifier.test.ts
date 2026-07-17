@@ -17,6 +17,8 @@ vi.mock('@core/memory/memory-llm-port.js', () => ({
 
 vi.mock('@core/infrastructure/logging/logger.js', () => ({
   logger: { warn },
+  withLogContext: (_context: unknown, callback: () => unknown) => callback(),
+  updateLogContext: vi.fn(),
 }));
 
 import {

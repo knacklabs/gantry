@@ -9,6 +9,7 @@ import {
 } from '@core/jobs/delivery.js';
 import type { Job } from '@core/domain/types.js';
 import { logger } from '@core/infrastructure/logging/logger.js';
+import { getOperationalErrorCount } from '@core/shared/operational-error-counters.js';
 
 function makeJob(overrides: Partial<Job> = {}): Job {
   return {
@@ -33,6 +34,57 @@ function makeJob(overrides: Partial<Job> = {}): Job {
 }
 
 describe('jobs/delivery', () => {
+  it('increments the delivery error counter when a direct send fails', async () => {
+    const before = getOperationalErrorCount('delivery', 'notification_send');
+    const delivered = await sendJobNotification({
+      job: makeJob({
+        notification_routes: [
+          {
+            conversationJid: 'tg:1',
+            threadId: null,
+            label: 'dm',
+          },
+        ],
+      }),
+      text: 'done',
+      phase: 'summary',
+      runId: 'run-1',
+      sendMessage: vi.fn(async () => {
+        throw new Error('delivery failed');
+      }),
+    });
+
+    expect(delivered).toBe(false);
+    expect(getOperationalErrorCount('delivery', 'notification_send')).toBe(
+      before + 1,
+    );
+  });
+
+  it('increments the delivery error counter when direct delivery is incomplete', async () => {
+    const before = getOperationalErrorCount('delivery', 'notification_send');
+
+    const delivered = await sendJobNotification({
+      job: makeJob({
+        notification_routes: [
+          {
+            conversationJid: 'tg:1',
+            threadId: null,
+            label: 'dm',
+          },
+        ],
+      }),
+      text: 'done',
+      phase: 'summary',
+      runId: 'run-1',
+      sendMessage: vi.fn(async () => false) as never,
+    });
+
+    expect(delivered).toBe(false);
+    expect(getOperationalErrorCount('delivery', 'notification_send')).toBe(
+      before + 1,
+    );
+  });
+
   it('classifies partial delivery exceptions as delivery_incomplete', async () => {
     const warn = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
     const partial = new PartialMessageDeliveryError({

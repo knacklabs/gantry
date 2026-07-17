@@ -4,6 +4,7 @@ import type {
   PermissionApprovalRequest,
 } from '../../domain/types.js';
 import { logger } from '../../infrastructure/logging/logger.js';
+import { incrementOperationalError } from '../../shared/operational-error-counters.js';
 import {
   buildPermissionPromptParts,
   formatPermissionPromptPartsText,
@@ -205,6 +206,7 @@ export async function requestSlackPermissionApproval(input: {
       if (!bound) throw new Error('Slack permission message binding failed');
     } catch (err) {
       if (err instanceof DurableInteractionPersistenceError) throw err;
+      incrementOperationalError('channels', 'permission_prompt');
       if (!livePending.settled) {
         livePending.settled = true;
         clearTimeout(timer);
@@ -229,6 +231,7 @@ export async function requestSlackPermissionApproval(input: {
     return await decision;
   } catch (err) {
     if (err instanceof DurableInteractionPersistenceError) throw err;
+    incrementOperationalError('channels', 'permission_prompt');
     logger.error(
       { jid: input.jid, requestId: input.request.requestId, err },
       'Failed to send Slack permission prompt',

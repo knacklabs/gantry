@@ -6,6 +6,10 @@ import {
   type ReadinessDeps,
   type MetricsDeps,
 } from '@core/control/server/system-health.js';
+import {
+  getOperationalErrorCount,
+  incrementOperationalError,
+} from '@core/shared/operational-error-counters.js';
 
 const ALL_REQUIREMENTS = {
   requiresApiAuthConfigured: false,
@@ -272,6 +276,24 @@ function makeMetricsDeps(overrides: Partial<MetricsDeps> = {}): MetricsDeps {
 }
 
 describe('renderMetrics', () => {
+  it('renders process-local operational error counters', async () => {
+    const before = getOperationalErrorCount('delivery', 'notification_send');
+    incrementOperationalError('delivery', 'notification_send');
+
+    const body = await renderMetrics(
+      makeMetricsDeps({
+        query: vi.fn(async () => {
+          throw new Error('database unavailable');
+        }),
+      }),
+    );
+
+    expect(body).toContain('# TYPE gantry_errors_total counter');
+    expect(body).toContain(
+      `gantry_errors_total{subsystem="delivery",kind="notification_send"} ${before + 1}`,
+    );
+  });
+
   it('renders valid Prometheus text with process, worker, and queue gauges', async () => {
     const body = await renderMetrics(makeMetricsDeps());
     expect(body.endsWith('\n')).toBe(true);

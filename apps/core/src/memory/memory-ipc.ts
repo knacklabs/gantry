@@ -57,6 +57,7 @@ import {
   processMemoryReviewDecisionRequest,
   processPendingMemoryReviewRequest,
 } from './memory-review-ipc.js';
+import { incrementOperationalError } from '../shared/operational-error-counters.js';
 
 const MEMORY_IPC_REQUEST_ID_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/;
 
@@ -591,6 +592,7 @@ export async function processMemoryRequest(
         throw new Error(`Unsupported memory action: ${request.action}`);
     }
   } catch (error) {
+    incrementOperationalError('memory', 'ipc_request');
     return {
       ok: false,
       requestId: request.requestId,

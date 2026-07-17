@@ -129,6 +129,9 @@ describe('host child-process runtime smoke', () => {
         error: vi.fn(),
       },
       redactString: (value: string) => value,
+      withLogContext: (_context: unknown, callback: () => unknown) =>
+        callback(),
+      updateLogContext: vi.fn(),
     }));
     vi.doMock('@core/runtime/agent-spawn-host.js', () => ({
       getHostRuntimeCredentialEnv: async () => ({

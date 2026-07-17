@@ -23,6 +23,8 @@ vi.mock('@core/infrastructure/logging/logger.js', () => ({
     info: loggerSpies.info,
     warn: loggerSpies.warn,
   },
+  withLogContext: (_context: unknown, callback: () => unknown) => callback(),
+  updateLogContext: vi.fn(),
 }));
 
 type ArtifactKey = `${string}:${string}:${string}:${string}`;

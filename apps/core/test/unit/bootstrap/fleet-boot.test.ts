@@ -88,7 +88,11 @@ vi.mock('@core/config/settings/settings-import-service.js', async () => {
   };
 });
 
-vi.mock('@core/infrastructure/logging/logger.js', () => ({ logger: log }));
+vi.mock('@core/infrastructure/logging/logger.js', () => ({
+  logger: log,
+  withLogContext: (_context: unknown, callback: () => unknown) => callback(),
+  updateLogContext: vi.fn(),
+}));
 
 import {
   buildBakeOutcomeNotice,

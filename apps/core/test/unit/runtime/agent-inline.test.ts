@@ -60,6 +60,8 @@ vi.mock('@core/infrastructure/logging/logger.js', () => ({
     warn: vi.fn(),
     error: vi.fn(),
   },
+  withLogContext: (_context: unknown, callback: () => unknown) => callback(),
+  updateLogContext: vi.fn(),
 }));
 
 import type { ConversationRoute } from '@core/domain/types.js';
@@ -75,6 +77,7 @@ import type {
   AgentInput,
   AgentOutput,
 } from '@core/runtime/agent-spawn-types.js';
+import { getHostRuntimeCredentialEnv } from '@core/runtime/agent-spawn-host.js';
 import { GroupQueue } from '@core/runtime/group-queue.js';
 
 const group: ConversationRoute = {
@@ -108,6 +111,7 @@ const settleWhenAborted: InlineAgentLoopLane = ({ signal }) =>
 describe('runInlineAgent', () => {
   beforeEach(() => {
     revokeGatewayToken.mockClear();
+    vi.mocked(getHostRuntimeCredentialEnv).mockClear();
     inlineAgentSettings.current = {};
     fs.rmSync(INLINE_DATA_DIR, { recursive: true, force: true });
   });
@@ -158,6 +162,31 @@ describe('runInlineAgent', () => {
 
     expect(output).toEqual(terminal);
     expect(revokeGatewayToken).toHaveBeenCalledOnce();
+  });
+
+  it('binds inline credentials to turn correlation without adding lease identity', async () => {
+    const lane = vi.fn<InlineAgentLoopLane>(async ({ input }) => {
+      expect(input).not.toHaveProperty('runId');
+      expect(input).not.toHaveProperty('runLeaseToken');
+      expect(input).not.toHaveProperty('runLeaseFencingVersion');
+      return { status: 'success', result: null };
+    });
+
+    await runInlineAgent(group, agentInput, vi.fn(), undefined, {
+      ...options(lane),
+      correlationRunId: 'turn-correlation-1',
+    });
+
+    expect(getHostRuntimeCredentialEnv).toHaveBeenCalledWith(
+      'inline-test',
+      undefined,
+      {
+        purpose: 'model_runtime',
+        runId: 'turn-correlation-1',
+        runContext: agentInput,
+        modelRouteId: 'test-route',
+      },
+    );
   });
 
   it('preserves a structured error returned by the lane seam', async () => {

@@ -7,6 +7,7 @@ import type {
   PermissionApprovalRequest,
 } from '../domain/types.js';
 import { logger } from '../infrastructure/logging/logger.js';
+import { incrementOperationalError } from '../shared/operational-error-counters.js';
 import { PERMISSION_APPROVAL_TIMEOUT_MS } from '../shared/permission-timeout.js';
 import { buildTeamsApprovalAdaptiveCard } from './teams-cards.js';
 import { permissionDecisionOptions } from './permission-interaction.js';
@@ -167,11 +168,18 @@ export async function requestTeamsPermissionApproval(input: {
     if (messageId) input.onPromptDelivered?.(messageId);
     return await decision;
   } catch (err) {
+    if (err instanceof DurableInteractionPersistenceError) {
+      logger.error(
+        { jid: input.jid, requestId: input.request.requestId, err },
+        'Failed to send Teams permission prompt',
+      );
+      throw err;
+    }
+    incrementOperationalError('channels', 'permission_prompt');
     logger.error(
       { jid: input.jid, requestId: input.request.requestId, err },
       'Failed to send Teams permission prompt',
     );
-    if (err instanceof DurableInteractionPersistenceError) throw err;
     return {
       approved: false,
       reason: 'Failed to send approval prompt to Teams',

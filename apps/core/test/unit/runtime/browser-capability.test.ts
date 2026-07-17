@@ -115,6 +115,8 @@ vi.mock('@core/infrastructure/logging/logger.js', () => ({
     info: vi.fn(),
     warn: vi.fn(),
   },
+  withLogContext: (_context: unknown, callback: () => unknown) => callback(),
+  updateLogContext: vi.fn(),
 }));
 
 function cdpResponse(body: unknown): Response {

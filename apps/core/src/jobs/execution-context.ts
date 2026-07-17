@@ -37,17 +37,7 @@ export function resolveExecutionContext(
   const executionProviderAccountId = normalizeOptional(
     primaryExecutionRoute?.providerAccountId,
   );
-  const explicitAgentId = normalizeOptional(
-    (job.execution_context as Record<string, unknown> | undefined)?.agentId,
-  );
-  const workspaceKey =
-    normalizeOptional(job.execution_context?.workspaceKey) ??
-    normalizeOptional(job.workspace_key);
-  const executionAgentId = explicitAgentId
-    ? explicitAgentId
-    : workspaceKey
-      ? agentIdForJobWorkspaceKey(workspaceKey)
-      : undefined;
+  const executionAgentId = resolveJobExecutionAgentId(job);
   const group = executionAgentId
     ? findConversationRouteForQueue(
         groups,
@@ -77,6 +67,17 @@ export function resolveExecutionContext(
     threadId: executionThreadId ?? primaryExecutionRoute?.threadId ?? null,
     stopAliasJids,
   };
+}
+
+export function resolveJobExecutionAgentId(job: Job): string | undefined {
+  const explicitAgentId = normalizeOptional(
+    (job.execution_context as Record<string, unknown> | undefined)?.agentId,
+  );
+  if (explicitAgentId) return explicitAgentId;
+  const workspaceKey =
+    normalizeOptional(job.execution_context?.workspaceKey) ??
+    normalizeOptional(job.workspace_key);
+  return workspaceKey ? agentIdForJobWorkspaceKey(workspaceKey) : undefined;
 }
 
 export function resolveExecutionMemoryContext(input: {

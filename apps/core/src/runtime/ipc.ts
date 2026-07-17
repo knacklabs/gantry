@@ -27,13 +27,12 @@ import { validatePermissionIpcJobExecutionTarget, validateUserQuestionIpcJobExec
 import type { ConversationRoute as RuntimeGroupRecord } from '../domain/types.js';
 import { deliverIpcMessage } from './ipc-message-delivery.js';
 import { FilesystemRunnerControlPort } from './filesystem-runner-control-port.js';
-import {
-  IpcRequestWakeupRegistry,
-  type IpcRequestWakeupHint,
-} from './ipc-request-wakeup-registry.js';
+// prettier-ignore
+import { IpcRequestWakeupRegistry, type IpcRequestWakeupHint } from './ipc-request-wakeup-registry.js';
 import { IpcWakeupScopeTracker } from './ipc-wakeup-scope.js';
 import { processRichInteractionRequestDirectory } from './ipc-rich-interaction-directory.js';
 import { resolveRunnerIpcRoute } from './ipc-route-authorization.js';
+import { incrementOperationalError } from '../shared/operational-error-counters.js';
 export type { IpcDeps } from './ipc-domain-types.js';
 export { processTaskIpc } from '../jobs/ipc-handler.js';
 export { validateIpcAuthRequest } from './ipc-auth-validation.js';
@@ -328,6 +327,7 @@ export function startIpcWatcher(deps: IpcDeps): void {
                 );
                 runnerControlPort.removeClaimedRequest(claimedPath);
               } catch (err) {
+                incrementOperationalError('ipc', 'message_dispatch');
                 logger.error(
                   { file, sourceAgentFolder, err },
                   'Error processing IPC message',

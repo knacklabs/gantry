@@ -22,6 +22,7 @@ import {
 } from '../config/profiles.js';
 import { memoryAgentIdForWorkspaceFolder } from '../memory/app-memory-boundaries.js';
 import { RUNTIME_EVENT_TYPES } from '../domain/events/runtime-event-types.js';
+import { incrementOperationalError } from '../shared/operational-error-counters.js';
 
 const DENIED_BY_PROFILE_REASON = 'denied_by_profile';
 
@@ -197,6 +198,7 @@ export async function processTaskIpc(
       sourceAgentFolderJids,
     });
   } catch (err) {
+    incrementOperationalError('ipc', 'task_dispatch');
     logger.error(
       { err, type: data.type, sourceAgentFolder },
       'Unhandled IPC task handler error',

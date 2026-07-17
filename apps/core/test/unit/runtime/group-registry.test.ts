@@ -26,6 +26,8 @@ vi.mock('@core/infrastructure/logging/logger.js', () => ({
     error: vi.fn(),
     debug: vi.fn(),
   },
+  withLogContext: (_context: unknown, callback: () => unknown) => callback(),
+  updateLogContext: vi.fn(),
 }));
 
 vi.mock('@core/platform/workspace-folder.js', () => ({

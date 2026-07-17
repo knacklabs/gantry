@@ -50,10 +50,13 @@ const mockLogger = vi.hoisted(() => ({
   warn: vi.fn(),
   error: vi.fn(),
   debug: vi.fn(),
+  updateLogContext: vi.fn(),
 }));
 vi.mock('@core/infrastructure/logging/logger.js', () => ({
   logger: mockLogger,
   redactString: (value: string) => value,
+  withLogContext: (_context: unknown, callback: () => unknown) => callback(),
+  updateLogContext: mockLogger.updateLogContext,
 }));
 
 const mockRunDreamingSweep = vi.fn();
@@ -4970,6 +4973,34 @@ describe('createGroupProcessor', () => {
         }), // options
       );
       expect(mockSpawnAgent.mock.calls[0][1]).not.toHaveProperty('sessionId');
+    });
+
+    it('keeps unfenced interactive permission and question IPC outside scheduled run identity', async () => {
+      const { deps } = setupHappyPath();
+      (deps.opsRepository as any).getAgentTurnContext = vi
+        .fn()
+        .mockResolvedValue({
+          appId: 'app:test',
+          agentId: 'agent:test',
+          agentSessionId: 'agent-session:1',
+        });
+      (deps.opsRepository as any).createSessionAgentRun = vi
+        .fn()
+        .mockResolvedValue('agent-run:interactive-1');
+
+      const { processGroupMessages } = createGroupProcessor(deps);
+      await processGroupMessages('group1@g.us');
+
+      const agentInput = mockSpawnAgent.mock.calls[0][1];
+      expect(agentInput).not.toHaveProperty('runId');
+      expect(agentInput).not.toHaveProperty('runLeaseToken');
+      expect(agentInput).not.toHaveProperty('runLeaseFencingVersion');
+      expect(mockSpawnAgent.mock.calls[0][4]).toMatchObject({
+        correlationRunId: 'agent-run:interactive-1',
+      });
+      expect(mockLogger.updateLogContext).toHaveBeenCalledWith(
+        expect.objectContaining({ runId: 'agent-run:interactive-1' }),
+      );
     });
 
     it('passes channel conversation kind to getAgentTurnContext', async () => {

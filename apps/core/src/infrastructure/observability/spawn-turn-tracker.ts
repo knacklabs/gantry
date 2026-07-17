@@ -6,6 +6,7 @@ import {
   tracingEnabled,
   TRACE_CONTENT_MAX_CHARS,
 } from './tracing.js';
+import { updateLogContext } from '../logging/logger.js';
 
 // Structural mirrors of the runtime's AgentInput/AgentOutput — this module
 // must not import runtime types (layer boundary), and only reads these
@@ -30,6 +31,7 @@ interface TurnFrameLike {
 
 export interface SpawnTurnTracker<F extends TurnFrameLike> {
   correlationId: string;
+  traceId: () => string | undefined;
   onOutput: ((frame: F) => Promise<void>) | undefined;
   finish: (output: F | undefined) => void;
 }
@@ -83,26 +85,37 @@ export function createSpawnTurnTracker<F extends TurnFrameLike>(
             // the content bound.
             streamedTurnOutput += String(frame.result).slice(0, remaining);
           }
-          // Rotate BEFORE awaiting delivery: the runner starts the buffered
-          // follow-up immediately after emitting this frame, so a late
-          // rotation would parent the next turn's first LLM calls under the
-          // previous span (and a rejected callback would skip rotation).
+          // Rotate the OTel span before awaiting delivery: the runner starts
+          // the buffered follow-up immediately after emitting this frame, so
+          // a late span rotation could parent its first LLM calls under the
+          // previous turn. Keep the log context on the completed turn until
+          // its terminal frame callback settles, then rotate it for later
+          // work.
           // ponytail: the host output chain still queues this callback, so a
           // narrow race remains, and the follow-up prompt is runner-side so
           // the rotated span has no input — both marked via
           // gantry.continuation; fixing them needs a synchronous frame hook
           // in agent-spawn-process plus follow-up prompt plumbing.
+          let continuationTraceId: string | undefined;
           if (frame.continuedByFollowup && !closed) {
             if (streamedTurnOutput) turnSpan.setOutput(streamedTurnOutput);
             turnSpan.end('success');
             streamedTurnOutput = '';
             turnSpan = openTurnSpan(true);
+            continuationTraceId = turnSpan.traceId;
           }
-          await onOutput(frame);
+          try {
+            await onOutput(frame);
+          } finally {
+            if (continuationTraceId) {
+              updateLogContext({ traceId: continuationTraceId });
+            }
+          }
         }
       : onOutput;
   return {
     correlationId,
+    traceId: () => turnSpan.traceId,
     onOutput: tracedOnOutput,
     finish: (output) => {
       closed = true;

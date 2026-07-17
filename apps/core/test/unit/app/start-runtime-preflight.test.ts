@@ -6,6 +6,8 @@ const validateRuntimePreflightWithStorage = vi.fn(async () => ({ ok: true }));
 vi.mock('@core/infrastructure/logging/logger.js', () => ({
   installGlobalErrorHandlers: vi.fn(),
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+  withLogContext: (_context: unknown, callback: () => unknown) => callback(),
+  updateLogContext: vi.fn(),
 }));
 vi.mock('@core/app/bootstrap/runtime-app.js', () => ({
   getDefaultRuntimeApp: vi.fn(() => ({

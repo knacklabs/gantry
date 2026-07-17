@@ -16,6 +16,7 @@ import type {
   QuestionRecoveryEnvelope,
   UserQuestionRequest,
 } from '@core/domain/types.js';
+import { getOperationalErrorCount } from '@core/shared/operational-error-counters.js';
 
 import {
   processPermissionIpcRequest,
@@ -2248,6 +2249,10 @@ describe('ipc-interaction-handler', () => {
   });
 
   it('does not write a scheduled permission response when durable resolution fails', async () => {
+    const before = getOperationalErrorCount(
+      'interaction',
+      'permission_request',
+    );
     const envelope = createIpcAuthEnvelope('main_agent', null);
     const claimedPath = path.join(
       tempDir,
@@ -2329,9 +2334,16 @@ describe('ipc-interaction-handler', () => {
     ).toBe(false);
     expect(resolvePendingInteraction).toHaveBeenCalledTimes(2);
     expect(releasePendingPermissionCallback).not.toHaveBeenCalled();
+    expect(getOperationalErrorCount('interaction', 'permission_request')).toBe(
+      before + 1,
+    );
   });
 
   it('does not write scheduled question answers when durable resolution fails', async () => {
+    const before = getOperationalErrorCount(
+      'interaction',
+      'user_question_request',
+    );
     const envelope = createIpcAuthEnvelope('main_agent', null);
     const claimedPath = path.join(tempDir, 'claimed-unresolved-question.json');
     fs.writeFileSync(claimedPath, '{}');
@@ -2402,6 +2414,9 @@ describe('ipc-interaction-handler', () => {
         ),
       ),
     ).toBe(false);
+    expect(
+      getOperationalErrorCount('interaction', 'user_question_request'),
+    ).toBe(before + 1);
   });
 
   it('withholds question IPC output when prompt persistence fails', async () => {

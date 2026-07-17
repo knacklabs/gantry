@@ -438,61 +438,64 @@ export async function startRuntimeServices(
     getBrowserStatus,
     publishRuntimeEvent: resolved.publishRuntimeEvent,
   });
-  resolved.startIpcWatcher({
-    sendMessage: (jid, text, options) =>
-      channelWiring.sendMessage(jid, text, {
-        durability: 'required',
-        throwOnMissing: true,
-        ...(options ? { messageOptions: options } : {}),
-      }),
-    conversationRoutes: () => app.getConversationRoutes(),
-    registerGroup: app.registerGroup,
-    syncGroups: (force: boolean) => channelWiring.syncGroups(force),
-    getAvailableGroups: app.getAvailableGroups,
-    writeGroupsSnapshot: (folder, availableGroups, registeredJids) =>
-      resolved.writeGroupsSnapshot(folder, availableGroups, registeredJids),
-    onSchedulerChanged,
-    opsRepository: resolved.opsRepository,
-    getToolRepository: resolved.getToolRepository,
-    getSkillRepository: resolved.getSkillRepository,
-    getAsyncTaskRepository: resolved.getAsyncTaskRepository,
-    getMcpServerRepository: resolved.getMcpServerRepository,
-    getCapabilitySecretRepository: resolved.getCapabilitySecretRepository,
-    getSkillArtifactStore: resolved.getSkillArtifactStore,
-    getMcpDnsValidationCache: resolved.getMcpDnsValidationCache,
-    executionAdapter: resolved.executionAdapter ?? app.executionAdapter,
-    executionAdapters: resolved.executionAdapters ?? app.executionAdapters,
-    runnerSandboxProvider: resolved.runnerSandboxProvider,
-    runApprovedCommand: resolved.runApprovedCommand,
-    getPermissionRepository: resolved.getPermissionRepository,
-    getPermissionPromotionRepository: resolved.getPermissionPromotionRepository,
-    publishRuntimeEvent: resolved.publishRuntimeEvent,
-    getPermissionRuntimeSettings: getRuntimeSettingsForConfig,
-    getPermissionMessageRepository: () => resolved.opsRepository,
-    subscribeRuntimeEvents: resolved.subscribeRuntimeEvents,
-    getEgressSettings: () => getRuntimeSettingsForConfig().permissions.egress,
-    mirrorAgentToolRulesToSettings,
-    reloadRuntimeState: () => app.loadState(),
-    getCredentialBroker: app.getCredentialBroker,
-    getCredentialBrokerProfile: () => getCredentialBrokerRuntimeConfig().mode,
-    callBrowserTool: resolved.callBrowserTool,
-    publishBrowserJobActivity: resolved.publishBrowserJobActivity,
-    getBrowserStatus,
-    closeBrowserToolBackends: resolved.closeBrowserToolBackends,
-    getBrowserUsageSettings: () => getRuntimeSettingsForConfig().browser.usage,
-    requestPermissionApproval: inlineInteractions.requestPermissionApproval,
-    isControlApproverAllowed: channelWiring.isControlApproverAllowed,
-    requestUserAnswer: inlineInteractions.requestUserAnswer,
-    renderAgentTodo: (jid, render, options) =>
-      liveTurnsEnabled && liveExecution
-        ? channelWiring.renderAgentTodo(jid, render, options)
-        : Promise.resolve(false),
-    renderRichInteraction: (jid, request, options) =>
-      liveTurnsEnabled && liveExecution
-        ? channelWiring.renderRichInteraction(jid, request, options)
-        : Promise.resolve(false),
-    mcpHostnameLookup: resolved.mcpHostnameLookup,
-  });
+  const startIpcWatcher = () =>
+    resolved.startIpcWatcher({
+      sendMessage: (jid, text, options) =>
+        channelWiring.sendMessage(jid, text, {
+          durability: 'required',
+          throwOnMissing: true,
+          ...(options ? { messageOptions: options } : {}),
+        }),
+      conversationRoutes: () => app.getConversationRoutes(),
+      registerGroup: app.registerGroup,
+      syncGroups: (force: boolean) => channelWiring.syncGroups(force),
+      getAvailableGroups: app.getAvailableGroups,
+      writeGroupsSnapshot: (folder, availableGroups, registeredJids) =>
+        resolved.writeGroupsSnapshot(folder, availableGroups, registeredJids),
+      onSchedulerChanged,
+      opsRepository: resolved.opsRepository,
+      getToolRepository: resolved.getToolRepository,
+      getSkillRepository: resolved.getSkillRepository,
+      getAsyncTaskRepository: resolved.getAsyncTaskRepository,
+      getMcpServerRepository: resolved.getMcpServerRepository,
+      getCapabilitySecretRepository: resolved.getCapabilitySecretRepository,
+      getSkillArtifactStore: resolved.getSkillArtifactStore,
+      getMcpDnsValidationCache: resolved.getMcpDnsValidationCache,
+      executionAdapter: resolved.executionAdapter ?? app.executionAdapter,
+      executionAdapters: resolved.executionAdapters ?? app.executionAdapters,
+      runnerSandboxProvider: resolved.runnerSandboxProvider,
+      runApprovedCommand: resolved.runApprovedCommand,
+      getPermissionRepository: resolved.getPermissionRepository,
+      getPermissionPromotionRepository:
+        resolved.getPermissionPromotionRepository,
+      publishRuntimeEvent: resolved.publishRuntimeEvent,
+      getPermissionRuntimeSettings: getRuntimeSettingsForConfig,
+      getPermissionMessageRepository: () => resolved.opsRepository,
+      subscribeRuntimeEvents: resolved.subscribeRuntimeEvents,
+      getEgressSettings: () => getRuntimeSettingsForConfig().permissions.egress,
+      mirrorAgentToolRulesToSettings,
+      reloadRuntimeState: () => app.loadState(),
+      getCredentialBroker: app.getCredentialBroker,
+      getCredentialBrokerProfile: () => getCredentialBrokerRuntimeConfig().mode,
+      callBrowserTool: resolved.callBrowserTool,
+      publishBrowserJobActivity: resolved.publishBrowserJobActivity,
+      getBrowserStatus,
+      closeBrowserToolBackends: resolved.closeBrowserToolBackends,
+      getBrowserUsageSettings: () =>
+        getRuntimeSettingsForConfig().browser.usage,
+      requestPermissionApproval: inlineInteractions.requestPermissionApproval,
+      isControlApproverAllowed: channelWiring.isControlApproverAllowed,
+      requestUserAnswer: inlineInteractions.requestUserAnswer,
+      renderAgentTodo: (jid, render, options) =>
+        liveTurnsEnabled && liveExecution
+          ? channelWiring.renderAgentTodo(jid, render, options)
+          : Promise.resolve(false),
+      renderRichInteraction: (jid, request, options) =>
+        liveTurnsEnabled && liveExecution
+          ? channelWiring.renderRichInteraction(jid, request, options)
+          : Promise.resolve(false),
+      mcpHostnameLookup: resolved.mcpHostnameLookup,
+    });
   syncGroupSnapshots();
   app.queue.setLiveTurnRunnerRegistrar(
     liveTurnAuthority
@@ -988,6 +991,7 @@ export async function startRuntimeServices(
       warn: (meta, message) => resolved.logger.warn(meta, message),
     });
   }
+  startIpcWatcher();
   if (jobExecution) await startScheduler();
   else {
     markRoleHasNoJobExecution();

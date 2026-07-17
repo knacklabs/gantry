@@ -17,6 +17,7 @@ import {
   persistentPermissionUpdates,
 } from '../shared/permission-tool-rules.js';
 import { redactSensitiveText } from '../shared/sensitive-material.js';
+import { incrementOperationalError } from '../shared/operational-error-counters.js';
 import { archiveIpcErrorFile } from './ipc-filesystem.js';
 import {
   getIpcResponseSigningPrivateKey,
@@ -336,6 +337,7 @@ export async function processPermissionInteractionIpc(input: {
       (await resolveDurablePermissionInteraction(resolveInput)) ||
       (await resolveDurablePermissionInteraction(resolveInput));
     if (!resolved) {
+      incrementOperationalError('interaction', 'permission_request');
       input.logger.warn(
         permissionTelemetryContext(input.request, {
           sourceAgentFolder: input.sourceAgentFolder,
@@ -400,6 +402,7 @@ export async function processPermissionInteractionIpc(input: {
       );
       return;
     }
+    incrementOperationalError('interaction', 'permission_request');
     writePermissionInteractionFailure({
       ipcBaseDir: input.ipcBaseDir,
       sourceAgentFolder: input.sourceAgentFolder,
@@ -738,6 +741,7 @@ export async function processUserQuestionInteractionIpc(input: {
         response,
       });
       if (!resolved) {
+        incrementOperationalError('interaction', 'user_question_request');
         input.logger.warn(
           {
             sourceAgentFolder: input.sourceAgentFolder,
@@ -791,6 +795,7 @@ export async function processUserQuestionInteractionIpc(input: {
       );
       return;
     }
+    incrementOperationalError('interaction', 'user_question_request');
     writeUserQuestionInteractionFailure({
       ipcBaseDir: input.ipcBaseDir,
       sourceAgentFolder: input.sourceAgentFolder,

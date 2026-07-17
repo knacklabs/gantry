@@ -17,7 +17,8 @@ import {
 } from '../config/index.js';
 import { resolveAgentAccessPolicy } from '../config/profiles.js';
 import { logger } from '../infrastructure/logging/logger.js';
-import { createSpawnTurnTracker } from '../infrastructure/observability/spawn-turn-tracker.js';
+import { runSpawnWithLogContext } from '../infrastructure/observability/spawn-log-context.js';
+import type { SpawnTurnTracker } from '../infrastructure/observability/spawn-turn-tracker.js';
 import { ConversationRoute } from '../domain/types.js';
 import * as host from './agent-spawn-host.js';
 import {
@@ -63,17 +64,18 @@ import {
   sandboxAllowedNetworkHostsFromRuntimeAccess,
   writeProtectedFilesystemEnv,
 } from './agent-spawn-runtime-policy.js';
-import { nowMs as currentTimeMs } from '../shared/time/datetime.js';
+import {
+  resolveAgentSpawnLogContext,
+  stripIncompleteRunLeaseIdentity,
+} from './agent-spawn-identity.js';
 import {
   getConfiguredModelProvidersForApp,
   getRuntimeFileArtifactStore,
 } from '../adapters/storage/postgres/runtime-store.js';
 import { effectiveYoloModeSettings } from '../shared/yolo-mode-policy.js';
 import { formatGeneratedRuntimePathPermissionError } from './generated-runtime-path-error.js';
-import { resolveAgentExecutionAdapter } from '../application/agent-execution/agent-execution-adapter-registry.js';
 import { writeRunnerMcpConfigFile } from './agent-spawn-mcp-config.js';
 import { withStdioMcpEgressEnv } from './agent-spawn-mcp-egress-env.js';
-import { createRunnerHostStartupTiming } from './agent-spawn-startup-timing.js';
 import { publishRunnerHostStartupDiagnosticFromSpawn } from './agent-spawn-startup-diagnostic.js';
 import { resolveSelectedSkillEnvForSpawn } from './agent-spawn-selected-skill-env.js';
 import { configureSpawnAsyncCommandSandboxPolicy } from './async-command-sandbox-policy.js';
@@ -89,7 +91,6 @@ import {
   protectedWritePathsForOuterSandbox,
   sandboxRuntimeToolProcessEnv,
   sandboxRuntimeToolNetworkEnv,
-  prepareRunnerWorkspace,
   resolveRunnerSandboxStartup,
   uniqueStrings,
   buildRunnerSandboxSpawnInput,
@@ -97,6 +98,8 @@ import {
   buildAndLogRunnerRuntimeDetails,
   type RunnerAgentInput,
 } from './agent-spawn-helpers.js';
+import { prepareAgentSpawn } from './agent-spawn-preparation.js';
+import { resolveSpawnExecutionAdapter } from './agent-spawn-execution-adapter.js';
 export { writeGroupsSnapshot } from './agent-spawn-snapshots.js';
 export type { AvailableGroup } from './agent-spawn-types.js';
 export type { AgentInput, AgentOutput } from './agent-spawn-types.js';
@@ -107,20 +110,36 @@ export async function spawnAgent(
   onOutput: ((output: AgentOutput) => Promise<void>) | undefined,
   options: RunAgentOptions,
 ): Promise<AgentOutput> {
-  const agentRuntime = input.runtime ?? getSelectedAgentRuntime(group.folder);
-  if (agentRuntime === 'inline') {
-    const { runInlineAgent } = await import('./agent-inline.js');
-    return runInlineAgent(group, input, onProcess, onOutput, options);
-  }
-  const startTime = currentTimeMs();
-  const hostStartup = createRunnerHostStartupTiming({ nowMs: currentTimeMs });
-  const { groupDir, processName } = hostStartup.measure('workspacePrepMs', () =>
-    prepareRunnerWorkspace({
-      folder: group.folder,
-      nowMs: currentTimeMs,
-      warn: logger.warn.bind(logger),
-    }),
+  const spawnInput = stripIncompleteRunLeaseIdentity(input);
+  return runSpawnWithLogContext(
+    {
+      ...resolveAgentSpawnLogContext(group, input, options?.correlationRunId),
+      onOutput,
+    },
+    (turnTracker) =>
+      spawnAgentWithContext(group, spawnInput, onProcess, options, turnTracker),
   );
+}
+
+async function spawnAgentWithContext(
+  group: ConversationRoute,
+  input: AgentInput,
+  onProcess: (proc: ChildProcess, runHandle: string) => void,
+  options: RunAgentOptions,
+  turnTracker: SpawnTurnTracker<AgentOutput>,
+): Promise<AgentOutput> {
+  const preparation = await prepareAgentSpawn({
+    group,
+    agentInput: input,
+    agentRuntime: input.runtime ?? getSelectedAgentRuntime(group.folder),
+    onProcess,
+    onOutput: turnTracker.onOutput,
+    options: { ...options, correlationRunId: turnTracker.correlationId },
+    warn: logger.warn.bind(logger),
+  });
+  if (preparation.kind === 'inline') return preparation.output;
+  const { agentRuntime, startTime, hostStartup, groupDir, processName } =
+    preparation;
   const modelResolutionStarted = hostStartup.start();
   const runtimeSettings = getRuntimeSettingsForConfig();
   const modelConfig = getEffectiveModelConfig(
@@ -206,29 +225,12 @@ export async function spawnAgent(
     yoloMode: effectiveYoloModeSettings(runtimeSettings.permissions.yoloMode),
   };
   const hostRuntime = host.prepareHostRuntimeContext(group);
-  let executionAdapter: NonNullable<RunAgentOptions['executionAdapter']>;
-  try {
-    executionAdapter = resolveAgentExecutionAdapter({
-      executionProviderId: resolvedModel.value.executionProviderId,
-      registry: options?.executionAdapters,
-      fallback: options?.executionAdapter,
-    }) as NonNullable<RunAgentOptions['executionAdapter']>;
-  } catch (err) {
-    return {
-      status: 'error',
-      result: null,
-      error: err instanceof Error ? err.message : String(err),
-    };
-  }
-  if (!executionAdapter) {
-    return {
-      status: 'error',
-      result: null,
-      error:
-        'No LLM execution adapter configured. Runtime bootstrap must provide an AgentExecutionAdapterRegistry.',
-    };
-  }
-  const turnTracker = createSpawnTurnTracker(group.name, input, onOutput);
+  const adapterResolution = resolveSpawnExecutionAdapter(
+    resolvedModel.value.executionProviderId,
+    options,
+  );
+  if (!adapterResolution.ok) return adapterResolution.output;
+  const { executionAdapter } = adapterResolution;
   let mcpConfigPath: string | undefined;
   let sandboxConfigPath: string | undefined;
   let runnerTempDir: string | undefined;
@@ -771,7 +773,6 @@ export async function spawnAgent(
     });
     return output;
   } finally {
-    turnTracker.finish(output);
     cleanupRunnerTempDir(runnerTempDir, logger.warn.bind(logger));
     if (browserIpcEnabled) {
       revokeBrowserIpcAuthorization({

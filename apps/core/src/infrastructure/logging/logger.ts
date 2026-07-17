@@ -1,3 +1,5 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
+
 import {
   Clock,
   nowIso,
@@ -44,6 +46,36 @@ export interface CreateLoggerOptions {
   clock?: Clock;
   context?: Record<string, unknown>;
   redact?: (value: unknown) => unknown;
+}
+
+export interface LogCorrelationContext {
+  runId?: string;
+  appId?: string;
+  agentId?: string;
+  traceId?: string;
+}
+
+const logContextStorage = new AsyncLocalStorage<LogCorrelationContext>();
+
+export function withLogContext<T>(
+  context: LogCorrelationContext,
+  callback: () => T,
+): T {
+  return logContextStorage.run(
+    { ...logContextStorage.getStore(), ...context },
+    callback,
+  );
+}
+
+export function updateLogContext(context: LogCorrelationContext): void {
+  const current = logContextStorage.getStore();
+  if (current) Object.assign(current, context);
+}
+
+export function currentLogContext():
+  | Readonly<LogCorrelationContext>
+  | undefined {
+  return logContextStorage.getStore();
 }
 
 const DEFAULT_REDACT_KEY_PATTERN =
@@ -267,6 +299,11 @@ export function createLogger(options: CreateLoggerOptions = {}): Logger {
       typeof dataOrMsg === 'string'
         ? redactString(dataOrMsg)
         : redactString(msg || '');
+    const activeContext = currentLogContext();
+    const inheritedContext = mergeContexts(
+      mergeContexts(baseContext, activeContext),
+      childContext,
+    );
     const record: LogRecord = {
       timestamp: nowIso(clock),
       level: currentLevel,
@@ -274,17 +311,14 @@ export function createLogger(options: CreateLoggerOptions = {}): Logger {
       pid: process.pid,
       ...(() => {
         if (typeof dataOrMsg === 'string') {
-          const context = redact(mergeContexts(baseContext, childContext)) as
+          const context = redact(inheritedContext) as
             | Record<string, unknown>
             | undefined;
           return context ? { context } : {};
         }
-        const context = redact(
-          mergeContexts(
-            mergeContexts(baseContext, childContext),
-            redact(dataOrMsg) as Record<string, unknown>,
-          ),
-        ) as Record<string, unknown> | undefined;
+        const context = redact(mergeContexts(inheritedContext, dataOrMsg)) as
+          | Record<string, unknown>
+          | undefined;
         return context ? { context } : {};
       })(),
     };

@@ -43,6 +43,8 @@ vi.mock('@core/infrastructure/logging/logger.js', () => ({
     warn: vi.fn(),
     error: vi.fn(),
   },
+  withLogContext: (_context: unknown, callback: () => unknown) => callback(),
+  updateLogContext: vi.fn(),
 }));
 
 afterEach(() => {

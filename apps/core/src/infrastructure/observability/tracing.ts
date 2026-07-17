@@ -192,6 +192,7 @@ export function boundedJsonArray(
 }
 
 export interface TurnSpanHandle {
+  traceId?: string;
   setInput: (content: string) => void;
   setOutput: (content: string) => void;
   end: (outcome: 'success' | 'error' | 'stopped', error?: string) => void;
@@ -234,6 +235,7 @@ export function startTurnSpan(input: {
     turnSpans.set(input.runId, span);
     let ended = false;
     return {
+      traceId: span.spanContext().traceId,
       setInput: (content) => {
         if (!ended && current.captureContent) {
           span.setAttribute(

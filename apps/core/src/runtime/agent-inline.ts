@@ -235,6 +235,7 @@ export async function runInlineAgent(
       options.credentialBroker,
       {
         purpose: 'model_runtime',
+        runId: options.correlationRunId as never,
         runContext: input,
         modelRouteId: resolvedModel.value.modelEntry.modelRoute.id,
       },
