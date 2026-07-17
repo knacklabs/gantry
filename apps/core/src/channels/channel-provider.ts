@@ -40,6 +40,7 @@ export const CHANNEL_STREAM_UPDATE_INTERVAL_MS = {
 } as const;
 
 export interface ChannelOpts {
+  appId?: string;
   providerAccountId?: string;
   inboundProviderAccountIds?: string[];
   agentId?: string;

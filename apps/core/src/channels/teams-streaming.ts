@@ -26,6 +26,7 @@ export async function applyTeamsStreamingChunk(input: {
   activeStreams: Map<string, TeamsStreamingState>;
   sdkClient: TeamsSdkClient;
   markDone: (jid: string, generation?: number) => void;
+  shouldContinue: () => boolean;
 }): Promise<boolean> {
   const current = input.activeStreams.get(input.key);
   if (current !== input.state) return false;
@@ -57,6 +58,7 @@ async function flushTeamsStreamingState(input: {
   state: TeamsStreamingState;
   options: StreamingChunkOptions;
   sdkClient: TeamsSdkClient;
+  shouldContinue: () => boolean;
 }): Promise<boolean> {
   const options = input.options;
   const parts = splitTeamsTextByByteBudget(
@@ -68,11 +70,13 @@ async function flushTeamsStreamingState(input: {
     input.sdkClient.sendAdaptiveCard && input.sdkClient.updateAdaptiveCard;
   if (!hasNativeStreaming) {
     if (!options.done) return false;
+    if (!input.shouldContinue()) return false;
     await sendTeamsTextMessage(
       input.sdkClient,
       input.state.conversationId,
       input.state.rawBuffer,
       options,
+      input.shouldContinue,
     );
     return true;
   }
@@ -101,6 +105,7 @@ async function flushTeamsStreamingState(input: {
   }
 
   if (options.done && parts.length > 1) {
+    if (!input.shouldContinue()) return true;
     // ponytail: cap overflow at Teams' provider limit; do not add rolling
     // chunk messages during normal streaming cadence.
     await sendTeamsTextMessage(
@@ -108,6 +113,7 @@ async function flushTeamsStreamingState(input: {
       input.state.conversationId,
       parts.slice(1).join(''),
       options,
+      input.shouldContinue,
     );
   }
   return true;

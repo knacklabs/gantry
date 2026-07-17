@@ -1739,7 +1739,10 @@ export function createPostgresDomainRepositories(
     pendingAccessRequests: new PostgresPendingAccessRequestsRepository(db),
     sandboxes: new PostgresSandboxRepository(db),
     outboundDeliveries: new PostgresOutboundDeliveryRepository(db),
-    workerCoordination: new PostgresWorkerCoordinationRepository(db),
+    workerCoordination: new PostgresWorkerCoordinationRepository(
+      db,
+      options.liveTurnCommandNotifier,
+    ),
     liveTurns: new PostgresLiveTurnRepository(
       db,
       options.liveTurnCommandNotifier,

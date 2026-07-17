@@ -29,7 +29,6 @@ import {
   syncSlackGroups,
   type SlackSnippetFallbackInput,
   type SlackSnippetFallbackResult,
-  waitForSlackUserQuestionSelection,
 } from './channel-delivery-helpers.js';
 import { SlackChannelInteractions } from './channel-interactions.js';
 import {
@@ -37,15 +36,17 @@ import {
   SLACK_STREAM_UPDATE_INTERVAL_MS,
   splitSlackTextByCodeUnits,
 } from './text-limits.js';
-import type { PendingUserQuestionState } from './channel-state.js';
 import type { AgentTodoRender } from '../../domain/ports/task-lifecycle.js';
 import { nowMs as currentTimeMs } from '../../shared/time/datetime.js';
-import { slackThreadTsFromThreadId } from './thread-ts.js';
 import { renderSlackAgentTodo } from './agent-todo-delivery.js';
 import { connectSlackApp } from './channel-connect.js';
-import { requestSlackPermissionApproval } from './permission-approval-delivery.js';
+import {
+  requestSlackPermissionApproval,
+  slackPermissionApproverIds,
+} from './permission-approval-delivery.js';
 import { renderSlackRichInteraction } from './rich-interaction.js';
 import { addSlackReaction } from './reactions.js';
+import { requestSlackUserAnswer } from './user-question-delivery.js';
 const SLACK_STREAM_SNIPPET_FALLBACK_MIN_PARTS = 4;
 
 export abstract class SlackChannelDelivery extends SlackChannelInteractions {
@@ -170,6 +171,7 @@ export abstract class SlackChannelDelivery extends SlackChannelInteractions {
     if (!parsed) return false;
     if (!this.shouldAcceptStreamingChunk(jid, options.generation)) return false;
     const key = this.streamKey(jid, options.threadId);
+    const streamEpoch = this.streamResetEpochs.current(key);
     let state = this.activeStreams.get(key);
     if (!state) {
       state = {
@@ -184,27 +186,33 @@ export abstract class SlackChannelDelivery extends SlackChannelInteractions {
       };
       this.activeStreams.set(key, state);
     }
+    const sendFallbackParts = (fallbackParts: string[]) =>
+      sendSlackFallbackStreamParts({
+        app: this.app,
+        jid,
+        state,
+        fallbackParts,
+        log: logger,
+        shouldContinue: () =>
+          this.streamResetEpochs.isCurrent(key, streamEpoch),
+      });
     if (text) state.rawBuffer += text;
     const rendered = formatOutboundForChannel(
       stripInternalTagsPreserveWhitespace(state.rawBuffer),
       'slack',
     );
     if (!rendered && options.done) {
-      this.activeStreams.delete(key);
+      this.streamResetEpochs.deleteState(key, this.activeStreams);
       this.markStreamingGenerationDone(jid, options.generation);
       return false;
     }
-
     const now = currentTimeMs();
     const hasMessageHandle = Boolean(state.messageTs || state.nativeStreamTs);
     const shouldFlush =
       options.done ||
       !hasMessageHandle ||
       now - state.lastFlushAt >= SLACK_STREAM_UPDATE_INTERVAL_MS;
-    if (!shouldFlush) {
-      return Boolean(state.messageTs || state.nativeStreamTs);
-    }
-
+    if (!shouldFlush) return Boolean(state.messageTs || state.nativeStreamTs);
     let nextText = rendered;
     if (!nextText) nextText = state.lastSentText;
     let delivered = false;
@@ -212,14 +220,18 @@ export abstract class SlackChannelDelivery extends SlackChannelInteractions {
     try {
       let startedNativeThisFlush = false;
       if (state.nativeEnabled && !state.nativeStreamTs && nextText) {
-        state.nativeStreamTs = await this.tryNativeStreamStart(
+        const nativeStreamTs = await this.tryNativeStreamStart(
           state.channelId,
           state.threadId,
           nextText,
         );
+        if (!this.streamResetEpochs.isCurrent(key, streamEpoch)) {
+          if (nativeStreamTs)
+            await this.tryNativeStreamStop(state.channelId, nativeStreamTs);
+          return false;
+        }
+        state.nativeStreamTs = nativeStreamTs;
         if (state.nativeStreamTs) {
-          // Initial content is already sent via startStream; avoid appending
-          // the same content again on this same flush.
           state.lastNativeText = nextText;
           state.lastSentText = nextText;
           startedNativeThisFlush = true;
@@ -279,25 +291,21 @@ export abstract class SlackChannelDelivery extends SlackChannelInteractions {
           options.done &&
           fallbackParts.length >= SLACK_STREAM_SNIPPET_FALLBACK_MIN_PARTS
         ) {
+          if (!this.streamResetEpochs.isCurrent(key, streamEpoch)) return false;
           const fallback = await this.sendSnippetFallback({
             channelId: state.channelId,
             text: fallbackTextRaw,
             threadId: state.threadId,
             reason: 'stream_output_too_large',
           });
+          if (!this.streamResetEpochs.isCurrent(key, streamEpoch)) return false;
           if (fallback) {
             delivered = true;
             state.fallbackMessageTs = [];
           }
         }
         if (!delivered && fallbackParts.length > 0) {
-          await sendSlackFallbackStreamParts({
-            app: this.app,
-            jid,
-            state,
-            fallbackParts,
-            log: logger,
-          });
+          await sendFallbackParts(fallbackParts);
           delivered = true;
         }
       }
@@ -328,31 +336,30 @@ export abstract class SlackChannelDelivery extends SlackChannelInteractions {
             if (
               fallbackParts.length >= SLACK_STREAM_SNIPPET_FALLBACK_MIN_PARTS
             ) {
+              if (!this.streamResetEpochs.isCurrent(key, streamEpoch))
+                return false;
               const fallback = await this.sendSnippetFallback({
                 channelId: state.channelId,
                 text: fallbackTextRaw,
                 threadId: state.threadId,
                 reason: 'stream_output_too_large',
               });
+              if (!this.streamResetEpochs.isCurrent(key, streamEpoch))
+                return false;
               if (fallback) {
                 delivered = true;
                 state.fallbackMessageTs = [];
               }
             }
             if (!delivered && fallbackParts.length > 0) {
-              await sendSlackFallbackStreamParts({
-                app: this.app,
-                jid,
-                state,
-                fallbackParts,
-                log: logger,
-              });
+              await sendFallbackParts(fallbackParts);
               delivered = true;
             }
             state.lastSentText = nextText;
             state.lastFlushAt = now;
-            this.activeStreams.delete(key);
-            this.markStreamingGenerationDone(jid, options.generation);
+            const ok = this.streamResetEpochs.isCurrent(key, streamEpoch);
+            if (ok) this.streamResetEpochs.deleteState(key, this.activeStreams);
+            if (ok) this.markStreamingGenerationDone(jid, options.generation);
             return (
               delivered || Boolean(state.messageTs || state.nativeStreamTs)
             );
@@ -412,8 +419,9 @@ export abstract class SlackChannelDelivery extends SlackChannelInteractions {
             }
           }
         }
+        if (!this.streamResetEpochs.isCurrent(key, streamEpoch)) throw err;
         if (options.done) {
-          this.activeStreams.delete(key);
+          this.streamResetEpochs.deleteState(key, this.activeStreams);
           this.markStreamingGenerationDone(jid, options.generation);
         } else {
           this.activeStreams.set(key, state);
@@ -435,18 +443,29 @@ export abstract class SlackChannelDelivery extends SlackChannelInteractions {
       }
     }
     if (options.done) {
-      this.activeStreams.delete(key);
-      this.markStreamingGenerationDone(jid, options.generation);
-    } else {
+      if (this.streamResetEpochs.isCurrent(key, streamEpoch)) {
+        this.streamResetEpochs.deleteState(key, this.activeStreams);
+        this.markStreamingGenerationDone(jid, options.generation);
+      }
+    } else if (this.streamResetEpochs.isCurrent(key, streamEpoch))
       this.activeStreams.set(key, state);
-    }
     return delivered || Boolean(state.messageTs || state.nativeStreamTs);
   }
-  resetStreaming(jid: string): void {
+  resetStreaming(jid: string, options?: { threadId?: string }): void {
+    if (options) {
+      const key = this.streamKey(jid, options.threadId);
+      const state = this.activeStreams.get(key);
+      this.streamResetEpochs.bump(key);
+      if (state?.nativeStreamTs) {
+        void this.tryNativeStreamStop(state.channelId, state.nativeStreamTs);
+      }
+      this.streamResetEpochs.deleteState(key, this.activeStreams);
+      return;
+    }
+    this.streamResetEpochs.bumpMatching(this.activeStreams.keys(), `${jid}:`);
     this.sealStreamingGenerationOnReset(jid);
     this.clearStreamingStateForJid(jid);
   }
-
   async sendProgressUpdate(
     jid: string,
     text: string,
@@ -491,6 +510,7 @@ export abstract class SlackChannelDelivery extends SlackChannelInteractions {
   async requestPermissionApproval(
     jid: string,
     request: PermissionApprovalRequest,
+    onPromptDelivered?: (messageId: string) => void,
   ): Promise<PermissionApprovalDecision> {
     if (!this.interactionCallbacksEnabled) {
       return {
@@ -510,7 +530,15 @@ export abstract class SlackChannelDelivery extends SlackChannelInteractions {
       };
     }
 
-    if (this.pendingPermissionPrompts.has(request.requestId)) {
+    if (
+      Array.from(this.pendingPermissionPrompts.values()).some(
+        (pending) =>
+          pending.request.requestId === request.requestId &&
+          (pending.request.appId || 'default') ===
+            (request.appId || 'default') &&
+          pending.sourceAgentFolder === request.sourceAgentFolder,
+      )
+    ) {
       return {
         approved: false,
         reason: 'This approval request is already awaiting a decision.',
@@ -524,31 +552,16 @@ export abstract class SlackChannelDelivery extends SlackChannelInteractions {
       channelId: parsed.channelId,
       request,
       timeoutMs,
-      approverUserIds: this.slackControlApproverIds(parsed.channelId),
+      approverUserIds: slackPermissionApproverIds(
+        this.opts.runtimeSettings,
+        this.opts.providerAccountId,
+        parsed.channelId,
+      ),
       pendingPermissionPrompts: this.pendingPermissionPrompts,
-      resolvePermissionPrompt: (requestId, decision) =>
-        this.resolvePermissionPrompt(requestId, decision),
+      timeoutPermissionPrompt: (providerAlias) =>
+        this.timeoutPermissionPrompt(providerAlias),
+      onPromptDelivered,
     });
-  }
-
-  private slackControlApproverIds(channelId: string): string[] {
-    try {
-      return [
-        ...new Set(
-          Object.values(this.opts.runtimeSettings?.().conversations || {})
-            .filter((conversation) => conversation.externalId === channelId)
-            .filter(
-              (conversation) =>
-                (conversation.providerAccount ??
-                  conversation.providerConnection) ===
-                this.opts.providerAccountId,
-            )
-            .flatMap((conversation) => conversation.controlApprovers),
-        ),
-      ];
-    } catch {
-      return [];
-    }
   }
 
   private loadPersistedProgress(): void {
@@ -564,6 +577,7 @@ export abstract class SlackChannelDelivery extends SlackChannelInteractions {
   async requestUserAnswer(
     jid: string,
     request: UserQuestionRequest,
+    onPromptDelivered?: (messageId: string) => void,
   ): Promise<UserQuestionResponse> {
     if (!this.interactionCallbacksEnabled) {
       return {
@@ -579,116 +593,26 @@ export abstract class SlackChannelDelivery extends SlackChannelInteractions {
     if (!parsed) {
       return { requestId: request.requestId, answers: {} };
     }
-
-    const timeoutMs = PERMISSION_APPROVAL_TIMEOUT_MS;
-    const answers: Record<string, string | string[]> = {};
-    let answeredBy: string | undefined;
-
-    for (let i = 0; i < request.questions.length; i += 1) {
-      const question = request.questions[i];
-      const pendingKey = this.pendingUserQuestionKey(request.requestId, i);
-      if (this.pendingUserQuestions.has(pendingKey)) {
-        logger.warn(
-          { requestId: request.requestId, questionIndex: i },
-          'Duplicate pending Slack user question request detected',
-        );
-        continue;
-      }
-
-      const promptText = this.formatUserQuestionPromptText(
-        request,
-        question,
-        timeoutMs,
-      );
-
-      try {
-        const pendingState: PendingUserQuestionState = {
-          requestId: request.requestId,
-          questionIndex: i,
-          question,
-          promptText,
-          selectedOptionIndexes: new Set<number>(),
-          channelId: parsed.channelId,
-          sourceAgentFolder: request.sourceAgentFolder,
-          messageTs: '',
-          resolve: () => undefined,
-          settled: false,
-        };
-
-        const questionThreadTs = slackThreadTsFromThreadId(request.threadId);
-        const questionThreadPayload = questionThreadTs
-          ? { thread_ts: questionThreadTs }
-          : {};
-        const fullBlocks = this.buildUserQuestionBlocks(pendingState);
-        const postQuestion = (blocks: unknown[]) =>
-          this.app!.client.chat.postMessage({
-            channel: parsed.channelId,
-            text: promptText,
-            ...questionThreadPayload,
-            blocks: blocks as any,
-          }) as Promise<{ ts?: string }>;
-        let sent: { ts?: string };
-        try {
-          sent = await postQuestion(fullBlocks);
-        } catch (blocksErr) {
-          logger.warn(
-            { requestId: request.requestId, questionIndex: i, err: blocksErr },
-            'Slack native user-question blocks rejected; retrying without header',
-          );
-          sent = await postQuestion(
-            fullBlocks.filter(
-              (block) => (block as { type?: string }).type !== 'header',
-            ),
-          );
-        }
-
-        const messageTs = sent.ts;
-        if (!messageTs) {
-          logger.warn(
-            { requestId: request.requestId, questionIndex: i },
-            'Slack did not return a message timestamp for user question prompt',
-          );
-          continue;
-        }
-
-        const selection = await waitForSlackUserQuestionSelection({
-          pendingKey,
-          pendingState: { ...pendingState, messageTs },
-          pendingUserQuestions: this.pendingUserQuestions,
-          timeoutMs,
-          finalizeTimedOut: (timedOut) =>
-            this.finalizeUserQuestionPrompt(
-              timedOut,
-              timedOut.question.multiSelect ? [] : '',
-              'system',
-              'timed out',
-            ),
-        });
-
-        const isEmptySelection = Array.isArray(selection.selected)
-          ? selection.selected.length === 0
-          : selection.selected.trim().length === 0;
-        if (isEmptySelection) {
-          // Timeout or explicit empty submission: omit this answer so the SDK
-          // receives an empty answer map and treats it as unanswered/declined.
-          continue;
-        }
-
-        if (selection.answeredBy) answeredBy = selection.answeredBy;
-        answers[question.question] = selection.selected;
-      } catch (err) {
-        logger.warn(
-          { requestId: request.requestId, questionIndex: i, err },
-          'Failed to run Slack user question prompt',
-        );
-      }
-    }
-
-    return {
-      requestId: request.requestId,
-      answers,
-      ...(answeredBy ? { answeredBy } : {}),
-    };
+    return requestSlackUserAnswer({
+      app: this.app,
+      channelId: parsed.channelId,
+      request,
+      timeoutMs: PERMISSION_APPROVAL_TIMEOUT_MS,
+      pendingUserQuestions: this.pendingUserQuestions,
+      pendingUserQuestionKey: (callback) =>
+        this.pendingUserQuestionKey(callback),
+      formatPromptText: (promptRequest, question, timeoutMs) =>
+        this.formatUserQuestionPromptText(promptRequest, question, timeoutMs),
+      buildBlocks: (pending) => this.buildUserQuestionBlocks(pending),
+      finalizeTimedOut: (pending) =>
+        this.finalizeUserQuestionPrompt(
+          pending,
+          pending.question.multiSelect ? [] : '',
+          'system',
+          'timed out',
+        ),
+      onPromptDelivered,
+    });
   }
 
   async syncGroups(force = false): Promise<void> {
@@ -708,13 +632,34 @@ export abstract class SlackChannelDelivery extends SlackChannelInteractions {
     return jid.startsWith('sl:');
   }
   async disconnect(): Promise<void> {
+    this.streamResetEpochs.clear();
+    for (const providerAlias of this.pendingPermissionPrompts.keys()) {
+      const result = await this.claimAndResolvePermissionPrompt(
+        providerAlias,
+        'cancel',
+        'system',
+        undefined,
+        'Slack channel disconnected',
+        true,
+      );
+      if (result === 'already_decided') continue;
+      const pending = this.pendingPermissionPrompts.get(providerAlias);
+      if (!pending) continue;
+      clearTimeout(pending.timer);
+      this.pendingPermissionPrompts.delete(providerAlias);
+      pending.resolve({
+        approved: false,
+        mode: 'cancel',
+        decidedBy: 'system',
+        reason: 'Slack channel disconnected',
+      });
+    }
     this.app = await disconnectSlackDelivery({
       app: this.app,
       activeStreams: this.activeStreams,
       streamGenerationByJid: this.streamGenerationByJid,
       sealedStreamGenerationByJid: this.sealedStreamGenerationByJid,
       activeProgress: this.activeProgress,
-      pendingPermissionPrompts: this.pendingPermissionPrompts,
       pendingUserQuestions: this.pendingUserQuestions,
       stopNativeStream: (channelId, streamTs) =>
         this.tryNativeStreamStop(channelId, streamTs),

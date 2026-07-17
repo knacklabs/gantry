@@ -1,19 +1,20 @@
 import { bindPendingPermissionInteractionMessage } from '../application/interactions/pending-interaction-durability.js';
 import type { PermissionApprovalRequest } from '../domain/types.js';
+import { permissionDecisionOptions } from './permission-interaction.js';
 
-export function bindTeamsPermissionPromptMessage(
+export async function bindTeamsPermissionPromptMessage(
   request: PermissionApprovalRequest,
   conversationId: string,
+  callbackId: string,
   externalMessageId?: string,
-): void {
-  if (!externalMessageId) return;
-  void bindPendingPermissionInteractionMessage({
-    sourceAgentFolder: request.sourceAgentFolder,
-    requestId: request.requestId,
-    appId: request.appId,
+): Promise<boolean> {
+  if (!externalMessageId) return false;
+  return bindPendingPermissionInteractionMessage({
+    request,
+    decisionOptions: permissionDecisionOptions(request),
+    callbackId,
     externalMessageId,
     provider: 'teams',
     conversationId,
-    ...(request.threadId ? { threadId: request.threadId } : {}),
   });
 }

@@ -136,7 +136,7 @@ export async function createAppChannel(
       );
       return result.emitted;
     },
-    resetStreaming(_jid: string) {},
+    resetStreaming(_jid: string, _options?: { threadId?: string }) {},
     async setTyping(jid: string, isTyping: boolean): Promise<void> {
       await emitSessionEvent(jid, RUNTIME_EVENT_TYPES.SESSION_TYPING, {
         isTyping,

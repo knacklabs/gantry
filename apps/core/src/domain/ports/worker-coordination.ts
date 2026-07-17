@@ -1,3 +1,10 @@
+import type {
+  PermissionCallbackClaim,
+  PermissionCallbackClaimReference,
+  PermissionCallbackScope,
+} from '../types.js';
+import type { LiveTurnCommandAppendInput } from './live-turns.js';
+
 export type WorkerInstanceStatus =
   | 'starting'
   | 'healthy'
@@ -271,12 +278,30 @@ export interface PendingInteractionRepository {
     status: Extract<PendingInteractionStatus, 'resolved' | 'cancelled'>;
     resolution: Record<string, unknown>;
     approverRef?: string | null;
+    permissionCallbackClaim?: PermissionCallbackClaimReference | null;
+    liveTurnCommand?: LiveTurnCommandAppendInput | null;
     now?: string;
   }): Promise<boolean>;
   updatePendingInteractionPayload(input: {
     idempotencyKey: string;
-    payload: Record<string, unknown>;
+    update: (
+      payload: Record<string, unknown>,
+    ) => Record<string, unknown> | null;
   }): Promise<boolean>;
+  claimPendingPermissionCallback(input: {
+    claim: PermissionCallbackClaim;
+  }): Promise<PendingInteraction[]>;
+  releasePendingPermissionCallback(input: {
+    claim: PermissionCallbackClaimReference;
+  }): Promise<number>;
+  settlePendingPermissionCallback(input: {
+    claim: PermissionCallbackClaimReference;
+  }): Promise<number>;
+  findPendingPermissionInteractions(input: {
+    scope: PermissionCallbackScope;
+    now?: string;
+    includeTerminalSettlement?: boolean;
+  }): Promise<PendingInteraction[]>;
   listPendingInteractions(input: {
     appId: string;
     runId?: string | null;

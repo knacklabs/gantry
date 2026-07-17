@@ -26,7 +26,6 @@ import {
   getRuntimeRepositories,
   tryAcquireRuntimeAdvisoryLease,
 } from '../../adapters/storage/postgres/runtime-store.js';
-import { ChannelAdapter } from '../../channels/channel-provider.js';
 import { EnvRuntimeSecretProvider } from '../../adapters/credentials/env-runtime-secret-provider.js';
 import { RuntimeApp } from './runtime-app.js';
 import { ConversationAdministrationService } from '../../application/provider-conversations/conversation-administration-service.js';
@@ -60,7 +59,6 @@ import { AsyncTaskQueue } from './async-task-queue.js';
 import { createChannelPersistenceHandlers } from './channel-persistence-handlers.js';
 import {
   createAgentTodoRenderer,
-  createPermissionApprovalRequester,
   createRichInteractionRenderer,
   createUserQuestionResponder,
 } from './channel-wiring-interactions.js';
@@ -81,13 +79,16 @@ import {
 import { createChannelMessageActionRouter } from './channel-message-action-router.js';
 import { createChannelProgressSender } from './channel-progress-sender.js';
 import { hydrateChannelConversationContext } from './channel-wiring-conversation-context.js';
+import { createChannelWiringStreamReset } from './channel-wiring-stream-reset.js';
 import {
   connectProviderAccountChannels,
   type BoundProviderAccountChannel,
 } from '../../channels/provider-account-channel-connect.js';
+import { createPermissionApprovalRequester } from '../../channels/permission-approval-requester.js';
 import * as routeProviderAccount from './channel-wiring-route-provider-account.js';
 const PROVIDER_INBOUND_LEASE_PREFIX = 'runtime:provider-inbound';
 type AccountOpts = { providerAccountId?: string };
+type BoundChannel = BoundProviderAccountChannel['channel'];
 export function createChannelWiring(
   app: RuntimeApp,
   deps: Partial<ChannelWiringDeps> = {},
@@ -127,7 +128,7 @@ export function createChannelWiring(
   function findBoundChannel(
     jid: string,
     providerAccountId?: string,
-  ): ChannelAdapter | undefined {
+  ): BoundChannel | undefined {
     // prettier-ignore
     return routeProviderAccount.findBoundChannelForProviderAccount(connectedChannels, jid, providerAccountId);
   }
@@ -138,6 +139,12 @@ export function createChannelWiring(
   ) =>
     // prettier-ignore
     routeProviderAccount.findBoundChannelForRequest(app, connectedChannels, jid, providerAccountId, request);
+  const streamReset = createChannelWiringStreamReset({
+    findBoundChannel,
+    asStreamingStateSink,
+    asPermissionApprovalSurface,
+    asUserQuestionSurface,
+  });
   const isControlApproverAllowed = (input: {
     providerId: string;
     providerAccountId?: string;
@@ -184,26 +191,26 @@ export function createChannelWiring(
     findBoundChannel: (jid, providerAccountId, request) =>
       findBoundChannelForRequest(jid, providerAccountId, request),
     asPermissionApprovalSurface: (channel) =>
-      asPermissionApprovalSurface(channel as ChannelAdapter),
-    logger: resolved.logger,
+      streamReset.asPermissionApprovalSurface(channel as BoundChannel),
+    interactionLifecycle: { logger: resolved.logger },
   });
   const userQuestionResponder = createUserQuestionResponder({
     findBoundChannel: (jid, request) =>
       findBoundChannelForRequest(jid, undefined, request),
     asUserQuestionSurface: (channel) =>
-      asUserQuestionSurface(channel as ChannelAdapter),
-    logger: resolved.logger,
+      streamReset.asUserQuestionSurface(channel as BoundChannel),
+    interactionLifecycle: { logger: resolved.logger },
   });
   const agentTodoRenderer = createAgentTodoRenderer({
     findBoundChannel,
     asAgentTodoSurface: (channel) =>
-      asAgentTodoSurface(channel as ChannelAdapter),
+      asAgentTodoSurface(channel as BoundChannel),
     logger: resolved.logger,
   });
   const richInteractionRenderer = createRichInteractionRenderer({
     findBoundChannel,
     asRichInteractionSurface: (channel) =>
-      asRichInteractionSurface(channel as ChannelAdapter),
+      asRichInteractionSurface(channel as BoundChannel),
     sendMessage: (jid, text, options) =>
       sendMessage(jid, text, {
         durability: 'best_effort',
@@ -660,13 +667,6 @@ export function createChannelWiring(
     if (!sink) return false;
     return sink.sendStreamingChunk(jid, text, options);
   }
-
-  function resetStreaming(jid: string, opts?: AccountOpts): void {
-    const channel = findBoundChannel(jid, opts?.providerAccountId);
-    if (!channel) return;
-    const stateSink = asStreamingStateSink(channel);
-    stateSink?.resetStreaming(jid);
-  }
   async function setTyping(jid: string, isTyping: boolean, opts?: AccountOpts) {
     const channel = findBoundChannel(jid, opts?.providerAccountId);
     if (!channel) return;
@@ -727,7 +727,7 @@ export function createChannelWiring(
     setDurableOutboundAttemptFactory,
     setMessageActionHandler: messageActionRouter.set,
     sendStreamingChunk,
-    resetStreaming,
+    resetStreaming: streamReset.resetStreaming,
     setTyping,
     sendProgressUpdate,
     addReaction,

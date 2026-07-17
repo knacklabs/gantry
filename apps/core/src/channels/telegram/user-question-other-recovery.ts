@@ -6,6 +6,8 @@ import { logger } from '../../infrastructure/logging/logger.js';
 
 export async function resolveDurableTelegramUserQuestionOtherReply(input: {
   chatId: string;
+  appId: string;
+  sourceAgentFolder: string;
   requestId: string;
   questionIndex: number;
   text: string;
@@ -20,6 +22,8 @@ export async function resolveDurableTelegramUserQuestionOtherReply(input: {
 }): Promise<{ deletePrompt: boolean }> {
   const durable = await findDurableQuestionInteractionByRequestId({
     requestId: input.requestId,
+    appId: input.appId,
+    sourceAgentFolder: input.sourceAgentFolder,
   });
   if (!durable?.request || durable.targetJid !== `tg:${input.chatId}`) {
     return { deletePrompt: true };
@@ -47,6 +51,8 @@ export async function resolveDurableTelegramUserQuestionOtherReply(input: {
   if (!question) return { deletePrompt: true };
   const resolved = await resolveDurableQuestionAnswersByRequestId({
     requestId: input.requestId,
+    appId: input.appId,
+    sourceAgentFolder: input.sourceAgentFolder,
     answers: {
       [question.question]: question.multiSelect ? [answer] : answer,
     },

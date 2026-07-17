@@ -96,6 +96,7 @@ export async function sendTeamsTextMessage(
   conversationId: string,
   text: string,
   options: MessageSendOptions = {},
+  shouldContinue: () => boolean = () => true,
 ): Promise<MessageDeliveryResult | void> {
   const initialParts = splitTeamsTextByByteBudget(
     text,
@@ -119,6 +120,7 @@ export async function sendTeamsTextMessage(
   let deliveredParts = 0;
   let index = 0;
   while (index < queue.length) {
+    if (!shouldContinue()) break;
     const part = queue[index];
     try {
       const sent = await sdkClient.sendMessage({

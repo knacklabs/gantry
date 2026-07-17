@@ -59,6 +59,9 @@ export type RetryTailRecoveryEnqueue = (
 ) => Promise<void>;
 
 export type ChannelAccountOptions = { providerAccountId?: string };
+export type ChannelStreamResetOptions = ChannelAccountOptions & {
+  threadId?: string;
+};
 
 export interface DurableOutboundAttemptInput {
   appId: AppId;
@@ -180,7 +183,7 @@ export interface ChannelWiring {
     rawText: string,
     options?: StreamingChunkOptions,
   ) => Promise<boolean>;
-  resetStreaming: (jid: string, options?: ChannelAccountOptions) => void;
+  resetStreaming: (jid: string, options?: ChannelStreamResetOptions) => void;
   setTyping: (
     jid: string,
     isTyping: boolean,

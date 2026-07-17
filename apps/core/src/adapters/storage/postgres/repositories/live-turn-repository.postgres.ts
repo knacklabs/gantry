@@ -16,6 +16,7 @@ import type {
   LiveAdmissionWorkItemEnqueueResult,
   LiveTurn,
   LiveTurnAgentRunCompletion,
+  LiveTurnCommandAppendInput,
   LiveTurnCommand,
   LiveTurnCommandNotifier,
   LiveTurnCoordinationRepository,
@@ -43,7 +44,6 @@ import { getOldestWaitingLiveAdmission as queryOldestWaitingLiveAdmission } from
 import {
   appendLiveTurnCommand as appendLiveTurnCommandRow,
   toLiveTurnCommand,
-  type AppendLiveTurnCommandInput,
 } from './live-turn-command-row.postgres.js';
 import {
   isUniqueViolation,
@@ -596,7 +596,7 @@ export class PostgresLiveTurnRepository implements LiveTurnCoordinationRepositor
     return queryOldestWaitingLiveAdmission(this.db, input);
   }
 
-  async appendLiveTurnCommand(input: AppendLiveTurnCommandInput) {
+  async appendLiveTurnCommand(input: LiveTurnCommandAppendInput) {
     return appendLiveTurnCommandRow(this.db, this.commandNotifier, input);
   }
 

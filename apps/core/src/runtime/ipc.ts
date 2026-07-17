@@ -3,6 +3,7 @@ import path from 'path';
 import { DATA_DIR, IPC_POLL_INTERVAL } from '../config/index.js';
 import { isValidWorkspaceFolder } from '../platform/workspace-folder.js';
 import { logger } from '../infrastructure/logging/logger.js';
+import { DurableInteractionPersistenceError } from '../application/interactions/pending-interaction-persistence-error.js';
 // prettier-ignore
 import { processMemoryRequest, writeMemoryResponse } from '../memory/memory-ipc.js';
 // prettier-ignore
@@ -605,6 +606,14 @@ export function startIpcWatcher(deps: IpcDeps): void {
                   logger,
                 }).finally(() => inFlightInteractionIpc.delete(inFlightKey));
               } catch (err) {
+                if (err instanceof DurableInteractionPersistenceError) {
+                  logger.error(
+                    { file, sourceAgentFolder, err },
+                    'Withholding permission IPC response after durable persistence failure',
+                  );
+                  runnerControlPort.archiveFailedRequest(sourceAgentFolder, file, claimedPath);
+                  continue;
+                }
                 if (requestId) {
                   writePermissionInteractionFailure({
                     ipcBaseDir,
@@ -741,6 +750,14 @@ export function startIpcWatcher(deps: IpcDeps): void {
                   inFlightInteractionIpc.delete(inFlightKey);
                 });
               } catch (err) {
+                if (err instanceof DurableInteractionPersistenceError) {
+                  logger.error(
+                    { file, sourceAgentFolder, err },
+                    'Withholding user question IPC response after durable persistence failure',
+                  );
+                  runnerControlPort.archiveFailedRequest(sourceAgentFolder, file, claimedPath);
+                  continue;
+                }
                 if (requestId) {
                   writeUserQuestionInteractionFailure({
                     ipcBaseDir,

@@ -11,6 +11,11 @@ import { createIpcAuthEnvelope } from '@core/runtime/ipc-auth.js';
 import { agentIdForFolder } from '@core/domain/agent/agent-folder-id.js';
 import { semanticCapabilityInputSchema } from '@core/shared/semantic-capabilities.js';
 import { makeAgentThreadQueueKey } from '@core/shared/thread-queue-key.js';
+import type { PendingInteraction } from '@core/domain/ports/worker-coordination.js';
+import type {
+  QuestionRecoveryEnvelope,
+  UserQuestionRequest,
+} from '@core/domain/types.js';
 
 import {
   processPermissionIpcRequest,
@@ -23,7 +28,11 @@ import {
   processUserQuestionInteractionIpc,
 } from '@core/runtime/ipc-interaction-processing.js';
 import { resolvePermissionIpcDecision } from '@core/runtime/ipc-permission-classifier-decision.js';
-import { configurePendingInteractionDurability } from '@core/application/interactions/pending-interaction-durability.js';
+import {
+  claimPermissionInteractionCallback,
+  configurePendingInteractionDurability,
+  DurableInteractionPersistenceError,
+} from '@core/application/interactions/pending-interaction-durability.js';
 
 function fileMode(filePath: string): number {
   return fs.statSync(filePath).mode & 0o777;
@@ -64,6 +73,37 @@ function createReviewedGithubReadToolRepository(appId: string) {
         ],
       }),
     }),
+  };
+}
+
+function durableQuestionInteraction(input: {
+  request: UserQuestionRequest;
+  envelope: QuestionRecoveryEnvelope;
+  status?: 'pending' | 'resolved';
+  resolvedAnswers?: Record<string, string | string[]>;
+}): PendingInteraction {
+  const status = input.status ?? 'pending';
+  return {
+    id: `interaction-${input.request.requestId}`,
+    appId: input.request.appId || 'default',
+    runId: input.request.runId ?? null,
+    kind: 'question',
+    status,
+    payload: {
+      sourceAgentFolder: input.request.sourceAgentFolder,
+      requestId: input.request.requestId,
+      questionRecoveryEnvelope: input.envelope,
+    },
+    callbackRoute: null,
+    idempotencyKey: `${input.request.appId || 'default'}:question:${input.request.sourceAgentFolder}:${input.request.requestId}`,
+    approverRef: status === 'resolved' ? 'owner' : null,
+    resolution:
+      status === 'resolved'
+        ? { answers: input.resolvedAnswers ?? input.envelope.answers }
+        : null,
+    createdAt: '2026-07-17T00:00:00.000Z',
+    expiresAt: '2026-07-18T00:00:00.000Z',
+    resolvedAt: status === 'resolved' ? '2026-07-17T00:01:00.000Z' : null,
   };
 }
 
@@ -1300,6 +1340,7 @@ describe('ipc-interaction-handler', () => {
           heartbeatAt: '2026-06-10T00:00:00.000Z',
         })),
         createPendingInteraction: vi.fn(async () => true),
+        listPendingInteractions: vi.fn(async () => []),
         resolvePendingInteraction: vi.fn(async () => true),
         createTransientGrant,
       } as never,
@@ -1373,6 +1414,466 @@ describe('ipc-interaction-handler', () => {
       'sk-ant',
     );
     expect(createTransientGrant).toHaveBeenCalledOnce();
+  });
+
+  it('releases a live callback claim when grant application fails so retry can claim it', async () => {
+    const claimedPath = path.join(tempDir, 'claimed-failed-grant.json');
+    fs.writeFileSync(claimedPath, '{}');
+    const claim = {
+      id: 'claim-failed-grant',
+      scope: {
+        appId: 'app:test',
+        sourceAgentFolder: 'main_agent',
+        interactionId: 'interaction-failed-grant',
+      },
+    };
+    let claimHeld = true;
+    const releasePendingPermissionCallback = vi.fn(async () => {
+      claimHeld = false;
+      return 1;
+    });
+    const repository = {
+      createPendingInteraction: vi.fn(async () => true),
+      listPendingInteractions: vi.fn(async () => []),
+      claimPendingPermissionCallback: vi.fn(async () => {
+        if (claimHeld) return [];
+        claimHeld = true;
+        return [{}];
+      }),
+      releasePendingPermissionCallback,
+      resolvePendingInteraction: vi.fn(async () => true),
+    };
+    configurePendingInteractionDurability({ repository: repository as never });
+
+    await processPermissionInteractionIpc({
+      request: {
+        requestId: 'perm-failed-grant',
+        appId: 'app:test',
+        agentId: 'agent:test',
+        sourceAgentFolder: 'main_agent',
+        toolName: 'Bash',
+      },
+      sourceAgentFolder: 'main_agent',
+      deps: {
+        requestPermissionApproval: vi.fn(async () => ({
+          approved: true,
+          mode: 'allow_persistent_rule',
+          decidedBy: 'owner',
+          decisionClassification: 'user_permanent',
+          permissionCallbackClaim: claim,
+        })),
+      },
+      ipcBaseDir: tempDir,
+      file: 'claimed-failed-grant.json',
+      claimedPath,
+      logger: { warn: vi.fn(), error: vi.fn(), info: vi.fn() },
+    });
+
+    expect(releasePendingPermissionCallback).toHaveBeenCalledWith({ claim });
+    await expect(
+      claimPermissionInteractionCallback({
+        scope: claim.scope,
+        mode: 'allow_persistent_rule',
+        approverRef: 'owner',
+        matchKind: 'individual',
+        claimId: 'claim-failed-grant-retry',
+      }),
+    ).resolves.toMatchObject({ status: 'claimed' });
+  });
+
+  it('replays a persisted review-each member claim after restart without opening a fresh prompt', async () => {
+    const envelope = createIpcAuthEnvelope('main_agent', null);
+    const claimedPath = path.join(tempDir, 'claimed-replayed-decision.json');
+    fs.writeFileSync(claimedPath, '{}');
+    const request = {
+      requestId: 'perm-replayed-decision',
+      appId: 'app:replay',
+      agentId: 'agent:test',
+      responseNonce: 'nonce-replayed-decision',
+      responseKeyId: envelope.responseKeyId,
+      sourceAgentFolder: 'main_agent',
+      runId: 'run:replay',
+      runLeaseToken: 'lease-replay',
+      runLeaseFencingVersion: 3,
+      targetJid: 'tg:prompt-target',
+      approvalContextJid: 'tg:approval-context',
+      toolName: 'Bash',
+      toolInput: { command: 'npm test' },
+    } as const;
+    const scope = {
+      appId: request.appId,
+      sourceAgentFolder: request.sourceAgentFolder,
+      interactionId: request.requestId,
+    };
+    const persistedClaim = {
+      id: 'claim-replayed-decision',
+      scope,
+      intent: {
+        mode: 'allow_once' as const,
+        approverRef: 'owner',
+        decidedAt: '2026-07-17T00:00:00.000Z',
+      },
+      match: {
+        kind: 'individual' as const,
+        canonicalId: request.requestId,
+        providerAliases: ['provider:member-0'],
+      },
+    };
+    const activeLease = {
+      runId: request.runId,
+      jobId: null,
+      workerInstanceId: 'worker-replay',
+      leaseToken: request.runLeaseToken,
+      fencingVersion: request.runLeaseFencingVersion,
+      status: 'active',
+      claimedAt: '2026-07-17T00:00:00.000Z',
+      expiresAt: '2026-07-17T01:00:00.000Z',
+      heartbeatAt: '2026-07-17T00:00:00.000Z',
+    } as const;
+    const pending = {
+      id: 'pending-replayed-decision',
+      appId: request.appId,
+      runId: request.runId,
+      kind: 'permission',
+      status: 'pending',
+      payload: {
+        sourceAgentFolder: request.sourceAgentFolder,
+        requestId: request.requestId,
+        toolName: request.toolName,
+        request,
+        permissionCallbackClaim: persistedClaim,
+        permissionRecoveryEnvelope: {
+          version: 1,
+          renderedDecisionOptions: ['allow_persistent_rule', 'cancel'],
+          targetJid: request.targetJid,
+          approvalContextJid: request.approvalContextJid,
+          threadId: null,
+          decisionPolicy: null,
+          renderedRequest: {
+            ...request,
+            requestId: 'perm-review-each-batch',
+            permissionBatch: {
+              requestIds: [request.requestId, 'perm-replayed-sibling'],
+              rows: ['1. npm test', '2. npm run lint'],
+            },
+          },
+          members: [
+            {
+              callback: {
+                appId: request.appId,
+                sourceAgentFolder: request.sourceAgentFolder,
+                requestId: request.requestId,
+                index: 0,
+              },
+              request,
+            },
+            {
+              callback: {
+                appId: request.appId,
+                sourceAgentFolder: request.sourceAgentFolder,
+                requestId: 'perm-replayed-sibling',
+                index: 1,
+              },
+              request: {
+                ...request,
+                requestId: 'perm-replayed-sibling',
+              },
+            },
+          ],
+          batch: {
+            canonicalId: 'perm-review-each-batch',
+            phase: 'review_each',
+          },
+        },
+      },
+      callbackRoute: null,
+      idempotencyKey: `${request.appId}:permission:${request.sourceAgentFolder}:${request.requestId}`,
+      approverRef: null,
+      resolution: null,
+      createdAt: '2026-07-17T00:00:00.000Z',
+      expiresAt: '2026-07-18T00:00:00.000Z',
+      resolvedAt: null,
+    } as const;
+    const listPendingInteractions = vi.fn(async (input: { appId: string }) =>
+      input.appId === request.appId
+        ? [
+            {
+              ...pending,
+              id: 'pending-request-id-collision',
+              payload: {
+                ...pending.payload,
+                sourceAgentFolder: 'other_agent',
+              },
+            },
+            pending,
+          ]
+        : [],
+    );
+    const createTransientGrant = vi.fn(async () => true);
+    const resolvePendingInteraction = vi.fn(async () => true);
+    configurePendingInteractionDurability({
+      repository: {
+        createPendingInteraction: vi.fn(async () => true),
+        listPendingInteractions,
+        getActiveRunLease: vi.fn(async () => activeLease),
+        createTransientGrant,
+        resolvePendingInteraction,
+      } as never,
+    });
+    const requestPermissionApproval = vi.fn();
+
+    await processPermissionInteractionIpc({
+      request,
+      sourceAgentFolder: request.sourceAgentFolder,
+      deps: { requestPermissionApproval },
+      ipcBaseDir: tempDir,
+      file: 'claimed-replayed-decision.json',
+      claimedPath,
+      logger: { warn: vi.fn(), error: vi.fn(), info: vi.fn() },
+    });
+
+    expect(listPendingInteractions).toHaveBeenCalledWith({
+      appId: request.appId,
+    });
+    expect(requestPermissionApproval).not.toHaveBeenCalled();
+    expect(createTransientGrant).toHaveBeenCalledWith(
+      expect.objectContaining({
+        appId: request.appId,
+        runId: request.runId,
+        leaseToken: request.runLeaseToken,
+        grant: expect.objectContaining({
+          toolName: request.toolName,
+          mode: 'allow_once',
+          requestId: request.requestId,
+        }),
+      }),
+    );
+    expect(resolvePendingInteraction).toHaveBeenCalledWith(
+      expect.objectContaining({
+        permissionCallbackClaim: {
+          id: persistedClaim.id,
+          scope,
+        },
+        resolution: expect.objectContaining({
+          approved: true,
+          mode: 'allow_once',
+        }),
+      }),
+    );
+    expect(
+      JSON.parse(
+        fs.readFileSync(
+          path.join(
+            tempDir,
+            request.sourceAgentFolder,
+            'permission-responses',
+            `${request.requestId}.json`,
+          ),
+          'utf-8',
+        ),
+      ),
+    ).toMatchObject({
+      requestId: request.requestId,
+      approved: true,
+      mode: 'allow_once',
+      decidedBy: persistedClaim.intent.approverRef,
+    });
+  });
+
+  it('preserves a callback claim when processing throws after grant application', async () => {
+    const claimedPath = path.join(tempDir, 'claimed-thrown-decision.json');
+    fs.writeFileSync(claimedPath, '{}');
+    const claim = {
+      id: 'claim-thrown-decision',
+      scope: {
+        appId: 'app:test',
+        sourceAgentFolder: 'main_agent',
+        interactionId: 'interaction-thrown-decision',
+      },
+    };
+    const releasePendingPermissionCallback = vi.fn(async () => 1);
+    const publishRuntimeEvent = vi.fn(async (event) => {
+      if (event.eventType === 'permission.allowed') {
+        throw new Error('simulated post-decision failure');
+      }
+    });
+    configurePendingInteractionDurability({
+      repository: {
+        createPendingInteraction: vi.fn(async () => true),
+        releasePendingPermissionCallback,
+      } as never,
+    });
+
+    await processPermissionInteractionIpc({
+      request: {
+        requestId: 'perm-thrown-decision',
+        appId: 'app:test',
+        agentId: 'agent:test',
+        sourceAgentFolder: 'main_agent',
+        toolName: 'Bash',
+      },
+      sourceAgentFolder: 'main_agent',
+      deps: {
+        requestPermissionApproval: vi.fn(async () => ({
+          approved: true,
+          mode: 'allow_once',
+          decidedBy: 'owner',
+          permissionCallbackClaim: claim,
+        })),
+        publishRuntimeEvent,
+      },
+      ipcBaseDir: tempDir,
+      file: 'claimed-thrown-decision.json',
+      claimedPath,
+      logger: { warn: vi.fn(), error: vi.fn(), info: vi.fn() },
+    });
+
+    expect(releasePendingPermissionCallback).not.toHaveBeenCalled();
+  });
+
+  it('releases a callback claim when the scheduled lease becomes stale after the decision', async () => {
+    const envelope = createIpcAuthEnvelope('main_agent', null);
+    const claimedPath = path.join(tempDir, 'claimed-stale-after-decision.json');
+    fs.writeFileSync(claimedPath, '{}');
+    const claim = {
+      id: 'claim-stale-after-decision',
+      scope: {
+        appId: 'app:test',
+        sourceAgentFolder: 'main_agent',
+        interactionId: 'interaction-stale-after-decision',
+      },
+    };
+    const activeLease = {
+      runId: 'run:test',
+      jobId: 'job:test',
+      workerInstanceId: 'worker-1',
+      leaseToken: 'lease-token',
+      fencingVersion: 7,
+      status: 'active',
+      claimedAt: '2026-06-10T00:00:00.000Z',
+      expiresAt: '2026-06-10T00:05:00.000Z',
+      heartbeatAt: '2026-06-10T00:00:00.000Z',
+    } as const;
+    const releasePendingPermissionCallback = vi.fn(async () => 1);
+    configurePendingInteractionDurability({
+      repository: {
+        createPendingInteraction: vi.fn(async () => true),
+        listPendingInteractions: vi.fn(async () => []),
+        getActiveRunLease: vi
+          .fn()
+          .mockResolvedValueOnce(activeLease)
+          .mockResolvedValueOnce(null),
+        releasePendingPermissionCallback,
+      } as never,
+    });
+
+    await processPermissionInteractionIpc({
+      request: {
+        requestId: 'perm-stale-after-decision',
+        appId: 'app:test',
+        agentId: 'agent:test',
+        responseNonce: 'nonce-stale-after-decision',
+        responseKeyId: envelope.responseKeyId,
+        sourceAgentFolder: 'main_agent',
+        runId: 'run:test',
+        runLeaseToken: 'lease-token',
+        runLeaseFencingVersion: 7,
+        jobId: 'job:test',
+        toolName: 'Bash',
+      },
+      sourceAgentFolder: 'main_agent',
+      deps: {
+        requestPermissionApproval: vi.fn(async () => ({
+          approved: false,
+          mode: 'cancel',
+          decidedBy: 'owner',
+          permissionCallbackClaim: claim,
+        })),
+      },
+      ipcBaseDir: tempDir,
+      file: 'claimed-stale-after-decision.json',
+      claimedPath,
+      logger: { warn: vi.fn(), error: vi.fn(), info: vi.fn() },
+    });
+
+    expect(releasePendingPermissionCallback).toHaveBeenCalledWith({ claim });
+  });
+
+  it('does not release a callback claim after durable settlement succeeds', async () => {
+    const envelope = createIpcAuthEnvelope('main_agent', null);
+    const claimedPath = path.join(tempDir, 'claimed-stale-after-settle.json');
+    fs.writeFileSync(claimedPath, '{}');
+    const claim = {
+      id: 'claim-stale-after-settle',
+      scope: {
+        appId: 'app:test',
+        sourceAgentFolder: 'main_agent',
+        interactionId: 'interaction-stale-after-settle',
+      },
+    };
+    const activeLease = {
+      runId: 'run:test',
+      jobId: 'job:test',
+      workerInstanceId: 'worker-1',
+      leaseToken: 'lease-token',
+      fencingVersion: 7,
+      status: 'active',
+      claimedAt: '2026-06-10T00:00:00.000Z',
+      expiresAt: '2026-06-10T00:05:00.000Z',
+      heartbeatAt: '2026-06-10T00:00:00.000Z',
+    } as const;
+    const releasePendingPermissionCallback = vi.fn(async () => 1);
+    const resolvePendingInteraction = vi.fn(async () => true);
+    configurePendingInteractionDurability({
+      repository: {
+        createPendingInteraction: vi.fn(async () => true),
+        listPendingInteractions: vi.fn(async () => []),
+        getActiveRunLease: vi
+          .fn()
+          .mockResolvedValueOnce(activeLease)
+          .mockResolvedValueOnce(activeLease)
+          .mockResolvedValueOnce(activeLease)
+          .mockResolvedValueOnce(activeLease)
+          .mockResolvedValueOnce(null),
+        createTransientGrant: vi.fn(async () => true),
+        resolvePendingInteraction,
+        releasePendingPermissionCallback,
+      } as never,
+    });
+
+    await processPermissionInteractionIpc({
+      request: {
+        requestId: 'perm-stale-after-settle',
+        appId: 'app:test',
+        agentId: 'agent:test',
+        responseNonce: 'nonce-stale-after-settle',
+        responseKeyId: envelope.responseKeyId,
+        sourceAgentFolder: 'main_agent',
+        runId: 'run:test',
+        runLeaseToken: 'lease-token',
+        runLeaseFencingVersion: 7,
+        jobId: 'job:test',
+        toolName: 'Bash',
+      },
+      sourceAgentFolder: 'main_agent',
+      deps: {
+        requestPermissionApproval: vi.fn(async () => ({
+          approved: false,
+          mode: 'cancel',
+          decidedBy: 'owner',
+          permissionCallbackClaim: claim,
+        })),
+      },
+      ipcBaseDir: tempDir,
+      file: 'claimed-stale-after-settle.json',
+      claimedPath,
+      logger: { warn: vi.fn(), error: vi.fn(), info: vi.fn() },
+    });
+
+    expect(resolvePendingInteraction).toHaveBeenCalledWith(
+      expect.objectContaining({ permissionCallbackClaim: claim }),
+    );
+    expect(releasePendingPermissionCallback).not.toHaveBeenCalled();
   });
 
   it('does not prompt or resume scheduled permission IPC when the run lease is stale', async () => {
@@ -1449,6 +1950,219 @@ describe('ipc-interaction-handler', () => {
         ),
       ),
     ).toBe(false);
+  });
+
+  it('resumes a durable question from its persisted next index and merges prior answers', async () => {
+    const signing = createIpcAuthEnvelope('main_agent', 'persisted-thread');
+    const claimedPath = path.join(tempDir, 'claimed-recovered-question.json');
+    fs.writeFileSync(claimedPath, '{}');
+    const persistedRequest: UserQuestionRequest = {
+      requestId: 'question-restart-partial',
+      appId: 'app:test',
+      sourceAgentFolder: 'main_agent',
+      targetJid: 'slack:persisted',
+      threadId: 'persisted-thread',
+      responseKeyId: signing.responseKeyId,
+      questions: [
+        {
+          header: 'First',
+          question: 'First question?',
+          options: [{ label: 'Alpha', description: 'Choose alpha' }],
+          multiSelect: false,
+        },
+        {
+          header: 'Second',
+          question: 'Second question?',
+          options: [{ label: 'Beta', description: 'Choose beta' }],
+          multiSelect: false,
+        },
+      ],
+    };
+    const persisted = durableQuestionInteraction({
+      request: persistedRequest,
+      envelope: {
+        version: 1,
+        targetJid: 'slack:persisted',
+        threadId: 'persisted-thread',
+        request: persistedRequest,
+        nextQuestionIndex: 1,
+        callbacks: {},
+        selections: [],
+        answers: { 'First question?': 'Alpha' },
+        completedQuestionIndexes: [0],
+        deliveredQuestionIndexes: [0],
+        otherPrompts: {},
+      },
+    });
+    const resolvePendingInteraction = vi.fn(async () => true);
+    configurePendingInteractionDurability({
+      repository: {
+        createPendingInteraction: vi.fn(async () => persisted),
+        resolvePendingInteraction,
+        createTransientGrant: vi.fn(async () => true),
+      } as never,
+    });
+    const requestUserAnswer = vi.fn(async () => ({
+      requestId: persistedRequest.requestId,
+      answers: { 'Second question?': 'Beta' },
+      answeredBy: 'owner',
+    }));
+
+    await processUserQuestionInteractionIpc({
+      request: {
+        requestId: persistedRequest.requestId,
+        appId: 'app:test',
+        sourceAgentFolder: 'main_agent',
+        targetJid: 'slack:incoming',
+        threadId: 'incoming-thread',
+        responseKeyId: signing.responseKeyId,
+        questions: [
+          {
+            header: 'Wrong',
+            question: 'Incoming question?',
+            options: [],
+            multiSelect: false,
+          },
+        ],
+      },
+      sourceAgentFolder: 'main_agent',
+      deps: { requestUserAnswer },
+      ipcBaseDir: tempDir,
+      file: 'claimed-recovered-question.json',
+      claimedPath,
+      logger: { warn: vi.fn(), error: vi.fn(), info: vi.fn() },
+    });
+
+    expect(requestUserAnswer).toHaveBeenCalledWith({
+      ...persistedRequest,
+      recoveryStartIndex: 1,
+    });
+    expect(resolvePendingInteraction).toHaveBeenCalledWith(
+      expect.objectContaining({
+        resolution: {
+          answers: {
+            'First question?': 'Alpha',
+            'Second question?': 'Beta',
+          },
+        },
+      }),
+    );
+    const response = JSON.parse(
+      fs.readFileSync(
+        path.join(
+          tempDir,
+          'main_agent',
+          'user-answers',
+          `${persistedRequest.requestId}.json`,
+        ),
+        'utf-8',
+      ),
+    );
+    expect(response).toMatchObject({
+      requestId: persistedRequest.requestId,
+      answers: {
+        'First question?': 'Alpha',
+        'Second question?': 'Beta',
+      },
+      answeredBy: 'owner',
+    });
+  });
+
+  it('replays a resolved durable question without opening a fresh prompt', async () => {
+    const signing = createIpcAuthEnvelope('main_agent', 'persisted-thread');
+    const claimedPath = path.join(tempDir, 'claimed-complete-question.json');
+    fs.writeFileSync(claimedPath, '{}');
+    const persistedRequest: UserQuestionRequest = {
+      requestId: 'question-restart-complete',
+      appId: 'app:test',
+      sourceAgentFolder: 'main_agent',
+      targetJid: 'slack:persisted',
+      threadId: 'persisted-thread',
+      responseKeyId: signing.responseKeyId,
+      questions: [
+        {
+          header: 'First',
+          question: 'First question?',
+          options: [{ label: 'Alpha', description: 'Choose alpha' }],
+          multiSelect: false,
+        },
+        {
+          header: 'Second',
+          question: 'Second question?',
+          options: [{ label: 'Beta', description: 'Choose beta' }],
+          multiSelect: false,
+        },
+      ],
+    };
+    const persisted = durableQuestionInteraction({
+      request: persistedRequest,
+      status: 'resolved',
+      resolvedAnswers: {
+        'First question?': 'Alpha',
+        'Second question?': 'Beta',
+      },
+      envelope: {
+        version: 1,
+        targetJid: 'slack:persisted',
+        threadId: 'persisted-thread',
+        request: persistedRequest,
+        nextQuestionIndex: 0,
+        callbacks: {},
+        selections: [],
+        answers: {},
+        completedQuestionIndexes: [],
+        deliveredQuestionIndexes: [0, 1],
+        otherPrompts: {},
+      },
+    });
+    const resolvePendingInteraction = vi.fn(async () => true);
+    configurePendingInteractionDurability({
+      repository: {
+        createPendingInteraction: vi.fn(async () => persisted),
+        resolvePendingInteraction,
+        createTransientGrant: vi.fn(async () => true),
+      } as never,
+    });
+    const requestUserAnswer = vi.fn();
+    const publishRuntimeEvent = vi.fn();
+
+    await processUserQuestionInteractionIpc({
+      request: {
+        ...persistedRequest,
+        targetJid: 'slack:incoming',
+        threadId: 'incoming-thread',
+        questions: [],
+      },
+      sourceAgentFolder: 'main_agent',
+      deps: { requestUserAnswer, publishRuntimeEvent },
+      ipcBaseDir: tempDir,
+      file: 'claimed-complete-question.json',
+      claimedPath,
+      logger: { warn: vi.fn(), error: vi.fn(), info: vi.fn() },
+    });
+
+    expect(requestUserAnswer).not.toHaveBeenCalled();
+    expect(publishRuntimeEvent).not.toHaveBeenCalled();
+    expect(resolvePendingInteraction).not.toHaveBeenCalled();
+    const response = JSON.parse(
+      fs.readFileSync(
+        path.join(
+          tempDir,
+          'main_agent',
+          'user-answers',
+          `${persistedRequest.requestId}.json`,
+        ),
+        'utf-8',
+      ),
+    );
+    expect(response).toMatchObject({
+      requestId: persistedRequest.requestId,
+      answers: {
+        'First question?': 'Alpha',
+        'Second question?': 'Beta',
+      },
+      answeredBy: 'owner',
+    });
   });
 
   it('does not prompt or answer scheduled question IPC when the run lease is stale', async () => {
@@ -1540,6 +2254,16 @@ describe('ipc-interaction-handler', () => {
       'claimed-unresolved-permission.json',
     );
     fs.writeFileSync(claimedPath, '{}');
+    const claim = {
+      id: 'claim-unresolved-run',
+      scope: {
+        appId: 'app:test',
+        sourceAgentFolder: 'main_agent',
+        interactionId: 'interaction-unresolved-run',
+      },
+    };
+    const releasePendingPermissionCallback = vi.fn(async () => 1);
+    const resolvePendingInteraction = vi.fn(async () => false);
     configurePendingInteractionDurability({
       repository: {
         getActiveRunLease: vi.fn(async () => ({
@@ -1554,8 +2278,10 @@ describe('ipc-interaction-handler', () => {
           heartbeatAt: '2026-06-10T00:00:00.000Z',
         })),
         createPendingInteraction: vi.fn(async () => true),
-        resolvePendingInteraction: vi.fn(async () => false),
+        listPendingInteractions: vi.fn(async () => []),
+        resolvePendingInteraction,
         createTransientGrant: vi.fn(async () => true),
+        releasePendingPermissionCallback,
       } as never,
     });
 
@@ -1582,6 +2308,7 @@ describe('ipc-interaction-handler', () => {
           mode: 'cancel',
           decidedBy: 'owner',
           decisionClassification: 'user_reject',
+          permissionCallbackClaim: claim,
         })),
       },
       ipcBaseDir: tempDir,
@@ -1600,6 +2327,8 @@ describe('ipc-interaction-handler', () => {
         ),
       ),
     ).toBe(false);
+    expect(resolvePendingInteraction).toHaveBeenCalledTimes(2);
+    expect(releasePendingPermissionCallback).not.toHaveBeenCalled();
   });
 
   it('does not write scheduled question answers when durable resolution fails', async () => {
@@ -1670,6 +2399,62 @@ describe('ipc-interaction-handler', () => {
           'main_agent',
           'user-answers',
           'userq-unresolved-run.json',
+        ),
+      ),
+    ).toBe(false);
+  });
+
+  it('withholds question IPC output when prompt persistence fails', async () => {
+    const signing = createIpcAuthEnvelope('main_agent', null);
+    const claimedPath = path.join(tempDir, 'claimed-question-persistence.json');
+    fs.writeFileSync(claimedPath, '{}');
+    const resolvePendingInteraction = vi.fn(async () => true);
+    configurePendingInteractionDurability({
+      repository: {
+        createPendingInteraction: vi.fn(async () => true),
+        resolvePendingInteraction,
+      } as never,
+    });
+    const persistenceError = new DurableInteractionPersistenceError(
+      'question prompt delivery was not persisted',
+    );
+
+    await processUserQuestionInteractionIpc({
+      request: {
+        requestId: 'userq-persistence-failure',
+        appId: 'app:test',
+        responseKeyId: signing.responseKeyId,
+        sourceAgentFolder: 'main_agent',
+        targetJid: 'dc:channel-1',
+        questions: [
+          {
+            header: 'Mode',
+            question: 'Pick one',
+            options: [{ label: 'Retry', description: 'Try again' }],
+            multiSelect: false,
+          },
+        ],
+      },
+      sourceAgentFolder: 'main_agent',
+      deps: {
+        requestUserAnswer: vi.fn(async () => {
+          throw persistenceError;
+        }),
+      },
+      ipcBaseDir: tempDir,
+      file: 'claimed-question-persistence.json',
+      claimedPath,
+      logger: { warn: vi.fn(), error: vi.fn(), info: vi.fn() },
+    });
+
+    expect(resolvePendingInteraction).not.toHaveBeenCalled();
+    expect(
+      fs.existsSync(
+        path.join(
+          tempDir,
+          'main_agent',
+          'user-answers',
+          'userq-persistence-failure.json',
         ),
       ),
     ).toBe(false);
@@ -1801,6 +2586,7 @@ describe('ipc-interaction-handler', () => {
     const repository = {
       getActiveRunLease,
       createPendingInteraction: vi.fn(async () => true),
+      listPendingInteractions: vi.fn(async () => []),
       resolvePendingInteraction: vi.fn(async () => true),
       createTransientGrant: vi.fn(async () => true),
     };
@@ -1891,6 +2677,7 @@ describe('ipc-interaction-handler', () => {
       repository: {
         getActiveRunLease,
         createPendingInteraction: vi.fn(async () => true),
+        listPendingInteractions: vi.fn(async () => []),
         resolvePendingInteraction: vi.fn(async () => true),
         createTransientGrant: vi.fn(async () => true),
       } as never,

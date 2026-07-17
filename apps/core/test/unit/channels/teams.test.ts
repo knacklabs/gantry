@@ -21,8 +21,20 @@ import {
   type TeamsProgressMessages,
 } from '@core/channels/teams-progress.js';
 import { formatTeamsAttachmentUnavailableCopy } from '@core/channels/teams-cards.js';
+import { createPermissionBatchRequest } from '@core/channels/permission-batch-coalescer.js';
 import type { ChannelOpts } from '@core/channels/channel-provider.js';
-import { configurePendingInteractionDurability } from '@core/application/interactions/pending-interaction-durability.js';
+import {
+  configurePendingInteractionDurability,
+  configurePermissionReviewEachDispatcher,
+  DurableInteractionPersistenceError,
+} from '@core/application/interactions/pending-interaction-durability.js';
+import type {
+  PermissionApprovalRequest,
+  PermissionCallbackClaim,
+  PermissionCallbackClaimReference,
+  PermissionCallbackScope,
+} from '@core/domain/types.js';
+import { PERMISSION_APPROVAL_TIMEOUT_MS } from '@core/shared/permission-timeout.js';
 
 vi.mock('@core/infrastructure/logging/logger.js', () => ({
   logger: {
@@ -34,6 +46,7 @@ vi.mock('@core/infrastructure/logging/logger.js', () => ({
 }));
 
 afterEach(() => {
+  configurePermissionReviewEachDispatcher(null);
   configurePendingInteractionDurability(null);
   vi.useRealTimers();
 });
@@ -72,6 +85,147 @@ function makeOpts(): ChannelOpts {
       },
     },
   };
+}
+
+function configureTeamsPermissionRequest(request: PermissionApprovalRequest) {
+  const appId = request.appId || 'default';
+  const requestIds = request.permissionBatch?.requestIds || [request.requestId];
+  const interactions = requestIds.map((requestId) => ({
+    id: `pending-${request.sourceAgentFolder}-${requestId}`,
+    appId,
+    runId: 'run-1',
+    kind: 'permission' as const,
+    status: 'pending' as const,
+    payload: {
+      requestId,
+      sourceAgentFolder: request.sourceAgentFolder,
+      request: { ...request, requestId },
+      targetJid: request.targetJid,
+      decisionPolicy: request.decisionPolicy,
+    } as Record<string, unknown>,
+    callbackRoute: null,
+    idempotencyKey: `${appId}:permission:${request.sourceAgentFolder}:${requestId}`,
+    approverRef: null,
+    resolution: null,
+    createdAt: '2026-07-16T00:00:00.000Z',
+    expiresAt: '2099-07-17T00:00:00.000Z',
+    resolvedAt: null,
+  }));
+  const find = (scope: PermissionCallbackScope) =>
+    interactions.filter((interaction) => {
+      const claim = interaction.payload.permissionCallbackClaim as
+        | PermissionCallbackClaim
+        | undefined;
+      return (
+        interaction.appId === scope.appId &&
+        interaction.payload.sourceAgentFolder === scope.sourceAgentFolder &&
+        (claim?.scope.interactionId === scope.interactionId ||
+          interaction.payload.requestId === scope.interactionId ||
+          interaction.payload.permissionBatchCallbackId === scope.interactionId)
+      );
+    });
+  const repository = {
+    listPendingInteractions: vi.fn(async () => interactions),
+    findPendingPermissionInteractions: vi.fn(
+      async ({ scope }: { scope: PermissionCallbackScope }) => find(scope),
+    ),
+    updatePendingInteractionPayload: vi.fn(
+      async ({
+        idempotencyKey,
+        update,
+      }: {
+        idempotencyKey: string;
+        update: (
+          payload: Record<string, unknown>,
+        ) => Record<string, unknown> | null;
+      }) => {
+        const interaction = interactions.find(
+          (item) => item.idempotencyKey === idempotencyKey,
+        );
+        if (!interaction) return false;
+        const payload = update(interaction.payload);
+        if (!payload) return false;
+        interaction.payload = payload;
+        return true;
+      },
+    ),
+    claimPendingPermissionCallback: vi.fn(
+      async ({ claim }: { claim: PermissionCallbackClaim }) => {
+        const claimed = find(claim.scope).filter(
+          (interaction) =>
+            !interaction.payload.permissionCallbackClaim &&
+            interaction.payload.permissionCallbackId ===
+              claim.match.providerAliases[0] &&
+            (claim.match.kind === 'batch'
+              ? interaction.payload.permissionBatchCallbackId ===
+                claim.scope.interactionId
+              : interaction.payload.requestId === claim.scope.interactionId &&
+                !interaction.payload.permissionBatchCallbackId),
+        );
+        for (const interaction of claimed) {
+          delete interaction.payload.permissionBatchCallbackId;
+          delete interaction.payload.permissionCallbackId;
+          interaction.payload.permissionCallbackClaim = claim;
+          if (
+            claim.match.kind === 'batch' &&
+            claim.intent.mode === 'allow_persistent_rule'
+          ) {
+            const envelope = interaction.payload.permissionRecoveryEnvelope as
+              | { batch?: { phase?: string } }
+              | undefined;
+            if (envelope?.batch) envelope.batch.phase = 'review_each';
+          }
+        }
+        return claimed;
+      },
+    ),
+    releasePendingPermissionCallback: vi.fn(
+      async ({ claim }: { claim: PermissionCallbackClaimReference }) => {
+        let released = 0;
+        for (const interaction of find(claim.scope)) {
+          const stored = interaction.payload.permissionCallbackClaim as
+            | PermissionCallbackClaim
+            | undefined;
+          if (stored?.id !== claim.id) continue;
+          delete interaction.payload.permissionCallbackClaim;
+          if (stored.match.kind === 'batch') {
+            interaction.payload.permissionBatchCallbackId =
+              stored.match.canonicalId;
+          }
+          interaction.payload.permissionCallbackId =
+            stored.match.providerAliases[0];
+          released += 1;
+        }
+        return released;
+      },
+    ),
+    settlePendingPermissionCallback: vi.fn(
+      async ({ claim }: { claim: PermissionCallbackClaimReference }) =>
+        find(claim.scope).filter(
+          (interaction) =>
+            (
+              interaction.payload
+                .permissionCallbackClaim as PermissionCallbackClaim
+            )?.id === claim.id,
+        ).length,
+    ),
+    resolvePendingInteraction: vi.fn(async () => true),
+  };
+  configurePendingInteractionDurability({ repository: repository as never });
+  return repository;
+}
+
+function latestTeamsPermissionCallback(sdkClient: TeamsSdkClient) {
+  const card = vi
+    .mocked(sdkClient.sendAdaptiveCard!)
+    .mock.calls.at(-1)?.[0]?.card;
+  const data = card?.actions.find(
+    (action) => action.data.action === 'permission_decision',
+  )?.data;
+  if (!data || data.action !== 'permission_decision') {
+    throw new Error('Missing Teams permission callback');
+  }
+  return data.callback;
 }
 
 type TeamsSdkClientWithRoot = TeamsSdkClient & {
@@ -159,7 +313,13 @@ describe('Teams Adaptive Card payloads', () => {
         title: 'Allow once',
         verb: 'gantry.permission.allow',
         data: expect.objectContaining({
-          requestId: 'perm-1',
+          callback: expect.objectContaining({
+            scope: {
+              appId: 'default',
+              sourceAgentFolder: 'teams_main',
+              interactionId: 'perm-1',
+            },
+          }),
           decision: 'allow_once',
         }),
       }),
@@ -168,7 +328,13 @@ describe('Teams Adaptive Card payloads', () => {
         title: 'Cancel',
         verb: 'gantry.permission.cancel',
         data: expect.objectContaining({
-          requestId: 'perm-1',
+          callback: expect.objectContaining({
+            scope: {
+              appId: 'default',
+              sourceAgentFolder: 'teams_main',
+              interactionId: 'perm-1',
+            },
+          }),
           decision: 'cancel',
         }),
       }),
@@ -1339,6 +1505,75 @@ describe('TeamsChannel adapter scaffold', () => {
     );
   });
 
+  it('keeps a targeted Teams stream usable when an old final update finishes after reset', async () => {
+    let resolveOldUpdate: ((value?: unknown) => void) | undefined;
+    let cardCount = 0;
+    const sdkClient: TeamsSdkClient = {
+      start: vi.fn(async () => {}),
+      stop: vi.fn(async () => {}),
+      sendMessage: vi.fn(async () => ({})),
+      sendAdaptiveCard: vi.fn(async () => ({
+        externalMessageId: `stream-card-${++cardCount}`,
+      })),
+      updateAdaptiveCard: vi
+        .fn()
+        .mockImplementationOnce(
+          () =>
+            new Promise((resolve) => {
+              resolveOldUpdate = resolve;
+            }),
+        )
+        .mockResolvedValue({}),
+    };
+    const channel = new TeamsChannel(
+      {
+        clientId: 'client-id',
+        clientSecret: 'client-secret',
+        tenantId: 'tenant-id',
+      },
+      makeOpts(),
+      sdkClient,
+    );
+    const jid = 'teams:19:abc@thread.v2';
+    const threadId = 'root-message';
+    await channel.connect();
+    await channel.sendStreamingChunk(jid, 'old', {
+      threadId,
+      generation: 7,
+    });
+
+    const oldFinal = channel.sendStreamingChunk(jid, ' final', {
+      threadId,
+      generation: 7,
+      done: true,
+    });
+    await vi.waitFor(() =>
+      expect(sdkClient.updateAdaptiveCard).toHaveBeenCalledTimes(1),
+    );
+    channel.resetStreaming(jid, { threadId });
+    await channel.sendStreamingChunk(jid, 'new', {
+      threadId,
+      generation: 7,
+    });
+
+    resolveOldUpdate?.({});
+    await oldFinal;
+    await channel.sendStreamingChunk(jid, ' tail', {
+      threadId,
+      generation: 7,
+      done: true,
+    });
+
+    expect(sdkClient.updateAdaptiveCard).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        messageId: 'stream-card-2',
+        card: expect.objectContaining({
+          body: [expect.objectContaining({ text: 'new tail' })],
+        }),
+      }),
+    );
+  });
+
   it('splits Teams streaming output to a new message only at the hard cap', async () => {
     const sdkClient: TeamsSdkClient = {
       start: vi.fn(async () => {}),
@@ -1388,6 +1623,53 @@ describe('TeamsChannel adapter scaffold', () => {
       conversationId: '19:abc@thread.v2',
       text: 'y',
     });
+  });
+
+  it('stops Teams overflow parts when the stream guard changes mid-send', async () => {
+    let resolveFirstOverflow!: (value: { externalMessageId: string }) => void;
+    const sdkClient: TeamsSdkClient = {
+      start: vi.fn(async () => {}),
+      stop: vi.fn(async () => {}),
+      sendMessage: vi
+        .fn()
+        .mockImplementationOnce(
+          () =>
+            new Promise((resolve) => {
+              resolveFirstOverflow = resolve;
+            }),
+        )
+        .mockResolvedValue({ externalMessageId: 'late-overflow' }),
+      sendAdaptiveCard: vi.fn(async () => ({
+        externalMessageId: 'stream-card-1',
+      })),
+      updateAdaptiveCard: vi.fn(async () => ({})),
+    };
+    const channel = new TeamsChannel(
+      {
+        clientId: 'client-id',
+        clientSecret: 'client-secret',
+        tenantId: 'tenant-id',
+      },
+      makeOpts(),
+      sdkClient,
+    );
+    const jid = 'teams:19:abc@thread.v2';
+    const threadId = 'root-message';
+    await channel.connect();
+
+    const delivery = channel.sendStreamingChunk(
+      jid,
+      'x'.repeat(TEAMS_HARD_MESSAGE_BYTES * 3),
+      { done: true, generation: 1, threadId },
+    );
+    await vi.waitFor(() =>
+      expect(sdkClient.sendMessage).toHaveBeenCalledOnce(),
+    );
+    channel.resetStreaming(jid, { threadId });
+    resolveFirstOverflow({ externalMessageId: 'first-overflow' });
+    await delivery;
+
+    expect(sdkClient.sendMessage).toHaveBeenCalledOnce();
   });
 
   it('starts the SDK for outbound messages without processing inbound activities in outbound-only mode', async () => {
@@ -1624,6 +1906,7 @@ describe('TeamsChannel adapter scaffold', () => {
       sendAdaptiveCard: vi.fn(async () => ({
         externalMessageId: 'teams-card-1',
       })),
+      updateAdaptiveCard: vi.fn(async () => ({})),
     };
     const opts = {
       ...makeOpts(),
@@ -1640,31 +1923,34 @@ describe('TeamsChannel adapter scaffold', () => {
     );
     await channel.connect();
 
+    const request = {
+      requestId: 'perm-teams-1',
+      sourceAgentFolder: 'teams_engineering',
+      decisionPolicy: 'same_channel' as const,
+      toolName: 'Bash',
+      threadId: 'root-message',
+    };
+    configureTeamsPermissionRequest(request);
     const approvalPromise = channel.requestPermissionApproval(
       'teams:19:abc@thread.v2',
-      {
-        requestId: 'perm-teams-1',
-        sourceAgentFolder: 'teams_engineering',
-        decisionPolicy: 'same_channel',
-        toolName: 'Bash',
-        threadId: 'root-message',
-      },
+      request,
     );
 
-    expect(sdkClient.sendAdaptiveCard).toHaveBeenCalledWith(
-      expect.objectContaining({
-        conversationId: '19:abc@thread.v2',
-        threadId: 'root-message',
-      }),
+    await vi.waitFor(() =>
+      expect(sdkClient.sendAdaptiveCard).toHaveBeenCalledWith(
+        expect.objectContaining({
+          conversationId: '19:abc@thread.v2',
+          threadId: 'root-message',
+        }),
+      ),
     );
-    await Promise.resolve();
 
     await startInput?.onMessage({
       conversationId: '19:abc@thread.v2',
       from: { id: 'teams-user-1', name: 'Team Admin' },
       value: {
         action: 'permission_decision',
-        requestId: 'perm-teams-1',
+        callback: latestTeamsPermissionCallback(sdkClient),
         decision: 'allow_once',
       },
     });
@@ -1672,7 +1958,7 @@ describe('TeamsChannel adapter scaffold', () => {
     await expect(approvalPromise).resolves.toEqual(
       expect.objectContaining({
         approved: true,
-        decidedBy: 'Team Admin',
+        decidedBy: 'teams-user-1',
       }),
     );
     expect(isControlApproverAllowed).toHaveBeenCalledWith(
@@ -1682,12 +1968,692 @@ describe('TeamsChannel adapter scaffold', () => {
         userId: 'teams-user-1',
       }),
     );
+    expect(sdkClient.updateAdaptiveCard).toHaveBeenCalledWith(
+      expect.objectContaining({
+        conversationId: '19:abc@thread.v2',
+        messageId: 'teams-card-1',
+      }),
+    );
+    expect(sdkClient.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it('binds a Teams permission batch before delivery and attaches its card id afterward', async () => {
+    let startInput: Parameters<TeamsSdkClient['start']>[0] | undefined;
+    const bindingEvents: string[] = [];
+    const pending = ['perm-teams-batch-1', 'perm-teams-batch-2'].map(
+      (requestId) => ({
+        id: `pending-${requestId}`,
+        appId: 'default',
+        runId: 'run-1',
+        kind: 'permission' as const,
+        status: 'pending' as const,
+        payload: {
+          requestId,
+          sourceAgentFolder: 'teams_engineering',
+          request: {
+            requestId,
+            sourceAgentFolder: 'teams_engineering',
+            decisionPolicy: 'same_channel',
+            targetJid: 'teams:19:abc@thread.v2',
+            toolName: 'Bash',
+          },
+        } as Record<string, unknown>,
+        callbackRoute: null,
+        idempotencyKey: `default:permission:teams_engineering:${requestId}`,
+        approverRef: null,
+        resolution: null,
+        createdAt: '2026-07-16T00:00:00.000Z',
+        expiresAt: '2099-07-17T00:00:00.000Z',
+        resolvedAt: null,
+      }),
+    );
+    const repository = {
+      listPendingInteractions: vi.fn(async () => pending),
+      findPendingPermissionInteractions: vi.fn(
+        async ({ scope }: { scope: PermissionCallbackScope }) =>
+          pending.filter(
+            (interaction) =>
+              interaction.appId === scope.appId &&
+              interaction.payload.sourceAgentFolder ===
+                scope.sourceAgentFolder &&
+              (interaction.payload.permissionBatchCallbackId ===
+                scope.interactionId ||
+                (
+                  interaction.payload
+                    .permissionCallbackClaim as PermissionCallbackClaim
+                )?.scope.interactionId === scope.interactionId),
+          ),
+      ),
+      updatePendingInteractionPayload: vi.fn(
+        async (input: {
+          idempotencyKey: string;
+          update: (
+            payload: Record<string, unknown>,
+          ) => Record<string, unknown> | null;
+        }) => {
+          const interaction = pending.find(
+            (item) => item.idempotencyKey === input.idempotencyKey,
+          );
+          if (!interaction) return false;
+          const payload = input.update(interaction.payload);
+          if (!payload) return false;
+          interaction.payload = payload;
+          bindingEvents.push(
+            `${input.idempotencyKey}:${String(payload.externalPromptMessageId ?? 'pending')}`,
+          );
+          return true;
+        },
+      ),
+      claimPendingPermissionCallback: vi.fn(
+        async ({ claim }: { claim: PermissionCallbackClaim }) => {
+          const claimed = [];
+          for (const interaction of pending) {
+            if (
+              interaction.payload.permissionBatchCallbackId !==
+                claim.scope.interactionId ||
+              interaction.payload.permissionCallbackId !==
+                claim.match.providerAliases[0]
+            ) {
+              continue;
+            }
+            delete interaction.payload.permissionBatchCallbackId;
+            delete interaction.payload.permissionCallbackId;
+            interaction.payload.permissionCallbackClaim = claim;
+            claimed.push(interaction);
+          }
+          return claimed;
+        },
+      ),
+    };
+    configurePendingInteractionDurability({ repository: repository as never });
+    const sdkClient: TeamsSdkClient = {
+      start: vi.fn(async (input) => {
+        startInput = input;
+      }),
+      stop: vi.fn(async () => {}),
+      sendMessage: vi.fn(async () => ({})),
+      sendAdaptiveCard: vi.fn(async () => {
+        bindingEvents.push('send');
+        return { externalMessageId: 'teams-batch-card' };
+      }),
+      updateAdaptiveCard: vi.fn(async () => ({})),
+    };
+    const channel = new TeamsChannel(
+      {
+        clientId: 'client-id',
+        clientSecret: 'client-secret',
+        tenantId: 'tenant-id',
+      },
+      { ...makeOpts(), isControlApproverAllowed: vi.fn(async () => true) },
+      sdkClient,
+    );
+    await channel.connect();
+    const batch = createPermissionBatchRequest(
+      pending.map((interaction) => ({
+        requestId: String(interaction.payload.requestId),
+        sourceAgentFolder: 'teams_engineering',
+        decisionPolicy: 'same_channel',
+        targetJid: 'teams:19:abc@thread.v2',
+        toolName: 'Bash',
+      })),
+      ['1. Command', '2. Command'],
+    );
+
+    const approvalPromise = channel.requestPermissionApproval(
+      'teams:19:abc@thread.v2',
+      batch,
+    );
+    await vi.waitFor(() =>
+      expect(repository.updatePendingInteractionPayload).toHaveBeenCalledTimes(
+        4,
+      ),
+    );
+
+    expect(bindingEvents).toEqual([
+      'default:permission:teams_engineering:perm-teams-batch-1:pending',
+      'default:permission:teams_engineering:perm-teams-batch-2:pending',
+      'send',
+      'default:permission:teams_engineering:perm-teams-batch-1:teams-batch-card',
+      'default:permission:teams_engineering:perm-teams-batch-2:teams-batch-card',
+    ]);
+    await startInput?.onMessage({
+      conversationId: '19:abc@thread.v2',
+      from: { id: 'teams-user-1', name: 'Team Admin' },
+      value: {
+        action: 'permission_decision',
+        callback: latestTeamsPermissionCallback(sdkClient),
+        decision: 'allow_once',
+      },
+    });
+
+    await expect(approvalPromise).resolves.toMatchObject({ approved: true });
+    expect(sdkClient.sendAdaptiveCard).toHaveBeenCalledTimes(1);
+  });
+
+  it('recovers Review each for a Teams batch whose original requests cannot be bulk-approved', async () => {
+    let startInput: Parameters<TeamsSdkClient['start']>[0] | undefined;
+    const sdkClient: TeamsSdkClient = {
+      start: vi.fn(async (input) => {
+        startInput = input;
+      }),
+      stop: vi.fn(async () => {}),
+      sendMessage: vi.fn(async () => ({})),
+      sendAdaptiveCard: vi.fn(async () => ({
+        externalMessageId: 'unused-live-card',
+      })),
+    };
+    const channel = new TeamsChannel(
+      {
+        clientId: 'client-id',
+        clientSecret: 'client-secret',
+        tenantId: 'tenant-id',
+      },
+      { ...makeOpts(), isControlApproverAllowed: vi.fn(async () => true) },
+      sdkClient,
+    );
+    await channel.connect();
+    const requests: PermissionApprovalRequest[] = ['one', 'two'].map(
+      (suffix) => ({
+        requestId: `perm-teams-recovered-${suffix}`,
+        sourceAgentFolder: 'teams_engineering',
+        targetJid: 'teams:19:abc@thread.v2',
+        toolName: 'Bash',
+        decisionOptions: ['allow_once', 'cancel'],
+      }),
+    );
+    const batch = createPermissionBatchRequest(requests, [
+      '1. Command',
+      '2. Command',
+    ]);
+    const repository = configureTeamsPermissionRequest(batch);
+    const providerAlias = 'teams-recovered-batch';
+    const interactions = await repository.listPendingInteractions({
+      appId: 'default',
+    });
+    const recoveryEnvelope = {
+      version: 1 as const,
+      renderedDecisionOptions: ['allow_persistent_rule', 'cancel'] as const,
+      targetJid: 'teams:19:abc@thread.v2',
+      approvalContextJid: 'teams:19:abc@thread.v2',
+      threadId: null,
+      decisionPolicy: null,
+      renderedRequest: batch,
+      members: requests.map((request, index) => ({
+        callback: {
+          appId: 'default',
+          sourceAgentFolder: request.sourceAgentFolder,
+          requestId: request.requestId,
+          index,
+        },
+        request,
+      })),
+      batch: { canonicalId: batch.requestId, phase: 'decision' as const },
+    };
+    interactions.forEach((interaction, index) => {
+      interaction.payload.request = requests[index];
+      interaction.payload.permissionRecoveryEnvelope = recoveryEnvelope;
+      interaction.payload.permissionBatchCallbackId = batch.requestId;
+      interaction.payload.permissionCallbackId = providerAlias;
+      interaction.payload.externalPromptMessageId = 'teams-recovered-card';
+      interaction.payload.externalPromptConversationId = '19:abc@thread.v2';
+    });
+    const dispatchRecoveredMember = vi.fn(
+      async (request: PermissionApprovalRequest) => ({
+        delivered: true as const,
+        decision: {
+          approved: false,
+          mode: 'cancel' as const,
+          decidedBy: 'teams-user-1',
+          permissionCallbackClaim: {
+            id: `member-claim-${request.requestId}`,
+            scope: {
+              appId: 'default',
+              sourceAgentFolder: request.sourceAgentFolder,
+              interactionId: request.requestId,
+            },
+          },
+        },
+      }),
+    );
+    configurePermissionReviewEachDispatcher(dispatchRecoveredMember);
+
+    await startInput?.onMessage({
+      id: 'teams-recovered-card',
+      conversationId: '19:abc@thread.v2',
+      from: { id: 'teams-user-1', name: 'Team Admin' },
+      value: {
+        action: 'permission_decision',
+        callback: {
+          providerAlias,
+          scope: {
+            appId: 'default',
+            sourceAgentFolder: 'teams_engineering',
+            interactionId: batch.requestId,
+          },
+          matchKind: 'batch',
+        },
+        decision: 'allow_persistent_rule',
+      },
+    });
+
+    expect(sdkClient.sendMessage).toHaveBeenCalledWith({
+      conversationId: '19:abc@thread.v2',
+      text: 'Reviewing each permission request.',
+    });
+    expect(sdkClient.sendMessage).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: expect.stringMatching(/cancel|denied/i),
+      }),
+    );
+    expect(repository.settlePendingPermissionCallback).toHaveBeenCalledOnce();
+    expect(dispatchRecoveredMember).toHaveBeenCalledTimes(2);
+  });
+
+  it('resolves every Teams permission waiter on disconnect when durable claims are retryable', async () => {
+    const sdkClient: TeamsSdkClient = {
+      start: vi.fn(async () => {}),
+      stop: vi.fn(async () => {}),
+      sendMessage: vi.fn(async () => ({})),
+      sendAdaptiveCard: vi.fn(async () => ({
+        externalMessageId: globalThis.crypto.randomUUID(),
+      })),
+      updateAdaptiveCard: vi.fn(async () => ({})),
+    };
+    const channel = new TeamsChannel(
+      {
+        clientId: 'client-id',
+        clientSecret: 'client-secret',
+        tenantId: 'tenant-id',
+      },
+      makeOpts(),
+      sdkClient,
+    );
+    await channel.connect();
+    const firstRequest: PermissionApprovalRequest = {
+      requestId: 'perm-teams-disconnect-first',
+      sourceAgentFolder: 'teams_engineering',
+      toolName: 'Bash',
+    };
+    const firstRepository = configureTeamsPermissionRequest(firstRequest);
+    const first = channel.requestPermissionApproval(
+      'teams:19:abc@thread.v2',
+      firstRequest,
+    );
+    await vi.waitFor(() =>
+      expect(
+        firstRepository.updatePendingInteractionPayload,
+      ).toHaveBeenCalledTimes(2),
+    );
+    const secondRequest: PermissionApprovalRequest = {
+      requestId: 'perm-teams-disconnect-second',
+      sourceAgentFolder: 'teams_engineering',
+      toolName: 'Bash',
+    };
+    const repository = configureTeamsPermissionRequest(secondRequest);
+    const second = channel.requestPermissionApproval(
+      'teams:19:abc@thread.v2',
+      secondRequest,
+    );
+    await vi.waitFor(() =>
+      expect(sdkClient.sendAdaptiveCard).toHaveBeenCalledTimes(2),
+    );
+    repository.claimPendingPermissionCallback.mockRejectedValue(
+      new Error('database unavailable'),
+    );
+
+    await channel.disconnect();
+
+    await expect(Promise.all([first, second])).resolves.toEqual([
+      expect.objectContaining({
+        approved: false,
+        mode: 'cancel',
+        decidedBy: 'system',
+        reason: 'Teams channel disconnected',
+      }),
+      expect.objectContaining({
+        approved: false,
+        mode: 'cancel',
+        decidedBy: 'system',
+        reason: 'Teams channel disconnected',
+      }),
+    ]);
+  });
+
+  it('preserves a Teams permission waiter owned by an in-flight winner on disconnect', async () => {
+    const sdkClient: TeamsSdkClient = {
+      start: vi.fn(async () => {}),
+      stop: vi.fn(async () => {}),
+      sendMessage: vi.fn(async () => ({})),
+      sendAdaptiveCard: vi.fn(async () => ({ externalMessageId: 'card-1' })),
+      updateAdaptiveCard: vi.fn(async () => ({})),
+    };
+    const channel = new TeamsChannel(
+      {
+        clientId: 'client-id',
+        clientSecret: 'client-secret',
+        tenantId: 'tenant-id',
+      },
+      makeOpts(),
+      sdkClient,
+    );
+    await channel.connect();
+    const request: PermissionApprovalRequest = {
+      requestId: 'perm-teams-disconnect-winner',
+      sourceAgentFolder: 'teams_engineering',
+      toolName: 'Bash',
+    };
+    const repository = configureTeamsPermissionRequest(request);
+    const approval = channel.requestPermissionApproval(
+      'teams:19:abc@thread.v2',
+      request,
+    );
+    await vi.waitFor(() =>
+      expect(sdkClient.sendAdaptiveCard).toHaveBeenCalledOnce(),
+    );
+    const scope = {
+      appId: 'default',
+      sourceAgentFolder: 'teams_engineering',
+      interactionId: request.requestId,
+    };
+    repository.claimPendingPermissionCallback.mockResolvedValue([]);
+    repository.findPendingPermissionInteractions.mockResolvedValue([
+      {
+        payload: {
+          permissionCallbackClaim: {
+            id: 'holder',
+            scope,
+            intent: {
+              mode: 'allow_once',
+              approverRef: 'owner',
+              decidedAt: '2026-07-17T00:00:00.000Z',
+            },
+            match: {
+              kind: 'individual',
+              canonicalId: request.requestId,
+              providerAliases: [],
+            },
+          },
+        },
+      },
+    ] as never);
+    let resolved = false;
+    void approval.then(() => {
+      resolved = true;
+    });
+
+    await channel.disconnect();
+    await Promise.resolve();
+
+    expect(resolved).toBe(false);
+    const prompts = (channel as any).pendingPermissionPrompts as Map<
+      string,
+      any
+    >;
+    expect(prompts.size).toBe(1);
+    const pending = prompts.values().next().value;
+    clearTimeout(pending.timer);
+    pending.resolve({ approved: true, mode: 'allow_once', decidedBy: 'owner' });
+    prompts.clear();
+    await approval;
+  });
+
+  it('resolves the Teams waiter after a no-holder claim exhausts bounded retries', async () => {
+    vi.useFakeTimers();
+    const sdkClient: TeamsSdkClient = {
+      start: vi.fn(async () => {}),
+      stop: vi.fn(async () => {}),
+      sendMessage: vi.fn(async () => ({})),
+      sendAdaptiveCard: vi.fn(async () => ({
+        externalMessageId: 'teams-timeout-retryable-card',
+      })),
+      updateAdaptiveCard: vi.fn(async () => ({})),
+    };
+    const channel = new TeamsChannel(
+      {
+        clientId: 'client-id',
+        clientSecret: 'client-secret',
+        tenantId: 'tenant-id',
+      },
+      makeOpts(),
+      sdkClient,
+    );
+    await channel.connect();
+    const request = {
+      requestId: 'perm-teams-timeout-retryable',
+      sourceAgentFolder: 'teams_engineering',
+      toolName: 'Bash',
+    };
+    const repository = configureTeamsPermissionRequest(request);
+    repository.claimPendingPermissionCallback.mockResolvedValue([]);
+
+    const approval = channel.requestPermissionApproval(
+      'teams:19:abc@thread.v2',
+      request,
+    );
+    await vi.advanceTimersByTimeAsync(PERMISSION_APPROVAL_TIMEOUT_MS * 2);
+
+    await expect(approval).resolves.toMatchObject({
+      approved: false,
+      mode: 'cancel',
+      decidedBy: 'system',
+      reason: 'timed out',
+    });
+    expect(repository.claimPendingPermissionCallback).toHaveBeenCalledTimes(3);
+    expect((channel as any).pendingPermissionPrompts.size).toBe(0);
+    await channel.disconnect();
+  });
+
+  it('releases and retries a Teams permission when card terminalization fails', async () => {
+    let startInput: Parameters<TeamsSdkClient['start']>[0] | undefined;
+    const sdkClient: TeamsSdkClient = {
+      start: vi.fn(async (input) => {
+        startInput = input;
+      }),
+      stop: vi.fn(async () => {}),
+      sendMessage: vi
+        .fn()
+        .mockRejectedValueOnce(new Error('fallback failed'))
+        .mockResolvedValueOnce({}),
+      sendAdaptiveCard: vi.fn(async () => ({
+        externalMessageId: 'teams-retry-card',
+      })),
+      updateAdaptiveCard: vi.fn(async () => {
+        throw new Error('update failed');
+      }),
+    };
+    const channel = new TeamsChannel(
+      {
+        clientId: 'client-id',
+        clientSecret: 'client-secret',
+        tenantId: 'tenant-id',
+      },
+      { ...makeOpts(), isControlApproverAllowed: vi.fn(async () => true) },
+      sdkClient,
+    );
+    await channel.connect();
+    const request = {
+      requestId: 'perm-teams-terminalization-retry',
+      sourceAgentFolder: 'teams_engineering',
+      decisionPolicy: 'same_channel' as const,
+      toolName: 'Bash',
+    };
+    const repository = configureTeamsPermissionRequest(request);
+    const approval = channel.requestPermissionApproval(
+      'teams:19:abc@thread.v2',
+      request,
+    );
+    await vi.waitFor(() =>
+      expect(sdkClient.sendAdaptiveCard).toHaveBeenCalled(),
+    );
+    const value = {
+      action: 'permission_decision',
+      callback: latestTeamsPermissionCallback(sdkClient),
+      decision: 'allow_once',
+    };
+
+    await startInput?.onMessage({
+      conversationId: '19:abc@thread.v2',
+      from: { id: 'teams-user-1', name: 'Team Admin' },
+      value,
+    });
+    let settled = false;
+    void approval.then(() => {
+      settled = true;
+    });
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    expect(repository.releasePendingPermissionCallback).toHaveBeenCalledOnce();
+
+    await startInput?.onMessage({
+      conversationId: '19:abc@thread.v2',
+      from: { id: 'teams-user-1', name: 'Team Admin' },
+      value,
+    });
+    await expect(approval).resolves.toMatchObject({ approved: true });
+    expect(repository.claimPendingPermissionCallback).toHaveBeenCalledTimes(2);
+  });
+
+  it('settles a Teams batch when its post-send binding was already consumed', async () => {
+    vi.useFakeTimers();
+    const pending = ['perm-teams-race-1', 'perm-teams-race-2'].map(
+      (requestId) => ({
+        kind: 'permission' as const,
+        status: 'pending' as const,
+        idempotencyKey: `default:permission:teams_engineering:${requestId}`,
+        payload: {
+          requestId,
+          sourceAgentFolder: 'teams_engineering',
+          request: {
+            requestId,
+            sourceAgentFolder: 'teams_engineering',
+            targetJid: 'teams:19:abc@thread.v2',
+            toolName: 'Bash',
+          },
+        },
+      }),
+    );
+    const repository = {
+      listPendingInteractions: vi
+        .fn()
+        .mockResolvedValueOnce(pending)
+        .mockResolvedValueOnce([]),
+      updatePendingInteractionPayload: vi.fn(async ({ update }) =>
+        Boolean(update(pending[0]!.payload)),
+      ),
+    };
+    configurePendingInteractionDurability({ repository: repository as never });
+    const sdkClient: TeamsSdkClient = {
+      start: vi.fn(async () => {}),
+      stop: vi.fn(async () => {}),
+      sendMessage: vi.fn(async () => ({})),
+      sendAdaptiveCard: vi.fn(async () => ({
+        externalMessageId: 'teams-raced-card',
+      })),
+    };
+    const channel = new TeamsChannel(
+      {
+        clientId: 'client-id',
+        clientSecret: 'client-secret',
+        tenantId: 'tenant-id',
+      },
+      makeOpts(),
+      sdkClient,
+    );
+    await channel.connect();
+    const batch = createPermissionBatchRequest(
+      pending.map((interaction) => ({
+        requestId: interaction.payload.requestId,
+        sourceAgentFolder: interaction.payload.sourceAgentFolder,
+        targetJid: 'teams:19:abc@thread.v2',
+        toolName: 'Bash',
+      })),
+      ['1. Command', '2. Command'],
+    );
+
+    await expect(
+      channel.requestPermissionApproval('teams:19:abc@thread.v2', batch),
+    ).resolves.toEqual({
+      approved: false,
+      reason: 'This permission request was already decided.',
+    });
+    expect(vi.getTimerCount()).toBe(0);
+    expect(
+      (
+        channel as unknown as {
+          pendingPermissionPrompts: Map<string, unknown>;
+        }
+      ).pendingPermissionPrompts.size,
+    ).toBe(0);
+  });
+
+  it('propagates a typed Teams post-send binding failure and retains the live waiter', async () => {
+    vi.useFakeTimers();
+    const pending = {
+      kind: 'permission' as const,
+      status: 'pending' as const,
+      idempotencyKey:
+        'default:permission:teams_engineering:perm-teams-post-send-failure',
+      payload: {
+        requestId: 'perm-teams-post-send-failure',
+        sourceAgentFolder: 'teams_engineering',
+        request: {
+          requestId: 'perm-teams-post-send-failure',
+          sourceAgentFolder: 'teams_engineering',
+          targetJid: 'teams:19:abc@thread.v2',
+          toolName: 'Bash',
+        },
+      } as Record<string, unknown>,
+    };
+    let updateCount = 0;
+    configurePendingInteractionDurability({
+      repository: {
+        listPendingInteractions: vi.fn(async () => [pending]),
+        updatePendingInteractionPayload: vi.fn(async ({ update }) => {
+          updateCount += 1;
+          if (updateCount === 2) throw new Error('database unavailable');
+          const payload = update(pending.payload);
+          if (!payload) return false;
+          pending.payload = payload;
+          return true;
+        }),
+      } as never,
+    });
+    const sdkClient: TeamsSdkClient = {
+      start: vi.fn(async () => {}),
+      stop: vi.fn(async () => {}),
+      sendMessage: vi.fn(async () => ({})),
+      sendAdaptiveCard: vi.fn(async () => ({
+        externalMessageId: 'teams-post-send-failure-card',
+      })),
+    };
+    const channel = new TeamsChannel(
+      {
+        clientId: 'client-id',
+        clientSecret: 'client-secret',
+        tenantId: 'tenant-id',
+      },
+      makeOpts(),
+      sdkClient,
+    );
+    await channel.connect();
+
+    await expect(
+      channel.requestPermissionApproval('teams:19:abc@thread.v2', {
+        requestId: 'perm-teams-post-send-failure',
+        sourceAgentFolder: 'teams_engineering',
+        targetJid: 'teams:19:abc@thread.v2',
+        toolName: 'Bash',
+      }),
+    ).rejects.toBeInstanceOf(DurableInteractionPersistenceError);
+    expect((channel as any).pendingPermissionPrompts.size).toBe(1);
+    await channel.disconnect();
   });
 
   it('sends Teams user-question cards and resolves Action.Submit answers from approvers', async () => {
     let startInput: Parameters<TeamsSdkClient['start']>[0] | undefined =
       undefined;
     const isControlApproverAllowed = vi.fn(async () => true);
+    const lifecycleEvents: string[] = [];
     const sdkClient: TeamsSdkClient = {
       start: vi.fn(async (input) => {
         startInput = input;
@@ -1708,9 +2674,10 @@ describe('TeamsChannel adapter scaffold', () => {
     );
     await channel.connect();
 
-    const answerPromise = channel.requestUserAnswer('teams:19:abc@thread.v2', {
+    const questionRequest = {
       requestId: 'q-teams-1',
       sourceAgentFolder: 'teams_engineering',
+      targetJid: 'teams:19:abc@thread.v2',
       questions: [
         {
           question: 'Which environment?',
@@ -1722,11 +2689,60 @@ describe('TeamsChannel adapter scaffold', () => {
           ],
         },
       ],
+    };
+    const pendingQuestion = {
+      appId: 'default',
+      kind: 'question' as const,
+      status: 'pending' as const,
+      idempotencyKey: 'default:question:teams_engineering:q-teams-1',
+      payload: {
+        requestId: questionRequest.requestId,
+        sourceAgentFolder: questionRequest.sourceAgentFolder,
+        request: questionRequest,
+        questionRecoveryEnvelope: {
+          version: 1,
+          targetJid: questionRequest.targetJid,
+          threadId: null,
+          request: questionRequest,
+          nextQuestionIndex: 0,
+          callbacks: {},
+          selections: [],
+          answers: {},
+          completedQuestionIndexes: [],
+          deliveredQuestionIndexes: [],
+          otherPrompts: {},
+        },
+      } as Record<string, unknown>,
+    };
+    configurePendingInteractionDurability({
+      repository: {
+        listPendingInteractions: vi.fn(async () => [pendingQuestion]),
+        updatePendingInteractionPayload: vi.fn(async ({ update }) => {
+          const payload = update(pendingQuestion.payload);
+          if (!payload) return false;
+          pendingQuestion.payload = payload;
+          const envelope = payload.questionRecoveryEnvelope as {
+            answers: Record<string, string | string[]>;
+          };
+          if (envelope.answers['Which environment?'] === 'production') {
+            lifecycleEvents.push('persist');
+          }
+          return true;
+        }),
+      } as never,
     });
-
-    expect(sdkClient.sendAdaptiveCard).toHaveBeenCalledWith(
-      expect.objectContaining({ conversationId: '19:abc@thread.v2' }),
+    const answerPromise = channel.requestUserAnswer(
+      'teams:19:abc@thread.v2',
+      questionRequest,
     );
+    void answerPromise.then(() => lifecycleEvents.push('resolve'));
+    await vi.waitFor(() =>
+      expect(sdkClient.sendAdaptiveCard).toHaveBeenCalledWith(
+        expect.objectContaining({ conversationId: '19:abc@thread.v2' }),
+      ),
+    );
+    const callback = vi.mocked(sdkClient.sendAdaptiveCard).mock.calls[0]![0]
+      .card.actions[0]!.data.callback;
     await Promise.resolve();
 
     await startInput?.onMessage({
@@ -1734,7 +2750,7 @@ describe('TeamsChannel adapter scaffold', () => {
       from: { id: 'teams-user-1', name: 'Team Admin' },
       value: {
         action: 'gantry_userq',
-        requestId: 'q-teams-1',
+        callback,
         gantry_userq_choice_0: '1',
         gantry_userq_other_0: '',
       },
@@ -1752,6 +2768,230 @@ describe('TeamsChannel adapter scaffold', () => {
         userId: 'teams-user-1',
       }),
     );
+    expect(lifecycleEvents).toEqual(['persist', 'resolve']);
+    expect(pendingQuestion.payload.questionRecoveryEnvelope).toMatchObject({
+      answers: { 'Which environment?': 'production' },
+      completedQuestionIndexes: [0],
+      nextQuestionIndex: null,
+    });
+  });
+
+  it('persists empty Teams answers and completed indexes before timeout resolution', async () => {
+    vi.useFakeTimers();
+    const lifecycleEvents: string[] = [];
+    const sdkClient: TeamsSdkClient = {
+      start: vi.fn(async () => {}),
+      stop: vi.fn(async () => {}),
+      sendMessage: vi.fn(async () => ({})),
+      sendAdaptiveCard: vi.fn(async () => ({
+        externalMessageId: 'teams-timeout-question-card',
+      })),
+    };
+    const request = {
+      requestId: 'q-teams-timeout',
+      sourceAgentFolder: 'teams_engineering',
+      targetJid: 'teams:19:abc@thread.v2',
+      questions: [
+        {
+          question: 'Continue?',
+          multiSelect: false,
+          options: [{ label: 'Yes', description: 'Continue' }],
+        },
+        {
+          question: 'Which checks?',
+          multiSelect: true,
+          options: [{ label: 'Unit', description: 'Run unit tests' }],
+        },
+      ],
+    };
+    const pendingQuestion = {
+      appId: 'default',
+      kind: 'question' as const,
+      status: 'pending' as const,
+      idempotencyKey: 'default:question:teams_engineering:q-teams-timeout',
+      payload: {
+        requestId: request.requestId,
+        sourceAgentFolder: request.sourceAgentFolder,
+        questionRecoveryEnvelope: {
+          version: 1,
+          targetJid: request.targetJid,
+          threadId: null,
+          request,
+          nextQuestionIndex: 0,
+          callbacks: {},
+          selections: [],
+          answers: {},
+          completedQuestionIndexes: [],
+          deliveredQuestionIndexes: [],
+          otherPrompts: {},
+        },
+      } as Record<string, unknown>,
+    };
+    configurePendingInteractionDurability({
+      repository: {
+        listPendingInteractions: vi.fn(async () => [pendingQuestion]),
+        updatePendingInteractionPayload: vi.fn(async ({ update }) => {
+          const payload = update(pendingQuestion.payload);
+          if (!payload) return false;
+          pendingQuestion.payload = payload;
+          const envelope = payload.questionRecoveryEnvelope as {
+            completedQuestionIndexes: number[];
+          };
+          if (envelope.completedQuestionIndexes.length === 2) {
+            lifecycleEvents.push('persist');
+          }
+          return true;
+        }),
+      } as never,
+    });
+    const channel = new TeamsChannel(
+      {
+        clientId: 'client-id',
+        clientSecret: 'client-secret',
+        tenantId: 'tenant-id',
+      },
+      makeOpts(),
+      sdkClient,
+    );
+    await channel.connect();
+
+    const answer = channel.requestUserAnswer('teams:19:abc@thread.v2', request);
+    void answer.then(() => lifecycleEvents.push('resolve'));
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(PERMISSION_APPROVAL_TIMEOUT_MS);
+
+    await expect(answer).resolves.toEqual({
+      requestId: request.requestId,
+      answers: { 'Continue?': '', 'Which checks?': [] },
+      answeredBy: 'system',
+    });
+    expect(lifecycleEvents).toEqual(['persist', 'resolve']);
+    expect(pendingQuestion.payload.questionRecoveryEnvelope).toMatchObject({
+      answers: { 'Continue?': '', 'Which checks?': [] },
+      completedQuestionIndexes: [0, 1],
+      nextQuestionIndex: null,
+    });
+    await channel.disconnect();
+  });
+
+  it('renders only unfinished Teams questions during durable recovery', async () => {
+    let startInput: Parameters<TeamsSdkClient['start']>[0] | undefined;
+    const sdkClient: TeamsSdkClient = {
+      start: vi.fn(async (input) => {
+        startInput = input;
+      }),
+      stop: vi.fn(async () => {}),
+      sendMessage: vi.fn(async () => ({})),
+      sendAdaptiveCard: vi.fn(async () => ({ externalMessageId: 'teams-q-2' })),
+    };
+    const request = {
+      requestId: 'q-teams-recovery-index',
+      sourceAgentFolder: 'teams_engineering',
+      targetJid: 'teams:19:abc@thread.v2',
+      recoveryStartIndex: 1,
+      questions: [
+        {
+          question: 'Already answered?',
+          multiSelect: false,
+          options: [{ label: 'done', description: '' }],
+        },
+        {
+          question: 'Still needed?',
+          multiSelect: false,
+          options: [{ label: 'continue', description: '' }],
+        },
+      ],
+    };
+    const pendingQuestion = {
+      appId: 'default',
+      kind: 'question' as const,
+      status: 'pending' as const,
+      idempotencyKey:
+        'default:question:teams_engineering:q-teams-recovery-index',
+      payload: {
+        requestId: request.requestId,
+        sourceAgentFolder: request.sourceAgentFolder,
+        questionRecoveryEnvelope: {
+          version: 1,
+          targetJid: request.targetJid,
+          threadId: null,
+          request,
+          nextQuestionIndex: 1,
+          callbacks: {},
+          selections: [],
+          answers: { 'Already answered?': 'done' },
+          completedQuestionIndexes: [0],
+          deliveredQuestionIndexes: [0],
+          otherPrompts: {},
+        },
+      } as Record<string, unknown>,
+    };
+    configurePendingInteractionDurability({
+      repository: {
+        listPendingInteractions: vi.fn(async () => [pendingQuestion]),
+        updatePendingInteractionPayload: vi.fn(async ({ update }) => {
+          const payload = update(pendingQuestion.payload);
+          if (!payload) return false;
+          pendingQuestion.payload = payload;
+          return true;
+        }),
+      } as never,
+    });
+    const channel = new TeamsChannel(
+      {
+        clientId: 'client-id',
+        clientSecret: 'client-secret',
+        tenantId: 'tenant-id',
+      },
+      { ...makeOpts(), isControlApproverAllowed: vi.fn(async () => true) },
+      sdkClient,
+    );
+    await channel.connect();
+
+    const answerPromise = channel.requestUserAnswer(
+      'teams:19:abc@thread.v2',
+      request,
+    );
+    await vi.waitFor(() =>
+      expect(sdkClient.sendAdaptiveCard).toHaveBeenCalledOnce(),
+    );
+    const card = vi.mocked(sdkClient.sendAdaptiveCard).mock.calls[0]![0].card;
+    expect(card.body).not.toContainEqual(
+      expect.objectContaining({ text: 'Already answered?' }),
+    );
+    expect(card.body).toContainEqual(
+      expect.objectContaining({ text: 'Still needed?' }),
+    );
+    expect(card.body).toContainEqual(
+      expect.objectContaining({ id: 'gantry_userq_choice_1' }),
+    );
+    const callback = card.actions[0]!.data.callback;
+    expect(callback.questionIndex).toBe(1);
+
+    await startInput?.onMessage({
+      conversationId: '19:abc@thread.v2',
+      from: { id: 'teams-user-1', name: 'Team Admin' },
+      value: {
+        action: 'gantry_userq',
+        callback,
+        gantry_userq_choice_1: '0',
+        gantry_userq_other_1: '',
+      },
+    });
+
+    await expect(answerPromise).resolves.toEqual({
+      requestId: request.requestId,
+      answers: { 'Still needed?': 'continue' },
+      answeredBy: 'Team Admin',
+    });
+    expect(pendingQuestion.payload.questionRecoveryEnvelope).toMatchObject({
+      answers: {
+        'Already answered?': 'done',
+        'Still needed?': 'continue',
+      },
+      completedQuestionIndexes: [0, 1],
+      nextQuestionIndex: null,
+    });
   });
 
   it('resolves durable Teams user-question answers after restart', async () => {
@@ -1782,28 +3022,73 @@ describe('TeamsChannel adapter scaffold', () => {
         },
       ],
     };
-    const pending = {
-      id: 'pending-question-1',
+    const requests = [
+      request,
+      { ...request, sourceAgentFolder: 'teams_operations' },
+    ];
+    const callbacks = requests.map((candidate, index) => ({
+      providerAlias: `teams-question-${index + 1}`,
+      scope: {
+        appId: 'default',
+        sourceAgentFolder: candidate.sourceAgentFolder,
+        interactionId: candidate.requestId,
+      },
+      questionIndex: 0,
+    }));
+    const pending = requests.map((candidate, index) => ({
+      id: `pending-question-${index + 1}`,
       appId: 'default',
       runId: 'run-1',
       kind: 'question',
       status: 'pending',
       payload: {
-        requestId: request.requestId,
-        sourceAgentFolder: request.sourceAgentFolder,
-        targetJid: request.targetJid,
-        request,
+        requestId: candidate.requestId,
+        sourceAgentFolder: candidate.sourceAgentFolder,
+        targetJid: candidate.targetJid,
+        request: candidate,
+        questionRecoveryEnvelope: {
+          version: 1,
+          targetJid: candidate.targetJid,
+          threadId: null,
+          request: candidate,
+          nextQuestionIndex: 0,
+          callbacks: {
+            [callbacks[index]!.providerAlias]: {
+              appId: 'default',
+              sourceAgentFolder: candidate.sourceAgentFolder,
+              requestId: candidate.requestId,
+              questionIndex: 0,
+            },
+          },
+          selections: [],
+          answers: {},
+          completedQuestionIndexes: [],
+          deliveredQuestionIndexes: [0],
+          otherPrompts: {},
+        },
       },
       callbackRoute: null,
-      idempotencyKey: 'question:teams_engineering:q-teams-restart',
+      idempotencyKey: `default:question:${candidate.sourceAgentFolder}:${candidate.requestId}`,
       approverRef: null,
       resolution: null,
       createdAt: '2026-06-18T00:00:00.000Z',
       expiresAt: '2026-06-19T00:00:00.000Z',
       resolvedAt: null,
-    };
+    }));
     const repository = {
-      listPendingInteractions: vi.fn(async () => [pending]),
+      listPendingInteractions: vi.fn(async () => pending),
+      updatePendingInteractionPayload: vi.fn(
+        async ({ idempotencyKey, update }) => {
+          const interaction = pending.find(
+            (candidate) => candidate.idempotencyKey === idempotencyKey,
+          );
+          if (!interaction) return false;
+          const payload = update(interaction.payload);
+          if (!payload) return false;
+          interaction.payload = payload;
+          return true;
+        },
+      ),
       resolvePendingInteraction: vi.fn(async () => true),
     };
     configurePendingInteractionDurability({ repository: repository as never });
@@ -1818,23 +3103,33 @@ describe('TeamsChannel adapter scaffold', () => {
     );
     await channel.connect();
 
-    await startInput?.onMessage({
-      conversationId: '19:abc@thread.v2',
-      from: { id: 'teams-user-1', name: 'Team Admin' },
-      value: {
-        action: 'gantry_userq',
-        requestId: 'q-teams-restart',
-        gantry_userq_choice_0: '1',
-        gantry_userq_other_0: '',
-      },
-    });
+    for (const [index, callback] of callbacks.entries()) {
+      await startInput?.onMessage({
+        conversationId: '19:abc@thread.v2',
+        from: { id: 'teams-user-1', name: 'Team Admin' },
+        value: {
+          action: 'gantry_userq',
+          callback,
+          gantry_userq_choice_0: String(index),
+          gantry_userq_other_0: '',
+        },
+      });
+    }
 
-    expect(repository.resolvePendingInteraction).toHaveBeenCalledWith({
-      idempotencyKey: 'question:teams_engineering:q-teams-restart',
-      status: 'resolved',
-      resolution: { answers: { 'Which environment?': 'production' } },
-      approverRef: 'Team Admin',
-    });
+    expect(repository.resolvePendingInteraction).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        idempotencyKey: 'default:question:teams_engineering:q-teams-restart',
+        resolution: { answers: { 'Which environment?': 'staging' } },
+      }),
+    );
+    expect(repository.resolvePendingInteraction).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        idempotencyKey: 'default:question:teams_operations:q-teams-restart',
+        resolution: { answers: { 'Which environment?': 'production' } },
+      }),
+    );
     expect(isControlApproverAllowed).toHaveBeenCalledWith(
       expect.objectContaining({
         providerId: 'teams',
@@ -1872,16 +3167,20 @@ describe('TeamsChannel adapter scaffold', () => {
     );
     await channel.connect();
 
+    const request = {
+      requestId: 'perm-teams-unauthorized',
+      sourceAgentFolder: 'teams_engineering',
+      decisionPolicy: 'same_channel' as const,
+      toolName: 'Bash',
+    };
+    configureTeamsPermissionRequest(request);
     const approvalPromise = channel.requestPermissionApproval(
       'teams:19:abc@thread.v2',
-      {
-        requestId: 'perm-teams-unauthorized',
-        sourceAgentFolder: 'teams_engineering',
-        decisionPolicy: 'same_channel',
-        toolName: 'Bash',
-      },
+      request,
     );
-    await Promise.resolve();
+    await vi.waitFor(() =>
+      expect(sdkClient.sendAdaptiveCard).toHaveBeenCalled(),
+    );
 
     await startInput?.onMessage({
       conversationId: '19:abc@thread.v2',
@@ -1889,7 +3188,7 @@ describe('TeamsChannel adapter scaffold', () => {
       value: {
         data: {
           action: 'permission_decision',
-          requestId: 'perm-teams-unauthorized',
+          callback: latestTeamsPermissionCallback(sdkClient),
           decision: 'allow_once',
         },
       },

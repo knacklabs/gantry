@@ -1,9 +1,12 @@
 import { and, asc, eq, inArray, isNull, lt, lte, or, sql } from 'drizzle-orm';
 
 import type {
+  LiveTurnCommandAppendInput,
+  LiveTurnCommandNotifier,
+} from '../../../../domain/ports/live-turns.js';
+import type {
   PendingInteraction,
   PendingInteractionKind,
-  PendingInteractionStatus,
   RecoveredRunLease,
   RunLease,
   RunnerControlEvent,
@@ -14,9 +17,24 @@ import type {
   WorkerInstance,
   WorkerInstanceStatus,
 } from '../../../../domain/ports/worker-coordination.js';
+import type {
+  PermissionCallbackClaim,
+  PermissionCallbackClaimReference,
+  PermissionCallbackScope,
+} from '../../../../domain/types.js';
 import { nowIso as currentIso } from '../../../../shared/time/datetime.js';
 import * as pgSchema from '../schema/schema.js';
 import type { CanonicalDb } from './canonical-graph-repository.postgres.js';
+import {
+  claimPendingPermissionCallbackRows,
+  createPendingInteractionRow,
+  findPendingPermissionInteractionRows,
+  releasePendingPermissionCallbackRows,
+  resolvePendingInteractionRow,
+  settlePendingPermissionCallbackRows,
+  toPendingInteraction,
+  updatePendingInteractionPayloadRow,
+} from './worker-coordination-interaction.postgres.js';
 import {
   claimRunLeaseInTx,
   DEFAULT_NONCE_TTL_MS,
@@ -26,29 +44,6 @@ import {
   settleRunLeaseTx,
   toRunLease,
 } from './worker-coordination-lease.postgres.js';
-
-function toPendingInteraction(
-  row: typeof pgSchema.pendingInteractionsPostgres.$inferSelect,
-): PendingInteraction {
-  return {
-    id: row.id,
-    appId: row.appId,
-    runId: row.runId,
-    kind: row.kind as PendingInteractionKind,
-    status: row.status as PendingInteractionStatus,
-    payload: (row.payloadJson ?? {}) as Record<string, unknown>,
-    callbackRoute: (row.callbackRouteJson ?? null) as Record<
-      string,
-      unknown
-    > | null,
-    idempotencyKey: row.idempotencyKey,
-    approverRef: row.approverRef,
-    resolution: (row.resolutionJson ?? null) as Record<string, unknown> | null,
-    createdAt: row.createdAt,
-    expiresAt: row.expiresAt,
-    resolvedAt: row.resolvedAt,
-  };
-}
 
 function toWorkerInstance(
   row: typeof pgSchema.workerInstancesPostgres.$inferSelect,
@@ -70,7 +65,10 @@ function toWorkerInstance(
 }
 
 export class PostgresWorkerCoordinationRepository implements WorkerCoordinationRepository {
-  constructor(private readonly db: CanonicalDb) {}
+  constructor(
+    private readonly db: CanonicalDb,
+    private readonly commandNotifier?: LiveTurnCommandNotifier,
+  ) {}
 
   async registerWorker(input: {
     id: string;
@@ -514,66 +512,10 @@ export class PostgresWorkerCoordinationRepository implements WorkerCoordinationR
     expiresAt: string;
     now?: string;
   }): Promise<PendingInteraction> {
-    const now = input.now ?? currentIso();
-    try {
-      const rows = await this.db
-        .insert(pgSchema.pendingInteractionsPostgres)
-        .values({
-          id: input.id,
-          appId: input.appId,
-          runId: input.runId ?? null,
-          kind: input.kind,
-          status: 'pending',
-          payloadJson: input.payload,
-          callbackRouteJson: input.callbackRoute ?? null,
-          idempotencyKey: input.idempotencyKey,
-          approverRef: null,
-          resolutionJson: null,
-          createdAt: now,
-          expiresAt: input.expiresAt,
-          resolvedAt: null,
-        })
-        .returning();
-      return toPendingInteraction(rows[0]!);
-    } catch (err) {
-      if (!isUniqueViolation(err)) throw err;
-      // A re-prompt after a provider/adapter restart reuses this record by
-      // idempotency key. The callback route is durable routing authority for the
-      // owning live turn; a re-prompt that omits it (restarted adapter) must NOT
-      // erase the original route or interaction resolution can no longer reach
-      // the (possibly recovered) owner. COALESCE preserves the existing route.
-      const refreshed = await this.db
-        .update(pgSchema.pendingInteractionsPostgres)
-        .set({
-          payloadJson: input.payload,
-          callbackRouteJson:
-            input.callbackRoute ??
-            sql`${pgSchema.pendingInteractionsPostgres.callbackRouteJson}`,
-          expiresAt: input.expiresAt,
-        })
-        .where(
-          and(
-            eq(
-              pgSchema.pendingInteractionsPostgres.idempotencyKey,
-              input.idempotencyKey,
-            ),
-            eq(pgSchema.pendingInteractionsPostgres.status, 'pending'),
-          ),
-        )
-        .returning();
-      if (refreshed[0]) return toPendingInteraction(refreshed[0]);
-      const existing = await this.db
-        .select()
-        .from(pgSchema.pendingInteractionsPostgres)
-        .where(
-          eq(
-            pgSchema.pendingInteractionsPostgres.idempotencyKey,
-            input.idempotencyKey,
-          ),
-        )
-        .limit(1);
-      return toPendingInteraction(existing[0]!);
-    }
+    return createPendingInteractionRow(this.db, {
+      ...input,
+      now: input.now ?? currentIso(),
+    });
   }
 
   async resolvePendingInteraction(input: {
@@ -581,48 +523,60 @@ export class PostgresWorkerCoordinationRepository implements WorkerCoordinationR
     status: 'resolved' | 'cancelled';
     resolution: Record<string, unknown>;
     approverRef?: string | null;
+    permissionCallbackClaim?: PermissionCallbackClaimReference | null;
+    liveTurnCommand?: LiveTurnCommandAppendInput | null;
     now?: string;
   }): Promise<boolean> {
-    const now = input.now ?? currentIso();
-    const rows = await this.db
-      .update(pgSchema.pendingInteractionsPostgres)
-      .set({
-        status: input.status,
-        resolutionJson: input.resolution,
-        approverRef: input.approverRef ?? null,
-        resolvedAt: now,
-      })
-      .where(
-        and(
-          eq(
-            pgSchema.pendingInteractionsPostgres.idempotencyKey,
-            input.idempotencyKey,
-          ),
-          eq(pgSchema.pendingInteractionsPostgres.status, 'pending'),
-        ),
-      )
-      .returning({ id: pgSchema.pendingInteractionsPostgres.id });
-    return rows.length > 0;
+    const result = await resolvePendingInteractionRow(this.db, {
+      ...input,
+      now: input.now ?? currentIso(),
+    });
+    if (result.command) {
+      await this.commandNotifier?.notifyLiveTurnCommand({
+        liveTurnId: result.command.liveTurnId,
+        commandId: result.command.id,
+      });
+    }
+    return result.resolved;
   }
 
   async updatePendingInteractionPayload(input: {
     idempotencyKey: string;
-    payload: Record<string, unknown>;
+    update: (
+      payload: Record<string, unknown>,
+    ) => Record<string, unknown> | null;
   }): Promise<boolean> {
-    const rows = await this.db
-      .update(pgSchema.pendingInteractionsPostgres)
-      .set({ payloadJson: input.payload })
-      .where(
-        and(
-          eq(
-            pgSchema.pendingInteractionsPostgres.idempotencyKey,
-            input.idempotencyKey,
-          ),
-          eq(pgSchema.pendingInteractionsPostgres.status, 'pending'),
-        ),
-      )
-      .returning({ id: pgSchema.pendingInteractionsPostgres.id });
-    return rows.length > 0;
+    return updatePendingInteractionPayloadRow(this.db, input);
+  }
+
+  async claimPendingPermissionCallback(input: {
+    claim: PermissionCallbackClaim;
+  }): Promise<PendingInteraction[]> {
+    return claimPendingPermissionCallbackRows(this.db, input);
+  }
+
+  async releasePendingPermissionCallback(input: {
+    claim: PermissionCallbackClaimReference;
+  }): Promise<number> {
+    return releasePendingPermissionCallbackRows(this.db, input);
+  }
+
+  async settlePendingPermissionCallback(input: {
+    claim: PermissionCallbackClaimReference;
+  }): Promise<number> {
+    return settlePendingPermissionCallbackRows(this.db, input);
+  }
+
+  async findPendingPermissionInteractions(input: {
+    scope: PermissionCallbackScope;
+    now?: string;
+    includeTerminalSettlement?: boolean;
+  }): Promise<PendingInteraction[]> {
+    return findPendingPermissionInteractionRows(this.db, {
+      scope: input.scope,
+      now: input.now ?? currentIso(),
+      includeTerminalSettlement: input.includeTerminalSettlement,
+    });
   }
 
   async listPendingInteractions(input: {

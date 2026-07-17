@@ -12,7 +12,6 @@ import { writeTelegramFetchResponseToFile } from '../telegram-file-download.js';
 import {
   buildPermissionPromptParts,
   formatPermissionPromptPartsText,
-  formatPermissionReceiptText,
   permissionButtonLabel,
   permissionDecisionOptions,
 } from '../permission-interaction.js';
@@ -27,12 +26,15 @@ import {
   TELEGRAM_INLINE_BUTTON_TEXT_MAX_BYTES,
   TELEGRAM_MESSAGE_MAX_LENGTH,
   splitTelegramTextByCodeUnits,
+  telegramThreadOptionsFromString,
   truncateUtf8ToByteLimit,
 } from './channel-shared.js';
 import {
   resolveDurableTelegramUserQuestionOtherReply,
   sendTelegramUserQuestionOtherReplyNotice,
 } from './user-question-other-recovery.js';
+import { findDurableQuestionOtherPrompt } from '../../application/interactions/pending-interaction-durability.js';
+import { claimAndSettleTelegramPermissionPrompt } from './permission-prompt-settlement.js';
 const TELEGRAM_PERMISSION_FULL_VIEW_INLINE_MAX = 3200;
 export interface TelegramDownloadedFile {
   filePath: string;
@@ -40,10 +42,12 @@ export interface TelegramDownloadedFile {
 }
 export abstract class TelegramChannelPrompts extends TelegramChannelPolling {
   protected pendingUserQuestionKey(
+    appId: string,
+    sourceAgentFolder: string,
     requestId: string,
     questionIndex: number,
   ): string {
-    return `${requestId}:${questionIndex}`;
+    return JSON.stringify([appId, sourceAgentFolder, requestId, questionIndex]);
   }
   protected formatUserQuestionButtonLabel(
     optionLabel: string,
@@ -63,8 +67,7 @@ export abstract class TelegramChannelPrompts extends TelegramChannelPolling {
     return `${prefix}${safeLabel}`;
   }
   protected buildUserQuestionKeyboard(
-    requestId: string,
-    questionIndex: number,
+    callbackId: string,
     question: UserQuestionRequest['questions'][number],
     selectedOptionIndexes: Set<number>,
   ): {
@@ -82,7 +85,7 @@ export abstract class TelegramChannelPrompts extends TelegramChannelPolling {
             question.multiSelect,
             isSelected,
           ),
-          callback_data: `userq:select:${requestId}:${questionIndex}:${optionIndex}`,
+          callback_data: `userq:select:${callbackId}:${optionIndex}`,
         },
       ];
     });
@@ -91,14 +94,14 @@ export abstract class TelegramChannelPrompts extends TelegramChannelPolling {
       inline_keyboard.push([
         {
           text: selectedCount > 0 ? `Done (${selectedCount})` : 'Done',
-          callback_data: `userq:done:${requestId}:${questionIndex}`,
+          callback_data: `userq:done:${callbackId}`,
         },
       ]);
     }
     inline_keyboard.push([
       {
         text: '✏️ Other',
-        callback_data: `userq:other:${requestId}:${questionIndex}`,
+        callback_data: `userq:other:${callbackId}`,
       },
     ]);
     return { inline_keyboard };
@@ -311,6 +314,7 @@ export abstract class TelegramChannelPrompts extends TelegramChannelPolling {
     chatId: string;
     requestId: string;
     questionIndex: number;
+    callbackId: string;
     question: UserQuestionRequest['questions'][number];
     threadOpts: { message_thread_id?: number };
   }): Promise<{
@@ -322,8 +326,7 @@ export abstract class TelegramChannelPrompts extends TelegramChannelPolling {
     const htmlPrompt = renderUserQuestionPromptHtml(input.question);
     const plainPrompt = formatTelegramUserQuestionPlainText(input.question);
     const replyMarkup = this.buildUserQuestionKeyboard(
-      input.requestId,
-      input.questionIndex,
+      input.callbackId,
       input.question,
       new Set<number>(),
     );
@@ -409,37 +412,21 @@ export abstract class TelegramChannelPrompts extends TelegramChannelPolling {
     }
     return allowedIds.includes(userId);
   }
-
-  protected async resolvePermissionPrompt(
-    requestId: string,
-    decision: PermissionApprovalDecision,
-  ): Promise<void> {
-    const pending = this.pendingPermissionPrompts.get(requestId);
-    if (!pending || !this.bot) return;
-    this.pendingPermissionPrompts.delete(requestId);
-    this.pendingPermissionCallbackIds.delete(pending.callbackId);
-    clearTimeout(pending.timer);
-    pending.resolve(decision);
-
-    const text = escapeTelegramHtml(
-      formatPermissionReceiptText(requestId, pending.request, decision),
-    );
-    try {
-      await this.bot.api.editMessageText(
-        pending.chatId,
-        pending.messageId,
-        text,
-        {
-          parse_mode: 'HTML',
-          reply_markup: { inline_keyboard: [] },
-        },
-      );
-    } catch (err) {
-      logger.debug(
-        { requestId, err: this.sanitizeErrorMessage(err) },
-        'Failed to update Telegram permission prompt message',
-      );
-    }
+  protected async claimAndResolvePermissionPrompt(
+    providerAlias: string,
+    mode: NonNullable<PermissionApprovalDecision['mode']>,
+    approverRef: string,
+    reason: string,
+  ): Promise<'settled' | 'already_decided' | 'ownerless' | 'retryable'> {
+    return claimAndSettleTelegramPermissionPrompt({
+      providerAlias,
+      mode,
+      approverRef,
+      reason,
+      pendingPrompts: this.pendingPermissionPrompts,
+      api: this.bot?.api ?? null,
+      sanitizeErrorMessage: (err) => this.sanitizeErrorMessage(err),
+    });
   }
 
   protected async refreshUserQuestionPrompt(
@@ -454,8 +441,7 @@ export abstract class TelegramChannelPrompts extends TelegramChannelPolling {
         {
           ...(pending.promptIsHtml ? { parse_mode: 'HTML' as const } : {}),
           reply_markup: this.buildUserQuestionKeyboard(
-            pending.requestId,
-            pending.questionIndex,
+            pending.callbackId,
             {
               question: pending.questionText,
               header: pending.questionHeader,
@@ -488,8 +474,14 @@ export abstract class TelegramChannelPrompts extends TelegramChannelPolling {
     reason?: string,
   ): Promise<void> {
     this.pendingUserQuestions.delete(
-      this.pendingUserQuestionKey(pending.requestId, pending.questionIndex),
+      this.pendingUserQuestionKey(
+        pending.appId,
+        pending.sourceAgentFolder,
+        pending.requestId,
+        pending.questionIndex,
+      ),
     );
+    this.pendingUserQuestionCallbackIds.delete(pending.callbackId);
     clearTimeout(pending.timer);
     pending.resolve({ selected: selection, answeredBy });
 
@@ -533,15 +525,27 @@ export abstract class TelegramChannelPrompts extends TelegramChannelPolling {
     answeredBy: string;
   }): Promise<boolean> {
     const key = `${input.chatId}:${input.replyToMessageId}`;
-    const entry = this.pendingUserQuestionOtherPrompts.get(key);
+    const entry =
+      this.pendingUserQuestionOtherPrompts.get(key) ??
+      (await findDurableQuestionOtherPrompt({
+        appId: this.opts.appId || 'default',
+        promptId: key,
+      }));
     if (!entry) return false;
     const pending = this.pendingUserQuestions.get(
-      this.pendingUserQuestionKey(entry.requestId, entry.questionIndex),
+      this.pendingUserQuestionKey(
+        entry.appId,
+        entry.sourceAgentFolder,
+        entry.requestId,
+        entry.questionIndex,
+      ),
     );
     if (!pending) {
       const recovered = await resolveDurableTelegramUserQuestionOtherReply({
         chatId: input.chatId,
         requestId: entry.requestId,
+        appId: entry.appId,
+        sourceAgentFolder: entry.sourceAgentFolder,
         questionIndex: entry.questionIndex,
         text: input.text,
         userId: input.userId,

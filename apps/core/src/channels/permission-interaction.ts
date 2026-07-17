@@ -46,13 +46,21 @@ import {
   sanitizePermissionText,
   sanitizeReceiptDetail,
 } from './permission-text-sanitizer.js';
+import {
+  decisionForPermissionInteraction,
+  buildPermissionBatchPromptParts,
+  formatPermissionBatchPromptText,
+  isPermissionBatchRequest,
+  permissionBatchButtonLabel,
+  withRecoveredBatchOption,
+} from './permission-batch-coalescer.js';
 
 export {
-  decisionForMode,
   firstPersistentRule,
   persistentPermissionUpdates,
   persistentRules,
 } from '../domain/permission-decision.js';
+export { decisionForPermissionInteraction as decisionForMode };
 
 const USER_FACING_TOOL_LABELS: Record<string, string> = {
   RunCommand: 'exact command access',
@@ -87,16 +95,19 @@ export function normalizePermissionAction(
 
 export function permissionDecisionOptions(
   request: PermissionApprovalRequest,
+  matchKind?: 'individual' | 'batch',
 ): PermissionApprovalDecisionMode[] {
-  if (request.decisionOptions?.length) return request.decisionOptions;
-  const persistentRule = firstPersistentRule(request);
-  if (!persistentRule) logPersistentOptionDrop(request);
-  return persistentRule
+  const rule = firstPersistentRule(request);
+  const requested = request.decisionOptions;
+  const fallback: PermissionApprovalDecisionMode[] = rule
     ? ['allow_once', 'allow_persistent_rule', 'cancel']
     : ['allow_once', 'cancel'];
+  const options = requested?.length ? requested : fallback;
+  if (!requested?.length && !rule) logOptionDrop(request);
+  return withRecoveredBatchOption(options, matchKind);
 }
 
-function logPersistentOptionDrop(request: PermissionApprovalRequest): void {
+function logOptionDrop(request: PermissionApprovalRequest): void {
   const suggestions = request.suggestions || [];
   if (suggestions.length === 0) return;
   logger.debug(
@@ -132,6 +143,8 @@ export function permissionButtonLabel(
   mode: PermissionApprovalDecisionMode,
   _request: PermissionApprovalRequest,
 ): string {
+  const batchLabel = permissionBatchButtonLabel(_request, mode);
+  if (batchLabel) return batchLabel;
   if (mode === 'allow_once') return 'Allow once';
   if (mode === 'cancel') return 'Cancel';
   return 'Allow for future';
@@ -142,6 +155,8 @@ export function formatPermissionPromptText(
   timeoutMs: number,
   options: { budget?: number } = {},
 ): string {
+  const batchText = formatPermissionBatchPromptText(request, timeoutMs);
+  if (batchText) return limitPermissionMessage(batchText);
   const timeoutMinutes = Math.max(1, Math.round(timeoutMs / 60000));
   if (request.interaction) {
     return formatInteractionPermissionPrompt(
@@ -189,6 +204,10 @@ export function formatPermissionReceiptText(
     return limitPermissionMessage(`Canceled: ${summary}. Nothing changed.`);
   }
   if (decision.mode === 'allow_persistent_rule') {
+    if (decision.batchDecision === 'review_each')
+      return 'Reviewing each permission request.';
+    if (request && isPermissionBatchRequest(request))
+      return 'Reviewing each permission request.';
     const agentName = request
       ? formatPermissionAgentDisplayName(request.sourceAgentFolder)
       : 'this agent';
@@ -223,6 +242,8 @@ export function buildPermissionPromptParts(
   request: PermissionApprovalRequest,
   timeoutMs: number,
 ): PermissionPromptParts {
+  const batchParts = buildPermissionBatchPromptParts(request, timeoutMs);
+  if (batchParts) return batchParts;
   const replyInMinutes = Math.max(1, Math.round(timeoutMs / 60000));
   const contextLines = formatPermissionContextLines(request);
   const fullView = buildPermissionPromptFullView(request);
@@ -623,7 +644,7 @@ function permissionCommand(request: PermissionApprovalRequest): string | null {
   return typeof command === 'string' && command.trim() ? command.trim() : null;
 }
 
-function formatPermissionReceiptActionSummary(
+export function formatPermissionReceiptActionSummary(
   request: PermissionApprovalRequest | undefined,
 ): string {
   if (!request) return 'permission request';

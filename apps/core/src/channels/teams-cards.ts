@@ -1,9 +1,11 @@
 import type {
   MessageActionAffordance,
   PermissionApprovalRequest,
+  PermissionCallbackScope,
   UserQuestionRequest,
 } from '../domain/types.js';
 import type { AgentTodoRender } from '../domain/ports/task-lifecycle.js';
+import type { DurableQuestionCallback } from '../application/interactions/pending-interaction-durability.js';
 import { PERMISSION_APPROVAL_TIMEOUT_MS } from '../shared/permission-timeout.js';
 import {
   agentTodoLines,
@@ -33,11 +35,12 @@ export interface TeamsAdaptiveCardAction {
   data:
     | {
         action: 'permission_decision';
-        requestId: string;
+        callback: {
+          providerAlias: string;
+          scope: PermissionCallbackScope;
+          matchKind: 'individual' | 'batch';
+        };
         decision: string;
-        sourceAgentFolder: string;
-        targetJid?: string;
-        threadId?: string;
       }
     | {
         action: 'message_action';
@@ -60,8 +63,7 @@ export interface TeamsAdaptiveCardSubmitAction {
   title: string;
   data: {
     action: 'gantry_userq';
-    requestId: string;
-    sourceAgentFolder: string;
+    callback: DurableQuestionCallback;
     targetJid?: string;
     threadId?: string;
   };
@@ -106,6 +108,17 @@ export function formatTeamsAttachmentUnavailableCopy(
 
 export function buildTeamsApprovalAdaptiveCard(
   request: PermissionApprovalRequest,
+  callback = {
+    providerAlias: globalThis.crypto.randomUUID(),
+    scope: {
+      appId: request.appId || 'default',
+      sourceAgentFolder: request.sourceAgentFolder,
+      interactionId: request.requestId,
+    },
+    matchKind: request.permissionBatch
+      ? ('batch' as const)
+      : ('individual' as const),
+  },
 ): TeamsAdaptiveCardPayload {
   const promptText = formatPermissionPromptText(
     request,
@@ -134,11 +147,8 @@ export function buildTeamsApprovalAdaptiveCard(
           : 'gantry.permission.allow',
       data: {
         action: 'permission_decision',
-        requestId: request.requestId,
+        callback,
         decision: mode,
-        sourceAgentFolder: request.sourceAgentFolder,
-        targetJid: request.targetJid,
-        threadId: request.threadId,
       },
     })),
   };
@@ -268,9 +278,12 @@ export function buildTeamsMessageCard(options: {
 
 export function buildTeamsUserQuestionCard(
   request: UserQuestionRequest,
+  callback: DurableQuestionCallback,
+  startIndex = 0,
 ): TeamsAdaptiveCardPayload {
   const body: Array<Record<string, unknown>> = [];
   request.questions.forEach((question, qi) => {
+    if (qi < startIndex) return;
     if (question.header?.trim()) {
       body.push({
         type: 'TextBlock',
@@ -313,8 +326,7 @@ export function buildTeamsUserQuestionCard(
         title: 'Submit',
         data: {
           action: 'gantry_userq',
-          requestId: request.requestId,
-          sourceAgentFolder: request.sourceAgentFolder,
+          callback,
           ...(request.targetJid ? { targetJid: request.targetJid } : {}),
           ...(request.threadId ? { threadId: request.threadId } : {}),
         },

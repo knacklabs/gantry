@@ -4,10 +4,12 @@ import { getProviderRuntimeSecret } from './provider-runtime-secrets.js';
 import type {
   PermissionApprovalDecision,
   PermissionApprovalRequest,
+  PermissionCallbackScope,
   UserQuestionRequest,
   UserQuestionResponse,
 } from '../domain/types.js';
 import type { TeamsAdaptiveCardPayload } from './teams-cards.js';
+import type { DurableQuestionCallback } from '../application/interactions/pending-interaction-durability.js';
 
 export const TEAMS_JID_PREFIX = 'teams:';
 
@@ -129,7 +131,9 @@ export type TeamsChannelOpts = Pick<
 >;
 
 export interface PendingTeamsPermissionPrompt {
+  callback: TeamsPermissionCallback;
   conversationId: string;
+  messageId?: string;
   sourceAgentFolder: string;
   decisionPolicy?: PermissionApprovalRequest['decisionPolicy'];
   approvalContextJid?: string;
@@ -140,7 +144,14 @@ export interface PendingTeamsPermissionPrompt {
   settled: boolean;
 }
 
+export interface TeamsPermissionCallback {
+  providerAlias: string;
+  scope: PermissionCallbackScope;
+  matchKind: 'individual' | 'batch';
+}
+
 export interface PendingTeamsUserQuestion {
+  callback: DurableQuestionCallback;
   conversationId: string;
   sourceAgentFolder: string;
   request: UserQuestionRequest;

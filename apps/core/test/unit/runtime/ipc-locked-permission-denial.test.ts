@@ -56,6 +56,7 @@ function makeDurabilityRepository() {
   return {
     getActiveRunLease: vi.fn(async () => null),
     createPendingInteraction: vi.fn(async () => true),
+    listPendingInteractions: vi.fn(async () => []),
     resolvePendingInteraction: vi.fn(async () => true),
     createTransientGrant: vi.fn(async () => true),
   };

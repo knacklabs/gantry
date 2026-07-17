@@ -60,6 +60,7 @@ export async function postDiscordMessageParts(input: {
   apiRoot?: string;
   botToken?: string;
   post: DiscordMessagePoster;
+  shouldContinue?: () => boolean;
 }): Promise<MessageDeliveryResult> {
   const externalMessageIds: string[] = [];
   let deliveredParts = 0;
@@ -68,6 +69,7 @@ export async function postDiscordMessageParts(input: {
     [];
   const parts = input.parts;
   for (let index = 0; index < parts.length; index += 1) {
+    if (input.shouldContinue && !input.shouldContinue()) break;
     try {
       const body = {
         content: parts[index],

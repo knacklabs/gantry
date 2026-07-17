@@ -11,6 +11,7 @@ import {
   permissionDecisionOptions,
   permissionButtonLabel,
 } from '@core/channels/permission-interaction.js';
+import { createPermissionBatchRequest } from '@core/channels/permission-batch-coalescer.js';
 import type { PermissionApprovalRequest } from '@core/domain/types.js';
 
 function requestWithSuggestions(
@@ -25,6 +26,88 @@ function requestWithSuggestions(
 }
 
 describe('permission interaction', () => {
+  it('renders a compact permission batch with batch actions', () => {
+    const batch = createPermissionBatchRequest(
+      [
+        {
+          ...requestWithSuggestions([]),
+          requestId: 'permission-1',
+          toolInput: { command: 'git status --short' },
+        },
+        {
+          ...requestWithSuggestions([]),
+          requestId: 'permission-2',
+          toolName: 'Write',
+          toolInput: { file_path: 'notes.md' },
+        },
+      ],
+      ['1. Command (git status --short)', '2. File action (notes.md)'],
+    );
+
+    expect(formatPermissionPromptText(batch, 300_000)).toContain(
+      '1. Command (git status --short)',
+    );
+    expect(formatPermissionPromptText(batch, 300_000)).toContain(
+      '2. File action (notes.md)',
+    );
+    expect(
+      permissionDecisionOptions(batch).map((mode) =>
+        permissionButtonLabel(mode, batch),
+      ),
+    ).toEqual(['Allow all', 'Review each', 'Deny all']);
+    expect(decisionForMode(batch, 'allow_persistent_rule', 'Ravi')).toEqual(
+      expect.objectContaining({
+        approved: true,
+        mode: 'allow_persistent_rule',
+        reason: 'review each',
+      }),
+    );
+  });
+
+  it('removes Allow all when the rendered batch omits permission rows', () => {
+    const batch = createPermissionBatchRequest(
+      [
+        { ...requestWithSuggestions([]), requestId: 'permission-1' },
+        { ...requestWithSuggestions([]), requestId: 'permission-2' },
+      ],
+      [`1. ${'a'.repeat(1_500)}`, `2. ${'b'.repeat(1_500)}`],
+    );
+
+    expect(formatPermissionPromptText(batch, 300_000)).toContain(
+      '[additional permission details omitted]',
+    );
+    expect(
+      permissionDecisionOptions(batch).map((mode) =>
+        permissionButtonLabel(mode, batch),
+      ),
+    ).toEqual(['Review each', 'Deny all']);
+  });
+
+  it('reconstructs Review each from a recovered batch callback', () => {
+    const original = requestWithSuggestions([]);
+
+    expect(permissionDecisionOptions(original, 'batch')).toEqual([
+      'allow_once',
+      'allow_persistent_rule',
+      'cancel',
+    ]);
+    const decision = decisionForMode(
+      original,
+      'allow_persistent_rule',
+      'Ravi',
+      'batch',
+    );
+    expect(decision).toMatchObject({
+      approved: true,
+      mode: 'allow_persistent_rule',
+      decisionClassification: 'user_temporary',
+      batchDecision: 'review_each',
+    });
+    expect(
+      formatPermissionReceiptText(original.requestId, original, decision),
+    ).toBe('Reviewing each permission request.');
+  });
+
   it('accepts only current permission action tokens', () => {
     expect(normalizePermissionAction('allow_once')).toBe('allow_once');
     expect(normalizePermissionAction('allow_persistent_rule')).toBe(

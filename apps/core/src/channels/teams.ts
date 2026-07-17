@@ -20,7 +20,6 @@ import { logger } from '../infrastructure/logging/logger.js';
 import { PERMISSION_APPROVAL_TIMEOUT_MS } from '../shared/permission-timeout.js';
 import { nowIso } from '../shared/time/datetime.js';
 import {
-  buildTeamsApprovalAdaptiveCard,
   buildTeamsUserQuestionCard,
   formatTeamsAttachmentUnavailableCopy as teamsTextWithAttachmentNotice,
 } from './teams-cards.js';
@@ -30,7 +29,7 @@ import {
   sendTeamsTextOrActionMessage,
   type TeamsProgressMessages,
 } from './teams-progress.js';
-import { bindTeamsPermissionPromptMessage } from './teams-prompt-binding.js';
+import { requestTeamsPermissionApproval } from './teams-permission-approval.js';
 import { renderTeamsAgentTodo, type TeamsTodoMessages } from './teams-todos.js';
 import {
   isTeamsJid,
@@ -50,16 +49,26 @@ import {
   teamsMessageAttachments as teamsInboundMessageAttachments,
 } from './teams-conversation-context.js';
 import { renderTeamsRichInteraction } from './teams-rich-interaction.js';
+import { createMicrosoftTeamsSdkClient } from './teams-sdk-client.js';
 import {
   applyTeamsStreamingChunk,
   type TeamsStreamingState,
 } from './teams-streaming.js';
 import {
+  dropPendingTeamsInteraction,
   handleTeamsPermissionDecision,
   handleTeamsUserQuestionSubmit,
   resolvePendingTeamsUserQuestion,
-  resolveTeamsPermissionPrompt,
+  settlePendingTeamsPermission,
 } from './teams-interaction-handlers.js';
+import { StreamResetEpochs } from './stream-reset-epochs.js';
+import {
+  bindPendingQuestionInteractionCallback,
+  createDurableQuestionCallback,
+  DurableInteractionPersistenceError,
+  recordDurableQuestionAnswerProgress,
+  recordDurableQuestionPromptDelivered,
+} from '../application/interactions/pending-interaction-durability.js';
 
 export {
   TEAMS_ADAPTIVE_CARD_CONTENT_TYPE,
@@ -96,6 +105,7 @@ export class TeamsChannel implements ChannelAdapter {
   private readonly pendingTodos: TeamsTodoMessages = new Map();
   private readonly pendingProgress: TeamsProgressMessages = new Map();
   private readonly activeStreams = new Map<string, TeamsStreamingState>();
+  private readonly streamResetEpochs = new StreamResetEpochs();
   private readonly streamGenerationByJid = new Map<string, number>();
   private readonly sealedStreamGenerationByJid = new Map<string, number>();
   private readonly pendingUserQuestions = new Map<
@@ -108,6 +118,7 @@ export class TeamsChannel implements ChannelAdapter {
     private readonly opts: TeamsChannelOpts,
     private readonly sdkClient: TeamsSdkClient,
   ) {}
+  dropPendingInteraction(kind: 'permission' | 'question', request: PermissionApprovalRequest | UserQuestionRequest): void { dropPendingTeamsInteraction(this.interactionContext(), kind, request); }
 
   async connect(
     options: { inbound?: boolean; interactionCallbacks?: boolean } = {},
@@ -155,19 +166,31 @@ export class TeamsChannel implements ChannelAdapter {
 
   async disconnect(): Promise<void> {
     if (!this.connected && !this.outboundReady) return;
-    if (this.connected) {
-      await this.sdkClient.stop();
-    }
-    for (const requestId of this.pendingPermissionPrompts.keys()) {
-      await this.resolvePermissionPrompt(requestId, {
+    for (const providerAlias of this.pendingPermissionPrompts.keys()) {
+      const result = await settlePendingTeamsPermission(
+        this.interactionContext(),
+        providerAlias,
+        'cancel',
+        'system',
+        'Teams channel disconnected',
+      );
+      if (result === 'already_decided') continue;
+      const pending = this.pendingPermissionPrompts.get(providerAlias);
+      if (!pending) continue;
+      clearTimeout(pending.timer);
+      pending.settled = true;
+      this.pendingPermissionPrompts.delete(providerAlias);
+      pending.resolve({
         approved: false,
+        mode: 'cancel',
         decidedBy: 'system',
         reason: 'Teams channel disconnected',
       });
     }
-    for (const requestId of this.pendingUserQuestions.keys()) {
-      await this.resolvePendingUserQuestion(requestId, {
-        requestId,
+    if (this.connected) await this.sdkClient.stop();
+    for (const [providerAlias, pending] of this.pendingUserQuestions) {
+      await this.resolvePendingUserQuestion(providerAlias, {
+        requestId: pending.request.requestId,
         answers: {},
         answeredBy: 'system',
       });
@@ -245,6 +268,7 @@ export class TeamsChannel implements ChannelAdapter {
     if (!conversationId) return false;
 
     const key = this.streamKey(jid, options.threadId);
+    const streamEpoch = this.streamResetEpochs.current(key);
     let state = this.activeStreams.get(key);
     if (!state) {
       state = {
@@ -256,23 +280,49 @@ export class TeamsChannel implements ChannelAdapter {
       this.activeStreams.set(key, state);
     }
 
-    const run = () =>
-      applyTeamsStreamingChunk({
+    const run = async () => {
+      if (
+        !this.streamResetEpochs.isCurrent(key, streamEpoch) ||
+        this.activeStreams.get(key) !== state
+      ) {
+        return false;
+      }
+      const deliveryStreams = new Map([[key, state]]);
+      const delivered = await applyTeamsStreamingChunk({
         jid,
         key,
         state,
         text,
         options,
-        activeStreams: this.activeStreams,
+        activeStreams: deliveryStreams,
         sdkClient: this.sdkClient,
-        markDone: (doneJid, generation) =>
-          this.markStreamingGenerationDone(doneJid, generation),
+        markDone: () => undefined,
+        shouldContinue: () =>
+          this.streamResetEpochs.isCurrent(key, streamEpoch) &&
+          this.activeStreams.get(key) === state,
       });
+      if (
+        !deliveryStreams.has(key) &&
+        this.streamResetEpochs.isCurrent(key, streamEpoch) &&
+        this.activeStreams.get(key) === state
+      ) {
+        this.streamResetEpochs.deleteState(key, this.activeStreams);
+        this.markStreamingGenerationDone(jid, options.generation);
+      }
+      return delivered;
+    };
     state.pendingDelivery = state.pendingDelivery.then(run, run);
     return state.pendingDelivery;
   }
 
-  resetStreaming(jid: string): void {
+  resetStreaming(jid: string, options?: { threadId?: string }): void {
+    if (options) {
+      const key = this.streamKey(jid, options.threadId);
+      this.streamResetEpochs.bump(key);
+      this.streamResetEpochs.deleteState(key, this.activeStreams);
+      return;
+    }
+    this.streamResetEpochs.bumpMatching(this.activeStreams.keys(), `${jid}\n`);
     this.clearStreamingStateForJid(jid);
     this.sealStreamingGenerationOnReset(jid);
   }
@@ -296,7 +346,8 @@ export class TeamsChannel implements ChannelAdapter {
 
   private clearStreamingStateForJid(jid: string): void {
     for (const key of this.activeStreams.keys()) {
-      if (key.startsWith(`${jid}\n`)) this.activeStreams.delete(key);
+      if (!key.startsWith(`${jid}\n`)) continue;
+      this.streamResetEpochs.deleteState(key, this.activeStreams);
     }
   }
 
@@ -388,75 +439,30 @@ export class TeamsChannel implements ChannelAdapter {
   async requestPermissionApproval(
     jid: string,
     request: PermissionApprovalRequest,
+    onPromptDelivered?: (messageId: string) => void,
   ): Promise<PermissionApprovalDecision> {
-    if (!this.connected) {
-      return { approved: false, reason: 'Teams channel is not connected' };
-    }
-    const conversationId = teamsConversationIdFromJid(jid);
-    if (!conversationId) {
-      return {
-        approved: false,
-        reason: 'This Teams conversation could not be identified.',
-      };
-    }
-    if (!this.sdkClient.sendAdaptiveCard) {
-      return {
-        approved: false,
-        reason:
-          'This Teams conversation cannot display approval cards right now.',
-      };
-    }
-    if (this.pendingPermissionPrompts.has(request.requestId)) {
-      return {
-        approved: false,
-        reason: 'This approval request is already awaiting a decision.',
-      };
-    }
-
-    const approvalRequest = { ...request, targetJid: request.targetJid ?? jid };
-    try {
-      const sent = await this.sdkClient.sendAdaptiveCard({
-        conversationId,
-        card: buildTeamsApprovalAdaptiveCard(approvalRequest),
-        ...(request.threadId ? { threadId: request.threadId } : {}),
-      });
-      const messageId = sent.externalMessageId;
-      bindTeamsPermissionPromptMessage(request, conversationId, messageId);
-      return await new Promise<PermissionApprovalDecision>((resolve) => {
-        const timer = setTimeout(() => {
-          void this.resolvePermissionPrompt(request.requestId, {
-            approved: false,
-            decidedBy: 'system',
-            reason: 'timed out',
-          });
-        }, PERMISSION_APPROVAL_TIMEOUT_MS);
-        this.pendingPermissionPrompts.set(request.requestId, {
-          conversationId,
-          sourceAgentFolder: request.sourceAgentFolder,
-          decisionPolicy: request.decisionPolicy,
-          approvalContextJid: request.approvalContextJid,
-          request: approvalRequest,
-          threadId: request.threadId,
-          timer,
-          resolve,
-          settled: false,
-        });
-      });
-    } catch (err) {
-      logger.error(
-        { jid, requestId: request.requestId, err },
-        'Failed to send Teams permission prompt',
-      );
-      return {
-        approved: false,
-        reason: 'Failed to send approval prompt to Teams',
-      };
-    }
+    return requestTeamsPermissionApproval({
+      connected: this.connected,
+      jid,
+      request,
+      onPromptDelivered,
+      sdkClient: this.sdkClient,
+      pendingPermissionPrompts: this.pendingPermissionPrompts,
+      settleTimeout: (providerAlias) =>
+        settlePendingTeamsPermission(
+          this.interactionContext(),
+          providerAlias,
+          'cancel',
+          'system',
+          'timed out',
+        ),
+    });
   }
 
   async requestUserAnswer(
     jid: string,
     request: UserQuestionRequest,
+    onPromptDelivered?: (messageId: string, questionIndex?: number) => void,
   ): Promise<UserQuestionResponse> {
     const emptyResponse: UserQuestionResponse = {
       requestId: request.requestId,
@@ -467,24 +473,80 @@ export class TeamsChannel implements ChannelAdapter {
     if (!conversationId) return emptyResponse;
     if (!this.sdkClient.sendAdaptiveCard) return emptyResponse;
     if (!request.questions.length) return emptyResponse;
-    if (this.pendingUserQuestions.has(request.requestId)) return emptyResponse;
-
+    const startIndex = request.recoveryStartIndex ?? 0;
+    if (startIndex < 0 || startIndex >= request.questions.length) {
+      return emptyResponse;
+    }
     const questionRequest = { ...request, targetJid: request.targetJid ?? jid };
+    const callback = createDurableQuestionCallback({
+      appId: request.appId,
+      sourceAgentFolder: request.sourceAgentFolder,
+      requestId: request.requestId,
+      questionIndex: startIndex,
+    });
+    if (this.pendingUserQuestions.has(callback.providerAlias)) {
+      return emptyResponse;
+    }
     try {
+      const bound = await bindPendingQuestionInteractionCallback({
+        sourceAgentFolder: callback.scope.sourceAgentFolder,
+        requestId: callback.scope.interactionId,
+        callbackId: callback.providerAlias,
+        questionIndex: callback.questionIndex,
+        appId: callback.scope.appId,
+      });
+      if (!bound)
+        throw new Error('Teams user question callback binding failed');
       const sent = await this.sdkClient.sendAdaptiveCard({
         conversationId,
-        card: buildTeamsUserQuestionCard(questionRequest),
+        card: buildTeamsUserQuestionCard(questionRequest, callback, startIndex),
         ...(request.threadId ? { threadId: request.threadId } : {}),
       });
-      return await new Promise<UserQuestionResponse>((resolve) => {
+      const response = new Promise<UserQuestionResponse>((resolve, reject) => {
         const timer = setTimeout(() => {
-          void this.resolvePendingUserQuestion(request.requestId, {
-            requestId: request.requestId,
-            answers: {},
-            answeredBy: 'system',
+          void (async () => {
+            const remainingQuestionIndexes = request.questions.flatMap(
+              (_, index) => (index >= startIndex ? [index] : []),
+            );
+            const timeoutAnswers = Object.fromEntries(
+              remainingQuestionIndexes.map((questionIndex) => {
+                const question = request.questions[questionIndex]!;
+                return [
+                  question.question,
+                  question.multiSelect ? ([] as string[]) : '',
+                ];
+              }),
+            );
+            const recorded = await recordDurableQuestionAnswerProgress({
+              requestId: request.requestId,
+              appId: request.appId,
+              sourceAgentFolder: request.sourceAgentFolder,
+              answers: timeoutAnswers,
+              completedQuestionIndexes: remainingQuestionIndexes,
+            });
+            if (!recorded) {
+              throw new DurableInteractionPersistenceError(
+                'Teams user question timeout was not persisted',
+              );
+            }
+            await this.resolvePendingUserQuestion(callback.providerAlias, {
+              requestId: request.requestId,
+              answers: timeoutAnswers,
+              answeredBy: 'system',
+            });
+          })().catch((err) => {
+            reject(
+              err instanceof DurableInteractionPersistenceError
+                ? err
+                : new DurableInteractionPersistenceError(
+                    'Teams user question timeout could not be persisted',
+                    err,
+                  ),
+            );
           });
         }, PERMISSION_APPROVAL_TIMEOUT_MS);
-        this.pendingUserQuestions.set(request.requestId, {
+        this.pendingUserQuestions.set(callback.providerAlias, {
+          callback,
           conversationId,
           sourceAgentFolder: request.sourceAgentFolder,
           request: questionRequest,
@@ -497,13 +559,40 @@ export class TeamsChannel implements ChannelAdapter {
             : {}),
         });
       });
+      if (sent?.externalMessageId) {
+        const delivered = await recordDurableQuestionPromptDelivered({
+          requestId: request.requestId,
+          appId: request.appId,
+          sourceAgentFolder: request.sourceAgentFolder,
+          questionIndexes: request.questions.flatMap((_, index) =>
+            index >= startIndex ? [index] : [],
+          ),
+        });
+        if (!delivered) {
+          throw new DurableInteractionPersistenceError(
+            'Teams user question delivery was not persisted',
+          );
+        }
+        onPromptDelivered?.(sent.externalMessageId, startIndex);
+      }
+      return response;
     } catch (err) {
       logger.error(
         { jid, requestId: request.requestId, err },
         'Failed to send Teams user question prompt',
       );
+      if (err instanceof DurableInteractionPersistenceError) throw err;
       return emptyResponse;
     }
+  }
+
+  questionIndexesForDeliveredPrompt(
+    request: UserQuestionRequest,
+    firstQuestionIndex: number,
+  ): number[] {
+    return request.questions.flatMap((_, index) =>
+      index >= firstQuestionIndex ? [index] : [],
+    );
   }
 
   private async handleUserQuestionSubmit(
@@ -547,12 +636,12 @@ export class TeamsChannel implements ChannelAdapter {
   }
 
   private async resolvePendingUserQuestion(
-    requestId: string,
+    providerAlias: string,
     response: UserQuestionResponse,
   ): Promise<void> {
     await resolvePendingTeamsUserQuestion(
       this.interactionContext(),
-      requestId,
+      providerAlias,
       response,
     );
   }
@@ -570,17 +659,6 @@ export class TeamsChannel implements ChannelAdapter {
       userName,
       context: this.interactionContext(),
     });
-  }
-
-  private async resolvePermissionPrompt(
-    requestId: string,
-    decision: PermissionApprovalDecision,
-  ): Promise<void> {
-    await resolveTeamsPermissionPrompt(
-      this.interactionContext(),
-      requestId,
-      decision,
-    );
   }
 
   private interactionContext() {
@@ -619,10 +697,4 @@ export async function createTeamsChannel(
     return null;
   }
   return new TeamsChannel(credentials, opts, sdkClient);
-}
-
-function createMicrosoftTeamsSdkClient(
-  _credentials: TeamsChannelCredentials,
-): TeamsSdkClient | null {
-  return null;
 }

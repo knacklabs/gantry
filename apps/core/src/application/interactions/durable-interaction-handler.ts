@@ -1,14 +1,20 @@
 import type {
   PermissionApprovalDecision,
   PermissionApprovalRequest,
+  QuestionRecoveryEnvelope,
   UserQuestionRequest,
   UserQuestionResponse,
 } from '../../domain/types.js';
 import {
   applyPermissionInteractionDecision,
   recordPendingInteractionRequested,
+  releasePermissionInteractionCallback,
   resolvePendingInteractionRecord,
 } from './pending-interaction-durability.js';
+import { readQuestionRecoveryEnvelope } from './pending-interaction-prompt-binding.js';
+import { durablePermissionRequestSnapshot } from './pending-interaction-permission-envelope.js';
+
+export { durablePermissionRequestSnapshot } from './pending-interaction-permission-envelope.js';
 
 export interface DurableInteractionOperations {
   record: typeof recordPendingInteractionRequested;
@@ -19,47 +25,6 @@ const defaultOperations: DurableInteractionOperations = {
   record: recordPendingInteractionRequested,
   resolve: resolvePendingInteractionRecord,
 };
-
-export function durablePermissionRequestSnapshot(
-  request: PermissionApprovalRequest,
-): Pick<
-  PermissionApprovalRequest,
-  | 'requestId'
-  | 'appId'
-  | 'agentId'
-  | 'sourceAgentFolder'
-  | 'requestFamily'
-  | 'runHandle'
-  | 'jobId'
-  | 'runId'
-  | 'targetJid'
-  | 'threadId'
-  | 'toolName'
-  | 'suggestions'
-  | 'decisionOptions'
-  | 'semanticCapabilityDefinitions'
-> {
-  return {
-    requestId: request.requestId,
-    ...(request.appId ? { appId: request.appId } : {}),
-    ...(request.agentId ? { agentId: request.agentId } : {}),
-    sourceAgentFolder: request.sourceAgentFolder,
-    ...(request.requestFamily ? { requestFamily: request.requestFamily } : {}),
-    ...(request.runHandle ? { runHandle: request.runHandle } : {}),
-    ...(request.jobId ? { jobId: request.jobId } : {}),
-    ...(request.runId ? { runId: request.runId } : {}),
-    ...(request.targetJid ? { targetJid: request.targetJid } : {}),
-    ...(request.threadId ? { threadId: request.threadId } : {}),
-    toolName: request.toolName,
-    ...(request.suggestions ? { suggestions: request.suggestions } : {}),
-    ...(request.decisionOptions
-      ? { decisionOptions: request.decisionOptions }
-      : {}),
-    ...(request.semanticCapabilityDefinitions
-      ? { semanticCapabilityDefinitions: request.semanticCapabilityDefinitions }
-      : {}),
-  };
-}
 
 export async function beginDurablePermissionInteraction(input: {
   request: PermissionApprovalRequest;
@@ -100,8 +65,12 @@ export async function finishDurablePermissionInteraction(input: {
     toolName: input.request.toolName,
     requestId: input.request.requestId,
   });
-  if (!applied) return false;
-  return resolveDurablePermissionInteraction(input);
+  if (!applied) {
+    await releaseDecisionClaim(input.decision);
+    return false;
+  }
+  const resolved = await resolveDurablePermissionInteraction(input);
+  return resolved || resolveDurablePermissionInteraction(input);
 }
 
 export function resolveDurablePermissionInteraction(input: {
@@ -126,6 +95,7 @@ export function resolveDurablePermissionInteraction(input: {
       decisionClassification: input.decision.decisionClassification ?? null,
     },
     approverRef: input.decision.decidedBy ?? null,
+    permissionCallbackClaim: input.decision.permissionCallbackClaim ?? null,
   });
 }
 
@@ -158,7 +128,12 @@ export async function runDurablePermissionInteraction(input: {
   });
   await input.beforePrompt?.();
   const decision = await input.prompt(input.request);
-  await input.afterDecision?.(decision);
+  try {
+    await input.afterDecision?.(decision);
+  } catch (err) {
+    await releaseDecisionClaim(decision);
+    throw err;
+  }
   const resolved = await finishDurablePermissionInteraction({
     request: input.request,
     sourceAgentFolder: input.sourceAgentFolder,
@@ -169,13 +144,31 @@ export async function runDurablePermissionInteraction(input: {
   return { decision, resolved };
 }
 
+async function releaseDecisionClaim(
+  decision: PermissionApprovalDecision,
+): Promise<void> {
+  if (decision.permissionCallbackClaim) {
+    await releasePermissionInteractionCallback({
+      claim: decision.permissionCallbackClaim,
+    });
+  }
+}
+
 export async function beginDurableQuestionInteraction(input: {
   request: UserQuestionRequest;
   sourceAgentFolder: string;
   payload?: Record<string, unknown>;
   callbackRoute?: Record<string, unknown> | null;
   operations?: DurableInteractionOperations;
-}): Promise<void> {
+}): Promise<
+  | {
+      envelope: QuestionRecoveryEnvelope;
+      status: 'pending' | 'resolved';
+      answers: Record<string, string | string[]>;
+      approverRef: string | null;
+    }
+  | undefined
+> {
   const recorded = await (input.operations ?? defaultOperations).record({
     kind: 'question',
     sourceAgentFolder: input.sourceAgentFolder,
@@ -184,14 +177,29 @@ export async function beginDurableQuestionInteraction(input: {
     runId: input.request.runId ?? null,
     runLeaseToken: input.request.runLeaseToken ?? null,
     runLeaseFencingVersion: input.request.runLeaseFencingVersion ?? null,
-    payload: input.payload ?? {
-      sourceAgentFolder: input.sourceAgentFolder,
-      requestId: input.request.requestId,
-      questions: input.request.questions.map((question) => question.question),
-      targetJid: input.request.targetJid ?? null,
-      agentId: input.request.agentId ?? null,
-      jobId: input.request.jobId ?? null,
-      request: input.request,
+    payload: {
+      ...(input.payload ?? {
+        sourceAgentFolder: input.sourceAgentFolder,
+        requestId: input.request.requestId,
+        questions: input.request.questions.map((question) => question.question),
+        targetJid: input.request.targetJid ?? null,
+        agentId: input.request.agentId ?? null,
+        jobId: input.request.jobId ?? null,
+        request: input.request,
+      }),
+      questionRecoveryEnvelope: {
+        version: 1,
+        targetJid: input.request.targetJid ?? null,
+        threadId: input.request.threadId ?? null,
+        request: input.request,
+        nextQuestionIndex: input.request.questions.length ? 0 : null,
+        callbacks: {},
+        selections: [],
+        answers: {},
+        completedQuestionIndexes: [],
+        deliveredQuestionIndexes: [],
+        otherPrompts: {},
+      },
     },
     callbackRoute:
       input.callbackRoute === undefined
@@ -202,6 +210,56 @@ export async function beginDurableQuestionInteraction(input: {
         : input.callbackRoute,
   });
   if (!recorded) throw new Error('Question prompt was not durably recorded');
+  if (typeof recorded === 'boolean') return undefined;
+  const envelope = readQuestionRecoveryEnvelope(
+    recorded.payload.questionRecoveryEnvelope,
+  );
+  const appId = input.request.appId || 'default';
+  if (
+    recorded.kind !== 'question' ||
+    (recorded.status !== 'pending' && recorded.status !== 'resolved') ||
+    recorded.appId !== appId ||
+    !envelope ||
+    envelope.request.requestId !== input.request.requestId ||
+    envelope.request.sourceAgentFolder !== input.sourceAgentFolder ||
+    (envelope.request.appId || 'default') !== appId ||
+    (envelope.request.targetJid ?? null) !== envelope.targetJid ||
+    (envelope.request.threadId ?? null) !== envelope.threadId
+  ) {
+    throw new Error('Durable question recovery envelope is missing or invalid');
+  }
+  const answers =
+    recorded.status === 'resolved'
+      ? readResolvedQuestionAnswers(recorded.resolution?.answers)
+      : envelope.answers;
+  if (!answers) {
+    throw new Error(
+      'Durable question recovery resolution is missing or invalid',
+    );
+  }
+  return {
+    envelope,
+    status: recorded.status,
+    answers,
+    approverRef: recorded.approverRef,
+  };
+}
+
+function readResolvedQuestionAnswers(
+  value: unknown,
+): Record<string, string | string[]> | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  if (
+    Object.values(value).some(
+      (answer) =>
+        typeof answer !== 'string' &&
+        (!Array.isArray(answer) ||
+          answer.some((entry) => typeof entry !== 'string')),
+    )
+  ) {
+    return null;
+  }
+  return value as Record<string, string | string[]>;
 }
 
 export async function finishDurableQuestionInteraction(input: {
