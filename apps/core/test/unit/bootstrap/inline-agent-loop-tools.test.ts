@@ -440,6 +440,14 @@ describe('inline core tool bootstrap', () => {
       })) as never),
     );
 
+    // A real inline allow-once decision carries the approver's identity;
+    // recordHumanPermissionPromotionSignal only counts human decisions.
+    requestPermissionApproval.mockResolvedValueOnce({
+      approved: true,
+      mode: 'allow_once' as const,
+      decidedBy: 'user-1',
+    });
+
     await tools.authorizeThirdPartyMcpTool('RunCommand', {
       command: 'git status',
     });
