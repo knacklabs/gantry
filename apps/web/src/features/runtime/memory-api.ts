@@ -17,6 +17,14 @@ const brainStatusSchema = z.object({
   }),
 });
 
+const agentsResponseSchema = z.object({
+  agents: z.array(
+    z.object({
+      id: z.string(),
+    }),
+  ),
+});
+
 const memoryItemSchema = z.object({
   id: z.string(),
   appId: z.string(),
@@ -74,20 +82,48 @@ export type MemoryDashboard = Awaited<ReturnType<typeof loadMemoryDashboard>>;
 
 export const memoryQueryKeys = {
   all: ['memory'] as const,
-  dashboard: () => [...memoryQueryKeys.all, 'dashboard'] as const,
-  list: (query: string) => [...memoryQueryKeys.all, 'list', query] as const,
+  agent: () => [...memoryQueryKeys.all, 'agent'] as const,
+  dashboard: (agentId: string | null) =>
+    [...memoryQueryKeys.all, 'dashboard', agentId] as const,
+  list: (agentId: string | null, query: string) =>
+    [...memoryQueryKeys.all, 'list', agentId, query] as const,
 };
 
-export async function loadMemoryDashboard(transport: RuntimeApiTransport) {
+export async function loadMemoryAgentId(transport: RuntimeApiTransport) {
+  const response = await transport.request({
+    path: '/agents',
+    schema: agentsResponseSchema,
+  });
+  return response.agents[0]?.id ?? null;
+}
+
+export async function loadMemoryDashboard(
+  transport: RuntimeApiTransport,
+  agentId: string | null,
+) {
+  const brainRequest = transport.request({
+    path: '/brain/status',
+    schema: brainStatusSchema,
+  });
+  if (!agentId) {
+    const brain = await brainRequest;
+    return {
+      brain: brain.status,
+      loadedMemoryCount: 0,
+      memoryKinds: {},
+      dreamingRuns: [],
+    };
+  }
   const [brain, memories, dreaming] = await Promise.all([
-    transport.request({ path: '/brain/status', schema: brainStatusSchema }),
+    brainRequest,
     transport.request({
       path: '/memory',
-      query: { limit: 100 },
+      query: { agentId, limit: 100 },
       schema: memoryListSchema,
     }),
     transport.request({
       path: '/memory/dreaming/status',
+      query: { agentId },
       schema: dreamingStatusSchema,
     }),
   ]);
@@ -102,12 +138,14 @@ export async function loadMemoryDashboard(transport: RuntimeApiTransport) {
 export async function loadMemories(
   transport: RuntimeApiTransport,
   query: string,
+  agentId: string | null,
 ): Promise<MemoryItem[]> {
+  if (!agentId) return [];
   if (!query.trim()) {
     return (
       await transport.request({
         path: '/memory',
-        query: { limit: 100 },
+        query: { agentId, limit: 100 },
         schema: memoryListSchema,
       })
     ).memories;
@@ -115,17 +153,20 @@ export async function loadMemories(
   const result = await transport.request({
     path: '/memory/search',
     method: 'POST',
-    body: { query: query.trim(), limit: 100 },
+    body: { agentId, query: query.trim(), limit: 100 },
     schema: memorySearchSchema,
   });
   return result.results.map((item) => ('item' in item ? item.item : item));
 }
 
-export function triggerMemoryDreaming(transport: RuntimeApiTransport) {
+export function triggerMemoryDreaming(
+  transport: RuntimeApiTransport,
+  agentId: string,
+) {
   return transport.request({
     path: '/memory/dreaming/trigger',
     method: 'POST',
-    body: { phase: 'all' },
+    body: { agentId, phase: 'all' },
     schema: dreamingTriggerSchema,
   });
 }
