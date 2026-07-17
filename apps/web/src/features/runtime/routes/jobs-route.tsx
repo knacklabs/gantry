@@ -1,26 +1,37 @@
-import { useQuery } from '@tanstack/react-query';
 import { Link, useNavigate, useSearch } from '@tanstack/react-router';
 import type { ColumnDef } from '@tanstack/react-table';
-import { CalendarClock, Plus } from 'lucide-react';
-import { type FormEvent, useMemo } from 'react';
+import {
+  CalendarClock,
+  LoaderCircle,
+  Play,
+  Plus,
+  RefreshCw,
+  TriangleAlert,
+  WifiOff,
+} from 'lucide-react';
+import { type FormEvent, useMemo, useState } from 'react';
 
-import { useConnectionGate } from '../../../ui/compositions/connection-gate';
+import { useRuntimeConnection } from '../../../lib/api/runtime-connection';
 import { DataTable } from '../../../ui/compositions/data-table';
 import { PageHeader } from '../../../ui/compositions/page-header';
+import { PageState } from '../../../ui/compositions/page-state';
 import { Panel } from '../../../ui/compositions/panel';
 import { StatusBadge } from '../../../ui/compositions/status-badge';
 import { TextField } from '../../../ui/compositions/text-field';
 import { Button } from '../../../ui/primitives/button';
-import type { JobPreview } from '../jobs-preview';
-import { jobPreviewQuery } from '../runtime-queries';
+import { CreateJobDialog } from '../components/create-job-dialog';
+import type { JobView } from '../job-api';
+import { useJobAction, useJobs } from '../use-jobs';
 
 const statuses = ['all', 'enabled', 'paused', 'blocked'] as const;
 
 export function JobsRoute() {
   const search = useSearch({ from: '/jobs' });
   const navigate = useNavigate({ from: '/jobs' });
-  const { data } = useQuery(jobPreviewQuery);
-  const { requestConnection } = useConnectionGate();
+  const connection = useRuntimeConnection();
+  const jobsQuery = useJobs();
+  const [createOpen, setCreateOpen] = useState(false);
+  const data = jobsQuery.data ?? [];
   const query = search.q.toLowerCase();
   const visible = data.filter(
     (job) =>
@@ -39,7 +50,7 @@ export function JobsRoute() {
     });
   }
 
-  const columns = useMemo<ColumnDef<JobPreview>[]>(
+  const columns = useMemo<ColumnDef<JobView>[]>(
     () => [
       {
         accessorKey: 'name',
@@ -71,23 +82,15 @@ export function JobsRoute() {
         enableSorting: false,
         cell: ({ row }) =>
           row.original.blocker ? (
-            <Button
-              variant="secondary"
-              onClick={() => requestConnection(row.original.blocker!.action)}
-            >
+            <span className="text-xs text-status-attention">
               {row.original.blocker.action}
-            </Button>
+            </span>
           ) : (
-            <Button
-              variant="ghost"
-              onClick={() => requestConnection(`Trigger ${row.original.name}`)}
-            >
-              Run now
-            </Button>
+            <RunNowButton job={row.original} />
           ),
       },
     ],
-    [requestConnection],
+    [],
   );
 
   return (
@@ -97,76 +100,128 @@ export function JobsRoute() {
         title="Jobs"
         description="Scheduled definitions, notification routes, blockers, and recent run state."
         action={
-          <Button onClick={() => requestConnection('Create job')}>
-            <Plus size={16} aria-hidden="true" />
-            Create job
-          </Button>
+          connection.transport ? (
+            <Button onClick={() => setCreateOpen(true)}>
+              <Plus size={16} aria-hidden="true" /> Create job
+            </Button>
+          ) : undefined
         }
       />
-      <form
-        className="grid items-end gap-3 sm:grid-cols-[minmax(0,1fr)_180px_auto]"
-        onSubmit={submitSearch}
-      >
-        <TextField
-          defaultValue={search.q}
-          id="job-search"
-          label="Search jobs"
-          name="q"
-          placeholder="Name, agent, or purpose"
+      {!connection.transport ? (
+        <PageState
+          description="Start Gantry with local-owner UI linkage to manage jobs and runs."
+          icon={<WifiOff size={18} aria-hidden="true" />}
+          kind="offline"
+          title="Runtime not connected"
         />
-        <label className="grid gap-1.5 text-xs font-semibold text-text">
-          Status
-          <select
-            className="h-9 rounded-md border border-border-strong bg-surface px-3 text-[13px] font-normal text-text capitalize"
-            value={search.status}
-            onChange={(event) =>
-              void navigate({
-                search: {
-                  ...search,
-                  status: event.target.value as typeof search.status,
-                  page: 1,
-                },
-              })
-            }
+      ) : jobsQuery.isPending ? (
+        <PageState
+          description="Loading runtime-owned job definitions and setup state."
+          icon={
+            <LoaderCircle
+              className="animate-spin"
+              size={18}
+              aria-hidden="true"
+            />
+          }
+          kind="loading"
+          title="Loading jobs"
+        />
+      ) : jobsQuery.isError ? (
+        <PageState
+          action={
+            <Button onClick={() => void jobsQuery.refetch()}>
+              <RefreshCw size={16} aria-hidden="true" /> Retry
+            </Button>
+          }
+          description={jobsQuery.error.message}
+          icon={<TriangleAlert size={18} aria-hidden="true" />}
+          kind="error"
+          title="Jobs could not be loaded"
+        />
+      ) : (
+        <>
+          <form
+            className="grid items-end gap-3 sm:grid-cols-[minmax(0,1fr)_180px_auto]"
+            onSubmit={submitSearch}
           >
-            {statuses.map((status) => (
-              <option key={status} value={status}>
-                {status === 'all' ? 'All statuses' : status}
-              </option>
-            ))}
-          </select>
-        </label>
-        <Button variant="secondary" type="submit">
-          Search
-        </Button>
-      </form>
-      <Panel
-        title="Job definitions"
-        description={`${visible.length} of ${data.length} jobs shown`}
-        action={<CalendarClock size={17} aria-hidden="true" />}
-      >
-        <DataTable
-          columns={columns}
-          data={visible}
-          emptyMessage="No jobs match these filters."
-          page={search.page}
-          sort={search.sort}
-          descending={search.desc}
-          onPageChange={(page) =>
-            void navigate({ search: { ...search, page } })
-          }
-          onSortChange={(sort, desc) =>
-            void navigate({
-              search: {
-                ...search,
-                sort: sort as typeof search.sort,
-                desc,
-                page: 1,
-              },
-            })
-          }
-        />
-      </Panel>
+            <TextField
+              defaultValue={search.q}
+              id="job-search"
+              label="Search jobs"
+              name="q"
+              placeholder="Name, agent, or purpose"
+            />
+            <label className="grid gap-1.5 text-xs font-semibold text-text">
+              Status
+              <select
+                className="h-9 rounded-md border border-border-strong bg-surface px-3 text-[13px] font-normal text-text capitalize"
+                value={search.status}
+                onChange={(event) =>
+                  void navigate({
+                    search: {
+                      ...search,
+                      status: event.target.value as typeof search.status,
+                      page: 1,
+                    },
+                  })
+                }
+              >
+                {statuses.map((status) => (
+                  <option key={status} value={status}>
+                    {status === 'all' ? 'All statuses' : status}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <Button variant="secondary" type="submit">
+              Search
+            </Button>
+          </form>
+          <Panel
+            title="Job definitions"
+            description={`${visible.length} of ${data.length} jobs shown`}
+            action={<CalendarClock size={17} aria-hidden="true" />}
+          >
+            <DataTable
+              columns={columns}
+              data={visible}
+              emptyMessage="No jobs match these filters."
+              page={search.page}
+              sort={search.sort}
+              descending={search.desc}
+              onPageChange={(page) =>
+                void navigate({ search: { ...search, page } })
+              }
+              onSortChange={(sort, desc) =>
+                void navigate({
+                  search: {
+                    ...search,
+                    sort: sort as typeof search.sort,
+                    desc,
+                    page: 1,
+                  },
+                })
+              }
+            />
+          </Panel>
+        </>
+      )}
+      <CreateJobDialog open={createOpen} onOpenChange={setCreateOpen} />
     </div>
+  );
+}
+
+function RunNowButton({ job }: { job: JobView }) {
+  const mutation = useJobAction(job.id);
+  return (
+    <Button
+      disabled={mutation.isPending}
+      variant="ghost"
+      onClick={() => mutation.mutate('trigger')}
+    >
+      <Play size={14} aria-hidden="true" />
+      {mutation.isPending ? 'Starting...' : 'Run now'}
+    </Button>
   );
 }
