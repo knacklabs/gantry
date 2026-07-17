@@ -214,13 +214,14 @@ describe('async command sandbox runner', () => {
   });
 
   it('executes a direct command with the egress gateway environment', async () => {
-    const script =
-      "process.stdout.write([process.env.GANTRY_EGRESS_PROXY_URL, process.env.HTTP_PROXY].join('|'))";
+    // A pure-shell command reads the injected egress env directly. Deliberately
+    // not a `node -e` child: node fails to load libc (SIGTRAP) under the
+    // sandbox's minimal env in containerized CI, which this test is not about.
     const result = await runSandboxedAsyncCommand(
       new DirectRunnerSandboxProvider(),
       {
         ...baseInput(),
-        command: `${JSON.stringify(process.execPath)} -e ${JSON.stringify(script)}`,
+        command: 'printf %s "${GANTRY_EGRESS_PROXY_URL}|${HTTP_PROXY}"',
         env: { PATH: process.env.PATH },
         launchControl: makeLaunchControl(),
       },
@@ -238,7 +239,11 @@ describe('async command sandbox runner', () => {
       new DirectRunnerSandboxProvider(),
       {
         ...baseInput(),
-        command: `${JSON.stringify(process.execPath)} -e ${JSON.stringify("process.on('SIGTERM', () => {}); setInterval(() => {}, 1000)")}`,
+        // A pure-shell loop that ignores SIGTERM: the runner must escalate to
+        // SIGKILL. Deliberately not a `node -e` child — spawning node under the
+        // sandbox's process constraints aborts early (SIGABRT/SIGTRAP) in
+        // containerized CI before the timeout, which this test is not about.
+        command: "trap '' TERM; while :; do sleep 1; done",
         env: { PATH: process.env.PATH },
         timeoutMs: 500,
         launchControl: makeLaunchControl(),

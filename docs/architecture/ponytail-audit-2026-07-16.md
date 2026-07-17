@@ -698,9 +698,9 @@ The following were searched and intentionally excluded from the total:
   `@anthropic-ai/claude-agent-sdk`.
 - Keep the configured Stop hook; it is documented and contract-tested even
   though its current behavior is deliberately quiet.
-- Keep scheduler and IPC guards for `required_tools`, `group_scope`,
-  `linkedSessions`, `deliverTo`, and `notificationTarget`; they reject stale
-  input instead of accepting it.
+- Keep scheduler and IPC guards for `required_tools`, the legacy group-scope
+  token, `linkedSessions`, `deliverTo`, and `notificationTarget`; they reject
+  stale input instead of accepting it.
 - Keep `command ?? cmd`; accepting both names is a current permission and YOLO
   policy invariant.
 - Keep camel/snake runtime-event normalization because current producers use
