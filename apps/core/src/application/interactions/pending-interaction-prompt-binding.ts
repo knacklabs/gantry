@@ -1,5 +1,4 @@
 import type {
-  PendingInteractionKind,
   PendingInteractionRepository,
 } from '../../domain/ports/worker-coordination.js';
 import type {
@@ -26,6 +25,7 @@ import {
   readQuestionRecoveryEnvelope,
   type DurableQuestionCallback,
 } from './pending-interaction-question-recovery.js';
+import { pendingInteractionIdempotencyKey } from './pending-interaction-idempotency.js';
 
 export {
   readDurablePermissionFullView,
@@ -52,20 +52,6 @@ export function configurePendingInteractionPromptBinding(
   next: PromptBindingBackend | null,
 ): void {
   backend = next;
-}
-
-function idempotencyKey(input: {
-  kind: PendingInteractionKind;
-  sourceAgentFolder: string;
-  requestId: string;
-  appId?: string | null;
-}): string {
-  return [
-    input.appId || DEFAULT_APP_ID,
-    input.kind,
-    input.sourceAgentFolder,
-    input.requestId,
-  ].join(':');
 }
 
 function sourceAgentFolderFromPayload(
@@ -99,7 +85,7 @@ export async function bindPendingPermissionInteractionMessage(input: {
     : [request.requestId];
   const keys = new Set(
     requestIds.map((requestId) =>
-      idempotencyKey({
+      pendingInteractionIdempotencyKey({
         kind: 'permission',
         sourceAgentFolder: request.sourceAgentFolder,
         requestId,
@@ -247,7 +233,7 @@ export async function bindPendingQuestionInteractionCallback(input: {
 }): Promise<boolean> {
   const active = backend;
   if (!active) return false;
-  const key = idempotencyKey({
+  const key = pendingInteractionIdempotencyKey({
     kind: 'question',
     sourceAgentFolder: input.sourceAgentFolder,
     requestId: input.requestId,
@@ -304,7 +290,7 @@ export async function bindPendingQuestionOtherPrompt(input: {
   const active = backend;
   if (!active) return false;
   const { scope } = input.callback;
-  const key = idempotencyKey({
+  const key = pendingInteractionIdempotencyKey({
     kind: 'question',
     sourceAgentFolder: scope.sourceAgentFolder,
     requestId: scope.interactionId,

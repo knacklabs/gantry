@@ -23,8 +23,39 @@ import {
 import { memoryAgentIdForWorkspaceFolder } from '../memory/app-memory-boundaries.js';
 import { RUNTIME_EVENT_TYPES } from '../domain/events/runtime-event-types.js';
 import { incrementOperationalError } from '../shared/operational-error-counters.js';
+import {
+  beginDurablePermissionInteraction,
+  durablePermissionRequestSnapshot,
+} from '../application/interactions/durable-interaction-handler.js';
+import type {
+  PermissionApprovalDecision,
+  PermissionApprovalRequest,
+} from '../domain/types.js';
 
 const DENIED_BY_PROFILE_REASON = 'denied_by_profile';
+
+export async function requestDurableTaskPermissionApproval(
+  request: PermissionApprovalRequest,
+  prompt: (
+    request: PermissionApprovalRequest,
+  ) => Promise<PermissionApprovalDecision>,
+): Promise<PermissionApprovalDecision> {
+  await beginDurablePermissionInteraction({
+    request,
+    sourceAgentFolder: request.sourceAgentFolder,
+    payload: {
+      sourceAgentFolder: request.sourceAgentFolder,
+      requestId: request.requestId,
+      toolName: request.toolName,
+      targetJid: request.targetJid ?? null,
+      agentId: request.agentId ?? null,
+      jobId: request.jobId ?? null,
+      request: durablePermissionRequestSnapshot(request),
+    },
+    callbackRoute: null,
+  });
+  return prompt(request);
+}
 
 async function denyLockedIpcTask(
   data: TaskIpcData,
@@ -137,6 +168,11 @@ export async function processTaskIpc(
 
   const resolvedDeps = {
     ...deps,
+    requestPermissionApproval: (request: PermissionApprovalRequest) =>
+      requestDurableTaskPermissionApproval(
+        request,
+        deps.requestPermissionApproval,
+      ),
     opsRepository: deps.opsRepository ?? getRuntimeRepositories(),
     getToolRepository:
       deps.getToolRepository ??

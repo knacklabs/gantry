@@ -30,6 +30,7 @@ import {
   persistPendingInteractionResolution,
   type PendingInteractionResolutionBackend,
 } from './pending-interaction-resolution.js';
+import { pendingInteractionIdempotencyKey } from './pending-interaction-idempotency.js';
 
 export { DurableInteractionPersistenceError } from './pending-interaction-persistence-error.js';
 const DEFAULT_INTERACTION_TTL_MS = 24 * 60 * 60_000;
@@ -63,19 +64,7 @@ export function configurePendingInteractionPermissionPersistence(
 ): void {
   permissionPersistence = next;
 }
-export function pendingInteractionIdempotencyKey(input: {
-  kind: PendingInteractionKind;
-  sourceAgentFolder: string;
-  requestId: string;
-  appId?: string | null;
-}): string {
-  return [
-    input.appId || DEFAULT_APP_ID,
-    input.kind,
-    input.sourceAgentFolder,
-    input.requestId,
-  ].join(':');
-}
+export { pendingInteractionIdempotencyKey } from './pending-interaction-idempotency.js';
 
 export async function recordPendingInteractionRequested(input: {
   interactionId?: string;
