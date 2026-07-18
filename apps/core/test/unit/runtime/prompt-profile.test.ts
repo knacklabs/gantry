@@ -264,6 +264,21 @@ describe('PromptProfileService', () => {
     expect(prompt).toContain(
       'Gantry delegation is unavailable until a delegated-task executor is mounted. Do not claim delegated work started unless a real Gantry delegation tool returns a handle.',
     );
+    expect(prompt).toContain(
+      'Lead with the outcome in plain prose. Give details only when useful or requested; do not append labeled receipts.',
+    );
+    expect(prompt).toContain(
+      'If it shapes the answer, briefly acknowledge it',
+    );
+    for (const receiptHeading of [
+      'Completed:',
+      'Used:',
+      'Changed:',
+      'Delegated:',
+      'Needs attention:',
+    ]) {
+      expect(prompt).not.toContain(receiptHeading);
+    }
     expect(prompt).not.toContain('pending -> in_progress -> completed');
 
     // No stale tool names leak into the compiled prompt.

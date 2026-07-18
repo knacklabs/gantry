@@ -392,7 +392,7 @@ function formatPermissionContextLines(
   }
   if (request.promotionHintCount) {
     lines.push(
-      `You've allowed this ${request.promotionHintCount} times — 'Allow for future' makes it permanent.`,
+      `You've allowed me to do this ${request.promotionHintCount} times — want me to stop asking?`,
     );
   }
   lines.push('The agent cannot approve this itself.');

@@ -432,8 +432,11 @@ export const requestSettingsUpdateHandler: TaskHandler = async (context) => {
       accept(message, 'settings_updated');
     } catch (err) {
       logger.error({ err, sourceAgentFolder }, 'Settings update review failed');
-      message = `Rejected settings update: ${err instanceof Error ? err.message : 'permission review failed'}.`;
-      reject(message, 'permission_review_failed');
+      reject(
+        'The settings update could not be completed. Explain this in plain language and say you can try again after the setup issue is fixed.',
+        'permission_review_failed',
+      );
+      return;
     }
     await deps.sendMessage(
       requestedTargetJid,

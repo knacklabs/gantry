@@ -356,13 +356,7 @@ describe('AsyncCommandTaskService', () => {
       id: started.task.id,
       status: 'cancelled',
       allowedActions: ['get', 'list'],
-      receiptLines: [
-        'Completed: cancelled',
-        'Used: RunCommand',
-        'Changed: none',
-        'Delegated: no',
-        'Needs attention: none',
-      ],
+      receiptLines: ['cancelled', 'I used RunCommand.'],
     });
     expect(JSON.stringify(dto)).not.toContain('leaseToken');
     expect(JSON.stringify(dto)).not.toContain('privateCorrelationJson');
@@ -2236,12 +2230,9 @@ describe('AsyncCommandTaskService', () => {
     release();
     await waitForStatus(repository, started.task.id, 'completed');
     expect((await service.get(started.task.id))?.receiptLines).toEqual([
-      'Completed: docs reviewed',
-      'Used: Gantry agent run',
-      'Changed: none',
-      'Delegated: yes',
-      'Subtasks: 1 completed, 0 failed, 0 cancelled',
-      'Needs attention: none',
+      'docs reviewed',
+      'I used Gantry agent run.',
+      'I delegated part of the work; 1 completed, 0 failed, 0 cancelled.',
     ]);
   });
 

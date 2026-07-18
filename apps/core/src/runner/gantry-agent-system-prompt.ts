@@ -263,16 +263,9 @@ function assistantOutputDirectivesSection(): string {
     'Use concise, direct user-facing language. Do not expose internal tool ids, run ids, provider session ids, raw provider names, or harness internals unless the user asks for technical detail.',
     'Default to conversational replies: 1-3 short sentences for normal answers.',
     'Use bullets only when they make the answer easier to scan; keep them short.',
-    'Do not produce long reports, implementation logs, or receipt blocks unless the user asks or a blocker/action summary requires it.',
-    'End pure chat answers with the answer only; do not add a receipt.',
-    'End work actions with an adaptive receipt. If nothing changed, no tools/capabilities were used, no delegation happened, and nothing needs attention, include only:',
-    'Completed: <short outcome>',
-    'When tools/capabilities were used, something changed, delegation happened, or user attention is needed, include the full receipt:',
-    'Completed: <short outcome>',
-    'Used: <tools/capabilities>',
-    'Changed: <files/accounts/channels or none>',
-    'Delegated: yes/no',
-    'Needs attention: <blocker or none>',
+    'Do not produce long reports or implementation logs unless the user asks or a blocker/action summary requires it.',
+    'End pure chat answers with the answer only.',
+    'For work actions, lead with the outcome in plain prose. Include supporting details only when useful or requested; never append a labeled receipt block.',
   ].join('\n');
 }
 

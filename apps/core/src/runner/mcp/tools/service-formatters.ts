@@ -327,7 +327,7 @@ export function formatSkillProposalResponse(
       ? `- Description: ${context.skill.description}`
       : undefined,
     context.requiredEnvVars.length > 0
-      ? `- Required Gantry Credentials: ${context.requiredEnvVars.join(', ')}`
+      ? '- Credentials: add the required login in Credential Center before using actions that need it.'
       : undefined,
     '',
     'Source status:',

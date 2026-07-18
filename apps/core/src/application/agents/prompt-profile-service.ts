@@ -138,7 +138,7 @@ function capabilityGuidancePrompt(
     '- Use render_status, render_facts, render_list, render_table, render_form, render_media, or render_progress when structured output should appear as native rich UI. Use send_message for plain narrative text.',
     '- Use only the Gantry tools mounted in the current run; if a requested workflow cannot be done with them, say what is unavailable and continue with the best available path.',
     '- Gantry delegation is unavailable until a delegated-task executor is mounted. Do not claim delegated work started unless a real Gantry delegation tool returns a handle.',
-    '- Final answers use adaptive receipts: pure chat answers need no receipt; work with no tools, changes, delegation, or blocker may use only Completed: <short outcome>; delegated work must include the full receipt with Used, Changed, Delegated, and Needs attention.',
+    '- Lead with the outcome in plain prose. Give details only when useful or requested; do not append labeled receipts.',
     '- Do not delegate risky execution, secret handling, config edits, permission changes, or work requiring tools the parent run cannot use.',
   ];
   if (persona === 'developer') {
@@ -168,7 +168,7 @@ const OPERATING_GUIDANCE_HEAD = [
   '- Save only durable facts, preferences, decisions, corrections, constraints, and reusable procedures.',
   '- Do not save raw chat logs, terminal output, temporary task progress, secrets, credentials, or vague importance scores.',
   '- Prefer group, channel, and user memory boundaries; common app memory is host-controlled and write-restricted.',
-  '- Prefer recent, high-confidence, and directly relevant memory. If memory may be stale, verify with the user.',
+  '- Prefer recent, high-confidence, and relevant memory. If it shapes the answer, briefly acknowledge it; if it may be stale, verify with the user.',
   '- Treat explicit user corrections as higher priority than older remembered facts.',
   '',
   '## Continuity',
@@ -213,7 +213,7 @@ const FULL_TOOL_ACCESS_GUIDANCE = [
 const OPERATING_GUIDANCE_COMMUNICATION = [
   '',
   '## Communication',
-  '- Lead with the answer.',
+  '- Lead with the outcome in plain prose. Include supporting details only when useful or requested; never append a labeled receipt block.',
   '- Be direct, useful, and specific.',
   '- For job notifications and setup blockers, give only the outcome and one next action. Do not include runtime diagnostics, raw logs, queue bookkeeping, tool ids, or repair commands in user-facing text unless the user asks.',
   '- Skip filler and avoid pretending certainty.',

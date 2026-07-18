@@ -274,11 +274,13 @@ async function completeSkillInstallCommandReview(input: {
       installedBy: decision.decidedBy,
     });
     const message = skillInstallCommandReceipt(installed);
-    await deps.sendMessage(
-      input.targetJid,
-      message,
-      data.authThreadId ? { threadId: data.authThreadId } : undefined,
-    );
+    if (installed.skills.length > 0) {
+      await deps.sendMessage(
+        input.targetJid,
+        skillInstallCommandReceipt({ ...installed, failed: [] }),
+        data.authThreadId ? { threadId: data.authThreadId } : undefined,
+      );
+    }
     if (!installed.firstInstalled) {
       input.responder.reject(message, 'skill_install_failed');
       return;
@@ -314,18 +316,9 @@ async function completeSkillInstallCommandReview(input: {
       { err, sourceAgentFolder, toolName: 'request_skill_install' },
       'Skill install command review failed',
     );
-    const message = formatNotApprovedMessage({
-      action: 'install',
-      noun: 'skill',
-      name: input.displayName,
-      reason: err instanceof Error ? err.message : 'permission review failed',
-    });
+    const message =
+      'The skill could not be installed. Explain this in plain language and say you can try again after the setup issue is fixed.';
     input.responder.reject(message, 'permission_review_failed');
-    await deps.sendMessage(
-      input.targetJid,
-      message,
-      data.authThreadId ? { threadId: data.authThreadId } : undefined,
-    );
   } finally {
     pendingSkillInstallCommandReviews.delete(input.pendingKey);
   }
@@ -473,10 +466,12 @@ const requestSkillPackageHandler = async (
     });
   } catch (err) {
     pendingSkillPackageReviews.delete(pendingKey);
+    getRuntimeDeps().logError(
+      { err, sourceAgentFolder, toolName: input.requestToolName },
+      `${input.requestKind} request failed`,
+    );
     reject(
-      err instanceof Error
-        ? err.message
-        : `${input.requestKind} request failed.`,
+      'The skill request could not be completed. Explain this in plain language and say you can try again after the setup issue is fixed.',
       'invalid_request',
     );
   }
