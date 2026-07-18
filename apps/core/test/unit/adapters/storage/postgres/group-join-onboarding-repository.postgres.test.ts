@@ -42,7 +42,7 @@ function promptedRow() {
 }
 
 describe('PostgresGroupJoinOnboardingRepository', () => {
-  it('upserts one prompt per provider chat while preserving registered rows', async () => {
+  it('upserts one prompt per provider chat, re-prompting over any stale row', async () => {
     const row = promptedRow();
     const returning = vi.fn(async () => [row]);
     const onConflictDoUpdate = vi.fn(() => ({ returning }));
@@ -74,8 +74,13 @@ describe('PostgresGroupJoinOnboardingRepository', () => {
       pgSchema.groupJoinOnboardingPostgres.providerAccountId,
       pgSchema.groupJoinOnboardingPostgres.chatJid,
     ]);
-    expect(flattenSqlShape(conflict?.set.id)).toContain('registered');
-    expect(flattenSqlShape(conflict?.set.status)).toContain('prompted');
+    // A stale 'registered' row (conversation later removed from settings) is
+    // fully reset - the caller's route check is the only "already registered"
+    // authority, so re-onboarding must work.
+    expect(conflict?.set.id).toBe('opaque-2');
+    expect(conflict?.set.status).toBe('prompted');
+    expect(conflict?.set.registeredAt).toBeNull();
+    expect(conflict?.set.dismissedAt).toBeNull();
   });
 
   it('dismisses only a currently prompted opaque request', async () => {

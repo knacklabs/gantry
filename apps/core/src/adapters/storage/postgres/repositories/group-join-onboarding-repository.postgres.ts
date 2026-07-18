@@ -1,4 +1,4 @@
-import { and, eq, sql } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 
 import type {
   GroupJoinOnboardingRecord,
@@ -23,7 +23,11 @@ export class PostgresGroupJoinOnboardingRepository implements GroupJoinOnboardin
     promptAgentFolder: string;
     now: string;
   }): Promise<GroupJoinOnboardingRecord> {
-    const keepRegistered = sql`${table.status} = 'registered'`;
+    // The caller's conversation-route check is the single authority for
+    // "already registered" - a join event only reaches recordPrompt when no
+    // route exists. A stale 'registered' row (conversation later removed from
+    // settings) must be re-prompted, not preserved, or the group could never
+    // re-onboard.
     const [row] = await this.db
       .insert(table)
       .values({
@@ -36,15 +40,16 @@ export class PostgresGroupJoinOnboardingRepository implements GroupJoinOnboardin
       .onConflictDoUpdate({
         target: [table.providerAccountId, table.chatJid],
         set: {
-          id: sql`CASE WHEN ${keepRegistered} THEN ${table.id} ELSE ${input.id} END`,
-          status: sql`CASE WHEN ${keepRegistered} THEN ${table.status} ELSE 'prompted' END`,
-          adder: sql`CASE WHEN ${keepRegistered} THEN ${table.adder} ELSE ${input.adder} END`,
-          approver: sql`CASE WHEN ${keepRegistered} THEN ${table.approver} ELSE ${input.approver} END`,
-          promptConversationJid: sql`CASE WHEN ${keepRegistered} THEN ${table.promptConversationJid} ELSE ${input.promptConversationJid} END`,
-          promptAgentFolder: sql`CASE WHEN ${keepRegistered} THEN ${table.promptAgentFolder} ELSE ${input.promptAgentFolder} END`,
-          promptedAt: sql`CASE WHEN ${keepRegistered} THEN ${table.promptedAt} ELSE ${input.now} END`,
-          dismissedAt: sql`CASE WHEN ${keepRegistered} THEN ${table.dismissedAt} ELSE NULL END`,
-          leftAt: sql`CASE WHEN ${keepRegistered} THEN ${table.leftAt} ELSE NULL END`,
+          id: input.id,
+          status: 'prompted',
+          adder: input.adder,
+          approver: input.approver,
+          promptConversationJid: input.promptConversationJid,
+          promptAgentFolder: input.promptAgentFolder,
+          promptedAt: input.now,
+          dismissedAt: null,
+          registeredAt: null,
+          leftAt: null,
           updatedAt: input.now,
         },
       })

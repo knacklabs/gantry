@@ -101,8 +101,7 @@ export function createGroupJoinOnboardingCoordinator(
               previousSettings,
               createdBy: `interaction:group-join:${approvedBy}`,
             });
-            await resolved.reloadRuntimeState();
-            return record;
+            break;
           } catch (err) {
             // The same concurrent-writer race surfaces as either error class
             // depending on where the append loses; retry both once.
@@ -116,11 +115,20 @@ export function createGroupJoinOnboardingCoordinator(
             throw err;
           }
         }
-        return null;
       } catch (err) {
+        // Revert only when the settings write failed - the claim must not
+        // outlive a registration that never committed.
         await repository.revertRegistered({ id, now: resolved.now() });
         throw err;
       }
+      // The registration is durably committed; a reload failure must not
+      // revert it. The settings watcher reconciles on its next cycle.
+      try {
+        await resolved.reloadRuntimeState();
+      } catch {
+        // best-effort - the committed registration stands
+      }
+      return record;
     },
   };
 }
