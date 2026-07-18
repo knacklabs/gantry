@@ -37,6 +37,10 @@ export interface GroupJoinOnboardingRepository {
     id: string;
     now: string;
   }): Promise<GroupJoinOnboardingRecord | null>;
+  revertRegistered(input: {
+    id: string;
+    now: string;
+  }): Promise<GroupJoinOnboardingRecord | null>;
   markLeft(input: {
     providerAccountId: string;
     chatJid: string;

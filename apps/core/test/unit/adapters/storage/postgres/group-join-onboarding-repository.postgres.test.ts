@@ -105,4 +105,31 @@ describe('PostgresGroupJoinOnboardingRepository', () => {
     expect(flattenSqlShape(predicate)).toContain('opaque-2');
     expect(flattenSqlShape(predicate)).toContain('prompted');
   });
+
+  it('reverts only a registered claim to a retryable prompt', async () => {
+    const row = promptedRow();
+    const returning = vi.fn(async () => [row]);
+    const where = vi.fn(() => ({ returning }));
+    const set = vi.fn(() => ({ where }));
+    const update = vi.fn(() => ({ set }));
+    const repository = new PostgresGroupJoinOnboardingRepository({
+      update,
+    } as never);
+
+    await expect(
+      repository.revertRegistered({
+        id: 'opaque-2',
+        now: '2026-07-18T01:00:00.000Z',
+      }),
+    ).resolves.toMatchObject({ status: 'prompted', registeredAt: null });
+
+    expect(set).toHaveBeenCalledWith({
+      status: 'prompted',
+      registeredAt: null,
+      updatedAt: '2026-07-18T01:00:00.000Z',
+    });
+    const predicate = where.mock.calls[0]?.[0];
+    expect(flattenSqlShape(predicate)).toContain('opaque-2');
+    expect(flattenSqlShape(predicate)).toContain('registered');
+  });
 });

@@ -59,59 +59,68 @@ export function createGroupJoinOnboardingCoordinator(
     markLeft: (input) =>
       resolved.repository().markLeft({ ...input, now: resolved.now() }),
     register: async ({ id, externalId, title, approvedBy }) => {
-      const record = await resolved.repository().getById(id);
-      if (!record || record.status !== 'prompted') return null;
+      const repository = resolved.repository();
+      const record = await repository.markRegistered({
+        id,
+        now: resolved.now(),
+      });
+      if (!record) return null;
 
-      for (let attempt = 0; attempt < 2; attempt += 1) {
-        const settings = await resolved.loadSettings();
-        const previousSettings = structuredClone(settings);
-        const account = settings.providerAccounts[record.providerAccountId];
-        if (!account) {
-          throw new Error(
-            `Provider Account not found: ${record.providerAccountId}`,
-          );
-        }
-        applyConversationInstallToSettings({
-          settings,
-          conversation: {
-            id: `conversation:${record.providerAccountId}:${record.chatJid}` as never,
-            externalRef: {
-              kind: 'conversation',
-              value: externalId,
-            },
-            kind: 'channel',
-            title,
-          },
-          providerAccountId: record.providerAccountId,
-          agentFolder: account.agentId,
-          controlApprovers: [record.approver],
-          now: resolved.now(),
-        });
-        try {
-          await resolved.writeSettings({
-            runtimeHome: resolved.runtimeHome,
-            settings,
-            previousSettings,
-            createdBy: `interaction:group-join:${approvedBy}`,
-          });
-          await resolved.reloadRuntimeState();
-          return resolved
-            .repository()
-            .markRegistered({ id, now: resolved.now() });
-        } catch (err) {
-          // The same concurrent-writer race surfaces as either error class
-          // depending on where the append loses; retry both once.
-          if (
-            attempt === 0 &&
-            (err instanceof SettingsStaleMutationError ||
-              err instanceof SettingsRevisionConflictError)
-          ) {
-            continue;
+      // V1 accepts that a process crash after this durable claim and before the
+      // settings write can leave the row registered without the installation.
+      try {
+        for (let attempt = 0; attempt < 2; attempt += 1) {
+          const settings = await resolved.loadSettings();
+          const previousSettings = structuredClone(settings);
+          const account = settings.providerAccounts[record.providerAccountId];
+          if (!account) {
+            throw new Error(
+              `Provider Account not found: ${record.providerAccountId}`,
+            );
           }
-          throw err;
+          applyConversationInstallToSettings({
+            settings,
+            conversation: {
+              id: `conversation:${record.providerAccountId}:${record.chatJid}` as never,
+              externalRef: {
+                kind: 'conversation',
+                value: externalId,
+              },
+              kind: 'channel',
+              title,
+            },
+            providerAccountId: record.providerAccountId,
+            agentFolder: account.agentId,
+            controlApprovers: [record.approver],
+            now: resolved.now(),
+          });
+          try {
+            await resolved.writeSettings({
+              runtimeHome: resolved.runtimeHome,
+              settings,
+              previousSettings,
+              createdBy: `interaction:group-join:${approvedBy}`,
+            });
+            await resolved.reloadRuntimeState();
+            return record;
+          } catch (err) {
+            // The same concurrent-writer race surfaces as either error class
+            // depending on where the append loses; retry both once.
+            if (
+              attempt === 0 &&
+              (err instanceof SettingsStaleMutationError ||
+                err instanceof SettingsRevisionConflictError)
+            ) {
+              continue;
+            }
+            throw err;
+          }
         }
+        return null;
+      } catch (err) {
+        await repository.revertRegistered({ id, now: resolved.now() });
+        throw err;
       }
-      return null;
     },
   };
 }

@@ -49,11 +49,190 @@ function repositoryFixture(record = promptedRecord()) {
       status: 'dismissed' as const,
     })),
     markRegistered: vi.fn(async () => registered),
+    revertRegistered: vi.fn(async () => record),
     markLeft: vi.fn(async () => ({ ...record, leftAt: record.updatedAt })),
   } satisfies GroupJoinOnboardingRepository;
 }
 
+function statefulRepositoryFixture(record = promptedRecord()) {
+  let current = record;
+  const repository = {
+    recordPrompt: vi.fn(async () => current),
+    getById: vi.fn(async () => current),
+    markDismissed: vi.fn(async (input: { now: string }) => {
+      if (current.status !== 'prompted') return null;
+      current = {
+        ...current,
+        status: 'dismissed',
+        dismissedAt: input.now,
+        updatedAt: input.now,
+      };
+      return current;
+    }),
+    markRegistered: vi.fn(async (input: { now: string }) => {
+      if (current.status !== 'prompted') return null;
+      current = {
+        ...current,
+        status: 'registered',
+        registeredAt: input.now,
+        updatedAt: input.now,
+      };
+      return current;
+    }),
+    revertRegistered: vi.fn(async (input: { now: string }) => {
+      if (current.status !== 'registered') return null;
+      current = {
+        ...current,
+        status: 'prompted',
+        registeredAt: null,
+        updatedAt: input.now,
+      };
+      return current;
+    }),
+    markLeft: vi.fn(async () => ({ ...current, leftAt: current.updatedAt })),
+  } satisfies GroupJoinOnboardingRepository;
+  return { repository, current: () => current };
+}
+
+function deferred() {
+  let resolve!: () => void;
+  const promise = new Promise<void>((release) => {
+    resolve = release;
+  });
+  return { promise, resolve };
+}
+
 describe('group join onboarding coordinator', () => {
+  it('keeps registration when dismissal races after the registration claim', async () => {
+    const { repository, current } = statefulRepositoryFixture();
+    const writeStarted = deferred();
+    const allowWrite = deferred();
+    const writeSettings = vi.fn(async () => {
+      writeStarted.resolve();
+      await allowWrite.promise;
+      return { reconciled: true, restartRequired: [] };
+    });
+    const coordinator = createGroupJoinOnboardingCoordinator({
+      runtimeHome: '/tmp/group-join-test',
+      repository: () => repository,
+      loadSettings: vi.fn(async () => settingsFixture()),
+      writeSettings,
+      reloadRuntimeState: vi.fn(async () => undefined),
+      now: () => '2026-07-18T01:00:00.000Z',
+      newId: () => 'unused',
+    });
+
+    const registration = coordinator.register({
+      id: 'opaque-1',
+      externalId: '-1001234',
+      title: 'Ops Room',
+      approvedBy: '222',
+    });
+    await writeStarted.promise;
+
+    await expect(coordinator.dismiss('opaque-1')).resolves.toBeNull();
+    allowWrite.resolve();
+    await expect(registration).resolves.toMatchObject({ status: 'registered' });
+
+    expect(writeSettings).toHaveBeenCalledOnce();
+    expect(current()).toMatchObject({ status: 'registered' });
+  });
+
+  it('skips the settings write when dismissal claims the prompt first', async () => {
+    const { repository, current } = statefulRepositoryFixture();
+    const writeSettings = vi.fn();
+    const coordinator = createGroupJoinOnboardingCoordinator({
+      runtimeHome: '/tmp/group-join-test',
+      repository: () => repository,
+      loadSettings: vi.fn(async () => settingsFixture()),
+      writeSettings,
+      reloadRuntimeState: vi.fn(async () => undefined),
+      now: () => '2026-07-18T01:00:00.000Z',
+      newId: () => 'unused',
+    });
+
+    await expect(coordinator.dismiss('opaque-1')).resolves.toMatchObject({
+      status: 'dismissed',
+    });
+    await expect(
+      coordinator.register({
+        id: 'opaque-1',
+        externalId: '-1001234',
+        title: 'Ops Room',
+        approvedBy: '222',
+      }),
+    ).resolves.toBeNull();
+
+    expect(writeSettings).not.toHaveBeenCalled();
+    expect(current()).toMatchObject({ status: 'dismissed' });
+  });
+
+  it('reverts the registration claim when the settings write fails', async () => {
+    const { repository, current } = statefulRepositoryFixture();
+    const writeError = new SettingsStaleMutationError();
+    const writeSettings = vi.fn().mockRejectedValue(writeError);
+    const coordinator = createGroupJoinOnboardingCoordinator({
+      runtimeHome: '/tmp/group-join-test',
+      repository: () => repository,
+      loadSettings: vi.fn(async () => settingsFixture()),
+      writeSettings,
+      reloadRuntimeState: vi.fn(async () => undefined),
+      now: () => '2026-07-18T01:00:00.000Z',
+      newId: () => 'unused',
+    });
+
+    await expect(
+      coordinator.register({
+        id: 'opaque-1',
+        externalId: '-1001234',
+        title: 'Ops Room',
+        approvedBy: '222',
+      }),
+    ).rejects.toBe(writeError);
+
+    expect(writeSettings).toHaveBeenCalledTimes(2);
+    expect(repository.revertRegistered).toHaveBeenCalledOnce();
+    expect(current()).toMatchObject({
+      status: 'prompted',
+      registeredAt: null,
+    });
+  });
+
+  it('allows only one concurrent registration to write settings', async () => {
+    const { repository, current } = statefulRepositoryFixture();
+    const writeSettings = vi.fn(async () => ({
+      reconciled: true,
+      restartRequired: [],
+    }));
+    const coordinator = createGroupJoinOnboardingCoordinator({
+      runtimeHome: '/tmp/group-join-test',
+      repository: () => repository,
+      loadSettings: vi.fn(async () => settingsFixture()),
+      writeSettings,
+      reloadRuntimeState: vi.fn(async () => undefined),
+      now: () => '2026-07-18T01:00:00.000Z',
+      newId: () => 'unused',
+    });
+    const input = {
+      id: 'opaque-1',
+      externalId: '-1001234',
+      title: 'Ops Room',
+      approvedBy: '222',
+    };
+
+    const results = await Promise.all([
+      coordinator.register(input),
+      coordinator.register(input),
+    ]);
+
+    expect(results).toEqual([
+      expect.objectContaining({ status: 'registered' }),
+      null,
+    ]);
+    expect(writeSettings).toHaveBeenCalledOnce();
+    expect(current()).toMatchObject({ status: 'registered' });
+  });
+
   it('registers through the canonical desired-state write with the approver receipt identity', async () => {
     const repository = repositoryFixture();
     const settings = settingsFixture();

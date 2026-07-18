@@ -94,6 +94,22 @@ export class PostgresGroupJoinOnboardingRepository implements GroupJoinOnboardin
     return row ? mapRow(row) : null;
   }
 
+  async revertRegistered(input: {
+    id: string;
+    now: string;
+  }): Promise<GroupJoinOnboardingRecord | null> {
+    const [row] = await this.db
+      .update(table)
+      .set({
+        status: 'prompted',
+        registeredAt: null,
+        updatedAt: input.now,
+      })
+      .where(and(eq(table.id, input.id), eq(table.status, 'registered')))
+      .returning();
+    return row ? mapRow(row) : null;
+  }
+
   async markLeft(input: {
     providerAccountId: string;
     chatJid: string;
