@@ -730,6 +730,12 @@ await client.models.defaults.update({
 The defaults route writes `settings.yaml`; provider credentials remain in Model
 Access and are projected privately by the runtime adapter.
 
+PATCH preflight is limited to the model slots affected by the request. Omitted
+Memory defaults are neither changed nor credential-checked when updating Chat
+or Jobs. `memory: null` explicitly re-derives the extractor, dreaming, and
+consolidation aliases from the effective Chat provider; it never deletes or
+repartitions Gantry's centralized durable memory.
+
 Use `POST /v1/models/preview` for "why" checks before a run. `target: "chat"`
 can include `conversationJid` or `workspaceKey` to expose live session `/model`
 overrides; `target: "job"` with `jobId` distinguishes explicit job aliases from

@@ -135,6 +135,13 @@ consolidation paths read current validated runtime settings when the next call
 starts, so a provider/default change applies to new memory work without a
 runtime restart.
 
+These commands reset only the provider-neutral aliases used for Memory
+processing. They do not delete or repartition centralized memory items,
+evidence, candidates, recall events, indexes, or review history. Changing or
+resetting the Chat model likewise leaves the Memory-processing aliases and
+durable memory unchanged; only an explicit Memory reset re-derives those aliases
+from the effective Chat provider.
+
 Safe promotions and same-key updates can be applied by the host after
 validation. Retire, rewrite, contradiction, and merge proposals are stored in
 `memory_review_requests` as `pending_review` until a reviewer uses

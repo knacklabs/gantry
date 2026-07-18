@@ -63,7 +63,9 @@ function usage(): string {
   gantry model why jobs|memory|job <id>
   gantry model why <alias|family>
   gantry model why <alias> --agent <id>
-  gantry model doctor`;
+  gantry model doctor
+
+\`gantry model reset memory\` re-derives Memory-processing model aliases; it does not delete centralized memory.`;
 }
 
 async function preflightAliasProviders(input: {
@@ -250,7 +252,7 @@ function formatTarget(
   }
   if (target === 'memory') {
     return [
-      'Memory models',
+      'Memory-processing models',
       `mode: provider-managed (from ${memoryProviderFromSettings(settings)})`,
       `extractor: ${resolveSlot(settings.memory.llm.models.extractor, 'memory_extractor')}`,
       `dreaming: ${resolveSlot(settings.memory.llm.models.dreaming, 'memory_dreaming')}`,
@@ -436,7 +438,7 @@ export async function runModelCommand(
       );
       if (oldMemoryProvider !== newMemoryProvider) {
         console.warn(
-          `Memory models still on ${oldMemoryProvider} — run \`gantry model reset memory\` to re-derive.`,
+          `Memory-processing models still on ${oldMemoryProvider} — run \`gantry model reset memory\` to re-derive their aliases. Centralized memory is unchanged.`,
         );
       }
       return 0;

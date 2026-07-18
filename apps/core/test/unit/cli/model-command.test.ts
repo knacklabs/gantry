@@ -319,6 +319,7 @@ describe('model CLI command', () => {
 
   it('applies provider-managed memory defaults only after credential preflight', async () => {
     const runtimeHome = makeRuntimeHome();
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
     const preflightProvider = vi.fn(async () => ({
       ok: true,
       status: 'pass' as const,
@@ -349,6 +350,9 @@ describe('model CLI command', () => {
       dreaming: 'kimi',
       consolidation: 'kimi',
     });
+    expect(
+      logSpy.mock.calls.map(([line]) => String(line)).join('\n'),
+    ).toContain('Memory-processing models');
   });
 
   it('does not expose public memory tuning writes', async () => {

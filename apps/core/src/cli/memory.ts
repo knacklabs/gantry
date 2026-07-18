@@ -31,6 +31,8 @@ function usage(): string {
     '  gantry memory dreaming <on|off>',
     '  gantry model memory',
     '  gantry model reset memory',
+    '',
+    '`gantry model reset memory` re-derives Memory-processing model aliases; it does not delete centralized memory.',
   ].join('\n');
 }
 

@@ -95,6 +95,10 @@ export function ModelDefaultsDialog({
                 setValues((current) => ({ ...current, recurring }))
               }
             />
+            <p className="m-0 text-sm text-text-secondary">
+              Memory processing models are managed separately. Saving Chat or
+              Job defaults does not change or delete centralized memory.
+            </p>
             {mutation.error ? (
               <p className="m-0 text-sm text-danger" role="alert">
                 {mutation.error.message}
