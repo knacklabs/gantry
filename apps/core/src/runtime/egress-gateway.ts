@@ -229,7 +229,7 @@ async function handleConnectRequest(
     host: target.host,
   });
   if (deny) {
-    await denyConnectRequest(state, clientSocket, deny);
+    await denyConnectRequest(state, clientSocket, deny, target.port);
     return;
   }
   const literalAddressDeny = evaluateNonPublicEgressAddress({
@@ -237,7 +237,7 @@ async function handleConnectRequest(
     address: target.host,
   });
   if (literalAddressDeny) {
-    await denyConnectRequest(state, clientSocket, literalAddressDeny);
+    await denyConnectRequest(state, clientSocket, literalAddressDeny, target.port);
     return;
   }
   const mappedTarget = mappedEgressTarget(state, target);
@@ -259,7 +259,7 @@ async function handleConnectRequest(
   }
   const resolution = await resolveEgressTarget(target);
   if ('deny' in resolution) {
-    await denyConnectRequest(state, clientSocket, resolution.deny);
+    await denyConnectRequest(state, clientSocket, resolution.deny, target.port);
     return;
   }
   const resolvedTarget = resolution.target;
@@ -304,7 +304,7 @@ async function handleHttpProxyRequest(
     host: target.hostname,
   });
   if (deny) {
-    await denyHttpRequest(state, res, deny);
+    await denyHttpRequest(state, res, deny, urlPort(target));
     return;
   }
   const literalAddressDeny = evaluateNonPublicEgressAddress({
@@ -312,7 +312,7 @@ async function handleHttpProxyRequest(
     address: target.hostname,
   });
   if (literalAddressDeny) {
-    await denyHttpRequest(state, res, literalAddressDeny);
+    await denyHttpRequest(state, res, literalAddressDeny, urlPort(target));
     return;
   }
   const mappedTarget = mappedEgressTarget(state, {
@@ -346,7 +346,7 @@ async function handleHttpProxyRequest(
     authority: target.host,
   });
   if ('deny' in resolution) {
-    await denyHttpRequest(state, res, resolution.deny);
+    await denyHttpRequest(state, res, resolution.deny, urlPort(target));
     return;
   }
   const resolvedTarget = resolution.target;
@@ -434,9 +434,11 @@ async function denyConnectRequest(
   state: EgressGatewayState,
   socket: Duplex,
   deny: EgressPolicyMatch,
+  port: number,
 ): Promise<void> {
   await auditConnect(state, {
     host: deny.host,
+    port,
     allowed: false,
     denied: true,
     reason: deny.reason,
@@ -448,9 +450,11 @@ async function denyHttpRequest(
   state: EgressGatewayState,
   res: http.ServerResponse,
   deny: EgressPolicyMatch,
+  port: number,
 ): Promise<void> {
   await auditConnect(state, {
     host: deny.host,
+    port,
     allowed: false,
     denied: true,
     reason: deny.reason,
