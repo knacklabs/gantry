@@ -156,6 +156,18 @@ export function findSingleConversationRouteForChat<T>(
   return matches.length === 1 ? matches[0]?.[1] : undefined;
 }
 
+export function routesForConversationId<T extends { conversationId?: string }>(
+  routes: Record<string, T>,
+  conversationId: string | null | undefined,
+): Record<string, T> {
+  if (!conversationId) return {};
+  return Object.fromEntries(
+    Object.entries(routes).filter(
+      ([, route]) => route.conversationId === conversationId,
+    ),
+  );
+}
+
 export function findConversationRouteForQueue<T>(
   routes: Record<string, T>,
   queueJid: string,
@@ -169,6 +181,7 @@ export function findConversationRouteForQueue<T>(
     route: T;
     routeThreadId?: string;
     routeAgentId: string;
+    routeConversationId?: string;
     routeProviderAccountId?: string;
     routeKeyHasAgent: boolean;
   }> = [];
@@ -194,6 +207,12 @@ export function findConversationRouteForQueue<T>(
       route,
       routeThreadId: parsed.threadId,
       routeAgentId,
+      routeConversationId:
+        typeof (route as { conversationId?: unknown }).conversationId ===
+        'string'
+          ? (route as { conversationId: string }).conversationId.trim() ||
+            undefined
+          : undefined,
       routeProviderAccountId,
       routeKeyHasAgent: Boolean(parsed.agentId),
     });
@@ -212,12 +231,15 @@ export function findConversationRouteForQueue<T>(
       ? exactThreadRoutes
       : wholeConversationRoutes;
   if (queueAgentId) {
-    if (!queueProviderAccountId) {
-      const providerIdentities = new Set(
-        matches.map((candidate) => candidate.routeProviderAccountId ?? ''),
-      );
-      if (providerIdentities.size > 1) return undefined;
-    }
+    const routeIdentities = new Set(
+      matches.map(
+        (candidate) =>
+          `${candidate.routeConversationId ?? ''}::${
+            candidate.routeProviderAccountId ?? ''
+          }`,
+      ),
+    );
+    if (routeIdentities.size > 1) return undefined;
     return (
       matches.find((candidate) => candidate.routeKeyHasAgent)?.route ??
       matches[0]?.route
@@ -227,8 +249,8 @@ export function findConversationRouteForQueue<T>(
     matches.map(
       (candidate) =>
         `${candidate.routeAgentId}::${candidate.routeThreadId ?? ''}::${
-          candidate.routeProviderAccountId ?? ''
-        }`,
+          candidate.routeConversationId ?? ''
+        }::${candidate.routeProviderAccountId ?? ''}`,
     ),
   );
   if (routeIdentities.size === 1) {

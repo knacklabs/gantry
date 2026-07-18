@@ -57,6 +57,61 @@ export const openApiSchemas: Record<string, JsonSchema> = {
       agentHarness: agentHarnessProp,
     },
   },
+  ReplaceAgentDelegatesRequest: {
+    type: 'object',
+    required: ['delegates'],
+    additionalProperties: false,
+    properties: {
+      delegates: {
+        type: 'array',
+        maxItems: 100,
+        items: { type: 'string', minLength: 1, maxLength: 160 },
+      },
+      expectedRevision: { type: 'integer', minimum: 0 },
+    },
+  },
+  AgentDelegateResolved: {
+    type: 'object',
+    required: ['ref', 'agentId', 'toolName', 'displayName', 'persona'],
+    additionalProperties: false,
+    properties: {
+      ref: { type: 'string' },
+      agentId: { type: 'string' },
+      toolName: { type: 'string' },
+      displayName: { type: 'string' },
+      persona: {
+        type: 'string',
+        enum: [
+          'developer',
+          'generalist',
+          'sales',
+          'marketing',
+          'operations',
+          'research',
+        ],
+      },
+    },
+  },
+  AgentDelegatesResponse: {
+    type: 'object',
+    required: ['agentId', 'revision', 'delegates', 'resolved'],
+    additionalProperties: false,
+    properties: {
+      agentId: { type: 'string' },
+      revision: { type: 'integer', minimum: 0 },
+      delegates: stringArray,
+      resolved: {
+        type: 'array',
+        items: { $ref: '#/components/schemas/AgentDelegateResolved' },
+      },
+    },
+  },
+  SettingsRevisionResponse: {
+    type: 'object',
+    required: ['revision'],
+    additionalProperties: false,
+    properties: { revision: { type: 'integer', minimum: 0 } },
+  },
   AgentAdminSummaryResponse: {
     type: 'object',
     required: ['agent', 'boundConversations'],

@@ -16,6 +16,41 @@ function route(providerAccountId: string): ConversationRoute {
 }
 
 describe('resolveRunnerIpcRoute', () => {
+  it('returns canonical conversation identity and rejects ambiguous matches', () => {
+    const first = {
+      ...route('acct:a'),
+      conversationId: 'conversation:first',
+    };
+    const second = {
+      ...route('acct:a'),
+      conversationId: 'conversation:second',
+    };
+
+    expect(
+      resolveRunnerIpcRoute({
+        routes: {
+          [makeAgentThreadQueueKey('slack:C123', 'agent:first')]: first,
+        },
+        sourceAgentFolder: 'team',
+        targetJid: 'slack:C123',
+      }),
+    ).toEqual({
+      targetJid: 'slack:C123',
+      conversationId: 'conversation:first',
+      providerAccountId: 'acct:a',
+    });
+    expect(() =>
+      resolveRunnerIpcRoute({
+        routes: {
+          [makeAgentThreadQueueKey('slack:C123', 'agent:first')]: first,
+          [makeAgentThreadQueueKey('slack:C123', 'agent:second')]: second,
+        },
+        sourceAgentFolder: 'team',
+        targetJid: 'slack:C123',
+      }),
+    ).toThrow(/ambiguous|unauthorized/);
+  });
+
   it('uses the requested provider account before checking route ambiguity', () => {
     const routes = {
       [makeAgentThreadQueueKey('slack:C123', 'agent:team', null, 'acct:a')]:

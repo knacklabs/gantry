@@ -1933,6 +1933,223 @@ describe('AsyncCommandTaskService', () => {
     });
   });
 
+  it('keeps delegated work running after a completion wait expires and stores a lossless task_get result', async () => {
+    const repository = new MemoryAsyncTaskRepository();
+    const fullResult = 'x'.repeat(1_500);
+    let releaseRun!: () => void;
+    const runGate = new Promise<void>((resolve) => {
+      releaseRun = resolve;
+    });
+    const service = new AsyncCommandTaskService(repository, {
+      run: async () => ({}),
+    });
+    const started = await service.startDelegatedAgent({
+      appId: 'app-1',
+      agentId: 'agent-1',
+      conversationId: 'conversation-1',
+      objective: 'Produce a long result',
+      workspaceFolder: 'main_agent',
+      run: async ({ signal }) => {
+        await runGate;
+        if (signal.aborted) throw new Error('unexpected abort');
+        return { outputSummary: fullResult };
+      },
+    });
+    expect(started.ok).toBe(true);
+    if (!started.ok) return;
+
+    await expect(started.completion.wait(1)).resolves.toBeNull();
+    await waitForStatus(repository, started.task.id, 'running');
+    expect(repository.tasks.get(started.task.id)?.status).toBe('running');
+
+    releaseRun();
+    await expect(started.completion.wait(1_000)).resolves.toEqual({
+      taskId: started.task.id,
+      status: 'completed',
+      result: fullResult,
+    });
+    await expect(
+      service.getScoped({
+        taskId: started.task.id,
+        appId: 'app-1',
+        agentId: 'agent-1',
+        conversationId: 'conversation-1',
+      }),
+    ).resolves.toMatchObject({
+      id: started.task.id,
+      status: 'completed',
+      outputSummary: fullResult,
+    });
+    await expect(
+      service.list({
+        appId: 'app-1',
+        agentId: 'agent-1',
+        conversationId: 'conversation-1',
+      }),
+    ).resolves.toEqual([
+      expect.objectContaining({
+        id: started.task.id,
+        outputSummary: `${'x'.repeat(1_000)}...`,
+      }),
+    ]);
+  });
+
+  it('durably re-wakes the orchestrator after the callable sync waiter is gone', async () => {
+    const repository = new MemoryAsyncTaskRepository();
+    const storeMessageWithLiveAdmission = vi.fn(async () => ({}) as never);
+    let releaseRun!: () => void;
+    const runGate = new Promise<void>((resolve) => {
+      releaseRun = resolve;
+    });
+    const service = new AsyncCommandTaskService(
+      repository,
+      { run: async () => ({}) },
+      {
+        completionMessageRepository: { storeMessageWithLiveAdmission },
+      },
+    );
+    const started = await service.startDelegatedAgent({
+      appId: 'app-1',
+      agentId: 'agent-orchestrator',
+      conversationId: 'conversation-1',
+      providerAccountId: 'slack-one',
+      threadId: 'thread-1',
+      objective: 'Finish after the sync wait',
+      authorityToolName: 'AgentDelegation',
+      workspaceFolder: 'main_agent',
+      run: async () => {
+        await runGate;
+        return { outputSummary: 'late callable result' };
+      },
+    });
+    expect(started.ok).toBe(true);
+    if (!started.ok) return;
+
+    await expect(started.completion.wait(1)).resolves.toBeNull();
+    await service.markDelegatedTaskAsyncFallback({
+      taskId: started.task.id,
+      appId: 'app-1',
+      agentId: 'agent-orchestrator',
+      conversationId: 'conversation-1',
+      providerAccountId: 'slack-one',
+      threadId: 'thread-1',
+    });
+    releaseRun();
+    await waitForStatus(repository, started.task.id, 'completed');
+    await vi.waitFor(() => {
+      expect(storeMessageWithLiveAdmission).toHaveBeenCalledOnce();
+    });
+
+    expect(storeMessageWithLiveAdmission).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: `callable-agent-follow-up:${started.task.id}`,
+        chat_jid: 'conversation-1',
+        agentId: 'agent-orchestrator',
+        providerAccountId: 'slack-one',
+        thread_id: 'thread-1',
+        content: expect.stringContaining('late callable result'),
+      }),
+      expect.objectContaining({
+        appId: 'app-1',
+        agentId: 'agent-orchestrator',
+        providerAccountId: 'slack-one',
+        triggerDecision: expect.objectContaining({
+          source: 'callable_agent_follow_up',
+          taskId: started.task.id,
+        }),
+      }),
+    );
+  });
+
+  it('does not enqueue a callable follow-up when completion returns synchronously', async () => {
+    const repository = new MemoryAsyncTaskRepository();
+    const storeMessageWithLiveAdmission = vi.fn(async () => ({}) as never);
+    const service = new AsyncCommandTaskService(
+      repository,
+      { run: async () => ({}) },
+      {
+        completionMessageRepository: { storeMessageWithLiveAdmission },
+      },
+    );
+    const started = await service.startDelegatedAgent({
+      appId: 'app-1',
+      agentId: 'agent-orchestrator',
+      conversationId: 'conversation-1',
+      objective: 'Finish inside the sync wait',
+      authorityToolName: 'AgentDelegation',
+      workspaceFolder: 'main_agent',
+      run: async () => ({ outputSummary: 'inline callable result' }),
+    });
+    expect(started.ok).toBe(true);
+    if (!started.ok) return;
+
+    await expect(started.completion.wait(1_000)).resolves.toEqual({
+      taskId: started.task.id,
+      status: 'completed',
+      result: 'inline callable result',
+    });
+    await waitForStatus(repository, started.task.id, 'completed');
+    expect(storeMessageWithLiveAdmission).not.toHaveBeenCalled();
+  });
+
+  it('recovers a pending callable follow-up after restart without an in-memory waiter', async () => {
+    const repository = new MemoryAsyncTaskRepository();
+    await repository.createTask({
+      id: 'task-restart-follow-up',
+      appId: 'app-1',
+      agentId: 'agent-orchestrator',
+      conversationId: 'conversation-1',
+      kind: 'delegated_agent',
+      status: 'completed',
+      admissionClass: 'task',
+      authoritySnapshotJson: { toolName: 'AgentDelegation' },
+      privateCorrelationJson: {
+        providerAccountId: 'slack-one',
+        callableAgentFollowUp: { pendingAt: '2024-01-01T00:00:00.000Z' },
+      },
+      leaseToken: 'lease-restart-follow-up',
+      fencingVersion: 1,
+      now: '2024-01-01T00:00:01.000Z',
+    });
+    const terminal = repository.tasks.get('task-restart-follow-up')!;
+    repository.tasks.set(terminal.id, {
+      ...terminal,
+      outputSummary: 'result recovered after restart',
+      receiptJson: {
+        completed: 'result recovered after restart',
+        used: 'Gantry agent run',
+        changed: 'none',
+        delegated: 'yes',
+        needsAttention: 'none',
+      },
+    });
+    const storeMessageWithLiveAdmission = vi.fn(async () => ({}) as never);
+    const restartedService = new AsyncCommandTaskService(
+      repository,
+      { run: async () => ({}) },
+      {
+        completionMessageRepository: { storeMessageWithLiveAdmission },
+      },
+    );
+
+    await expect(
+      restartedService.recoverPendingDelegatedAgentFollowUps({
+        appId: 'app-1',
+      }),
+    ).resolves.toBe(1);
+    await expect(
+      restartedService.recoverPendingDelegatedAgentFollowUps({
+        appId: 'app-1',
+      }),
+    ).resolves.toBe(0);
+    expect(storeMessageWithLiveAdmission).toHaveBeenCalledOnce();
+    expect(
+      repository.tasks.get('task-restart-follow-up')?.receiptJson,
+    ).toMatchObject({
+      callableAgentFollowUp: { deliveredAt: expect.any(String) },
+    });
+  });
+
   it('starts delegated agent tasks and records steering messages', async () => {
     vi.stubEnv(
       'SECRET_ENCRYPTION_KEY',

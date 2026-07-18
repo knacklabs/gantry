@@ -6,9 +6,20 @@ import { quoteYamlString } from './yaml.js';
 // Extracted from runtime-settings-renderer.ts to keep that file under its line
 // budget.
 
-function quoteYamlKey(key: string): string {
+export function quoteYamlKey(key: string): string {
   if (/^[A-Za-z0-9_-]+$/.test(key)) return key;
   return JSON.stringify(key);
+}
+
+export function renderAgentDelegatesYaml(
+  lines: string[],
+  delegates: string[] | undefined,
+): void {
+  if (!delegates?.length) return;
+  lines.push('    delegates:');
+  for (const delegate of delegates) {
+    lines.push(`      - ${quoteYamlString(delegate)}`);
+  }
 }
 
 // Optional in-memory per-provider request rate caps. Omitted when no caps are

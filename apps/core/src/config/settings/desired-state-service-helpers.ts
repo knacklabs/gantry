@@ -66,10 +66,38 @@ export function configuredRoutingBindings(
 
   for (const [folder, agent] of Object.entries(settings.agents)) {
     for (const binding of Object.values(agent.bindings)) {
+      const configuredConversationCandidates = Object.entries(
+        settings.conversations,
+      ).filter(([, candidate]) => {
+        if (
+          jidForConfiguredConversation(candidate, settings.providerAccounts) !==
+          binding.jid
+        ) {
+          return false;
+        }
+        if (!binding.providerAccountId) return true;
+        const candidateInstall =
+          candidate.installedAgents[folder] ??
+          Object.values(candidate.installedAgents).find(
+            (install) =>
+              install.agentId === folder &&
+              (install.threadId ?? '') === (binding.threadId ?? ''),
+          );
+        const candidateProviderAccountId =
+          candidateInstall?.providerAccountId ??
+          candidate.providerAccount ??
+          candidate.providerConnection;
+        return candidateProviderAccountId === binding.providerAccountId;
+      });
+      const configuredConversation =
+        configuredConversationCandidates.length === 1
+          ? configuredConversationCandidates[0]
+          : undefined;
       byAgentAndJid.set(
         `${folder}\0${binding.providerAccountId ?? ''}\0${binding.jid}\0${binding.threadId ?? ''}`,
         {
           agentFolder: folder,
+          conversationId: configuredConversation?.[0],
           jid: binding.jid,
           threadId: binding.threadId,
           providerAccountId: binding.providerAccountId,
@@ -79,13 +107,7 @@ export function configuredRoutingBindings(
           requiresTrigger: binding.requiresTrigger,
           model: binding.model,
           permissionMode: binding.permissionMode,
-          conversation: Object.values(settings.conversations).find(
-            (candidate) =>
-              jidForConfiguredConversation(
-                candidate,
-                settings.providerAccounts,
-              ) === binding.jid,
-          ),
+          conversation: configuredConversation?.[1],
         },
       );
     }
@@ -109,6 +131,7 @@ export function configuredRoutingBindings(
       `${binding.agent}\0${providerAccountId ?? ''}\0${jid}\0${binding.threadId ?? ''}`,
       {
         agentFolder: binding.agent,
+        conversationId: binding.conversation,
         jid,
         installKey: binding.installKey,
         threadId: binding.threadId,

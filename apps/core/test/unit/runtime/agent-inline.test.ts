@@ -165,12 +165,15 @@ describe('runInlineAgent', () => {
   });
 
   it('binds inline credentials to turn correlation without adding lease identity', async () => {
-    const lane = vi.fn<InlineAgentLoopLane>(async ({ input }) => {
-      expect(input).not.toHaveProperty('runId');
-      expect(input).not.toHaveProperty('runLeaseToken');
-      expect(input).not.toHaveProperty('runLeaseFencingVersion');
-      return { status: 'success', result: null };
-    });
+    const lane = vi.fn<InlineAgentLoopLane>(
+      async ({ correlationRunId, input }) => {
+        expect(correlationRunId).toBe('turn-correlation-1');
+        expect(input).not.toHaveProperty('runId');
+        expect(input).not.toHaveProperty('runLeaseToken');
+        expect(input).not.toHaveProperty('runLeaseFencingVersion');
+        return { status: 'success', result: null };
+      },
+    );
 
     await runInlineAgent(group, agentInput, vi.fn(), undefined, {
       ...options(lane),

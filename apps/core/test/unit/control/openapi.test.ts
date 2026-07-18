@@ -40,6 +40,8 @@ const expectedControlRoutes = [
   'GET /v1/agents/{agentId}/access',
   'PUT /v1/agents/{agentId}/access',
   'GET /v1/agents/{agentId}/admin',
+  'GET /v1/agents/{agentId}/delegates',
+  'PUT /v1/agents/{agentId}/delegates',
   'GET /v1/agents/{agentId}/conversation-installs',
   'DELETE /v1/agents/{agentId}/conversation-installs/{conversationId}',
   'PATCH /v1/agents/{agentId}/conversation-installs/{conversationId}',
@@ -970,6 +972,72 @@ describe('control OpenAPI documentation', () => {
     ]);
     expect(createAgentRequest.properties).not.toHaveProperty('agentEngine');
     expect(updateAgentRequest.properties).not.toHaveProperty('agentEngine');
+    expect(spec.paths['/v1/agents/{agentId}/delegates']?.get).toMatchObject({
+      operationId: 'getAgentDelegates',
+      'x-gantry-required-scopes': ['agents:admin'],
+      responses: {
+        '200': {
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/AgentDelegatesResponse' },
+            },
+          },
+        },
+      },
+    });
+    expect(spec.paths['/v1/agents/{agentId}/delegates']?.put).toMatchObject({
+      operationId: 'replaceAgentDelegates',
+      'x-gantry-required-scopes': ['agents:admin'],
+      requestBody: {
+        content: {
+          'application/json': {
+            schema: {
+              $ref: '#/components/schemas/ReplaceAgentDelegatesRequest',
+            },
+          },
+        },
+      },
+      responses: {
+        '200': {
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/SettingsRevisionResponse' },
+            },
+          },
+        },
+        '409': { $ref: '#/components/responses/Conflict' },
+      },
+    });
+    expect(spec.components.schemas.ReplaceAgentDelegatesRequest).toMatchObject({
+      required: ['delegates'],
+      additionalProperties: false,
+      properties: {
+        delegates: {
+          type: 'array',
+          maxItems: 100,
+          items: { type: 'string', minLength: 1, maxLength: 160 },
+        },
+        expectedRevision: { type: 'integer', minimum: 0 },
+      },
+    });
+    expect(spec.components.schemas.AgentDelegatesResponse).toMatchObject({
+      required: ['agentId', 'revision', 'delegates', 'resolved'],
+      additionalProperties: false,
+      properties: {
+        resolved: {
+          items: { $ref: '#/components/schemas/AgentDelegateResolved' },
+        },
+      },
+    });
+    expect(spec.components.schemas.AgentDelegateResolved).toMatchObject({
+      additionalProperties: false,
+      required: expect.arrayContaining([
+        'agentId',
+        'toolName',
+        'displayName',
+        'persona',
+      ]),
+    });
     expect(
       spec.paths['/v1/provider-accounts']?.post.requestBody.content[
         'application/json'

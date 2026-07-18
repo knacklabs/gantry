@@ -183,6 +183,15 @@ export async function processTaskIpc(
           return undefined;
         }
       }),
+    getAgentRepository:
+      deps.getAgentRepository ??
+      (() => {
+        try {
+          return getRuntimeStorage().repositories.agents;
+        } catch {
+          return undefined;
+        }
+      }),
     getSkillRepository:
       deps.getSkillRepository ??
       (() => {

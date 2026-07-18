@@ -164,6 +164,10 @@ function createRunnerFixture(): {
     path.join(sharedDir, 'memory-boundary.ts'),
   );
   fs.copyFileSync(
+    path.resolve('apps/core/src/shared/callable-agent-manifest.ts'),
+    path.join(sharedDir, 'callable-agent-manifest.ts'),
+  );
+  fs.copyFileSync(
     path.resolve('apps/core/src/shared/egress-policy.ts'),
     path.join(sharedDir, 'egress-policy.ts'),
   );

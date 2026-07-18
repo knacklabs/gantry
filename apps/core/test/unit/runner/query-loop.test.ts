@@ -45,6 +45,20 @@ describe('Claude query loop declarative tool names', () => {
     expect(canonicalGantryToolRuleName(toolName)).toBe('AgentDelegation');
   });
 
+  it('canonicalizes synthetic delegation only with Gantry or manifest provenance', () => {
+    expect(
+      canonicalGantryToolRuleName('mcp__gantry__delegate_to_reviewer_hash'),
+    ).toBe('AgentDelegation');
+    expect(
+      canonicalGantryToolRuleName('delegate_to_reviewer_hash', {
+        callableAgentToolNames: new Set(['delegate_to_reviewer_hash']),
+      }),
+    ).toBe('AgentDelegation');
+    expect(canonicalGantryToolRuleName('delegate_to_cleanup')).toBe(
+      'delegate_to_cleanup',
+    );
+  });
+
   it('keeps non-Gantry MCP names unchanged', () => {
     expect(canonicalGantryToolRuleName('mcp__crm__delete')).toBe(
       'mcp__crm__delete',

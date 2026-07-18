@@ -261,6 +261,7 @@ function makeDeps(
 
   return {
     channelRuntime: makeChannel(),
+    getConversationRoutes: vi.fn().mockReturnValue({}),
     getGroup: vi.fn().mockReturnValue(undefined),
     clearSession: vi.fn(),
     getCursor: vi.fn().mockReturnValue('0'),

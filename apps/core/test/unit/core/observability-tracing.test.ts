@@ -99,6 +99,59 @@ describe('observability tracing', () => {
     });
   });
 
+  it('nests a delegated child under its live parent and falls open without one', () => {
+    const exporter = new InMemorySpanExporter();
+    initTracing(
+      { enabled: true, captureContent: false, sampleRate: 1 },
+      exporter,
+    );
+    const parent = startTurnSpan({
+      runId: 'run-parent',
+      agentName: 'Parent Agent',
+    });
+    const child = createSpawnTurnTracker(
+      'Child Agent',
+      {
+        runId: 'run-child',
+        parentRunId: 'run-parent',
+        prompt: 'delegated work',
+      },
+      undefined,
+    );
+    child.finish({ status: 'success', result: 'done' });
+    parent.end('success');
+
+    const root = createSpawnTurnTracker(
+      'Orphan Agent',
+      {
+        runId: 'run-orphan',
+        parentRunId: 'run-missing',
+        prompt: 'delegated work',
+      },
+      undefined,
+    );
+    root.finish({ status: 'success', result: 'done' });
+
+    const spans = exporter.getFinishedSpans();
+    const parentSpan = spans.find(
+      (span) => span.attributes['gantry.run_id'] === 'run-parent',
+    )!;
+    const childSpan = spans.find(
+      (span) => span.attributes['gantry.run_id'] === 'run-child',
+    )!;
+    const rootSpan = spans.find(
+      (span) => span.attributes['gantry.run_id'] === 'run-orphan',
+    )!;
+    expect(childSpan.spanContext().traceId).toBe(
+      parentSpan.spanContext().traceId,
+    );
+    expect(childSpan.parentSpanContext?.spanId).toBe(
+      parentSpan.spanContext().spanId,
+    );
+    expect(childSpan.attributes['gantry.parent_run_id']).toBe('run-parent');
+    expect(rootSpan.parentSpanContext).toBeUndefined();
+  });
+
   it('does not capture turn content when captureContent is false', () => {
     const exporter = new InMemorySpanExporter();
     initTracing(
@@ -126,7 +179,11 @@ describe('observability tracing', () => {
       exporter,
     );
 
-    const handle = startTurnSpan({ runId: 'disabled', agentName: 'Agent' });
+    const handle = startTurnSpan({
+      runId: 'disabled',
+      parentRunId: 'disabled-parent',
+      agentName: 'Agent',
+    });
 
     expect(tracingEnabled()).toBe(false);
     expect(handle.traceId).toBeUndefined();

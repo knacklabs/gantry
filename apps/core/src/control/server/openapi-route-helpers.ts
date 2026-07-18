@@ -12,6 +12,7 @@ export type RouteDoc = {
   scopes?: string[];
   status?: '200' | '201' | '202' | '409';
   body?: BodyKind;
+  conflict?: boolean;
   parameters?: JsonSchema[];
 };
 
@@ -69,7 +70,7 @@ export function doc(
   summary: string,
   description: string,
   scopes?: string[],
-  options: Pick<RouteDoc, 'body' | 'parameters' | 'status'> = {},
+  options: Pick<RouteDoc, 'body' | 'conflict' | 'parameters' | 'status'> = {},
 ): RouteDoc {
   return {
     method,

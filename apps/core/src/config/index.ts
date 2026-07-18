@@ -140,6 +140,7 @@ function getPublicConfiguredAgents(settings: RuntimeSettings) {
         permissionMode: agent.permissionMode,
         oneTimeJobDefaultModel: agent.oneTimeJobDefaultModel,
         recurringJobDefaultModel: agent.recurringJobDefaultModel,
+        delegates: agent.delegates,
         bindings: agent.bindings,
         sources: agent.sources,
         capabilities: agent.capabilities,

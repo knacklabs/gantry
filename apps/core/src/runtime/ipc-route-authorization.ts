@@ -7,7 +7,11 @@ export function resolveRunnerIpcRoute(input: {
   targetJid?: string;
   threadId?: string;
   providerAccountId?: string;
-}): { targetJid: string; providerAccountId?: string } {
+}): {
+  targetJid: string;
+  conversationId?: string;
+  providerAccountId?: string;
+} {
   const requestedProviderAccountId = input.providerAccountId?.trim();
   const matches = Object.entries(input.routes)
     .map(([key, route]) => {
@@ -32,8 +36,8 @@ export function resolveRunnerIpcRoute(input: {
   const candidates = exactThread.length > 0 ? exactThread : matches;
   const identities = new Set(
     candidates.map(
-      ({ parsed, providerAccountId }) =>
-        `${parsed.chatJid}::${providerAccountId ?? ''}`,
+      ({ parsed, route, providerAccountId }) =>
+        `${parsed.chatJid}::${route.conversationId ?? ''}::${providerAccountId ?? ''}`,
     ),
   );
   if (identities.size !== 1) {
@@ -48,6 +52,9 @@ export function resolveRunnerIpcRoute(input: {
   }
   return {
     targetJid: match.parsed.chatJid,
+    ...(match.route.conversationId
+      ? { conversationId: match.route.conversationId }
+      : {}),
     ...(match.providerAccountId
       ? { providerAccountId: match.providerAccountId }
       : {}),

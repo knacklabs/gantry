@@ -283,6 +283,30 @@ export interface paths {
         patch: operations["updateAgent"];
         trace?: never;
     };
+    "/v1/agents/{agentId}/delegates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get agent delegates
+         * @description Returns configured delegate references and the conversation-bound callable roster.
+         */
+        get: operations["getAgentDelegates"];
+        /**
+         * Replace agent delegates
+         * @description Replaces configured delegate references through revisioned settings desired state.
+         */
+        put: operations["replaceAgentDelegates"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/agents/{agentId}/admin": {
         parameters: {
             query?: never;
@@ -1761,6 +1785,27 @@ export interface components {
              * @enum {string}
              */
             agentHarness?: "auto" | "anthropic_sdk" | "deepagents";
+        };
+        ReplaceAgentDelegatesRequest: {
+            delegates: string[];
+            expectedRevision?: number;
+        };
+        AgentDelegateResolved: {
+            ref: string;
+            agentId: string;
+            toolName: string;
+            displayName: string;
+            /** @enum {string} */
+            persona: "developer" | "generalist" | "sales" | "marketing" | "operations" | "research";
+        };
+        AgentDelegatesResponse: {
+            agentId: string;
+            revision: number;
+            delegates: string[];
+            resolved: components["schemas"]["AgentDelegateResolved"][];
+        };
+        SettingsRevisionResponse: {
+            revision: number;
         };
         AgentAdminSummaryResponse: {
             agent: components["schemas"]["Agent"];
@@ -3532,6 +3577,15 @@ export interface components {
                 "application/json": components["schemas"]["ErrorEnvelope"];
             };
         };
+        /** @description Revision conflict. */
+        Conflict: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["ErrorEnvelope"];
+            };
+        };
         /** @description Unexpected control server failure. */
         InternalError: {
             headers: {
@@ -4081,6 +4135,68 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    getAgentDelegates: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Agent id. */
+                agentId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Request succeeded. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentDelegatesResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    replaceAgentDelegates: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Agent id. */
+                agentId: string;
+            };
+            cookie?: never;
+        };
+        /** @description JSON request payload. */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReplaceAgentDelegatesRequest"];
+            };
+        };
+        responses: {
+            /** @description Request succeeded. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SettingsRevisionResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
             500: components["responses"]["InternalError"];
         };
     };

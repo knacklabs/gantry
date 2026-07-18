@@ -119,6 +119,7 @@ function settingsWithDuplicateCapability(agentName: string) {
   settings.agents.main_agent = {
     name: agentName,
     folder: 'main_agent',
+    delegates: [],
     bindings: {},
     sources: { skills: [], mcpServers: [], tools: [] },
     capabilities: [
@@ -317,6 +318,7 @@ describe('importFleetSettingsRevision', () => {
     previousSettings.agents.main_agent = {
       name: 'Main Agent',
       folder: 'main_agent',
+      delegates: [],
       bindings: {},
       sources: { skills: [], mcpServers: [], tools: [] },
       capabilities: [],
@@ -601,6 +603,7 @@ describe('importFleetSettingsRevision', () => {
     nextSettings.agents.main_agent = {
       name: 'Main',
       folder: 'main_agent',
+      delegates: [],
       bindings: {},
       sources: { skills: [], mcpServers: [], tools: [] },
       capabilities: [],
@@ -653,7 +656,7 @@ describe('importFleetSettingsRevision', () => {
   });
 
   it('appends a revision stamped with the current reader version', async () => {
-    expect(CURRENT_SETTINGS_READER_VERSION).toBe(13);
+    expect(CURRENT_SETTINGS_READER_VERSION).toBe(14);
     capabilityErrors = [];
     const repo = new FakeRevisionRepo();
     const outcome = await importFleetSettingsRevision(
@@ -760,6 +763,7 @@ describe('importFleetSettingsRevision', () => {
     settings.agents.researcher = {
       name: 'Researcher',
       folder: 'researcher',
+      delegates: [],
       agentHarness: 'anthropic_sdk',
       permissionMode: 'auto',
       maxTurns: 14,
@@ -789,6 +793,7 @@ describe('importFleetSettingsRevision', () => {
     settings.agents.analyst = {
       name: 'Analyst',
       folder: 'analyst',
+      delegates: [],
       agentHarness: 'deepagents',
       model: 'gpt',
       maxOutputTokens: 4096,
@@ -869,6 +874,9 @@ describe('importFleetSettingsRevision', () => {
       ],
     });
     expect(
+      (document.agents as Record<string, Record<string, unknown>>).researcher,
+    ).not.toHaveProperty('delegates');
+    expect(
       (document.agents as Record<string, Record<string, unknown>>).analyst,
     ).toMatchObject({ max_output_tokens: 4096 });
     expect(
@@ -941,6 +949,7 @@ describe('importFleetSettingsRevision', () => {
     expect(restored.agents.researcher.accessPreset).toBe('locked');
     expect(restored.agents.researcher.agentHarness).toBe('anthropic_sdk');
     expect(restored.agents.researcher.permissionMode).toBe('auto');
+    expect(restored.agents.researcher.delegates).toEqual([]);
     expect(restored.permissions.autoMode).toEqual({ model: 'sonnet' });
     expect(restored.observability).toEqual(settings.observability);
     expect(restored.agents.researcher).toMatchObject({
@@ -981,6 +990,29 @@ describe('importFleetSettingsRevision', () => {
     ).toBe('auto');
   });
 
+  it('round-trips unresolved delegate folder refs through revision documents', () => {
+    const settings = createDefaultRuntimeSettings();
+    settings.agents.orchestrator = {
+      name: 'Orchestrator',
+      folder: 'orchestrator',
+      delegates: ['future_researcher', 'future_analyst'],
+      bindings: {},
+      sources: { skills: [], mcpServers: [], tools: [] },
+      capabilities: [],
+      accessPreset: 'full',
+    };
+
+    const document = settingsToRevisionDocument(settings);
+
+    expect(
+      (document.agents as Record<string, Record<string, unknown>>).orchestrator
+        .delegates,
+    ).toEqual(['future_researcher', 'future_analyst']);
+    expect(
+      settingsFromRevisionDocument(document).agents.orchestrator.delegates,
+    ).toEqual(['future_researcher', 'future_analyst']);
+  });
+
   it('guards settings.yaml revision identity', () => {
     const settings = createDefaultRuntimeSettings();
     settings.runtime.deploymentMode = 'fleet';
@@ -988,6 +1020,7 @@ describe('importFleetSettingsRevision', () => {
     settings.agents.researcher = {
       name: 'Researcher',
       folder: 'researcher',
+      delegates: [],
       bindings: {},
       sources: { skills: [], mcpServers: [], tools: [] },
       capabilities: [],

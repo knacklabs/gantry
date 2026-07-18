@@ -1,5 +1,4 @@
 import { ChildProcess } from 'child_process';
-import { randomUUID } from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import {
@@ -15,7 +14,6 @@ import {
   getSelectedAgentHarness,
   getSelectedAgentRuntime,
 } from '../config/index.js';
-import { resolveAgentAccessPolicy } from '../config/profiles.js';
 import { logger } from '../infrastructure/logging/logger.js';
 import { runSpawnWithLogContext } from '../infrastructure/observability/spawn-log-context.js';
 import type { SpawnTurnTracker } from '../infrastructure/observability/spawn-turn-tracker.js';
@@ -50,6 +48,8 @@ import {
 } from './agent-spawn-types.js';
 import { selectedMemoryIpcActionsFromToolRules } from '../shared/memory-ipc-actions.js';
 import { isCanonicalBrowserCapabilityRule } from '../shared/agent-tool-references.js';
+import { agentIdForFolder } from '../domain/agent/agent-folder-id.js';
+import { conversationBoundAgentIdsForRoute } from '../application/core-tools/callable-agent-tools.js';
 import { resolveMcpCredentialEnvForAgent } from '../application/capability-secrets/mcp-secret-projection.js';
 import {
   attachMcpSourceNetworkHosts,
@@ -71,6 +71,7 @@ import {
 import {
   getConfiguredModelProvidersForApp,
   getRuntimeFileArtifactStore,
+  getRuntimeStorage,
 } from '../adapters/storage/postgres/runtime-store.js';
 import { effectiveYoloModeSettings } from '../shared/yolo-mode-policy.js';
 import { formatGeneratedRuntimePathPermissionError } from './generated-runtime-path-error.js';
@@ -98,8 +99,12 @@ import {
   buildAndLogRunnerRuntimeDetails,
   type RunnerAgentInput,
 } from './agent-spawn-helpers.js';
-import { prepareAgentSpawn } from './agent-spawn-preparation.js';
+import {
+  prepareAgentSpawn,
+  prepareWorkerAuthorityProjection,
+} from './agent-spawn-preparation.js';
 import { resolveSpawnExecutionAdapter } from './agent-spawn-execution-adapter.js';
+import { createRunnerTempDirectories } from './agent-spawn-temp-directories.js';
 export { writeGroupsSnapshot } from './agent-spawn-snapshots.js';
 export type { AvailableGroup } from './agent-spawn-types.js';
 export type { AgentInput, AgentOutput } from './agent-spawn-types.js';
@@ -120,7 +125,6 @@ export async function spawnAgent(
       spawnAgentWithContext(group, spawnInput, onProcess, options, turnTracker),
   );
 }
-
 async function spawnAgentWithContext(
   group: ConversationRoute,
   input: AgentInput,
@@ -191,15 +195,37 @@ async function spawnAgentWithContext(
   }
   const agentIdentifier = group.folder.toLowerCase().replace(/_/g, '-');
   const credentials = host.getHostRuntimeCredentialEnv;
-  const agentAccessPolicy = resolveAgentAccessPolicy(
-    agentSettings?.accessPreset,
+  const personasByAgentId = Object.fromEntries(
+    Object.entries(runtimeSettings.agents ?? {}).map(([folder, agent]) => [
+      String(agentIdForFolder(folder)),
+      agent.persona,
+    ]),
   );
-  const isLockedAgent = agentAccessPolicy.preset === 'locked';
+  const { accessPreset, hideAuthorityTools, callableAgentManifest } =
+    await prepareWorkerAuthorityProjection({
+      agentInput: input,
+      accessPreset: agentSettings?.accessPreset,
+      delegates: agentSettings?.delegates ?? [],
+      getConversationBoundAgentIds: () =>
+        conversationBoundAgentIdsForRoute({
+          routes: options?.conversationRoutes ?? {},
+          chatJid: input.chatJid,
+          threadId: input.threadId,
+          callerAgentId:
+            input.agentId ?? String(agentIdForFolder(group.folder)),
+          callerProviderAccountId: group.providerAccountId,
+        }),
+      personasByAgentId,
+      workspaceFolder: group.folder,
+      options,
+      getAgentRepository: () => getRuntimeStorage().repositories.agents,
+      warn: logger.warn.bind(logger),
+    });
   const compiledSystemPrompt = await compileSpawnSystemPrompt({
     group,
     agentInput: input,
     appId: input.appId || 'default',
-    accessPreset: agentAccessPolicy.preset,
+    accessPreset,
     fileArtifactStore: () => getRuntimeFileArtifactStore(),
     measureAsync: (name, fn) => hostStartup.measureAsync(name, fn),
   });
@@ -212,14 +238,13 @@ async function spawnAgentWithContext(
   const browserIpcEnabled = (trustedToolPolicyRules ?? []).some(
     isCanonicalBrowserCapabilityRule,
   );
-  const hideAuthorityTools =
-    isLockedAgent ||
-    input.hideAuthorityTools === true ||
-    process.env.GANTRY_NO_PERMISSION_TOOLS === '1';
+  // hideAuthorityTools comes from prepareWorkerAuthorityProjection above
+  // (same three conditions).
   const egressSettings = runtimeSettings.permissions.egress;
   const runnerInput: RunnerAgentInput = {
     ...input,
     allowedTools: trustedToolPolicyRules,
+    callableAgentManifest,
     browserProfileName,
     hideAuthorityTools,
     compiledSystemPrompt,
@@ -481,17 +506,10 @@ async function spawnAgentWithContext(
       group.folder,
       'extra',
     );
-    if (runnerSandboxProviderId === 'sandbox_runtime') {
-      const suffix = randomUUID().replaceAll('-', '').slice(0, 12);
-      runnerTempDir = path.join('/tmp', `gantry-srt-${suffix}`);
-      fs.mkdirSync(runnerTempDir, { recursive: false, mode: 0o700 });
-      const providerToolTempDirLeaf =
-        preparedExecution.sandboxRuntime?.toolTempDirLeaf;
-      if (providerToolTempDirLeaf) {
-        providerToolTempDir = path.join(runnerTempDir, providerToolTempDirLeaf);
-        fs.mkdirSync(providerToolTempDir, { recursive: true, mode: 0o700 });
-      }
-    }
+    ({ runnerTempDir, providerToolTempDir } = createRunnerTempDirectories({
+      sandboxProviderId: runnerSandboxProviderId,
+      toolTempDirLeaf: preparedExecution.sandboxRuntime?.toolTempDirLeaf,
+    }));
     // DeepAgents model traffic runs inside the runner process. In
     // OpenRouter's sandbox_runtime lane needs the Gantry egress proxy because
     // it uses raw fetch; child tools still receive only sanitized toolNetworkEnv.
@@ -550,7 +568,7 @@ async function spawnAgentWithContext(
       memoryDefaultScope: input.memoryDefaultScope,
       memoryReviewerIsControlApprover: input.memoryReviewerIsControlApprover,
       hideAuthorityTools,
-      agentAccessPreset: agentAccessPolicy.preset,
+      agentAccessPreset: accessPreset,
       deploymentMode: getDeploymentMode(),
       permissionMode: input.permissionMode ?? 'ask',
       turnIntentSummary: input.prompt,
@@ -687,6 +705,7 @@ async function spawnAgentWithContext(
       providerAccountId: group.providerAccountId,
       threadId: input.threadId,
       runId: input.runId,
+      correlationRunId: turnTracker.correlationId,
       jobId: input.jobId,
       protectedReadPaths: protectedFilesystemDenyReadPaths,
       protectedWritePaths: protectedFilesystemDenyWritePaths,

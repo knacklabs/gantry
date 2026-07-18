@@ -3,6 +3,7 @@ import type { ConversationRoute } from '../../domain/types.js';
 import {
   findConversationRouteForQueue,
   makeAgentThreadQueueKey,
+  routesForConversationId,
 } from '../../shared/thread-queue-key.js';
 
 export function resolveConversationRoute(
@@ -11,9 +12,10 @@ export function resolveConversationRoute(
   threadId?: string | null,
   agentId?: string | null,
   providerAccountId?: string | null,
+  conversationId?: string | null,
 ): ConversationRoute | undefined {
   return findConversationRouteForQueue(
-    routes,
+    conversationId ? routesForConversationId(routes, conversationId) : routes,
     makeAgentThreadQueueKey(chatJid, agentId, threadId, providerAccountId),
     (route) => route.agentId ?? agentIdForFolder(route.folder),
   );

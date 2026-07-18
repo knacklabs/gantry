@@ -15,6 +15,11 @@ import {
   selectedMemoryIpcActions,
   selectedGantryMcpToolNames,
 } from '@agent-runner-src/gantry-mcp-tool-surface.js';
+import {
+  callableAgentToolName,
+  projectCallableAgentTools,
+} from '@core/application/core-tools/callable-agent-tools.js';
+import { CALLABLE_AGENT_RESPONSE_TIMEOUT_MS } from '@core/shared/callable-agent-manifest.js';
 
 const SAFE_DEFAULT_ALLOWED_TOOLS = [
   'WebSearch',
@@ -113,6 +118,98 @@ const DEVELOPER_AVAILABLE_TOOLS = [
 ] as const;
 
 describe('agent capability composition', () => {
+  const callableAgentManifest = projectCallableAgentTools({
+    agents: [
+      {
+        id: 'agent:main_agent',
+        appId: 'default',
+        name: 'Main',
+        status: 'active',
+      },
+      {
+        id: 'agent:reviewer',
+        appId: 'default',
+        name: 'Reviewer',
+        status: 'active',
+      },
+    ] as never,
+    callerAppId: 'default',
+    callerAgentId: 'agent:main_agent',
+    callerFolder: 'main_agent',
+    delegates: ['reviewer'],
+    conversationBoundAgentIds: new Set(['agent:reviewer']),
+    toolPolicyRules: ['AgentDelegation'],
+  });
+  const callableAgentTool = gantryMcpFullToolName(
+    callableAgentToolName(callableAgentManifest[0]!),
+  );
+
+  it('projects callable-agent tools into the Anthropic lane', () => {
+    const profile = composeAgentCapabilities({
+      mcpServerPath: '/tmp/ipc-mcp-stdio.js',
+      chatJid: 'tg:team',
+      workspaceFolder: 'main_agent',
+      configuredAllowedTools: ['AgentDelegation'],
+      callableAgentManifest,
+      asyncTaskToolsEnabled: true,
+      accessPreset: 'full',
+    });
+
+    expect(profile.allowedTools).toContain(callableAgentTool);
+    expect(
+      JSON.parse(
+        String(
+          profile.mcpServers.gantry?.env?.GANTRY_CALLABLE_AGENT_MANIFEST_JSON,
+        ),
+      ),
+    ).toEqual(callableAgentManifest);
+  });
+
+  it('covers callable-agent response waits with the Anthropic MCP timeout', () => {
+    const profile = composeAgentCapabilities({
+      mcpServerPath: '/tmp/ipc-mcp-stdio.js',
+      chatJid: 'tg:team',
+      workspaceFolder: 'main_agent',
+      configuredAllowedTools: ['AgentDelegation'],
+      callableAgentManifest,
+      asyncTaskToolsEnabled: true,
+      accessPreset: 'full',
+    });
+
+    expect(profile.allowedTools).toContain(callableAgentTool);
+    expect(profile.mcpServers.gantry?.timeout).toBeGreaterThan(
+      CALLABLE_AGENT_RESPONSE_TIMEOUT_MS,
+    );
+  });
+
+  it.each([
+    ['delegated child', { parentTaskId: 'task_parent' }],
+    ['locked mode', { accessPreset: 'locked' as const }],
+    ['empty allowlist', { callableAgentManifest: [] }],
+  ])(
+    'suppresses callable-agent tools for %s in the Anthropic lane',
+    (_name, override) => {
+      const profile = composeAgentCapabilities({
+        mcpServerPath: '/tmp/ipc-mcp-stdio.js',
+        chatJid: 'tg:team',
+        workspaceFolder: 'main_agent',
+        configuredAllowedTools: ['AgentDelegation'],
+        callableAgentManifest,
+        asyncTaskToolsEnabled: true,
+        accessPreset: 'full',
+        ...override,
+      });
+
+      expect(profile.allowedTools).not.toContain(callableAgentTool);
+      expect(
+        JSON.parse(
+          String(
+            profile.mcpServers.gantry?.env?.GANTRY_CALLABLE_AGENT_MANIFEST_JSON,
+          ),
+        ),
+      ).toEqual([]);
+    },
+  );
   it('uses exact safe defaults and gantry MCP server wiring', () => {
     const profile = composeAgentCapabilities({
       mcpServerPath: '/tmp/ipc-mcp-stdio.js',
@@ -181,6 +278,7 @@ describe('agent capability composition', () => {
         GANTRY_MEMORY_USER_ID: '5759865942',
         GANTRY_MEMORY_DEFAULT_SCOPE: 'group',
         GANTRY_MEMORY_REVIEWER_IS_CONTROL_APPROVER: '',
+        GANTRY_NO_PERMISSION_TOOLS: '',
         GANTRY_BROWSER_PROFILE_NAME: 'c-team-abc123abc123',
         GANTRY_ADMIN_MCP_TOOLS_JSON: '[]',
         GANTRY_CONFIGURED_ALLOWED_TOOLS_JSON: '[]',
@@ -191,6 +289,7 @@ describe('agent capability composition', () => {
         GANTRY_MCP_TOOL_NAMES_JSON: JSON.stringify(
           selectedGantryMcpToolNames([]),
         ),
+        GANTRY_CALLABLE_AGENT_MANIFEST_JSON: '[]',
         GANTRY_MEMORY_IPC_ACTIONS_JSON: JSON.stringify(
           selectedMemoryIpcActions([]),
         ),

@@ -38,6 +38,7 @@ vi.mock(
 );
 
 import { runClaudeInlineAgentLoopLane } from '@core/adapters/llm/anthropic-claude-agent/inline-lane/index.js';
+import { createInlineToolActivity } from '@core/adapters/llm/inline-lane-tool-activity.js';
 import { InMemoryInlineRunnerControlPort } from '@core/runtime/agent-inline.js';
 import { DEFAULT_AGENT_ENGINE } from '@core/shared/agent-engine.js';
 
@@ -124,6 +125,37 @@ beforeEach(() => {
 });
 
 describe('Claude inline lane', () => {
+  it('canonicalizes manifest-projected callable-agent activity to AgentDelegation', async () => {
+    const emitOutput = vi.fn(async () => undefined);
+    const toolActivity = createInlineToolActivity({
+      input: {
+        chatJid: 'conversation:test',
+        isScheduledJob: true,
+      },
+      coreTools: {
+        tools: [{ name: 'delegate_to_reviewer_hash' }],
+      },
+      emitOutput,
+    });
+
+    await toolActivity.run('delegate_to_reviewer_hash', async () => 'done');
+
+    expect(emitOutput).toHaveBeenCalledWith(
+      expect.objectContaining({
+        runtimeEventOnly: true,
+        runtimeEvents: [
+          expect.objectContaining({
+            eventType: 'job.tool_activity',
+            payload: expect.objectContaining({
+              phase: 'started',
+              tool: 'AgentDelegation',
+            }),
+          }),
+        ],
+      }),
+    );
+  });
+
   it.each([
     ['uses the default cap when unset', {}, 50, undefined],
     [

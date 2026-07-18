@@ -203,6 +203,7 @@ export async function runDeepAgentTurn(input: {
         : {}),
       toolNetworkEnv: input.agentInput.toolNetworkEnv,
       hideAuthorityTools: input.agentInput.hideAuthorityTools === true,
+      callableAgentManifest: input.agentInput.callableAgentManifest,
       // The gated shell tool (when projected) runs commands as a child of this
       // already-sandboxed runner; thread the run-cancellation signal so an
       // in-flight command is killed on STOP/close.

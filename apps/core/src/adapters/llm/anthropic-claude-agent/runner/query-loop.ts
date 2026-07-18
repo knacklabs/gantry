@@ -317,6 +317,7 @@ export async function runQuery(
     runHandle: process.env.GANTRY_AGENT_RUN_HANDLE,
     runId: agentInput.runId,
     parentTaskId: agentInput.parentTaskId,
+    callableAgentManifest: agentInput.callableAgentManifest,
     runLeaseToken: agentInput.runLeaseToken,
     runLeaseFencingVersion: agentInput.runLeaseFencingVersion,
     liveStopActionToken: process.env.GANTRY_LIVE_STOP_ACTION_TOKEN,

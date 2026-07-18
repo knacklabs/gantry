@@ -8,6 +8,7 @@ import {
   createDefaultRuntimeSettings,
   parseRuntimeSettings,
 } from '@core/config/settings/runtime-settings.js';
+import { configuredRoutingBindings } from '@core/config/settings/desired-state-service-helpers.js';
 import { makeAgentThreadQueueKey } from '@core/shared/thread-queue-key.js';
 import { ConversationAdministrationService } from '@core/application/provider-conversations/conversation-administration-service.js';
 import {
@@ -981,6 +982,7 @@ describe('SettingsDesiredStateService', () => {
       expect.objectContaining({
         name: 'Main',
         folder: 'main_agent',
+        conversationId: 'sales_slack',
         trigger: '@main',
         providerAccountId: 'slack_default',
       }),
@@ -1062,7 +1064,10 @@ conversations:
         undefined,
         'slack_one',
       ),
-      expect.objectContaining({ providerAccountId: 'slack_one' }),
+      expect.objectContaining({
+        conversationId: 'sales_one',
+        providerAccountId: 'slack_one',
+      }),
     );
     expect(ops.setConversationRoute).toHaveBeenCalledWith(
       makeAgentThreadQueueKey(
@@ -1071,7 +1076,10 @@ conversations:
         undefined,
         'slack_two',
       ),
-      expect.objectContaining({ providerAccountId: 'slack_two' }),
+      expect.objectContaining({
+        conversationId: 'sales_two',
+        providerAccountId: 'slack_two',
+      }),
     );
     expect(repositories.conversations.saveConversation).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -1085,6 +1093,61 @@ conversations:
         providerAccountId: 'slack_two',
       }),
     );
+  });
+
+  it('does not derive conversation identity from another provider account', () => {
+    const settings = createDefaultRuntimeSettings();
+    settings.providerAccounts.slack_one = {
+      agentId: 'main_agent',
+      provider: 'slack',
+      label: 'Slack One',
+      runtimeSecretRefs: {},
+    };
+    settings.providerAccounts.slack_two = {
+      agentId: 'main_agent',
+      provider: 'slack',
+      label: 'Slack Two',
+      runtimeSecretRefs: {},
+    };
+    settings.agents.main_agent = {
+      name: 'Main',
+      folder: 'main_agent',
+      bindings: {
+        primary: {
+          jid: 'sl:slack:C123',
+          providerAccountId: 'slack_two',
+          trigger: '@main',
+          addedAt: '2026-05-02T00:00:00.000Z',
+          requiresTrigger: true,
+        },
+      },
+      sources: emptySources(),
+      capabilities: [],
+    };
+    settings.conversations.sales_one = {
+      providerConnection: 'slack_one',
+      providerAccount: 'slack_one',
+      externalId: 'C123',
+      kind: 'channel',
+      displayName: 'Sales One',
+      senderPolicy: { allow: '*', mode: 'trigger' },
+      controlApprovers: [],
+      installedAgents: {
+        main_agent: {
+          agentId: 'main_agent',
+          providerAccountId: 'slack_one',
+          status: 'active',
+          addedAt: '2026-05-02T00:00:00.000Z',
+          memoryScope: 'conversation',
+        },
+      },
+    };
+
+    expect(configuredRoutingBindings(settings)[0]).toMatchObject({
+      agentFolder: 'main_agent',
+      providerAccountId: 'slack_two',
+      conversationId: undefined,
+    });
   });
 
   it('saves provider accounts before routes create provider-account stubs', async () => {
@@ -1941,6 +2004,7 @@ conversations:
           appId: 'default',
           agentId: 'agent:main_agent',
           route: expect.objectContaining({
+            configuredConversationId: 'sales',
             trigger: '@main',
             requiresTrigger: true,
           }),

@@ -31,6 +31,11 @@ import {
   type DeclarativeToolRuleDenial,
   type RunScopedToolSuccessLedger,
 } from '../../../../runner/tool-gate-core.js';
+import {
+  CALLABLE_AGENT_SYNC_WAIT_MAX_MS,
+  callableAgentToolName,
+  type CallableAgentToolManifestEntry,
+} from '../../../../application/core-tools/callable-agent-tools.js';
 
 // Connects the DeepAgents runner to Gantry-owned MCP authority and converts it
 // to LangChain tools. DeepAgents has no autonomous MCP — we fully control the
@@ -52,6 +57,8 @@ import {
 // cannot connect rather than silently dropping authority.
 
 const GANTRY_SERVER_NAME = 'gantry';
+const CALLABLE_AGENT_MCP_TOOL_TIMEOUT_MS =
+  CALLABLE_AGENT_SYNC_WAIT_MAX_MS + 20_000;
 
 export interface ExternalServerConfig {
   type?: 'stdio' | 'http' | 'sse';
@@ -78,6 +85,7 @@ export interface ConnectGantryMcpInput {
   ) => void;
   toolNetworkEnv?: Record<string, string>;
   hideAuthorityTools: boolean;
+  callableAgentManifest?: readonly CallableAgentToolManifestEntry[];
   gate: Omit<ThirdPartyMcpGateConfig, 'configuredAllowedTools'>;
   // Run-cancellation signal threaded into the gated shell tool so a command in
   // flight is killed when the live-turn close sentinel aborts the run.
@@ -102,6 +110,7 @@ export async function connectGantryAndThirdPartyMcpTools(
     hideAuthorityTools: input.hideAuthorityTools,
     memoryBlock: input.gate.memoryBlock,
     processEnv: process.env,
+    callableAgentManifest: input.callableAgentManifest,
   });
 
   const externalServers = readExternalMcpServers();
@@ -139,9 +148,16 @@ export async function connectGantryAndThirdPartyMcpTools(
   }
 
   const selectedGantrySet = new Set(projection.selectedToolNames);
-  const gantryTools = (serverTools[GANTRY_SERVER_NAME] ?? []).filter((tool) =>
-    selectedGantrySet.has(tool.name),
+  const callableAgentToolNames = new Set(
+    (input.callableAgentManifest ?? []).map(callableAgentToolName),
   );
+  const gantryTools = (serverTools[GANTRY_SERVER_NAME] ?? [])
+    .filter((tool) => selectedGantrySet.has(tool.name))
+    .map((tool) =>
+      callableAgentToolNames.has(tool.name)
+        ? withCallableAgentTimeout(tool)
+        : tool,
+    );
   const delegateTaskTool = gantryTools.find(
     (tool) => tool.name === 'delegate_task',
   );
@@ -189,7 +205,10 @@ export async function connectGantryAndThirdPartyMcpTools(
   const toolEntries: DeclarativeToolEntry[] = [
     ...gantryTools.map((tool) => ({
       tool,
-      canonicalName: () => canonicalGantryToolRuleName(tool.name),
+      canonicalName: () =>
+        canonicalGantryToolRuleName(tool.name, {
+          callableAgentToolNames,
+        }),
     })),
     ...facadeTools.map((tool) => ({
       tool,
@@ -214,6 +233,21 @@ export async function connectGantryAndThirdPartyMcpTools(
     ),
     close: () => client.close(),
   };
+}
+
+function withCallableAgentTimeout(
+  underlying: StructuredToolInterface,
+): StructuredToolInterface {
+  const invoke = underlying.invoke.bind(underlying);
+  underlying.invoke = ((toolInput: unknown, config?: Record<string, unknown>) =>
+    invoke(
+      toolInput as never,
+      {
+        ...config,
+        timeout: CALLABLE_AGENT_MCP_TOOL_TIMEOUT_MS,
+      } as never,
+    )) as StructuredToolInterface['invoke'];
+  return underlying;
 }
 
 interface DeclarativeToolEntry {

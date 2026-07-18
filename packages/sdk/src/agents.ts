@@ -1,3 +1,9 @@
+import type {
+  GetAgentDelegatesResponse,
+  ReplaceAgentDelegatesRequest,
+  ReplaceAgentDelegatesResponse,
+} from './openapi-types.js';
+
 type TransportLike = {
   request<T>(options: {
     method: string;
@@ -57,6 +63,17 @@ export function createAgentAdminClient(transport: TransportLike) {
       transport.request<AgentAdminResponse>({
         method: 'GET',
         path: `/v1/agents/${encodeURIComponent(agentId)}/admin`,
+      }),
+    getDelegates: (agentId: string) =>
+      transport.request<GetAgentDelegatesResponse>({
+        method: 'GET',
+        path: `/v1/agents/${encodeURIComponent(agentId)}/delegates`,
+      }),
+    replaceDelegates: (agentId: string, body: ReplaceAgentDelegatesRequest) =>
+      transport.request<ReplaceAgentDelegatesResponse>({
+        method: 'PUT',
+        path: `/v1/agents/${encodeURIComponent(agentId)}/delegates`,
+        body,
       }),
     listProfileFiles: (agentId: string) =>
       transport.request<AgentProfileFilesResponse>({

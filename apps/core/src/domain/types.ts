@@ -72,6 +72,7 @@ export interface AgentConfig {
 export interface ConversationRoute {
   name: string;
   folder: string;
+  conversationId?: string;
   trigger: string;
   added_at: string;
   agentId?: string;

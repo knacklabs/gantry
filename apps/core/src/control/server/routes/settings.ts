@@ -2,12 +2,14 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 
 import { getRuntimeStorage } from '../../../adapters/storage/postgres/runtime-store.js';
 import { parseRuntimeSettingsObject } from '../../../config/settings/runtime-settings-parser.js';
+import type { RuntimeSettings } from '../../../config/settings/runtime-settings-types.js';
 import {
   importFleetSettingsRevision,
   importWorkstationSettings,
   SettingsRevisionConflictError,
   SettingsStaleMutationError,
   settingsFromRevisionDocument,
+  settingsToRevisionDocument,
 } from '../../../config/settings/settings-import-service.js';
 import type { AppId } from '../../../domain/app/app.js';
 import { logger } from '../../../infrastructure/logging/logger.js';
@@ -88,6 +90,10 @@ async function handleDesiredState(
   req: IncomingMessage,
   res: ServerResponse,
   ctx: ControlRouteContext,
+  write?: {
+    key: { appId: string; kid: string };
+    body: unknown;
+  },
 ): Promise<boolean> {
   if (req.method === 'GET') {
     const key = authorizeControlRequest(req, res, ctx.keys, ['agents:admin']);
@@ -115,10 +121,12 @@ async function handleDesiredState(
   }
 
   if (req.method === 'PUT' || req.method === 'POST') {
-    const key = authorizeControlRequest(req, res, ctx.keys, ['agents:admin']);
+    const key =
+      write?.key ??
+      authorizeControlRequest(req, res, ctx.keys, ['agents:admin']);
     if (!key) return true;
     const appId = key.appId as AppId;
-    const body = (await readJson(req)) as {
+    const body = (write ? write.body : await readJson(req)) as {
       settings?: unknown;
       expectedRevision?: unknown;
       note?: unknown;
@@ -166,9 +174,14 @@ async function handleDesiredState(
         await storage.repositories.settingsRevisions.getLatestSettingsRevision(
           appId,
         );
-      const preservedObservability = (
-        head?.settingsDocument as Record<string, unknown> | undefined
-      )?.observability;
+      const preservedObservability =
+        (head?.settingsDocument as Record<string, unknown> | undefined)
+          ?.observability ??
+        (head
+          ? undefined
+          : settingsToRevisionDocument(
+              ctx.getInternalRuntimeSettings() as RuntimeSettings,
+            ).observability);
       const inboundDocument = {
         ...omitObservability(body.settings as Record<string, unknown>),
         ...(preservedObservability !== undefined
@@ -318,6 +331,20 @@ async function handleDesiredState(
   res.setHeader('Allow', 'GET, PUT, POST');
   sendError(res, 405, 'METHOD_NOT_ALLOWED', 'Method not allowed');
   return true;
+}
+
+export function writeControlDesiredState(input: {
+  res: ServerResponse;
+  ctx: ControlRouteContext;
+  key: { appId: string; kid: string };
+  body: unknown;
+}): Promise<boolean> {
+  return handleDesiredState(
+    { method: 'PUT' } as IncomingMessage,
+    input.res,
+    input.ctx,
+    { key: input.key, body: input.body },
+  );
 }
 
 function currentDeploymentMode(

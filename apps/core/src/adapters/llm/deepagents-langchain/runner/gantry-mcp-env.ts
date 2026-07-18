@@ -4,6 +4,10 @@ import {
   selectedMemoryIpcActions,
 } from '../../../../runner/gantry-mcp-tool-surface.js';
 import { isCanonicalBrowserCapabilityRule } from '../../../../shared/agent-tool-references.js';
+import {
+  callableAgentToolName,
+  type CallableAgentToolManifestEntry,
+} from '../../../../application/core-tools/callable-agent-tools.js';
 
 const BROWSER_GATEWAY_TOOL_NAME_SET = new Set<string>(
   GATED_GANTRY_MCP_TOOL_NAMES,
@@ -23,6 +27,7 @@ export interface GantryMcpEnvInput {
   hideAuthorityTools: boolean;
   memoryBlock?: string;
   processEnv: NodeJS.ProcessEnv;
+  callableAgentManifest?: readonly CallableAgentToolManifestEntry[];
 }
 
 export interface GantryMcpProjection {
@@ -47,6 +52,14 @@ export function buildGantryMcpProjection(
     Boolean(env.GANTRY_BROWSER_IPC_AUTH_TOKEN?.trim()) &&
     input.configuredAllowedTools.some(isCanonicalBrowserCapabilityRule);
   const asyncTaskToolsEnabled = env.GANTRY_ASYNC_TASK_TOOLS_ENABLED === '1';
+  const callableAgentManifest =
+    asyncTaskToolsEnabled &&
+    !input.hideAuthorityTools &&
+    env.GANTRY_AGENT_ACCESS_PRESET !== 'locked' &&
+    !env.GANTRY_PARENT_TASK_ID &&
+    input.configuredAllowedTools.includes('AgentDelegation')
+      ? (input.callableAgentManifest ?? [])
+      : [];
 
   const selectedToolNamesBase = selectedGantryMcpToolNames(
     input.configuredAllowedTools,
@@ -61,11 +74,17 @@ export function buildGantryMcpProjection(
   // tool-surface selection adds them whenever Browser is selected, so strip them
   // back out here when the host did not provide the browser IPC token — this
   // mirrors the anthropic lane, which only mounts those tools under that token.
+  const callableAgentToolNames = callableAgentManifest.map(
+    callableAgentToolName,
+  );
   const selectedToolNames = browserIpcEnabled
-    ? selectedToolNamesBase
-    : selectedToolNamesBase.filter(
-        (toolName) => !BROWSER_GATEWAY_TOOL_NAME_SET.has(toolName),
-      );
+    ? [...selectedToolNamesBase, ...callableAgentToolNames]
+    : [
+        ...selectedToolNamesBase.filter(
+          (toolName) => !BROWSER_GATEWAY_TOOL_NAME_SET.has(toolName),
+        ),
+        ...callableAgentToolNames,
+      ];
 
   const memoryIpcActions = selectedMemoryIpcActions(
     input.configuredAllowedTools,
@@ -93,6 +112,7 @@ export function buildGantryMcpProjection(
     ...passthrough(env, 'GANTRY_MEMORY_USER_ID'),
     ...passthrough(env, 'GANTRY_MEMORY_DEFAULT_SCOPE'),
     ...passthrough(env, 'GANTRY_MEMORY_REVIEWER_IS_CONTROL_APPROVER'),
+    ...passthrough(env, 'GANTRY_NO_PERMISSION_TOOLS'),
     ...(env.GANTRY_ASYNC_TASK_TOOLS_ENABLED === '1' && input.memoryBlock
       ? { GANTRY_MEMORY_CONTEXT_BLOCK: input.memoryBlock }
       : {}),
@@ -109,6 +129,7 @@ export function buildGantryMcpProjection(
       input.configuredAllowedTools,
     ),
     GANTRY_MCP_TOOL_NAMES_JSON: JSON.stringify(selectedToolNames),
+    GANTRY_CALLABLE_AGENT_MANIFEST_JSON: JSON.stringify(callableAgentManifest),
     GANTRY_MEMORY_IPC_ACTIONS_JSON: JSON.stringify(memoryIpcActions),
     GANTRY_SELECTED_SKILLS_JSON: env.GANTRY_SELECTED_SKILLS_JSON ?? '[]',
     GANTRY_SELECTED_SKILL_DISPLAYS_JSON:

@@ -1,7 +1,9 @@
 import type {
   AsyncTaskRecord,
+  AsyncTaskStatus,
   PublicAsyncTaskDto,
 } from '../../domain/ports/async-tasks.js';
+import { boundDelegatedTaskContextResult } from '../../shared/delegated-task-result-policy.js';
 
 export type CoreTaskLifecycleName =
   | 'delegate_task'
@@ -13,6 +15,8 @@ export type CoreTaskLifecycleName =
 export type CoreTaskLifecycleErrorCode =
   | 'invalid_request'
   | 'unavailable'
+  | 'cancelled'
+  | 'failed'
   | 'not_found'
   | 'forbidden';
 
@@ -27,6 +31,8 @@ export type CoreTaskLifecycleBackend = {
   [Name in CoreTaskLifecycleName]: (
     input: Record<string, unknown>,
   ) => Promise<CoreTaskLifecycleResult>;
+} & {
+  owner?: CoreTaskOwner;
 };
 
 export interface CoreTaskOwner {
@@ -57,6 +63,20 @@ export interface CoreDelegatedRunInput {
   timeoutMs?: number;
 }
 
+export interface CoreDelegatedTaskCompletion {
+  taskId: string;
+  status: Extract<
+    AsyncTaskStatus,
+    'completed' | 'cancelled' | 'timed_out' | 'failed'
+  >;
+  result: string;
+  error?: string;
+}
+
+export interface CoreDelegatedTaskCompletionSubscription {
+  wait(timeoutMs: number): Promise<CoreDelegatedTaskCompletion | null>;
+}
+
 export interface CoreTaskLifecycleService {
   getScoped(
     input: CoreTaskOwner & {
@@ -83,6 +103,7 @@ export interface CoreTaskLifecycleService {
       context?: string | null;
       expectedOutput?: string | null;
       targetAgentId?: string;
+      authorityToolName?: 'AgentDelegation';
       workspaceFolder: string;
       run(input: CoreDelegatedRunInput): Promise<{
         outputSummary?: string | null;
@@ -90,8 +111,18 @@ export interface CoreTaskLifecycleService {
       }>;
     },
   ): Promise<
-    { ok: true; task: PublicAsyncTaskDto } | { ok: false; message: string }
+    | {
+        ok: true;
+        task: PublicAsyncTaskDto;
+        completion: CoreDelegatedTaskCompletionSubscription;
+      }
+    | { ok: false; message: string }
   >;
+  markDelegatedTaskAsyncFallback?(
+    input: CoreTaskOwner & {
+      taskId: string;
+    },
+  ): Promise<CoreDelegatedTaskCompletion | null>;
   message(
     input: CoreTaskOwner & {
       taskId: string;
@@ -107,6 +138,8 @@ export function createCoreTaskLifecycleBackend(input: {
   owner: CoreTaskOwner;
   parentTaskId?: string | null;
   parentRunId?: string | null;
+  authorityToolName?: 'AgentDelegation';
+  enableDelegatedAsyncFollowUp?: boolean;
   workspaceFolder: string;
   runDelegatedAgent?: (
     input: CoreDelegatedRunInput,
@@ -121,6 +154,7 @@ export function createCoreTaskLifecycleBackend(input: {
     parentTaskId: input.parentTaskId ?? undefined,
   };
   return {
+    owner: input.owner,
     task_get: async (args) => {
       const taskId = requiredString(args.taskId);
       if (!taskId) return invalid('task_get requires taskId.');
@@ -165,6 +199,7 @@ export function createCoreTaskLifecycleBackend(input: {
         context: optionalString(args.context),
         expectedOutput: optionalString(args.expectedOutput),
         ...(targetAgentId ? { targetAgentId } : {}),
+        authorityToolName: input.authorityToolName,
         workspaceFolder: input.workspaceFolder,
         run: (runInput) =>
           input.runDelegatedAgent!({
@@ -174,6 +209,29 @@ export function createCoreTaskLifecycleBackend(input: {
               : {}),
           }),
       });
+      if (result.ok && typeof args.syncWaitTimeoutMs === 'number') {
+        const completion = await result.completion.wait(args.syncWaitTimeoutMs);
+        if (completion) {
+          return delegatedCompletionResult(completion);
+        }
+        if (input.enableDelegatedAsyncFollowUp) {
+          if (!input.service.markDelegatedTaskAsyncFallback) {
+            return unavailable(
+              'Delegated task follow-up persistence is unavailable.',
+            );
+          }
+          const terminal = await input.service.markDelegatedTaskAsyncFallback({
+            ...input.owner,
+            taskId: result.task.id,
+          });
+          if (terminal) return delegatedCompletionResult(terminal);
+        }
+        return {
+          ok: true,
+          message: `Queued: ${result.task.id}`,
+          data: result.task,
+        };
+      }
       return result.ok
         ? {
             ok: true,
@@ -202,6 +260,34 @@ export function createCoreTaskLifecycleBackend(input: {
         : { ok: false, message: result.message, code: 'invalid_request' };
     },
   };
+}
+
+function delegatedCompletionResult(
+  completion: CoreDelegatedTaskCompletion,
+): CoreTaskLifecycleResult {
+  const message = boundDelegatedTaskContextResult(
+    completion.status === 'completed'
+      ? completion.result
+      : completion.error || completion.result,
+    completion.taskId,
+  );
+  return completion.status === 'completed'
+    ? {
+        ok: true,
+        message,
+        data: { taskId: completion.taskId, status: completion.status },
+      }
+    : {
+        ok: false,
+        message,
+        code:
+          completion.status === 'cancelled'
+            ? 'cancelled'
+            : completion.status === 'failed'
+              ? 'failed'
+              : 'unavailable',
+        data: { taskId: completion.taskId, status: completion.status },
+      };
 }
 
 export function coreTaskLifecycleResultText(

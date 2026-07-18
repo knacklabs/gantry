@@ -30,6 +30,15 @@ describe('session-resume-runtime', () => {
       at: '2026-07-11T00:00:00.000Z',
     } as const;
     const publishRuntimeEvent = vi.fn(async () => undefined);
+    const liveRoutes = {
+      'tg:chat': {
+        name: 'Main',
+        folder: 'main_agent',
+        trigger: '@gantry',
+        added_at: new Date(0).toISOString(),
+        conversationId: 'conversation:live',
+      },
+    };
     let observedLogContext: ReturnType<typeof currentLogContext> = undefined;
     const runAgent = vi.fn(async (_group, input, _register, onOutput) => {
       observedLogContext = currentLogContext();
@@ -65,6 +74,7 @@ describe('session-resume-runtime', () => {
           notifyIdle: () => {},
           registerProcess: () => {},
         },
+        getConversationRoutes: () => liveRoutes,
         getGroup: () => undefined,
         clearSession: async () => {},
         getCursor: () => '',
@@ -107,6 +117,9 @@ describe('session-resume-runtime', () => {
         'tg:chat',
       ),
     ).resolves.toBe('success');
+    expect(runAgent.mock.calls[0]?.[4]).toMatchObject({
+      conversationRoutes: liveRoutes,
+    });
 
     const usageEvents = publishRuntimeEvent.mock.calls
       .map(([event]) => event)

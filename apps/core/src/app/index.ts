@@ -281,6 +281,7 @@ export async function startGantryRuntime(
       {
         mcpHostnameLookup,
         opsRepository: storage.ops,
+        getAgentRepository: () => storage.repositories.agents,
         getToolRepository: () => storage.repositories.tools,
         getSkillRepository: () => storage.repositories.skills,
         getAsyncTaskRepository: () => storage.repositories.asyncTasks,

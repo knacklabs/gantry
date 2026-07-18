@@ -122,6 +122,10 @@ function createMcpFixture(): {
   );
   copyDirectory(path.resolve('apps/core/src/runner/mcp'), runnerMcpDir);
   fs.copyFileSync(
+    path.resolve('apps/core/src/shared/callable-agent-manifest.ts'),
+    path.join(sharedDir, 'callable-agent-manifest.ts'),
+  );
+  fs.copyFileSync(
     path.resolve('apps/core/src/shared/canonical-json.ts'),
     path.join(sharedDir, 'canonical-json.ts'),
   );

@@ -34,7 +34,7 @@ import { migrateLegacyAgentBindings } from './settings-revision-legacy-bindings.
  * applied) by an older worker until it is upgraded (ADR-3 skew safety contract).
  * Bump this whenever a settings-schema change would break older readers.
  */
-export const CURRENT_SETTINGS_READER_VERSION = 13;
+export const CURRENT_SETTINGS_READER_VERSION = 14;
 
 export interface SettingsImportValidationResult {
   ok: boolean;
@@ -455,6 +455,7 @@ function buildRevisionDocument(
     agents: mapRecord(settings.agents, (agent) => ({
       name: agent.name,
       persona: agent.persona,
+      delegates: agent.delegates.length > 0 ? agent.delegates : undefined,
       relationship_mode:
         agent.relationshipMode && agent.relationshipMode !== 'personal'
           ? agent.relationshipMode

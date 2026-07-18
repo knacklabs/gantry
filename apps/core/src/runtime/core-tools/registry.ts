@@ -29,16 +29,34 @@ import {
   type CoreSendMessageDeps,
 } from '../../application/core-tools/send-message.js';
 import {
-  coreTaskLifecycleResultText,
   type CoreTaskLifecycleBackend,
-  type CoreTaskLifecycleErrorCode,
   type CoreTaskLifecycleName,
+  type CoreTaskLifecycleResult,
 } from '../../application/core-tools/task-lifecycle.js';
+import {
+  coreTaskLifecycleMcpResult,
+  createCallableAgentToolDefinitions,
+  isCallableAgentToolName,
+  type CallableAgentToolManifestEntry,
+} from '../../application/core-tools/callable-agent-tools.js';
 import type {
   CoreToolInputByName,
   CoreToolInputSchema,
   CoreToolSchemas,
 } from './schemas.js';
+import type {
+  CoreToolDefinition,
+  CoreToolHandlerContext,
+  McpCompatibleToolError,
+  McpCompatibleToolResult,
+} from './contracts.js';
+
+export type {
+  CoreToolDefinition,
+  CoreToolHandlerContext,
+  McpCompatibleToolError,
+  McpCompatibleToolResult,
+} from './contracts.js';
 
 type CoreToolRule =
   | {
@@ -74,32 +92,6 @@ export type CoreToolName = (typeof CORE_TOOL_NAMES)[number];
 
 const LOCKED_ACCESS_PRESET_DENY_REASON =
   'capability not provisioned: this agent runs with a locked access preset and cannot request new tools, skills, MCP servers, or permissions. Provision the capability before the run.';
-
-export interface McpCompatibleToolResult {
-  content: Array<{ type: 'text'; text: string }>;
-  isError?: boolean;
-  error?: McpCompatibleToolError;
-}
-
-export interface McpCompatibleToolError {
-  category: 'transient' | 'validation' | 'business' | 'permission';
-  isRetryable: boolean;
-  message: string;
-}
-
-export interface CoreToolHandlerContext {
-  signal?: AbortSignal;
-}
-
-export interface CoreToolDefinition {
-  name: CoreToolName;
-  description: string;
-  inputSchema: CoreToolInputSchema<Record<string, unknown>>;
-  handler: (
-    input: Record<string, unknown>,
-    context?: CoreToolHandlerContext,
-  ) => Promise<McpCompatibleToolResult>;
-}
 
 export interface CoreToolRunContext {
   sourceAgentFolder: string;
@@ -142,6 +134,11 @@ export interface CoreToolRegistryDeps extends CoreSendMessageDeps {
     interactionBoundary: 'user_interaction';
   }) => Promise<void> | void;
   taskLifecycleBackend?: CoreTaskLifecycleBackend;
+  callableAgentManifest?: readonly CallableAgentToolManifestEntry[];
+  dispatchCallableAgent?: (
+    entry: CallableAgentToolManifestEntry,
+    args: Record<string, unknown>,
+  ) => Promise<CoreTaskLifecycleResult>;
   onPermissionDecision?: (
     request: PermissionApprovalRequest,
     decision: PermissionApprovalDecision,
@@ -193,10 +190,10 @@ export interface CoreToolRegistryDeps extends CoreSendMessageDeps {
 
 export function createCoreToolRegistry(deps: CoreToolRegistryDeps): {
   tools: readonly CoreToolDefinition[];
-  byName: Readonly<Record<CoreToolName, CoreToolDefinition>>;
+  byName: Readonly<Record<string, CoreToolDefinition>>;
   get(name: string): CoreToolDefinition | undefined;
   execute(
-    name: CoreToolName,
+    name: string,
     input: unknown,
     context?: CoreToolHandlerContext,
   ): Promise<McpCompatibleToolResult>;
@@ -311,27 +308,26 @@ export function createCoreToolRegistry(deps: CoreToolRegistryDeps): {
             true,
           );
         }
-        const result = await deps.taskLifecycleBackend[name]({ ...args });
-        const text = coreTaskLifecycleResultText(result);
-        return {
-          content: [{ type: 'text', text }],
-          ...(result.ok
-            ? {}
-            : {
-                isError: true,
-                error: taskLifecycleError(result.code, text),
-              }),
-        };
+        return coreTaskLifecycleMcpResult(
+          await deps.taskLifecycleBackend[name]({ ...args }),
+        );
       }),
     ),
+    ...(deps.dispatchCallableAgent
+      ? createCallableAgentToolDefinitions({
+          manifest: deps.callableAgentManifest ?? [],
+          schema: deps.schemas.callable_agent,
+          dispatch: deps.dispatchCallableAgent,
+        })
+      : []),
   ];
   const byName = Object.fromEntries(
     definitions.map((tool) => [tool.name, tool]),
-  ) as Record<CoreToolName, CoreToolDefinition>;
+  ) as Record<string, CoreToolDefinition>;
   return {
     tools: definitions,
     byName,
-    get: (name) => byName[name as CoreToolName],
+    get: (name) => byName[name],
     execute: async (name, input, context) => {
       const tool = byName[name];
       if (!tool)
@@ -345,8 +341,11 @@ export function createCoreToolRegistry(deps: CoreToolRegistryDeps): {
         );
       }
       if (deps.context.toolRules?.length) {
+        const ruleName = isCallableAgentToolName(name)
+          ? 'AgentDelegation'
+          : name;
         const denial = deps.evaluateToolPreChecks({
-          toolName: name,
+          toolName: ruleName,
           toolInput: parsed.data,
           memoryBlock: deps.context.memoryBlock ?? '',
           yoloMode: deps.context.yoloMode,
@@ -377,7 +376,7 @@ export function createCoreToolRegistry(deps: CoreToolRegistryDeps): {
                 responseMode: 'none',
                 payload: {
                   phase: 'deny',
-                  tool: name,
+                  tool: ruleName,
                   ok: false,
                   reason: error.message,
                   error,
@@ -397,8 +396,10 @@ export function createCoreToolRegistry(deps: CoreToolRegistryDeps): {
       try {
         const result = await tool.handler(parsed.data, context);
         if (!result.isError) {
-          deps.context.toolSuccessLedger?.recordSuccess(name);
           const gateName = coreToolGateName(name);
+          if (!isCallableAgentToolName(name)) {
+            deps.context.toolSuccessLedger?.recordSuccess(name);
+          }
           if (gateName) deps.context.toolSuccessLedger?.recordSuccess(gateName);
         }
         return result;
@@ -432,7 +433,7 @@ function define<Name extends CoreToolName>(
 }
 
 async function gateCoreTool(
-  name: CoreToolName,
+  name: string,
   args: unknown,
   deps: CoreToolRegistryDeps,
   id: (prefix: string) => string,
@@ -571,8 +572,10 @@ async function gateCoreTool(
     : permissionDenied(interaction.decision.reason ?? 'request cancelled');
 }
 
-function coreToolGateName(name: CoreToolName): 'AgentDelegation' | null {
-  return name === 'delegate_task' || name === 'task_message'
+function coreToolGateName(name: string): 'AgentDelegation' | null {
+  return name === 'delegate_task' ||
+    name === 'task_message' ||
+    isCallableAgentToolName(name)
     ? 'AgentDelegation'
     : null;
 }
@@ -678,21 +681,4 @@ function errorResult(
 
 function permissionDenied(reason: string): McpCompatibleToolResult {
   return errorResult(`Permission denied: ${reason}`, 'permission', false);
-}
-
-function taskLifecycleError(
-  code: CoreTaskLifecycleErrorCode | undefined,
-  message: string,
-): McpCompatibleToolError {
-  switch (code) {
-    case 'unavailable':
-      return { category: 'transient', isRetryable: true, message };
-    case 'invalid_request':
-      return { category: 'validation', isRetryable: false, message };
-    case 'forbidden':
-      return { category: 'permission', isRetryable: false, message };
-    case 'not_found':
-    default:
-      return { category: 'business', isRetryable: false, message };
-  }
 }

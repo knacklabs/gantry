@@ -569,6 +569,7 @@ export function createRuntimeApp(options: RuntimeAppOptions = {}): RuntimeApp {
 
   const groupProcessor = createGroupProcessor({
     channelRuntime: channelRuntime.proxy,
+    getConversationRoutes: () => conversationRoutes,
     getGroup: (chatJid, threadId, agentId, providerAccountId) =>
       resolveConversationRoute(
         conversationRoutes,

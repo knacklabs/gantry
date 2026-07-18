@@ -20,6 +20,7 @@ export interface AsyncTaskReceipt {
   delegated: 'yes' | 'no';
   subtasks?: string;
   needsAttention: string;
+  callableAgentFollowUp?: { deliveredAt: string };
 }
 
 export type AgentFailureType =

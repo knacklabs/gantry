@@ -144,6 +144,9 @@ describe('exportCurrentDesiredState', () => {
     permission_mode: auto
     thinking: on
     max_output_tokens: 2048
+    delegates:
+      - analyst
+      - future_agent
     tool_rules:
       - tool: Bash
         action: block
@@ -324,6 +327,7 @@ permissions:
       permissionMode: 'auto',
       thinking: { mode: 'on' },
       maxOutputTokens: 2048,
+      delegates: ['analyst', 'future_agent'],
       toolRules: [{ tool: 'Bash', action: 'block', reason: 'no shell' }],
     });
     expect(exported.permissions.autoMode).toEqual({ model: 'sonnet' });
@@ -741,6 +745,9 @@ permissions:
     effort: low
     thinking: off
     max_output_tokens: 1024
+    delegates:
+      - analyst
+      - future_agent
     tool_rules:
       - tool: Deploy
         action: require_prior
@@ -796,6 +803,7 @@ permissions:
       effort: 'low',
       thinking: { mode: 'off' },
       maxOutputTokens: 1024,
+      delegates: ['analyst', 'future_agent'],
       toolRules: [
         {
           tool: 'Deploy',

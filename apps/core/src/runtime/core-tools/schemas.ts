@@ -1,4 +1,16 @@
-type ZodFactory = Record<string, (...args: any[]) => any>;
+import {
+  createCallableAgentToolSchema,
+  type CallableAgentToolInput,
+} from '../../application/core-tools/callable-agent-tools.js';
+
+interface ZodFactory {
+  object(shape: Record<string, unknown>): any;
+  string(): any;
+  number(): any;
+  boolean(): any;
+  array(schema: unknown): any;
+  enum(values: readonly string[]): any;
+}
 
 export interface CoreToolInputSchema<Output> {
   safeParse(
@@ -52,7 +64,7 @@ export type CoreToolSchemas = {
   [Name in keyof CoreToolInputByName]: CoreToolInputSchema<
     CoreToolInputByName[Name]
   >;
-};
+} & { callable_agent: CoreToolInputSchema<CallableAgentToolInput> };
 
 export function createCoreToolSchemas(z: ZodFactory): CoreToolSchemas {
   const taskIdSchema = z.object({ taskId: z.string().min(1).max(160) });
@@ -120,6 +132,7 @@ export function createCoreToolSchemas(z: ZodFactory): CoreToolSchemas {
         .max(30 * 60_000)
         .optional(),
     }),
+    callable_agent: createCallableAgentToolSchema(z),
     task_get: taskIdSchema,
     task_list: z.object({}),
     task_cancel: taskIdSchema,

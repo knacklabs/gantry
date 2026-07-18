@@ -200,6 +200,7 @@ export type { AgentRuntime };
 export interface RuntimeConfiguredAgent {
   name: string;
   folder: string;
+  delegates: string[];
   runtime?: AgentRuntime;
   maxTurns?: number;
   maxRunTokens?: number;

@@ -765,6 +765,8 @@ describe('Claude Agent SDK boundary integration', () => {
         GANTRY_MEMORY_DEFAULT_SCOPE: 'group',
         GANTRY_BROWSER_PROFILE_NAME: '',
         GANTRY_ADMIN_MCP_TOOLS_JSON: '[]',
+        GANTRY_NO_PERMISSION_TOOLS: '',
+        GANTRY_CALLABLE_AGENT_MANIFEST_JSON: '[]',
         GANTRY_CONFIGURED_ALLOWED_TOOLS_JSON: '[]',
         GANTRY_SEMANTIC_CAPABILITIES_JSON: '[]',
         GANTRY_SELECTED_SKILLS_JSON: '[]',

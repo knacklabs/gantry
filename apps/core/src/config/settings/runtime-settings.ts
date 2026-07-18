@@ -144,6 +144,7 @@ export function ensureConfiguredAgent(
     folder,
     runtime: 'worker',
     persona: input.persona ?? 'developer',
+    delegates: [],
     bindings: {},
     sources: { skills: [], mcpServers: [], tools: [] },
     capabilities: [],
