@@ -23,6 +23,10 @@ import {
 import { registerTelegramMediaHandlers } from './media-ingestion.js';
 import { clearProgressActions } from './progress-message-actions.js';
 import { handleTelegramTextMessage } from './text-message-handler.js';
+import {
+  handleTelegramGroupJoinCallback,
+  handleTelegramGroupMembershipUpdate,
+} from './group-join-onboarding.js';
 
 export abstract class TelegramChannelConnect extends TelegramChannelPrompts {
   private async clearRestoredProgressActions(): Promise<void> {
@@ -61,6 +65,22 @@ export abstract class TelegramChannelConnect extends TelegramChannelPrompts {
         typeof ctx.callbackQuery?.data === 'string'
           ? ctx.callbackQuery.data
           : '';
+      if (
+        await handleTelegramGroupJoinCallback({
+          ctx,
+          opts: this.opts,
+          assistantName: ASSISTANT_NAME,
+          isApproverAuthorized: (chatId, userId, sourceAgentFolder) =>
+            this.isTelegramApproverAuthorized(
+              chatId,
+              userId,
+              sourceAgentFolder,
+            ),
+          sanitizeErrorMessage: (err) => this.sanitizeErrorMessage(err),
+        })
+      ) {
+        return;
+      }
       const userQuestionMatch =
         TELEGRAM_USER_QUESTION_CALLBACK_PATTERN.exec(data);
       if (userQuestionMatch) {
@@ -498,6 +518,17 @@ export abstract class TelegramChannelConnect extends TelegramChannelPrompts {
       logger.info('Telegram outbound delivery client initialized');
       return;
     }
+
+    this.bot.on('my_chat_member', (ctx) =>
+      handleTelegramGroupMembershipUpdate({
+        ctx,
+        opts: this.opts,
+        assistantName: ASSISTANT_NAME,
+        isApproverAuthorized: (chatId, userId, sourceAgentFolder) =>
+          this.isTelegramApproverAuthorized(chatId, userId, sourceAgentFolder),
+        sanitizeErrorMessage: (err) => this.sanitizeErrorMessage(err),
+      }),
+    );
 
     this.bot.on('message:text', (ctx) =>
       handleTelegramTextMessage({

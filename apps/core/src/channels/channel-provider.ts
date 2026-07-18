@@ -22,6 +22,7 @@ import type { RuntimeSettings } from '../config/settings/runtime-settings.js';
 import type { RuntimeLeasePort } from '../domain/ports/runtime-lease.js';
 import type { RuntimeSecretProvider } from '../domain/ports/runtime-secret-provider.js';
 import type { AgentTodoSink } from '../domain/ports/task-lifecycle.js';
+import type { GroupJoinOnboardingCoordinator } from '../domain/ports/group-join-onboarding.js';
 import type {
   ConversationContextHydrationRequest,
   ConversationContextHydrationResult,
@@ -55,6 +56,7 @@ export interface ChannelOpts {
   runtimeSettings?: () => RuntimeSettings;
   runtimeLease?: RuntimeLeasePort;
   runtimeSecrets?: RuntimeSecretProvider;
+  groupJoinOnboarding?: GroupJoinOnboardingCoordinator;
   isControlApproverAllowed?: (input: {
     providerId: string;
     providerAccountId?: string;

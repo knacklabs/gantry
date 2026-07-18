@@ -557,6 +557,45 @@ describe('Slack channel', () => {
     expect(opts.onMessage).not.toHaveBeenCalled();
   });
 
+  it('rate-limits unregistered Slack conversation drop logs per chat', async () => {
+    let now = 1_000_000;
+    vi.spyOn(Date, 'now').mockImplementation(() => now);
+    const opts = createOpts();
+    const channel = new SlackChannel('xoxb-token', 'xapp-token', opts as any);
+    await channel.connect();
+    const handler = appRef.current.eventHandlers.get('message')?.[0];
+    expect(handler).toBeDefined();
+    const event = {
+      channel: 'C987654321',
+      ts: '1710000000.000100',
+      user: 'U123',
+      text: 'hello',
+    };
+
+    await handler!({ event });
+    await handler!({ event });
+
+    const dropLogs = () =>
+      vi
+        .mocked(logger.info)
+        .mock.calls.filter(
+          ([, message]) =>
+            message === 'Message from unregistered Slack conversation',
+        );
+    expect(dropLogs()).toHaveLength(1);
+    expect(dropLogs()[0]?.[0]).toEqual(
+      expect.objectContaining({
+        provider: 'slack',
+        chatId: 'C987654321',
+      }),
+    );
+
+    now += 60_000;
+    await handler!({ event });
+
+    expect(dropLogs()).toHaveLength(2);
+  });
+
   it('delivers unregistered Slack DMs to the shared persistence policy', async () => {
     const opts = createOpts();
     const channel = new SlackChannel('xoxb-token', 'xapp-token', opts as any);

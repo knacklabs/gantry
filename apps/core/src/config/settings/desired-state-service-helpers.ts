@@ -21,6 +21,7 @@ import {
 import type {
   ConfiguredRoutingBinding,
   SettingsChangeClassification,
+  StoredAgentBinding,
 } from './desired-state-service-types.js';
 import type {
   RuntimeConfiguredAgent,
@@ -177,6 +178,23 @@ export function memorySubjectForConfiguredBinding(input: {
 
 export function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
+}
+
+export function listDbOnlyGroupJids(input: {
+  groups: Record<string, StoredAgentBinding>;
+  chats: Array<{ jid: string; is_group?: number }>;
+  configuredJids: Set<string>;
+}): string[] {
+  return [
+    ...new Set([
+      ...Object.keys(input.groups),
+      ...input.chats
+        .filter((chat) => chat.is_group === 1)
+        .map((chat) => chat.jid),
+    ]),
+  ]
+    .filter((jid) => !input.configuredJids.has(jid))
+    .sort();
 }
 
 export function normalizeUserIds(userIds: string[]): string[] {

@@ -131,7 +131,7 @@ function settingsWithDuplicateCapability(agentName: string) {
 }
 
 describe('importFleetSettingsRevision', () => {
-  it('workstation import can mirror the applied settings into settings revisions', async () => {
+  it('returns revision_created when workstation import appends a revision', async () => {
     capabilityErrors = [];
     const inputSettings = createDefaultRuntimeSettings();
     inputSettings.agent.name = 'Input Agent';
@@ -157,7 +157,7 @@ describe('importFleetSettingsRevision', () => {
       inputSettings,
     );
 
-    expect(outcome).toEqual({ revision: 1 });
+    expect(outcome).toEqual({ status: 'revision_created', revision: 1 });
     expect(repo.rows[0]).toMatchObject({
       revision: 1,
       createdBy: 'test:workstation',
@@ -195,13 +195,31 @@ describe('importFleetSettingsRevision', () => {
       createDefaultRuntimeSettings(),
     );
 
-    expect(outcome).toEqual({});
+    expect(outcome).toEqual({ status: 'applied_no_revision' });
     expect(repo.rows).toHaveLength(0);
     expect(applyRuntimeSettingsDesiredState).toHaveBeenCalled();
     expect(logWarn).toHaveBeenCalledWith(
       { err: repo.appendError },
       'settings revision mirror failed after workstation settings applied',
     );
+  });
+
+  it('returns applied_no_revision without a revision mirror', async () => {
+    capabilityErrors = [];
+    const settings = createDefaultRuntimeSettings();
+    applyRuntimeSettingsDesiredState.mockResolvedValue(settings);
+
+    const outcome = await importWorkstationSettings(
+      {
+        runtimeHome: '/tmp/gantry-import-test',
+        ops: {} as never,
+        repositories: {} as never,
+        appId: 'default' as never,
+      },
+      settings,
+    );
+
+    expect(outcome).toEqual({ status: 'applied_no_revision' });
   });
 
   it('required workstation mirror propagates append failure', async () => {
@@ -231,7 +249,7 @@ describe('importFleetSettingsRevision', () => {
     ).rejects.toThrow('settings revisions unavailable');
   });
 
-  it('skips a mirrored append when the applied settings already match latest', async () => {
+  it('returns no_op when the required mirror already matches latest', async () => {
     capabilityErrors = [];
     const appliedSettings = createDefaultRuntimeSettings();
     applyRuntimeSettingsDesiredState.mockImplementation(
@@ -261,7 +279,37 @@ describe('importFleetSettingsRevision', () => {
       createDefaultRuntimeSettings(),
     );
 
-    expect(outcome).toEqual({});
+    expect(outcome).toEqual({ status: 'no_op' });
+    expect(repo.rows).toHaveLength(1);
+  });
+
+  it('returns applied_no_revision when the optional mirror already matches after apply', async () => {
+    capabilityErrors = [];
+    const appliedSettings = createDefaultRuntimeSettings();
+    applyRuntimeSettingsDesiredState.mockResolvedValue(appliedSettings);
+    const repo = new FakeRevisionRepo();
+    await repo.appendSettingsRevision({
+      appId: 'default',
+      settingsDocument: settingsToRevisionDocument(appliedSettings),
+      minReaderVersion: CURRENT_SETTINGS_READER_VERSION,
+      createdBy: 'seed',
+    });
+
+    const outcome = await importWorkstationSettings(
+      {
+        runtimeHome: '/tmp/gantry-import-test',
+        ops: {} as never,
+        repositories: {} as never,
+        appId: 'default' as never,
+        revisionMirror: {
+          settingsRevisions: repo,
+          createdBy: 'test:workstation',
+        },
+      },
+      appliedSettings,
+    );
+
+    expect(outcome).toEqual({ status: 'applied_no_revision' });
     expect(repo.rows).toHaveLength(1);
   });
 
@@ -979,6 +1027,40 @@ describe('importFleetSettingsRevision', () => {
       restored.conversations.shared_channel.installedAgents['researcher_171.1']
         ?.permissionMode,
     ).toBe('auto');
+  });
+
+  it('serializes a conversation with missing installedAgents as an empty map', () => {
+    const settings = createDefaultRuntimeSettings();
+    settings.agents.main_agent = {
+      name: 'Main Agent',
+      folder: 'main_agent',
+      bindings: {},
+      sources: { skills: [], mcpServers: [], tools: [] },
+      capabilities: [],
+      accessPreset: 'full',
+    };
+    settings.providerAccounts.telegram_main = {
+      agentId: 'main_agent',
+      provider: 'telegram',
+      label: 'Telegram Main',
+      runtimeSecretRefs: { bot_token: 'env:TELEGRAM_BOT_TOKEN' },
+    };
+    settings.conversations.ops = {
+      providerConnection: 'telegram_main',
+      providerAccount: 'telegram_main',
+      externalId: '-1001234',
+      kind: 'channel',
+      displayName: 'Ops',
+      senderPolicy: { allow: '*', mode: 'trigger' },
+      controlApprovers: ['42'],
+    } as never;
+
+    const document = settingsToRevisionDocument(settings);
+
+    expect(
+      (document.conversations as Record<string, Record<string, unknown>>).ops
+        .installed_agents,
+    ).toEqual({});
   });
 
   it('guards settings.yaml revision identity', () => {

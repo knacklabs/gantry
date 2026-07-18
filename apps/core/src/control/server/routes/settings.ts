@@ -225,13 +225,13 @@ async function handleDesiredState(
             parsed,
           );
           revision =
-            outcome.revision ??
-            (
-              await storage.repositories.settingsRevisions.getLatestSettingsRevision(
-                appId,
-              )
-            )?.revision ??
-            0;
+            outcome.status === 'revision_created'
+              ? outcome.revision
+              : ((
+                  await storage.repositories.settingsRevisions.getLatestSettingsRevision(
+                    appId,
+                  )
+                )?.revision ?? 0);
         } catch (err) {
           // A concurrent winner can make the in-memory previousSettings stale
           // before reload completes — retryable for unguarded writers, same
