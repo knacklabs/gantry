@@ -18,8 +18,7 @@ export { durablePermissionRequestSnapshot } from './pending-interaction-permissi
 export interface DurableInteractionOperations {
   record: typeof recordPendingInteractionRequested;
   resolve: typeof resolvePendingInteractionRecord;
-  cancelPendingQuestionInteractionIfRunLeaseInactive:
-    typeof cancelPendingQuestionInteractionIfRunLeaseInactive;
+  cancelPendingQuestionInteractionIfRunLeaseInactive: typeof cancelPendingQuestionInteractionIfRunLeaseInactive;
 }
 
 const defaultOperations: DurableInteractionOperations = {

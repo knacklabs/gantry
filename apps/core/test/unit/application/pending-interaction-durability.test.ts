@@ -2771,8 +2771,7 @@ describe('pending interaction durability', () => {
           row?.status === 'pending' &&
           row.runId === request.runId &&
           row.payload.runLeaseToken === request.runLeaseToken &&
-          row.payload.runLeaseFencingVersion ===
-            request.runLeaseFencingVersion;
+          row.payload.runLeaseFencingVersion === request.runLeaseFencingVersion;
         if (ownedByActiveLease || row?.status !== 'pending') return false;
         row = { ...row, status: 'cancelled' };
         return true;
