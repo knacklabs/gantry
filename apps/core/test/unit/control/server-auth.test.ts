@@ -1306,6 +1306,93 @@ describe('control server runtime hardening', () => {
     }
   });
 
+  it('does not preflight unchanged memory models for the UI defaults patch', async () => {
+    const runtimeHome = '/tmp/gantry-control-test-home';
+    fs.rmSync(runtimeHome, { recursive: true, force: true });
+    const settings = loadRuntimeSettings(runtimeHome);
+    settings.agent.defaultModel = 'sonnet';
+    settings.memory.llm.models.extractor = 'haiku';
+    settings.memory.llm.models.dreaming = 'sonnet';
+    settings.memory.llm.models.consolidation = 'sonnet';
+    saveRuntimeSettings(runtimeHome, settings);
+    const port = await reservePort();
+    process.env.GANTRY_CONTROL_PORT = String(port);
+    process.env.GANTRY_CONTROL_API_KEYS_JSON = JSON.stringify([
+      {
+        kid: 'k',
+        token: 'admin-key',
+        scopes: ['sessions:read', 'agents:admin'],
+        appId: 'app-one',
+      },
+    ]);
+    mockedPreflightModelProvider.mockImplementation(async ({ providerId }) =>
+      providerId === 'anthropic'
+        ? {
+            ok: false,
+            status: 'fail',
+            message: 'Anthropic Model Access credential is missing.',
+          }
+        : {
+            ok: true,
+            status: 'pass',
+            message: 'Bedrock Model Access credential is available.',
+          },
+    );
+
+    const handle = startControlServer({
+      app: {
+        registerGroup: vi.fn(),
+        queue: { enqueueMessageCheck: vi.fn() },
+      } as any,
+    });
+    try {
+      const response = await requestWithRetry(
+        `http://127.0.0.1:${port}/v1/models/defaults`,
+        'admin-key',
+        {
+          method: 'PATCH',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            chat: 'bedrock-kimi',
+            oneTime: null,
+            recurring: null,
+          }),
+        },
+      );
+
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toMatchObject({
+        chat: { effectiveAlias: 'bedrock-kimi' },
+        jobs: {
+          oneTime: { effectiveAlias: 'bedrock-kimi', inherited: true },
+          recurring: { effectiveAlias: 'bedrock-kimi', inherited: true },
+        },
+        memory: {
+          extractor: { effectiveAlias: 'haiku' },
+          dreaming: { effectiveAlias: 'sonnet' },
+          consolidation: { effectiveAlias: 'sonnet' },
+        },
+      });
+      expect(
+        mockedPreflightModelProvider.mock.calls.map(
+          ([input]) => input.providerId,
+        ),
+      ).toEqual(['bedrock']);
+
+      const after = loadRuntimeSettings(runtimeHome);
+      expect(after.agent.defaultModel).toBe('bedrock-kimi');
+      expect(after.agent.oneTimeJobDefaultModel).toBe('');
+      expect(after.agent.recurringJobDefaultModel).toBe('');
+      expect(after.memory.llm.models).toEqual({
+        extractor: 'haiku',
+        dreaming: 'sonnet',
+        consolidation: 'sonnet',
+      });
+    } finally {
+      await handle.close();
+    }
+  });
+
   it('previews chat model selection with session overrides', async () => {
     const runtimeHome = '/tmp/gantry-control-test-home';
     fs.rmSync(runtimeHome, { recursive: true, force: true });
