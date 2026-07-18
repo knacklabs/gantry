@@ -168,6 +168,14 @@ function createRunnerFixture(): {
     path.join(sharedDir, 'egress-policy.ts'),
   );
   fs.copyFileSync(
+    path.resolve('apps/core/src/shared/egress-target-resolution.ts'),
+    path.join(sharedDir, 'egress-target-resolution.ts'),
+  );
+  fs.copyFileSync(
+    path.resolve('apps/core/src/shared/hostname-lookup-deadline.ts'),
+    path.join(sharedDir, 'hostname-lookup-deadline.ts'),
+  );
+  fs.copyFileSync(
     path.resolve('apps/core/src/runner/runtime-signal-pump.ts'),
     path.join(runnerDir, 'runtime-signal-pump.ts'),
   );
@@ -949,6 +957,7 @@ async function runRunner(
         TEST_IPC_RESPONSE_SIGNING_KEY: fixture.responseSigningKey,
         GANTRY_WORKSPACE_GROUP_DIR: path.join(fixture.root, 'group'),
         GANTRY_WORKSPACE_EXTRA_DIR: path.join(fixture.root, 'extra'),
+        GANTRY_EGRESS_PROXY_URL: 'http://127.0.0.1:18080/',
         TEST_SDK_RECORD_PATH: fixture.recordPath,
         ...(typeof input.jobId === 'string'
           ? { GANTRY_JOB_ID: input.jobId }
@@ -1109,6 +1118,14 @@ describe('agent-runner IPC lifecycle', () => {
       expect(sdkEnv.GANTRY_MCP_SERVERS_JSON).toBeUndefined();
       expect(sdkEnv.GANTRY_MCP_ALLOWED_TOOLS_JSON).toBeUndefined();
       expect(sdkEnv.ENABLE_TOOL_SEARCH).toBe('false');
+      expect(call?.sandbox).toEqual(
+        expect.objectContaining({
+          network: expect.objectContaining({
+            allowLocalBinding: true,
+            httpProxyPort: 18080,
+          }),
+        }),
+      );
       const startupDiagnostics = readRunnerOutputs(result.stdout).flatMap(
         (output) =>
           Array.isArray(output.runtimeEvents) ? output.runtimeEvents : [],
@@ -1165,6 +1182,25 @@ describe('agent-runner IPC lifecycle', () => {
       );
     },
     SLOW_RUNNER_IPC_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    'fails closed when direct mode receives a non-loopback SDK sandbox proxy',
+    async () => {
+      const fixture = createRunnerFixture();
+
+      const result = await runRunner(fixture, baseInput(), {
+        GANTRY_EGRESS_PROXY_URL: 'http://gateway.example:18080/',
+        TEST_EXIT_AFTER_QUERY: '1',
+      });
+
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain(
+        'GANTRY_EGRESS_PROXY_URL must identify the run-scoped loopback HTTP egress gateway.',
+      );
+      expect(fs.existsSync(fixture.recordPath)).toBe(false);
+    },
+    RUNNER_IPC_TEST_TIMEOUT_MS,
   );
 
   it(

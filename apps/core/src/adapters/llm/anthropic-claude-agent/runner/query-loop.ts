@@ -26,6 +26,7 @@ import {
   normalizeFilesystemSandboxPaths,
   readLocalCliCredentialDirectories,
   readProtectedFilesystemSandboxPaths,
+  requireSdkSandboxEgressProxyPort,
 } from './filesystem-sandbox.js';
 import { createSafetyPreToolUseHook } from './protected-capability-hook.js';
 import {
@@ -287,6 +288,9 @@ export async function runQuery(
       : buildSdkFilesystemSandbox(protectedFilesystemDenyWritePaths, {
           denyReadPaths: protectedFilesystemDenyReadPaths,
           denyWritePaths: protectedFilesystemDenyWritePaths,
+          httpProxyPort: requireSdkSandboxEgressProxyPort(
+            process.env.GANTRY_EGRESS_PROXY_URL,
+          ),
         });
   const workspaceFolder = agentInput.workspaceFolder;
   const enabledSdkSkills = readClaudeSdkSkillNamesFromEnv();

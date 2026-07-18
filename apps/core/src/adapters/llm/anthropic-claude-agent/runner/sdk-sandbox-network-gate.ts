@@ -4,7 +4,6 @@ import {
   normalizeEgressAuthorityHost,
   resolvePublicEgressAddress,
 } from '../../../../shared/egress-target-resolution.js';
-import { isIpAddress } from '../../../../shared/network-host-declaration.js';
 
 export async function decideSdkSandboxNetworkAccess(input: {
   toolName: string;
@@ -31,19 +30,9 @@ export async function decideSdkSandboxNetworkAccess(input: {
       interrupt: false,
     };
   }
-  const isLoopbackHostname =
-    host === 'localhost' || host?.endsWith('.localhost') === true;
-  // In direct mode the SDK sandbox asks only for a boolean network decision,
-  // then its proxy reconnects with the original hostname. Unlike
-  // sandbox_runtime's Gantry egress gateway, that path cannot bind approval to
-  // the address checked here, so hostname requests must fail closed.
-  if (host && !isIpAddress(host) && !isLoopbackHostname) {
-    return {
-      behavior: 'deny',
-      message: `Direct-mode SDK sandbox network access requires an IP-literal host; hostname ${host} cannot be safely pinned after DNS resolution.`,
-      interrupt: false,
-    };
-  }
+  // This lookup is a cheap pre-filter. Direct-mode SDK command traffic uses
+  // the Gantry egress gateway as its custom sandbox proxy; the gateway repeats
+  // validation and pins the resolved address when it opens the connection.
   const resolution = host
     ? await resolvePublicEgressAddress(host)
     : { ok: false as const, host: authority.trim() };

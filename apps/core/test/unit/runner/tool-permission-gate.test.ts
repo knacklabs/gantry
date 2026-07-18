@@ -89,8 +89,8 @@ describe('createCanUseToolCallback', () => {
     vi.restoreAllMocks();
   });
 
-  it('allows direct-mode SDK network access to a public IP literal and preserves its port', async () => {
-    const host = '1.1.1.1:443';
+  it('allows direct-mode SDK network access to a public host through the egress gateway', async () => {
+    const host = 'registry.npmjs.org';
     const canUseTool = makeCallback({
       agentInput: {
         runMode: 'normal',
@@ -123,7 +123,10 @@ describe('createCanUseToolCallback', () => {
       updatedInput: { host },
     });
     expect(permissionMock.requestPermissionApproval).not.toHaveBeenCalled();
-    expect(dns.lookup).not.toHaveBeenCalled();
+    expect(dns.lookup).toHaveBeenCalledWith(host, {
+      all: true,
+      verbatim: true,
+    });
   });
 
   it('denies direct-mode SDK network access to localhost by name', async () => {
@@ -141,20 +144,65 @@ describe('createCanUseToolCallback', () => {
     expect(dns.lookup).not.toHaveBeenCalled();
   });
 
-  it('denies direct-mode SDK hostname access without a DNS preflight', async () => {
+  it.each(['127.0.0.1', '10.20.30.40', '169.254.169.254'])(
+    'denies direct-mode SDK network access when DNS resolves to %s',
+    async (address) => {
+      vi.mocked(dns.lookup).mockResolvedValueOnce([{ address, family: 4 }]);
+
+      const network = await makeCallback()(
+        'SandboxNetworkAccess',
+        { host: 'private-target.example' },
+        makePermissionOptions({
+          toolUseID: 'toolu_network_resolved_private',
+        }) as never,
+      );
+
+      expect(network).toEqual({
+        behavior: 'deny',
+        message: `Host private-target.example resolved to non-public address ${address}.`,
+        interrupt: false,
+      });
+    },
+  );
+
+  it('strips an authority port before resolving and denies a private destination', async () => {
+    vi.mocked(dns.lookup).mockResolvedValueOnce([
+      { address: '10.20.30.40', family: 4 },
+    ]);
+
     const network = await makeCallback()(
       'SandboxNetworkAccess',
-      { host: 'registry.npmjs.org:443' },
-      makePermissionOptions({ toolUseID: 'toolu_network_hostname' }) as never,
+      { host: 'private-target.example:8443' },
+      makePermissionOptions({ toolUseID: 'toolu_network_authority' }) as never,
     );
 
     expect(network).toEqual({
       behavior: 'deny',
       message:
-        'Direct-mode SDK sandbox network access requires an IP-literal host; hostname registry.npmjs.org cannot be safely pinned after DNS resolution.',
+        'Host private-target.example resolved to non-public address 10.20.30.40.',
       interrupt: false,
     });
-    expect(dns.lookup).not.toHaveBeenCalled();
+    expect(dns.lookup).toHaveBeenCalledWith('private-target.example', {
+      all: true,
+      verbatim: true,
+    });
+  });
+
+  it('denies direct-mode SDK network access when DNS resolution fails', async () => {
+    vi.mocked(dns.lookup).mockRejectedValueOnce(new Error('lookup failed'));
+
+    const network = await makeCallback()(
+      'SandboxNetworkAccess',
+      { host: 'unresolvable.example' },
+      makePermissionOptions({ toolUseID: 'toolu_network_unresolved' }) as never,
+    );
+
+    expect(network).toEqual({
+      behavior: 'deny',
+      message:
+        'SDK sandbox network access could not safely resolve unresolvable.example.',
+      interrupt: false,
+    });
   });
 
   it('denies direct-mode SDK network access when the target cannot be resolved safely', async () => {
