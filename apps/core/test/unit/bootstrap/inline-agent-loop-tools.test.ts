@@ -408,10 +408,7 @@ describe('inline core tool bootstrap', () => {
       name.startsWith('delegate_to_'),
     );
 
-    vi.stubEnv(
-      'SECRET_ENCRYPTION_KEY',
-      Buffer.alloc(32, 1).toString('base64'),
-    );
+    vi.stubEnv('SECRET_ENCRYPTION_KEY', Buffer.alloc(32, 1).toString('base64'));
     const result = await tools.execute(callableTool!.name, {
       objective: 'Review the change',
       syncWaitTimeoutMs: 1,
