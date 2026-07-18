@@ -142,9 +142,10 @@ export async function handleTelegramGroupMembershipUpdate(input: {
       },
       'Telegram group join onboarding prompt delivery failed',
     );
-    // No prompt reached the approver, so no callback can ever settle this row.
-    // Dismiss it so the state matches reality; an approver re-add re-prompts.
-    await input.opts.groupJoinOnboarding.dismiss(record.id).catch(() => {});
+    // A rejected send does not prove non-delivery (Telegram can accept the
+    // message and the response still fail), so the row stays prompted: a
+    // delivered prompt keeps working, an undelivered one is reset by the next
+    // approver re-add.
   }
 }
 
@@ -352,9 +353,13 @@ async function firstAuthorizedControlDm(
 ): Promise<{ jid: string; agentFolder: string; approver: string } | undefined> {
   for (const context of contexts) {
     if (context.kind !== 'dm' && context.kind !== 'direct') continue;
+    const participant = context.jid.replace(/^tg:/, '');
     for (const rawApprover of context.controlApprovers) {
       const approver = rawApprover.trim();
       if (!approver) continue;
+      // A Telegram DM belongs to one user - only prompt the approver in
+      // their OWN DM, or the buttons land with someone who cannot answer.
+      if (approver !== participant) continue;
       if (
         await isAuthorized(
           context.jid.replace(/^tg:/, ''),

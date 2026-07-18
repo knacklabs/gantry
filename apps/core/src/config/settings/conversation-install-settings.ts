@@ -18,9 +18,7 @@ export function applyConversationInstallToSettings(input: {
     providerAccountId,
   );
   const existing = settings.conversations[conversationKey];
-  const externalId =
-    conversation.externalRef?.value ||
-    String(conversation.id).replace(/^conversation:/, '');
+  const externalId = conversationExternalId(conversation, providerAccountId);
   const controlApprovers = input.controlApprovers.length
     ? [...new Set(input.controlApprovers.map((value) => value.trim()))].filter(
         Boolean,
@@ -52,14 +50,26 @@ export function applyConversationInstallToSettings(input: {
   return conversationKey;
 }
 
+function conversationExternalId(
+  conversation: Pick<Conversation, 'id' | 'externalRef'>,
+  providerAccountId: string,
+): string {
+  if (conversation.externalRef?.value) return conversation.externalRef.value;
+  // Account-qualified ids (conversation:<account>:<jid>) must fall back to
+  // the provider jid, not '<account>:<jid>'.
+  const bare = String(conversation.id).replace(/^conversation:/, '');
+  const accountPrefix = `${providerAccountId}:`;
+  return bare.startsWith(accountPrefix)
+    ? bare.slice(accountPrefix.length)
+    : bare;
+}
+
 function configuredConversationKey(
   settings: Pick<RuntimeSettings, 'conversations'>,
   conversation: Pick<Conversation, 'id' | 'externalRef'>,
   providerAccountId: string,
 ): string {
-  const externalId =
-    conversation.externalRef?.value ||
-    String(conversation.id).replace(/^conversation:/, '');
+  const externalId = conversationExternalId(conversation, providerAccountId);
   const existing = Object.entries(settings.conversations).find(
     ([, configured]) =>
       configured.externalId === externalId &&
