@@ -18,6 +18,7 @@ import {
   formatMemoryToolResponse,
   formatMemoryWriteResponse,
 } from '@core/runner/mcp/formatting.js';
+import { DELEGATED_TASK_CONTEXT_RESULT_LIMIT } from '@core/shared/delegated-task-result-policy.js';
 
 function taskBackend(): CoreTaskLifecycleBackend {
   return {
@@ -680,8 +681,8 @@ describe('core tool registry', () => {
     );
   });
 
-  it('returns the full delegated result within the sync-wait budget without changing execution timeout', async () => {
-    const fullResult = 'specialist result '.repeat(100);
+  it('caps the inline delegated result and points to lossless task_get retrieval', async () => {
+    const fullResult = `${'specialist result '.repeat(400)}TAIL-SENTINEL`;
     const completion = {
       wait: vi.fn(async () => ({
         taskId: 'task-inline',
@@ -721,22 +722,64 @@ describe('core tool registry', () => {
       runDelegatedAgent,
     });
 
-    await expect(
-      backend.delegate_task({
-        objective: 'Investigate',
-        timeoutMs: 123_000,
-        syncWaitTimeoutMs: 25,
-      }),
-    ).resolves.toEqual({
+    const result = await backend.delegate_task({
+      objective: 'Investigate',
+      timeoutMs: 123_000,
+      syncWaitTimeoutMs: 25,
+    });
+
+    expect(result).toMatchObject({
       ok: true,
-      message: fullResult,
       data: { taskId: 'task-inline', status: 'completed' },
     });
-    expect(fullResult.length).toBeGreaterThan(1_000);
+    expect(result.message).toHaveLength(DELEGATED_TASK_CONTEXT_RESULT_LIMIT);
+    expect(result.message).toContain('Use task_get with taskId task-inline');
+    expect(result.message).not.toContain('TAIL-SENTINEL');
     expect(completion.wait).toHaveBeenCalledWith(25);
     expect(runDelegatedAgent).toHaveBeenCalledWith(
       expect.objectContaining({ timeoutMs: 123_000 }),
     );
+  });
+
+  it('does not arm an async follow-up when the delegated result returns inline', async () => {
+    const markDelegatedTaskAsyncFallback = vi.fn(async () => null);
+    const backend = createCoreTaskLifecycleBackend({
+      service: {
+        getScoped: vi.fn(),
+        list: vi.fn(),
+        cancel: vi.fn(),
+        startDelegatedAgent: vi.fn(async () => ({
+          ok: true as const,
+          task: { id: 'task-inline', summary: 'Investigate' },
+          completion: {
+            wait: vi.fn(async () => ({
+              taskId: 'task-inline',
+              status: 'completed' as const,
+              result: 'done inline',
+            })),
+          },
+        })),
+        markDelegatedTaskAsyncFallback,
+        message: vi.fn(),
+      } as never,
+      owner: {
+        appId: 'default',
+        agentId: 'agent-1',
+        conversationId: 'conversation:test',
+      },
+      authorityToolName: 'AgentDelegation',
+      enableDelegatedAsyncFollowUp: true,
+      workspaceFolder: 'main_agent',
+      runDelegatedAgent: vi.fn(),
+    });
+
+    await expect(
+      backend.delegate_task({
+        objective: 'Investigate',
+        syncWaitTimeoutMs: 25,
+      }),
+    ).resolves.toMatchObject({ ok: true, message: 'done inline' });
+    expect(markDelegatedTaskAsyncFallback).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -790,6 +833,7 @@ describe('core tool registry', () => {
 
   it('falls back to the durable queued task when the sync-wait budget expires', async () => {
     const completion = { wait: vi.fn(async () => null) };
+    const markDelegatedTaskAsyncFallback = vi.fn(async () => null);
     const startDelegatedAgent = vi.fn(async () => ({
       ok: true as const,
       task: {
@@ -805,6 +849,7 @@ describe('core tool registry', () => {
         list: vi.fn(),
         cancel: vi.fn(),
         startDelegatedAgent,
+        markDelegatedTaskAsyncFallback,
         message: vi.fn(),
       } as never,
       owner: {
@@ -813,6 +858,8 @@ describe('core tool registry', () => {
         conversationId: 'conversation:test',
       },
       workspaceFolder: 'main_agent',
+      authorityToolName: 'AgentDelegation',
+      enableDelegatedAsyncFollowUp: true,
       runDelegatedAgent: vi.fn(),
     });
 
@@ -831,6 +878,12 @@ describe('core tool registry', () => {
       }),
     });
     expect(completion.wait).toHaveBeenCalledWith(5);
+    expect(markDelegatedTaskAsyncFallback).toHaveBeenCalledWith({
+      appId: 'default',
+      agentId: 'agent-1',
+      conversationId: 'conversation:test',
+      taskId: 'task-running',
+    });
     expect(startDelegatedAgent).toHaveBeenCalledWith(
       expect.objectContaining({ objective: 'Investigate' }),
     );

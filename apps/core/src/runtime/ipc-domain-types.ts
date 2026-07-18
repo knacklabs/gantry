@@ -88,7 +88,7 @@ export interface IpcDeps {
     options?: { providerAccountId?: string },
   ) => Promise<boolean>;
   mcpHostnameLookup?: HostnameLookup;
-  opsRepository: RuntimeJobRepository;
+  opsRepository: RuntimeJobRepository & RuntimeMessageRepository;
   getToolRepository?: () => ToolCatalogRepository | undefined;
   getAgentRepository?: () => AgentRepository | undefined;
   getSkillRepository?: () => SkillCatalogRepository | undefined;

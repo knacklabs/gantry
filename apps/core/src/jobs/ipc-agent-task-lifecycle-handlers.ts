@@ -129,6 +129,7 @@ function taskService(context: TaskContext): AsyncCommandTaskService | null {
         }),
     },
     {
+      completionMessageRepository: context.deps.opsRepository,
       prepareRun: async ({ task, allowedNetworkHosts }) => {
         const gateway = await ensureEgressGateway({
           key: `${task.appId}:${task.agentId}:${task.id}`,

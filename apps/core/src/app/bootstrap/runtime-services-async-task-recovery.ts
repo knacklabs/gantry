@@ -32,7 +32,10 @@ import {
 import { McpToolProxy } from '../../application/mcp/mcp-tool-proxy.js';
 import { resolveMcpCredentialEnvForAgent } from '../../application/capability-secrets/mcp-secret-projection.js';
 import type { AsyncTaskRecord } from '../../domain/ports/async-tasks.js';
-import type { RuntimeAgentSessionRepository } from '../../domain/repositories/ops-repo.js';
+import type {
+  RuntimeAgentSessionRepository,
+  RuntimeMessageRepository,
+} from '../../domain/repositories/ops-repo.js';
 import { agentIdForFolder } from '../../domain/agent/agent-folder-id.js';
 import { resolveConversationRoute } from './runtime-app-routes.js';
 
@@ -58,7 +61,8 @@ interface AsyncTaskRecoveryDeps extends Partial<
   >
 > {
   logger: Pick<Logger, 'warn'>;
-  opsRepository?: RuntimeAgentSessionRepository;
+  opsRepository?: RuntimeAgentSessionRepository &
+    Pick<RuntimeMessageRepository, 'storeMessageWithLiveAdmission'>;
 }
 
 export async function recoverStaleAsyncCommandTasks(
@@ -90,6 +94,7 @@ export async function recoverStaleAsyncCommandTasks(
       },
     },
     {
+      completionMessageRepository: deps.opsRepository,
       createRecoveredDelegatedAgentRun: createRecoveredDelegatedAgentRun(deps),
       prepareRun: async ({ task, allowedNetworkHosts }) => {
         const gateway = await ensureEgressGateway({

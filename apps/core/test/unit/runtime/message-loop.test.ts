@@ -1160,6 +1160,43 @@ describe('thread queue routing', () => {
     expect(saveState).toHaveBeenCalledOnce();
   });
 
+  it('admits a trusted callable follow-up in a trigger-required conversation', async () => {
+    mockGetMessagesSince.mockReturnValueOnce([
+      {
+        ...makePendingMessage(1),
+        sender: 'gantry:callable-agent',
+        content:
+          'Callable agent task completed after being queued.\nTask ID: task-1\nResult:\ndone',
+      },
+    ]);
+    const deps = makeDeps({
+      getConversationRoutes: () => ({
+        'group@g.us': {
+          name: 'Team',
+          folder: 'team',
+          trigger: '@Andy',
+          added_at: '2024-01-01T00:00:00.000Z',
+          requiresTrigger: true,
+        },
+      }),
+    });
+
+    await expect(
+      processLiveAdmissionWorkItem(
+        deps,
+        makeAdmissionItem({
+          triggerDecision: {
+            source: 'callable_agent_follow_up',
+            requiresTrigger: false,
+            taskId: 'task-1',
+          },
+        }),
+      ),
+    ).resolves.toBe('completed');
+
+    expect(deps.sentTo).toEqual(['group@g.us']);
+  });
+
   it('ignores untagged messages in a new thread when the parent conversation requires a trigger', async () => {
     const message = {
       ...makePendingMessage(1),

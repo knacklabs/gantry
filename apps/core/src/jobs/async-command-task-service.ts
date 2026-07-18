@@ -6,6 +6,7 @@ import {
   type AsyncTaskKind,
   type AsyncTaskRecord,
   type AsyncTaskRepository,
+  type AsyncTaskStatus,
   type PublicAsyncTaskDto,
   isAsyncTaskTerminal,
   toPublicAsyncTaskDto,
@@ -56,6 +57,13 @@ import { asyncCommandPrivateCorrelation } from './async-task-execution-payload.j
 import { recoverQueuedAsyncTasks } from './async-command-queue-recovery.js';
 import { createAdmittedAsyncTask } from './async-task-admission.js';
 import { evaluateAsyncCommandStartPolicy } from './async-command-start-policy.js';
+import {
+  deliverPendingCallableAgentFollowUp,
+  hasPendingCallableAgentFollowUp,
+  isCallableAgentDelegatedTask,
+  markCallableAgentAsyncFallback,
+} from './async-delegated-agent-follow-up.js';
+import { DELEGATED_TASK_LIST_PREVIEW_LIMIT } from '../shared/delegated-task-result-policy.js';
 
 const MAX_ACTIVE_ASYNC_COMMANDS_PER_APP = 4;
 const MAX_ACTIVE_ASYNC_COMMANDS_PER_AGENT = 2;
@@ -169,6 +177,9 @@ export class AsyncCommandTaskService {
   private readonly createRecoveredDelegatedAgentRun:
     | AsyncCommandTaskServiceOptions['createRecoveredDelegatedAgentRun']
     | undefined;
+  private readonly completionMessageRepository:
+    | AsyncCommandTaskServiceOptions['completionMessageRepository']
+    | undefined;
 
   constructor(
     private readonly repository: AsyncTaskRepository,
@@ -180,6 +191,7 @@ export class AsyncCommandTaskService {
     this.prepareRun = options.prepareRun ?? (async () => undefined);
     this.createRecoveredDelegatedAgentRun =
       options.createRecoveredDelegatedAgentRun;
+    this.completionMessageRepository = options.completionMessageRepository;
   }
 
   async start(
@@ -267,14 +279,52 @@ export class AsyncCommandTaskService {
         return result.ok ? result.cancelled : 0;
       },
       waitForTaskChange: (_parent, options) => this.taskChanges.wait(options),
+      transitionTask: (transition) => this.transitionTask(transition),
     });
   }
   private async transitionTask(
     input: Parameters<AsyncTaskRepository['transitionTask']>[0],
   ): ReturnType<AsyncTaskRepository['transitionTask']> {
     const updated = await this.repository.transitionTask(input);
-    if (updated) this.taskChanges.notify();
+    if (updated) {
+      this.taskChanges.notify();
+      if (
+        updated.kind === 'delegated_agent' &&
+        isAsyncTaskTerminal(updated.status)
+      ) {
+        this.taskChanges.notifyCompletion(delegatedCompletion(updated));
+        await deliverPendingCallableAgentFollowUp({
+          task: updated,
+          repository: this.repository,
+          messageRepository: this.completionMessageRepository,
+        }).catch(() => false);
+      }
+    }
     return updated;
+  }
+  async markDelegatedTaskAsyncFallback(input: {
+    taskId: string;
+    appId: string;
+    agentId: string;
+    conversationId?: string | null;
+    providerAccountId?: string | null;
+    threadId?: string | null;
+  }) {
+    const task = await this.repository.getTask(input.taskId);
+    if (!task || !taskInScope(task, input)) {
+      throw new Error('Delegated task not found before async fallback.');
+    }
+    if (!isCallableAgentDelegatedTask(task)) {
+      throw new Error('Async follow-up is only available for callable agents.');
+    }
+    const marked = await markCallableAgentAsyncFallback({
+      repository: this.repository,
+      task,
+    });
+    if (!isAsyncTaskTerminal(marked.status)) return null;
+    return hasPendingCallableAgentFollowUp(marked)
+      ? null
+      : delegatedCompletion(marked);
   }
   async get(taskId: string): Promise<PublicAsyncTaskDto | null> {
     const task = await this.repository.getTask(taskId);
@@ -307,7 +357,18 @@ export class AsyncCommandTaskService {
     const tasks = await this.repository.listTasks(input);
     return tasks
       .filter((task) => isAgentFacingTask(task) && taskInScope(task, input))
-      .map(toPublicAsyncTaskDto);
+      .map((task) => {
+        const dto = toPublicAsyncTaskDto(task);
+        return task.kind === 'delegated_agent' && dto.outputSummary
+          ? {
+              ...dto,
+              outputSummary: truncate(
+                dto.outputSummary,
+                DELEGATED_TASK_LIST_PREVIEW_LIMIT,
+              ),
+            }
+          : dto;
+      });
   }
   async message(input: {
     taskId: string;
@@ -333,6 +394,7 @@ export class AsyncCommandTaskService {
     limit?: number;
     excludeKinds?: AsyncTaskKind[];
   }): Promise<number> {
+    await this.recoverPendingDelegatedAgentFollowUps(input);
     const staleBefore =
       Date.now() - (input.staleAfterMs ?? ASYNC_TASK_STALE_AFTER_MS);
     const tasks = await this.repository.listTasks({
@@ -403,6 +465,7 @@ export class AsyncCommandTaskService {
         return result.ok ? result.cancelled : 0;
       },
       waitForTaskChange: (_parent, options) => this.taskChanges.wait(options),
+      transitionTask: (transition) => this.transitionTask(transition),
       ...input,
     });
     if (recovered > 0) await this.drainQueuedTasks();
@@ -452,7 +515,11 @@ export class AsyncCommandTaskService {
       }
       if (task.status === 'queued') {
         this.pending.delete(taskId);
-        return cancelQueuedTask({ repository: this.repository, task });
+        return cancelQueuedTask({
+          repository: this.repository,
+          task,
+          transitionTask: (transition) => this.transitionTask(transition),
+        });
       }
       const handle = readPersistedProcessHandle(task.privateCorrelationJson);
       if (handle) {
@@ -693,8 +760,60 @@ export class AsyncCommandTaskService {
         this.execute(task, command, input, controller, launchControl),
     });
   }
+
+  async recoverPendingDelegatedAgentFollowUps(input: {
+    appId: string;
+    agentId?: string;
+    limit?: number;
+  }): Promise<number> {
+    if (!this.completionMessageRepository) return 0;
+    const tasks = await this.repository.listTasks({
+      ...input,
+      kind: 'delegated_agent',
+      statuses: ['completed', 'failed', 'cancelled', 'timed_out'],
+      order: 'newest_first',
+      limit: input.limit ?? 100,
+    });
+    let delivered = 0;
+    for (const task of tasks) {
+      if (
+        await deliverPendingCallableAgentFollowUp({
+          task,
+          repository: this.repository,
+          messageRepository: this.completionMessageRepository,
+        }).catch(() => false)
+      ) {
+        delivered += 1;
+      }
+    }
+    return delivered;
+  }
 }
 
 function isAgentFacingTask(task: AsyncTaskRecord): boolean {
   return task.kind !== 'session_compaction';
+}
+
+function delegatedCompletion(task: AsyncTaskRecord): {
+  taskId: string;
+  status: Extract<
+    AsyncTaskStatus,
+    'completed' | 'cancelled' | 'timed_out' | 'failed'
+  >;
+  result: string;
+  error?: string;
+} {
+  const status = task.status;
+  if (!isAsyncTaskTerminal(status)) {
+    throw new Error(`Delegated task ${task.id} is not terminal.`);
+  }
+  return {
+    taskId: task.id,
+    status: status as Extract<
+      AsyncTaskStatus,
+      'completed' | 'cancelled' | 'timed_out' | 'failed'
+    >,
+    result: task.outputSummary || `delegated task ${status}`,
+    ...(task.errorSummary ? { error: task.errorSummary } : {}),
+  };
 }

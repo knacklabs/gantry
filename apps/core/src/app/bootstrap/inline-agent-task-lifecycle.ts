@@ -10,7 +10,10 @@ import type {
   AsyncTaskRepository,
 } from '../../domain/ports/async-tasks.js';
 import type { ConversationRoute } from '../../domain/types.js';
-import type { RuntimeAgentSessionRepository } from '../../domain/repositories/ops-repo.js';
+import type {
+  RuntimeAgentSessionRepository,
+  RuntimeMessageRepository,
+} from '../../domain/repositories/ops-repo.js';
 import type { ExecutionProviderId } from '../../domain/sessions/sessions.js';
 import { AsyncCommandTaskService } from '../../jobs/async-command-task-service.js';
 import { nowIso } from '../../shared/time/datetime.js';
@@ -39,7 +42,8 @@ const activeProcesses = new Map<
 type DelegatedRunRepository = Pick<
   RuntimeAgentSessionRepository,
   'getAgentTurnContext' | 'createSessionAgentRun' | 'completeSessionAgentRun'
->;
+> &
+  Pick<RuntimeMessageRepository, 'storeMessageWithLiveAdmission'>;
 
 type DelegatedRunAccess = Pick<
   AgentInput,
@@ -66,7 +70,7 @@ export function createInlineAgentTaskLifecycle(input: {
 }): CoreTaskLifecycleBackend | undefined {
   const run = input.laneInput.input;
   if (!input.repository || !run.appId || !run.agentId) return undefined;
-  const service = taskService(input.repository);
+  const service = taskService(input.repository, input.runRepository);
   const owner = {
     appId: run.appId,
     agentId: run.agentId,
@@ -78,6 +82,9 @@ export function createInlineAgentTaskLifecycle(input: {
     service,
     owner,
     authorityToolName: input.authorityToolName,
+    enableDelegatedAsyncFollowUp: Boolean(
+      input.authorityToolName === 'AgentDelegation' && !run.jobId,
+    ),
     parentTaskId: run.parentTaskId,
     parentRunId: run.jobId
       ? null
@@ -242,14 +249,24 @@ async function completeDelegatedRun(
   await repository?.completeSessionAgentRun?.({ runId, ...result });
 }
 
-function taskService(repository: AsyncTaskRepository): AsyncCommandTaskService {
+function taskService(
+  repository: AsyncTaskRepository,
+  completionMessageRepository?: Pick<
+    RuntimeMessageRepository,
+    'storeMessageWithLiveAdmission'
+  >,
+): AsyncCommandTaskService {
   const existing = services.get(repository);
   if (existing) return existing;
-  const service = new AsyncCommandTaskService(repository, {
-    run: async () => {
-      throw new Error('Inline core tools do not expose async commands.');
+  const service = new AsyncCommandTaskService(
+    repository,
+    {
+      run: async () => {
+        throw new Error('Inline core tools do not expose async commands.');
+      },
     },
-  });
+    { completionMessageRepository },
+  );
   services.set(repository, service);
   return service;
 }

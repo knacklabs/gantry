@@ -6,6 +6,7 @@ specialists = configured subagents. Static persona-as-tool, not agent-to-agent
 free chat.
 
 ## User decisions (grilling, 2026-07-17) — BINDING
+
 1. **Result flow = HYBRID.** A synthetic agent-tool call blocks up to a timeout
    and returns the specialist's result inline; if the run exceeds the timeout it
    falls back to a queued async task id the orchestrator can check later.
@@ -18,6 +19,7 @@ free chat.
    when the result returns. Not the full sub-agent transcript.
 
 ## What is / isn't plumbed
+
 Already: `delegate_task` carries `targetAgentId`; the `!sameAgent` path resolves
 the callee's OWN posture (`inline-agent-task-lifecycle.ts:124` `resolveRunAccess`,
 `:187` `buildRunOptions`; IPC `ipc-agent-delegation-target.ts:80`); child prompts
@@ -38,6 +40,7 @@ plumbed through `AgentInput`/permission IPC — DEFER (v1 pins the existing
 ## Scope (v1)
 
 ### 1. Curated allowlist + config surface
+
 - Each agent config gains a `delegates` list (immutable agent ids/folders this
   agent may call). Store it settings-owned alongside the agent's skills/MCP
   bindings — DETERMINE the exact seam (register_agent binding vs agent profile
@@ -49,8 +52,9 @@ plumbed through `AgentInput`/permission IPC — DEFER (v1 pins the existing
   same-app, non-self agents only. Empty allowlist ⇒ no synthetic tools.
 
 ### 2. Host-authoritative manifest + cross-lane projection
+
 - Pure `projectCallableAgentTools(caller) -> {toolName, targetAgentId,
-  displayName}[]`: from the caller's `delegates` allowlist, filter active +
+displayName}[]`: from the caller's `delegates` allowlist, filter active +
   same-app + non-self; `toolName` from IMMUTABLE identity (collision-safe,
   length-bounded — NOT display name, which is non-unique); display name only in
   the one-line description. Returns EMPTY when `parentTaskId` is set (depth
@@ -64,6 +68,7 @@ plumbed through `AgentInput`/permission IPC — DEFER (v1 pins the existing
   synthetic tools disappear. Audit/rules/prompts canonicalize to `AgentDelegation`.
 
 ### 3. Hybrid dispatch (sync-with-timeout → async fallback)
+
 - Each synthetic handler is a thin adapter over the existing delegation backend
   (`task-lifecycle.ts` `startDelegatedAgent`, UNCHANGED spawn), schema OMITS
   `targetAgentId`; the adapter injects the manifest's FIXED target and
@@ -77,6 +82,7 @@ plumbed through `AgentInput`/permission IPC — DEFER (v1 pins the existing
   the smallest correct mechanism (no polling loops if an await/notify exists).
 
 ### 4. Narration (handler-driven, deterministic)
+
 - On delegate start, the handler posts a short line to the ORIGINATING
   conversation ("Checking with the <displayName>…") via the existing
   send_message/conversation delivery to `owner.conversationId`. On sync result,
@@ -85,35 +91,40 @@ plumbed through `AgentInput`/permission IPC — DEFER (v1 pins the existing
   Narration is emitted by the handler, not dependent on the LLM choosing to narrate.
 
 ### 5. Depth-1 star — enforced in projection + host
+
 - Projection returns nothing when `parentTaskId` is set (synthetic tools never
   appear inside a delegated child). Host enforcement (IPC `parentTaskId`
   rejection + inline `runDelegatedAgent` absence) stays as defense in depth.
   `maxDepth:1` is metadata. No counted-depth.
 
 ### 6. Per-hop trace nesting (ledger C.8)
+
 - `startTurnSpan` (`tracing.ts:207`) gains an optional parent span-context param;
   open the child span under it; carry `parentRunId` to the child. Fail-open.
 
 ## Out of scope
+
 Counted-depth chains; role concepts; app-wide/flat callable set; explicit
 `approvalContextJid` propagation; shared-conversation multi-agent; blueprints.
 
 ## Surface Impact Matrix
-| Surface | Classification | Reason |
-| --- | --- | --- |
-| Runtime behavior | Changed | Synthetic per-agent tools; hybrid dispatch; narration; depth suppression |
-| settings.yaml | Changed | New per-agent `delegates` allowlist (desired-state + revision round-trip) |
-| Postgres/runtime projection | Read-only | Reads active agent inventory + allowlist |
-| Control API | Possibly changed | Minimal setter for `delegates` (agent profile extension) — confirm |
-| SDK/contracts | Changed (internal) | Manifest + tool schemas + allowlist field |
-| CLI | Possibly changed | If `delegates` is CLI-settable — confirm minimal |
-| Channel/provider adapters | Changed | Narration posts to originating conversation |
-| Gantry MCP tools | Changed | Cross-lane synthetic-tool projection |
-| Docs/prompts | Changed | This goal-prompt + ledger |
-| Audit/events | Changed | Synthetic tools canonicalize to AgentDelegation |
-| Tests/verification | Changed | Allowlist, projection, hybrid dispatch, narration, depth, trace |
+
+| Surface                     | Classification     | Reason                                                                    |
+| --------------------------- | ------------------ | ------------------------------------------------------------------------- |
+| Runtime behavior            | Changed            | Synthetic per-agent tools; hybrid dispatch; narration; depth suppression  |
+| settings.yaml               | Changed            | New per-agent `delegates` allowlist (desired-state + revision round-trip) |
+| Postgres/runtime projection | Read-only          | Reads active agent inventory + allowlist                                  |
+| Control API                 | Possibly changed   | Minimal setter for `delegates` (agent profile extension) — confirm        |
+| SDK/contracts               | Changed (internal) | Manifest + tool schemas + allowlist field                                 |
+| CLI                         | Possibly changed   | If `delegates` is CLI-settable — confirm minimal                          |
+| Channel/provider adapters   | Changed            | Narration posts to originating conversation                               |
+| Gantry MCP tools            | Changed            | Cross-lane synthetic-tool projection                                      |
+| Docs/prompts                | Changed            | This goal-prompt + ledger                                                 |
+| Audit/events                | Changed            | Synthetic tools canonicalize to AgentDelegation                           |
+| Tests/verification          | Changed            | Allowlist, projection, hybrid dispatch, narration, depth, trace           |
 
 ## Verification
+
 - Unit: allowlist round-trips through settings export/revision; manifest = caller's
   allowlist ∩ active/same-app/non-self; collision-safe naming; projection present
   in all lanes when eligible, ABSENT for a `parentTaskId` child + locked mode +
@@ -129,6 +140,7 @@ Counted-depth chains; role concepts; app-wide/flat callable set; explicit
   no counted-depth.
 
 ## Stages (each green; bounded write scope)
+
 1. **Allowlist config surface** — `delegates` field on agent config +
    settings parser/renderer/revision round-trip + minimal setter + tests.
 2. **Manifest + inline-lane projection + pinned-target dispatch (async result for
@@ -144,6 +156,7 @@ Counted-depth chains; role concepts; app-wide/flat callable set; explicit
 # v4 corrections (post re-validation) — BINDING seams
 
 ## A. Allowlist seam (Stage 1) — pinned
+
 - Add `delegates: string[]` (immutable agent folders/ids) to the settings agent
   config `agents.<folder>` — NOT agent_profile_update (that writes profile
   artifacts, not desired settings). Set via the EXISTING desired-state replace
@@ -161,11 +174,12 @@ Counted-depth chains; role concepts; app-wide/flat callable set; explicit
   `desired-state-capability-reconcile.ts:43-107,302-339`; defaults
   `runtime-settings.ts:125-151` + `config/index.ts:128-150`.
 - **BUMP `CURRENT_SETTINGS_READER_VERSION` 13→14** (`settings-import-service.ts:
-  31-37`; update the pin test `settings-import-service.test.ts:655-668`). Revision
+31-37`; update the pin test `settings-import-service.test.ts:655-668`). Revision
   doc must serialize `delegates` (`settings-import-service.ts:455-492`). Add
   parser/renderer/revision round-trip tests.
 
 ## B. Hybrid dispatch (Stage 3) — the BLOCKER, build carefully
+
 - **Separate `syncWaitTimeoutMs`** distinct from the delegated run's execution
   `timeoutMs` (`task-lifecycle.ts:169-175`), which KILLS the child at expiry
   (`agent-spawn-process.ts:180-201`, `agent-inline.ts:370-389`). The sync wait
@@ -191,6 +205,7 @@ Counted-depth chains; role concepts; app-wide/flat callable set; explicit
   response-requiring IPC tool while the parent is in its sync wait — no deadlock.
 
 ## C. Narration (Stage 4) — routing + fail-open
+
 - Use `sendCoreMessage` (`application/core-tools/send-message.ts:24-70`) via the
   injected `ChannelWiring.sendMessage` (`inline-agent-loop-tools.ts:609-615`), but
   route with `owner.conversationId` + `owner.providerAccountId` + `owner.threadId`
@@ -204,6 +219,7 @@ Counted-depth chains; role concepts; app-wide/flat callable set; explicit
   wait and the completion line after; accept best-effort ordering.
 
 ## Per-stage file scopes + serialization
+
 Stages 2–5 SHARE `application/core-tools/task-lifecycle.ts:154-183` + the IPC
 seams, so they SERIALIZE (one at a time, not parallel). Each stage's Codex
 dispatch gets an explicit file allowlist. Stage 1 (settings) is disjoint from the
@@ -407,7 +423,82 @@ handler seams and can run first independently.
 - Verification: TypeScript completed with exit 0; focused trace/propagation
   coverage passed 3 files / 37 tests; the requested broad unit command passed
   129 files / 1,791 tests. The architecture gate reported 0 non-text-style
-  findings and only the accepted `text-styles.ts` findings at lines 13, 64, and
-  75.
+  findings and only the accepted `text-styles.ts` findings at lines 13, 64, and 75.
 - Decisions and assumptions: none. This remains v1 per-hop nesting; no parallel
   trace registry or counted-depth mechanism was added.
+
+## Stage 7 — Durable async follow-up and coherent result bounds
+
+Goal: complete callable-agent fallback delivery without adding persistence
+surfaces, and keep delegated output useful without allowing an unbounded child
+result into the caller's model context.
+
+### Scope
+
+- When a callable `AgentDelegation` task exhausts its synchronous wait, persist
+  that fallback decision in the existing async-task JSON state before returning
+  `Queued`.
+- After any such task reaches a terminal state, enqueue one deterministic
+  inbound message plus live-admission work item for the caller agent's original
+  conversation and thread through `storeMessageWithLiveAdmission`.
+- Retry a pending terminal follow-up from the existing async-task recovery pass.
+  The deterministic task-derived message identity makes crash retries
+  idempotent.
+- Do not arm follow-up delivery for a task that completed during the synchronous
+  wait, ordinary `delegate_task` calls, non-delegated async tasks, or
+  scheduler-owned delegation.
+- Persist the full delegated result for `task_get`. Bound inline and follow-up
+  model-context delivery to 4,000 characters and direct truncated consumers to
+  `task_get <taskId>`. Keep receipt and task-list summaries bounded previews.
+
+### Durable identity clarification
+
+The delegated task row does not contain `parentTaskId`; Gantry passes that row's
+task id to the spawned child as its parent task id. Callable tasks are therefore
+identified durably by `kind = delegated_agent`, authority tool
+`AgentDelegation`, and the persisted async-fallback marker. Stage 7 does not add
+a self-referential parent id.
+
+### Verification
+
+- Add focused unit coverage for a terminal async fallback with no in-memory
+  waiter, restart recovery of a pending follow-up, no sync-path double delivery,
+  capped inline output, and lossless `task_get` retrieval beyond 1,000
+  characters.
+- Run only the touched Vitest unit files plus `npm run typecheck`.
+
+### Surface Impact Matrix
+
+| Surface                     | Classification       | Reason                                                                                       |
+| --------------------------- | -------------------- | -------------------------------------------------------------------------------------------- |
+| Runtime behavior            | Changed              | Callable async fallback gains one durable follow-up; context delivery is capped.             |
+| `settings.yaml`             | Unchanged by design  | Delivery and result bounds are internal invariants.                                          |
+| Postgres/runtime projection | Changed              | Existing async-task JSON and canonical message/live-admission rows are reused; no migration. |
+| Control API                 | Unchanged by design  | No new operation or payload.                                                                 |
+| SDK/contracts               | Unchanged by design  | Public tool schemas and task DTOs remain stable.                                             |
+| CLI                         | Unchanged by design  | Existing `task_get` is reused.                                                               |
+| Gantry MCP/admin            | Read-only/observable | Existing `task_get` exposes the lossless result.                                             |
+| Channel/provider adapters   | Unchanged by design  | Follow-up enters the channel-neutral live-turn queue.                                        |
+| Docs/prompts                | Changed              | This completion contract and its assumptions are recorded here.                              |
+| Audit/events                | Unchanged by design  | Existing persisted message/admission evidence is sufficient.                                 |
+| Tests/verification          | Changed              | Focused regression coverage and typecheck are required.                                      |
+
+### Stage 7 implementation ledger
+
+- Durable completion contract: the timeout boundary CAS-persistently marks a
+  callable task for follow-up. Every delegated terminal write now passes
+  through the service-owned settlement hook, which resolves any live waiter and
+  attempts the deterministic message/live-admission enqueue. Terminal pending
+  markers are retried by normal async-task recovery after restart.
+- Routing contract: the follow-up uses the caller task's app, agent,
+  conversation, provider account, and thread. Its trusted admission decision
+  bypasses a conversation mention requirement without changing ordinary
+  channel ingress policy.
+- Result contract: terminal delegated output is stored in full; task lists and
+  receipts remain 1,000-character previews. Inline and follow-up context text
+  share a 4,000-character cap with a task-id-specific `task_get` instruction.
+- Verification: `npm run typecheck` exited 0. The focused unit command passed 3
+  files / 95 tests. No full suite, autoreview, commit, branch change, or runtime
+  restart was performed.
+- Decisions and assumptions: none. No schema, settings, Control API, CLI,
+  provider adapter, or new durable projection was added.

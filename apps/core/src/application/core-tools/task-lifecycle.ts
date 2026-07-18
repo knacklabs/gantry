@@ -3,6 +3,7 @@ import type {
   AsyncTaskStatus,
   PublicAsyncTaskDto,
 } from '../../domain/ports/async-tasks.js';
+import { boundDelegatedTaskContextResult } from '../../shared/delegated-task-result-policy.js';
 
 export type CoreTaskLifecycleName =
   | 'delegate_task'
@@ -116,6 +117,11 @@ export interface CoreTaskLifecycleService {
       }
     | { ok: false; message: string }
   >;
+  markDelegatedTaskAsyncFallback?(
+    input: CoreTaskOwner & {
+      taskId: string;
+    },
+  ): Promise<CoreDelegatedTaskCompletion | null>;
   message(
     input: CoreTaskOwner & {
       taskId: string;
@@ -132,6 +138,7 @@ export function createCoreTaskLifecycleBackend(input: {
   parentTaskId?: string | null;
   parentRunId?: string | null;
   authorityToolName?: 'AgentDelegation';
+  enableDelegatedAsyncFollowUp?: boolean;
   workspaceFolder: string;
   runDelegatedAgent?: (
     input: CoreDelegatedRunInput,
@@ -204,21 +211,19 @@ export function createCoreTaskLifecycleBackend(input: {
       if (result.ok && typeof args.syncWaitTimeoutMs === 'number') {
         const completion = await result.completion.wait(args.syncWaitTimeoutMs);
         if (completion) {
-          return completion.status === 'completed'
-            ? {
-                ok: true,
-                message: completion.result,
-                data: { taskId: completion.taskId, status: completion.status },
-              }
-            : {
-                ok: false,
-                message: completion.error || completion.result,
-                code:
-                  completion.status === 'cancelled'
-                    ? 'cancelled'
-                    : 'unavailable',
-                data: { taskId: completion.taskId, status: completion.status },
-              };
+          return delegatedCompletionResult(completion);
+        }
+        if (input.enableDelegatedAsyncFollowUp) {
+          if (!input.service.markDelegatedTaskAsyncFallback) {
+            return unavailable(
+              'Delegated task follow-up persistence is unavailable.',
+            );
+          }
+          const terminal = await input.service.markDelegatedTaskAsyncFallback({
+            ...input.owner,
+            taskId: result.task.id,
+          });
+          if (terminal) return delegatedCompletionResult(terminal);
         }
         return {
           ok: true,
@@ -254,6 +259,29 @@ export function createCoreTaskLifecycleBackend(input: {
         : { ok: false, message: result.message, code: 'invalid_request' };
     },
   };
+}
+
+function delegatedCompletionResult(
+  completion: CoreDelegatedTaskCompletion,
+): CoreTaskLifecycleResult {
+  const message = boundDelegatedTaskContextResult(
+    completion.status === 'completed'
+      ? completion.result
+      : completion.error || completion.result,
+    completion.taskId,
+  );
+  return completion.status === 'completed'
+    ? {
+        ok: true,
+        message,
+        data: { taskId: completion.taskId, status: completion.status },
+      }
+    : {
+        ok: false,
+        message,
+        code: completion.status === 'cancelled' ? 'cancelled' : 'unavailable',
+        data: { taskId: completion.taskId, status: completion.status },
+      };
 }
 
 export function coreTaskLifecycleResultText(

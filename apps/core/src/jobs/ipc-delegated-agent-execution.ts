@@ -51,6 +51,9 @@ export async function executeResolvedDelegation(input: {
     authorityToolName: target.callableAgentEntry
       ? 'AgentDelegation'
       : undefined,
+    enableDelegatedAsyncFollowUp: Boolean(
+      target.callableAgentEntry && !input.trustedJobId,
+    ),
     parentRunId: input.trustedJobId ? null : (input.trustedParentRunId ?? null),
     workspaceFolder: target.group.folder,
     runDelegatedAgent: async ({
