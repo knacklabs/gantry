@@ -140,6 +140,7 @@ vi.mock('grammy', () => ({
       sendChatAction: vi.fn().mockResolvedValue(undefined),
       getFile: vi.fn().mockResolvedValue({ file_path: 'photos/file_0.jpg' }),
       getChatMember: vi.fn().mockResolvedValue({ status: 'administrator' }),
+      getChat: vi.fn().mockResolvedValue({ title: 'Ops Room' }),
       editMessageText: vi.fn().mockResolvedValue(undefined),
       deleteMessage: vi.fn().mockResolvedValue(true),
       setMessageReaction: vi.fn().mockResolvedValue(true),
@@ -217,6 +218,10 @@ import type {
   PermissionCallbackClaimReference,
   PermissionCallbackScope,
 } from '@core/domain/types.js';
+import type {
+  GroupJoinOnboardingCoordinator,
+  GroupJoinOnboardingRecord,
+} from '@core/domain/ports/group-join-onboarding.js';
 
 // --- Test helpers ---
 
@@ -320,6 +325,120 @@ function createTelegramGroupApprovalOpts(): TelegramChannelOpts {
   });
 }
 
+function createGroupJoinOnboardingOpts() {
+  const base = createTestOpts();
+  const settings = base.runtimeSettings!();
+  let currentRecord: GroupJoinOnboardingRecord | null = null;
+  let nextId = 1;
+  const timestamp = '2026-07-18T00:00:00.000Z';
+  const coordinator: GroupJoinOnboardingCoordinator = {
+    recordPrompt: vi.fn(async (input) => {
+      if (currentRecord?.status === 'registered') return currentRecord;
+      currentRecord = {
+        id: `join-${nextId++}`,
+        ...input,
+        status: 'prompted',
+        promptedAt: timestamp,
+        dismissedAt: null,
+        registeredAt: null,
+        leftAt: null,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      };
+      return currentRecord;
+    }),
+    getById: vi.fn(async (id) =>
+      currentRecord?.id === id ? currentRecord : null,
+    ),
+    dismiss: vi.fn(async (id) => {
+      if (currentRecord?.id !== id || currentRecord.status !== 'prompted') {
+        return null;
+      }
+      currentRecord = {
+        ...currentRecord,
+        status: 'dismissed',
+        dismissedAt: timestamp,
+      };
+      return currentRecord;
+    }),
+    register: vi.fn(async ({ id }) => {
+      if (currentRecord?.id !== id || currentRecord.status !== 'prompted') {
+        return null;
+      }
+      currentRecord = {
+        ...currentRecord,
+        status: 'registered',
+        registeredAt: timestamp,
+      };
+      return currentRecord;
+    }),
+    markLeft: vi.fn(async ({ providerAccountId, chatJid }) => {
+      if (
+        currentRecord?.providerAccountId !== providerAccountId ||
+        currentRecord.chatJid !== chatJid
+      ) {
+        return null;
+      }
+      currentRecord = { ...currentRecord, leftAt: timestamp };
+      return currentRecord;
+    }),
+  };
+  const opts = createTestOpts({
+    conversationRoutes: vi.fn(() => ({
+      'tg:100200300': {
+        name: 'Known Group',
+        folder: 'test-group',
+        trigger: '@Andy',
+        added_at: timestamp,
+        providerAccountId: 'telegram_default',
+      },
+      'tg:222': {
+        name: 'Operator DM',
+        folder: 'whatsapp_main',
+        trigger: '@Andy',
+        added_at: timestamp,
+        providerAccountId: 'telegram_default',
+      },
+    })),
+    runtimeSettings: vi.fn(() => ({
+      ...settings,
+      conversations: {
+        ...settings.conversations,
+        whatsapp_main_conversation: {
+          ...settings.conversations.whatsapp_main_conversation,
+          controlApprovers: ['111'],
+        },
+        operator_dm: {
+          providerConnection: 'telegram_default',
+          providerAccount: 'telegram_default',
+          externalId: '222',
+          kind: 'dm',
+          displayName: 'Operator',
+          senderPolicy: { allow: '*', mode: 'trigger' },
+          controlApprovers: ['222'],
+          installedAgents: {},
+        },
+      },
+    })),
+    groupJoinOnboarding: coordinator,
+    isControlApproverAllowed: vi.fn(async (input) =>
+      Boolean(
+        (input.conversationJid === 'tg:100200300' &&
+          input.userId === '111' &&
+          input.sourceAgentFolder === 'test-group') ||
+        (input.conversationJid === 'tg:222' &&
+          input.userId === '222' &&
+          input.sourceAgentFolder === 'whatsapp_main'),
+      ),
+    ),
+  });
+  return {
+    opts,
+    coordinator,
+    getRecord: () => currentRecord,
+  };
+}
+
 function createTextCtx(overrides: {
   chatId?: number;
   chatType?: string;
@@ -392,6 +511,42 @@ function createMediaCtx(overrides: {
   };
 }
 
+function createMyChatMemberCtx(overrides: {
+  chatId?: number;
+  title?: string;
+  fromId?: number;
+  username?: string;
+  oldStatus?: string;
+  newStatus?: string;
+  newMember?: { status: string; is_member?: boolean };
+}) {
+  const chat = {
+    id: overrides.chatId ?? -1001234,
+    type: 'supergroup',
+    title: overrides.title ?? 'Ops Room',
+  };
+  const from = {
+    id: overrides.fromId ?? 111,
+    first_name: 'Bob',
+    username: overrides.username ?? 'bob',
+  };
+  return {
+    chat,
+    from,
+    me: { username: 'andy_ai_bot' },
+    api: currentBot().api,
+    myChatMember: {
+      chat,
+      from,
+      date: 1_752_800_000,
+      old_chat_member: { status: overrides.oldStatus ?? 'left' },
+      new_chat_member: overrides.newMember ?? {
+        status: overrides.newStatus ?? 'member',
+      },
+    },
+  };
+}
+
 function currentBot() {
   return botRef.current;
 }
@@ -424,8 +579,29 @@ function latestPermissionCallback(label: string): string {
     .callback_data;
 }
 
+function latestGroupJoinCallback(action: 'yes' | 'no'): string {
+  const buttons = currentBot()
+    .api.sendMessage.mock.calls.at(-1)?.[2]
+    ?.reply_markup?.inline_keyboard.flat() as
+    | Array<{ callback_data?: string }>
+    | undefined;
+  const callback = buttons?.find((button) =>
+    button.callback_data?.startsWith(`gjoin:${action}:`),
+  )?.callback_data;
+  if (!callback)
+    throw new Error(`Missing Telegram group-join ${action} callback`);
+  return callback;
+}
+
 async function triggerTextMessage(ctx: ReturnType<typeof createTextCtx>) {
   const handlers = currentBot().filterHandlers.get('message:text') || [];
+  for (const h of handlers) await h(ctx);
+}
+
+async function triggerMyChatMember(
+  ctx: ReturnType<typeof createMyChatMemberCtx>,
+) {
+  const handlers = currentBot().filterHandlers.get('my_chat_member') || [];
   for (const h of handlers) await h(ctx);
 }
 
@@ -441,11 +617,16 @@ async function triggerCallbackQuery(ctx: {
   callbackQuery: {
     data: string;
     from?: { id: number; first_name?: string; username?: string };
-    message?: { chat?: { id: number }; message_thread_id?: number };
+    message?: {
+      chat?: { id: number };
+      message_id?: number;
+      message_thread_id?: number;
+    };
   };
   chat?: { id: number };
   from?: { id: number; first_name?: string; username?: string };
-  api?: { sendMessage: ReturnType<typeof vi.fn> };
+  api?: any;
+  me?: { username?: string };
   answerCallbackQuery: ReturnType<typeof vi.fn>;
 }) {
   const handlers = currentBot().filterHandlers.get('callback_query:data') || [];
@@ -733,6 +914,8 @@ describe('TelegramChannel', () => {
       expect(currentBot().filterHandlers.has('message:sticker')).toBe(true);
       expect(currentBot().filterHandlers.has('message:location')).toBe(true);
       expect(currentBot().filterHandlers.has('message:contact')).toBe(true);
+      expect(currentBot().filterHandlers.has('my_chat_member')).toBe(true);
+      expect(currentBot().filterHandlers.has('chat_member')).toBe(false);
     });
 
     it('registers error handler on connect', async () => {
@@ -760,6 +943,263 @@ describe('TelegramChannel', () => {
       const channel = new TelegramChannel('test-token', opts);
 
       expect(channel.isConnected()).toBe(false);
+    });
+  });
+
+  describe('group join onboarding', () => {
+    it('prompts a registered control DM when an approver adds the bot', async () => {
+      const { opts, coordinator } = createGroupJoinOnboardingOpts();
+      const channel = new TelegramChannel('test-token', opts);
+      await channel.connect();
+
+      await triggerMyChatMember(createMyChatMemberCtx({}));
+
+      expect(opts.onChatMetadata).toHaveBeenCalledWith(
+        'tg:-1001234',
+        expect.any(String),
+        'Ops Room',
+        'telegram',
+        true,
+        { providerAccountId: 'telegram_default' },
+      );
+      expect(coordinator.recordPrompt).toHaveBeenCalledWith({
+        providerAccountId: 'telegram_default',
+        chatJid: 'tg:-1001234',
+        adder: '111',
+        approver: '222',
+        promptConversationJid: 'tg:222',
+        promptAgentFolder: 'whatsapp_main',
+      });
+      expect(currentBot().api.sendMessage).toHaveBeenCalledWith(
+        '222',
+        "@bob added Andy to 'Ops Room' (-1001234). Respond there?",
+        expect.objectContaining({
+          reply_markup: {
+            inline_keyboard: [
+              [
+                { text: 'Yes', callback_data: 'gjoin:yes:join-1' },
+                { text: 'No', callback_data: 'gjoin:no:join-1' },
+              ],
+            ],
+          },
+        }),
+      );
+    });
+
+    it('prompts when the bot is added with restrictions (restricted, is_member)', async () => {
+      const { opts, coordinator } = createGroupJoinOnboardingOpts();
+      const channel = new TelegramChannel('test-token', opts);
+      await channel.connect();
+
+      await triggerMyChatMember(
+        createMyChatMemberCtx({
+          newMember: { status: 'restricted', is_member: true },
+        }),
+      );
+
+      expect(coordinator.recordPrompt).toHaveBeenCalledWith(
+        expect.objectContaining({ chatJid: 'tg:-1001234', adder: '111' }),
+      );
+    });
+
+    it('answers the callback with the true outcome when the receipt edit fails', async () => {
+      const { opts, coordinator } = createGroupJoinOnboardingOpts();
+      const channel = new TelegramChannel('test-token', opts);
+      await channel.connect();
+      await triggerMyChatMember(createMyChatMemberCtx({}));
+      currentBot().api.editMessageText.mockRejectedValueOnce(
+        new Error('edit failed'),
+      );
+      const answerCallbackQuery = vi.fn();
+
+      await triggerCallbackQuery({
+        callbackQuery: {
+          data: latestGroupJoinCallback('yes'),
+          from: { id: 222 },
+          message: { chat: { id: 222 }, message_id: 987 },
+        },
+        chat: { id: 222 },
+        from: { id: 222 },
+        api: currentBot().api,
+        me: { username: 'andy_ai_bot' },
+        answerCallbackQuery,
+      });
+
+      // Registration is persisted before the receipt edit; a transient edit
+      // failure must not fail the callback or misreport the outcome.
+      expect(coordinator.register).toHaveBeenCalled();
+      expect(answerCallbackQuery).toHaveBeenCalledWith({ text: 'Registered.' });
+    });
+
+    it('does not prompt and info-logs when a stranger adds the bot', async () => {
+      const { opts, coordinator } = createGroupJoinOnboardingOpts();
+      const channel = new TelegramChannel('test-token', opts);
+      await channel.connect();
+
+      await triggerMyChatMember(createMyChatMemberCtx({ fromId: 999 }));
+
+      expect(coordinator.recordPrompt).not.toHaveBeenCalled();
+      expect(currentBot().api.sendMessage).not.toHaveBeenCalled();
+      expect(logger.info).toHaveBeenCalledWith(
+        expect.objectContaining({
+          provider: 'telegram',
+          chatId: '-1001234',
+          adder: '999',
+        }),
+        'Telegram group join ignored: adder is not a registered control approver',
+      );
+    });
+
+    it('info-logs when no registered control DM can receive the prompt', async () => {
+      const { opts, coordinator } = createGroupJoinOnboardingOpts();
+      const settings = opts.runtimeSettings!();
+      delete settings.conversations.operator_dm;
+      opts.runtimeSettings = vi.fn(() => settings);
+      opts.conversationRoutes = vi.fn(() => ({
+        'tg:100200300': {
+          name: 'Known Group',
+          folder: 'test-group',
+          trigger: '@Andy',
+          added_at: '2026-07-18T00:00:00.000Z',
+          providerAccountId: 'telegram_default',
+        },
+      }));
+      const channel = new TelegramChannel('test-token', opts);
+      await channel.connect();
+
+      await triggerMyChatMember(createMyChatMemberCtx({}));
+
+      expect(coordinator.recordPrompt).not.toHaveBeenCalled();
+      expect(currentBot().api.sendMessage).not.toHaveBeenCalled();
+      expect(logger.info).toHaveBeenCalledWith(
+        expect.objectContaining({ chatId: '-1001234', adder: '111' }),
+        'Telegram group join has no registered control DM for onboarding',
+      );
+    });
+
+    it('registers a group join on Yes and edits the prompt into a receipt', async () => {
+      const { opts, coordinator } = createGroupJoinOnboardingOpts();
+      const channel = new TelegramChannel('test-token', opts);
+      await channel.connect();
+      await triggerMyChatMember(createMyChatMemberCtx({}));
+      const answerCallbackQuery = vi.fn();
+
+      await triggerCallbackQuery({
+        callbackQuery: {
+          data: latestGroupJoinCallback('yes'),
+          from: { id: 222 },
+          message: { chat: { id: 222 }, message_id: 987 },
+        },
+        chat: { id: 222 },
+        from: { id: 222 },
+        api: currentBot().api,
+        me: { username: 'andy_ai_bot' },
+        answerCallbackQuery,
+      });
+
+      expect(coordinator.register).toHaveBeenCalledWith({
+        id: 'join-1',
+        externalId: '-1001234',
+        title: 'Ops Room',
+        approvedBy: '222',
+      });
+      expect(currentBot().api.editMessageText).toHaveBeenCalledWith(
+        222,
+        987,
+        'Registered. Members can reach the agent with @andy_ai_bot. Anyone in the group can @mention; actions still need your approval.',
+        { reply_markup: { inline_keyboard: [] } },
+      );
+      expect(answerCallbackQuery).toHaveBeenCalledWith({ text: 'Registered.' });
+    });
+
+    it('dismisses on No, keeps stranger re-add silent, and re-prompts on approver re-add', async () => {
+      const { opts, coordinator, getRecord } = createGroupJoinOnboardingOpts();
+      const channel = new TelegramChannel('test-token', opts);
+      await channel.connect();
+      await triggerMyChatMember(createMyChatMemberCtx({}));
+
+      await triggerCallbackQuery({
+        callbackQuery: {
+          data: latestGroupJoinCallback('no'),
+          from: { id: 222 },
+          message: { chat: { id: 222 }, message_id: 987 },
+        },
+        chat: { id: 222 },
+        from: { id: 222 },
+        api: currentBot().api,
+        answerCallbackQuery: vi.fn(),
+      });
+
+      expect(getRecord()?.status).toBe('dismissed');
+      await triggerMyChatMember(createMyChatMemberCtx({ fromId: 999 }));
+      expect(coordinator.recordPrompt).toHaveBeenCalledTimes(1);
+      expect(currentBot().api.sendMessage).toHaveBeenCalledTimes(1);
+
+      await triggerMyChatMember(createMyChatMemberCtx({}));
+
+      expect(coordinator.recordPrompt).toHaveBeenCalledTimes(2);
+      expect(currentBot().api.sendMessage).toHaveBeenCalledTimes(2);
+      expect(getRecord()).toMatchObject({ id: 'join-2', status: 'prompted' });
+    });
+
+    it('re-prompts after an unanswered prompt is lost across a remove and re-add', async () => {
+      const { opts, coordinator, getRecord } = createGroupJoinOnboardingOpts();
+      const channel = new TelegramChannel('test-token', opts);
+      await channel.connect();
+
+      await triggerMyChatMember(createMyChatMemberCtx({}));
+      await triggerMyChatMember(
+        createMyChatMemberCtx({ oldStatus: 'member', newStatus: 'left' }),
+      );
+      await triggerMyChatMember(createMyChatMemberCtx({}));
+
+      expect(coordinator.recordPrompt).toHaveBeenCalledTimes(2);
+      expect(currentBot().api.sendMessage).toHaveBeenCalledTimes(2);
+      expect(getRecord()).toMatchObject({ id: 'join-2', status: 'prompted' });
+    });
+
+    it('does nothing when the joined group is already registered', async () => {
+      const { opts, coordinator } = createGroupJoinOnboardingOpts();
+      const baseRoutes = opts.conversationRoutes();
+      opts.conversationRoutes = vi.fn(() => ({
+        ...baseRoutes,
+        'tg:-1001234': {
+          name: 'Ops Room',
+          folder: 'whatsapp_main',
+          trigger: '@Andy',
+          added_at: '2026-07-18T00:00:00.000Z',
+          providerAccountId: 'telegram_default',
+        },
+      }));
+      const channel = new TelegramChannel('test-token', opts);
+      await channel.connect();
+
+      await triggerMyChatMember(createMyChatMemberCtx({}));
+
+      expect(coordinator.recordPrompt).not.toHaveBeenCalled();
+      expect(currentBot().api.sendMessage).not.toHaveBeenCalled();
+    });
+
+    it('marks the durable row when the bot is kicked from a group', async () => {
+      const { opts, coordinator } = createGroupJoinOnboardingOpts();
+      const channel = new TelegramChannel('test-token', opts);
+      await channel.connect();
+
+      await triggerMyChatMember(
+        createMyChatMemberCtx({ oldStatus: 'member', newStatus: 'kicked' }),
+      );
+
+      expect(coordinator.markLeft).toHaveBeenCalledWith({
+        providerAccountId: 'telegram_default',
+        chatJid: 'tg:-1001234',
+      });
+      expect(logger.info).toHaveBeenCalledWith(
+        expect.objectContaining({
+          provider: 'telegram',
+          chatId: '-1001234',
+        }),
+        'Telegram bot left a group',
+      );
     });
   });
 
@@ -885,6 +1325,38 @@ describe('TelegramChannel', () => {
         { providerAccountId: 'telegram_default' },
       );
       expect(opts.onMessage).not.toHaveBeenCalled();
+    });
+
+    it('rate-limits unregistered Telegram group drop logs per chat', async () => {
+      let now = 1_000_000;
+      vi.spyOn(Date, 'now').mockImplementation(() => now);
+      const opts = createTestOpts();
+      const channel = new TelegramChannel('test-token', opts);
+      await channel.connect();
+      const ctx = createTextCtx({ chatId: -100987654321, text: 'Unknown' });
+
+      await triggerTextMessage(ctx);
+      await triggerTextMessage(ctx);
+
+      const dropLogs = () =>
+        vi
+          .mocked(logger.info)
+          .mock.calls.filter(
+            ([, message]) =>
+              message === 'Message from unregistered Telegram chat',
+          );
+      expect(dropLogs()).toHaveLength(1);
+      expect(dropLogs()[0]?.[0]).toEqual(
+        expect.objectContaining({
+          provider: 'telegram',
+          chatId: '-100987654321',
+        }),
+      );
+
+      now += 60_000;
+      await triggerTextMessage(ctx);
+
+      expect(dropLogs()).toHaveLength(2);
     });
 
     it('delivers unregistered Telegram private chats to the shared persistence policy', async () => {

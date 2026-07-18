@@ -1632,4 +1632,28 @@ describe('Postgres migration journal', () => {
       'WHERE left(btrim("runtime_secret_refs_json"), 1) =',
     );
   });
+
+  it('registers durable Telegram group join onboarding migration', () => {
+    const journalPath = path.resolve(
+      'apps/core/src/adapters/storage/postgres/schema/migrations/meta/_journal.json',
+    );
+    const journal = JSON.parse(fs.readFileSync(journalPath, 'utf8')) as {
+      entries: Array<{ idx: number; tag: string }>;
+    };
+    const entry = journal.entries.find(
+      (item) => item.tag === '0102_group_join_onboarding',
+    );
+    expect(entry).toMatchObject({ idx: 102 });
+
+    const migration = fs.readFileSync(
+      path.resolve(
+        'apps/core/src/adapters/storage/postgres/schema/migrations/0102_group_join_onboarding.sql',
+      ),
+      'utf8',
+    );
+    expect(migration).toContain('CREATE TABLE "group_join_onboarding"');
+    expect(migration).toContain('"status" text DEFAULT \'prompted\' NOT NULL');
+    expect(migration).toContain('"group_join_onboarding_status_check"');
+    expect(migration).toContain('"group_join_onboarding_provider_chat_unique"');
+  });
 });

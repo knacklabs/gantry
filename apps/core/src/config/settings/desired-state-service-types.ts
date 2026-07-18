@@ -47,6 +47,7 @@ export interface ConfiguredRoutingBinding {
 
 export interface SettingsDesiredStateOps {
   getAllConversationRoutes(): Promise<Record<string, StoredAgentBinding>>;
+  getAllChats?(): Promise<Array<{ jid: string; is_group?: number }>>;
   setConversationRoute(jid: string, group: StoredAgentBinding): Promise<void>;
   deleteConversationRoute?(jid: string): Promise<void>;
 }

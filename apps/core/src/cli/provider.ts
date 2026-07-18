@@ -8,6 +8,7 @@ import {
   getProvider,
   listConnectableChannelProviders,
 } from '../channels/provider-registry.js';
+import { applyConversationInstallToSettings } from '../config/settings/conversation-install-settings.js';
 import {
   loadDesiredRuntimeSettingsForWrite,
   noteRestartRequired,
@@ -15,15 +16,20 @@ import {
 } from '../config/settings/desired-settings-writer.js';
 import type { AgentId } from '../domain/agent/agent.js';
 import { folderForAgentId } from '../domain/agent/agent-folder-id.js';
-import type { ConversationId } from '../domain/conversation/conversation.js';
+import type {
+  Conversation,
+  ConversationId,
+} from '../domain/conversation/conversation.js';
 import type { ProviderAccountId } from '../domain/provider/provider.js';
 import { runtimeSecretKeyForEnv } from '../domain/provider/provider-runtime-secret-keys.js';
 import type { DoctorReport } from './doctor.js';
 import {
   assertRuntimeSecretRef,
-  configuredConversationKey,
+  conversationIdFromConfigured,
   option,
   parseRuntimeSecretRefOptions,
+  soleProviderAccountIdForJid,
+  storedConversationIdCandidates,
 } from './provider-utils.js';
 import { nowIso } from '../shared/time/datetime.js';
 
@@ -419,72 +425,73 @@ async function runConversationInstallCommand(
         'Provider Account belongs to a different Agent',
       );
     }
-    const conversation = await withRuntimeStorage(async () => {
-      const repositories = await runtimeRepositories();
-      const [account, storedConversation] = await Promise.all([
-        getProviderAccountsRepo(repositories).getProviderAccount(
-          providerAccountId as ProviderAccountId,
-        ),
-        repositories.conversations.getConversation(
-          conversationId as ConversationId,
-        ),
-      ]);
-      if (!account || account.appId !== 'default') {
-        throw new ApplicationError('NOT_FOUND', 'Provider Account not found');
-      }
-      if (folderForAgentId(account.agentId as AgentId) !== agentFolder) {
-        throw new ApplicationError(
-          'INVALID_REQUEST',
-          'Provider Account belongs to a different Agent',
-        );
-      }
-      if (!storedConversation || storedConversation.appId !== 'default') {
-        throw new ApplicationError('NOT_FOUND', 'Conversation not found');
-      }
-      if (storedConversation.providerAccountId !== account.id) {
-        throw new ApplicationError(
-          'INVALID_REQUEST',
-          'Conversation belongs to a different Provider Account',
-        );
-      }
-      return storedConversation;
-    });
+    const resolvedConversationId = await resolveConversationIdArgument(
+      runtimeHome,
+      conversationId,
+      { providerAccountId, settings },
+    );
+    const { conversation, controlApprovers } = await withRuntimeStorage(
+      async () => {
+        const repositories = await runtimeRepositories();
+        const account = await getProviderAccountsRepo(
+          repositories,
+        ).getProviderAccount(providerAccountId as ProviderAccountId);
+        if (!account || account.appId !== 'default') {
+          throw new ApplicationError('NOT_FOUND', 'Provider Account not found');
+        }
+        if (folderForAgentId(account.agentId as AgentId) !== agentFolder) {
+          throw new ApplicationError(
+            'INVALID_REQUEST',
+            'Provider Account belongs to a different Agent',
+          );
+        }
+        let storedConversation: Conversation | null = null;
+        let accountMismatch = false;
+        for (const candidateId of storedConversationIdCandidates(
+          resolvedConversationId,
+          providerAccountId,
+        )) {
+          const candidate = await repositories.conversations.getConversation(
+            candidateId as ConversationId,
+          );
+          if (!candidate || candidate.appId !== 'default') continue;
+          if (candidate.providerAccountId !== account.id) {
+            accountMismatch = true;
+            continue;
+          }
+          storedConversation = candidate;
+          break;
+        }
+        if (!storedConversation && accountMismatch) {
+          throw new ApplicationError(
+            'INVALID_REQUEST',
+            'Conversation belongs to a different Provider Account',
+          );
+        }
+        if (!storedConversation) {
+          throw new ApplicationError('NOT_FOUND', 'Conversation not found');
+        }
+        const approvers =
+          await repositories.conversations.listConversationApprovers(
+            storedConversation.id,
+          );
+        return {
+          conversation: storedConversation,
+          controlApprovers: approvers.map(
+            (approver: { externalUserId: string }) => approver.externalUserId,
+          ),
+        };
+      },
+    );
     const now = nowIso();
-    const conversationKey = configuredConversationKey(
+    applyConversationInstallToSettings({
       settings,
       conversation,
       providerAccountId,
-    );
-    const externalId =
-      conversation.externalRef?.value ||
-      String(conversation.id).replace(/^conversation:/, '');
-    settings.conversations[conversationKey] = {
-      providerConnection: providerAccountId,
-      providerAccount: providerAccountId,
-      externalId,
-      kind: conversation.kind === 'direct' ? 'dm' : conversation.kind,
-      displayName:
-        conversation.title ||
-        settings.conversations[conversationKey]?.displayName ||
-        conversationKey,
-      senderPolicy:
-        settings.conversations[conversationKey]?.senderPolicy ??
-        ({ allow: '*', mode: 'trigger' } as never),
-      controlApprovers:
-        settings.conversations[conversationKey]?.controlApprovers ?? [],
-      installedAgents: {
-        ...(settings.conversations[conversationKey]?.installedAgents ?? {}),
-        [agentFolder]: {
-          agentId: agentFolder,
-          providerAccountId,
-          status: 'active',
-          addedAt: now,
-          memoryScope: 'conversation',
-          trigger: `@${settings.agents[agentFolder]?.name || agentFolder}`,
-          requiresTrigger: conversation.kind !== 'direct',
-        },
-      },
-    };
+      agentFolder,
+      controlApprovers,
+      now,
+    });
     const result = await writeDesiredRuntimeSettings({
       runtimeHome,
       settings,
@@ -614,11 +621,16 @@ async function listInstallsForInfo(repositories: any): Promise<any[]> {
 async function resolveConversationIdArgument(
   runtimeHome: string,
   conversationIdOrJid: string,
-  options: { providerAccountId?: string | null } = {},
+  options: {
+    providerAccountId?: string | null;
+    settings?: DesiredRuntimeSettings;
+  } = {},
 ): Promise<string> {
   const value = conversationIdOrJid.trim();
   if (value.startsWith('conversation:')) return value;
-  const settings = await loadDesiredRuntimeSettingsForWrite({ runtimeHome });
+  const settings =
+    options.settings ??
+    (await loadDesiredRuntimeSettingsForWrite({ runtimeHome }));
   const configured = settings?.conversations?.[value];
   if (configured) return conversationIdFromConfigured(settings, configured);
   const matchingConfigured = Object.values(settings.conversations ?? {})
@@ -637,35 +649,6 @@ async function resolveConversationIdArgument(
     return `conversation:${providerAccountId}:${value}`;
   }
   return value;
-}
-
-function conversationIdFromConfigured(
-  settings: DesiredRuntimeSettings,
-  configured: any,
-): string {
-  const providerAccountId =
-    configured.providerAccount ?? configured.providerConnection;
-  const connection = settings.providerAccounts?.[providerAccountId];
-  const provider = connection ? getProvider(connection.provider) : undefined;
-  const prefix = provider?.jidPrefix ?? `${connection?.provider ?? ''}:`;
-  const externalId = configured.externalId.trim();
-  const jid = externalId.startsWith(prefix)
-    ? externalId
-    : `${prefix}${externalId}`;
-  return `conversation:${providerAccountId}:${jid}`;
-}
-
-function soleProviderAccountIdForJid(
-  settings: DesiredRuntimeSettings,
-  jid: string,
-): string | undefined {
-  const matches = Object.entries(settings.providerAccounts ?? {})
-    .filter(([, account]: any) => {
-      const provider = getProvider(account.provider);
-      return provider?.jidPrefix ? jid.startsWith(provider.jidPrefix) : false;
-    })
-    .map(([id]) => id);
-  return matches.length === 1 ? matches[0] : undefined;
 }
 
 async function withRuntimeStorage<T>(fn: () => Promise<T>): Promise<T> {

@@ -85,6 +85,7 @@ vi.mock('@core/config/index.js', () => ({
   getDeploymentMode: vi.fn(() => 'workstation'),
   getRuntimeQueueConfig: vi.fn(() => ({ drainDeadlineMs: 1 })),
   loadRuntimeSettings: vi.fn(),
+  createGroupJoinOnboardingCoordinator: vi.fn(() => ({})),
 }));
 vi.mock('@core/runtime/browser-capability.js', () => ({
   getBrowserStatus: vi.fn(),

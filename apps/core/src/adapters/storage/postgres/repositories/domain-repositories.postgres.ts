@@ -110,7 +110,9 @@ import type {
 import type { AsyncTaskRepository } from '../../../../domain/ports/async-tasks.js';
 import type { PatternCandidateRepository } from '../../../../domain/ports/pattern-candidates.js';
 import type { PermissionPromotionRepository } from '../../../../domain/ports/permission-promotion.js';
+import type { GroupJoinOnboardingRepository } from '../../../../domain/ports/group-join-onboarding.js';
 import { PostgresPermissionPromotionRepository } from './permission-promotion-repository.postgres.js';
+import { PostgresGroupJoinOnboardingRepository } from './group-join-onboarding-repository.postgres.js';
 export interface PostgresDomainRepositoryBundle {
   apps: AppRepository;
   agents: AgentRepository;
@@ -142,6 +144,7 @@ export interface PostgresDomainRepositoryBundle {
   patternCandidates: PatternCandidateRepository;
   proactiveSurfacing: PostgresProactiveSurfacingRepository;
   permissionPromotions: PermissionPromotionRepository;
+  groupJoinOnboarding: GroupJoinOnboardingRepository;
 }
 type JsonRecord = Record<string, unknown>;
 function encodeJson(value: unknown): string {
@@ -1753,5 +1756,6 @@ export function createPostgresDomainRepositories(
     patternCandidates: new PostgresPatternCandidateRepository(db),
     proactiveSurfacing: new PostgresProactiveSurfacingRepository(db),
     permissionPromotions: new PostgresPermissionPromotionRepository(db),
+    groupJoinOnboarding: new PostgresGroupJoinOnboardingRepository(db),
   };
 }

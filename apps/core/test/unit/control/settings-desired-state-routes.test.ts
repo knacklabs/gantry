@@ -20,7 +20,10 @@ const importOutcome = vi.hoisted(() => ({
 const workstationImports = vi.hoisted(() => [] as unknown[]);
 const parsedDocuments = vi.hoisted(() => [] as Record<string, unknown>[]);
 const workstationImportOutcome = vi.hoisted(() => ({
-  current: { revision: 11 } as { revision?: number },
+  current: { status: 'revision_created', revision: 11 } as
+    | { status: 'revision_created'; revision: number }
+    | { status: 'applied_no_revision' }
+    | { status: 'no_op' },
 }));
 
 vi.mock('@core/adapters/storage/postgres/runtime-store.js', () => ({
@@ -75,7 +78,10 @@ type TestResponse = ServerResponse & {
 beforeEach(() => {
   revisions.length = 0;
   importOutcome.current = { status: 'applied', revision: 1 };
-  workstationImportOutcome.current = { revision: 11 };
+  workstationImportOutcome.current = {
+    status: 'revision_created',
+    revision: 11,
+  };
   workstationImports.length = 0;
   parsedDocuments.length = 0;
 });
@@ -262,7 +268,7 @@ describe('settings desired-state control routes', () => {
   });
 
   it('returns the latest revision for workstation no-op updates', async () => {
-    workstationImportOutcome.current = {};
+    workstationImportOutcome.current = { status: 'no_op' };
     revisions.push({
       appId: 'default',
       revision: 12,

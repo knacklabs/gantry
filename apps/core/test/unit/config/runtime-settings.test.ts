@@ -18,7 +18,10 @@ import { renderRuntimeSettingsYaml } from '@core/config/settings/runtime-setting
 import { validateLoadedRuntimeSettings } from '@core/config/settings/runtime-settings-validation.js';
 import { settingsFilePath } from '@core/config/settings/runtime-home.js';
 import { addActiveMcpSourcesToRuntimeSettings } from '@core/config/settings/restart-sync.js';
-import { runSettingsCommand } from '@core/cli/settings.js';
+import {
+  reportWorkstationSettingsImportOutcome,
+  runSettingsCommand,
+} from '@core/cli/settings.js';
 import {
   deriveBindingsFromConversationInstalls,
   flattenConversationInstalls,
@@ -1320,6 +1323,28 @@ agent:
     } finally {
       fs.rmSync(runtimeHome, { recursive: true, force: true });
     }
+  });
+
+  it('prints explicit workstation import outcomes for non-TTY consumers', () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+
+    reportWorkstationSettingsImportOutcome('settings import', {
+      status: 'revision_created',
+      revision: 7,
+    });
+    reportWorkstationSettingsImportOutcome('settings import', {
+      status: 'applied_no_revision',
+    });
+    reportWorkstationSettingsImportOutcome('settings import', {
+      status: 'no_op',
+    });
+
+    expect(log.mock.calls).toEqual([
+      ['settings import outcome: revision_created(7)'],
+      ['settings import outcome: applied_no_revision'],
+      ['settings import outcome: no_op'],
+    ]);
+    log.mockRestore();
   });
 
   it('accepts credential encryption keyring without direct encryption key', () => {

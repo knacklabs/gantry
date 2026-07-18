@@ -43,6 +43,7 @@ import {
   hasAnyCapability,
   isInternalProviderAccount,
   isValidExternalUserId,
+  listDbOnlyGroupJids,
   loadMcpServersById,
   memorySubjectForConfiguredBinding,
   normalizeRuntimeSecretRefs,
@@ -113,7 +114,10 @@ export class SettingsDesiredStateService {
     settings: RuntimeSettings,
   ): Promise<SettingsDesiredStateDriftReport> {
     settings = (await this.normalizeConfiguredCapabilities(settings)).settings;
-    const groups = await this.deps.ops.getAllConversationRoutes();
+    const [groups, chats] = await Promise.all([
+      this.deps.ops.getAllConversationRoutes(),
+      this.deps.ops.getAllChats?.() ?? Promise.resolve([]),
+    ]);
     const configuredFolders = new Set(Object.keys(settings.agents));
     const configuredJids = new Set<string>();
     for (const binding of configuredRoutingBindings(settings)) {
@@ -135,9 +139,11 @@ export class SettingsDesiredStateService {
             .filter((folder) => !configuredFolders.has(folder)),
         ),
       ].sort(),
-      dbOnlyGroupJids: Object.keys(groups)
-        .filter((jid) => !configuredJids.has(jid))
-        .sort(),
+      dbOnlyGroupJids: listDbOnlyGroupJids({
+        groups,
+        chats,
+        configuredJids,
+      }),
       invalidReferences: await this.validateCapabilityReferences(settings),
     };
   }

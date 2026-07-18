@@ -202,9 +202,13 @@ function makeRepositories(overrides: Record<string, unknown> = {}) {
   } as any;
 }
 
-function makeOps(groups: Record<string, any> = {}) {
+function makeOps(
+  groups: Record<string, any> = {},
+  chats: Array<{ jid: string; is_group?: number }> = [],
+) {
   return {
     getAllConversationRoutes: vi.fn(async () => groups),
+    getAllChats: vi.fn(async () => chats),
     setConversationRoute: vi.fn(async () => undefined),
     deleteConversationRoute: vi.fn(async () => undefined),
   };
@@ -2141,6 +2145,21 @@ conversations:
     await expect(service.drift(settings)).resolves.toMatchObject({
       dbOnlyGroupJids: [],
       missingSettingsAgents: [],
+    });
+  });
+
+  it('reports persisted unregistered group metadata in settings drift', async () => {
+    const settings = createDefaultRuntimeSettings();
+    const service = new SettingsDesiredStateService({
+      ops: makeOps({}, [
+        { jid: 'tg:-1001234', is_group: 1 },
+        { jid: 'tg:222', is_group: 0 },
+      ]),
+      repositories: makeRepositories(),
+    });
+
+    await expect(service.drift(settings)).resolves.toMatchObject({
+      dbOnlyGroupJids: ['tg:-1001234'],
     });
   });
 

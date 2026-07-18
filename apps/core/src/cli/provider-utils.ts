@@ -1,7 +1,6 @@
-import { createHash } from 'node:crypto';
-
 import '../channels/register-builtins.js';
 import {
+  getProvider,
   listConnectableChannelProviders,
   providerForJid,
 } from '../channels/provider-registry.js';
@@ -105,45 +104,61 @@ export function providerAccountIdForAgent(
   return candidate;
 }
 
-export function configuredConversationKey(
-  settings: {
-    conversations: Record<
-      string,
-      {
-        externalId: string;
-        providerAccount?: string;
-        providerConnection?: string;
-      }
-    >;
-  },
-  conversation: { id: unknown; externalRef?: { value?: string | null } | null },
-  providerAccountId: string,
-): string {
-  const externalId =
-    conversation.externalRef?.value ||
-    String(conversation.id).replace(/^conversation:/, '');
-  const existing = Object.entries(settings.conversations).find(
-    ([, configured]) =>
-      configured.externalId === externalId &&
-      (configured.providerAccount ?? configured.providerConnection) ===
-        providerAccountId,
-  );
-  if (existing) return existing[0];
-  return settingsSafeConversationKey(providerAccountId, externalId);
+interface ConversationIdSettings {
+  providerAccounts: Record<string, { provider: string }>;
+  conversations: Record<
+    string,
+    {
+      externalId: string;
+      providerAccount?: string;
+      providerConnection?: string;
+    }
+  >;
 }
 
-function settingsSafeConversationKey(
+export function storedConversationIdCandidates(
+  resolvedConversationId: string,
   providerAccountId: string,
-  externalId: string,
+): string[] {
+  const accountPrefix = `conversation:${providerAccountId}:`;
+  const jid = resolvedConversationId.startsWith(accountPrefix)
+    ? resolvedConversationId.slice(accountPrefix.length)
+    : resolvedConversationId.replace(/^conversation:/, '');
+  return [
+    `conversation:${providerAccountId}:${jid}`,
+    `conversation:${jid}`,
+  ].filter(
+    (candidate, index, candidates) => candidates.indexOf(candidate) === index,
+  );
+}
+
+export function conversationIdFromConfigured(
+  settings: ConversationIdSettings,
+  configured: ConversationIdSettings['conversations'][string],
 ): string {
-  const raw = `${providerAccountId}_${externalId}`;
-  const base =
-    raw
-      .replace(/[^A-Za-z0-9_-]+/g, '_')
-      .replace(/^[^A-Za-z0-9]+/, '')
-      .replace(/_+/g, '_')
-      .slice(0, 80)
-      .replace(/[_-]+$/, '') || 'conversation';
-  const hash = createHash('sha256').update(raw).digest('hex').slice(0, 12);
-  return `${base}_${hash}`;
+  const providerAccountId =
+    configured.providerAccount ?? configured.providerConnection;
+  const connection = providerAccountId
+    ? settings.providerAccounts[providerAccountId]
+    : undefined;
+  const provider = connection ? getProvider(connection.provider) : undefined;
+  const prefix = provider?.jidPrefix ?? `${connection?.provider ?? ''}:`;
+  const externalId = configured.externalId.trim();
+  const jid = externalId.startsWith(prefix)
+    ? externalId
+    : `${prefix}${externalId}`;
+  return `conversation:${providerAccountId}:${jid}`;
+}
+
+export function soleProviderAccountIdForJid(
+  settings: Pick<ConversationIdSettings, 'providerAccounts'>,
+  jid: string,
+): string | undefined {
+  const matches = Object.entries(settings.providerAccounts)
+    .filter(([, account]) => {
+      const provider = getProvider(account.provider);
+      return provider?.jidPrefix ? jid.startsWith(provider.jidPrefix) : false;
+    })
+    .map(([id]) => id);
+  return matches.length === 1 ? matches[0] : undefined;
 }

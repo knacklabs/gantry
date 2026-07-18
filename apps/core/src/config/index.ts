@@ -33,6 +33,7 @@ import {
 } from '../shared/trigger-pattern.js';
 export * from './memory.js';
 export { SettingsDesiredStateService } from './settings/desired-state-service.js';
+export { createGroupJoinOnboardingCoordinator } from './settings/group-join-onboarding.js';
 export { configureDesiredSettingsStorageProvider } from './settings/runtime-settings.js';
 export {
   applyRuntimeSettingsDesiredState,

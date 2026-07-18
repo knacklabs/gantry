@@ -4,6 +4,7 @@ import { logger } from '../../infrastructure/logging/logger.js';
 import { findConversationRoutesForChat } from '../../shared/thread-queue-key.js';
 import type { ChannelOpts } from '../channel-provider.js';
 import type { TelegramContext } from './channel-shared.js';
+import { shouldLogUnregisteredChatDrop } from '../unregistered-chat-drop-log.js';
 
 const TELEGRAM_BOT_COMMANDS = new Set(['chatid', 'ping']);
 
@@ -98,10 +99,18 @@ export async function handleTelegramTextMessage(input: {
       threadId?.toString(),
     ).length > 0;
   if (!hasRegisteredRoute && isGroup) {
-    logger.debug(
-      { chatJid, chatName },
-      'Message from unregistered Telegram chat',
-    );
+    if (shouldLogUnregisteredChatDrop('telegram', chatJid)) {
+      logger.info(
+        {
+          provider: 'telegram',
+          providerAccountId: input.opts.providerAccountId,
+          chatId: String(ctx.chat.id),
+          chatJid,
+          chatName,
+        },
+        'Message from unregistered Telegram chat',
+      );
+    }
     return;
   }
 

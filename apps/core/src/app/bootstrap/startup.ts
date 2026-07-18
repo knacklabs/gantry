@@ -330,7 +330,10 @@ async function loadRevisionAuthoritySettings(input: {
     settings,
   );
   input.logger.info(
-    { appId, revision: outcome.revision ?? 0 },
+    {
+      appId,
+      revision: outcome.status === 'revision_created' ? outcome.revision : 0,
+    },
     'Seeded workstation settings revision from settings.yaml',
   );
   return settings;
