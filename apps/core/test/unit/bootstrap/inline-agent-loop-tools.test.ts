@@ -677,6 +677,49 @@ describe('inline core tool bootstrap', () => {
     expect(requestPermissionApproval).not.toHaveBeenCalled();
   });
 
+  it('asks instead of classifying inline input truncated at the classifier limit', async () => {
+    const classifierConsult = vi.fn(async () => ({
+      decision: 'allow' as const,
+      reason: 'Only the prefix was visible.',
+      latencyMs: 1,
+    }));
+    wire({
+      classifierConsult,
+      getPermissionRuntimeSettings: () => ({
+        agents: {},
+        permissions: {
+          autoMode: {},
+          yoloMode: { enabled: false },
+        },
+        memory: { llm: { models: { extractor: 'sonnet' } } },
+      }),
+    });
+    const input = laneInput();
+    input.input.permissionMode = 'auto';
+    const tools = createInlineCoreTools(
+      input,
+      support((() => ({
+        status: 'prompt',
+        reason: 'Approval required.',
+      })) as never),
+    );
+
+    await expect(
+      tools.authorizeThirdPartyMcpTool('mcp__crm__lookup', {
+        query: 'x'.repeat(16_001),
+      }),
+    ).resolves.toEqual({ allowed: true });
+
+    expect(classifierConsult).not.toHaveBeenCalled();
+    expect(requestPermissionApproval).toHaveBeenCalledOnce();
+    expect(publishRuntimeEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'permission.classifier_decision',
+        payload: expect.objectContaining({ failureCode: 'input_truncated' }),
+      }),
+    );
+  });
+
   it('denies an unattended classifier ask without prompting', async () => {
     const classifierConsult = vi.fn(async () => ({
       decision: 'ask' as const,

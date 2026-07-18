@@ -113,6 +113,7 @@ export function sanitizeIpcToolInput(
   altered: boolean;
   alteredPaths: string[];
   redactedPaths: string[];
+  truncatedPaths: string[];
 } {
   if (!isPlainObject(value)) {
     const alteredPaths = value === undefined ? [] : ['$'];
@@ -120,6 +121,7 @@ export function sanitizeIpcToolInput(
       altered: alteredPaths.length > 0,
       alteredPaths,
       redactedPaths: [],
+      truncatedPaths: alteredPaths,
     };
   }
   const state: SanitizationState = {
@@ -132,10 +134,14 @@ export function sanitizeIpcToolInput(
     unknown
   >;
   const alteredPaths = [...state.alteredPaths];
+  const redactedPaths = [...state.redactedPaths];
   return {
     toolInput,
     altered: alteredPaths.length > 0,
     alteredPaths,
-    redactedPaths: [...state.redactedPaths],
+    redactedPaths,
+    truncatedPaths: alteredPaths.filter(
+      (path) => !state.redactedPaths.has(path),
+    ),
   };
 }

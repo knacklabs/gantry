@@ -131,6 +131,7 @@ export async function resolvePermissionIpcDecision(input: {
         canonicalToolName: input.request.toolName,
         toolInput: input.request.classifierToolInput ?? input.request.toolInput,
         toolInputRedactedPaths: input.request.toolInputRedactedPaths,
+        toolInputTruncatedPaths: input.request.toolInputTruncatedPaths,
         policyDecisionReason:
           input.request.decisionReason ?? 'Human approval is required.',
         approvedCapabilityIds,

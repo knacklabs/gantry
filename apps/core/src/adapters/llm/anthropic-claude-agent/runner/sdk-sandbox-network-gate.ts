@@ -1,24 +1,27 @@
-import {
-  evaluateEgressDenylist,
-  evaluateNonPublicEgressAddress,
-} from '../../../../shared/egress-policy.js';
+import { evaluateEgressDenylist } from '../../../../shared/egress-policy.js';
 import { isSdkSandboxNetworkAccessToolName } from '../../../../shared/agent-tool-references.js';
+import {
+  normalizeEgressAuthorityHost,
+  resolvePublicEgressAddress,
+} from '../../../../shared/egress-target-resolution.js';
 
-export function decideSdkSandboxNetworkAccess(input: {
+export async function decideSdkSandboxNetworkAccess(input: {
   toolName: string;
   toolInput: Record<string, unknown>;
   denylist: readonly string[];
-}):
+}): Promise<
   | { behavior: 'allow'; updatedInput: Record<string, unknown> }
   | { behavior: 'deny'; message: string; interrupt: false }
-  | null {
+  | null
+> {
   if (!isSdkSandboxNetworkAccessToolName(input.toolName)) return null;
 
-  const host =
+  const authority =
     typeof input.toolInput.host === 'string' ? input.toolInput.host : '';
+  const host = normalizeEgressAuthorityHost(authority);
   const deny = evaluateEgressDenylist({
     settings: { denylist: [...input.denylist] },
-    host,
+    host: host ?? authority,
   });
   if (deny) {
     return {
@@ -27,14 +30,15 @@ export function decideSdkSandboxNetworkAccess(input: {
       interrupt: false,
     };
   }
-  const nonPublicDeny = evaluateNonPublicEgressAddress({
-    host,
-    address: host,
-  });
-  if (nonPublicDeny) {
+  const resolution = host
+    ? await resolvePublicEgressAddress(host)
+    : { ok: false as const, host: authority.trim() };
+  if (!resolution.ok) {
     return {
       behavior: 'deny',
-      message: nonPublicDeny.reason,
+      message:
+        resolution.deny?.reason ??
+        `SDK sandbox network access could not safely resolve ${resolution.host || 'the requested host'}.`,
       interrupt: false,
     };
   }

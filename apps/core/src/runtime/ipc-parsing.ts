@@ -28,6 +28,7 @@ const IPC_REQUEST_ID_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/;
 export type ParsedPermissionIpcRequest = PermissionApprovalRequest & {
   classifierToolInput?: Record<string, unknown>;
   toolInputRedactedPaths?: string[];
+  toolInputTruncatedPaths?: string[];
 };
 export interface ParsedIpcMessage {
   type: 'message';
@@ -407,6 +408,7 @@ export function parsePermissionIpcRequest(
   const {
     toolInput: classifierToolInput,
     redactedPaths: toolInputRedactedPaths,
+    truncatedPaths: toolInputTruncatedPaths,
   } = sanitizeIpcToolInput(
     raw.toolInput,
     PERMISSION_CLASSIFIER_MAX_STRING_LENGTH,
@@ -450,6 +452,7 @@ export function parsePermissionIpcRequest(
     ...(toolInputSanitizedPaths.length > 0 ? { toolInputSanitizedPaths } : {}),
     ...(classifierToolInput ? { classifierToolInput } : {}),
     ...(toolInputRedactedPaths.length > 0 ? { toolInputRedactedPaths } : {}),
+    ...(toolInputTruncatedPaths.length > 0 ? { toolInputTruncatedPaths } : {}),
     ...(semanticCapabilityDefinitions ? { semanticCapabilityDefinitions } : {}),
     ...(suggestions ? { suggestions } : {}),
     ...(decisionOptions ? { decisionOptions } : {}),

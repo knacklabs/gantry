@@ -1,5 +1,4 @@
 import http from 'http';
-import dns from 'node:dns/promises';
 import { createHash } from 'crypto';
 import type { Duplex } from 'stream';
 import {
@@ -17,11 +16,8 @@ import {
   tunnelDirect,
   tunnelViaUpstreamProxy,
 } from './egress-gateway-proxying.js';
-import {
-  declaredNetworkAuthority,
-  isIpAddress,
-} from '../shared/network-host-declaration.js';
-import { lookupHostnameWithDeadline } from '../shared/hostname-lookup-deadline.js';
+import { declaredNetworkAuthority } from '../shared/network-host-declaration.js';
+import { resolvePublicEgressAddress } from '../shared/egress-target-resolution.js';
 import {
   mappedEgressTarget,
   networkAttributionMap,
@@ -495,31 +491,13 @@ async function resolveEgressTarget(target: {
   authority: string;
 }): Promise<EgressTargetResolution> {
   const host = normalizeEgressHost(target.host);
-  if (isIpAddress(host)) {
-    const address = host.replace(/^\[/, '').replace(/\]$/, '');
-    return { target: { ...target, host, connectHost: address } };
+  const resolution = await resolvePublicEgressAddress(host);
+  if (!resolution.ok) {
+    return { deny: resolution.deny ?? dnsResolutionDeny(host) };
   }
-  let records: Array<{ address: string; family: 4 | 6 }>;
-  try {
-    records = await lookupHostnameWithDeadline({
-      hostname: host,
-      lookupHostname: lookupEgressHostname,
-      timeoutMs: 30_000,
-      timeoutMessage: 'Egress gateway DNS lookup timed out.',
-    });
-  } catch {
-    return { deny: dnsResolutionDeny(host) };
-  }
-  const first = records[0];
-  if (!first) return { deny: dnsResolutionDeny(host) };
-  for (const record of records) {
-    const deny = evaluateNonPublicEgressAddress({
-      host,
-      address: record.address,
-    });
-    if (deny) return { deny };
-  }
-  return { target: { ...target, host, connectHost: first.address } };
+  return {
+    target: { ...target, host, connectHost: resolution.address },
+  };
 }
 function dnsResolutionDeny(host: string): EgressPolicyMatch {
   return {
@@ -527,17 +505,6 @@ function dnsResolutionDeny(host: string): EgressPolicyMatch {
     matchedPattern: 'dns-resolution-failed',
     reason: `Egress gateway could not safely resolve ${host}.`,
   };
-}
-async function lookupEgressHostname(
-  hostname: string,
-): Promise<Array<{ address: string; family: 4 | 6 }>> {
-  const records = await dns.lookup(hostname, { all: true, verbatim: true });
-  return records
-    .filter((record) => record.family === 4 || record.family === 6)
-    .map((record) => ({
-      address: record.address,
-      family: record.family as 4 | 6,
-    }));
 }
 function requireGatewayState(key: string): EgressGatewayState {
   const state = gateways.get(key);

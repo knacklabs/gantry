@@ -228,7 +228,7 @@ export function createCanUseToolCallback(
       return { behavior: 'allow' as const, updatedInput: trustInput() };
     };
 
-    const sandboxNetworkAccessDecision = decideSdkSandboxNetworkAccess({
+    const sandboxNetworkAccessDecision = await decideSdkSandboxNetworkAccess({
       toolName,
       toolInput,
       denylist: input.agentInput.egressDenylist ?? [],

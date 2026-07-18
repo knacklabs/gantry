@@ -65,7 +65,7 @@ export function classifierUserPayload(input: {
       1_500,
     ),
     canonicalToolName: redactSensitiveToolInputString(input.canonicalToolName),
-    toolInput: redactPermissionClassifierToolInput(input.toolInput),
+    toolInput: serializePermissionClassifierToolInput(input.toolInput).value,
     policyDecisionReason: truncate(
       redactSensitiveToolInputString(input.policyDecisionReason),
       1_000,
@@ -77,6 +77,13 @@ export function classifierUserPayload(input: {
 }
 
 export function redactPermissionClassifierToolInput(value: unknown): string {
+  return serializePermissionClassifierToolInput(value).value;
+}
+
+export function serializePermissionClassifierToolInput(value: unknown): {
+  value: string;
+  truncated: boolean;
+} {
   let serialized: string;
   try {
     serialized = JSON.stringify(
@@ -90,10 +97,15 @@ export function redactPermissionClassifierToolInput(value: unknown): string {
   } catch {
     serialized = JSON.stringify('[UNSERIALIZABLE]');
   }
-  return truncate(
-    serialized ?? 'null',
-    PERMISSION_CLASSIFIER_MAX_TOOL_INPUT_CHARS,
-  );
+  const serializedValue = serialized ?? 'null';
+  return {
+    value: truncate(
+      serializedValue,
+      PERMISSION_CLASSIFIER_MAX_TOOL_INPUT_CHARS,
+    ),
+    truncated:
+      serializedValue.length > PERMISSION_CLASSIFIER_MAX_TOOL_INPUT_CHARS,
+  };
 }
 
 const VERDICT_KEYS = new Set(['decision', 'reason']);

@@ -382,6 +382,7 @@ export function createInlineCoreTools(
           canonicalToolName: name,
           toolInput: classifierInput.toolInput,
           toolInputRedactedPaths: classifierInput.redactedPaths,
+          toolInputTruncatedPaths: classifierInput.truncatedPaths,
           policyDecisionReason: decision.reason,
           approvedCapabilityIds,
           workspaceRoot: resolveWorkspaceFolderPath(laneInput.group.folder),
