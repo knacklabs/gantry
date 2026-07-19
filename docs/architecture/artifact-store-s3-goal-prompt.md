@@ -12,35 +12,58 @@ bytes block Linux/docker + fleet deployments (artifacts don't travel between
 hosts) and self-hosted object storage. MinIO and AWS S3 share the S3 API — one
 adapter covers both (endpoint + forcePathStyle config).
 
-## Existing substrate (REUSE, do not rebuild)
+## Codex-verified inventory (2026-07-19 exploration; corrected from the draft)
 
-- `@aws-sdk/client-s3` already a dependency.
-- `s3-browser-profile-artifact-store.ts` — content-addressed S3 adapter
-  pattern (hash verify, quarantine on mismatch) + terraform IAM in
-  `ops/terraform/modules/storage/main.tf`.
-- `RuntimeArtifactStoreDriver = 'local' | 's3'` already in
-  `runtime-settings-types.ts`.
-- `StoredFileArtifactBytes` port (storageRef/contentHash/sizeBytes) is
-  backend-neutral already.
+ALREADY EXISTS (reuse, zero build):
+
+- `runtime.artifact_store` settings block COMPLETE: driver local|s3, bucket,
+  region, endpoint, force_path_style — parser (strict, S3-field validation),
+  renderer, defaults all live (`runtime-settings-parser.ts:800`,
+  `runtime-settings-artifact-store-renderer.ts`).
+- Shared S3 client constructor passes endpoint + forcePathStyle
+  (`adapters/artifacts/skills/s3-artifact-client.ts`) — MinIO ALREADY
+  supported and rehearsed: `ops/docker/docker-compose.fleet.yml` runs
+  `http://minio:9000` path-style with AWS*\* env creds; `entrypoint.sh` seeds
+  bucket/region from `GANTRY_ARTIFACT*\*`.
+- S3 stores for skills, toolchains, browser profiles + factory driver wiring
+  for those three (`factory.ts:194-223`, `fleet-boot.ts:331`).
+- Credential convention: AWS SDK default chain (IAM role / AWS\_\* env), NOT
+  RuntimeSecretProvider — keep it.
+
+MISSING (the actual gap list):
+
+1. A bytes PORT: `LocalFileArtifactBytes` is a concrete class;
+   `PostgresFileArtifactStore` constructor REQUIRES it
+   (`file-artifact-repository.postgres.ts:56`) and hardcodes
+   `storageType: 'local-filesystem'` (domain type permits only that value —
+   `domain/file-artifacts/file-artifact.ts:5`).
+2. `S3FileArtifactBytes` adapter (use the shared s3-artifact-client; objects
+   `file-artifacts/<appId>/<contentHash>`; sha256 verify on read per the
+   browser-profile pattern).
+3. Driver switch for FILE artifacts in `createStorageRuntime()`
+   (`factory.ts:159` constructs local unconditionally — the settings knob
+   reaches skills/toolchains/browser-profiles but NOT file artifacts).
+4. Presigned GET links: no presigner anywhere; needs
+   `@aws-sdk/s3-request-presigner` (small, same SDK family) → Teams real
+   delivery when driver=s3.
+5. Host-side workspace registration (bypass the 2,000,000-char inline IPC
+   cap — `ipc-file-artifact-handlers.ts:275`): host reads the workspace file
+   via the new contained resolver and puts through the driver.
+6. Terraform: add `file-artifacts/*` prefix + worker policy
+   (`ops/terraform/modules/storage/main.tf` has only skills/toolchains/
+   browser-profiles).
+7. Send path currently buffers whole artifacts in memory
+   (`send-message.ts:106`) — acceptable at the 25 MB cap; note, don't fix.
 
 ## Stages
 
-1. **S3 bytes adapter**: `s3-file-artifact-bytes.ts` mirroring the
-   local adapter's port, objects under `file-artifacts/<appId>/<contentHash>`,
-   sha256 verified on read (browser-profile pattern). MinIO = same adapter with
-   `endpoint` + `forcePathStyle: true`. Driver switch honors the existing
-   settings knob; creds via runtime secrets (reuse the existing S3 client
-   construction/env conventions from the browser-profile store).
-2. **Send path**: outbound resolution streams from the driver (HEAD size gate
-   before GET; the 25 MB cap enforced pre-download). Loud reasons unchanged.
-3. **Teams real delivery via presigned links**: `GetObject` presigned URL
-   (expiry knob) replaces the honest-degradation stub when the s3 driver is
-   active — this retires the audit's "signed artifact links (future work)".
-   Local driver keeps the stub.
-4. **Big-file registration**: host-side register-from-workspace (the new
-   workspace-direct resolution reads the file host-side) uploads straight to
-   the driver — bypasses the ~1.5 MB base64 IPC write cap for workspace files.
-   Agent-side base64 writes keep their cap.
+1. Bytes port + `S3FileArtifactBytes` + factory driver switch + `storageType`
+   domain value `'s3'` (repository stops hardcoding local).
+2. Presigned-link Teams delivery when driver=s3 (local keeps the honest stub);
+   expiry knob in the artifact_store block.
+3. Host-side workspace registration through the driver (large-file unlock).
+4. Terraform prefix/policy + MinIO integration leg in CI/docker smoke
+   (compose fleet file already has the MinIO service to point at).
 
 ## Linux parity note
 
