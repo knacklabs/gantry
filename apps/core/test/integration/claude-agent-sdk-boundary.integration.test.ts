@@ -38,6 +38,14 @@ const sdkState = vi.hoisted(() => ({
     streamMessages: unknown[];
     permissionDecision?: unknown;
   }>,
+  getContextUsage: undefined as
+    | undefined
+    | (() => Promise<{
+        totalTokens: number;
+        maxTokens: number;
+        percentage: number;
+        model?: string;
+      }>),
 }));
 const clockState = vi.hoisted(() => ({
   nowMs: () => Date.now(),
@@ -52,9 +60,8 @@ vi.mock('@core/shared/time/datetime.js', async (importOriginal) => {
   };
 });
 
-vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
-  SYSTEM_PROMPT_DYNAMIC_BOUNDARY: '__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__',
-  query: async function* ({
+vi.mock('@anthropic-ai/claude-agent-sdk', () => {
+  const query = async function* ({
     prompt,
     options,
   }: {
@@ -293,8 +300,15 @@ vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
     }
 
     yield { type: 'result', subtype: 'success', result: 'ok' };
-  },
-}));
+  };
+  Object.defineProperty(query.prototype, 'getContextUsage', {
+    get: () => sdkState.getContextUsage,
+  });
+  return {
+    SYSTEM_PROMPT_DYNAMIC_BOUNDARY: '__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__',
+    query,
+  };
+});
 
 async function nextWithTimeout<T>(
   iterator: AsyncIterator<T>,
@@ -386,6 +400,7 @@ afterEach(() => {
   }
   sdkState.mode = 'success';
   sdkState.calls.length = 0;
+  sdkState.getContextUsage = undefined;
   clockState.nowMs = () => Date.now();
   vi.unstubAllEnvs();
 });
@@ -508,6 +523,79 @@ describe('Claude Agent SDK boundary integration', () => {
         }),
       ]),
     );
+  });
+
+  it('emits result-only output before context usage retrieval settles', async () => {
+    const env = prepareRuntimeEnv();
+    let releaseContextUsage!: (usage: {
+      totalTokens: number;
+      maxTokens: number;
+      percentage: number;
+      model: string;
+    }) => void;
+    sdkState.getContextUsage = () =>
+      new Promise((resolve) => {
+        releaseContextUsage = resolve;
+      });
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const { runQuery } = await importRunQuery();
+
+    const queryDone = runQuery(
+      'hello from Gantry',
+      env.mcpServerPath,
+      runnerInput(),
+      sdkProcessEnv(),
+      'sonnet',
+      undefined,
+      undefined,
+    );
+
+    await vi.waitFor(() => {
+      expect(
+        logSpy.mock.calls
+          .map((call) => String(call[0] ?? ''))
+          .filter((line) => line.startsWith('{'))
+          .map((line) => JSON.parse(line) as { result: string | null })
+          .some((output) => output.result === 'ok'),
+      ).toBe(true);
+    });
+    releaseContextUsage({
+      totalTokens: 120,
+      maxTokens: 1_000,
+      percentage: 12,
+      model: 'sonnet',
+    });
+    await queryDone;
+
+    const outputs = logSpy.mock.calls
+      .map((call) => String(call[0] ?? ''))
+      .filter((line) => line.startsWith('{'))
+      .map(
+        (line) =>
+          JSON.parse(line) as {
+            result: string | null;
+            runtimeEventOnly?: boolean;
+            contextUsage?: { totalTokens: number };
+          },
+      );
+    logSpy.mockRestore();
+    const resultIndex = outputs.findIndex((output) => output.result === 'ok');
+    const contextUsageIndex = outputs.findIndex(
+      (output) => output.contextUsage?.totalTokens === 120,
+    );
+
+    expect(resultIndex).toBeGreaterThanOrEqual(0);
+    expect(contextUsageIndex).toBeGreaterThan(resultIndex);
+    expect(outputs[contextUsageIndex]).toMatchObject({
+      result: null,
+      runtimeEventOnly: true,
+      contextUsage: {
+        totalTokens: 120,
+        maxTokens: 1_000,
+        percentage: 12,
+        model: 'sonnet',
+      },
+    });
   });
 
   it('ignores SDK thinking deltas and streams only text deltas', async () => {

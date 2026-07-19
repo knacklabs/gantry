@@ -499,7 +499,7 @@ export class GantryModelGatewayBroker implements AgentCredentialBroker {
       parsedResponse?.payload,
       usage,
     );
-    await this.publishGatewayUseAudit(tokenRecord, {
+    const auditInput = {
       outcome: response.ok ? 'forwarded' : 'upstream_error',
       method: req.method ?? 'GET',
       status,
@@ -507,7 +507,17 @@ export class GantryModelGatewayBroker implements AgentCredentialBroker {
       upstreamPath: upstreamUrl.pathname,
       credentialFingerprint: credential.fingerprint,
       usage,
-    });
+    } as const;
+    const isStreamingResponse = response.headers
+      .get('content-type')
+      ?.toLowerCase()
+      .includes('text/event-stream');
+    const auditPromise = isStreamingResponse
+      ? this.publishGatewayUseAudit(tokenRecord, auditInput)
+      : undefined;
+    if (!auditPromise) {
+      await this.publishGatewayUseAudit(tokenRecord, auditInput);
+    }
     res.statusCode = status;
     response.headers.forEach((value, key) => {
       if (!shouldForwardGatewayResponseHeader(key)) return;
@@ -515,7 +525,16 @@ export class GantryModelGatewayBroker implements AgentCredentialBroker {
     });
     const tap = resolveGatewayTap(observation, response);
     try {
-      await pipeUpstreamBody(response, res, tap);
+      const pipePromise = pipeUpstreamBody(response, res, tap);
+      if (auditPromise) {
+        const [, pipeResult] = await Promise.allSettled([
+          auditPromise,
+          pipePromise,
+        ]);
+        if (pipeResult.status === 'rejected') throw pipeResult.reason;
+      } else {
+        await pipePromise;
+      }
       if (observation?.isStreaming) observation.finish({ status });
     } catch (error) {
       if (observation?.isStreaming)

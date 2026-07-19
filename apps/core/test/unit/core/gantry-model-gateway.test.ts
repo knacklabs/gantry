@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import http from 'node:http';
 import { createHash } from 'node:crypto';
+import { Readable, Writable } from 'node:stream';
 
 import {
   extractGatewayResponseUsage,
@@ -207,17 +208,29 @@ function gatewayRequest(input: {
 }
 
 function gatewayStreamingRequest(input: { url: string; token: string }): {
-  firstChunk: Promise<string>;
-  done: Promise<{ status: number; body: string }>;
+  firstChunk: Promise<{
+    status: number;
+    headers: http.IncomingHttpHeaders;
+    body: Buffer;
+  }>;
+  done: Promise<{ status: number; body: Buffer }>;
 } {
-  let resolveFirstChunk!: (value: string) => void;
+  let resolveFirstChunk!: (value: {
+    status: number;
+    headers: http.IncomingHttpHeaders;
+    body: Buffer;
+  }) => void;
   let rejectFirstChunk!: (error: unknown) => void;
   let sawFirstChunk = false;
-  const firstChunk = new Promise<string>((resolve, reject) => {
+  const firstChunk = new Promise<{
+    status: number;
+    headers: http.IncomingHttpHeaders;
+    body: Buffer;
+  }>((resolve, reject) => {
     resolveFirstChunk = resolve;
     rejectFirstChunk = reject;
   });
-  const done = new Promise<{ status: number; body: string }>(
+  const done = new Promise<{ status: number; body: Buffer }>(
     (resolve, reject) => {
       const req = http.request(
         input.url,
@@ -235,13 +248,17 @@ function gatewayStreamingRequest(input: { url: string; token: string }): {
             chunks.push(buffer);
             if (!sawFirstChunk) {
               sawFirstChunk = true;
-              resolveFirstChunk(buffer.toString('utf-8'));
+              resolveFirstChunk({
+                status: res.statusCode ?? 0,
+                headers: res.headers,
+                body: buffer,
+              });
             }
           });
           res.on('end', () =>
             resolve({
               status: res.statusCode ?? 0,
-              body: Buffer.concat(chunks).toString('utf-8'),
+              body: Buffer.concat(chunks),
             }),
           );
         },
@@ -934,10 +951,29 @@ describe('GantryModelGatewayBroker', () => {
     }
   });
 
-  it('streams upstream provider responses without buffering the full body', async () => {
+  it('streams byte-identically before a blocked usage audit settles', async () => {
     const repo = new MutableModelCredentialRepository();
-    repo.set('anthropic', 'sk-ant-stream');
+    repo.set('anthropic', 'mock-anthropic-cred');
+    const firstBytes = Buffer.from('data: first\n\n');
+    const secondBytes = Buffer.from('data: second\n\n');
     let releaseSecondChunk!: () => void;
+    let releaseUsageAudit!: () => void;
+    let resolveUsageAuditSettled!: () => void;
+    let auditCalls = 0;
+    let usageAuditSettled = false;
+    const usageAuditGate = new Promise<void>((resolve) => {
+      releaseUsageAudit = resolve;
+    });
+    const usageAuditSettledPromise = new Promise<void>((resolve) => {
+      resolveUsageAuditSettled = resolve;
+    });
+    const audit = vi.fn(async () => {
+      auditCalls += 1;
+      if (auditCalls !== 2) return;
+      await usageAuditGate;
+      usageAuditSettled = true;
+      resolveUsageAuditSettled();
+    });
     vi.stubGlobal(
       'fetch',
       vi.fn(
@@ -945,9 +981,9 @@ describe('GantryModelGatewayBroker', () => {
           new Response(
             new ReadableStream<Uint8Array>({
               start(controller) {
-                controller.enqueue(Buffer.from('data: first\n\n'));
+                controller.enqueue(firstBytes);
                 releaseSecondChunk = () => {
-                  controller.enqueue(Buffer.from('data: second\n\n'));
+                  controller.enqueue(secondBytes);
                   controller.close();
                 };
               },
@@ -958,7 +994,7 @@ describe('GantryModelGatewayBroker', () => {
           ),
       ),
     );
-    const broker = new GantryModelGatewayBroker(repo);
+    const broker = new GantryModelGatewayBroker(repo, { audit });
     try {
       const injection = await broker.getInjection({
         binding: {
@@ -974,11 +1010,160 @@ describe('GantryModelGatewayBroker', () => {
         token: injection.env[anthropicApiKeyKey]!,
       });
 
-      await expect(response.firstChunk).resolves.toBe('data: first\n\n');
+      const firstChunk = await response.firstChunk;
+      expect(firstChunk).toMatchObject({
+        status: 200,
+        headers: { 'content-type': 'text/event-stream' },
+      });
+      expect(firstChunk.body).toEqual(firstBytes);
+      expect(usageAuditSettled).toBe(false);
       releaseSecondChunk();
+      releaseUsageAudit();
+      await usageAuditSettledPromise;
       await expect(response.done).resolves.toMatchObject({
         status: 200,
-        body: 'data: first\n\ndata: second\n\n',
+        body: Buffer.concat([firstBytes, secondBytes]),
+      });
+    } finally {
+      await broker.close();
+    }
+  });
+
+  it('awaits the usage audit before surfacing a streaming pipe error', async () => {
+    const repo = new MutableModelCredentialRepository();
+    repo.set('anthropic', 'mock-anthropic-cred');
+    const pipeError = new Error('client disconnected');
+    let releaseUsageAudit!: () => void;
+    let auditCalls = 0;
+    let pipeWrites = 0;
+    let pipeRejected = false;
+    let usageAuditSettled = false;
+    const usageAuditGate = new Promise<void>((resolve) => {
+      releaseUsageAudit = resolve;
+    });
+    const audit = vi.fn(async () => {
+      auditCalls += 1;
+      if (auditCalls !== 2) return;
+      await usageAuditGate;
+      usageAuditSettled = true;
+    });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(
+            new ReadableStream<Uint8Array>({
+              start(controller) {
+                controller.enqueue(Buffer.from('data: first\n\n'));
+                controller.enqueue(Buffer.from('data: second\n\n'));
+                controller.close();
+              },
+            }),
+            { headers: { 'content-type': 'text/event-stream' } },
+          ),
+      ),
+    );
+    const broker = new GantryModelGatewayBroker(repo, { audit });
+    try {
+      const injection = await broker.getInjection({
+        binding: {
+          profile: 'gantry',
+          purpose: 'model_runtime',
+          appId,
+          modelRouteId: 'anthropic',
+        },
+      });
+      const req = Object.assign(Readable.from(['{}']), {
+        url: '/anthropic/v1/messages',
+        method: 'POST',
+        headers: {
+          'x-api-key': injection.env[anthropicApiKeyKey]!,
+          'content-type': 'application/json',
+        },
+      }) as unknown as http.IncomingMessage;
+      const res = Object.assign(
+        new Writable({
+          write(_chunk, _encoding, callback) {
+            pipeWrites += 1;
+            if (pipeWrites === 1) {
+              callback();
+              return;
+            }
+            pipeRejected = true;
+            callback(pipeError);
+          },
+        }),
+        { statusCode: 200, setHeader: vi.fn() },
+      ) as unknown as http.ServerResponse;
+
+      const handlerPromise = (
+        broker as unknown as {
+          handleRequest(
+            request: http.IncomingMessage,
+            response: http.ServerResponse,
+          ): Promise<void>;
+        }
+      ).handleRequest(req, res);
+      let handlerSettled = false;
+      void handlerPromise.then(
+        () => {
+          handlerSettled = true;
+        },
+        () => {
+          handlerSettled = true;
+        },
+      );
+
+      await vi.waitFor(() => expect(audit).toHaveBeenCalledTimes(2));
+      await vi.waitFor(() => expect(pipeRejected).toBe(true));
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      expect(handlerSettled).toBe(false);
+      expect(usageAuditSettled).toBe(false);
+      releaseUsageAudit();
+      await expect(handlerPromise).rejects.toBe(pipeError);
+      expect(usageAuditSettled).toBe(true);
+    } finally {
+      await broker.close();
+    }
+  });
+
+  it('delivers the full stream when the usage audit throws', async () => {
+    const repo = new MutableModelCredentialRepository();
+    repo.set('anthropic', 'mock-anthropic-cred');
+    const expected = Buffer.from('data: first\n\ndata: second\n\n');
+    let auditCalls = 0;
+    const audit = vi.fn(async () => {
+      auditCalls += 1;
+      if (auditCalls === 2) throw new Error('audit unavailable');
+    });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(expected, {
+            headers: { 'content-type': 'text/event-stream' },
+          }),
+      ),
+    );
+    const broker = new GantryModelGatewayBroker(repo, { audit });
+    try {
+      const injection = await broker.getInjection({
+        binding: {
+          profile: 'gantry',
+          purpose: 'model_runtime',
+          appId,
+          modelRouteId: 'anthropic',
+        },
+      });
+
+      const response = gatewayStreamingRequest({
+        url: `${injection.env[anthropicBaseUrlKey]}/v1/messages`,
+        token: injection.env[anthropicApiKeyKey]!,
+      });
+
+      await expect(response.done).resolves.toMatchObject({
+        status: 200,
+        body: expected,
       });
     } finally {
       await broker.close();

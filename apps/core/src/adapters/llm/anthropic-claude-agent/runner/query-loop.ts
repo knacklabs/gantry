@@ -642,7 +642,7 @@ export async function runQuery(
           message,
           fallbackModel: configuredModel,
         });
-        const contextUsage = await readContextUsage(sdkQuery);
+        const contextUsagePromise = readContextUsage(sdkQuery);
         const continuedByFollowup = steeringGate.pendingCount() > 0;
         writeOutput({
           status: 'success',
@@ -650,7 +650,6 @@ export async function runQuery(
           newSessionId,
           ...(primeToolAttempts.length > 0 ? { primeToolAttempts } : {}),
           ...(continuedByFollowup ? { continuedByFollowup: true } : {}),
-          ...(contextUsage ? { contextUsage } : {}),
           ...(usage
             ? {
                 usage,
@@ -670,6 +669,16 @@ export async function runQuery(
         visibleTextSinceLastResult = '';
         pendingStructuredToPartialBoundary = false;
         steeringGate.markTurnBoundary();
+        const contextUsage = await contextUsagePromise;
+        if (contextUsage) {
+          writeOutput({
+            status: 'success',
+            result: null,
+            newSessionId,
+            runtimeEventOnly: true,
+            contextUsage,
+          });
+        }
       }
     }
   } finally {
