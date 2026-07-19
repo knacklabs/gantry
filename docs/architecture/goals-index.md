@@ -31,39 +31,45 @@ B2 hardening batch.
 
 ## Execution order (run top-to-bottom)
 
-**Now — three in-flight lanes (2026-07-19, all uncommitted in worktrees, each
-carrying a validation addendum in its linked doc that MUST land before commit):**
+**Now — three implementation lanes running in parallel (2026-07-19):**
 
-1. **Ponytail audit Phase 3** — slice 1 implemented (N1/N5-N7/N9, AR1 19→0);
-   fix round in flight for 2 P1s (appId-less provider + test dedup — addendum in
-   `ponytail-audit-2026-07-16.md`); then slice 2 (AR2+F5+F14 canonical routing),
-   slice 3 (F9+N2-N4+N8), Phases 4-6; Phases 7-9 (DB baselining + live restamp)
-   LAST, only after explicit user cutover go + the live-settings runbook in the
-   branch execution ledger. _(worktree `wt-ponytail`, `feature/ponytail-audit`)_
-2. **Outbound attachments fix (all providers)** — items 1-4 implemented; fix
-   round in flight for the validation addendum in
-   `outbound-attachments-audit-2026-07-19.md` (containment TOCTOU, Slack
-   `files:write` scopes, double-failure propagation). Then PR.
-   _(worktree `wt-attach`, `fix/outbound-attachments`)_
+1. **Ponytail audit Phase 3** — slice 1 COMMITTED (N1/N5-N7/N9, AR1 19→0,
+   app-scoped desired-state provider); **slice 2 in flight** (AR2+F5+F14 canonical
+   routing + deferred trigger-bridge removal); then slice 3 (F9+N2-N4+N8), Phases
+   4-6; Phases 7-9 (DB baselining + live restamp) LAST, only after explicit user
+   cutover go + the live-settings runbook in the branch execution ledger.
+   _(worktree `wt-ponytail`, `feature/ponytail-audit`)_
+2. **S3/MinIO file-artifact bytes** — the attach lane's follow-on (attachments
+   shipped as PR #234). Stage 1 (bytes port + `S3FileArtifactBytes` + factory
+   driver switch) in review; then presigned-link Teams delivery, host-side
+   workspace registration, terraform prefix + MinIO CI leg.
+   `artifact-store-s3-goal-prompt.md` _(worktree `wt-attach`, `feature/s3-file-artifacts`)_
+3. **Durable-work primitive** — plan-validation COMPLETE; validated goal doc
+   committed (19-consumer inventory, 9 stages, 20 invariants; fold/don't-fold
+   verdicts guard against over-unification). Implementation starts on user
+   sign-off. `durable-work-primitive-goal-prompt.md`
+   _(worktree `wt-convo`, `feature/durable-work-primitive`)_
 
-Per-lane loop: codex fix lands → independent verify (typecheck + FULL unit +
+Per-lane loop: codex lands → independent verify (typecheck + FULL unit +
 throwaway-DB integration when schema touched) → local autoreview to clean →
 commit. Merge only on explicit user "merge NNN".
 
 **Next — high-leverage:**
 
-4. **Durable-work primitive — LOCKED: starts when the attachments lane closes (after its S3/MinIO follow-on cycle); runs IN PARALLEL with goal 5 (user decision 2026-07-19)** (evidence-promoted
-   2026-07-19): unifies ~10 bespoke lease/claim/retry copies; absorbs deferred
-   retention + IPC-backpressure + fire-and-forget `send_message` + A3
-   review-dedup (deferred from the perm-storage cycle) + the NEW callable-agent
-   follow-up jsonb-key state (privateCorrelationJson/receiptJson flags from
-   #230 — same family-1 disease); the umbrella for goals 6-7 below. Starts with
-   a Codex plan-validation pass. `fable-architecture-review-2026-07-16.md` (#1)
-5. **Model management: unify then UX** — FINALIZED 2026-07-19; starts when the ponytail lane closes, parallel with goal 4 (8 decisions
-   locked in the doc: aggressive knob collapse, sticky conversation switch via
+4. **Messaging hot-path latency + ambient liveness + dead-plumbing cleanup** —
+   SCOPED 2026-07-19 from two parallel audits (Codex latency/over-engineering +
+   Fable UX). Cuts time-to-first-reply (history-hydration watermark, ~20 redundant
+   per-message upserts, double message-fetch/context-hydration) and revives dead
+   liveness plumbing as AMBIENT-ONLY signals (heartbeat card edit, typing/ack
+   parity, reaction flips) under the no-clutter rule. Net deletion.
+   `messaging-hotpath-and-liveness-goal-prompt.md`
+5. **Model management: unify then UX** — FINALIZED 2026-07-19; starts when the
+   ponytail lane closes (shares the settings parser/renderer surface). 8 decisions
+   locked (aggressive knob collapse, sticky conversation switch via
    settings-approval gate, tokens+cache stats, disclosed cheapest-sibling
-   auto-upgrade); folds in `status-cost-cache-visibility-goal-prompt.md`;
-   Stage B rides the V3 phrase seam. `model-management-goal-prompt.md`
+   auto-upgrade + capabilities facet for image→text-only); folds in
+   `status-cost-cache-visibility-goal-prompt.md`; Stage B rides the V3 phrase
+   seam. `model-management-goal-prompt.md`
 
 **Then — medium, scoped:**
 
