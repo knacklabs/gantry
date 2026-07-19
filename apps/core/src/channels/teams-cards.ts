@@ -25,7 +25,7 @@ import {
 
 export const TEAMS_ADAPTIVE_CARD_CONTENT_TYPE =
   'application/vnd.microsoft.card.adaptive';
-const GENERIC_ATTACHMENT_UNAVAILABLE_LINE = '- Attachment unavailable.';
+const GENERIC_ATTACHMENT_UNAVAILABLE_LINE = '- Attachment unavailable';
 const TEAMS_ATTACHMENT_UNAVAILABLE_LINE =
   '- Attachment unavailable in Teams until signed artifact links are added.';
 
@@ -89,18 +89,26 @@ export interface TeamsAdaptiveCardDescriptorPayload {
 
 export function formatTeamsAttachmentUnavailableCopy(
   text: string,
-  filesUnavailable = false,
+  filesPresent = false,
 ): string {
   let inAttachments = false;
   return text
     .split('\n')
     .map((line) => {
-      if (line === 'Attachments:') inAttachments = true;
+      if (line === 'Attachments:') {
+        inAttachments = true;
+        return line;
+      }
       if (
-        line === GENERIC_ATTACHMENT_UNAVAILABLE_LINE ||
-        (filesUnavailable && inAttachments && line.startsWith('- '))
+        inAttachments &&
+        ((filesPresent && line.startsWith('- ')) ||
+          line === GENERIC_ATTACHMENT_UNAVAILABLE_LINE ||
+          line.startsWith(`${GENERIC_ATTACHMENT_UNAVAILABLE_LINE}: `))
       ) {
         return TEAMS_ATTACHMENT_UNAVAILABLE_LINE;
+      }
+      if (inAttachments && line !== '' && !line.startsWith('- ')) {
+        inAttachments = false;
       }
       return line;
     })

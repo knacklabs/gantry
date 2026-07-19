@@ -2,6 +2,7 @@ import {
   createCallableAgentToolSchema,
   type CallableAgentToolInput,
 } from '../../application/core-tools/callable-agent-tools.js';
+import type { CoreMessageFile } from '../../application/core-tools/send-message.js';
 
 interface ZodFactory {
   object(shape: Record<string, unknown>): any;
@@ -10,6 +11,8 @@ interface ZodFactory {
   boolean(): any;
   array(schema: unknown): any;
   enum(values: readonly string[]): any;
+  literal(value: string): any;
+  union(options: readonly unknown[]): any;
 }
 
 export interface CoreToolInputSchema<Output> {
@@ -23,7 +26,7 @@ export interface CoreToolInputSchema<Output> {
 export type CoreToolInputByName = {
   send_message: {
     text: string;
-    files?: Array<{ scope?: string; path: string; version?: number }>;
+    files?: CoreMessageFile[];
     sender?: string;
   };
   ask_user_question: {
@@ -73,11 +76,22 @@ export function createCoreToolSchemas(z: ZodFactory): CoreToolSchemas {
       text: z.string(),
       files: z
         .array(
-          z.object({
-            scope: z.string().optional(),
-            path: z.string(),
-            version: z.number().int().positive().optional(),
-          }),
+          z.union([
+            z
+              .object({
+                source: z.literal('artifact').optional(),
+                scope: z.string().optional(),
+                path: z.string(),
+                version: z.number().int().positive().optional(),
+              })
+              .strict(),
+            z
+              .object({
+                source: z.literal('workspace'),
+                path: z.string(),
+              })
+              .strict(),
+          ]),
         )
         .max(5)
         .optional(),

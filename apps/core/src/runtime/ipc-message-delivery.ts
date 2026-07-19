@@ -1,4 +1,5 @@
 import { sendCoreMessage } from '../application/core-tools/send-message.js';
+import { readWorkspaceMessageAttachment } from '../platform/workspace-message-attachment.js';
 import type { IpcDeps } from './ipc-domain-types.js';
 import type { ParsedIpcMessage } from './ipc-parsing.js';
 
@@ -10,7 +11,10 @@ export async function deliverIpcMessage(input: {
   providerAccountId?: string;
 }): Promise<void> {
   await sendCoreMessage({
-    deps: input.deps,
+    deps: {
+      ...input.deps,
+      readWorkspaceAttachment: readWorkspaceMessageAttachment,
+    },
     context: {
       appId: input.data.appId,
       sourceAgentFolder: input.sourceAgentFolder,

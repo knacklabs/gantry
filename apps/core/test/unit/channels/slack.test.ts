@@ -87,6 +87,17 @@ vi.mock('@slack/bolt', () => ({
           .fn()
           .mockResolvedValue({ ok: true, message_ts: '1710000000.100201' }),
       },
+      files: {
+        getUploadURLExternal: vi.fn().mockResolvedValue({
+          ok: true,
+          upload_url: 'https://files.slack.com/upload/v1/test',
+          file_id: 'F123',
+        }),
+        completeUploadExternal: vi.fn().mockResolvedValue({
+          ok: true,
+          files: [{ id: 'F123', title: 'report.txt' }],
+        }),
+      },
       reactions: {
         add: vi.fn().mockResolvedValue({ ok: true }),
       },
@@ -2907,6 +2918,126 @@ describe('Slack channel', () => {
         text: 'hello',
         thread_ts: '1710000000.000111',
       }),
+    );
+  });
+
+  it('uploads outbound file content through the Slack external upload flow', async () => {
+    const uploadFetch = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+    vi.stubGlobal('fetch', uploadFetch);
+    const channel = new SlackChannel(
+      'xoxb-token',
+      'xapp-token',
+      createOptsWithApproverHook(['U_APPROVER']) as any,
+    );
+    await channel.connect();
+
+    await channel.sendMessage('sl:C1234567890', 'Rendered.', {
+      threadId: '1710000000.000111',
+      files: [
+        {
+          filename: 'clip.mp4',
+          contentType: 'video/mp4',
+          sizeBytes: 4,
+          content: new Uint8Array([0, 1, 2, 3]),
+        },
+      ],
+    });
+
+    expect(
+      appRef.current.client.files.getUploadURLExternal,
+    ).toHaveBeenCalledWith({ filename: 'clip.mp4', length: 4 });
+    expect(uploadFetch).toHaveBeenCalledWith(
+      'https://files.slack.com/upload/v1/test',
+      expect.objectContaining({
+        method: 'POST',
+        headers: { 'content-type': 'application/octet-stream' },
+      }),
+    );
+    expect(
+      Buffer.from(uploadFetch.mock.calls[0]?.[1]?.body as Uint8Array),
+    ).toEqual(Buffer.from([0, 1, 2, 3]));
+    expect(
+      appRef.current.client.files.completeUploadExternal,
+    ).toHaveBeenCalledWith({
+      files: [{ id: 'F123', title: 'clip.mp4' }],
+      channel_id: 'C1234567890',
+      thread_ts: '1710000000.000111',
+    });
+  });
+
+  it('posts a visible per-file fallback when Slack upload fails', async () => {
+    const channel = new SlackChannel(
+      'xoxb-token',
+      'xapp-token',
+      createOptsWithApproverHook(['U_APPROVER']) as any,
+    );
+    await channel.connect();
+    vi.mocked(
+      appRef.current.client.files.getUploadURLExternal,
+    ).mockRejectedValueOnce(new Error('upload unavailable'));
+
+    const result = await channel.sendMessage('sl:C1234567890', 'Rendered.', {
+      files: [
+        {
+          filename: 'clip.mp4',
+          contentType: 'video/mp4',
+          sizeBytes: 4,
+          content: new Uint8Array([0, 1, 2, 3]),
+        },
+      ],
+    });
+
+    expect(appRef.current.client.chat.postMessage).toHaveBeenCalledTimes(2);
+    expect(appRef.current.client.chat.postMessage).toHaveBeenNthCalledWith(2, {
+      channel: 'C1234567890',
+      text: 'Attachment unavailable in Slack: clip.mp4 upload failed.',
+    });
+    expect(result).toMatchObject({
+      warnings: ['slack.attachment_upload_failed'],
+    });
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        jid: 'sl:C1234567890',
+        path: 'clip.mp4',
+        reason: 'clip.mp4 upload failed.',
+      }),
+      'Slack attachment upload failed',
+    );
+  });
+
+  it('fails delivery when both Slack upload and visible fallback fail', async () => {
+    const channel = new SlackChannel(
+      'xoxb-token',
+      'xapp-token',
+      createOptsWithApproverHook(['U_APPROVER']) as any,
+    );
+    await channel.connect();
+    vi.mocked(
+      appRef.current.client.files.getUploadURLExternal,
+    ).mockRejectedValueOnce(new Error('upload unavailable'));
+    vi.mocked(appRef.current.client.chat.postMessage)
+      .mockResolvedValueOnce({ ok: true, ts: '1710000000.100200' })
+      .mockRejectedValue(new Error('fallback unavailable'));
+
+    await expect(
+      channel.sendMessage('sl:C1234567890', 'Rendered.', {
+        files: [
+          {
+            filename: 'clip.mp4',
+            contentType: 'video/mp4',
+            sizeBytes: 4,
+            content: new Uint8Array([0, 1, 2, 3]),
+          },
+        ],
+      }),
+    ).rejects.toThrow('fallback unavailable');
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        jid: 'sl:C1234567890',
+        path: 'clip.mp4',
+        error: expect.objectContaining({ message: 'fallback unavailable' }),
+      }),
+      'Slack attachment fallback message failed',
     );
   });
 

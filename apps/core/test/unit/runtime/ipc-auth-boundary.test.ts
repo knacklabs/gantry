@@ -1468,7 +1468,7 @@ describe('parseIpcMessage', () => {
     stopIpcWatcher();
   });
 
-  it('keeps signed app scope and bounded FileArtifact refs', () => {
+  it('keeps signed app scope and defaults source-less refs to FileArtifact', () => {
     const payload = {
       type: 'message',
       requestId: 'msg-1',
@@ -1482,8 +1482,14 @@ describe('parseIpcMessage', () => {
         providerAccountId: 'provider-account:slack:a',
       },
       files: [
-        { scope: 'reports', path: 'daily.md', version: 2 },
-        { path: 'summary.txt' },
+        {
+          source: 'artifact',
+          scope: 'reports',
+          path: 'daily.md',
+          version: 2,
+        },
+        { source: 'workspace', path: 'summary.txt' },
+        { path: 'source-less.txt' },
         { scope: 'ignored' },
       ],
     };
@@ -1494,10 +1500,35 @@ describe('parseIpcMessage', () => {
       chatJid: 'tg:team',
       text: 'See attached report.',
       files: [
-        { scope: 'reports', path: 'daily.md', version: 2 },
-        { path: 'summary.txt' },
+        {
+          source: 'artifact',
+          scope: 'reports',
+          path: 'daily.md',
+          version: 2,
+        },
+        { source: 'workspace', path: 'summary.txt' },
+        { source: 'artifact', path: 'source-less.txt' },
       ],
     });
+  });
+
+  it.each([
+    ['unknown', 'remote'],
+    ['malformed', 42],
+  ])('rejects %s IPC message file sources loudly', (label, source) => {
+    const payload = {
+      type: 'message',
+      requestId: `msg-invalid-source-${label}`,
+      chatJid: 'tg:team',
+      text: 'See attached report.',
+      nonce: randomUUID(),
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      files: [{ source, path: 'report.txt' }],
+    };
+
+    expect(() => parseIpcMessage(signedPayload(payload), 'team')).toThrow(
+      'Invalid IPC message file source',
+    );
   });
 });
 
@@ -1541,7 +1572,7 @@ describe('appendOwnedFileArtifactDegradeText', () => {
         appId: 'app:test',
         sourceAgentFolder: 'team',
         text: 'See attached report.',
-        files: [{ scope: 'reports', path: 'daily.md' }],
+        files: [{ source: 'artifact', scope: 'reports', path: 'daily.md' }],
       }),
     ).resolves.toMatchObject({
       text: 'See attached report.\n\nAttachments:\n- daily.md (text/markdown, 1024 bytes)',
@@ -1599,10 +1630,10 @@ describe('appendOwnedFileArtifactDegradeText', () => {
         appId: 'app:test',
         sourceAgentFolder: 'team',
         text: 'See attached report.',
-        files: [{ scope: 'reports', path: 'large.bin' }],
+        files: [{ source: 'artifact', scope: 'reports', path: 'large.bin' }],
       }),
     ).resolves.toEqual({
-      text: 'See attached report.\n\nAttachments:\n- Attachment unavailable.',
+      text: 'See attached report.\n\nAttachments:\n- Attachment unavailable: exceeds 25 MB',
     });
     expect(readFileArtifact).not.toHaveBeenCalled();
   });
@@ -1614,10 +1645,10 @@ describe('appendOwnedFileArtifactDegradeText', () => {
         appId: 'app:test',
         sourceAgentFolder: 'team',
         text: 'Ship the note.',
-        files: [{ path: 'daily.md' }],
+        files: [{ source: 'artifact', path: 'daily.md' }],
       }),
     ).resolves.toBe(
-      'Ship the note.\n\nAttachments:\n- Attachment unavailable.',
+      'Ship the note.\n\nAttachments:\n- Attachment unavailable: FileArtifact store unavailable',
     );
   });
 
@@ -1630,10 +1661,10 @@ describe('appendOwnedFileArtifactDegradeText', () => {
         appId: 'app:test',
         sourceAgentFolder: 'team',
         text: 'Ship the note.',
-        files: [{ path: '../secret.txt' }],
+        files: [{ source: 'artifact', path: '../secret.txt' }],
       }),
     ).resolves.toBe(
-      'Ship the note.\n\nAttachments:\n- Attachment unavailable.',
+      'Ship the note.\n\nAttachments:\n- Attachment unavailable: invalid path: File artifact path must be a safe relative virtual path without empty, dot, dot-dot, absolute, or drive segments.',
     );
   });
 });

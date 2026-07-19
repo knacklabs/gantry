@@ -13,6 +13,7 @@ import {
   type ToolPolicyDecision,
 } from '../../shared/tool-execution-policy-service.js';
 import type { YoloModeSettings } from '../../shared/yolo-mode-policy.js';
+import { readWorkspaceMessageAttachment } from '../../platform/workspace-message-attachment.js';
 import {
   permissionDecisionEventType,
   permissionDecisionName,
@@ -207,7 +208,10 @@ export function createCoreToolRegistry(deps: CoreToolRegistryDeps): {
       deps.schemas.send_message,
       async (args) => {
         const result = await sendCoreMessage({
-          deps,
+          deps: {
+            ...deps,
+            readWorkspaceAttachment: readWorkspaceMessageAttachment,
+          },
           context: {
             appId: deps.context.appId,
             sourceAgentFolder: deps.context.sourceAgentFolder,

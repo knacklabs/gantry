@@ -541,7 +541,7 @@ describe('inline core tool bootstrap', () => {
     await expect(
       tools.execute('send_message', {
         text: 'Status attached.',
-        files: [{ path: 'reports/status.txt' }],
+        files: [{ source: 'artifact', path: 'reports/status.txt' }],
       }),
     ).resolves.toEqual({
       content: [{ type: 'text', text: 'Message sent.' }],

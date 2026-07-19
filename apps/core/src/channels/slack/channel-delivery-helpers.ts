@@ -32,6 +32,7 @@ import {
   clampSlackRetryDelayMs,
   slackRateLimitRetryDelayMs,
 } from './channel-retry-delay.js';
+import { uploadSlackAttachments } from './file-delivery.js';
 type SlackPostMessagePayload = {
   channel: string;
   text: string;
@@ -236,6 +237,18 @@ export async function sendSlackMessage(input: {
       throw err;
     }
   }
+
+  await uploadSlackAttachments({
+    app: input.app,
+    jid: input.jid,
+    channelId: input.channelId,
+    threadTs,
+    files: input.options.files,
+    warnings,
+    externalMessageIds,
+    log: input.log,
+    postSlackMessageWithRetry,
+  });
 
   return {
     ...(externalMessageIds[0]

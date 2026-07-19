@@ -49,11 +49,13 @@ store copy, unlinked, with a pipe too narrow to sync them), **silent failure**
    `resolveCoreMessageAttachments`; no new tool, no base64 IPC hop.
 3. **Slack upload adapter**: wire `options.files` to
    `files.getUploadURLExternal`/`completeUploadExternal`.
-4. **Teams**: stop rewriting successfully-resolved lines; real fix remains
-   signed artifact links.
+4. **Teams**: degrade all attachment lines honestly to the unavailable stub;
+   the real fix remains signed artifact links.
 5. **Telegram polish (optional)**: pick sendVideo/sendPhoto by contentType.
 
-Status: QUEUED as the next lane-2 cycle after the ponytail audit converges.
+Status: Items 1-4 implemented in the outbound-attachments fix cycle. Teams
+degrades all attachment lines honestly to the unavailable stub until signed
+artifact links add real delivery in future work.
 
 ## Validation addendum (2026-07-19, adversarial Codex review of the uncommitted fix on `fix/outbound-attachments`)
 
@@ -62,7 +64,7 @@ appId/agentId/scope/path/reason; Teams matcher prefix-safe against the new
 failure strings inside the attachment section only; Telegram/Discord untouched;
 Slack API sequence matches the documented external-upload contract.
 
-Required before commit (fix round dispatched):
+Findings from the validation loop (ALL fixed before commit; the TOCTOU fix below was superseded twice — final containment is the platform-atomic open: darwin `O_NOFOLLOW_ANY`, linux `O_NOFOLLOW` + `/proc/self/fd` re-resolution, plus `nlink === 1` hardlink rejection):
 
 1. **HIGH — containment TOCTOU** (`workspace-message-attachment.ts`): stat+read
    reopen the pathname after the realpath check; symlink swap escapes the

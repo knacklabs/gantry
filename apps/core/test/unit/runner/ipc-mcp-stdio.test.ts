@@ -1006,6 +1006,26 @@ describe('agent-runner MCP stdio tools', { timeout: 70_000 }, () => {
     expect(message.context.providerAccountId).toBe('provider-account:slack:a');
   });
 
+  it('accepts source-less FileArtifact refs in send_message IPC', async () => {
+    const fixture = createMcpFixture();
+
+    const result = await runMcpFixture(fixture, 'send_message', {
+      text: 'Artifact attached.',
+      files: [{ path: 'reports/status.txt' }],
+    });
+
+    expect(result.exitCode, result.stderr).toBe(0);
+    const messageFiles = fs.readdirSync(path.join(fixture.ipcDir, 'messages'));
+    expect(messageFiles).toHaveLength(1);
+    const message = JSON.parse(
+      fs.readFileSync(
+        path.join(fixture.ipcDir, 'messages', messageFiles[0]),
+        'utf-8',
+      ),
+    );
+    expect(message.files).toEqual([{ path: 'reports/status.txt' }]);
+  });
+
   it('defaults to first-party MCP tools when runner projection is missing', async () => {
     const fixture = createMcpFixture();
 
