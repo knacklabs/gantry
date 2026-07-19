@@ -9,6 +9,7 @@ conversation feel like a competent colleague, never a developer tool.
 ## Stages
 
 ### Stage V1 — Agent voice (cheap: copy + routing, one stage)
+
 - Agent-voiced failures: operational failure receipts (skill installs, jobs,
   syncs) never print system text to chat; the failure routes to the agent,
   which explains in plain words and states its recovery move. Raw reasons stay
@@ -23,6 +24,7 @@ conversation feel like a competent colleague, never a developer tool.
   promotion counters + memory recall; copy only.
 
 ### Stage V2 — Skill and credential flows in agent voice
+
 - Agent-initiated skill discovery: user states a goal; the agent searches,
   proposes ("found a skill for that — install it?"), one-tap install. No
   installer command strings in chat ever.
@@ -30,12 +32,14 @@ conversation feel like a competent colleague, never a developer tool.
   app" with a UI deep link; env-var names never appear in chat.
 
 ### Stage V3 — Natural-language control
+
 - Map casual phrases to controls: "stop asking me so much" / "be extra
   careful with deletes" / "pause everything" / "undo that" → permission mode,
   denylist entries, job controls. Chat = casual control surface; UI = precise
   one; both drive the same settings through existing reviewed flows.
 
 ### Stage V4 — Long-task narration
+
 - Calm progress cadence during long tool runs (installs, renders): one
   editing progress line ("installing… 2 of 3"), building on the existing
   progress-lifecycle machinery. No walls of output, no dead air.
@@ -60,3 +64,28 @@ conversation feel like a competent colleague, never a developer tool.
 - "stop asking me so much" measurably switches the conversation's permission
   posture and confirms in one plain sentence.
 - Long-running commands show a single editing progress line.
+
+## V3/V4 validation addendum (2026-07-19, adversarial Codex review of the uncommitted diff on `feature/conversation-quality`)
+
+Confirmed: exact posture-success copy with distinct failure paths; `render_progress`
+rides the EXISTING AgentTodoSink lifecycle (`cardKind: 'progress'`) with all four
+providers editing one cached message id in place; pause/resume/undo use only
+existing reviewed tools (no rollback machinery). Generic undo and V2 remain
+deferred (V2 is Credential-Center-UI-gated).
+
+Corrections that MUST land before #232 absorbs V3+V4 (fix round dispatched):
+
+1. **Delete-caution honesty**: `permissions.yolo_mode.denylist` matches nothing
+   when yolo mode is disabled (yolo-mode-policy.ts:68) and is GLOBAL when
+   enabled. Guidance: check posture via `settings_desired_state` first; yolo on →
+   add entry AND disclose global scope; auto/attended → deletes already prompt,
+   reply so, change nothing.
+2. **Resume disambiguation (High)**: bare "resume" = conversational continue
+   only, never a scheduler mutation. Bulk job resume requires explicit phrasing,
+   acts only on jobs paused in this conversation, else confirms scope first.
+3. **Test gap**: add the conversation-install path test — posture change writes
+   `installed_agents.<install>.permission_mode: auto` in the canonical revision
+   (existing test covers only the agent-level fallback).
+4. **Ledgered behavior change**: ALL successful `request_settings_update` calls
+   now route through the new reply classifier (unified success copy, duplicate
+   direct host send suppressed, test-asserted). Intended consolidation.
