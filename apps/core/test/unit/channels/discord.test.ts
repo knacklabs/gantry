@@ -8,24 +8,14 @@ const durabilityMocks = vi.hoisted(() => ({
     }
   },
   bindPendingPermissionInteractionMessage: vi.fn(async () => true),
-  bindPendingQuestionInteractionCallback: vi.fn(async () => true),
-  createDurableQuestionCallback: vi.fn((input: any) => ({
-    providerAlias: `question-${input.requestId}-${input.questionIndex}`,
-    scope: {
-      appId: input.appId || 'default',
-      sourceAgentFolder: input.sourceAgentFolder,
-      interactionId: input.requestId,
-    },
-    questionIndex: input.questionIndex,
-  })),
   claimPermissionInteractionCallback: vi.fn(async (input: any) => ({
     status: 'claimed',
-    claim: { id: 'claim-1', scope: input.scope },
+    claim: input.recoveredClaim ?? { id: 'claim-1', scope: input.scope },
+    ...(input.recoveredClaim ? { persistedClaim: input.recoveredClaim } : {}),
   })),
   findDurablePermissionInteractionByPromptMessage: vi.fn(),
   findDurablePermissionInteractionByRequestId: vi.fn(),
   recordDurableQuestionAnswerProgress: vi.fn(async () => true),
-  recordDurableQuestionPromptDelivered: vi.fn(async () => true),
   releasePermissionInteractionCallback: vi.fn(async () => true),
   resolveDurablePermissionInteractionByRequestId: vi.fn(),
   resolveDurableQuestionInteractionByRequestId: vi.fn(),
@@ -127,15 +117,15 @@ describe('DiscordChannel', () => {
       .mockReset()
       .mockImplementation(async (input: any) => ({
         status: 'claimed',
-        claim: { id: 'claim-1', scope: input.scope },
+        claim: input.recoveredClaim ?? { id: 'claim-1', scope: input.scope },
+        ...(input.recoveredClaim
+          ? { persistedClaim: input.recoveredClaim }
+          : {}),
       }));
     durabilityMocks.releasePermissionInteractionCallback
       .mockReset()
       .mockResolvedValue(true);
     durabilityMocks.recordDurableQuestionAnswerProgress
-      .mockReset()
-      .mockResolvedValue(true);
-    durabilityMocks.recordDurableQuestionPromptDelivered
       .mockReset()
       .mockResolvedValue(true);
     durabilityMocks.resolveDurablePermissionInteractionByRequestId.mockReset();
@@ -2733,33 +2723,6 @@ describe('DiscordChannel', () => {
     await channel.disconnect();
   });
 
-  it('propagates a typed Discord question delivery persistence failure', async () => {
-    const persistenceError =
-      new durabilityMocks.DurableInteractionPersistenceError('delivery failed');
-    durabilityMocks.recordDurableQuestionPromptDelivered.mockRejectedValueOnce(
-      persistenceError,
-    );
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      jsonResponse({ id: 'question-message-1' }),
-    );
-    const channel = new DiscordChannel('bot-token', 'app-id', opts());
-
-    await expect(
-      channel.requestUserAnswer('dc:channel-1', {
-        requestId: 'question-post-send-persistence-failure',
-        sourceAgentFolder: 'main_agent',
-        questions: [
-          {
-            question: 'Continue?',
-            multiSelect: false,
-            options: [{ label: 'Yes', description: 'Continue' }],
-          },
-        ],
-      }),
-    ).rejects.toBe(persistenceError);
-    expect((channel as any).interactions.pendingQuestions.size).toBe(0);
-  });
-
   it('binds chunked Discord prompts to the final message for restart recovery', async () => {
     durabilityMocks.bindPendingPermissionInteractionMessage
       .mockResolvedValueOnce(true)
@@ -3280,6 +3243,9 @@ describe('DiscordChannel', () => {
   });
 
   it('resolves user questions from authorized Discord button clicks', async () => {
+    vi.spyOn(globalThis.crypto, 'randomUUID').mockReturnValueOnce(
+      'question-question-1-0',
+    );
     let socket!: FakeWebSocket;
     vi.spyOn(globalThis, 'fetch')
       .mockResolvedValueOnce(
@@ -3343,6 +3309,9 @@ describe('DiscordChannel', () => {
   });
 
   it('waits for every Discord question before resolving answers', async () => {
+    vi.spyOn(globalThis.crypto, 'randomUUID')
+      .mockReturnValueOnce('question-question-1-0')
+      .mockReturnValueOnce('question-question-1-1');
     let socket!: FakeWebSocket;
     vi.spyOn(globalThis, 'fetch')
       .mockResolvedValueOnce(
@@ -3416,6 +3385,9 @@ describe('DiscordChannel', () => {
   });
 
   it('resolves Discord multi-select questions only after Done', async () => {
+    vi.spyOn(globalThis.crypto, 'randomUUID').mockReturnValueOnce(
+      'question-question-multi-0',
+    );
     let socket!: FakeWebSocket;
     const events: string[] = [];
     const localSelectionsBeforePersistence: Array<string[] | undefined> = [];
@@ -3524,7 +3496,7 @@ describe('DiscordChannel', () => {
     vi.restoreAllMocks();
   });
 
-  it('uses the parent conversation for durable permission recovery in a Discord thread', async () => {
+  it('expires recovered Review-each state in its parent Discord conversation', async () => {
     let socket!: FakeWebSocket;
     let acked = false;
     const events: string[] = [];
@@ -3566,6 +3538,24 @@ describe('DiscordChannel', () => {
             targetJid: 'dc:parent-1',
             decisionPolicy: 'same_channel',
             toolName: 'Bash',
+          },
+          claim: {
+            id: 'review-each-expired',
+            scope: {
+              appId: 'default',
+              sourceAgentFolder: 'main_agent',
+              interactionId: 'batch:permission-1:2',
+            },
+            intent: {
+              mode: 'cancel',
+              approverRef: 'system',
+              decidedAt: '2026-07-19T00:00:00.000Z',
+            },
+            match: {
+              kind: 'batch',
+              canonicalId: 'batch:permission-1:2',
+              providerAliases: ['alias-batch'],
+            },
           },
         };
       },
@@ -3616,16 +3606,30 @@ describe('DiscordChannel', () => {
     expect(
       durabilityMocks.resolveDurablePermissionInteractionByRequestId,
     ).toHaveBeenCalledWith({
-      claim: {
-        id: 'claim-1',
+      claim: expect.objectContaining({
+        id: 'review-each-expired',
         scope: {
           appId: 'default',
           sourceAgentFolder: 'main_agent',
           interactionId: 'batch:permission-1:2',
         },
-      },
+        intent: expect.objectContaining({
+          mode: 'cancel',
+          approverRef: 'system',
+        }),
+      }),
       reason: 'resolved via Discord after channel restart',
     });
+    expect(
+      durabilityMocks.claimPermissionInteractionCallback,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        recoveredClaim: expect.objectContaining({
+          id: 'review-each-expired',
+        }),
+        expireReviewEach: true,
+      }),
+    );
     expect(isControlApproverAllowed).toHaveBeenCalledWith({
       providerId: 'discord',
       conversationJid: 'dc:parent-1',
@@ -3637,7 +3641,13 @@ describe('DiscordChannel', () => {
     expect(events.slice(0, 3)).toEqual(['ack', 'context', 'durable']);
     expect(globalThis.fetch).toHaveBeenCalledWith(
       'https://discord.com/api/v10/channels/thread-1/messages/message-1',
-      expect.objectContaining({ method: 'DELETE' }),
+      expect.objectContaining({
+        method: 'PATCH',
+        body: JSON.stringify({
+          content: 'Permission request denied.',
+          components: [],
+        }),
+      }),
     );
     await channel.disconnect();
     vi.restoreAllMocks();

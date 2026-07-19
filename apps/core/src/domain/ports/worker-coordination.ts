@@ -302,6 +302,10 @@ export interface PendingInteractionRepository {
   settlePendingPermissionCallback(input: {
     claim: PermissionCallbackClaimReference;
   }): Promise<number>;
+  expirePendingPermissionReviewEach(input: {
+    claim: PermissionCallbackClaimReference;
+    now?: string;
+  }): Promise<PendingInteraction[]>;
   findPendingPermissionInteractions(input: {
     scope: PermissionCallbackScope;
     now?: string;

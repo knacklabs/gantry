@@ -372,6 +372,37 @@ function configureSlackPermissionRequest(request: PermissionApprovalRequest) {
             )?.id === claim.id,
         ).length,
     ),
+    expirePendingPermissionReviewEach: vi.fn(
+      async ({
+        claim,
+        now,
+      }: {
+        claim: PermissionCallbackClaimReference;
+        now: string;
+      }) =>
+        find(claim.scope).filter((interaction) => {
+          const stored = interaction.payload
+            .permissionCallbackClaim as PermissionCallbackClaim;
+          if (
+            stored?.id !== claim.id ||
+            stored.match.kind !== 'batch' ||
+            stored.intent.mode !== 'allow_persistent_rule'
+          ) {
+            return false;
+          }
+          interaction.payload.permissionCallbackClaim = {
+            ...stored,
+            intent: {
+              ...stored.intent,
+              mode: 'cancel',
+              approverRef: 'system',
+              decidedAt: now,
+            },
+          };
+          return true;
+        }),
+    ),
+    resolvePendingInteraction: vi.fn(async () => true),
   };
   configurePendingInteractionDurability({ repository: repository as never });
   return repository;
@@ -407,12 +438,8 @@ function requestSlackUserAnswer(
         targetJid: request.targetJid || jid,
         threadId: request.threadId ?? null,
         request,
-        callbacks: {},
         selections: [],
-        answers: {},
         completedQuestionIndexes: [],
-        deliveredQuestionIndexes: [],
-        otherPrompts: {},
       },
     } as Record<string, unknown>,
     idempotencyKey: `${appId}:question:${request.sourceAgentFolder}:${request.requestId}`,
@@ -4011,7 +4038,7 @@ describe('Slack channel', () => {
     expect(appRef.current.client.chat.postMessage).not.toHaveBeenCalled();
   });
 
-  it('recovers Review each for a Slack batch whose original requests cannot be bulk-approved', async () => {
+  it('expires a recovered Review-each batch and terminalizes the stale Slack prompt', async () => {
     const opts = createOptsWithApproverHook(['U_APPROVER']);
     const runtimeSettings = opts.runtimeSettings;
     opts.runtimeSettings = () => {
@@ -4090,13 +4117,14 @@ describe('Slack channel', () => {
       },
     });
 
-    expect(respond).toHaveBeenCalledWith({ delete_original: true });
-    expect(respond).not.toHaveBeenCalledWith(
+    expect(respond).toHaveBeenCalledWith(
       expect.objectContaining({
+        replace_original: true,
         text: expect.stringMatching(/cancel|denied/i),
       }),
     );
     expect(repository.claimPendingPermissionCallback).toHaveBeenCalledOnce();
+    expect(repository.expirePendingPermissionReviewEach).toHaveBeenCalledOnce();
     expect(opts.isControlApproverAllowed).toHaveBeenCalledWith(
       expect.objectContaining({ conversationJid: 'sl:C1234567890' }),
     );
@@ -5555,42 +5583,6 @@ describe('Slack channel', () => {
     expect(answer.answeredBy).toBe('Alice');
   });
 
-  it('propagates Slack question delivery persistence failure', async () => {
-    const channel = new SlackChannel(
-      'xoxb-token',
-      'xapp-token',
-      createOptsWithApproverHook(['U_APPROVER']) as any,
-    );
-    await channel.connect();
-    const response = requestSlackUserAnswer(channel, 'sl:C1234567890', {
-      requestId: 'userq-persist-failure',
-      sourceAgentFolder: 'slack_main',
-      questions: [
-        {
-          header: 'Persist',
-          question: 'Must persist?',
-          options: [{ label: 'Yes', description: 'Continue' }],
-          multiSelect: false,
-        },
-      ],
-    });
-    const persist = response.repository.updatePendingInteractionPayload;
-    const original = persist.getMockImplementation()!;
-    let calls = 0;
-    persist.mockImplementation(async (input) => {
-      calls += 1;
-      if (calls === 2) throw new Error('write failed');
-      return await original(input);
-    });
-
-    await expect(response).rejects.toMatchObject({
-      name: 'DurableInteractionPersistenceError',
-    });
-    const livePending = [...(channel as any).pendingUserQuestions.values()][0];
-    if (livePending) clearTimeout(livePending.timer);
-    (channel as any).pendingUserQuestions.clear();
-  });
-
   it('propagates Slack post-send permission persistence failure and retains the waiter', async () => {
     defaultSlackPermissionApproverIds.add('U_APPROVER');
     const channel = new SlackChannel(
@@ -5656,7 +5648,6 @@ describe('Slack channel', () => {
     expect(
       answerPromise.interaction.payload.questionRecoveryEnvelope,
     ).toMatchObject({
-      answers: { 'Will timeout': '' },
       completedQuestionIndexes: [0],
     });
     vi.useRealTimers();

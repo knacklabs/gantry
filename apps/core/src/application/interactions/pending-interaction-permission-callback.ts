@@ -10,7 +10,6 @@ import type {
   PermissionCallbackClaim,
   PermissionCallbackClaimReference,
   PermissionCallbackScope,
-  PermissionRecoveryEnvelope,
 } from '../../domain/types.js';
 import type { PermissionInteractionDecisionInput } from './pending-interaction-grants.js';
 import {
@@ -58,7 +57,7 @@ export async function replayPersistedPermissionDecisionForRequest(input: {
   const appId = input.appId || 'default';
   try {
     const pending = await active.repository.listPendingInteractions({ appId });
-    const member = pending.find(
+    let member = pending.find(
       (interaction) =>
         interaction.kind === 'permission' &&
         interaction.status === 'pending' &&
@@ -67,10 +66,28 @@ export async function replayPersistedPermissionDecisionForRequest(input: {
           input.sourceAgentFolder,
     );
     if (!member) return null;
-    const persistedClaim = permissionCallbackClaimFromPayload(member.payload);
-    const settledClaim = permissionCallbackClaimFromValue(
+    let persistedClaim = permissionCallbackClaimFromPayload(member.payload);
+    let settledClaim = permissionCallbackClaimFromValue(
       member.payload.permissionCallbackSettlement,
     );
+    const reviewEachClaim =
+      persistedClaim?.match.kind === 'batch' &&
+      persistedClaim.intent.mode === 'allow_persistent_rule'
+        ? persistedClaim
+        : !persistedClaim &&
+            settledClaim?.match.kind === 'batch' &&
+            settledClaim.intent.mode === 'allow_persistent_rule'
+          ? settledClaim
+          : null;
+    if (reviewEachClaim) {
+      const expiration = await expireReviewEachClaim(active, reviewEachClaim);
+      member = expiration.interactions.find(
+        (interaction) => interaction.payload.requestId === input.requestId,
+      );
+      if (!member) return null;
+      persistedClaim = permissionCallbackClaimFromPayload(member.payload);
+      settledClaim = null;
+    }
     const claim = persistedClaim ?? settledClaim;
     const hasClaimState =
       'permissionCallbackClaim' in member.payload ||
@@ -108,33 +125,6 @@ export async function replayPersistedPermissionDecisionForRequest(input: {
         'Persisted permission member is missing from recovery envelope',
       );
     }
-    if (
-      claim.match.kind === 'batch' &&
-      claim.intent.mode === 'allow_persistent_rule'
-    ) {
-      if (envelope.batch?.phase !== 'review_each') {
-        throw new Error('Persisted review-each claim has no review-each phase');
-      }
-      const rows = pending.filter(
-        (interaction) =>
-          interaction.kind === 'permission' &&
-          interaction.status === 'pending' &&
-          JSON.stringify(interaction.payload.permissionRecoveryEnvelope) ===
-            JSON.stringify(envelope),
-      );
-      const decision = (
-        await replayPersistedReviewEach({
-          claim,
-          envelope,
-          interactions: rows,
-          claimIsActive: Boolean(persistedClaim),
-        })
-      ).get(input.requestId);
-      if (!decision) {
-        throw new Error('Persisted review-each member was not dispatched');
-      }
-      return decision;
-    }
     return recoveredPermissionDecision({
       request: persistedMember.request,
       claim,
@@ -148,121 +138,103 @@ export async function replayPersistedPermissionDecisionForRequest(input: {
   }
 }
 
-async function replayPersistedReviewEach(input: {
-  claim: PermissionCallbackClaim;
-  envelope: PermissionRecoveryEnvelope;
-  interactions: PendingInteraction[];
-  claimIsActive: boolean;
-}): Promise<Map<string, PermissionApprovalDecision>> {
-  const dispatcher = reviewEachDispatcher;
-  if (!dispatcher || input.envelope.batch?.phase !== 'review_each') {
-    return new Map();
-  }
-  const key = [
-    input.claim.scope.appId,
-    input.claim.scope.sourceAgentFolder,
-    input.claim.scope.interactionId,
-    input.claim.id,
-  ].join(':');
-  const existing = reviewEachReplays.get(key);
-  if (existing) return existing;
-  const replay = (async () => {
-    if (
-      input.claimIsActive &&
-      !(await settlePermissionInteractionCallback({
-        claim: permissionClaimReference(input.claim),
-      }))
-    ) {
-      return new Map<string, PermissionApprovalDecision>();
-    }
-    const pendingRequestIds = new Set(
-      input.interactions.map((interaction) => interaction.payload.requestId),
-    );
-    const decisions = new Map<string, PermissionApprovalDecision>();
-    for (const member of input.envelope.members) {
-      if (!pendingRequestIds.has(member.callback.requestId)) continue;
-      const interaction = input.interactions.find(
-        (candidate) =>
-          candidate.payload.requestId === member.callback.requestId,
-      );
-      const rowClaim = interaction
-        ? (permissionCallbackClaimFromPayload(interaction.payload) ??
-          permissionCallbackClaimFromValue(
-            interaction.payload.permissionCallbackSettlement,
-          ))
-        : null;
-      const existingMemberClaim =
-        rowClaim?.match.kind === 'individual' ? rowClaim : null;
-      if (
-        rowClaim &&
-        !existingMemberClaim &&
-        (rowClaim.id !== input.claim.id || rowClaim.match.kind !== 'batch')
-      ) {
-        throw new Error('Persisted review-each member claim is malformed');
-      }
-      if (existingMemberClaim) {
-        if (
-          existingMemberClaim.scope.appId !== member.callback.appId ||
-          existingMemberClaim.scope.sourceAgentFolder !==
-            member.callback.sourceAgentFolder ||
-          existingMemberClaim.scope.interactionId !== member.callback.requestId
-        ) {
-          throw new Error('Persisted review-each member claim is malformed');
-        }
-        decisions.set(
-          member.callback.requestId,
-          recoveredPermissionDecision({
-            request: member.request,
-            claim: existingMemberClaim,
-          }),
-        );
-        continue;
-      }
-      const dispatched = await dispatcher(member.request);
-      if (!dispatched.delivered) {
-        throw new Error(
-          `Recovered review-each member prompt was not delivered: ${dispatched.reason}`,
-        );
-      }
-      decisions.set(member.callback.requestId, dispatched.decision);
-    }
-    return decisions;
-  })();
-  reviewEachReplays.set(key, replay);
-  void replay.catch(() => reviewEachReplays.delete(key));
-  return replay;
-}
-
 let backend: PermissionCallbackBackend | null = null;
-export type PermissionReviewEachDispatchResult =
-  | { delivered: true; decision: PermissionApprovalDecision }
-  | { delivered: false; reason: string };
-let reviewEachDispatcher:
-  | ((
-      request: PermissionApprovalRequest,
-    ) => Promise<PermissionReviewEachDispatchResult>)
-  | null = null;
-const reviewEachReplays = new Map<
-  string,
-  Promise<Map<string, PermissionApprovalDecision>>
->();
 
 export function configurePendingInteractionPermissionCallbacks(
   next: PermissionCallbackBackend | null,
 ): void {
   backend = next;
-  if (!next) reviewEachReplays.clear();
 }
 
-export function configurePermissionReviewEachDispatcher(
-  dispatcher:
-    | ((
-        request: PermissionApprovalRequest,
-      ) => Promise<PermissionReviewEachDispatchResult>)
-    | null,
-): void {
-  reviewEachDispatcher = dispatcher;
-  reviewEachReplays.clear();
+async function expireReviewEachClaim(
+  active: PermissionCallbackBackend,
+  claim: PermissionCallbackClaim,
+): Promise<{ interactions: PendingInteraction[]; expired: boolean }> {
+  let interactions = await active.repository.expirePendingPermissionReviewEach({
+    claim: permissionClaimReference(claim),
+    now: new Date().toISOString(),
+  });
+  const expired = interactions.length > 0;
+  if (!expired) {
+    interactions = await active.repository.findPendingPermissionInteractions({
+      scope: claim.scope,
+    });
+    if (interactions.length === 0) {
+      return { interactions, expired: false };
+    }
+  }
+  const claims = interactions.map((interaction) =>
+    permissionCallbackClaimFromPayload(interaction.payload),
+  );
+  if (
+    claims.some((candidate) => {
+      if (
+        !candidate ||
+        candidate.intent.mode !== 'cancel' ||
+        candidate.intent.approverRef !== 'system'
+      ) {
+        return true;
+      }
+      return candidate.match.kind === 'batch'
+        ? candidate.id !== claim.id ||
+            !samePersistedPermissionClaim(candidate, claims[0]!)
+        : !candidate.id.startsWith(`${claim.id}:expired:`);
+    })
+  ) {
+    throw new Error('Expired review-each claim is malformed');
+  }
+  return { interactions, expired };
+}
+
+function expiredReviewEachMemberClaims(
+  interactions: PendingInteraction[],
+  scope: PermissionCallbackScope,
+): PermissionCallbackClaim[] | null {
+  const envelope = sharedPermissionRecoveryEnvelope(interactions);
+  if (
+    envelope?.batch?.canonicalId !== scope.interactionId ||
+    envelope.members.length !== interactions.length ||
+    envelope.members.some(
+      (member) =>
+        member.callback.appId !== scope.appId ||
+        member.callback.sourceAgentFolder !== scope.sourceAgentFolder,
+    )
+  ) {
+    return null;
+  }
+  const claims = interactions.map((interaction) =>
+    permissionCallbackClaimFromPayload(interaction.payload),
+  );
+  const firstRequestId = interactions[0]?.payload.requestId;
+  const firstClaim = claims[0];
+  if (!firstClaim || typeof firstRequestId !== 'string') return null;
+  const firstSuffix = `:expired:${firstRequestId}`;
+  if (!firstClaim.id.endsWith(firstSuffix)) return null;
+  const ownerClaimId = firstClaim.id.slice(0, -firstSuffix.length);
+  if (!ownerClaimId) return null;
+  const decidedAt = firstClaim.intent.decidedAt;
+  if (
+    interactions.some((interaction, index) => {
+      const requestId = interaction.payload.requestId;
+      const claim = claims[index];
+      return (
+        typeof requestId !== 'string' ||
+        !claim ||
+        claim.id !== `${ownerClaimId}:expired:${requestId}` ||
+        claim.scope.appId !== scope.appId ||
+        claim.scope.sourceAgentFolder !== scope.sourceAgentFolder ||
+        claim.scope.interactionId !== requestId ||
+        claim.intent.mode !== 'cancel' ||
+        claim.intent.approverRef !== 'system' ||
+        claim.intent.decidedAt !== decidedAt ||
+        claim.match.kind !== 'individual' ||
+        claim.match.canonicalId !== requestId
+      );
+    })
+  ) {
+    return null;
+  }
+  return claims as PermissionCallbackClaim[];
 }
 
 export interface DurablePermissionInteractionContext {
@@ -307,23 +279,53 @@ export async function findDurablePermissionInteractionByRequestId(input: {
     const claims = pending.map((interaction) =>
       permissionCallbackClaimFromPayload(interaction.payload),
     );
-    const claim = claims.find((value) => value !== null) ?? null;
+    const activeClaim = claims.find((value) => value !== null) ?? null;
+    const expiredReviewEachClaims = expiredReviewEachMemberClaims(
+      pending,
+      input.scope,
+    );
     if (
-      claim &&
+      activeClaim &&
+      !expiredReviewEachClaims &&
       claims.some(
-        (value) => !value || !samePersistedPermissionClaim(value, claim),
+        (value) => !value || !samePersistedPermissionClaim(value, activeClaim),
       )
     ) {
       return null;
     }
+    let claim = expiredReviewEachClaims ? null : activeClaim;
+    if (!claim) {
+      const settlements = pending.map((interaction) =>
+        permissionCallbackClaimFromValue(
+          interaction.payload.permissionCallbackSettlement,
+        ),
+      );
+      const recoveredReviewEach =
+        settlements.find(
+          (value) =>
+            value?.match.kind === 'batch' &&
+            value.intent.mode === 'allow_persistent_rule',
+        ) ?? null;
+      if (
+        recoveredReviewEach &&
+        settlements.every(
+          (value) =>
+            value && samePersistedPermissionClaim(value, recoveredReviewEach),
+        )
+      ) {
+        claim = recoveredReviewEach;
+      }
+    }
     const providerAliases = [
-      ...new Set(
-        pending.flatMap((interaction) =>
+      ...new Set([
+        ...(claim?.match.providerAliases ?? []),
+        ...claims.flatMap((value) => value?.match.providerAliases ?? []),
+        ...pending.flatMap((interaction) =>
           typeof interaction.payload.permissionCallbackId === 'string'
             ? [interaction.payload.permissionCallbackId]
             : [],
         ),
-      ),
+      ]),
     ];
     if (input.providerAlias && !providerAliases.includes(input.providerAlias)) {
       return null;
@@ -332,6 +334,7 @@ export async function findDurablePermissionInteractionByRequestId(input: {
       scope: input.scope,
       requestId: input.scope.interactionId,
       batchCallbackId:
+        envelope.batch?.canonicalId === input.scope.interactionId ||
         claim?.match.kind === 'batch' ||
         first.payload.permissionBatchCallbackId === input.scope.interactionId
           ? input.scope.interactionId
@@ -376,6 +379,7 @@ export type PermissionCallbackClaimResult =
   | {
       status: 'claimed';
       claim: PermissionCallbackClaimReference;
+      persistedClaim?: PermissionCallbackClaim;
     }
   | { status: 'already_decided'; ownerless?: true }
   | { status: 'retryable' };
@@ -386,6 +390,8 @@ export async function claimPermissionInteractionCallback(input: {
   approverRef: string;
   matchKind: PermissionCallbackClaim['match']['kind'];
   providerAlias?: string;
+  expireReviewEach?: boolean;
+  recoveredClaim?: PermissionCallbackClaim;
   claimedAt?: string;
   claimId?: string;
 }): Promise<PermissionCallbackClaimResult> {
@@ -396,25 +402,73 @@ export async function claimPermissionInteractionCallback(input: {
   ) {
     return { status: 'retryable' };
   }
-  const claim: PermissionCallbackClaim = {
-    id: input.claimId ?? globalThis.crypto.randomUUID(),
-    scope: input.scope,
-    intent: {
-      mode: input.mode,
-      approverRef: input.approverRef,
-      decidedAt: input.claimedAt ?? new Date().toISOString(),
-    },
-    match: {
-      kind: input.matchKind,
-      canonicalId: input.scope.interactionId,
-      providerAliases: input.providerAlias ? [input.providerAlias] : [],
-    },
-  };
+  const claim: PermissionCallbackClaim =
+    input.recoveredClaim ??
+    ({
+      id: input.claimId ?? globalThis.crypto.randomUUID(),
+      scope: input.scope,
+      intent: {
+        mode: input.mode,
+        approverRef: input.approverRef,
+        decidedAt: input.claimedAt ?? new Date().toISOString(),
+      },
+      match: {
+        kind: input.matchKind,
+        canonicalId: input.scope.interactionId,
+        providerAliases: input.providerAlias ? [input.providerAlias] : [],
+      },
+    } satisfies PermissionCallbackClaim);
+  if (
+    claim.scope.appId !== input.scope.appId ||
+    claim.scope.sourceAgentFolder !== input.scope.sourceAgentFolder ||
+    claim.scope.interactionId !== input.scope.interactionId ||
+    claim.match.canonicalId !== input.scope.interactionId ||
+    claim.match.kind !== input.matchKind
+  ) {
+    return { status: 'retryable' };
+  }
   try {
+    if (input.recoveredClaim) {
+      if (
+        input.expireReviewEach &&
+        claim.match.kind === 'batch' &&
+        claim.intent.mode === 'allow_persistent_rule'
+      ) {
+        const expiration = await expireReviewEachClaim(active, claim);
+        if (!expiration.expired) return { status: 'already_decided' };
+        return {
+          status: 'claimed',
+          claim: permissionClaimReference(claim),
+          persistedClaim: permissionCallbackClaimFromPayload(
+            expiration.interactions[0]!.payload,
+          )!,
+        };
+      }
+      return {
+        status: 'claimed',
+        claim: permissionClaimReference(claim),
+        persistedClaim: claim,
+      };
+    }
     const claimed = await active.repository.claimPendingPermissionCallback({
       claim,
     });
     if (claimed.length > 0) {
+      if (
+        input.expireReviewEach &&
+        claim.match.kind === 'batch' &&
+        claim.intent.mode === 'allow_persistent_rule'
+      ) {
+        const expiration = await expireReviewEachClaim(active, claim);
+        if (!expiration.expired) return { status: 'already_decided' };
+        return {
+          status: 'claimed',
+          claim: permissionClaimReference(claim),
+          persistedClaim: permissionCallbackClaimFromPayload(
+            expiration.interactions[0]!.payload,
+          )!,
+        };
+      }
       return { status: 'claimed', claim: permissionClaimReference(claim) };
     }
     const current = await active.repository.findPendingPermissionInteractions({
@@ -429,7 +483,7 @@ export async function claimPermissionInteractionCallback(input: {
         holder.scope.interactionId === input.scope.interactionId
       );
     });
-    if (hasHolder) {
+    if (hasHolder || expiredReviewEachMemberClaims(current, input.scope)) {
       return { status: 'already_decided' };
     }
     if (current.length === 0) {
@@ -512,47 +566,60 @@ export async function resolveDurablePermissionInteractionByRequestId(input: {
   let applicationStarted = false;
   let authorityApplied = false;
   try {
-    const pendingInteractions = (
+    let pendingInteractions =
       await active.repository.findPendingPermissionInteractions({
         scope: input.claim.scope,
-      })
-    ).filter(
-      (interaction) =>
-        permissionCallbackClaimFromPayload(interaction.payload)?.id ===
-        input.claim.id,
-    );
+      });
     if (pendingInteractions.length === 0) return false;
-    const persistedClaim = permissionCallbackClaimFromPayload(
-      pendingInteractions[0]!.payload,
+    let persistedClaims = pendingInteractions.map((interaction) =>
+      permissionCallbackClaimFromPayload(interaction.payload),
     );
-    if (!persistedClaim || !samePermissionClaim(persistedClaim, input.claim))
-      return false;
+    const persistedClaim = persistedClaims.find(
+      (claim) => claim && samePermissionClaim(claim, input.claim),
+    );
+    if (
+      persistedClaim?.match.kind === 'batch' &&
+      persistedClaim.intent.mode === 'allow_persistent_rule'
+    ) {
+      const expiration = await expireReviewEachClaim(active, persistedClaim);
+      pendingInteractions = expiration.interactions;
+      if (pendingInteractions.length === 0) return false;
+      persistedClaims = pendingInteractions.map((interaction) =>
+        permissionCallbackClaimFromPayload(interaction.payload),
+      );
+    }
     const envelope = sharedPermissionRecoveryEnvelope(pendingInteractions);
     if (!envelope) return false;
+    const hasOriginalClaim = persistedClaims.every(
+      (claim) => claim && samePermissionClaim(claim, input.claim),
+    );
+    const hasExpiredBatchMemberClaims =
+      envelope.batch?.canonicalId === input.claim.scope.interactionId &&
+      pendingInteractions.every((interaction, index) => {
+        const claim = persistedClaims[index];
+        const requestId = interaction.payload.requestId;
+        return (
+          typeof requestId === 'string' &&
+          claim?.scope.appId === input.claim.scope.appId &&
+          claim.scope.sourceAgentFolder ===
+            input.claim.scope.sourceAgentFolder &&
+          claim.scope.interactionId === requestId &&
+          claim.intent.mode === 'cancel' &&
+          claim.intent.approverRef === 'system' &&
+          claim.match.kind === 'individual' &&
+          claim.match.canonicalId === requestId &&
+          claim.id.startsWith(`${input.claim.id}:expired:`)
+        );
+      });
+    if (!hasOriginalClaim && !hasExpiredBatchMemberClaims) return false;
     if (
-      persistedClaim.match.kind === 'individual' &&
+      persistedClaims[0]?.match.kind === 'individual' &&
+      !hasExpiredBatchMemberClaims &&
       pendingInteractions.length !== 1
     ) {
       await releasePermissionInteractionCallback({ claim: input.claim });
       return false;
     }
-    const reviewEachDecisions =
-      persistedClaim.match.kind === 'batch' &&
-      persistedClaim.intent.mode === 'allow_persistent_rule'
-        ? await replayPersistedReviewEach({
-            claim: persistedClaim,
-            envelope,
-            interactions: pendingInteractions,
-            claimIsActive: true,
-          })
-        : null;
-    if (
-      reviewEachDecisions &&
-      reviewEachDecisions.size !== pendingInteractions.length
-    ) {
-      return false;
-    }
-
     for (const pending of pendingInteractions) {
       const sourceAgentFolder = sourceAgentFolderFromPermissionPayload(
         pending.payload,
@@ -571,26 +638,22 @@ export async function resolveDurablePermissionInteractionByRequestId(input: {
       }
     }
 
-    for (const pending of pendingInteractions) {
+    for (const [index, pending] of pendingInteractions.entries()) {
       const sourceAgentFolder = sourceAgentFolderFromPermissionPayload(
         pending.payload,
       )!;
       const requestId = pending.payload.requestId as string;
+      const rowClaim = persistedClaims[index]!;
       const request = envelope.members.find(
         (member) => member.callback.requestId === requestId,
       )?.request;
       if (!request) return false;
-      const decision =
-        reviewEachDecisions?.get(requestId) ??
-        recoveredPermissionDecision({
-          request,
-          claim: persistedClaim,
-          reason: input.reason,
-        });
-      const decisionClaim =
-        decision.permissionCallbackClaim ??
-        (reviewEachDecisions ? null : input.claim);
-      if (!decisionClaim) return false;
+      const decision = recoveredPermissionDecision({
+        request,
+        claim: rowClaim,
+        reason: input.reason,
+      });
+      const decisionClaim = decision.permissionCallbackClaim!;
       try {
         applicationStarted = true;
         const applied = await active.applyDecision({
@@ -636,7 +699,7 @@ export async function resolveDurablePermissionInteractionByRequestId(input: {
             updatedPermissions: decision.updatedPermissions ?? null,
             decisionClassification: decision.decisionClassification ?? null,
           },
-          approverRef: decision.decidedBy ?? persistedClaim.intent.approverRef,
+          approverRef: decision.decidedBy ?? rowClaim.intent.approverRef,
           permissionCallbackClaim: decisionClaim,
         } as const;
         const settled =

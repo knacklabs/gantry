@@ -236,12 +236,8 @@ function recordQuestionInteraction(input: {
         targetJid: input.request.targetJid ?? null,
         threadId: input.request.threadId ?? null,
         request: input.request,
-        callbacks: {},
         selections: [],
-        answers: {},
         completedQuestionIndexes: [],
-        deliveredQuestionIndexes: [],
-        otherPrompts: {},
       },
     },
     callbackRoute:

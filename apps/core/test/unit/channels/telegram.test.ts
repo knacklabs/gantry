@@ -70,46 +70,6 @@ vi.mock('@core/channels/telegram/prompt-binding.js', async (importOriginal) => {
       const bound = await actual.bindTelegramPermission(...args);
       return bound || !telegramPromptBindingBehavior.strict;
     }),
-    bindTelegramQuestionCallback: vi.fn(async (...args: never[]) => {
-      const request =
-        args[0] as unknown as import('@core/domain/types.js').UserQuestionRequest;
-      const appId = request.appId || 'default';
-      const idempotencyKey = `${appId}:question:${request.sourceAgentFolder}:${request.requestId}`;
-      let interaction = telegramPromptBindingBehavior.interactions.find(
-        (candidate) => candidate.idempotencyKey === idempotencyKey,
-      );
-      if (!interaction) {
-        interaction = {
-          appId,
-          kind: 'question',
-          status: 'pending',
-          idempotencyKey,
-          payload: {
-            requestId: request.requestId,
-            sourceAgentFolder: request.sourceAgentFolder,
-            request,
-            questionRecoveryEnvelope: {
-              version: 1,
-              targetJid: request.targetJid ?? 'tg:100200300',
-              threadId: request.threadId ?? null,
-              request,
-              callbacks: {},
-              selections: [],
-              answers: {},
-              completedQuestionIndexes: [],
-              deliveredQuestionIndexes: [],
-              otherPrompts: {},
-            },
-          },
-        };
-        telegramPromptBindingBehavior.interactions.push(interaction);
-      }
-      try {
-        await actual.bindTelegramQuestionCallback(...args);
-      } catch (err) {
-        if (telegramPromptBindingBehavior.strict) throw err;
-      }
-    }),
   };
 });
 
@@ -203,10 +163,7 @@ import {
   TelegramChannel,
   TelegramChannelOpts,
 } from '@core/channels/telegram/channel-adapter.js';
-import {
-  configurePendingInteractionDurability,
-  configurePermissionReviewEachDispatcher,
-} from '@core/application/interactions/pending-interaction-durability.js';
+import { configurePendingInteractionDurability } from '@core/application/interactions/pending-interaction-durability.js';
 import { writeTelegramFetchResponseToFile } from '@core/channels/telegram-file-download.js';
 import { logger } from '@core/infrastructure/logging/logger.js';
 import { makeAgentThreadQueueKey } from '@core/shared/thread-queue-key.js';
@@ -217,6 +174,7 @@ import type {
   PermissionCallbackClaim,
   PermissionCallbackClaimReference,
   PermissionCallbackScope,
+  UserQuestionRequest,
 } from '@core/domain/types.js';
 import type {
   GroupJoinOnboardingCoordinator,
@@ -682,15 +640,6 @@ function permissionClaimRepository(
           delete interaction.payload.permissionBatchCallbackId;
           delete interaction.payload.permissionCallbackId;
           interaction.payload.permissionCallbackClaim = claim;
-          if (
-            claim.match.kind === 'batch' &&
-            claim.intent.mode === 'allow_persistent_rule'
-          ) {
-            const envelope = interaction.payload.permissionRecoveryEnvelope as
-              | { batch?: { phase?: string } }
-              | undefined;
-            if (envelope?.batch) envelope.batch.phase = 'review_each';
-          }
         }
         return claimed;
       },
@@ -731,6 +680,38 @@ function permissionClaimRepository(
         return settled;
       },
     ),
+    expirePendingPermissionReviewEach: vi.fn(
+      async ({
+        claim,
+        now,
+      }: {
+        claim: PermissionCallbackClaimReference;
+        now: string;
+      }) => {
+        const expired = find(claim.scope).filter((interaction) => {
+          const stored = interaction.payload
+            .permissionCallbackClaim as PermissionCallbackClaim;
+          if (
+            stored?.id !== claim.id ||
+            stored.match.kind !== 'batch' ||
+            stored.intent.mode !== 'allow_persistent_rule'
+          ) {
+            return false;
+          }
+          interaction.payload.permissionCallbackClaim = {
+            ...stored,
+            intent: {
+              ...stored.intent,
+              mode: 'cancel',
+              approverRef: 'system',
+              decidedAt: now,
+            },
+          };
+          return true;
+        });
+        return expired;
+      },
+    ),
   };
 }
 
@@ -756,12 +737,46 @@ async function updatePendingInteractionPayload(
   return true;
 }
 
+function requestTelegramUserAnswer(
+  channel: TelegramChannel,
+  jid: string,
+  request: UserQuestionRequest,
+) {
+  const appId = request.appId || 'default';
+  const idempotencyKey = `${appId}:question:${request.sourceAgentFolder}:${request.requestId}`;
+  if (
+    !telegramPromptBindingBehavior.interactions.some(
+      (interaction) => interaction.idempotencyKey === idempotencyKey,
+    )
+  ) {
+    telegramPromptBindingBehavior.interactions.push({
+      appId,
+      kind: 'question',
+      status: 'pending',
+      idempotencyKey,
+      payload: {
+        requestId: request.requestId,
+        sourceAgentFolder: request.sourceAgentFolder,
+        request,
+        questionRecoveryEnvelope: {
+          version: 1,
+          targetJid: request.targetJid ?? jid,
+          threadId: request.threadId ?? null,
+          request,
+          selections: [],
+          completedQuestionIndexes: [],
+        },
+      },
+    });
+  }
+  return channel.requestUserAnswer(jid, request);
+}
+
 describe('TelegramChannel', () => {
   let savedGantryHome: string | undefined;
 
   beforeEach(() => {
     vi.clearAllMocks();
-    configurePermissionReviewEachDispatcher(null);
     telegramPromptBindingBehavior.strict = false;
     telegramPromptBindingBehavior.interactions.length = 0;
     savedGantryHome = process.env.GANTRY_HOME;
@@ -798,7 +813,6 @@ describe('TelegramChannel', () => {
   });
 
   afterEach(() => {
-    configurePermissionReviewEachDispatcher(null);
     configurePendingInteractionDurability(null);
     if (savedGantryHome === undefined) delete process.env.GANTRY_HOME;
     else process.env.GANTRY_HOME = savedGantryHome;
@@ -4908,7 +4922,7 @@ describe('TelegramChannel', () => {
       });
     });
 
-    it('recovers Review each by dispatching every member prompt before settlement', async () => {
+    it('expires a recovered Review-each batch and terminalizes the stale Telegram prompt', async () => {
       const requests = ['perm-review-1', 'perm-review-2'].map((requestId) => ({
         id: `pending-${requestId}`,
         appId: 'default',
@@ -4969,23 +4983,6 @@ describe('TelegramChannel', () => {
         createTestOpts(),
       );
       await recoveredChannel.connect();
-      const dispatchRecoveredMember = vi.fn(async (request: any) => ({
-        delivered: true as const,
-        decision: {
-          approved: false,
-          mode: 'cancel' as const,
-          decidedBy: '222',
-          permissionCallbackClaim: {
-            id: `member-claim-${request.requestId}`,
-            scope: {
-              appId: 'default',
-              sourceAgentFolder: request.sourceAgentFolder,
-              interactionId: request.requestId,
-            },
-          },
-        },
-      }));
-      configurePermissionReviewEachDispatcher(dispatchRecoveredMember);
       const callbackCtx = {
         callbackQuery: {
           data: callbackData,
@@ -5005,8 +5002,8 @@ describe('TelegramChannel', () => {
           match: expect.objectContaining({ kind: 'batch' }),
         }),
       });
-      expect(claims.settlePendingPermissionCallback).toHaveBeenCalledOnce();
-      expect(dispatchRecoveredMember).toHaveBeenCalledTimes(2);
+      expect(claims.expirePendingPermissionReviewEach).toHaveBeenCalledOnce();
+      expect(claims.settlePendingPermissionCallback).not.toHaveBeenCalled();
       expect(repository.resolvePendingInteraction).toHaveBeenCalledTimes(2);
       expect(
         repository.resolvePendingInteraction.mock.calls.map(
@@ -5016,6 +5013,12 @@ describe('TelegramChannel', () => {
         'default:permission:whatsapp_main:perm-review-1',
         'default:permission:whatsapp_main:perm-review-2',
       ]);
+      expect(currentBot().api.editMessageText).toHaveBeenCalledWith(
+        '100200300',
+        987,
+        expect.stringMatching(/cancel|denied/i),
+        expect.objectContaining({ reply_markup: { inline_keyboard: [] } }),
+      );
       expect(callbackCtx.answerCallbackQuery).toHaveBeenCalledWith({
         text: 'Decision recorded. Details will update in chat.',
         show_alert: false,
@@ -5667,7 +5670,11 @@ describe('TelegramChannel', () => {
         'tg:100200300',
         permissionRequest,
       );
-      const answer = channel.requestUserAnswer('tg:100200300', questionRequest);
+      const answer = requestTelegramUserAnswer(
+        channel,
+        'tg:100200300',
+        questionRequest,
+      );
       let resolved = 0;
       void approval.then(() => {
         resolved += 1;
@@ -5765,50 +5772,6 @@ describe('TelegramChannel', () => {
       ).toBeLessThanOrEqual(64);
     });
 
-    it('does not deliver a question when its durable callback binding fails', async () => {
-      vi.useFakeTimers();
-      const pending = {
-        kind: 'question' as const,
-        status: 'pending' as const,
-        idempotencyKey: 'default:question:whatsapp_main:userq-bind-failure',
-        payload: {
-          sourceAgentFolder: 'whatsapp_main',
-          requestId: 'userq-bind-failure',
-        },
-      };
-      configurePendingInteractionDurability({
-        repository: {
-          listPendingInteractions: vi.fn(async () => [pending]),
-          updatePendingInteractionPayload: vi.fn(async () => false),
-        } as never,
-      });
-      telegramPromptBindingBehavior.strict = true;
-      const channel = new TelegramChannel('test-token', createTestOpts());
-      await channel.connect();
-      currentBot().api.sendMessage.mockClear();
-
-      const responsePromise = channel.requestUserAnswer('tg:100200300', {
-        requestId: 'userq-bind-failure',
-        sourceAgentFolder: 'whatsapp_main',
-        questions: [
-          {
-            question: 'Continue?',
-            header: 'Confirm',
-            options: [{ label: 'Yes', description: 'Continue' }],
-            multiSelect: false,
-          },
-        ],
-      });
-      await vi.runAllTimersAsync();
-
-      await expect(responsePromise).resolves.toEqual({
-        requestId: 'userq-bind-failure',
-        answers: {},
-      });
-      expect(currentBot().api.sendMessage).not.toHaveBeenCalled();
-      vi.useRealTimers();
-    });
-
     it('uses numbered byte-safe button labels for long options', async () => {
       const opts = createTestOpts();
       const channel = new TelegramChannel('test-token', opts);
@@ -5820,22 +5783,26 @@ describe('TelegramChannel', () => {
       const longOptionB =
         '🧪 '.repeat(30) + 'Production rollout with extra descriptive text';
 
-      const responsePromise = channel.requestUserAnswer('tg:100200300', {
-        requestId: 'userq-long',
-        sourceAgentFolder: 'whatsapp_main',
-        threadId: '99abc',
-        questions: [
-          {
-            question: 'Where should we deploy?',
-            header: 'Deploy',
-            options: [
-              { label: longOptionA, description: 'Option A description' },
-              { label: longOptionB, description: 'Option B description' },
-            ],
-            multiSelect: false,
-          },
-        ],
-      });
+      const responsePromise = requestTelegramUserAnswer(
+        channel,
+        'tg:100200300',
+        {
+          requestId: 'userq-long',
+          sourceAgentFolder: 'whatsapp_main',
+          threadId: '99abc',
+          questions: [
+            {
+              question: 'Where should we deploy?',
+              header: 'Deploy',
+              options: [
+                { label: longOptionA, description: 'Option A description' },
+                { label: longOptionB, description: 'Option B description' },
+              ],
+              multiSelect: false,
+            },
+          ],
+        },
+      );
       await flushPromises();
 
       const firstCall = currentBot().api.sendMessage.mock.calls[0];
@@ -5874,22 +5841,26 @@ describe('TelegramChannel', () => {
       const channel = new TelegramChannel('test-token', opts);
       await channel.connect();
 
-      const responsePromise = channel.requestUserAnswer('tg:100200300', {
-        requestId: 'userq-1',
-        sourceAgentFolder: 'whatsapp_main',
-        threadId: '77',
-        questions: [
-          {
-            question: 'Which environment should we deploy to?',
-            header: 'Deploy',
-            options: [
-              { label: 'Staging', description: 'Safer first' },
-              { label: 'Production', description: 'Go live now' },
-            ],
-            multiSelect: false,
-          },
-        ],
-      });
+      const responsePromise = requestTelegramUserAnswer(
+        channel,
+        'tg:100200300',
+        {
+          requestId: 'userq-1',
+          sourceAgentFolder: 'whatsapp_main',
+          threadId: '77',
+          questions: [
+            {
+              question: 'Which environment should we deploy to?',
+              header: 'Deploy',
+              options: [
+                { label: 'Staging', description: 'Safer first' },
+                { label: 'Production', description: 'Go live now' },
+              ],
+              multiSelect: false,
+            },
+          ],
+        },
+      );
       await flushPromises();
 
       expect(currentBot().api.sendMessage).toHaveBeenCalledWith(
@@ -5931,21 +5902,25 @@ describe('TelegramChannel', () => {
       const channel = new TelegramChannel('test-token', opts);
       await channel.connect();
 
-      const responsePromise = channel.requestUserAnswer('tg:100200300', {
-        requestId: 'userq-auth',
-        sourceAgentFolder: 'whatsapp_main',
-        questions: [
-          {
-            question: 'Approve rollout?',
-            header: 'Rollout',
-            options: [
-              { label: 'Yes', description: 'Proceed' },
-              { label: 'No', description: 'Stop' },
-            ],
-            multiSelect: false,
-          },
-        ],
-      });
+      const responsePromise = requestTelegramUserAnswer(
+        channel,
+        'tg:100200300',
+        {
+          requestId: 'userq-auth',
+          sourceAgentFolder: 'whatsapp_main',
+          questions: [
+            {
+              question: 'Approve rollout?',
+              header: 'Rollout',
+              options: [
+                { label: 'Yes', description: 'Proceed' },
+                { label: 'No', description: 'Stop' },
+              ],
+              multiSelect: false,
+            },
+          ],
+        },
+      );
       await flushPromises();
 
       const deniedCtx = {
@@ -5982,18 +5957,24 @@ describe('TelegramChannel', () => {
       const channel = new TelegramChannel('test-token', opts);
       await channel.connect();
 
-      const responsePromise = channel.requestUserAnswer('tg:100200300', {
-        requestId: 'userq-other-auth',
-        sourceAgentFolder: 'whatsapp_main',
-        questions: [
-          {
-            question: 'What should we tell the customer?',
-            header: 'Reply',
-            options: [{ label: 'Use template', description: 'Default reply' }],
-            multiSelect: false,
-          },
-        ],
-      });
+      const responsePromise = requestTelegramUserAnswer(
+        channel,
+        'tg:100200300',
+        {
+          requestId: 'userq-other-auth',
+          sourceAgentFolder: 'whatsapp_main',
+          questions: [
+            {
+              question: 'What should we tell the customer?',
+              header: 'Reply',
+              options: [
+                { label: 'Use template', description: 'Default reply' },
+              ],
+              multiSelect: false,
+            },
+          ],
+        },
+      );
       await flushPromises();
 
       await triggerCallbackQuery({
@@ -6051,22 +6032,26 @@ describe('TelegramChannel', () => {
       const channel = new TelegramChannel('test-token', opts);
       await channel.connect();
 
-      const responsePromise = channel.requestUserAnswer('tg:100200300', {
-        requestId: 'userq-2',
-        sourceAgentFolder: 'whatsapp_main',
-        questions: [
-          {
-            question: 'Which checks should we run?',
-            header: 'Checks',
-            options: [
-              { label: 'Build', description: 'Compile project' },
-              { label: 'Unit tests', description: 'Fast tests' },
-              { label: 'Integration', description: 'End-to-end tests' },
-            ],
-            multiSelect: true,
-          },
-        ],
-      });
+      const responsePromise = requestTelegramUserAnswer(
+        channel,
+        'tg:100200300',
+        {
+          requestId: 'userq-2',
+          sourceAgentFolder: 'whatsapp_main',
+          questions: [
+            {
+              question: 'Which checks should we run?',
+              header: 'Checks',
+              options: [
+                { label: 'Build', description: 'Compile project' },
+                { label: 'Unit tests', description: 'Fast tests' },
+                { label: 'Integration', description: 'End-to-end tests' },
+              ],
+              multiSelect: true,
+            },
+          ],
+        },
+      );
       await flushPromises();
 
       await triggerCallbackQuery({
@@ -6107,7 +6092,7 @@ describe('TelegramChannel', () => {
     it('preserves pending Telegram multi-select answers on disconnect', async () => {
       const channel = new TelegramChannel('test-token', createTestOpts());
       await channel.connect();
-      const response = channel.requestUserAnswer('tg:100200300', {
+      const response = requestTelegramUserAnswer(channel, 'tg:100200300', {
         requestId: 'userq-disconnect-partial',
         sourceAgentFolder: 'whatsapp_main',
         questions: [
@@ -6154,7 +6139,7 @@ describe('TelegramChannel', () => {
         });
         const channel = new TelegramChannel('test-token', createTestOpts());
         await channel.connect();
-        const response = channel.requestUserAnswer('tg:100200300', {
+        const response = requestTelegramUserAnswer(channel, 'tg:100200300', {
           requestId: 'userq-timeout-persisted',
           sourceAgentFolder: 'whatsapp_main',
           questions: [
@@ -6174,53 +6159,11 @@ describe('TelegramChannel', () => {
           (candidate) => candidate.kind === 'question',
         );
         expect(interaction.payload.questionRecoveryEnvelope).toMatchObject({
-          answers: { 'Will timeout': '' },
           completedQuestionIndexes: [0],
         });
       } finally {
         vi.useRealTimers();
       }
-    });
-
-    it('propagates Telegram question delivery persistence failure', async () => {
-      telegramPromptBindingBehavior.strict = true;
-      const interactions = telegramPromptBindingBehavior.interactions;
-      let updates = 0;
-      const repository = {
-        ...permissionClaimRepository(interactions),
-        listPendingInteractions: vi.fn(async () => interactions),
-        updatePendingInteractionPayload: vi.fn(async (input) => {
-          updates += 1;
-          if (updates === 2) throw new Error('write failed');
-          return await updatePendingInteractionPayload(interactions, input);
-        }),
-        resolvePendingInteraction: vi.fn(async () => true),
-      };
-      configurePendingInteractionDurability({
-        repository: repository as never,
-      });
-      const channel = new TelegramChannel('test-token', createTestOpts());
-      await channel.connect();
-
-      await expect(
-        channel.requestUserAnswer('tg:100200300', {
-          requestId: 'userq-persist-failure',
-          sourceAgentFolder: 'whatsapp_main',
-          questions: [
-            {
-              question: 'Must persist?',
-              header: 'Persist',
-              options: [{ label: 'Yes', description: 'Continue' }],
-              multiSelect: false,
-            },
-          ],
-        }),
-      ).rejects.toMatchObject({ name: 'DurableInteractionPersistenceError' });
-      for (const pending of (channel as any).pendingUserQuestions.values()) {
-        clearTimeout(pending.timer);
-      }
-      (channel as any).pendingUserQuestions.clear();
-      (channel as any).pendingUserQuestionCallbackIds.clear();
     });
   });
 

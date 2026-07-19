@@ -240,15 +240,15 @@ export async function handleTeamsPermissionDecision(input: {
           );
           return true;
         }
-        const claimed = durable.claim
-          ? { status: 'claimed' as const, claim: durable.claim }
-          : await claimPermissionInteractionCallback({
-              scope: decisionPayload.callback.scope,
-              mode,
-              approverRef: input.userId,
-              matchKind,
-              providerAlias: decisionPayload.callback.providerAlias,
-            });
+        const claimed = await claimPermissionInteractionCallback({
+          scope: decisionPayload.callback.scope,
+          mode,
+          approverRef: input.userId,
+          matchKind,
+          providerAlias: decisionPayload.callback.providerAlias,
+          expireReviewEach: true,
+          ...(durable.claim ? { recoveredClaim: durable.claim } : {}),
+        });
         if (claimed.status === 'already_decided') {
           await sendDeniedTeamsDecisionFeedback(
             input.context,
@@ -260,7 +260,7 @@ export async function handleTeamsPermissionDecision(input: {
         if (claimed.status === 'retryable') return true;
         const decision = recoveredTeamsPermissionDecision(
           durable.request,
-          durable.claim,
+          claimed.persistedClaim ?? durable.claim,
           mode,
           input.userId,
           claimed.claim,

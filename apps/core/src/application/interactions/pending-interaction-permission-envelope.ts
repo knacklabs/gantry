@@ -97,7 +97,6 @@ export function readPermissionRecoveryEnvelope(
     envelope.batch !== null &&
     (!envelope.batch ||
       typeof envelope.batch.canonicalId !== 'string' ||
-      !['decision', 'review_each'].includes(envelope.batch.phase) ||
       envelope.batch.canonicalId !== envelope.renderedRequest.requestId ||
       envelope.members.length < 2)
   ) {

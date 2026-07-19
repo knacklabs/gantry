@@ -17,12 +17,6 @@ import {
   type DurablePermissionFullView,
 } from './pending-interaction-permission-envelope.js';
 import { DurableInteractionPersistenceError } from './pending-interaction-persistence-error.js';
-import {
-  createDurableQuestionCallback,
-  questionCallbacks,
-  readQuestionRecoveryEnvelope,
-  type DurableQuestionCallback,
-} from './pending-interaction-question-recovery.js';
 import { pendingInteractionIdempotencyKey } from './pending-interaction-idempotency.js';
 
 export {
@@ -31,10 +25,7 @@ export {
   sharedPermissionRecoveryEnvelope,
 } from './pending-interaction-permission-envelope.js';
 export type { DurablePermissionFullView } from './pending-interaction-permission-envelope.js';
-export {
-  createDurableQuestionCallback,
-  readQuestionRecoveryEnvelope,
-} from './pending-interaction-question-recovery.js';
+export { readQuestionRecoveryEnvelope } from './pending-interaction-question-recovery.js';
 export type { DurableQuestionCallback } from './pending-interaction-question-recovery.js';
 
 const DEFAULT_APP_ID = 'default';
@@ -147,7 +138,6 @@ export async function bindPendingPermissionInteractionMessage(input: {
         members.length > 1
           ? {
               canonicalId: request.requestId,
-              phase: 'decision',
             }
           : null,
     };
@@ -217,124 +207,6 @@ export async function bindPendingPermissionInteractionMessage(input: {
     );
     throw new DurableInteractionPersistenceError(
       'Pending permission prompt binding could not be persisted',
-      err,
-    );
-  }
-}
-
-export async function bindPendingQuestionInteractionCallback(input: {
-  sourceAgentFolder: string;
-  requestId: string;
-  callbackId: string;
-  questionIndex: number;
-  appId?: string | null;
-}): Promise<boolean> {
-  const active = backend;
-  if (!active) return false;
-  const key = pendingInteractionIdempotencyKey({
-    kind: 'question',
-    sourceAgentFolder: input.sourceAgentFolder,
-    requestId: input.requestId,
-    appId: input.appId,
-  });
-  try {
-    const pending = (
-      await active.repository.listPendingInteractions({
-        appId: input.appId || DEFAULT_APP_ID,
-      })
-    ).find(
-      (interaction) =>
-        interaction.kind === 'question' &&
-        interaction.status === 'pending' &&
-        interaction.idempotencyKey === key,
-    );
-    if (!pending) return false;
-    return await active.repository.updatePendingInteractionPayload({
-      idempotencyKey: key,
-      update: (payload) => {
-        const envelope = readQuestionRecoveryEnvelope(
-          payload.questionRecoveryEnvelope,
-        );
-        if (!envelope) return null;
-        const callbacks = questionCallbacks(envelope.callbacks);
-        callbacks[input.callbackId] = {
-          appId: input.appId || DEFAULT_APP_ID,
-          sourceAgentFolder: input.sourceAgentFolder,
-          requestId: input.requestId,
-          questionIndex: input.questionIndex,
-        };
-        return {
-          ...payload,
-          questionRecoveryEnvelope: { ...envelope, callbacks },
-        };
-      },
-    });
-  } catch (err) {
-    active.warn?.(
-      { err, requestId: input.requestId, callbackId: input.callbackId },
-      'Failed to bind pending question interaction callback',
-    );
-    throw new DurableInteractionPersistenceError(
-      'Pending question callback binding could not be persisted',
-      err,
-    );
-  }
-}
-
-export async function bindPendingQuestionOtherPrompt(input: {
-  callback: DurableQuestionCallback;
-  promptId: string;
-}): Promise<boolean> {
-  const active = backend;
-  if (!active) return false;
-  const { scope } = input.callback;
-  const key = pendingInteractionIdempotencyKey({
-    kind: 'question',
-    sourceAgentFolder: scope.sourceAgentFolder,
-    requestId: scope.interactionId,
-    appId: scope.appId,
-  });
-  try {
-    const pending = (
-      await active.repository.listPendingInteractions({ appId: scope.appId })
-    ).find(
-      (interaction) =>
-        interaction.kind === 'question' &&
-        interaction.status === 'pending' &&
-        interaction.idempotencyKey === key,
-    );
-    if (!pending) return false;
-    return await active.repository.updatePendingInteractionPayload({
-      idempotencyKey: key,
-      update: (payload) => {
-        const envelope = readQuestionRecoveryEnvelope(
-          payload.questionRecoveryEnvelope,
-        );
-        if (!envelope) return null;
-        return {
-          ...payload,
-          questionRecoveryEnvelope: {
-            ...envelope,
-            otherPrompts: {
-              ...envelope.otherPrompts,
-              [input.promptId]: {
-                appId: scope.appId,
-                sourceAgentFolder: scope.sourceAgentFolder,
-                requestId: scope.interactionId,
-                questionIndex: input.callback.questionIndex,
-              },
-            },
-          },
-        };
-      },
-    });
-  } catch (err) {
-    active.warn?.(
-      { err, requestId: scope.interactionId, promptId: input.promptId },
-      'Failed to bind pending question other prompt',
-    );
-    throw new DurableInteractionPersistenceError(
-      'Pending question other-prompt binding could not be persisted',
       err,
     );
   }

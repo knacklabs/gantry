@@ -144,7 +144,8 @@ async function recoverDurablePermission(input: {
     scope: prompt.scope,
   });
   if (!durable) return;
-  const matchKind = prompt.claim?.match.kind ?? prompt.matchKind;
+  const matchKind =
+    durable.claim?.match.kind ?? prompt.claim?.match.kind ?? prompt.matchKind;
   if (
     durable.targetJid !== context.conversationJid ||
     !(await input.isApproverAllowed(
@@ -158,20 +159,20 @@ async function recoverDurablePermission(input: {
   ) {
     return;
   }
-  const claimed = prompt.claim
-    ? { status: 'claimed' as const, claim: prompt.claim }
-    : await claimPermissionInteractionCallback({
-        scope: prompt.scope,
-        mode: input.parsed.mode,
-        approverRef: input.userId,
-        matchKind,
-        providerAlias: input.parsed.providerAlias,
-      });
+  const claimed = await claimPermissionInteractionCallback({
+    scope: prompt.scope,
+    mode: input.parsed.mode,
+    approverRef: input.userId,
+    matchKind,
+    providerAlias: input.parsed.providerAlias,
+    expireReviewEach: true,
+    ...(durable.claim ? { recoveredClaim: durable.claim } : {}),
+  });
   if (claimed.status === 'already_decided') return;
   if (claimed.status === 'retryable') return;
   const decision = recoveredDiscordPermissionDecision(
     durable.request,
-    prompt.claim,
+    claimed.persistedClaim ?? durable.claim ?? prompt.claim,
     input.parsed.mode,
     input.userId,
     claimed.claim,

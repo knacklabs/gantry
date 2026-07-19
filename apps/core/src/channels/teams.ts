@@ -64,11 +64,9 @@ import {
 } from './teams-interaction-handlers.js';
 import { StreamResetEpochs } from './stream-reset-epochs.js';
 import {
-  bindPendingQuestionInteractionCallback,
-  createDurableQuestionCallback,
   DurableInteractionPersistenceError,
   recordDurableQuestionAnswerProgress,
-  recordDurableQuestionPromptDelivered,
+  type DurableQuestionCallback,
 } from '../application/interactions/pending-interaction-durability.js';
 
 export {
@@ -481,25 +479,19 @@ export class TeamsChannel implements ChannelAdapter {
     if (!request.questions.length) return emptyResponse;
     const startIndex = 0;
     const questionRequest = { ...request, targetJid: request.targetJid ?? jid };
-    const callback = createDurableQuestionCallback({
-      appId: request.appId,
-      sourceAgentFolder: request.sourceAgentFolder,
-      requestId: request.requestId,
+    const callback: DurableQuestionCallback = {
+      providerAlias: globalThis.crypto.randomUUID(),
+      scope: {
+        appId: request.appId || 'default',
+        sourceAgentFolder: request.sourceAgentFolder,
+        interactionId: request.requestId,
+      },
       questionIndex: startIndex,
-    });
+    };
     if (this.pendingUserQuestions.has(callback.providerAlias)) {
       return emptyResponse;
     }
     try {
-      const bound = await bindPendingQuestionInteractionCallback({
-        sourceAgentFolder: callback.scope.sourceAgentFolder,
-        requestId: callback.scope.interactionId,
-        callbackId: callback.providerAlias,
-        questionIndex: callback.questionIndex,
-        appId: callback.scope.appId,
-      });
-      if (!bound)
-        throw new Error('Teams user question callback binding failed');
       const sent = await this.sdkClient.sendAdaptiveCard({
         conversationId,
         card: buildTeamsUserQuestionCard(questionRequest, callback, startIndex),
@@ -563,19 +555,6 @@ export class TeamsChannel implements ChannelAdapter {
         });
       });
       if (sent?.externalMessageId) {
-        const delivered = await recordDurableQuestionPromptDelivered({
-          requestId: request.requestId,
-          appId: request.appId,
-          sourceAgentFolder: request.sourceAgentFolder,
-          questionIndexes: request.questions.flatMap((_, index) =>
-            index >= startIndex ? [index] : [],
-          ),
-        });
-        if (!delivered) {
-          throw new DurableInteractionPersistenceError(
-            'Teams user question delivery was not persisted',
-          );
-        }
         onPromptDelivered?.(sent.externalMessageId, startIndex);
       }
       return response;

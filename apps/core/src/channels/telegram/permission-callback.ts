@@ -116,7 +116,8 @@ export async function resolveDurableTelegramPermissionCallback(input: {
     durable?.targetJid === `tg:${callbackChatId}` &&
     Boolean(durable.approvalContextJid) &&
     (await input.isAuthorized(durable.approvalContextJid!, userId, durable));
-  const matchKind = prompt.claim?.match.kind ?? prompt.matchKind;
+  const matchKind =
+    durable?.claim?.match.kind ?? prompt.claim?.match.kind ?? prompt.matchKind;
   if (
     !authorized ||
     !durable ||
@@ -125,15 +126,15 @@ export async function resolveDurableTelegramPermissionCallback(input: {
     await inactive(input.context);
     return;
   }
-  const claimed = prompt.claim
-    ? { status: 'claimed' as const, claim: prompt.claim }
-    : await claimPermissionInteractionCallback({
-        scope: prompt.scope,
-        mode: input.mode,
-        approverRef: userId,
-        matchKind,
-        providerAlias: input.providerAlias,
-      });
+  const claimed = await claimPermissionInteractionCallback({
+    scope: prompt.scope,
+    mode: input.mode,
+    approverRef: userId,
+    matchKind,
+    providerAlias: input.providerAlias,
+    expireReviewEach: true,
+    ...(durable.claim ? { recoveredClaim: durable.claim } : {}),
+  });
   if (claimed.status === 'already_decided') {
     await input.context.answerCallbackQuery({
       text: 'Permission request was already decided.',
@@ -150,7 +151,7 @@ export async function resolveDurableTelegramPermissionCallback(input: {
   }
   const decision = recoveredTelegramPermissionDecision(
     durable.request,
-    prompt.claim,
+    claimed.persistedClaim ?? durable.claim ?? prompt.claim,
     input.mode,
     userId,
     claimed.claim,

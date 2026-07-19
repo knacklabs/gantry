@@ -8,7 +8,10 @@ import {
   releasePermissionInteractionCallback,
 } from '@core/application/interactions/pending-interaction-durability.js';
 import type { JobUpsertInput } from '@core/domain/repositories/ops-repo.js';
-import type { PermissionCallbackClaim } from '@core/domain/types.js';
+import type {
+  PermissionCallbackClaim,
+  PermissionRecoveryEnvelope,
+} from '@core/domain/types.js';
 import { nowIso, nowMs, toIso } from '@core/shared/time/datetime.js';
 
 import {
@@ -80,6 +83,98 @@ maybeDescribe('multi-worker coordination acceptance gates', () => {
       notified_at: null,
     });
     expect(created).toBe(true);
+  };
+
+  const expireSettledReviewEachBatch = async (key: string) => {
+    const sourceAgentFolder = 'scheduler_agent';
+    const batchId = `batch:expire-settled-recovery:${key}`;
+    const requestIds = [
+      `req-expire-settled-recovery-${key}-1`,
+      `req-expire-settled-recovery-${key}-2`,
+    ];
+    const providerAlias = `opaque-expire-settled-recovery-${key}`;
+    const recoveryEnvelope = {
+      version: 1,
+      renderedDecisionOptions: ['allow_once', 'cancel'],
+      targetJid: 'tg:worker-coordination',
+      approvalContextJid: 'tg:worker-coordination',
+      threadId: null,
+      decisionPolicy: null,
+      renderedRequest: {
+        requestId: batchId,
+        sourceAgentFolder,
+        targetJid: 'tg:worker-coordination',
+        toolName: 'Bash',
+        permissionBatch: {
+          requestIds,
+          rows: ['1. Bash', '2. Bash'],
+        },
+      },
+      members: requestIds.map((requestId, index) => ({
+        callback: {
+          appId: 'default',
+          sourceAgentFolder,
+          requestId,
+          index,
+        },
+        request: {
+          requestId,
+          sourceAgentFolder,
+          targetJid: 'tg:worker-coordination',
+          toolName: 'Bash',
+        },
+      })),
+      batch: { canonicalId: batchId },
+    } satisfies PermissionRecoveryEnvelope;
+    for (const requestId of requestIds) {
+      await coordination.createPendingInteraction({
+        id: `interaction-${requestId}`,
+        appId: 'default',
+        kind: 'permission',
+        payload: {
+          requestId,
+          sourceAgentFolder,
+          permissionCallbackId: providerAlias,
+          permissionBatchCallbackId: batchId,
+          permissionBatchRequestIds: requestIds,
+          permissionRecoveryEnvelope: recoveryEnvelope,
+        },
+        idempotencyKey: `default:permission:${sourceAgentFolder}:${requestId}`,
+        expiresAt: toIso(nowMs() + 60_000),
+      });
+    }
+    const scope = {
+      appId: 'default',
+      sourceAgentFolder,
+      interactionId: batchId,
+    };
+    const claim = {
+      id: `claim-expire-settled-recovery-${key}`,
+      scope,
+      intent: {
+        mode: 'allow_persistent_rule',
+        approverRef: 'user:approver',
+        decidedAt: nowIso(),
+      },
+      match: {
+        kind: 'batch',
+        canonicalId: batchId,
+        providerAliases: [providerAlias],
+      },
+    } satisfies PermissionCallbackClaim;
+    await expect(
+      coordination.claimPendingPermissionCallback({ claim }),
+    ).resolves.toHaveLength(2);
+    await expect(
+      coordination.settlePendingPermissionCallback({ claim }),
+    ).resolves.toBe(2);
+    await expect(
+      coordination.expirePendingPermissionReviewEach({
+        claim,
+        now: '2026-07-19T00:00:00.000Z',
+      }),
+    ).resolves.toHaveLength(2);
+    return { providerAlias, scope };
   };
 
   beforeAll(async () => {
@@ -881,6 +976,19 @@ maybeDescribe('multi-worker coordination acceptance gates', () => {
       resolution: null,
       resolvedAt: null,
     });
+    const pendingCollision = await coordination.createPendingInteraction({
+      id: 'question-while-pending',
+      appId: 'default',
+      kind: 'question',
+      payload: { question: 'Must not replace the pending winner' },
+      idempotencyKey: cancelledKey,
+      expiresAt: toIso(nowMs() + 180_000),
+    });
+    expect(pendingCollision).toMatchObject({
+      id: 'question-reopened',
+      status: 'pending',
+      payload: { question: 'Fresh payload' },
+    });
 
     await coordination.resolvePendingInteraction({
       idempotencyKey: cancelledKey,
@@ -943,6 +1051,88 @@ maybeDescribe('multi-worker coordination acceptance gates', () => {
     ]);
   });
 
+  it('fails closed on absent or malformed question lease state and permits one re-ask after a dead lease', async () => {
+    const jobId = 'job-question-lease-state';
+    await runtime.ops.upsertJob(makeJob(jobId));
+    const malformedPayloads = [
+      {},
+      { runLeaseToken: '', runLeaseFencingVersion: 1 },
+      { runLeaseToken: 'lease-token', runLeaseFencingVersion: 0 },
+      { runLeaseToken: 'lease-token', runLeaseFencingVersion: '1' },
+    ];
+    for (const [index, payload] of malformedPayloads.entries()) {
+      const id = `question-malformed-lease-${index}`;
+      const runId = `run-malformed-lease-${index}`;
+      await createRunForJob(jobId, runId);
+      await coordination.createPendingInteraction({
+        id,
+        appId: 'default',
+        runId,
+        kind: 'question',
+        payload,
+        idempotencyKey: `default:question:scheduler_agent:${id}`,
+        expiresAt: toIso(nowMs() + 60_000),
+      });
+      await expect(
+        coordination.cancelPendingQuestionInteractionIfRunLeaseInactive({
+          id,
+          resolution: { answers: {}, reason: 'restart' },
+        }),
+      ).resolves.toBe(false);
+    }
+
+    const idempotencyKey =
+      'default:question:scheduler_agent:question-dead-lease';
+    await createRunForJob(jobId, 'run-without-active-lease');
+    await coordination.createPendingInteraction({
+      id: 'question-dead-lease-old',
+      appId: 'default',
+      runId: 'run-without-active-lease',
+      kind: 'question',
+      payload: {
+        runLeaseToken: 'dead-lease-token',
+        runLeaseFencingVersion: 1,
+      },
+      idempotencyKey,
+      expiresAt: toIso(nowMs() + 60_000),
+    });
+    await expect(
+      coordination.cancelPendingQuestionInteractionIfRunLeaseInactive({
+        id: 'question-dead-lease-old',
+        resolution: { answers: {}, reason: 'restart' },
+      }),
+    ).resolves.toBe(true);
+    const retried = await coordination.createPendingInteraction({
+      id: 'question-dead-lease-retry',
+      appId: 'default',
+      runId: 'run-without-active-lease',
+      kind: 'question',
+      payload: {
+        runLeaseToken: 'new-lease-token',
+        runLeaseFencingVersion: 2,
+      },
+      idempotencyKey,
+      expiresAt: toIso(nowMs() + 60_000),
+    });
+    expect(retried).toMatchObject({
+      id: 'question-dead-lease-retry',
+      status: 'pending',
+    });
+    const duplicateRetry = await coordination.createPendingInteraction({
+      id: 'question-dead-lease-second-retry',
+      appId: 'default',
+      runId: 'run-without-active-lease',
+      kind: 'question',
+      payload: {
+        runLeaseToken: 'new-lease-token',
+        runLeaseFencingVersion: 2,
+      },
+      idempotencyKey,
+      expiresAt: toIso(nowMs() + 60_000),
+    });
+    expect(duplicateRetry.id).toBe('question-dead-lease-retry');
+  });
+
   it('restores a claimed batch alias on release and rejects it while claimed', async () => {
     const callbackId = 'batch:req-atomic-1:2';
     const providerCallbackId = 'opaque-batch-callback';
@@ -950,6 +1140,40 @@ maybeDescribe('multi-worker coordination acceptance gates', () => {
       'req-atomic-1': providerCallbackId,
       'req-atomic-2': 'other-row-alias',
     } as const;
+    const requestIds = ['req-atomic-1', 'req-atomic-2'] as const;
+    const recoveryEnvelope = {
+      version: 1,
+      renderedDecisionOptions: ['allow_once', 'cancel'],
+      targetJid: 'tg:worker-coordination',
+      approvalContextJid: 'tg:worker-coordination',
+      threadId: null,
+      decisionPolicy: null,
+      renderedRequest: {
+        requestId: callbackId,
+        sourceAgentFolder: 'scheduler_agent',
+        targetJid: 'tg:worker-coordination',
+        toolName: 'Bash',
+        permissionBatch: {
+          requestIds: [...requestIds],
+          rows: ['1. Bash', '2. Bash'],
+        },
+      },
+      members: requestIds.map((requestId, index) => ({
+        callback: {
+          appId: 'default',
+          sourceAgentFolder: 'scheduler_agent',
+          requestId,
+          index,
+        },
+        request: {
+          requestId,
+          sourceAgentFolder: 'scheduler_agent',
+          targetJid: 'tg:worker-coordination',
+          toolName: 'Bash',
+        },
+      })),
+      batch: { canonicalId: callbackId },
+    } satisfies PermissionRecoveryEnvelope;
     const scope = {
       appId: 'default',
       sourceAgentFolder: 'scheduler_agent',
@@ -969,7 +1193,7 @@ maybeDescribe('multi-worker coordination acceptance gates', () => {
         providerAliases: [providerCallbackId],
       },
     } satisfies PermissionCallbackClaim;
-    for (const requestId of ['req-atomic-1', 'req-atomic-2']) {
+    for (const requestId of requestIds) {
       await coordination.createPendingInteraction({
         id: `interaction-${requestId}`,
         appId: 'default',
@@ -981,7 +1205,8 @@ maybeDescribe('multi-worker coordination acceptance gates', () => {
           permissionCallbackId:
             aliasesByRequestId[requestId as keyof typeof aliasesByRequestId],
           permissionBatchCallbackId: callbackId,
-          permissionBatchRequestIds: ['req-atomic-1', 'req-atomic-2'],
+          permissionBatchRequestIds: [...requestIds],
+          permissionRecoveryEnvelope: recoveryEnvelope,
         },
         idempotencyKey: `default:permission:scheduler_agent:${requestId}`,
         expiresAt: toIso(nowMs() + 60_000),
@@ -1220,6 +1445,154 @@ maybeDescribe('multi-worker coordination acceptance gates', () => {
     ).not.toHaveProperty('permissionCallbackClaim');
   });
 
+  it('admits exactly one concurrent batch claim and rejects missing or expired members', async () => {
+    const sourceAgentFolder = 'scheduler_agent';
+    const createBatchMember = async (input: {
+      batchId: string;
+      requestId: string;
+      requestIds: string[];
+      expiresAt: string;
+    }) =>
+      coordination.createPendingInteraction({
+        id: `interaction-${input.requestId}`,
+        appId: 'default',
+        kind: 'permission',
+        payload: {
+          requestId: input.requestId,
+          sourceAgentFolder,
+          permissionCallbackId: `alias-${input.requestId}`,
+          permissionBatchCallbackId: input.batchId,
+          permissionBatchRequestIds: input.requestIds,
+        },
+        idempotencyKey: `default:permission:${sourceAgentFolder}:${input.requestId}`,
+        expiresAt: input.expiresAt,
+      });
+    const batchClaim = (input: {
+      id: string;
+      batchId: string;
+      providerAlias: string;
+      decidedAt?: string;
+    }) =>
+      ({
+        id: input.id,
+        scope: {
+          appId: 'default',
+          sourceAgentFolder,
+          interactionId: input.batchId,
+        },
+        intent: {
+          mode: 'allow_once' as const,
+          approverRef: 'user:approver',
+          decidedAt: input.decidedAt ?? nowIso(),
+        },
+        match: {
+          kind: 'batch' as const,
+          canonicalId: input.batchId,
+          providerAliases: [input.providerAlias],
+        },
+      }) satisfies PermissionCallbackClaim;
+
+    const concurrentBatchId = 'batch:concurrent:2';
+    const concurrentRequestIds = ['req-concurrent-1', 'req-concurrent-2'];
+    for (const requestId of concurrentRequestIds) {
+      await createBatchMember({
+        batchId: concurrentBatchId,
+        requestId,
+        requestIds: concurrentRequestIds,
+        expiresAt: toIso(nowMs() + 60_000),
+      });
+    }
+    const concurrentClaims = await Promise.all([
+      coordination.claimPendingPermissionCallback({
+        claim: batchClaim({
+          id: 'claim-concurrent-a',
+          batchId: concurrentBatchId,
+          providerAlias: 'alias-req-concurrent-1',
+        }),
+      }),
+      coordination.claimPendingPermissionCallback({
+        claim: batchClaim({
+          id: 'claim-concurrent-b',
+          batchId: concurrentBatchId,
+          providerAlias: 'alias-req-concurrent-2',
+        }),
+      }),
+    ]);
+    expect(concurrentClaims.map((rows) => rows.length).sort()).toEqual([0, 2]);
+    const claimedRows = await coordination.listPendingInteractions({
+      appId: 'default',
+    });
+    expect(
+      new Set(
+        claimedRows
+          .filter((row) =>
+            concurrentRequestIds.includes(String(row.payload.requestId)),
+          )
+          .map(
+            (row) =>
+              (row.payload.permissionCallbackClaim as PermissionCallbackClaim)
+                .id,
+          ),
+      ).size,
+    ).toBe(1);
+
+    const missingBatchId = 'batch:missing-member:2';
+    const missingRequestIds = ['req-missing-1', 'req-missing-2'];
+    await createBatchMember({
+      batchId: missingBatchId,
+      requestId: missingRequestIds[0]!,
+      requestIds: missingRequestIds,
+      expiresAt: toIso(nowMs() + 60_000),
+    });
+    await expect(
+      coordination.claimPendingPermissionCallback({
+        claim: batchClaim({
+          id: 'claim-missing-member',
+          batchId: missingBatchId,
+          providerAlias: `alias-${missingRequestIds[0]}`,
+        }),
+      }),
+    ).resolves.toHaveLength(0);
+
+    const expiredBatchId = 'batch:expired-member:2';
+    const expiredRequestIds = ['req-expired-1', 'req-expired-2'];
+    const decidedAt = nowIso();
+    await createBatchMember({
+      batchId: expiredBatchId,
+      requestId: expiredRequestIds[0]!,
+      requestIds: expiredRequestIds,
+      expiresAt: toIso(nowMs() + 60_000),
+    });
+    await createBatchMember({
+      batchId: expiredBatchId,
+      requestId: expiredRequestIds[1]!,
+      requestIds: expiredRequestIds,
+      expiresAt: toIso(nowMs() - 60_000),
+    });
+    await expect(
+      coordination.claimPendingPermissionCallback({
+        claim: batchClaim({
+          id: 'claim-expired-member',
+          batchId: expiredBatchId,
+          providerAlias: `alias-${expiredRequestIds[0]}`,
+          decidedAt,
+        }),
+      }),
+    ).resolves.toHaveLength(0);
+    const partialRows = await coordination.listPendingInteractions({
+      appId: 'default',
+    });
+    expect(
+      partialRows
+        .filter((row) =>
+          [...missingRequestIds, ...expiredRequestIds].includes(
+            String(row.payload.requestId),
+          ),
+        )
+        .every((row) => !('permissionCallbackClaim' in row.payload)),
+    ).toBe(true);
+  });
+
   it('atomically claims an individual permission callback after batch review', async () => {
     const requestId = 'req-individual-claim';
     const scope = {
@@ -1313,6 +1686,222 @@ maybeDescribe('multi-worker coordination acceptance gates', () => {
         permissionCallbackClaim: { id: claim.id, scope },
       }),
     ).resolves.toBe(true);
+  });
+
+  it.each(['active', 'settled'] as const)(
+    'atomically expires %s Review-each state as a system cancellation',
+    async (state) => {
+      const sourceAgentFolder = 'scheduler_agent';
+      const batchId = `batch:expire-review-each:${state}`;
+      const requestIds = [
+        `req-expire-review-each-${state}-1`,
+        `req-expire-review-each-${state}-2`,
+      ];
+      for (const requestId of requestIds) {
+        await coordination.createPendingInteraction({
+          id: `interaction-${requestId}`,
+          appId: 'default',
+          kind: 'permission',
+          payload: {
+            requestId,
+            sourceAgentFolder,
+            permissionCallbackId: `alias-${requestId}`,
+            permissionBatchCallbackId: batchId,
+            permissionBatchRequestIds: requestIds,
+          },
+          idempotencyKey: `default:permission:${sourceAgentFolder}:${requestId}`,
+          expiresAt: toIso(nowMs() + 60_000),
+        });
+      }
+      const claim = {
+        id: `claim-expire-review-each-${state}`,
+        scope: {
+          appId: 'default',
+          sourceAgentFolder,
+          interactionId: batchId,
+        },
+        intent: {
+          mode: 'allow_persistent_rule',
+          approverRef: 'user:approver',
+          decidedAt: nowIso(),
+        },
+        match: {
+          kind: 'batch',
+          canonicalId: batchId,
+          providerAliases: [`alias-${requestIds[0]}`],
+        },
+      } satisfies PermissionCallbackClaim;
+      await expect(
+        coordination.claimPendingPermissionCallback({ claim }),
+      ).resolves.toHaveLength(2);
+      if (state === 'settled') {
+        await expect(
+          coordination.settlePendingPermissionCallback({ claim }),
+        ).resolves.toBe(2);
+      }
+
+      const expired = await coordination.expirePendingPermissionReviewEach({
+        claim,
+        now: '2026-07-19T00:00:00.000Z',
+      });
+      expect(expired).toHaveLength(2);
+      expect(
+        expired.every((row) => {
+          const stored = row.payload
+            .permissionCallbackClaim as PermissionCallbackClaim;
+          return (
+            stored.id ===
+              (state === 'active'
+                ? claim.id
+                : `${claim.id}:expired:${row.payload.requestId}`) &&
+            stored.scope.interactionId ===
+              (state === 'active' ? batchId : row.payload.requestId) &&
+            stored.intent.mode === 'cancel' &&
+            stored.intent.approverRef === 'system' &&
+            stored.intent.decidedAt === '2026-07-19T00:00:00.000Z' &&
+            stored.match.kind ===
+              (state === 'active' ? 'batch' : 'individual') &&
+            !('permissionCallbackSettlement' in row.payload)
+          );
+        }),
+      ).toBe(true);
+      await expect(
+        coordination.expirePendingPermissionReviewEach({
+          claim,
+          now: '2026-07-19T00:01:00.000Z',
+        }),
+      ).resolves.toHaveLength(0);
+    },
+  );
+
+  it('treats a freshly recovered settled Review-each expiration as already decided', async () => {
+    const { providerAlias, scope } =
+      await expireSettledReviewEachBatch('fresh-recovery');
+    configurePendingInteractionDurability(null);
+    configurePendingInteractionDurability({ repository: coordination });
+
+    const recovered = await findDurablePermissionInteractionByRequestId({
+      scope,
+    });
+    expect(recovered).toMatchObject({
+      scope,
+      requestId: scope.interactionId,
+      batchCallbackId: scope.interactionId,
+    });
+    expect(recovered?.claim).toBeUndefined();
+    await expect(
+      claimPermissionInteractionCallback({
+        scope,
+        mode: 'allow_once',
+        approverRef: 'user:approver-after-restart',
+        matchKind: 'batch',
+        providerAlias,
+      }),
+    ).resolves.toEqual({ status: 'already_decided' });
+  });
+
+  it('preserves the original provider alias after settled Review-each expiration and reports it already decided', async () => {
+    const { providerAlias, scope } =
+      await expireSettledReviewEachBatch('provider-alias');
+    configurePendingInteractionDurability(null);
+    configurePendingInteractionDurability({ repository: coordination });
+
+    const recovered = await findDurablePermissionInteractionByRequestId({
+      scope,
+      providerAlias,
+    });
+    expect(recovered?.providerAliases).toContain(providerAlias);
+    await expect(
+      claimPermissionInteractionCallback({
+        scope,
+        mode: 'allow_once',
+        approverRef: 'user:approver-after-restart',
+        matchKind: 'batch',
+        providerAlias,
+      }),
+    ).resolves.toEqual({ status: 'already_decided' });
+  });
+
+  it('allows exactly one concurrent Review-each expiration and keeps every batch member readable', async () => {
+    const sourceAgentFolder = 'scheduler_agent';
+    const batchId = 'batch:expire-review-each:concurrent';
+    const requestIds = [
+      'req-expire-review-each-concurrent-1',
+      'req-expire-review-each-concurrent-2',
+    ];
+    for (const requestId of requestIds) {
+      await coordination.createPendingInteraction({
+        id: `interaction-${requestId}`,
+        appId: 'default',
+        kind: 'permission',
+        payload: {
+          requestId,
+          sourceAgentFolder,
+          permissionCallbackId: `alias-${requestId}`,
+          permissionBatchCallbackId: batchId,
+          permissionBatchRequestIds: requestIds,
+          permissionRecoveryEnvelope: {
+            batch: { canonicalId: batchId },
+          },
+        },
+        idempotencyKey: `default:permission:${sourceAgentFolder}:${requestId}`,
+        expiresAt: toIso(nowMs() + 60_000),
+      });
+    }
+    const claim = {
+      id: 'claim-expire-review-each-concurrent',
+      scope: {
+        appId: 'default',
+        sourceAgentFolder,
+        interactionId: batchId,
+      },
+      intent: {
+        mode: 'allow_persistent_rule',
+        approverRef: 'user:approver',
+        decidedAt: nowIso(),
+      },
+      match: {
+        kind: 'batch',
+        canonicalId: batchId,
+        providerAliases: [`alias-${requestIds[0]}`],
+      },
+    } satisfies PermissionCallbackClaim;
+    await expect(
+      coordination.claimPendingPermissionCallback({ claim }),
+    ).resolves.toHaveLength(2);
+    await expect(
+      coordination.settlePendingPermissionCallback({ claim }),
+    ).resolves.toBe(2);
+
+    const expirations = await Promise.all([
+      coordination.expirePendingPermissionReviewEach({
+        claim,
+        now: '2026-07-19T00:00:00.000Z',
+      }),
+      coordination.expirePendingPermissionReviewEach({
+        claim,
+        now: '2026-07-19T00:00:00.000Z',
+      }),
+    ]);
+    expect(expirations.map((rows) => rows.length).sort()).toEqual([0, 2]);
+
+    const recovered = await coordination.findPendingPermissionInteractions({
+      scope: claim.scope,
+    });
+    expect(recovered).toHaveLength(2);
+    expect(
+      recovered.every((row) => {
+        const stored = row.payload
+          .permissionCallbackClaim as PermissionCallbackClaim;
+        return (
+          stored.id === `${claim.id}:expired:${row.payload.requestId}` &&
+          stored.scope.interactionId === row.payload.requestId &&
+          stored.intent.mode === 'cancel' &&
+          stored.intent.approverRef === 'system' &&
+          stored.match.kind === 'individual'
+        );
+      }),
+    ).toBe(true);
   });
 
   it('scopes a colliding request id to the authorized agent', async () => {
@@ -1445,6 +2034,24 @@ maybeDescribe('multi-worker coordination acceptance gates', () => {
     expect(rebound.payload).not.toHaveProperty('externalPromptMessageId');
     expect(rebound.payload).not.toHaveProperty('permissionBatchCallbackId');
     expect(rebound.payload).not.toHaveProperty('permissionCallbackId');
+
+    const refreshedWhileClaimed = await coordination.createPendingInteraction({
+      id: 'interaction-binding-race-refresh-while-claimed',
+      appId: 'default',
+      kind: 'permission',
+      payload: stalePayload,
+      idempotencyKey,
+      expiresAt: toIso(nowMs() + 60_000),
+    });
+    expect(refreshedWhileClaimed.payload.permissionCallbackClaim).toMatchObject(
+      { id: claim.id },
+    );
+    expect(refreshedWhileClaimed.payload).not.toHaveProperty(
+      'permissionBatchCallbackId',
+    );
+    expect(refreshedWhileClaimed.payload).not.toHaveProperty(
+      'permissionCallbackId',
+    );
 
     await expect(
       coordination.settlePendingPermissionCallback({

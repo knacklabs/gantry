@@ -127,7 +127,7 @@ export async function createPendingInteractionRow(
     return toPendingInteraction(rows[0]!);
   } catch (err) {
     if (!isUniqueViolation(err)) throw err;
-    const refreshedPayload = sql`${incomingPayload}::jsonb || ${table.payloadJson}`;
+    const refreshedPayload = sql`(${incomingPayload}::jsonb || ${table.payloadJson})`;
     const refreshed = await db
       .update(table)
       .set({
@@ -433,16 +433,7 @@ export async function claimPendingPermissionCallbackRows(
   const rows = await db
     .update(table)
     .set({
-      payloadJson:
-        input.claim.match.kind === 'batch' &&
-        input.claim.intent.mode === 'allow_persistent_rule'
-          ? sql`jsonb_set(
-              ${claimedPayload},
-              '{permissionRecoveryEnvelope,batch,phase}',
-              '"review_each"'::jsonb,
-              false
-            )`
-          : claimedPayload,
+      payloadJson: claimedPayload,
     })
     .where(
       and(
@@ -528,6 +519,91 @@ export async function settlePendingPermissionCallbackRows(
   return rows.length;
 }
 
+export async function expirePendingPermissionReviewEachRows(
+  db: CanonicalDb,
+  input: { claim: PermissionCallbackClaimReference; now: string },
+): Promise<PendingInteraction[]> {
+  const table = pgSchema.pendingInteractionsPostgres;
+  const activeClaim = sql`${table.payloadJson} -> 'permissionCallbackClaim'`;
+  const settlement = sql`${table.payloadJson} -> 'permissionCallbackSettlement'`;
+  const owner = sql`CASE
+    WHEN ${activeClaim} #>> '{id}' = ${input.claim.id}
+      THEN ${activeClaim}
+    ELSE ${settlement}
+  END`;
+  const rows = await db
+    .update(table)
+    .set({
+      payloadJson: sql`(
+        ${table.payloadJson}
+          - 'permissionCallbackClaim'
+          - 'permissionCallbackSettlement'
+          - 'permissionBatchCallbackId'
+          - 'permissionCallbackId'
+      ) || jsonb_build_object(
+        'permissionCallbackClaim',
+        CASE
+          WHEN ${activeClaim} #>> '{id}' = ${input.claim.id}
+            THEN (${owner} - 'settledAt') || jsonb_build_object(
+              'intent',
+              (${owner} -> 'intent') || jsonb_build_object(
+                'mode', 'cancel',
+                'approverRef', 'system',
+                'decidedAt', ${input.now}::text
+              )
+            )
+          ELSE jsonb_build_object(
+            'id', (${owner} ->> 'id') || ':expired:' || (${table.payloadJson} ->> 'requestId'),
+            'scope', jsonb_build_object(
+              'appId', ${input.claim.scope.appId}::text,
+              'sourceAgentFolder', ${input.claim.scope.sourceAgentFolder}::text,
+              'interactionId', ${table.payloadJson} ->> 'requestId'
+            ),
+            'intent', jsonb_build_object(
+              'mode', 'cancel',
+              'approverRef', 'system',
+              'decidedAt', ${input.now}::text
+            ),
+            'match', jsonb_build_object(
+              'kind', 'individual',
+              'canonicalId', ${table.payloadJson} ->> 'requestId',
+              'providerAliases', COALESCE(
+                ${owner} #> '{match,providerAliases}',
+                '[]'::jsonb
+              )
+            )
+          )
+        END
+      )`,
+    })
+    .where(
+      and(
+        eq(table.appId, input.claim.scope.appId),
+        eq(table.kind, 'permission'),
+        eq(table.status, 'pending'),
+        sql`COALESCE(
+          ${table.payloadJson} ->> 'sourceAgentFolder',
+          ${table.payloadJson} #>> '{request,sourceAgentFolder}'
+        ) = ${input.claim.scope.sourceAgentFolder}`,
+        sql`${owner} #>> '{id}' = ${input.claim.id}`,
+        sql`${owner} #>> '{scope,appId}' = ${input.claim.scope.appId}`,
+        sql`${owner} #>> '{scope,sourceAgentFolder}' = ${input.claim.scope.sourceAgentFolder}`,
+        sql`${owner} #>> '{scope,interactionId}' = ${input.claim.scope.interactionId}`,
+        sql`${owner} #>> '{match,kind}' = 'batch'`,
+        sql`${owner} #>> '{intent,mode}' = 'allow_persistent_rule'`,
+        or(
+          sql`NOT (${table.payloadJson} ? 'permissionCallbackClaim')`,
+          and(
+            sql`${activeClaim} #>> '{id}' = ${input.claim.id}`,
+            sql`${activeClaim} #>> '{scope,interactionId}' = ${input.claim.scope.interactionId}`,
+          ),
+        ),
+      ),
+    )
+    .returning();
+  return rows.map(toPendingInteraction);
+}
+
 export async function findPendingPermissionInteractionRows(
   db: CanonicalDb,
   input: {
@@ -553,6 +629,7 @@ export async function findPendingPermissionInteractionRows(
         AND ${table.payloadJson} #>> '{permissionCallbackClaim,scope,appId}' = ${input.scope.appId}
         AND ${table.payloadJson} #>> '{permissionCallbackClaim,scope,sourceAgentFolder}' = ${input.scope.sourceAgentFolder}
       )
+      OR ${table.payloadJson} #>> '{permissionRecoveryEnvelope,batch,canonicalId}' = ${input.scope.interactionId}
     )`,
   );
   const terminalSettlementMatch = sql`

@@ -29,6 +29,7 @@ import {
   cancelPendingQuestionInteractionIfRunLeaseInactiveRow,
   claimPendingPermissionCallbackRows,
   createPendingInteractionRow,
+  expirePendingPermissionReviewEachRows,
   findPendingPermissionInteractionRows,
   releasePendingPermissionCallbackRows,
   resolvePendingInteractionRow,
@@ -577,6 +578,16 @@ export class PostgresWorkerCoordinationRepository implements WorkerCoordinationR
     claim: PermissionCallbackClaimReference;
   }): Promise<number> {
     return settlePendingPermissionCallbackRows(this.db, input);
+  }
+
+  async expirePendingPermissionReviewEach(input: {
+    claim: PermissionCallbackClaimReference;
+    now?: string;
+  }): Promise<PendingInteraction[]> {
+    return expirePendingPermissionReviewEachRows(this.db, {
+      claim: input.claim,
+      now: input.now ?? currentIso(),
+    });
   }
 
   async findPendingPermissionInteractions(input: {

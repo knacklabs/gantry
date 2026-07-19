@@ -25,7 +25,6 @@ import { createPermissionBatchRequest } from '@core/channels/permission-batch-co
 import type { ChannelOpts } from '@core/channels/channel-provider.js';
 import {
   configurePendingInteractionDurability,
-  configurePermissionReviewEachDispatcher,
   DurableInteractionPersistenceError,
 } from '@core/application/interactions/pending-interaction-durability.js';
 import type {
@@ -48,7 +47,6 @@ vi.mock('@core/infrastructure/logging/logger.js', () => ({
 }));
 
 afterEach(() => {
-  configurePermissionReviewEachDispatcher(null);
   configurePendingInteractionDurability(null);
   vi.useRealTimers();
 });
@@ -168,15 +166,6 @@ function configureTeamsPermissionRequest(request: PermissionApprovalRequest) {
           delete interaction.payload.permissionBatchCallbackId;
           delete interaction.payload.permissionCallbackId;
           interaction.payload.permissionCallbackClaim = claim;
-          if (
-            claim.match.kind === 'batch' &&
-            claim.intent.mode === 'allow_persistent_rule'
-          ) {
-            const envelope = interaction.payload.permissionRecoveryEnvelope as
-              | { batch?: { phase?: string } }
-              | undefined;
-            if (envelope?.batch) envelope.batch.phase = 'review_each';
-          }
         }
         return claimed;
       },
@@ -210,6 +199,36 @@ function configureTeamsPermissionRequest(request: PermissionApprovalRequest) {
                 .permissionCallbackClaim as PermissionCallbackClaim
             )?.id === claim.id,
         ).length,
+    ),
+    expirePendingPermissionReviewEach: vi.fn(
+      async ({
+        claim,
+        now,
+      }: {
+        claim: PermissionCallbackClaimReference;
+        now: string;
+      }) =>
+        find(claim.scope).filter((interaction) => {
+          const stored = interaction.payload
+            .permissionCallbackClaim as PermissionCallbackClaim;
+          if (
+            stored?.id !== claim.id ||
+            stored.match.kind !== 'batch' ||
+            stored.intent.mode !== 'allow_persistent_rule'
+          ) {
+            return false;
+          }
+          interaction.payload.permissionCallbackClaim = {
+            ...stored,
+            intent: {
+              ...stored.intent,
+              mode: 'cancel',
+              approverRef: 'system',
+              decidedAt: now,
+            },
+          };
+          return true;
+        }),
     ),
     resolvePendingInteraction: vi.fn(async () => true),
   };
@@ -2132,7 +2151,7 @@ describe('TeamsChannel adapter scaffold', () => {
     expect(sdkClient.sendAdaptiveCard).toHaveBeenCalledTimes(1);
   });
 
-  it('recovers Review each for a Teams batch whose original requests cannot be bulk-approved', async () => {
+  it('expires a recovered Review-each batch and terminalizes the stale Teams card', async () => {
     let startInput: Parameters<TeamsSdkClient['start']>[0] | undefined;
     const sdkClient: TeamsSdkClient = {
       start: vi.fn(async (input) => {
@@ -2143,6 +2162,7 @@ describe('TeamsChannel adapter scaffold', () => {
       sendAdaptiveCard: vi.fn(async () => ({
         externalMessageId: 'unused-live-card',
       })),
+      updateAdaptiveCard: vi.fn(async () => ({})),
     };
     const channel = new TeamsChannel(
       {
@@ -2189,7 +2209,7 @@ describe('TeamsChannel adapter scaffold', () => {
         },
         request,
       })),
-      batch: { canonicalId: batch.requestId, phase: 'decision' as const },
+      batch: { canonicalId: batch.requestId },
     };
     interactions.forEach((interaction, index) => {
       interaction.payload.request = requests[index];
@@ -2199,26 +2219,6 @@ describe('TeamsChannel adapter scaffold', () => {
       interaction.payload.externalPromptMessageId = 'teams-recovered-card';
       interaction.payload.externalPromptConversationId = '19:abc@thread.v2';
     });
-    const dispatchRecoveredMember = vi.fn(
-      async (request: PermissionApprovalRequest) => ({
-        delivered: true as const,
-        decision: {
-          approved: false,
-          mode: 'cancel' as const,
-          decidedBy: 'teams-user-1',
-          permissionCallbackClaim: {
-            id: `member-claim-${request.requestId}`,
-            scope: {
-              appId: 'default',
-              sourceAgentFolder: request.sourceAgentFolder,
-              interactionId: request.requestId,
-            },
-          },
-        },
-      }),
-    );
-    configurePermissionReviewEachDispatcher(dispatchRecoveredMember);
-
     await startInput?.onMessage({
       id: 'teams-recovered-card',
       conversationId: '19:abc@thread.v2',
@@ -2238,17 +2238,21 @@ describe('TeamsChannel adapter scaffold', () => {
       },
     });
 
-    expect(sdkClient.sendMessage).toHaveBeenCalledWith({
-      conversationId: '19:abc@thread.v2',
-      text: 'Reviewing each permission request.',
-    });
-    expect(sdkClient.sendMessage).not.toHaveBeenCalledWith(
+    expect(repository.expirePendingPermissionReviewEach).toHaveBeenCalledOnce();
+    expect(repository.settlePendingPermissionCallback).not.toHaveBeenCalled();
+    expect(sdkClient.updateAdaptiveCard).toHaveBeenCalledWith(
       expect.objectContaining({
-        text: expect.stringMatching(/cancel|denied/i),
+        conversationId: '19:abc@thread.v2',
+        messageId: 'teams-recovered-card',
+        card: expect.objectContaining({
+          body: expect.arrayContaining([
+            expect.objectContaining({
+              text: expect.stringMatching(/cancel|denied/i),
+            }),
+          ]),
+        }),
       }),
     );
-    expect(repository.settlePendingPermissionCallback).toHaveBeenCalledOnce();
-    expect(dispatchRecoveredMember).toHaveBeenCalledTimes(2);
   });
 
   it('resolves every Teams permission waiter on disconnect when durable claims are retryable', async () => {
@@ -2706,12 +2710,8 @@ describe('TeamsChannel adapter scaffold', () => {
           targetJid: questionRequest.targetJid,
           threadId: null,
           request: questionRequest,
-          callbacks: {},
           selections: [],
-          answers: {},
           completedQuestionIndexes: [],
-          deliveredQuestionIndexes: [],
-          otherPrompts: {},
         },
       } as Record<string, unknown>,
     };
@@ -2723,9 +2723,9 @@ describe('TeamsChannel adapter scaffold', () => {
           if (!payload) return false;
           pendingQuestion.payload = payload;
           const envelope = payload.questionRecoveryEnvelope as {
-            answers: Record<string, string | string[]>;
+            completedQuestionIndexes: number[];
           };
-          if (envelope.answers['Which environment?'] === 'production') {
+          if (envelope.completedQuestionIndexes.includes(0)) {
             lifecycleEvents.push('persist');
           }
           return true;
@@ -2771,7 +2771,6 @@ describe('TeamsChannel adapter scaffold', () => {
     );
     expect(lifecycleEvents).toEqual(['persist', 'resolve']);
     expect(pendingQuestion.payload.questionRecoveryEnvelope).toMatchObject({
-      answers: { 'Which environment?': 'production' },
       completedQuestionIndexes: [0],
     });
   });
@@ -2817,12 +2816,8 @@ describe('TeamsChannel adapter scaffold', () => {
           targetJid: request.targetJid,
           threadId: null,
           request,
-          callbacks: {},
           selections: [],
-          answers: {},
           completedQuestionIndexes: [],
-          deliveredQuestionIndexes: [],
-          otherPrompts: {},
         },
       } as Record<string, unknown>,
     };
@@ -2866,7 +2861,6 @@ describe('TeamsChannel adapter scaffold', () => {
     });
     expect(lifecycleEvents).toEqual(['persist', 'resolve']);
     expect(pendingQuestion.payload.questionRecoveryEnvelope).toMatchObject({
-      answers: { 'Continue?': '', 'Which checks?': [] },
       completedQuestionIndexes: [0, 1],
     });
     await channel.disconnect();

@@ -328,15 +328,15 @@ export abstract class SlackChannelInteractions extends SlackChannelState {
           callbackProviderAccountId,
         );
         if (!allowed) return;
-        const claimed = durable.claim
-          ? { status: 'claimed' as const, claim: durable.claim }
-          : await claimPermissionInteractionCallback({
-              scope: callback.scope,
-              mode,
-              approverRef: userId,
-              matchKind,
-              providerAlias: callback.providerAlias,
-            });
+        const claimed = await claimPermissionInteractionCallback({
+          scope: callback.scope,
+          mode,
+          approverRef: userId,
+          matchKind,
+          providerAlias: callback.providerAlias,
+          expireReviewEach: true,
+          ...(durable.claim ? { recoveredClaim: durable.claim } : {}),
+        });
         if (claimed.status === 'already_decided') {
           await respond?.({
             replace_original: true,
@@ -347,7 +347,7 @@ export abstract class SlackChannelInteractions extends SlackChannelState {
         if (claimed.status === 'retryable') return;
         const decision = recoveredSlackPermissionDecision(
           durable.request,
-          durable.claim,
+          claimed.persistedClaim ?? durable.claim,
           mode,
           userId,
           claimed.claim,

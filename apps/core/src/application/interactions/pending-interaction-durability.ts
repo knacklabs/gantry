@@ -143,9 +143,6 @@ export async function resolvePendingInteractionRecord(input: {
 
 export {
   bindPendingPermissionInteractionMessage,
-  bindPendingQuestionInteractionCallback,
-  bindPendingQuestionOtherPrompt,
-  createDurableQuestionCallback,
   findDurablePermissionInteractionByPromptMessage,
 } from './pending-interaction-prompt-binding.js';
 export type {
@@ -154,7 +151,6 @@ export type {
 } from './pending-interaction-prompt-binding.js';
 export {
   claimPermissionInteractionCallback,
-  configurePermissionReviewEachDispatcher,
   findDurablePermissionInteractionByRequestId,
   replayPersistedPermissionDecisionForRequest,
   releasePermissionInteractionCallback,
@@ -250,21 +246,9 @@ export async function resolveDurableQuestionInteractionByRequestId(input: {
             selections.get(input.questionIndex) ?? new Set<number>(),
           );
         }
-        const selected =
-          selections.get(input.questionIndex) ?? new Set<number>();
-        const labels = [...selected]
-          .sort((a, b) => a - b)
-          .map((index) => question.options[index]?.label?.trim())
-          .filter((label): label is string => Boolean(label));
         return {
           ...envelope,
           selections: serializeQuestionSelections(selections),
-          answers: {
-            ...envelope.answers,
-            [question.question]: question.multiSelect
-              ? labels
-              : (labels[0] ?? ''),
-          },
           completedQuestionIndexes: [
             ...new Set([
               ...envelope.completedQuestionIndexes,
@@ -319,7 +303,6 @@ function mergeQuestionAnswerProgress(
   );
   return {
     ...envelope,
-    answers: { ...envelope.answers, ...answers },
     completedQuestionIndexes: [
       ...new Set([
         ...envelope.completedQuestionIndexes,
@@ -330,62 +313,6 @@ function mergeQuestionAnswerProgress(
       ]),
     ].sort((a, b) => a - b),
   };
-}
-
-export async function recordDurableQuestionPromptDelivered(input: {
-  requestId: string;
-  sourceAgentFolder: string;
-  questionIndexes: number[];
-  appId?: string | null;
-}): Promise<boolean> {
-  const active = backend;
-  if (!active) {
-    throw new DurableInteractionPersistenceError(
-      'Pending question delivery persistence is unavailable',
-    );
-  }
-  try {
-    const appId = input.appId || DEFAULT_APP_ID;
-    const pending = await findPendingQuestionRecord(active, appId, input);
-    if (!pending) {
-      throw new DurableInteractionPersistenceError(
-        'Pending question delivery record is missing',
-      );
-    }
-    const updated = await active.repository.updatePendingInteractionPayload({
-      idempotencyKey: pending.idempotencyKey,
-      update: (payload) => {
-        const envelope = readQuestionRecoveryEnvelope(
-          payload.questionRecoveryEnvelope,
-        );
-        if (!envelope) return null;
-        return {
-          ...payload,
-          questionRecoveryEnvelope: {
-            ...envelope,
-            deliveredQuestionIndexes: [
-              ...new Set([
-                ...envelope.deliveredQuestionIndexes,
-                ...input.questionIndexes,
-              ]),
-            ].sort((a, b) => a - b),
-          },
-        };
-      },
-    });
-    if (!updated) {
-      throw new DurableInteractionPersistenceError(
-        'Pending question delivery record could not be updated',
-      );
-    }
-    return true;
-  } catch (err) {
-    if (err instanceof DurableInteractionPersistenceError) throw err;
-    throw new DurableInteractionPersistenceError(
-      'Pending question delivery could not be persisted',
-      err,
-    );
-  }
 }
 
 async function persistQuestionProgress(input: {

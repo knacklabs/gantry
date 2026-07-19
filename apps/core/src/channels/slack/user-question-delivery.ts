@@ -9,11 +9,8 @@ import { waitForSlackUserQuestionSelection } from './channel-delivery-helpers.js
 import type { PendingUserQuestionState } from './channel-state.js';
 import { slackThreadTsFromThreadId } from './thread-ts.js';
 import {
-  bindPendingQuestionInteractionCallback,
-  createDurableQuestionCallback,
   DurableInteractionPersistenceError,
   recordDurableQuestionAnswerProgress,
-  recordDurableQuestionPromptDelivered,
   type DurableQuestionCallback,
 } from '../../application/interactions/pending-interaction-durability.js';
 
@@ -40,12 +37,15 @@ export async function requestSlackUserAnswer(input: {
 
   for (let i = 0; i < input.request.questions.length; i += 1) {
     const question = input.request.questions[i];
-    const callback = createDurableQuestionCallback({
-      appId: input.request.appId,
-      sourceAgentFolder: input.request.sourceAgentFolder,
-      requestId: input.request.requestId,
+    const callback: DurableQuestionCallback = {
+      providerAlias: globalThis.crypto.randomUUID(),
+      scope: {
+        appId: input.request.appId || 'default',
+        sourceAgentFolder: input.request.sourceAgentFolder,
+        interactionId: input.request.requestId,
+      },
       questionIndex: i,
-    });
+    };
     const pendingKey = input.pendingUserQuestionKey(callback);
     if (input.pendingUserQuestions.has(pendingKey)) {
       logger.warn(
@@ -79,15 +79,6 @@ export async function requestSlackUserAnswer(input: {
       const questionThreadTs = slackThreadTsFromThreadId(
         input.request.threadId,
       );
-      const bound = await bindPendingQuestionInteractionCallback({
-        sourceAgentFolder: callback.scope.sourceAgentFolder,
-        requestId: callback.scope.interactionId,
-        callbackId: callback.providerAlias,
-        questionIndex: callback.questionIndex,
-        appId: callback.scope.appId,
-      });
-      if (!bound)
-        throw new Error('Slack user question callback binding failed');
       const questionThreadPayload = questionThreadTs
         ? { thread_ts: questionThreadTs }
         : {};
@@ -125,18 +116,6 @@ export async function requestSlackUserAnswer(input: {
           'Slack did not return a message timestamp for user question prompt',
         );
         continue;
-      }
-      if (
-        !(await recordDurableQuestionPromptDelivered({
-          requestId: input.request.requestId,
-          appId: input.request.appId,
-          sourceAgentFolder: input.request.sourceAgentFolder,
-          questionIndexes: [i],
-        }))
-      ) {
-        throw new DurableInteractionPersistenceError(
-          'Slack user question delivery was not persisted',
-        );
       }
       input.onPromptDelivered?.(messageTs, i);
 

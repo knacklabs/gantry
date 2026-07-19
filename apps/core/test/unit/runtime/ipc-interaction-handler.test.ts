@@ -102,9 +102,7 @@ function durableQuestionInteraction(input: {
     idempotencyKey: `${input.request.appId || 'default'}:question:${input.request.sourceAgentFolder}:${input.request.requestId}`,
     approverRef: status === 'resolved' ? 'owner' : null,
     resolution:
-      status === 'resolved'
-        ? { answers: input.resolvedAnswers ?? input.envelope.answers }
-        : null,
+      status === 'resolved' ? { answers: input.resolvedAnswers ?? {} } : null,
     createdAt: '2026-07-17T00:00:00.000Z',
     expiresAt: '2026-07-18T00:00:00.000Z',
     resolvedAt: status === 'resolved' ? '2026-07-17T00:01:00.000Z' : null,
@@ -1489,7 +1487,7 @@ describe('ipc-interaction-handler', () => {
     ).resolves.toMatchObject({ status: 'claimed' });
   });
 
-  it('replays a persisted review-each member claim after restart without opening a fresh prompt', async () => {
+  it('replays a decided Review-each member after restart without opening a fresh prompt', async () => {
     const envelope = createIpcAuthEnvelope('main_agent', null);
     const claimedPath = path.join(tempDir, 'claimed-replayed-decision.json');
     fs.writeFileSync(claimedPath, '{}');
@@ -1590,7 +1588,6 @@ describe('ipc-interaction-handler', () => {
           ],
           batch: {
             canonicalId: 'perm-review-each-batch',
-            phase: 'review_each',
           },
         },
       },
@@ -1987,12 +1984,8 @@ describe('ipc-interaction-handler', () => {
         targetJid: 'slack:persisted',
         threadId: 'persisted-thread',
         request: persistedRequest,
-        callbacks: {},
         selections: [],
-        answers: {},
         completedQuestionIndexes: [],
-        deliveredQuestionIndexes: [0],
-        otherPrompts: {},
       },
     });
     const resolvePendingInteraction = vi.fn(async () => true);
@@ -2079,12 +2072,8 @@ describe('ipc-interaction-handler', () => {
         targetJid: null,
         threadId: 'multi-thread',
         request,
-        callbacks: {},
         selections: [],
-        answers: {},
         completedQuestionIndexes: [],
-        deliveredQuestionIndexes: [],
-        otherPrompts: {},
       },
     });
     const resolvePendingInteraction = vi.fn(async () => true);
@@ -2167,12 +2156,8 @@ describe('ipc-interaction-handler', () => {
         targetJid: 'slack:persisted',
         threadId: 'persisted-thread',
         request: persistedRequest,
-        callbacks: {},
         selections: [],
-        answers: { 'First question?': 'Alpha' },
         completedQuestionIndexes: [0],
-        deliveredQuestionIndexes: [0],
-        otherPrompts: {},
       },
     });
     const persisted = {

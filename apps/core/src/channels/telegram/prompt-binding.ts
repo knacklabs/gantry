@@ -1,6 +1,5 @@
 import {
   bindPendingPermissionInteractionMessage,
-  bindPendingQuestionInteractionCallback,
   DurableInteractionPersistenceError,
 } from '../../application/interactions/pending-interaction-durability.js';
 import type {
@@ -8,7 +7,6 @@ import type {
   PermissionApprovalRequest,
   PermissionCallbackScope,
 } from '../../domain/types.js';
-import type { UserQuestionRequest } from '../../domain/types.js';
 import { logger } from '../../infrastructure/logging/logger.js';
 import { permissionDecisionOptions } from '../permission-interaction.js';
 
@@ -108,19 +106,4 @@ export async function registerAndBindTelegramPermissionPrompt(input: {
   }
   input.onPromptDelivered?.(String(input.messageId));
   return { decision };
-}
-
-export async function bindTelegramQuestionCallback(
-  request: UserQuestionRequest,
-  callbackId: string,
-  questionIndex: number,
-): Promise<void> {
-  const bound = await bindPendingQuestionInteractionCallback({
-    sourceAgentFolder: request.sourceAgentFolder,
-    requestId: request.requestId,
-    callbackId,
-    questionIndex,
-    appId: request.appId,
-  });
-  if (!bound) throw new Error('Telegram user question callback binding failed');
 }

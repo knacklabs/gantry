@@ -194,7 +194,6 @@ export interface PermissionRecoveryEnvelope {
   }>;
   batch: {
     canonicalId: string;
-    phase: 'decision' | 'review_each';
   } | null;
 }
 
@@ -290,24 +289,13 @@ export interface UserQuestionRequest {
   interaction?: InteractionDescriptor;
 }
 
-export interface QuestionRecoveryCallbackIdentity {
-  appId: string;
-  sourceAgentFolder: string;
-  requestId: string;
-  questionIndex: number;
-}
-
 export interface QuestionRecoveryEnvelope {
   version: 1;
   targetJid: string | null;
   threadId: string | null;
   request: UserQuestionRequest;
-  callbacks: Record<string, QuestionRecoveryCallbackIdentity>;
   selections: Array<{ questionIndex: number; optionIndexes: number[] }>;
-  answers: Record<string, string | string[]>;
   completedQuestionIndexes: number[];
-  deliveredQuestionIndexes: number[];
-  otherPrompts: Record<string, QuestionRecoveryCallbackIdentity>;
 }
 
 export interface UserQuestionResponse {
