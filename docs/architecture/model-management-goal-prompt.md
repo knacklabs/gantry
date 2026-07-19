@@ -1,9 +1,21 @@
 # Goal: Model management — unify first, then UX
 
-**Status: PROPOSED (2026-07-19) — queue position awaiting user decision.**
-Written up from the model/provider UX analysis so the scope survives context
-loss. Implementation via gantry-goal-pipeline with a Codex plan-validation pass
-before stage 1.
+**Status: FINALIZED 2026-07-19 (user grilling session — all 8 decisions
+locked below). Queue position: see goals-index.** Implementation via
+gantry-goal-pipeline with a Codex plan-validation pass before stage 1.
+
+## Locked decisions (grilling 2026-07-19)
+
+| #   | Decision         | Choice                                                                                                                                                                                                                      |
+| --- | ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | V1 features      | ALL FOUR: chat switching, session stats, models view, modality+thinking                                                                                                                                                     |
+| 2   | Knob strategy    | Collapse aggressively (no old users)                                                                                                                                                                                        |
+| 3   | Surviving shape  | `models.default` + sparse `models.overrides.{memory_embed, memory_query, consolidation, classifier, jobs}` + per-install override; `autoMode.model` dies into the classifier override; families/provider accounts unchanged |
+| 4   | Switch scope     | Sticky per conversation (canonical install-override revision); "switch back" reverts                                                                                                                                        |
+| 5   | Switch authz     | Existing settings-approval gate (switch = request_settings_update revision; no new authz concept)                                                                                                                           |
+| 6   | Stats units      | Tokens + cache detail per model from OTel spans; dollar cost stays in the OTel backend                                                                                                                                      |
+| 7   | Modality default | Auto-upgrade ON, disclosed in reply; knob to disable; honest refusal when no capable sibling                                                                                                                                |
+| 8   | Upgrade rule     | Cheapest capable sibling on the same provider account                                                                                                                                                                       |
 
 ## Why
 

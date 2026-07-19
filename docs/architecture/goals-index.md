@@ -40,12 +40,7 @@ carrying a validation addendum in its linked doc that MUST land before commit):*
    slice 3 (F9+N2-N4+N8), Phases 4-6; Phases 7-9 (DB baselining + live restamp)
    LAST, only after explicit user cutover go + the live-settings runbook in the
    branch execution ledger. _(worktree `wt-ponytail`, `feature/ponytail-audit`)_
-2. **Conversation quality V3+V4 → #232** — V1 committed, PR open by choice;
-   V3+V4 implemented; fix round in flight for the validation addendum in
-   `conversation-quality-goal-prompt.md` (delete-caution honesty, resume
-   disambiguation, install-path test). Then combined V1+V3+V4 merge decision
-   (user). V2 stays UI-gated. _(worktree `wt-convo`, `feature/conversation-quality`)_
-3. **Outbound attachments fix (all providers)** — items 1-4 implemented; fix
+2. **Outbound attachments fix (all providers)** — items 1-4 implemented; fix
    round in flight for the validation addendum in
    `outbound-attachments-audit-2026-07-19.md` (containment TOCTOU, Slack
    `files:write` scopes, double-failure propagation). Then PR.
@@ -64,9 +59,11 @@ commit. Merge only on explicit user "merge NNN".
    follow-up jsonb-key state (privateCorrelationJson/receiptJson flags from
    #230 — same family-1 disease); the umbrella for goals 6-7 below. Starts with
    a Codex plan-validation pass. `fable-architecture-review-2026-07-16.md` (#1)
-5. **Model management: unify then UX** — PROPOSED, queue position awaiting user
-   decision; folds in `status-cost-cache-visibility-goal-prompt.md`; Stage B
-   rides the V3 phrase seam. `model-management-goal-prompt.md`
+5. **Model management: unify then UX** — FINALIZED 2026-07-19 (8 decisions
+   locked in the doc: aggressive knob collapse, sticky conversation switch via
+   settings-approval gate, tokens+cache stats, disclosed cheapest-sibling
+   auto-upgrade); folds in `status-cost-cache-visibility-goal-prompt.md`;
+   Stage B rides the V3 phrase seam. `model-management-goal-prompt.md`
 
 **Then — medium, scoped:**
 
@@ -106,6 +103,9 @@ commit. Merge only on explicit user "merge NNN".
 
 ## Shipped (reference only — do not re-execute)
 
+- Conversation quality V1+V3+V4 (agent voice, casual-control mappings via
+  reviewed flows, edit-in-place progress cards) — PR #232; V2 stays UI-gated.
+  `conversation-quality-goal-prompt.md`
 - Permission durable-storage simplification (sweep, one recovery orchestrator,
   `permission_prompts` envelope schema, 12 invariants) — PR #233. `permission-durable-storage-goal-prompt.md`
 - Group onboarding (one-tap join registration + CLI/settings fixes) — PR #231.
