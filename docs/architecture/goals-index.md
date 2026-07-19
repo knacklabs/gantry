@@ -52,14 +52,14 @@ commit. Merge only on explicit user "merge NNN".
 
 **Next — high-leverage:**
 
-4. **Durable-work primitive — LOCKED NEXT when a lane frees** (evidence-promoted
+4. **Durable-work primitive — LOCKED: starts when the attachments lane closes; runs IN PARALLEL with goal 5 (user decision 2026-07-19)** (evidence-promoted
    2026-07-19): unifies ~10 bespoke lease/claim/retry copies; absorbs deferred
    retention + IPC-backpressure + fire-and-forget `send_message` + A3
    review-dedup (deferred from the perm-storage cycle) + the NEW callable-agent
    follow-up jsonb-key state (privateCorrelationJson/receiptJson flags from
    #230 — same family-1 disease); the umbrella for goals 6-7 below. Starts with
    a Codex plan-validation pass. `fable-architecture-review-2026-07-16.md` (#1)
-5. **Model management: unify then UX** — FINALIZED 2026-07-19 (8 decisions
+5. **Model management: unify then UX** — FINALIZED 2026-07-19; starts when the ponytail lane closes, parallel with goal 4 (8 decisions
    locked in the doc: aggressive knob collapse, sticky conversation switch via
    settings-approval gate, tokens+cache stats, disclosed cheapest-sibling
    auto-upgrade); folds in `status-cost-cache-visibility-goal-prompt.md`;
