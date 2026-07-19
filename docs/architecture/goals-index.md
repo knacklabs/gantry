@@ -54,15 +54,18 @@ Per-lane loop: codex lands → independent verify (typecheck + FULL unit +
 throwaway-DB integration when schema touched) → local autoreview to clean →
 commit. Merge only on explicit user "merge NNN".
 
-**Next — high-leverage:**
+**Next — PRIORITIZED by user 2026-07-19 ("UX improvements and latency of agent
+messages as next, that's important"):**
 
 4. **Messaging hot-path latency + ambient liveness + dead-plumbing cleanup** —
-   SCOPED 2026-07-19 from two parallel audits (Codex latency/over-engineering +
+   **NOW A RUNNING LANE** (plan-validation in flight on `feature/messaging-hotpath`,
+   wt-convo). SCOPED from two parallel audits (Codex latency/over-engineering +
    Fable UX). Cuts time-to-first-reply (history-hydration watermark, ~20 redundant
    per-message upserts, double message-fetch/context-hydration) and revives dead
    liveness plumbing as AMBIENT-ONLY signals (heartbeat card edit, typing/ack
-   parity, reaction flips) under the no-clutter rule. Net deletion.
-   `messaging-hotpath-and-liveness-goal-prompt.md`
+   parity, reaction flips) under the no-clutter rule. Net deletion. Absorbs the
+   deepagents/Anthropic-SDK model-client latency audit findings (prompt-caching,
+   TTFT, streaming) as they land. `messaging-hotpath-and-liveness-goal-prompt.md`
 5. **Model management: unify then UX** — FINALIZED 2026-07-19; starts when the
    ponytail lane closes (shares the settings parser/renderer surface). 8 decisions
    locked (aggressive knob collapse, sticky conversation switch via
