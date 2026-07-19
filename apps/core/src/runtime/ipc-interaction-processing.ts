@@ -23,7 +23,6 @@ import {
   getIpcResponseSigningPrivateKey,
   sealIpcResponseSigningPrivateKey,
 } from './ipc-auth.js';
-import { durablePermissionCallbackId } from './ipc-durable-permission.js';
 import {
   applyPermissionInteractionDecision,
   DurableInteractionPersistenceError,
@@ -37,7 +36,7 @@ import {
   beginDurableQuestionInteraction,
   durablePermissionRequestSnapshot,
   finishDurableQuestionInteraction,
-  resolveDurablePermissionInteraction,
+  resolveDurablePermissionInteractionOutcome,
 } from '../application/interactions/durable-interaction-handler.js';
 import {
   resolveAgentLockStatus,
@@ -149,9 +148,6 @@ export async function processPermissionInteractionIpc(input: {
       payload: {
         ...requestedContext,
         decisionPolicy: input.request.decisionPolicy ?? null,
-        permissionCallbackId: durablePermissionCallbackId(
-          input.request.requestId,
-        ),
         request: durablePermissionRequestSnapshot(input.request),
       },
       callbackRoute: {
@@ -334,17 +330,35 @@ export async function processPermissionInteractionIpc(input: {
       decision,
       updatedPermissions: responsePermissionUpdates,
     };
-    const resolved =
-      (await resolveDurablePermissionInteraction(resolveInput)) ||
-      (await resolveDurablePermissionInteraction(resolveInput));
-    if (!resolved) {
-      incrementOperationalError('interaction', 'permission_request');
+    let resolutionOutcome =
+      await resolveDurablePermissionInteractionOutcome(resolveInput);
+    if (resolutionOutcome === 'retryable_error') {
       input.logger.warn(
         permissionTelemetryContext(input.request, {
           sourceAgentFolder: input.sourceAgentFolder,
           decision: permissionDecisionName(decision),
         }),
+        'Retrying durable permission resolution after a transient failure',
+      );
+      await assertActiveScheduledPermissionLease(input);
+      resolutionOutcome =
+        await resolveDurablePermissionInteractionOutcome(resolveInput);
+    }
+    if (resolutionOutcome !== 'resolved') {
+      incrementOperationalError('interaction', 'permission_request');
+      input.logger.warn(
+        permissionTelemetryContext(input.request, {
+          sourceAgentFolder: input.sourceAgentFolder,
+          decision: permissionDecisionName(decision),
+          resolutionOutcome,
+        }),
         'Withholding permission IPC response because durable resolution failed',
+      );
+      archiveIpcErrorFile(
+        input.ipcBaseDir,
+        input.sourceAgentFolder,
+        input.file,
+        input.claimedPath,
       );
       return;
     }

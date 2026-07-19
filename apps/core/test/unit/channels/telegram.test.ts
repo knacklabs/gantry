@@ -177,6 +177,11 @@ import type {
   UserQuestionRequest,
 } from '@core/domain/types.js';
 import type {
+  PendingInteraction,
+  PermissionPrompt,
+  PermissionPromptGroup,
+} from '@core/domain/ports/worker-coordination.js';
+import type {
   GroupJoinOnboardingCoordinator,
   GroupJoinOnboardingRecord,
 } from '@core/domain/ports/group-join-onboarding.js';
@@ -598,86 +603,157 @@ const flushPromises = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 function permissionClaimRepository(
   interactions: Array<{
+    [key: string]: any;
     appId: string;
     payload: Record<string, unknown>;
   }>,
 ) {
-  const find = (scope: PermissionCallbackScope) =>
-    interactions.filter((interaction) => {
-      const claim = interaction.payload.permissionCallbackClaim as
-        | PermissionCallbackClaim
-        | undefined;
-      return (
-        interaction.appId === scope.appId &&
-        interaction.payload.sourceAgentFolder === scope.sourceAgentFolder &&
-        (claim?.scope.interactionId === scope.interactionId ||
-          interaction.payload.requestId === scope.interactionId ||
-          interaction.payload.permissionBatchCallbackId === scope.interactionId)
-      );
-    });
+  const prompts: PermissionPrompt[] = [];
+  const normalize = (interaction: (typeof interactions)[number]) => {
+    interaction.sourceAgentFolder ??=
+      (interaction.payload.sourceAgentFolder as string | undefined) ?? null;
+    interaction.requestId ??=
+      (interaction.payload.requestId as string | undefined) ?? null;
+    interaction.runId ??= null;
+    interaction.runLeaseToken ??= null;
+    interaction.runLeaseFencingVersion ??= null;
+    interaction.envelopeId ??= null;
+    interaction.memberIndex ??= null;
+    interaction.callbackRoute ??= null;
+    interaction.approverRef ??= null;
+    interaction.resolution ??= null;
+    interaction.createdAt ??= '2026-07-16T00:00:00.000Z';
+    interaction.expiresAt ??= '2026-07-17T00:00:00.000Z';
+    interaction.resolvedAt ??= null;
+    return interaction as PendingInteraction;
+  };
+  const members = (prompt: PermissionPrompt) =>
+    interactions
+      .map(normalize)
+      .filter((interaction) => interaction.envelopeId === prompt.id)
+      .sort((left, right) => left.memberIndex! - right.memberIndex!);
+  const group = (prompt: PermissionPrompt): PermissionPromptGroup => ({
+    prompt,
+    members: members(prompt),
+  });
+  const findPrompt = (
+    scope: PermissionCallbackScope,
+    includeTerminalSettlement = false,
+  ) =>
+    prompts.findLast(
+      (prompt) =>
+        prompt.appId === scope.appId &&
+        prompt.sourceAgentFolder === scope.sourceAgentFolder &&
+        prompt.interactionId === scope.interactionId &&
+        (includeTerminalSettlement ||
+          prompt.settlementState === 'open' ||
+          prompt.settlementState === 'claimed' ||
+          prompt.settlementState === 'review_each_expired'),
+    );
   return {
-    findPendingPermissionInteractions: vi.fn(
-      async ({ scope }: { scope: PermissionCallbackScope }) => find(scope),
+    bindPendingPermissionPrompt: vi.fn(
+      async (input: {
+        id: string;
+        appId: string;
+        sourceAgentFolder: string;
+        interactionId: string;
+        matchKind: 'individual' | 'batch';
+        members: Array<{
+          idempotencyKey: string;
+          requestId: string;
+          index: number;
+        }>;
+        envelope: PermissionPrompt['envelope'];
+        fullView?: Record<string, unknown> | null;
+        externalPromptProvider?: string | null;
+        externalPromptConversationId?: string | null;
+        externalPromptMessageId?: string | null;
+        externalPromptThreadId?: string | null;
+        providerAliases: string[];
+      }) => {
+        const selected = input.members.map((member) => ({
+          member,
+          interaction: interactions.find(
+            (candidate) =>
+              candidate.idempotencyKey === member.idempotencyKey &&
+              candidate.status === 'pending',
+          ),
+        }));
+        if (selected.some(({ interaction }) => !interaction)) return null;
+        const previous = selected
+          .map(({ interaction }) => interaction?.envelopeId)
+          .filter((id): id is string => Boolean(id))
+          .map((id) => prompts.find((prompt) => prompt.id === id))
+          .find((prompt) => prompt?.settlementState === 'settled');
+        const now = '2026-07-16T00:00:00.000Z';
+        const prompt: PermissionPrompt = {
+          id: input.id,
+          parentEnvelopeId: previous?.id ?? null,
+          appId: input.appId,
+          sourceAgentFolder: input.sourceAgentFolder,
+          interactionId: input.interactionId,
+          matchKind: input.matchKind,
+          memberCount: input.members.length,
+          envelope: input.envelope,
+          fullView: input.fullView ?? null,
+          externalPromptProvider: input.externalPromptProvider ?? null,
+          externalPromptConversationId:
+            input.externalPromptConversationId ?? null,
+          externalPromptMessageId: input.externalPromptMessageId ?? null,
+          externalPromptThreadId: input.externalPromptThreadId ?? null,
+          providerAliases: [...input.providerAliases],
+          claim: null,
+          settlementState: 'open',
+          settledAt: null,
+          createdAt: now,
+          updatedAt: now,
+        };
+        prompts.push(prompt);
+        for (const { member, interaction } of selected) {
+          interaction!.sourceAgentFolder = input.sourceAgentFolder;
+          interaction!.requestId = member.requestId;
+          interaction!.envelopeId = prompt.id;
+          interaction!.memberIndex = member.index;
+        }
+        return group(prompt);
+      },
     ),
     claimPendingPermissionCallback: vi.fn(
       async ({ claim }: { claim: PermissionCallbackClaim }) => {
-        const claimed = find(claim.scope).filter((interaction) => {
-          if (interaction.payload.permissionCallbackClaim) return false;
-          if (
-            claim.match.providerAliases[0] &&
-            interaction.payload.permissionCallbackId !==
-              claim.match.providerAliases[0]
-          ) {
-            return false;
-          }
-          return claim.match.kind === 'batch'
-            ? interaction.payload.permissionBatchCallbackId ===
-                claim.scope.interactionId
-            : interaction.payload.requestId === claim.scope.interactionId &&
-                !interaction.payload.permissionBatchCallbackId;
-        });
-        for (const interaction of claimed) {
-          delete interaction.payload.permissionBatchCallbackId;
-          delete interaction.payload.permissionCallbackId;
-          interaction.payload.permissionCallbackClaim = claim;
+        const prompt = findPrompt(claim.scope);
+        if (
+          !prompt ||
+          prompt.claim ||
+          prompt.settlementState !== 'open' ||
+          prompt.matchKind !== claim.match.kind ||
+          (claim.match.providerAliases[0] &&
+            !prompt.providerAliases.includes(claim.match.providerAliases[0]))
+        ) {
+          return null;
         }
-        return claimed;
+        prompt.claim = claim;
+        prompt.settlementState = 'claimed';
+        prompt.updatedAt = claim.intent.decidedAt;
+        return group(prompt);
       },
     ),
     releasePendingPermissionCallback: vi.fn(
       async ({ claim }: { claim: PermissionCallbackClaimReference }) => {
-        let released = 0;
-        for (const interaction of find(claim.scope)) {
-          const stored = interaction.payload.permissionCallbackClaim as
-            | PermissionCallbackClaim
-            | undefined;
-          if (stored?.id !== claim.id) continue;
-          delete interaction.payload.permissionCallbackClaim;
-          if (stored.match.kind === 'batch') {
-            interaction.payload.permissionBatchCallbackId =
-              stored.match.canonicalId;
-          }
-          if (stored.match.providerAliases[0]) {
-            interaction.payload.permissionCallbackId =
-              stored.match.providerAliases[0];
-          }
-          released += 1;
-        }
-        return released;
+        const prompt = findPrompt(claim.scope, true);
+        if (prompt?.claim?.id !== claim.id) return false;
+        prompt.claim = null;
+        prompt.settlementState = 'open';
+        prompt.settledAt = null;
+        return true;
       },
     ),
     settlePendingPermissionCallback: vi.fn(
       async ({ claim }: { claim: PermissionCallbackClaimReference }) => {
-        let settled = 0;
-        for (const interaction of find(claim.scope)) {
-          const stored = interaction.payload.permissionCallbackClaim as
-            | PermissionCallbackClaim
-            | undefined;
-          if (stored?.id !== claim.id) continue;
-          delete interaction.payload.permissionCallbackClaim;
-          settled += 1;
-        }
-        return settled;
+        const prompt = findPrompt(claim.scope, true);
+        if (prompt?.claim?.id !== claim.id) return false;
+        prompt.settlementState = 'settled';
+        prompt.settledAt = prompt.claim.intent.decidedAt;
+        return true;
       },
     ),
     expirePendingPermissionReviewEach: vi.fn(
@@ -688,29 +764,156 @@ function permissionClaimRepository(
         claim: PermissionCallbackClaimReference;
         now: string;
       }) => {
-        const expired = find(claim.scope).filter((interaction) => {
-          const stored = interaction.payload
-            .permissionCallbackClaim as PermissionCallbackClaim;
-          if (
-            stored?.id !== claim.id ||
-            stored.match.kind !== 'batch' ||
-            stored.intent.mode !== 'allow_persistent_rule'
-          ) {
-            return false;
-          }
-          interaction.payload.permissionCallbackClaim = {
-            ...stored,
-            intent: {
-              ...stored.intent,
-              mode: 'cancel',
-              approverRef: 'system',
-              decidedAt: now,
-            },
-          };
-          return true;
-        });
-        return expired;
+        const prompt = findPrompt(claim.scope, true);
+        if (
+          prompt?.claim?.id !== claim.id ||
+          prompt.claim.match.kind !== 'batch' ||
+          prompt.claim.intent.mode !== 'allow_persistent_rule'
+        ) {
+          return null;
+        }
+        prompt.settlementState = 'review_each_expired';
+        prompt.settledAt = now;
+        prompt.updatedAt = now;
+        return group(prompt);
       },
+    ),
+    findPendingPermissionPrompt: vi.fn(
+      async ({
+        scope,
+        includeTerminalSettlement,
+      }: {
+        scope: PermissionCallbackScope;
+        includeTerminalSettlement?: boolean;
+      }) => {
+        const prompt = findPrompt(scope, includeTerminalSettlement);
+        return prompt ? group(prompt) : null;
+      },
+    ),
+    findPendingPermissionPromptByMember: vi.fn(
+      async ({
+        appId,
+        sourceAgentFolder,
+        requestId,
+      }: {
+        appId: string;
+        sourceAgentFolder: string;
+        requestId: string;
+      }) => {
+        const interaction = interactions
+          .map(normalize)
+          .find(
+            (candidate) =>
+              candidate.appId === appId &&
+              candidate.sourceAgentFolder === sourceAgentFolder &&
+              candidate.requestId === requestId &&
+              candidate.status === 'pending',
+          );
+        const prompt = interaction?.envelopeId
+          ? prompts.find((candidate) => candidate.id === interaction.envelopeId)
+          : null;
+        return prompt ? group(prompt) : null;
+      },
+    ),
+    findPendingPermissionPromptByMessage: vi.fn(
+      async ({
+        appId,
+        provider,
+        conversationId,
+        externalMessageId,
+        threadId,
+      }: {
+        appId: string;
+        provider: string;
+        conversationId: string;
+        externalMessageId: string;
+        threadId?: string | null;
+      }) => {
+        const prompt = prompts.findLast(
+          (candidate) =>
+            candidate.appId === appId &&
+            candidate.externalPromptProvider === provider &&
+            candidate.externalPromptConversationId === conversationId &&
+            candidate.externalPromptMessageId === externalMessageId &&
+            candidate.externalPromptThreadId === (threadId ?? null),
+        );
+        return prompt ? group(prompt) : null;
+      },
+    ),
+    findPendingInteractionByRequest: vi.fn(
+      async ({
+        appId,
+        kind,
+        sourceAgentFolder,
+        requestId,
+      }: {
+        appId: string;
+        kind: string;
+        sourceAgentFolder?: string;
+        requestId: string;
+      }) =>
+        interactions
+          .map(normalize)
+          .find(
+            (candidate) =>
+              candidate.appId === appId &&
+              candidate.kind === kind &&
+              (!sourceAgentFolder ||
+                candidate.sourceAgentFolder === sourceAgentFolder) &&
+              candidate.requestId === requestId &&
+              candidate.status === 'pending',
+          ) ?? null,
+    ),
+    findPendingInteractionByIdempotencyKey: vi.fn(
+      async ({
+        appId,
+        idempotencyKey,
+        runId,
+      }: {
+        appId: string;
+        idempotencyKey: string;
+        runId?: string | null;
+      }) =>
+        interactions
+          .map(normalize)
+          .find(
+            (candidate) =>
+              candidate.appId === appId &&
+              candidate.idempotencyKey === idempotencyKey &&
+              (runId === undefined || candidate.runId === runId) &&
+              candidate.status === 'pending',
+          ) ?? null,
+    ),
+    resolvePendingInteraction: vi.fn(
+      async ({
+        idempotencyKey,
+        status,
+        resolution,
+        approverRef,
+      }: {
+        idempotencyKey: string;
+        status: string;
+        resolution: Record<string, unknown>;
+        approverRef?: string | null;
+      }) => {
+        const interaction = interactions.find(
+          (candidate) => candidate.idempotencyKey === idempotencyKey,
+        );
+        if (!interaction || interaction.status !== 'pending') return false;
+        interaction.status = status;
+        interaction.resolution = resolution;
+        interaction.approverRef = approverRef ?? null;
+        interaction.resolvedAt = '2026-07-16T00:00:00.000Z';
+        return true;
+      },
+    ),
+    listPendingInteractions: vi.fn(async () =>
+      interactions
+        .map(normalize)
+        .filter((interaction) => interaction.status === 'pending'),
+    ),
+    updatePendingInteractionPayload: vi.fn((input) =>
+      updatePendingInteractionPayload(interactions, input),
     ),
   };
 }
@@ -4403,17 +4606,14 @@ describe('TelegramChannel', () => {
         expiresAt: '2026-07-17T00:00:00.000Z',
         resolvedAt: null,
       }));
-      const listPendingInteractions = vi
-        .fn()
-        .mockResolvedValueOnce(requests)
-        .mockResolvedValueOnce([]);
+      const repository = permissionClaimRepository(requests);
+      const bindPendingPermissionPrompt =
+        repository.bindPendingPermissionPrompt.getMockImplementation()!;
+      repository.bindPendingPermissionPrompt
+        .mockImplementationOnce(bindPendingPermissionPrompt)
+        .mockResolvedValueOnce(null);
       configurePendingInteractionDurability({
-        repository: {
-          listPendingInteractions,
-          updatePendingInteractionPayload: vi.fn((input) =>
-            updatePendingInteractionPayload(requests, input),
-          ),
-        } as never,
+        repository: repository as never,
       });
       telegramPromptBindingBehavior.strict = true;
       const channel = new TelegramChannel('test-token', createTestOpts());
@@ -4439,7 +4639,7 @@ describe('TelegramChannel', () => {
       ).resolves.toMatchObject({ approved: false });
 
       expect(currentBot().api.sendMessage).toHaveBeenCalledOnce();
-      expect(listPendingInteractions).toHaveBeenCalledTimes(2);
+      expect(repository.bindPendingPermissionPrompt).toHaveBeenCalledTimes(2);
       expect(onPromptDelivered).not.toHaveBeenCalled();
       expect((channel as any).pendingPermissionPrompts.size).toBe(0);
     });
@@ -4447,17 +4647,14 @@ describe('TelegramChannel', () => {
     it('propagates Telegram post-send permission persistence failure and retains the waiter', async () => {
       telegramPromptBindingBehavior.strict = true;
       const interactions = telegramPromptBindingBehavior.interactions;
-      let updates = 0;
+      const repository = permissionClaimRepository(interactions);
+      const bindPendingPermissionPrompt =
+        repository.bindPendingPermissionPrompt.getMockImplementation()!;
+      repository.bindPendingPermissionPrompt
+        .mockImplementationOnce(bindPendingPermissionPrompt)
+        .mockRejectedValueOnce(new Error('write failed'));
       configurePendingInteractionDurability({
-        repository: {
-          ...permissionClaimRepository(interactions),
-          listPendingInteractions: vi.fn(async () => interactions),
-          updatePendingInteractionPayload: vi.fn(async (input) => {
-            updates += 1;
-            if (updates === 2) throw new Error('write failed');
-            return await updatePendingInteractionPayload(interactions, input);
-          }),
-        } as never,
+        repository: repository as never,
       });
       const channel = new TelegramChannel('test-token', createTestOpts());
       await channel.connect();
@@ -4699,11 +4896,8 @@ describe('TelegramChannel', () => {
         expect.objectContaining({ approved: false, mode: 'cancel' }),
       ]);
       for (const request of requests) {
-        expect(request.payload).not.toHaveProperty('permissionBatchCallbackId');
-        expect(request.payload).not.toHaveProperty('permissionBatchRequestIds');
-        expect(request.payload.permissionRecoveryEnvelope).toMatchObject({
-          batch: null,
-        });
+        expect(request.envelopeId).toEqual(expect.any(String));
+        expect(request.memberIndex).toBe(0);
       }
       expect(currentBot().api.sendMessage).toHaveBeenCalledTimes(3);
     });
@@ -4775,9 +4969,24 @@ describe('TelegramChannel', () => {
         (button: { text: string }) => button.text === 'Review each',
       )?.callback_data;
       const providerCallbackId = String(allowAll).split(':').at(-1);
-      expect(requests[0]?.payload).toMatchObject({
-        permissionCallbackId: providerCallbackId,
-        permissionBatchCallbackId: batch.requestId,
+      expect(claims.bindPendingPermissionPrompt).toHaveBeenCalledWith({
+        id: expect.any(String),
+        appId: 'default',
+        sourceAgentFolder: 'whatsapp_main',
+        interactionId: batch.requestId,
+        matchKind: 'batch',
+        members: requests.map((request, index) => ({
+          idempotencyKey: request.idempotencyKey,
+          requestId: request.payload.requestId,
+          index,
+        })),
+        envelope: expect.any(Object),
+        fullView: null,
+        externalPromptProvider: 'telegram',
+        externalPromptConversationId: '100200300',
+        externalPromptMessageId: '987',
+        externalPromptThreadId: null,
+        providerAliases: [providerCallbackId],
       });
       const allowContext = {
         callbackQuery: { data: allowAll },
@@ -5589,8 +5798,8 @@ describe('TelegramChannel', () => {
       await flushPromises();
       configurePendingInteractionDurability({
         repository: {
-          claimPendingPermissionCallback: vi.fn(async () => []),
-          findPendingPermissionInteractions: vi.fn(async () => []),
+          claimPendingPermissionCallback: vi.fn(async () => null),
+          findPendingPermissionPrompt: vi.fn(async () => null),
         } as never,
       });
 
@@ -5622,29 +5831,27 @@ describe('TelegramChannel', () => {
         sourceAgentFolder: 'whatsapp_main',
         interactionId: 'perm-disconnect-winner',
       };
+      const holder: PermissionCallbackClaim = {
+        id: 'holder',
+        scope,
+        intent: {
+          mode: 'allow_once',
+          approverRef: 'owner',
+          decidedAt: '2026-07-17T00:00:00.000Z',
+        },
+        match: {
+          kind: 'individual',
+          canonicalId: 'perm-disconnect-winner',
+          providerAliases: [],
+        },
+      };
       configurePendingInteractionDurability({
         repository: {
-          claimPendingPermissionCallback: vi.fn(async () => []),
-          findPendingPermissionInteractions: vi.fn(async () => [
-            {
-              payload: {
-                permissionCallbackClaim: {
-                  id: 'holder',
-                  scope,
-                  intent: {
-                    mode: 'allow_once',
-                    approverRef: 'owner',
-                    decidedAt: '2026-07-17T00:00:00.000Z',
-                  },
-                  match: {
-                    kind: 'individual',
-                    canonicalId: 'perm-disconnect-winner',
-                    providerAliases: [],
-                  },
-                },
-              },
-            },
-          ]),
+          claimPendingPermissionCallback: vi.fn(async () => null),
+          findPendingPermissionPrompt: vi.fn(async () => ({
+            prompt: { claim: holder, settlementState: 'claimed' },
+            members: [],
+          })),
         } as never,
       });
       let resolved = false;

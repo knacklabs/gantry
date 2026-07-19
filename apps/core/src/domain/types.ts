@@ -183,18 +183,6 @@ export interface PermissionRecoveryEnvelope {
   threadId: string | null;
   decisionPolicy: PermissionApprovalRequest['decisionPolicy'] | null;
   renderedRequest: PermissionApprovalRequest;
-  members: Array<{
-    callback: {
-      appId: string;
-      sourceAgentFolder: string;
-      requestId: string;
-      index: number;
-    };
-    request: PermissionApprovalRequest;
-  }>;
-  batch: {
-    canonicalId: string;
-  } | null;
 }
 
 export interface PermissionCallbackScope {

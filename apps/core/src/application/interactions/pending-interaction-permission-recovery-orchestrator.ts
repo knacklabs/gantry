@@ -113,13 +113,14 @@ export async function recoverDurablePermissionDecision(
     (hooks.locator.kind === 'scope'
       ? hooks.locator.matchKind
       : prompt!.matchKind);
+  const expiringReviewEach =
+    matchKind === 'batch' && effectiveMode === 'allow_persistent_rule';
   const claimed = await claimPermissionInteractionCallback({
     scope: durable.scope,
     mode: hooks.incomingMode,
     approverRef: hooks.incomingApprover,
     matchKind,
     providerAlias: hooks.locator.providerAlias,
-    expireReviewEach: true,
     ...(recoveredClaim ? { recoveredClaim } : {}),
   });
   if (claimed.status === 'already_decided') {
@@ -131,9 +132,12 @@ export async function recoverDurablePermissionDecision(
     return 'retryable';
   }
   const persistedIntent = claimed.persistedClaim ?? recoveredClaim;
-  const mode = persistedIntent?.intent.mode ?? effectiveMode;
-  const approverRef =
-    persistedIntent?.intent.approverRef ?? hooks.incomingApprover;
+  const mode = expiringReviewEach
+    ? 'cancel'
+    : (persistedIntent?.intent.mode ?? effectiveMode);
+  const approverRef = expiringReviewEach
+    ? 'system'
+    : (persistedIntent?.intent.approverRef ?? hooks.incomingApprover);
   const request = durable.request as PermissionApprovalRequest | null;
   const decision = {
     ...(request
@@ -161,12 +165,16 @@ export async function recoverDurablePermissionDecision(
             }),
       }))
     ) {
-      await releasePermissionInteractionCallback({ claim: claimed.claim });
+      if (!expiringReviewEach) {
+        await releasePermissionInteractionCallback({ claim: claimed.claim });
+      }
       await feedback(hooks, RETRY_FEEDBACK);
       return 'retryable';
     }
   } catch {
-    await releasePermissionInteractionCallback({ claim: claimed.claim });
+    if (!expiringReviewEach) {
+      await releasePermissionInteractionCallback({ claim: claimed.claim });
+    }
     await feedback(hooks, RETRY_FEEDBACK);
     return 'retryable';
   }

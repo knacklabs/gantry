@@ -29,15 +29,12 @@ describe('reviewed-capability permission durability', () => {
     async ({ requestId, toolName }) => {
       const rows: any[] = [];
       const events: string[] = [];
-      const updatePendingInteractionPayload = vi.fn(async (input: any) => {
-        const row = rows.find(
-          (candidate) => candidate.idempotencyKey === input.idempotencyKey,
+      const bindPendingPermissionPrompt = vi.fn(async (input: any) => {
+        const member = rows.find(
+          (candidate) =>
+            candidate.idempotencyKey === input.members[0]?.idempotencyKey,
         );
-        if (!row) return false;
-        const payload = input.update(row.payload);
-        if (!payload) return false;
-        row.payload = payload;
-        return true;
+        return member ? { prompt: { id: input.id }, members: [member] } : null;
       });
       const repository = {
         createPendingInteraction: vi.fn(async (input: any) => {
@@ -53,8 +50,7 @@ describe('reviewed-capability permission durability', () => {
           rows.push(row);
           return row;
         }),
-        listPendingInteractions: vi.fn(async () => rows),
-        updatePendingInteractionPayload,
+        bindPendingPermissionPrompt,
       };
       configurePendingInteractionDurability({
         repository: repository as never,
@@ -96,8 +92,10 @@ describe('reviewed-capability permission durability', () => {
       expect(repository.createPendingInteraction).toHaveBeenCalledWith(
         expect.objectContaining({ idempotencyKey: expectedKey }),
       );
-      expect(updatePendingInteractionPayload).toHaveBeenCalledWith(
-        expect.objectContaining({ idempotencyKey: expectedKey }),
+      expect(bindPendingPermissionPrompt).toHaveBeenCalledWith(
+        expect.objectContaining({
+          members: [expect.objectContaining({ idempotencyKey: expectedKey })],
+        }),
       );
       expect(events).toEqual(['durable-record', 'prompt']);
       expect(bound).toBe(true);

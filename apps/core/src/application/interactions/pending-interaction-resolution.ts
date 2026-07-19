@@ -13,7 +13,7 @@ type InteractionLiveTurnRepository = Pick<
 export interface PendingInteractionResolutionBackend {
   repository: Pick<
     PendingInteractionRepository,
-    'listPendingInteractions' | 'resolvePendingInteraction'
+    'findPendingInteractionByIdempotencyKey' | 'resolvePendingInteraction'
   >;
   liveTurns?: InteractionLiveTurnRepository | null;
   warn?: (context: Record<string, unknown>, message: string) => void;
@@ -32,10 +32,15 @@ export interface PendingInteractionResolutionInput {
   permissionCallbackClaim?: PermissionCallbackClaimReference | null;
 }
 
+export type PendingInteractionResolutionOutcome =
+  | 'resolved'
+  | 'rejected'
+  | 'retryable_error';
+
 export async function persistPendingInteractionResolution(
   active: PendingInteractionResolutionBackend,
   input: PendingInteractionResolutionInput,
-): Promise<boolean> {
+): Promise<PendingInteractionResolutionOutcome> {
   let liveTurnDelivery: {
     turnId: string;
     callbackRoute: Record<string, unknown>;
@@ -43,14 +48,12 @@ export async function persistPendingInteractionResolution(
 
   if (input.runId && active.liveTurns) {
     try {
-      const pending = (
-        await active.repository.listPendingInteractions({
+      const pending =
+        await active.repository.findPendingInteractionByIdempotencyKey({
           appId: input.appId,
           runId: input.runId,
-        })
-      ).find(
-        (interaction) => interaction.idempotencyKey === input.idempotencyKey,
-      );
+          idempotencyKey: input.idempotencyKey,
+        });
       const turn = await active.liveTurns.findActiveLiveTurnByRunId({
         runId: input.runId,
       });
@@ -70,7 +73,7 @@ export async function persistPendingInteractionResolution(
         },
         'Failed to deliver interaction resolution to the owning live turn',
       );
-      return false;
+      return 'retryable_error';
     }
   }
 
@@ -101,13 +104,13 @@ export async function persistPendingInteractionResolution(
           }
         : {}),
     });
-    if (!resolved) return false;
+    if (!resolved) return 'rejected';
   } catch (err) {
     active.warn?.(
       { err, kind: input.kind, requestId: input.requestId },
       'Failed to resolve durable pending interaction',
     );
-    return false;
+    return 'retryable_error';
   }
-  return true;
+  return 'resolved';
 }

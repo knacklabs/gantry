@@ -29,6 +29,7 @@ import { DurableInteractionPersistenceError } from './pending-interaction-persis
 import {
   persistPendingInteractionResolution,
   type PendingInteractionResolutionBackend,
+  type PendingInteractionResolutionOutcome,
 } from './pending-interaction-resolution.js';
 import { pendingInteractionIdempotencyKey } from './pending-interaction-idempotency.js';
 
@@ -54,6 +55,7 @@ export function configurePendingInteractionDurability(
           repository: next.repository,
           applyDecision: applyPermissionInteractionDecision,
           resolve: resolvePendingInteractionRecord,
+          resolveOutcome: resolvePendingInteractionRecordOutcome,
           ...(next.warn ? { warn: next.warn } : {}),
         }
       : null,
@@ -86,16 +88,19 @@ export async function recordPendingInteractionRequested(input: {
       id: input.interactionId ?? globalThis.crypto.randomUUID(),
       appId: input.appId || DEFAULT_APP_ID,
       runId: input.runId ?? null,
+      sourceAgentFolder: input.sourceAgentFolder,
+      requestId: input.requestId,
+      runLeaseToken: input.runLeaseToken ?? null,
+      runLeaseFencingVersion: input.runLeaseFencingVersion ?? null,
       kind: input.kind,
-      payload: {
-        ...input.payload,
-        sourceAgentFolder: input.sourceAgentFolder,
-        requestId: input.requestId,
-        ...(input.runLeaseToken ? { runLeaseToken: input.runLeaseToken } : {}),
-        ...(typeof input.runLeaseFencingVersion === 'number'
-          ? { runLeaseFencingVersion: input.runLeaseFencingVersion }
-          : {}),
-      },
+      payload:
+        input.kind === 'question'
+          ? {
+              ...input.payload,
+              sourceAgentFolder: input.sourceAgentFolder,
+              requestId: input.requestId,
+            }
+          : input.payload,
       callbackRoute: input.callbackRoute ?? null,
       idempotencyKey: pendingInteractionIdempotencyKey(input),
       expiresAt: toIso(nowMs() + (input.ttlMs ?? DEFAULT_INTERACTION_TTL_MS)),
@@ -121,7 +126,7 @@ export async function cancelPendingQuestionInteractionIfRunLeaseInactive(input: 
   );
 }
 
-export async function resolvePendingInteractionRecord(input: {
+export interface ResolvePendingInteractionRecordInput {
   kind: PendingInteractionKind;
   sourceAgentFolder: string;
   requestId: string;
@@ -131,14 +136,24 @@ export async function resolvePendingInteractionRecord(input: {
   resolution: Record<string, unknown>;
   approverRef?: string | null;
   permissionCallbackClaim?: PermissionCallbackClaimReference | null;
-}): Promise<boolean> {
+}
+
+export async function resolvePendingInteractionRecordOutcome(
+  input: ResolvePendingInteractionRecordInput,
+): Promise<PendingInteractionResolutionOutcome> {
   const active = backend;
-  if (!active) return true;
+  if (!active) return 'resolved';
   return persistPendingInteractionResolution(active, {
     ...input,
     appId: input.appId || DEFAULT_APP_ID,
     idempotencyKey: pendingInteractionIdempotencyKey(input),
   });
+}
+
+export async function resolvePendingInteractionRecord(
+  input: ResolvePendingInteractionRecordInput,
+): Promise<boolean> {
+  return (await resolvePendingInteractionRecordOutcome(input)) === 'resolved';
 }
 
 export {
@@ -181,14 +196,12 @@ async function findPendingQuestionRecord(
   appId: string,
   input: { requestId: string; sourceAgentFolder?: string },
 ) {
-  return (await active.repository.listPendingInteractions({ appId })).find(
-    (interaction) =>
-      interaction.kind === 'question' &&
-      interaction.status === 'pending' &&
-      interaction.payload?.requestId === input.requestId &&
-      (!input.sourceAgentFolder ||
-        interaction.payload?.sourceAgentFolder === input.sourceAgentFolder),
-  );
+  return active.repository.findPendingInteractionByRequest({
+    appId,
+    kind: 'question',
+    requestId: input.requestId,
+    sourceAgentFolder: input.sourceAgentFolder,
+  });
 }
 
 export async function resolveDurableQuestionInteractionByRequestId(input: {

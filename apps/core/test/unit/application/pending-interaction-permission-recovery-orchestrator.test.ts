@@ -107,7 +107,7 @@ describe('pending interaction permission recovery orchestrator', () => {
     });
   });
 
-  it('preserves the recovered batch match kind in the constructed decision', async () => {
+  it('terminalizes a recovered Review-each batch as cancelled', async () => {
     mocks.findByRequestId.mockResolvedValue(
       durable({
         requestId: 'member-request-id',
@@ -140,13 +140,16 @@ describe('pending interaction permission recovery orchestrator', () => {
       expect.objectContaining({
         status: 'resolved',
         decision: expect.objectContaining({
-          approved: true,
-          mode: 'allow_persistent_rule',
-          decidedBy: 'user:approver',
-          reason: 'review each',
-          decisionClassification: 'user_temporary',
-          batchDecision: 'review_each',
+          approved: false,
+          mode: 'cancel',
+          decidedBy: 'system',
         }),
+      }),
+    );
+    expect(mocks.claim).toHaveBeenCalledWith(
+      expect.objectContaining({
+        matchKind: 'batch',
+        mode: 'allow_persistent_rule',
       }),
     );
   });
