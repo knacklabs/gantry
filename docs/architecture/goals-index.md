@@ -52,7 +52,7 @@ commit. Merge only on explicit user "merge NNN".
 
 **Next — high-leverage:**
 
-4. **Durable-work primitive — LOCKED: starts when the attachments lane closes; runs IN PARALLEL with goal 5 (user decision 2026-07-19)** (evidence-promoted
+4. **Durable-work primitive — LOCKED: starts when the attachments lane closes (after its S3/MinIO follow-on cycle); runs IN PARALLEL with goal 5 (user decision 2026-07-19)** (evidence-promoted
    2026-07-19): unifies ~10 bespoke lease/claim/retry copies; absorbs deferred
    retention + IPC-backpressure + fire-and-forget `send_message` + A3
    review-dedup (deferred from the perm-storage cycle) + the NEW callable-agent
