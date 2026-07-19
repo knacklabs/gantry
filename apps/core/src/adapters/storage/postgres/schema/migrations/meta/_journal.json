@@ -701,6 +701,13 @@
       "when": 1784393767889,
       "tag": "0102_group_join_onboarding",
       "breakpoints": true
+    },
+    {
+      "idx": 103,
+      "version": "7",
+      "when": 1784430629236,
+      "tag": "0103_permission_durable_storage_cutover",
+      "breakpoints": true
     }
   ]
 }

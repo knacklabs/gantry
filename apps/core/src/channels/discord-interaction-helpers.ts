@@ -67,3 +67,24 @@ export async function ackDiscordInteraction(
     },
   );
 }
+
+export async function updateDiscordInteractionResponse(
+  applicationId: string,
+  interaction: DiscordInteraction,
+  content: string,
+): Promise<void> {
+  await fetch(
+    `${DISCORD_API_ROOT}/webhooks/${encodeURIComponent(applicationId)}/${encodeURIComponent(interaction.token || '')}/messages/@original`,
+    {
+      method: 'PATCH',
+      headers: {
+        accept: 'application/json',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        content,
+        allowed_mentions: { parse: [] },
+      }),
+    },
+  );
+}

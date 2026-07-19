@@ -1,8 +1,5 @@
 import { ASSISTANT_NAME, TRIGGER_PATTERN } from '../../config/index.js';
-import {
-  bindPendingQuestionOtherPrompt,
-  resolveDurableQuestionInteractionByRequestId,
-} from '../../application/interactions/pending-interaction-durability.js';
+import { resolveDurableQuestionInteractionByRequestId } from '../../application/interactions/pending-interaction-durability.js';
 import { logger } from '../../infrastructure/logging/logger.js';
 import {
   normalizePermissionAction,
@@ -174,25 +171,6 @@ export abstract class TelegramChannelConnect extends TelegramChannelPrompts {
           if (promptMessageId === undefined) {
             await ctx.answerCallbackQuery({
               text: 'Could not start a free-text reply.',
-              show_alert: true,
-            });
-            return;
-          }
-          const otherPromptBound = await bindPendingQuestionOtherPrompt({
-            callback: {
-              providerAlias: pending.callbackId,
-              scope: {
-                appId: pending.appId,
-                sourceAgentFolder: pending.sourceAgentFolder,
-                interactionId: requestId,
-              },
-              questionIndex,
-            },
-            promptId: `${pending.chatId}:${promptMessageId}`,
-          });
-          if (!otherPromptBound) {
-            await ctx.answerCallbackQuery({
-              text: 'Could not durably start a free-text reply.',
               show_alert: true,
             });
             return;

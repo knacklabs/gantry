@@ -10,6 +10,18 @@ Every implementation cycle runs through the gantry-goal-pipeline (Codex
 implements, Claude orchestrates) with a mandatory Codex plan-validation pass on
 the goal doc before stage 1, per AGENTS.md.
 
+**Standing habit (user directive 2026-07-19): bug-pattern-driven simplification.**
+At every cycle closeout, classify that cycle's review findings into pattern
+families; recurring families re-rank this queue toward the simplification that
+retires them. Families observed so far (2026-07-19 session, ~35 findings):
+(1) same fact stored twice with different lifecycles — the dominant family;
+(2) mutation-before-authorization / delivery-failure confused with commit
+failure; (3) consolidation fidelity loss when unifying copies; (4) generated
+defaults blind to deployment reality (migrations); (5) type-system lies.
+Family 1 evidence spans permission storage (cured by goal 6), settings export
+(Group C), and async tasks (callable-agent follow-up state added NEW jsonb-key
+state in privateCorrelationJson) — which is why goal 5 now precedes Group C.
+
 ---
 
 ## Execution order (run top-to-bottom)
@@ -21,10 +33,11 @@ the goal doc before stage 1, per AGENTS.md.
 
 **Next — high-leverage, blocked only on the above:**
 4. **July-16 ponytail legacy audit** — ~19,400 lines; DB reset approved. `ponytail-audit-2026-07-16.md`
-5. **Durable-work primitive** — highest-leverage arch cycle; unifies ~10 bespoke lease/claim/retry copies; absorbs deferred retention + IPC-backpressure + fire-and-forget `send_message`; the umbrella for goals 7–8 below. `fable-architecture-review-2026-07-16.md` (#1)
-6. **Permission durable-storage simplification** — retires the C+D churn root cause (jsonb-key claim → columns/`permission_claims`; envelope → single row; 4×-provider recovery → one orchestrator). `coordination-representation-audit-2026-07-18.md` (Group A)
+5. **Durable-work primitive — LOCKED NEXT after the two in-flight cycles** (evidence-promoted 2026-07-19): unifies ~10 bespoke lease/claim/retry copies; absorbs deferred retention + IPC-backpressure + fire-and-forget `send_message` + A3 review-dedup (deferred from goal 6) + the NEW callable-agent follow-up jsonb-key state (privateCorrelationJson/receiptJson flags from #230 — same family-1 disease); the umbrella for goals 7–8 below. `fable-architecture-review-2026-07-16.md` (#1)
+6. **Permission durable-storage simplification** — APPROVED 2026-07-19, IN PROGRESS: sweep → one recovery orchestrator → merged envelope-row schema; 12-invariant test contract. `permission-durable-storage-goal-prompt.md` (validated by `permission-durable-storage-plan-validation.md` + `permission-storage-fable-codex-verification.md`)
 
 **Then — medium, scoped:**
+6b. **Outbound attachments fix (all providers)** — QUEUED for lane 2 after the ponytail audit converges (live incident 2026-07-19): loud reason-bearing failures, workspace-direct file resolution in send_message, Slack upload adapter, Teams line-rewrite fix. `outbound-attachments-audit-2026-07-19.md`
 7. **Jobs recovery-intent → columns + CAS.** `coordination-representation-audit-2026-07-18.md` (B1) — may fold into goal 5.
 8. **Coordination hardening batch** — skill-install advisory lock, session-compaction Set, TOCTOU fallback, canonical-serializer unify, stringify dedup keys. `coordination-representation-audit-2026-07-18.md` (B2 + low) — may fold into goal 5.
 9. **`desired-state-current-export` rewrite** — schema-driven merge, fail-loud on unknown fields. `coordination-representation-audit-2026-07-18.md` (Group C)

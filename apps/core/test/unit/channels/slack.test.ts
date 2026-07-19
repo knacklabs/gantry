@@ -277,6 +277,12 @@ function configureSlackPermissionRequest(request: PermissionApprovalRequest) {
     id: `pending-${request.sourceAgentFolder}-${requestId}`,
     appId,
     runId: 'run-1',
+    sourceAgentFolder: request.sourceAgentFolder,
+    requestId,
+    runLeaseToken: null,
+    runLeaseFencingVersion: null,
+    envelopeId: null as string | null,
+    memberIndex: null as number | null,
     kind: 'permission' as const,
     status: 'pending' as const,
     payload: {
@@ -294,84 +300,259 @@ function configureSlackPermissionRequest(request: PermissionApprovalRequest) {
     expiresAt: '2099-07-17T00:00:00.000Z',
     resolvedAt: null,
   }));
-  const find = (scope: PermissionCallbackScope) =>
-    interactions.filter((interaction) => {
-      const claim = interaction.payload.permissionCallbackClaim as
-        | PermissionCallbackClaim
-        | undefined;
-      return (
-        interaction.appId === scope.appId &&
-        interaction.payload.sourceAgentFolder === scope.sourceAgentFolder &&
-        (claim?.scope.interactionId === scope.interactionId ||
-          interaction.payload.requestId === scope.interactionId ||
-          interaction.payload.permissionBatchCallbackId === scope.interactionId)
-      );
-    });
+  const prompts: Array<{
+    prompt: {
+      id: string;
+      parentEnvelopeId: string | null;
+      appId: string;
+      sourceAgentFolder: string;
+      interactionId: string;
+      matchKind: 'individual' | 'batch';
+      memberCount: number;
+      envelope: any;
+      fullView: Record<string, unknown> | null;
+      externalPromptProvider: string | null;
+      externalPromptConversationId: string | null;
+      externalPromptMessageId: string | null;
+      externalPromptThreadId: string | null;
+      providerAliases: string[];
+      claim: PermissionCallbackClaim | null;
+      settlementState:
+        | 'open'
+        | 'claimed'
+        | 'settled'
+        | 'review_each_expired'
+        | 'superseded';
+      settledAt: string | null;
+      createdAt: string;
+      updatedAt: string;
+    };
+    members: typeof interactions;
+  }> = [];
+  const groupForScope = (
+    scope: PermissionCallbackScope,
+    includeTerminalSettlement = false,
+  ) =>
+    [...prompts]
+      .reverse()
+      .find(
+        ({ prompt }) =>
+          prompt.appId === scope.appId &&
+          prompt.sourceAgentFolder === scope.sourceAgentFolder &&
+          prompt.interactionId === scope.interactionId &&
+          (includeTerminalSettlement ||
+            prompt.settlementState === 'open' ||
+            prompt.settlementState === 'claimed'),
+      ) ?? null;
   const repository = {
-    listPendingInteractions: vi.fn(async () => interactions),
-    findPendingPermissionInteractions: vi.fn(
-      async ({ scope }: { scope: PermissionCallbackScope }) => find(scope),
+    findPendingInteractionByIdempotencyKey: vi.fn(
+      async ({ idempotencyKey }: { idempotencyKey: string }) =>
+        interactions.find(
+          (interaction) => interaction.idempotencyKey === idempotencyKey,
+        ) ?? null,
     ),
-    updatePendingInteractionPayload: vi.fn((input) =>
-      updatePendingInteractionPayload(interactions, input),
+    findPendingInteractionByRequest: vi.fn(
+      async (input: {
+        appId: string;
+        kind: 'permission' | 'question';
+        sourceAgentFolder?: string;
+        requestId: string;
+      }) =>
+        interactions.find(
+          (interaction) =>
+            interaction.appId === input.appId &&
+            interaction.kind === input.kind &&
+            interaction.requestId === input.requestId &&
+            (!input.sourceAgentFolder ||
+              interaction.sourceAgentFolder === input.sourceAgentFolder),
+        ) ?? null,
+    ),
+    bindPendingPermissionPrompt: vi.fn(async (input: any) => {
+      const members = input.members.map(
+        (member: {
+          idempotencyKey: string;
+          requestId: string;
+          index: number;
+        }) =>
+          interactions.find(
+            (interaction) =>
+              interaction.appId === input.appId &&
+              interaction.sourceAgentFolder === input.sourceAgentFolder &&
+              interaction.requestId === member.requestId &&
+              interaction.idempotencyKey === member.idempotencyKey &&
+              interaction.status === 'pending',
+          ),
+      );
+      if (
+        members.some(
+          (member: (typeof interactions)[number] | undefined) => !member,
+        )
+      ) {
+        return null;
+      }
+      for (const existing of prompts) {
+        if (
+          existing.prompt.appId === input.appId &&
+          existing.prompt.sourceAgentFolder === input.sourceAgentFolder &&
+          existing.prompt.interactionId === input.interactionId &&
+          (existing.prompt.settlementState === 'open' ||
+            existing.prompt.settlementState === 'claimed')
+        ) {
+          existing.prompt.settlementState = 'superseded';
+        }
+      }
+      const group = {
+        prompt: {
+          id: input.id,
+          parentEnvelopeId: null,
+          appId: input.appId,
+          sourceAgentFolder: input.sourceAgentFolder,
+          interactionId: input.interactionId,
+          matchKind: input.matchKind,
+          memberCount: members.length,
+          envelope: input.envelope,
+          fullView: input.fullView ?? null,
+          externalPromptProvider: input.externalPromptProvider ?? null,
+          externalPromptConversationId:
+            input.externalPromptConversationId ?? null,
+          externalPromptMessageId: input.externalPromptMessageId ?? null,
+          externalPromptThreadId: input.externalPromptThreadId ?? null,
+          providerAliases: [...input.providerAliases],
+          claim: null,
+          settlementState: 'open' as const,
+          settledAt: null,
+          createdAt: input.now ?? '2026-07-16T00:00:00.000Z',
+          updatedAt: input.now ?? '2026-07-16T00:00:00.000Z',
+        },
+        members: members as typeof interactions,
+      };
+      for (const member of input.members) {
+        const interaction = interactions.find(
+          (candidate) => candidate.idempotencyKey === member.idempotencyKey,
+        )!;
+        interaction.envelopeId = input.id;
+        interaction.memberIndex = member.index;
+      }
+      prompts.push(group);
+      return group;
+    }),
+    findPendingPermissionPrompt: vi.fn(
+      async ({
+        scope,
+        includeTerminalSettlement,
+      }: {
+        scope: PermissionCallbackScope;
+        includeTerminalSettlement?: boolean;
+      }) => groupForScope(scope, includeTerminalSettlement),
+    ),
+    findPendingPermissionPromptByMember: vi.fn(
+      async (input: {
+        appId: string;
+        sourceAgentFolder: string;
+        requestId: string;
+      }) =>
+        [...prompts]
+          .reverse()
+          .find(
+            (group) =>
+              group.prompt.appId === input.appId &&
+              group.prompt.sourceAgentFolder === input.sourceAgentFolder &&
+              group.members.some(
+                (member) => member.requestId === input.requestId,
+              ),
+          ) ?? null,
+    ),
+    findPendingPermissionPromptByMessage: vi.fn(
+      async (input: {
+        appId: string;
+        provider: string;
+        conversationId: string;
+        externalMessageId: string;
+        threadId?: string | null;
+      }) =>
+        prompts.find(
+          ({ prompt }) =>
+            prompt.appId === input.appId &&
+            prompt.externalPromptProvider === input.provider &&
+            prompt.externalPromptConversationId === input.conversationId &&
+            prompt.externalPromptMessageId === input.externalMessageId &&
+            prompt.externalPromptThreadId === (input.threadId ?? null),
+        ) ?? null,
     ),
     claimPendingPermissionCallback: vi.fn(
       async ({ claim }: { claim: PermissionCallbackClaim }) => {
-        const claimed = find(claim.scope).filter((interaction) => {
-          if (interaction.payload.permissionCallbackClaim) return false;
-          if (
-            claim.match.providerAliases[0] &&
-            interaction.payload.permissionCallbackId !==
-              claim.match.providerAliases[0]
-          ) {
-            return false;
-          }
-          return claim.match.kind === 'batch'
-            ? interaction.payload.permissionBatchCallbackId ===
-                claim.scope.interactionId
-            : interaction.payload.requestId === claim.scope.interactionId &&
-                !interaction.payload.permissionBatchCallbackId;
-        });
-        for (const interaction of claimed) {
-          delete interaction.payload.permissionBatchCallbackId;
-          delete interaction.payload.permissionCallbackId;
-          interaction.payload.permissionCallbackClaim = claim;
+        const group = groupForScope(claim.scope);
+        if (
+          !group ||
+          group.prompt.claim ||
+          group.prompt.matchKind !== claim.match.kind ||
+          (claim.match.providerAliases[0] &&
+            !group.prompt.providerAliases.includes(
+              claim.match.providerAliases[0],
+            ))
+        ) {
+          return null;
         }
-        return claimed;
+        group.prompt.claim = claim;
+        group.prompt.settlementState = 'claimed';
+        group.prompt.updatedAt = claim.intent.decidedAt;
+        return group;
       },
     ),
     releasePendingPermissionCallback: vi.fn(
       async ({ claim }: { claim: PermissionCallbackClaimReference }) => {
-        let released = 0;
-        for (const interaction of find(claim.scope)) {
-          const stored = interaction.payload.permissionCallbackClaim as
-            | PermissionCallbackClaim
-            | undefined;
-          if (stored?.id !== claim.id) continue;
-          delete interaction.payload.permissionCallbackClaim;
-          if (stored.match.kind === 'batch') {
-            interaction.payload.permissionBatchCallbackId =
-              stored.match.canonicalId;
-          }
-          if (stored.match.providerAliases[0]) {
-            interaction.payload.permissionCallbackId =
-              stored.match.providerAliases[0];
-          }
-          released += 1;
-        }
-        return released;
+        const group = groupForScope(claim.scope, true);
+        if (group?.prompt.claim?.id !== claim.id) return false;
+        group.prompt.claim = null;
+        group.prompt.settlementState = 'open';
+        return true;
       },
     ),
     settlePendingPermissionCallback: vi.fn(
-      async ({ claim }: { claim: PermissionCallbackClaimReference }) =>
-        find(claim.scope).filter(
-          (interaction) =>
-            (
-              interaction.payload
-                .permissionCallbackClaim as PermissionCallbackClaim
-            )?.id === claim.id,
-        ).length,
+      async ({ claim }: { claim: PermissionCallbackClaimReference }) => {
+        const group = groupForScope(claim.scope, true);
+        if (group?.prompt.claim?.id !== claim.id) return false;
+        group.prompt.settlementState = 'settled';
+        group.prompt.settledAt = new Date().toISOString();
+        return true;
+      },
     ),
+    expirePendingPermissionReviewEach: vi.fn(
+      async ({
+        claim,
+        now,
+      }: {
+        claim: PermissionCallbackClaimReference;
+        now: string;
+      }) => {
+        const group = groupForScope(claim.scope, true);
+        const stored = group?.prompt.claim;
+        if (
+          !group ||
+          stored?.id !== claim.id ||
+          stored.match.kind !== 'batch' ||
+          stored.intent.mode !== 'allow_persistent_rule'
+        ) {
+          return null;
+        }
+        group.prompt.settlementState = 'review_each_expired';
+        group.prompt.settledAt = now;
+        group.prompt.updatedAt = now;
+        return group;
+      },
+    ),
+    resolvePendingInteraction: vi.fn(async (input: any) => {
+      const interaction = interactions.find(
+        (candidate) => candidate.idempotencyKey === input.idempotencyKey,
+      );
+      if (!interaction) return false;
+      if (interaction.status !== 'pending') return true;
+      interaction.status = input.status;
+      interaction.approverRef = input.approverRef ?? null;
+      interaction.resolution = input.resolution;
+      interaction.resolvedAt = input.now ?? new Date().toISOString();
+      return true;
+    }),
   };
   configurePendingInteractionDurability({ repository: repository as never });
   return repository;
@@ -407,18 +588,16 @@ function requestSlackUserAnswer(
         targetJid: request.targetJid || jid,
         threadId: request.threadId ?? null,
         request,
-        callbacks: {},
         selections: [],
-        answers: {},
         completedQuestionIndexes: [],
-        deliveredQuestionIndexes: [],
-        otherPrompts: {},
       },
     } as Record<string, unknown>,
     idempotencyKey: `${appId}:question:${request.sourceAgentFolder}:${request.requestId}`,
   };
   const repository = {
     listPendingInteractions: vi.fn(async () => [interaction]),
+    findPendingInteractionByRequest: vi.fn(async () => interaction),
+    findPendingInteractionByIdempotencyKey: vi.fn(async () => interaction),
     updatePendingInteractionPayload: vi.fn((input) =>
       updatePendingInteractionPayload([interaction], input),
     ),
@@ -3855,66 +4034,24 @@ describe('Slack channel', () => {
   });
 
   it('opens durable Slack permission full-view payloads after channel restart', async () => {
-    const request = {
+    const request: PermissionApprovalRequest = {
       requestId: 'perm-durable-full-view',
       sourceAgentFolder: 'slack_main',
       targetJid: 'sl:C123',
       decisionPolicy: 'same_channel' as const,
       toolName: 'Bash',
     };
-    const interaction = {
-      id: 'pending-slack-full-view',
-      appId: 'default',
-      runId: 'run-1',
-      kind: 'permission' as const,
-      status: 'pending' as const,
-      payload: {
-        requestId: 'perm-durable-full-view',
-        sourceAgentFolder: 'slack_main',
-        targetJid: 'sl:C123',
-        decisionPolicy: 'same_channel',
-        request,
-        permissionRecoveryEnvelope: {
-          version: 1,
-          renderedDecisionOptions: ['allow_once', 'cancel'],
-          targetJid: 'sl:C123',
-          approvalContextJid: 'sl:C123',
-          threadId: null,
-          decisionPolicy: 'same_channel',
-          renderedRequest: request,
-          members: [
-            {
-              callback: {
-                appId: 'default',
-                sourceAgentFolder: 'slack_main',
-                requestId: request.requestId,
-                index: 0,
-              },
-              request,
-            },
-          ],
-          batch: null,
-        },
-        permissionCallbackId: 'slack-full-view-alias',
-        permissionFullView: {
-          label: 'View full command',
-          title: 'Full command',
-          filename: 'permission-command.txt',
-          content: 'git status --short',
-        },
+    configureSlackPermissionRequest(request);
+    await bindPendingPermissionInteractionMessage({
+      request,
+      decisionOptions: ['allow_once', 'cancel'],
+      callbackId: 'slack-full-view-alias',
+      fullView: {
+        label: 'View full command',
+        title: 'Full command',
+        filename: 'permission-command.txt',
+        content: 'git status --short',
       },
-      callbackRoute: null,
-      idempotencyKey: 'default:permission:slack_main:perm-durable-full-view',
-      approverRef: null,
-      resolution: null,
-      createdAt: '2026-06-23T00:00:00.000Z',
-      expiresAt: '2099-06-24T00:00:00.000Z',
-      resolvedAt: null,
-    };
-    configurePendingInteractionDurability({
-      repository: {
-        findPendingPermissionInteractions: vi.fn(async () => [interaction]),
-      } as never,
     });
     const channel = new SlackChannel(
       'xoxb-token',
@@ -4011,7 +4148,7 @@ describe('Slack channel', () => {
     expect(appRef.current.client.chat.postMessage).not.toHaveBeenCalled();
   });
 
-  it('recovers Review each for a Slack batch whose original requests cannot be bulk-approved', async () => {
+  it('routes recovered Slack clicks through application orchestrator transport hooks', async () => {
     const opts = createOptsWithApproverHook(['U_APPROVER']);
     const runtimeSettings = opts.runtimeSettings;
     opts.runtimeSettings = () => {
@@ -4090,15 +4227,78 @@ describe('Slack channel', () => {
       },
     });
 
-    expect(respond).toHaveBeenCalledWith({ delete_original: true });
-    expect(respond).not.toHaveBeenCalledWith(
+    expect(respond).toHaveBeenCalledWith(
       expect.objectContaining({
+        replace_original: true,
         text: expect.stringMatching(/cancel|denied/i),
       }),
     );
     expect(repository.claimPendingPermissionCallback).toHaveBeenCalledOnce();
+    expect(repository.expirePendingPermissionReviewEach).toHaveBeenCalledOnce();
     expect(opts.isControlApproverAllowed).toHaveBeenCalledWith(
       expect.objectContaining({ conversationJid: 'sl:C1234567890' }),
+    );
+  });
+
+  it('terminalizes a recovered Slack batch with the durable callback id', async () => {
+    const opts = createOptsWithApproverHook(['U_APPROVER']);
+    const channel = new SlackChannel('xoxb-token', 'xapp-token', opts as any);
+    await channel.connect();
+    const requests: PermissionApprovalRequest[] = ['one', 'two'].map(
+      (suffix) => ({
+        requestId: `perm-terminalize-${suffix}`,
+        sourceAgentFolder: 'slack_main',
+        targetJid: 'sl:C123',
+        toolName: 'Bash',
+        decisionOptions: ['allow_once', 'cancel'],
+      }),
+    );
+    const batch = createPermissionBatchRequest(requests, [
+      '1. Command',
+      '2. Command',
+    ]);
+    const repository = configureSlackPermissionRequest(batch);
+    const providerAlias = 'slack-terminalize-batch';
+    await bindPendingPermissionInteractionMessage({
+      request: batch,
+      decisionOptions: ['allow_persistent_rule', 'cancel'],
+      callbackId: providerAlias,
+    });
+    const terminalize = vi
+      .spyOn(channel as any, 'terminalizePermissionPrompt')
+      .mockResolvedValue(true);
+
+    await appRef.current.actionHandlers.get(
+      'gantry_perm_decision_allow_persistent_rule',
+    )?.({
+      ack: vi.fn().mockResolvedValue(undefined),
+      respond: vi.fn().mockResolvedValue({}),
+      body: {
+        channel: { id: 'C123' },
+        response_url: 'https://hooks.slack.test/actions/terminalize-batch',
+        user: { id: 'U_APPROVER', name: 'Approver' },
+      },
+      action: {
+        value: JSON.stringify({
+          callback: {
+            providerAlias,
+            scope: {
+              appId: 'default',
+              sourceAgentFolder: 'slack_main',
+              interactionId: batch.requestId,
+            },
+            matchKind: 'batch',
+          },
+          decision: 'allow_persistent_rule',
+        }),
+      },
+    });
+
+    expect(terminalize).toHaveBeenCalledWith(
+      batch.requestId,
+      expect.any(Object),
+      expect.any(String),
+      expect.any(Function),
     );
   });
 
@@ -4182,27 +4382,23 @@ describe('Slack channel', () => {
       sourceAgentFolder: 'slack_main',
       interactionId: request.requestId,
     };
-    repository.claimPendingPermissionCallback.mockResolvedValue([]);
-    repository.findPendingPermissionInteractions.mockResolvedValue([
-      {
-        payload: {
-          permissionCallbackClaim: {
-            id: 'holder',
-            scope,
-            intent: {
-              mode: 'allow_once',
-              approverRef: 'owner',
-              decidedAt: '2026-07-17T00:00:00.000Z',
-            },
-            match: {
-              kind: 'individual',
-              canonicalId: request.requestId,
-              providerAliases: [],
-            },
-          },
-        },
+    const group = await repository.findPendingPermissionPrompt({ scope });
+    group!.prompt.claim = {
+      id: 'holder',
+      scope,
+      intent: {
+        mode: 'allow_once',
+        approverRef: 'owner',
+        decidedAt: '2026-07-17T00:00:00.000Z',
       },
-    ] as never);
+      match: {
+        kind: 'individual',
+        canonicalId: request.requestId,
+        providerAliases: [],
+      },
+    };
+    group!.prompt.settlementState = 'claimed';
+    repository.claimPendingPermissionCallback.mockResolvedValue(null);
     let resolved = false;
     void approval.then(() => {
       resolved = true;
@@ -4244,8 +4440,8 @@ describe('Slack channel', () => {
     await flushSlackPromptRegistration();
     configurePendingInteractionDurability({
       repository: {
-        claimPendingPermissionCallback: vi.fn(async () => []),
-        findPendingPermissionInteractions: vi.fn(async () => []),
+        claimPendingPermissionCallback: vi.fn(async () => null),
+        findPendingPermissionPrompt: vi.fn(async () => null),
       } as never,
     });
 
@@ -4338,7 +4534,9 @@ describe('Slack channel', () => {
     const resolved = vi.fn();
     void approvalPromise.then(resolved);
     await vi.waitFor(() =>
-      expect(raceRepository.updatePendingInteractionPayload).toHaveBeenCalled(),
+      expect(raceRepository.bindPendingPermissionPrompt).toHaveBeenCalledTimes(
+        2,
+      ),
     );
 
     let finishTerminalization!: () => void;
@@ -4418,7 +4616,9 @@ describe('Slack channel', () => {
     const resolved = vi.fn();
     void approvalPromise.then(resolved);
     await vi.waitFor(() =>
-      expect(raceRepository.updatePendingInteractionPayload).toHaveBeenCalled(),
+      expect(raceRepository.bindPendingPermissionPrompt).toHaveBeenCalledTimes(
+        2,
+      ),
     );
 
     let finishTerminalization!: () => void;
@@ -4480,7 +4680,7 @@ describe('Slack channel', () => {
       request,
     );
     await vi.waitFor(() =>
-      expect(repository.updatePendingInteractionPayload).toHaveBeenCalled(),
+      expect(repository.bindPendingPermissionPrompt).toHaveBeenCalledTimes(2),
     );
 
     await appRef.current.actionHandlers.get(
@@ -4607,35 +4807,61 @@ describe('Slack channel', () => {
     );
     configurePendingInteractionDurability({
       repository: {
-        listPendingInteractions: vi.fn(async (input) => [
-          ...(await firstRepository.listPendingInteractions(input)),
-          ...(await secondRepository.listPendingInteractions(input)),
-        ]),
-        updatePendingInteractionPayload: vi.fn(
-          async (input) =>
-            (await firstRepository.updatePendingInteractionPayload(input)) ||
-            (await secondRepository.updatePendingInteractionPayload(input)),
-        ),
-        findPendingPermissionInteractions: vi.fn(async (input) => [
-          ...(await firstRepository.findPendingPermissionInteractions(input)),
-          ...(await secondRepository.findPendingPermissionInteractions(input)),
-        ]),
-        claimPendingPermissionCallback: vi.fn(async (input) => [
-          ...(await firstRepository.claimPendingPermissionCallback(input)),
-          ...(await secondRepository.claimPendingPermissionCallback(input)),
-        ]),
-        releasePendingPermissionCallback: vi.fn(async (input) =>
-          Promise.all([
-            firstRepository.releasePendingPermissionCallback(input),
-            secondRepository.releasePendingPermissionCallback(input),
-          ]).then((counts) => counts.reduce((sum, count) => sum + count, 0)),
-        ),
-        settlePendingPermissionCallback: vi.fn(async (input) =>
-          Promise.all([
-            firstRepository.settlePendingPermissionCallback(input),
-            secondRepository.settlePendingPermissionCallback(input),
-          ]).then((counts) => counts.reduce((sum, count) => sum + count, 0)),
-        ),
+        findPendingPermissionPrompt: vi.fn(async (input) => {
+          const first =
+            await firstRepository.findPendingPermissionPrompt(input);
+          return (
+            first ?? (await secondRepository.findPendingPermissionPrompt(input))
+          );
+        }),
+        findPendingInteractionByIdempotencyKey: vi.fn(async (input) => {
+          const first =
+            await firstRepository.findPendingInteractionByIdempotencyKey(input);
+          return (
+            first ??
+            (await secondRepository.findPendingInteractionByIdempotencyKey(
+              input,
+            ))
+          );
+        }),
+        claimPendingPermissionCallback: vi.fn(async (input) => {
+          const first =
+            await firstRepository.claimPendingPermissionCallback(input);
+          return (
+            first ??
+            (await secondRepository.claimPendingPermissionCallback(input))
+          );
+        }),
+        releasePendingPermissionCallback: vi.fn(async (input) => {
+          const first =
+            await firstRepository.releasePendingPermissionCallback(input);
+          return (
+            first ||
+            (await secondRepository.releasePendingPermissionCallback(input))
+          );
+        }),
+        settlePendingPermissionCallback: vi.fn(async (input) => {
+          const first =
+            await firstRepository.settlePendingPermissionCallback(input);
+          return (
+            first ||
+            (await secondRepository.settlePendingPermissionCallback(input))
+          );
+        }),
+        resolvePendingInteraction: vi.fn(async (input) => {
+          const first = await firstRepository.resolvePendingInteraction(input);
+          return (
+            first || (await secondRepository.resolvePendingInteraction(input))
+          );
+        }),
+        findPendingPermissionPromptByMember: vi.fn(async (input) => {
+          const first =
+            await firstRepository.findPendingPermissionPromptByMember(input);
+          return (
+            first ??
+            (await secondRepository.findPendingPermissionPromptByMember(input))
+          );
+        }),
       } as never,
     });
 
@@ -4718,7 +4944,7 @@ describe('Slack channel', () => {
     vi.useFakeTimers();
     configurePendingInteractionDurability({
       repository: {
-        listPendingInteractions: vi.fn(async () => []),
+        bindPendingPermissionPrompt: vi.fn(async () => null),
       } as never,
     });
     const channel = new SlackChannel(
@@ -4786,16 +5012,13 @@ describe('Slack channel', () => {
       expiresAt: '2099-07-17T00:00:00.000Z',
       resolvedAt: null,
     }));
-    const listPendingInteractions = vi
+    const bindPendingPermissionPrompt = vi
       .fn()
-      .mockResolvedValueOnce(requests)
-      .mockResolvedValueOnce([]);
+      .mockResolvedValueOnce({})
+      .mockResolvedValueOnce(null);
     configurePendingInteractionDurability({
       repository: {
-        listPendingInteractions,
-        updatePendingInteractionPayload: vi.fn((input) =>
-          updatePendingInteractionPayload(requests, input),
-        ),
+        bindPendingPermissionPrompt,
       } as never,
     });
     const channel = new SlackChannel(
@@ -4821,7 +5044,7 @@ describe('Slack channel', () => {
     ).resolves.toMatchObject({ approved: false });
 
     expect(appRef.current.client.chat.postEphemeral).toHaveBeenCalledOnce();
-    expect(listPendingInteractions).toHaveBeenCalledTimes(2);
+    expect(bindPendingPermissionPrompt).toHaveBeenCalledTimes(2);
     expect(onPromptDelivered).not.toHaveBeenCalled();
     expect((channel as any).pendingPermissionPrompts.size).toBe(0);
   });
@@ -5555,42 +5778,6 @@ describe('Slack channel', () => {
     expect(answer.answeredBy).toBe('Alice');
   });
 
-  it('propagates Slack question delivery persistence failure', async () => {
-    const channel = new SlackChannel(
-      'xoxb-token',
-      'xapp-token',
-      createOptsWithApproverHook(['U_APPROVER']) as any,
-    );
-    await channel.connect();
-    const response = requestSlackUserAnswer(channel, 'sl:C1234567890', {
-      requestId: 'userq-persist-failure',
-      sourceAgentFolder: 'slack_main',
-      questions: [
-        {
-          header: 'Persist',
-          question: 'Must persist?',
-          options: [{ label: 'Yes', description: 'Continue' }],
-          multiSelect: false,
-        },
-      ],
-    });
-    const persist = response.repository.updatePendingInteractionPayload;
-    const original = persist.getMockImplementation()!;
-    let calls = 0;
-    persist.mockImplementation(async (input) => {
-      calls += 1;
-      if (calls === 2) throw new Error('write failed');
-      return await original(input);
-    });
-
-    await expect(response).rejects.toMatchObject({
-      name: 'DurableInteractionPersistenceError',
-    });
-    const livePending = [...(channel as any).pendingUserQuestions.values()][0];
-    if (livePending) clearTimeout(livePending.timer);
-    (channel as any).pendingUserQuestions.clear();
-  });
-
   it('propagates Slack post-send permission persistence failure and retains the waiter', async () => {
     defaultSlackPermissionApproverIds.add('U_APPROVER');
     const channel = new SlackChannel(
@@ -5606,7 +5793,7 @@ describe('Slack channel', () => {
       toolName: 'Bash',
     };
     const repository = configureSlackPermissionRequest(request);
-    const persist = repository.updatePendingInteractionPayload;
+    const persist = repository.bindPendingPermissionPrompt;
     const original = persist.getMockImplementation()!;
     let calls = 0;
     persist.mockImplementation(async (input) => {
@@ -5656,7 +5843,6 @@ describe('Slack channel', () => {
     expect(
       answerPromise.interaction.payload.questionRecoveryEnvelope,
     ).toMatchObject({
-      answers: { 'Will timeout': '' },
       completedQuestionIndexes: [0],
     });
     vi.useRealTimers();

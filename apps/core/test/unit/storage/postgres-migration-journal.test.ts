@@ -23,6 +23,52 @@ describe('Postgres migration journal', () => {
     }
   });
 
+  it('registers the permission prompt relational cutover', () => {
+    const migrationsDir = path.resolve(
+      'apps/core/src/adapters/storage/postgres/schema/migrations',
+    );
+    const journal = JSON.parse(
+      fs.readFileSync(path.join(migrationsDir, 'meta/_journal.json'), 'utf8'),
+    ) as { entries: Array<{ idx: number; tag: string }> };
+    expect(
+      journal.entries.find(
+        (entry) => entry.tag === '0103_permission_durable_storage_cutover',
+      ),
+    ).toMatchObject({ idx: 103 });
+
+    const migration = fs.readFileSync(
+      path.join(migrationsDir, '0103_permission_durable_storage_cutover.sql'),
+      'utf8',
+    );
+    expect(migration).toContain('CREATE TABLE "permission_prompts"');
+    expect(migration).toContain(
+      'DELETE FROM "pending_interactions" WHERE "kind" = \'permission\'',
+    );
+    expect(migration).toContain('"run_lease_token" text');
+    expect(migration).toContain('"run_lease_fencing_version" integer');
+    expect(migration).not.toContain('"public".');
+
+    const snapshot = JSON.parse(
+      fs.readFileSync(
+        path.join(migrationsDir, 'meta/0103_snapshot.json'),
+        'utf8',
+      ),
+    ) as {
+      tables: Record<string, { columns: Record<string, unknown> }>;
+    };
+    expect(snapshot.tables['public.permission_prompts']).toBeDefined();
+    expect(
+      snapshot.tables['public.pending_interactions']?.columns,
+    ).toMatchObject({
+      envelope_id: expect.any(Object),
+      member_index: expect.any(Object),
+      source_agent_folder: expect.any(Object),
+      request_id: expect.any(Object),
+      run_lease_token: expect.any(Object),
+      run_lease_fencing_version: expect.any(Object),
+    });
+  });
+
   it('registers the semantic memory vectors migration and schema', () => {
     const journalPath = path.resolve(
       'apps/core/src/adapters/storage/postgres/schema/migrations/meta/_journal.json',

@@ -109,17 +109,18 @@ export async function consume(
         method: 'PATCH',
         headers: discordHeaders(input.botToken),
         body: JSON.stringify({
-          content: approved
-            ? pending.request
-              ? formatPermissionReceiptText(
-                  pending.request.requestId,
-                  pending.request,
-                  decision,
-                )
-              : 'Permission allowed.'
-            : decision.reason === 'timed out'
+          content:
+            decision.reason === 'timed out'
               ? 'Permission request timed out.'
-              : 'Permission request denied.',
+              : pending.request
+                ? formatPermissionReceiptText(
+                    pending.request.requestId,
+                    pending.request,
+                    decision,
+                  )
+                : approved
+                  ? 'Permission allowed.'
+                  : 'Permission request denied.',
           components: [],
         }),
       });

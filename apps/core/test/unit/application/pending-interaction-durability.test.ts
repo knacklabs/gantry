@@ -2,20 +2,18 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   bindPendingPermissionInteractionMessage,
-  bindPendingQuestionInteractionCallback,
-  bindPendingQuestionOtherPrompt,
   claimPermissionInteractionCallback,
   configurePendingInteractionDurability,
   findDurablePermissionInteractionByPromptMessage,
   findDurablePermissionInteractionByRequestId,
-  configurePermissionReviewEachDispatcher,
   recordDurableQuestionAnswerProgress,
-  recordDurableQuestionPromptDelivered,
+  recoverDurablePermissionDecision,
   isActiveRunLeaseForInteraction,
   releasePermissionInteractionCallback,
   resolveDurablePermissionInteractionByRequestId,
   resolveDurableQuestionInteractionByRequestId,
   resolvePendingInteractionRecord,
+  resolvePendingInteractionRecordOutcome,
   recordRunScopedTransientGrant,
   replayPersistedPermissionDecisionForRequest,
 } from '@core/application/interactions/pending-interaction-durability.js';
@@ -38,6 +36,12 @@ function permissionRow(input: {
     id: input.id,
     appId: 'default',
     runId: 'run-1',
+    sourceAgentFolder: input.agent,
+    requestId: input.requestId,
+    runLeaseToken: null,
+    runLeaseFencingVersion: null,
+    envelopeId: null,
+    memberIndex: null,
     kind: 'permission',
     status: 'pending',
     payload: {
@@ -45,8 +49,6 @@ function permissionRow(input: {
       sourceAgentFolder: input.agent,
       targetJid: 'sl:C123',
       toolName: 'Bash',
-      ...(input.alias ? { permissionCallbackId: input.alias } : {}),
-      ...(input.batchId ? { permissionBatchCallbackId: input.batchId } : {}),
       request: {
         requestId: input.requestId,
         sourceAgentFolder: input.agent,
@@ -67,27 +69,23 @@ function permissionRow(input: {
     approverRef: null,
     resolution: null,
     createdAt: '2026-07-16T00:00:00.000Z',
-    expiresAt: '2026-07-17T00:00:00.000Z',
+    expiresAt: '2099-07-17T00:00:00.000Z',
     resolvedAt: null,
+    promptFixture: {
+      interactionId: input.batchId ?? input.requestId,
+      providerAliases: input.alias ? [input.alias] : [],
+    },
   } as any;
 }
 
-function questionRecoveryEnvelope(
-  request: any,
-  targetJid: string | null,
-  callbacks: Record<string, any> = {},
-) {
+function questionRecoveryEnvelope(request: any, targetJid: string | null) {
   return {
     version: 1,
     targetJid,
     threadId: request.threadId ?? null,
     request,
-    callbacks,
     selections: [],
-    answers: {},
     completedQuestionIndexes: [],
-    deliveredQuestionIndexes: [],
-    otherPrompts: {},
   };
 }
 
@@ -96,6 +94,12 @@ function pendingQuestionRow(request: any) {
     id: `pending-${request.requestId}`,
     appId: request.appId || 'default',
     runId: request.runId ?? null,
+    sourceAgentFolder: request.sourceAgentFolder,
+    requestId: request.requestId,
+    runLeaseToken: request.runLeaseToken ?? null,
+    runLeaseFencingVersion: request.runLeaseFencingVersion ?? null,
+    envelopeId: null,
+    memberIndex: null,
     kind: 'question',
     status: 'pending',
     payload: {
@@ -115,6 +119,43 @@ function pendingQuestionRow(request: any) {
     expiresAt: '2026-07-18T00:00:00.000Z',
     resolvedAt: null,
   } as any;
+}
+
+function pendingInteractionLookups(rows: any[]) {
+  return {
+    listPendingInteractions: vi.fn(
+      async ({ appId, runId }: { appId: string; runId?: string | null }) =>
+        rows.filter(
+          (row) =>
+            row.appId === appId &&
+            row.status === 'pending' &&
+            (runId === undefined || row.runId === runId),
+        ),
+    ),
+    findPendingInteractionByRequest: vi.fn(
+      async ({ appId, kind, sourceAgentFolder, requestId }: any) =>
+        rows.find(
+          (row) =>
+            row.appId === appId &&
+            row.kind === kind &&
+            row.status === 'pending' &&
+            (row.requestId ?? row.payload?.requestId) === requestId &&
+            (!sourceAgentFolder ||
+              (row.sourceAgentFolder ?? row.payload?.sourceAgentFolder) ===
+                sourceAgentFolder),
+        ) ?? null,
+    ),
+    findPendingInteractionByIdempotencyKey: vi.fn(
+      async ({ appId, idempotencyKey, runId }: any) =>
+        rows.find(
+          (row) =>
+            row.appId === appId &&
+            row.status === 'pending' &&
+            row.idempotencyKey === idempotencyKey &&
+            (runId === undefined || row.runId === runId),
+        ) ?? null,
+    ),
+  };
 }
 
 function payloadUpdater(rows: any[]) {
@@ -148,6 +189,10 @@ function permissionPromptRow(input: {
   requestId: string;
   messageId: string;
   payload?: Record<string, unknown>;
+  interactionId?: string;
+  providerAliases?: string[];
+  claim?: Record<string, unknown> | null;
+  settlementState?: 'open' | 'claimed' | 'settled';
 }) {
   const payload = {
     requestId: input.requestId,
@@ -159,42 +204,24 @@ function permissionPromptRow(input: {
     externalPromptThreadId: 'thread-1',
     ...input.payload,
   } as Record<string, unknown>;
-  if (!payload.permissionRecoveryEnvelope) {
-    const request = (payload.request as any) ?? {
-      requestId: input.requestId,
-      sourceAgentFolder: input.agent,
-      targetJid: payload.targetJid,
-      threadId: payload.threadId,
-      toolName: 'Bash',
-    };
-    payload.request = request;
-    payload.permissionRecoveryEnvelope = {
-      version: 1,
-      renderedDecisionOptions: ['allow_once', 'cancel'],
-      targetJid: request.targetJid ?? null,
-      approvalContextJid:
-        request.approvalContextJid ?? request.targetJid ?? null,
-      threadId: request.threadId ?? null,
-      decisionPolicy: request.decisionPolicy ?? null,
-      renderedRequest: request,
-      members: [
-        {
-          callback: {
-            appId: 'default',
-            sourceAgentFolder: input.agent,
-            requestId: input.requestId,
-            index: 0,
-          },
-          request,
-        },
-      ],
-      batch: null,
-    };
-  }
+  const request = (payload.request as any) ?? {
+    requestId: input.requestId,
+    sourceAgentFolder: input.agent,
+    targetJid: payload.targetJid,
+    threadId: payload.threadId,
+    toolName: 'Bash',
+  };
+  payload.request = request;
   return {
     id: input.id,
     appId: 'default',
     runId: 'run-1',
+    sourceAgentFolder: input.agent,
+    requestId: input.requestId,
+    runLeaseToken: null,
+    runLeaseFencingVersion: null,
+    envelopeId: null,
+    memberIndex: null,
     kind: 'permission',
     status: 'pending',
     payload,
@@ -205,177 +232,347 @@ function permissionPromptRow(input: {
     createdAt: '2026-07-16T00:00:00.000Z',
     expiresAt: '2026-07-17T00:00:00.000Z',
     resolvedAt: null,
+    promptFixture: {
+      interactionId: input.interactionId ?? input.requestId,
+      providerAliases: input.providerAliases ?? [],
+      externalPromptProvider: payload.externalPromptProvider,
+      externalPromptConversationId: payload.externalPromptConversationId,
+      externalPromptMessageId: payload.externalPromptMessageId,
+      externalPromptThreadId: payload.externalPromptThreadId,
+      claim: input.claim ?? null,
+      settlementState:
+        input.settlementState ?? (input.claim ? 'claimed' : 'open'),
+    },
   };
 }
 
 function permissionClaimRepository(rows: any[]) {
-  const groups = new Map<string, any[]>();
+  const initialGroups = new Map<string, any[]>();
   for (const row of rows) {
-    const groupId =
-      row.payload.permissionBatchCallbackId ?? row.payload.requestId;
-    const group = groups.get(groupId) ?? [];
+    row.sourceAgentFolder ??= row.payload.sourceAgentFolder;
+    row.requestId ??= row.payload.requestId;
+    if (row.runLeaseToken === null && row.payload.runLeaseToken) {
+      row.runLeaseToken = row.payload.runLeaseToken;
+    }
+    if (
+      row.runLeaseFencingVersion === null &&
+      row.payload.runLeaseFencingVersion
+    ) {
+      row.runLeaseFencingVersion = row.payload.runLeaseFencingVersion;
+    }
+    row.envelopeId ??= null;
+    row.memberIndex ??= null;
+    row.promptFixture ??= {
+      interactionId: row.requestId,
+      providerAliases: [],
+    };
+    const groupId = `${row.appId}:${row.sourceAgentFolder}:${row.promptFixture.interactionId}`;
+    const group = initialGroups.get(groupId) ?? [];
     group.push(row);
-    groups.set(groupId, group);
+    initialGroups.set(groupId, group);
   }
-  for (const [groupId, group] of groups) {
-    const members = group.map((row, index) => ({
-      callback: {
-        appId: row.appId,
-        sourceAgentFolder: row.payload.sourceAgentFolder,
-        requestId: row.payload.requestId,
-        index,
-      },
-      request: row.payload.request,
-    }));
+  const prompts: any[] = [];
+  for (const group of initialGroups.values()) {
+    const fixture = group[0]!.promptFixture;
+    const interactionId = fixture.interactionId;
+    const aliases = [
+      ...new Set(
+        group.flatMap((row) => row.promptFixture.providerAliases ?? []),
+      ),
+    ];
     const renderedRequest = {
       ...group[0]!.payload.request,
-      requestId: groupId,
+      requestId: interactionId,
       ...(group.length > 1
         ? {
             permissionBatch: {
-              requestIds: members.map((member) => member.callback.requestId),
+              requestIds: group.map((row) => row.requestId),
               rows: [],
             },
           }
         : {}),
     };
-    const envelope = {
-      version: 1,
-      renderedDecisionOptions: [
-        'allow_once',
-        'allow_persistent_rule',
-        'cancel',
-      ],
-      targetJid: renderedRequest.targetJid ?? null,
-      approvalContextJid:
-        renderedRequest.approvalContextJid ?? renderedRequest.targetJid ?? null,
-      threadId: renderedRequest.threadId ?? null,
-      decisionPolicy: renderedRequest.decisionPolicy ?? null,
-      renderedRequest,
-      members,
-      batch:
-        group.length > 1 ? { canonicalId: groupId, phase: 'decision' } : null,
+    const promptId = `prompt:${prompts.length + 1}`;
+    const initialClaim = group.find((row) => row.promptFixture.claim)
+      ?.promptFixture.claim;
+    const prompt = {
+      id: promptId,
+      parentEnvelopeId: null,
+      appId: group[0]!.appId,
+      sourceAgentFolder: group[0]!.sourceAgentFolder,
+      interactionId,
+      matchKind: group.length > 1 ? 'batch' : 'individual',
+      memberCount: group.length,
+      envelope: {
+        version: 1,
+        renderedDecisionOptions: [
+          'allow_once',
+          'allow_persistent_rule',
+          'cancel',
+        ],
+        targetJid: renderedRequest.targetJid ?? null,
+        approvalContextJid:
+          renderedRequest.approvalContextJid ??
+          renderedRequest.targetJid ??
+          null,
+        threadId: renderedRequest.threadId ?? null,
+        decisionPolicy: renderedRequest.decisionPolicy ?? null,
+        renderedRequest,
+      },
+      fullView: null,
+      externalPromptProvider: fixture.externalPromptProvider ?? null,
+      externalPromptConversationId:
+        fixture.externalPromptConversationId ?? null,
+      externalPromptMessageId: fixture.externalPromptMessageId ?? null,
+      externalPromptThreadId: fixture.externalPromptThreadId ?? null,
+      providerAliases: aliases,
+      claim: initialClaim
+        ? {
+            ...initialClaim,
+            match: { ...initialClaim.match, providerAliases: aliases },
+          }
+        : null,
+      settlementState: fixture.settlementState ?? 'open',
+      settledAt:
+        fixture.settlementState === 'settled'
+          ? '2026-07-16T00:01:00.000Z'
+          : null,
+      createdAt: '2026-07-16T00:00:00.000Z',
+      updatedAt: '2026-07-16T00:00:00.000Z',
     };
-    for (const row of group) row.payload.permissionRecoveryEnvelope = envelope;
+    prompts.push(prompt);
+    group.forEach((row, index) => {
+      row.envelopeId = promptId;
+      row.memberIndex = index;
+    });
   }
-  const matchesScope = (row: any, scope: any) =>
-    row.appId === scope.appId &&
-    row.payload.sourceAgentFolder === scope.sourceAgentFolder;
+  const groupForPrompt = (prompt: any, includeResolved = false) => ({
+    prompt,
+    members: rows
+      .filter(
+        (row) =>
+          row.envelopeId === prompt.id &&
+          (includeResolved || row.status === 'pending'),
+      )
+      .sort((a, b) => a.memberIndex - b.memberIndex),
+  });
+  const findPrompt = (scope: any) =>
+    prompts
+      .filter(
+        (prompt) =>
+          prompt.appId === scope.appId &&
+          prompt.sourceAgentFolder === scope.sourceAgentFolder &&
+          prompt.interactionId === scope.interactionId &&
+          prompt.settlementState !== 'superseded',
+      )
+      .at(-1);
+  const lookups = pendingInteractionLookups(rows);
   return {
     rows,
-    listPendingInteractions: vi.fn(async () => rows),
+    prompts,
+    ...lookups,
     updatePendingInteractionPayload: payloadUpdater(rows),
-    findPendingPermissionInteractions: vi.fn(
-      async ({ scope, includeTerminalSettlement }: any) =>
-        rows.filter((row) => {
-          if (!matchesScope(row, scope)) return false;
-          const settlement = row.payload.permissionCallbackSettlement;
-          if (
-            includeTerminalSettlement &&
-            settlement?.scope.interactionId === scope.interactionId
-          ) {
-            return true;
-          }
-          if (row.status !== 'pending') return false;
-          const claim = row.payload.permissionCallbackClaim;
-          return claim
-            ? claim.scope.interactionId === scope.interactionId
-            : row.payload.requestId === scope.interactionId ||
-                row.payload.permissionBatchCallbackId === scope.interactionId;
-        }),
-    ),
-    claimPendingPermissionCallback: vi.fn(async ({ claim }: any) => {
-      const claimed = rows.filter((row) => {
-        if (row.status !== 'pending' || !matchesScope(row, claim.scope)) {
-          return false;
-        }
-        if (row.payload.permissionCallbackClaim) return false;
-        return claim.match.kind === 'batch'
-          ? row.payload.permissionBatchCallbackId === claim.scope.interactionId
-          : row.payload.requestId === claim.scope.interactionId &&
-              !row.payload.permissionBatchCallbackId;
-      });
-      for (const row of claimed) {
-        const alias = row.payload.permissionCallbackId;
-        delete row.payload.permissionCallbackId;
-        delete row.payload.permissionBatchCallbackId;
-        row.payload.permissionCallbackClaim = {
-          ...claim,
-          match: {
-            ...claim.match,
-            providerAliases: typeof alias === 'string' ? [alias] : [],
-          },
-        };
-        if (
-          claim.match.kind === 'batch' &&
-          claim.intent.mode === 'allow_persistent_rule'
-        ) {
-          row.payload.permissionRecoveryEnvelope = {
-            ...row.payload.permissionRecoveryEnvelope,
-            batch: {
-              ...row.payload.permissionRecoveryEnvelope.batch,
-              phase: 'review_each',
-            },
-          };
+    bindPendingPermissionPrompt: vi.fn(async (input: any) => {
+      const members = input.members.map((member: any) =>
+        rows.find(
+          (row) =>
+            row.idempotencyKey === member.idempotencyKey &&
+            row.requestId === member.requestId &&
+            row.sourceAgentFolder === input.sourceAgentFolder &&
+            row.status === 'pending',
+        ),
+      );
+      if (
+        members.some((member: any) => !member) ||
+        new Set(members).size !== input.members.length ||
+        input.members.some(
+          (member: any, index: number) => member.index !== index,
+        )
+      ) {
+        return null;
+      }
+      const oldPrompts = [
+        ...new Set(
+          members.flatMap((member: any) =>
+            member.envelopeId
+              ? prompts.filter((prompt) => prompt.id === member.envelopeId)
+              : [],
+          ),
+        ),
+      ];
+      if (
+        oldPrompts.some((prompt: any) =>
+          ['claimed', 'review_each_expired'].includes(prompt.settlementState),
+        )
+      ) {
+        return null;
+      }
+      const parentIds = [
+        ...new Set(
+          oldPrompts.flatMap((prompt: any) =>
+            input.matchKind === 'individual' &&
+            prompt.matchKind === 'batch' &&
+            prompt.settlementState === 'settled' &&
+            prompt.claim?.intent.mode === 'allow_persistent_rule'
+              ? [prompt.id]
+              : prompt.parentEnvelopeId
+                ? [prompt.parentEnvelopeId]
+                : [],
+          ),
+        ),
+      ];
+      if (parentIds.length > 1) return null;
+      for (const oldPrompt of oldPrompts) {
+        if (oldPrompt.settlementState === 'open') {
+          oldPrompt.settlementState = 'superseded';
         }
       }
-      return claimed;
+      const now = input.now ?? '2026-07-16T00:00:00.000Z';
+      const prompt = {
+        id: input.id,
+        parentEnvelopeId: parentIds[0] ?? null,
+        appId: input.appId,
+        sourceAgentFolder: input.sourceAgentFolder,
+        interactionId: input.interactionId,
+        matchKind: input.matchKind,
+        memberCount: input.members.length,
+        envelope: input.envelope,
+        fullView: input.fullView ?? null,
+        externalPromptProvider: input.externalPromptProvider ?? null,
+        externalPromptConversationId:
+          input.externalPromptConversationId ?? null,
+        externalPromptMessageId: input.externalPromptMessageId ?? null,
+        externalPromptThreadId: input.externalPromptThreadId ?? null,
+        providerAliases: [...new Set(input.providerAliases)],
+        claim: null,
+        settlementState: 'open',
+        settledAt: null,
+        createdAt: now,
+        updatedAt: now,
+      };
+      prompts.push(prompt);
+      members.forEach((member: any, index: number) => {
+        member.envelopeId = prompt.id;
+        member.memberIndex = index;
+      });
+      return groupForPrompt(prompt);
+    }),
+    findPendingPermissionPrompt: vi.fn(async ({ scope }: any) => {
+      const prompt = findPrompt(scope);
+      return prompt ? groupForPrompt(prompt) : null;
+    }),
+    findPendingPermissionPromptByMember: vi.fn(async (input: any) => {
+      const member = rows.find(
+        (row) =>
+          row.appId === input.appId &&
+          row.sourceAgentFolder === input.sourceAgentFolder &&
+          row.requestId === input.requestId &&
+          row.status === 'pending' &&
+          row.envelopeId,
+      );
+      const prompt = member
+        ? prompts.find((candidate) => candidate.id === member.envelopeId)
+        : null;
+      return prompt ? groupForPrompt(prompt) : null;
+    }),
+    findPendingPermissionPromptByMessage: vi.fn(async (input: any) => {
+      const matching = prompts.filter(
+        (prompt) =>
+          prompt.appId === input.appId &&
+          prompt.externalPromptProvider === input.provider &&
+          prompt.externalPromptConversationId === input.conversationId &&
+          prompt.externalPromptMessageId === input.externalMessageId &&
+          prompt.externalPromptThreadId === (input.threadId ?? null) &&
+          prompt.settlementState !== 'superseded',
+      );
+      return matching.length === 1 ? groupForPrompt(matching[0]) : null;
+    }),
+    claimPendingPermissionCallback: vi.fn(async ({ claim }: any) => {
+      const prompt = findPrompt(claim.scope);
+      if (
+        !prompt ||
+        prompt.settlementState !== 'open' ||
+        prompt.claim ||
+        prompt.matchKind !== claim.match.kind ||
+        prompt.memberCount !== groupForPrompt(prompt).members.length ||
+        (claim.match.providerAliases[0] &&
+          !prompt.providerAliases.includes(claim.match.providerAliases[0]))
+      ) {
+        return null;
+      }
+      prompt.claim = {
+        ...claim,
+        match: { ...claim.match, providerAliases: prompt.providerAliases },
+      };
+      prompt.settlementState = 'claimed';
+      return groupForPrompt(prompt);
     }),
     releasePendingPermissionCallback: vi.fn(async ({ claim }: any) => {
-      let released = 0;
-      for (const row of rows) {
-        const stored = row.payload.permissionCallbackClaim;
-        if (
-          row.status !== 'pending' ||
-          !matchesScope(row, claim.scope) ||
-          stored?.id !== claim.id ||
-          stored.scope.interactionId !== claim.scope.interactionId
-        ) {
-          continue;
-        }
-        delete row.payload.permissionCallbackClaim;
-        if (stored.match.kind === 'batch') {
-          row.payload.permissionBatchCallbackId = stored.match.canonicalId;
-        }
-        const [alias] = stored.match.providerAliases;
-        if (alias) row.payload.permissionCallbackId = alias;
-        released += 1;
-      }
-      return released;
-    }),
-    settlePendingPermissionCallback: vi.fn(async ({ claim }: any) => {
-      let settled = 0;
-      for (const row of rows) {
-        const stored = row.payload.permissionCallbackClaim;
-        if (stored?.id !== claim.id || !matchesScope(row, claim.scope))
-          continue;
-        delete row.payload.permissionCallbackClaim;
-        row.payload.permissionCallbackSettlement = stored;
-        settled += 1;
-      }
-      return settled;
-    }),
-    resolvePendingInteraction: vi.fn(async (input: any) => {
-      const row = rows.find(
-        (candidate) =>
-          candidate.idempotencyKey === input.idempotencyKey &&
-          candidate.status === 'pending',
-      );
-      if (!row) return false;
-      const stored = row.payload.permissionCallbackClaim;
+      const prompt = findPrompt(claim.scope);
       if (
-        input.permissionCallbackClaim
-          ? !stored ||
-            stored.id !== input.permissionCallbackClaim.id ||
-            stored.scope.interactionId !==
-              input.permissionCallbackClaim.scope.interactionId
-          : Boolean(stored)
+        !prompt ||
+        prompt.settlementState !== 'claimed' ||
+        prompt.claim?.id !== claim.id
       ) {
         return false;
       }
-      if (stored) {
-        delete row.payload.permissionCallbackClaim;
-        row.payload.permissionCallbackSettlement = stored;
+      prompt.claim = null;
+      prompt.settlementState = 'open';
+      prompt.settledAt = null;
+      return true;
+    }),
+    settlePendingPermissionCallback: vi.fn(async ({ claim }: any) => {
+      const prompt = findPrompt(claim.scope);
+      if (!prompt || prompt.claim?.id !== claim.id) return false;
+      if (prompt.settlementState === 'settled') return true;
+      if (prompt.settlementState !== 'claimed') return false;
+      prompt.settlementState = 'settled';
+      prompt.settledAt = '2026-07-16T00:01:00.000Z';
+      return true;
+    }),
+    expirePendingPermissionReviewEach: vi.fn(async ({ claim, now }: any) => {
+      const prompt = findPrompt(claim.scope);
+      if (
+        !prompt ||
+        !['claimed', 'settled'].includes(prompt.settlementState) ||
+        prompt.claim?.id !== claim.id ||
+        prompt.matchKind !== 'batch' ||
+        prompt.claim.intent.mode !== 'allow_persistent_rule'
+      ) {
+        return null;
+      }
+      prompt.settlementState = 'review_each_expired';
+      prompt.settledAt = now;
+      prompt.updatedAt = now;
+      return groupForPrompt(prompt);
+    }),
+    resolvePendingInteraction: vi.fn(async (input: any) => {
+      const row = rows.find(
+        (candidate) => candidate.idempotencyKey === input.idempotencyKey,
+      );
+      if (!row) return false;
+      const prompt = prompts.find(
+        (candidate) => candidate.id === row.envelopeId,
+      );
+      const claimMatches = input.permissionCallbackClaim
+        ? prompt?.settlementState === 'review_each_expired'
+          ? input.permissionCallbackClaim.id ===
+              `${prompt.claim?.id}:expired:${row.requestId}` &&
+            input.permissionCallbackClaim.scope.interactionId === row.requestId
+          : ['claimed', 'settled'].includes(prompt?.settlementState) &&
+            prompt?.claim?.id === input.permissionCallbackClaim.id &&
+            prompt.interactionId ===
+              input.permissionCallbackClaim.scope.interactionId
+        : !prompt?.claim;
+      if (!claimMatches) {
+        return false;
+      }
+      if (row.status !== 'pending') {
+        return row.status === input.status;
+      }
+      if (prompt?.settlementState === 'claimed') {
+        prompt.settlementState = 'settled';
+        prompt.settledAt = input.now ?? '2026-07-16T00:01:00.000Z';
       }
       row.status = input.status;
       row.resolution = input.resolution;
@@ -387,7 +584,6 @@ function permissionClaimRepository(rows: any[]) {
 describe('pending interaction durability', () => {
   afterEach(() => {
     configurePendingInteractionDurability(null);
-    configurePermissionReviewEachDispatcher(null);
   });
 
   it.each(['', '   '])(
@@ -413,6 +609,32 @@ describe('pending interaction durability', () => {
         }),
       ).resolves.toEqual({ status: 'retryable' });
 
+      expect(repository.claimPendingPermissionCallback).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(['runtime', 'system', 'auto_classifier'])(
+    'rejects reserved decider %s for non-cancel permission claims',
+    async (approverRef) => {
+      const repository = {
+        claimPendingPermissionCallback: vi.fn(async () => []),
+      };
+      configurePendingInteractionDurability({
+        repository: repository as never,
+      });
+
+      await expect(
+        claimPermissionInteractionCallback({
+          scope: {
+            appId: 'default',
+            sourceAgentFolder: 'agent-folder',
+            interactionId: 'permission-reserved-decider',
+          },
+          mode: 'allow_once',
+          approverRef,
+          matchKind: 'individual',
+        }),
+      ).resolves.toEqual({ status: 'retryable' });
       expect(repository.claimPendingPermissionCallback).not.toHaveBeenCalled();
     },
   );
@@ -446,7 +668,7 @@ describe('pending interaction durability', () => {
     ).resolves.toEqual({ status: 'retryable' });
 
     expect(row.status).toBe('pending');
-    expect(row.payload.permissionCallbackId).toBe('opaque-retryable');
+    expect(row.promptFixture.providerAliases).toEqual(['opaque-retryable']);
   });
 
   it.each([
@@ -465,8 +687,10 @@ describe('pending interaction durability', () => {
         agent: scope.sourceAgentFolder,
         requestId: scope.interactionId,
       });
+      const repository = permissionClaimRepository([row]);
+      repository.claimPendingPermissionCallback.mockResolvedValue(null);
       if (hasHolder) {
-        row.payload.permissionCallbackClaim = {
+        repository.prompts[0].claim = {
           id: 'existing-claim',
           scope,
           intent: {
@@ -480,12 +704,10 @@ describe('pending interaction durability', () => {
             providerAliases: [],
           },
         };
+        repository.prompts[0].settlementState = 'claimed';
       }
       configurePendingInteractionDurability({
-        repository: {
-          claimPendingPermissionCallback: vi.fn(async () => []),
-          findPendingPermissionInteractions: vi.fn(async () => [row]),
-        } as never,
+        repository: repository as never,
       });
 
       await expect(
@@ -502,8 +724,8 @@ describe('pending interaction durability', () => {
   it('marks an already-decided permission claim as ownerless when the row is gone', async () => {
     configurePendingInteractionDurability({
       repository: {
-        claimPendingPermissionCallback: vi.fn(async () => []),
-        findPendingPermissionInteractions: vi.fn(async () => []),
+        claimPendingPermissionCallback: vi.fn(async () => null),
+        findPendingPermissionPrompt: vi.fn(async () => null),
       } as never,
     });
 
@@ -519,6 +741,51 @@ describe('pending interaction durability', () => {
         matchKind: 'individual',
       }),
     ).resolves.toEqual({ status: 'already_decided', ownerless: true });
+  });
+
+  it('distinguishes a terminal settlement from a retryable unclaimed row', async () => {
+    const scope = {
+      appId: 'default',
+      sourceAgentFolder: 'agent-folder',
+      interactionId: 'permission-settled',
+    };
+    const row = permissionRow({
+      id: 'permission-settled',
+      agent: scope.sourceAgentFolder,
+      requestId: scope.interactionId,
+    });
+    const settlement = {
+      id: 'settled-claim',
+      scope,
+      intent: {
+        mode: 'allow_once',
+        approverRef: 'user:approver',
+        decidedAt: '2026-07-16T00:00:00.000Z',
+      },
+      match: {
+        kind: 'individual',
+        canonicalId: scope.interactionId,
+        providerAliases: [],
+      },
+      settledAt: '2026-07-16T00:01:00.000Z',
+    };
+    const repository = permissionClaimRepository([row]);
+    repository.prompts[0].claim = settlement;
+    repository.prompts[0].settlementState = 'settled';
+    repository.prompts[0].settledAt = settlement.settledAt;
+    repository.claimPendingPermissionCallback.mockResolvedValue(null);
+    configurePendingInteractionDurability({
+      repository: repository as never,
+    });
+
+    await expect(
+      claimPermissionInteractionCallback({
+        scope,
+        mode: 'cancel',
+        approverRef: 'system',
+        matchKind: 'individual',
+      }),
+    ).resolves.toEqual({ status: 'already_decided' });
   });
 
   it('does not rebind a transient grant to a recovered lease', async () => {
@@ -605,10 +872,7 @@ describe('pending interaction durability', () => {
       expiresAt: '2026-06-24T00:00:00.000Z',
       resolvedAt: null,
     };
-    const repository = {
-      listPendingInteractions: vi.fn(async () => [pending]),
-      updatePendingInteractionPayload: payloadUpdater([pending]),
-    };
+    const repository = permissionClaimRepository([pending]);
     configurePendingInteractionDurability({
       repository: repository as never,
     });
@@ -623,12 +887,12 @@ describe('pending interaction durability', () => {
       }),
     ).resolves.toBe(true);
 
-    expect(pending.payload).toMatchObject({
+    expect(repository.prompts.at(-1)).toMatchObject({
       externalPromptMessageId: '1710000000.400500',
       externalPromptProvider: 'slack',
       externalPromptConversationId: 'C123',
       externalPromptThreadId: '1710000000.111111',
-      permissionRecoveryEnvelope: expect.objectContaining({
+      envelope: expect.objectContaining({
         renderedDecisionOptions: ['allow_once', 'cancel'],
       }),
     });
@@ -659,10 +923,7 @@ describe('pending interaction durability', () => {
       expiresAt: '2026-06-24T00:00:00.000Z',
       resolvedAt: null,
     };
-    const repository = {
-      listPendingInteractions: vi.fn(async () => [pending]),
-      updatePendingInteractionPayload: payloadUpdater([pending]),
-    };
+    const repository = permissionClaimRepository([pending]);
     configurePendingInteractionDurability({ repository: repository as never });
 
     await expect(
@@ -673,23 +934,18 @@ describe('pending interaction durability', () => {
       }),
     ).resolves.toBe(true);
 
-    expect(repository.listPendingInteractions).toHaveBeenCalledWith({
-      appId: 'app:two',
-    });
+    expect(repository.bindPendingPermissionPrompt).toHaveBeenCalledWith(
+      expect.objectContaining({ appId: 'app:two' }),
+    );
   });
 
-  it('clears stale batch markers before an individual callback claim', async () => {
+  it('supersedes an open prompt when its provider callback alias changes', async () => {
     const row = permissionRow({
       id: 'individual-after-batch',
       agent: 'agent-a',
       requestId: 'req-individual-after-batch',
       alias: 'old-batch-alias',
-      batchId: 'batch:old:2',
     });
-    row.payload.permissionBatchRequestIds = [
-      'req-individual-after-batch',
-      'req-old-sibling',
-    ];
     const repository = permissionClaimRepository([row]);
     configurePendingInteractionDurability({ repository: repository as never });
 
@@ -700,9 +956,14 @@ describe('pending interaction durability', () => {
         callbackId: 'new-individual-alias',
       }),
     ).resolves.toBe(true);
-    expect(row.payload.permissionCallbackId).toBe('new-individual-alias');
-    expect(row.payload).not.toHaveProperty('permissionBatchCallbackId');
-    expect(row.payload).not.toHaveProperty('permissionBatchRequestIds');
+    expect(repository.prompts.at(-1)).toMatchObject({
+      interactionId: 'req-individual-after-batch',
+      matchKind: 'individual',
+      providerAliases: ['new-individual-alias'],
+    });
+    expect(repository.prompts.at(-2)).toMatchObject({
+      settlementState: 'superseded',
+    });
 
     await expect(
       claimPermissionInteractionCallback({
@@ -760,11 +1021,7 @@ describe('pending interaction durability', () => {
       expiresAt: '2026-06-24T00:00:00.000Z',
       resolvedAt: null,
     };
-    const repository = {
-      listPendingInteractions: vi.fn(async () => [pending]),
-      findPendingPermissionInteractions: vi.fn(async () => [pending]),
-      updatePendingInteractionPayload: payloadUpdater([pending]),
-    };
+    const repository = permissionClaimRepository([pending]);
     configurePendingInteractionDurability({ repository: repository as never });
 
     await expect(
@@ -802,7 +1059,7 @@ describe('pending interaction durability', () => {
         content: 'git status --short',
       },
     });
-    const envelope = pending.payload.permissionRecoveryEnvelope as any;
+    const envelope = repository.prompts.at(-1).envelope as any;
     expect(envelope.renderedRequest).toMatchObject({
       toolInputSanitized: true,
       toolInputSanitizedPaths: ['command', 'file_path', 'credential'],
@@ -810,7 +1067,6 @@ describe('pending interaction durability', () => {
     expect(envelope.renderedRequest).not.toHaveProperty('toolInput');
     expect(envelope.renderedRequest).not.toHaveProperty('description');
     expect(envelope.renderedRequest).not.toHaveProperty('interaction');
-    expect(envelope.members[0].request).not.toHaveProperty('toolInput');
     expect(JSON.stringify(envelope)).not.toContain('raw-command-secret');
     expect(JSON.stringify(envelope)).not.toContain('/raw/private/file');
     expect(JSON.stringify(envelope)).not.toContain('raw-credential-secret');
@@ -830,11 +1086,7 @@ describe('pending interaction durability', () => {
       approvalContextJid: 'sl:approval-context',
       permissionBatch: { requestIds: ['req-1', 'req-2'], rows: ['a', 'b'] },
     };
-    const repository = {
-      listPendingInteractions: vi.fn(async () => rows),
-      updatePendingInteractionPayload: payloadUpdater(rows),
-      findPendingPermissionInteractions: vi.fn(async () => rows),
-    };
+    const repository = permissionClaimRepository(rows);
     configurePendingInteractionDurability({ repository: repository as never });
 
     await expect(
@@ -880,9 +1132,7 @@ describe('pending interaction durability', () => {
         },
       },
     });
-    const repository = {
-      listPendingInteractions: vi.fn(async () => [row]),
-    };
+    const repository = permissionClaimRepository([row]);
     configurePendingInteractionDurability({
       repository: repository as never,
     });
@@ -919,24 +1169,23 @@ describe('pending interaction durability', () => {
   });
 
   it('locates the exact prompt scope when request ids collide across agents', async () => {
-    const repository = {
-      listPendingInteractions: vi.fn(async () => [
-        permissionPromptRow({
-          id: 'prompt-agent-a',
-          agent: 'agent-a',
-          requestId: 'same-request',
-          messageId: 'message-a',
-          payload: { permissionCallbackId: 'alias-a' },
-        }),
-        permissionPromptRow({
-          id: 'prompt-agent-b',
-          agent: 'agent-b',
-          requestId: 'same-request',
-          messageId: 'message-b',
-          payload: { permissionCallbackId: 'alias-b' },
-        }),
-      ]),
-    };
+    const rows = [
+      permissionPromptRow({
+        id: 'prompt-agent-a',
+        agent: 'agent-a',
+        requestId: 'same-request',
+        messageId: 'message-a',
+        providerAliases: ['alias-a'],
+      }),
+      permissionPromptRow({
+        id: 'prompt-agent-b',
+        agent: 'agent-b',
+        requestId: 'same-request',
+        messageId: 'message-b',
+        providerAliases: ['alias-b'],
+      }),
+    ];
+    const repository = permissionClaimRepository(rows);
     configurePendingInteractionDurability({ repository: repository as never });
 
     await expect(
@@ -960,22 +1209,21 @@ describe('pending interaction durability', () => {
   });
 
   it('fails closed when one prompt identity maps to different agents', async () => {
-    const repository = {
-      listPendingInteractions: vi.fn(async () => [
-        permissionPromptRow({
-          id: 'mixed-agent-a',
-          agent: 'agent-a',
-          requestId: 'same-request',
-          messageId: 'mixed-agent-message',
-        }),
-        permissionPromptRow({
-          id: 'mixed-agent-b',
-          agent: 'agent-b',
-          requestId: 'same-request',
-          messageId: 'mixed-agent-message',
-        }),
-      ]),
-    };
+    const rows = [
+      permissionPromptRow({
+        id: 'mixed-agent-a',
+        agent: 'agent-a',
+        requestId: 'same-request',
+        messageId: 'mixed-agent-message',
+      }),
+      permissionPromptRow({
+        id: 'mixed-agent-b',
+        agent: 'agent-b',
+        requestId: 'same-request',
+        messageId: 'mixed-agent-message',
+      }),
+    ];
+    const repository = permissionClaimRepository(rows);
     configurePendingInteractionDurability({ repository: repository as never });
 
     await expect(
@@ -989,24 +1237,23 @@ describe('pending interaction durability', () => {
   });
 
   it('fails closed when one prompt identity has inconsistent batch markers', async () => {
-    const repository = {
-      listPendingInteractions: vi.fn(async () => [
-        permissionPromptRow({
-          id: 'mixed-1',
-          agent: 'agent-a',
-          requestId: 'req-1',
-          messageId: 'mixed-message',
-          payload: { permissionBatchCallbackId: 'batch:req-1:2' },
-        }),
-        permissionPromptRow({
-          id: 'mixed-2',
-          agent: 'agent-a',
-          requestId: 'req-2',
-          messageId: 'mixed-message',
-          payload: { permissionBatchCallbackId: 'batch:req-2:2' },
-        }),
-      ]),
-    };
+    const rows = [
+      permissionPromptRow({
+        id: 'mixed-1',
+        agent: 'agent-a',
+        requestId: 'req-1',
+        messageId: 'mixed-message',
+        interactionId: 'batch:req-1:2',
+      }),
+      permissionPromptRow({
+        id: 'mixed-2',
+        agent: 'agent-a',
+        requestId: 'req-2',
+        messageId: 'mixed-message',
+        interactionId: 'batch:req-2:2',
+      }),
+    ];
+    const repository = permissionClaimRepository(rows);
     configurePendingInteractionDurability({ repository: repository as never });
 
     await expect(
@@ -1027,26 +1274,19 @@ describe('pending interaction durability', () => {
         agent: 'agent-a',
         requestId: 'req-1',
         messageId: 'batch-message',
-        payload: {
-          permissionBatchCallbackId: batchId,
-          permissionCallbackId: 'batch-alias',
-        },
+        interactionId: batchId,
+        providerAliases: ['batch-alias'],
       }),
       permissionPromptRow({
         id: 'batch-2',
         agent: 'agent-a',
         requestId: 'req-2',
         messageId: 'batch-message',
-        payload: {
-          permissionBatchCallbackId: batchId,
-          permissionCallbackId: 'batch-alias',
-        },
+        interactionId: batchId,
+        providerAliases: ['batch-alias'],
       }),
     ];
-    permissionClaimRepository(rows);
-    const repository = {
-      listPendingInteractions: vi.fn(async () => rows),
-    };
+    const repository = permissionClaimRepository(rows);
     configurePendingInteractionDurability({ repository: repository as never });
 
     await expect(
@@ -1069,7 +1309,7 @@ describe('pending interaction durability', () => {
     });
   });
 
-  it('returns one persisted claimed scope by prompt identity but not by claimed alias', async () => {
+  it('returns one persisted claimed scope by prompt identity and exact provider alias', async () => {
     const claim = {
       id: 'claim-restart-batch',
       scope: {
@@ -1094,34 +1334,29 @@ describe('pending interaction durability', () => {
         agent: 'agent-a',
         requestId: 'req-1',
         messageId: 'claimed-message',
-        payload: { permissionCallbackClaim: claim },
+        claim,
       }),
       permissionPromptRow({
         id: 'claimed-2',
         agent: 'agent-a',
         requestId: 'req-2',
         messageId: 'claimed-message',
-        payload: {
-          permissionCallbackClaim: {
-            ...claim,
-            match: {
-              ...claim.match,
-              providerAliases: ['claimed-alias-b'],
-            },
+        claim: {
+          ...claim,
+          match: {
+            ...claim.match,
+            providerAliases: ['claimed-alias-b'],
           },
         },
       }),
     ];
-    for (const row of rows) {
-      row.payload.permissionBatchCallbackId = claim.scope.interactionId;
+    for (const [index, row] of rows.entries()) {
+      row.promptFixture.interactionId = claim.scope.interactionId;
+      row.promptFixture.providerAliases = [
+        index === 0 ? 'claimed-alias' : 'claimed-alias-b',
+      ];
     }
-    permissionClaimRepository(rows);
-    for (const row of rows) {
-      delete row.payload.permissionBatchCallbackId;
-    }
-    const repository = {
-      listPendingInteractions: vi.fn(async () => rows),
-    };
+    const repository = permissionClaimRepository(rows);
     configurePendingInteractionDurability({ repository: repository as never });
     const locator = {
       provider: 'slack',
@@ -1135,7 +1370,7 @@ describe('pending interaction durability', () => {
     ).resolves.toMatchObject({
       scope: claim.scope,
       matchKind: 'batch',
-      providerAlias: null,
+      providerAlias: 'claimed-alias',
       claim: {
         ...claim,
         match: {
@@ -1147,7 +1382,7 @@ describe('pending interaction durability', () => {
     await expect(
       findDurablePermissionInteractionByPromptMessage({
         ...locator,
-        providerAlias: 'claimed-alias',
+        providerAlias: 'wrong-alias',
       }),
     ).resolves.toBeNull();
   });
@@ -1172,6 +1407,42 @@ describe('pending interaction durability', () => {
         approverRef: 'owner',
       }),
     ).resolves.toBe(false);
+    await expect(
+      resolvePendingInteractionRecordOutcome({
+        kind: 'permission',
+        sourceAgentFolder: 'main_agent',
+        requestId: 'perm-missing',
+        appId: 'app:test',
+        runId: null,
+        status: 'resolved',
+        resolution: { approved: true },
+        approverRef: 'owner',
+      }),
+    ).resolves.toBe('rejected');
+  });
+
+  it('classifies durable resolution exceptions as retryable', async () => {
+    const repository = {
+      resolvePendingInteraction: vi.fn(async () => {
+        throw new Error('database unavailable');
+      }),
+    };
+    configurePendingInteractionDurability({
+      repository: repository as never,
+    });
+
+    await expect(
+      resolvePendingInteractionRecordOutcome({
+        kind: 'permission',
+        sourceAgentFolder: 'main_agent',
+        requestId: 'perm-retryable',
+        appId: 'app:test',
+        runId: null,
+        status: 'resolved',
+        resolution: { approved: true },
+        approverRef: 'owner',
+      }),
+    ).resolves.toBe('retryable_error');
   });
 
   it('does not create transient grants without the requesting lease identity', async () => {
@@ -1269,29 +1540,30 @@ describe('pending interaction durability', () => {
 
   it('hands the durable command to the winning interaction CAS', async () => {
     const queuedCommands: unknown[] = [];
-    const repository = {
-      listPendingInteractions: vi.fn(async () => [
-        {
-          id: 'pending-1',
-          appId: 'default',
-          runId: 'run-1',
-          kind: 'permission',
-          status: 'pending',
-          payload: {},
-          callbackRoute: {
-            ipcBaseDir: '/tmp/ipc',
-            threadId: 'thread-1',
-            responseKeyId: 'key-1',
-            responseNonce: 'nonce-1',
-          },
-          idempotencyKey: 'default:permission:agent-folder:req-1',
-          approverRef: null,
-          resolution: null,
-          createdAt: '2026-06-10T00:00:00.000Z',
-          expiresAt: '2026-06-11T00:00:00.000Z',
-          resolvedAt: null,
+    const rows = [
+      {
+        id: 'pending-1',
+        appId: 'default',
+        runId: 'run-1',
+        kind: 'permission',
+        status: 'pending',
+        payload: {},
+        callbackRoute: {
+          ipcBaseDir: '/tmp/ipc',
+          threadId: 'thread-1',
+          responseKeyId: 'key-1',
+          responseNonce: 'nonce-1',
         },
-      ]),
+        idempotencyKey: 'default:permission:agent-folder:req-1',
+        approverRef: null,
+        resolution: null,
+        createdAt: '2026-06-10T00:00:00.000Z',
+        expiresAt: '2026-06-11T00:00:00.000Z',
+        resolvedAt: null,
+      },
+    ];
+    const repository = {
+      ...pendingInteractionLookups(rows),
       resolvePendingInteraction: vi.fn(async (input: any) => {
         if (input.liveTurnCommand) queuedCommands.push(input.liveTurnCommand);
         return true;
@@ -1338,24 +1610,25 @@ describe('pending interaction durability', () => {
 
   it('does not queue a durable command when the interaction CAS loses', async () => {
     const queuedCommands: unknown[] = [];
+    const rows = [
+      {
+        id: 'pending-1',
+        appId: 'default',
+        runId: 'run-1',
+        kind: 'permission',
+        status: 'pending',
+        payload: {},
+        callbackRoute: { ipcBaseDir: '/tmp/ipc' },
+        idempotencyKey: 'default:permission:agent-folder:req-1',
+        approverRef: null,
+        resolution: null,
+        createdAt: '2026-06-10T00:00:00.000Z',
+        expiresAt: '2026-06-11T00:00:00.000Z',
+        resolvedAt: null,
+      },
+    ];
     const repository = {
-      listPendingInteractions: vi.fn(async () => [
-        {
-          id: 'pending-1',
-          appId: 'default',
-          runId: 'run-1',
-          kind: 'permission',
-          status: 'pending',
-          payload: {},
-          callbackRoute: { ipcBaseDir: '/tmp/ipc' },
-          idempotencyKey: 'default:permission:agent-folder:req-1',
-          approverRef: null,
-          resolution: null,
-          createdAt: '2026-06-10T00:00:00.000Z',
-          expiresAt: '2026-06-11T00:00:00.000Z',
-          resolvedAt: null,
-        },
-      ]),
+      ...pendingInteractionLookups(rows),
       resolvePendingInteraction: vi.fn(async (input: any) => {
         const casWon = false;
         if (casWon && input.liveTurnCommand) {
@@ -1406,10 +1679,7 @@ describe('pending interaction durability', () => {
       targetJid: 'chat-1',
       decisionPolicy: 'same_channel',
     };
-    permissionClaimRepository([row]);
-    const repository = {
-      findPendingPermissionInteractions: vi.fn(async () => [row]),
-    };
+    const repository = permissionClaimRepository([row]);
     configurePendingInteractionDurability({
       repository: repository as never,
     });
@@ -1436,6 +1706,224 @@ describe('pending interaction durability', () => {
       decisionPolicy: 'same_channel',
       providerAliases: [],
     });
+  });
+
+  it('recovers alias-divergent sibling rows by scope and preserves the persisted intent', async () => {
+    const batchId = 'batch:alias-divergent:2';
+    const rows = [
+      permissionRow({
+        id: 'alias-divergent-1',
+        agent: 'agent-a',
+        requestId: 'alias-divergent-request-1',
+        alias: 'alias-one',
+        batchId,
+      }),
+      permissionRow({
+        id: 'alias-divergent-2',
+        agent: 'agent-a',
+        requestId: 'alias-divergent-request-2',
+        alias: 'alias-two',
+        batchId,
+      }),
+    ];
+    const repository = permissionClaimRepository(rows);
+    const applyDecision = vi.fn(async () => true);
+    configurePendingInteractionDurability({
+      repository: repository as never,
+    });
+    configurePendingInteractionPermissionCallbacks({
+      repository: repository as never,
+      applyDecision,
+      resolve: (input) =>
+        repository.resolvePendingInteraction({
+          idempotencyKey: `default:permission:agent-a:${input.requestId}`,
+          ...input,
+        }),
+    });
+    const scope = {
+      appId: 'default',
+      sourceAgentFolder: 'agent-a',
+      interactionId: batchId,
+    };
+    const original = await claimPermissionInteractionCallback({
+      scope,
+      mode: 'allow_once',
+      approverRef: 'user:original',
+      matchKind: 'batch',
+      providerAlias: 'alias-one',
+      claimedAt: '2026-07-19T00:00:00.000Z',
+      claimId: 'alias-divergent-claim',
+    });
+    expect(original.status).toBe('claimed');
+    const terminalize = vi.fn(async () => true);
+    const feedback = vi.fn(async () => {});
+
+    await expect(
+      recoverDurablePermissionDecision({
+        locator: {
+          kind: 'scope',
+          scope,
+          matchKind: 'batch',
+          providerAlias: 'alias-two',
+        },
+        surfaceJid: 'sl:C123',
+        incomingMode: 'allow_persistent_rule',
+        incomingApprover: 'user:later',
+        authorize: vi.fn(async () => true),
+        terminalize,
+        feedback,
+      }),
+    ).resolves.toBe('resolved');
+
+    expect(terminalize).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: 'resolved',
+        decision: expect.objectContaining({
+          approved: true,
+          mode: 'allow_once',
+          decidedBy: 'user:original',
+        }),
+      }),
+    );
+    expect(feedback).toHaveBeenCalledWith('Decision recorded.');
+    expect(applyDecision).toHaveBeenCalledTimes(2);
+    expect(rows.map((row) => row.status)).toEqual(['resolved', 'resolved']);
+  });
+
+  it('recovers a durable permission by provider message through transport hooks', async () => {
+    const row = permissionPromptRow({
+      id: 'message-locator-row',
+      agent: 'agent-a',
+      requestId: 'message-locator-request',
+      messageId: 'message-locator-prompt',
+      providerAliases: ['message-locator-alias'],
+    });
+    const repository = permissionClaimRepository([row]);
+    configurePendingInteractionDurability({
+      repository: repository as never,
+    });
+    configurePendingInteractionPermissionCallbacks({
+      repository: repository as never,
+      applyDecision: vi.fn(async () => true),
+      resolve: (input) =>
+        repository.resolvePendingInteraction({
+          idempotencyKey: row.idempotencyKey,
+          ...input,
+        }),
+    });
+    const terminalize = vi.fn(async () => true);
+
+    await expect(
+      recoverDurablePermissionDecision({
+        locator: {
+          kind: 'message',
+          appId: 'default',
+          provider: 'slack',
+          conversationId: 'C123',
+          externalMessageId: 'message-locator-prompt',
+          threadId: 'thread-1',
+          providerAlias: 'message-locator-alias',
+        },
+        surfaceJid: 'sl:C123',
+        incomingMode: 'allow_once',
+        incomingApprover: 'user:approver',
+        authorize: vi.fn(async () => true),
+        terminalize,
+        feedback: vi.fn(async () => {}),
+      }),
+    ).resolves.toBe('resolved');
+
+    expect(terminalize).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: 'resolved',
+        request: row.payload.request,
+      }),
+    );
+    expect(row.status).toBe('resolved');
+  });
+
+  it('rejects a wrong-surface recovered click with visible feedback', async () => {
+    const row = permissionRow({
+      id: 'wrong-surface-row',
+      agent: 'agent-a',
+      requestId: 'wrong-surface-request',
+      alias: 'wrong-surface-alias',
+    });
+    const repository = permissionClaimRepository([row]);
+    configurePendingInteractionDurability({
+      repository: repository as never,
+    });
+    const authorize = vi.fn(async () => true);
+    const terminalize = vi.fn(async () => true);
+    const feedback = vi.fn(async () => {});
+
+    await expect(
+      recoverDurablePermissionDecision({
+        locator: {
+          kind: 'scope',
+          scope: {
+            appId: 'default',
+            sourceAgentFolder: 'agent-a',
+            interactionId: 'wrong-surface-request',
+          },
+          matchKind: 'individual',
+          providerAlias: 'wrong-surface-alias',
+        },
+        surfaceJid: 'sl:C999',
+        incomingMode: 'allow_once',
+        incomingApprover: 'user:approver',
+        authorize,
+        terminalize,
+        feedback,
+      }),
+    ).resolves.toBe('wrong_surface');
+
+    expect(feedback).toHaveBeenCalledWith(
+      'This approval request belongs to a different chat.',
+    );
+    expect(authorize).not.toHaveBeenCalled();
+    expect(terminalize).not.toHaveBeenCalled();
+    expect(repository.claimPendingPermissionCallback).not.toHaveBeenCalled();
+  });
+
+  it('terminalizes a stale prompt when durable recovery misses', async () => {
+    const repository = {
+      findPendingPermissionPromptByMessage: vi.fn(async () => null),
+    };
+    configurePendingInteractionDurability({
+      repository: repository as never,
+    });
+    const terminalize = vi.fn(async () => true);
+    const feedback = vi.fn(async () => {});
+
+    await expect(
+      recoverDurablePermissionDecision({
+        locator: {
+          kind: 'message',
+          appId: 'default',
+          provider: 'telegram',
+          conversationId: '123',
+          externalMessageId: 'stale-message',
+          providerAlias: 'stale-alias',
+        },
+        surfaceJid: 'tg:123',
+        incomingMode: 'allow_once',
+        incomingApprover: 'user:approver',
+        authorize: vi.fn(async () => true),
+        terminalize,
+        feedback,
+      }),
+    ).resolves.toBe('inactive');
+
+    expect(terminalize).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: 'expired',
+        text: 'This permission request is no longer active.',
+      }),
+    );
+    expect(feedback).toHaveBeenCalledWith(
+      'This permission request is no longer active.',
+    );
   });
 
   it.each(['provider_terminalization', 'apply_false'] as const)(
@@ -1479,8 +1967,7 @@ describe('pending interaction durability', () => {
       });
       expect(firstClaim.status).toBe('claimed');
       if (firstClaim.status !== 'claimed') throw new Error('claim failed');
-      expect(row.payload).not.toHaveProperty('permissionCallbackId');
-      expect(row.payload.permissionCallbackClaim).toMatchObject({
+      expect(repository.prompts[0].claim).toMatchObject({
         id: firstClaim.claim.id,
         scope,
         intent: { mode: 'allow_once', approverRef: 'user:a' },
@@ -1499,8 +1986,11 @@ describe('pending interaction durability', () => {
       }
       expect(settled).toBe(false);
       expect(row.status).toBe('pending');
-      expect(row.payload).not.toHaveProperty('permissionCallbackClaim');
-      expect(row.payload.permissionCallbackId).toBe('opaque-a');
+      expect(repository.prompts[0]).toMatchObject({
+        claim: null,
+        settlementState: 'open',
+        providerAliases: ['opaque-a'],
+      });
 
       configurePendingInteractionPermissionCallbacks({
         repository: repository as never,
@@ -1584,7 +2074,7 @@ describe('pending interaction durability', () => {
         }),
       ).resolves.toBe(false);
       expect(row.status).toBe('pending');
-      expect(row.payload.permissionCallbackClaim).toMatchObject({
+      expect(repository.prompts[0].claim).toMatchObject({
         id: claimed.claim.id,
         intent: { mode: 'allow_once', approverRef: 'user:a' },
       });
@@ -1639,7 +2129,7 @@ describe('pending interaction durability', () => {
     const resolvePendingInteraction = repository.resolvePendingInteraction;
     const settleRow = resolvePendingInteraction.getMockImplementation()!;
     resolvePendingInteraction
-      .mockResolvedValueOnce(false)
+      .mockRejectedValueOnce(new Error('database unavailable'))
       .mockImplementation(settleRow);
     const createTransientGrant = vi.fn(async () => true);
     const durabilityRepository = {
@@ -1708,6 +2198,65 @@ describe('pending interaction durability', () => {
     ).resolves.toEqual({ status: 'already_decided' });
   });
 
+  it('retries recovered callback settlement without reapplying authority', async () => {
+    const row = permissionRow({
+      id: 'recovered-callback-resolution-retry',
+      agent: 'agent-a',
+      requestId: 'recovered-callback-resolution-retry',
+      alias: 'opaque-recovered-retry',
+    });
+    row.runLeaseToken = 'lease-token';
+    row.runLeaseFencingVersion = 1;
+    Object.assign(row.payload.request, {
+      appId: 'default',
+      runId: 'run-1',
+      runLeaseToken: 'lease-token',
+      runLeaseFencingVersion: 1,
+    });
+    const repository = permissionClaimRepository([row]);
+    const resolvePendingInteraction = repository.resolvePendingInteraction;
+    const settleRow = resolvePendingInteraction.getMockImplementation()!;
+    resolvePendingInteraction
+      .mockRejectedValueOnce(new Error('database unavailable'))
+      .mockImplementation(settleRow);
+    const createTransientGrant = vi.fn(async () => true);
+    configurePendingInteractionDurability({
+      repository: {
+        ...repository,
+        resolvePendingInteraction,
+        createTransientGrant,
+        getActiveRunLease: vi.fn(async () => ({
+          runId: 'run-1',
+          leaseToken: 'lease-token',
+          fencingVersion: 1,
+          status: 'active',
+        })),
+      } as never,
+    });
+    const scope = {
+      appId: 'default',
+      sourceAgentFolder: 'agent-a',
+      interactionId: 'recovered-callback-resolution-retry',
+    };
+    const claimed = await claimPermissionInteractionCallback({
+      scope,
+      mode: 'allow_once',
+      approverRef: 'user:a',
+      matchKind: 'individual',
+      providerAlias: 'opaque-recovered-retry',
+    });
+    expect(claimed.status).toBe('claimed');
+    if (claimed.status !== 'claimed') throw new Error('claim failed');
+
+    await expect(
+      resolveDurablePermissionInteractionByRequestId({ claim: claimed.claim }),
+    ).resolves.toBe(true);
+
+    expect(createTransientGrant).toHaveBeenCalledOnce();
+    expect(resolvePendingInteraction).toHaveBeenCalledTimes(2);
+    expect(row.status).toBe('resolved');
+  });
+
   it('preserves a batch claim when a later member fails settlement', async () => {
     const rows = ['req-1', 'req-2'].map((requestId, index) =>
       permissionRow({
@@ -1759,7 +2308,7 @@ describe('pending interaction durability', () => {
       resolveDurablePermissionInteractionByRequestId({ claim: claimed.claim }),
     ).resolves.toBe(false);
     expect(rows[0]!.status).toBe('resolved');
-    expect(rows[1]!.payload.permissionCallbackClaim).toMatchObject({
+    expect(repository.prompts[0].claim).toMatchObject({
       id: claimed.claim.id,
       intent: { mode: 'allow_once', approverRef: 'user:a' },
     });
@@ -1827,7 +2376,14 @@ describe('pending interaction durability', () => {
     ).resolves.toBe(true);
     expect(authorized.status).toBe('resolved');
     expect(other.status).toBe('pending');
-    expect(other.payload.permissionCallbackId).toBe('opaque-collision');
+    expect(
+      repository.prompts.find(
+        (prompt) => prompt.sourceAgentFolder === 'agent-b',
+      ),
+    ).toMatchObject({
+      settlementState: 'open',
+      providerAliases: ['opaque-collision'],
+    });
   });
 
   it('resumes a persisted claim intent without a second claim CAS', async () => {
@@ -1918,8 +2474,12 @@ describe('pending interaction durability', () => {
         conversationId: 'C123',
       }),
     ).resolves.toBe(false);
-    expect(row.payload).not.toHaveProperty('permissionCallbackId');
-    expect(row.payload).not.toHaveProperty('externalPromptMessageId');
+    expect(repository.prompts).toHaveLength(1);
+    expect(repository.prompts[0]).toMatchObject({
+      providerAliases: ['old-provider-alias'],
+      externalPromptMessageId: null,
+      settlementState: 'claimed',
+    });
 
     const recovered = await findDurablePermissionInteractionByRequestId({
       scope,
@@ -1934,55 +2494,27 @@ describe('pending interaction durability', () => {
     expect(repository.claimPendingPermissionCallback).toHaveBeenCalledOnce();
   });
 
-  it('dispatches every persisted member prompt when recovered Review each resumes', async () => {
-    const batchId = 'batch:req-1:2';
+  it('leaves a recovered Review-each batch unmutated until callback authorization', async () => {
+    const batchId = 'batch:review-each-authorization';
     const rows = [
       permissionRow({
-        id: 'i-1',
+        id: 'review-each-authorization-1',
         agent: 'agent-a',
         requestId: 'req-1',
         batchId,
       }),
       permissionRow({
-        id: 'i-2',
+        id: 'review-each-authorization-2',
         agent: 'agent-a',
         requestId: 'req-2',
         batchId,
       }),
     ];
     const repository = permissionClaimRepository(rows);
-    const applyDecision = vi.fn(async () => true);
-    const resolve = vi.fn(async () => true);
     configurePendingInteractionPermissionCallbacks({
       repository: repository as never,
-      applyDecision,
-      resolve,
-    });
-    const dispatched: string[] = [];
-    configurePermissionReviewEachDispatcher(async (request) => {
-      dispatched.push(request.requestId);
-      const memberClaim = await claimPermissionInteractionCallback({
-        scope: {
-          appId: request.appId || 'default',
-          sourceAgentFolder: request.sourceAgentFolder,
-          interactionId: request.requestId,
-        },
-        mode: 'cancel',
-        approverRef: 'user:a',
-        matchKind: 'individual',
-      });
-      if (memberClaim.status !== 'claimed') {
-        return { delivered: false, reason: 'member claim failed' };
-      }
-      return {
-        delivered: true,
-        decision: {
-          approved: false,
-          mode: 'cancel',
-          decidedBy: 'user:a',
-          permissionCallbackClaim: memberClaim.claim,
-        },
-      };
+      applyDecision: vi.fn(async () => true),
+      resolve: vi.fn(async () => true),
     });
     const claimed = await claimPermissionInteractionCallback({
       scope: {
@@ -1994,74 +2526,151 @@ describe('pending interaction durability', () => {
       approverRef: 'user:a',
       matchKind: 'batch',
     });
-    expect(claimed.status).toBe('claimed');
-    if (claimed.status !== 'claimed') throw new Error('claim failed');
+    if (claimed.status !== 'claimed') throw new Error('batch claim failed');
 
     await expect(
-      resolveDurablePermissionInteractionByRequestId({ claim: claimed.claim }),
-    ).resolves.toBe(true);
-    expect(dispatched).toEqual(['req-1', 'req-2']);
-    expect(applyDecision).toHaveBeenCalledTimes(2);
-    expect(resolve).toHaveBeenCalledTimes(2);
+      findDurablePermissionInteractionByRequestId({
+        scope: claimed.claim.scope,
+      }),
+    ).resolves.toMatchObject({
+      claim: {
+        id: claimed.claim.id,
+        intent: {
+          mode: 'allow_persistent_rule',
+          approverRef: 'user:a',
+        },
+      },
+    });
+    expect(repository.expirePendingPermissionReviewEach).not.toHaveBeenCalled();
+    expect(repository.prompts[0]).toMatchObject({
+      settlementState: 'claimed',
+      claim: {
+        intent: {
+          mode: 'allow_persistent_rule',
+          approverRef: 'user:a',
+        },
+      },
+    });
   });
 
-  it('reuses a claimed Review-each member after the next member delivery fails', async () => {
-    const batchId = 'batch:partial-review';
+  it('expires recovered Review-each state only after terminalization succeeds', async () => {
+    const batchId = 'batch:review-each-terminalization';
+    const providerAlias = 'review-each-terminalization-alias';
+    const rows = ['req-1', 'req-2'].map((requestId, index) =>
+      permissionRow({
+        id: `review-each-terminalization-${index + 1}`,
+        agent: 'agent-a',
+        requestId,
+        alias: providerAlias,
+        batchId,
+      }),
+    );
+    const repository = permissionClaimRepository(rows);
+    configurePendingInteractionPermissionCallbacks({
+      repository: repository as never,
+      applyDecision: vi.fn(async () => true),
+      resolve: (input) =>
+        repository.resolvePendingInteraction({
+          idempotencyKey: `default:permission:agent-a:${input.requestId}`,
+          ...input,
+        }),
+    });
+    const scope = {
+      appId: 'default',
+      sourceAgentFolder: 'agent-a',
+      interactionId: batchId,
+    };
+    const claimed = await claimPermissionInteractionCallback({
+      scope,
+      mode: 'allow_persistent_rule',
+      approverRef: 'user:a',
+      matchKind: 'batch',
+      providerAlias,
+    });
+    if (claimed.status !== 'claimed') throw new Error('batch claim failed');
+    await repository.settlePendingPermissionCallback({ claim: claimed.claim });
+
+    const terminalize = vi.fn().mockResolvedValueOnce(false);
+    const hooks = {
+      locator: {
+        kind: 'scope' as const,
+        scope,
+        matchKind: 'batch' as const,
+        providerAlias,
+      },
+      surfaceJid: 'sl:C123',
+      incomingMode: 'cancel' as const,
+      incomingApprover: 'user:retrying',
+      authorize: vi.fn(async () => true),
+      terminalize,
+      feedback: vi.fn(async () => {}),
+    };
+    await expect(recoverDurablePermissionDecision(hooks)).resolves.toBe(
+      'retryable',
+    );
+    expect(repository.expirePendingPermissionReviewEach).not.toHaveBeenCalled();
+    expect(repository.prompts[0]).toMatchObject({
+      settlementState: 'settled',
+      claim: { id: claimed.claim.id },
+    });
+    expect(repository.releasePendingPermissionCallback).not.toHaveBeenCalled();
+
+    terminalize.mockResolvedValueOnce(true);
+    await expect(recoverDurablePermissionDecision(hooks)).resolves.toBe(
+      'resolved',
+    );
+    expect(terminalize).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        decision: expect.objectContaining({
+          approved: false,
+          mode: 'cancel',
+          decidedBy: 'system',
+        }),
+      }),
+    );
+    expect(repository.expirePendingPermissionReviewEach).toHaveBeenCalledOnce();
+    expect(rows.every((row) => row.status === 'cancelled')).toBe(true);
+  });
+
+  it('expires and cancels every recovered Review-each member from a batch callback', async () => {
+    const batchId = 'batch:review-each-cancel-all';
     const rows = [
       permissionRow({
-        id: 'partial-1',
+        id: 'review-each-cancel-all-1',
         agent: 'agent-a',
         requestId: 'req-1',
         batchId,
       }),
       permissionRow({
-        id: 'partial-2',
+        id: 'review-each-cancel-all-2',
         agent: 'agent-a',
         requestId: 'req-2',
         batchId,
       }),
     ];
     const repository = permissionClaimRepository(rows);
-    Object.assign(repository, {
-      listPendingInteractions: vi.fn(async () => rows),
-    });
+    const applied: Array<{
+      requestId: string;
+      mode: string | undefined;
+      decidedBy: string | undefined;
+    }> = [];
     configurePendingInteractionPermissionCallbacks({
       repository: repository as never,
-      applyDecision: vi.fn(async () => true),
-      resolve: vi.fn(async () => true),
+      applyDecision: vi.fn(async ({ requestId, decision }) => {
+        applied.push({
+          requestId,
+          mode: decision.mode,
+          decidedBy: decision.decidedBy,
+        });
+        return true;
+      }),
+      resolve: async (input) =>
+        repository.resolvePendingInteraction({
+          idempotencyKey: `default:permission:${input.sourceAgentFolder}:${input.requestId}`,
+          ...input,
+        }),
     });
-    const dispatched: string[] = [];
-    let failSecond = true;
-    configurePermissionReviewEachDispatcher(async (request) => {
-      dispatched.push(request.requestId);
-      if (request.requestId === 'req-2' && failSecond) {
-        failSecond = false;
-        return { delivered: false, reason: 'send failed' };
-      }
-      const claimed = await claimPermissionInteractionCallback({
-        scope: {
-          appId: 'default',
-          sourceAgentFolder: request.sourceAgentFolder,
-          interactionId: request.requestId,
-        },
-        mode: 'cancel',
-        approverRef: 'user:a',
-        matchKind: 'individual',
-      });
-      if (claimed.status !== 'claimed') {
-        return { delivered: false, reason: 'claim failed' };
-      }
-      return {
-        delivered: true,
-        decision: {
-          approved: false,
-          mode: 'cancel',
-          decidedBy: 'user:a',
-          permissionCallbackClaim: claimed.claim,
-        },
-      };
-    });
-    const batchClaim = await claimPermissionInteractionCallback({
+    const claimed = await claimPermissionInteractionCallback({
       scope: {
         appId: 'default',
         sourceAgentFolder: 'agent-a',
@@ -2071,29 +2680,206 @@ describe('pending interaction durability', () => {
       approverRef: 'user:a',
       matchKind: 'batch',
     });
-    if (batchClaim.status !== 'claimed') throw new Error('batch claim failed');
+    if (claimed.status !== 'claimed') throw new Error('batch claim failed');
+    await repository.settlePendingPermissionCallback({ claim: claimed.claim });
+
+    const recovered = await findDurablePermissionInteractionByRequestId({
+      scope: claimed.claim.scope,
+    });
+    expect(recovered?.claim).toMatchObject({
+      id: claimed.claim.id,
+      intent: { mode: 'allow_persistent_rule', approverRef: 'user:a' },
+      match: { kind: 'batch', canonicalId: batchId },
+    });
+    const expired = await claimPermissionInteractionCallback({
+      scope: claimed.claim.scope,
+      mode: 'cancel',
+      approverRef: 'user:a',
+      matchKind: 'batch',
+      expireReviewEach: true,
+      recoveredClaim: recovered!.claim!,
+    });
+    expect(expired).toMatchObject({
+      status: 'claimed',
+      claim: claimed.claim,
+      persistedClaim: {
+        intent: { mode: 'cancel', approverRef: 'system' },
+      },
+    });
+    if (expired.status !== 'claimed') throw new Error('expiration failed');
 
     await expect(
       resolveDurablePermissionInteractionByRequestId({
-        claim: batchClaim.claim,
+        claim: expired.claim,
       }),
-    ).resolves.toBe(false);
-    await expect(
-      replayPersistedPermissionDecisionForRequest({
-        sourceAgentFolder: 'agent-a',
-        requestId: 'req-2',
-      }),
-    ).resolves.toMatchObject({ mode: 'cancel' });
-    expect(dispatched).toEqual(['req-1', 'req-2', 'req-2']);
+    ).resolves.toBe(true);
+    expect(rows.every((row) => row.status === 'cancelled')).toBe(true);
+    expect(applied).toEqual([
+      { requestId: 'req-1', mode: 'cancel', decidedBy: 'system' },
+      { requestId: 'req-2', mode: 'cancel', decidedBy: 'system' },
+    ]);
   });
 
-  it('ignores a settled batch claim after its member is rebound individually', async () => {
+  it('treats a concurrent recovered Review-each expiration loser as already decided', async () => {
+    const batchId = 'batch:review-each-expiration-race';
+    const rows = [
+      permissionRow({
+        id: 'review-each-expiration-race-1',
+        agent: 'agent-a',
+        requestId: 'req-1',
+        batchId,
+      }),
+      permissionRow({
+        id: 'review-each-expiration-race-2',
+        agent: 'agent-a',
+        requestId: 'req-2',
+        batchId,
+      }),
+    ];
+    const repository = permissionClaimRepository(rows);
+    const warn = vi.fn();
+    configurePendingInteractionPermissionCallbacks({
+      repository: repository as never,
+      applyDecision: vi.fn(async () => true),
+      resolve: vi.fn(async () => true),
+      warn,
+    });
+    const claimed = await claimPermissionInteractionCallback({
+      scope: {
+        appId: 'default',
+        sourceAgentFolder: 'agent-a',
+        interactionId: batchId,
+      },
+      mode: 'allow_persistent_rule',
+      approverRef: 'user:a',
+      matchKind: 'batch',
+    });
+    if (claimed.status !== 'claimed') throw new Error('batch claim failed');
+    const recovered = await findDurablePermissionInteractionByRequestId({
+      scope: claimed.claim.scope,
+    });
+
+    const results = await Promise.all([
+      claimPermissionInteractionCallback({
+        scope: claimed.claim.scope,
+        mode: 'cancel',
+        approverRef: 'user:a',
+        matchKind: 'batch',
+        expireReviewEach: true,
+        recoveredClaim: recovered!.claim!,
+      }),
+      claimPermissionInteractionCallback({
+        scope: claimed.claim.scope,
+        mode: 'cancel',
+        approverRef: 'user:a',
+        matchKind: 'batch',
+        expireReviewEach: true,
+        recoveredClaim: recovered!.claim!,
+      }),
+    ]);
+
+    expect(results.map((result) => result.status).sort()).toEqual([
+      'already_decided',
+      'claimed',
+    ]);
+    expect(warn).not.toHaveBeenCalled();
+    expect(repository.prompts[0]).toMatchObject({
+      settlementState: 'review_each_expired',
+      claim: {
+        intent: {
+          mode: 'allow_persistent_rule',
+          approverRef: 'user:a',
+        },
+      },
+    });
+  });
+
+  it.each(['active', 'settled'] as const)(
+    'expires recovered %s Review-each state into system-cancel claims',
+    async (batchState) => {
+      const batchId = `batch:review-each-${batchState}`;
+      const rows = [
+        permissionRow({
+          id: `${batchState}-1`,
+          agent: 'agent-a',
+          requestId: 'req-1',
+          batchId,
+        }),
+        permissionRow({
+          id: `${batchState}-2`,
+          agent: 'agent-a',
+          requestId: 'req-2',
+          batchId,
+        }),
+      ];
+      const repository = permissionClaimRepository(rows);
+      configurePendingInteractionPermissionCallbacks({
+        repository: repository as never,
+        applyDecision: vi.fn(async () => true),
+        resolve: vi.fn(async () => true),
+      });
+      const batchClaim = await claimPermissionInteractionCallback({
+        scope: {
+          appId: 'default',
+          sourceAgentFolder: 'agent-a',
+          interactionId: batchId,
+        },
+        mode: 'allow_persistent_rule',
+        approverRef: 'user:a',
+        matchKind: 'batch',
+      });
+      if (batchClaim.status !== 'claimed') {
+        throw new Error('batch claim failed');
+      }
+      if (batchState === 'settled') {
+        await repository.settlePendingPermissionCallback({
+          claim: batchClaim.claim,
+        });
+      }
+
+      await expect(
+        replayPersistedPermissionDecisionForRequest({
+          sourceAgentFolder: 'agent-a',
+          requestId: 'req-1',
+        }),
+      ).resolves.toMatchObject({
+        approved: false,
+        mode: 'cancel',
+        decidedBy: 'system',
+        permissionCallbackClaim: {
+          scope: {
+            appId: 'default',
+            sourceAgentFolder: 'agent-a',
+            interactionId: 'req-1',
+          },
+        },
+      });
+      expect(repository.expirePendingPermissionReviewEach).toHaveBeenCalledWith(
+        {
+          claim: batchClaim.claim,
+          now: expect.any(String),
+        },
+      );
+      expect(repository.prompts[0]).toMatchObject({
+        settlementState: 'review_each_expired',
+        claim: {
+          id: batchClaim.claim.id,
+          intent: {
+            mode: 'allow_persistent_rule',
+            approverRef: 'user:a',
+          },
+        },
+      });
+    },
+  );
+
+  it('keeps an individual member claim ahead of an older settled Review-each batch', async () => {
     const row = permissionRow({
       id: 'settled-batch-rebound-individual',
       agent: 'agent-a',
       requestId: 'req-individual',
     });
-    row.payload.permissionCallbackSettlement = {
+    const settledBatchClaim = {
       id: 'settled-batch-claim',
       scope: {
         appId: 'default',
@@ -2111,24 +2897,57 @@ describe('pending interaction durability', () => {
         providerAliases: [],
       },
     };
+    const individualClaim = {
+      id: 'individual-member-claim',
+      scope: {
+        appId: 'default',
+        sourceAgentFolder: 'agent-a',
+        interactionId: 'req-individual',
+      },
+      intent: {
+        mode: 'allow_once',
+        approverRef: 'user:member-approver',
+        decidedAt: '2026-07-16T00:01:00.000Z',
+      },
+      match: {
+        kind: 'individual',
+        canonicalId: 'req-individual',
+        providerAliases: [],
+      },
+    };
+    row.promptFixture.claim = individualClaim;
+    row.promptFixture.settlementState = 'settled';
     const repository = permissionClaimRepository([row]);
+    repository.prompts[0].parentEnvelopeId = 'settled-batch-parent';
+    repository.prompts.unshift({
+      ...repository.prompts[0],
+      id: 'settled-batch-parent',
+      parentEnvelopeId: null,
+      interactionId: settledBatchClaim.scope.interactionId,
+      matchKind: 'batch',
+      memberCount: 2,
+      claim: settledBatchClaim,
+      settlementState: 'settled',
+    });
     const applyDecision = vi.fn(async () => true);
     const resolve = vi.fn(async () => true);
-    const dispatch = vi.fn(async () => ({ delivered: true }));
     configurePendingInteractionPermissionCallbacks({
       repository: repository as never,
       applyDecision,
       resolve,
     });
-    configurePermissionReviewEachDispatcher(dispatch);
 
     await expect(
       replayPersistedPermissionDecisionForRequest({
         sourceAgentFolder: 'agent-a',
         requestId: 'req-individual',
       }),
-    ).resolves.toBeNull();
-    expect(dispatch).not.toHaveBeenCalled();
+    ).resolves.toMatchObject({
+      approved: true,
+      mode: 'allow_once',
+      decidedBy: 'user:member-approver',
+    });
+    expect(repository.expirePendingPermissionReviewEach).not.toHaveBeenCalled();
     expect(applyDecision).not.toHaveBeenCalled();
     expect(resolve).not.toHaveBeenCalled();
   });
@@ -2167,7 +2986,7 @@ describe('pending interaction durability', () => {
       };
     });
     const repository = {
-      listPendingInteractions: vi.fn(async () => rows),
+      ...pendingInteractionLookups(rows),
       updatePendingInteractionPayload: payloadUpdater(rows),
       resolvePendingInteraction: vi.fn(async () => true),
     };
@@ -2189,7 +3008,6 @@ describe('pending interaction durability', () => {
     );
     expect(repository.resolvePendingInteraction).not.toHaveBeenCalled();
     expect(rows[1]!.payload.questionRecoveryEnvelope).toMatchObject({
-      answers: { 'Choose one': 'agent-b' },
       completedQuestionIndexes: [0],
     });
   });
@@ -2213,7 +3031,7 @@ describe('pending interaction durability', () => {
         ...pending,
         id: input.id,
       })),
-      listPendingInteractions: vi.fn(async () => [pending]),
+      ...pendingInteractionLookups([pending]),
       updatePendingInteractionPayload: payloadUpdater([pending]),
       resolvePendingInteraction: vi.fn(async () => true),
     };
@@ -2270,7 +3088,7 @@ describe('pending interaction durability', () => {
         ...pending,
         id: input.id,
       })),
-      listPendingInteractions: vi.fn(async () => [pending]),
+      ...pendingInteractionLookups([pending]),
       updatePendingInteractionPayload: payloadUpdater([pending]),
       resolvePendingInteraction: vi.fn(async () => true),
     };
@@ -2294,7 +3112,7 @@ describe('pending interaction durability', () => {
     });
   });
 
-  it('completes every question represented by a bulk answer object', async () => {
+  it('marks every question represented by a bulk answer object complete', async () => {
     const request = {
       requestId: 'question-bulk-answers',
       sourceAgentFolder: 'agent-a',
@@ -2307,7 +3125,7 @@ describe('pending interaction durability', () => {
     const pending = pendingQuestionRow(request);
     const repository = {
       createPendingInteraction: vi.fn(async () => pending),
-      listPendingInteractions: vi.fn(async () => [pending]),
+      ...pendingInteractionLookups([pending]),
       updatePendingInteractionPayload: payloadUpdater([pending]),
       resolvePendingInteraction: vi.fn(async () => true),
     };
@@ -2322,7 +3140,6 @@ describe('pending interaction durability', () => {
     ).resolves.toBe(true);
 
     expect(pending.payload.questionRecoveryEnvelope).toMatchObject({
-      answers: { 'First?': 'A', 'Second?': 'B' },
       completedQuestionIndexes: [0, 1],
     });
     expect(repository.resolvePendingInteraction).not.toHaveBeenCalled();
@@ -2357,7 +3174,7 @@ describe('pending interaction durability', () => {
     expect(createPendingInteraction).not.toHaveBeenCalled();
   });
 
-  it('preserves sibling question-envelope writes through the atomic updater', async () => {
+  it('preserves live selection and completion writes through the atomic updater', async () => {
     const request = {
       requestId: 'question-atomic-writers',
       sourceAgentFolder: 'agent-a',
@@ -2390,33 +3207,11 @@ describe('pending interaction durability', () => {
       } as Record<string, unknown>,
     };
     const repository = {
-      listPendingInteractions: vi.fn(async () => [pending]),
+      ...pendingInteractionLookups([pending]),
       updatePendingInteractionPayload: payloadUpdater([pending]),
     };
     configurePendingInteractionDurability({ repository: repository as never });
-    const callback = {
-      providerAlias: 'question-callback',
-      scope: {
-        appId: 'default',
-        sourceAgentFolder: request.sourceAgentFolder,
-        interactionId: request.requestId,
-      },
-      questionIndex: 0,
-    };
-
     await Promise.all([
-      bindPendingQuestionInteractionCallback({
-        sourceAgentFolder: request.sourceAgentFolder,
-        requestId: request.requestId,
-        callbackId: callback.providerAlias,
-        questionIndex: 0,
-      }),
-      bindPendingQuestionOtherPrompt({ callback, promptId: 'other-prompt' }),
-      recordDurableQuestionPromptDelivered({
-        requestId: request.requestId,
-        sourceAgentFolder: request.sourceAgentFolder,
-        questionIndexes: [0],
-      }),
       resolveDurableQuestionInteractionByRequestId({
         requestId: request.requestId,
         sourceAgentFolder: request.sourceAgentFolder,
@@ -2432,44 +3227,9 @@ describe('pending interaction durability', () => {
     ]);
 
     expect(pending.payload.questionRecoveryEnvelope).toMatchObject({
-      callbacks: {
-        'question-callback': expect.objectContaining({ questionIndex: 0 }),
-      },
-      otherPrompts: {
-        'other-prompt': expect.objectContaining({ questionIndex: 0 }),
-      },
-      deliveredQuestionIndexes: [0],
       selections: [{ questionIndex: 0, optionIndexes: [0] }],
-      answers: { 'Continue?': 'Yes' },
       completedQuestionIndexes: [1],
     });
-  });
-
-  it('rejects when a sent question cannot persist its delivery marker', async () => {
-    const repository = {
-      listPendingInteractions: vi.fn(async () => [
-        {
-          appId: 'default',
-          kind: 'question',
-          status: 'pending',
-          idempotencyKey: 'default:question:agent-a:question-delivery-failed',
-          payload: {
-            requestId: 'question-delivery-failed',
-            sourceAgentFolder: 'agent-a',
-          },
-        },
-      ]),
-      updatePendingInteractionPayload: vi.fn(async () => false),
-    };
-    configurePendingInteractionDurability({ repository: repository as never });
-
-    await expect(
-      recordDurableQuestionPromptDelivered({
-        requestId: 'question-delivery-failed',
-        sourceAgentFolder: 'agent-a',
-        questionIndexes: [0],
-      }),
-    ).rejects.toMatchObject({ name: 'DurableInteractionPersistenceError' });
   });
 
   it('persists durable multi-select question choices before final resolution', async () => {
@@ -2513,7 +3273,7 @@ describe('pending interaction durability', () => {
     };
     const repository = {
       createPendingInteraction: vi.fn(async () => pending),
-      listPendingInteractions: vi.fn(async () => [pending]),
+      ...pendingInteractionLookups([pending]),
       updatePendingInteractionPayload: payloadUpdater([pending]),
       resolvePendingInteraction: vi.fn(async () => true),
     };
@@ -2564,53 +3324,6 @@ describe('pending interaction durability', () => {
     });
   });
 
-  it('does not overwrite an already-completed answer with a timeout value', async () => {
-    const request = {
-      requestId: 'question-completed-answer',
-      sourceAgentFolder: 'agent-a',
-      targetJid: 'dc:channel-1',
-      questions: [
-        {
-          question: 'First?',
-          options: [{ label: 'A', description: '' }],
-        },
-      ],
-    };
-    const envelope = questionRecoveryEnvelope(request, request.targetJid);
-    envelope.answers = { 'First?': 'A' };
-    envelope.completedQuestionIndexes = [0];
-    const pending = {
-      appId: 'default',
-      kind: 'question',
-      status: 'pending',
-      idempotencyKey: 'default:question:agent-a:question-completed-answer',
-      payload: {
-        requestId: request.requestId,
-        sourceAgentFolder: request.sourceAgentFolder,
-        questionRecoveryEnvelope: envelope,
-      },
-    };
-    configurePendingInteractionDurability({
-      repository: {
-        listPendingInteractions: vi.fn(async () => [pending]),
-        updatePendingInteractionPayload: payloadUpdater([pending]),
-      } as never,
-    });
-
-    await expect(
-      recordDurableQuestionAnswerProgress({
-        requestId: request.requestId,
-        sourceAgentFolder: request.sourceAgentFolder,
-        answers: { 'First?': '' },
-        completedQuestionIndexes: [0],
-      }),
-    ).resolves.toBe(true);
-
-    expect(pending.payload.questionRecoveryEnvelope.answers).toEqual({
-      'First?': 'A',
-    });
-  });
-
   it('cancels a superseded question lease and reopens the same request for the new lease', async () => {
     const request = {
       requestId: 'question-reask-after-restart',
@@ -2654,6 +3367,11 @@ describe('pending interaction durability', () => {
         ...row,
         id: input.id,
         status: 'pending',
+        runId: input.runId,
+        sourceAgentFolder: input.sourceAgentFolder,
+        requestId: input.requestId,
+        runLeaseToken: input.runLeaseToken,
+        runLeaseFencingVersion: input.runLeaseFencingVersion,
         payload: input.payload,
         callbackRoute: input.callbackRoute,
         resolution: null,
@@ -2666,8 +3384,8 @@ describe('pending interaction durability', () => {
         if (row.id !== input.id || row.status !== 'pending') return false;
         const owningLeaseIsActive =
           row.runId === activeLease.runId &&
-          row.payload.runLeaseToken === activeLease.leaseToken &&
-          row.payload.runLeaseFencingVersion === activeLease.fencingVersion;
+          row.runLeaseToken === activeLease.leaseToken &&
+          row.runLeaseFencingVersion === activeLease.fencingVersion;
         if (owningLeaseIsActive) return false;
         cancelledRow = {
           ...row,
@@ -2723,20 +3441,16 @@ describe('pending interaction durability', () => {
       id: 'question-old-owner',
       status: 'cancelled',
       runId: oldRequest.runId,
-      payload: {
-        runLeaseToken: oldRequest.runLeaseToken,
-        runLeaseFencingVersion: oldRequest.runLeaseFencingVersion,
-      },
+      runLeaseToken: oldRequest.runLeaseToken,
+      runLeaseFencingVersion: oldRequest.runLeaseFencingVersion,
     });
     expect(createPendingInteraction).toHaveBeenCalledTimes(2);
     expect(prompt).toHaveBeenCalledOnce();
     expect(row).toMatchObject({
       status: 'resolved',
       runId: request.runId,
-      payload: {
-        runLeaseToken: request.runLeaseToken,
-        runLeaseFencingVersion: request.runLeaseFencingVersion,
-      },
+      runLeaseToken: request.runLeaseToken,
+      runLeaseFencingVersion: request.runLeaseFencingVersion,
       resolution: { answers: { 'Continue?': 'Yes' } },
     });
     expect(row.id).not.toBe('question-old-owner');
@@ -2759,6 +3473,10 @@ describe('pending interaction durability', () => {
           ...pendingQuestionRow(request),
           id: input.id,
           runId: input.runId,
+          sourceAgentFolder: input.sourceAgentFolder,
+          requestId: input.requestId,
+          runLeaseToken: input.runLeaseToken,
+          runLeaseFencingVersion: input.runLeaseFencingVersion,
           payload: input.payload,
           callbackRoute: input.callbackRoute,
         };
@@ -2770,8 +3488,8 @@ describe('pending interaction durability', () => {
         const ownedByActiveLease =
           row?.status === 'pending' &&
           row.runId === request.runId &&
-          row.payload.runLeaseToken === request.runLeaseToken &&
-          row.payload.runLeaseFencingVersion === request.runLeaseFencingVersion;
+          row.runLeaseToken === request.runLeaseToken &&
+          row.runLeaseFencingVersion === request.runLeaseFencingVersion;
         if (ownedByActiveLease || row?.status !== 'pending') return false;
         row = { ...row, status: 'cancelled' };
         return true;
@@ -2905,6 +3623,10 @@ describe('pending interaction durability', () => {
           id: input.id,
           status: 'pending',
           runId: input.runId,
+          sourceAgentFolder: input.sourceAgentFolder,
+          requestId: input.requestId,
+          runLeaseToken: input.runLeaseToken,
+          runLeaseFencingVersion: input.runLeaseFencingVersion,
           payload: input.payload,
           callbackRoute: input.callbackRoute,
           resolution: null,
@@ -2926,8 +3648,8 @@ describe('pending interaction durability', () => {
         if (row.id !== input.id || row.status !== 'pending') return false;
         const owningLeaseIsActive =
           row.runId === activeLease.runId &&
-          row.payload.runLeaseToken === activeLease.leaseToken &&
-          row.payload.runLeaseFencingVersion === activeLease.fencingVersion;
+          row.runLeaseToken === activeLease.leaseToken &&
+          row.runLeaseFencingVersion === activeLease.fencingVersion;
         if (owningLeaseIsActive) return false;
         successfulCancelIds.push(input.id);
         row = {
@@ -2983,10 +3705,8 @@ describe('pending interaction durability', () => {
       id: reopenedId,
       status: 'resolved',
       runId: request.runId,
-      payload: {
-        runLeaseToken: request.runLeaseToken,
-        runLeaseFencingVersion: request.runLeaseFencingVersion,
-      },
+      runLeaseToken: request.runLeaseToken,
+      runLeaseFencingVersion: request.runLeaseFencingVersion,
       resolution: { answers: { 'Continue?': 'Yes' } },
     });
     expect(resolvePendingInteraction).not.toHaveBeenCalledWith(
@@ -2995,7 +3715,7 @@ describe('pending interaction durability', () => {
   });
 
   it.each([1, 2])(
-    'terminalizes an orphaned %i-question row without recovering answers',
+    'terminalizes and re-asks an orphaned %i-question row',
     async (questionCount) => {
       const request = {
         requestId: `question-restart-${questionCount}`,
@@ -3026,9 +3746,6 @@ describe('pending interaction durability', () => {
           runLeaseFencingVersion: oldRequest.runLeaseFencingVersion,
         },
       };
-      row.payload.questionRecoveryEnvelope.answers = {
-        'Question 1?': 'A',
-      };
       row.payload.questionRecoveryEnvelope.completedQuestionIndexes = [0];
       const createPendingInteraction = vi.fn(async (input: any) => {
         if (row.status !== 'cancelled') return row;
@@ -3037,6 +3754,10 @@ describe('pending interaction durability', () => {
           id: input.id,
           runId: input.runId,
           status: 'pending',
+          sourceAgentFolder: input.sourceAgentFolder,
+          requestId: input.requestId,
+          runLeaseToken: input.runLeaseToken,
+          runLeaseFencingVersion: input.runLeaseFencingVersion,
           payload: input.payload,
           callbackRoute: input.callbackRoute,
           resolution: null,
@@ -3051,9 +3772,8 @@ describe('pending interaction durability', () => {
             input.id === oldId &&
             row.id === oldId &&
             row.status === 'pending' &&
-            row.payload.runLeaseToken === oldRequest.runLeaseToken &&
-            row.payload.runLeaseFencingVersion ===
-              oldRequest.runLeaseFencingVersion;
+            row.runLeaseToken === oldRequest.runLeaseToken &&
+            row.runLeaseFencingVersion === oldRequest.runLeaseFencingVersion;
           if (!ownsOldPendingRow) return false;
           conditionalCancelCount += 1;
           row = {
@@ -3087,11 +3807,10 @@ describe('pending interaction durability', () => {
       expect(row).toMatchObject({
         status: 'pending',
         runId: request.runId,
+        runLeaseToken: request.runLeaseToken,
+        runLeaseFencingVersion: request.runLeaseFencingVersion,
         payload: {
-          runLeaseToken: request.runLeaseToken,
-          runLeaseFencingVersion: request.runLeaseFencingVersion,
           questionRecoveryEnvelope: {
-            answers: {},
             completedQuestionIndexes: [],
           },
         },

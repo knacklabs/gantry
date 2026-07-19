@@ -183,19 +183,6 @@ export interface PermissionRecoveryEnvelope {
   threadId: string | null;
   decisionPolicy: PermissionApprovalRequest['decisionPolicy'] | null;
   renderedRequest: PermissionApprovalRequest;
-  members: Array<{
-    callback: {
-      appId: string;
-      sourceAgentFolder: string;
-      requestId: string;
-      index: number;
-    };
-    request: PermissionApprovalRequest;
-  }>;
-  batch: {
-    canonicalId: string;
-    phase: 'decision' | 'review_each';
-  } | null;
 }
 
 export interface PermissionCallbackScope {
@@ -290,24 +277,13 @@ export interface UserQuestionRequest {
   interaction?: InteractionDescriptor;
 }
 
-export interface QuestionRecoveryCallbackIdentity {
-  appId: string;
-  sourceAgentFolder: string;
-  requestId: string;
-  questionIndex: number;
-}
-
 export interface QuestionRecoveryEnvelope {
   version: 1;
   targetJid: string | null;
   threadId: string | null;
   request: UserQuestionRequest;
-  callbacks: Record<string, QuestionRecoveryCallbackIdentity>;
   selections: Array<{ questionIndex: number; optionIndexes: number[] }>;
-  answers: Record<string, string | string[]>;
   completedQuestionIndexes: number[];
-  deliveredQuestionIndexes: number[];
-  otherPrompts: Record<string, QuestionRecoveryCallbackIdentity>;
 }
 
 export interface UserQuestionResponse {

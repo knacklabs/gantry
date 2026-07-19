@@ -28,18 +28,17 @@ describe('reviewed-capability permission durability', () => {
     'records the $flow request with the key consumed by prompt binding',
     async ({ requestId, toolName }) => {
       const rows: any[] = [];
-      const updatePendingInteractionPayload = vi.fn(async (input: any) => {
-        const row = rows.find(
-          (candidate) => candidate.idempotencyKey === input.idempotencyKey,
+      const events: string[] = [];
+      const bindPendingPermissionPrompt = vi.fn(async (input: any) => {
+        const member = rows.find(
+          (candidate) =>
+            candidate.idempotencyKey === input.members[0]?.idempotencyKey,
         );
-        if (!row) return false;
-        const payload = input.update(row.payload);
-        if (!payload) return false;
-        row.payload = payload;
-        return true;
+        return member ? { prompt: { id: input.id }, members: [member] } : null;
       });
       const repository = {
         createPendingInteraction: vi.fn(async (input: any) => {
+          events.push('durable-record');
           const row = {
             ...input,
             status: 'pending',
@@ -51,8 +50,7 @@ describe('reviewed-capability permission durability', () => {
           rows.push(row);
           return row;
         }),
-        listPendingInteractions: vi.fn(async () => rows),
-        updatePendingInteractionPayload,
+        bindPendingPermissionPrompt,
       };
       configurePendingInteractionDurability({
         repository: repository as never,
@@ -73,6 +71,7 @@ describe('reviewed-capability permission durability', () => {
       let bound = false;
 
       await requestDurableTaskPermissionApproval(request, async () => {
+        events.push('prompt');
         bound = await bindPendingPermissionInteractionMessage({
           request,
           decisionOptions: ['allow_once', 'cancel'],
@@ -93,10 +92,50 @@ describe('reviewed-capability permission durability', () => {
       expect(repository.createPendingInteraction).toHaveBeenCalledWith(
         expect.objectContaining({ idempotencyKey: expectedKey }),
       );
-      expect(updatePendingInteractionPayload).toHaveBeenCalledWith(
-        expect.objectContaining({ idempotencyKey: expectedKey }),
+      expect(bindPendingPermissionPrompt).toHaveBeenCalledWith(
+        expect.objectContaining({
+          members: [expect.objectContaining({ idempotencyKey: expectedKey })],
+        }),
       );
+      expect(events).toEqual(['durable-record', 'prompt']);
       expect(bound).toBe(true);
+    },
+  );
+
+  it.each([
+    ['request_skill_install', 'skill-install-record-failed'],
+    ['request_mcp_server', 'mcp-record-failed'],
+  ])(
+    'withholds the %s prompt when its durable record fails',
+    async (toolName, requestId) => {
+      configurePendingInteractionDurability({
+        repository: {
+          createPendingInteraction: vi.fn(async () => {
+            throw new Error('postgres unavailable');
+          }),
+        } as never,
+      });
+      const prompt = vi.fn();
+
+      await expect(
+        requestDurableTaskPermissionApproval(
+          {
+            requestId,
+            appId: 'app:test' as never,
+            agentId: 'agent:main_agent' as never,
+            sourceAgentFolder: 'main_agent',
+            targetJid: 'sl:C123',
+            decisionPolicy: 'same_channel',
+            decisionOptions: ['allow_once', 'cancel'],
+            toolName,
+            displayName: toolName,
+            description: 'Reviewed capability request.',
+            toolInput: {},
+          },
+          prompt,
+        ),
+      ).rejects.toThrow('postgres unavailable');
+      expect(prompt).not.toHaveBeenCalled();
     },
   );
 });

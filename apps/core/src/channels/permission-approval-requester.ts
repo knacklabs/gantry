@@ -3,7 +3,6 @@ import type {
   PermissionApprovalRequest,
 } from '../domain/types.js';
 import {
-  configurePermissionReviewEachDispatcher,
   DurableInteractionPersistenceError,
   releasePermissionInteractionCallback,
   settlePermissionInteractionCallback,
@@ -315,8 +314,6 @@ export function createPermissionApprovalRequester(input: {
     pending.resolve(decision);
     return true;
   }
-
-  configurePermissionReviewEachDispatcher(dispatchSingleResult);
 
   return (request) => {
     if (!request.runId) return dispatchSingle(request);

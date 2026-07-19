@@ -1,9 +1,6 @@
 import {
-  bindPendingQuestionInteractionCallback,
-  createDurableQuestionCallback,
   DurableInteractionPersistenceError,
   recordDurableQuestionAnswerProgress,
-  recordDurableQuestionPromptDelivered,
   type DurableQuestionCallback,
 } from '../application/interactions/pending-interaction-durability.js';
 import type {
@@ -144,23 +141,15 @@ export async function requestDiscordUserAnswer(input: {
       questionIndex += 1
     ) {
       const question = request.questions[questionIndex]!;
-      const callback = createDurableQuestionCallback({
-        appId: request.appId,
-        sourceAgentFolder: request.sourceAgentFolder,
-        requestId: request.requestId,
-        questionIndex,
-      });
-      if (
-        !(await bindPendingQuestionInteractionCallback({
+      const callback: DurableQuestionCallback = {
+        providerAlias: globalThis.crypto.randomUUID(),
+        scope: {
+          appId: request.appId || 'default',
           sourceAgentFolder: request.sourceAgentFolder,
-          requestId: request.requestId,
-          callbackId: callback.providerAlias,
-          questionIndex,
-          appId: request.appId,
-        }))
-      ) {
-        throw new Error('Discord user question callback binding failed');
-      }
+          interactionId: request.requestId,
+        },
+        questionIndex,
+      };
       callbacks.push(callback);
       input.pendingQuestions.set(callback.providerAlias, pending);
       const text = [
@@ -179,18 +168,6 @@ export async function requestDiscordUserAnswer(input: {
         ),
       });
       if (sent.externalMessageId) {
-        if (
-          !(await recordDurableQuestionPromptDelivered({
-            requestId: request.requestId,
-            appId: request.appId,
-            sourceAgentFolder: request.sourceAgentFolder,
-            questionIndexes: [questionIndex],
-          }))
-        ) {
-          throw new DurableInteractionPersistenceError(
-            'Discord user question delivery was not persisted',
-          );
-        }
         deliveredQuestionIndexes.add(questionIndex);
         input.onPromptDelivered?.(sent.externalMessageId, questionIndex);
       }

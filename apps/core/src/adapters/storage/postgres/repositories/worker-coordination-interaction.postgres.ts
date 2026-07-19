@@ -1,14 +1,6 @@
-import {
-  and,
-  eq,
-  exists,
-  isNotNull,
-  not,
-  notExists,
-  or,
-  sql,
-} from 'drizzle-orm';
-import { alias } from 'drizzle-orm/pg-core';
+import { isDeepStrictEqual } from 'node:util';
+
+import { and, asc, eq, gt, isNotNull, not, sql } from 'drizzle-orm';
 
 import type {
   PendingInteraction,
@@ -19,24 +11,31 @@ import type {
   LiveTurnCommand,
   LiveTurnCommandAppendInput,
 } from '../../../../domain/ports/live-turns.js';
-import type {
-  PermissionCallbackClaim,
-  PermissionCallbackClaimReference,
-  PermissionCallbackScope,
-} from '../../../../domain/types.js';
+import type { PermissionCallbackClaimReference } from '../../../../domain/types.js';
 import * as pgSchema from '../schema/schema.js';
 import type { CanonicalDb } from './canonical-graph-repository.postgres.js';
 import { appendLiveTurnCommandInTransaction } from './live-turn-command-row.postgres.js';
 import { activeRunLeaseTokenFence } from './run-lease-fence.postgres.js';
 import { isUniqueViolation } from './worker-coordination-lease.postgres.js';
 
+type PendingInteractionRow =
+  typeof pgSchema.pendingInteractionsPostgres.$inferSelect;
+type PermissionPromptRow =
+  typeof pgSchema.permissionPromptsPostgres.$inferSelect;
+
 export function toPendingInteraction(
-  row: typeof pgSchema.pendingInteractionsPostgres.$inferSelect,
+  row: PendingInteractionRow,
 ): PendingInteraction {
   return {
     id: row.id,
     appId: row.appId,
     runId: row.runId,
+    sourceAgentFolder: row.sourceAgentFolder,
+    requestId: row.requestId,
+    runLeaseToken: row.runLeaseToken,
+    runLeaseFencingVersion: row.runLeaseFencingVersion,
+    envelopeId: row.envelopeId,
+    memberIndex: row.memberIndex,
     kind: row.kind as PendingInteractionKind,
     status: row.status as PendingInteractionStatus,
     payload: (row.payloadJson ?? {}) as Record<string, unknown>,
@@ -59,6 +58,10 @@ export async function createPendingInteractionRow(
     id: string;
     appId: string;
     runId?: string | null;
+    sourceAgentFolder: string;
+    requestId: string;
+    runLeaseToken?: string | null;
+    runLeaseFencingVersion?: number | null;
     kind: PendingInteractionKind;
     payload: Record<string, unknown>;
     callbackRoute?: Record<string, unknown> | null;
@@ -68,22 +71,28 @@ export async function createPendingInteractionRow(
   },
 ): Promise<PendingInteraction> {
   const table = pgSchema.pendingInteractionsPostgres;
+  const values = {
+    id: input.id,
+    appId: input.appId,
+    runId: input.runId ?? null,
+    sourceAgentFolder: input.sourceAgentFolder,
+    requestId: input.requestId,
+    runLeaseToken: input.runLeaseToken ?? null,
+    runLeaseFencingVersion: input.runLeaseFencingVersion ?? null,
+    envelopeId: null,
+    memberIndex: null,
+    kind: input.kind,
+    status: 'pending' as const,
+    payloadJson: input.payload,
+    callbackRouteJson: input.callbackRoute ?? null,
+    idempotencyKey: input.idempotencyKey,
+    approverRef: null,
+    resolutionJson: null,
+    createdAt: input.now,
+    expiresAt: input.expiresAt,
+    resolvedAt: null,
+  };
   if (input.kind === 'question') {
-    const values = {
-      id: input.id,
-      appId: input.appId,
-      runId: input.runId ?? null,
-      kind: input.kind,
-      status: 'pending' as const,
-      payloadJson: input.payload,
-      callbackRouteJson: input.callbackRoute ?? null,
-      idempotencyKey: input.idempotencyKey,
-      approverRef: null,
-      resolutionJson: null,
-      createdAt: input.now,
-      expiresAt: input.expiresAt,
-      resolvedAt: null,
-    };
     const rows = await db
       .insert(table)
       .values(values)
@@ -104,68 +113,28 @@ export async function createPendingInteractionRow(
       .limit(1);
     return toPendingInteraction(existing[0]!);
   }
-  const incomingPayload = JSON.stringify(input.payload);
   try {
-    const rows = await db
-      .insert(table)
-      .values({
-        id: input.id,
-        appId: input.appId,
-        runId: input.runId ?? null,
-        kind: input.kind,
-        status: 'pending',
-        payloadJson: input.payload,
-        callbackRouteJson: input.callbackRoute ?? null,
-        idempotencyKey: input.idempotencyKey,
-        approverRef: null,
-        resolutionJson: null,
-        createdAt: input.now,
-        expiresAt: input.expiresAt,
-        resolvedAt: null,
-      })
-      .returning();
+    const rows = await db.insert(table).values(values).returning();
     return toPendingInteraction(rows[0]!);
   } catch (err) {
     if (!isUniqueViolation(err)) throw err;
-    const refreshedPayload = sql`${incomingPayload}::jsonb || ${table.payloadJson}`;
+    const incomingPayload = JSON.stringify(input.payload);
     const refreshed = await db
       .update(table)
       .set({
-        payloadJson: sql`CASE
-          WHEN ${table.payloadJson} ? 'permissionCallbackClaim'
-            THEN (${refreshedPayload}
-              - 'permissionBatchCallbackId'
-              - 'permissionCallbackId')
-              || jsonb_build_object(
-                'permissionCallbackClaim',
-                ${table.payloadJson} -> 'permissionCallbackClaim'
-              )
-          WHEN ${table.payloadJson} ? 'permissionCallbackSettlement'
-            THEN (${refreshedPayload}
-              - 'permissionBatchCallbackId'
-              - 'permissionCallbackId')
-              || jsonb_build_object(
-                'permissionCallbackSettlement',
-                ${table.payloadJson} -> 'permissionCallbackSettlement'
-              )
-              || CASE
-                WHEN NOT (${table.payloadJson} ? 'permissionBatchCallbackId')
-                  AND jsonb_typeof(${table.payloadJson} -> 'permissionCallbackId') = 'string'
-                  THEN jsonb_build_object(
-                    'permissionCallbackId',
-                    ${table.payloadJson} -> 'permissionCallbackId'
-                  )
-                ELSE '{}'::jsonb
-              END
-          ELSE ${refreshedPayload}
-        END`,
+        payloadJson: sql`${incomingPayload}::jsonb || ${table.payloadJson}`,
         callbackRouteJson:
           input.callbackRoute ?? sql`${table.callbackRouteJson}`,
+        sourceAgentFolder: input.sourceAgentFolder,
+        requestId: input.requestId,
+        runLeaseToken: input.runLeaseToken ?? null,
+        runLeaseFencingVersion: input.runLeaseFencingVersion ?? null,
         expiresAt: input.expiresAt,
       })
       .where(
         and(
           eq(table.idempotencyKey, input.idempotencyKey),
+          eq(table.kind, 'permission'),
           eq(table.status, 'pending'),
         ),
       )
@@ -193,7 +162,40 @@ export async function resolvePendingInteractionRow(
   },
 ): Promise<{ resolved: boolean; command: LiveTurnCommand | null }> {
   const table = pgSchema.pendingInteractionsPostgres;
+  const prompts = pgSchema.permissionPromptsPostgres;
   return db.transaction(async (tx) => {
+    const [member] = await tx
+      .select()
+      .from(table)
+      .where(eq(table.idempotencyKey, input.idempotencyKey))
+      .for('update')
+      .limit(1);
+    if (!member) return { resolved: false, command: null };
+    const [prompt] = member.envelopeId
+      ? await tx
+          .select()
+          .from(prompts)
+          .where(eq(prompts.id, member.envelopeId))
+          .for('update')
+          .limit(1)
+      : [];
+    const claimMatches = input.permissionCallbackClaim
+      ? permissionResolutionClaimMatches(
+          member,
+          prompt,
+          input.permissionCallbackClaim,
+        )
+      : !prompt?.claimId;
+    if (!claimMatches) return { resolved: false, command: null };
+    if (member.status !== 'pending') {
+      return {
+        resolved:
+          member.kind === 'permission' &&
+          member.status === input.status &&
+          isDeepStrictEqual(member.resolutionJson, input.resolution),
+        command: null,
+      };
+    }
     const rows = await tx
       .update(table)
       .set({
@@ -201,33 +203,29 @@ export async function resolvePendingInteractionRow(
         resolutionJson: input.resolution,
         approverRef: input.approverRef ?? null,
         resolvedAt: input.now,
-        ...(input.permissionCallbackClaim
-          ? {
-              payloadJson: sql`(${table.payloadJson} - 'permissionCallbackClaim')
-                || jsonb_build_object(
-                  'permissionCallbackSettlement',
-                  (${table.payloadJson} -> 'permissionCallbackClaim')
-                    || jsonb_build_object('settledAt', ${input.now}::text)
-                )`,
-            }
-          : {}),
       })
-      .where(
-        and(
-          eq(table.idempotencyKey, input.idempotencyKey),
-          eq(table.status, 'pending'),
-          input.permissionCallbackClaim
-            ? and(
-                eq(table.appId, input.permissionCallbackClaim.scope.appId),
-                sql`${table.payloadJson} #>> '{permissionCallbackClaim,id}' = ${input.permissionCallbackClaim.id}`,
-                sql`${table.payloadJson} #>> '{permissionCallbackClaim,scope,interactionId}' = ${input.permissionCallbackClaim.scope.interactionId}`,
-                sql`${table.payloadJson} #>> '{permissionCallbackClaim,scope,sourceAgentFolder}' = ${input.permissionCallbackClaim.scope.sourceAgentFolder}`,
-              )
-            : sql`NOT (${table.payloadJson} ? 'permissionCallbackClaim')`,
-        ),
-      )
+      .where(and(eq(table.id, member.id), eq(table.status, 'pending')))
       .returning({ id: table.id });
     if (rows.length === 0) return { resolved: false, command: null };
+    if (
+      input.permissionCallbackClaim &&
+      prompt?.settlementState === 'claimed'
+    ) {
+      await tx
+        .update(prompts)
+        .set({
+          settlementState: 'settled',
+          settledAt: input.now,
+          updatedAt: input.now,
+        })
+        .where(
+          and(
+            eq(prompts.id, prompt.id),
+            eq(prompts.claimId, input.permissionCallbackClaim.id),
+            eq(prompts.settlementState, 'claimed'),
+          ),
+        );
+    }
     if (!input.liveTurnCommand) return { resolved: true, command: null };
     const appended = await appendLiveTurnCommandInTransaction(
       tx,
@@ -241,18 +239,33 @@ export async function resolvePendingInteractionRow(
   });
 }
 
+function permissionResolutionClaimMatches(
+  member: PendingInteractionRow,
+  prompt: PermissionPromptRow | undefined,
+  claim: PermissionCallbackClaimReference,
+): boolean {
+  if (!prompt || prompt.appId !== claim.scope.appId) return false;
+  if (prompt.sourceAgentFolder !== claim.scope.sourceAgentFolder) return false;
+  if (
+    ['claimed', 'settled'].includes(prompt.settlementState) &&
+    prompt.claimId === claim.id &&
+    prompt.interactionId === claim.scope.interactionId
+  ) {
+    return true;
+  }
+  return (
+    prompt.settlementState === 'review_each_expired' &&
+    member.requestId !== null &&
+    claim.id === `${prompt.claimId}:expired:${member.requestId}` &&
+    claim.scope.interactionId === member.requestId
+  );
+}
+
 export async function cancelPendingQuestionInteractionIfRunLeaseInactiveRow(
   db: CanonicalDb,
-  input: {
-    id: string;
-    resolution: Record<string, unknown>;
-    now: string;
-  },
+  input: { id: string; resolution: Record<string, unknown>; now: string },
 ): Promise<boolean> {
   const table = pgSchema.pendingInteractionsPostgres;
-  const leaseToken = sql`${table.payloadJson} ->> 'runLeaseToken'`;
-  const fencingVersionText = sql`${table.payloadJson} ->> 'runLeaseFencingVersion'`;
-  const fencingVersion = sql`(${fencingVersionText})::numeric`;
   const rows = await db
     .update(table)
     .set({
@@ -267,15 +280,15 @@ export async function cancelPendingQuestionInteractionIfRunLeaseInactiveRow(
         eq(table.kind, 'question'),
         eq(table.status, 'pending'),
         isNotNull(table.runId),
-        sql`jsonb_typeof(${table.payloadJson} -> 'runLeaseToken') = 'string'`,
-        sql`length(${leaseToken}) > 0`,
-        sql`jsonb_typeof(${table.payloadJson} -> 'runLeaseFencingVersion') = 'number'`,
-        sql`${fencingVersionText} ~ '^[1-9][0-9]*$'`,
+        isNotNull(table.runLeaseToken),
+        sql`length(${table.runLeaseToken}) > 0`,
+        isNotNull(table.runLeaseFencingVersion),
+        gt(table.runLeaseFencingVersion, 0),
         not(
           activeRunLeaseTokenFence({
             runId: sql`${table.runId}`,
-            leaseToken,
-            fencingVersion,
+            leaseToken: sql`${table.runLeaseToken}`,
+            fencingVersion: sql`${table.runLeaseFencingVersion}`,
             now: input.now,
           }),
         ),
@@ -321,279 +334,59 @@ export async function updatePendingInteractionPayloadRow(
   });
 }
 
-export async function claimPendingPermissionCallbackRows(
-  db: CanonicalDb,
-  input: { claim: PermissionCallbackClaim },
-): Promise<PendingInteraction[]> {
-  if (input.claim.match.canonicalId !== input.claim.scope.interactionId) {
-    return [];
-  }
-  const table = pgSchema.pendingInteractionsPostgres;
-  const locator = alias(table, 'permission_callback_locator');
-  const claimed = alias(table, 'permission_callback_claimed');
-  const batchMember = alias(table, 'permission_callback_batch_member');
-  const claim = JSON.stringify(input.claim);
-  const sourceAgentFolder = sql`COALESCE(
-    ${locator.payloadJson} ->> 'sourceAgentFolder',
-    ${locator.payloadJson} #>> '{request,sourceAgentFolder}'
-  )`;
-  const batchMemberSourceAgentFolder = sql`COALESCE(
-    ${batchMember.payloadJson} ->> 'sourceAgentFolder',
-    ${batchMember.payloadJson} #>> '{request,sourceAgentFolder}'
-  )`;
-  const exactBatchMemberCount = db
-    .select({ count: sql<number>`count(*)` })
-    .from(batchMember)
-    .where(
-      and(
-        eq(batchMember.appId, input.claim.scope.appId),
-        eq(batchMember.kind, 'permission'),
-        eq(batchMember.status, 'pending'),
-        sql`${batchMember.expiresAt} > ${input.claim.intent.decidedAt}`,
-        sql`${batchMemberSourceAgentFolder} = ${input.claim.scope.sourceAgentFolder}`,
-        sql`${batchMember.payloadJson} ->> 'permissionBatchCallbackId' = ${input.claim.scope.interactionId}`,
-        sql`jsonb_typeof(${batchMember.payloadJson} -> 'permissionBatchRequestIds') = 'array'`,
-        sql`(${batchMember.payloadJson} -> 'permissionBatchRequestIds') @> (${locator.payloadJson} -> 'permissionBatchRequestIds')`,
-        sql`(${locator.payloadJson} -> 'permissionBatchRequestIds') @> (${batchMember.payloadJson} -> 'permissionBatchRequestIds')`,
-        sql`(${locator.payloadJson} -> 'permissionBatchRequestIds') ? (${batchMember.payloadJson} ->> 'requestId')`,
-      ),
-    );
-  const markedBatchMemberCount = db
-    .select({
-      count: sql<number>`count(DISTINCT ${batchMember.payloadJson} ->> 'requestId')`,
-    })
-    .from(batchMember)
-    .where(
-      and(
-        eq(batchMember.appId, input.claim.scope.appId),
-        eq(batchMember.kind, 'permission'),
-        eq(batchMember.status, 'pending'),
-        sql`${batchMember.expiresAt} > ${input.claim.intent.decidedAt}`,
-        sql`${batchMemberSourceAgentFolder} = ${input.claim.scope.sourceAgentFolder}`,
-        sql`${batchMember.payloadJson} ->> 'permissionBatchCallbackId' = ${input.claim.scope.interactionId}`,
-      ),
-    );
-  const batchClaimGuard =
-    input.claim.match.kind === 'batch'
-      ? and(
-          input.claim.match.providerAliases[0]
-            ? exists(
-                db
-                  .select({ id: locator.id })
-                  .from(locator)
-                  .where(
-                    and(
-                      eq(locator.appId, input.claim.scope.appId),
-                      eq(locator.kind, 'permission'),
-                      eq(locator.status, 'pending'),
-                      sql`${locator.expiresAt} > ${input.claim.intent.decidedAt}`,
-                      sql`${sourceAgentFolder} = ${input.claim.scope.sourceAgentFolder}`,
-                      sql`${locator.payloadJson} ->> 'permissionBatchCallbackId' = ${input.claim.scope.interactionId}`,
-                      sql`${locator.payloadJson} ->> 'permissionCallbackId' = ${input.claim.match.providerAliases[0]}`,
-                      sql`jsonb_typeof(${locator.payloadJson} -> 'permissionBatchRequestIds') = 'array'`,
-                      sql`jsonb_array_length(${locator.payloadJson} -> 'permissionBatchRequestIds') > 0`,
-                      sql`(${exactBatchMemberCount}) = jsonb_array_length(${locator.payloadJson} -> 'permissionBatchRequestIds')`,
-                      sql`(${markedBatchMemberCount}) = jsonb_array_length(${locator.payloadJson} -> 'permissionBatchRequestIds')`,
-                    ),
-                  ),
-              )
-            : undefined,
-          notExists(
-            db
-              .select({ id: claimed.id })
-              .from(claimed)
-              .where(
-                and(
-                  eq(claimed.appId, input.claim.scope.appId),
-                  eq(claimed.kind, 'permission'),
-                  sql`${claimed.payloadJson} #>> '{permissionCallbackClaim,scope,appId}' = ${input.claim.scope.appId}`,
-                  sql`${claimed.payloadJson} #>> '{permissionCallbackClaim,scope,sourceAgentFolder}' = ${input.claim.scope.sourceAgentFolder}`,
-                  sql`${claimed.payloadJson} #>> '{permissionCallbackClaim,scope,interactionId}' = ${input.claim.scope.interactionId}`,
-                ),
-              ),
-          ),
-        )
-      : undefined;
-  const claimedPayload = sql`(
-    ${table.payloadJson} - 'permissionBatchCallbackId' - 'permissionCallbackId'
-  ) || jsonb_build_object(
-    'permissionCallbackClaim',
-    (${claim}::jsonb - 'match') || jsonb_build_object(
-      'match',
-      (${claim}::jsonb -> 'match') || jsonb_build_object(
-        'providerAliases',
-        CASE
-          WHEN jsonb_typeof(${table.payloadJson} -> 'permissionCallbackId') = 'string'
-            THEN jsonb_build_array(${table.payloadJson} -> 'permissionCallbackId')
-          ELSE '[]'::jsonb
-        END
-      )
-    )
-  )`;
-  const rows = await db
-    .update(table)
-    .set({
-      payloadJson:
-        input.claim.match.kind === 'batch' &&
-        input.claim.intent.mode === 'allow_persistent_rule'
-          ? sql`jsonb_set(
-              ${claimedPayload},
-              '{permissionRecoveryEnvelope,batch,phase}',
-              '"review_each"'::jsonb,
-              false
-            )`
-          : claimedPayload,
-    })
-    .where(
-      and(
-        eq(table.appId, input.claim.scope.appId),
-        eq(table.kind, 'permission'),
-        eq(table.status, 'pending'),
-        sql`${table.expiresAt} > ${input.claim.intent.decidedAt}`,
-        sql`COALESCE(
-          ${table.payloadJson} ->> 'sourceAgentFolder',
-          ${table.payloadJson} #>> '{request,sourceAgentFolder}'
-        ) = ${input.claim.scope.sourceAgentFolder}`,
-        sql`NOT (${table.payloadJson} ? 'permissionCallbackClaim')`,
-        input.claim.match.kind === 'batch'
-          ? and(
-              sql`${table.payloadJson} ->> 'permissionBatchCallbackId' = ${input.claim.scope.interactionId}`,
-              sql`jsonb_typeof(${table.payloadJson} -> 'permissionBatchRequestIds') = 'array'`,
-              sql`(${table.payloadJson} -> 'permissionBatchRequestIds') ? (${table.payloadJson} ->> 'requestId')`,
-              batchClaimGuard,
-            )
-          : and(
-              input.claim.match.providerAliases[0]
-                ? sql`${table.payloadJson} ->> 'permissionCallbackId' = ${input.claim.match.providerAliases[0]}`
-                : undefined,
-              sql`${table.payloadJson} ->> 'requestId' = ${input.claim.scope.interactionId}
-                AND NOT (${table.payloadJson} ? 'permissionBatchCallbackId')`,
-            ),
-      ),
-    )
-    .returning();
-  return rows.map(toPendingInteraction);
-}
-
-export async function releasePendingPermissionCallbackRows(
-  db: CanonicalDb,
-  input: { claim: PermissionCallbackClaimReference },
-): Promise<number> {
-  const table = pgSchema.pendingInteractionsPostgres;
-  const storedClaim = sql`${table.payloadJson} -> 'permissionCallbackClaim'`;
-  const rows = await db
-    .update(table)
-    .set({
-      payloadJson: sql`(
-        CASE
-          WHEN ${storedClaim} #>> '{match,kind}' = 'batch'
-            THEN (${table.payloadJson} - 'permissionCallbackClaim')
-              || jsonb_build_object(
-                'permissionBatchCallbackId',
-                ${storedClaim} #>> '{match,canonicalId}'
-              )
-          ELSE ${table.payloadJson} - 'permissionCallbackClaim'
-        END
-      ) || CASE
-        WHEN jsonb_array_length(COALESCE(${storedClaim} #> '{match,providerAliases}', '[]'::jsonb)) > 0
-          THEN jsonb_build_object(
-            'permissionCallbackId',
-            ${storedClaim} #>> '{match,providerAliases,0}'
-          )
-        ELSE '{}'::jsonb
-      END`,
-    })
-    .where(scopedClaimWhere(table, input.claim))
-    .returning({ id: table.id });
-  return rows.length;
-}
-
-export async function settlePendingPermissionCallbackRows(
-  db: CanonicalDb,
-  input: { claim: PermissionCallbackClaimReference },
-): Promise<number> {
-  const table = pgSchema.pendingInteractionsPostgres;
-  const rows = await db
-    .update(table)
-    .set({
-      payloadJson: sql`(${table.payloadJson} - 'permissionCallbackClaim')
-        || jsonb_build_object(
-          'permissionCallbackSettlement',
-          (${table.payloadJson} -> 'permissionCallbackClaim')
-            || jsonb_build_object('settledAt', CURRENT_TIMESTAMP::text)
-        )`,
-    })
-    .where(scopedClaimWhere(table, input.claim))
-    .returning({ id: table.id });
-  return rows.length;
-}
-
-export async function findPendingPermissionInteractionRows(
+export async function findPendingInteractionByRequestRow(
   db: CanonicalDb,
   input: {
-    scope: PermissionCallbackScope;
+    appId: string;
+    kind: PendingInteractionKind;
+    sourceAgentFolder?: string;
+    requestId: string;
     now: string;
-    includeTerminalSettlement?: boolean;
   },
-): Promise<PendingInteraction[]> {
+): Promise<PendingInteraction | null> {
   const table = pgSchema.pendingInteractionsPostgres;
-  const pendingMatch = and(
-    eq(table.status, 'pending'),
-    sql`${table.expiresAt} > ${input.now}`,
-    sql`(
-      (
-        NOT (${table.payloadJson} ? 'permissionCallbackClaim')
-        AND (
-          ${table.payloadJson} ->> 'requestId' = ${input.scope.interactionId}
-          OR ${table.payloadJson} ->> 'permissionBatchCallbackId' = ${input.scope.interactionId}
-        )
-      )
-      OR (
-        ${table.payloadJson} #>> '{permissionCallbackClaim,scope,interactionId}' = ${input.scope.interactionId}
-        AND ${table.payloadJson} #>> '{permissionCallbackClaim,scope,appId}' = ${input.scope.appId}
-        AND ${table.payloadJson} #>> '{permissionCallbackClaim,scope,sourceAgentFolder}' = ${input.scope.sourceAgentFolder}
-      )
-    )`,
-  );
-  const terminalSettlementMatch = sql`
-    ${table.payloadJson} #>> '{permissionCallbackSettlement,scope,interactionId}' = ${input.scope.interactionId}
-    AND ${table.payloadJson} #>> '{permissionCallbackSettlement,scope,appId}' = ${input.scope.appId}
-    AND ${table.payloadJson} #>> '{permissionCallbackSettlement,scope,sourceAgentFolder}' = ${input.scope.sourceAgentFolder}
-  `;
   const rows = await db
     .select()
     .from(table)
     .where(
       and(
-        eq(table.appId, input.scope.appId),
-        eq(table.kind, 'permission'),
-        sql`COALESCE(
-          ${table.payloadJson} ->> 'sourceAgentFolder',
-          ${table.payloadJson} #>> '{request,sourceAgentFolder}'
-        ) = ${input.scope.sourceAgentFolder}`,
-        input.includeTerminalSettlement
-          ? or(pendingMatch, terminalSettlementMatch)
-          : pendingMatch,
+        eq(table.appId, input.appId),
+        eq(table.kind, input.kind),
+        eq(table.status, 'pending'),
+        eq(table.requestId, input.requestId),
+        input.sourceAgentFolder
+          ? eq(table.sourceAgentFolder, input.sourceAgentFolder)
+          : undefined,
+        gt(table.expiresAt, input.now),
       ),
-    );
-  return rows.map(toPendingInteraction);
+    )
+    .orderBy(asc(table.createdAt))
+    .limit(1);
+  return rows[0] ? toPendingInteraction(rows[0]) : null;
 }
 
-function scopedClaimWhere(
-  table: typeof pgSchema.pendingInteractionsPostgres,
-  claim: PermissionCallbackClaimReference,
-) {
-  return and(
-    eq(table.appId, claim.scope.appId),
-    eq(table.kind, 'permission'),
-    eq(table.status, 'pending'),
-    sql`COALESCE(
-      ${table.payloadJson} ->> 'sourceAgentFolder',
-      ${table.payloadJson} #>> '{request,sourceAgentFolder}'
-    ) = ${claim.scope.sourceAgentFolder}`,
-    sql`${table.payloadJson} #>> '{permissionCallbackClaim,id}' = ${claim.id}`,
-    sql`${table.payloadJson} #>> '{permissionCallbackClaim,scope,interactionId}' = ${claim.scope.interactionId}`,
-    sql`${table.payloadJson} #>> '{permissionCallbackClaim,scope,appId}' = ${claim.scope.appId}`,
-    sql`${table.payloadJson} #>> '{permissionCallbackClaim,scope,sourceAgentFolder}' = ${claim.scope.sourceAgentFolder}`,
-  );
+export async function findPendingInteractionByIdempotencyKeyRow(
+  db: CanonicalDb,
+  input: {
+    appId: string;
+    idempotencyKey: string;
+    runId?: string | null;
+    now: string;
+  },
+): Promise<PendingInteraction | null> {
+  const table = pgSchema.pendingInteractionsPostgres;
+  const rows = await db
+    .select()
+    .from(table)
+    .where(
+      and(
+        eq(table.appId, input.appId),
+        eq(table.idempotencyKey, input.idempotencyKey),
+        eq(table.status, 'pending'),
+        gt(table.expiresAt, input.now),
+        input.runId ? eq(table.runId, input.runId) : undefined,
+      ),
+    )
+    .limit(1);
+  return rows[0] ? toPendingInteraction(rows[0]) : null;
 }

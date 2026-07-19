@@ -1,22 +1,19 @@
 import {
   claimPermissionInteractionCallback,
-  findDurablePermissionInteractionByPromptMessage,
-  findDurablePermissionInteractionByRequestId,
+  recoverDurablePermissionDecision,
   releasePermissionInteractionCallback,
-  resolveDurablePermissionInteractionByRequestId,
 } from '../application/interactions/pending-interaction-durability.js';
-import type {
-  PermissionApprovalDecision,
-  PermissionApprovalRequest,
-  PermissionCallbackClaim,
-  PermissionCallbackClaimReference,
-} from '../domain/types.js';
+import type { PermissionApprovalRequest } from '../domain/types.js';
 import {
   decisionForMode,
   permissionDecisionOptions,
 } from './permission-interaction.js';
 import { parsePermissionCustomId } from './discord-components.js';
 import type { DiscordInteraction } from './discord-types.js';
+import {
+  DISCORD_API_ROOT,
+  discordHeaders,
+} from './discord-interaction-helpers.js';
 import {
   consume,
   settle,
@@ -35,6 +32,7 @@ export async function handleDiscordPermissionCallback(input: {
   pendingPermissions: Map<string, PendingDiscordPermission>;
   botToken: string;
   ack: (content: string) => Promise<void>;
+  feedback: (content: string) => Promise<void>;
   resolveConversationContext: (
     channelId: string,
   ) => Promise<DiscordConversationContext>;
@@ -55,7 +53,10 @@ export async function handleDiscordPermissionCallback(input: {
   const pending = input.pendingPermissions.get(parsed.providerAlias);
   const user = input.interaction.member?.user || input.interaction.user;
   const userId = user?.id;
-  if (!userId) return;
+  if (!userId) {
+    await input.feedback('This permission request is no longer active.');
+    return;
+  }
   if (!pending) {
     await recoverDurablePermission({ ...input, parsed, userId });
     return;
@@ -103,6 +104,7 @@ async function recoverDurablePermission(input: {
   parsed: ReturnType<typeof parsePermissionCustomId> & {};
   userId: string;
   botToken: string;
+  feedback: (content: string) => Promise<void>;
   resolveConversationContext: (
     channelId: string,
   ) => Promise<DiscordConversationContext>;
@@ -116,104 +118,54 @@ async function recoverDurablePermission(input: {
 }): Promise<void> {
   const channelId = input.interaction.channel_id;
   const messageId = input.interaction.message?.id;
-  if (!channelId || !messageId) return;
+  if (!channelId || !messageId) {
+    await input.feedback('This permission request is no longer active.');
+    return;
+  }
   const context = await input.resolveConversationContext(channelId);
-  const promptIdentity = {
-    appId: input.appId,
-    provider: 'discord',
-    conversationId: context.conversationJid.replace(/^dc:/, ''),
-    externalMessageId: messageId,
-    ...(context.threadId ? { threadId: context.threadId } : {}),
-  };
-  const activePrompt = await findDurablePermissionInteractionByPromptMessage({
-    ...promptIdentity,
-    providerAlias: input.parsed.providerAlias,
-  });
-  const prompt =
-    activePrompt ??
-    (await findDurablePermissionInteractionByPromptMessage(promptIdentity));
-  if (!prompt) return;
-  if (
-    !activePrompt &&
-    (!prompt.claim ||
-      !prompt.claim.match.providerAliases.includes(input.parsed.providerAlias))
-  ) {
-    return;
-  }
-  const durable = await findDurablePermissionInteractionByRequestId({
-    scope: prompt.scope,
-  });
-  if (!durable) return;
-  const matchKind = prompt.claim?.match.kind ?? prompt.matchKind;
-  if (
-    durable.targetJid !== context.conversationJid ||
-    !(await input.isApproverAllowed(
-      input.userId,
-      durable.sourceAgentFolder,
-      durable.decisionPolicy as PermissionApprovalRequest['decisionPolicy'],
-      durable.threadId ?? undefined,
-      durable.approvalContextJid ?? undefined,
-    )) ||
-    !durable.decisionOptions.includes(input.parsed.mode)
-  ) {
-    return;
-  }
-  const claimed = prompt.claim
-    ? { status: 'claimed' as const, claim: prompt.claim }
-    : await claimPermissionInteractionCallback({
-        scope: prompt.scope,
-        mode: input.parsed.mode,
-        approverRef: input.userId,
-        matchKind,
-        providerAlias: input.parsed.providerAlias,
-      });
-  if (claimed.status === 'already_decided') return;
-  if (claimed.status === 'retryable') return;
-  const decision = recoveredDiscordPermissionDecision(
-    durable.request,
-    prompt.claim,
-    input.parsed.mode,
-    input.userId,
-    claimed.claim,
-    matchKind,
-  );
-  try {
-    if (
-      !(await consume(
+  await recoverDurablePermissionDecision({
+    locator: {
+      kind: 'message',
+      appId: input.appId,
+      provider: 'discord',
+      conversationId: context.conversationJid.replace(/^dc:/, ''),
+      externalMessageId: messageId,
+      ...(context.threadId ? { threadId: context.threadId } : {}),
+      providerAlias: input.parsed.providerAlias,
+    },
+    surfaceJid: context.conversationJid,
+    incomingMode: input.parsed.mode,
+    incomingApprover: input.userId,
+    authorize: (durable) =>
+      input.isApproverAllowed(
+        input.userId,
+        durable.sourceAgentFolder,
+        durable.decisionPolicy as PermissionApprovalRequest['decisionPolicy'],
+        durable.threadId ?? undefined,
+        durable.approvalContextJid ?? undefined,
+      ),
+    terminalize: async (receipt) => {
+      if (receipt.status === 'resolved') {
+        return consume(
+          {
+            channelId,
+            externalMessageId: messageId,
+            request: receipt.request,
+          },
+          input,
+          receipt.decision,
+        );
+      }
+      const response = await fetch(
+        `${DISCORD_API_ROOT}/channels/${encodeURIComponent(channelId)}/messages/${encodeURIComponent(messageId)}`,
         {
-          channelId,
-          externalMessageId: messageId,
-          request: durable.request,
+          method: 'PATCH',
+          headers: discordHeaders(input.botToken),
+          body: JSON.stringify({ content: receipt.text, components: [] }),
         },
-        input,
-        decision,
-      ))
-    ) {
-      await releasePermissionInteractionCallback({ claim: claimed.claim });
-      return;
-    }
-  } catch {
-    await releasePermissionInteractionCallback({ claim: claimed.claim });
-    return;
-  }
-  await resolveDurablePermissionInteractionByRequestId({
-    claim: claimed.claim,
-    reason: 'resolved via Discord after channel restart',
+      );
+      return response.ok;
+    },
+    feedback: input.feedback,
   });
-}
-
-function recoveredDiscordPermissionDecision(
-  request: PermissionApprovalRequest | null,
-  persistedClaim: PermissionCallbackClaim | undefined,
-  incomingMode: NonNullable<PermissionApprovalDecision['mode']>,
-  incomingApprover: string,
-  claim: PermissionCallbackClaimReference,
-  matchKind: PermissionCallbackClaim['match']['kind'],
-): PermissionApprovalDecision {
-  const mode = persistedClaim?.intent.mode ?? incomingMode;
-  const approverRef = persistedClaim?.intent.approverRef ?? incomingApprover;
-  const decision = request
-    ? decisionForMode(request, mode, approverRef, matchKind)
-    : { approved: mode !== 'cancel', mode, decidedBy: approverRef };
-  return { ...decision, permissionCallbackClaim: claim };
 }

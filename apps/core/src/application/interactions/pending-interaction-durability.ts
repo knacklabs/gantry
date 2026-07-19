@@ -29,6 +29,7 @@ import { DurableInteractionPersistenceError } from './pending-interaction-persis
 import {
   persistPendingInteractionResolution,
   type PendingInteractionResolutionBackend,
+  type PendingInteractionResolutionOutcome,
 } from './pending-interaction-resolution.js';
 import { pendingInteractionIdempotencyKey } from './pending-interaction-idempotency.js';
 
@@ -54,6 +55,7 @@ export function configurePendingInteractionDurability(
           repository: next.repository,
           applyDecision: applyPermissionInteractionDecision,
           resolve: resolvePendingInteractionRecord,
+          resolveOutcome: resolvePendingInteractionRecordOutcome,
           ...(next.warn ? { warn: next.warn } : {}),
         }
       : null,
@@ -86,16 +88,19 @@ export async function recordPendingInteractionRequested(input: {
       id: input.interactionId ?? globalThis.crypto.randomUUID(),
       appId: input.appId || DEFAULT_APP_ID,
       runId: input.runId ?? null,
+      sourceAgentFolder: input.sourceAgentFolder,
+      requestId: input.requestId,
+      runLeaseToken: input.runLeaseToken ?? null,
+      runLeaseFencingVersion: input.runLeaseFencingVersion ?? null,
       kind: input.kind,
-      payload: {
-        ...input.payload,
-        sourceAgentFolder: input.sourceAgentFolder,
-        requestId: input.requestId,
-        ...(input.runLeaseToken ? { runLeaseToken: input.runLeaseToken } : {}),
-        ...(typeof input.runLeaseFencingVersion === 'number'
-          ? { runLeaseFencingVersion: input.runLeaseFencingVersion }
-          : {}),
-      },
+      payload:
+        input.kind === 'question'
+          ? {
+              ...input.payload,
+              sourceAgentFolder: input.sourceAgentFolder,
+              requestId: input.requestId,
+            }
+          : input.payload,
       callbackRoute: input.callbackRoute ?? null,
       idempotencyKey: pendingInteractionIdempotencyKey(input),
       expiresAt: toIso(nowMs() + (input.ttlMs ?? DEFAULT_INTERACTION_TTL_MS)),
@@ -121,7 +126,7 @@ export async function cancelPendingQuestionInteractionIfRunLeaseInactive(input: 
   );
 }
 
-export async function resolvePendingInteractionRecord(input: {
+export interface ResolvePendingInteractionRecordInput {
   kind: PendingInteractionKind;
   sourceAgentFolder: string;
   requestId: string;
@@ -131,9 +136,13 @@ export async function resolvePendingInteractionRecord(input: {
   resolution: Record<string, unknown>;
   approverRef?: string | null;
   permissionCallbackClaim?: PermissionCallbackClaimReference | null;
-}): Promise<boolean> {
+}
+
+export async function resolvePendingInteractionRecordOutcome(
+  input: ResolvePendingInteractionRecordInput,
+): Promise<PendingInteractionResolutionOutcome> {
   const active = backend;
-  if (!active) return true;
+  if (!active) return 'resolved';
   return persistPendingInteractionResolution(active, {
     ...input,
     appId: input.appId || DEFAULT_APP_ID,
@@ -141,11 +150,14 @@ export async function resolvePendingInteractionRecord(input: {
   });
 }
 
+export async function resolvePendingInteractionRecord(
+  input: ResolvePendingInteractionRecordInput,
+): Promise<boolean> {
+  return (await resolvePendingInteractionRecordOutcome(input)) === 'resolved';
+}
+
 export {
   bindPendingPermissionInteractionMessage,
-  bindPendingQuestionInteractionCallback,
-  bindPendingQuestionOtherPrompt,
-  createDurableQuestionCallback,
   findDurablePermissionInteractionByPromptMessage,
 } from './pending-interaction-prompt-binding.js';
 export type {
@@ -154,7 +166,6 @@ export type {
 } from './pending-interaction-prompt-binding.js';
 export {
   claimPermissionInteractionCallback,
-  configurePermissionReviewEachDispatcher,
   findDurablePermissionInteractionByRequestId,
   replayPersistedPermissionDecisionForRequest,
   releasePermissionInteractionCallback,
@@ -162,6 +173,14 @@ export {
   settlePermissionInteractionCallback,
 } from './pending-interaction-permission-callback.js';
 export type { DurablePermissionInteractionContext } from './pending-interaction-permission-callback.js';
+export {
+  recoverDurablePermissionDecision,
+  type DurablePermissionRecoveryLocator,
+  type DurablePermissionRecoveryOutcome,
+  type DurablePermissionRecoveryReceipt,
+  type RecoverDurablePermissionDecisionHooks,
+} from './pending-interaction-permission-recovery-orchestrator.js';
+export { samePermissionCallbackLocator } from './pending-interaction-permission-claim.js';
 
 export function applyPermissionInteractionDecision(
   input: PermissionInteractionDecisionInput,
@@ -177,14 +196,12 @@ async function findPendingQuestionRecord(
   appId: string,
   input: { requestId: string; sourceAgentFolder?: string },
 ) {
-  return (await active.repository.listPendingInteractions({ appId })).find(
-    (interaction) =>
-      interaction.kind === 'question' &&
-      interaction.status === 'pending' &&
-      interaction.payload?.requestId === input.requestId &&
-      (!input.sourceAgentFolder ||
-        interaction.payload?.sourceAgentFolder === input.sourceAgentFolder),
-  );
+  return active.repository.findPendingInteractionByRequest({
+    appId,
+    kind: 'question',
+    requestId: input.requestId,
+    sourceAgentFolder: input.sourceAgentFolder,
+  });
 }
 
 export async function resolveDurableQuestionInteractionByRequestId(input: {
@@ -250,21 +267,9 @@ export async function resolveDurableQuestionInteractionByRequestId(input: {
             selections.get(input.questionIndex) ?? new Set<number>(),
           );
         }
-        const selected =
-          selections.get(input.questionIndex) ?? new Set<number>();
-        const labels = [...selected]
-          .sort((a, b) => a - b)
-          .map((index) => question.options[index]?.label?.trim())
-          .filter((label): label is string => Boolean(label));
         return {
           ...envelope,
           selections: serializeQuestionSelections(selections),
-          answers: {
-            ...envelope.answers,
-            [question.question]: question.multiSelect
-              ? labels
-              : (labels[0] ?? ''),
-          },
           completedQuestionIndexes: [
             ...new Set([
               ...envelope.completedQuestionIndexes,
@@ -319,7 +324,6 @@ function mergeQuestionAnswerProgress(
   );
   return {
     ...envelope,
-    answers: { ...envelope.answers, ...answers },
     completedQuestionIndexes: [
       ...new Set([
         ...envelope.completedQuestionIndexes,
@@ -330,62 +334,6 @@ function mergeQuestionAnswerProgress(
       ]),
     ].sort((a, b) => a - b),
   };
-}
-
-export async function recordDurableQuestionPromptDelivered(input: {
-  requestId: string;
-  sourceAgentFolder: string;
-  questionIndexes: number[];
-  appId?: string | null;
-}): Promise<boolean> {
-  const active = backend;
-  if (!active) {
-    throw new DurableInteractionPersistenceError(
-      'Pending question delivery persistence is unavailable',
-    );
-  }
-  try {
-    const appId = input.appId || DEFAULT_APP_ID;
-    const pending = await findPendingQuestionRecord(active, appId, input);
-    if (!pending) {
-      throw new DurableInteractionPersistenceError(
-        'Pending question delivery record is missing',
-      );
-    }
-    const updated = await active.repository.updatePendingInteractionPayload({
-      idempotencyKey: pending.idempotencyKey,
-      update: (payload) => {
-        const envelope = readQuestionRecoveryEnvelope(
-          payload.questionRecoveryEnvelope,
-        );
-        if (!envelope) return null;
-        return {
-          ...payload,
-          questionRecoveryEnvelope: {
-            ...envelope,
-            deliveredQuestionIndexes: [
-              ...new Set([
-                ...envelope.deliveredQuestionIndexes,
-                ...input.questionIndexes,
-              ]),
-            ].sort((a, b) => a - b),
-          },
-        };
-      },
-    });
-    if (!updated) {
-      throw new DurableInteractionPersistenceError(
-        'Pending question delivery record could not be updated',
-      );
-    }
-    return true;
-  } catch (err) {
-    if (err instanceof DurableInteractionPersistenceError) throw err;
-    throw new DurableInteractionPersistenceError(
-      'Pending question delivery could not be persisted',
-      err,
-    );
-  }
 }
 
 async function persistQuestionProgress(input: {

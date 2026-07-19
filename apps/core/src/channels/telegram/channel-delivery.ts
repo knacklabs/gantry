@@ -37,7 +37,6 @@ import {
 import { sendTelegramPlannedChunk } from './send-planned-chunk.js';
 import { appendTelegramDocumentMessageIds as appendDocIds } from './file-delivery.js';
 import { renderTelegramChannelAgentTodo } from './agent-todo-delivery.js';
-import { bindTelegramQuestionCallback } from './prompt-binding.js';
 import { unescapeTelegramEscapedMarkdownV2 } from './markdown-v2-unescape.js';
 import { sendTelegramTyping } from './typing-indicator.js';
 import { renderTelegramRichInteraction } from './rich-interaction.js';
@@ -47,7 +46,6 @@ import { requestTelegramPermissionApproval } from './permission-approval-deliver
 import {
   DurableInteractionPersistenceError,
   recordDurableQuestionAnswerProgress,
-  recordDurableQuestionPromptDelivered,
 } from '../../application/interactions/pending-interaction-durability.js';
 
 export abstract class TelegramChannelDelivery extends TelegramChannelConnect {
@@ -610,7 +608,6 @@ export abstract class TelegramChannelDelivery extends TelegramChannelConnect {
 
       try {
         const callbackId = telegramQuestionCallbackId();
-        await bindTelegramQuestionCallback(request, callbackId, i);
         const sent = await this.sendUserQuestionPromptMessage({
           chatId,
           requestId: request.requestId,
@@ -641,18 +638,6 @@ export abstract class TelegramChannelDelivery extends TelegramChannelConnect {
               outcome,
             ),
         });
-        if (
-          !(await recordDurableQuestionPromptDelivered({
-            requestId: request.requestId,
-            appId: request.appId,
-            sourceAgentFolder: request.sourceAgentFolder,
-            questionIndexes: [i],
-          }))
-        ) {
-          throw new DurableInteractionPersistenceError(
-            'Telegram user question delivery was not persisted',
-          );
-        }
         onPromptDelivered?.(String(sent.messageId), i);
         const selection = await selectionPromise;
 

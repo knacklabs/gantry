@@ -3,15 +3,14 @@ import { PERMISSION_APPROVAL_TIMEOUT_MS } from '../../shared/permission-timeout.
 import {
   PermissionApprovalDecision,
   PermissionApprovalRequest,
-  PermissionCallbackClaim,
-  PermissionCallbackClaimReference,
   PermissionCallbackScope,
 } from '../../domain/types.js';
 import {
   claimPermissionInteractionCallback,
   findDurablePermissionInteractionByRequestId,
-  resolveDurablePermissionInteractionByRequestId,
+  recoverDurablePermissionDecision,
   releasePermissionInteractionCallback,
+  samePermissionCallbackLocator,
 } from '../../application/interactions/pending-interaction-durability.js';
 import {
   buildPermissionPromptFullView,
@@ -301,96 +300,65 @@ export abstract class SlackChannelInteractions extends SlackChannelState {
           ? args.respond
           : undefined;
       if (!pending) {
-        const durable =
-          (await findDurablePermissionInteractionByRequestId({
-            scope: callback.scope,
-            providerAlias: callback.providerAlias,
-          })) ??
-          (await findDurablePermissionInteractionByRequestId({
-            scope: callback.scope,
-          }));
         const callbackChannelId =
           body.channel?.id ||
           body.container?.channel_id ||
           body.message?.channel ||
           '';
-        if (!durable || durable.targetJid !== `sl:${callbackChannelId}`) return;
-        const matchKind = durable.claim?.match.kind ?? callback.matchKind;
-        if (!durable.decisionOptions.includes(mode)) {
-          return;
-        }
-        const allowed = await this.canDecidePermission(
-          userId,
-          durable.sourceAgentFolder,
-          durable.decisionPolicy as PermissionApprovalRequest['decisionPolicy'],
-          durable.approvalContextJid ?? '',
-          durable.threadId ?? undefined,
-          callbackProviderAccountId,
-        );
-        if (!allowed) return;
-        const claimed = durable.claim
-          ? { status: 'claimed' as const, claim: durable.claim }
-          : await claimPermissionInteractionCallback({
-              scope: callback.scope,
-              mode,
-              approverRef: userId,
-              matchKind,
-              providerAlias: callback.providerAlias,
-            });
-        if (claimed.status === 'already_decided') {
-          await respond?.({
-            replace_original: true,
-            text: 'This permission request was already decided.',
-          });
-          return;
-        }
-        if (claimed.status === 'retryable') return;
-        const decision = recoveredSlackPermissionDecision(
-          durable.request,
-          durable.claim,
-          mode,
-          userId,
-          claimed.claim,
-          matchKind,
-        );
-        const text = durable.request
-          ? formatPermissionReceiptText(
-              durable.request.requestId,
-              durable.request,
-              decision,
-            )
-          : decision.approved
-            ? 'Permission allowed.'
-            : 'Permission cancelled.';
-        if (
-          !(await this.terminalizePermissionPrompt(
-            durable.requestId,
-            decision,
-            text,
-            respond,
-          ))
-        ) {
-          await releasePermissionInteractionCallback({ claim: claimed.claim });
-          return;
-        }
-        const resolved = await resolveDurablePermissionInteractionByRequestId({
-          claim: claimed.claim,
-          reason: `resolved via Slack after channel restart`,
-        });
-        if (!resolved) {
-          try {
+        await recoverDurablePermissionDecision({
+          locator: {
+            kind: 'scope',
+            scope: callback.scope,
+            matchKind: callback.matchKind,
+            providerAlias: callback.providerAlias,
+          },
+          surfaceJid: `sl:${callbackChannelId}`,
+          incomingMode: mode,
+          incomingApprover: userId,
+          authorize: (durable) =>
+            this.canDecidePermission(
+              userId,
+              durable.sourceAgentFolder,
+              durable.decisionPolicy as PermissionApprovalRequest['decisionPolicy'],
+              durable.approvalContextJid ?? '',
+              durable.threadId ?? undefined,
+              callbackProviderAccountId,
+            ),
+          terminalize: (receipt) => {
+            const request =
+              receipt.status === 'resolved'
+                ? (receipt.request as PermissionApprovalRequest | null)
+                : null;
+            const text =
+              receipt.status === 'expired'
+                ? receipt.text
+                : request
+                  ? formatPermissionReceiptText(
+                      request.requestId,
+                      request,
+                      receipt.decision,
+                    )
+                  : receipt.text!;
+            return this.terminalizePermissionPrompt(
+              receipt.status === 'resolved'
+                ? receipt.context.requestId
+                : callback.scope.interactionId,
+              receipt.decision,
+              text,
+              respond,
+            );
+          },
+          feedback: async (text) => {
             await this.app?.client.chat.postEphemeral({
               channel: callbackChannelId,
               user: userId,
-              text: 'This approval request is no longer active. Retry the request.',
+              text,
             });
-          } catch {
-            // ignore
-          }
-        }
+          },
+        });
         return;
       }
-      if (!samePermissionCallback(pending.callback, callback)) return;
+      if (!samePermissionCallbackLocator(pending.callback, callback)) return;
       if (!permissionDecisionOptions(pending.request).includes(mode)) {
         return;
       }
@@ -487,7 +455,7 @@ export abstract class SlackChannelInteractions extends SlackChannelState {
       const pending = this.pendingPermissionPrompts.get(callback.providerAlias);
       let fullView: ReturnType<typeof buildPermissionPromptFullView>;
       if (pending && !pending.settled) {
-        if (!samePermissionCallback(pending.callback, callback)) return;
+        if (!samePermissionCallbackLocator(pending.callback, callback)) return;
         if (
           !(await this.canDecidePermission(
             userId,
@@ -618,37 +586,4 @@ function readSlackPermissionCallback(
     },
     matchKind: candidate.matchKind,
   };
-}
-
-function samePermissionCallback(
-  left: SlackPermissionCallback,
-  right: SlackPermissionCallback,
-): boolean {
-  return (
-    left.providerAlias === right.providerAlias &&
-    left.matchKind === right.matchKind &&
-    left.scope.appId === right.scope.appId &&
-    left.scope.sourceAgentFolder === right.scope.sourceAgentFolder &&
-    left.scope.interactionId === right.scope.interactionId
-  );
-}
-
-function recoveredSlackPermissionDecision(
-  request: PermissionApprovalRequest | null,
-  persistedClaim: PermissionCallbackClaim | undefined,
-  incomingMode: NonNullable<PermissionApprovalDecision['mode']>,
-  incomingApprover: string,
-  claim: PermissionCallbackClaimReference,
-  matchKind: PermissionCallbackClaim['match']['kind'],
-): PermissionApprovalDecision {
-  const mode = persistedClaim?.intent.mode ?? incomingMode;
-  const approverRef = persistedClaim?.intent.approverRef ?? incomingApprover;
-  const decision = request
-    ? decisionForMode(request, mode, approverRef, matchKind)
-    : {
-        approved: mode !== 'cancel',
-        mode,
-        decidedBy: approverRef,
-      };
-  return { ...decision, permissionCallbackClaim: claim };
 }

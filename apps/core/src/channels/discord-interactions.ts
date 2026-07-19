@@ -52,6 +52,7 @@ import {
   discordGantrySlashText,
   discordHeaders,
   discordUserName,
+  updateDiscordInteractionResponse,
 } from './discord-interaction-helpers.js';
 import { bindDiscordPermissionPrompt } from './discord-prompt-binding.js';
 import * as permissionPrompt from './discord-permission-prompt-settlement.js';
@@ -491,6 +492,12 @@ export class DiscordInteractionHandler {
       pendingPermissions: this.pendingPermissions,
       botToken: this.input.botToken,
       ack: (content) => this.ackInteraction(interaction, content),
+      feedback: (content) =>
+        updateDiscordInteractionResponse(
+          this.input.applicationId,
+          interaction,
+          content,
+        ),
       resolveConversationContext: (channelId) =>
         this.input.resolveInteractionConversationContext(channelId),
       isApproverAllowed: (userId, folder, policy, threadId, conversationJid) =>

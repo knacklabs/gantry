@@ -10,7 +10,9 @@ import {
   recordPendingInteractionRequested,
   releasePermissionInteractionCallback,
   resolvePendingInteractionRecord,
+  resolvePendingInteractionRecordOutcome,
 } from './pending-interaction-durability.js';
+import type { PendingInteractionResolutionOutcome } from './pending-interaction-resolution.js';
 import { durablePermissionRequestSnapshot } from './pending-interaction-permission-envelope.js';
 
 export { durablePermissionRequestSnapshot } from './pending-interaction-permission-envelope.js';
@@ -71,18 +73,31 @@ export async function finishDurablePermissionInteraction(input: {
     await releaseDecisionClaim(input.decision);
     return false;
   }
-  const resolved = await resolveDurablePermissionInteraction(input);
-  return resolved || resolveDurablePermissionInteraction(input);
+  return resolveDurablePermissionInteraction(input);
 }
 
-export function resolveDurablePermissionInteraction(input: {
+export async function resolveDurablePermissionInteraction(input: {
   request: PermissionApprovalRequest;
   sourceAgentFolder: string;
   decision: PermissionApprovalDecision;
   updatedPermissions?: PermissionApprovalDecision['updatedPermissions'];
   operations?: DurableInteractionOperations;
 }): Promise<boolean> {
-  return (input.operations ?? defaultOperations).resolve({
+  let outcome = await resolveDurablePermissionInteractionOutcome(input);
+  if (outcome === 'retryable_error') {
+    outcome = await resolveDurablePermissionInteractionOutcome(input);
+  }
+  return outcome === 'resolved';
+}
+
+export async function resolveDurablePermissionInteractionOutcome(input: {
+  request: PermissionApprovalRequest;
+  sourceAgentFolder: string;
+  decision: PermissionApprovalDecision;
+  updatedPermissions?: PermissionApprovalDecision['updatedPermissions'];
+  operations?: DurableInteractionOperations;
+}): Promise<PendingInteractionResolutionOutcome> {
+  const resolution = {
     kind: 'permission',
     sourceAgentFolder: input.sourceAgentFolder,
     requestId: input.request.requestId,
@@ -98,7 +113,13 @@ export function resolveDurablePermissionInteraction(input: {
     },
     approverRef: input.decision.decidedBy ?? null,
     permissionCallbackClaim: input.decision.permissionCallbackClaim ?? null,
-  });
+  } as const;
+  if (input.operations) {
+    return (await input.operations.resolve(resolution))
+      ? 'resolved'
+      : 'rejected';
+  }
+  return resolvePendingInteractionRecordOutcome(resolution);
 }
 
 export async function runDurablePermissionInteraction(input: {
@@ -236,12 +257,8 @@ function recordQuestionInteraction(input: {
         targetJid: input.request.targetJid ?? null,
         threadId: input.request.threadId ?? null,
         request: input.request,
-        callbacks: {},
         selections: [],
-        answers: {},
         completedQuestionIndexes: [],
-        deliveredQuestionIndexes: [],
-        otherPrompts: {},
       },
     },
     callbackRoute:

@@ -70,46 +70,6 @@ vi.mock('@core/channels/telegram/prompt-binding.js', async (importOriginal) => {
       const bound = await actual.bindTelegramPermission(...args);
       return bound || !telegramPromptBindingBehavior.strict;
     }),
-    bindTelegramQuestionCallback: vi.fn(async (...args: never[]) => {
-      const request =
-        args[0] as unknown as import('@core/domain/types.js').UserQuestionRequest;
-      const appId = request.appId || 'default';
-      const idempotencyKey = `${appId}:question:${request.sourceAgentFolder}:${request.requestId}`;
-      let interaction = telegramPromptBindingBehavior.interactions.find(
-        (candidate) => candidate.idempotencyKey === idempotencyKey,
-      );
-      if (!interaction) {
-        interaction = {
-          appId,
-          kind: 'question',
-          status: 'pending',
-          idempotencyKey,
-          payload: {
-            requestId: request.requestId,
-            sourceAgentFolder: request.sourceAgentFolder,
-            request,
-            questionRecoveryEnvelope: {
-              version: 1,
-              targetJid: request.targetJid ?? 'tg:100200300',
-              threadId: request.threadId ?? null,
-              request,
-              callbacks: {},
-              selections: [],
-              answers: {},
-              completedQuestionIndexes: [],
-              deliveredQuestionIndexes: [],
-              otherPrompts: {},
-            },
-          },
-        };
-        telegramPromptBindingBehavior.interactions.push(interaction);
-      }
-      try {
-        await actual.bindTelegramQuestionCallback(...args);
-      } catch (err) {
-        if (telegramPromptBindingBehavior.strict) throw err;
-      }
-    }),
   };
 });
 
@@ -203,10 +163,7 @@ import {
   TelegramChannel,
   TelegramChannelOpts,
 } from '@core/channels/telegram/channel-adapter.js';
-import {
-  configurePendingInteractionDurability,
-  configurePermissionReviewEachDispatcher,
-} from '@core/application/interactions/pending-interaction-durability.js';
+import { configurePendingInteractionDurability } from '@core/application/interactions/pending-interaction-durability.js';
 import { writeTelegramFetchResponseToFile } from '@core/channels/telegram-file-download.js';
 import { logger } from '@core/infrastructure/logging/logger.js';
 import { makeAgentThreadQueueKey } from '@core/shared/thread-queue-key.js';
@@ -217,7 +174,13 @@ import type {
   PermissionCallbackClaim,
   PermissionCallbackClaimReference,
   PermissionCallbackScope,
+  UserQuestionRequest,
 } from '@core/domain/types.js';
+import type {
+  PendingInteraction,
+  PermissionPrompt,
+  PermissionPromptGroup,
+} from '@core/domain/ports/worker-coordination.js';
 import type {
   GroupJoinOnboardingCoordinator,
   GroupJoinOnboardingRecord,
@@ -640,96 +603,317 @@ const flushPromises = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 function permissionClaimRepository(
   interactions: Array<{
+    [key: string]: any;
     appId: string;
     payload: Record<string, unknown>;
   }>,
 ) {
-  const find = (scope: PermissionCallbackScope) =>
-    interactions.filter((interaction) => {
-      const claim = interaction.payload.permissionCallbackClaim as
-        | PermissionCallbackClaim
-        | undefined;
-      return (
-        interaction.appId === scope.appId &&
-        interaction.payload.sourceAgentFolder === scope.sourceAgentFolder &&
-        (claim?.scope.interactionId === scope.interactionId ||
-          interaction.payload.requestId === scope.interactionId ||
-          interaction.payload.permissionBatchCallbackId === scope.interactionId)
-      );
-    });
+  const prompts: PermissionPrompt[] = [];
+  const normalize = (interaction: (typeof interactions)[number]) => {
+    interaction.sourceAgentFolder ??=
+      (interaction.payload.sourceAgentFolder as string | undefined) ?? null;
+    interaction.requestId ??=
+      (interaction.payload.requestId as string | undefined) ?? null;
+    interaction.runId ??= null;
+    interaction.runLeaseToken ??= null;
+    interaction.runLeaseFencingVersion ??= null;
+    interaction.envelopeId ??= null;
+    interaction.memberIndex ??= null;
+    interaction.callbackRoute ??= null;
+    interaction.approverRef ??= null;
+    interaction.resolution ??= null;
+    interaction.createdAt ??= '2026-07-16T00:00:00.000Z';
+    interaction.expiresAt ??= '2026-07-17T00:00:00.000Z';
+    interaction.resolvedAt ??= null;
+    return interaction as PendingInteraction;
+  };
+  const members = (prompt: PermissionPrompt) =>
+    interactions
+      .map(normalize)
+      .filter((interaction) => interaction.envelopeId === prompt.id)
+      .sort((left, right) => left.memberIndex! - right.memberIndex!);
+  const group = (prompt: PermissionPrompt): PermissionPromptGroup => ({
+    prompt,
+    members: members(prompt),
+  });
+  const findPrompt = (
+    scope: PermissionCallbackScope,
+    includeTerminalSettlement = false,
+  ) =>
+    prompts.findLast(
+      (prompt) =>
+        prompt.appId === scope.appId &&
+        prompt.sourceAgentFolder === scope.sourceAgentFolder &&
+        prompt.interactionId === scope.interactionId &&
+        (includeTerminalSettlement ||
+          prompt.settlementState === 'open' ||
+          prompt.settlementState === 'claimed' ||
+          prompt.settlementState === 'review_each_expired'),
+    );
   return {
-    findPendingPermissionInteractions: vi.fn(
-      async ({ scope }: { scope: PermissionCallbackScope }) => find(scope),
+    bindPendingPermissionPrompt: vi.fn(
+      async (input: {
+        id: string;
+        appId: string;
+        sourceAgentFolder: string;
+        interactionId: string;
+        matchKind: 'individual' | 'batch';
+        members: Array<{
+          idempotencyKey: string;
+          requestId: string;
+          index: number;
+        }>;
+        envelope: PermissionPrompt['envelope'];
+        fullView?: Record<string, unknown> | null;
+        externalPromptProvider?: string | null;
+        externalPromptConversationId?: string | null;
+        externalPromptMessageId?: string | null;
+        externalPromptThreadId?: string | null;
+        providerAliases: string[];
+      }) => {
+        const selected = input.members.map((member) => ({
+          member,
+          interaction: interactions.find(
+            (candidate) =>
+              candidate.idempotencyKey === member.idempotencyKey &&
+              candidate.status === 'pending',
+          ),
+        }));
+        if (selected.some(({ interaction }) => !interaction)) return null;
+        const previous = selected
+          .map(({ interaction }) => interaction?.envelopeId)
+          .filter((id): id is string => Boolean(id))
+          .map((id) => prompts.find((prompt) => prompt.id === id))
+          .find((prompt) => prompt?.settlementState === 'settled');
+        const now = '2026-07-16T00:00:00.000Z';
+        const prompt: PermissionPrompt = {
+          id: input.id,
+          parentEnvelopeId: previous?.id ?? null,
+          appId: input.appId,
+          sourceAgentFolder: input.sourceAgentFolder,
+          interactionId: input.interactionId,
+          matchKind: input.matchKind,
+          memberCount: input.members.length,
+          envelope: input.envelope,
+          fullView: input.fullView ?? null,
+          externalPromptProvider: input.externalPromptProvider ?? null,
+          externalPromptConversationId:
+            input.externalPromptConversationId ?? null,
+          externalPromptMessageId: input.externalPromptMessageId ?? null,
+          externalPromptThreadId: input.externalPromptThreadId ?? null,
+          providerAliases: [...input.providerAliases],
+          claim: null,
+          settlementState: 'open',
+          settledAt: null,
+          createdAt: now,
+          updatedAt: now,
+        };
+        prompts.push(prompt);
+        for (const { member, interaction } of selected) {
+          interaction!.sourceAgentFolder = input.sourceAgentFolder;
+          interaction!.requestId = member.requestId;
+          interaction!.envelopeId = prompt.id;
+          interaction!.memberIndex = member.index;
+        }
+        return group(prompt);
+      },
     ),
     claimPendingPermissionCallback: vi.fn(
       async ({ claim }: { claim: PermissionCallbackClaim }) => {
-        const claimed = find(claim.scope).filter((interaction) => {
-          if (interaction.payload.permissionCallbackClaim) return false;
-          if (
-            claim.match.providerAliases[0] &&
-            interaction.payload.permissionCallbackId !==
-              claim.match.providerAliases[0]
-          ) {
-            return false;
-          }
-          return claim.match.kind === 'batch'
-            ? interaction.payload.permissionBatchCallbackId ===
-                claim.scope.interactionId
-            : interaction.payload.requestId === claim.scope.interactionId &&
-                !interaction.payload.permissionBatchCallbackId;
-        });
-        for (const interaction of claimed) {
-          delete interaction.payload.permissionBatchCallbackId;
-          delete interaction.payload.permissionCallbackId;
-          interaction.payload.permissionCallbackClaim = claim;
-          if (
-            claim.match.kind === 'batch' &&
-            claim.intent.mode === 'allow_persistent_rule'
-          ) {
-            const envelope = interaction.payload.permissionRecoveryEnvelope as
-              | { batch?: { phase?: string } }
-              | undefined;
-            if (envelope?.batch) envelope.batch.phase = 'review_each';
-          }
+        const prompt = findPrompt(claim.scope);
+        if (
+          !prompt ||
+          prompt.claim ||
+          prompt.settlementState !== 'open' ||
+          prompt.matchKind !== claim.match.kind ||
+          (claim.match.providerAliases[0] &&
+            !prompt.providerAliases.includes(claim.match.providerAliases[0]))
+        ) {
+          return null;
         }
-        return claimed;
+        prompt.claim = claim;
+        prompt.settlementState = 'claimed';
+        prompt.updatedAt = claim.intent.decidedAt;
+        return group(prompt);
       },
     ),
     releasePendingPermissionCallback: vi.fn(
       async ({ claim }: { claim: PermissionCallbackClaimReference }) => {
-        let released = 0;
-        for (const interaction of find(claim.scope)) {
-          const stored = interaction.payload.permissionCallbackClaim as
-            | PermissionCallbackClaim
-            | undefined;
-          if (stored?.id !== claim.id) continue;
-          delete interaction.payload.permissionCallbackClaim;
-          if (stored.match.kind === 'batch') {
-            interaction.payload.permissionBatchCallbackId =
-              stored.match.canonicalId;
-          }
-          if (stored.match.providerAliases[0]) {
-            interaction.payload.permissionCallbackId =
-              stored.match.providerAliases[0];
-          }
-          released += 1;
-        }
-        return released;
+        const prompt = findPrompt(claim.scope, true);
+        if (prompt?.claim?.id !== claim.id) return false;
+        prompt.claim = null;
+        prompt.settlementState = 'open';
+        prompt.settledAt = null;
+        return true;
       },
     ),
     settlePendingPermissionCallback: vi.fn(
       async ({ claim }: { claim: PermissionCallbackClaimReference }) => {
-        let settled = 0;
-        for (const interaction of find(claim.scope)) {
-          const stored = interaction.payload.permissionCallbackClaim as
-            | PermissionCallbackClaim
-            | undefined;
-          if (stored?.id !== claim.id) continue;
-          delete interaction.payload.permissionCallbackClaim;
-          settled += 1;
-        }
-        return settled;
+        const prompt = findPrompt(claim.scope, true);
+        if (prompt?.claim?.id !== claim.id) return false;
+        prompt.settlementState = 'settled';
+        prompt.settledAt = prompt.claim.intent.decidedAt;
+        return true;
       },
+    ),
+    expirePendingPermissionReviewEach: vi.fn(
+      async ({
+        claim,
+        now,
+      }: {
+        claim: PermissionCallbackClaimReference;
+        now: string;
+      }) => {
+        const prompt = findPrompt(claim.scope, true);
+        if (
+          prompt?.claim?.id !== claim.id ||
+          prompt.claim.match.kind !== 'batch' ||
+          prompt.claim.intent.mode !== 'allow_persistent_rule'
+        ) {
+          return null;
+        }
+        prompt.settlementState = 'review_each_expired';
+        prompt.settledAt = now;
+        prompt.updatedAt = now;
+        return group(prompt);
+      },
+    ),
+    findPendingPermissionPrompt: vi.fn(
+      async ({
+        scope,
+        includeTerminalSettlement,
+      }: {
+        scope: PermissionCallbackScope;
+        includeTerminalSettlement?: boolean;
+      }) => {
+        const prompt = findPrompt(scope, includeTerminalSettlement);
+        return prompt ? group(prompt) : null;
+      },
+    ),
+    findPendingPermissionPromptByMember: vi.fn(
+      async ({
+        appId,
+        sourceAgentFolder,
+        requestId,
+      }: {
+        appId: string;
+        sourceAgentFolder: string;
+        requestId: string;
+      }) => {
+        const interaction = interactions
+          .map(normalize)
+          .find(
+            (candidate) =>
+              candidate.appId === appId &&
+              candidate.sourceAgentFolder === sourceAgentFolder &&
+              candidate.requestId === requestId &&
+              candidate.status === 'pending',
+          );
+        const prompt = interaction?.envelopeId
+          ? prompts.find((candidate) => candidate.id === interaction.envelopeId)
+          : null;
+        return prompt ? group(prompt) : null;
+      },
+    ),
+    findPendingPermissionPromptByMessage: vi.fn(
+      async ({
+        appId,
+        provider,
+        conversationId,
+        externalMessageId,
+        threadId,
+      }: {
+        appId: string;
+        provider: string;
+        conversationId: string;
+        externalMessageId: string;
+        threadId?: string | null;
+      }) => {
+        const prompt = prompts.findLast(
+          (candidate) =>
+            candidate.appId === appId &&
+            candidate.externalPromptProvider === provider &&
+            candidate.externalPromptConversationId === conversationId &&
+            candidate.externalPromptMessageId === externalMessageId &&
+            candidate.externalPromptThreadId === (threadId ?? null),
+        );
+        return prompt ? group(prompt) : null;
+      },
+    ),
+    findPendingInteractionByRequest: vi.fn(
+      async ({
+        appId,
+        kind,
+        sourceAgentFolder,
+        requestId,
+      }: {
+        appId: string;
+        kind: string;
+        sourceAgentFolder?: string;
+        requestId: string;
+      }) =>
+        interactions
+          .map(normalize)
+          .find(
+            (candidate) =>
+              candidate.appId === appId &&
+              candidate.kind === kind &&
+              (!sourceAgentFolder ||
+                candidate.sourceAgentFolder === sourceAgentFolder) &&
+              candidate.requestId === requestId &&
+              candidate.status === 'pending',
+          ) ?? null,
+    ),
+    findPendingInteractionByIdempotencyKey: vi.fn(
+      async ({
+        appId,
+        idempotencyKey,
+        runId,
+      }: {
+        appId: string;
+        idempotencyKey: string;
+        runId?: string | null;
+      }) =>
+        interactions
+          .map(normalize)
+          .find(
+            (candidate) =>
+              candidate.appId === appId &&
+              candidate.idempotencyKey === idempotencyKey &&
+              (runId === undefined || candidate.runId === runId) &&
+              candidate.status === 'pending',
+          ) ?? null,
+    ),
+    resolvePendingInteraction: vi.fn(
+      async ({
+        idempotencyKey,
+        status,
+        resolution,
+        approverRef,
+      }: {
+        idempotencyKey: string;
+        status: string;
+        resolution: Record<string, unknown>;
+        approverRef?: string | null;
+      }) => {
+        const interaction = interactions.find(
+          (candidate) => candidate.idempotencyKey === idempotencyKey,
+        );
+        if (!interaction || interaction.status !== 'pending') return false;
+        interaction.status = status;
+        interaction.resolution = resolution;
+        interaction.approverRef = approverRef ?? null;
+        interaction.resolvedAt = '2026-07-16T00:00:00.000Z';
+        return true;
+      },
+    ),
+    listPendingInteractions: vi.fn(async () =>
+      interactions
+        .map(normalize)
+        .filter((interaction) => interaction.status === 'pending'),
+    ),
+    updatePendingInteractionPayload: vi.fn((input) =>
+      updatePendingInteractionPayload(interactions, input),
     ),
   };
 }
@@ -756,12 +940,46 @@ async function updatePendingInteractionPayload(
   return true;
 }
 
+function requestTelegramUserAnswer(
+  channel: TelegramChannel,
+  jid: string,
+  request: UserQuestionRequest,
+) {
+  const appId = request.appId || 'default';
+  const idempotencyKey = `${appId}:question:${request.sourceAgentFolder}:${request.requestId}`;
+  if (
+    !telegramPromptBindingBehavior.interactions.some(
+      (interaction) => interaction.idempotencyKey === idempotencyKey,
+    )
+  ) {
+    telegramPromptBindingBehavior.interactions.push({
+      appId,
+      kind: 'question',
+      status: 'pending',
+      idempotencyKey,
+      payload: {
+        requestId: request.requestId,
+        sourceAgentFolder: request.sourceAgentFolder,
+        request,
+        questionRecoveryEnvelope: {
+          version: 1,
+          targetJid: request.targetJid ?? jid,
+          threadId: request.threadId ?? null,
+          request,
+          selections: [],
+          completedQuestionIndexes: [],
+        },
+      },
+    });
+  }
+  return channel.requestUserAnswer(jid, request);
+}
+
 describe('TelegramChannel', () => {
   let savedGantryHome: string | undefined;
 
   beforeEach(() => {
     vi.clearAllMocks();
-    configurePermissionReviewEachDispatcher(null);
     telegramPromptBindingBehavior.strict = false;
     telegramPromptBindingBehavior.interactions.length = 0;
     savedGantryHome = process.env.GANTRY_HOME;
@@ -798,7 +1016,6 @@ describe('TelegramChannel', () => {
   });
 
   afterEach(() => {
-    configurePermissionReviewEachDispatcher(null);
     configurePendingInteractionDurability(null);
     if (savedGantryHome === undefined) delete process.env.GANTRY_HOME;
     else process.env.GANTRY_HOME = savedGantryHome;
@@ -4389,17 +4606,14 @@ describe('TelegramChannel', () => {
         expiresAt: '2026-07-17T00:00:00.000Z',
         resolvedAt: null,
       }));
-      const listPendingInteractions = vi
-        .fn()
-        .mockResolvedValueOnce(requests)
-        .mockResolvedValueOnce([]);
+      const repository = permissionClaimRepository(requests);
+      const bindPendingPermissionPrompt =
+        repository.bindPendingPermissionPrompt.getMockImplementation()!;
+      repository.bindPendingPermissionPrompt
+        .mockImplementationOnce(bindPendingPermissionPrompt)
+        .mockResolvedValueOnce(null);
       configurePendingInteractionDurability({
-        repository: {
-          listPendingInteractions,
-          updatePendingInteractionPayload: vi.fn((input) =>
-            updatePendingInteractionPayload(requests, input),
-          ),
-        } as never,
+        repository: repository as never,
       });
       telegramPromptBindingBehavior.strict = true;
       const channel = new TelegramChannel('test-token', createTestOpts());
@@ -4425,7 +4639,7 @@ describe('TelegramChannel', () => {
       ).resolves.toMatchObject({ approved: false });
 
       expect(currentBot().api.sendMessage).toHaveBeenCalledOnce();
-      expect(listPendingInteractions).toHaveBeenCalledTimes(2);
+      expect(repository.bindPendingPermissionPrompt).toHaveBeenCalledTimes(2);
       expect(onPromptDelivered).not.toHaveBeenCalled();
       expect((channel as any).pendingPermissionPrompts.size).toBe(0);
     });
@@ -4433,17 +4647,14 @@ describe('TelegramChannel', () => {
     it('propagates Telegram post-send permission persistence failure and retains the waiter', async () => {
       telegramPromptBindingBehavior.strict = true;
       const interactions = telegramPromptBindingBehavior.interactions;
-      let updates = 0;
+      const repository = permissionClaimRepository(interactions);
+      const bindPendingPermissionPrompt =
+        repository.bindPendingPermissionPrompt.getMockImplementation()!;
+      repository.bindPendingPermissionPrompt
+        .mockImplementationOnce(bindPendingPermissionPrompt)
+        .mockRejectedValueOnce(new Error('write failed'));
       configurePendingInteractionDurability({
-        repository: {
-          ...permissionClaimRepository(interactions),
-          listPendingInteractions: vi.fn(async () => interactions),
-          updatePendingInteractionPayload: vi.fn(async (input) => {
-            updates += 1;
-            if (updates === 2) throw new Error('write failed');
-            return await updatePendingInteractionPayload(interactions, input);
-          }),
-        } as never,
+        repository: repository as never,
       });
       const channel = new TelegramChannel('test-token', createTestOpts());
       await channel.connect();
@@ -4685,11 +4896,8 @@ describe('TelegramChannel', () => {
         expect.objectContaining({ approved: false, mode: 'cancel' }),
       ]);
       for (const request of requests) {
-        expect(request.payload).not.toHaveProperty('permissionBatchCallbackId');
-        expect(request.payload).not.toHaveProperty('permissionBatchRequestIds');
-        expect(request.payload.permissionRecoveryEnvelope).toMatchObject({
-          batch: null,
-        });
+        expect(request.envelopeId).toEqual(expect.any(String));
+        expect(request.memberIndex).toBe(0);
       }
       expect(currentBot().api.sendMessage).toHaveBeenCalledTimes(3);
     });
@@ -4761,9 +4969,24 @@ describe('TelegramChannel', () => {
         (button: { text: string }) => button.text === 'Review each',
       )?.callback_data;
       const providerCallbackId = String(allowAll).split(':').at(-1);
-      expect(requests[0]?.payload).toMatchObject({
-        permissionCallbackId: providerCallbackId,
-        permissionBatchCallbackId: batch.requestId,
+      expect(claims.bindPendingPermissionPrompt).toHaveBeenCalledWith({
+        id: expect.any(String),
+        appId: 'default',
+        sourceAgentFolder: 'whatsapp_main',
+        interactionId: batch.requestId,
+        matchKind: 'batch',
+        members: requests.map((request, index) => ({
+          idempotencyKey: request.idempotencyKey,
+          requestId: request.payload.requestId,
+          index,
+        })),
+        envelope: expect.any(Object),
+        fullView: null,
+        externalPromptProvider: 'telegram',
+        externalPromptConversationId: '100200300',
+        externalPromptMessageId: '987',
+        externalPromptThreadId: null,
+        providerAliases: [providerCallbackId],
       });
       const allowContext = {
         callbackQuery: { data: allowAll },
@@ -4808,7 +5031,7 @@ describe('TelegramChannel', () => {
       });
     });
 
-    it('resolves every durable batch row from an opaque callback after restart', async () => {
+    it('routes recovered Telegram clicks through application orchestrator transport hooks', async () => {
       const requests = ['perm-batch-1', 'perm-batch-2'].map((requestId) => ({
         id: `pending-${requestId}`,
         appId: 'default',
@@ -4903,12 +5126,40 @@ describe('TelegramChannel', () => {
         }),
       );
       expect(callbackCtx.answerCallbackQuery).toHaveBeenCalledWith({
-        text: 'Decision recorded. Details will update in chat.',
+        text: 'Decision recorded.',
         show_alert: false,
       });
     });
 
-    it('recovers Review each by dispatching every member prompt before settlement', async () => {
+    it('terminalizes a stale Telegram prompt when durable recovery misses', async () => {
+      const channel = new TelegramChannel('test-token', createTestOpts());
+      await channel.connect();
+      const callbackCtx = {
+        callbackQuery: {
+          data: 'perm:allow_once:stale-recovery-alias',
+          message: { message_id: 444, chat: { id: 100200300 } },
+        },
+        chat: { id: 100200300 },
+        from: { id: 222, first_name: 'Admin' },
+        api: currentBot().api,
+        answerCallbackQuery: vi.fn().mockResolvedValue(undefined),
+      };
+
+      await triggerCallbackQuery(callbackCtx);
+
+      expect(currentBot().api.editMessageText).toHaveBeenCalledWith(
+        '100200300',
+        444,
+        'This permission request is no longer active.',
+        expect.objectContaining({ reply_markup: { inline_keyboard: [] } }),
+      );
+      expect(callbackCtx.answerCallbackQuery).toHaveBeenCalledWith({
+        text: 'This permission request is no longer active.',
+        show_alert: true,
+      });
+    });
+
+    it('expires a recovered Review-each batch and terminalizes the stale Telegram prompt', async () => {
       const requests = ['perm-review-1', 'perm-review-2'].map((requestId) => ({
         id: `pending-${requestId}`,
         appId: 'default',
@@ -4969,23 +5220,6 @@ describe('TelegramChannel', () => {
         createTestOpts(),
       );
       await recoveredChannel.connect();
-      const dispatchRecoveredMember = vi.fn(async (request: any) => ({
-        delivered: true as const,
-        decision: {
-          approved: false,
-          mode: 'cancel' as const,
-          decidedBy: '222',
-          permissionCallbackClaim: {
-            id: `member-claim-${request.requestId}`,
-            scope: {
-              appId: 'default',
-              sourceAgentFolder: request.sourceAgentFolder,
-              interactionId: request.requestId,
-            },
-          },
-        },
-      }));
-      configurePermissionReviewEachDispatcher(dispatchRecoveredMember);
       const callbackCtx = {
         callbackQuery: {
           data: callbackData,
@@ -5005,8 +5239,8 @@ describe('TelegramChannel', () => {
           match: expect.objectContaining({ kind: 'batch' }),
         }),
       });
-      expect(claims.settlePendingPermissionCallback).toHaveBeenCalledOnce();
-      expect(dispatchRecoveredMember).toHaveBeenCalledTimes(2);
+      expect(claims.expirePendingPermissionReviewEach).toHaveBeenCalledOnce();
+      expect(claims.settlePendingPermissionCallback).not.toHaveBeenCalled();
       expect(repository.resolvePendingInteraction).toHaveBeenCalledTimes(2);
       expect(
         repository.resolvePendingInteraction.mock.calls.map(
@@ -5016,8 +5250,14 @@ describe('TelegramChannel', () => {
         'default:permission:whatsapp_main:perm-review-1',
         'default:permission:whatsapp_main:perm-review-2',
       ]);
+      expect(currentBot().api.editMessageText).toHaveBeenCalledWith(
+        '100200300',
+        987,
+        expect.stringMatching(/cancel|denied/i),
+        expect.objectContaining({ reply_markup: { inline_keyboard: [] } }),
+      );
       expect(callbackCtx.answerCallbackQuery).toHaveBeenCalledWith({
-        text: 'Decision recorded. Details will update in chat.',
+        text: 'Decision recorded.',
         show_alert: false,
       });
     });
@@ -5558,8 +5798,8 @@ describe('TelegramChannel', () => {
       await flushPromises();
       configurePendingInteractionDurability({
         repository: {
-          claimPendingPermissionCallback: vi.fn(async () => []),
-          findPendingPermissionInteractions: vi.fn(async () => []),
+          claimPendingPermissionCallback: vi.fn(async () => null),
+          findPendingPermissionPrompt: vi.fn(async () => null),
         } as never,
       });
 
@@ -5591,29 +5831,27 @@ describe('TelegramChannel', () => {
         sourceAgentFolder: 'whatsapp_main',
         interactionId: 'perm-disconnect-winner',
       };
+      const holder: PermissionCallbackClaim = {
+        id: 'holder',
+        scope,
+        intent: {
+          mode: 'allow_once',
+          approverRef: 'owner',
+          decidedAt: '2026-07-17T00:00:00.000Z',
+        },
+        match: {
+          kind: 'individual',
+          canonicalId: 'perm-disconnect-winner',
+          providerAliases: [],
+        },
+      };
       configurePendingInteractionDurability({
         repository: {
-          claimPendingPermissionCallback: vi.fn(async () => []),
-          findPendingPermissionInteractions: vi.fn(async () => [
-            {
-              payload: {
-                permissionCallbackClaim: {
-                  id: 'holder',
-                  scope,
-                  intent: {
-                    mode: 'allow_once',
-                    approverRef: 'owner',
-                    decidedAt: '2026-07-17T00:00:00.000Z',
-                  },
-                  match: {
-                    kind: 'individual',
-                    canonicalId: 'perm-disconnect-winner',
-                    providerAliases: [],
-                  },
-                },
-              },
-            },
-          ]),
+          claimPendingPermissionCallback: vi.fn(async () => null),
+          findPendingPermissionPrompt: vi.fn(async () => ({
+            prompt: { claim: holder, settlementState: 'claimed' },
+            members: [],
+          })),
         } as never,
       });
       let resolved = false;
@@ -5667,7 +5905,11 @@ describe('TelegramChannel', () => {
         'tg:100200300',
         permissionRequest,
       );
-      const answer = channel.requestUserAnswer('tg:100200300', questionRequest);
+      const answer = requestTelegramUserAnswer(
+        channel,
+        'tg:100200300',
+        questionRequest,
+      );
       let resolved = 0;
       void approval.then(() => {
         resolved += 1;
@@ -5765,50 +6007,6 @@ describe('TelegramChannel', () => {
       ).toBeLessThanOrEqual(64);
     });
 
-    it('does not deliver a question when its durable callback binding fails', async () => {
-      vi.useFakeTimers();
-      const pending = {
-        kind: 'question' as const,
-        status: 'pending' as const,
-        idempotencyKey: 'default:question:whatsapp_main:userq-bind-failure',
-        payload: {
-          sourceAgentFolder: 'whatsapp_main',
-          requestId: 'userq-bind-failure',
-        },
-      };
-      configurePendingInteractionDurability({
-        repository: {
-          listPendingInteractions: vi.fn(async () => [pending]),
-          updatePendingInteractionPayload: vi.fn(async () => false),
-        } as never,
-      });
-      telegramPromptBindingBehavior.strict = true;
-      const channel = new TelegramChannel('test-token', createTestOpts());
-      await channel.connect();
-      currentBot().api.sendMessage.mockClear();
-
-      const responsePromise = channel.requestUserAnswer('tg:100200300', {
-        requestId: 'userq-bind-failure',
-        sourceAgentFolder: 'whatsapp_main',
-        questions: [
-          {
-            question: 'Continue?',
-            header: 'Confirm',
-            options: [{ label: 'Yes', description: 'Continue' }],
-            multiSelect: false,
-          },
-        ],
-      });
-      await vi.runAllTimersAsync();
-
-      await expect(responsePromise).resolves.toEqual({
-        requestId: 'userq-bind-failure',
-        answers: {},
-      });
-      expect(currentBot().api.sendMessage).not.toHaveBeenCalled();
-      vi.useRealTimers();
-    });
-
     it('uses numbered byte-safe button labels for long options', async () => {
       const opts = createTestOpts();
       const channel = new TelegramChannel('test-token', opts);
@@ -5820,22 +6018,26 @@ describe('TelegramChannel', () => {
       const longOptionB =
         '🧪 '.repeat(30) + 'Production rollout with extra descriptive text';
 
-      const responsePromise = channel.requestUserAnswer('tg:100200300', {
-        requestId: 'userq-long',
-        sourceAgentFolder: 'whatsapp_main',
-        threadId: '99abc',
-        questions: [
-          {
-            question: 'Where should we deploy?',
-            header: 'Deploy',
-            options: [
-              { label: longOptionA, description: 'Option A description' },
-              { label: longOptionB, description: 'Option B description' },
-            ],
-            multiSelect: false,
-          },
-        ],
-      });
+      const responsePromise = requestTelegramUserAnswer(
+        channel,
+        'tg:100200300',
+        {
+          requestId: 'userq-long',
+          sourceAgentFolder: 'whatsapp_main',
+          threadId: '99abc',
+          questions: [
+            {
+              question: 'Where should we deploy?',
+              header: 'Deploy',
+              options: [
+                { label: longOptionA, description: 'Option A description' },
+                { label: longOptionB, description: 'Option B description' },
+              ],
+              multiSelect: false,
+            },
+          ],
+        },
+      );
       await flushPromises();
 
       const firstCall = currentBot().api.sendMessage.mock.calls[0];
@@ -5874,22 +6076,26 @@ describe('TelegramChannel', () => {
       const channel = new TelegramChannel('test-token', opts);
       await channel.connect();
 
-      const responsePromise = channel.requestUserAnswer('tg:100200300', {
-        requestId: 'userq-1',
-        sourceAgentFolder: 'whatsapp_main',
-        threadId: '77',
-        questions: [
-          {
-            question: 'Which environment should we deploy to?',
-            header: 'Deploy',
-            options: [
-              { label: 'Staging', description: 'Safer first' },
-              { label: 'Production', description: 'Go live now' },
-            ],
-            multiSelect: false,
-          },
-        ],
-      });
+      const responsePromise = requestTelegramUserAnswer(
+        channel,
+        'tg:100200300',
+        {
+          requestId: 'userq-1',
+          sourceAgentFolder: 'whatsapp_main',
+          threadId: '77',
+          questions: [
+            {
+              question: 'Which environment should we deploy to?',
+              header: 'Deploy',
+              options: [
+                { label: 'Staging', description: 'Safer first' },
+                { label: 'Production', description: 'Go live now' },
+              ],
+              multiSelect: false,
+            },
+          ],
+        },
+      );
       await flushPromises();
 
       expect(currentBot().api.sendMessage).toHaveBeenCalledWith(
@@ -5931,21 +6137,25 @@ describe('TelegramChannel', () => {
       const channel = new TelegramChannel('test-token', opts);
       await channel.connect();
 
-      const responsePromise = channel.requestUserAnswer('tg:100200300', {
-        requestId: 'userq-auth',
-        sourceAgentFolder: 'whatsapp_main',
-        questions: [
-          {
-            question: 'Approve rollout?',
-            header: 'Rollout',
-            options: [
-              { label: 'Yes', description: 'Proceed' },
-              { label: 'No', description: 'Stop' },
-            ],
-            multiSelect: false,
-          },
-        ],
-      });
+      const responsePromise = requestTelegramUserAnswer(
+        channel,
+        'tg:100200300',
+        {
+          requestId: 'userq-auth',
+          sourceAgentFolder: 'whatsapp_main',
+          questions: [
+            {
+              question: 'Approve rollout?',
+              header: 'Rollout',
+              options: [
+                { label: 'Yes', description: 'Proceed' },
+                { label: 'No', description: 'Stop' },
+              ],
+              multiSelect: false,
+            },
+          ],
+        },
+      );
       await flushPromises();
 
       const deniedCtx = {
@@ -5982,18 +6192,24 @@ describe('TelegramChannel', () => {
       const channel = new TelegramChannel('test-token', opts);
       await channel.connect();
 
-      const responsePromise = channel.requestUserAnswer('tg:100200300', {
-        requestId: 'userq-other-auth',
-        sourceAgentFolder: 'whatsapp_main',
-        questions: [
-          {
-            question: 'What should we tell the customer?',
-            header: 'Reply',
-            options: [{ label: 'Use template', description: 'Default reply' }],
-            multiSelect: false,
-          },
-        ],
-      });
+      const responsePromise = requestTelegramUserAnswer(
+        channel,
+        'tg:100200300',
+        {
+          requestId: 'userq-other-auth',
+          sourceAgentFolder: 'whatsapp_main',
+          questions: [
+            {
+              question: 'What should we tell the customer?',
+              header: 'Reply',
+              options: [
+                { label: 'Use template', description: 'Default reply' },
+              ],
+              multiSelect: false,
+            },
+          ],
+        },
+      );
       await flushPromises();
 
       await triggerCallbackQuery({
@@ -6051,22 +6267,26 @@ describe('TelegramChannel', () => {
       const channel = new TelegramChannel('test-token', opts);
       await channel.connect();
 
-      const responsePromise = channel.requestUserAnswer('tg:100200300', {
-        requestId: 'userq-2',
-        sourceAgentFolder: 'whatsapp_main',
-        questions: [
-          {
-            question: 'Which checks should we run?',
-            header: 'Checks',
-            options: [
-              { label: 'Build', description: 'Compile project' },
-              { label: 'Unit tests', description: 'Fast tests' },
-              { label: 'Integration', description: 'End-to-end tests' },
-            ],
-            multiSelect: true,
-          },
-        ],
-      });
+      const responsePromise = requestTelegramUserAnswer(
+        channel,
+        'tg:100200300',
+        {
+          requestId: 'userq-2',
+          sourceAgentFolder: 'whatsapp_main',
+          questions: [
+            {
+              question: 'Which checks should we run?',
+              header: 'Checks',
+              options: [
+                { label: 'Build', description: 'Compile project' },
+                { label: 'Unit tests', description: 'Fast tests' },
+                { label: 'Integration', description: 'End-to-end tests' },
+              ],
+              multiSelect: true,
+            },
+          ],
+        },
+      );
       await flushPromises();
 
       await triggerCallbackQuery({
@@ -6107,7 +6327,7 @@ describe('TelegramChannel', () => {
     it('preserves pending Telegram multi-select answers on disconnect', async () => {
       const channel = new TelegramChannel('test-token', createTestOpts());
       await channel.connect();
-      const response = channel.requestUserAnswer('tg:100200300', {
+      const response = requestTelegramUserAnswer(channel, 'tg:100200300', {
         requestId: 'userq-disconnect-partial',
         sourceAgentFolder: 'whatsapp_main',
         questions: [
@@ -6154,7 +6374,7 @@ describe('TelegramChannel', () => {
         });
         const channel = new TelegramChannel('test-token', createTestOpts());
         await channel.connect();
-        const response = channel.requestUserAnswer('tg:100200300', {
+        const response = requestTelegramUserAnswer(channel, 'tg:100200300', {
           requestId: 'userq-timeout-persisted',
           sourceAgentFolder: 'whatsapp_main',
           questions: [
@@ -6174,53 +6394,11 @@ describe('TelegramChannel', () => {
           (candidate) => candidate.kind === 'question',
         );
         expect(interaction.payload.questionRecoveryEnvelope).toMatchObject({
-          answers: { 'Will timeout': '' },
           completedQuestionIndexes: [0],
         });
       } finally {
         vi.useRealTimers();
       }
-    });
-
-    it('propagates Telegram question delivery persistence failure', async () => {
-      telegramPromptBindingBehavior.strict = true;
-      const interactions = telegramPromptBindingBehavior.interactions;
-      let updates = 0;
-      const repository = {
-        ...permissionClaimRepository(interactions),
-        listPendingInteractions: vi.fn(async () => interactions),
-        updatePendingInteractionPayload: vi.fn(async (input) => {
-          updates += 1;
-          if (updates === 2) throw new Error('write failed');
-          return await updatePendingInteractionPayload(interactions, input);
-        }),
-        resolvePendingInteraction: vi.fn(async () => true),
-      };
-      configurePendingInteractionDurability({
-        repository: repository as never,
-      });
-      const channel = new TelegramChannel('test-token', createTestOpts());
-      await channel.connect();
-
-      await expect(
-        channel.requestUserAnswer('tg:100200300', {
-          requestId: 'userq-persist-failure',
-          sourceAgentFolder: 'whatsapp_main',
-          questions: [
-            {
-              question: 'Must persist?',
-              header: 'Persist',
-              options: [{ label: 'Yes', description: 'Continue' }],
-              multiSelect: false,
-            },
-          ],
-        }),
-      ).rejects.toMatchObject({ name: 'DurableInteractionPersistenceError' });
-      for (const pending of (channel as any).pendingUserQuestions.values()) {
-        clearTimeout(pending.timer);
-      }
-      (channel as any).pendingUserQuestions.clear();
-      (channel as any).pendingUserQuestionCallbackIds.clear();
     });
   });
 

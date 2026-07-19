@@ -1,8 +1,6 @@
 import type {
   PermissionApprovalDecision,
   PermissionApprovalRequest,
-  PermissionCallbackClaim,
-  PermissionCallbackClaimReference,
   PermissionApprovalDecisionMode,
   UserQuestionRequest,
   UserQuestionResponse,
@@ -10,10 +8,10 @@ import type {
 import {
   claimPermissionInteractionCallback,
   DurableInteractionPersistenceError,
-  findDurablePermissionInteractionByRequestId,
-  resolveDurablePermissionInteractionByRequestId,
+  recoverDurablePermissionDecision,
   recordDurableQuestionAnswerProgress,
   releasePermissionInteractionCallback,
+  samePermissionCallbackLocator,
 } from '../application/interactions/pending-interaction-durability.js';
 import { logger } from '../infrastructure/logging/logger.js';
 import {
@@ -40,7 +38,6 @@ import {
   type TeamsChannelOpts,
   type TeamsInboundMessage,
   type TeamsSdkClient,
-  type TeamsPermissionCallback,
 } from './teams-types.js';
 
 type TeamsInteractionContext = {
@@ -211,86 +208,58 @@ export async function handleTeamsPermissionDecision(input: {
   const mode = normalizePermissionAction(decisionPayload.decision);
   if (!pending) {
     if (mode) {
-      const durable =
-        (await findDurablePermissionInteractionByRequestId({
+      await recoverDurablePermissionDecision({
+        locator: {
+          kind: 'scope',
           scope: decisionPayload.callback.scope,
+          matchKind: decisionPayload.callback.matchKind,
           providerAlias: decisionPayload.callback.providerAlias,
-        })) ??
-        (await findDurablePermissionInteractionByRequestId({
-          scope: decisionPayload.callback.scope,
-        }));
-      const authorized =
-        durable?.targetJid === input.jid &&
-        (await canDecideTeamsPermission(
-          input.context,
-          input.userId,
-          durable.sourceAgentFolder,
-          durable.decisionPolicy as PermissionApprovalRequest['decisionPolicy'],
-          durable.approvalContextJid ?? '',
-          durable.threadId ?? undefined,
-        ));
-      if (authorized) {
-        const matchKind =
-          durable.claim?.match.kind ?? decisionPayload.callback.matchKind;
-        if (!durable.decisionOptions.includes(mode)) {
-          await sendDeniedTeamsDecisionFeedback(
+        },
+        surfaceJid: input.jid,
+        incomingMode: mode,
+        incomingApprover: input.userId,
+        authorize: (durable) =>
+          canDecideTeamsPermission(
+            input.context,
+            input.userId,
+            durable.sourceAgentFolder,
+            durable.decisionPolicy as PermissionApprovalRequest['decisionPolicy'],
+            durable.approvalContextJid ?? '',
+            durable.threadId ?? undefined,
+          ),
+        terminalize: (receipt) =>
+          terminalizeTeamsPermissionPrompt(
+            input.context,
+            {
+              conversationId:
+                receipt.status === 'resolved'
+                  ? (receipt.context.externalPromptConversationId ??
+                    teamsConversationIdFromJid(input.jid)!)
+                  : teamsConversationIdFromJid(input.jid)!,
+              messageId:
+                receipt.status === 'resolved'
+                  ? (receipt.context.externalPromptMessageId ??
+                    input.message.replyToId ??
+                    input.message.id)
+                  : (input.message.replyToId ?? input.message.id),
+              threadId:
+                receipt.status === 'resolved'
+                  ? (receipt.context.externalPromptThreadId ??
+                    receipt.context.threadId ??
+                    undefined)
+                  : input.message.threadId,
+              request: receipt.status === 'resolved' ? receipt.request : null,
+            },
+            receipt.decision,
+            receipt.status === 'expired' ? receipt.text : undefined,
+          ),
+        feedback: (text) =>
+          sendDeniedTeamsDecisionFeedback(
             input.context,
             teamsConversationIdFromJid(input.jid),
-            'This approval option is no longer available.',
-          );
-          return true;
-        }
-        const claimed = durable.claim
-          ? { status: 'claimed' as const, claim: durable.claim }
-          : await claimPermissionInteractionCallback({
-              scope: decisionPayload.callback.scope,
-              mode,
-              approverRef: input.userId,
-              matchKind,
-              providerAlias: decisionPayload.callback.providerAlias,
-            });
-        if (claimed.status === 'already_decided') {
-          await sendDeniedTeamsDecisionFeedback(
-            input.context,
-            teamsConversationIdFromJid(input.jid),
-            'This permission request was already decided.',
-          );
-          return true;
-        }
-        if (claimed.status === 'retryable') return true;
-        const decision = recoveredTeamsPermissionDecision(
-          durable.request,
-          durable.claim,
-          mode,
-          input.userId,
-          claimed.claim,
-          matchKind,
-        );
-        const terminalized = await terminalizeTeamsPermissionPrompt(
-          input.context,
-          {
-            conversationId:
-              durable.externalPromptConversationId ??
-              teamsConversationIdFromJid(input.jid)!,
-            messageId:
-              durable.externalPromptMessageId ??
-              input.message.replyToId ??
-              input.message.id,
-            threadId:
-              durable.externalPromptThreadId ?? durable.threadId ?? undefined,
-            request: durable.request,
-          },
-          decision,
-        );
-        if (!terminalized) {
-          await releasePermissionInteractionCallback({ claim: claimed.claim });
-          return true;
-        }
-        await resolveDurablePermissionInteractionByRequestId({
-          claim: claimed.claim,
-          reason: `resolved via Teams after channel restart`,
-        });
-      }
+            text,
+          ),
+      });
     }
     return true;
   }
@@ -303,7 +272,7 @@ export async function handleTeamsPermissionDecision(input: {
     return true;
   }
   if (
-    !sameTeamsPermissionCallback(pending.callback, decisionPayload.callback)
+    !samePermissionCallbackLocator(pending.callback, decisionPayload.callback)
   ) {
     return true;
   }
@@ -426,16 +395,19 @@ async function terminalizeTeamsPermissionPrompt(
     request: PermissionApprovalRequest | null;
   },
   decision: PermissionApprovalDecision,
+  receiptText?: string,
 ): Promise<boolean> {
   const requestId =
     prompt.request?.requestId ??
     decision.permissionCallbackClaim?.scope.interactionId ??
     'permission';
-  const receiptText = prompt.request
-    ? formatPermissionReceiptText(requestId, prompt.request, decision)
-    : decision.approved
-      ? 'Permission allowed.'
-      : 'Permission cancelled.';
+  const resolvedReceiptText =
+    receiptText ??
+    (prompt.request
+      ? formatPermissionReceiptText(requestId, prompt.request, decision)
+      : decision.approved
+        ? 'Permission allowed.'
+        : 'Permission cancelled.');
   let updated = false;
   if (context.sdkClient.updateAdaptiveCard && prompt.messageId) {
     try {
@@ -446,7 +418,7 @@ async function terminalizeTeamsPermissionPrompt(
           text:
             decision.approved && decision.mode !== 'cancel'
               ? '\u200B'
-              : receiptText,
+              : resolvedReceiptText,
           targetJid: `teams:${prompt.conversationId}`,
           threadId: prompt.threadId,
         }),
@@ -464,7 +436,7 @@ async function terminalizeTeamsPermissionPrompt(
     try {
       await context.sdkClient.sendMessage({
         conversationId: prompt.conversationId,
-        text: receiptText,
+        text: resolvedReceiptText,
         ...(prompt.threadId ? { threadId: prompt.threadId } : {}),
       });
       return true;
@@ -528,37 +500,4 @@ async function sendDeniedTeamsDecisionFeedback(
       'Failed to send Teams permission denial feedback',
     );
   }
-}
-
-function sameTeamsPermissionCallback(
-  left: TeamsPermissionCallback,
-  right: TeamsPermissionCallback,
-): boolean {
-  return (
-    left.providerAlias === right.providerAlias &&
-    left.matchKind === right.matchKind &&
-    left.scope.appId === right.scope.appId &&
-    left.scope.sourceAgentFolder === right.scope.sourceAgentFolder &&
-    left.scope.interactionId === right.scope.interactionId
-  );
-}
-
-function recoveredTeamsPermissionDecision(
-  request: PermissionApprovalRequest | null,
-  persistedClaim: PermissionCallbackClaim | undefined,
-  incomingMode: PermissionApprovalDecisionMode,
-  incomingApprover: string,
-  claim: PermissionCallbackClaimReference,
-  matchKind: PermissionCallbackClaim['match']['kind'],
-): PermissionApprovalDecision {
-  const mode = persistedClaim?.intent.mode ?? incomingMode;
-  const approverRef = persistedClaim?.intent.approverRef ?? incomingApprover;
-  const decision = request
-    ? decisionForMode(request, mode, approverRef, matchKind)
-    : {
-        approved: mode !== 'cancel',
-        mode,
-        decidedBy: approverRef,
-      };
-  return { ...decision, permissionCallbackClaim: claim };
 }
