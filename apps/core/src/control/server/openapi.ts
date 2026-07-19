@@ -122,7 +122,7 @@ export const GANTRY_OPENAPI_DOCUMENT = {
     { name: 'Sessions', description: 'Durable SDK chat sessions.' },
     { name: 'LLM', description: 'Direct model invocation passthrough.' },
     { name: 'Models', description: 'Provider-neutral model catalog.' },
-    { name: 'Providers', description: 'Provider connections.' },
+    { name: 'Providers', description: 'Provider accounts.' },
     { name: 'Conversations', description: 'Conversations and bindings.' },
     { name: 'Jobs', description: 'Scheduled and manual agent jobs.' },
     { name: 'Runs', description: 'Job run history and events.' },

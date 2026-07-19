@@ -37,18 +37,41 @@ describe('requiredModelCredentialProviders', () => {
     ).toContain('cerebras');
   });
 
-  it('includes per-agent and binding model override providers', () => {
+  it('includes per-agent and conversation-install model override providers', () => {
     const settings = baseSettings();
     settings.agents = {
       helper: { model: 'gpt', oneTimeJobDefaultModel: 'kimi' },
       empty: {},
     };
-    settings.bindings = { ops: { model: 'groq' } };
+    settings.conversations = {
+      ops: {
+        installedAgents: {
+          helper: { status: 'active', model: 'groq' },
+        },
+      },
+    };
     expect(requiredModelCredentialProviders(settings)).toEqual([
       'anthropic',
       'groq',
       'openai',
       'openrouter',
+    ]);
+  });
+
+  it('excludes disabled conversation-install model overrides', () => {
+    const settings = baseSettings();
+    settings.conversations = {
+      ops: {
+        installedAgents: {
+          active: { status: 'active', model: 'groq' },
+          disabled: { status: 'disabled', model: 'gpt' },
+        },
+      },
+    };
+
+    expect(requiredModelCredentialProviders(settings)).toEqual([
+      'anthropic',
+      'groq',
     ]);
   });
 

@@ -14,7 +14,7 @@ export type RequiredModelCredentialProvidersSettings = {
     oneTimeJobDefaultModel: string;
     recurringJobDefaultModel: string;
   };
-  // Per-agent and per-binding model overrides also demand credentials; the
+  // Per-agent and per-conversation-install overrides also demand credentials; the
   // redacted Control API settings view may omit them.
   agents?: Record<
     string,
@@ -25,7 +25,15 @@ export type RequiredModelCredentialProvidersSettings = {
       }
     | undefined
   >;
-  bindings?: Record<string, { model?: string } | undefined>;
+  conversations?: Record<
+    string,
+    {
+      installedAgents?: Record<
+        string,
+        { status: 'active' | 'disabled'; model?: string }
+      >;
+    }
+  >;
   modelFamilies?: Record<string, readonly string[]>;
   memory: {
     enabled: boolean;
@@ -86,8 +94,11 @@ export function requiredModelCredentialProviders(
       });
     }
   }
-  for (const binding of Object.values(settings.bindings ?? {})) {
-    if (binding?.model) slots.push({ alias: binding.model, workload: 'chat' });
+  for (const conversation of Object.values(settings.conversations ?? {})) {
+    for (const install of Object.values(conversation.installedAgents ?? {})) {
+      if (install.status !== 'active') continue;
+      if (install.model) slots.push({ alias: install.model, workload: 'chat' });
+    }
   }
   if (settings.memory.enabled && settings.memory.llm) {
     const memoryModels = settings.memory.llm.models;

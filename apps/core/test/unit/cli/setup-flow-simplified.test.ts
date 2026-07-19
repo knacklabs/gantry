@@ -106,7 +106,7 @@ describe('simplified setup sequence', () => {
     expect(resumed.slackDisplayName).toBe('ops-room');
   });
 
-  it('prefills the chat jid from the existing ready binding', async () => {
+  it('skips stale installs when prefilling the existing ready binding', async () => {
     const runtimeHome = fs.mkdtempSync(
       path.join(os.tmpdir(), 'gantry-ready-binding-'),
     );
@@ -135,17 +135,27 @@ describe('simplified setup sequence', () => {
         agents: {
           main_agent: {
             folder: 'main_agent',
-            bindings: {
-              main: {
-                provider: 'telegram',
-                jid: 'tg:-100123',
-                name: 'Ops Room',
-              },
+          },
+        },
+        conversations: {
+          main: {
+            providerAccount: 'telegram_default',
+            externalId: '-100123',
+            kind: 'channel',
+            displayName: 'Ops Room',
+            requiresTrigger: true,
+            installedAgents: {
+              stale_agent: { agentId: 'missing_agent', status: 'active' },
+              main_agent: { agentId: 'main_agent', status: 'active' },
             },
           },
         },
-        conversations: {},
-        providerAccounts: {},
+        providerAccounts: {
+          telegram_default: {
+            provider: 'telegram',
+            runtimeSecretRefs: { bot_token: 'env:TELEGRAM_BOT_TOKEN' },
+          },
+        },
       })),
     }));
     const { restoreDraft } = await import('@core/cli/setup-flow-state.js');
@@ -734,17 +744,17 @@ describe('simplified setup sequence', () => {
             };
             settings.agents.main_agent = {
               folder: 'main_agent',
-              bindings: {
-                main: {
-                  provider: 'slack',
-                  jid: 'slack:C123',
-                  name: 'Ops',
-                },
-              },
             } as never;
             settings.conversations.slack_main = {
               providerAccount: 'slack_default',
+              externalId: 'C123',
+              kind: 'channel',
+              displayName: 'Ops',
+              requiresTrigger: true,
               controlApprovers: ['U123'],
+              installedAgents: {
+                main_agent: { agentId: 'main_agent', status: 'active' },
+              },
             } as never;
             return settings;
           }),

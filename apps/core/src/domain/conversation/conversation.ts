@@ -15,6 +15,7 @@ export interface Conversation {
   externalRef?: ExternalRef<'conversation'>;
   kind: 'direct' | 'group' | 'channel' | 'service' | 'web';
   title?: string;
+  requiresTrigger: boolean;
   status: 'active' | 'archived' | 'disabled';
   createdAt: IsoTimestamp;
   updatedAt: IsoTimestamp;

@@ -162,7 +162,6 @@ export async function runGroupStep(draft: SetupDraft): Promise<FlowAction> {
         agentFolder: result.folder,
         jid: draft.telegramChatJid,
         displayName: conversationLabel,
-        trigger: `@${result.groupName}`,
         requiresTrigger: false,
         approverIds,
       });

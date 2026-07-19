@@ -5,10 +5,7 @@ import type {
   UserId,
 } from '../../domain/conversation/conversation.js';
 import type { MemorySubject } from '../../domain/memory/memory.js';
-import type {
-  ConversationApprover,
-  ProviderId,
-} from '../../domain/provider/provider.js';
+import type { ProviderId } from '../../domain/provider/provider.js';
 import type {
   McpServerRepository,
   ToolCatalogRepository,
@@ -17,7 +14,7 @@ import { normalizeRuntimeSecretRefString } from '../../domain/ports/runtime-secr
 import {
   jidForConfiguredConversation,
   providerTopology,
-} from './desired-state-provider-conversations.js';
+} from '../../config/settings/desired-state-provider-conversations.js';
 import type {
   ConfiguredRoutingBinding,
   SettingsChangeClassification,
@@ -25,10 +22,9 @@ import type {
 } from './desired-state-service-types.js';
 import type {
   RuntimeConfiguredAgent,
-  RuntimeConfiguredBinding,
   RuntimeConfiguredConversation,
   RuntimeSettings,
-} from './runtime-settings-types.js';
+} from '../../config/settings/runtime-settings-types.js';
 import type { AgentConfig } from '../../domain/types.js';
 export {
   agentIdForFolder,
@@ -63,92 +59,56 @@ export function configuredAgentConfig(
 export function configuredRoutingBindings(
   settings: RuntimeSettings,
 ): ConfiguredRoutingBinding[] {
-  const byAgentAndJid = new Map<string, ConfiguredRoutingBinding>();
-
-  for (const [folder, agent] of Object.entries(settings.agents)) {
-    for (const binding of Object.values(agent.bindings)) {
-      const configuredConversationCandidates = Object.entries(
-        settings.conversations,
-      ).filter(([, candidate]) => {
-        if (
-          jidForConfiguredConversation(candidate, settings.providerAccounts) !==
-          binding.jid
-        ) {
-          return false;
-        }
-        if (!binding.providerAccountId) return true;
-        const candidateInstall =
-          candidate.installedAgents[folder] ??
-          Object.values(candidate.installedAgents).find(
-            (install) =>
-              install.agentId === folder &&
-              (install.threadId ?? '') === (binding.threadId ?? ''),
-          );
-        const candidateProviderAccountId =
-          candidateInstall?.providerAccountId ??
-          candidate.providerAccount ??
-          candidate.providerConnection;
-        return candidateProviderAccountId === binding.providerAccountId;
-      });
-      const configuredConversation =
-        configuredConversationCandidates.length === 1
-          ? configuredConversationCandidates[0]
-          : undefined;
-      byAgentAndJid.set(
-        `${folder}\0${binding.providerAccountId ?? ''}\0${binding.jid}\0${binding.threadId ?? ''}`,
-        {
-          agentFolder: folder,
-          conversationId: configuredConversation?.[0],
-          jid: binding.jid,
-          threadId: binding.threadId,
-          providerAccountId: binding.providerAccountId,
-          name: binding.name,
-          trigger: binding.trigger,
-          addedAt: binding.addedAt,
-          requiresTrigger: binding.requiresTrigger,
-          model: binding.model,
-          permissionMode: binding.permissionMode,
-          conversation: configuredConversation?.[1],
-        },
-      );
-    }
-  }
-
-  for (const binding of Object.values(settings.bindings)) {
-    if (!settings.agents[binding.agent]) continue;
-    const conversation = settings.conversations[binding.conversation];
-    if (!conversation) continue;
+  const routes: ConfiguredRoutingBinding[] = [];
+  const installByRouteIdentity = new Map<string, string>();
+  for (const [conversationId, conversation] of Object.entries(
+    settings.conversations,
+  )) {
     const jid = jidForConfiguredConversation(
       conversation,
       settings.providerAccounts,
     );
-    const install =
-      conversation.installedAgents?.[binding.installKey ?? binding.agent];
-    const providerAccountId =
-      install?.providerAccountId ??
-      conversation.providerAccount ??
-      conversation.providerConnection;
-    byAgentAndJid.set(
-      `${binding.agent}\0${providerAccountId ?? ''}\0${jid}\0${binding.threadId ?? ''}`,
-      {
-        agentFolder: binding.agent,
-        conversationId: binding.conversation,
+    for (const [installKey, install] of Object.entries(
+      conversation.installedAgents,
+    )) {
+      if (install.status !== 'active' || !settings.agents[install.agentId]) {
+        continue;
+      }
+      const providerAccountId =
+        install.providerAccountId ?? conversation.providerAccount;
+      const routeIdentity = JSON.stringify([
+        install.agentId,
+        providerAccountId ?? '',
         jid,
-        installKey: binding.installKey,
-        threadId: binding.threadId,
+        install.threadId ?? '',
+      ]);
+      const installPath = `${conversationId}.${installKey}`;
+      const existingInstallPath = installByRouteIdentity.get(routeIdentity);
+      if (existingInstallPath) {
+        throw new Error(
+          `Duplicate active conversation installs ${existingInstallPath} and ${installPath} resolve to the same runtime route`,
+        );
+      }
+      installByRouteIdentity.set(routeIdentity, installPath);
+      routes.push({
+        agentFolder: install.agentId,
+        conversationId,
+        jid,
+        installKey,
+        threadId: install.threadId,
         providerAccountId,
         name: conversation.displayName,
-        trigger: binding.trigger,
-        addedAt: binding.addedAt,
-        requiresTrigger: binding.requiresTrigger,
-        model: binding.model,
-        permissionMode: binding.permissionMode,
+        trigger: install.trigger ?? '',
+        addedAt: install.addedAt,
+        requiresTrigger: conversation.requiresTrigger,
+        memoryScope: install.memoryScope,
+        model: install.model,
+        permissionMode: install.permissionMode,
         conversation,
-      },
-    );
+      });
+    }
   }
-
-  return [...byAgentAndJid.values()].sort((left, right) =>
+  return routes.sort((left, right) =>
     `${left.agentFolder}:${left.providerAccountId ?? ''}:${left.jid}`.localeCompare(
       `${right.agentFolder}:${right.providerAccountId ?? ''}:${right.jid}`,
     ),
@@ -158,7 +118,7 @@ export function configuredRoutingBindings(
 export function memorySubjectForConfiguredBinding(input: {
   appId: AppId;
   agentId: AgentId;
-  memoryScope: RuntimeConfiguredBinding['memoryScope'];
+  memoryScope: ConfiguredRoutingBinding['memoryScope'];
   conversation: RuntimeConfiguredConversation;
   conversationId: ConversationId;
 }): MemorySubject {
@@ -273,8 +233,7 @@ export function classifySettingsChanges(
   }
   if (
     !providerTopologyChanged &&
-    (!jsonEqual(before.conversations, after.conversations) ||
-      !jsonEqual(before.bindings, after.bindings))
+    !jsonEqual(before.conversations, after.conversations)
   ) {
     liveApplied.push('conversation_policies');
   }
@@ -323,28 +282,6 @@ export function groupByAgentId<T extends { agentId: AgentId }>(
     }
   }
   return result;
-}
-
-export function groupByConversationId(
-  rows: readonly ConversationApprover[],
-): Map<ConversationId, ConversationApprover[]> {
-  const result = new Map<ConversationId, ConversationApprover[]>();
-  for (const row of rows) {
-    const existing = result.get(row.conversationId);
-    if (existing) {
-      existing.push(row);
-    } else {
-      result.set(row.conversationId, [row]);
-    }
-  }
-  return result;
-}
-
-export function storedConversationKey(
-  providerConnectionId: string,
-  externalConversationId: string,
-): string {
-  return `${providerConnectionId}\0${externalConversationId}`;
 }
 
 function jsonEqual(left: unknown, right: unknown): boolean {

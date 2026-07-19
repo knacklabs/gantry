@@ -58,12 +58,18 @@ export function findConversationIdForAgent(
   agentId: string,
   providerId: string,
 ): string | null {
-  for (const binding of Object.values(settings.bindings)) {
-    if (binding.agent !== agentId) continue;
-    const conversation = settings.conversations[binding.conversation];
-    if (!conversation) continue;
+  for (const [conversationId, conversation] of Object.entries(
+    settings.conversations,
+  )) {
+    if (
+      !Object.values(conversation.installedAgents ?? {}).some(
+        (install) => install.status === 'active' && install.agentId === agentId,
+      )
+    ) {
+      continue;
+    }
     const connection = settings.providerAccounts[conversation.providerAccount];
-    if (connection?.provider === providerId) return binding.conversation;
+    if (connection?.provider === providerId) return conversationId;
   }
   return null;
 }
@@ -97,31 +103,24 @@ export async function pruneAgentSenderPolicyOverride(
         ? jid.slice(provider.jidPrefix.length)
         : jid;
     let pruned = false;
-    for (const [bindingId, binding] of Object.entries(settings.bindings)) {
-      if (binding.agent !== folder) continue;
-      const agentBinding = settings.agents[folder]?.bindings[bindingId];
-      if (agentBinding?.jid && agentBinding.jid !== jid) continue;
-      const conversation = settings.conversations[binding.conversation];
-      if (!conversation) continue;
+    for (const [conversationId, conversation] of Object.entries(
+      settings.conversations,
+    )) {
       const connection =
         settings.providerAccounts[conversation.providerAccount];
       if (connection?.provider !== channel) continue;
-      if (!agentBinding?.jid && conversation.externalId !== externalId) {
+      if (conversation.externalId !== externalId) {
         continue;
       }
-      delete settings.bindings[bindingId];
-      delete settings.agents[folder]?.bindings[bindingId];
-      const installKey =
-        binding.installKey ??
-        Object.entries(conversation.installedAgents).find(
-          ([, install]) =>
-            install.agentId === folder &&
-            (install.threadId ?? '') === (binding.threadId ?? ''),
-        )?.[0] ??
-        folder;
-      delete conversation.installedAgents[installKey];
+      const installKeys = Object.entries(conversation.installedAgents ?? {})
+        .filter(([, install]) => install.agentId === folder)
+        .map(([installKey]) => installKey);
+      if (installKeys.length === 0) continue;
+      for (const installKey of installKeys) {
+        delete conversation.installedAgents[installKey];
+      }
       if (Object.keys(conversation.installedAgents).length === 0) {
-        delete settings.conversations[binding.conversation];
+        delete settings.conversations[conversationId];
       }
       pruned = true;
     }

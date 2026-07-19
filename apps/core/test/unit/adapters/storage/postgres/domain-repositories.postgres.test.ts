@@ -33,9 +33,8 @@ describe('provider account schema', () => {
     expect(conversationInstallsPostgres.providerAccountId.name).toBe(
       'provider_account_id',
     );
-    expect(conversationInstallsPostgres.senderPolicy.name).toBe(
-      'sender_policy',
-    );
+    expect(conversationInstallsPostgres).not.toHaveProperty('senderPolicy');
+    expect(conversationInstallsPostgres).not.toHaveProperty('controlPolicy');
     expect(conversationInstallsPostgres).not.toHaveProperty('triggerPattern');
     expect(conversationInstallsPostgres).not.toHaveProperty('requiresTrigger');
   });

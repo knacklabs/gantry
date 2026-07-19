@@ -16,7 +16,7 @@ function mockProjectionSync(
     projectionMarker: value.revisionMarker,
   }));
   const importWorkstationSettings = vi.fn();
-  vi.doMock('@core/config/settings/desired-state-service.js', () => ({
+  vi.doMock('@core/application/settings/desired-state-service.js', () => ({
     SettingsDesiredStateService: class {
       exportCurrent(value) {
         return exportCurrent(value);
@@ -53,7 +53,7 @@ function mockProjectionSync(
 describe('syncRuntimeSettingsFromProjection fleet mode', () => {
   afterEach(() => {
     vi.resetModules();
-    vi.doUnmock('@core/config/settings/desired-state-service.js');
+    vi.doUnmock('@core/application/settings/desired-state-service.js');
     vi.doUnmock('@core/config/settings/runtime-settings.js');
     vi.doUnmock('@core/config/settings/settings-import-service.js');
     vi.doUnmock('@core/config/settings/configured-capability-normalization.js');
@@ -216,7 +216,7 @@ describe('syncRuntimeSettingsFromProjection fleet mode', () => {
       SettingsStaleMutationError: MockSettingsStaleMutationError,
       SettingsRevisionConflictError: MockSettingsRevisionConflictError,
     }));
-    vi.doMock('@core/config/settings/desired-state-service.js', () => ({
+    vi.doMock('@core/application/settings/desired-state-service.js', () => ({
       SettingsDesiredStateService: class {},
     }));
     vi.doMock(

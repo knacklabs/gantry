@@ -31,7 +31,7 @@ vi.mock('@core/config/settings/runtime-settings-validation.js', () => ({
   validateLoadedRuntimeSettings: () => ({ ok: true, settings: {} }),
 }));
 
-vi.mock('@core/config/settings/desired-state-service.js', () => ({
+vi.mock('@core/application/settings/desired-state-service.js', () => ({
   SettingsDesiredStateService: class {
     async validateCapabilityReferences() {
       return capabilityErrors;
@@ -865,7 +865,6 @@ describe('importFleetSettingsRevision', () => {
       runtimeSecretRefs: { bot_token: 'env:TELEGRAM_PAUSED_BOT_TOKEN' },
     };
     settings.conversations.shared_channel = {
-      providerConnection: 'telegram_main',
       providerAccount: 'telegram_main',
       externalId: 'telegram:C123',
       kind: 'group',
@@ -1056,7 +1055,6 @@ describe('importFleetSettingsRevision', () => {
       runtimeSecretRefs: { bot_token: 'env:TELEGRAM_BOT_TOKEN' },
     };
     settings.conversations.ops = {
-      providerConnection: 'telegram_main',
       providerAccount: 'telegram_main',
       externalId: '-1001234',
       kind: 'channel',
@@ -1116,7 +1114,6 @@ describe('importFleetSettingsRevision', () => {
       runtimeSecretRefs: { bot_token: 'env:TELEGRAM_BOT_TOKEN' },
     };
     settings.conversations.shared_channel = {
-      providerConnection: 'telegram_main',
       providerAccount: 'telegram_main',
       externalId: 'telegram:C123',
       kind: 'group',
@@ -1143,52 +1140,40 @@ describe('importFleetSettingsRevision', () => {
     ).toBe(true);
   });
 
-  it('migrates legacy per-agent bindings when reading settings revisions', () => {
-    const restored = settingsFromRevisionDocument({
-      providers: { slack: { enabled: true } },
-      provider_accounts: {
-        slack_main: {
-          agent: 'control',
-          provider: 'slack',
-          label: 'Slack Main',
+  it('rejects legacy per-agent trigger bindings when reading settings revisions', () => {
+    expect(() =>
+      settingsFromRevisionDocument({
+        providers: { slack: { enabled: true } },
+        provider_accounts: {
+          slack_main: {
+            agent: 'control',
+            provider: 'slack',
+            label: 'Slack Main',
+          },
         },
-      },
-      conversations: {
-        shared_channel: {
-          provider_account: 'slack_main',
-          external_id: 'C123',
-          kind: 'channel',
-          display_name: 'Shared',
+        conversations: {
+          shared_channel: {
+            provider_account: 'slack_main',
+            external_id: 'C123',
+            kind: 'channel',
+            display_name: 'Shared',
+          },
         },
-      },
-      agents: {
-        control: {
-          name: 'Control',
-          bindings: {
-            control_binding: {
-              jid: 'sl:C123',
-              providerAccountId: 'slack_main',
-              trigger: '@control',
-              addedAt: '2026-01-01T00:00:00.000Z',
-              requiresTrigger: true,
+        agents: {
+          control: {
+            name: 'Control',
+            bindings: {
+              control_binding: {
+                jid: 'sl:C123',
+                providerAccountId: 'slack_main',
+                trigger: '@control',
+                addedAt: '2026-01-01T00:00:00.000Z',
+                requiresTrigger: true,
+              },
             },
           },
         },
-      },
-    });
-
-    expect(
-      restored.conversations.shared_channel.installedAgents.control_binding,
-    ).toMatchObject({
-      agentId: 'control',
-      providerAccountId: 'slack_main',
-      trigger: '@control',
-      requiresTrigger: true,
-    });
-    expect(Object.values(restored.agents.control.bindings)[0]).toMatchObject({
-      jid: 'sl:C123',
-      trigger: '@control',
-      requiresTrigger: true,
-    });
+      }),
+    ).toThrow(/installed_agents\.control_binding\.trigger is not supported/);
   });
 });

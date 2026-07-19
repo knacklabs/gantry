@@ -53,9 +53,6 @@ export type ConversationInstallMemoryScope =
   | 'conversation'
   | 'agent'
   | 'app';
-export type ConversationInstallSenderPolicy = 'provider_native';
-export type ConversationInstallControlPolicy = 'conversation_approvers';
-
 export interface ConversationInstall {
   id: BrandedId<'ConversationInstallId'>;
   appId: AppId;
@@ -66,8 +63,6 @@ export interface ConversationInstall {
   externalConversationId?: ExternalConversationId;
   displayName: string;
   status: ConversationInstallStatus;
-  senderPolicy: ConversationInstallSenderPolicy;
-  controlPolicy: ConversationInstallControlPolicy;
   memoryScope: ConversationInstallMemoryScope;
   memorySubject: MemorySubject;
   workspaceSnapshotId?: WorkspaceSnapshotId;

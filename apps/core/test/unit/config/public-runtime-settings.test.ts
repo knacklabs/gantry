@@ -64,7 +64,6 @@ it('projects configured agent access using the public contract shape', async () 
     name: 'Support',
     folder: 'support',
     agentHarness: 'anthropic_sdk',
-    bindings: {},
     sources: { skills: [], mcpServers: [], tools: [] },
     capabilities: [],
     accessPreset: 'locked',
@@ -106,12 +105,12 @@ it('omits legacy providerConnection from public conversation settings', async ()
     runtimeSecretRefs: {},
   };
   defaults.conversations.slack_c123 = {
-    providerConnection: 'slack_legacy',
     providerAccount: 'slack_default',
     externalId: 'C123',
     kind: 'channel',
     displayName: 'general',
     brainHarvest: true,
+    requiresTrigger: true,
     senderPolicy: { allow: '*', mode: 'trigger' },
     controlApprovers: ['U1'],
     installedAgents: {},
@@ -126,12 +125,10 @@ it('omits legacy providerConnection from public conversation settings', async ()
     kind: 'channel',
     displayName: 'general',
     brainHarvest: true,
+    requiresTrigger: true,
     senderPolicy: { allow: '*', mode: 'trigger' },
     controlApprovers: ['U1'],
     installedAgents: {},
   });
-  expect(publicSettings.conversations.slack_c123).not.toHaveProperty(
-    'providerConnection',
-  );
   expect(() => RuntimeSettingsPublicSchema.parse(publicSettings)).not.toThrow();
 });

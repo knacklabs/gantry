@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 
 import type { Conversation } from '../../domain/conversation/conversation.js';
+import { triggerForRoute } from '../../shared/trigger-pattern.js';
 import type { RuntimeSettings } from './runtime-settings-types.js';
 
 export function applyConversationInstallToSettings(input: {
@@ -26,11 +27,12 @@ export function applyConversationInstallToSettings(input: {
     : (existing?.controlApprovers ?? []);
 
   settings.conversations[conversationKey] = {
-    providerConnection: providerAccountId,
     providerAccount: providerAccountId,
     externalId,
     kind: conversation.kind === 'direct' ? 'dm' : conversation.kind,
     displayName: conversation.title || existing?.displayName || conversationKey,
+    requiresTrigger:
+      existing?.requiresTrigger ?? conversation.kind !== 'direct',
     senderPolicy:
       existing?.senderPolicy ?? ({ allow: '*', mode: 'trigger' } as never),
     controlApprovers,
@@ -39,11 +41,13 @@ export function applyConversationInstallToSettings(input: {
       [agentFolder]: {
         agentId: agentFolder,
         providerAccountId,
+        trigger: triggerForRoute({
+          trigger: existing?.installedAgents[agentFolder]?.trigger,
+          name: settings.agents[agentFolder]?.name ?? agentFolder,
+        }),
         status: 'active',
         addedAt: input.now,
         memoryScope: 'conversation',
-        trigger: `@${settings.agents[agentFolder]?.name || agentFolder}`,
-        requiresTrigger: conversation.kind !== 'direct',
       },
     },
   };
@@ -73,8 +77,7 @@ function configuredConversationKey(
   const existing = Object.entries(settings.conversations).find(
     ([, configured]) =>
       configured.externalId === externalId &&
-      (configured.providerAccount ?? configured.providerConnection) ===
-        providerAccountId,
+      configured.providerAccount === providerAccountId,
   );
   if (existing) return existing[0];
   const raw = `${providerAccountId}_${externalId}`;

@@ -702,7 +702,7 @@ describe('cli telegram helpers', () => {
     const settings = loadRuntimeSettings(runtimeHome);
     expect(settings.providers.telegram.enabled).toBe(true);
     const conversation = Object.values(settings.conversations).find(
-      (entry) => entry.providerConnection === 'telegram_default',
+      (entry) => entry.providerAccount === 'telegram_default',
     );
     expect(conversation?.senderPolicy.allow).toBe('*');
     expect(conversation?.controlApprovers).toEqual(['5759865942']);
@@ -789,7 +789,7 @@ describe('cli telegram helpers', () => {
     expect(code).toBe(0);
     const conversation = Object.values(
       loadRuntimeSettings(runtimeHome).conversations,
-    ).find((entry) => entry.providerConnection === 'telegram_default');
+    ).find((entry) => entry.providerAccount === 'telegram_default');
     expect(conversation?.controlApprovers).toEqual(['5759865942']);
     expect(text).toHaveBeenNthCalledWith(
       1,
@@ -924,17 +924,14 @@ describe('cli telegram helpers', () => {
     ).resolves.toBe(0);
 
     const settings = loadRuntimeSettings(runtimeHome);
-    expect(Object.values(settings.bindings)).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ agent: 'first_agent' }),
-        expect.objectContaining({ agent: 'second_agent' }),
-      ]),
+    const installedAgentIds = Object.values(settings.conversations).flatMap(
+      (conversation) =>
+        Object.values(conversation.installedAgents).map(
+          (install) => install.agentId,
+        ),
     );
-    expect(Object.values(settings.agents.first_agent.bindings)).toContainEqual(
-      expect.objectContaining({ jid: 'tg:123' }),
-    );
-    expect(Object.values(settings.agents.second_agent.bindings)).toContainEqual(
-      expect.objectContaining({ jid: 'tg:123' }),
+    expect(installedAgentIds).toEqual(
+      expect.arrayContaining(['first_agent', 'second_agent']),
     );
     expect([...groupsStore.keys()]).toEqual(
       expect.arrayContaining([

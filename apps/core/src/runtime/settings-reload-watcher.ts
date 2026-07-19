@@ -8,7 +8,7 @@ import {
   classifySettingsChanges,
   type SettingsDesiredStateRepositories,
   type SettingsDesiredStateOps,
-} from '../config/settings/desired-state-service.js';
+} from '../application/settings/desired-state-service.js';
 import {
   importWorkstationSettings,
   settingsToRevisionDocument,

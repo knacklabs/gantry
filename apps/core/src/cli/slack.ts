@@ -627,11 +627,10 @@ export async function runSlackConnectCommand(
       jid: normalizedChatJid,
       displayName:
         conversationDisplayName || conversationRouteName || settings.agent.name,
-      trigger: `@${conversationRouteName || settings.agent.name}`,
       requiresTrigger: true,
       approverIds,
     });
-    providerAccountId = binding.providerConnectionId;
+    providerAccountId = binding.providerAccountId;
   } else {
     providerAccountId = providerAccountIdForAgent(settings, {
       providerId: 'slack',

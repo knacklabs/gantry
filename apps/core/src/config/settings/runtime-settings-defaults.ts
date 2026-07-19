@@ -213,8 +213,6 @@ export function createDefaultRuntimeSettings(): RuntimeSettings {
     ),
     providerAccounts: {},
     conversations: {},
-    conversationInstalls: {},
-    bindings: {},
     agents: {},
     storage,
     agent,

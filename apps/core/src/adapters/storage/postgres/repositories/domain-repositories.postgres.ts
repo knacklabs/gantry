@@ -568,8 +568,6 @@ export class PostgresProviderAccountRepository implements ProviderAccountReposit
         threadId: binding.threadId ?? null,
         displayName: binding.displayName,
         status: binding.status,
-        senderPolicy: binding.senderPolicy,
-        controlPolicy: binding.controlPolicy,
         memoryScope: binding.memoryScope,
         memorySubjectJson: encodeJson(binding.memorySubject),
         workspaceSnapshotId: binding.workspaceSnapshotId ?? null,
@@ -586,8 +584,6 @@ export class PostgresProviderAccountRepository implements ProviderAccountReposit
           threadId: binding.threadId ?? null,
           displayName: binding.displayName,
           status: binding.status,
-          senderPolicy: binding.senderPolicy,
-          controlPolicy: binding.controlPolicy,
           memoryScope: binding.memoryScope,
           memorySubjectJson: encodeJson(binding.memorySubject),
           workspaceSnapshotId: binding.workspaceSnapshotId ?? null,
@@ -731,10 +727,6 @@ export class PostgresProviderAccountRepository implements ProviderAccountReposit
       threadId: row.threadId ?? undefined,
       displayName: row.displayName,
       status: (row.status ?? 'active') as ConversationInstall['status'],
-      senderPolicy: (row.senderPolicy ??
-        'provider_native') as ConversationInstall['senderPolicy'],
-      controlPolicy: (row.controlPolicy ??
-        'conversation_approvers') as ConversationInstall['controlPolicy'],
       memoryScope: (row.memoryScope ??
         'conversation') as ConversationInstall['memoryScope'],
       memorySubject: parseJson<MemorySubject>(row.memorySubjectJson, {
@@ -879,6 +871,7 @@ export class PostgresConversationRepository implements ConversationRepository {
         externalRefJson: encodeJsonOrNull(conversation.externalRef),
         kind: conversation.kind,
         title: conversation.title ?? null,
+        requiresTrigger: conversation.requiresTrigger,
         status: conversation.status,
         createdAt: conversation.createdAt,
         updatedAt: conversation.updatedAt,
@@ -890,6 +883,7 @@ export class PostgresConversationRepository implements ConversationRepository {
           externalRefJson: encodeJsonOrNull(conversation.externalRef),
           kind: conversation.kind,
           title: conversation.title ?? null,
+          requiresTrigger: conversation.requiresTrigger,
           status: conversation.status,
           updatedAt: conversation.updatedAt,
         },
@@ -1034,6 +1028,7 @@ export class PostgresConversationRepository implements ConversationRepository {
       externalRef: externalRef(row.externalRefJson, 'conversation'),
       kind: row.kind as Conversation['kind'],
       title: row.title ?? undefined,
+      requiresTrigger: row.requiresTrigger,
       status: row.status as Conversation['status'],
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,

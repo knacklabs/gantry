@@ -4,7 +4,7 @@ import path from 'node:path';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { SettingsDesiredStateService } from '@core/config/settings/desired-state-service.js';
+import { SettingsDesiredStateService } from '@core/application/settings/desired-state-service.js';
 import { createDefaultRuntimeSettings } from '@core/config/settings/runtime-settings-defaults.js';
 import { parseRuntimeSettings } from '@core/config/settings/runtime-settings-parser.js';
 import { renderRuntimeSettingsYaml } from '@core/config/settings/runtime-settings-renderer.js';

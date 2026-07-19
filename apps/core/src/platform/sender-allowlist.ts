@@ -41,9 +41,12 @@ interface AllowlistDesiredState {
       externalId: string;
       senderPolicy: ChatAllowlistEntry;
       controlApprovers: string[];
+      installedAgents: Record<
+        string,
+        { agentId: string; status: 'active' | 'disabled' }
+      >;
     }
   >;
-  bindings: Record<string, { agent: string; conversation: string }>;
 }
 
 interface CachedRuntimeAllowlists {
@@ -117,9 +120,7 @@ function deriveSenderAllowlistFromSettings(
 ): RuntimeSenderAllowlistConfig {
   const sender = createDefaultConfig();
 
-  for (const binding of Object.values(settings.bindings)) {
-    const conversation = settings.conversations[binding.conversation];
-    if (!conversation) continue;
+  for (const conversation of Object.values(settings.conversations)) {
     const connection = settings.providerAccounts[conversation.providerAccount];
     if (!connection) continue;
     const providerId = connection.provider;
@@ -130,8 +131,11 @@ function deriveSenderAllowlistFromSettings(
     );
     sender[providerId].conversations ??= {};
     sender[providerId].conversations[conversationJid] ??= {};
-    sender[providerId].conversations[conversationJid][binding.agent] =
-      conversation.senderPolicy;
+    for (const install of Object.values(conversation.installedAgents ?? {})) {
+      if (install.status !== 'active') continue;
+      sender[providerId].conversations[conversationJid][install.agentId] =
+        conversation.senderPolicy;
+    }
   }
 
   return sender;
@@ -142,9 +146,7 @@ function deriveControlAllowlistFromSettings(
 ): RuntimeSenderControlAllowlistConfig {
   const control = createDefaultControlConfig();
 
-  for (const binding of Object.values(settings.bindings)) {
-    const conversation = settings.conversations[binding.conversation];
-    if (!conversation) continue;
+  for (const conversation of Object.values(settings.conversations)) {
     const connection = settings.providerAccounts[conversation.providerAccount];
     if (!connection) continue;
     const providerId = connection.provider;
@@ -155,8 +157,11 @@ function deriveControlAllowlistFromSettings(
     );
     control[providerId].conversations ??= {};
     control[providerId].conversations[conversationJid] ??= {};
-    control[providerId].conversations[conversationJid][binding.agent] =
-      conversation.controlApprovers;
+    for (const install of Object.values(conversation.installedAgents ?? {})) {
+      if (install.status !== 'active') continue;
+      control[providerId].conversations[conversationJid][install.agentId] =
+        conversation.controlApprovers;
+    }
   }
 
   return control;

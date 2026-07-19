@@ -12,7 +12,7 @@ import {
 const ALL_KINDS: ControlPlaneNextAction['kind'][] = [
   'runtime_blocked',
   'missing_model_credential',
-  'missing_provider_connection',
+  'missing_provider_account',
   'missing_conversation_install',
   'missing_access_approval',
   'blocked_job',
@@ -32,7 +32,7 @@ describe('guided action model', () => {
     const expected: Record<ControlPlaneNextAction['kind'], GuidedActionType> = {
       runtime_blocked: 'run_verification',
       missing_model_credential: 'connect_provider',
-      missing_provider_connection: 'connect_provider',
+      missing_provider_account: 'connect_provider',
       missing_conversation_install: 'add_conversation_install',
       missing_access_approval: 'grant_access',
       blocked_job: 'resume_job',

@@ -746,6 +746,7 @@ describe('channel CLI command', () => {
         providerAccount: 'telegram_main',
         externalId: '-100',
         senderPolicy: { allow: '*', mode: 'trigger' },
+        requiresTrigger: true,
         controlApprovers: ['5759865942'],
         installedAgents: {
           main_agent: {
@@ -753,7 +754,6 @@ describe('channel CLI command', () => {
             providerAccountId: 'telegram_main',
             status: 'active',
             memoryScope: 'conversation',
-            requiresTrigger: true,
           },
         },
       });
@@ -955,7 +955,7 @@ describe('channel CLI command', () => {
           },
           conversations: {
             main_telegram_group: {
-              providerConnection: 'telegram_default',
+              providerAccount: 'telegram_default',
               externalId,
             },
           },
@@ -968,7 +968,7 @@ describe('channel CLI command', () => {
           },
           conversations: {
             main_telegram_group: {
-              providerConnection: 'telegram_default',
+              providerAccount: 'telegram_default',
               externalId,
             },
           },

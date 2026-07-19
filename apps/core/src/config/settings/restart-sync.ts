@@ -4,8 +4,8 @@ import type { SettingsRevisionMirror } from './settings-import-service.js';
 import type {
   SettingsDesiredStateOps,
   SettingsDesiredStateRepositories,
-} from './desired-state-service.js';
-import { SettingsDesiredStateService } from './desired-state-service.js';
+} from '../../application/settings/desired-state-service.js';
+import { SettingsDesiredStateService } from '../../application/settings/desired-state-service.js';
 import {
   addAgentToolRulesToRuntimeSettings,
   activateRuntimeModelAliases,
@@ -16,7 +16,7 @@ import {
 } from './runtime-settings.js';
 import { normalizeConfiguredCapabilitiesInSettings } from './configured-capability-normalization.js';
 import { validateLoadedRuntimeSettings } from './runtime-settings-validation.js';
-import { agentIdForFolder } from './desired-state-service-helpers.js';
+import { agentIdForFolder } from '../../application/settings/desired-state-service-helpers.js';
 import type {
   RuntimeConfiguredAgentSourceRef,
   RuntimeSettings,

@@ -251,7 +251,7 @@ export class RuntimeSecretConversationDiscovery implements ProviderConversationD
     }
     throw new ApplicationError(
       'INVALID_REQUEST',
-      'provider connection does not reference a configured runtime secret',
+      'provider account does not reference a configured runtime secret',
     );
   }
 
@@ -263,7 +263,7 @@ export class RuntimeSecretConversationDiscovery implements ProviderConversationD
     if (!actualRef) {
       throw new ApplicationError(
         'INVALID_REQUEST',
-        `provider connection does not reference ${key}`,
+        `provider account does not reference ${key}`,
       );
     }
     const value = await getOptionalRuntimeSecret(this.secrets, {

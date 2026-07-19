@@ -611,7 +611,6 @@ async function writeAgentHarnessSetting(
     ...existing,
     name: input.name,
     folder,
-    bindings: existing?.bindings ?? {},
     sources: existing?.sources ?? { skills: [], mcpServers: [], tools: [] },
     capabilities: existing?.capabilities ?? [],
     accessPreset: existing?.accessPreset ?? 'full',
@@ -677,11 +676,11 @@ async function agentBoundConversation(
     binding.conversationId,
   );
   if (!conversation || conversation.appId !== appId) return null;
-  const providerConnection =
+  const providerAccount =
     await repositories.providerAccounts.getProviderAccount(
       conversation.providerAccountId,
     );
-  if (!providerConnection || providerConnection.appId !== appId) return null;
+  if (!providerAccount || providerAccount.appId !== appId) return null;
   const approvers = await repositories.conversations.listConversationApprovers(
     conversation.id,
   );
@@ -698,7 +697,7 @@ async function agentBoundConversation(
       : undefined;
   return {
     conversationId: conversation.id,
-    provider: providerConnection.providerId,
+    provider: providerAccount.providerId,
     kind: conversation.kind,
     ...(conversation.title ? { displayName: conversation.title } : {}),
     approverUserIds: approvers.map((approver) => approver.externalUserId),

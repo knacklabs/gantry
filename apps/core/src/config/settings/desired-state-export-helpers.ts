@@ -12,7 +12,6 @@ import type {
 import type {
   RuntimeConfiguredAgentCapability,
   RuntimeConfiguredAgentSources,
-  RuntimeConfiguredBinding,
   RuntimeConfiguredConversation,
 } from './runtime-settings-types.js';
 import { displayToolReference } from '../../shared/agent-tool-references.js';
@@ -123,64 +122,22 @@ function capabilityFromToolReference(
 }
 
 export function configuredConversationId(input: {
-  providerConnectionId: string;
+  providerAccountId: string;
   externalId: string;
   conversations: Record<string, RuntimeConfiguredConversation>;
 }): string | undefined {
   return rankedConversationMatches(input)[0];
 }
 
-export function dedupeConfiguredConversation(input: {
-  canonicalId: string;
-  providerConnectionId: string;
-  externalId: string;
-  conversations: Record<string, RuntimeConfiguredConversation>;
-  bindings: Record<string, RuntimeConfiguredBinding>;
-}): void {
-  const matches = rankedConversationMatches(input);
-  const canonical = input.conversations[input.canonicalId];
-  if (!canonical) return;
-  for (const duplicateId of matches) {
-    if (duplicateId === input.canonicalId) continue;
-    const duplicate = input.conversations[duplicateId];
-    if (!duplicate) continue;
-    if (
-      canonical.controlApprovers.length === 0 &&
-      duplicate.controlApprovers.length > 0
-    ) {
-      canonical.controlApprovers = [...duplicate.controlApprovers];
-    }
-    for (const [bindingId, binding] of Object.entries(input.bindings)) {
-      if (binding.conversation !== duplicateId) continue;
-      const redundantBinding = Object.entries(input.bindings).some(
-        ([candidateId, candidate]) =>
-          candidateId !== bindingId &&
-          candidate.agent === binding.agent &&
-          candidate.conversation === input.canonicalId,
-      );
-      if (redundantBinding) {
-        delete input.bindings[bindingId];
-        continue;
-      }
-      input.bindings[bindingId] = {
-        ...binding,
-        conversation: input.canonicalId,
-      };
-    }
-    delete input.conversations[duplicateId];
-  }
-}
-
 function rankedConversationMatches(input: {
-  providerConnectionId: string;
+  providerAccountId: string;
   externalId: string;
   conversations: Record<string, RuntimeConfiguredConversation>;
 }): string[] {
   return Object.entries(input.conversations)
     .filter(
       ([, conversation]) =>
-        (conversation.providerAccount ?? conversation.providerConnection) ===
-          input.providerConnectionId &&
+        conversation.providerAccount === input.providerAccountId &&
         conversation.externalId === input.externalId,
     )
     .sort(([leftId, left], [rightId, right]) => {
@@ -195,36 +152,6 @@ function conversationSettingsScore(
   conversation: RuntimeConfiguredConversation,
 ): number {
   return conversation.controlApprovers.length > 0 ? 1 : 0;
-}
-
-export function configuredBindingId(input: {
-  agent: string;
-  conversationId: string;
-  bindings: Record<string, RuntimeConfiguredBinding>;
-}): string | undefined {
-  return Object.entries(input.bindings).find(
-    ([, binding]) =>
-      binding.agent === input.agent &&
-      binding.conversation === input.conversationId,
-  )?.[0];
-}
-
-export function stableBindingId(
-  jid: string,
-  existing: Record<string, unknown>,
-): string {
-  const matching = Object.entries(existing).find(
-    ([, binding]) =>
-      binding &&
-      typeof binding === 'object' &&
-      'jid' in binding &&
-      (binding as { jid?: unknown }).jid === jid,
-  );
-  if (matching) return matching[0];
-  const base = jid.replace(/[^A-Za-z0-9_.:@-]/g, '_').slice(0, 80) || 'primary';
-  if (!Object.hasOwn(existing, base)) return base;
-  const hash = createHash('sha256').update(jid).digest('hex').slice(0, 12);
-  return `${base}_${hash}`.slice(0, 96);
 }
 
 export function stableSettingsId(

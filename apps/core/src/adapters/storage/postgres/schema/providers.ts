@@ -92,10 +92,6 @@ export const conversationInstallsPostgres = pgTable(
     ),
     displayName: text('display_name').notNull(),
     status: text('status').notNull().default('active'),
-    senderPolicy: text('sender_policy').notNull().default('provider_native'),
-    controlPolicy: text('control_policy')
-      .notNull()
-      .default('conversation_approvers'),
     memoryScope: text('memory_scope').notNull().default('conversation'),
     memorySubjectJson: text('memory_subject_json').notNull(),
     workspaceSnapshotId: text('workspace_snapshot_id').references(

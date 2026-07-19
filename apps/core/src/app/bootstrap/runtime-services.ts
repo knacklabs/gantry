@@ -6,7 +6,7 @@ import {
   getDeploymentMode,
   getRuntimeSettingsForConfig,
 } from '../../config/index.js';
-import { agentIdForFolder } from '../../config/settings/desired-state-service-helpers.js';
+import { agentIdForFolder } from '../../application/settings/desired-state-service-helpers.js';
 import {
   createAgentToolRuleSettingsMirror,
   type AgentToolRuleSettingsRepositories,
@@ -865,7 +865,7 @@ export async function startRuntimeServices(
           return {
             status: 'failed',
             error:
-              'Outbound delivery canonical destination provider does not match resolved conversation provider connection.',
+              'Outbound delivery canonical destination provider does not match resolved conversation provider account.',
           } as const;
         }
         const isCrossAppClaim =

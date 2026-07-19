@@ -1,7 +1,7 @@
 import type { AgentId } from '../../domain/agent/agent.js';
 import type { AppId } from '../../domain/app/app.js';
 import type { McpServerId } from '../../domain/mcp/mcp-servers.js';
-import type { SettingsDesiredStateRepositories } from './desired-state-service.js';
+import type { SettingsDesiredStateRepositories } from '../../application/settings/desired-state-service.js';
 import type {
   RuntimeConfiguredAgent,
   RuntimeSettings,

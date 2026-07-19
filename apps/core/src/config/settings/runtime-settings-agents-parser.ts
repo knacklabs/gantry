@@ -501,7 +501,6 @@ export function parseConfiguredAgents(
         map.tool_rules,
         `${pathPrefix}.tool_rules`,
       ),
-      bindings: {},
       ...parseConfiguredAgentAccess(map.access, `${pathPrefix}.access`),
     };
     const blockers = inlineWorkerOnlyConfiguredCapabilityLabels({ agent });
@@ -531,17 +530,6 @@ export function parseConfiguredAgents(
       .join('; ');
     if (inlineError) throw new Error(inlineError);
     result[folder] = agent;
-  }
-  for (const [folder, agent] of Object.entries(result)) {
-    const seenJids = new Set<string>();
-    for (const binding of Object.values(agent.bindings)) {
-      if (seenJids.has(binding.jid)) {
-        throw new Error(
-          `agents.${folder}.bindings contains duplicate jid ${binding.jid}`,
-        );
-      }
-      seenJids.add(binding.jid);
-    }
   }
   return result;
 }

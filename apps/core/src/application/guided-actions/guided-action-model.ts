@@ -149,7 +149,7 @@ export function guidedActionTypeForControlPlaneKind(
       return 'run_verification';
     case 'missing_model_credential':
       return 'connect_provider';
-    case 'missing_provider_connection':
+    case 'missing_provider_account':
       return 'connect_provider';
     case 'missing_conversation_install':
       return 'add_conversation_install';

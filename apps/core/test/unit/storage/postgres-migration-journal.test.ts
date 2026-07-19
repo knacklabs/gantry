@@ -1656,4 +1656,24 @@ describe('Postgres migration journal', () => {
     expect(migration).toContain('"group_join_onboarding_status_check"');
     expect(migration).toContain('"group_join_onboarding_provider_chat_unique"');
   });
+
+  it('backfills direct conversations without triggers and non-direct conversations with triggers', () => {
+    const migration = fs.readFileSync(
+      path.resolve(
+        'apps/core/src/adapters/storage/postgres/schema/migrations/0103_settings_authority_cutover.sql',
+      ),
+      'utf8',
+    );
+
+    expect(migration).toContain(
+      'ADD COLUMN "requires_trigger" boolean;--> statement-breakpoint',
+    );
+    expect(migration).toContain(
+      `SET "requires_trigger" = CASE WHEN "kind" = 'direct' THEN false ELSE true END`,
+    );
+    expect(migration).toContain(
+      'ALTER COLUMN "requires_trigger" SET DEFAULT false',
+    );
+    expect(migration).toContain('ALTER COLUMN "requires_trigger" SET NOT NULL');
+  });
 });

@@ -1,7 +1,7 @@
 import { GANTRY_HOME } from '../index.js';
 import type { SettingsRevisionRepository } from '../../domain/ports/fleet-capability-state.js';
 import type { RuntimeConversationRouteRepository } from '../../domain/repositories/ops-repo.js';
-import type { SettingsDesiredStateRepositories } from './desired-state-service.js';
+import type { SettingsDesiredStateRepositories } from '../../application/settings/desired-state-service.js';
 import { mirrorAgentToolRulesToRuntimeSettings } from './runtime-settings.js';
 import {
   addAgentToolRulesToSyncedRuntimeSettings,

@@ -185,13 +185,10 @@ export function validateLoadedRuntimeSettings(
   for (const [conversationId, conversation] of Object.entries(
     settings.conversations,
   )) {
-    const connection =
-      settings.providerAccounts[
-        conversation.providerAccount ?? conversation.providerConnection
-      ];
+    const connection = settings.providerAccounts[conversation.providerAccount];
     if (!connection) {
       details.push(
-        `conversations.${conversationId}.provider_account references unknown provider account ${conversation.providerAccount ?? conversation.providerConnection}.`,
+        `conversations.${conversationId}.provider_account references unknown provider account ${conversation.providerAccount}.`,
       );
     }
     if (
@@ -216,7 +213,7 @@ export function validateLoadedRuntimeSettings(
       explicitProviderId !== expectedProviderId
     ) {
       details.push(
-        `conversations.${conversationId}.external_id prefix "${explicitProviderId}:" does not match provider account ${conversation.providerAccount ?? conversation.providerConnection} (${expectedProviderId}).`,
+        `conversations.${conversationId}.external_id prefix "${explicitProviderId}:" does not match provider account ${conversation.providerAccount} (${expectedProviderId}).`,
       );
     }
   }

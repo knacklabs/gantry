@@ -84,6 +84,7 @@ function renderSettingsYaml(overrides: {
     lines.push('    external_id: "1"');
     lines.push('    kind: group');
     lines.push(`    display_name: ${folder}`);
+    lines.push('    requires_trigger: true');
     lines.push('    sender_policy:');
     lines.push(`      allow: ${renderAllow(entry.allow)}`);
     lines.push(`      mode: ${entry.mode}`);
@@ -94,8 +95,6 @@ function renderSettingsYaml(overrides: {
     lines.push(`      ${folder}:`);
     lines.push(`        provider_account: ${folder}_account`);
     lines.push('        added_at: "2026-01-01T00:00:00.000Z"');
-    lines.push('        trigger: "@agent"');
-    lines.push('        requires_trigger: true');
   }
 
   for (const [folder, entry] of Object.entries(overrides.slackAgents || {})) {
@@ -104,6 +103,7 @@ function renderSettingsYaml(overrides: {
     lines.push('    external_id: "C1"');
     lines.push('    kind: channel');
     lines.push(`    display_name: ${folder}`);
+    lines.push('    requires_trigger: true');
     lines.push('    sender_policy:');
     lines.push(`      allow: ${renderAllow(entry.allow)}`);
     lines.push(`      mode: ${entry.mode}`);
@@ -114,8 +114,6 @@ function renderSettingsYaml(overrides: {
     lines.push(`      ${folder}:`);
     lines.push(`        provider_account: ${folder}_account`);
     lines.push('        added_at: "2026-01-01T00:00:00.000Z"');
-    lines.push('        trigger: "@agent"');
-    lines.push('        requires_trigger: true');
   }
 
   lines.push(
@@ -182,6 +180,7 @@ function writeSameAgentMultiConversationSettings(): string {
       '    external_id: "1"',
       '    kind: group',
       '    display_name: First',
+      '    requires_trigger: true',
       '    sender_policy:',
       '      allow: ["alice"]',
       '      mode: trigger',
@@ -190,13 +189,12 @@ function writeSameAgentMultiConversationSettings(): string {
       '      main_agent:',
       '        provider_account: main_agent_telegram',
       '        added_at: "2026-01-01T00:00:00.000Z"',
-      '        trigger: "@agent"',
-      '        requires_trigger: true',
       '  second_conversation:',
       '    provider_account: main_agent_telegram',
       '    external_id: "2"',
       '    kind: group',
       '    display_name: Second',
+      '    requires_trigger: true',
       '    sender_policy:',
       '      allow: ["bob"]',
       '      mode: trigger',
@@ -205,8 +203,6 @@ function writeSameAgentMultiConversationSettings(): string {
       '      main_agent:',
       '        provider_account: main_agent_telegram',
       '        added_at: "2026-01-01T00:00:00.000Z"',
-      '        trigger: "@agent"',
-      '        requires_trigger: true',
       'agents:',
       '  main_agent:',
       '    name: Default Agent',

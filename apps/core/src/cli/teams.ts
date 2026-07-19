@@ -406,11 +406,10 @@ export async function runTeamsConnectCommand(
       agentFolder: registeredFolder,
       jid: registeredChatJid,
       displayName: registeredChatTitle || conversationRouteName,
-      trigger: `@${conversationRouteName || settings.agent.name}`,
       requiresTrigger: false,
       approverIds,
     });
-    providerAccountId = binding.providerConnectionId;
+    providerAccountId = binding.providerAccountId;
   } else {
     providerAccountId = providerAccountIdForAgent(settings, {
       providerId: 'teams',

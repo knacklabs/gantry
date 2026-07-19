@@ -111,7 +111,6 @@ interface ConversationIdSettings {
     {
       externalId: string;
       providerAccount?: string;
-      providerConnection?: string;
     }
   >;
 }
@@ -136,8 +135,7 @@ export function conversationIdFromConfigured(
   settings: ConversationIdSettings,
   configured: ConversationIdSettings['conversations'][string],
 ): string {
-  const providerAccountId =
-    configured.providerAccount ?? configured.providerConnection;
+  const providerAccountId = configured.providerAccount;
   const connection = providerAccountId
     ? settings.providerAccounts[providerAccountId]
     : undefined;

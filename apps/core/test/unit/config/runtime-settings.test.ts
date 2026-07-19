@@ -22,10 +22,6 @@ import {
   reportWorkstationSettingsImportOutcome,
   runSettingsCommand,
 } from '@core/cli/settings.js';
-import {
-  deriveBindingsFromConversationInstalls,
-  flattenConversationInstalls,
-} from '@core/config/settings/runtime-settings-binding-derivation.js';
 import type { RuntimeConfiguredConversation } from '@core/config/settings/runtime-settings-types.js';
 import {
   parseSimpleYamlObject,
@@ -43,7 +39,6 @@ describe('runtime settings', () => {
       name: 'ReAgent',
       folder: 'main_agent',
       delegates: [],
-      bindings: {},
       sources: emptySources(),
       capabilities: [{ id: 'mcp.caw-ats.access', version: '1' }],
     };
@@ -210,6 +205,7 @@ conversations:
       kind: 'channel',
       displayName: 'shared',
       brainHarvest: false,
+      requiresTrigger: true,
       senderPolicy: { allow: '*', mode: 'trigger' },
       controlApprovers: ['slack:UADMIN'],
       installedAgents: {},
@@ -263,7 +259,7 @@ conversations:
     ).toBe(false);
   });
 
-  it('preserves thread-scoped conversation installs in derived bindings', () => {
+  it('preserves thread-scoped conversation installs', () => {
     const parsed = parseRuntimeSettings(`providers:
   slack:
     enabled: true
@@ -287,20 +283,8 @@ conversations:
         thread_id: "171.222"
 `);
 
-    expect(parsed.bindings['agent_one_shared_channel_171.222']?.threadId).toBe(
-      '171.222',
-    );
     expect(
-      parsed.agents.agent_one.bindings['agent_one_shared_channel_171.222'],
-    ).toEqual(
-      expect.objectContaining({
-        jid: 'sl:slack:C123',
-        threadId: '171.222',
-        providerAccountId: 'slack_one',
-      }),
-    );
-    expect(
-      parsed.conversationInstalls['agent_one_shared_channel_171.222']?.threadId,
+      parsed.conversations.shared_channel.installedAgents.agent_one.threadId,
     ).toBe('171.222');
   });
 
@@ -345,17 +329,8 @@ conversations:
     };
 
     expect(
-      Object.keys(deriveBindingsFromConversationInstalls(parsed.conversations)),
-    ).toEqual([
-      'agent_one_shared_channel_171.111',
-      'agent_one_shared_channel_171.222',
-    ]);
-    expect(
-      Object.keys(flattenConversationInstalls(parsed.conversations)),
-    ).toEqual([
-      'agent_one_shared_channel_171.111',
-      'agent_one_shared_channel_171.222',
-    ]);
+      Object.keys(parsed.conversations.shared_channel.installedAgents),
+    ).toEqual(['first', 'second']);
   });
 
   it('keeps disabled conversation installs out of runtime bindings', () => {
@@ -380,14 +355,11 @@ conversations:
       agent_one:
         provider_account: slack_one
         status: disabled
-        trigger: "@one"
 `);
 
     expect(
       parsed.conversations.shared_channel.installedAgents.agent_one.status,
     ).toBe('disabled');
-    expect(parsed.bindings).toEqual({});
-    expect(parsed.agents.agent_one.bindings).toEqual({});
     expect(renderRuntimeSettingsYaml(parsed)).toContain('status: disabled');
   });
 
@@ -420,7 +392,7 @@ conversations:
     ).toBe('app');
   });
 
-  it('defaults channel installs to trigger-required and direct installs to open', () => {
+  it('defaults channel conversations to trigger-required and direct conversations to open', () => {
     const parsed = parseRuntimeSettings(`providers:
   slack:
     enabled: true
@@ -459,20 +431,12 @@ conversations:
         provider_account: slack_one
 `);
 
-    expect(
-      parsed.conversations.shared_channel.installedAgents.agent_one
-        .requiresTrigger,
-    ).toBe(true);
-    expect(
-      parsed.conversations.direct_chat.installedAgents.agent_one
-        .requiresTrigger,
-    ).toBe(false);
-    expect(
-      parsed.conversations.dm_chat.installedAgents.agent_one.requiresTrigger,
-    ).toBe(false);
+    expect(parsed.conversations.shared_channel.requiresTrigger).toBe(true);
+    expect(parsed.conversations.direct_chat.requiresTrigger).toBe(false);
+    expect(parsed.conversations.dm_chat.requiresTrigger).toBe(false);
   });
 
-  it('omits undefined requires_trigger when rendering conversation installs', () => {
+  it('defaults undefined requires_trigger when rendering conversations', () => {
     const parsed = parseRuntimeSettings(`providers:
   slack:
     enabled: true
@@ -495,8 +459,9 @@ conversations:
         provider_account: slack_one
 `);
 
-    delete parsed.conversations.shared_channel.installedAgents.agent_one
-      .requiresTrigger;
+    delete (
+      parsed.conversations.shared_channel as { requiresTrigger?: boolean }
+    ).requiresTrigger;
 
     const rendered = renderRuntimeSettingsYaml(parsed);
 
@@ -504,15 +469,11 @@ conversations:
     expect(
       parseRuntimeSettings(rendered).conversations.shared_channel,
     ).toMatchObject({
-      installedAgents: {
-        agent_one: {
-          requiresTrigger: true,
-        },
-      },
+      requiresTrigger: true,
     });
   });
 
-  it('preserves explicit false requires_trigger on channel installs', () => {
+  it('preserves explicit false requires_trigger on channel conversations', () => {
     const parsed = parseRuntimeSettings(`providers:
   slack:
     enabled: true
@@ -530,16 +491,13 @@ conversations:
     id: slack:C123
     type: channel
     display_name: shared
+    requires_trigger: false
     installed_agents:
       agent_one:
         provider_account: slack_one
-        requires_trigger: false
 `);
 
-    expect(
-      parsed.conversations.shared_channel.installedAgents.agent_one
-        .requiresTrigger,
-    ).toBe(false);
+    expect(parsed.conversations.shared_channel.requiresTrigger).toBe(false);
     expect(renderRuntimeSettingsYaml(parsed)).toContain(
       'requires_trigger: false',
     );
@@ -2378,7 +2336,7 @@ agents:
         (conversation) => conversation.externalId,
       ),
     ).toEqual(['abc-def', 'abc:def']);
-    expect(Object.keys(settings.bindings)).toHaveLength(2);
+    expect(Object.keys(settings.conversations)).toHaveLength(2);
   });
 
   it('seeds onboarding approvers into conversation policy only', () => {
@@ -2395,10 +2353,10 @@ agents:
       approverIds: ['UADMIN', 'UHELPER'],
     });
 
-    expect(
-      settings.agents.main_agent.bindings[result.bindingId].providerAccountId,
-    ).toBe(result.providerConnectionId);
     const conversation = Object.values(settings.conversations)[0];
+    expect(conversation.installedAgents.main_agent.providerAccountId).toBe(
+      result.providerAccountId,
+    );
     expect(conversation?.controlApprovers).toEqual(['UADMIN', 'UHELPER']);
     expect(conversation?.senderPolicy).toEqual({ allow: '*', mode: 'trigger' });
     const yaml = renderRuntimeSettingsYaml(settings);

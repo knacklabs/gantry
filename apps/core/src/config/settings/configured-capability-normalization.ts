@@ -2,7 +2,7 @@ import type { AppId } from '../../domain/app/app.js';
 import type { SkillCatalogItem } from '../../domain/skills/skills.js';
 import type { ToolCatalogItem } from '../../domain/tools/tools.js';
 import { skillActionSemanticCapability } from '../../domain/skills/skill-action-permissions.js';
-import type { SettingsDesiredStateRepositories } from './desired-state-service-types.js';
+import type { SettingsDesiredStateRepositories } from '../../application/settings/desired-state-service-types.js';
 import type {
   RuntimeConfiguredAgentCapability,
   RuntimeSettings,

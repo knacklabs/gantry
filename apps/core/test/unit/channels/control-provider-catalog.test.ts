@@ -300,7 +300,7 @@ describe('RuntimeSecretConversationDiscovery', () => {
       }),
     ).rejects.toMatchObject({
       code: 'INVALID_REQUEST',
-      message: 'provider connection does not reference client_secret',
+      message: 'provider account does not reference client_secret',
     });
     expect(mocks.listTeamsChannels).not.toHaveBeenCalled();
   });

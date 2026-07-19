@@ -10,18 +10,17 @@ export function printPolicyChannel(
   settings: RuntimeSettings,
 ): void {
   const provider = settings.providers[providerId];
-  const entries = Object.entries(settings.bindings)
-    .map(([, binding]) => {
-      const conversation = settings.conversations[binding.conversation];
-      if (!conversation) return null;
+  const entries = Object.values(settings.conversations)
+    .flatMap((conversation) => {
       const connection =
         settings.providerAccounts[conversation.providerAccount];
-      if (connection?.provider !== providerId) return null;
-      return [binding.agent, conversation.senderPolicy] as const;
+      if (connection?.provider !== providerId) return [];
+      return Object.values(conversation.installedAgents ?? {})
+        .filter((install) => install.status === 'active')
+        .map(
+          (install) => [install.agentId, conversation.senderPolicy] as const,
+        );
     })
-    .filter((entry): entry is readonly [string, NonNullable<typeof entry>[1]] =>
-      Boolean(entry),
-    )
     .sort(([a], [b]) => a.localeCompare(b));
   const lines = [
     `${providerId}:`,

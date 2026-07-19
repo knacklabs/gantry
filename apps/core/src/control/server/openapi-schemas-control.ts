@@ -17,7 +17,7 @@ const nextAction = {
       enum: [
         'runtime_blocked',
         'missing_model_credential',
-        'missing_provider_connection',
+        'missing_provider_account',
         'missing_conversation_install',
         'missing_access_approval',
         'blocked_job',

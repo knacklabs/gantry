@@ -48,6 +48,7 @@ import {
   ProviderSessionResponseSchema,
   RuntimeLimitSchema,
   RuntimeSettingsConfiguredAgentSchema,
+  RuntimeSettingsConversationSchema,
   RuntimeSettingsResponseSchema,
   SchemaDescriptorSchema,
   StreamEventSchema,
@@ -156,7 +157,6 @@ describe('contracts package', () => {
       name: 'Main',
       folder: 'main_agent',
       delegates: ['researcher', 'future_agent'],
-      bindings: {},
       sources: { skills: [], mcpServers: [], tools: [] },
       capabilities: [],
     };
@@ -608,19 +608,6 @@ describe('contracts package', () => {
             oneTimeJobDefaultModel: 'inherit',
             recurringJobDefaultModel: 'inherit',
             delegates: ['researcher', 'future_agent'],
-            bindings: {
-              main_agent_shared_channel: {
-                jid: 'slack:C123',
-                provider: 'slack',
-                providerAccountId: 'slack_one',
-                name: 'shared',
-                threadId: '171.222',
-                trigger: '@main',
-                addedAt: iso,
-                requiresTrigger: true,
-                permissionMode: 'auto_strict',
-              },
-            },
             sources: { skills: [], mcpServers: [], tools: [] },
             capabilities: [],
           },
@@ -642,6 +629,7 @@ describe('contracts package', () => {
             kind: 'channel',
             displayName: 'shared',
             brainHarvest: false,
+            requiresTrigger: true,
             senderPolicy: { allow: '*', mode: 'trigger' },
             controlApprovers: ['slack:UADMIN'],
             installedAgents: {
@@ -652,39 +640,9 @@ describe('contracts package', () => {
                 status: 'active',
                 addedAt: iso,
                 memoryScope: 'conversation',
-                trigger: '@main',
-                requiresTrigger: true,
                 permissionMode: 'auto_strict',
               },
             },
-          },
-        },
-        bindings: {
-          main_agent_shared_channel: {
-            agent: 'main_agent',
-            providerAccountId: 'slack_one',
-            installKey: 'main_agent',
-            conversation: 'shared_channel',
-            threadId: '171.222',
-            trigger: '@main',
-            addedAt: iso,
-            requiresTrigger: true,
-            memoryScope: 'conversation',
-            permissionMode: 'auto_strict',
-          },
-        },
-        conversationInstalls: {
-          main_agent_shared_channel: {
-            agentId: 'main_agent',
-            providerAccountId: 'slack_one',
-            conversationId: 'shared_channel',
-            threadId: '171.222',
-            status: 'active',
-            addedAt: iso,
-            memoryScope: 'conversation',
-            trigger: '@main',
-            requiresTrigger: true,
-            permissionMode: 'auto_strict',
           },
         },
         memory: { enabled: true, dreaming: { enabled: false } },
@@ -741,20 +699,12 @@ describe('contracts package', () => {
       'future_agent',
     ]);
     expect(
-      parsed.settings.agents.main_agent?.bindings.main_agent_shared_channel
-        ?.permissionMode,
-    ).toBe('auto_strict');
-    expect(
-      parsed.settings.conversations.shared_channel?.installedAgents.main_agent
-        ?.permissionMode,
-    ).toBe('auto_strict');
-    expect(
-      parsed.settings.bindings.main_agent_shared_channel?.permissionMode,
-    ).toBe('auto_strict');
-    expect(
-      parsed.settings.conversationInstalls.main_agent_shared_channel
-        ?.permissionMode,
-    ).toBe('auto_strict');
+      parsed.settings.conversations.shared_channel?.installedAgents.main_agent,
+    ).toMatchObject({
+      providerAccountId: 'slack_one',
+      threadId: '171.222',
+      permissionMode: 'auto_strict',
+    });
     expect(parsed.settings.permissions.autoMode).toEqual({ model: 'sonnet' });
     expectInvalid(RuntimeSettingsResponseSchema, {
       settings: {
@@ -765,18 +715,28 @@ describe('contracts package', () => {
         },
       },
     });
-    expect(
-      parsed.settings.conversationInstalls.main_agent_shared_channel?.threadId,
-    ).toBe('171.222');
-    expect(parsed.settings.bindings.main_agent_shared_channel).toMatchObject({
-      providerAccountId: 'slack_one',
-      installKey: 'main_agent',
-    });
-    expect(
-      parsed.settings.agents.main_agent?.bindings.main_agent_shared_channel,
-    ).toMatchObject({
-      providerAccountId: 'slack_one',
-      threadId: '171.222',
+  });
+
+  it('rejects install-level trigger in the public runtime settings contract', () => {
+    expectInvalid(RuntimeSettingsConversationSchema, {
+      providerAccount: 'slack_one',
+      externalId: 'slack:C123',
+      kind: 'channel',
+      displayName: 'shared',
+      brainHarvest: false,
+      requiresTrigger: true,
+      senderPolicy: { allow: '*', mode: 'trigger' },
+      controlApprovers: ['slack:UADMIN'],
+      installedAgents: {
+        main_agent: {
+          agentId: 'main_agent',
+          providerAccountId: 'slack_one',
+          trigger: '@main',
+          status: 'active',
+          addedAt: iso,
+          memoryScope: 'conversation',
+        },
+      },
     });
   });
 
@@ -1499,12 +1459,12 @@ describe('contracts package', () => {
       ConversationInstallRequestSchema.parse({
         providerAccountId: 'installation-1',
         memoryScope: 'conversation',
-        routeConfig: { trigger: '/ask', requiresTrigger: true },
+        routeConfig: {},
         permissionPolicyIds: [],
       }),
     ).toMatchObject({
       providerAccountId: 'installation-1',
-      routeConfig: { trigger: '/ask', requiresTrigger: true },
+      routeConfig: {},
     });
     expectInvalid(ConversationInstallRequestSchema, {
       memoryScope: 'sometimes',
@@ -1519,7 +1479,7 @@ describe('contracts package', () => {
         displayName: 'Engineering',
         status: 'active',
         memoryScope: 'conversation',
-        routeConfig: { trigger: '/ask', requiresTrigger: true },
+        routeConfig: {},
         permissionPolicyIds: [],
         createdAt: iso,
         updatedAt: iso,
@@ -1527,7 +1487,7 @@ describe('contracts package', () => {
     ).toMatchObject({
       status: 'active',
       providerAccountId: 'installation-1',
-      routeConfig: { trigger: '/ask', requiresTrigger: true },
+      routeConfig: {},
     });
     expect(
       ConversationInstallListResponseSchema.parse({
@@ -1629,6 +1589,15 @@ describe('contracts package', () => {
     expectInvalid(MessageResponseSchema, {
       ...message,
       parts: [{ ordinal: -1, kind: 'text', payload: { text: 'hello' } }],
+    });
+  });
+
+  it.each([
+    ['trigger', '/ask'],
+    ['requiresTrigger', true],
+  ])('rejects removed conversation install route field %s', (field, value) => {
+    expectInvalid(ConversationInstallRequestSchema, {
+      routeConfig: { [field]: value },
     });
   });
 

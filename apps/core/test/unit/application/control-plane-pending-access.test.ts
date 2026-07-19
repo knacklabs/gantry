@@ -18,8 +18,13 @@ function settings(): BuilderInput['settings'] {
     agents: {
       agent: { name: 'Agent', model: 'opus', capabilities: [] },
     },
-    conversations: { conv: {} },
-    bindings: { binding: { agent: 'agent', conversation: 'conv' } },
+    conversations: {
+      conv: {
+        installedAgents: {
+          agent: { agentId: 'agent', status: 'active' },
+        },
+      },
+    },
     providers: { telegram: { enabled: true } },
     providerAccounts: { telegram_default: { provider: 'telegram' } },
     memory: { enabled: false },

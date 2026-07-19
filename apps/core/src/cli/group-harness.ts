@@ -64,7 +64,6 @@ export async function runHarness(
       ...existing,
       name: resolved.found.group.name || folder,
       folder,
-      bindings: existing?.bindings ?? {},
       sources: existing?.sources ?? { skills: [], mcpServers: [], tools: [] },
       capabilities: existing?.capabilities ?? [],
       accessPreset: existing?.accessPreset ?? 'full',

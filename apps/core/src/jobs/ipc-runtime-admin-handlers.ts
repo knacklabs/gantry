@@ -15,7 +15,7 @@ import {
   getRuntimeRepositories,
   getRuntimeStorage,
 } from '../adapters/storage/postgres/runtime-store.js';
-import { SettingsDesiredStateService } from '../config/settings/desired-state-service.js';
+import { SettingsDesiredStateService } from '../application/settings/desired-state-service.js';
 import { importWorkstationSettings } from '../config/settings/settings-import-service.js';
 import { logger } from '../infrastructure/logging/logger.js';
 import { validateRuntimePreflightWithStorage } from '../config/preflight.js';

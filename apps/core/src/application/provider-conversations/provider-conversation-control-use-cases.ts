@@ -424,6 +424,7 @@ export class DiscoverProviderConversationsService {
           } as ExternalRef<'conversation'>),
         kind: item.kind,
         title: item.title,
+        requiresTrigger: existing?.requiresTrigger ?? item.kind !== 'direct',
         status: item.status ?? 'active',
         createdAt: existing?.createdAt ?? now,
         updatedAt: now,
@@ -605,8 +606,6 @@ export class ConversationInstallControlService {
         input.patch.status ??
         (input.requireExisting ? existing?.status : undefined) ??
         'active',
-      senderPolicy: 'provider_native',
-      controlPolicy: 'conversation_approvers',
       memoryScope,
       memorySubject,
       workspaceSnapshotId:

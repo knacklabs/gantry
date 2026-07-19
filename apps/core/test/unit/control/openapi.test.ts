@@ -329,7 +329,6 @@ describe('control OpenAPI documentation', () => {
       name: 'Default Agent',
       folder: 'main_agent',
       model: 'opus',
-      bindings: {},
       sources: { skills: [], mcpServers: [], tools: [] },
       capabilities: [{ id: 'browser.use', version: 'builtin' }],
     };
@@ -338,16 +337,18 @@ describe('control OpenAPI documentation', () => {
       externalId: '123',
       kind: 'dm',
       displayName: 'Main DM',
+      requiresTrigger: false,
       senderPolicy: { allow: '*', mode: 'trigger' },
       controlApprovers: ['123'],
-    };
-    settings.bindings.main_binding = {
-      agent: 'main_agent',
-      conversation: 'main_dm',
-      trigger: '@Default Agent',
-      addedAt: '2026-01-01T00:00:00.000Z',
-      requiresTrigger: false,
-      memoryScope: 'conversation',
+      installedAgents: {
+        main_agent: {
+          agentId: 'main_agent',
+          providerAccountId: 'telegram_default',
+          status: 'active',
+          addedAt: '2026-01-01T00:00:00.000Z',
+          memoryScope: 'conversation',
+        },
+      },
     };
     const ctx = {
       ...mockContext(),
@@ -399,16 +400,18 @@ describe('control OpenAPI documentation', () => {
       externalId: '123',
       kind: 'dm',
       displayName: 'Main DM',
+      requiresTrigger: false,
       senderPolicy: { allow: '*', mode: 'trigger' },
       controlApprovers: ['123'],
-    };
-    settings.bindings.main_binding = {
-      agent: 'main_agent',
-      conversation: 'main_dm',
-      trigger: '@Gantry',
-      addedAt: '2026-01-01T00:00:00.000Z',
-      requiresTrigger: false,
-      memoryScope: 'conversation',
+      installedAgents: {
+        main_agent: {
+          agentId: 'main_agent',
+          providerAccountId: 'telegram_default',
+          status: 'active',
+          addedAt: '2026-01-01T00:00:00.000Z',
+          memoryScope: 'conversation',
+        },
+      },
     };
     settings.memory.embeddings.enabled = true;
     settings.memory.embeddings.provider = 'openai';

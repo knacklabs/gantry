@@ -257,23 +257,22 @@ function createTestOpts(
       },
       conversations: {
         whatsapp_main_conversation: {
-          providerConnection: 'telegram_default',
           providerAccount: 'telegram_default',
           externalId: '100200300',
           kind: 'group',
           displayName: 'Test Group',
+          requiresTrigger: true,
           senderPolicy: { allow: '*', mode: 'trigger' },
           controlApprovers: ['12345', '222', '333', '444'],
-        },
-      },
-      bindings: {
-        whatsapp_main_binding: {
-          agent: 'whatsapp_main',
-          conversation: 'whatsapp_main_conversation',
-          trigger: '@Andy',
-          addedAt: '2024-01-01T00:00:00.000Z',
-          requiresTrigger: true,
-          memoryScope: 'conversation',
+          installedAgents: {
+            whatsapp_main: {
+              agentId: 'whatsapp_main',
+              providerAccountId: 'telegram_default',
+              status: 'active',
+              addedAt: '2024-01-01T00:00:00.000Z',
+              memoryScope: 'conversation',
+            },
+          },
         },
       },
       storage: {
@@ -409,14 +408,22 @@ function createGroupJoinOnboardingOpts() {
           controlApprovers: ['111'],
         },
         operator_dm: {
-          providerConnection: 'telegram_default',
           providerAccount: 'telegram_default',
           externalId: '222',
           kind: 'dm',
           displayName: 'Operator',
+          requiresTrigger: false,
           senderPolicy: { allow: '*', mode: 'trigger' },
           controlApprovers: ['222'],
-          installedAgents: {},
+          installedAgents: {
+            whatsapp_main: {
+              agentId: 'whatsapp_main',
+              providerAccountId: 'telegram_default',
+              status: 'active',
+              addedAt: '2024-01-01T00:00:00.000Z',
+              memoryScope: 'conversation',
+            },
+          },
         },
       },
     })),

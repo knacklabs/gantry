@@ -49,6 +49,7 @@ import {
   withCustomModelCatalogEntries,
 } from '../../shared/model-catalog.js';
 import { envRuntimeSecretRef } from '../../domain/ports/runtime-secret-provider.js';
+import { triggerForRoute } from '../../shared/trigger-pattern.js';
 
 export {
   configureDesiredSettingsStorageProvider,
@@ -116,7 +117,7 @@ export interface EnsureConfiguredConversationBindingInput {
   agentFolder: string;
   jid: string;
   displayName: string;
-  trigger: string;
+  trigger?: string;
   requiresTrigger: boolean;
   persona?: AgentPersona;
   approverIds?: string[];
@@ -145,7 +146,6 @@ export function ensureConfiguredAgent(
     runtime: 'worker',
     persona: input.persona ?? 'developer',
     delegates: [],
-    bindings: {},
     sources: { skills: [], mcpServers: [], tools: [] },
     capabilities: [],
     accessPreset: 'full',
@@ -313,12 +313,11 @@ export function addControlSenderForAgent(
   )) {
     const connection = settings.providerAccounts[conversation.providerAccount];
     if (connection?.provider !== providerId) continue;
-    const binding = Object.values(settings.bindings).find(
+    const installed = Object.values(conversation.installedAgents ?? {}).some(
       (candidate) =>
-        candidate.agent === trimmedFolder &&
-        candidate.conversation === conversationId,
+        candidate.status === 'active' && candidate.agentId === trimmedFolder,
     );
-    if (!binding) continue;
+    if (!installed) continue;
     if (!conversation.controlApprovers.includes(trimmedSender)) {
       conversation.controlApprovers = [
         ...conversation.controlApprovers,
@@ -335,7 +334,7 @@ export function ensureConfiguredConversationBinding(
   input: EnsureConfiguredConversationBindingInput,
 ): {
   providerId: string;
-  providerConnectionId: string;
+  providerAccountId: string;
   conversationId: string;
   bindingId: string;
 } {
@@ -352,7 +351,7 @@ export function ensureConfiguredConversationBinding(
   )?.[0];
   const defaultProviderAccountId =
     DEFAULT_PROVIDER_ACCOUNT_IDS[provider.id] || `${provider.id}_default`;
-  const providerConnectionId =
+  const providerAccountId =
     existingProviderAccountId ??
     (!settings.providerAccounts[defaultProviderAccountId] ||
     settings.providerAccounts[defaultProviderAccountId].agentId === agentId
@@ -365,7 +364,7 @@ export function ensureConfiguredConversationBinding(
   settings.providers[provider.id] = {
     enabled: true,
   };
-  settings.providerAccounts[providerConnectionId] ??= {
+  settings.providerAccounts[providerAccountId] ??= {
     agentId,
     provider: provider.id,
     label: `${provider.label} Default`,
@@ -382,7 +381,7 @@ export function ensureConfiguredConversationBinding(
 
   const externalId = stripProviderPrefix(input.jid, provider.id);
   const conversationId = configuredConversationId({
-    providerConnectionId,
+    providerAccountId,
     externalId,
     conversations: settings.conversations,
   });
@@ -397,12 +396,12 @@ export function ensureConfiguredConversationBinding(
     .filter(Boolean)
     .sort();
   settings.conversations[conversationId] = {
-    providerConnection: providerConnectionId,
-    providerAccount: providerConnectionId,
+    providerAccount: providerAccountId,
     externalId,
     kind: provider.isGroupJid(input.jid) ? 'channel' : 'dm',
     displayName: input.displayName.trim() || input.jid,
     brainHarvest: existingConversation?.brainHarvest ?? false,
+    requiresTrigger: input.requiresTrigger,
     senderPolicy: existingConversation?.senderPolicy || {
       allow: '*',
       mode: 'trigger',
@@ -411,53 +410,27 @@ export function ensureConfiguredConversationBinding(
     installedAgents: existingConversation?.installedAgents ?? {},
   };
 
-  const existingBindingEntry = Object.entries(settings.bindings).find(
-    ([, binding]) =>
-      binding.agent === agentId && binding.conversation === conversationId,
-  );
-  const bindingId =
-    existingBindingEntry?.[0] ??
-    stableSettingsId(
-      `${agentId}_${conversationId}`,
-      settings.bindings,
-      `${agentId}:${conversationId}`,
-    );
-  const existingBinding = existingBindingEntry?.[1];
-  settings.bindings[bindingId] = {
-    agent: agentId,
-    conversation: conversationId,
-    trigger: input.trigger,
-    addedAt: existingBinding?.addedAt || nowIso(),
-    requiresTrigger: input.requiresTrigger,
-    memoryScope: existingBinding?.memoryScope || 'conversation',
-    model: existingBinding?.model,
-  };
+  const existingInstall =
+    settings.conversations[conversationId].installedAgents[agentId];
   settings.conversations[conversationId].installedAgents[agentId] = {
     agentId,
-    providerAccountId: providerConnectionId,
+    providerAccountId,
+    trigger: triggerForRoute({
+      trigger: input.trigger ?? existingInstall?.trigger,
+      name: input.agentName,
+    }),
     status: 'active',
-    addedAt: settings.bindings[bindingId].addedAt,
-    memoryScope: settings.bindings[bindingId].memoryScope,
-    trigger: settings.bindings[bindingId].trigger,
-    requiresTrigger: settings.bindings[bindingId].requiresTrigger,
-    model: settings.bindings[bindingId].model,
-  };
-  settings.agents[agentId].bindings[bindingId] = {
-    jid: input.jid,
-    provider: provider.id,
-    providerAccountId: providerConnectionId,
-    name: input.displayName,
-    trigger: input.trigger,
-    addedAt: settings.bindings[bindingId].addedAt,
-    requiresTrigger: input.requiresTrigger,
-    model: settings.bindings[bindingId].model ?? settings.agents[agentId].model,
+    addedAt: existingInstall?.addedAt || nowIso(),
+    memoryScope: existingInstall?.memoryScope || 'conversation',
+    model: existingInstall?.model,
+    permissionMode: existingInstall?.permissionMode,
   };
 
   return {
     providerId: provider.id,
-    providerConnectionId,
+    providerAccountId,
     conversationId,
-    bindingId,
+    bindingId: agentId,
   };
 }
 
@@ -469,20 +442,20 @@ function stripProviderPrefix(jid: string, providerId: string): string {
 }
 
 function configuredConversationId(input: {
-  providerConnectionId: string;
+  providerAccountId: string;
   externalId: string;
   conversations: RuntimeSettings['conversations'];
 }): string {
   const existing = Object.entries(input.conversations).find(
     ([, conversation]) =>
-      conversation.providerAccount === input.providerConnectionId &&
+      conversation.providerAccount === input.providerAccountId &&
       conversation.externalId === input.externalId,
   );
   if (existing) return existing[0];
   return stableSettingsId(
-    `${input.providerConnectionId}_${input.externalId}`,
+    `${input.providerAccountId}_${input.externalId}`,
     input.conversations,
-    `${input.providerConnectionId}:${input.externalId}`,
+    `${input.providerAccountId}:${input.externalId}`,
   );
 }
 

@@ -32,7 +32,7 @@ import {
   defaultTriggerForAgentName,
 } from '../shared/trigger-pattern.js';
 export * from './memory.js';
-export { SettingsDesiredStateService } from './settings/desired-state-service.js';
+export { SettingsDesiredStateService } from '../application/settings/desired-state-service.js';
 export { createGroupJoinOnboardingCoordinator } from './settings/group-join-onboarding.js';
 export { configureDesiredSettingsStorageProvider } from './settings/runtime-settings.js';
 export {
@@ -142,7 +142,6 @@ function getPublicConfiguredAgents(settings: RuntimeSettings) {
         oneTimeJobDefaultModel: agent.oneTimeJobDefaultModel,
         recurringJobDefaultModel: agent.recurringJobDefaultModel,
         delegates: agent.delegates,
-        bindings: agent.bindings,
         sources: agent.sources,
         capabilities: agent.capabilities,
         access: {
@@ -155,14 +154,12 @@ function getPublicConfiguredAgents(settings: RuntimeSettings) {
 
 function getPublicConfiguredConversations(settings: RuntimeSettings) {
   return Object.fromEntries(
-    Object.entries(settings.conversations).map(([conversationId, entry]) => {
-      const { providerConnection: _providerConnection, ...conversation } =
-        entry;
-      return [
+    Object.entries(settings.conversations).map(
+      ([conversationId, conversation]) => [
         conversationId,
         { ...conversation, brainHarvest: conversation.brainHarvest ?? false },
-      ];
-    }),
+      ],
+    ),
   );
 }
 
@@ -181,8 +178,6 @@ export function getPublicRuntimeSettings() {
     providers: settings.providers,
     providerAccounts: settings.providerAccounts,
     conversations: getPublicConfiguredConversations(settings),
-    conversationInstalls: settings.conversationInstalls,
-    bindings: settings.bindings,
     modelAliases: settings.modelAliases,
     memory: {
       enabled: settings.memory.enabled,

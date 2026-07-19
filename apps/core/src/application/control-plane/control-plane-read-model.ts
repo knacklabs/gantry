@@ -54,8 +54,10 @@ export interface ControlPlaneSettingsView {
       capabilities: Array<{ id: string; version: string }>;
     }
   >;
-  conversations: Record<string, unknown>;
-  bindings: Record<string, { agent: string; conversation: string }>;
+  conversations: Record<
+    string,
+    { installedAgents: Record<string, { agentId: string; status: string }> }
+  >;
 }
 
 export interface ControlPlaneSettingsReadModelInput {
@@ -77,7 +79,7 @@ export type ControlPlaneNextAction =
       params?: Record<string, string>;
     }
   | {
-      kind: 'missing_provider_connection';
+      kind: 'missing_provider_account';
       label: string;
       params?: Record<string, string>;
     }
@@ -236,13 +238,19 @@ export function buildControlPlaneReadModelFromSettings(
   input: ControlPlaneSettingsReadModelInput,
 ): ControlPlaneReadModel {
   const conversations = Object.keys(input.settings.conversations).map((id) => {
-    const binding = Object.values(input.settings.bindings).find(
-      (candidate) => candidate.conversation === id,
+    const installs = Object.values(
+      input.settings.conversations[id]?.installedAgents ?? {},
     );
+    const install =
+      installs.find(
+        (candidate) =>
+          candidate.status === 'active' &&
+          Boolean(input.settings.agents[candidate.agentId]),
+      ) ?? installs.find((candidate) => candidate.status === 'active');
     return {
       id,
-      ...(binding?.agent ? { agentId: binding.agent } : {}),
-      ready: Boolean(binding && input.settings.agents[binding.agent]),
+      ...(install?.agentId ? { agentId: install.agentId } : {}),
+      ready: Boolean(install && input.settings.agents[install.agentId]),
     };
   });
   const agents = Object.entries(input.settings.agents).map(([id, agent]) => ({
@@ -300,7 +308,7 @@ export function selectControlPlaneNextAction(input: {
   }
   if (input.providerCounts.blocked > 0) {
     return {
-      kind: 'missing_provider_connection',
+      kind: 'missing_provider_account',
       label:
         'Run `gantry provider connect <provider>` to fix the blocked provider.',
     };
@@ -310,7 +318,7 @@ export function selectControlPlaneNextAction(input: {
     input.providerCounts.needsConnection > 0
   ) {
     return {
-      kind: 'missing_provider_connection',
+      kind: 'missing_provider_account',
       label: 'Run `gantry provider connect <provider>` to connect a provider.',
     };
   }

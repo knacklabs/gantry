@@ -425,12 +425,13 @@ function renderConversationsYaml(
   for (const [conversationId, conversation] of entries) {
     lines.push(`  ${quoteYamlKey(conversationId)}:`);
     lines.push(
-      `    provider_account: ${quoteYamlString(conversation.providerAccount ?? conversation.providerConnection)}`,
+      `    provider_account: ${quoteYamlString(conversation.providerAccount)}`,
     );
     lines.push(
       `    id: ${quoteYamlString(conversation.externalId)}`,
       `    type: ${quoteYamlString(conversation.kind === 'group' ? 'channel' : conversation.kind)}`,
       `    display_name: ${quoteYamlString(conversation.displayName)}`,
+      `    requires_trigger: ${conversation.requiresTrigger ?? (conversation.kind !== 'direct' && conversation.kind !== 'dm')}`,
     );
     if (conversation.brainHarvest) {
       lines.push('    brain_harvest: true');
@@ -469,12 +470,6 @@ function renderConversationsYaml(
           lines.push(
             `        memory_scope: ${quoteYamlString(install.memoryScope)}`,
           );
-        }
-        if (install.trigger) {
-          lines.push(`        trigger: ${quoteYamlString(install.trigger)}`);
-        }
-        if (install.requiresTrigger !== undefined) {
-          lines.push(`        requires_trigger: ${install.requiresTrigger}`);
         }
         if (install.model) {
           lines.push(`        model: ${quoteYamlString(install.model)}`);

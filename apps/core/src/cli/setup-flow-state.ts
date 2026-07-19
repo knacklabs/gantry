@@ -7,6 +7,7 @@ import {
   envFilePath,
   settingsFilePath,
 } from '../config/settings/runtime-home.js';
+import { jidForConfiguredConversation } from '../config/settings/desired-state-provider-conversations.js';
 import {
   AUTO_AGENT_HARNESS,
   isAgentHarness,
@@ -377,13 +378,22 @@ function resolveReadySummary(
 ): Pick<SetupDraft, 'workspaceKey' | 'conversationLabel'> & {
   conversationJid: string;
 } {
-  for (const [agentId, agent] of Object.entries(settings.agents)) {
-    for (const binding of Object.values(agent.bindings)) {
-      if (binding.provider !== providerId) continue;
+  for (const [conversationId, conversation] of Object.entries(
+    settings.conversations,
+  )) {
+    const account = settings.providerAccounts[conversation.providerAccount];
+    if (account?.provider !== providerId) continue;
+    for (const install of Object.values(conversation.installedAgents ?? {})) {
+      if (install.status !== 'active') continue;
+      const agent = settings.agents[install.agentId];
+      if (!agent) continue;
       return {
-        workspaceKey: agent.folder || agentId,
-        conversationLabel: binding.name || binding.jid,
-        conversationJid: binding.jid,
+        workspaceKey: agent.folder || install.agentId,
+        conversationLabel: conversation.displayName || conversationId,
+        conversationJid: jidForConfiguredConversation(
+          conversation,
+          settings.providerAccounts,
+        ),
       };
     }
   }

@@ -1,4 +1,5 @@
 import {
+  boolean,
   index,
   pgTable,
   text,
@@ -19,6 +20,7 @@ export const conversationsPostgres = pgTable(
     externalRefJson: text('external_ref_json'),
     kind: text('kind').notNull(),
     title: text('title'),
+    requiresTrigger: boolean('requires_trigger').notNull().default(false),
     status: text('status').notNull().default('active'),
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
       .notNull()

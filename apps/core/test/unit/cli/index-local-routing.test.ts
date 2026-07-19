@@ -176,19 +176,28 @@ describe('CLI local routing', () => {
           name: 'Main',
           folder: 'main_agent',
           model: 'opus',
-          bindings: {
-            main: {
-              jid: 'sl:C123',
-              provider: 'slack',
-              name: 'Ops',
-              trigger: '@Main',
-              addedAt: '2026-01-01T00:00:00.000Z',
-              requiresTrigger: false,
-            },
-          },
           sources: { skills: [], mcpServers: [], tools: [] },
           capabilities: [],
           accessPreset: 'full',
+        };
+        settings.conversations.main = {
+          providerAccount: 'slack_default',
+          externalId: 'C123',
+          kind: 'channel',
+          displayName: 'Ops',
+          brainHarvest: false,
+          requiresTrigger: false,
+          senderPolicy: { allow: '*', mode: 'trigger' },
+          controlApprovers: [],
+          installedAgents: {
+            main_agent: {
+              agentId: 'main_agent',
+              providerAccountId: 'slack_default',
+              status: 'active',
+              addedAt: '2026-01-01T00:00:00.000Z',
+              memoryScope: 'conversation',
+            },
+          },
         };
         return {
           ...actual,

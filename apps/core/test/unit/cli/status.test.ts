@@ -73,7 +73,6 @@ describe('status command formatting', () => {
     settings.agents.main_agent = {
       name: 'Main',
       folder: 'main_agent',
-      bindings: {},
       sources: { skills: [], mcpServers: [], tools: [] },
       capabilities: [],
       accessPreset: 'full',
@@ -136,20 +135,22 @@ describe('status command formatting', () => {
       capabilities: [{ id: 'browser.use', version: 'builtin' }],
     };
     settings.conversations.main_dm = {
-      providerConnection: 'telegram_default',
+      providerAccount: 'telegram_default',
       externalId: '123',
       kind: 'dm',
       displayName: 'Main DM',
+      requiresTrigger: false,
       senderPolicy: { allow: '*', mode: 'trigger' },
       controlApprovers: ['123'],
-    };
-    settings.bindings.main_binding = {
-      agent: 'main_agent',
-      conversation: 'main_dm',
-      trigger: '@Default Agent',
-      addedAt: '2026-01-01T00:00:00.000Z',
-      requiresTrigger: false,
-      memoryScope: 'conversation',
+      installedAgents: {
+        main_agent: {
+          agentId: 'main_agent',
+          providerAccountId: 'telegram_default',
+          status: 'active',
+          addedAt: '2026-01-01T00:00:00.000Z',
+          memoryScope: 'conversation',
+        },
+      },
     };
 
     const output = formatRuntimeStatus({

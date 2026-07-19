@@ -143,7 +143,6 @@ export const RuntimeSettingsConfiguredAgentSchema = z
     oneTimeJobDefaultModel: z.string().optional(),
     recurringJobDefaultModel: z.string().optional(),
     toolRules: z.array(RuntimeSettingsConfiguredToolRuleSchema).optional(),
-    bindings: z.record(z.string(), RuntimeSettingsConfiguredAgentBindingSchema),
     sources: RuntimeSettingsConfiguredAgentSourcesSchema,
     capabilities: z.array(RuntimeSettingsConfiguredAgentCapabilitySchema),
     access: RuntimeSettingsConfiguredAgentAccessSchema.optional(),
@@ -183,6 +182,7 @@ export const RuntimeSettingsConversationSchema = z
     ]),
     displayName: z.string(),
     brainHarvest: z.boolean(),
+    requiresTrigger: z.boolean(),
     senderPolicy: z
       .object({
         allow: z.union([z.literal('*'), z.array(z.string().trim().min(1))]),
@@ -200,29 +200,11 @@ export const RuntimeSettingsConversationSchema = z
           status: z.enum(['active', 'disabled']),
           addedAt: z.string().trim().min(1),
           memoryScope: z.enum(['conversation', 'user', 'agent', 'app']),
-          trigger: z.string().optional(),
-          requiresTrigger: z.boolean().optional(),
           model: z.string().optional(),
           permissionMode: z.enum(['ask', 'auto', 'auto_strict']).optional(),
         })
         .strict(),
     ),
-  })
-  .strict();
-
-export const RuntimeSettingsBindingSchema = z
-  .object({
-    agent: z.string().trim().min(1),
-    providerAccountId: z.string().trim().min(1).optional(),
-    installKey: z.string().trim().min(1).optional(),
-    conversation: z.string().trim().min(1),
-    threadId: z.string().trim().min(1).optional(),
-    trigger: z.string().trim().min(1),
-    addedAt: z.string().trim().min(1),
-    requiresTrigger: z.boolean(),
-    memoryScope: z.enum(['conversation', 'user', 'agent', 'app']),
-    model: z.string().optional(),
-    permissionMode: z.enum(['ask', 'auto', 'auto_strict']).optional(),
   })
   .strict();
 
@@ -249,25 +231,6 @@ export const RuntimeSettingsPublicSchema = z
       RuntimeSettingsProviderAccountSchema,
     ),
     conversations: z.record(z.string(), RuntimeSettingsConversationSchema),
-    bindings: z.record(z.string(), RuntimeSettingsBindingSchema),
-    conversationInstalls: z.record(
-      z.string(),
-      z
-        .object({
-          agentId: z.string().trim().min(1),
-          providerAccountId: z.string().trim().min(1),
-          conversationId: z.string().trim().min(1),
-          threadId: z.string().trim().min(1).optional(),
-          status: z.enum(['active', 'disabled']),
-          addedAt: z.string().trim().min(1),
-          memoryScope: z.enum(['conversation', 'user', 'agent', 'app']),
-          trigger: z.string().optional(),
-          requiresTrigger: z.boolean().optional(),
-          model: z.string().optional(),
-          permissionMode: z.enum(['ask', 'auto', 'auto_strict']).optional(),
-        })
-        .strict(),
-    ),
     modelAliases: z.record(z.string(), z.unknown()).optional(),
     memory: z
       .object({

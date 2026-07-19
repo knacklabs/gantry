@@ -37,12 +37,12 @@ export type RuntimeConversationKind =
   | 'web';
 
 export interface RuntimeConfiguredConversation {
-  providerConnection?: string;
   providerAccount: string;
   externalId: string;
   kind: RuntimeConversationKind;
   displayName: string;
   brainHarvest?: boolean;
+  requiresTrigger: boolean;
   senderPolicy: import('./sender-allowlist.js').ChatAllowlistEntry;
   controlApprovers: string[];
   installedAgents: Record<string, RuntimeConfiguredConversationInstall>;
@@ -52,11 +52,10 @@ export interface RuntimeConfiguredConversationInstall {
   agentId: string;
   providerAccountId: string;
   threadId?: string;
+  trigger?: string;
   status: 'active' | 'disabled';
   addedAt: string;
   memoryScope: 'conversation' | 'user' | 'agent' | 'app';
-  trigger?: string;
-  requiresTrigger?: boolean;
   model?: string;
   permissionMode?: PermissionMode;
 }
@@ -129,32 +128,6 @@ export interface RuntimeAgentSettings {
   };
 }
 
-export interface RuntimeConfiguredAgentBinding {
-  jid: string;
-  threadId?: string;
-  provider?: string;
-  providerAccountId?: string;
-  name?: string;
-  trigger: string;
-  addedAt: string;
-  requiresTrigger: boolean;
-  model?: string;
-  permissionMode?: PermissionMode;
-}
-
-export interface RuntimeConfiguredBinding {
-  agent: string;
-  conversation: string;
-  installKey?: string;
-  threadId?: string;
-  trigger: string;
-  addedAt: string;
-  requiresTrigger: boolean;
-  memoryScope: 'conversation' | 'user' | 'agent' | 'app';
-  model?: string;
-  permissionMode?: PermissionMode;
-}
-
 export interface RuntimeConfiguredAgentSourceRef {
   name?: string;
   id: string;
@@ -215,7 +188,6 @@ export interface RuntimeConfiguredAgent {
   oneTimeJobDefaultModel?: string;
   recurringJobDefaultModel?: string;
   toolRules?: RuntimeConfiguredToolRule[];
-  bindings: Record<string, RuntimeConfiguredAgentBinding>;
   sources: RuntimeConfiguredAgentSources;
   capabilities: RuntimeConfiguredAgentCapability[];
   accessPreset: AgentAccessPreset;
@@ -361,13 +333,6 @@ export interface RuntimeSettings {
   providers: Record<string, RuntimeProviderSettings>;
   providerAccounts: Record<string, RuntimeProviderAccountSettings>;
   conversations: Record<string, RuntimeConfiguredConversation>;
-  conversationInstalls: Record<
-    string,
-    RuntimeConfiguredConversationInstall & {
-      conversationId: string;
-    }
-  >;
-  bindings: Record<string, RuntimeConfiguredBinding>;
   agents: Record<string, RuntimeConfiguredAgent>;
   storage: RuntimeStorageSettings;
   agent: RuntimeAgentSettings;

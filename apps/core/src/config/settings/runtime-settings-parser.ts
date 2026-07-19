@@ -53,11 +53,6 @@ import {
 } from './runtime-settings-model-aliases-parser.js';
 import { parseProviderAccounts } from './runtime-settings-provider-accounts-parser.js';
 import {
-  deriveAgentBindingsFromDesiredState,
-  deriveBindingsFromConversationInstalls,
-  flattenConversationInstalls,
-} from './runtime-settings-binding-derivation.js';
-import {
   parseBooleanValue,
   parseNonNegativeIntegerValue,
   parseOptionalStringValue,
@@ -188,12 +183,13 @@ function parseConversations(
         key !== 'type' &&
         key !== 'display_name' &&
         key !== 'brain_harvest' &&
+        key !== 'requires_trigger' &&
         key !== 'sender_policy' &&
         key !== 'control_approvers' &&
         key !== 'installed_agents'
       ) {
         throw new Error(
-          `${pathPrefix}.${key} is not supported. Configure provider_account, external_id, kind, display_name, brain_harvest, sender_policy, control_approvers, or installed_agents.`,
+          `${pathPrefix}.${key} is not supported. Configure provider_account, external_id, kind, display_name, brain_harvest, requires_trigger, sender_policy, control_approvers, or installed_agents.`,
         );
       }
     }
@@ -205,7 +201,6 @@ function parseConversations(
       map.installed_agents,
       `${pathPrefix}.installed_agents`,
       providerAccounts,
-      kind !== 'direct' && kind !== 'dm',
     );
     const providerAccount = parseStringValue(
       map.provider_account,
@@ -233,7 +228,6 @@ function parseConversations(
     }
     seenExternal.add(externalKey);
     conversations[conversationId] = {
-      providerConnection: providerAccount,
       providerAccount,
       externalId,
       kind,
@@ -246,6 +240,11 @@ function parseConversations(
         map.brain_harvest,
         `${pathPrefix}.brain_harvest`,
         false,
+      ),
+      requiresTrigger: parseBooleanValue(
+        map.requires_trigger,
+        `${pathPrefix}.requires_trigger`,
+        kind !== 'direct' && kind !== 'dm',
       ),
       senderPolicy: parseSenderPolicy(
         map.sender_policy,
@@ -265,7 +264,6 @@ function parseConversationInstalledAgents(
   raw: unknown,
   pathPrefix: string,
   providerAccounts: Record<string, RuntimeProviderAccountSettings>,
-  defaultRequiresTrigger: boolean,
 ): Record<string, RuntimeConfiguredConversationInstall> {
   if (raw === undefined) return {};
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
@@ -293,13 +291,11 @@ function parseConversationInstalledAgents(
         key !== 'status' &&
         key !== 'added_at' &&
         key !== 'memory_scope' &&
-        key !== 'trigger' &&
-        key !== 'requires_trigger' &&
         key !== 'model' &&
         key !== 'permission_mode'
       ) {
         throw new Error(
-          `${installPath}.${key} is not supported. Configure provider_account, agent, thread_id, status, added_at, memory_scope, trigger, requires_trigger, model, or permission_mode.`,
+          `${installPath}.${key} is not supported. Configure provider_account, agent, thread_id, status, added_at, memory_scope, model, or permission_mode.`,
         );
       }
     }
@@ -383,12 +379,6 @@ function parseConversationInstalledAgents(
         new Date(0).toISOString(),
       ),
       memoryScope,
-      trigger: parseOptionalStringValue(map.trigger, `${installPath}.trigger`),
-      requiresTrigger: parseBooleanValue(
-        map.requires_trigger,
-        `${installPath}.requires_trigger`,
-        defaultRequiresTrigger,
-      ),
       model,
       permissionMode,
     };
@@ -407,7 +397,7 @@ function assertExternalIdProviderPrefixMatchesConnection(input: {
   if (!normalizedConnectionProviderId) return;
   if (explicitProviderId === normalizedConnectionProviderId) return;
   throw new Error(
-    `${input.pathPrefix} uses explicit provider prefix "${explicitProviderId}:" that does not match provider connection "${normalizedConnectionProviderId}".`,
+    `${input.pathPrefix} uses explicit provider prefix "${explicitProviderId}:" that does not match provider account "${normalizedConnectionProviderId}".`,
   );
 }
 
@@ -992,15 +982,6 @@ export function parseRuntimeSettingsObject(
       providerAccounts,
     );
     const storage = parseStorageSettings(root.storage);
-    const bindings = deriveBindingsFromConversationInstalls(conversations);
-    const agents = deriveAgentBindingsFromDesiredState({
-      agents: parsedAgents,
-      providerAccounts,
-      conversations,
-      bindings,
-      jidForConversation: (conversation) =>
-        jidForConversation(conversation, providerAccounts),
-    });
     const credentialBroker = parseModelAccessSettings(root.model_access);
     const memory = parseMemorySettings(root.memory);
     const runtime = parseRuntimeProcessSettings(root.runtime);
@@ -1014,9 +995,7 @@ export function parseRuntimeSettingsObject(
       providers,
       providerAccounts,
       conversations,
-      conversationInstalls: flattenConversationInstalls(conversations),
-      bindings,
-      agents,
+      agents: parsedAgents,
       storage,
       agent,
       credentialBroker,

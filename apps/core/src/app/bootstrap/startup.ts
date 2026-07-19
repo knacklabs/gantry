@@ -19,7 +19,7 @@ import {
 } from '../../infrastructure/observability/tracing.js';
 import { ensureRuntimeLayoutDirectories } from '../../platform/runtime-layout.js';
 import { initializeRuntimeStorage } from '../../adapters/storage/postgres/runtime-store.js';
-import { SettingsDesiredStateService } from '../../config/settings/desired-state-service.js';
+import { SettingsDesiredStateService } from '../../application/settings/desired-state-service.js';
 import {
   CURRENT_SETTINGS_READER_VERSION,
   importWorkstationSettings,

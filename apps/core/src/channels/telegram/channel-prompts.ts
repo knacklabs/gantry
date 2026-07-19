@@ -381,20 +381,21 @@ export abstract class TelegramChannelPrompts extends TelegramChannelPolling {
       });
     }
     const settings = this.opts.runtimeSettings?.();
-    const binding = settings
-      ? Object.values(settings.bindings || {}).find(
-          (entry) =>
-            entry.agent === sourceAgentFolder &&
+    const conversation = settings
+      ? Object.values(settings.conversations).find(
+          (candidate) =>
+            Object.values(candidate.installedAgents ?? {}).some(
+              (install) =>
+                install.status === 'active' &&
+                install.agentId === sourceAgentFolder,
+            ) &&
             this.telegramConversationMatchesChat(
-              settings.conversations[entry.conversation],
+              candidate,
               settings.providerAccounts,
               this.opts.providerAccountId,
               chatId,
             ),
         )
-      : undefined;
-    const conversation = binding
-      ? settings?.conversations[binding.conversation]
       : undefined;
     const allowedIds = conversation?.controlApprovers || [];
 

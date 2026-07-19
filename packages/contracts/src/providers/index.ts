@@ -112,11 +112,11 @@ export type ConversationInstallStatus = z.infer<
   typeof ConversationInstallStatusSchema
 >;
 
-export const ConversationInstallRouteConfigSchema = z.object({
-  trigger: z.string().optional(),
-  requiresTrigger: z.boolean().optional(),
-  agentConfig: ContractMetadataSchema.optional(),
-});
+export const ConversationInstallRouteConfigSchema = z
+  .object({
+    agentConfig: ContractMetadataSchema.optional(),
+  })
+  .strict();
 export type ConversationInstallRouteConfig = z.infer<
   typeof ConversationInstallRouteConfigSchema
 >;

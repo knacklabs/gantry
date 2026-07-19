@@ -34,8 +34,7 @@ export function slackPermissionApproverIds(
       ...new Set(
         conversations.flatMap((conversation) =>
           conversation.externalId === channelId &&
-          (conversation.providerAccount ?? conversation.providerConnection) ===
-            providerAccountId
+          conversation.providerAccount === providerAccountId
             ? conversation.controlApprovers
             : [],
         ),

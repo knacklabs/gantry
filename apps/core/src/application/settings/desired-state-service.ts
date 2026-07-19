@@ -19,7 +19,7 @@ import {
   inlineAgentRuntimeCapabilityErrors,
   replaceDesiredStateCapabilities,
   settingsCapabilityToToolReference,
-} from './desired-state-capability-reconcile.js';
+} from '../../config/settings/desired-state-capability-reconcile.js';
 import { exportCurrentDesiredState } from './desired-state-current-export.js';
 import {
   normalizeConfiguredCapabilities,
@@ -27,12 +27,12 @@ import {
   semanticCapabilityDefinitionsById,
   semanticCapabilityDefinitionsFromCatalogTools,
   skillActionDefinitionsForSkills,
-} from './configured-capability-normalization.js';
+} from '../../config/settings/configured-capability-normalization.js';
 import {
   configuredConversationKind,
   jidForConfiguredConversation,
   stripProviderPrefix,
-} from './desired-state-provider-conversations.js';
+} from '../../config/settings/desired-state-provider-conversations.js';
 import {
   agentIdForFolder,
   configuredAgentConfig,
@@ -52,7 +52,7 @@ import {
 import {
   resolveConfiguredSkillReferences,
   selectedSkillsFromResolvedSkillReferences,
-} from './desired-state-skill-references.js';
+} from '../../config/settings/desired-state-skill-references.js';
 import {
   formatSkillMaterializationCollisionFragment,
   skillMaterializationCollisions,
@@ -80,7 +80,7 @@ import type {
   RuntimeConfiguredConversation,
   RuntimeProviderAccountSettings,
   RuntimeSettings,
-} from './runtime-settings-types.js';
+} from '../../config/settings/runtime-settings-types.js';
 import { resolveAgentToolReference } from '../../domain/tools/agent-tool-catalog-references.js';
 import { nowIso } from '../../shared/time/datetime.js';
 import { makeAgentThreadQueueKey } from '../../shared/thread-queue-key.js';
@@ -335,7 +335,6 @@ export class SettingsDesiredStateService {
             name: agent.name,
             folder,
             delegates: [],
-            bindings: {},
             sources: { skills: [], mcpServers: [], tools: [] },
             capabilities: [],
             accessPreset: 'full',
@@ -405,15 +404,11 @@ export class SettingsDesiredStateService {
   }): Promise<Conversation | null> {
     const conversations = this.deps.repositories.conversations;
     if (!conversations) return null;
-    const configuredProviderAccount =
-      input.conversation.providerAccount ??
-      input.conversation.providerConnection;
+    const configuredProviderAccount = input.conversation.providerAccount;
     const connectionSettings =
       input.providerAccounts[configuredProviderAccount];
     if (!connectionSettings) {
-      input.skipped.push(
-        `conversation:${input.key}:missing-provider-connection`,
-      );
+      input.skipped.push(`conversation:${input.key}:missing-provider-account`);
       return null;
     }
     const jid = jidForConfiguredConversation(
@@ -437,6 +432,7 @@ export class SettingsDesiredStateService {
         existing.externalRef?.value === externalConversationId &&
         existing.kind === kind &&
         existing.title === input.conversation.displayName &&
+        existing.requiresTrigger === input.conversation.requiresTrigger &&
         existing.status === 'active'
       ) {
         return existing;
@@ -450,6 +446,7 @@ export class SettingsDesiredStateService {
         },
         kind,
         title: input.conversation.displayName,
+        requiresTrigger: input.conversation.requiresTrigger,
         status: 'active',
         updatedAt: input.now,
       };
@@ -467,6 +464,7 @@ export class SettingsDesiredStateService {
       },
       kind,
       title: input.conversation.displayName,
+      requiresTrigger: input.conversation.requiresTrigger,
       status: 'active',
       createdAt: input.now,
       updatedAt: input.now,
@@ -489,15 +487,13 @@ export class SettingsDesiredStateService {
     const installConversationIds = new Set<Conversation['id']>([
       input.storedConversation.id,
     ]);
-    for (const [bindingKey, binding] of Object.entries(
-      input.settings.bindings,
-    )) {
-      if (binding.conversation !== input.conversationKey) continue;
-      const agent = input.settings.agents[binding.agent];
+    for (const binding of configuredRoutingBindings(input.settings)) {
+      if (binding.conversationId !== input.conversationKey) continue;
+      const agent = input.settings.agents[binding.agentFolder];
       if (!agent) continue;
-      const agentId = agentIdForFolder(binding.agent);
+      const agentId = agentIdForFolder(binding.agentFolder);
       const install =
-        input.conversation.installedAgents?.[binding.installKey ?? ''];
+        input.conversation.installedAgents[binding.installKey ?? ''];
       const installProviderAccountId =
         install?.providerAccountId ??
         input.storedConversation.providerAccountId;
@@ -509,7 +505,6 @@ export class SettingsDesiredStateService {
               conversation: {
                 ...input.conversation,
                 providerAccount: installProviderAccountId,
-                providerConnection: installProviderAccountId,
               },
               providerAccounts: input.settings.providerAccounts,
               now: input.now,
@@ -532,8 +527,10 @@ export class SettingsDesiredStateService {
           })
         : undefined;
       const installId = `agent-conversation-binding:${encodeURIComponent(
-        binding.agent,
-      )}:${encodeURIComponent(bindingKey)}` as ConversationInstall['id'];
+        input.conversationKey,
+      )}:${encodeURIComponent(
+        binding.agentFolder,
+      )}:${encodeURIComponent(binding.installKey ?? binding.agentFolder)}` as ConversationInstall['id'];
       desiredInstallIds.add(installId);
       installConversationIds.add(installConversation.id);
       await providerAccounts.saveConversationInstall({
@@ -545,8 +542,6 @@ export class SettingsDesiredStateService {
         ...(threadId ? { threadId } : {}),
         displayName: input.conversation.displayName || agent.name,
         status: 'active',
-        senderPolicy: 'provider_native',
-        controlPolicy: 'conversation_approvers',
         memoryScope: binding.memoryScope,
         memorySubject: {
           ...memorySubjectForConfiguredBinding({
@@ -582,7 +577,6 @@ export class SettingsDesiredStateService {
               conversation: {
                 ...input.conversation,
                 providerAccount: installProviderAccountId,
-                providerConnection: installProviderAccountId,
               },
               providerAccounts: input.settings.providerAccounts,
               now: input.now,

@@ -75,9 +75,7 @@ export function jidForConfiguredConversation(
   conversation: RuntimeConfiguredConversation,
   providerAccounts: Record<string, RuntimeProviderAccountSettings>,
 ): string {
-  const connection =
-    providerAccounts[conversation.providerAccount] ??
-    providerAccounts[conversation.providerConnection ?? ''];
+  const connection = providerAccounts[conversation.providerAccount];
   const provider = connection
     ? providerInfoForId(connection.provider)
     : undefined;

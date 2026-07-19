@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   buildControlPlaneReadModel,
+  buildControlPlaneReadModelFromSettings,
   formatControlPlaneAgentDetail,
   selectControlPlaneNextAction,
 } from '@core/application/control-plane/control-plane-read-model.js';
@@ -45,7 +46,7 @@ describe('control plane read model', () => {
         blockedJobs: 1,
         memoryStatus: 'Needs review',
       }).kind,
-    ).toBe('missing_provider_connection');
+    ).toBe('missing_provider_account');
 
     expect(
       selectControlPlaneNextAction({
@@ -58,7 +59,7 @@ describe('control plane read model', () => {
         blockedJobs: 1,
         memoryStatus: 'Needs review',
       }).kind,
-    ).toBe('missing_provider_connection');
+    ).toBe('missing_provider_account');
 
     expect(
       selectControlPlaneNextAction({
@@ -255,6 +256,38 @@ describe('control plane read model', () => {
       kind: 'missing_access_approval',
       label:
         'Approve or deny the pending access prompt in its source conversation.',
+    });
+  });
+
+  it('selects a configured agent when a stale active install comes first', () => {
+    const model = buildControlPlaneReadModelFromSettings({
+      settings: {
+        agent: { defaultModel: 'opus' },
+        agents: {
+          main_agent: {
+            name: 'Main',
+            capabilities: [],
+          },
+        },
+        conversations: {
+          sales: {
+            installedAgents: {
+              stale: { agentId: 'missing_agent', status: 'active' },
+              main: { agentId: 'main_agent', status: 'active' },
+            },
+          },
+        },
+      },
+      workspaceKey: 'default',
+      modelCredentialReady: true,
+      providers: [{ id: 'slack', label: 'Slack', ready: true }],
+      memoryStatus: 'Ready',
+    });
+
+    expect(model.conversations).toEqual({ ready: 1, total: 1 });
+    expect(model.agentDetails[0]).toMatchObject({
+      id: 'main_agent',
+      conversations: 1,
     });
   });
 });

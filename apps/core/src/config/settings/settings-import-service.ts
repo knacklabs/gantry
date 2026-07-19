@@ -2,11 +2,11 @@ import type { Pool } from 'pg';
 
 import type { AppId } from '../../domain/app/app.js';
 import type { SettingsRevisionRepository } from '../../domain/ports/fleet-capability-state.js';
-import { SettingsDesiredStateService } from './desired-state-service.js';
+import { SettingsDesiredStateService } from '../../application/settings/desired-state-service.js';
 import type {
   SettingsDesiredStateOps,
   SettingsDesiredStateRepositories,
-} from './desired-state-service.js';
+} from '../../application/settings/desired-state-service.js';
 import { applyRuntimeSettingsDesiredState } from './restart-sync.js';
 import {
   activateRuntimeModelAliases,
@@ -428,12 +428,12 @@ function buildRevisionDocument(
           : undefined,
     })),
     conversations: mapRecord(settings.conversations, (conversation) => ({
-      provider_account:
-        conversation.providerAccount ?? conversation.providerConnection,
+      provider_account: conversation.providerAccount,
       external_id: conversation.externalId,
       kind: conversation.kind,
       display_name: conversation.displayName,
       brain_harvest: conversation.brainHarvest ? true : undefined,
+      requires_trigger: conversation.requiresTrigger,
       sender_policy: conversation.senderPolicy,
       control_approvers: conversation.controlApprovers,
       installed_agents: Object.fromEntries(
@@ -448,8 +448,6 @@ function buildRevisionDocument(
               status: install.status,
               added_at: install.addedAt,
               memory_scope: install.memoryScope,
-              trigger: install.trigger,
-              requires_trigger: install.requiresTrigger,
               model: install.model,
               permission_mode: install.permissionMode,
             },

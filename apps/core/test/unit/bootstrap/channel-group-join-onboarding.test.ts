@@ -272,13 +272,13 @@ describe('group join onboarding coordinator', () => {
         externalId: '-1001234',
         kind: 'channel',
         displayName: 'Ops Room',
+        requiresTrigger: true,
         senderPolicy: { allow: '*', mode: 'trigger' },
         controlApprovers: ['222'],
         installedAgents: {
           main_agent: expect.objectContaining({
             agentId: 'main_agent',
             providerAccountId: 'telegram_main',
-            requiresTrigger: true,
           }),
         },
       }),

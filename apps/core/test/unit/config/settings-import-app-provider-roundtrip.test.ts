@@ -42,7 +42,6 @@ describe('settings revision app-provider round-trip', () => {
       runtimeSecretRefs: {},
     };
     settings.conversations[conversationId] = {
-      providerConnection: accountId,
       providerAccount: accountId,
       externalId: 'default:codex-test-20260604025232',
       kind: 'group',

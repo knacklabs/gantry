@@ -313,11 +313,10 @@ export async function runTelegramConnectCommand(
       agentFolder: registeredFolder,
       jid: normalizedChatJid,
       displayName: conversationRouteName || settings.agent.name,
-      trigger: `@${conversationRouteName || settings.agent.name}`,
       requiresTrigger: false,
       approverIds,
     });
-    providerAccountId = binding.providerConnectionId;
+    providerAccountId = binding.providerAccountId;
     if (approverIds.length > 0) {
       p.log.success(
         `Enabled session/admin commands and permission approvals for Telegram sender(s) ${approverIds.join(', ')}.`,

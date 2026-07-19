@@ -4,7 +4,7 @@ import {
   loadRuntimeSettings,
   saveRuntimeSettings,
 } from './runtime-settings.js';
-import { classifySettingsChanges } from './desired-state-service-helpers.js';
+import { classifySettingsChanges } from '../../application/settings/desired-state-service-helpers.js';
 import {
   importWorkstationSettings,
   settingsFromRevisionDocument,
@@ -13,7 +13,7 @@ import {
 import type {
   SettingsDesiredStateOps,
   SettingsDesiredStateRepositories,
-} from './desired-state-service-types.js';
+} from '../../application/settings/desired-state-service-types.js';
 import type { RuntimeSettings } from './runtime-settings-types.js';
 
 export interface DesiredSettingsWriteStorage {

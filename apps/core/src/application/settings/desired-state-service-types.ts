@@ -10,7 +10,7 @@ import type {
   SkillCatalogRepository,
   ToolCatalogRepository,
 } from '../../domain/ports/repositories.js';
-import type { RuntimeConfiguredConversation } from './runtime-settings-types.js';
+import type { RuntimeConfiguredConversation } from '../../config/settings/runtime-settings-types.js';
 
 export interface StoredAgentBinding {
   name: string;
@@ -40,6 +40,7 @@ export interface ConfiguredRoutingBinding {
   trigger: string;
   addedAt: string;
   requiresTrigger: boolean;
+  memoryScope: 'conversation' | 'user' | 'agent' | 'app';
   model?: string;
   permissionMode?: PermissionMode;
   conversation?: RuntimeConfiguredConversation;

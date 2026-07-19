@@ -471,4 +471,51 @@ describe('model CLI command', () => {
     expect(output).toContain('provider: openai (OpenAI)');
     logSpy.mockRestore();
   });
+
+  it('omits disabled conversation model overrides from status', async () => {
+    const runtimeHome = makeRuntimeHome();
+    const settings = loadRuntimeSettings(runtimeHome);
+    settings.agents.main_agent = {
+      name: 'Main',
+      folder: 'main_agent',
+      delegates: [],
+      sources: { skills: [], mcpServers: [], tools: [] },
+      capabilities: [],
+      accessPreset: 'full',
+    };
+    settings.providerAccounts.slack_one = {
+      agentId: 'main_agent',
+      provider: 'slack',
+      label: 'Slack',
+      runtimeSecretRefs: {},
+    };
+    settings.conversations.sales = {
+      providerAccount: 'slack_one',
+      externalId: 'C123',
+      kind: 'channel',
+      displayName: 'Sales',
+      requiresTrigger: true,
+      senderPolicy: { allow: '*', mode: 'trigger' },
+      controlApprovers: [],
+      installedAgents: {
+        main_agent: {
+          agentId: 'main_agent',
+          providerAccountId: 'slack_one',
+          status: 'disabled',
+          addedAt: '2026-06-01T00:00:00.000Z',
+          memoryScope: 'conversation',
+          model: 'gpt',
+        },
+      },
+    };
+    saveRuntimeSettings(runtimeHome, settings);
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+
+    await expect(runModelCommand(runtimeHome, ['status'])).resolves.toBe(0);
+
+    const output = logSpy.mock.calls.at(-1)?.[0] as string;
+    expect(output).toContain('overrides: none configured');
+    expect(output).not.toContain('conversation sales/main_agent');
+    logSpy.mockRestore();
+  });
 });

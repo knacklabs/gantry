@@ -60,7 +60,7 @@ Identity rules:
 | `ProviderAccount`          | Application plus adapter | One native provider identity owned by exactly one Gantry agent, including workspace/team/bot/account identity evidence, runtime-owned secret refs, webhook/socket config, and enablement state.              |
 | `Conversation`             | Domain                   | A provider-neutral communication container. It can be a DM, group, channel, chat, SDK conversation, or Web UI chat.                                                                                        |
 | `ConversationThread`       | Domain                   | A sub-conversation within a conversation, such as Slack `thread_ts`, Telegram forum topic, Teams reply chain, or a Web UI branch.                                                                          |
-| `ConversationInstall`      | Domain                   | The relationship that says an agent's Provider Account is installed in a conversation or thread with sender/control policy, memory scope, and workspace projection.                                        |
+| `ConversationInstall`      | Domain                   | The relationship that says an agent's Provider Account is installed in a conversation or thread with memory scope, overrides, and workspace projection.                                                    |
 | `User`                     | Domain                   | A human or service actor known to an app. Provider-specific user ids are aliases.                                                                                                                          |
 | `Message`                  | Domain                   | A normalized inbound, outbound, system, or tool-visible communication event within a conversation or thread.                                                                                               |
 | `MessagePart`              | Domain                   | A typed part of a message, such as text, markdown, image, file reference, tool result, form response, or structured data.                                                                                  |
@@ -123,11 +123,11 @@ topic, branch, or thread boundary. Thread ids are external aliases under the
 conversation.
 
 `ConversationInstall` connects one agent's Provider Account to one conversation
-or thread. It owns routing presence, sender/control policy, memory subject
-selection, default workspace projection, and permission policy selection. A
-workspace folder is only one possible workspace projection of this install.
-Conversation approvers belong to the conversation and govern approvals for all
-installed agents in that conversation.
+or thread. It owns routing presence, memory subject selection, default workspace
+projection, model/permission overrides, and permission policy selection. Sender
+and trigger policy belong to the conversation. Conversation approvers also
+belong to the conversation and govern approvals for all installed agents in
+that conversation.
 
 ### Users And Messages
 

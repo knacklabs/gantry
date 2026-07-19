@@ -649,7 +649,7 @@ describe('cli slack helpers', () => {
     expect(settings.conversations?.slack_default_c0123456789).toEqual(
       expect.objectContaining({
         displayName: 'ops-room',
-        providerConnection: 'slack_default',
+        providerAccount: 'slack_default',
         externalId: 'C0123456789',
         controlApprovers: ['U123'],
         senderPolicy: { allow: '*', mode: 'trigger' },
@@ -799,7 +799,7 @@ describe('cli slack helpers', () => {
     expect(settings.conversations?.slack_default_c0123456789).toEqual(
       expect.objectContaining({
         displayName: 'recruiting-demo',
-        providerConnection: 'slack_default',
+        providerAccount: 'slack_default',
         externalId: 'C0123456789',
         controlApprovers: ['U123'],
         senderPolicy: { allow: '*', mode: 'trigger' },
@@ -861,7 +861,7 @@ describe('cli slack helpers', () => {
     expect(settings.conversations?.slack_default_c0123456789).toEqual(
       expect.objectContaining({
         displayName: 'recruiting-demo',
-        providerConnection: 'slack_default',
+        providerAccount: 'slack_default',
         externalId: 'C0123456789',
         controlApprovers: ['U123'],
         senderPolicy: { allow: '*', mode: 'trigger' },
@@ -872,7 +872,7 @@ describe('cli slack helpers', () => {
   it('persists trigger requirement changes into Slack desired settings', async () => {
     const runtimeHome = makeRuntimeHome();
 
-    const result = await registerSlackMainGroup({
+    await registerSlackMainGroup({
       runtimeHome,
       chatJid: 'sl:C0123456789',
       displayName: 'Kai Slack',
@@ -885,13 +885,7 @@ describe('cli slack helpers', () => {
       requiresTrigger: false,
     });
     const staleSettings = loadRuntimeSettings(runtimeHome);
-    const bindingId = Object.entries(staleSettings.bindings).find(
-      ([, binding]) => binding.agent === result.folder,
-    )?.[0];
-    expect(bindingId).toBeTruthy();
-    staleSettings.bindings[bindingId!].requiresTrigger = false;
-    staleSettings.agents[result.folder].bindings[bindingId!].requiresTrigger =
-      false;
+    staleSettings.conversations.slack_default_c0123456789.requiresTrigger = false;
     saveRuntimeSettings(runtimeHome, staleSettings);
 
     const { runAgentCommand } = await import('@core/cli/group.js');
@@ -906,18 +900,9 @@ describe('cli slack helpers', () => {
       expect.objectContaining({ requiresTrigger: true }),
     );
     const settings = loadRuntimeSettings(runtimeHome);
-    expect(settings.bindings[bindingId!]).toEqual(
-      expect.objectContaining({
-        trigger: '@reagent',
-        requiresTrigger: true,
-      }),
-    );
-    expect(settings.agents[result.folder].bindings[bindingId!]).toEqual(
-      expect.objectContaining({
-        trigger: '@reagent',
-        requiresTrigger: true,
-      }),
-    );
+    expect(
+      settings.conversations.slack_default_c0123456789.requiresTrigger,
+    ).toBe(true);
     expect(settings.conversations.slack_default_c0123456789.displayName).toBe(
       'recruiting-demo',
     );
@@ -926,7 +911,7 @@ describe('cli slack helpers', () => {
   it('updates desired settings when the selected route key is agent-qualified', async () => {
     const runtimeHome = makeRuntimeHome();
 
-    const result = await registerSlackMainGroup({
+    await registerSlackMainGroup({
       runtimeHome,
       chatJid: 'sl:C0123456789',
       displayName: 'Kai Slack',
@@ -947,12 +932,6 @@ describe('cli slack helpers', () => {
     );
     groupsStore.set(routeKey, { ...sourceRoute, requiresTrigger: true });
 
-    const staleSettings = loadRuntimeSettings(runtimeHome);
-    const bindingId = Object.entries(staleSettings.bindings).find(
-      ([, binding]) => binding.agent === result.folder,
-    )?.[0];
-    expect(bindingId).toBeTruthy();
-
     const { runAgentCommand } = await import('@core/cli/group.js');
     const code = await runAgentCommand(runtimeHome, [
       'trigger',
@@ -962,14 +941,9 @@ describe('cli slack helpers', () => {
 
     expect(code).toBe(0);
     const settings = loadRuntimeSettings(runtimeHome);
-    expect(settings.bindings[bindingId!]).toMatchObject({
-      trigger: '@reagent',
-      requiresTrigger: true,
-    });
-    expect(settings.agents[result.folder].bindings[bindingId!]).toMatchObject({
-      trigger: '@reagent',
-      requiresTrigger: true,
-    });
+    expect(
+      settings.conversations.slack_default_c0123456789.requiresTrigger,
+    ).toBe(true);
     expect(groupsStore.get(routeKey)).toMatchObject({
       trigger: '@reagent',
       requiresTrigger: true,
@@ -984,7 +958,7 @@ describe('cli slack helpers', () => {
   it('updates sender policy without storing agent-qualified route keys in settings', async () => {
     const runtimeHome = makeRuntimeHome();
 
-    const result = await registerSlackMainGroup({
+    await registerSlackMainGroup({
       runtimeHome,
       chatJid: 'sl:C0123456789',
       displayName: 'Kai Slack',
@@ -1011,13 +985,10 @@ describe('cli slack helpers', () => {
 
     expect(code).toBe(0);
     const settings = loadRuntimeSettings(runtimeHome);
-    const bindingId = Object.entries(settings.bindings).find(
-      ([, binding]) => binding.agent === result.folder,
-    )?.[0];
-    expect(bindingId).toBeTruthy();
-    expect(settings.agents[result.folder].bindings[bindingId!].jid).toBe(
-      'sl:C0123456789',
-    );
+    expect(
+      settings.conversations.slack_default_c0123456789.installedAgents
+        .main_agent,
+    ).toBeDefined();
     expect(
       settings.conversations.slack_default_c0123456789.senderPolicy,
     ).toEqual({ allow: ['U123', 'U456'], mode: 'drop' });
@@ -1031,7 +1002,7 @@ describe('cli slack helpers', () => {
   it('removes desired settings for an agent-qualified route key', async () => {
     const runtimeHome = makeRuntimeHome();
 
-    const result = await registerSlackMainGroup({
+    await registerSlackMainGroup({
       runtimeHome,
       chatJid: 'sl:C0123456789',
       displayName: 'Kai Slack',
@@ -1057,11 +1028,8 @@ describe('cli slack helpers', () => {
     expect(groupsStore.has(routeKey)).toBe(false);
     const settings = loadRuntimeSettings(runtimeHome);
     expect(
-      Object.values(settings.bindings).some(
-        (binding) => binding.agent === result.folder,
-      ),
-    ).toBe(false);
-    expect(settings.agents[result.folder]?.bindings ?? {}).toEqual({});
+      settings.conversations.slack_default_c0123456789?.installedAgents ?? {},
+    ).not.toHaveProperty('main_agent');
   });
 
   it('removes only the matching installed agent from shared conversations', async () => {
@@ -1082,17 +1050,6 @@ describe('cli slack helpers', () => {
     settings.agents.main_agent = {
       name: 'Main',
       folder: 'main_agent',
-      bindings: {
-        main_binding: {
-          jid: 'sl:C0123456789',
-          provider: 'slack',
-          providerAccountId: 'slack_default',
-          name: 'Recruiting',
-          trigger: '',
-          addedAt: '2026-01-01T00:00:00.000Z',
-          requiresTrigger: false,
-        },
-      },
       sources: { skills: [], mcpServers: [], tools: [] },
       capabilities: [],
       accessPreset: 'full',
@@ -1100,17 +1057,6 @@ describe('cli slack helpers', () => {
     settings.agents.researcher = {
       name: 'Researcher',
       folder: 'researcher',
-      bindings: {
-        researcher_binding: {
-          jid: 'sl:C0123456789',
-          provider: 'slack',
-          providerAccountId: 'slack_researcher',
-          name: 'Recruiting',
-          trigger: '@researcher',
-          addedAt: '2026-01-01T00:00:00.000Z',
-          requiresTrigger: true,
-        },
-      },
       sources: { skills: [], mcpServers: [], tools: [] },
       capabilities: [],
       accessPreset: 'full',
@@ -1120,6 +1066,7 @@ describe('cli slack helpers', () => {
       externalId: 'C0123456789',
       kind: 'channel',
       displayName: 'Recruiting',
+      requiresTrigger: true,
       senderPolicy: { allow: '*', mode: 'trigger' },
       controlApprovers: [],
       installedAgents: {
@@ -1129,8 +1076,6 @@ describe('cli slack helpers', () => {
           status: 'active',
           addedAt: '2026-01-01T00:00:00.000Z',
           memoryScope: 'conversation',
-          trigger: '',
-          requiresTrigger: false,
         },
         researcher: {
           agentId: 'researcher',
@@ -1138,28 +1083,8 @@ describe('cli slack helpers', () => {
           status: 'active',
           addedAt: '2026-01-01T00:00:00.000Z',
           memoryScope: 'conversation',
-          trigger: '@researcher',
-          requiresTrigger: true,
         },
       },
-    };
-    settings.bindings.main_binding = {
-      agent: 'main_agent',
-      conversation: 'slack_default_c0123456789',
-      installKey: 'main_agent',
-      trigger: '',
-      addedAt: '2026-01-01T00:00:00.000Z',
-      requiresTrigger: false,
-      memoryScope: 'conversation',
-    };
-    settings.bindings.researcher_binding = {
-      agent: 'researcher',
-      conversation: 'slack_default_c0123456789',
-      installKey: 'researcher',
-      trigger: '@researcher',
-      addedAt: '2026-01-01T00:00:00.000Z',
-      requiresTrigger: true,
-      memoryScope: 'conversation',
     };
     saveRuntimeSettings(runtimeHome, settings);
 
@@ -1178,9 +1103,6 @@ describe('cli slack helpers', () => {
     ).toEqual({
       researcher: expect.objectContaining({ agentId: 'researcher' }),
     });
-    expect(Object.values(updated.bindings)).toEqual([
-      expect.objectContaining({ agent: 'researcher' }),
-    ]);
-    expect(updated.agents.main_agent.bindings).toEqual({});
+    expect(updated).not.toHaveProperty('bindings');
   });
 });

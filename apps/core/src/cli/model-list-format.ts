@@ -56,7 +56,15 @@ export interface ModelStatusSettings extends ModelListSettings {
       recurringJobDefaultModel?: string;
     }
   >;
-  bindings: Record<string, { model?: string }>;
+  conversations: Record<
+    string,
+    {
+      installedAgents: Record<
+        string,
+        { model?: string; status: 'active' | 'disabled' }
+      >;
+    }
+  >;
 }
 
 export function chatAlias(settings: ModelListSettings): string {
@@ -165,9 +173,18 @@ function formatAgentOverrides(settings: ModelStatusSettings): string[] {
     if (overrides.length)
       lines.push(`agent ${agentId}: ${overrides.join(', ')}`);
   }
-  for (const [bindingId, binding] of Object.entries(settings.bindings)) {
-    if (binding.model)
-      lines.push(`binding ${bindingId}: chat=${binding.model}`);
+  for (const [conversationId, conversation] of Object.entries(
+    settings.conversations,
+  )) {
+    for (const [installId, install] of Object.entries(
+      conversation.installedAgents,
+    )) {
+      if (install.status !== 'active') continue;
+      if (install.model)
+        lines.push(
+          `conversation ${conversationId}/${installId}: chat=${install.model}`,
+        );
+    }
   }
   return lines;
 }

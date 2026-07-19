@@ -310,8 +310,7 @@ function registeredTelegramConversationContexts(input: {
     input.settings.conversations,
   ).sort(([left], [right]) => left.localeCompare(right))) {
     if (!conversation) continue;
-    const account =
-      conversation.providerAccount ?? conversation.providerConnection;
+    const account = conversation.providerAccount;
     if (account !== input.providerAccountId) continue;
     const jid = `tg:${conversation.externalId.replace(/^tg:/, '')}`;
     const routes = findConversationRoutesForChat(
