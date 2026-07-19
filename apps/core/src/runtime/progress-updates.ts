@@ -20,7 +20,6 @@ export function buildReplaceOnlyProgressOptions(
 export async function sendFinalProgressUpdate(args: {
   enabled: boolean;
   state: FinalProgressState;
-  elapsed: string;
   options: ProgressUpdateOptions;
   send: (text: string, options?: ProgressUpdateOptions) => Promise<void>;
   onError?: (err: unknown) => void;

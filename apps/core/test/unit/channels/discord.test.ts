@@ -428,26 +428,24 @@ describe('DiscordChannel', () => {
     await channel.renderAgentTodo('dc:channel-1', {
       headline: 'Searching the web',
       status: 'running',
-      elapsed: '2m 14s',
       stop: { label: 'Stop', actionToken: 'stop-token-1' },
       items: [{ id: '1', title: 'First', status: 'pending' }],
     });
     await channel.renderAgentTodo('dc:channel-1', {
       headline: 'Done',
       status: 'done',
-      elapsed: '2m 20s',
       stop: { label: 'Stop', actionToken: 'stale-stop-token' },
       items: [{ id: '1', title: 'First', status: 'completed' }],
     });
 
     const posted = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
-    expect(posted.content).toContain('⏳ Searching the web · 2m 14s');
+    expect(posted.content).toContain('⏳ Searching the web');
     expect(JSON.stringify(posted.components)).toContain('stop-token-1');
     expect(fetchMock.mock.calls[1]?.[0]).toBe(
       'https://discord.com/api/v10/channels/channel-1/messages/todo-1',
     );
     const updated = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body));
-    expect(updated.content).toContain('✅ Done · 2m 20s');
+    expect(updated.content).toContain('✅ Done');
     expect(updated.components).toEqual([]);
   });
 

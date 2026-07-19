@@ -52,9 +52,7 @@ export function formatAgentProgressLine(
 }
 
 export function hasAgentTodoCardHeader(render: AgentTodoRender): boolean {
-  return Boolean(
-    render.headline?.trim() || render.status || render.elapsed?.trim(),
-  );
+  return Boolean(render.headline?.trim() || render.status);
 }
 
 export function formatAgentTodoHeader(
@@ -65,8 +63,7 @@ export function formatAgentTodoHeader(
   const label = render.status
     ? `${AGENT_TODO_CARD_STATUS_EMOJI[render.status]} ${title}`
     : title;
-  const elapsed = render.elapsed?.trim();
-  return escapeText(elapsed ? `${label} · ${elapsed}` : label);
+  return escapeText(label);
 }
 
 export function agentTodoStopActions(

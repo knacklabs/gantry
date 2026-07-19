@@ -143,7 +143,6 @@ export function renderAgentTodoHtml(render: {
   items: AgentTodoItem[];
   headline?: string | null;
   status?: 'running' | 'waiting' | 'done' | 'failed' | 'stopped';
-  elapsed?: string | null;
   cardKind?: 'todo' | 'progress';
 }): string {
   if (render.cardKind === 'progress') {

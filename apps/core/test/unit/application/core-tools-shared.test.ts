@@ -16,7 +16,7 @@ vi.mock(
 
 import { createCoreToolRegistry } from '@core/runtime/core-tools/registry.js';
 import { AppMemoryService } from '@core/memory/app-memory-service.js';
-import { deliverIpcMessage } from '@core/runtime/ipc-message-delivery.js';
+import { sendCoreMessage } from '@core/application/core-tools/send-message.js';
 import { createCoreToolSchemas } from '@core/runtime/core-tools/schemas.js';
 import {
   evaluateNeutralToolPolicy,
@@ -36,16 +36,15 @@ describe('shared core tool handlers', () => {
   it('uses the same send_message application handler for IPC and direct calls', async () => {
     const sendMessage = vi.fn(async () => undefined);
 
-    await deliverIpcMessage({
+    await sendCoreMessage({
       deps: { sendMessage } as never,
-      sourceAgentFolder: 'main_agent',
-      data: {
-        type: 'message',
-        chatJid: 'conversation:test',
-        text: 'from IPC',
+      context: {
+        sourceAgentFolder: 'main_agent',
+        targetJid: 'conversation:test',
       },
-      targetJid: 'conversation:test',
+      message: { text: 'from IPC' },
     });
+
     await createCoreToolRegistry({
       context: {
         sourceAgentFolder: 'main_agent',
