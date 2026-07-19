@@ -163,6 +163,7 @@ import {
 } from '@core/channels/slack/permission-blocks.js';
 import { SLACK_PERMISSION_DECISION_ACTION_IDS } from '@core/channels/slack/permission-action-id.js';
 import { writeSlackAttachmentResponse } from '@core/channels/slack/attachment-download.js';
+import { asTypingSink } from '@core/app/bootstrap/channel-capability-ports.js';
 import type {
   PermissionApprovalRequest,
   PermissionCallbackClaim,
@@ -699,6 +700,16 @@ describe('Slack channel', () => {
       if (savedApp !== undefined) process.env.SLACK_APP_TOKEN = savedApp;
       else delete process.env.SLACK_APP_TOKEN;
     }
+  });
+
+  it('does not expose Slack as typing-capable', () => {
+    const channel = new SlackChannel(
+      'xoxb-token',
+      'xapp-token',
+      createOpts() as any,
+    );
+
+    expect(asTypingSink(channel)).toBeUndefined();
   });
 
   it('adds Slack reactions idempotently', async () => {
@@ -3061,7 +3072,6 @@ describe('Slack channel', () => {
       summary: 'Thread one',
       headline: 'Searching the web',
       status: 'running',
-      elapsed: '2m 14s',
       stop: { label: 'Stop', actionToken: 'stop-token-1' },
       items: [{ id: 'a', title: 'A', status: 'pending' }],
     });
@@ -3086,7 +3096,7 @@ describe('Slack channel', () => {
       }),
     );
     expect(JSON.stringify(postMessage.mock.calls[0]?.[0])).toContain(
-      '⏳ Searching the web · 2m 14s',
+      '⏳ Searching the web',
     );
     expect(JSON.stringify(postMessage.mock.calls[0]?.[0])).not.toContain(
       'stop-token-1',
@@ -3427,7 +3437,7 @@ describe('Slack channel', () => {
       ok: true,
     });
 
-    await channel.sendProgressUpdate('sl:C1234567890', 'Done in 1s.', {
+    await channel.sendProgressUpdate('sl:C1234567890', 'Done.', {
       done: true,
       replaceOnly: true,
       threadId: '1710000000.000111',
@@ -3772,20 +3782,20 @@ describe('Slack channel', () => {
     await channel.connect();
 
     await channel.sendProgressUpdate('sl:C1234567890', 'Working on it...');
-    await channel.sendProgressUpdate('sl:C1234567890', 'Done in 1s.', {
+    await channel.sendProgressUpdate('sl:C1234567890', 'Done.', {
       done: true,
       replaceOnly: true,
     });
     expect(appRef.current.client.chat.update).toHaveBeenCalledWith({
       channel: 'C1234567890',
       ts: '1710000000.100200',
-      text: 'Done in 1s.',
+      text: 'Done.',
       blocks: [],
     });
     appRef.current.client.chat.postMessage.mockClear();
     appRef.current.client.chat.update.mockClear();
 
-    await channel.sendProgressUpdate('sl:C1234567890', 'Done in 2s.', {
+    await channel.sendProgressUpdate('sl:C1234567890', 'Done.', {
       done: true,
       replaceOnly: true,
     });
@@ -3803,7 +3813,7 @@ describe('Slack channel', () => {
     await channel.connect();
 
     await channel.sendProgressUpdate('sl:C1234567890', 'Working on it...');
-    await channel.sendProgressUpdate('sl:C1234567890', 'Done in 10s.', {
+    await channel.sendProgressUpdate('sl:C1234567890', 'Done.', {
       done: true,
     });
 
@@ -3816,7 +3826,7 @@ describe('Slack channel', () => {
     expect(appRef.current.client.chat.update).toHaveBeenCalledWith({
       channel: 'C1234567890',
       ts: '1710000000.100200',
-      text: 'Done in 10s.',
+      text: 'Done.',
       blocks: [],
     });
 
@@ -3840,7 +3850,7 @@ describe('Slack channel', () => {
     await channel.sendProgressUpdate('sl:C1234567890', 'Working on it...', {
       generation: 1,
     });
-    await channel.sendProgressUpdate('sl:C1234567890', 'Done in 10s.', {
+    await channel.sendProgressUpdate('sl:C1234567890', 'Done.', {
       done: true,
       generation: 1,
     });
@@ -3874,14 +3884,14 @@ describe('Slack channel', () => {
     expect(appRef.current.client.chat.postMessage).toHaveBeenCalledTimes(2);
     expect(appRef.current.client.chat.update).not.toHaveBeenCalled();
 
-    await channel.sendProgressUpdate('sl:C1234567890', 'Done in old turn.', {
+    await channel.sendProgressUpdate('sl:C1234567890', 'Done.', {
       done: true,
       replaceOnly: true,
       generation: 1,
     });
     expect(appRef.current.client.chat.update).not.toHaveBeenCalled();
 
-    await channel.sendProgressUpdate('sl:C1234567890', 'Done in new turn.', {
+    await channel.sendProgressUpdate('sl:C1234567890', 'Done.', {
       done: true,
       replaceOnly: true,
       generation: 3,
@@ -3889,7 +3899,7 @@ describe('Slack channel', () => {
     expect(appRef.current.client.chat.update).toHaveBeenCalledWith({
       channel: 'C1234567890',
       ts: '1710000000.100200',
-      text: 'Done in new turn.',
+      text: 'Done.',
       blocks: [],
     });
   });

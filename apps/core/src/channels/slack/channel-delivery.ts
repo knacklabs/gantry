@@ -665,6 +665,4 @@ export abstract class SlackChannelDelivery extends SlackChannelInteractions {
         this.tryNativeStreamStop(channelId, streamTs),
     });
   }
-
-  async setTyping(_jid: string, _isTyping: boolean): Promise<void> {}
 }

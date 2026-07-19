@@ -599,7 +599,6 @@ describe('TeamsChannel adapter scaffold', () => {
       threadId: 'reply-a',
       headline: 'Searching the web',
       status: 'running',
-      elapsed: '2m 14s',
       stop: { label: 'Stop', actionToken: 'stop-token-1' },
       items: [{ id: '1', title: 'First', status: 'pending' }],
     });
@@ -620,9 +619,7 @@ describe('TeamsChannel adapter scaffold', () => {
     );
     const firstCard = vi.mocked(sdkClient.sendAdaptiveCard).mock.calls[0]?.[0]
       ?.card as any;
-    expect(JSON.stringify(firstCard)).toContain(
-      '⏳ Searching the web · 2m 14s',
-    );
+    expect(JSON.stringify(firstCard)).toContain('⏳ Searching the web');
     expect(JSON.stringify(firstCard.actions)).toContain('stop-token-1');
     expect(JSON.stringify(firstCard.actions)).toContain(
       'teams:19:abc@thread.v2',

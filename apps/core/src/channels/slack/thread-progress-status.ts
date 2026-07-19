@@ -17,7 +17,7 @@ function slackApiCallOk(result: unknown): boolean {
 }
 
 export function isSlackTerminalSuccessText(text: string): boolean {
-  return text === 'Done.' || /^Done in\b/.test(text);
+  return text === 'Done.';
 }
 
 export async function sendSlackThreadProgressStatus(input: {

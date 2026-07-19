@@ -1,5 +1,6 @@
 import path from 'path';
 
+import { sendCoreMessage } from '../application/core-tools/send-message.js';
 import { DATA_DIR, IPC_POLL_INTERVAL } from '../config/index.js';
 import { logger } from '../infrastructure/logging/logger.js';
 import { DurableInteractionPersistenceError } from '../application/interactions/pending-interaction-persistence-error.js';
@@ -23,7 +24,7 @@ import { processBrowserRequestDirectory } from './ipc-browser-requests.js';
 import { canProcessIpcFile, clearIpcRateLimitState } from './ipc-rate-limit.js';
 // prettier-ignore
 import { validatePermissionIpcJobExecutionTarget, validateUserQuestionIpcJobExecutionTarget } from './ipc-scheduled-interaction-validation.js';
-import { deliverIpcMessage } from './ipc-message-delivery.js';
+import { readWorkspaceMessageAttachment } from '../platform/workspace-message-attachment.js';
 import {
   resolveIpcFoldersFromGroups,
   resolveIpcTargetJidForSourceGroup,
@@ -295,12 +296,23 @@ export function startIpcWatcher(deps: IpcDeps): void {
                   threadId: data.threadId,
                   providerAccountId: data.providerAccountId,
                 });
-                await deliverIpcMessage({
-                  deps,
-                  sourceAgentFolder,
-                  data,
-                  targetJid: route.targetJid,
-                  providerAccountId: route.providerAccountId,
+                await sendCoreMessage({
+                  deps: {
+                    ...deps,
+                    readWorkspaceAttachment: readWorkspaceMessageAttachment,
+                  },
+                  context: {
+                    appId: data.appId,
+                    sourceAgentFolder,
+                    targetJid: route.targetJid,
+                    threadId: data.threadId,
+                    providerAccountId: route.providerAccountId,
+                  },
+                  message: {
+                    text: data.text,
+                    sender: data.sender,
+                    files: data.files,
+                  },
                 });
                 logger.info(
                   { chatJid: route.targetJid, sourceAgentFolder },
