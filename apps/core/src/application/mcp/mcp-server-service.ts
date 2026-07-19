@@ -428,7 +428,7 @@ export class McpServerService {
       });
       if (
         result.reason instanceof ApplicationError &&
-        /(?:Missing Gantry Credential|Gantry (?:Credential|capability credential)(?:s)? required|required Gantry capability credential is missing)/i.test(
+        /(?:Missing Gantry Credential|(?:A )?Gantry (?:Credential|capability credential)(?:s)? (?:is |are )?required|required Gantry capability credential is missing)/i.test(
           result.reason.message,
         )
       ) {

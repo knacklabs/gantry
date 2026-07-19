@@ -477,6 +477,18 @@ describe('deployment-mode aware install guidance', () => {
     expect(text).not.toContain('propagates to eligible workers');
   });
 
+  it('keeps credential identifiers out of installed skill context', async () => {
+    const { formatSkillProposalResponse } =
+      await import('@core/runner/mcp/tools/service-formatters.js');
+    const text = formatSkillProposalResponse(
+      { ...installedSkillContext, requiredEnvVars: ['PRIVATE_TOKEN_NAME'] },
+      'Done.',
+    );
+
+    expect(text).toContain('add the required login in Credential Center');
+    expect(text).not.toContain('PRIVATE_TOKEN_NAME');
+  });
+
   it('fleet adds the worker propagation clause', async () => {
     setRunnerEnv({ GANTRY_DEPLOYMENT_MODE: 'fleet' });
     vi.resetModules();
@@ -532,7 +544,7 @@ describe('deployment-mode aware install guidance', () => {
         ([name]) => name === 'request_skill_dependency_install',
       )?.[1],
     ).toBe(
-      'Request host-installed dependencies needed by a reviewed skill source. Approval records setup inventory; the agent never runs install commands directly.',
+      'Request host-installed dependencies needed by a reviewed skill source. Approval records setup inventory; the agent never runs install commands directly. Keep the wait visible with one render_progress line.',
     );
   });
 });

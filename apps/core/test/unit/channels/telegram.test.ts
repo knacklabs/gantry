@@ -1104,6 +1104,36 @@ describe('TelegramChannel', () => {
     );
   });
 
+  it('edits compact long-task progress in place with one message id', async () => {
+    const channel = new TelegramChannel('test-token', createTestOpts());
+    await channel.connect();
+    currentBot().api.sendMessage.mockResolvedValueOnce({ message_id: 303 });
+
+    await channel.renderAgentTodo('tg:-100123', {
+      cardKind: 'progress',
+      summary: 'Installing… 1 of 3',
+      items: [],
+    });
+    await channel.renderAgentTodo('tg:-100123', {
+      cardKind: 'progress',
+      summary: 'Installing… 2 of 3',
+      items: [],
+    });
+
+    expect(currentBot().api.sendMessage).toHaveBeenCalledTimes(1);
+    expect(currentBot().api.sendMessage).toHaveBeenCalledWith(
+      '-100123',
+      'Installing… 1 of 3',
+      expect.any(Object),
+    );
+    expect(currentBot().api.editMessageText).toHaveBeenCalledWith(
+      '-100123',
+      303,
+      'Installing… 2 of 3',
+      expect.any(Object),
+    );
+  });
+
   // --- Connection lifecycle ---
 
   describe('connection lifecycle', () => {

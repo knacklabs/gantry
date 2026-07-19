@@ -840,7 +840,7 @@ describe('jobs/execution', () => {
     }
   });
 
-  it('redacts dead-letter scheduler error summaries, pause reason, and events', async () => {
+  it('keeps safe failure evidence in events and all raw details out of chat', async () => {
     const job = makeJob({
       schedule_type: 'interval',
       schedule_value: '60000',
@@ -850,7 +850,7 @@ describe('jobs/execution', () => {
     const opsRepository = makeOpsRepository(job);
     const sendMessage = vi.fn(async () => undefined);
     const rawError =
-      'failed provider-session:raw-error claude-session-error sessionId=error-inline {"newSessionId":"json-error"}';
+      'RAW_JOB_FAILURE_SENTINEL failed provider-session:raw-error claude-session-error sessionId=error-inline {"newSessionId":"json-error"}';
 
     await runJob(
       job,
@@ -896,8 +896,10 @@ describe('jobs/execution', () => {
     expect(failureMessage).toContain(
       '**⏸️ Paused after failures** · Daily summary',
     );
-    expect(failureMessage).toContain('Needs attention:');
-    expect(failureMessage).toContain('[REDACTED]');
+    expect(failureMessage).toContain('Fix the blocker, then resume the job.');
+    expect(failureMessage).not.toContain('Needs attention:');
+    expect(failureMessage).not.toContain('[REDACTED]');
+    expect(failureMessage).not.toContain('RAW_JOB_FAILURE_SENTINEL');
     expect(failureMessage).not.toContain('provider-session:raw-error');
     expect(failureMessage).not.toContain('claude-session-error');
     expect(failureMessage).not.toContain('error-inline');
@@ -906,6 +908,9 @@ describe('jobs/execution', () => {
     const lifecycleFailureEvent = runtimeStoreMock.publish.mock.calls.find(
       ([event]) => event?.eventType === 'job.failed',
     )?.[0];
+    expect(lifecycleFailureEvent?.payload?.summary).toContain(
+      'RAW_JOB_FAILURE_SENTINEL',
+    );
     expect(lifecycleFailureEvent?.payload?.summary).toContain('[REDACTED]');
     expect(lifecycleFailureEvent?.payload?.summary).not.toContain(
       'provider-session:raw-error',
@@ -936,6 +941,9 @@ describe('jobs/execution', () => {
     const runFailureEvent = runtimeStoreMock.publish.mock.calls.find(
       ([event]) => event?.eventType === 'job.run.failed',
     )?.[0];
+    expect(runFailureEvent?.payload?.summary).toContain(
+      'RAW_JOB_FAILURE_SENTINEL',
+    );
     expect(runFailureEvent?.payload?.summary).toContain('[REDACTED]');
     expect(runFailureEvent?.payload?.summary).not.toContain(
       'provider-session:raw-error',

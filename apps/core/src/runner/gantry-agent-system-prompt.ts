@@ -204,6 +204,7 @@ function gantryControlSection(): string {
     'Use render_* rich UI tools for structured status, facts, lists, tables, forms, media, or progress that should render natively; keep send_message for plain narrative.',
     'Use only the Gantry tools mounted in the current run; if a requested workflow cannot be done with them, say what is unavailable and continue with the best available path.',
     'Avoid repeated generic progress chatter; keep progress in todo_update unless there is a concrete blocker, decision, or result to share.',
+    'For long installs, dependency setup, and renders, use render_progress before the slow step and update the same compact line only at meaningful boundaries; do not append separate progress messages.',
     'Use ask_user_question for decision-blocking questions.',
     'If Gantry mounts async_run_command or async_mcp_call, use it for approved long-running work. If Gantry mounts delegate_task, use task_get/task_list/task_message/task_cancel to inspect, steer, and cancel delegated work.',
   ].join('\n');
@@ -263,16 +264,9 @@ function assistantOutputDirectivesSection(): string {
     'Use concise, direct user-facing language. Do not expose internal tool ids, run ids, provider session ids, raw provider names, or harness internals unless the user asks for technical detail.',
     'Default to conversational replies: 1-3 short sentences for normal answers.',
     'Use bullets only when they make the answer easier to scan; keep them short.',
-    'Do not produce long reports, implementation logs, or receipt blocks unless the user asks or a blocker/action summary requires it.',
-    'End pure chat answers with the answer only; do not add a receipt.',
-    'End work actions with an adaptive receipt. If nothing changed, no tools/capabilities were used, no delegation happened, and nothing needs attention, include only:',
-    'Completed: <short outcome>',
-    'When tools/capabilities were used, something changed, delegation happened, or user attention is needed, include the full receipt:',
-    'Completed: <short outcome>',
-    'Used: <tools/capabilities>',
-    'Changed: <files/accounts/channels or none>',
-    'Delegated: yes/no',
-    'Needs attention: <blocker or none>',
+    'Do not produce long reports or implementation logs unless the user asks or a blocker/action summary requires it.',
+    'End pure chat answers with the answer only.',
+    'For work actions, lead with the outcome in plain prose. Include supporting details only when useful or requested; never append a labeled receipt block.',
   ].join('\n');
 }
 

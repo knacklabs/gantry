@@ -124,7 +124,7 @@ export function registerServiceTools(server: McpServer): void {
 
   server.tool(
     'request_skill_install',
-    'Request skill source setup for same-conversation admin approval. Approval installs staged files, or runs an approved installer command in host-controlled staging and imports the resulting SKILL.md package. Skill source approval records inventory only; reviewed gantry.skill.json actions become capability candidates.',
+    'Request skill source setup for same-conversation admin approval. Approval installs staged files, or runs an approved installer command in host-controlled staging and imports the resulting SKILL.md package. Skill source approval records inventory only; reviewed gantry.skill.json actions become capability candidates. Keep long installs visible with one render_progress line before and after meaningful stages.',
     {
       expectedFiles: z
         .array(z.string())
@@ -192,8 +192,8 @@ export function registerServiceTools(server: McpServer): void {
   server.tool(
     'request_skill_dependency_install',
     deploymentMode === 'fleet'
-      ? 'Request dependencies needed by a reviewed skill source. Approved dependencies are baked into a worker toolchain and take minutes before they are ready; the agent never runs install commands directly.'
-      : 'Request host-installed dependencies needed by a reviewed skill source. Approval records setup inventory; the agent never runs install commands directly.',
+      ? 'Request dependencies needed by a reviewed skill source. Approved dependencies are baked into a worker toolchain and take minutes before they are ready; the agent never runs install commands directly. Keep the wait visible with one render_progress line.'
+      : 'Request host-installed dependencies needed by a reviewed skill source. Approval records setup inventory; the agent never runs install commands directly. Keep the wait visible with one render_progress line.',
     {
       ecosystem: z
         .enum(['npm', 'brew', 'go', 'uv', 'download'])

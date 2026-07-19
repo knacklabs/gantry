@@ -366,7 +366,7 @@ function registerRichInteractionTools(server: McpServer): void {
 
   server.tool(
     'render_progress',
-    'Render progress for a user-visible workflow.',
+    'Render one compact progress line for a user-visible workflow. Repeated calls edit the active line in place; use it before and between meaningful steps of long installs, dependency setup, and renders.',
     {
       title: richTitleSchema,
       value: z.number().min(0).max(100).optional(),

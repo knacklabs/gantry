@@ -8,6 +8,7 @@ unavailable." with no log line. Read-only audit of the full outbound path.
 Mode (b): no artifact descriptor. `send_message` files resolve ONLY against the
 FileArtifactStore (`send-message.ts:73-134`), but **a binary workspace file
 cannot enter that store through any agent-facing path**:
+
 - No auto-registration/scan of the agent workspace exists.
 - The `file` tool's write path caps content at 2,000,000 base64 chars
   (~1.5 MB binary) — `ipc-file-artifact-handlers.ts:279`. A real MP4 can't fit.
@@ -20,12 +21,12 @@ exception) collapse to one opaque line with a SILENT catch — zero logging.
 
 ## Provider delivery matrix
 
-| Provider | Delivers? | Method | Notes |
-|---|---|---|---|
-| Telegram | YES | `sendDocument` per file (`telegram/file-delivery.ts:15-51`) | 50 MB own check; loud per-file fallback WITH reason; never sendVideo/sendPhoto |
-| Discord | YES | multipart POST with Blobs (`discord-delivery.ts:55-219`) | 25 MB; visible warnings; contentType respected |
-| Slack | **SILENTLY DROPS** | none — `sendSlackMessage` never reads `files` (`channel-delivery-helpers.ts:136`) | text still lists phantom "Attachments:" lines |
-| Teams | STUBS | none | `teams-cards.ts:89-107` rewrites EVERY attachment line to the stub, including successfully resolved ones |
+| Provider | Delivers?          | Method                                                                            | Notes                                                                                                    |
+| -------- | ------------------ | --------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| Telegram | YES                | `sendDocument` per file (`telegram/file-delivery.ts:15-51`)                       | 50 MB own check; loud per-file fallback WITH reason; never sendVideo/sendPhoto                           |
+| Discord  | YES                | multipart POST with Blobs (`discord-delivery.ts:55-219`)                          | 25 MB; visible warnings; contentType respected                                                           |
+| Slack    | **SILENTLY DROPS** | none — `sendSlackMessage` never reads `files` (`channel-delivery-helpers.ts:136`) | text still lists phantom "Attachments:" lines                                                            |
+| Teams    | STUBS              | none                                                                              | `teams-cards.ts:89-107` rewrites EVERY attachment line to the stub, including successfully resolved ones |
 
 ## Pattern classification (bug-pattern habit)
 
@@ -53,3 +54,30 @@ store copy, unlinked, with a pipe too narrow to sync them), **silent failure**
 5. **Telegram polish (optional)**: pick sendVideo/sendPhoto by contentType.
 
 Status: QUEUED as the next lane-2 cycle after the ponytail audit converges.
+
+## Validation addendum (2026-07-19, adversarial Codex review of the uncommitted fix on `fix/outbound-attachments`)
+
+Confirmed: loud reason-bearing failures + one `logger.warn` with
+appId/agentId/scope/path/reason; Teams matcher prefix-safe against the new
+failure strings inside the attachment section only; Telegram/Discord untouched;
+Slack API sequence matches the documented external-upload contract.
+
+Required before commit (fix round dispatched):
+
+1. **HIGH — containment TOCTOU** (`workspace-message-attachment.ts`): stat+read
+   reopen the pathname after the realpath check; symlink swap escapes the
+   workspace, large-file swap allocates unbounded. Fix: FD-bound — open canonical
+   path with O_NOFOLLOW, fstat gate (regular file, size ≤ cap) BEFORE reading,
+   capped read from the handle; ponytail-comment the residual ancestor-swap
+   window (openat2/RESOLVE_BENEATH would close it).
+2. **HIGH — Slack `files:write` scope** missing from BOTH setup scope lists
+   (`setup-flow-provider-steps.ts`, `cli/slack.ts`) — uploads would always fall
+   back on standard installs.
+3. **MEDIUM** — upload + visible-fallback double failure currently reports
+   success; must surface as failed delivery for that file.
+4. LOW — Teams `inAttachments` flag never resets (section must end at first
+   non-list, non-blank line). LOW — workspace paths must not reuse the
+   FileArtifact segment grammar (spaces/Unicode rejected); realpath containment
+   is the boundary for workspace resolution. MINOR — include caught error
+   message in the warn fields; verify `resolveOwnedFileArtifactMessage` wiring
+   is production-reachable (validator: wrapper references are test-only).

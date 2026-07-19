@@ -273,12 +273,18 @@ describe('permission interaction', () => {
       promotionHintCount: 3,
     } satisfies PermissionApprovalRequest;
     const hint =
-      "You've allowed this 3 times — 'Allow for future' makes it permanent.";
+      "You've allowed me to do this 3 times — want me to stop asking?";
+    const oldHint = "'Allow for future' makes it permanent.";
+    const prompt = formatPermissionPromptText(request, 60_000);
+    const contextLines = buildPermissionPromptParts(
+      request,
+      60_000,
+    ).contextLines;
 
-    expect(formatPermissionPromptText(request, 60_000)).toContain(hint);
-    expect(buildPermissionPromptParts(request, 60_000).contextLines).toContain(
-      hint,
-    );
+    expect(prompt).toContain(hint);
+    expect(contextLines).toContain(hint);
+    expect(prompt).not.toContain(oldHint);
+    expect(contextLines.join('\n')).not.toContain(oldHint);
   });
 
   it('shows profile update proposed content and hash in the approval prompt', () => {

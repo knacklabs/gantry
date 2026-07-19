@@ -1,6 +1,7 @@
 import type { UserQuestionRequest } from '../../domain/types.js';
 import type { AgentTodoItem } from '../../domain/ports/task-lifecycle.js';
 import {
+  formatAgentProgressLine,
   formatAgentTodoHeader,
   formatAgentTodoLine,
   hasAgentTodoCardHeader,
@@ -143,7 +144,11 @@ export function renderAgentTodoHtml(render: {
   headline?: string | null;
   status?: 'running' | 'waiting' | 'done' | 'failed' | 'stopped';
   elapsed?: string | null;
+  cardKind?: 'todo' | 'progress';
 }): string {
+  if (render.cardKind === 'progress') {
+    return formatAgentProgressLine(render, escapeTelegramHtml);
+  }
   const title = hasAgentTodoCardHeader(render)
     ? formatAgentTodoHeader(render, escapeTelegramHtml)
     : render.summary?.trim()

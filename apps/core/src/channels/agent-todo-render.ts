@@ -39,6 +39,18 @@ export function agentTodoLines(
   return render.items.map((item) => formatAgentTodoLine(item, escapeText));
 }
 
+export function formatAgentProgressLine(
+  render: AgentTodoRender,
+  escapeText: (value: string) => string = (value) => value,
+): string {
+  const text =
+    render.summary?.trim() ||
+    render.headline?.trim() ||
+    render.items[0]?.title.trim() ||
+    'Working…';
+  return escapeText(text);
+}
+
 export function hasAgentTodoCardHeader(render: AgentTodoRender): boolean {
   return Boolean(
     render.headline?.trim() || render.status || render.elapsed?.trim(),

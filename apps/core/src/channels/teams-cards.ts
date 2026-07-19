@@ -11,6 +11,7 @@ import {
   agentTodoLines,
   agentTodoStopActions,
   countCompletedAgentTodos,
+  formatAgentProgressLine,
   formatAgentTodoHeader,
   hasAgentTodoCardHeader,
 } from './agent-todo-render.js';
@@ -171,6 +172,21 @@ export function buildTeamsAgentTodoCard(
   render: AgentTodoRender,
   targetJid = '',
 ): TeamsAdaptiveCardPayload {
+  if (render.cardKind === 'progress') {
+    return {
+      $schema: 'http://adaptivecards.io/schemas/adaptive-card.json',
+      type: 'AdaptiveCard',
+      version: '1.5',
+      body: [
+        {
+          type: 'TextBlock',
+          text: formatAgentProgressLine(render),
+          wrap: true,
+        },
+      ],
+      actions: [],
+    };
+  }
   const title = formatAgentTodoHeader(render);
   const heading = hasAgentTodoCardHeader(render) ? title : `📋 ${title}`;
   const done = countCompletedAgentTodos(render);

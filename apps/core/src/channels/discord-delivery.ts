@@ -6,6 +6,7 @@ import type { AgentTodoRender } from '../domain/ports/task-lifecycle.js';
 import { PartialMessageDeliveryError } from '../domain/messages/partial-delivery.js';
 import {
   agentTodoLines,
+  formatAgentProgressLine,
   formatAgentTodoHeader,
   hasAgentTodoCardHeader,
 } from './agent-todo-render.js';
@@ -33,6 +34,7 @@ export function splitDiscordText(text: string): string[] {
 }
 
 export function formatDiscordAgentTodo(render: AgentTodoRender): string {
+  if (render.cardKind === 'progress') return formatAgentProgressLine(render);
   const title = formatAgentTodoHeader(render);
   const header = hasAgentTodoCardHeader(render) ? title : `📋 ${title}`;
   const lines: string[] = [header];

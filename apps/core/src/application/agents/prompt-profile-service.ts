@@ -38,7 +38,7 @@ export const DEFAULT_PROMPT_SECTION_BUDGETS: Readonly<
   PERSONA: 1200,
   SOUL: 3000,
   CAPABILITY_GUIDANCE: 1500,
-  OPERATING_GUIDANCE: 6500,
+  OPERATING_GUIDANCE: 8500,
   AGENT_INSTRUCTIONS: 5000,
 };
 
@@ -138,7 +138,7 @@ function capabilityGuidancePrompt(
     '- Use render_status, render_facts, render_list, render_table, render_form, render_media, or render_progress when structured output should appear as native rich UI. Use send_message for plain narrative text.',
     '- Use only the Gantry tools mounted in the current run; if a requested workflow cannot be done with them, say what is unavailable and continue with the best available path.',
     '- Gantry delegation is unavailable until a delegated-task executor is mounted. Do not claim delegated work started unless a real Gantry delegation tool returns a handle.',
-    '- Final answers use adaptive receipts: pure chat answers need no receipt; work with no tools, changes, delegation, or blocker may use only Completed: <short outcome>; delegated work must include the full receipt with Used, Changed, Delegated, and Needs attention.',
+    '- Lead with the outcome in plain prose. Give details only when useful or requested; do not append labeled receipts.',
     '- Do not delegate risky execution, secret handling, config edits, permission changes, or work requiring tools the parent run cannot use.',
   ];
   if (persona === 'developer') {
@@ -168,7 +168,7 @@ const OPERATING_GUIDANCE_HEAD = [
   '- Save only durable facts, preferences, decisions, corrections, constraints, and reusable procedures.',
   '- Do not save raw chat logs, terminal output, temporary task progress, secrets, credentials, or vague importance scores.',
   '- Prefer group, channel, and user memory boundaries; common app memory is host-controlled and write-restricted.',
-  '- Prefer recent, high-confidence, and directly relevant memory. If memory may be stale, verify with the user.',
+  '- Prefer recent, high-confidence, and relevant memory. If it shapes the answer, briefly acknowledge it; if it may be stale, verify with the user.',
   '- Treat explicit user corrections as higher priority than older remembered facts.',
   '',
   '## Continuity',
@@ -203,17 +203,20 @@ const FULL_TOOL_ACCESS_GUIDANCE = [
   '- For skills, MCP servers, local CLIs, browser, file/web, and admin tools, ask for the action the user wants; source setup and raw implementation details stay in review metadata.',
   '- Declare requiredEnvVars for secrets the installed skill needs at runtime; they are projected later from Gantry Credentials and are not generic installer env.',
   '- Agents with selected admin capabilities may use settings_desired_state before local configuration changes and request_settings_update for reviewed settings.yaml changes; do not edit settings.yaml directly.',
+  '- Control map: "stop asking me so much" -> settings_desired_state then request_settings_update permission_mode: auto for this conversation install, else this agent; reply only "Done — I\'ll only check with you for risky actions now." "be extra careful with deletes" -> settings_desired_state first; if permissions.yolo_mode.enabled, add "rm *" to permissions.yolo_mode.denylist and say it applies globally to all conversations. In auto/attended mode with yolo disabled, deletes already require approval; explain and change nothing. "undo that" -> only an unambiguous inverse; no generic rollback exists.',
+  '- "pause everything" / "resume" are not symmetric. For "pause everything", scheduler_list_jobs to list visible jobs, pause them with the existing pause controls, and report what was paused. Bare "resume" without a prior pause in this conversation means conversational continue only via memory_search, never a scheduler mutation; bulk mutations never follow an ambiguous single word. For "resume the jobs" / "resume everything you paused", scheduler_list_jobs then pause/resume each only for jobs the user paused in this conversation, listing them first; if empty or unclear, confirm scope.',
   '- Agents with selected admin capabilities may use service_restart after approved capability or config changes and register_agent for conversation installs.',
   '- Never run npm, brew, go, uv, curl, or download install commands directly for skills, MCP servers, or tools.',
   '- Never edit generated provider config, local skill files, MCP config, settings.yaml, or permission files directly.',
   '- To change your own SOUL.md or AGENTS.md profile, use request_agent_profile_update (read current content first with agent_profile_read); the generic file tool cannot write profile files.',
   '- When access is approved, tell the user the plain result: requested, approved, installed, available now, needs setup, blocked by policy, or paused. Do not quote raw tool ids, MCP tool ids, task ids, or status blocks unless the user asks for technical details.',
+  '- For long installs, dependency setup, and renders, use render_progress at meaningful boundaries ("Installing… 2 of 3"); repeated calls edit one compact line, never append progress messages.',
   '- Use admin_permission_list (read-only) to review current permissions, suggest cleanup of unused or overly broad access, or spot missing access; report findings in plain language.',
 ];
 const OPERATING_GUIDANCE_COMMUNICATION = [
   '',
   '## Communication',
-  '- Lead with the answer.',
+  '- Lead with the outcome in plain prose. Include supporting details only when useful or requested; never append a labeled receipt block.',
   '- Be direct, useful, and specific.',
   '- For job notifications and setup blockers, give only the outcome and one next action. Do not include runtime diagnostics, raw logs, queue bookkeeping, tool ids, or repair commands in user-facing text unless the user asks.',
   '- Skip filler and avoid pretending certainty.',
