@@ -1,5 +1,6 @@
 import { logger } from '../infrastructure/logging/logger.js';
 import { IpcDeps } from '../runtime/ipc-domain-types.js';
+import { parseAgentThreadQueueKey } from '../shared/thread-queue-key.js';
 import { adminTaskHandlers } from './ipc-admin-handlers.js';
 import { agentProfileTaskHandlers } from './ipc-agent-profile-handlers.js';
 import { fileArtifactTaskHandlers } from './ipc-file-artifact-handlers.js';
@@ -129,9 +130,17 @@ export async function processTaskIpc(
   ipcBaseDir?: string,
 ): Promise<void> {
   const conversationBindings = deps.conversationRoutes();
-  const sourceAgentFolderJids = Object.entries(conversationBindings)
-    .filter(([, group]) => group.folder === sourceAgentFolder)
-    .map(([jid]) => jid);
+  // Same-channel authorization compares against the CHAT jid (data.chatJid),
+  // so derive the set of chat jids the agent is bound to from each route key's
+  // parsed chatJid — not the raw (possibly agent/provider-qualified) queue key,
+  // which would only match when a bare-key route happened to exist.
+  const sourceAgentFolderJids = Array.from(
+    new Set(
+      Object.entries(conversationBindings)
+        .filter(([, group]) => group.folder === sourceAgentFolder)
+        .map(([key]) => parseAgentThreadQueueKey(key).chatJid),
+    ),
+  );
 
   const handler = taskHandlers[data.type];
   if (!handler) {
