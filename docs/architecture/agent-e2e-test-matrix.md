@@ -18,6 +18,19 @@ Add rows freely — this is the living checklist the implementer works from.
 5. **Isolation** — e2e runs build a fresh GANTRY_HOME + disposable DB from
    scratch, never `~/gantry`, never the live DB. Fresh onboarding via API each
    run.
+6. **No change-detector tests** (adopted from Hermes) — never assert a snapshot
+   of current data (a specific model in the catalog, an enum count, a config
+   version). Assert INVARIANTS and relationships ("catalog plumbing resolves an
+   alias to a routable model"), so data churn doesn't break tests. And never
+   read source-code text in a test (the scoped i-have-adhd guard over E2E
+   fixture surfaces is the sole, documented exception).
+7. **Env hygiene in deterministic lanes** (adopted from Hermes) — the harness
+   pins `TZ=UTC`/`LANG=C.UTF-8` and UNSETS all model-credential env vars for
+   non-live lanes, so a deterministic test can never accidentally reach a
+   provider.
+8. **Live-test naming** (adopted from OpenClaw) — label-gated live tests use
+   the `*.live.test.ts` suffix + their own config, same convention mechanism as
+   the postgres lanes; live lanes carry per-provider concurrency caps.
 
 Legend: ✅ covered (cite) · 🔨 to build · 🏷 label-gated (live lane) · 💤 deferred
 
@@ -29,6 +42,8 @@ Legend: ✅ covered (cite) · 🔨 to build · 🏷 label-gated (live lane) · �
 | Restart preserves desired state (settings revision projection) | e2e | 🔨 |
 | Security posture: prod image requires enforcing sandbox + non-prod secrets | integration | ✅ security-posture.test.ts |
 | Harness refuses to run against ~/gantry or live DB (isolation guard) | e2e (harness self-test) | 🔨 |
+| **Upgrade survivor** (adopted from OpenClaw): boot version N-1 state (settings revisions + DB) under version N image → migrations apply → agents/bindings/grants survive | e2e | 🔨 (post-ponytail-cutover — baseline resets first) |
+| Startup benchmark lane (boot time / first-turn latency budgets) | perf | 💤 deferred until the gate is stable |
 
 ## 2. Onboarding & model selection (API-driven)
 

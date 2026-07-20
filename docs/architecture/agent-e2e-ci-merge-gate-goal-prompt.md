@@ -386,6 +386,17 @@ baselines. If the cold required gate can't reliably finish under 15 min with
 headroom, RAISE the timeout rather than make a flaky performance promise. (Current
 CI allows 30 min / 900s per command.)
 
+## Sharding mechanics (adopted from Hermes CI, 2026-07-20 research)
+Concrete mechanism for the per-shard budgets: cache per-file test DURATIONS as
+a CI artifact (updated only on main-branch success), generate balanced slices
+via longest-processing-time distribution, run slices as a matrix. Per-slice
+timeout 30 min; duration-cache upload `continue-on-error` so a transient
+upload failure never fails the gate. Deterministic lanes run with model
+credential env vars EXPLICITLY CLEARED (Hermes pattern) so nothing
+accidentally goes live; only the gate's turn job receives
+`E2E_ANTHROPIC_API_KEY`. Live lanes: `*.live.test.ts` naming + per-provider
+concurrency caps (OpenClaw pattern).
+
 ## Budget — real-model turn factored in
 The gate now runs a real `haiku` turn (plus image boot + migrations + restart +
 the all-tools exercise), so it is NOT credential-free and the turn adds real
