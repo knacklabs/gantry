@@ -123,7 +123,7 @@ export async function requestMemoryAction(
       ...(appId ? { appId } : {}),
       ...(agentId ? { agentId } : {}),
       ...(threadId ? { threadId } : {}),
-      ...(memoryUserId ? { userId: memoryUserId } : {}),
+      ...(memoryUserId ? { personId: memoryUserId } : {}),
       ...(IPC_RESPONSE_KEY_ID ? { responseKeyId: IPC_RESPONSE_KEY_ID } : {}),
       defaultScope: memoryDefaultScope,
       allowedActions: memoryIpcAllowedActions,

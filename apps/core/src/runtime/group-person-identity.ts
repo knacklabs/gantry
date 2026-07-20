@@ -138,7 +138,9 @@ export async function resolveCanonicalMemoryPersonId(input: {
       externalUserId,
       displayName: message?.sender_name || externalUserId,
       evidenceType,
-      createIfMissing: true,
+      // A DM can establish a new canonical person. A group/channel may only
+      // use an alias that was explicitly registered elsewhere.
+      createIfMissing: input.conversationKind === 'dm',
     });
     await publishIdentityResolvedEvent(input.publishRuntimeEvent, {
       appId: input.appId,

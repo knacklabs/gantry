@@ -43,7 +43,7 @@ describe('resolveCanonicalMemoryPersonId', () => {
       externalUserId: 'external-user-1',
       displayName: 'External User',
       evidenceType: 'provider_user',
-      createIfMissing: true,
+      createIfMissing: false,
     });
   });
 
@@ -124,8 +124,35 @@ describe('resolveCanonicalMemoryPersonId', () => {
         provider: 'app',
         evidenceType: 'web_user',
         externalUserId: 'external-ci',
+        createIfMissing: false,
       }),
     );
+  });
+
+  it('does not create a person for an unknown channel sender', async () => {
+    const resolvePersonIdentity = vi.fn(
+      async (input: { createIfMissing?: boolean }) => {
+        expect(input.createIfMissing).toBe(false);
+        return {
+          status: 'unresolved' as const,
+          personId: null,
+          memoryHydrationEligible: false,
+        };
+      },
+    );
+
+    await expect(
+      resolveCanonicalMemoryPersonId({
+        resolvePersonIdentity,
+        appId: 'app-one',
+        rawUserId: 'new-group-sender',
+        conversationKind: 'channel',
+        messages: [{ ...baseMessage, sender: 'new-group-sender' }],
+        chatJid: 'sl:C123',
+      }),
+    ).resolves.toBeUndefined();
+
+    expect(resolvePersonIdentity).toHaveBeenCalledTimes(1);
   });
 
   it('skips app-session system senders without resolving a person', async () => {

@@ -180,12 +180,14 @@ export async function handleSessionRoutes(
         title: body.title ?? null,
         responseMode: body.responseMode,
         webhookId: body.webhookId ?? null,
+        appUser: body.appUser ?? null,
       });
       sendJson(res, 200, {
         sessionId: result.session.sessionId,
         appId: result.session.appId,
         conversationId: result.session.conversationId,
         chatJid: result.session.conversationJid,
+        ...(result.session.appUser ? { appUser: result.session.appUser } : {}),
       });
     } catch (error) {
       if (!sendApplicationError(res, error)) throw error;

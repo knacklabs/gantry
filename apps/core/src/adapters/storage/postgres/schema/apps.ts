@@ -150,5 +150,15 @@ export const personMergeAuditPostgres = pgTable(
       table.appId,
       table.idempotencyKey,
     ),
+    sourcePersonAppScoped: foreignKey({
+      name: 'person_merge_audit_app_source_person_fk',
+      columns: [table.appId, table.sourcePersonId],
+      foreignColumns: [usersPostgres.appId, usersPostgres.id],
+    }),
+    targetPersonAppScoped: foreignKey({
+      name: 'person_merge_audit_app_target_person_fk',
+      columns: [table.appId, table.targetPersonId],
+      foreignColumns: [usersPostgres.appId, usersPostgres.id],
+    }),
   }),
 );

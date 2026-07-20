@@ -20,6 +20,7 @@ import type {
 } from '../../domain/ports/repositories.js';
 import type { IsoTimestamp } from '../../shared/time/primitives.js';
 import type { AgentRuntime } from '../../shared/agent-runtime.js';
+import type { AppUserAssertion } from '@gantry/contracts';
 import { ApplicationError } from '../common/application-error.js';
 import { isValidControlId } from '../../shared/control-id.js';
 import { nowMs as currentTimeMs } from '../../shared/time/datetime.js';
@@ -35,6 +36,7 @@ export type SessionAppRecord = {
   title?: string | null;
   defaultResponseMode: ControlResponseMode;
   defaultWebhookId: string | null;
+  appUser?: AppUserAssertion | null;
 };
 
 export type SessionResponseRouteRecord = {
@@ -52,6 +54,7 @@ export interface SessionControlPort {
     title?: string | null;
     defaultResponseMode?: ControlResponseMode;
     defaultWebhookId?: string | null;
+    appUser?: AppUserAssertion | null;
   }): Promise<SessionAppRecord>;
   getAppSessionById(sessionId: string): Promise<SessionAppRecord | undefined>;
   getAppSessionByChatJid(
@@ -108,6 +111,7 @@ export class SessionInteractionModule {
     title?: string | null;
     responseMode?: unknown;
     webhookId?: string | null;
+    appUser?: AppUserAssertion | null;
   }): Promise<{
     session: SessionAppRecord;
     registerGroup: { conversationJid: string; group: AppGroupRegistration };
@@ -148,6 +152,7 @@ export class SessionInteractionModule {
       title: input.title ?? null,
       defaultResponseMode: normalizeResponseMode(input.responseMode, 'sse'),
       defaultWebhookId,
+      appUser: input.appUser ?? null,
     });
     return { session, registerGroup: { conversationJid, group } };
   }
@@ -233,6 +238,12 @@ export class SessionInteractionModule {
     enqueue: SessionQueueIntent;
   }> {
     const session = await this.requireSession(input);
+    if (session.appUser && input.senderId?.trim() !== session.appUser.subject) {
+      throw new ApplicationError(
+        'CONFLICT',
+        'SDK session is bound to a different app user.',
+      );
+    }
     const text = input.message.trim();
     if (!text) {
       throw new ApplicationError('INVALID_REQUEST', 'message is required');

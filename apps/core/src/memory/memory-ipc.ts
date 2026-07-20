@@ -19,7 +19,6 @@ import {
   writePrivateFileSync,
 } from '../shared/private-fs.js';
 import { resolveWorkspaceIpcPath } from '../platform/workspace-folder.js';
-import { memoryAgentIdForWorkspaceFolder } from './app-memory-boundaries.js';
 import {
   resolveScopedMemorySubject,
   canonicalConversationIdForMemory,
@@ -60,9 +59,10 @@ const MEMORY_IPC_REQUEST_ID_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/;
 
 interface TrustedMemoryContext {
   appId: string;
+  agentId: string;
   threadId?: string;
   chatJid?: string;
-  userId?: string;
+  personId?: string;
   defaultScope?: 'user' | 'group';
   reviewerIsControlApprover?: boolean;
 }
@@ -187,10 +187,10 @@ export function resolveTrustedMemorySubject(
   }
   return resolveScopedMemorySubject({
     appId: context.appId,
-    agentId: memoryAgentIdForWorkspaceFolder(sourceAgentFolder),
+    agentId: context.agentId,
     groupId: sourceAgentFolder,
     conversationId: canonicalConversationIdForMemory(context?.chatJid),
-    userId: context?.userId,
+    userId: context?.personId,
     defaultScope,
     ...(scope ? { scope } : {}),
   }).subject;
@@ -339,15 +339,39 @@ export async function processMemoryRequest(
       }
       case 'brain_search': {
         provider = 'postgres';
-        return processBrainSearchRequest(request);
+        return processBrainSearchRequest({
+          requestId: request.requestId,
+          payload: request.payload,
+          appId: request.context!.appId,
+          agentId: request.context!.agentId,
+          ...(request.deadlineAtMs !== undefined
+            ? { deadlineAtMs: request.deadlineAtMs }
+            : {}),
+        });
       }
       case 'brain_query': {
         provider = 'postgres';
-        return processBrainQueryRequest(request);
+        return processBrainQueryRequest({
+          requestId: request.requestId,
+          payload: request.payload,
+          appId: request.context!.appId,
+          agentId: request.context!.agentId,
+          ...(request.deadlineAtMs !== undefined
+            ? { deadlineAtMs: request.deadlineAtMs }
+            : {}),
+        });
       }
       case 'brain_write': {
         provider = 'postgres';
-        return processBrainWriteRequest(request, sourceAgentFolder);
+        return processBrainWriteRequest({
+          requestId: request.requestId,
+          payload: request.payload,
+          appId: request.context!.appId,
+          agentId: request.context!.agentId,
+          ...(request.deadlineAtMs !== undefined
+            ? { deadlineAtMs: request.deadlineAtMs }
+            : {}),
+        });
       }
       case 'memory_patch': {
         const input = parsePatchMemoryInput(request.payload);
@@ -364,7 +388,7 @@ export async function processMemoryRequest(
             ...subject,
             id: input.id,
             appId: subject.appId,
-            agentId: memoryAgentIdForWorkspaceFolder(sourceAgentFolder),
+            agentId: subject.agentId,
             subjectType: subject.subjectType,
             subjectId: subject.subjectId,
             key: input.key,
@@ -575,7 +599,7 @@ export async function processMemoryRequest(
             ...subject,
             id: input.id,
             appId: subject.appId,
-            agentId: memoryAgentIdForWorkspaceFolder(sourceAgentFolder),
+            agentId: subject.agentId,
             subjectType: subject.subjectType,
             subjectId: subject.subjectId,
             key: input.title ? `procedure:${input.title}` : undefined,

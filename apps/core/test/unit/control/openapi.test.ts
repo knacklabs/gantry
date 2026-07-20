@@ -260,6 +260,7 @@ const personMergePreview = {
   targetPersonId: 'person-target',
   aliasesToMove: [personAlias],
   memoryRowsToMove: 1,
+  fingerprint: 'sha256:test',
   excludedMemoryScopes: { group: 2, channel: 3, common: 4 },
   conflicts: [
     {

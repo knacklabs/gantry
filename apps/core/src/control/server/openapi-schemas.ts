@@ -583,6 +583,14 @@ export const openApiSchemas: Record<string, JsonSchema> = {
         enum: ['sse', 'webhook', 'both', 'none'],
       },
       webhookId: { type: 'string' },
+      appUser: {
+        type: 'object',
+        required: ['authorityId', 'subject'],
+        properties: {
+          authorityId: { type: 'string' },
+          subject: { type: 'string' },
+        },
+      },
     },
   },
   SessionEnsureResponse: {
@@ -593,6 +601,14 @@ export const openApiSchemas: Record<string, JsonSchema> = {
       appId: { type: 'string' },
       conversationId: { type: 'string' },
       chatJid: { type: 'string' },
+      appUser: {
+        type: 'object',
+        required: ['authorityId', 'subject'],
+        properties: {
+          authorityId: { type: 'string' },
+          subject: { type: 'string' },
+        },
+      },
     },
   },
   SendSessionMessageRequest: {

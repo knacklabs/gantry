@@ -10,6 +10,7 @@ export interface AppSessionRecord {
   title: string | null;
   defaultResponseMode: ControlResponseMode;
   defaultWebhookId: string | null;
+  appUser?: { authorityId: string; subject: string } | null;
   createdAt: string;
   updatedAt: string;
 }

@@ -44,9 +44,10 @@ export interface ParsedMemoryIpcRequest {
   allowedActions: readonly MemoryIpcAction[];
   context?: {
     appId: string;
+    agentId: string;
     threadId?: string;
     chatJid?: string;
-    userId?: string;
+    personId?: string;
     defaultScope?: 'user' | 'group';
     reviewerIsControlApprover?: boolean;
   };
@@ -246,9 +247,10 @@ export function parseMemoryIpcRequest(
   const {
     authThreadId: threadId,
     appId,
+    agentId,
     chatJid,
     responseKeyId,
-    userId,
+    userId: personId,
     defaultScope,
     reviewerIsControlApprover,
     allowedActions,
@@ -279,6 +281,9 @@ export function parseMemoryIpcRequest(
   }
   const rawExpiresAt = typeof raw.expiresAt === 'string' ? raw.expiresAt : '';
   const deadlineAtMs = Date.parse(rawExpiresAt);
+  if (!agentId) {
+    throw new Error('memory IPC context.agentId is required');
+  }
   return {
     requestId,
     action: action as MemoryIpcAction,
@@ -287,17 +292,19 @@ export function parseMemoryIpcRequest(
     ...(responseKeyId ? { responseKeyId } : {}),
     ...(Number.isFinite(deadlineAtMs) ? { deadlineAtMs } : {}),
     ...(appId ||
+    agentId ||
     threadId ||
     chatJid ||
-    userId ||
+    personId ||
     defaultScope ||
     reviewerIsControlApprover
       ? {
           context: {
             appId,
+            agentId,
             ...(threadId ? { threadId } : {}),
             ...(chatJid ? { chatJid } : {}),
-            ...(userId ? { userId } : {}),
+            ...(personId ? { personId } : {}),
             ...(defaultScope ? { defaultScope } : {}),
             ...(reviewerIsControlApprover ? { reviewerIsControlApprover } : {}),
           },

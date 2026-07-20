@@ -20,7 +20,7 @@ import type {
 } from './memory-types.js';
 
 interface TrustedMemoryContext {
-  userId?: string;
+  personId?: string;
   reviewerIsControlApprover?: boolean;
 }
 
@@ -94,7 +94,7 @@ export async function processMemoryReviewDecisionRequest(input: {
   subject: NormalizedMemorySubject;
 }): Promise<MemoryIpcResponse> {
   const decisionInput = parseReviewDecisionRequest(input.request.payload);
-  if (!input.request.context?.userId) {
+  if (!input.request.context?.personId) {
     throw new Error(
       'memory_review_decision requires a trusted reviewer user id',
     );
@@ -104,7 +104,7 @@ export async function processMemoryReviewDecisionRequest(input: {
       'memory_review_decision requires a conversation control approver',
     );
   }
-  const reviewerId = input.request.context.userId;
+  const reviewerId = input.request.context.personId;
   if (!hasEnoughMemoryBudget(input.request, nowMs)) {
     return deadlineUnavailableResponse(input.request, MEMORY_REVIEW_PROVIDER);
   }

@@ -1,5 +1,6 @@
 import { ApplicationError } from '../common/application-error.js';
 import type { RuntimeEventPublishInput } from '../../domain/events/events.js';
+import { stableSha256Json } from '../../shared/stable-hash.js';
 
 export type AliasVerificationStatus = 'verified' | 'unverified' | 'retired';
 export type IdentityEvidenceType =
@@ -131,6 +132,8 @@ export interface PersonMergePreview {
     common: number;
   };
   conflicts: PersonMergeConflict[];
+  fingerprint?: string;
+  memoryRowsFingerprint?: string;
 }
 
 export interface PersonMergeApplyResult extends Omit<
@@ -150,6 +153,34 @@ export interface PersonMergeInput {
   idempotencyKey?: string;
   actor: string;
   conflictResolution?: 'fail_on_conflict' | 'keep_target';
+  expectedFingerprint?: string;
+}
+
+export function personMergeFingerprint(
+  preview: Omit<PersonMergePreview, 'fingerprint'>,
+): string {
+  const canonical = {
+    sourcePersonId: preview.sourcePersonId,
+    targetPersonId: preview.targetPersonId,
+    aliasesToMove: [...preview.aliasesToMove]
+      .map((alias) => ({
+        id: alias.id,
+        personId: alias.personId,
+        appId: alias.appId,
+        provider: alias.provider,
+        providerAccountId: alias.providerAccountId ?? null,
+        externalUserId: alias.externalUserId,
+        verificationStatus: alias.verificationStatus,
+      }))
+      .sort((a, b) => a.id.localeCompare(b.id)),
+    memoryRowsToMove: preview.memoryRowsToMove,
+    memoryRowsFingerprint: preview.memoryRowsFingerprint ?? null,
+    excludedMemoryScopes: preview.excludedMemoryScopes,
+    conflicts: [...preview.conflicts].sort((a, b) =>
+      JSON.stringify(a).localeCompare(JSON.stringify(b)),
+    ),
+  };
+  return `sha256:${stableSha256Json(canonical)}`;
 }
 
 export interface PersonIdentityRepository {
@@ -264,10 +295,13 @@ export class PersonIdentityService {
   }
 
   previewMerge(input: PersonMergeInput): Promise<PersonMergePreview> {
-    return this.repository.previewMerge(input);
+    return this.repository.previewMerge(input).then((preview) => ({
+      ...preview,
+      fingerprint: personMergeFingerprint(preview),
+    }));
   }
 
-  mergePeople(input: PersonMergeInput): Promise<PersonMergeApplyResult> {
+  async mergePeople(input: PersonMergeInput): Promise<PersonMergeApplyResult> {
     return this.repository.mergePeople({
       ...input,
       conflictResolution: input.conflictResolution ?? 'fail_on_conflict',

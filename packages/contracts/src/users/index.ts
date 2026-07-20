@@ -5,8 +5,8 @@ import {
   IsoDateTimeSchema,
 } from '../contract-primitives.js';
 
-export const UserResponseSchema = z.object({
-  id: z.string(),
+export const PersonBaseResponseSchema = z.object({
+  personId: z.string(),
   appId: z.string(),
   kind: z.enum(['human', 'service']).default('human'),
   displayName: z.string().nullable().optional(),
@@ -15,7 +15,7 @@ export const UserResponseSchema = z.object({
   updatedAt: IsoDateTimeSchema,
   metadata: ContractMetadataSchema.optional(),
 });
-export type UserResponse = z.infer<typeof UserResponseSchema>;
+export type PersonBaseResponse = z.infer<typeof PersonBaseResponseSchema>;
 
 export const PersonAliasVerificationStatusSchema = z.enum([
   'verified',
@@ -26,10 +26,10 @@ export type PersonAliasVerificationStatus = z.infer<
   typeof PersonAliasVerificationStatusSchema
 >;
 
-export const UserAliasResponseSchema = z.object({
+export const PersonAliasResponseSchema = z.object({
   id: z.string(),
   appId: z.string(),
-  userId: z.string(),
+  personId: z.string(),
   provider: z.string(),
   providerAccountId: z.string().nullable().optional(),
   externalUserId: z.string(),
@@ -44,19 +44,9 @@ export const UserAliasResponseSchema = z.object({
   evidence: ContractMetadataSchema.optional(),
   metadata: ContractMetadataSchema.optional(),
 });
-export type UserAliasResponse = z.infer<typeof UserAliasResponseSchema>;
-
-export const PersonAliasResponseSchema = UserAliasResponseSchema.omit({
-  userId: true,
-}).extend({
-  personId: z.string(),
-});
 export type PersonAliasResponse = z.infer<typeof PersonAliasResponseSchema>;
 
-export const PersonResponseSchema = UserResponseSchema.omit({
-  id: true,
-}).extend({
-  personId: z.string(),
+export const PersonResponseSchema = PersonBaseResponseSchema.extend({
   aliases: z.array(PersonAliasResponseSchema).optional(),
   memoryCounts: z
     .object({
@@ -161,6 +151,7 @@ export const PersonMergeRequestSchema = z.object({
   appId: z.string().optional(),
   sourcePersonId: z.string(),
   idempotencyKey: z.string().optional(),
+  fingerprint: z.string().min(1).optional(),
   conflictResolution: PersonMergeConflictResolutionSchema.optional(),
 });
 export type PersonMergeRequest = z.infer<typeof PersonMergeRequestSchema>;
@@ -171,6 +162,7 @@ export const PersonMergePreviewResponseSchema = z.object({
   targetPersonId: z.string(),
   aliasesToMove: z.array(PersonAliasResponseSchema),
   memoryRowsToMove: z.number().int().min(0),
+  memoryRowsFingerprint: z.string().optional(),
   excludedMemoryScopes: z.object({
     group: z.number().int().min(0),
     channel: z.number().int().min(0),
@@ -188,6 +180,7 @@ export const PersonMergePreviewResponseSchema = z.object({
       key: z.string(),
     }),
   ),
+  fingerprint: z.string(),
 });
 export type PersonMergePreviewResponse = z.infer<
   typeof PersonMergePreviewResponseSchema

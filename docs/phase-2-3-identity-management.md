@@ -16,7 +16,8 @@ That sounds small, but it changes the runtime model in a major way.
 Before this work, the runtime could treat sender identity too loosely or too
 late. After this work:
 
-- every live turn can try to resolve the sender to a canonical `personId`
+- every live turn can try to resolve the sender to a canonical `personId` for
+  trusted identity and audit evidence
 - conversation memory stays tied to the channel or thread
 - personal memory stays tied to the actual human sender in direct/private
   conversations
@@ -602,8 +603,9 @@ and intentionally outside this feature's source scope.
     memory; they remain conversation-scoped.
 25. **Memory IPC authority:** baseline visible memory actions are authorized by
     host-signed IPC tokens, while authority-changing actions stay gated.
-26. **Group sender identity:** group/channel senders may resolve for evidence and
-    audit, but their personal memory is never appended to group memory.
+26. **Group sender identity:** group/channel senders may resolve an existing alias
+    for evidence and audit, but an unknown sender cannot create a Person and
+    personal memory is never appended to group memory.
 27. **DM personal boundary:** direct/private turns use current conversation
     memory plus resolved personal memory only.
 28. **Provider-account alias key:** exact alias identity is scoped by app,
@@ -635,6 +637,9 @@ and intentionally outside this feature's source scope.
     subject ids, while resolver/evidence records use canonical person subjects.
     Verification must compare through the trusted person boundary, not by
     treating the hashed storage key as the person id.
+39. **Sender authorization:** sender policy controls who may send or trigger a
+    conversation; control approvers authorize permission and question prompts.
+    There is no automatic unknown-user approval workflow in this slice.
 
 ## Operational Notes
 
@@ -658,11 +663,11 @@ and intentionally outside this feature's source scope.
 
 | Surface                      | Impact               | Reason                                                                                                                                                                                                                                                                               |
 | ---------------------------- | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Runtime behavior             | Changed              | Direct/private conversations hydrate current conversation memory plus resolved personal memory. Group/channel conversations hydrate current conversation memory plus group/channel long-term memory, not sender personal memory. Sender identity may still be resolved for evidence. |
+| Runtime behavior             | Changed              | Direct/private conversations hydrate current conversation memory plus resolved personal memory. Group/channel conversations hydrate current conversation memory plus group/channel long-term memory, not sender personal memory; existing aliases may be resolved for evidence but unknown senders are not created as People. |
 | `settings.yaml`              | Read-only/observable | No new settings shape was added. Existing readable provider conversation ids are normalized more correctly when projected into runtime routes and allowlists.                                                                                                                        |
 | Postgres/runtime projection  | Changed              | Identity tables, aliases, merge audit, settings route projection, and runtime-event route-context persistence are part of the feature. Raw provider route ids are no longer written as runtime-event FK columns.                                                                     |
 | Control API                  | Changed              | People and identity routes expose resolve, list, inspect, alias add/retire, and merge preview/apply while preserving the existing identity resolve wire shape.                                                                                                                       |
-| SDK/contracts                | Changed              | Contracts define People/Identity request and response shapes, and the SDK exposes typed People/Identity clients backed by those contracts.                                                                                                                                           |
+| SDK/contracts                | Changed              | Contracts define People/Identity request and response shapes, add immutable SDK app-user assertions, merge fingerprints, and expose typed People/Identity clients backed by those contracts.                                                                                       |
 | CLI                          | Unchanged by design  | No operator command was needed for the identity graph itself; setup fixes observed on `main` were kept out of this feature scope.                                                                                                                                                    |
 | Gantry MCP tools/admin skill | Changed              | No tool names were added or removed. Host-signed memory IPC actions were aligned with visible baseline memory tools, while authority-changing actions remain capability-gated and are removed from locked projections.                                                               |
 | Channel/provider adapters    | Changed              | Live channel ingress now carries sender evidence and provider-account metadata consistently enough for sender resolution and route projection. Slack route normalization was corrected after smoke testing.                                                                          |
@@ -678,8 +683,9 @@ DM/group memory policy:
 
 1. **Authenticated app through memory IPC:** the host now includes `appId` in
    the signed memory IPC token and parsed trusted context. Every memory search,
-   save, patch, review, and procedure operation uses that context. Missing app
-   context is rejected; the default app is no longer a memory IPC fallback.
+   save, patch, review, procedure, and brain operation uses that context. The
+   token binds both `appId` and `agentId`; missing context is rejected and the
+   default app is no longer an authenticated memory IPC fallback.
 2. **Collision-resistant participants:** participant ids now hash the exact
    tuple `appId`, conversation id, provider, provider connection id, and
    external user id. PostgreSQL also enforces uniqueness over that tuple, with
@@ -705,22 +711,49 @@ DM/group memory policy:
    behavior, public memory contracts, and identity policy ownership. Existing
    Slack routing, gateway audit, diagnostics, and baseline IPC repairs remain
    separate historical commits and are not expanded here.
+8. **SDK app-user assertion:** SDK sessions may bind an immutable
+   `{authorityId, subject}` assertion. Reusing the session with a different
+   sender is rejected; the caller cannot select a `personId` directly.
+9. **Merge preview fingerprint:** merge preview returns a deterministic
+   fingerprint. Applying a merge requires that fingerprint, so changes after
+   preview produce a conflict instead of applying a stale decision. Idempotent
+   retries remain supported.
 
 These decisions preserve the core product contract: DMs hydrate conversation
 memory plus the resolved person's personal memory; groups and channels hydrate
-conversation/group memory only, even though sender identity may still be
-resolved for evidence and future identity administration.
+conversation/group memory only. A permitted group/channel sender may still be
+resolved to an existing alias for authorization and audit evidence, but that
+resolution is audit-only: it never hydrates personal memory and never creates a
+new Person. Unknown, anonymous, bot, and system senders remain unresolved.
+
+## Retained Supporting Changes
+
+The identity landing keeps supporting fixes when they are required for the
+feature to start, route, authenticate, persist, or verify correctly. This
+includes runtime-event conversation/thread normalization, Slack and Telegram
+ingress routing, memory IPC trust-boundary repairs, runner diagnostics needed
+to preserve valid runtime events, and generated SDK/OpenAPI synchronization.
+These files are retained because removing them would either break identity
+ingress or make the identity audit and memory-boundary tests invalid. Changes
+that are independent of those responsibilities should be split into separate
+work rather than silently included in this feature.
 
 ## Verification After Hardening
 
 - `npm run typecheck` passes.
 - `npm run format:check` passes.
 - SDK generated OpenAPI types are current.
-- Focused IPC, identity API, agent-spawn, memory-scope, and People API tests
-  pass: 149 tests.
-- `npm run build` completes the runtime, contracts, SDK, and migration build.
+- Focused identity, group-memory, sender-policy, session-binding, IPC-boundary,
+  and People API tests pass: 298 tests.
+- `npm run build:runtime` completes the runtime, contracts, SDK, and migration
+  build.
   The optional Next.js example workspace remains blocked by its pre-existing
   missing `react` and `next` dependencies.
+- Changed-file ESLint passes with warnings only. Repository-wide ESLint still
+  has two pre-existing errors in `auto-permission-read-only-gate.ts`.
+- The architecture checker still reports the pre-existing gateway and
+  permission-classifier size ratchets plus the existing Telegram path ratchet;
+  no new architecture violation remains from this hardening work.
 
 ## Bottom Line
 

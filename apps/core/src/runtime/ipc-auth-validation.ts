@@ -338,8 +338,12 @@ export function validateMemoryIpcAuthRequest(
 ): IpcMemoryBinding {
   const binding = readTrustedThreadBinding(raw, label);
   const context = isPlainObject(raw.context) ? raw.context : undefined;
+  const agentId = binding.agentId;
+  if (!agentId) {
+    throw new Error(`${label} context.agentId is required`);
+  }
   const chatJid = toTrimmedString(context?.chatJid, { maxLen: 255 });
-  const userId = toTrimmedString(context?.userId, { maxLen: 255 });
+  const personId = toTrimmedString(context?.personId, { maxLen: 255 });
   const defaultScopeRaw = toTrimmedString(context?.defaultScope, {
     maxLen: 16,
   });
@@ -361,8 +365,9 @@ export function validateMemoryIpcAuthRequest(
   delete payload.authToken;
   const requestSigningKey = computeMemoryIpcAuthToken(sourceAgentFolder, {
     appId: binding.appId,
+    agentId,
     ...(chatJid ? { chatJid } : {}),
-    ...(userId ? { userId } : {}),
+    ...(personId ? { personId } : {}),
     defaultScope: defaultScope || 'group',
     threadId: binding.authThreadId,
     allowedActions,
@@ -377,7 +382,7 @@ export function validateMemoryIpcAuthRequest(
   }
   const requestId = toTrimmedString(payload.requestId, { maxLen: 128 });
   if (requestId) {
-    const replayKey = `${sourceAgentFolder}:${binding.authThreadId || ''}:memory:${userId || ''}:${defaultScope || 'group'}:${requestId}`;
+    const replayKey = `${sourceAgentFolder}:${agentId}:${binding.authThreadId || ''}:memory:${personId || ''}:${defaultScope || 'group'}:${requestId}`;
     reserveFreshIpcRequestId(
       replayKey,
       nowMs() + IPC_REQUEST_MAX_AGE_MS,
@@ -387,7 +392,7 @@ export function validateMemoryIpcAuthRequest(
   return {
     ...binding,
     ...(chatJid ? { chatJid } : {}),
-    ...(userId ? { userId } : {}),
+    ...(personId ? { userId: personId } : {}),
     ...(defaultScope ? { defaultScope } : {}),
     ...(reviewerIsControlApprover ? { reviewerIsControlApprover } : {}),
     allowedActions,

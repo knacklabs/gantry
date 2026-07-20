@@ -105,7 +105,7 @@ export const MemoryIpcRequestSchema = z.object({
       appId: z.string().optional(),
       agentId: z.string().optional(),
       threadId: z.string().optional(),
-      userId: z.string().optional(),
+      personId: z.string().optional(),
       defaultScope: z.enum(['user', 'group']).optional(),
     })
     .optional(),

@@ -324,12 +324,22 @@ export async function handlePeopleRoutes(
     }
     const appId = readAppId(body, auth.appId);
     if (!assertPeopleAppAccess(res, appId, auth)) return true;
+    if (!merge.preview && !parsed.data.fingerprint) {
+      sendError(
+        res,
+        400,
+        'INVALID_REQUEST',
+        'fingerprint is required when applying a person merge; run preview first',
+      );
+      return true;
+    }
     try {
       const input = {
         appId,
         targetPersonId: merge.personId,
         sourcePersonId: parsed.data.sourcePersonId,
         idempotencyKey: parsed.data.idempotencyKey,
+        expectedFingerprint: parsed.data.fingerprint,
         conflictResolution: parsed.data.conflictResolution,
         actor: auth.kid,
       };

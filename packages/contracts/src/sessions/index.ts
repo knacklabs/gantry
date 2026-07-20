@@ -11,6 +11,14 @@ export type AgentSessionStatus = z.infer<typeof AgentSessionStatusSchema>;
 export const ResponseModeSchema = z.enum(['sse', 'webhook', 'both', 'none']);
 export type ResponseMode = z.infer<typeof ResponseModeSchema>;
 
+export const AppUserAssertionSchema = z
+  .object({
+    authorityId: z.string().min(1),
+    subject: z.string().min(1),
+  })
+  .strict();
+export type AppUserAssertion = z.infer<typeof AppUserAssertionSchema>;
+
 export const CreateSessionRequestSchema = z
   .object({
     appId: z.string().optional(),
@@ -18,7 +26,7 @@ export const CreateSessionRequestSchema = z
     conversationId: z.string().optional(),
     threadId: z.string().optional(),
     jobId: z.string().optional(),
-    userId: z.string().optional(),
+    appUser: AppUserAssertionSchema.optional(),
     title: z.string().optional(),
     responseMode: ResponseModeSchema.optional(),
     webhookId: z.string().optional(),
@@ -58,7 +66,7 @@ export const AgentSessionResponseSchema = z.object({
   conversationId: z.string().nullable().optional(),
   threadId: z.string().nullable().optional(),
   jobId: z.string().nullable().optional(),
-  userId: z.string().nullable().optional(),
+  appUser: AppUserAssertionSchema.nullable().optional(),
   status: AgentSessionStatusSchema,
   providerSessions: z.array(ProviderSessionResponseSchema).optional(),
   createdAt: IsoDateTimeSchema,

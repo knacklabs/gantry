@@ -455,7 +455,11 @@ describe('people control routes', () => {
     const apply = await call({
       method: 'POST',
       pathname: '/v1/people/person-target/merge',
-      body: { sourcePersonId: 'person-source', idempotencyKey: 'merge-1' },
+      body: {
+        sourcePersonId: 'person-source',
+        idempotencyKey: 'merge-1',
+        fingerprint: preview.body.fingerprint,
+      },
       scopes: ['people:admin'],
     });
 

@@ -35,6 +35,7 @@ import {
   getControlSessionsByIds,
 } from './control-plane-sessions.postgres.js';
 import { claimDueWebhookDeliveriesWithDrizzleLock } from './control-plane-webhook-claim.postgres.js';
+import { ApplicationError } from '../../../../application/common/application-error.js';
 
 export class PostgresControlPlaneRepository {
   private readonly externalIngress: PostgresExternalIngressRepository;
@@ -53,6 +54,7 @@ export class PostgresControlPlaneRepository {
     title?: string | null;
     defaultResponseMode?: ControlResponseMode;
     defaultWebhookId?: string | null;
+    appUser?: { authorityId: string; subject: string } | null;
   }): Promise<AppSessionRecord> {
     const workspaceKey = input.workspaceFolder;
     return this.db.transaction(async (tx) => {
@@ -77,6 +79,30 @@ export class PostgresControlPlaneRepository {
           ),
         )
         .limit(1);
+      const existingExternalRef =
+        existing?.externalRefJson &&
+        typeof existing.externalRefJson === 'object' &&
+        !Array.isArray(existing.externalRefJson)
+          ? (existing.externalRefJson as Record<string, unknown>)
+          : {};
+      const existingAppUser = existingExternalRef.appUser;
+      if (
+        input.appUser &&
+        existingAppUser &&
+        typeof existingAppUser === 'object' &&
+        !Array.isArray(existingAppUser) &&
+        ((existingAppUser as Record<string, unknown>).authorityId !==
+          input.appUser.authorityId ||
+          (existingAppUser as Record<string, unknown>).subject !==
+            input.appUser.subject)
+      ) {
+        throw new ApplicationError(
+          'CONFLICT',
+          'SDK session is already bound to a different app user.',
+        );
+      }
+      const appUser =
+        existingAppUser ?? (input.appUser ? input.appUser : undefined);
       const sessionId = text(existing?.sessionId) ?? randomUUID();
       await tx
         .insert(pgSchema.agentSessionsPostgres)
@@ -113,6 +139,7 @@ export class PostgresControlPlaneRepository {
             chatJid: input.chatJid,
             workspaceFolder: workspaceKey,
             title: input.title ?? null,
+            ...(appUser ? { appUser } : {}),
           }),
           createdAt: now,
           updatedAt: now,
@@ -132,6 +159,7 @@ export class PostgresControlPlaneRepository {
               chatJid: input.chatJid,
               workspaceFolder: workspaceKey,
               title: input.title ?? null,
+              ...(appUser ? { appUser } : {}),
             }),
             updatedAt: now,
           },
