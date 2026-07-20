@@ -62,19 +62,41 @@ the novel-task prompt flood.
   classifier call and NO human prompt; a denylisted command still fails closed;
   existing agents' explicit modes untouched.
 
-### Stage 2 — command-class promotion
-- On `allow_persistent_rule` for a `Bash`/`RunCommand`, derive the command-NAME
-  class (base command/verb, e.g. `npm install`), present it to the user for
-  explicit confirmation ("Allow all `<class> …` in this conversation?"), and on
-  confirm persist a declarative tool-rule scoped to conversation+agent.
-- Persist through the revision-owned desired-state writer (survives restart);
-  never global, never auto-widened. Reuse `tool-gate-core` matching — the saved
-  rule matches the verb, not exact args.
-- Subsequent same-class commands match the rule → auto-allowed, no re-prompt.
+### Stage 2 — command-class promotion (REFINE, not build — it already ships live)
+- NOTE (2026-07-20): promotion ALREADY exists — live logs show
+  `allow_persistent_rule` persisting `matching command access (gog auth list)`
+  rules via `tool-gate-core` matching. This stage REFINES the existing
+  mechanism, it does not build it. Audit what it persists today (exact command
+  vs class) and what scope it uses before changing anything.
+- Target: on `allow_persistent_rule` for a `Bash`/`RunCommand`, persist at the
+  command-NAME class (base command/verb, e.g. `npm install`), scoped to
+  conversation+agent, after explicit user confirmation of the class. Never
+  global, never auto-widened.
 - Tests: class derivation (varying args → same class; different verb → no
-  match); confirm-required before persist; conversation+agent scope isolation
-  (rule in convo A never matches convo B / other agent); restart survival;
-  destructive-verb classes still surface the confirm (no silent broadening).
+  match); confirm-required before persist; conversation+agent scope isolation;
+  restart survival; destructive-verb classes still surface the confirm.
+
+### Stage 3 — unify the permission-acknowledgement surface (HOLISTIC refactor)
+The receipt bug (allow-for-future posts a chat receipt; allow-once is silent)
+is a symptom: THREE independent sites decide user-visible output for the same
+permission decision, with no shared policy —
+`runtime/ipc-interaction-processing.ts` (`formatPersistentPermissionOutcome` +
+`sendPermissionOutcomeMessage`), `channels/permission-interaction.ts`
+(allow_once / allow_persistent_rule / review strings),
+`channels/telegram/channel-connect.ts` (button-edit strings).
+- Introduce ONE policy `permissionDecisionAcknowledgement(decision, context)`
+  that every site routes through. Default = ambient/silent (no new chat
+  message); surface ONLY a genuinely actionable line (e.g. a paused job that
+  remains blocked after the grant). Edit-in-place button feedback stays (it's
+  ambient).
+- Delete the per-site ad-hoc formatters. This retires the whole class:
+  allow-once, allow-for-future, denied, failed, batch-review, paused-job all
+  obey one rule instead of drifting.
+- The immediate live fix (suppress the allow-for-future receipt,
+  branch `fix/suppress-permission-receipts`) is the first slice of this stage;
+  this stage generalizes it. Aligns with [[no-status-clutter-in-chat]].
+- Tests: table-driven per decision type asserting silent-by-default and the
+  actionable-exception line; no channel posts a bare grant receipt.
 
 ## Verification
 - Unit: Stages 1-2 above. Full apps/core unit + typecheck green.
