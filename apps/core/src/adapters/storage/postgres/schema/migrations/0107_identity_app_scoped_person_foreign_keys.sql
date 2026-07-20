@@ -13,15 +13,6 @@ ALTER TABLE conversation_participants
 ALTER TABLE memory_items
   DROP CONSTRAINT IF EXISTS memory_items_user_id_users_id_fk;
 
--- Group/channel rows may carry the historical user_id column even though
--- their canonical subject is the conversation. The app-scoped person FK is
--- only meaningful for personal rows; clear that legacy denormalization before
--- adding the constraint so existing installations can migrate safely.
-UPDATE memory_items
-SET user_id = NULL
-WHERE subject_type <> 'user'
-  AND user_id IS NOT NULL;
-
 ALTER TABLE memory_items
   ADD CONSTRAINT memory_items_app_user_fk
   FOREIGN KEY (app_id, user_id)

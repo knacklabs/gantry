@@ -756,11 +756,12 @@ these decisions explicit:
   outbox record therefore commit together. The runtime fallback is retained
   only for injected/non-transactional test resolvers; production storage uses
   the transactional path.
-- Migration `0107` clears the historical `user_id` denormalization from
-  non-person memory rows before adding the app-scoped person foreign key.
-  Group/channel memory remains conversation-scoped, and existing group rows do
-  not make a fresh migration fail merely because the internal column was once
-  populated.
+- Migration `0110` clears the historical `user_id` denormalization from
+  non-person memory rows after the app-scoped person foreign key migration.
+  This cleanup is append-only so databases that already recorded migration
+  `0109` do not get a changed migration hash. Group/channel memory remains
+  conversation-scoped, and existing group rows do not make a fresh migration
+  fail merely because the internal column was once populated.
 - Alias hydration now filters by both `app_id` and person id. A person id that
   is reused or presented across applications cannot cause another app's alias
   to appear in the response.
@@ -791,6 +792,18 @@ and group sender identity resolution remains audit/authorization-only.
 - The architecture checker still reports the pre-existing gateway and
   permission-classifier size ratchets plus the existing Telegram path ratchet;
   no new architecture violation remains from this hardening work.
+
+### Runtime smoke-test decision
+
+The rebuilt linked CLI initially reported stale Postgres migrations because the
+app-scoped foreign-key migration had been edited after it was already recorded
+in the local database. The implementation keeps `0109` byte-stable and adds
+`0110_identity_memory_scope_cleanup.sql` for the historical group-memory
+cleanup. After `npm run db:migrate`, Doctor passed with zero warnings, Slack
+and Telegram connected, and the runtime stayed online. Automated Slack writes
+from the ChatGPT connector are not a valid human Slack ingress test because
+Slack marks them as ChatGPT-app messages; manual human Slack and Telegram
+messages remain the final provider-ingress checks.
 
 ## Bottom Line
 

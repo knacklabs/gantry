@@ -848,6 +848,13 @@
       "when": 1784000003000,
       "tag": "0105_person_merge_audit_result",
       "breakpoints": true
+    },
+    {
+      "idx": 110,
+      "version": "7",
+      "when": 1784540000000,
+      "tag": "0110_identity_memory_scope_cleanup",
+      "breakpoints": true
     }
   ]
 }
