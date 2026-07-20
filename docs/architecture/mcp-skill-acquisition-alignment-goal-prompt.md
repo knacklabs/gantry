@@ -1,9 +1,61 @@
 # MCP/skill acquisition alignment — goal prompt
 
-Status: SCOPED via grill (2026-07-20) after a full code trace of the
-agent-driven install→use loops (report embedded below via findings). Sequenced
-AFTER the PR #237 validation verdict (`pr237-validation.md`) so fixes don't
-collide or duplicate; e2e rows ride the lane per the test matrix.
+Status: **v2 — TOTAL REFACTOR OF PR #237 ON ITS OWN BRANCH (user directive
+2026-07-20).** Implemented in worktree `wt-pr237` on `develop`; every commit
+updates PR #237 in place. Verdict basis: `pr237-arch-review.md` (16-group
+matrix: keep 4 / simplify 2 / reimplement 10) + `pr237-issues-for-dev.md`
+(handoff) + the grill-locked decisions below. Cross-check against
+`pr237-validation.md` (defect-coverage pass) before closeout so no real fix is
+lost in the deletions.
+
+## Refactor stages (each leaves develop green; commit + push per stage)
+
+### Stage R1 — DELETIONS + keeps + simplifications (mostly `git rm`)
+Delete the 10 reimplement groups' code wholesale (per the review's commit
+refs): the MCP capability sync service + route + CLI + contracts/audit-event +
+~700 test lines; the raw third-party `request_access` tool branch
+(`59ad050b2`…`4a7d88c12`); the 14-scheduler-durable-grants framework
+(`3c92d3f50` reverted); `normalizeStoredRevisionAliases` + alias tests;
+`repairLegacyProviderAccountSecretRefs` + table; the deploy workflow's
+task-definition rewrite (Terraform inputs instead); the orphan Slack seeder
+(`d73d978fe`); the recovery-cursor age cap; the IPC route/field compat readers
+(keeping ONLY the send_message provider-account hunk of `55d9adcf5`); the
+job-summary rework per review §15. KEEP untouched: CAS settings writes
+(`13f199676`, `29863909a`), Slack delivery-failure notices, remote MCP CLI
+registration. APPLY the 2 simplifications: strict indexed Slack action-id
+regex (drop old-id acceptance); leading-mention-only normalization.
+Verify: build + typecheck + full unit green on develop.
+
+### Stage R2 — single-authority MCP action model
+The selected reviewed capability PATTERN is the only action authority:
+- Typed reviewed MCP pattern binding in `semantic-capabilities.ts`; enforce at
+  projection/call time (`agent-tool-runtime-rules.ts:198-214`,
+  `mcp-tool-proxy-capabilities.ts:60-75`). Inventory drifts freely without
+  mutating authority; newly discovered pattern-matching tools work with no
+  exact-list refresh.
+- Denials outside the pattern NAME the missing reviewed capability; recovery
+  strings are MODE-AWARE (locked/fixed-image agents never told to call hidden
+  tools) — trace defect 2.
+Verify: unit + the mcp-client-loop e2e still green; new pattern-enforcement
+tests.
+
+### Stage R3 — the four grill-locked decisions + remaining trace defects
+1. `mcp_search_tools` FTS over INVENTORY (names+descriptions+server;
+   semantic-ready interface; no embeddings).
+2. Honest receipts (now-vs-next-turn truth; skills + MCP).
+3. Reconcile preserves `agent_request`-created active bindings unless
+   explicitly removed; inactive-server rows warn+skip (defect 6).
+4. Inline ALL installed skills up to `SAME_SESSION_SKILL_CONTEXT_MAX_BYTES`
+   with honest truncation line (defect 5).
+Plus: projection includes inventory-only servers alongside selected `mcp__`
+rules (defect 1); install-time materialization-collision validation (defect 3).
+
+### Stage R4 — tests, matrix, closeout
+Integration rows from the E2E section below; flip matrix rows with citations;
+update PR #237's body to describe the refactored scope; cross-check
+`pr237-validation.md` for any real fix the deletions dropped and restore it
+the single-authority way; full verification + independent review on the final
+develop diff.
 
 ## The product model (user-confirmed, unchanged)
 
