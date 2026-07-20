@@ -115,4 +115,55 @@ describe('resolveRunnerIpcRoute', () => {
       }),
     ).toThrow(/ambiguous|unauthorized/);
   });
+
+  it('prefers the provider-account-qualified route over a stale bare alias with a divergent conversationId', () => {
+    const routes = {
+      // stale bare alias (no provider account in key), divergent conversationId
+      [makeAgentThreadQueueKey('slack:C123', 'agent:team', null, undefined)]: {
+        ...route('acct:a'),
+        conversationId: 'conversation:stale',
+      },
+      // explicitly provider-account-qualified route
+      [makeAgentThreadQueueKey('slack:C123', 'agent:team', null, 'acct:a')]: {
+        ...route('acct:a'),
+        conversationId: 'conversation:canonical',
+      },
+    };
+
+    expect(
+      resolveRunnerIpcRoute({
+        routes,
+        sourceAgentFolder: 'team',
+        targetJid: 'slack:C123',
+        providerAccountId: 'acct:a',
+      }),
+    ).toEqual({
+      targetJid: 'slack:C123',
+      conversationId: 'conversation:canonical',
+      providerAccountId: 'acct:a',
+    });
+  });
+
+  it('still fails closed on same-chat divergent aliases when the request names no provider account', () => {
+    const routes = {
+      [makeAgentThreadQueueKey('slack:C123', 'agent:team', null, undefined)]: {
+        ...route('acct:a'),
+        conversationId: 'conversation:one',
+      },
+      [makeAgentThreadQueueKey('slack:C123', 'agent:team', null, 'acct:b')]: {
+        ...route('acct:b'),
+        conversationId: 'conversation:two',
+      },
+    };
+
+    // No requestedProviderAccountId => the qualified-narrowing preference does
+    // not apply, so genuinely divergent identities must still fail closed.
+    expect(() =>
+      resolveRunnerIpcRoute({
+        routes,
+        sourceAgentFolder: 'team',
+        targetJid: 'slack:C123',
+      }),
+    ).toThrow(/ambiguous|unauthorized/);
+  });
 });

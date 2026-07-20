@@ -34,16 +34,31 @@ export function resolveRunnerIpcRoute(input: {
     ? matches.filter(({ parsed }) => parsed.threadId === input.threadId)
     : [];
   const candidates = exactThread.length > 0 ? exactThread : matches;
-  const identities = new Set(
-    candidates.map(
-      ({ parsed, route, providerAccountId }) =>
-        `${parsed.chatJid}::${route.conversationId ?? ''}::${providerAccountId ?? ''}`,
-    ),
-  );
-  if (identities.size !== 1) {
+  const distinctIdentities = (items: typeof candidates): Set<string> =>
+    new Set(
+      items.map(
+        ({ parsed, route, providerAccountId }) =>
+          `${parsed.chatJid}::${route.conversationId ?? ''}::${providerAccountId ?? ''}`,
+      ),
+    );
+  let selected = candidates;
+  // Stale duplicate aliases (a bare `conversation:<chat>` key and an
+  // explicitly provider-account-qualified key) can carry divergent
+  // conversationIds and make the identity set look ambiguous. When the request
+  // names a provider account, prefer the explicitly-qualified route keys before
+  // failing closed, so those stale aliases don't block a well-formed request.
+  if (distinctIdentities(selected).size > 1 && requestedProviderAccountId) {
+    const qualified = selected.filter(
+      ({ parsed }) => parsed.providerAccountId === requestedProviderAccountId,
+    );
+    if (qualified.length > 0 && distinctIdentities(qualified).size === 1) {
+      selected = qualified;
+    }
+  }
+  if (distinctIdentities(selected).size !== 1) {
     throw new Error('Runner IPC route is ambiguous or unauthorized');
   }
-  const match = candidates[0]!;
+  const match = selected[0]!;
   if (
     requestedProviderAccountId &&
     match.providerAccountId !== requestedProviderAccountId
