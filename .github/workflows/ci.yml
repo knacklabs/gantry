@@ -108,6 +108,17 @@ jobs:
           run_check npm run test:integration:postgres:chaos
           run_check npm run test:e2e:agent:hermetic
 
+      # The Claude Agent SDK filesystem sandbox uses bubblewrap on Linux
+      # (seatbelt is built into macOS) and socat for proxy bridging; the
+      # runner spawns Claude Code with failIfUnavailable, so a missing bwrap
+      # kills the subprocess at startup (exit 1, no turn). Ubuntu 24.04 also
+      # restricts unprivileged user namespaces by default, which bwrap needs.
+      - name: Prepare agent sandbox deps (bubblewrap + socat)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq bubblewrap socat
+          sudo sysctl -q kernel.apparmor_restrict_unprivileged_userns=0 || true
+
       # Real-model turn: the key is a protected secret (empty on fork PRs, so
       # the scenario self-skips). The key reaches ONLY this step's env.
       - name: Agent E2E turn (real model)
