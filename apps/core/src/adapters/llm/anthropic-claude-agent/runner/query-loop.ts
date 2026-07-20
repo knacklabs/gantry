@@ -498,7 +498,14 @@ export async function runQuery(
         message.type === 'system'
           ? `system/${(message as { subtype?: string }).subtype}`
           : message.type;
-      log(`[msg #${messageCount}] type=${msgType}`);
+      // api_retry/auth errors carry the reason in the payload; without it a
+      // failing turn logs an undiagnosable retry loop.
+      const errorDetail = (
+        message as { error?: unknown; error_status?: unknown }
+      ).error_status
+        ? ` error_status=${String((message as { error_status?: unknown }).error_status)} error=${String((message as { error?: unknown }).error ?? '')}`
+        : '';
+      log(`[msg #${messageCount}] type=${msgType}${errorDetail}`);
       if (!firstSdkMessageLogged) {
         firstSdkMessageLogged = true;
         firstSdkEventMs = elapsedMs();
