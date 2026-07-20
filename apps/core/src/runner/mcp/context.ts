@@ -408,6 +408,9 @@ function selectedMcpCapabilitiesForSource(serverName: string): string[] {
       (capability) =>
         currentAllowedTools.includes(`capability:${capability.capabilityId}`) &&
         capability.implementationBindings.some((binding) => {
+          if (binding.kind === 'mcp_pattern') {
+            return binding.mcpServer === serverName;
+          }
           if (binding.kind !== 'mcp_tool' && !binding.mcpTool) return false;
           const match = /^mcp__(.+?)__/.exec(binding.mcpTool ?? '');
           return match?.[1] === serverName;

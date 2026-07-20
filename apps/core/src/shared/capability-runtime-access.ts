@@ -58,6 +58,27 @@ export type CapabilityRuntimeAccess =
   | ConfiguredAdapterCapabilityRuntimeAccess;
 
 const EXACT_EXTERNAL_MCP_TOOL_RE = /^mcp__([A-Za-z0-9_-]+)__[A-Za-z0-9_.-]+$/;
+const PATTERN_EXTERNAL_MCP_TOOL_RE =
+  /^mcp__([A-Za-z0-9_-]+)__[A-Za-z0-9_.-]+\*$/;
+
+// Reviewed full-name MCP tool patterns (mcp__server__prefix*) selected via
+// mcp_pattern capability bindings. These are the single action authority for
+// pattern-bound servers; inventory stays discovery-only.
+export function reviewedExternalMcpToolPatternsFromRuntimeAccess(
+  runtimeAccess: readonly CapabilityRuntimeAccess[] | undefined,
+): string[] {
+  const out = new Set<string>();
+  for (const access of runtimeAccess ?? []) {
+    if (access.sourceType !== 'mcp_server') continue;
+    for (const tool of access.allowedTools) {
+      const trimmed = tool.trim();
+      const match = PATTERN_EXTERNAL_MCP_TOOL_RE.exec(trimmed);
+      if (!match?.[1] || match[1] === 'gantry') continue;
+      out.add(trimmed);
+    }
+  }
+  return [...out];
+}
 
 export function reviewedExternalMcpToolNamesFromRuntimeAccess(
   runtimeAccess: readonly CapabilityRuntimeAccess[] | undefined,

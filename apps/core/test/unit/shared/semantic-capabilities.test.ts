@@ -351,3 +351,107 @@ describe('semantic capability catalog validation', () => {
     ).toEqual([]);
   });
 });
+
+describe('reviewed MCP pattern bindings', () => {
+  function mcpPatternCapability(
+    binding: Record<string, unknown> = {
+      kind: 'mcp_pattern',
+      mcpServer: 'github',
+      mcpToolPatterns: ['search_*', 'get_repository'],
+    },
+  ) {
+    return {
+      capabilityId: 'github.search.read',
+      displayName: 'GitHub search read',
+      category: 'mcp',
+      risk: 'read' as const,
+      can: 'Search GitHub repositories and inspect metadata.',
+      cannot: 'Mutate GitHub state.',
+      credentialSource: 'none' as const,
+      implementationBindings: [binding as never],
+    };
+  }
+
+  it('accepts reviewed pattern bindings and projects pattern rules', () => {
+    expect(
+      validateSemanticCapabilityDefinition(mcpPatternCapability()),
+    ).toEqual({ ok: true });
+    expect(
+      projectToolCatalogItemToRuntimeRules({
+        name: 'capability:github.search.read',
+        inputSchema: {
+          format: 'gantry.semantic-capability.v1',
+          schema: mcpPatternCapability(),
+        },
+      }),
+    ).toEqual([
+      'capability:github.search.read',
+      'mcp__github__search_*',
+      'mcp__github__get_repository',
+    ]);
+  });
+
+  it('rejects pattern bindings without reviewed patterns', () => {
+    expect(
+      validateSemanticCapabilityDefinition(
+        mcpPatternCapability({
+          kind: 'mcp_pattern',
+          mcpServer: 'github',
+          mcpToolPatterns: [],
+        }),
+      ),
+    ).toEqual({
+      ok: false,
+      reason:
+        'mcp_pattern bindings require at least one reviewed tool pattern.',
+    });
+  });
+
+  it('rejects wildcard-everything and malformed tool patterns', () => {
+    for (const pattern of ['*', 'se*rch', 'search *', '__*__']) {
+      expect(
+        validateSemanticCapabilityDefinition(
+          mcpPatternCapability({
+            kind: 'mcp_pattern',
+            mcpServer: 'github',
+            mcpToolPatterns: [pattern],
+          }),
+        ),
+      ).toEqual({
+        ok: false,
+        reason: `mcp_pattern tool patterns must be exact tool names or trailing-star globs: ${pattern}`,
+      });
+    }
+  });
+
+  it('rejects missing, malformed, gantry, and browser-backend server names', () => {
+    for (const mcpServer of [undefined, 'GitHub', 'a b', '']) {
+      expect(
+        validateSemanticCapabilityDefinition(
+          mcpPatternCapability({
+            kind: 'mcp_pattern',
+            mcpServer,
+            mcpToolPatterns: ['search_*'],
+          }),
+        ),
+      ).toEqual({
+        ok: false,
+        reason: 'mcp_pattern bindings require a valid MCP server name.',
+      });
+    }
+    for (const mcpServer of ['gantry', 'browser' + '_' + 'backend']) {
+      expect(
+        validateSemanticCapabilityDefinition(
+          mcpPatternCapability({
+            kind: 'mcp_pattern',
+            mcpServer,
+            mcpToolPatterns: ['search_*'],
+          }),
+        ),
+      ).toEqual({
+        ok: false,
+        reason: `mcp_pattern bindings cannot target the ${mcpServer} MCP server.`,
+      });
+    }
+  });
+});

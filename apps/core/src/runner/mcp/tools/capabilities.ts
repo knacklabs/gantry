@@ -150,7 +150,9 @@ export function registerAccessRequestTool(
                     `Capability "${approved.displayName}" is already selected for this run.`,
                     'Use the available action directly instead of requesting the same access again.',
                     approved.implementationBindings.some(
-                      (binding) => binding.kind === 'mcp_tool',
+                      (binding) =>
+                        binding.kind === 'mcp_tool' ||
+                        binding.kind === 'mcp_pattern',
                     )
                       ? 'For MCP sources, use mcp_list_tools to inspect the ready source, mcp_describe_tool for one tool schema if needed, then mcp_call_tool to call the approved action.'
                       : 'Check capability_status if you need to confirm current access.',

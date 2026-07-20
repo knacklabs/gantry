@@ -252,7 +252,9 @@ export function registerServiceTools(server: McpServer): void {
           ) &&
           capability.implementationBindings.some(
             (binding) =>
-              binding.kind === 'mcp_tool' || Boolean(binding.mcpTool),
+              binding.kind === 'mcp_tool' ||
+              binding.kind === 'mcp_pattern' ||
+              Boolean(binding.mcpTool),
           ),
       );
       const selectedMcpCapabilityIds = selectedMcpCapabilities
@@ -558,6 +560,10 @@ function mcpCapabilityNames(
   const sourceServerName = mcpSourceServerName(capability.source);
   if (sourceServerName) names.push(sourceServerName);
   for (const binding of capability.implementationBindings) {
+    if (binding.kind === 'mcp_pattern') {
+      if (binding.mcpServer) names.push(binding.mcpServer);
+      continue;
+    }
     if (binding.kind !== 'mcp_tool' && !binding.mcpTool) continue;
     const match = /^mcp__(.+?)__/.exec(binding.mcpTool ?? '');
     if (match?.[1]) names.push(match[1]);
@@ -631,6 +637,9 @@ function selectedMcpCapabilitiesForSource(serverName: string): string[] {
         return true;
       }
       return capability.implementationBindings.some((binding) => {
+        if (binding.kind === 'mcp_pattern') {
+          return normalizeMcpServerName(binding.mcpServer) === requestedName;
+        }
         if (binding.kind !== 'mcp_tool' && !binding.mcpTool) return false;
         const match = /^mcp__(.+?)__/.exec(binding.mcpTool ?? '');
         return normalizeMcpServerName(match?.[1]) === requestedName;

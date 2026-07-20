@@ -2,6 +2,7 @@ import path from 'node:path';
 
 import {
   hasBashShellControlSyntax,
+  isHostPrivateBrowserMcpServerName,
   RUN_COMMAND_TOOL_NAME,
   validateReadableAgentToolRule,
 } from './agent-tool-references.js';
@@ -23,6 +24,7 @@ export type SemanticCapabilityCredentialSource =
 export type SemanticCapabilityImplementationKind =
   | 'tool_rule'
   | 'mcp_tool'
+  | 'mcp_pattern'
   | 'adapter'
   | 'local_cli';
 
@@ -30,6 +32,12 @@ export interface SemanticCapabilityImplementationBinding {
   kind: SemanticCapabilityImplementationKind;
   rule?: string;
   mcpTool?: string;
+  // Reviewed MCP pattern binding: the third-party server name plus the
+  // reviewed tool-name patterns (exact names or trailing-star globs such as
+  // "list_*"). The pattern is the single action authority; source inventory
+  // stays discovery-only.
+  mcpServer?: string;
+  mcpToolPatterns?: string[];
   adapterRef?: string;
   executablePath?: string;
   executableVersion?: string;
@@ -137,6 +145,9 @@ export function semanticCapabilityRuntimeRules(
   const rules = capability.implementationBindings.flatMap((binding) => {
     if (binding.rule) return [binding.rule.trim()];
     if (binding.mcpTool) return [binding.mcpTool.trim()];
+    if (binding.kind === 'mcp_pattern') {
+      return mcpPatternBindingRuntimeRules(binding);
+    }
     if (
       binding.kind === 'local_cli' &&
       capability.credentialSource === 'local_cli'
@@ -353,6 +364,58 @@ export function skillActionCapabilityDisplayName(
   return words.map(humanizeCapabilityWord).join(' ');
 }
 
+const MCP_PATTERN_SERVER_NAME_RE = /^[a-z][a-z0-9_-]{0,62}$/;
+const MCP_PATTERN_TOOL_PATTERN_RE = /^[A-Za-z0-9_.-]+\*?$/;
+
+export function mcpPatternBindingRuntimeRules(
+  binding: SemanticCapabilityImplementationBinding,
+): string[] {
+  if (binding.kind !== 'mcp_pattern') return [];
+  const server = binding.mcpServer?.trim();
+  if (!server) return [];
+  return (binding.mcpToolPatterns ?? [])
+    .map((pattern) => pattern.trim())
+    .filter(Boolean)
+    .map((pattern) => `mcp__${server}__${pattern}`);
+}
+
+function validateMcpPatternBinding(
+  binding: SemanticCapabilityImplementationBinding,
+): { ok: true } | { ok: false; reason: string } {
+  const server = binding.mcpServer?.trim() ?? '';
+  if (!MCP_PATTERN_SERVER_NAME_RE.test(server)) {
+    return {
+      ok: false,
+      reason: 'mcp_pattern bindings require a valid MCP server name.',
+    };
+  }
+  if (server === 'gantry' || isHostPrivateBrowserMcpServerName(server)) {
+    return {
+      ok: false,
+      reason: `mcp_pattern bindings cannot target the ${server} MCP server.`,
+    };
+  }
+  const patterns = (binding.mcpToolPatterns ?? [])
+    .map((pattern) => pattern.trim())
+    .filter(Boolean);
+  if (patterns.length === 0) {
+    return {
+      ok: false,
+      reason:
+        'mcp_pattern bindings require at least one reviewed tool pattern.',
+    };
+  }
+  for (const pattern of patterns) {
+    if (!MCP_PATTERN_TOOL_PATTERN_RE.test(pattern)) {
+      return {
+        ok: false,
+        reason: `mcp_pattern tool patterns must be exact tool names or trailing-star globs: ${pattern}`,
+      };
+    }
+  }
+  return { ok: true };
+}
+
 function validateSemanticCapabilityBinding(
   binding: SemanticCapabilityImplementationBinding,
 ): { ok: true } | { ok: false; reason: string } {
@@ -361,6 +424,10 @@ function validateSemanticCapabilityBinding(
   }
   if (binding.kind === 'mcp_tool' && !binding.mcpTool?.trim()) {
     return { ok: false, reason: 'mcp_tool bindings require an mcpTool.' };
+  }
+  if (binding.kind === 'mcp_pattern') {
+    const validation = validateMcpPatternBinding(binding);
+    if (!validation.ok) return validation;
   }
   if (binding.kind === 'adapter' && !binding.adapterRef?.trim()) {
     return { ok: false, reason: 'adapter bindings require an adapterRef.' };

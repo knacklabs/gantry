@@ -1132,6 +1132,73 @@ describe('McpToolProxy', () => {
     );
   });
 
+  it('authorizes newly discovered tools matching a reviewed capability pattern without an exact-list refresh', async () => {
+    vi.useFakeTimers();
+    // search_repositories appears only in live server inventory; no reviewed
+    // exact list or live rule names it. The reviewed pattern is the single
+    // action authority.
+    mcpSdkMocks.client.listTools.mockResolvedValueOnce({
+      tools: [{ name: 'search_repositories' }],
+    });
+    const proxy = new McpToolProxy(mcpRepository({ remote: true }), {
+      tools: patternToolRepository(),
+      lookupHostname: vi.fn(async () => [
+        { address: '93.184.216.34', family: 4 as const },
+      ]),
+    });
+
+    await expect(
+      proxy.callTool({
+        appId: 'app-one' as never,
+        agentId: 'agent-one' as never,
+        serverName: 'github',
+        toolName: 'search_repositories',
+        arguments: { q: 'gantry' },
+      }),
+    ).resolves.toEqual({ content: [] });
+    expect(mcpSdkMocks.client.callTool).toHaveBeenCalledWith(
+      { name: 'search_repositories', arguments: { q: 'gantry' } },
+      undefined,
+      { timeout: 60_000 },
+    );
+  });
+
+  it('denies pattern-mismatched calls naming the nearest reviewed capability', async () => {
+    const proxy = new McpToolProxy(mcpRepository(), {
+      tools: patternToolRepository(),
+    });
+
+    await expect(
+      proxy.callTool({
+        appId: 'app-one' as never,
+        agentId: 'agent-one' as never,
+        serverName: 'github',
+        toolName: 'delete_repository',
+      }),
+    ).rejects.toThrow(
+      'MCP tool is not approved for this agent: mcp__github__delete_repository. ' +
+        'Selected reviewed capability github.search.read does not cover this tool; ' +
+        'a reviewed capability covering it must be provisioned before it can be used.',
+    );
+  });
+
+  it('says no reviewed capability covers the server when none is selected', async () => {
+    const proxy = new McpToolProxy(mcpRepository(), {
+      tools: emptyToolRepository(),
+    });
+
+    await expect(
+      proxy.callTool({
+        appId: 'app-one' as never,
+        agentId: 'agent-one' as never,
+        serverName: 'github',
+        toolName: 'search_repositories',
+      }),
+    ).rejects.toThrow(
+      'No selected reviewed capability covers MCP server github',
+    );
+  });
+
   it('honors run-local MCP tool approvals for the current call', async () => {
     vi.useFakeTimers();
     const publishRuntimeEvent = vi.fn(async () => undefined);
@@ -2197,6 +2264,46 @@ function toolRepository() {
     listAgentToolBindings: async () => [
       {
         id: 'agent-tool-binding:github-create-issue',
+        appId: 'app-one',
+        agentId: 'agent-one',
+        toolId: tool.id,
+        status: 'active',
+        createdAt: new Date(0).toISOString(),
+        updatedAt: new Date(0).toISOString(),
+      },
+    ],
+    getTool: async (id: string) => (id === tool.id ? tool : null),
+  } as never;
+}
+
+function patternToolRepository() {
+  const tool = {
+    id: 'tool:github-search-read',
+    appId: 'app-one',
+    name: 'capability:github.search.read',
+    inputSchema: semanticCapabilityInputSchema({
+      capabilityId: 'github.search.read',
+      displayName: 'GitHub search read',
+      category: 'mcp',
+      risk: 'read',
+      can: 'Search GitHub repositories.',
+      cannot: 'Mutate GitHub state or call non-search tools.',
+      credentialSource: 'none',
+      implementationBindings: [
+        {
+          kind: 'mcp_pattern',
+          mcpServer: 'github',
+          mcpToolPatterns: ['search_*'],
+        },
+      ],
+    }),
+    createdAt: new Date(0).toISOString(),
+    updatedAt: new Date(0).toISOString(),
+  };
+  return {
+    listAgentToolBindings: async () => [
+      {
+        id: 'agent-tool-binding:github-search-read',
         appId: 'app-one',
         agentId: 'agent-one',
         toolId: tool.id,

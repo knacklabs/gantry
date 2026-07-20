@@ -89,6 +89,11 @@ export function createCanUseToolCallback(
     ...liveApprovedRules,
   ];
   const lockedAccessPreset = input.capabilities.permissionMode === 'deny';
+  // Locked-preset and fixed-image agents run without the capability request
+  // tools; recovery guidance must say "provision before the run" instead of
+  // instructing a hidden request tool.
+  const capabilityRequestToolsHidden =
+    lockedAccessPreset || input.agentInput.hideAuthorityTools === true;
   const denyLockedToolUse = (toolName: string) => {
     const message =
       'capability not provisioned: this agent runs with a locked access preset and cannot request new tools, skills, MCP servers, or permissions. Provision the capability before the run.';
@@ -351,6 +356,7 @@ export function createCanUseToolCallback(
       const toolDecision = toolExecutionPolicy.evaluate({
         request: toolExecutionRequest,
         autonomousAllowedToolRules: currentAutonomousAllowedToolRules(),
+        capabilityRequestToolsHidden,
       });
       if (toolDecision.status === 'allow' && !yoloDenylistReason) {
         log(`Autonomous run allowed tool ${toolName}: ${toolDecision.reason}`);
@@ -509,6 +515,7 @@ export function createCanUseToolCallback(
     const currentToolDecision = toolExecutionPolicy.evaluate({
       request: toolExecutionRequest,
       allowedToolRules: currentAllowedToolRules(),
+      capabilityRequestToolsHidden,
     });
     if (currentToolDecision.status === 'allow' && !yoloDenylistReason) {
       log(

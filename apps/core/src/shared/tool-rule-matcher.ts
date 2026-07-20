@@ -24,6 +24,7 @@ import { canonicalizeGeneratedRuntimeSkillPaths } from './generated-runtime-path
 import { NEUTRAL_CA_TRUST_ENV_KEYS } from './neutral-ca-trust-env.js';
 
 const MCP_WILDCARD_RE = /^mcp__([A-Za-z0-9_-]+)__\*$/;
+const MCP_PREFIX_PATTERN_RE = /^mcp__([A-Za-z0-9_-]+)__([A-Za-z0-9_.-]+\*)$/;
 const MCP_EXACT_RE = /^mcp__[A-Za-z0-9_-]+__[A-Za-z0-9_.-]+$/;
 const SAFE_SCRIPT_INTERPRETERS = new Set(['python', 'python3']);
 
@@ -77,6 +78,8 @@ const RUNTIME_NETWORK_ASSIGNMENT_KEYS = new Set([
 type ParsedToolRule =
   | { kind: 'exact'; toolName: string }
   | { kind: 'mcp-wildcard'; serverName: string }
+  // Reviewed mcp_pattern capability projection: mcp__server__prefix*.
+  | { kind: 'mcp-pattern'; serverName: string; toolPattern: string }
   | { kind: 'scoped'; toolName: string; scope: string };
 
 export interface ToolRuleValidationResult {
@@ -155,6 +158,16 @@ export function validateAutonomousToolRule(
     return { ok: true };
   }
   if (parsed.kind === 'mcp-wildcard') return { ok: true };
+  if (parsed.kind === 'mcp-pattern') {
+    if (parsed.serverName === 'gantry') {
+      return {
+        ok: false,
+        reason:
+          'Gantry MCP pattern grants are not supported; request one exact mcp__gantry__ tool.',
+      };
+    }
+    return { ok: true };
+  }
   if (value.includes('*')) {
     return {
       ok: false,
@@ -207,6 +220,9 @@ export function toolRuleMatches(rule: string, toolName: string): boolean {
   if (parsed.kind === 'mcp-wildcard') {
     return toolName.startsWith(`mcp__${parsed.serverName}__`);
   }
+  if (parsed.kind === 'mcp-pattern') {
+    return mcpPatternRuleMatchesToolName(parsed, toolName);
+  }
   if (parsed.kind === 'scoped') return false;
   return exactToolRuleMatches(parsed.toolName, toolName);
 }
@@ -233,10 +249,29 @@ export function toolRuleCoversRule(
   }
   if (allowed.kind === 'mcp-wildcard') {
     return (
-      candidate.kind === 'exact' &&
-      candidate.toolName.startsWith(`mcp__${allowed.serverName}__`)
+      (candidate.kind === 'exact' &&
+        candidate.toolName.startsWith(`mcp__${allowed.serverName}__`)) ||
+      (candidate.kind === 'mcp-pattern' &&
+        candidate.serverName === allowed.serverName)
     );
   }
+  if (allowed.kind === 'mcp-pattern') {
+    if (candidate.kind === 'exact') {
+      return mcpPatternRuleMatchesToolName(allowed, candidate.toolName);
+    }
+    if (candidate.kind === 'mcp-pattern') {
+      // Covered when the candidate pattern prefix sits within the allowed
+      // pattern prefix on the same server.
+      return (
+        candidate.serverName === allowed.serverName &&
+        candidate.toolPattern
+          .slice(0, -1)
+          .startsWith(allowed.toolPattern.slice(0, -1))
+      );
+    }
+    return false;
+  }
+  if (candidate.kind === 'mcp-pattern') return false;
   if (allowed.kind === 'exact') {
     return (
       candidate.kind === 'exact' &&
@@ -287,6 +322,13 @@ export function evaluateAutonomousToolUse(input: {
     if (!parsed) continue;
     if (parsed.kind === 'mcp-wildcard') {
       if (toolName.startsWith(`mcp__${parsed.serverName}__`)) {
+        return { allowed: true, matchedRule: rule, matchedRules: [rule] };
+      }
+      continue;
+    }
+
+    if (parsed.kind === 'mcp-pattern') {
+      if (mcpPatternRuleMatchesToolName(parsed, toolName)) {
         return { allowed: true, matchedRule: rule, matchedRules: [rule] };
       }
       continue;
@@ -570,7 +612,23 @@ function parseToolRule(rule: string): ParsedToolRule | null {
   if (value.includes('(') || value.includes(')')) return null;
   const wildcard = MCP_WILDCARD_RE.exec(value);
   if (wildcard) return { kind: 'mcp-wildcard', serverName: wildcard[1] };
+  const prefixPattern = MCP_PREFIX_PATTERN_RE.exec(value);
+  if (prefixPattern) {
+    return {
+      kind: 'mcp-pattern',
+      serverName: prefixPattern[1],
+      toolPattern: prefixPattern[2],
+    };
+  }
   return { kind: 'exact', toolName: value };
+}
+
+function mcpPatternRuleMatchesToolName(
+  parsed: Extract<ParsedToolRule, { kind: 'mcp-pattern' }>,
+  toolName: string,
+): boolean {
+  const fullPrefix = `mcp__${parsed.serverName}__${parsed.toolPattern.slice(0, -1)}`;
+  return toolName.startsWith(fullPrefix);
 }
 
 function isRegisteredExactTool(toolName: string): boolean {
