@@ -442,7 +442,14 @@ function formatKnownToolInputFields(
       lines.push(`Files: ${input.files.length}${size}`);
       lines.push(...skillReviewFileLines(input, sanitizePermissionText));
     }
-    addList('Requires env', input.requiredEnvVars);
+    if (
+      Array.isArray(input.requiredEnvVars) &&
+      input.requiredEnvVars.length > 0
+    ) {
+      lines.push(
+        'Credentials: required before some skill actions can run; add them in Credential Center.',
+      );
+    }
     const preview = skillMarkdownPreviewContent(input);
     if (preview) {
       lines.push(

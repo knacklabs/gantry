@@ -54,6 +54,7 @@ export async function drainQueuedAsyncTasks(input: {
           active: input.active,
           cancelLinkedChildTasks: execution.delegated.cancelLinkedChildTasks,
           waitForTaskChange: execution.delegated.waitForTaskChange,
+          transitionTask: execution.delegated.transitionTask,
         }).finally(() => void drainQueuedAsyncTasks(input));
         continue;
       }

@@ -3,6 +3,7 @@ import type { AppId } from '../app/app.js';
 import type { ConversationId, UserId } from '../conversation/conversation.js';
 
 export interface MemorySubjectRoute {
+  configuredConversationId?: string;
   trigger?: string;
   requiresTrigger?: boolean;
   agentConfig?: unknown;

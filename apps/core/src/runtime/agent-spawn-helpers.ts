@@ -44,6 +44,7 @@ export function deepAgentsFilesystemEnabledEnv(
 
 export type RunnerAgentInput = Omit<AgentInput, 'toolPolicyRules'> & {
   allowedTools?: string[];
+  egressDenylist?: string[];
   modelCredentialEnv?: Record<string, string>;
   toolNetworkEnv?: Record<string, string>;
   deepAgentCheckpointer?: {

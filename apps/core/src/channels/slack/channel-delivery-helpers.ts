@@ -15,7 +15,6 @@ import {
 import {
   ActiveProgressState,
   ActiveStreamState,
-  PendingPermissionPrompt,
   PendingUserQuestionState,
 } from './channel-state.js';
 import {
@@ -33,6 +32,7 @@ import {
   clampSlackRetryDelayMs,
   slackRateLimitRetryDelayMs,
 } from './channel-retry-delay.js';
+import { uploadSlackAttachments } from './file-delivery.js';
 type SlackPostMessagePayload = {
   channel: string;
   text: string;
@@ -238,6 +238,18 @@ export async function sendSlackMessage(input: {
     }
   }
 
+  await uploadSlackAttachments({
+    app: input.app,
+    jid: input.jid,
+    channelId: input.channelId,
+    threadTs,
+    files: input.options.files,
+    warnings,
+    externalMessageIds,
+    log: input.log,
+    postSlackMessageWithRetry,
+  });
+
   return {
     ...(externalMessageIds[0]
       ? { externalMessageId: externalMessageIds[0] }
@@ -255,6 +267,7 @@ export async function sendSlackFallbackStreamParts(input: {
   state: ActiveStreamState;
   fallbackParts: string[];
   log: SlackDeliveryLogger;
+  shouldContinue: () => boolean;
 }): Promise<void> {
   if (!input.app) throw new Error('Slack app not initialized');
   const threadTs = slackThreadTsFromThreadId(input.state.threadId);
@@ -281,6 +294,7 @@ export async function sendSlackFallbackStreamParts(input: {
   ) {
     const part = input.fallbackParts[partIndex];
     if (!part) continue;
+    if (!input.shouldContinue()) return;
     try {
       const existingTs = input.state.fallbackMessageTs[partIndex];
       if (existingTs) {
@@ -673,20 +687,9 @@ export function persistSlackProgress(
   );
 }
 
-export function resolveSlackDisconnectPrompts(input: {
-  pendingPermissionPrompts: Map<string, PendingPermissionPrompt>;
+export function resolveSlackDisconnectQuestions(input: {
   pendingUserQuestions: Map<string, PendingUserQuestionState>;
 }): void {
-  for (const [requestId, pending] of input.pendingPermissionPrompts.entries()) {
-    clearTimeout(pending.timer);
-    pending.resolve({
-      approved: false,
-      decidedBy: 'system',
-      reason: 'Slack channel disconnected',
-    });
-    input.pendingPermissionPrompts.delete(requestId);
-  }
-
   for (const [key, pending] of input.pendingUserQuestions.entries()) {
     if (pending.timer) clearTimeout(pending.timer);
     pending.resolve({
@@ -703,12 +706,10 @@ export async function disconnectSlackDelivery(input: {
   streamGenerationByJid: Map<string, number>;
   sealedStreamGenerationByJid: Map<string, number>;
   activeProgress: Map<string, ActiveProgressState>;
-  pendingPermissionPrompts: Map<string, PendingPermissionPrompt>;
   pendingUserQuestions: Map<string, PendingUserQuestionState>;
   stopNativeStream: (channelId: string, streamTs: string) => Promise<boolean>;
 }): Promise<App | null> {
-  resolveSlackDisconnectPrompts({
-    pendingPermissionPrompts: input.pendingPermissionPrompts,
+  resolveSlackDisconnectQuestions({
     pendingUserQuestions: input.pendingUserQuestions,
   });
 

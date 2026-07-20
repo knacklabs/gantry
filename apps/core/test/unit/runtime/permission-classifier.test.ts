@@ -24,13 +24,18 @@ vi.mock('@core/infrastructure/logging/logger.js', () => ({
 import {
   consultPermissionClassifier,
   consultPermissionClassifierBeforePrompt,
+  PERMISSION_CLASSIFIER_MAX_STRING_LENGTH,
   PERMISSION_CLASSIFIER_TIMEOUT_MS,
   PERMISSION_CLASSIFIER_MAX_TOOL_INPUT_CHARS,
   publishPermissionClassifierDecision,
   redactPermissionClassifierToolInput,
   recordHumanPermissionPromotionSignal,
+  serializePermissionClassifierToolInput,
 } from '@core/runtime/permission-classifier.js';
-import { redactSensitiveToolInputString } from '@core/runtime/ipc-tool-input-sanitization.js';
+import {
+  redactSensitiveToolInputString,
+  sanitizeIpcToolInput,
+} from '@core/runtime/ipc-tool-input-sanitization.js';
 
 const baseInput = {
   appId: 'default' as never,
@@ -280,7 +285,7 @@ describe('permission classifier verdict client', () => {
   });
 
   it('deep-redacts sensitive keys and truncates long tool input', async () => {
-    const redacted = redactPermissionClassifierToolInput({
+    const toolInput = {
       nested: {
         apiToken: 'token-value',
         apiKey: 'api-key-value',
@@ -296,7 +301,9 @@ describe('permission classifier verdict client', () => {
         authorizationHeader: 'Bearer secret',
       },
       text: 'x'.repeat(PERMISSION_CLASSIFIER_MAX_TOOL_INPUT_CHARS * 2),
-    });
+    };
+    const redacted = redactPermissionClassifierToolInput(toolInput);
+    const serialized = serializePermissionClassifierToolInput(toolInput);
 
     expect(redacted).not.toContain('token-value');
     expect(redacted).not.toContain('api-key-value');
@@ -315,18 +322,33 @@ describe('permission classifier verdict client', () => {
       PERMISSION_CLASSIFIER_MAX_TOOL_INPUT_CHARS,
     );
     expect(redacted).toContain('[TRUNCATED]');
+    expect(serialized).toEqual({ value: redacted, truncated: false });
 
     await consultPermissionClassifier({
       ...baseInput,
       toolInput: {
         accessToken: 'must-not-reach-prompt',
-        body: 'x'.repeat(8_000),
+        body: 'x'.repeat(PERMISSION_CLASSIFIER_MAX_TOOL_INPUT_CHARS * 2),
       },
     });
     const prompt = query.mock.calls[0]?.[0].prompt as string;
     expect(prompt).not.toContain('must-not-reach-prompt');
     expect(prompt).toContain('[REDACTED]');
     expect(prompt).toContain('[TRUNCATED]');
+  });
+
+  it('preserves realistic full command text in the classifier prompt', async () => {
+    const command = `printf '%s' '${'x'.repeat(2_000)}'`;
+
+    await consultPermissionClassifier({
+      ...baseInput,
+      canonicalToolName: 'RunCommand',
+      toolInput: { command },
+    });
+
+    const prompt = query.mock.calls[0]?.[0].prompt as string;
+    expect(prompt).toContain(command);
+    expect(prompt).not.toContain('[TRUNCATED]');
   });
 
   it('fails closed when the LLM port is unconfigured', async () => {
@@ -645,7 +667,7 @@ describe('permission classifier decision events', () => {
   });
 
   it.each(['auto', 'auto_strict'] as const)(
-    'forces sanitized input to ask without consulting in %s',
+    'forces secret-redacted input to ask without consulting in %s',
     async (permissionMode) => {
       const classifierConsult = vi.fn();
 
@@ -659,8 +681,8 @@ describe('permission classifier decision events', () => {
           intentSource: 'operator_message',
           turnIntentSummary: 'Read the CRM record.',
           canonicalToolName: 'mcp__crm__read',
-          toolInput: { id: 'crm-1' },
-          toolInputSanitized: true,
+          toolInput: { apiToken: '[REDACTED]' },
+          toolInputRedactedPaths: ['apiToken'],
           policyDecisionReason: 'No durable rule matched.',
           approvedCapabilityIds: ['mcp.crm.read'],
           classifierConfig: { memoryExtractorModel: 'extractor-model' },
@@ -674,6 +696,174 @@ describe('permission classifier decision events', () => {
       expect(classifierConsult).not.toHaveBeenCalled();
     },
   );
+
+  it('classifies a benign 3K RunCommand beyond the display limit with full input', async () => {
+    const command = `printf '%s' '${'x'.repeat(3_000)}'`;
+    const displayInput = sanitizeIpcToolInput({ command });
+    const classifierInput = sanitizeIpcToolInput(
+      { command },
+      PERMISSION_CLASSIFIER_MAX_STRING_LENGTH,
+    );
+    const classifierConsult = vi.fn(async () => ({
+      decision: 'allow' as const,
+      reason: 'Benign command.',
+      latencyMs: 1,
+    }));
+
+    const result = await consultPermissionClassifierBeforePrompt({
+      permissionMode: 'auto',
+      requestFamily: 'tool',
+      agentFolder: 'researcher',
+      correlationId: 'request:long-benign-command',
+      actor: 'permission',
+      intentSource: 'operator_message',
+      turnIntentSummary: 'Print the generated content.',
+      canonicalToolName: 'RunCommand',
+      toolInput: classifierInput.toolInput,
+      toolInputRedactedPaths: classifierInput.redactedPaths,
+      toolInputTruncatedPaths: classifierInput.truncatedPaths,
+      policyDecisionReason: 'No durable rule matched.',
+      approvedCapabilityIds: [],
+      classifierConfig: { memoryExtractorModel: 'extractor-model' },
+      publishRuntimeEvent: vi.fn(async () => undefined),
+      classifierConsult,
+    });
+
+    expect(displayInput.alteredPaths).toEqual(['command']);
+    expect(classifierInput.redactedPaths).toEqual([]);
+    expect(classifierInput.truncatedPaths).toEqual([]);
+    expect(result).toMatchObject({ decision: 'allow', latencyMs: 1 });
+    expect(result?.failureCode).toBeUndefined();
+    expect(classifierConsult).toHaveBeenCalledWith(
+      expect.objectContaining({ toolInput: { command } }),
+    );
+  });
+
+  it('forces a RunCommand truncated at the 16K classifier limit to ask', async () => {
+    const hiddenSuffix = '; __DESTRUCTIVE_SUFFIX_AFTER_CLASSIFIER_CUTOFF__';
+    const command = `printf '%s' '${'x'.repeat(PERMISSION_CLASSIFIER_MAX_STRING_LENGTH)}'${hiddenSuffix}`;
+    const classifierInput = sanitizeIpcToolInput(
+      { command },
+      PERMISSION_CLASSIFIER_MAX_STRING_LENGTH,
+    );
+    const classifierConsult = vi.fn(async () => ({
+      decision: 'allow' as const,
+      reason: 'Only the benign prefix was visible.',
+      latencyMs: 1,
+    }));
+
+    const result = await consultPermissionClassifierBeforePrompt({
+      permissionMode: 'auto',
+      requestFamily: 'tool',
+      agentFolder: 'researcher',
+      correlationId: 'request:classifier-command-limit',
+      actor: 'permission',
+      intentSource: 'operator_message',
+      turnIntentSummary: 'Print generated content.',
+      canonicalToolName: 'RunCommand',
+      toolInput: classifierInput.toolInput,
+      toolInputRedactedPaths: classifierInput.redactedPaths,
+      toolInputTruncatedPaths: classifierInput.truncatedPaths,
+      policyDecisionReason: 'No durable rule matched.',
+      approvedCapabilityIds: [],
+      classifierConfig: { memoryExtractorModel: 'extractor-model' },
+      publishRuntimeEvent: vi.fn(async () => undefined),
+      classifierConsult,
+    });
+
+    expect(classifierInput.truncatedPaths).toEqual(['command']);
+    expect(JSON.stringify(classifierInput.toolInput)).not.toContain(
+      hiddenSuffix,
+    );
+    expect(result).toMatchObject({
+      decision: 'ask',
+      failureCode: 'input_truncated',
+    });
+    expect(classifierConsult).not.toHaveBeenCalled();
+  });
+
+  it('forces a RunCommand whose serialized classifier input hits the cap to ask', async () => {
+    const command = `printf '%s' '${'\\'.repeat(9_000)}'`;
+    const classifierInput = sanitizeIpcToolInput(
+      { command },
+      PERMISSION_CLASSIFIER_MAX_STRING_LENGTH,
+    );
+    const classifierConsult = vi.fn(async () => ({
+      decision: 'allow' as const,
+      reason: 'The truncated serialized view looked benign.',
+      latencyMs: 1,
+    }));
+
+    expect(command.length).toBeLessThan(
+      PERMISSION_CLASSIFIER_MAX_STRING_LENGTH,
+    );
+    expect(classifierInput.truncatedPaths).toEqual([]);
+    expect(
+      serializePermissionClassifierToolInput(classifierInput.toolInput),
+    ).toMatchObject({ truncated: true });
+
+    const result = await consultPermissionClassifierBeforePrompt({
+      permissionMode: 'auto',
+      requestFamily: 'tool',
+      agentFolder: 'researcher',
+      correlationId: 'request:classifier-serialized-limit',
+      actor: 'permission',
+      intentSource: 'operator_message',
+      turnIntentSummary: 'Print generated content.',
+      canonicalToolName: 'RunCommand',
+      toolInput: classifierInput.toolInput,
+      toolInputRedactedPaths: classifierInput.redactedPaths,
+      toolInputTruncatedPaths: classifierInput.truncatedPaths,
+      policyDecisionReason: 'No durable rule matched.',
+      approvedCapabilityIds: [],
+      classifierConfig: { memoryExtractorModel: 'extractor-model' },
+      publishRuntimeEvent: vi.fn(async () => undefined),
+      classifierConsult,
+    });
+
+    expect(result).toMatchObject({
+      decision: 'ask',
+      failureCode: 'input_truncated',
+    });
+    expect(classifierConsult).not.toHaveBeenCalled();
+  });
+
+  it('skips a secret-redacted RunCommand without exposing the secret', async () => {
+    const secret = 'sk-abcdefghijklmnop';
+    const command = `curl -H 'Authorization: Bearer ${secret}' https://example.com`;
+    const classifierInput = sanitizeIpcToolInput(
+      { command },
+      PERMISSION_CLASSIFIER_MAX_STRING_LENGTH,
+    );
+    const classifierConsult = vi.fn();
+
+    const result = await consultPermissionClassifierBeforePrompt({
+      permissionMode: 'auto',
+      requestFamily: 'tool',
+      agentFolder: 'researcher',
+      correlationId: 'request:secret-command',
+      actor: 'permission',
+      intentSource: 'operator_message',
+      turnIntentSummary: 'Call the service.',
+      canonicalToolName: 'RunCommand',
+      toolInput: classifierInput.toolInput,
+      toolInputRedactedPaths: classifierInput.redactedPaths,
+      toolInputTruncatedPaths: classifierInput.truncatedPaths,
+      policyDecisionReason: 'No durable rule matched.',
+      approvedCapabilityIds: [],
+      classifierConfig: { memoryExtractorModel: 'extractor-model' },
+      publishRuntimeEvent: vi.fn(async () => undefined),
+      classifierConsult,
+    });
+
+    expect(JSON.stringify(classifierInput.toolInput)).not.toContain(secret);
+    expect(classifierInput.redactedPaths).toEqual(['command']);
+    expect(result).toMatchObject({
+      decision: 'ask',
+      failureCode: 'input_truncated',
+    });
+    expect(classifierConsult).not.toHaveBeenCalled();
+  });
 
   it('keeps the YOLO denylist as a no-consult ask in auto_strict', async () => {
     const classifierConsult = vi.fn();

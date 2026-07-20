@@ -68,7 +68,7 @@ export function startSkillPermissionReview(input: {
       );
       await notifyLifecycle(input.onBlocked);
       input.responder.reject(
-        err instanceof Error ? err.message : 'Skill permission review failed.',
+        'The skill could not be installed. Explain this in plain language and say you can try again after the setup issue is fixed.',
         'permission_review_failed',
       );
     })
@@ -259,8 +259,9 @@ function skillReviewInteraction(
       ...(input.skill.requiredEnvVars?.length
         ? [
             {
-              label: 'Requires env',
-              value: input.skill.requiredEnvVars.join(', '),
+              label: 'Credentials',
+              value:
+                'Required before some skill actions can run; add them in Credential Center.',
             },
           ]
         : []),

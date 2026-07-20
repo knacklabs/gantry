@@ -7,6 +7,7 @@ import { materializedSkillDirectoryNameFor } from '@core/domain/skills/skills.js
 
 describe('skill permission review install sequence', () => {
   it('holds the materialization lock across install, bind failure, and rollback', async () => {
+    const rawReason = 'RAW_SKILL_REVIEW_SENTINEL: bind failed';
     const order: string[] = [];
     const key = materializedSkillDirectoryNameFor(
       skillNameForReceipt([], 'demo-skill'),
@@ -26,30 +27,38 @@ describe('skill permission review install sequence', () => {
       }),
       bindSkillToAgent: vi.fn(async () => {
         order.push('bind');
-        throw new Error('bind failed');
+        throw new Error(rawReason);
       }),
       rollbackInstalledSkillBinding,
     };
     const reject = vi.fn();
+    const logError = vi.fn();
     const onBlocked = vi.fn(async () => undefined);
+    const requestPermissionApproval = vi.fn(
+      async (_input: { interaction?: unknown }) => ({
+        approved: true,
+        decidedBy: 'user:approver',
+      }),
+    );
 
     await new Promise<void>((resolve) => {
       startSkillPermissionReview({
         deps: {
-          requestPermissionApproval: vi.fn(async () => ({
-            approved: true,
-            decidedBy: 'user:approver',
-          })),
+          requestPermissionApproval,
           sendMessage: vi.fn(async () => undefined),
         },
         responder: { acceptData: vi.fn(), reject },
+        logError,
         service,
         syncApprovedCapabilitySettings: vi.fn(async () => undefined),
         appId: 'app:test',
         agentId: 'agent:test',
         sourceAgentFolder: 'main_agent',
         targetJid: 'chat:one',
-        skill: { name: 'demo-skill' },
+        skill: {
+          name: 'demo-skill',
+          requiredEnvVars: ['PRIVATE_TOKEN_NAME'],
+        },
         assets: [],
         fileSummaries: [],
         skillMarkdownPreview: {
@@ -82,8 +91,17 @@ describe('skill permission review install sequence', () => {
     });
     expect(onBlocked).toHaveBeenCalled();
     expect(reject).toHaveBeenCalledWith(
-      'bind failed',
+      'The skill could not be installed. Explain this in plain language and say you can try again after the setup issue is fixed.',
       'permission_review_failed',
     );
+    expect(
+      (logError.mock.calls[0]?.[0] as { err?: Error } | undefined)?.err
+        ?.message,
+    ).toBe(rawReason);
+    expect(JSON.stringify(reject.mock.calls)).not.toContain(rawReason);
+    const interaction =
+      requestPermissionApproval.mock.calls[0]?.[0].interaction;
+    expect(JSON.stringify(interaction)).toContain('Credential Center');
+    expect(JSON.stringify(interaction)).not.toContain('PRIVATE_TOKEN_NAME');
   });
 });

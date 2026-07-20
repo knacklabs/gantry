@@ -273,6 +273,49 @@ describe('DeepAgents inline lane', () => {
     );
   });
 
+  it('uses a stable conversation/thread prompt cache key in automatic cache mode', async () => {
+    deep.streamEvents.mockImplementation(() => ({
+      async *[Symbol.asyncIterator]() {
+        yield streamEvent('done');
+      },
+    }));
+    const lane = createDeepAgentsInlineAgentLoopLane({
+      databaseUrl: 'postgres://gantry:test@localhost:5432/gantry',
+      schema: 'gantry_deepagents',
+    });
+    const cachedInput = (threadId: string) => {
+      const base = laneInput();
+      return laneInput({
+        input: { ...base.input, threadId },
+        mcpServers: [],
+        resolvedModel: {
+          ok: true,
+          value: {
+            ...base.resolvedModel.value,
+            modelEntry: {
+              ...base.resolvedModel.value.modelEntry,
+              modelRoute: { id: 'xai' },
+            },
+          },
+        },
+      });
+    };
+
+    await lane(cachedInput('thread:one'));
+    await lane(cachedInput('thread:one'));
+    await lane(cachedInput('thread:two'));
+
+    const keys = model.build.mock.calls.map(
+      ([input]) => input.promptCacheKey as string,
+    );
+    expect(keys[0]).toMatch(/^[a-f0-9]{64}$/);
+    expect(keys[1]).toBe(keys[0]);
+    expect(keys[2]).not.toBe(keys[0]);
+    expect(
+      deep.streamEvents.mock.calls.map(([input]) => input.messages[0].content),
+    ).toEqual(['first prompt', 'first prompt', 'first prompt']);
+  });
+
   it('emits and returns a named max_turns error on graph recursion', async () => {
     deep.streamEvents.mockImplementation(() => ({
       async *[Symbol.asyncIterator]() {

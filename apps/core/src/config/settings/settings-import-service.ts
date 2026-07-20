@@ -34,7 +34,7 @@ import { migrateLegacyAgentBindings } from './settings-revision-legacy-bindings.
  * applied) by an older worker until it is upgraded (ADR-3 skew safety contract).
  * Bump this whenever a settings-schema change would break older readers.
  */
-export const CURRENT_SETTINGS_READER_VERSION = 13;
+export const CURRENT_SETTINGS_READER_VERSION = 14;
 
 export interface SettingsImportValidationResult {
   ok: boolean;
@@ -58,6 +58,11 @@ export interface SettingsRevisionMirror {
   note?: string | null;
   logWarn?: (context: Record<string, unknown>, message: string) => void;
 }
+
+export type WorkstationSettingsImportOutcome =
+  | { status: 'revision_created'; revision: number }
+  | { status: 'applied_no_revision' }
+  | { status: 'no_op' };
 
 export class SettingsStaleMutationError extends Error {
   constructor() {
@@ -134,7 +139,7 @@ export async function importWorkstationSettings(
     expectedRevision?: number | null;
   },
   settings: RuntimeSettings,
-): Promise<{ revision?: number }> {
+): Promise<WorkstationSettingsImportOutcome> {
   if (
     deps.revisionMirrorRequired &&
     (!deps.previousSettings || !deps.revisionMirror)
@@ -203,7 +208,7 @@ export async function importWorkstationSettings(
         reloadRuntimeState: deps.reloadRuntimeState,
       });
       activateRuntimeModelAliases(revisionSettings);
-      return {};
+      return { status: 'no_op' };
     }
     await validateProjectionPreconditions({
       settings: revisionSettings,
@@ -245,7 +250,7 @@ export async function importWorkstationSettings(
       reloadRuntimeState: deps.reloadRuntimeState,
     });
     activateRuntimeModelAliases(appliedSettings);
-    return { revision: outcome.revision };
+    return { status: 'revision_created', revision: outcome.revision };
   }
   const appliedSettings = await applyRuntimeSettingsDesiredState({
     runtimeHome: deps.runtimeHome,
@@ -257,7 +262,7 @@ export async function importWorkstationSettings(
     reloadRuntimeState: deps.reloadRuntimeState,
   });
   activateRuntimeModelAliases(appliedSettings);
-  if (!deps.revisionMirror) return {};
+  if (!deps.revisionMirror) return { status: 'applied_no_revision' };
   try {
     const latest =
       await deps.revisionMirror.settingsRevisions.getLatestSettingsRevision(
@@ -267,7 +272,7 @@ export async function importWorkstationSettings(
       latest &&
       revisionDocumentMatchesSettings(latest.settingsDocument, appliedSettings)
     ) {
-      return {};
+      return { status: 'applied_no_revision' };
     }
     const outcome = await importFleetSettingsRevision(
       {
@@ -294,7 +299,7 @@ export async function importWorkstationSettings(
         { errors: outcome.errors },
         'settings revision mirror failed validation after workstation settings applied',
       );
-      return {};
+      return { status: 'applied_no_revision' };
     }
     if (outcome.status === 'conflict') {
       const error = new Error(
@@ -308,15 +313,15 @@ export async function importWorkstationSettings(
         },
         'settings revision mirror conflicted after workstation settings applied',
       );
-      return {};
+      return { status: 'applied_no_revision' };
     }
-    return { revision: outcome.revision };
+    return { status: 'revision_created', revision: outcome.revision };
   } catch (err) {
     deps.revisionMirror.logWarn?.(
       { err },
       'settings revision mirror failed after workstation settings applied',
     );
-    return {};
+    return { status: 'applied_no_revision' };
   }
 }
 
@@ -432,7 +437,7 @@ function buildRevisionDocument(
       sender_policy: conversation.senderPolicy,
       control_approvers: conversation.controlApprovers,
       installed_agents: Object.fromEntries(
-        Object.entries(conversation.installedAgents).map(
+        Object.entries(conversation.installedAgents ?? {}).map(
           ([installId, install]) => [
             installId,
             {
@@ -455,6 +460,7 @@ function buildRevisionDocument(
     agents: mapRecord(settings.agents, (agent) => ({
       name: agent.name,
       persona: agent.persona,
+      delegates: agent.delegates.length > 0 ? agent.delegates : undefined,
       relationship_mode:
         agent.relationshipMode && agent.relationshipMode !== 'personal'
           ? agent.relationshipMode

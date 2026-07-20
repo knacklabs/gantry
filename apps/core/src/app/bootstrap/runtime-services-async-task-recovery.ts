@@ -32,9 +32,12 @@ import {
 import { McpToolProxy } from '../../application/mcp/mcp-tool-proxy.js';
 import { resolveMcpCredentialEnvForAgent } from '../../application/capability-secrets/mcp-secret-projection.js';
 import type { AsyncTaskRecord } from '../../domain/ports/async-tasks.js';
-import type { RuntimeAgentSessionRepository } from '../../domain/repositories/ops-repo.js';
+import type {
+  RuntimeAgentSessionRepository,
+  RuntimeMessageRepository,
+} from '../../domain/repositories/ops-repo.js';
 import { agentIdForFolder } from '../../domain/agent/agent-folder-id.js';
-import { resolveConversationRoute } from './runtime-app-routes.js';
+import { conversationBoundAgentRoute } from '../../application/core-tools/callable-agent-tools.js';
 
 interface AsyncTaskRecoveryDeps extends Partial<
   Pick<
@@ -58,7 +61,8 @@ interface AsyncTaskRecoveryDeps extends Partial<
   >
 > {
   logger: Pick<Logger, 'warn'>;
-  opsRepository?: RuntimeAgentSessionRepository;
+  opsRepository?: RuntimeAgentSessionRepository &
+    Pick<RuntimeMessageRepository, 'storeMessageWithLiveAdmission'>;
 }
 
 export async function recoverStaleAsyncCommandTasks(
@@ -90,8 +94,9 @@ export async function recoverStaleAsyncCommandTasks(
       },
     },
     {
+      completionMessageRepository: deps.opsRepository,
       createRecoveredDelegatedAgentRun: createRecoveredDelegatedAgentRun(deps),
-      prepareRun: async ({ task, allowedNetworkHosts }) => {
+      prepareRun: async ({ task }) => {
         const gateway = await ensureEgressGateway({
           key: `${task.appId}:${task.agentId}:${task.id}`,
           settings: deps.getEgressSettings?.() ?? { denylist: [] },
@@ -105,9 +110,6 @@ export async function recoverStaleAsyncCommandTasks(
             ...(task.parentRunId ? { runId: task.parentRunId } : {}),
             ...(task.parentJobId ? { jobId: task.parentJobId } : {}),
           },
-          ...(allowedNetworkHosts && allowedNetworkHosts.length > 0
-            ? { allowedNetworkHosts }
-            : {}),
           ...(deps.publishRuntimeEvent
             ? { publishRuntimeEvent: deps.publishRuntimeEvent }
             : {}),
@@ -279,13 +281,14 @@ function createRecoveredDelegatedAgentRun(
     const conversationId = runInput.task.conversationId ?? '';
     const routes = deps.conversationRoutes?.() ?? {};
     const recoveryAgentId = taskInput.targetAgentId ?? runInput.task.agentId;
-    const group = resolveConversationRoute(
+    const group = conversationBoundAgentRoute({
       routes,
-      conversationId,
-      runInput.task.threadId,
-      recoveryAgentId,
-      taskInput.providerAccountId,
-    );
+      chatJid: conversationId,
+      threadId: runInput.task.threadId,
+      callerAgentId: runInput.task.agentId,
+      callerProviderAccountId: taskInput.providerAccountId,
+      targetAgentId: recoveryAgentId,
+    });
     if (!group) {
       throw new Error('Delegated task conversation is unavailable.');
     }
@@ -323,6 +326,7 @@ function createRecoveredDelegatedAgentRun(
         threadId: runInput.task.threadId ?? undefined,
         workspaceFolder: group.folder,
         parentTaskId: runInput.task.id,
+        parentRunId: runInput.task.parentRunId ?? undefined,
         persona: group.agentConfig?.persona,
         thinking: group.agentConfig?.thinking,
         toolPolicyRules: toolPolicy.toolPolicyRules,
@@ -367,6 +371,7 @@ function createRecoveredDelegatedAgentRun(
         executionAdapter: deps.executionAdapter,
         executionAdapters: deps.executionAdapters,
         runnerSandboxProvider: deps.runnerSandboxProvider!,
+        conversationRoutes: routes,
         asyncTaskRepositoryAvailable: Boolean(deps.getAsyncTaskRepository?.()),
       },
     );

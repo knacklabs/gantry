@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import { createHash, randomUUID } from 'crypto';
+import { randomUUID } from 'crypto';
 
 import type {
   AgentExecutionAdapter,
@@ -12,9 +12,8 @@ import { projectDeepAgentModelCredentialEnv } from './model-credential-env.js';
 import { validateDeepAgentCredentialProjection } from './credential-validation.js';
 import { isMissingDeepAgentSessionError } from './runner/session-store.js';
 import { ensureDeepAgentsCheckpointSchema } from './checkpoint-setup.js';
-import { resolveModelCacheSupport } from '../../../shared/model-cache-support.js';
-import { getModelProviderDefinition } from '../../../shared/model-provider-registry.js';
 import { resolveDeepAgentSkillProjection } from './skill-projection.js';
+import { resolveDeepAgentsPromptCache } from './prompt-cache.js';
 import type { OpenRouterProviderRouting } from '../../../shared/model-catalog-provider-metadata.js';
 
 const GANTRY_DEEPAGENTS_MODEL_ID_ENV = 'GANTRY_DEEPAGENTS_MODEL_ID';
@@ -32,24 +31,6 @@ const GANTRY_DEEPAGENTS_MAX_INPUT_TOKENS_ENV =
   'GANTRY_DEEPAGENTS_MAX_INPUT_TOKENS';
 const GANTRY_DEEPAGENTS_OPENROUTER_PROVIDER_ROUTING_ENV =
   'GANTRY_DEEPAGENTS_OPENROUTER_PROVIDER_ROUTING';
-
-// Maps the resolved model's prompt-cache request control (catalog descriptor) to
-// the runner's gated cache_control mode. 'provider_automatic_prefix' (OpenAI
-// gpt, OpenRouter Kimi) -> 'automatic' (inject nothing, the upstream caches the
-// prefix); 'cache_control_blocks' (Anthropic/Gemini/Qwen sub-models) ->
-// 'explicit' (runner adds ephemeral breakpoints); otherwise 'none'.
-function cachePromptControlMode(
-  requestControl: 'none' | 'cache_control_blocks' | 'provider_automatic_prefix',
-): 'automatic' | 'explicit' | 'none' {
-  switch (requestControl) {
-    case 'provider_automatic_prefix':
-      return 'automatic';
-    case 'cache_control_blocks':
-      return 'explicit';
-    default:
-      return 'none';
-  }
-}
 
 function openRouterProviderRoutingEnv(
   routing: OpenRouterProviderRouting | undefined,
@@ -152,18 +133,15 @@ export class DeepAgentsLangChainExecutionAdapter implements AgentExecutionAdapte
     if (input.effectiveModelEntry) {
       env[GANTRY_DEEPAGENTS_MODEL_PROVIDER_ENV] =
         input.effectiveModelEntry.modelRoute.id;
-      env[GANTRY_DEEPAGENTS_CACHE_PROMPT_CONTROL_ENV] = cachePromptControlMode(
-        resolveModelCacheSupport(input.effectiveModelEntry).prompt
-          .requestControl,
-      );
-      const provider = getModelProviderDefinition(
-        input.effectiveModelEntry.modelRoute.id,
-      );
-      if (provider?.cacheSupport.prompt.promptCacheKey) {
-        env[GANTRY_DEEPAGENTS_PROMPT_CACHE_KEY_ENV] = promptCacheKey({
-          conversationId: input.input.chatJid,
-          threadId: input.input.threadId,
-        });
+      const promptCache = resolveDeepAgentsPromptCache({
+        modelEntry: input.effectiveModelEntry,
+        conversationId: input.input.chatJid,
+        threadId: input.input.threadId,
+      });
+      env[GANTRY_DEEPAGENTS_CACHE_PROMPT_CONTROL_ENV] = promptCache.cacheMode;
+      if (promptCache.promptCacheKey) {
+        env[GANTRY_DEEPAGENTS_PROMPT_CACHE_KEY_ENV] =
+          promptCache.promptCacheKey;
       }
       // Project the curated window only when the catalog declares one; absent ->
       // the runner uses the library's real profile (gpt-5.5/gpt-5.4).
@@ -247,18 +225,6 @@ export class DeepAgentsLangChainExecutionAdapter implements AgentExecutionAdapte
 
 function safePathSegment(value: string): string {
   return value.replace(/[^A-Za-z0-9_.-]/g, '_');
-}
-
-function promptCacheKey(input: {
-  conversationId: string;
-  threadId?: string;
-}): string {
-  return createHash('sha256')
-    .update('gantry-deepagents-prompt-cache-key\0')
-    .update(input.conversationId)
-    .update('\0')
-    .update(input.threadId ?? '')
-    .digest('hex');
 }
 
 export function createDeepAgentsLangChainExecutionAdapter(): AgentExecutionAdapter {

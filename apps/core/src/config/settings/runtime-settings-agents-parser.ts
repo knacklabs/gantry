@@ -394,11 +394,12 @@ export function parseConfiguredAgents(
         key !== 'permission_mode' &&
         key !== 'one_time_job_default_model' &&
         key !== 'recurring_job_default_model' &&
+        key !== 'delegates' &&
         key !== 'tool_rules' &&
         key !== 'access'
       ) {
         throw new Error(
-          `${pathPrefix}.${key} is not supported. Configure name, persona, relationship_mode, runtime, max_turns, max_run_tokens, effort, thinking, max_output_tokens, model, agent_harness, permission_mode, job model defaults, tool_rules, or access. Install agents under conversations.*.installed_agents.`,
+          `${pathPrefix}.${key} is not supported. Configure name, persona, relationship_mode, runtime, max_turns, max_run_tokens, effort, thinking, max_output_tokens, model, agent_harness, permission_mode, job model defaults, delegates, tool_rules, or access. Install agents under conversations.*.installed_agents.`,
         );
       }
     }
@@ -491,6 +492,11 @@ export function parseConfiguredAgents(
       ),
       oneTimeJobDefaultModel,
       recurringJobDefaultModel,
+      delegates: parseStringArrayValue(
+        map.delegates,
+        `${pathPrefix}.delegates`,
+        [],
+      ),
       toolRules: parseConfiguredAgentToolRules(
         map.tool_rules,
         `${pathPrefix}.tool_rules`,

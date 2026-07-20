@@ -39,14 +39,13 @@ describe('job status formatting', () => {
     expect(message).toContain('**📝 Needs memory review**');
     expect(message).toContain('· Memory Dreaming');
     expect(message).toContain(
-      'Completed: Memory dreaming needs attention: 4 sent to review.',
+      'Memory dreaming needs attention: 4 sent to review.',
     );
     expect(message).not.toContain('Used:');
     expect(message).not.toContain('Changed:');
     expect(message).not.toContain('Delegated:');
-    expect(message).toContain(
-      'Needs attention: 4 memory changes need your review.',
-    );
+    expect(message).toContain('4 memory changes need your review.');
+    expect(message).not.toContain('Needs attention:');
     expect(message).not.toContain('memory_review_pending');
   });
 
@@ -65,18 +64,13 @@ describe('job status formatting', () => {
 
     expect(message).toContain('**⏱️ Timed out**');
     expect(message).toContain('· Memory Dreaming');
-    expect(message).toContain(
-      'Completed: memory dreaming deadline exceeded. 2 pending memory reviews need review.',
-    );
+    expect(message).toContain("I couldn't finish before the job's time limit.");
+    expect(message).not.toContain('memory dreaming deadline exceeded');
     expect(message).not.toContain('Used:');
     expect(message).not.toContain('Changed:');
     expect(message).not.toContain('Delegated:');
-    expect(message).toContain(
-      'Needs attention: 2 memory changes need your review.',
-    );
-    expect(message).not.toContain(
-      'Needs attention: Rerun with a longer job timeout',
-    );
+    expect(message).toContain('2 memory changes need your review.');
+    expect(message).not.toContain('Rerun with a longer job timeout');
     expect(message).not.toContain('memory_review_pending');
   });
 
@@ -91,7 +85,9 @@ describe('job status formatting', () => {
       retryCount: 0,
     });
 
-    expect(message).toContain('Completed: Completed, no reportable output.');
+    expect(message).toContain(
+      'I finished the job, but it had no reportable output.',
+    );
     expect(message).not.toContain('Used:');
     expect(message).not.toContain('Changed:');
     expect(message).not.toContain('Delegated:');
@@ -111,8 +107,11 @@ describe('job status formatting', () => {
     });
 
     expect(message).toContain('**⚠️ Completed with issues**');
-    expect(message).toContain('Needs attention: Approve the remaining record.');
-    expect(message).toContain('Next: Runs again at ');
+    expect(message).toContain('Approve the remaining record.');
+    expect(message.match(/Approve the remaining record\./g)).toHaveLength(1);
+    expect(message).toContain('Runs again at ');
+    expect(message).not.toContain('Needs attention:');
+    expect(message).not.toContain('Next:');
   });
 
   it('keeps the blocker line when the compacted summary truncates it away', () => {
@@ -130,9 +129,8 @@ describe('job status formatting', () => {
     });
 
     expect(message).toContain('**⚠️ Completed with issues**');
-    expect(message).toContain(
-      'Needs attention: LinkedIn session expired, re-authenticate.',
-    );
+    expect(message).toContain('LinkedIn session expired, re-authenticate.');
+    expect(message).not.toContain('Needs attention:');
   });
 
   it('strips trailing agent-authored all-none receipt lines', () => {
@@ -152,16 +150,15 @@ describe('job status formatting', () => {
       retryCount: 0,
     });
 
-    expect(message).toContain(
-      'Completed: Final Job Report Completed: Imported 3 records.',
-    );
+    expect(message).toContain('Imported 3 records.');
+    expect(message).not.toContain('Completed:');
     expect(message).not.toContain('Used:');
     expect(message).not.toContain('Changed: none');
     expect(message).not.toContain('Delegated: no');
     expect(message).not.toContain('Needs attention:');
   });
 
-  it('keeps Used only for a parsed terminal tool denial', () => {
+  it('renders a parsed terminal tool denial without developer trailer labels', () => {
     const message = formatRunStatusMessage({
       job: job(),
       runId: 'cb7f3c0a-c8f8-40eb-82f0-3b21d2cfc342',
@@ -172,8 +169,12 @@ describe('job status formatting', () => {
       retryCount: 1,
     });
 
-    expect(message).toContain('Used: RunCommand');
-    expect(message).toContain('Needs attention: Approve the missing access');
-    expect(message).toContain('Next: Stopped until the job is fixed or rerun.');
+    expect(message).toContain('Missing RunCommand access for this job.');
+    expect(message).toContain('Approve the missing access');
+    expect(message).toContain('Stopped until the job is fixed or rerun.');
+    expect(message).not.toMatch(
+      /^(?:Completed|Used|Changed|Delegated|Needs attention|Next):/m,
+    );
+    expect(message).not.toContain('request_access');
   });
 });

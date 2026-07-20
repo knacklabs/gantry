@@ -698,43 +698,57 @@
     {
       "idx": 102,
       "version": "7",
-      "when": 1784000000000,
-      "tag": "0102_person_identity_management",
+      "when": 1784393767889,
+      "tag": "0102_group_join_onboarding",
       "breakpoints": true
     },
     {
       "idx": 103,
       "version": "7",
-      "when": 1784000001000,
-      "tag": "0103_drop_legacy_user_alias_unique_index",
+      "when": 1784430629236,
+      "tag": "0103_permission_durable_storage_cutover",
       "breakpoints": true
     },
     {
       "idx": 104,
       "version": "7",
-      "when": 1784000002000,
-      "tag": "0104_people_identity_query_indexes",
+      "when": 1784000000000,
+      "tag": "0104_person_identity_management",
       "breakpoints": true
     },
     {
       "idx": 105,
       "version": "7",
-      "when": 1784000003000,
-      "tag": "0105_person_merge_audit_result",
+      "when": 1784000001000,
+      "tag": "0105_drop_legacy_user_alias_unique_index",
       "breakpoints": true
     },
     {
       "idx": 106,
       "version": "7",
-      "when": 1784000004000,
-      "tag": "0106_identity_isolation_and_participant_identity",
+      "when": 1784000002000,
+      "tag": "0106_people_identity_query_indexes",
       "breakpoints": true
     },
     {
       "idx": 107,
       "version": "7",
+      "when": 1784000003000,
+      "tag": "0107_person_merge_audit_result",
+      "breakpoints": true
+    },
+    {
+      "idx": 108,
+      "version": "7",
+      "when": 1784000004000,
+      "tag": "0108_identity_isolation_and_participant_identity",
+      "breakpoints": true
+    },
+    {
+      "idx": 109,
+      "version": "7",
       "when": 1784000005000,
-      "tag": "0107_identity_app_scoped_person_foreign_keys",
+      "tag": "0109_identity_app_scoped_person_foreign_keys",
       "breakpoints": true
     }
   ]

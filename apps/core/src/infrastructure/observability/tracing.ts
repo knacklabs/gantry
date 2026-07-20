@@ -5,6 +5,7 @@ import {
   ROOT_CONTEXT,
   SpanStatusCode,
   trace,
+  type Context,
   type Span,
   type Tracer,
 } from '@opentelemetry/api';
@@ -204,34 +205,47 @@ const NOOP_TURN_SPAN: TurnSpanHandle = {
   end: () => {},
 };
 
-export function startTurnSpan(input: {
-  runId: string;
-  appId?: string;
-  agentId?: string;
-  agentName: string;
-  conversationId?: string;
-  threadId?: string;
-  jobId?: string;
-  userId?: string;
-  continuation?: boolean;
-}): TurnSpanHandle {
+export function startTurnSpan(
+  input: {
+    runId: string;
+    parentRunId?: string;
+    appId?: string;
+    agentId?: string;
+    agentName: string;
+    conversationId?: string;
+    threadId?: string;
+    jobId?: string;
+    userId?: string;
+    continuation?: boolean;
+  },
+  parentContext?: Context,
+): TurnSpanHandle {
   const current = state;
   if (!current) return NOOP_TURN_SPAN;
   try {
-    const span = current.tracer.startSpan(`invoke_agent ${input.agentName}`, {
-      attributes: {
-        'gen_ai.operation.name': 'invoke_agent',
-        'gen_ai.agent.name': input.agentName,
-        ...(input.agentId ? { 'gen_ai.agent.id': input.agentId } : {}),
-        ...(input.conversationId ? { 'session.id': input.conversationId } : {}),
-        ...(input.userId ? { 'user.id': input.userId } : {}),
-        ...(input.appId ? { 'gantry.app_id': input.appId } : {}),
-        'gantry.run_id': input.runId,
-        ...(input.jobId ? { 'gantry.job_id': input.jobId } : {}),
-        ...(input.threadId ? { 'gantry.thread_id': input.threadId } : {}),
-        ...(input.continuation ? { 'gantry.continuation': true } : {}),
+    const span = current.tracer.startSpan(
+      `invoke_agent ${input.agentName}`,
+      {
+        attributes: {
+          'gen_ai.operation.name': 'invoke_agent',
+          'gen_ai.agent.name': input.agentName,
+          ...(input.agentId ? { 'gen_ai.agent.id': input.agentId } : {}),
+          ...(input.conversationId
+            ? { 'session.id': input.conversationId }
+            : {}),
+          ...(input.userId ? { 'user.id': input.userId } : {}),
+          ...(input.appId ? { 'gantry.app_id': input.appId } : {}),
+          'gantry.run_id': input.runId,
+          ...(input.parentRunId
+            ? { 'gantry.parent_run_id': input.parentRunId }
+            : {}),
+          ...(input.jobId ? { 'gantry.job_id': input.jobId } : {}),
+          ...(input.threadId ? { 'gantry.thread_id': input.threadId } : {}),
+          ...(input.continuation ? { 'gantry.continuation': true } : {}),
+        },
       },
-    });
+      parentContext,
+    );
     turnSpans.set(input.runId, span);
     let ended = false;
     return {

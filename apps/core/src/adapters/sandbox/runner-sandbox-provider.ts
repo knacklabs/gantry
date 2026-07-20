@@ -1,7 +1,6 @@
 import { spawn } from 'node:child_process';
 import { createRequire } from 'node:module';
 import fs from 'node:fs';
-import { isIP } from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -238,10 +237,7 @@ function buildSandboxRuntimeConfig(input: RunnerSandboxSpawnInput) {
       ...(process.platform === 'darwin'
         ? { allowMachLookup: [MACOS_FSEVENTS_MACH_SERVICE] }
         : {}),
-      allowedDomains:
-        input.sandboxProfile.network === 'required'
-          ? sandboxAllowedDomainsFromHosts(input.allowedNetworkHosts)
-          : [],
+      allowedDomains: [],
       ...(input.sandboxProfile.network === 'required'
         ? egressProxyConfig(input.egressProxyUrl)
         : {}),
@@ -345,57 +341,6 @@ function egressProxyConfig(proxyUrl: string | undefined): {
       noProxy: '',
     },
   };
-}
-
-function sandboxAllowedDomainsFromHosts(hosts: readonly string[]): string[] {
-  const domains = new Set<string>();
-  for (const host of hosts) {
-    const normalized = sandboxAllowedDomainFromHost(host);
-    if (normalized) domains.add(normalized);
-  }
-  return [...domains].sort();
-}
-
-function sandboxAllowedDomainFromHost(host: string): string | null {
-  const trimmed = host.trim().toLowerCase().replace(/\.$/, '');
-  if (!trimmed) return null;
-  let candidate: string | null = trimmed;
-  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(candidate)) {
-    try {
-      candidate = new URL(candidate).hostname.toLowerCase().replace(/\.$/, '');
-    } catch {
-      return null;
-    }
-  } else {
-    candidate = hostWithoutPort(candidate);
-  }
-  if (!candidate) return null;
-  candidate = unbracketIpv6(candidate).replace(/\.$/, '');
-  if (candidate === 'localhost') return candidate;
-  const ipVersion = isIP(candidate);
-  if (ipVersion === 4) return candidate;
-  if (ipVersion === 6) return null;
-  return candidate;
-}
-
-function hostWithoutPort(value: string): string | null {
-  if (value.startsWith('[')) {
-    const end = value.indexOf(']');
-    if (end === -1) return null;
-    const rest = value.slice(end + 1);
-    if (rest && !rest.startsWith(':')) return null;
-    return value.slice(0, end + 1);
-  }
-  const colon = value.indexOf(':');
-  if (colon === -1) return value;
-  if (colon !== value.lastIndexOf(':')) return null;
-  return value.slice(0, colon);
-}
-
-function unbracketIpv6(value: string): string {
-  return value.startsWith('[') && value.endsWith(']')
-    ? value.slice(1, -1)
-    : value;
 }
 
 function defaultReadDenyPaths(input: RunnerSandboxSpawnInput): string[] {

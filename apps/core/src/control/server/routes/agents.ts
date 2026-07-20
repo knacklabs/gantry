@@ -4,11 +4,18 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import {
   CreateAgentRequestSchema,
   PutAgentProfileFileRequestSchema,
+  ReplaceAgentDelegatesRequestSchema,
   UpdateAgentRequestSchema,
 } from '@gantry/contracts';
 
 import { ApplicationError } from '../../../application/common/application-error.js';
 import { AgentCapabilityAdministrationService } from '../../../application/agents/agent-capability-administration-service.js';
+import { resolveAgentToolRuntimeRules } from '../../../application/agents/agent-tool-runtime-rules.js';
+import {
+  callableAgentToolName,
+  conversationBoundAgentIdsForRoute,
+  projectCallableAgentTools,
+} from '../../../application/core-tools/callable-agent-tools.js';
 import {
   AgentProfileService,
   MAX_PROFILE_CONTENT_BYTES,
@@ -23,13 +30,17 @@ import {
   getRuntimeStorage,
 } from '../../../adapters/storage/postgres/runtime-store.js';
 import { FileArtifactNotFoundError } from '../../../domain/file-artifacts/file-artifact.js';
-import { folderForAgentId } from '../../../domain/agent/agent-folder-id.js';
+import {
+  agentIdForFolder,
+  folderForAgentId,
+} from '../../../domain/agent/agent-folder-id.js';
 import { isValidWorkspaceFolder } from '../../../platform/workspace-folder.js';
 import { createProfileFileMirrorWriter } from '../../../platform/profile-file-mirror.js';
 import { RUNTIME_EVENT_TYPES } from '../../../domain/events/runtime-event-types.js';
 import type { Agent, AgentId } from '../../../domain/agent/agent.js';
 import type { AppId } from '../../../domain/app/app.js';
 import type { ConversationInstall } from '../../../domain/provider/provider.js';
+import type { ConversationRoute } from '../../../domain/types.js';
 import {
   authorizeControlRequest,
   type ControlRouteContext,
@@ -37,9 +48,17 @@ import {
 import { readJson, sendError, sendJson } from '../http.js';
 import { nowIso } from '../../../shared/time/datetime.js';
 import {
+  createDefaultRuntimeSettings,
   loadRuntimeSettings,
   writeDesiredRuntimeSettings,
 } from '../../../config/settings/runtime-settings.js';
+import {
+  settingsFromRevisionDocument,
+  settingsToRevisionDocument,
+} from '../../../config/settings/settings-import-service.js';
+import type { RuntimeSettings } from '../../../config/settings/runtime-settings-types.js';
+import { writeControlDesiredState } from './settings.js';
+import { parseAgentThreadQueueKey } from '../../../shared/thread-queue-key.js';
 
 const PROFILE_JSON_BODY_MAX_BYTES = MAX_PROFILE_CONTENT_BYTES * 6 + 64 * 1024;
 
@@ -217,6 +236,133 @@ export async function handleAgentRoutes(
     } catch (error) {
       if (!sendApplicationError(res, error)) throw error;
     }
+    return true;
+  }
+
+  const delegatesMatch = pathname.match(/^\/v1\/agents\/([^/]+)\/delegates$/);
+  if (delegatesMatch) {
+    const auth = authorizeControlRequest(req, res, ctx.keys, ['agents:admin']);
+    if (!auth) return true;
+    const appId = auth.appId as AppId;
+    const agentId = decodeURIComponent(delegatesMatch[1]) as AgentId;
+    const repositories = getRuntimeStorage().repositories;
+    const orchestrator = await repositories.agents.getAgent(agentId);
+    if (!orchestrator || orchestrator.appId !== appId) {
+      sendError(res, 404, 'NOT_FOUND', 'Agent not found');
+      return true;
+    }
+    const folder = folderForAgentId(orchestrator.id);
+    if (!folder) {
+      sendError(
+        res,
+        400,
+        'INVALID_REQUEST',
+        'Agent does not have a settings folder.',
+      );
+      return true;
+    }
+
+    if (req.method === 'GET') {
+      const { settings, revision } = await loadAgentDelegateSettings(appId);
+      const delegates = settings.agents[folder]?.delegates ?? [];
+      sendJson(res, 200, {
+        agentId,
+        revision,
+        delegates,
+        resolved: await resolveCallableDelegateRoster({
+          appId,
+          orchestrator,
+          folder,
+          delegates,
+          settings,
+          conversationRoutes: ctx.app.getConversationRoutes(),
+        }),
+      });
+      return true;
+    }
+
+    if (req.method === 'PUT') {
+      if (orchestrator.status !== 'active') {
+        sendError(
+          res,
+          400,
+          'INVALID_REQUEST',
+          'Delegates can only be updated for active agents.',
+        );
+        return true;
+      }
+      const parsed = ReplaceAgentDelegatesRequestSchema.safeParse(
+        await readJson(req),
+      );
+      if (!parsed.success) {
+        sendError(res, 400, 'INVALID_REQUEST', 'Invalid delegates update');
+        return true;
+      }
+      const agents = await repositories.agents.listAgents(appId);
+      const byIdentity = agentIdentityMap(agents);
+      const seen = new Set<string>();
+      const canonicalDelegates: string[] = [];
+      for (const delegate of parsed.data.delegates) {
+        const target = byIdentity.get(delegate);
+        if (!target) {
+          sendError(
+            res,
+            400,
+            'INVALID_REQUEST',
+            `Delegate ${delegate} is not a registered agent in this app.`,
+          );
+          return true;
+        }
+        if (target.id === orchestrator.id) {
+          sendError(
+            res,
+            400,
+            'INVALID_REQUEST',
+            'An agent cannot delegate to itself.',
+          );
+          return true;
+        }
+        if (seen.has(String(target.id))) {
+          sendError(
+            res,
+            400,
+            'INVALID_REQUEST',
+            `Delegate ${delegate} resolves to a duplicate agent.`,
+          );
+          return true;
+        }
+        seen.add(String(target.id));
+        canonicalDelegates.push(
+          folderForAgentId(target.id) ?? String(target.id),
+        );
+      }
+
+      const { settings, revision } = await loadAgentDelegateSettings(appId);
+      const configuredOrchestrator = settings.agents[folder];
+      if (!configuredOrchestrator) {
+        sendError(
+          res,
+          409,
+          'SETTINGS_NOT_CONFIGURED',
+          'Agent is not present in desired settings. Seed desired state through /v1/settings/desired-state before updating delegates.',
+        );
+        return true;
+      }
+      configuredOrchestrator.delegates = canonicalDelegates;
+      await writeControlDesiredState({
+        res,
+        ctx,
+        key: auth,
+        body: {
+          settings: settingsToRevisionDocument(settings),
+          expectedRevision: parsed.data.expectedRevision ?? revision,
+        },
+      });
+      return true;
+    }
+
+    res.setHeader('Allow', 'GET, PUT');
+    sendError(res, 405, 'METHOD_NOT_ALLOWED', 'Method not allowed');
     return true;
   }
 
@@ -564,4 +710,120 @@ async function agentBoundConversation(
       ? { trigger: route.trigger }
       : {}),
   };
+}
+
+async function loadAgentDelegateSettings(
+  appId: AppId,
+): Promise<{ settings: RuntimeSettings; revision: number }> {
+  const latest =
+    await getRuntimeStorage().repositories.settingsRevisions.getLatestSettingsRevision(
+      appId,
+    );
+  return latest
+    ? {
+        settings: settingsFromRevisionDocument(latest.settingsDocument),
+        revision: latest.revision,
+      }
+    : {
+        settings: createDefaultRuntimeSettings(),
+        revision: 0,
+      };
+}
+
+function agentIdentityMap(agents: readonly Agent[]): Map<string, Agent> {
+  const identities = new Map<string, Agent>();
+  for (const agent of agents) {
+    identities.set(String(agent.id), agent);
+    const folder = folderForAgentId(agent.id);
+    if (folder) identities.set(folder, agent);
+  }
+  return identities;
+}
+
+async function resolveCallableDelegateRoster(input: {
+  appId: AppId;
+  orchestrator: Agent;
+  folder: string;
+  delegates: readonly string[];
+  settings: RuntimeSettings;
+  conversationRoutes: Record<string, ConversationRoute>;
+}) {
+  if (input.orchestrator.status !== 'active') return [];
+  const repositories = getRuntimeStorage().repositories;
+  const agents = await repositories.agents.listAgents(input.appId);
+  const conversationBoundAgentIds = new Set<string>();
+  const threadIdsByConversationAndChat = new Map<string, Set<string>>();
+  for (const [routeKey, route] of Object.entries(input.conversationRoutes)) {
+    if (!route.conversationId) continue;
+    const parsed = parseAgentThreadQueueKey(routeKey);
+    if (!parsed.threadId) continue;
+    const contextKey = `${route.conversationId}\0${parsed.chatJid}`;
+    const threadIds =
+      threadIdsByConversationAndChat.get(contextKey) ?? new Set<string>();
+    threadIds.add(parsed.threadId);
+    threadIdsByConversationAndChat.set(contextKey, threadIds);
+  }
+  for (const [routeKey, route] of Object.entries(input.conversationRoutes)) {
+    const routeAgentId =
+      route.agentId ?? String(agentIdForFolder(route.folder));
+    if (routeAgentId !== String(input.orchestrator.id)) continue;
+    const parsed = parseAgentThreadQueueKey(routeKey);
+    const threadIds = parsed.threadId
+      ? [parsed.threadId]
+      : [
+          undefined,
+          ...(threadIdsByConversationAndChat.get(
+            `${route.conversationId ?? ''}\0${parsed.chatJid}`,
+          ) ?? []),
+        ];
+    for (const threadId of threadIds) {
+      for (const agentId of conversationBoundAgentIdsForRoute({
+        routes: input.conversationRoutes,
+        chatJid: parsed.chatJid,
+        threadId,
+        callerAgentId: routeAgentId,
+        callerProviderAccountId:
+          parsed.providerAccountId ?? route.providerAccountId,
+      })) {
+        conversationBoundAgentIds.add(agentId);
+      }
+    }
+  }
+  const personasByAgentId = Object.fromEntries(
+    Object.entries(input.settings.agents).map(([folder, agent]) => [
+      String(agentIdForFolder(folder)),
+      agent.persona,
+    ]),
+  );
+  const identities = agentIdentityMap(agents);
+  const toolPolicyRules =
+    input.settings.agents[input.folder]?.accessPreset === 'locked'
+      ? []
+      : await resolveAgentToolRuntimeRules({
+          repository: repositories.tools,
+          appId: String(input.appId),
+          agentId: String(input.orchestrator.id),
+          errorSubject: 'Configured agent tool',
+        });
+  return projectCallableAgentTools({
+    agents,
+    callerAppId: String(input.appId),
+    callerAgentId: String(input.orchestrator.id),
+    callerFolder: input.folder,
+    delegates: input.delegates,
+    conversationBoundAgentIds,
+    personasByAgentId,
+    toolPolicyRules,
+    warn: (context, message) => logger.warn(context, message),
+  }).map((entry) => ({
+    ref:
+      input.delegates.find(
+        (delegate) =>
+          String(identities.get(delegate)?.id) === entry.targetAgentId,
+      ) ?? entry.targetAgentId,
+    agentId: entry.targetAgentId,
+    toolName: callableAgentToolName(entry),
+    displayName: entry.displayName,
+    persona: entry.persona,
+  }));
 }

@@ -262,6 +262,7 @@ function makeDeps(
 
   return {
     channelRuntime: makeChannel(),
+    getConversationRoutes: vi.fn().mockReturnValue({}),
     getGroup: vi.fn().mockReturnValue(undefined),
     clearSession: vi.fn(),
     getCursor: vi.fn().mockReturnValue('0'),
@@ -2902,7 +2903,7 @@ describe('createGroupProcessor', () => {
       expect(deps.queue.closeStdin).not.toHaveBeenCalled();
     });
 
-    it('keeps typing heartbeat alive and posts elapsed progress for long runs', async () => {
+    it('keeps typing heartbeat alive without host progress for long runs', async () => {
       const group = makeGroup({ requiresTrigger: false });
       const messages = [makeMessage()];
       const channel = makeChannel({
@@ -2948,7 +2949,7 @@ describe('createGroupProcessor', () => {
       ).toBe(true);
     });
 
-    it('keeps elapsed progress updating after visible output is already shown', async () => {
+    it('does not post host progress after visible output is shown', async () => {
       const group = makeGroup({ requiresTrigger: false });
       const messages = [makeMessage()];
       const channel = makeChannel({
@@ -3209,7 +3210,7 @@ describe('createGroupProcessor', () => {
       );
     });
 
-    it('does not post elapsed progress on the first heartbeat tick', async () => {
+    it('does not post host progress on the first heartbeat tick', async () => {
       const group = makeGroup({ requiresTrigger: false });
       const messages = [makeMessage()];
       const channel = makeChannel({
@@ -4189,7 +4190,7 @@ describe('createGroupProcessor', () => {
       expect(progressTexts).not.toContain('Waiting for your input.');
     });
 
-    it('excludes permission wait time from final elapsed progress', async () => {
+    it('keeps final progress duration-free across permission waits', async () => {
       vi.useFakeTimers();
       const streamingChannel = makeChannel({
         sendStreamingChunk: vi.fn().mockResolvedValue(true),

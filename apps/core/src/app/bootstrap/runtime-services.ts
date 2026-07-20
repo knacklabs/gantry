@@ -38,6 +38,7 @@ import type {
   LiveTurnCoordinationRepository,
 } from '../../domain/ports/live-turns.js';
 import type {
+  AgentRepository,
   CapabilitySecretRepository,
   McpServerRepository,
   OutboundDeliveryRepository,
@@ -125,6 +126,7 @@ interface Deps extends Pick<IpcDeps, RuntimeStorageDep> {
   collectSessionMemory: SessionMemoryCollector;
   resolvePersonIdentity?: GroupProcessingDeps['resolvePersonIdentity'];
   getCredentialBroker?: () => Promise<AgentCredentialBroker | undefined>;
+  getAgentRepository?: () => AgentRepository | undefined;
   getSkillRepository?: () => SkillCatalogRepository | undefined;
   getMcpServerRepository?: () => McpServerRepository | undefined;
   getCapabilitySecretRepository?: () => CapabilitySecretRepository | undefined;
@@ -343,6 +345,7 @@ export async function startRuntimeServices(
         ? 'locked'
         : 'full',
     getPermissionRuntimeSettings: getRuntimeSettingsForConfig,
+    getAgentRepository: resolved.getAgentRepository,
     getMcpServerRepository: resolved.getMcpServerRepository,
     publishRuntimeEvent: resolved.publishRuntimeEvent,
     warn: (context, message) => resolved.logger.warn(context, message),
@@ -457,6 +460,7 @@ export async function startRuntimeServices(
       onSchedulerChanged,
       opsRepository: resolved.opsRepository,
       getToolRepository: resolved.getToolRepository,
+      getAgentRepository: resolved.getAgentRepository,
       getSkillRepository: resolved.getSkillRepository,
       getAsyncTaskRepository: resolved.getAsyncTaskRepository,
       getMcpServerRepository: resolved.getMcpServerRepository,

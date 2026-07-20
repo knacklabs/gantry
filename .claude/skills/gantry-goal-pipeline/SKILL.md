@@ -38,7 +38,27 @@ note in the assumptions ledger so the decision is recorded.
 
 ## 2. Implementation handoffs
 
-READ-ONLY Codex tasks (plan validations, surveys, reviews of committed state) always run in parallel with writers and each other — never serialize them. WRITER handoffs may run in parallel ONLY when their bounded write scopes are provably disjoint (source, tests, docs, AND the assumptions ledger — give the ledger to one task or write its rows yourself); overlapping or unclear scopes serialize. After parallel writers land, run one unified verification pass before committing. Stage
+ESCALATION CLAUSE IN EVERY HANDOFF: tell Codex the orchestrator is watching and
+can answer — on a contradiction, ambiguous/missing requirement, or
+behavior/security decision, STOP and emit an explicit `DECISION NEEDED:` /
+`QUESTION:` line and wait, rather than assuming silently or abandoning. The
+Monitor keys on those markers so the question reaches the orchestrator.
+MANDATORY MONITOR FOR CODEX QUESTIONS: whenever Codex handoffs run, arm a
+persistent Monitor over RECENTLY-MODIFIED Codex job logs (find -mmin -25, not
+all history) that emits on real question/decision phrasing (decision required,
+which option, please confirm, awaiting input/approval, mutually incompatible,
+need you to decide/clarify) — EXCLUDE benign 'Blockers: none' headers or it
+floods — with seen-file dedup — this is the event-driven way to catch
+a handoff blocked MID-RUN on a clarification, since Codex has no back-channel.
+Answer surfaced questions by resuming that task; do not rely only on the
+completion notification. After completion, scan the result for buried
+questions/deviations and read the stage's assumptions ledger, ratifying
+behavior-changing assumptions. WORKTREE-FIRST parallelism: when a stage or a whole plan is disjoint from the
+branch currently being edited and belongs on its own PR off main, run it in a
+dedicated `git worktree add -b <branch> <path> origin/main` (symlink
+node_modules from the primary checkout for verify), review and commit it
+independently, and merge it as its own PR — do this by default rather than
+queueing disjoint work behind the current branch. READ-ONLY Codex tasks (plan validations, surveys, reviews of committed state) always run in parallel with writers and each other — never serialize them. WRITER handoffs may run in parallel ONLY when their bounded write scopes are provably disjoint (source, tests, docs, AND the assumptions ledger — give the ledger to one task or write its rows yourself); overlapping or unclear scopes serialize. After parallel writers land, run one unified verification pass before committing. Stage
 size is bounded by packet separability (see §1), not serial run length —
 Codex fans packets out to its subagents. For each stage, spawn an Agent with
 `subagent_type: codex:codex-rescue` whose prompt contains:

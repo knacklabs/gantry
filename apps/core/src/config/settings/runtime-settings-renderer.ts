@@ -43,6 +43,8 @@ import type {
   RuntimeStorageSettings,
 } from './runtime-settings-types.js';
 import {
+  quoteYamlKey,
+  renderAgentDelegatesYaml,
   renderLimitsSettingsYaml,
   renderModelAliasesYaml,
   renderModelFamiliesYaml,
@@ -50,11 +52,6 @@ import {
 } from './runtime-settings-optional-blocks-renderer.js';
 import { resolveConfiguredAgentRuntime } from './runtime-settings-agent-runtime.js';
 const SYSTEM_DEFAULT_MODEL_ALIAS = 'opus';
-
-function quoteYamlKey(key: string): string {
-  if (/^[A-Za-z0-9_-]+$/.test(key)) return key;
-  return JSON.stringify(key);
-}
 
 function renderDefaultsYaml(
   lines: string[],
@@ -273,6 +270,7 @@ function renderConfiguredAgentsYaml(
         `    recurring_job_default_model: ${quoteYamlString(agent.recurringJobDefaultModel)}`,
       );
     }
+    renderAgentDelegatesYaml(lines, agent.delegates);
     if (agent.toolRules?.length) {
       lines.push('    tool_rules:');
       for (const rule of agent.toolRules) {

@@ -48,7 +48,7 @@ export interface DefaultInlineAgentLoopLaneDeps {
   createCoreTools: (
     input: AdapterInlineAgentLoopLaneInput,
     support: InlineCoreToolSupport,
-  ) => InlineCoreToolRegistry;
+  ) => InlineCoreToolRegistry | Promise<InlineCoreToolRegistry>;
   getEgressDenylist: () => readonly string[];
 }
 

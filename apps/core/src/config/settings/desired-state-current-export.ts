@@ -269,6 +269,7 @@ export async function exportCurrentDesiredState(input: {
       oneTimeJobDefaultModel: existing?.oneTimeJobDefaultModel,
       recurringJobDefaultModel: existing?.recurringJobDefaultModel,
       toolRules: existing?.toolRules,
+      delegates: existing?.delegates ?? [],
       bindings: existing?.bindings ?? {},
       sources: activeSources(
         skillBindingsByAgent.get(agent.id) ?? [],
@@ -556,6 +557,7 @@ export async function exportCurrentDesiredState(input: {
       oneTimeJobDefaultModel: existing?.oneTimeJobDefaultModel,
       recurringJobDefaultModel: existing?.recurringJobDefaultModel,
       toolRules: existing?.toolRules,
+      delegates: existing?.delegates ?? [],
       bindings: {
         ...(existing?.bindings ?? {}),
         [bindingId]: {

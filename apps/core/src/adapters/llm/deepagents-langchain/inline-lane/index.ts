@@ -40,7 +40,9 @@ import {
   reconcileDeepAgentSkillFiles,
   resolveDeepAgentSkillProjection,
 } from '../skill-projection.js';
+import { resolveDeepAgentsPromptCache } from '../prompt-cache.js';
 import { createBuiltinToolExclusionMiddleware } from '../runner/builtin-tool-exclusion.js';
+import { applyCachePromptControl } from '../runner/cache-control.js';
 import { isAbortError } from '../runner/live-control.js';
 import {
   buildRunnerModel,
@@ -101,6 +103,11 @@ export function createDeepAgentsInlineAgentLoopLane(input: {
       new StateBackend(config);
 
     const sessionId = laneInput.input.sessionId ?? randomUUID();
+    const promptCache = resolveDeepAgentsPromptCache({
+      modelEntry: laneInput.resolvedModel.value.modelEntry,
+      conversationId: laneInput.input.chatJid,
+      threadId: laneInput.input.threadId,
+    });
     const stop = new AbortController();
     const pendingFollowups: string[] = [];
     let closeRequested = false;
@@ -141,7 +148,11 @@ export function createDeepAgentsInlineAgentLoopLane(input: {
         });
       }
 
-      const model = await buildInlineModel(laneInput, sessionId);
+      const model = await buildInlineModel(
+        laneInput,
+        sessionId,
+        promptCache.promptCacheKey,
+      );
       remoteMcp = toolsDisabled
         ? { tools: [], close: () => Promise.resolve() }
         : await connectRemoteMcpTools(laneInput.mcpServers, {
@@ -212,9 +223,12 @@ export function createDeepAgentsInlineAgentLoopLane(input: {
           : queued.join('\n');
         if (!prompt) break;
         currentMemoryQuery = prompt;
-        const messages = memory.buildInlineTurnMessages(
-          prompt,
-          firstTurn ? laneInput.input.memoryContextBlock : undefined,
+        const messages = applyCachePromptControl(
+          memory.buildInlineTurnMessages(
+            prompt,
+            firstTurn ? laneInput.input.memoryContextBlock : undefined,
+          ),
+          promptCache.cacheMode,
         );
         firstTurn = false;
 
@@ -371,6 +385,7 @@ async function openCheckpointer(input: {
 async function buildInlineModel(
   input: Parameters<ProviderInlineAgentLoopLane>[0],
   sessionId: string,
+  promptCacheKey?: string,
 ): Promise<ResolvedRunnerModel> {
   if (!input.resolvedModel.ok) throw new Error(input.resolvedModel.message);
   const baseUrl = input.modelCredentialEnv.OPENAI_BASE_URL?.trim();
@@ -389,6 +404,7 @@ async function buildInlineModel(
     gatewayBaseUrl: baseUrl,
     gatewayToken: token,
     sessionId,
+    ...(promptCacheKey ? { promptCacheKey } : {}),
     effort: input.effort,
     configuredThinking: input.configuredThinking,
     maxOutputTokens: input.maxOutputTokens,

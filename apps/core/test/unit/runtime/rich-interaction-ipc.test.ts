@@ -210,6 +210,56 @@ describe('rich interaction IPC', () => {
     fs.rmSync(tempDir, { recursive: true, force: true });
   });
 
+  it('routes progress through the edit-in-place progress card', async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'rich-ipc-'));
+    const claimedPath = path.join(tempDir, 'claimed.json');
+    fs.writeFileSync(claimedPath, '{}');
+    const renderAgentTodo = vi.fn(async () => true);
+    const renderRichInteraction = vi.fn(async () => true);
+    const request = parseRichInteractionIpcRequest(
+      signedRichPayload(
+        richPayload({
+          interaction: {
+            id: 'skill-install-progress',
+            title: 'Installing',
+            fallbackText: 'Installing: 2 of 3',
+            rich: {
+              kind: 'progress',
+              fallbackText: 'Installing: 2 of 3',
+              payload: { label: '2 of 3', value: 50, done: true },
+            },
+          },
+        }),
+      ),
+      'team',
+    );
+
+    await processRichInteractionIpc({
+      request,
+      sourceAgentFolder: 'team',
+      deps: deps({ renderAgentTodo, renderRichInteraction }),
+      ipcBaseDir: tempDir,
+      file: 'rich.json',
+      claimedPath,
+      logger: { warn: vi.fn(), error: vi.fn() },
+    });
+
+    expect(renderAgentTodo).toHaveBeenCalledWith(
+      'slack:C123',
+      expect.objectContaining({
+        summary: 'Installing… 2 of 3 — 50% — done',
+        items: [],
+        status: 'done',
+        threadId: 'thread-1',
+        cardKind: 'progress',
+      }),
+      undefined,
+    );
+    expect(renderRichInteraction).not.toHaveBeenCalled();
+    expect(fs.existsSync(claimedPath)).toBe(false);
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  });
+
   it('uses the resolved provider account for rich fallback delivery', async () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'rich-ipc-'));
     const claimedPath = path.join(tempDir, 'claimed.json');

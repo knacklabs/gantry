@@ -130,7 +130,7 @@ describe('buildGantryAgentSystemPrompt', () => {
     expect(prompt.dynamicPrompt).toBe('');
   });
 
-  it('includes adaptive work receipt guidance', () => {
+  it('uses plain-prose outcome guidance without receipt headings', () => {
     const prompt = buildGantryAgentSystemPrompt({
       runtimeProjection: 'wrapped-tool-projection',
       promptMode: 'full',
@@ -142,17 +142,20 @@ describe('buildGantryAgentSystemPrompt', () => {
     );
     expect(prompt.prompt).toContain('Do not produce long reports');
     expect(prompt.prompt).toContain(
-      'End pure chat answers with the answer only; do not add a receipt.',
+      'End pure chat answers with the answer only.',
     );
-    expect(prompt.prompt).toContain('include only:');
-    expect(prompt.prompt).toContain('Completed: <short outcome>');
-    expect(prompt.prompt).toContain('include the full receipt:');
-    expect(prompt.prompt).toContain('Used: <tools/capabilities>');
     expect(prompt.prompt).toContain(
-      'Changed: <files/accounts/channels or none>',
+      'For work actions, lead with the outcome in plain prose. Include supporting details only when useful or requested; never append a labeled receipt block.',
     );
-    expect(prompt.prompt).toContain('Delegated: yes/no');
-    expect(prompt.prompt).toContain('Needs attention: <blocker or none>');
+    for (const receiptHeading of [
+      'Completed:',
+      'Used:',
+      'Changed:',
+      'Delegated:',
+      'Needs attention:',
+    ]) {
+      expect(prompt.prompt).not.toContain(receiptHeading);
+    }
   });
 
   it('uses the unified static/dynamic prompt path for Anthropic personas', () => {

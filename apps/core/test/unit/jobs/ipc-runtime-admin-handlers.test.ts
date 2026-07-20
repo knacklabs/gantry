@@ -291,6 +291,84 @@ describe('runtime admin IPC handlers', () => {
     });
   });
 
+  it('returns the review-failed response when current settings YAML is malformed', async () => {
+    const runtimeHome = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'gantry-settings-ipc-'),
+    );
+    runtimeHomes.push(runtimeHome);
+    vi.stubEnv(
+      'GANTRY_DATABASE_URL',
+      'postgres://gantry_app:pass@localhost/gantry',
+    );
+    vi.stubEnv(
+      'GANTRY_MODEL_GATEWAY_DATABASE_URL',
+      'postgres://model_gateway_app:pass@localhost/gantry?schema=model_gateway',
+    );
+    vi.stubEnv(
+      'SECRET_ENCRYPTION_KEY',
+      '123456789abcdefghijklmnopqrstuvwxyzABCDEFGH',
+    );
+    saveRuntimeSettings(runtimeHome, createDefaultRuntimeSettings());
+    fs.writeFileSync(path.join(runtimeHome, 'settings.yaml'), 'version: [');
+    const expectedRevision = getRuntimeSettingsRevision(runtimeHome);
+    const replacementYaml = renderRuntimeSettingsYaml(
+      createDefaultRuntimeSettings(),
+    );
+    vi.doMock('@core/adapters/storage/postgres/runtime-store.js', () => ({
+      getRuntimeStorage: () => ({
+        ops: { getAllConversationRoutes: vi.fn(async () => ({})) },
+        repositories: {
+          agents: {},
+          tools: {
+            getTool: vi.fn(async () => null),
+            listTools: vi.fn(async () => []),
+          },
+          skills: {
+            getSkill: vi.fn(async () => null),
+            listSkills: vi.fn(async () => []),
+          },
+          mcpServers: { getServer: vi.fn(async () => null) },
+          settingsRevisions: fakeSettingsRevisions(),
+        },
+      }),
+    }));
+    const { requestSettingsUpdateHandler, taskData } =
+      await loadHandlers(runtimeHome);
+    const requestPermissionApproval = vi.fn(async () => ({
+      approved: true,
+      decidedBy: 'tg:admin',
+    }));
+
+    await expect(
+      requestSettingsUpdateHandler({
+        data: taskData('malformed-current-settings', {
+          chatJid: 'tg:100',
+          payload: {
+            replacementYaml,
+            expectedRevision,
+            reason: 'test malformed current settings',
+          },
+        }) as never,
+        sourceAgentFolder: 'main_agent',
+        deps: {
+          ...depsWithAdminTools(['mcp__gantry__request_settings_update']),
+          requestPermissionApproval,
+          sendMessage: vi.fn(async () => undefined),
+        } as any,
+        conversationBindings: {},
+        sourceAgentFolderJids: ['tg:100'],
+      }),
+    ).resolves.toBeUndefined();
+
+    await expect(
+      waitForResponse(runtimeHome, 'malformed-current-settings'),
+    ).resolves.toMatchObject({
+      ok: false,
+      code: 'settings_review_failed',
+    });
+    expect(requestPermissionApproval).not.toHaveBeenCalled();
+  });
+
   it('shows a diff summary for approved settings updates and rejects stale approval windows', async () => {
     const runtimeHome = fs.mkdtempSync(
       path.join(os.tmpdir(), 'gantry-settings-ipc-'),
@@ -498,6 +576,441 @@ describe('runtime admin IPC handlers', () => {
       }),
     );
     expect(reloadRuntimeState).toHaveBeenCalled();
+  });
+
+  it('applies "stop asking me so much" as a reviewed canonical permission posture revision', async () => {
+    const runtimeHome = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'gantry-settings-ipc-'),
+    );
+    runtimeHomes.push(runtimeHome);
+    vi.stubEnv(
+      'GANTRY_DATABASE_URL',
+      'postgres://gantry_app:pass@localhost/gantry',
+    );
+    vi.stubEnv(
+      'GANTRY_MODEL_GATEWAY_DATABASE_URL',
+      'postgres://model_gateway_app:pass@localhost/gantry?schema=model_gateway',
+    );
+    vi.stubEnv(
+      'SECRET_ENCRYPTION_KEY',
+      '123456789abcdefghijklmnopqrstuvwxyzABCDEFGH',
+    );
+    const initial = createDefaultRuntimeSettings();
+    initial.agents.main_agent = {
+      name: 'Main',
+      folder: 'main_agent',
+      delegates: [],
+      bindings: {},
+      sources: { skills: [], mcpServers: [], tools: [] },
+      capabilities: [],
+      accessPreset: 'full',
+    };
+    saveRuntimeSettings(runtimeHome, initial);
+    const expectedRevision = getRuntimeSettingsRevision(runtimeHome);
+    const replacement = structuredClone(initial);
+    replacement.agents.main_agent.permissionMode = 'auto';
+    const replacementYaml = renderRuntimeSettingsYaml(replacement);
+    const settingsRevisions = fakeSettingsRevisions();
+    const reloadRuntimeState = vi.fn(async () => undefined);
+    const sendMessage = vi.fn(async () => undefined);
+    vi.doMock('@core/adapters/storage/postgres/runtime-store.js', () => ({
+      getRuntimeStorage: () => ({
+        ops: { getAllConversationRoutes: vi.fn(async () => ({})) },
+        repositories: {
+          agents: {
+            saveAgent: vi.fn(async () => undefined),
+            listAgents: vi.fn(async () => []),
+            replaceAgentCapabilityBindings: vi.fn(async () => undefined),
+          },
+          tools: {
+            getTool: vi.fn(async () => null),
+            listTools: vi.fn(async () => []),
+            saveTool: vi.fn(async () => undefined),
+          },
+          skills: {
+            getSkill: vi.fn(async () => null),
+            listSkills: vi.fn(async () => []),
+          },
+          mcpServers: { getServer: vi.fn(async () => null) },
+          settingsRevisions,
+        },
+      }),
+    }));
+    const { requestSettingsUpdateHandler, taskData } =
+      await loadHandlers(runtimeHome);
+
+    await requestSettingsUpdateHandler({
+      data: taskData('settings-update', {
+        chatJid: 'tg:100',
+        payload: {
+          replacementYaml,
+          expectedRevision,
+          reason: 'stop asking me so much',
+        },
+      }) as never,
+      sourceAgentFolder: 'main_agent',
+      deps: {
+        ...depsWithAdminTools(['mcp__gantry__request_settings_update']),
+        requestPermissionApproval: vi.fn(async () => ({
+          approved: true,
+          decidedBy: 'tg:admin',
+        })),
+        sendMessage,
+        reloadRuntimeState,
+      } as any,
+      conversationBindings: {},
+      sourceAgentFolderJids: ['tg:100'],
+    });
+
+    await expect(
+      waitForResponse(runtimeHome, 'settings-update'),
+    ).resolves.toMatchObject({
+      ok: true,
+      code: 'settings_updated',
+      message: "Done — I'll only check with you for risky actions now.",
+    });
+    expect(settingsRevisions.appendSettingsRevision).toHaveBeenCalledWith(
+      expect.objectContaining({
+        settingsDocument: expect.objectContaining({
+          agents: expect.objectContaining({
+            main_agent: expect.objectContaining({ permission_mode: 'auto' }),
+          }),
+        }),
+      }),
+    );
+    expect(reloadRuntimeState).toHaveBeenCalled();
+    expect(sendMessage).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    {
+      caseName: 'the install override stays attended',
+      installPermissionMode: 'ask' as const,
+    },
+    {
+      caseName: 'the install is already auto',
+      installPermissionMode: 'auto' as const,
+    },
+  ])(
+    'uses generic success copy when $caseName',
+    async ({ installPermissionMode }) => {
+      const runtimeHome = fs.mkdtempSync(
+        path.join(os.tmpdir(), 'gantry-settings-ipc-'),
+      );
+      runtimeHomes.push(runtimeHome);
+      vi.stubEnv(
+        'GANTRY_DATABASE_URL',
+        'postgres://gantry_app:pass@localhost/gantry',
+      );
+      vi.stubEnv(
+        'GANTRY_MODEL_GATEWAY_DATABASE_URL',
+        'postgres://model_gateway_app:pass@localhost/gantry?schema=model_gateway',
+      );
+      vi.stubEnv(
+        'SECRET_ENCRYPTION_KEY',
+        '123456789abcdefghijklmnopqrstuvwxyzABCDEFGH',
+      );
+      vi.stubEnv('TELEGRAM_BOT_TOKEN', 'test-token');
+      const initial = createDefaultRuntimeSettings();
+      initial.agents.main_agent = {
+        name: 'Main',
+        folder: 'main_agent',
+        delegates: [],
+        bindings: {},
+        sources: { skills: [], mcpServers: [], tools: [] },
+        capabilities: [],
+        accessPreset: 'full',
+      };
+      initial.providers.telegram.enabled = true;
+      initial.providerAccounts.telegram_default = {
+        agentId: 'main_agent',
+        provider: 'telegram',
+        label: 'Telegram Default',
+        runtimeSecretRefs: { bot_token: 'env:TELEGRAM_BOT_TOKEN' },
+      };
+      initial.conversations.current_conversation = {
+        providerAccount: 'telegram_default',
+        externalId: '100',
+        kind: 'dm',
+        displayName: 'Current conversation',
+        senderPolicy: { allow: '*', mode: 'trigger' },
+        controlApprovers: ['tg:admin'],
+        installedAgents: {
+          current_install: {
+            agentId: 'main_agent',
+            providerAccountId: 'telegram_default',
+            status: 'active',
+            addedAt: '2026-07-19T00:00:00.000Z',
+            memoryScope: 'conversation',
+            permissionMode: installPermissionMode,
+          },
+        },
+      };
+      saveRuntimeSettings(runtimeHome, initial);
+      const expectedRevision = getRuntimeSettingsRevision(runtimeHome);
+      const replacement = structuredClone(initial);
+      replacement.agents.main_agent.permissionMode = 'auto';
+      const settingsRevisions = fakeSettingsRevisions();
+      vi.doMock('@core/adapters/storage/postgres/runtime-store.js', () => ({
+        getRuntimeStorage: () => ({
+          ops: {
+            getAllConversationRoutes: vi.fn(async () => ({})),
+            setConversationRoute: vi.fn(async () => undefined),
+          },
+          repositories: {
+            agents: {
+              saveAgent: vi.fn(async () => undefined),
+              listAgents: vi.fn(async () => []),
+              replaceAgentCapabilityBindings: vi.fn(async () => undefined),
+            },
+            tools: {
+              getTool: vi.fn(async () => null),
+              listTools: vi.fn(async () => []),
+              saveTool: vi.fn(async () => undefined),
+            },
+            skills: {
+              getSkill: vi.fn(async () => null),
+              listSkills: vi.fn(async () => []),
+            },
+            mcpServers: { getServer: vi.fn(async () => null) },
+            settingsRevisions,
+          },
+        }),
+      }));
+      const { requestSettingsUpdateHandler, taskData } =
+        await loadHandlers(runtimeHome);
+
+      await requestSettingsUpdateHandler({
+        data: taskData('agent-posture-with-install-override', {
+          chatJid: 'tg:100',
+          payload: {
+            replacementYaml: renderRuntimeSettingsYaml(replacement),
+            expectedRevision,
+            reason: 'stop asking me so much',
+          },
+        }) as never,
+        sourceAgentFolder: 'main_agent',
+        deps: {
+          ...depsWithAdminTools(['mcp__gantry__request_settings_update']),
+          requestPermissionApproval: vi.fn(async () => ({
+            approved: true,
+            decidedBy: 'tg:admin',
+          })),
+          sendMessage: vi.fn(async () => undefined),
+          reloadRuntimeState: vi.fn(async () => undefined),
+        } as any,
+        conversationBindings: {
+          'tg:100': {
+            name: 'Current conversation',
+            folder: 'main_agent',
+            conversationId: 'current_conversation',
+            trigger: '',
+            added_at: '2026-07-19T00:00:00.000Z',
+            providerAccountId: 'telegram_default',
+          },
+        },
+        sourceAgentFolderJids: ['tg:100'],
+      });
+
+      await expect(
+        waitForResponse(runtimeHome, 'agent-posture-with-install-override'),
+      ).resolves.toMatchObject({
+        ok: true,
+        code: 'settings_updated',
+        message: 'Done — I updated the settings.',
+      });
+    },
+  );
+
+  it('writes a conversation-install permission posture change to the canonical revision', async () => {
+    const runtimeHome = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'gantry-settings-ipc-'),
+    );
+    runtimeHomes.push(runtimeHome);
+    vi.stubEnv(
+      'GANTRY_DATABASE_URL',
+      'postgres://gantry_app:pass@localhost/gantry',
+    );
+    vi.stubEnv(
+      'GANTRY_MODEL_GATEWAY_DATABASE_URL',
+      'postgres://model_gateway_app:pass@localhost/gantry?schema=model_gateway',
+    );
+    vi.stubEnv(
+      'SECRET_ENCRYPTION_KEY',
+      '123456789abcdefghijklmnopqrstuvwxyzABCDEFGH',
+    );
+    const initial = createDefaultRuntimeSettings();
+    initial.agents.main_agent = {
+      name: 'Main',
+      folder: 'main_agent',
+      delegates: [],
+      bindings: {},
+      sources: { skills: [], mcpServers: [], tools: [] },
+      capabilities: [],
+      accessPreset: 'full',
+    };
+    initial.providers.telegram.enabled = true;
+    initial.providerAccounts.telegram_default = {
+      agentId: 'main_agent',
+      provider: 'telegram',
+      label: 'Telegram Default',
+      runtimeSecretRefs: { bot_token: 'env:TELEGRAM_BOT_TOKEN' },
+    };
+    vi.stubEnv('TELEGRAM_BOT_TOKEN', 'test-token');
+    initial.conversations.current_conversation = {
+      providerAccount: 'telegram_default',
+      externalId: '100',
+      kind: 'dm',
+      displayName: 'Current conversation',
+      senderPolicy: { allow: '*', mode: 'trigger' },
+      controlApprovers: ['tg:admin'],
+      installedAgents: {
+        current_install: {
+          agentId: 'main_agent',
+          providerAccountId: 'telegram_default',
+          status: 'active',
+          addedAt: '2026-07-19T00:00:00.000Z',
+          memoryScope: 'conversation',
+        },
+      },
+    };
+    initial.conversations.other_conversation = {
+      providerAccount: 'telegram_default',
+      externalId: '200',
+      kind: 'dm',
+      displayName: 'Other conversation',
+      senderPolicy: { allow: '*', mode: 'trigger' },
+      controlApprovers: ['tg:admin'],
+      installedAgents: {
+        other_install: {
+          agentId: 'main_agent',
+          providerAccountId: 'telegram_default',
+          status: 'active',
+          addedAt: '2026-07-19T00:00:00.000Z',
+          memoryScope: 'conversation',
+        },
+      },
+    };
+    saveRuntimeSettings(runtimeHome, initial);
+    const expectedRevision = getRuntimeSettingsRevision(runtimeHome);
+    const replacement = structuredClone(initial);
+    replacement.conversations.current_conversation.installedAgents.current_install.permissionMode =
+      'auto';
+    const replacementYaml = renderRuntimeSettingsYaml(replacement);
+    const settingsRevisions = fakeSettingsRevisions();
+    vi.doMock('@core/adapters/storage/postgres/runtime-store.js', () => ({
+      getRuntimeStorage: () => ({
+        ops: {
+          getAllConversationRoutes: vi.fn(async () => ({})),
+          setConversationRoute: vi.fn(async () => undefined),
+        },
+        repositories: {
+          agents: {
+            saveAgent: vi.fn(async () => undefined),
+            listAgents: vi.fn(async () => []),
+            replaceAgentCapabilityBindings: vi.fn(async () => undefined),
+          },
+          tools: {
+            getTool: vi.fn(async () => null),
+            listTools: vi.fn(async () => []),
+            saveTool: vi.fn(async () => undefined),
+          },
+          skills: {
+            getSkill: vi.fn(async () => null),
+            listSkills: vi.fn(async () => []),
+          },
+          mcpServers: { getServer: vi.fn(async () => null) },
+          settingsRevisions,
+        },
+      }),
+    }));
+    const { requestSettingsUpdateHandler, taskData } =
+      await loadHandlers(runtimeHome);
+    const conversationBindings = {
+      'tg:100': {
+        name: 'Current conversation',
+        folder: 'main_agent',
+        conversationId: 'current_conversation',
+        trigger: '',
+        added_at: '2026-07-19T00:00:00.000Z',
+        providerAccountId: 'telegram_default',
+      },
+    };
+    const deps = {
+      ...depsWithAdminTools(['mcp__gantry__request_settings_update']),
+      requestPermissionApproval: vi.fn(async () => ({
+        approved: true,
+        decidedBy: 'tg:admin',
+      })),
+      sendMessage: vi.fn(async () => undefined),
+      reloadRuntimeState: vi.fn(async () => undefined),
+    } as any;
+
+    await requestSettingsUpdateHandler({
+      data: taskData('conversation-settings-update', {
+        chatJid: 'tg:100',
+        payload: {
+          replacementYaml,
+          expectedRevision,
+          reason: 'stop asking me so much in this conversation',
+        },
+      }) as never,
+      sourceAgentFolder: 'main_agent',
+      deps,
+      conversationBindings,
+      sourceAgentFolderJids: ['tg:100'],
+    });
+
+    await expect(
+      waitForResponse(runtimeHome, 'conversation-settings-update'),
+    ).resolves.toMatchObject({
+      ok: true,
+      code: 'settings_updated',
+      message: "Done — I'll only check with you for risky actions now.",
+    });
+    expect(settingsRevisions.appendSettingsRevision).toHaveBeenCalledWith(
+      expect.objectContaining({
+        settingsDocument: expect.objectContaining({
+          conversations: expect.objectContaining({
+            current_conversation: expect.objectContaining({
+              installed_agents: expect.objectContaining({
+                current_install: expect.objectContaining({
+                  permission_mode: 'auto',
+                }),
+              }),
+            }),
+          }),
+        }),
+      }),
+    );
+
+    const crossConversationReplacement = structuredClone(replacement);
+    crossConversationReplacement.conversations.other_conversation.installedAgents.other_install.permissionMode =
+      'auto';
+    await requestSettingsUpdateHandler({
+      data: taskData('cross-conversation-settings-update', {
+        chatJid: 'tg:100',
+        payload: {
+          replacementYaml: renderRuntimeSettingsYaml(
+            crossConversationReplacement,
+          ),
+          expectedRevision: getRuntimeSettingsRevision(runtimeHome),
+          reason: 'change the posture in another conversation',
+        },
+      }) as never,
+      sourceAgentFolder: 'main_agent',
+      deps,
+      conversationBindings,
+      sourceAgentFolderJids: ['tg:100'],
+    });
+
+    await expect(
+      waitForResponse(runtimeHome, 'cross-conversation-settings-update'),
+    ).resolves.toMatchObject({
+      ok: true,
+      code: 'settings_updated',
+      message: 'Done — I updated the settings.',
+    });
   });
 
   it('validates and reconciles a per-agent model change via request_settings_update', async () => {

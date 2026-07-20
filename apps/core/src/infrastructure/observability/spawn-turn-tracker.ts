@@ -1,7 +1,9 @@
 import { randomUUID } from 'node:crypto';
 
 import {
+  childContextFor,
   contentCaptureEnabled,
+  getTurnSpan,
   startTurnSpan,
   tracingEnabled,
   TRACE_CONTENT_MAX_CHARS,
@@ -13,6 +15,7 @@ import { updateLogContext } from '../logging/logger.js';
 // fields.
 interface TurnInputLike {
   runId?: string;
+  parentRunId?: string;
   appId?: string;
   agentId?: string;
   chatJid?: string;
@@ -50,18 +53,26 @@ export function createSpawnTurnTracker<F extends TurnFrameLike>(
   onOutput: ((frame: F) => Promise<void>) | undefined,
 ): SpawnTurnTracker<F> {
   const correlationId = input.runId ?? `credential-run:${randomUUID()}`;
-  const openTurnSpan = (continuation?: boolean) =>
-    startTurnSpan({
-      runId: correlationId,
-      appId: input.appId,
-      agentId: input.agentId,
-      agentName,
-      conversationId: input.chatJid,
-      threadId: input.threadId,
-      jobId: input.jobId,
-      userId: input.memoryUserId,
-      ...(continuation ? { continuation } : {}),
-    });
+  const openTurnSpan = (continuation?: boolean) => {
+    const parentSpan = input.parentRunId
+      ? getTurnSpan(input.parentRunId)
+      : undefined;
+    return startTurnSpan(
+      {
+        runId: correlationId,
+        parentRunId: input.parentRunId,
+        appId: input.appId,
+        agentId: input.agentId,
+        agentName,
+        conversationId: input.chatJid,
+        threadId: input.threadId,
+        jobId: input.jobId,
+        userId: input.memoryUserId,
+        ...(continuation ? { continuation } : {}),
+      },
+      parentSpan ? childContextFor(parentSpan) : undefined,
+    );
+  };
   let turnSpan = openTurnSpan();
   turnSpan.setInput(input.prompt);
   const captureTurnContent = contentCaptureEnabled();

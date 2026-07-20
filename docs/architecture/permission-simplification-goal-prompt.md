@@ -17,7 +17,7 @@ self-approve), fail-closed classifier.
 
 The decision machinery is duplicated across two lanes and three enums:
 
-- Lane A: `apps/core/src/runtime/ipc-durable-permission.ts` +
+- Lane A: `apps/core/src/runtime/ipc-interaction-processing.ts` +
   `apps/core/src/runtime/permission-classifier.ts` (order: eligibility → sanitized-input
   guard → YOLO denylist → deterministic read-only gate → classifier →
   unattended-cancel → promotions → prompt).

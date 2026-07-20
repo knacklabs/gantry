@@ -10,6 +10,7 @@ import type { CapabilityRuntimeAccess } from '../../../../shared/capability-runt
 import type { SemanticCapabilityDefinition } from '../../../../shared/semantic-capabilities.js';
 import type { GantryAgentPromptMode } from '../../../../runner/gantry-agent-system-prompt.js';
 import type { DeclarativeToolRule } from '../../../../runner/tool-gate-core.js';
+import type { CallableAgentToolManifestEntry } from '../../../../application/core-tools/callable-agent-tools.js';
 
 export interface AgentRunnerInput {
   prompt: string;
@@ -37,6 +38,7 @@ export interface AgentRunnerInput {
   jobId?: string;
   runId?: string;
   parentTaskId?: string;
+  callableAgentManifest?: CallableAgentToolManifestEntry[];
   runLeaseToken?: string;
   runLeaseFencingVersion?: number;
   assistantName?: string;
@@ -44,6 +46,7 @@ export interface AgentRunnerInput {
   compiledSystemPrompt?: string;
   memoryContextBlock?: string;
   yoloMode?: YoloModeSettings;
+  egressDenylist?: string[];
   permissionMode: PermissionMode;
   modelCredentialEnv?: Record<string, string>;
   toolNetworkEnv?: Record<string, string>;

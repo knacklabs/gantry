@@ -33,6 +33,7 @@ import {
 } from '../shared/trigger-pattern.js';
 export * from './memory.js';
 export { SettingsDesiredStateService } from './settings/desired-state-service.js';
+export { createGroupJoinOnboardingCoordinator } from './settings/group-join-onboarding.js';
 export { configureDesiredSettingsStorageProvider } from './settings/runtime-settings.js';
 export {
   applyRuntimeSettingsDesiredState,
@@ -140,6 +141,7 @@ function getPublicConfiguredAgents(settings: RuntimeSettings) {
         permissionMode: agent.permissionMode,
         oneTimeJobDefaultModel: agent.oneTimeJobDefaultModel,
         recurringJobDefaultModel: agent.recurringJobDefaultModel,
+        delegates: agent.delegates,
         bindings: agent.bindings,
         sources: agent.sources,
         capabilities: agent.capabilities,

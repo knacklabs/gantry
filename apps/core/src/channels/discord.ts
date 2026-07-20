@@ -44,13 +44,19 @@ import {
   type DiscordConversationContextCache,
 } from './discord-conversation-context.js';
 import { DiscordInteractionHandler } from './discord-interactions.js';
+import {
+  discordHeaders,
+  discordRateLimitRetryDelayMs,
+  discordReactionEmoji,
+  userName,
+  waitDiscordRetryDelay,
+} from './discord-http-helpers.js';
+import { StreamResetEpochs } from './stream-reset-epochs.js';
 
 export const DISCORD_JID_PREFIX = 'dc:';
 
 const DISCORD_API_ROOT = 'https://discord.com/api/v10';
 const DISCORD_GATEWAY_INTENTS = (1 << 0) | (1 << 9) | (1 << 12) | (1 << 15);
-const DISCORD_RETRY_DELAY_FALLBACK_MS = 1000;
-const DISCORD_RETRY_DELAY_MAX_MS = 5000;
 const DISCORD_MESSAGE_CHANNEL_CACHE_TTL_MS = 10 * 60 * 1000;
 const DISCORD_MESSAGE_CHANNEL_CACHE_MAX_ENTRIES = 5000;
 
@@ -70,57 +76,6 @@ export function normalizeDiscordJid(raw: string): string | null {
 export function discordChannelIdFromJid(jid: string): string | null {
   const normalized = normalizeDiscordJid(jid);
   return normalized ? normalized.slice(DISCORD_JID_PREFIX.length) : null;
-}
-
-function discordHeaders(token: string): Record<string, string> {
-  return {
-    authorization: `Bot ${token}`,
-    accept: 'application/json',
-    'content-type': 'application/json',
-  };
-}
-
-function discordReactionEmoji(emoji: string): string {
-  if (emoji === 'seen') return '👀';
-  if (emoji === 'running') return '⏳';
-  return emoji;
-}
-
-function discordRateLimitRetryDelayMs(response: Response): number | null {
-  if (response.status !== 429) return null;
-  const retryAfter =
-    response.headers.get('retry-after') ??
-    response.headers.get('x-ratelimit-reset-after');
-  if (retryAfter) {
-    const seconds = Number.parseFloat(retryAfter);
-    if (Number.isFinite(seconds) && seconds > 0) {
-      return Math.min(
-        DISCORD_RETRY_DELAY_MAX_MS,
-        Math.max(1, Math.round(seconds * 1000)),
-      );
-    }
-  }
-  const resetSeconds = Number.parseFloat(
-    response.headers.get('x-ratelimit-reset') ?? '',
-  );
-  if (Number.isFinite(resetSeconds) && resetSeconds > 0) {
-    const delayMs = resetSeconds * 1000 - Date.now();
-    if (delayMs > 0) {
-      return Math.min(DISCORD_RETRY_DELAY_MAX_MS, Math.round(delayMs));
-    }
-  }
-  return DISCORD_RETRY_DELAY_FALLBACK_MS;
-}
-
-async function waitDiscordRetryDelay(delayMs: number): Promise<void> {
-  await new Promise<void>((resolve) => {
-    const timer = setTimeout(resolve, delayMs);
-    timer.unref?.();
-  });
-}
-
-function userName(user: DiscordUser | undefined, fallback = 'unknown'): string {
-  return user?.username || user?.id || fallback;
 }
 
 function websocketFactory(url: string): WebSocketLike {
@@ -143,6 +98,7 @@ export class DiscordChannel implements ChannelAdapter {
   >();
   private readonly streamGenerationByJid = new Map<string, number>();
   private readonly sealedStreamGenerationByJid = new Map<string, number>();
+  private readonly streamResetEpochs = new StreamResetEpochs();
   private pendingTodos = new Map<
     string,
     { channelId: string; messageId: string }
@@ -194,7 +150,7 @@ export class DiscordChannel implements ChannelAdapter {
   }
 
   async disconnect(): Promise<void> {
-    this.interactions.clearPendingInteractions();
+    await this.interactions.clearPendingInteractions();
     this.gateway?.disconnect();
     this.gateway = null;
   }
@@ -309,6 +265,7 @@ export class DiscordChannel implements ChannelAdapter {
     if (!channelId) return false;
     if (!this.shouldAcceptStreamingChunk(jid, options.generation)) return false;
     const key = `${jid}\n${options.threadId ?? ''}`;
+    const streamEpoch = this.streamResetEpochs.current(key);
     let state = this.activeStreams.get(key);
     if (!state) {
       state = { channelId, rawBuffer: '', lastFlushAt: 0 };
@@ -316,7 +273,7 @@ export class DiscordChannel implements ChannelAdapter {
     }
     if (text) state.rawBuffer += text;
     if (!state.rawBuffer.trim() && options.done) {
-      this.activeStreams.delete(key);
+      this.streamResetEpochs.deleteState(key, this.activeStreams);
       this.markStreamingGenerationDone(jid, options.generation);
       return false;
     }
@@ -341,19 +298,23 @@ export class DiscordChannel implements ChannelAdapter {
         const posted = await this.postMessage(state.channelId, body);
         state.messageId = posted.id;
       }
+      if (!this.streamResetEpochs.isCurrent(key, streamEpoch)) return true;
       state.lastFlushAt = now;
       if (options.done) {
         const overflowParts = parts.slice(1).filter((part) => part.length > 0);
-        if (overflowParts.length > 0) {
+        if (overflowParts.length > 0)
           await postDiscordMessageParts({
             channelId: state.channelId,
             parts: overflowParts,
             post: (target, body) => this.postMessage(target, body),
+            shouldContinue: () =>
+              this.streamResetEpochs.isCurrent(key, streamEpoch),
           });
-        }
-        this.activeStreams.delete(key);
+        if (!this.streamResetEpochs.isCurrent(key, streamEpoch)) return true;
+        this.streamResetEpochs.deleteState(key, this.activeStreams);
         this.markStreamingGenerationDone(jid, options.generation);
       } else {
+        if (!this.streamResetEpochs.isCurrent(key, streamEpoch)) return true;
         this.activeStreams.set(key, state);
       }
       return true;
@@ -368,17 +329,24 @@ export class DiscordChannel implements ChannelAdapter {
     }
   }
 
-  resetStreaming(jid: string): void {
+  resetStreaming(jid: string, options?: { threadId?: string }): void {
+    if (options) {
+      const key = `${jid}\n${options.threadId ?? ''}`;
+      this.streamResetEpochs.bump(key);
+      this.streamResetEpochs.deleteState(key, this.activeStreams);
+      return;
+    }
+    this.streamResetEpochs.bumpMatching(this.activeStreams.keys(), `${jid}\n`);
     this.sealStreamingGenerationOnReset(jid);
     this.clearStreamingStateForJid(jid);
   }
 
   private clearStreamingStateForJid(jid: string): void {
     for (const key of this.activeStreams.keys()) {
-      if (key.startsWith(`${jid}\n`)) this.activeStreams.delete(key);
+      if (!key.startsWith(`${jid}\n`)) continue;
+      this.streamResetEpochs.deleteState(key, this.activeStreams);
     }
   }
-
   private shouldAcceptStreamingChunk(
     jid: string,
     generation?: number,
@@ -458,15 +426,28 @@ export class DiscordChannel implements ChannelAdapter {
   async requestPermissionApproval(
     jid: string,
     request: PermissionApprovalRequest,
+    onPromptDelivered?: (messageId: string) => void,
   ): Promise<PermissionApprovalDecision> {
-    return this.interactions.requestPermissionApproval(jid, request);
+    return this.interactions.requestPermissionApproval(
+      jid,
+      request,
+      onPromptDelivered,
+    );
   }
 
   async requestUserAnswer(
     jid: string,
     request: UserQuestionRequest,
+    onPromptDelivered?: (messageId: string) => void,
   ): Promise<UserQuestionResponse> {
-    return this.interactions.requestUserAnswer(jid, request);
+    return this.interactions.requestUserAnswer(jid, request, onPromptDelivered);
+  }
+
+  dropPendingInteraction(
+    kind: 'permission' | 'question',
+    request: PermissionApprovalRequest | UserQuestionRequest,
+  ): void {
+    this.interactions.dropPendingInteraction(kind, request);
   }
 
   private async requestJson<T>(

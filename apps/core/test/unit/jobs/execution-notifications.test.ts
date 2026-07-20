@@ -107,7 +107,7 @@ describe('jobs/execution-notifications', () => {
       job: makeJob(),
       runId: 'run-1',
       runStatus: 'failed',
-      summary: 'planned failure',
+      summary: 'RAW_JOB_FAILURE_SENTINEL: planned failure',
       nextRun: null,
       retryCount: 1,
       pauseReason: null,
@@ -121,7 +121,12 @@ describe('jobs/execution-notifications', () => {
       expect.stringContaining('**❌ Failed** · Daily summary'),
       expect.objectContaining({ threadId: 'thread-1' }),
     );
-    expect(String(sendMessage.mock.calls[0]?.[1])).not.toContain('Running');
+    const message = String(sendMessage.mock.calls[0]?.[1]);
+    expect(message).not.toContain('Running');
+    expect(message).not.toContain('RAW_JOB_FAILURE_SENTINEL');
+    expect(message).not.toMatch(
+      /^(?:Completed|Used|Changed|Delegated|Needs attention|Next):/m,
+    );
   });
 
   it('cleans markdown job reports into readable terminal outcomes', async () => {
@@ -144,7 +149,8 @@ describe('jobs/execution-notifications', () => {
     const message = String(sendMessage.mock.calls[0]?.[1]);
     expect(message).toContain('**✅ Completed**');
     expect(message).toContain('· Fixture Lead Maintenance · 6m 22s');
-    expect(message).toContain('Final Job Report Mode: B (fixture lead finder)');
+    expect(message).toContain('Mode: B (fixture lead finder)');
+    expect(message).not.toContain('Final Job Report');
     expect(message).toContain('Added: 2 leads');
     expect(message).not.toContain('##');
     expect(message).not.toContain('*Mode*');
@@ -299,8 +305,9 @@ describe('jobs/execution-notifications', () => {
     const message = String(sendMessage.mock.calls[0]?.[1]);
     expect(message).toContain('Missing Browser access for this job.');
     expect(message).toContain(
-      'Needs attention: Approve the missing access, then retry the job.',
+      'Approve the missing access, then retry the job.',
     );
+    expect(message).not.toContain('Needs attention:');
     expect(message).not.toContain('Diagnostics:');
     expect(message).not.toContain('lastTool=');
     expect(message).not.toContain('pendingPermissions=');
@@ -341,7 +348,8 @@ describe('jobs/execution-notifications', () => {
     });
 
     const message = String(sendMessage.mock.calls[0]?.[1]);
-    expect(message).toContain('Next: Stopped until the job is fixed or rerun.');
+    expect(message).toContain('Stopped until the job is fixed or rerun.');
+    expect(message).not.toContain('Next:');
     expect(message).not.toContain('not-a-date');
   });
 
@@ -366,9 +374,8 @@ describe('jobs/execution-notifications', () => {
     expect(message).toContain('**🔐 Needs permission**');
     expect(message).toContain('· Daily summary');
     expect(message).toContain('Could not use the browser');
-    expect(message).toContain(
-      'Needs attention: Browser access needs approval.',
-    );
+    expect(message).toContain('Browser access needs approval.');
+    expect(message).not.toContain('Needs attention:');
     expect(message).not.toContain('request_permission');
     expect(options).toMatchObject({
       threadId: 'thread-1',
@@ -458,10 +465,14 @@ describe('jobs/execution-notifications', () => {
     const message = String(sendMessage.mock.calls[0]?.[1]);
     expect(message).toContain('**⏱️ Timed out**');
     expect(message).toContain('· Daily summary');
-    expect(message).toContain('Scheduler run lease expired before completion.');
-    expect(message).toContain(
-      'Needs attention: Rerun with a longer job timeout if this work is expected to take more time.',
+    expect(message).toContain("I couldn't finish before the job's time limit.");
+    expect(message).not.toContain(
+      'Scheduler run lease expired before completion.',
     );
+    expect(message).toContain(
+      'Rerun with a longer job timeout if this work is expected to take more time.',
+    );
+    expect(message).not.toContain('Needs attention:');
     expect(message).not.toContain('Narrow the job scope');
     expect(sendMessage.mock.calls[0]?.[2]).toMatchObject({
       actionAffordances: [
@@ -495,7 +506,8 @@ describe('jobs/execution-notifications', () => {
     const message = String(sendMessage.mock.calls[0]?.[1]);
     expect(message).toContain('**✅ Completed**');
     expect(message).toContain('· Fixture Lead Maintenance');
-    expect(message).toContain('Final Job Report Mode: B');
+    expect(message).toContain('Mode: B');
+    expect(message).not.toContain('Final Job Report');
     expect(message).toContain('Added: 0 leads');
     expect(message).not.toContain('Let me load tools');
     expect(message).not.toContain('Now searching');

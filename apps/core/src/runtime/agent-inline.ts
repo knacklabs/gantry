@@ -94,9 +94,11 @@ export interface InlineJobActivity {
 
 export interface InlineAgentLoopLaneInput {
   group: ConversationRoute;
+  correlationRunId?: string;
   input: AgentInput & {
     compiledSystemPrompt: string;
     permissionMode: PermissionMode;
+    disableTools?: boolean;
   };
   signal: AbortSignal;
   controlPort: InMemoryInlineRunnerControlPort;
@@ -457,6 +459,7 @@ async function executeInlineRun(input: {
     .then(() =>
       lane({
         group: input.group,
+        correlationRunId: input.options.correlationRunId,
         input: input.input,
         signal: input.controller.signal,
         controlPort,

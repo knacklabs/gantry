@@ -316,10 +316,10 @@ export function buildBakeOutcomeNotice(
         deliveryFailureMessage:
           'Failed to deliver toolchain bake success notice',
       }),
-    sendFailureNotice: async ({ dependency, reason }) =>
+    sendFailureNotice: async ({ dependency }) =>
       deliver({
         dependency,
-        text: `Dependency bake failed: ${reason}`,
+        text: "I couldn't prepare that dependency. I left it unavailable; try again after the setup issue is fixed.",
         missingConversationMessage:
           'Toolchain bake failed but has no approval conversation to notify',
         deliveryFailureMessage:

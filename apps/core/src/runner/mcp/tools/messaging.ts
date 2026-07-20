@@ -366,7 +366,7 @@ function registerRichInteractionTools(server: McpServer): void {
 
   server.tool(
     'render_progress',
-    'Render progress for a user-visible workflow.',
+    'Render one compact progress line for a user-visible workflow. Repeated calls edit the active line in place; use it before and between meaningful steps of long installs, dependency setup, and renders.',
     {
       title: richTitleSchema,
       value: z.number().min(0).max(100).optional(),
@@ -402,16 +402,37 @@ export function registerMessagingTools(server: McpServer): void {
       text: z.string().describe('The message text to send'),
       files: z
         .array(
-          z.object({
-            scope: z.string().optional().describe('FileArtifact scope'),
-            path: z.string().describe('FileArtifact virtual path'),
-            version: z.number().int().positive().optional(),
-          }),
+          z.union([
+            z
+              .object({
+                source: z
+                  .literal('artifact')
+                  .optional()
+                  .describe("Optional; omitted means 'artifact'"),
+                scope: z.string().optional().describe('FileArtifact scope'),
+                path: z.string().describe('FileArtifact virtual path'),
+                version: z
+                  .number()
+                  .int()
+                  .positive()
+                  .optional()
+                  .describe('FileArtifact version'),
+              })
+              .strict(),
+            z
+              .object({
+                source: z.literal('workspace'),
+                path: z
+                  .string()
+                  .describe('Relative path inside your workspace'),
+              })
+              .strict(),
+          ]),
         )
         .max(5)
         .optional()
         .describe(
-          'Owned FileArtifacts to send with the message. Gantry resolves ownership in the host and degrades safely when the channel cannot attach files.',
+          "Files to send with the message. Omit source (or set it to 'artifact') for an owned FileArtifact. Set source to 'workspace' to read a relative path inside your workspace. Gantry never falls back between sources and degrades safely when the selected file or channel attachment is unavailable.",
         ),
       sender: z
         .string()

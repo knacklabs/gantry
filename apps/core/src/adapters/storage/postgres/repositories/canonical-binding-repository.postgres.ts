@@ -51,7 +51,18 @@ function routeMemorySubject(
     kind: 'conversation',
     appId: CANONICAL_APP_ID,
     conversationId,
-    route,
+    route: {
+      conversationId: group.conversationId,
+      trigger: group.trigger,
+      requiresTrigger: group.requiresTrigger ?? true,
+      ...(group.agentConfig ? { agentConfig: group.agentConfig } : {}),
+      ...(group.senderIdentityEvidenceType
+        ? { senderIdentityEvidenceType: group.senderIdentityEvidenceType }
+        : {}),
+      ...(group.systemSenderIds?.length
+        ? { systemSenderIds: group.systemSenderIds }
+        : {}),
+    },
   };
 }
 
@@ -184,6 +195,7 @@ export function bindingRowToGroup(
   const routeSubject = parseJson<{
     route?: {
       agentConfig?: ConversationRoute['agentConfig'];
+      conversationId?: string;
       trigger?: string;
       requiresTrigger?: boolean;
       senderIdentityEvidenceType?: ConversationRoute['senderIdentityEvidenceType'];
@@ -208,6 +220,7 @@ export function bindingRowToGroup(
     group: {
       name: row.displayName,
       folder,
+      conversationId: routeSubject.route?.conversationId ?? row.conversationId,
       trigger: routeSubject.route?.trigger?.trim() || `@${folder || 'agent'}`,
       added_at: row.createdAt,
       requiresTrigger: routeSubject.route?.requiresTrigger ?? true,

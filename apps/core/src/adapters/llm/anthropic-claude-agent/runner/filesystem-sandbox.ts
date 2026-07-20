@@ -15,6 +15,7 @@ interface BuildSdkFilesystemSandboxOptions {
   platform?: NodeJS.Platform;
   denyReadPaths?: readonly string[];
   denyWritePaths?: readonly string[];
+  httpProxyPort?: number;
 }
 
 export interface ProtectedFilesystemSandboxPaths {
@@ -76,13 +77,49 @@ export function buildSdkFilesystemSandbox(
     failIfUnavailable: true,
     autoAllowBashIfSandboxed: false,
     allowUnsandboxedCommands: false,
-    network: { allowLocalBinding: true },
+    network: {
+      allowLocalBinding: true,
+      ...(options.httpProxyPort
+        ? { httpProxyPort: options.httpProxyPort }
+        : {}),
+    },
     ...(platform === 'darwin' ? { enableWeakerNetworkIsolation: true } : {}),
     filesystem: {
       denyRead: normalizeFilesystemSandboxPaths(denyReadPaths),
       denyWrite: normalizeFilesystemSandboxPaths(denyWritePaths),
     },
   };
+}
+
+export function requireSdkSandboxEgressProxyPort(
+  proxyUrl: string | undefined,
+): number {
+  let parsed: URL;
+  try {
+    parsed = new URL(proxyUrl?.trim() ?? '');
+  } catch {
+    throw new Error(
+      'GANTRY_EGRESS_PROXY_URL must identify the run-scoped loopback HTTP egress gateway.',
+    );
+  }
+  const port = Number(parsed.port);
+  if (
+    parsed.protocol !== 'http:' ||
+    parsed.hostname !== '127.0.0.1' ||
+    parsed.username ||
+    parsed.password ||
+    parsed.pathname !== '/' ||
+    parsed.search ||
+    parsed.hash ||
+    !Number.isInteger(port) ||
+    port <= 0 ||
+    port > 65_535
+  ) {
+    throw new Error(
+      'GANTRY_EGRESS_PROXY_URL must identify the run-scoped loopback HTTP egress gateway.',
+    );
+  }
+  return port;
 }
 
 export function normalizeFilesystemSandboxPaths(

@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import {
   createDefaultRuntimeSettings,
+  ensureConfiguredAgent,
   ensureConfiguredConversationBinding,
   loadRuntimeSettings,
   mirrorAgentToolRulesToRuntimeSettings,
@@ -17,7 +18,10 @@ import { renderRuntimeSettingsYaml } from '@core/config/settings/runtime-setting
 import { validateLoadedRuntimeSettings } from '@core/config/settings/runtime-settings-validation.js';
 import { settingsFilePath } from '@core/config/settings/runtime-home.js';
 import { addActiveMcpSourcesToRuntimeSettings } from '@core/config/settings/restart-sync.js';
-import { runSettingsCommand } from '@core/cli/settings.js';
+import {
+  reportWorkstationSettingsImportOutcome,
+  runSettingsCommand,
+} from '@core/cli/settings.js';
 import {
   deriveBindingsFromConversationInstalls,
   flattenConversationInstalls,
@@ -38,6 +42,7 @@ describe('runtime settings', () => {
     settings.agents.main_agent = {
       name: 'ReAgent',
       folder: 'main_agent',
+      delegates: [],
       bindings: {},
       sources: emptySources(),
       capabilities: [{ id: 'mcp.caw-ats.access', version: '1' }],
@@ -188,6 +193,7 @@ conversations:
     settings.agents.agent_one = {
       name: 'One',
       folder: 'agent_one',
+      delegates: [],
       bindings: {},
       sources: emptySources(),
       capabilities: [],
@@ -652,6 +658,7 @@ provider_accounts:
     settings.agents.main_agent = {
       name: 'Main',
       folder: 'main_agent',
+      delegates: [],
       bindings: {},
       sources: {
         skills: [],
@@ -669,6 +676,42 @@ provider_accounts:
     expect(parsed.agents.main_agent.sources.mcpServers).toEqual([
       { id: 'github', tools: ['read_*'] },
     ]);
+  });
+
+  it('defaults, renders, and parses per-agent delegates', () => {
+    const settings = createDefaultRuntimeSettings();
+    ensureConfiguredAgent(settings, {
+      agentId: 'main_agent',
+      agentName: 'Main',
+    });
+    expect(settings.agents.main_agent.delegates).toEqual([]);
+    expect(renderRuntimeSettingsYaml(settings)).not.toContain('delegates:');
+
+    settings.agents.main_agent.delegates = ['researcher', 'future_agent'];
+    const yaml = renderRuntimeSettingsYaml(settings);
+    expect(yaml).toContain(
+      '    delegates:\n      - researcher\n      - future_agent',
+    );
+    expect(parseRuntimeSettings(yaml).agents.main_agent.delegates).toEqual([
+      'researcher',
+      'future_agent',
+    ]);
+    expect(
+      parseRuntimeSettings('agents:\n  main_agent:\n    name: Main\n').agents
+        .main_agent.delegates,
+    ).toEqual([]);
+  });
+
+  it('rejects non-string per-agent delegates', () => {
+    expect(() =>
+      parseRuntimeSettings(`agents:
+  main_agent:
+    name: Main
+    delegates:
+      - researcher
+      - 42
+`),
+    ).toThrow('agents.main_agent.delegates[1] must be a non-empty string');
   });
 
   it('rejects tool scope on non-mcp source refs', () => {
@@ -914,6 +957,7 @@ quoted_decimal: "0.5"
     settings.agents.worker = {
       name: 'Worker',
       folder: 'worker',
+      delegates: [],
       model: 'fast-job',
       bindings: {},
       sources: emptySources(),
@@ -1281,6 +1325,28 @@ agent:
     }
   });
 
+  it('prints explicit workstation import outcomes for non-TTY consumers', () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+
+    reportWorkstationSettingsImportOutcome('settings import', {
+      status: 'revision_created',
+      revision: 7,
+    });
+    reportWorkstationSettingsImportOutcome('settings import', {
+      status: 'applied_no_revision',
+    });
+    reportWorkstationSettingsImportOutcome('settings import', {
+      status: 'no_op',
+    });
+
+    expect(log.mock.calls).toEqual([
+      ['settings import outcome: revision_created(7)'],
+      ['settings import outcome: applied_no_revision'],
+      ['settings import outcome: no_op'],
+    ]);
+    log.mockRestore();
+  });
+
   it('accepts credential encryption keyring without direct encryption key', () => {
     const originalDatabaseUrl = process.env.GANTRY_DATABASE_URL;
     const originalSecretEncryptionKey = process.env.SECRET_ENCRYPTION_KEY;
@@ -1538,6 +1604,7 @@ agents:
     settings.agents.no_effort = {
       name: 'No effort',
       folder: 'no_effort',
+      delegates: [],
       model: 'haiku',
       effort: 'high',
       bindings: {},
@@ -1548,6 +1615,7 @@ agents:
     settings.agents.no_thinking = {
       name: 'No thinking',
       folder: 'no_thinking',
+      delegates: [],
       model: 'haiku',
       thinking: { mode: 'on' },
       bindings: {},
@@ -1558,6 +1626,7 @@ agents:
     settings.agents.no_output_cap = {
       name: 'No output cap',
       folder: 'no_output_cap',
+      delegates: [],
       model: 'opus',
       maxOutputTokens: 4096,
       bindings: {},
@@ -1592,6 +1661,7 @@ agents:
     settings.agents.inherited = {
       name: 'Inherited',
       folder: 'inherited',
+      delegates: [],
       model: 'opus',
       effort: 'high',
       thinking: { mode: 'on' },
@@ -1644,6 +1714,7 @@ agents:
       settings.agents.main_agent = {
         name: 'Main',
         folder: 'main_agent',
+        delegates: [],
         bindings: {},
         sources: { skills: [], mcpServers: [], tools: [] },
         capabilities: [],
@@ -1788,6 +1859,7 @@ agents:
     settings.agents.kai = {
       name: 'Kai',
       folder: 'kai',
+      delegates: [],
       agentHarness: 'anthropic_sdk',
       bindings: {},
       sources: { skills: [], mcpServers: [], tools: [] },
@@ -1936,6 +2008,7 @@ agents:
       settings.agents.main_agent = {
         name: 'Main',
         folder: 'main_agent',
+        delegates: [],
         bindings: {},
         sources: emptySources(),
         capabilities: [
@@ -1979,6 +2052,7 @@ agents:
       settings.agents.main_agent = {
         name: 'Main',
         folder: 'main_agent',
+        delegates: [],
         bindings: {},
         sources: emptySources(),
         capabilities: [],
@@ -2008,6 +2082,7 @@ agents:
     settings.agents.main_agent = {
       name: 'Main',
       folder: 'main_agent',
+      delegates: [],
       bindings: {},
       sources: emptySources(),
       capabilities: [
@@ -2034,6 +2109,7 @@ agents:
     settings.agents.main_agent = {
       name: 'Main',
       folder: 'main_agent',
+      delegates: [],
       bindings: {},
       sources: emptySources(),
       capabilities: [{ id: 'tool:permission-rule:abc123', version: 'builtin' }],
@@ -2059,6 +2135,7 @@ agents:
       settings.agents.main_agent = {
         name: 'Main',
         folder: 'main_agent',
+        delegates: [],
         bindings: {},
         sources: emptySources(),
         capabilities: [{ id: toolRule, version: 'builtin' }],
@@ -2111,6 +2188,7 @@ agents:
       settings.agents.main_agent = {
         name: 'Main',
         folder: 'main_agent',
+        delegates: [],
         bindings: {},
         sources: emptySources(),
         capabilities: [],
@@ -2140,6 +2218,7 @@ agents:
       settings.agents.main_agent = {
         name: 'Main',
         folder: 'main_agent',
+        delegates: [],
         bindings: {},
         sources: emptySources(),
         capabilities: [],
@@ -2169,6 +2248,7 @@ agents:
       settings.agents.main_agent = {
         name: 'Main',
         folder: 'main_agent',
+        delegates: [],
         bindings: {},
         sources: emptySources(),
         capabilities: [],
@@ -2204,6 +2284,7 @@ agents:
       settings.agents.main_agent = {
         name: 'Main',
         folder: 'main_agent',
+        delegates: [],
         bindings: {},
         sources: emptySources(),
         capabilities: [],
@@ -2233,6 +2314,7 @@ agents:
       settings.agents.main_agent = {
         name: 'Main',
         folder: 'main_agent',
+        delegates: [],
         bindings: {},
         sources: emptySources(),
         capabilities: [],
@@ -2343,6 +2425,7 @@ agents:
     settings.agents.kai = {
       name: 'Kai',
       folder: 'kai',
+      delegates: [],
       bindings: {},
       sources: {
         skills: [

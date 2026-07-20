@@ -118,6 +118,7 @@ export const RuntimeSettingsConfiguredAgentSchema = z
   .object({
     name: z.string().trim().min(1),
     folder: z.string().trim().min(1),
+    delegates: z.array(z.string().trim().min(1)),
     persona: AgentPersonaSchema.optional(),
     relationshipMode: AgentRelationshipModeSchema.optional(),
     model: z.string().optional(),

@@ -22,7 +22,11 @@ import {
   MAX_SKILLS_PER_INSTALL_COMMAND,
   rollbackInstalledSkillReplacement,
   safeInstallerEnv,
+  skillInstallCommandReceipt,
 } from '@core/jobs/skill-install-assets.js';
+
+const RAW_SKILL_FAILURE_SENTINEL =
+  'RAW_SKILL_FAILURE_SENTINEL: artifact storage exploded';
 
 class MemorySkillRepository implements SkillCatalogRepository {
   readonly skills = new Map<string, SkillCatalogItem>();
@@ -126,7 +130,7 @@ class MemorySkillArtifactStore implements SkillArtifactStore {
     input: Parameters<SkillArtifactStore['putSkillArtifact']>[0],
   ) {
     if (input.skillName === this.failSkillName) {
-      throw new Error(`Could not store ${input.skillName}.`);
+      throw new Error(RAW_SKILL_FAILURE_SENTINEL);
     }
     const stored = {
       storageType: 'local-filesystem' as const,
@@ -308,6 +312,22 @@ describe('safe installer env', () => {
       PATH: '/bin',
       AI_AGENT: '1',
     });
+  });
+});
+
+describe('skill install command receipt', () => {
+  it('keeps the operational failure reason out of the agent-facing receipt', () => {
+    const receipt = skillInstallCommandReceipt({
+      skills: [],
+      failed: [{ name: 'bad', reason: RAW_SKILL_FAILURE_SENTINEL }],
+      skippedBeyondLimit: false,
+    });
+
+    expect(receipt).toBe(
+      "I couldn't install bad. I left it unchanged and can try again after the setup issue is fixed.",
+    );
+    expect(receipt).not.toContain(RAW_SKILL_FAILURE_SENTINEL);
+    expect(receipt).not.toMatch(/^(?:Installed|Activation|Skipped|Failed):/m);
   });
 });
 
@@ -527,8 +547,8 @@ describe('approved command skill installs', () => {
     ).toHaveLength(2);
     expect(syncApprovedCapabilitySettings).toHaveBeenCalledTimes(2);
     expect(sendMessage.mock.calls[0]?.[1]).toBe(
-      'Installed: alpha, zeta\n' +
-        'Activation: The first installed skill, alpha, is active in this conversation immediately; the remaining installed skills are available from the next message.',
+      'I installed alpha, zeta.\n' +
+        'alpha is ready in this conversation now. The other installed skills will be available from your next message.',
     );
   });
 
@@ -577,14 +597,16 @@ describe('approved command skill installs', () => {
         appId: 'app:test',
         agentId: 'agent:main_agent',
         skillName: 'bad',
-        reason: 'Could not store bad.',
+        reason: RAW_SKILL_FAILURE_SENTINEL,
       },
       'Skill install failed for skill',
     );
     expect(sendMessage.mock.calls[0]?.[1]).toBe(
-      'Installed: alpha, zeta\n' +
-        'Failed: bad — Could not store bad.\n' +
-        'Activation: The first installed skill, alpha, is active in this conversation immediately; the remaining installed skills are available from the next message.',
+      'I installed alpha, zeta.\n' +
+        'alpha is ready in this conversation now. The other installed skills will be available from your next message.',
+    );
+    expect(sendMessage.mock.calls[0]?.[1]).not.toContain(
+      RAW_SKILL_FAILURE_SENTINEL,
     );
   });
 
@@ -619,10 +641,7 @@ describe('approved command skill installs', () => {
       },
       'Skill install failed for skill',
     );
-    expect(sendMessage.mock.calls[0]?.[1]).toBe(
-      'Installed: alpha\n' +
-        'Failed: bad — Installed skill package is larger than 1 MB.',
-    );
+    expect(sendMessage.mock.calls[0]?.[1]).toBe('I installed alpha.');
   });
 
   it('fails an over-cap skill without affecting other discovered skills', async () => {
@@ -652,9 +671,8 @@ describe('approved command skill installs', () => {
       'zeta',
     ]);
     expect(sendMessage.mock.calls[0]?.[1]).toBe(
-      'Installed: alpha, zeta\n' +
-        'Failed: bad — Installed skill package exceeds the 50-file limit.\n' +
-        'Activation: The first installed skill, alpha, is active in this conversation immediately; the remaining installed skills are available from the next message.',
+      'I installed alpha, zeta.\n' +
+        'alpha is ready in this conversation now. The other installed skills will be available from your next message.',
     );
   });
 
@@ -706,9 +724,8 @@ describe('approved command skill installs', () => {
       ).toString('utf-8'),
     ).toBe('beta notes');
     expect(sendMessage.mock.calls[0]?.[1]).toBe(
-      'Installed: alpha, zeta\n' +
-        'Failed: beta — Could not sync settings.\n' +
-        'Activation: The first installed skill, alpha, is active in this conversation immediately; the remaining installed skills are available from the next message.',
+      'I installed alpha, zeta.\n' +
+        'alpha is ready in this conversation now. The other installed skills will be available from your next message.',
     );
   });
 
@@ -737,7 +754,9 @@ describe('approved command skill installs', () => {
       }),
     );
 
-    await vi.waitFor(() => expect(sendMessage).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() =>
+      expect(syncApprovedCapabilitySettings).toHaveBeenCalledTimes(2),
+    );
     const restored = await skillArtifacts.getSkillArtifact('skills/beta');
     expect(
       Buffer.from(
@@ -750,9 +769,7 @@ describe('approved command skill installs', () => {
       )?.status,
     ).toBe('active');
     expect(syncApprovedCapabilitySettings).toHaveBeenCalledTimes(2);
-    expect(sendMessage.mock.calls[0]?.[1]).toBe(
-      'Installed: none\nFailed: beta — Could not bind beta.',
-    );
+    expect(sendMessage).not.toHaveBeenCalled();
   });
 
   it('restores the snapshot when the failing sync mutated skill state', async () => {
@@ -843,9 +860,8 @@ describe('approved command skill installs', () => {
     ).toBe('beta notes');
     expect(syncApprovedCapabilitySettings).toHaveBeenCalledTimes(5);
     expect(sendMessage.mock.calls[0]?.[1]).toBe(
-      'Installed: alpha, zeta\n' +
-        'Failed: beta — Could not sync settings.\n' +
-        'Activation: The first installed skill, alpha, is active in this conversation immediately; the remaining installed skills are available from the next message.',
+      'I installed alpha, zeta.\n' +
+        'alpha is ready in this conversation now. The other installed skills will be available from your next message.',
     );
   });
 
@@ -864,12 +880,10 @@ describe('approved command skill installs', () => {
     );
 
     await vi.waitFor(() => expect(sendMessage).toHaveBeenCalledTimes(1));
-    expect(sendMessage.mock.calls[0]?.[1]).toContain(
-      'gantry credentials access set ALPHA_TOKEN',
-    );
-    expect(sendMessage.mock.calls[0]?.[1]).toContain(
-      'gantry credentials access set ZETA_TOKEN',
-    );
+    expect(sendMessage.mock.calls[0]?.[1]).toContain('Credential Center');
+    expect(sendMessage.mock.calls[0]?.[1]).not.toContain('ALPHA_TOKEN');
+    expect(sendMessage.mock.calls[0]?.[1]).not.toContain('ZETA_TOKEN');
+    expect(sendMessage.mock.calls[0]?.[1]).not.toContain('gantry credentials');
   });
 
   it('does not overwrite a skill when two roots share a materialization name', async () => {
@@ -892,9 +906,7 @@ describe('approved command skill installs', () => {
 
     await vi.waitFor(() => expect(sendMessage).toHaveBeenCalledTimes(1));
     expect(skills.skills.size).toBe(1);
-    expect(sendMessage.mock.calls[0]?.[1]).toContain(
-      "Failed: writer's-tool — Duplicate skill name: writer's-tool.",
-    );
+    expect(sendMessage.mock.calls[0]?.[1]).toBe("I installed writer's-tool.");
   });
 
   it('reconciles an active binding when rollback fails after settings sync', async () => {
@@ -923,8 +935,8 @@ describe('approved command skill installs', () => {
     ]);
     expect(syncApprovedCapabilitySettings).toHaveBeenCalledTimes(4);
     expect(sendMessage.mock.calls[0]?.[1]).toBe(
-      'Installed: alpha, beta, zeta\n' +
-        'Activation: The first installed skill, alpha, is active in this conversation immediately; the remaining installed skills are available from the next message.',
+      'I installed alpha, beta, zeta.\n' +
+        'alpha is ready in this conversation now. The other installed skills will be available from your next message.',
     );
   });
 
@@ -953,9 +965,8 @@ describe('approved command skill installs', () => {
     ).toEqual(['alpha', 'zeta']);
     expect(syncApprovedCapabilitySettings).toHaveBeenCalledTimes(4);
     expect(sendMessage.mock.calls[0]?.[1]).toBe(
-      'Installed: alpha, zeta\n' +
-        'Failed: beta — Could not sync settings.\n' +
-        'Activation: The first installed skill, alpha, is active in this conversation immediately; the remaining installed skills are available from the next message.',
+      'I installed alpha, zeta.\n' +
+        'alpha is ready in this conversation now. The other installed skills will be available from your next message.',
     );
   });
 
@@ -993,9 +1004,7 @@ describe('approved command skill installs', () => {
       (binding) => skills.skills.get(binding.skillId)?.name === 'beta',
     );
     expect(betaBinding?.status).toBe('disabled');
-    expect(sendMessage.mock.calls[0]?.[1]).toContain(
-      'Failed: beta — Could not sync settings.',
-    );
+    expect(sendMessage.mock.calls[0]?.[1]).toBe('I installed alpha.');
   });
 
   it('stops with a partial receipt when settings reconciliation stays unavailable', async () => {
@@ -1021,11 +1030,7 @@ describe('approved command skill installs', () => {
       'beta',
     ]);
     expect(syncApprovedCapabilitySettings).toHaveBeenCalledTimes(3);
-    expect(sendMessage.mock.calls[0]?.[1]).toBe(
-      'Installed: alpha\n' +
-        'Failed: beta — Could not sync settings. Reconciliation failed: Could not sync settings.\n' +
-        'Failed: zeta — Not attempted: a prior failure stopped this install.',
-    );
+    expect(sendMessage.mock.calls[0]?.[1]).toBe('I installed alpha.');
   });
 
   it('installs only the first 25 alphabetical skills and reports the cap', async () => {
@@ -1056,28 +1061,36 @@ describe('approved command skill installs', () => {
     );
     expect(syncApprovedCapabilitySettings).toHaveBeenCalledTimes(25);
     expect(sendMessage.mock.calls[0]?.[1]).toContain(
-      'Skipped: additional skills beyond the 25-skill limit.',
+      'I stopped after 25 skills because one request cannot install more than that.',
     );
   });
 
-  it('carries command failure output into the chat receipt', async () => {
-    setup();
+  it('keeps command failure output in logs and out of chat', async () => {
+    const { logError } = setup();
     const sendMessage = vi.fn(async () => undefined);
+    const rawReason =
+      'RAW_INSTALLER_COMMAND_SENTINEL: Command failed with exit code 1';
 
     await requestSkillInstallHandler(
       context({
         sendMessage,
         runApprovedCommand: async () => {
-          throw new Error(
-            'Command failed with exit code 1: surfaced installer output',
-          );
+          throw new Error(rawReason);
         },
       }),
     );
 
-    await vi.waitFor(() => expect(sendMessage).toHaveBeenCalledTimes(1));
-    expect(sendMessage.mock.calls[0]?.[1]).toContain(
-      'surfaced installer output',
+    await vi.waitFor(() => expect(logError).toHaveBeenCalledTimes(1));
+    expect(logError.mock.calls[0]?.[0]).toMatchObject({
+      toolName: 'request_skill_install',
+    });
+    expect(
+      (logError.mock.calls[0]?.[0] as { err?: Error } | undefined)?.err
+        ?.message,
+    ).toBe(rawReason);
+    expect(logError.mock.calls[0]?.[1]).toBe(
+      'Skill install command review failed',
     );
+    expect(sendMessage).not.toHaveBeenCalled();
   });
 });

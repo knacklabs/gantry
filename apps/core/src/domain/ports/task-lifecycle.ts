@@ -24,7 +24,6 @@ export interface AgentTodoRender {
   items: AgentTodoItem[];
   headline?: string | null;
   status?: AgentTodoCardStatus;
-  elapsed?: string | null;
   stop?: {
     label?: string;
     actionToken: string;

@@ -69,6 +69,7 @@ export interface AdapterInlineAgentInput {
   runLeaseFencingVersion?: number;
   responseSchema?: Record<string, unknown>;
   disableTools?: boolean;
+  hideAuthorityTools?: boolean;
 }
 
 export interface AdapterInlineControlPort {
@@ -80,6 +81,7 @@ export interface AdapterInlineControlPort {
 
 export interface AdapterInlineAgentLoopLaneInput {
   group: ConversationRoute;
+  correlationRunId?: string;
   input: AdapterInlineAgentInput;
   signal: AbortSignal;
   controlPort: AdapterInlineControlPort;
@@ -151,7 +153,7 @@ export function createInlineAgentLoopLaneDispatcher(input: {
   deepAgentsLane: ProviderInlineAgentLoopLane;
   createCoreTools: (
     laneInput: AdapterInlineAgentLoopLaneInput,
-  ) => InlineCoreToolRegistry;
+  ) => InlineCoreToolRegistry | Promise<InlineCoreToolRegistry>;
   getEgressDenylist: () => readonly string[];
 }): AdapterInlineAgentLoopLane {
   return async (laneInput) => {
@@ -166,7 +168,7 @@ export function createInlineAgentLoopLaneDispatcher(input: {
       laneInput.resolvedModel.value.agentEngine === DEFAULT_AGENT_ENGINE
         ? input.claudeLane
         : input.deepAgentsLane;
-    const coreTools = input.createCoreTools(laneInput);
+    const coreTools = await input.createCoreTools(laneInput);
     const egressDenylist = input.getEgressDenylist();
     if (!laneInput.input.responseSchema) {
       return lane({ ...laneInput, coreTools, egressDenylist });

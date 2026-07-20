@@ -430,6 +430,7 @@ async function runActiveJob(
               executionAdapters: deps.executionAdapters,
               runnerSandboxProvider: deps.runnerSandboxProvider,
               asyncTaskRepositoryAvailable: hasAsyncTaskRepository(deps),
+              conversationRoutes: groups,
               skillContext: {
                 appId: executionAppId,
                 agentId: executionAgentId,

@@ -180,11 +180,6 @@ describe('runner sandbox provider', () => {
       expect.stringContaining('"parentProxy"'),
       { mode: 0o600 },
     );
-    expect(fs.writeFileSync).toHaveBeenCalledWith(
-      '/work/agent/.gantry/sandbox.json',
-      expect.stringContaining('"api.example.com"'),
-      { mode: 0o600 },
-    );
     const config = JSON.parse(
       String(vi.mocked(fs.writeFileSync).mock.calls.at(-1)?.[1]),
     );
@@ -195,6 +190,7 @@ describe('runner sandbox provider', () => {
       https: 'http://127.0.0.1:18789',
       noProxy: '',
     });
+    expect(config.network.allowedDomains).toEqual([]);
     expect(config.network.allowLocalBinding).toBe(false);
     expect(config.filesystem.denyRead).not.toContain('/');
     expect(config.filesystem.denyRead).toContain('/work');
@@ -300,10 +296,10 @@ describe('runner sandbox provider', () => {
     '192.168.0.1',
     '169.254.169.254',
     'fe80::1',
-  ])('rejects direct loopback or private destination %s', async (host) => {
+  ])('allows private destination %s through the Gantry proxy', async (host) => {
     await expect(
       allowSandboxRuntimeDestination({ host, port: 443 }),
-    ).resolves.toBe(false);
+    ).resolves.toBe(true);
   });
 
   it('allows Claude SDK generated config state inside the runtime config dir', () => {
@@ -362,7 +358,7 @@ describe('runner sandbox provider', () => {
     );
   });
 
-  it('preserves IPv4 literals and omits unsupported IPv6 literals', () => {
+  it('does not project reviewed hosts into a network allowlist', () => {
     const provider = createRunnerSandboxProvider({
       provider: 'sandbox_runtime',
       resourceLimits: {
@@ -384,31 +380,7 @@ describe('runner sandbox provider', () => {
     const config = JSON.parse(
       String(vi.mocked(fs.writeFileSync).mock.calls.at(-1)?.[1]),
     );
-    expect(config.network.allowedDomains).toEqual([
-      '93.184.216.34',
-      'api.example.com',
-    ]);
-  });
-
-  it('preserves approved single-label network hosts', () => {
-    const provider = createRunnerSandboxProvider({
-      provider: 'sandbox_runtime',
-      resourceLimits: {
-        cpuSeconds: 0,
-        memoryMb: 0,
-        maxProcesses: 0,
-      },
-    });
-
-    provider.start({
-      ...baseInput,
-      allowedNetworkHosts: ['registry:443', 'Corp-Proxy:8443'],
-    });
-
-    const config = JSON.parse(
-      String(vi.mocked(fs.writeFileSync).mock.calls.at(-1)?.[1]),
-    );
-    expect(config.network.allowedDomains).toEqual(['corp-proxy', 'registry']);
+    expect(config.network.allowedDomains).toEqual([]);
   });
 
   it('keeps deny-read paths narrow so generic macOS tools can start', async () => {

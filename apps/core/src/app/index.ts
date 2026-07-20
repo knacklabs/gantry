@@ -30,6 +30,7 @@ import { stopOutboundDeliveryRecoveryLoop } from '../jobs/outbound-delivery-reco
 import { publishBrowserJobActivityEvent } from '../jobs/browser-activity-events.js';
 import {
   GANTRY_HOME,
+  createGroupJoinOnboardingCoordinator,
   getDeploymentMode,
   getRuntimeQueueConfig,
   loadRuntimeSettings,
@@ -95,6 +96,11 @@ export async function startGantryRuntime(
   });
   const channelWiring = createChannelWiring(app, {
     brainHarvestTap: createRuntimeBrainChannelHarvestTap(),
+    groupJoinOnboarding: createGroupJoinOnboardingCoordinator({
+      runtimeHome: GANTRY_HOME,
+      repository: () => getRuntimeStorage().repositories.groupJoinOnboarding,
+      reloadRuntimeState: () => app.loadState(),
+    }),
     publishRuntimeEvent: async (event) => {
       await getRuntimeEventExchange().publish(event);
     },
@@ -282,6 +288,7 @@ export async function startGantryRuntime(
       {
         mcpHostnameLookup,
         opsRepository: storage.ops,
+        getAgentRepository: () => storage.repositories.agents,
         getToolRepository: () => storage.repositories.tools,
         getSkillRepository: () => storage.repositories.skills,
         getAsyncTaskRepository: () => storage.repositories.asyncTasks,

@@ -381,7 +381,7 @@ export async function runSlackStep(draft: SetupDraft): Promise<FlowAction> {
     [
       '1. Create a Slack app from app settings for the target workspace.',
       '2. Add a bot user and bot scopes for posting, conversation discovery, and message events.',
-      '   Minimum practical scopes: chat:write, app_mentions:read, channels:read, channels:history, groups:read, groups:history, im:read, im:history, mpim:read, mpim:history.',
+      '   Minimum practical scopes: chat:write, files:write, app_mentions:read, channels:read, channels:history, groups:read, groups:history, im:read, im:history, mpim:read, mpim:history.',
       '3. Enable Socket Mode and generate an app-level token with connections:write.',
       '4. For Slack DMs, enable App Home > Messages Tab and allow users to send messages from the tab.',
       '5. Install or reinstall the app to the workspace after scope or App Home changes.',

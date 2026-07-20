@@ -1,25 +1,21 @@
-import fs from 'fs';
 import path from 'path';
 
 import { App } from '@slack/bolt';
 
 import { logger } from '../../infrastructure/logging/logger.js';
-import {
-  PRIVATE_FILE_MODE,
-  assertPrivateFileTargetSync,
-  ensurePrivateDirSync,
-  writePrivateFileSync,
-} from '../../shared/private-fs.js';
+import { ensurePrivateDirSync } from '../../shared/private-fs.js';
 import { findConversationRoutesForChat } from '../../shared/thread-queue-key.js';
 import {
   NewMessage,
   PermissionApprovalDecision,
   PermissionApprovalRequest,
+  PermissionCallbackScope,
   RichInteractionRequest,
   UserQuestionRequest,
 } from '../../domain/types.js';
 import { resolveWorkspaceFolderPath } from '../../platform/workspace-folder.js';
 import { ChannelOpts } from '../channel-provider.js';
+import { StreamResetEpochs } from '../stream-reset-epochs.js';
 import { hydrateSlackConversationContext } from './conversation-context.js';
 import {
   encodeSlackActionValue,
@@ -34,8 +30,8 @@ import {
   tryNativeStreamStart,
   tryNativeStreamStop,
 } from './native-stream.js';
-
-export const SLACK_MAX_ATTACHMENT_BYTES = 50 * 1024 * 1024;
+import { writeSlackAttachmentResponse } from './attachment-download.js';
+import type { DurableQuestionCallback } from '../../application/interactions/pending-interaction-durability.js';
 
 interface SlackAttachmentDownload {
   filePath: string;
@@ -68,6 +64,11 @@ export interface ActiveProgressState {
 }
 
 export interface PendingPermissionPrompt {
+  callback: {
+    providerAlias: string;
+    scope: PermissionCallbackScope;
+    matchKind: 'individual' | 'batch';
+  };
   channelId: string;
   sourceAgentFolder: string;
   decisionPolicy?: PermissionApprovalRequest['decisionPolicy'];
@@ -80,6 +81,7 @@ export interface PendingPermissionPrompt {
 }
 
 export interface PendingUserQuestionState {
+  callback: DurableQuestionCallback;
   requestId: string;
   questionIndex: number;
   question: UserQuestionRequest['questions'][number];
@@ -134,6 +136,7 @@ export abstract class SlackChannelState {
   protected userNameCache = new Map<string, string>();
   protected channelNameCache = new Map<string, string>();
   protected activeStreams = new Map<string, ActiveStreamState>();
+  protected readonly streamResetEpochs = new StreamResetEpochs();
   protected streamGenerationByJid = new Map<string, number>();
   protected sealedStreamGenerationByJid = new Map<string, number>();
   protected activeProgress = new Map<string, ActiveProgressState>();
@@ -143,6 +146,39 @@ export abstract class SlackChannelState {
   protected pendingUserQuestions = new Map<string, PendingUserQuestionState>();
   protected pendingTodos = new Map<string, { channel: string; ts: string }>();
   protected pendingRichForms = new Map<string, RichInteractionRequest>();
+
+  dropPendingInteraction(
+    kind: 'permission' | 'question',
+    request: PermissionApprovalRequest | UserQuestionRequest,
+  ): void {
+    if (kind === 'permission') {
+      for (const [providerAlias, pending] of this.pendingPermissionPrompts) {
+        if (
+          pending.request.requestId !== request.requestId ||
+          pending.sourceAgentFolder !== request.sourceAgentFolder ||
+          (pending.request.appId || 'default') !== (request.appId || 'default')
+        ) {
+          continue;
+        }
+        pending.settled = true;
+        clearTimeout(pending.timer);
+        this.pendingPermissionPrompts.delete(providerAlias);
+      }
+      return;
+    }
+    for (const [key, pending] of this.pendingUserQuestions) {
+      if (
+        pending.requestId !== request.requestId ||
+        pending.sourceAgentFolder !== request.sourceAgentFolder ||
+        pending.callback.scope.appId !== (request.appId || 'default')
+      ) {
+        continue;
+      }
+      pending.settled = true;
+      if (pending.timer) clearTimeout(pending.timer);
+      this.pendingUserQuestions.delete(key);
+    }
+  }
 
   constructor(botToken: string, appToken: string, opts: ChannelOpts) {
     this.botToken = botToken;
@@ -176,11 +212,8 @@ export abstract class SlackChannelState {
     }
   }
 
-  protected pendingUserQuestionKey(
-    requestId: string,
-    questionIndex: number,
-  ): string {
-    return `${requestId}:${questionIndex}`;
+  protected pendingUserQuestionKey(callback: DurableQuestionCallback): string {
+    return callback.providerAlias;
   }
 
   protected formatUserQuestionPromptText(
@@ -213,8 +246,7 @@ export abstract class SlackChannelState {
             text: label,
           },
           value: encodeSlackActionValue({
-            requestId: pending.requestId,
-            questionIndex: pending.questionIndex,
+            callback: pending.callback,
             optionIndex,
           }),
         };
@@ -234,8 +266,7 @@ export abstract class SlackChannelState {
         },
         style: 'primary',
         value: encodeSlackActionValue({
-          requestId: pending.requestId,
-          questionIndex: pending.questionIndex,
+          callback: pending.callback,
           done: true,
         }),
       });
@@ -249,8 +280,7 @@ export abstract class SlackChannelState {
         text: truncateSlackButtonText('✏️ Other…'),
       },
       value: encodeSlackActionValue({
-        requestId: pending.requestId,
-        questionIndex: pending.questionIndex,
+        callback: pending.callback,
       }),
     });
 
@@ -279,7 +309,7 @@ export abstract class SlackChannelState {
 
   protected parseUserQuestionActionValue(
     rawValue: string | undefined,
-  ): { requestId: string; questionIndex: number; optionIndex?: number } | null {
+  ): { callback: DurableQuestionCallback; optionIndex?: number } | null {
     return parseSlackUserQuestionActionValue(rawValue);
   }
 
@@ -314,10 +344,7 @@ export abstract class SlackChannelState {
   ): Promise<void> {
     if (pending.settled) return;
     pending.settled = true;
-    const key = this.pendingUserQuestionKey(
-      pending.requestId,
-      pending.questionIndex,
-    );
+    const key = this.pendingUserQuestionKey(pending.callback);
     this.pendingUserQuestions.delete(key);
     if (pending.timer) clearTimeout(pending.timer);
     pending.resolve({ selected: selection, answeredBy });
@@ -350,14 +377,13 @@ export abstract class SlackChannelState {
       );
     }
   }
-
   protected clearStreamingStateForJid(jid: string): void {
     for (const [key, state] of this.activeStreams.entries()) {
       if (!key.startsWith(`${jid}:`)) continue;
       if (state.nativeStreamTs) {
         void this.tryNativeStreamStop(state.channelId, state.nativeStreamTs);
       }
-      this.activeStreams.delete(key);
+      this.streamResetEpochs.deleteState(key, this.activeStreams);
     }
   }
 
@@ -496,75 +522,6 @@ export abstract class SlackChannelState {
     }
   }
 
-  protected async writeFetchResponseToFile(
-    response: Response,
-    destPath: string,
-  ): Promise<boolean> {
-    const declaredLength = Number(response.headers.get('content-length'));
-    if (
-      Number.isFinite(declaredLength) &&
-      declaredLength > SLACK_MAX_ATTACHMENT_BYTES
-    ) {
-      logger.warn(
-        { declaredLength, maxBytes: SLACK_MAX_ATTACHMENT_BYTES },
-        'Slack file exceeds max allowed size',
-      );
-      return false;
-    }
-
-    const reader = response.body?.getReader();
-    if (!reader) {
-      const buffer = Buffer.from(await response.arrayBuffer());
-      if (buffer.byteLength > SLACK_MAX_ATTACHMENT_BYTES) {
-        logger.warn(
-          { bytes: buffer.byteLength, maxBytes: SLACK_MAX_ATTACHMENT_BYTES },
-          'Slack file exceeds max allowed size',
-        );
-        return false;
-      }
-      writePrivateFileSync(destPath, buffer);
-      return true;
-    }
-
-    assertPrivateFileTargetSync(destPath);
-    const fd = fs.openSync(destPath, 'w', PRIVATE_FILE_MODE);
-    let totalBytes = 0;
-    let shouldCleanup = false;
-    try {
-      while (true) {
-        const chunk = await reader.read();
-        if (chunk.done) break;
-        const value = chunk.value;
-        if (!value || value.byteLength === 0) continue;
-        totalBytes += value.byteLength;
-        if (totalBytes > SLACK_MAX_ATTACHMENT_BYTES) {
-          shouldCleanup = true;
-          logger.warn(
-            { bytes: totalBytes, maxBytes: SLACK_MAX_ATTACHMENT_BYTES },
-            'Slack file exceeds max allowed size',
-          );
-          return false;
-        }
-        fs.writeSync(fd, Buffer.from(value));
-      }
-      return true;
-    } catch (err) {
-      shouldCleanup = true;
-      throw new Error('Failed to stream Slack attachment', { cause: err });
-    } finally {
-      fs.closeSync(fd);
-      if (shouldCleanup) {
-        try {
-          fs.unlinkSync(destPath);
-        } catch {
-          // ignore cleanup failures
-        }
-      } else {
-        fs.chmodSync(destPath, PRIVATE_FILE_MODE);
-      }
-    }
-  }
-
   protected sanitizeFilename(raw: string): string {
     const trimmed = raw.trim();
     const safe = trimmed.replace(/[^a-zA-Z0-9._-]/g, '_');
@@ -620,7 +577,7 @@ export abstract class SlackChannelState {
         return null;
       }
 
-      const wrote = await this.writeFetchResponseToFile(resp, destPath);
+      const wrote = await writeSlackAttachmentResponse(resp, destPath);
       if (!wrote) return null;
       return { filePath: destPath, storageRef };
     } catch (err) {

@@ -39,11 +39,14 @@ import {
   classifierUserPayload,
   parsePermissionClassifierResponse,
   permissionClassifierSystemPrompt,
+  serializePermissionClassifierToolInput,
 } from './permission-classifier-prompt.js';
 
 export {
+  PERMISSION_CLASSIFIER_MAX_STRING_LENGTH,
   PERMISSION_CLASSIFIER_MAX_TOOL_INPUT_CHARS,
   redactPermissionClassifierToolInput,
+  serializePermissionClassifierToolInput,
 } from './permission-classifier-prompt.js';
 
 export const PERMISSION_CLASSIFIER_TIMEOUT_MS = 12_000;
@@ -133,8 +136,8 @@ export interface PermissionClassifierPromptConsultInput {
   turnIntentSummary: string;
   canonicalToolName: string;
   toolInput: unknown;
-  toolInputSanitized?: boolean;
-  toolInputSanitizedPaths?: string[];
+  toolInputRedactedPaths?: string[];
+  toolInputTruncatedPaths?: string[];
   policyDecisionReason: string;
   approvedCapabilityIds: string[];
   workspaceRoot?: string;
@@ -275,8 +278,16 @@ export async function consultPermissionClassifierBeforePrompt(
         command: stripClassifierHostInjectedEnvPrefix(shellCommandField),
       }
     : input.toolInput;
-  // prettier-ignore
-  const inputTruncated = shellRequest ? input.toolInputSanitizedPaths?.some((path) => path === 'command' || path === 'cmd') === true : input.toolInputSanitized === true || (input.toolInputSanitizedPaths?.length ?? 0) > 0;
+  const incompletePaths = [
+    ...(input.toolInputRedactedPaths ?? []),
+    ...(input.toolInputTruncatedPaths ?? []),
+  ];
+  const pathTruncated = shellRequest
+    ? incompletePaths.some((path) => path === 'command' || path === 'cmd')
+    : incompletePaths.length > 0;
+  const inputTruncated =
+    pathTruncated ||
+    serializePermissionClassifierToolInput(classifierToolInput).truncated;
   // The denylist must judge the same normalized command the gate and
   // classifier see — host-injected env prefixes must not mask a match.
   // prettier-ignore
@@ -295,7 +306,7 @@ export async function consultPermissionClassifierBeforePrompt(
     ? {
         decision: 'ask',
         reason:
-          'Classifier skipped because IPC tool input was sanitized; ask the user.',
+          'Classifier skipped because its tool input view was incomplete; ask the user.',
         latencyMs: 0,
         failureCode: 'input_truncated',
       }

@@ -434,7 +434,9 @@ button, which the channel authenticates):
    decision recorded with `decidedBy: auto_classifier`; `ask` falls through to
    the normal prompt when interactive (approvable only by control approvers)
    and denies with the classifier's reason when unattended. Denylist matches
-   and sanitized inputs always ask. Timeouts, parse failures, or an
+   and secret-redacted inputs always ask. Display-only truncation does not skip
+   classification; the classifier receives a separately bounded redacted view.
+   Timeouts, parse failures, or an
    unconfigured model also collapse to `ask`.
 
 Conversation-level data exposure is governed by Agent Access and the

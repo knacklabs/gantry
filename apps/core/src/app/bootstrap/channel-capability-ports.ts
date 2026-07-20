@@ -59,20 +59,37 @@ export function asGroupDiscoverySource(
 
 export function asPermissionApprovalSurface(
   channel: ChannelAdapter,
-): Pick<InteractionSurface, 'requestPermissionApproval'> | undefined {
+):
+  | Pick<
+      InteractionSurface,
+      'requestPermissionApproval' | 'dropPendingInteraction'
+    >
+  | undefined {
   return typeof channel.requestPermissionApproval === 'function'
     ? (channel as unknown as Pick<
         InteractionSurface,
-        'requestPermissionApproval'
+        'requestPermissionApproval' | 'dropPendingInteraction'
       >)
     : undefined;
 }
 
 export function asUserQuestionSurface(
   channel: ChannelAdapter,
-): Pick<InteractionSurface, 'requestUserAnswer'> | undefined {
+):
+  | Pick<
+      InteractionSurface,
+      | 'requestUserAnswer'
+      | 'questionIndexesForDeliveredPrompt'
+      | 'dropPendingInteraction'
+    >
+  | undefined {
   return typeof channel.requestUserAnswer === 'function'
-    ? (channel as unknown as Pick<InteractionSurface, 'requestUserAnswer'>)
+    ? (channel as unknown as Pick<
+        InteractionSurface,
+        | 'requestUserAnswer'
+        | 'questionIndexesForDeliveredPrompt'
+        | 'dropPendingInteraction'
+      >)
     : undefined;
 }
 

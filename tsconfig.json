@@ -3,6 +3,10 @@
     "target": "ES2022",
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
+    "baseUrl": ".",
+    "paths": {
+      "@gantry/contracts": ["packages/contracts/dist/index.d.ts"]
+    },
     "lib": ["ES2022"],
     "types": ["node"],
     "outDir": "./dist",

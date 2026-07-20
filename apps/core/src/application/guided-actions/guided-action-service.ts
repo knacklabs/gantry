@@ -142,12 +142,12 @@ function guidedActionFailureReceipt(
 export function formatGuidedActionResult(result: GuidedActionResult): string {
   if (result.status === 'done') {
     return [
-      'Done.',
-      '',
-      `Changed: ${result.changed}`,
-      `Saved to: ${result.savedTo}`,
-      `Restart required: ${YES_NO(result.restartRequired)}`,
-      `Next action: ${result.nextAction}`,
+      `Done. ${result.changed}`,
+      `I saved it to ${result.savedTo}.`,
+      result.restartRequired
+        ? 'A runtime restart is required.'
+        : 'No runtime restart is needed.',
+      result.nextAction,
     ].join('\n');
   }
   if (result.status === 'manual') {

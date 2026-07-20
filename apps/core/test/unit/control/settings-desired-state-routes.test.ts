@@ -7,6 +7,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ControlRouteContext } from '@core/control/server/handler-context.js';
 import type { Scope } from '@core/control/server/auth.js';
 import type { SettingsRevision } from '@core/domain/ports/fleet-capability-state.js';
+import { createDefaultRuntimeSettings } from '@core/config/settings/runtime-settings.js';
+import type { RuntimeSettings } from '@core/config/settings/runtime-settings-types.js';
 
 const revisions = vi.hoisted(() => [] as SettingsRevision[]);
 const importOutcome = vi.hoisted(() => ({
@@ -16,8 +18,12 @@ const importOutcome = vi.hoisted(() => ({
     | { status: 'conflict'; expectedRevision: number; actualRevision: number },
 }));
 const workstationImports = vi.hoisted(() => [] as unknown[]);
+const parsedDocuments = vi.hoisted(() => [] as Record<string, unknown>[]);
 const workstationImportOutcome = vi.hoisted(() => ({
-  current: { revision: 11 } as { revision?: number },
+  current: { status: 'revision_created', revision: 11 } as
+    | { status: 'revision_created'; revision: number }
+    | { status: 'applied_no_revision' }
+    | { status: 'no_op' },
 }));
 
 vi.mock('@core/adapters/storage/postgres/runtime-store.js', () => ({
@@ -47,13 +53,20 @@ vi.mock('@core/config/settings/settings-import-service.js', async () => {
   };
 });
 
-vi.mock('@core/config/settings/runtime-settings-parser.js', () => ({
-  parseRuntimeSettingsObject: (document: Record<string, unknown>) => {
-    if (document.PARSE_FAIL)
-      throw new Error('agent.name must be a non-empty string');
-    return {} as never;
-  },
-}));
+vi.mock('@core/config/settings/runtime-settings-parser.js', async () => {
+  const actual = await vi.importActual<
+    typeof import('@core/config/settings/runtime-settings-parser.js')
+  >('@core/config/settings/runtime-settings-parser.js');
+  return {
+    ...actual,
+    parseRuntimeSettingsObject: (document: Record<string, unknown>) => {
+      parsedDocuments.push(structuredClone(document));
+      if (document.PARSE_FAIL)
+        throw new Error('agent.name must be a non-empty string');
+      return {} as never;
+    },
+  };
+});
 
 import { handleSettingsRoutes } from '@core/control/server/routes/settings.js';
 
@@ -65,8 +78,12 @@ type TestResponse = ServerResponse & {
 beforeEach(() => {
   revisions.length = 0;
   importOutcome.current = { status: 'applied', revision: 1 };
-  workstationImportOutcome.current = { revision: 11 };
+  workstationImportOutcome.current = {
+    status: 'revision_created',
+    revision: 11,
+  };
   workstationImports.length = 0;
+  parsedDocuments.length = 0;
 });
 
 describe('settings desired-state control routes', () => {
@@ -200,6 +217,42 @@ describe('settings desired-state control routes', () => {
     expect(JSON.parse(res.body)).toEqual({ revision: 7 });
   });
 
+  it('preserves private observability from internal settings on the first revision', async () => {
+    const res = await invoke(
+      'PUT',
+      '/v1/settings/desired-state',
+      {
+        settings: {
+          agent: {},
+          observability: { tracing: { endpoint: 'https://untrusted.test' } },
+        },
+      },
+      {
+        internalObservability: {
+          tracing: {
+            enabled: true,
+            endpoint: 'https://trusted.test',
+            captureContent: false,
+            sampleRate: 0.25,
+          },
+        },
+      },
+    );
+
+    expect(res.statusCode).toBe(200);
+    expect(parsedDocuments.at(-1)).toMatchObject({
+      agent: {},
+      observability: {
+        tracing: {
+          enabled: true,
+          endpoint: 'https://trusted.test',
+          capture_content: false,
+          sample_rate: 0.25,
+        },
+      },
+    });
+  });
+
   it('writes desired-state through the workstation import path in workstation mode', async () => {
     const res = await invoke(
       'PUT',
@@ -215,7 +268,7 @@ describe('settings desired-state control routes', () => {
   });
 
   it('returns the latest revision for workstation no-op updates', async () => {
-    workstationImportOutcome.current = {};
+    workstationImportOutcome.current = { status: 'no_op' };
     revisions.push({
       appId: 'default',
       revision: 12,
@@ -316,6 +369,7 @@ async function invoke(
     authorization?: string | null;
     scopes?: Scope[];
     deploymentMode?: 'workstation' | 'fleet';
+    internalObservability?: RuntimeSettings['observability'];
   } = {},
 ): Promise<TestResponse> {
   const raw = body === undefined ? '' : JSON.stringify(body);
@@ -334,7 +388,11 @@ async function invoke(
   await handleSettingsRoutes(
     req,
     res,
-    mockContext(options.scopes, options.deploymentMode),
+    mockContext(
+      options.scopes,
+      options.deploymentMode,
+      options.internalObservability,
+    ),
     pathname,
   );
   return res;
@@ -361,7 +419,13 @@ function responseRecorder(): TestResponse {
 function mockContext(
   scopes: Scope[] = ['agents:admin'],
   deploymentMode: 'workstation' | 'fleet' = 'fleet',
+  internalObservability?: RuntimeSettings['observability'],
 ): ControlRouteContext {
+  const internalSettings = createDefaultRuntimeSettings();
+  internalSettings.runtime.deploymentMode = deploymentMode;
+  if (internalObservability) {
+    internalSettings.observability = internalObservability;
+  }
   return {
     app: {} as ControlRouteContext['app'],
     runtimeHome: '/tmp/gantry-test',
@@ -380,14 +444,8 @@ function mockContext(
     maxConcurrentTriggerWaits: 50,
     state: { activeStreams: 0, activeWaits: 0, activeTriggerWaits: 0 },
     triggerRateLimiter: { consume: () => true },
-    getRuntimeSettings: () =>
-      ({
-        runtime: { deploymentMode },
-      }) as ReturnType<ControlRouteContext['getRuntimeSettings']>,
-    getInternalRuntimeSettings: () =>
-      ({
-        runtime: { deploymentMode },
-      }) as ReturnType<ControlRouteContext['getInternalRuntimeSettings']>,
+    getRuntimeSettings: () => internalSettings,
+    getInternalRuntimeSettings: () => internalSettings,
     getDefaultModelConfig: () => ({ source: 'test' }),
     getModelDefaults: () =>
       ({ defaults: {} }) as ReturnType<ControlRouteContext['getModelDefaults']>,

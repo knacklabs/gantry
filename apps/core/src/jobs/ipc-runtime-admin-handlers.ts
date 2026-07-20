@@ -30,6 +30,12 @@ import {
   sourceAgentHasAdminToolCapability,
 } from './ipc-admin-authorization.js';
 import { memoryAgentIdForWorkspaceFolder } from '../memory/app-memory-boundaries.js';
+import type { RuntimeSettings } from '../config/settings/runtime-settings-types.js';
+import {
+  findConversationRoutesForChat,
+  parseAgentThreadQueueKey,
+} from '../shared/thread-queue-key.js';
+import { resolveEffectivePermissionMode } from '../shared/permission-mode.js';
 
 function validateSameChannelApprovalTarget(input: {
   data: Parameters<TaskHandler>[0]['data'];
@@ -351,6 +357,15 @@ export const requestSettingsUpdateHandler: TaskHandler = async (context) => {
   void (async () => {
     let message: string;
     try {
+      const beforeSettings = parseRuntimeSettings(beforeYaml);
+      const requestingInstall = resolveRequestingInstallIdentity({
+        settings: beforeSettings,
+        conversationBindings: context.conversationBindings,
+        requestedTargetJid,
+        sourceAgentFolder,
+        threadId: data.authThreadId,
+        providerAccountId: data.providerAccountId,
+      });
       const decision = await deps.requestPermissionApproval({
         requestId: `settings-${randomUUID()}`,
         appId: data.appId as never,
@@ -415,7 +430,7 @@ export const requestSettingsUpdateHandler: TaskHandler = async (context) => {
           runtimeHome: GANTRY_HOME,
           ops: storage.ops,
           repositories: storage.repositories,
-          previousSettings: parseRuntimeSettings(beforeYaml),
+          previousSettings: beforeSettings,
           reloadRuntimeState: deps.reloadRuntimeState,
           revisionMirror: {
             settingsRevisions: storage.repositories.settingsRevisions,
@@ -427,19 +442,21 @@ export const requestSettingsUpdateHandler: TaskHandler = async (context) => {
         },
         parsed,
       );
-      message =
-        'Approved settings update. A settings revision was written and settings.yaml was synced; restart may be required for topology changes.';
+      message = settingsUpdateSuccessMessage(
+        beforeSettings,
+        parsed,
+        sourceAgentFolder,
+        requestingInstall,
+      );
       accept(message, 'settings_updated');
     } catch (err) {
       logger.error({ err, sourceAgentFolder }, 'Settings update review failed');
-      message = `Rejected settings update: ${err instanceof Error ? err.message : 'permission review failed'}.`;
-      reject(message, 'permission_review_failed');
+      reject(
+        'The settings update could not be completed. Explain this in plain language and say you can try again after the setup issue is fixed.',
+        'settings_review_failed',
+      );
+      return;
     }
-    await deps.sendMessage(
-      requestedTargetJid,
-      message,
-      data.authThreadId ? { threadId: data.authThreadId } : undefined,
-    );
   })().catch((err) =>
     logger.error(
       { err, sourceAgentFolder },
@@ -447,6 +464,110 @@ export const requestSettingsUpdateHandler: TaskHandler = async (context) => {
     ),
   );
 };
+
+function settingsUpdateSuccessMessage(
+  before: RuntimeSettings,
+  after: RuntimeSettings,
+  sourceAgentFolder: string,
+  requestingInstall: RequestingInstallIdentity | null,
+): string {
+  if (
+    permissionPostureBecameAuto(
+      before,
+      after,
+      sourceAgentFolder,
+      requestingInstall,
+    )
+  ) {
+    return "Done — I'll only check with you for risky actions now.";
+  }
+  if (
+    !before.permissions.yoloMode.denylist.includes('rm *') &&
+    after.permissions.yoloMode.denylist.includes('rm *')
+  ) {
+    return 'Done — shell rm commands will require approval across all conversations.';
+  }
+  return 'Done — I updated the settings.';
+}
+
+interface RequestingInstallIdentity {
+  conversationId: string;
+  installId: string;
+}
+
+function resolveRequestingInstallIdentity(input: {
+  settings: RuntimeSettings;
+  conversationBindings: Parameters<TaskHandler>[0]['conversationBindings'];
+  requestedTargetJid: string;
+  sourceAgentFolder: string;
+  threadId?: string;
+  providerAccountId?: string;
+}): RequestingInstallIdentity | null {
+  const identities = new Map<string, RequestingInstallIdentity>();
+  const routes = findConversationRoutesForChat(
+    input.conversationBindings,
+    input.requestedTargetJid,
+    input.threadId,
+    input.providerAccountId,
+  ).filter(([, route]) => route.folder === input.sourceAgentFolder);
+
+  for (const [routeKey, route] of routes) {
+    if (!route.conversationId) continue;
+    const conversation = input.settings.conversations[route.conversationId];
+    if (!conversation) continue;
+    const parsedRoute = parseAgentThreadQueueKey(routeKey);
+    const routeThreadId = parsedRoute.threadId?.trim() || undefined;
+    const routeProviderAccountId =
+      parsedRoute.providerAccountId ?? route.providerAccountId?.trim();
+    for (const [installId, install] of Object.entries(
+      conversation.installedAgents,
+    )) {
+      if (
+        install.status !== 'active' ||
+        install.agentId !== input.sourceAgentFolder ||
+        (install.threadId?.trim() || undefined) !== routeThreadId ||
+        (routeProviderAccountId &&
+          install.providerAccountId !== routeProviderAccountId)
+      ) {
+        continue;
+      }
+      const identity = { conversationId: route.conversationId, installId };
+      identities.set(
+        `${identity.conversationId}:${identity.installId}`,
+        identity,
+      );
+    }
+  }
+
+  return identities.size === 1 ? [...identities.values()][0]! : null;
+}
+
+function permissionPostureBecameAuto(
+  before: RuntimeSettings,
+  after: RuntimeSettings,
+  sourceAgentFolder: string,
+  requestingInstall: RequestingInstallIdentity | null,
+): boolean {
+  const beforeInstall = requestingInstall
+    ? before.conversations[requestingInstall.conversationId]?.installedAgents[
+        requestingInstall.installId
+      ]
+    : undefined;
+  const afterInstall = requestingInstall
+    ? after.conversations[requestingInstall.conversationId]?.installedAgents[
+        requestingInstall.installId
+      ]
+    : undefined;
+  const beforeMode = resolveEffectivePermissionMode(
+    beforeInstall?.permissionMode,
+    before.agents[sourceAgentFolder]?.permissionMode,
+  );
+  const afterMode = resolveEffectivePermissionMode(
+    afterInstall?.permissionMode,
+    after.agents[sourceAgentFolder]?.permissionMode,
+  );
+  return beforeMode !== 'auto' && afterMode === 'auto';
+}
 
 function summarizeYamlDiff(before: string, after: string): string[] {
   const beforeLines = before.split(/\r?\n/);

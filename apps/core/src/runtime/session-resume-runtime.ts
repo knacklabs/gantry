@@ -353,6 +353,7 @@ export function buildRuntimeRunOptions(input: {
   executionAdapters?: RunAgentOptions['executionAdapters'];
   runnerSandboxProvider: RunAgentOptions['runnerSandboxProvider'];
   asyncTaskRepositoryAvailable?: boolean;
+  conversationRoutes?: Record<string, ConversationRoute>;
   skillContext?: {
     appId: string;
     agentId: string;
@@ -415,6 +416,9 @@ export function buildRuntimeRunOptions(input: {
     runnerSandboxProvider: input.runnerSandboxProvider,
     ...(input.asyncTaskRepositoryAvailable
       ? { asyncTaskRepositoryAvailable: true }
+      : {}),
+    ...(input.conversationRoutes
+      ? { conversationRoutes: input.conversationRoutes }
       : {}),
   };
   return options;

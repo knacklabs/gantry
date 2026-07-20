@@ -9,6 +9,7 @@ import { parseTextStyles } from '../../messaging/text-styles.js';
 import { splitTelegramDeliveryTextWithLimits } from './channel-delivery-text-splitting.js';
 import { escapeTelegramMarkdownV2 } from './telegram-markdown-v2-escape.js';
 import { CHANNEL_STREAM_UPDATE_INTERVAL_MS } from '../channel-provider.js';
+import type { UserQuestionRequest } from '../../domain/types.js';
 
 export { splitTelegramTextByCodeUnits } from './channel-delivery-text-splitting.js';
 export {
@@ -35,9 +36,26 @@ export const TELEGRAM_USER_QUESTION_TIMEOUT_MS = PERMISSION_APPROVAL_TIMEOUT_MS;
 export const TELEGRAM_PERMISSION_CALLBACK_PATTERN =
   /^perm:(allow_once|allow_persistent_rule|cancel):([a-zA-Z0-9][a-zA-Z0-9._-]{0,127})$/;
 export const TELEGRAM_USER_QUESTION_CALLBACK_PATTERN =
-  /^userq:(select|done|other):([a-zA-Z0-9][a-zA-Z0-9._-]{0,127}):(\d+)(?::(\d+))?$/;
+  /^userq:(select|done|other):([a-zA-Z0-9][a-zA-Z0-9._-]{0,127})(?::(\d+))?(?::(\d+))?$/;
 export const TELEGRAM_DEAD_LETTER_ACTION_CALLBACK_PATTERN =
   /^dl:(retry|logs|pause|open)(?::(.+))?$/;
+
+export function sanitizeTelegramErrorMessage(
+  err: unknown,
+  botToken: string,
+): string {
+  const message =
+    err instanceof Error
+      ? err.message
+      : typeof err === 'object' &&
+          err !== null &&
+          'message' in err &&
+          typeof (err as { message?: unknown }).message === 'string'
+        ? ((err as { message: string }).message ?? '')
+        : String(err);
+  if (!message) return message;
+  return message.split(botToken).join('[REDACTED_BOT_TOKEN]');
+}
 
 export type TelegramContext = StreamFlavor<Context>;
 export type TelegramStreamApi = ReturnType<typeof streamApi>;
@@ -67,6 +85,8 @@ export type ActiveProgressState = {
   restored?: boolean;
 };
 export type PendingUserQuestionState = {
+  callbackId: string;
+  appId: string;
   requestId: string;
   sourceAgentFolder: string;
   questionIndex: number;
@@ -86,6 +106,73 @@ export type PendingUserQuestionState = {
     answeredBy?: string;
   }) => void;
 };
+export type TelegramUserQuestionCallbackTarget = Pick<
+  PendingUserQuestionState,
+  'appId' | 'sourceAgentFolder' | 'requestId' | 'questionIndex'
+>;
+
+export function telegramQuestionCallbackId(): string {
+  return `q${globalThis.crypto.randomUUID()}`;
+}
+
+export function createPendingTelegramUserQuestion(input: {
+  callbackId: string;
+  pendingKey: string;
+  request: UserQuestionRequest;
+  question: UserQuestionRequest['questions'][number];
+  questionIndex: number;
+  chatId: string;
+  messageId: number;
+  promptText: string;
+  promptIsHtml: boolean;
+  timeoutMs: number;
+  pendingQuestions: Map<string, PendingUserQuestionState>;
+  callbacks: Map<string, TelegramUserQuestionCallbackTarget>;
+  finalize: (
+    pending: PendingUserQuestionState,
+    selection: string | string[],
+    answeredBy: string,
+    outcome: string,
+  ) => Promise<void>;
+}): Promise<{ selected: string | string[]; answeredBy?: string }> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      const timedOut = input.pendingQuestions.get(input.pendingKey);
+      if (!timedOut) return;
+      // Fire-and-forget is intentional: timer callbacks must not block cleanup.
+      void input.finalize(
+        timedOut,
+        timedOut.multiSelect ? [] : '',
+        'system',
+        'timed out',
+      );
+    }, input.timeoutMs);
+    input.pendingQuestions.set(input.pendingKey, {
+      callbackId: input.callbackId,
+      appId: input.request.appId || 'default',
+      requestId: input.request.requestId,
+      sourceAgentFolder: input.request.sourceAgentFolder,
+      questionIndex: input.questionIndex,
+      questionHeader: input.question.header,
+      questionText: input.question.question,
+      promptText: input.promptText,
+      promptIsHtml: input.promptIsHtml,
+      optionLabels: input.question.options.map((option) => option.label),
+      multiSelect: input.question.multiSelect,
+      selectedOptionIndexes: new Set<number>(),
+      chatId: input.chatId,
+      messageId: input.messageId,
+      timer,
+      resolve,
+    });
+    input.callbacks.set(input.callbackId, {
+      appId: input.request.appId || 'default',
+      sourceAgentFolder: input.request.sourceAgentFolder,
+      requestId: input.request.requestId,
+      questionIndex: input.questionIndex,
+    });
+  });
+}
 
 export function splitTelegramDeliveryText(
   text: string,

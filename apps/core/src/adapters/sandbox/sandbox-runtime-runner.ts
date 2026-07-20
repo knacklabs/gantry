@@ -10,21 +10,8 @@ import {
   type SandboxRuntimeConfig,
 } from '@anthropic-ai/sandbox-runtime';
 
-import {
-  isIpAddress,
-  isPrivateNetworkAddress,
-} from '../../domain/network/public-address-policy.js';
-
-export const allowSandboxRuntimeDestination: SandboxAskCallback = async ({
-  host,
-}) => {
-  const normalized = host.toLowerCase().replace(/\.+$/, '');
-  return !(
-    normalized === 'localhost' ||
-    normalized.endsWith('.localhost') ||
-    (isIpAddress(normalized) && isPrivateNetworkAddress(normalized))
-  );
-};
+export const allowSandboxRuntimeDestination: SandboxAskCallback = async () =>
+  true;
 
 export function sandboxRuntimeAskCallback(
   config: Pick<SandboxRuntimeConfig, 'network'>,

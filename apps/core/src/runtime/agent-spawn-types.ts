@@ -37,6 +37,7 @@ import type {
   RunnerSandboxProvider,
   RunnerSandboxSpawnInput,
 } from '../shared/runner-sandbox-provider.js';
+import type { CallableAgentToolManifestEntry } from '../application/core-tools/callable-agent-tools.js';
 
 export type AgentToolRule =
   | {
@@ -78,7 +79,9 @@ export interface AgentInput {
   jobId?: string;
   jobName?: string;
   runId?: string;
+  parentRunId?: string;
   parentTaskId?: string;
+  callableAgentManifest?: CallableAgentToolManifestEntry[];
   runLeaseToken?: string;
   runLeaseFencingVersion?: number;
   liveStopActionToken?: string;
@@ -164,6 +167,7 @@ export interface RunAgentOptions {
   executionAdapters?: AgentExecutionAdapterRegistry;
   runnerSandboxProvider: RunnerSandboxProvider;
   asyncTaskRepositoryAvailable?: boolean;
+  conversationRoutes?: Record<string, ConversationRoute>;
 }
 
 export interface HostRuntimeContext {

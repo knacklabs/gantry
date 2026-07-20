@@ -499,6 +499,7 @@ export function createGroupAgentRunner(input: {
         executionAdapters: deps.executionAdapters,
         runnerSandboxProvider: deps.runnerSandboxProvider,
         asyncTaskRepositoryAvailable: hasAsyncTaskRepository(deps),
+        conversationRoutes: deps.getConversationRoutes?.() ?? {},
         turnContext,
       });
       const expireTurnProviderSession = async (

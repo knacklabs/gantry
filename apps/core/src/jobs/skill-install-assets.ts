@@ -46,18 +46,31 @@ export type InstalledSkillSnapshot = {
 export function skillInstallCommandReceipt(
   result: ApprovedCommandSkillInstallResult,
 ): string {
-  const lines = [
-    `Installed: ${result.skills.map((skill) => skill.name).join(', ') || 'none'}`,
-    ...result.failed.map(({ name, reason }) => `Failed: ${name} — ${reason}`),
-  ];
+  const lines: string[] = [];
+  if (result.skills.length === 0 && result.failed.length === 0) {
+    // Preserve the old "Installed: none" receipt in agent voice - the message
+    // must never be empty.
+    lines.push("I didn't find any skills to install from that request.");
+  }
+  if (result.skills.length > 0) {
+    lines.push(
+      `I installed ${result.skills.map((skill) => skill.name).join(', ')}.`,
+    );
+  }
+  if (result.failed.length > 0) {
+    const names = result.failed.map(({ name }) => name).join(', ');
+    lines.push(
+      `I couldn't install ${names}. I left ${result.failed.length === 1 ? 'it' : 'them'} unchanged and can try again after the setup issue is fixed.`,
+    );
+  }
   if (result.skills.length > 1) {
     lines.push(
-      `Activation: The first installed skill, ${result.skills[0].name}, is active in this conversation immediately; the remaining installed skills are available from the next message.`,
+      `${result.skills[0].name} is ready in this conversation now. The other installed skills will be available from your next message.`,
     );
   }
   if (result.skippedBeyondLimit) {
     lines.push(
-      `Skipped: additional skills beyond the ${MAX_SKILLS_PER_INSTALL_COMMAND}-skill limit.`,
+      `I stopped after ${MAX_SKILLS_PER_INSTALL_COMMAND} skills because one request cannot install more than that.`,
     );
   }
   lines.push(
@@ -67,7 +80,7 @@ export function skillInstallCommandReceipt(
           result.skills.flatMap((skill) => skill.requiredEnvVars ?? []),
         ),
       ],
-      'Installed skill set',
+      'The installed skill set',
     ),
   );
   return lines.join('\n');

@@ -72,6 +72,7 @@ describe('canonical binding repository route projection', () => {
       group: {
         name: 'Main Telegram',
         folder: 'main_agent',
+        conversationId: 'conversation:tg:100',
         providerAccountId: 'provider-account:telegram',
         trigger: '@main',
         added_at: '2026-05-06T00:00:00.000Z',
@@ -281,6 +282,7 @@ describe('canonical binding repository route projection', () => {
     await repo.saveConversationRoute(routeKey, {
       name: 'Main',
       folder: 'main_agent',
+      conversationId: 'configured:shared',
       trigger: '@main',
       added_at: '2026-06-01T00:00:00.000Z',
       requiresTrigger: true,
@@ -310,6 +312,11 @@ describe('canonical binding repository route projection', () => {
       id: `conversation-route:${routeKey}`,
       conversationId: 'conversation:tg:100',
     });
+    expect(
+      JSON.parse(
+        (insertedRows[0] as { memorySubjectJson: string }).memorySubjectJson,
+      ).route.conversationId,
+    ).toBe('configured:shared');
   });
 
   it('requires active provider accounts when loading active route rows', async () => {

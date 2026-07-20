@@ -1883,6 +1883,43 @@ describe('agent-spawn timeout behavior', () => {
     expect(env.NO_PROXY).not.toContain('api.github.com');
   });
 
+  it('projects the gateway egress denylist into the direct SDK runner', async () => {
+    const egress = { denylist: ['blocked.example'] };
+    vi.mocked(getRuntimeSettingsForConfig).mockReturnValue({
+      permissions: {
+        yoloMode: {
+          enabled: true,
+          denylist: [],
+          denylistPaths: [],
+        },
+        egress,
+      },
+      runtime: {
+        sandbox: {
+          provider: 'direct',
+          resourceLimits: {
+            cpuSeconds: 0,
+            memoryMb: 0,
+            maxProcesses: 0,
+          },
+        },
+      },
+    } as any);
+    const writeSpy = vi.spyOn(fakeProc.stdin, 'write');
+
+    const resultPromise = spawnTestAgent(testGroup, testInput, () => {});
+    await vi.advanceTimersByTimeAsync(10);
+    fakeProc.emit('close', 0);
+    await vi.advanceTimersByTimeAsync(10);
+    await resultPromise;
+
+    const runnerInput = JSON.parse(String(writeSpy.mock.calls[0]?.[0]));
+    expect(runnerInput.egressDenylist).toEqual(egress.denylist);
+    expect(mockEnsureEgressGateway).toHaveBeenCalledWith(
+      expect.objectContaining({ settings: egress }),
+    );
+  });
+
   it('lets sandbox-runtime provide in-sandbox proxy env for runner traffic', async () => {
     vi.mocked(getRuntimeSettingsForConfig).mockReturnValue({
       permissions: {

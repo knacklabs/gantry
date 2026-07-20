@@ -154,6 +154,13 @@ export type DisableConversationInstallResponse = JsonResponse<
   200
 >;
 
+export type GetAgentDelegatesResponse = JsonResponse<'getAgentDelegates', 200>;
+export type ReplaceAgentDelegatesRequest = JsonRequest<'replaceAgentDelegates'>;
+export type ReplaceAgentDelegatesResponse = JsonResponse<
+  'replaceAgentDelegates',
+  200
+>;
+
 export type CreateWebhookRequest = JsonRequest<'createWebhook'>;
 export type CreateWebhookResponse = JsonResponse<'createWebhook', 201>;
 export type ListWebhooksResponse = JsonResponse<'listWebhooks', 200>;

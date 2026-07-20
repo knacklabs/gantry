@@ -264,6 +264,19 @@ describe('PromptProfileService', () => {
     expect(prompt).toContain(
       'Gantry delegation is unavailable until a delegated-task executor is mounted. Do not claim delegated work started unless a real Gantry delegation tool returns a handle.',
     );
+    expect(prompt).toContain(
+      'Lead with the outcome in plain prose. Give details only when useful or requested; do not append labeled receipts.',
+    );
+    expect(prompt).toContain('If it shapes the answer, briefly acknowledge it');
+    for (const receiptHeading of [
+      'Completed:',
+      'Used:',
+      'Changed:',
+      'Delegated:',
+      'Needs attention:',
+    ]) {
+      expect(prompt).not.toContain(receiptHeading);
+    }
     expect(prompt).not.toContain('pending -> in_progress -> completed');
 
     // No stale tool names leak into the compiled prompt.
@@ -275,6 +288,27 @@ describe('PromptProfileService', () => {
     ]) {
       expect(prompt).not.toContain(stale);
     }
+  });
+
+  it('maps casual controls to reviewed tools and one-line progress', async () => {
+    const { service } = createService();
+
+    const prompt = await service.compileSystemPrompt({ agentFolder: 'team' });
+
+    expect(prompt).toContain('"stop asking me so much"');
+    expect(prompt).toContain('request_settings_update permission_mode: auto');
+    expect(prompt).toContain(
+      "Done — I'll only check with you for risky actions now.",
+    );
+    expect(prompt).toContain('"be extra careful with deletes"');
+    expect(prompt).toContain('permissions.yolo_mode.denylist');
+    expect(prompt).toContain('"pause everything" / "resume"');
+    expect(prompt).toContain('scheduler_list_jobs to list visible jobs');
+    expect(prompt).toContain('existing pause controls');
+    expect(prompt).toContain('report what was paused');
+    expect(prompt).toContain('scheduler_list_jobs then pause/resume each');
+    expect(prompt).toContain('no generic rollback exists');
+    expect(prompt).toContain('repeated calls edit one compact line');
   });
 
   it('does not overwrite existing per-agent prompt artifacts', async () => {

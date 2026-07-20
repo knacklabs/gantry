@@ -29,6 +29,8 @@ export function redactSensitiveToolInputString(value: string): string {
 
 interface SanitizationState {
   alteredPaths: Set<string>;
+  redactedPaths: Set<string>;
+  maxStringLength: number;
 }
 
 function childPath(path: string, key: string | number): string {
@@ -47,10 +49,13 @@ function sanitizeValue(
   }
   if (typeof value === 'string') {
     const redacted = redactSensitiveToolInputString(value);
-    if (redacted !== value) state.alteredPaths.add(path);
-    if (redacted.length <= TOOL_INPUT_MAX_STRING_LENGTH) return redacted;
+    if (redacted !== value) {
+      state.alteredPaths.add(path);
+      state.redactedPaths.add(path);
+    }
+    if (redacted.length <= state.maxStringLength) return redacted;
     state.alteredPaths.add(path);
-    return `${redacted.slice(0, TOOL_INPUT_MAX_STRING_LENGTH)}...[truncated]`;
+    return `${redacted.slice(0, state.maxStringLength)}...[truncated]`;
   }
   if (
     typeof value === 'number' ||
@@ -82,6 +87,7 @@ function sanitizeValue(
       const entryPath = childPath(path, key);
       if (SENSITIVE_TOOL_INPUT_KEY_PATTERN.test(key)) {
         state.alteredPaths.add(entryPath);
+        state.redactedPaths.add(entryPath);
         out[key] = '[REDACTED]';
         continue;
       }
@@ -99,24 +105,43 @@ function sanitizeValue(
   return String(value);
 }
 
-export function sanitizeIpcToolInput(value: unknown): {
+export function sanitizeIpcToolInput(
+  value: unknown,
+  maxStringLength = TOOL_INPUT_MAX_STRING_LENGTH,
+): {
   toolInput?: Record<string, unknown>;
   altered: boolean;
   alteredPaths: string[];
+  redactedPaths: string[];
+  truncatedPaths: string[];
 } {
   if (!isPlainObject(value)) {
     const alteredPaths = value === undefined ? [] : ['$'];
-    return { altered: alteredPaths.length > 0, alteredPaths };
+    return {
+      altered: alteredPaths.length > 0,
+      alteredPaths,
+      redactedPaths: [],
+      truncatedPaths: alteredPaths,
+    };
   }
-  const state: SanitizationState = { alteredPaths: new Set() };
+  const state: SanitizationState = {
+    alteredPaths: new Set(),
+    redactedPaths: new Set(),
+    maxStringLength,
+  };
   const toolInput = sanitizeValue(value, 0, '', state) as Record<
     string,
     unknown
   >;
   const alteredPaths = [...state.alteredPaths];
+  const redactedPaths = [...state.redactedPaths];
   return {
     toolInput,
     altered: alteredPaths.length > 0,
     alteredPaths,
+    redactedPaths,
+    truncatedPaths: alteredPaths.filter(
+      (path) => !state.redactedPaths.has(path),
+    ),
   };
 }

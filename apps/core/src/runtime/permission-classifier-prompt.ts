@@ -5,7 +5,8 @@ import {
   SENSITIVE_TOOL_INPUT_KEY_PATTERN,
 } from './ipc-tool-input-sanitization.js';
 
-export const PERMISSION_CLASSIFIER_MAX_TOOL_INPUT_CHARS = 4_000;
+export const PERMISSION_CLASSIFIER_MAX_STRING_LENGTH = 16_000;
+export const PERMISSION_CLASSIFIER_MAX_TOOL_INPUT_CHARS = 16_384;
 
 const ALLOW_LEANING_SYSTEM_PROMPT = [
   'You judge whether a pending tool action may proceed without interrupting a human.',
@@ -64,7 +65,7 @@ export function classifierUserPayload(input: {
       1_500,
     ),
     canonicalToolName: redactSensitiveToolInputString(input.canonicalToolName),
-    toolInput: redactPermissionClassifierToolInput(input.toolInput),
+    toolInput: serializePermissionClassifierToolInput(input.toolInput).value,
     policyDecisionReason: truncate(
       redactSensitiveToolInputString(input.policyDecisionReason),
       1_000,
@@ -76,16 +77,35 @@ export function classifierUserPayload(input: {
 }
 
 export function redactPermissionClassifierToolInput(value: unknown): string {
+  return serializePermissionClassifierToolInput(value).value;
+}
+
+export function serializePermissionClassifierToolInput(value: unknown): {
+  value: string;
+  truncated: boolean;
+} {
   let serialized: string;
   try {
-    serialized = JSON.stringify(redactValue(value, new WeakSet(), 0));
+    serialized = JSON.stringify(
+      redactValue(
+        value,
+        new WeakSet(),
+        0,
+        PERMISSION_CLASSIFIER_MAX_STRING_LENGTH,
+      ),
+    );
   } catch {
     serialized = JSON.stringify('[UNSERIALIZABLE]');
   }
-  return truncate(
-    serialized ?? 'null',
-    PERMISSION_CLASSIFIER_MAX_TOOL_INPUT_CHARS,
-  );
+  const serializedValue = serialized ?? 'null';
+  return {
+    value: truncate(
+      serializedValue,
+      PERMISSION_CLASSIFIER_MAX_TOOL_INPUT_CHARS,
+    ),
+    truncated:
+      serializedValue.length > PERMISSION_CLASSIFIER_MAX_TOOL_INPUT_CHARS,
+  };
 }
 
 const VERDICT_KEYS = new Set(['decision', 'reason']);
@@ -160,15 +180,16 @@ function redactValue(
   value: unknown,
   seen: WeakSet<object>,
   depth: number,
+  maxStringLength = 1_000,
 ): unknown {
   if (depth > 8) return '[TRUNCATED_DEPTH]';
   if (typeof value === 'string') {
-    return truncate(redactSensitiveToolInputString(value), 1_000);
+    return truncate(redactSensitiveToolInputString(value), maxStringLength);
   }
   if (Array.isArray(value)) {
     return value
       .slice(0, 100)
-      .map((entry) => redactValue(entry, seen, depth + 1));
+      .map((entry) => redactValue(entry, seen, depth + 1, maxStringLength));
   }
   if (!value || typeof value !== 'object') return value;
   if (seen.has(value)) return '[CIRCULAR]';
@@ -177,7 +198,7 @@ function redactValue(
   for (const [key, entry] of Object.entries(value).slice(0, 100)) {
     output[key] = SENSITIVE_TOOL_INPUT_KEY_PATTERN.test(key)
       ? REDACTED
-      : redactValue(entry, seen, depth + 1);
+      : redactValue(entry, seen, depth + 1, maxStringLength);
   }
   return output;
 }

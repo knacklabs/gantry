@@ -13,6 +13,7 @@ import { nowIso } from '../../shared/time/datetime.js';
 import { agentIdForFolder } from '../../domain/agent/agent-folder-id.js';
 import type { SlackMessageLike } from './channel-state.js';
 import { ingestSlackSlashCommand as ingestSlackSlashCommandEvent } from './slash-command-ingest.js';
+import { shouldLogUnregisteredChatDrop } from '../unregistered-chat-drop-log.js';
 
 type SlackIngestOpts = Pick<
   ChannelOpts,
@@ -129,10 +130,18 @@ export async function ingestSlackMessage(input: {
   const singleRoute =
     routeMatches.length === 1 ? routeMatches[0]?.[1] : undefined;
   if (routeMatches.length < 1 && isGroupConversation) {
-    logger.debug(
-      { jid, chatName },
-      'Message from unregistered Slack conversation',
-    );
+    if (shouldLogUnregisteredChatDrop('slack', jid)) {
+      logger.info(
+        {
+          provider: 'slack',
+          providerAccountId: input.opts.providerAccountId,
+          chatId: event.channel,
+          jid,
+          chatName,
+        },
+        'Message from unregistered Slack conversation',
+      );
+    }
     return;
   }
   const enriched = await input.enrichMessage(jid, event);

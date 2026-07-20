@@ -135,7 +135,7 @@ const refreshGroupsHandler: TaskHandler = async (context) => {
       'refresh_groups failed unexpectedly',
     );
     reject(
-      err instanceof Error ? err.message : 'Failed to refresh group metadata.',
+      'I could not refresh the conversation list. Explain this in plain language and say you can try again after the sync issue is fixed.',
       'internal_error',
     );
   }
@@ -284,8 +284,12 @@ const requestMcpServerHandler: TaskHandler = async (context) => {
       reason,
     });
   } catch (err) {
+    logger.error(
+      { err, sourceAgentFolder },
+      'MCP server request failed unexpectedly',
+    );
     reject(
-      err instanceof Error ? err.message : 'MCP server request failed.',
+      'The MCP server request could not be completed. Explain this in plain language and say you can try again after the setup issue is fixed.',
       'invalid_request',
     );
   }
@@ -621,7 +625,8 @@ function startRequestOnlyCapabilityReview(input: { deps: Parameters<TaskHandler>
         { err, sourceAgentFolder: input.sourceAgentFolder, toolName: input.review.toolName },
         'Capability permission review failed',
       );
-      message = `Not approved: ${input.review.displayName}. Reason: ${err instanceof Error ? err.message : 'permission review failed'}.`;
+      message =
+        'I could not finish that setup request. I left the current setup unchanged; try again after the setup issue is fixed.';
       try {
         await getRuntimeStorage().repositories.pendingAccessRequests.markResolved({
           appId: input.appId,
@@ -681,7 +686,7 @@ async function maybeEnqueueDependencyBakeOnApproval(input: {
       { err, appId: input.appId },
       'Failed to enqueue approved toolchain bake',
     );
-    return `Approved ${input.review.displayName}, but the toolchain bake could not be queued: ${err instanceof Error ? err.message : 'bake enqueue failed'}.`;
+    return `Approved ${input.review.displayName}, but I could not queue the setup. I left it unavailable; try again after the setup issue is fixed.`;
   }
 }
 function hasAgentSuppliedCapabilityDefinition(
@@ -702,7 +707,7 @@ function startMcpPermissionReview(input: { deps: Parameters<TaskHandler>[0]['dep
       'MCP source review failed',
     );
     input.responder.reject(
-      err instanceof Error ? err.message : 'MCP source review failed.',
+      'The MCP server request could not be completed. Explain this in plain language and say you can try again after the setup issue is fixed.',
       'permission_review_failed',
     );
   });

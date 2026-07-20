@@ -13,6 +13,7 @@ import {
 } from '../shared/thread-queue-key.js';
 import { agentIdForFolder } from '../domain/agent/agent-folder-id.js';
 import type { IpcDeps } from './ipc-domain-types.js';
+import type { ParsedPermissionIpcRequest } from './ipc-parsing.js';
 import {
   consultPermissionClassifierBeforePrompt,
   permissionPromotionHintCount,
@@ -24,7 +25,7 @@ import { resolveWorkspaceFolderPath } from '../platform/workspace-folder.js';
 import type { YoloModeSettings } from '../shared/yolo-mode-policy.js';
 
 export async function resolvePermissionIpcDecision(input: {
-  request: PermissionApprovalRequest;
+  request: ParsedPermissionIpcRequest;
   sourceAgentFolder: string;
   deps: IpcDeps;
 }): Promise<PermissionApprovalDecision> {
@@ -128,9 +129,9 @@ export async function resolvePermissionIpcDecision(input: {
           : 'none',
         turnIntentSummary: input.request.turnIntentSummary ?? '',
         canonicalToolName: input.request.toolName,
-        toolInput: input.request.toolInput,
-        toolInputSanitized: input.request.toolInputSanitized,
-        toolInputSanitizedPaths: input.request.toolInputSanitizedPaths,
+        toolInput: input.request.classifierToolInput ?? input.request.toolInput,
+        toolInputRedactedPaths: input.request.toolInputRedactedPaths,
+        toolInputTruncatedPaths: input.request.toolInputTruncatedPaths,
         policyDecisionReason:
           input.request.decisionReason ?? 'Human approval is required.',
         approvedCapabilityIds,

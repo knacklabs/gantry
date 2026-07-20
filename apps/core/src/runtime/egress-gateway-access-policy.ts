@@ -3,8 +3,7 @@ import { declaredNetworkAuthority } from '../shared/network-host-declaration.js'
 import type { EgressNetworkAttribution } from './egress-gateway.js';
 
 export interface EgressAccessPolicyState {
-  allowedPrivateAuthorities?: Set<string>;
-  privateNetworkConnectHosts?: Map<string, string>;
+  connectHostMappings?: Map<string, string>;
 }
 
 export function networkAttributionMap(
@@ -18,23 +17,17 @@ export function networkAttributionMap(
   return map;
 }
 
-export function networkAuthoritySet(hosts: readonly string[]): Set<string> {
-  const set = new Set<string>();
-  for (const host of hosts) {
-    const authority = declaredNetworkAuthority(host);
-    if (authority) set.add(authority);
-  }
-  return set;
-}
-
-export function allowedPrivateEgressTarget(
+export function mappedEgressTarget(
   state: EgressAccessPolicyState,
   target: { host: string; port: number; authority: string },
 ):
   | { host: string; port: number; authority: string; connectHost?: string }
   | undefined {
   const authority = declaredNetworkAuthority(authorityWithPort(target));
-  if (!authority || !state.allowedPrivateAuthorities?.has(authority)) {
+  const connectHost = authority
+    ? state.connectHostMappings?.get(authority)
+    : undefined;
+  if (!authority || !connectHost) {
     return undefined;
   }
   const host = normalizeEgressHost(target.host);
@@ -42,7 +35,7 @@ export function allowedPrivateEgressTarget(
     host,
     port: target.port,
     authority: target.authority,
-    connectHost: state.privateNetworkConnectHosts?.get(authority) ?? host,
+    connectHost,
   };
 }
 

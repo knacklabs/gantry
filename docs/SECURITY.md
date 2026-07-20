@@ -110,7 +110,7 @@ inventory only the current agent's persistent Gantry MCP grants, and
 create new authority or expose cross-agent grant state.
 
 Two auto postures exist: `auto` (allow-leaning — the classifier allows
-unless it identifies concrete risk; the denylist and sanitized-input rails
+unless it identifies concrete risk; the denylist and secret-redaction rails
 always force ask) and `auto_strict` (deterministic-proof-only — unproven
 commands always ask and the classifier is never consulted). In `auto`
 permission mode, an inline LLM classifier may resolve an otherwise
@@ -120,10 +120,10 @@ those tiers already routed to a human prompt, and only for eligible tools
 (`Bash`, `RunCommand`, and non-Gantry MCP tools) from trusted requesters. Its
 verdict space is `allow` or `ask` — it can never deny or persist authority —
 and an `allow` produces a single-run `allow_once` decision recorded with
-`decidedBy: auto_classifier`. Tool input is secret-redacted and truncated
-before it reaches the classifier model, pre-sanitized IPC input skips the
-model entirely, any failure (timeout, parse or validation error, unconfigured
-LLM) falls back to asking the human, and every consultation emits a
+`decidedBy: auto_classifier`. Tool input is secret-redacted and bounded before
+it reaches the classifier model. Secret-redacted input skips the model, while
+display-only truncation does not; any failure (timeout, parse or validation
+error, unconfigured LLM) falls back to asking the human, and every consultation emits a
 `permission.classifier_decision` runtime event.
 
 `SandboxNetworkAccess` is a transient SDK defense-in-depth prompt, not a

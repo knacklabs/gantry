@@ -27,6 +27,7 @@ import {
   evaluateAutonomousToolUse,
   normalizeRuntimeOwnedBashCommandForMatching,
 } from '../../../../shared/tool-rule-matcher.js';
+import { canonicalGantryToolRuleName } from '../../../../shared/gantry-tool-facades.js';
 
 export interface PermissionSuggestionPlan {
   suggestions?: unknown[];
@@ -234,9 +235,13 @@ function scopedToolPermissionSuggestion(
 }
 
 export function permissionRequestToolName(toolName: string): string {
-  return isKnownProjectedBrowserMcpToolName(toolName.trim())
+  const publicToolName = isKnownProjectedBrowserMcpToolName(toolName.trim())
     ? 'Browser'
     : publicGantryToolNameForSdkTool(toolName);
+  const canonicalToolName = canonicalGantryToolRuleName(publicToolName);
+  return canonicalToolName === 'AgentDelegation'
+    ? canonicalToolName
+    : publicToolName;
 }
 
 function inferBashRuleContents(toolInput: unknown): string[] {

@@ -97,6 +97,7 @@ export async function connectProviderAccountChannels(input: {
         : [providerAccountId];
     const channel = await input.provider.create({
       ...input.channelOpts,
+      appId: input.appId,
       providerAccountId,
       inboundProviderAccountIds,
       agentId,

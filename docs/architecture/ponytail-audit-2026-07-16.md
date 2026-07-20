@@ -7,7 +7,6 @@ Postgres state instead of upgrading through migration history — implement the
 FULL scope (~19,400 lines) including migration baselining and legacy-shape
 reader removal; script and run the local baseline step for this machine.
 
-
 This is a follow-up, audit-only review after the July 14 dead-code cleanup. It
 focuses on remaining legacy state readers, backward-compatibility aliases,
 duplicate projections, orphan scripts, and incomplete clean cuts.
@@ -739,3 +738,21 @@ line-budget failures disappeared as concurrent dirty-worktree edits reduced
 those files below their configured limits; they are not retained as findings.
 
 `net: approximately -19,424 lines, -0 deps possible under the clean-reset condition.`
+
+## Phase-3 slice 1 validation addendum (2026-07-19)
+
+Slice 1 (N1, N5-N7, N9, remnants, AR1 19→0 settings edges; trigger bridge
+deferred to AR2, see execution ledger on `feature/ponytail-audit`) passed
+typecheck + full unit, but local autoreview found two REAL P1s (fix round
+dispatched; both must land before the slice commits):
+
+1. **appId-less provider (family 3)**: control-server process-wide
+   `configureDesiredSettingsStorageProvider` builds `SettingsDesiredStateService`
+   WITHOUT `appId` while the sibling site (control/server/index.ts:~391) passes
+   it — multi-app writes reconcile against the default tenant. Root fix: thread
+   `appId` through the provider callback contract in
+   `desired-settings-writer.ts` (`writeDesiredRuntimeSettings` already has it),
+   then scope ALL provider sites (control server + CLI — same latent bug).
+2. **Duplicate `desiredState:` keys** in settings-import-service.test.ts object
+   literals — invisible to typecheck (tests excluded) and vitest (esbuild
+   last-wins). Keep one per literal.

@@ -394,6 +394,16 @@ export interface LiveTurnRepository {
   } | null>;
 }
 
+export interface LiveTurnCommandAppendInput {
+  id: string;
+  liveTurnId: string;
+  commandType: LiveTurnCommandType;
+  idempotencyKey: string;
+  payload?: Record<string, unknown>;
+  createdByWorkerId?: string | null;
+  now?: string;
+}
+
 export interface LiveTurnCommandRepository {
   /**
    * Append a command to the owner inbox. Sequence numbers are allocated
@@ -402,15 +412,9 @@ export interface LiveTurnCommandRepository {
    * returns the existing command as 'replayed'. Appends against a missing
    * or terminal turn are 'rejected'.
    */
-  appendLiveTurnCommand(input: {
-    id: string;
-    liveTurnId: string;
-    commandType: LiveTurnCommandType;
-    idempotencyKey: string;
-    payload?: Record<string, unknown>;
-    createdByWorkerId?: string | null;
-    now?: string;
-  }): Promise<LiveTurnCommandAppendResult>;
+  appendLiveTurnCommand(
+    input: LiveTurnCommandAppendInput,
+  ): Promise<LiveTurnCommandAppendResult>;
   /** Pending commands in seq order; the owner consumes these. */
   listPendingLiveTurnCommands(input: {
     liveTurnId: string;
