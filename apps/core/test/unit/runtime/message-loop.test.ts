@@ -37,12 +37,20 @@ vi.mock('@core/session/session-commands.js', () => ({
 vi.mock('@core/messaging/router.js', () => ({
   formatMessages: (...args: unknown[]) => mockFormatMessages(...args),
 }));
+vi.mock('@core/infrastructure/logging/logger.js', () => ({
+  logger: {
+    debug: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
+  },
+}));
 
 import {
   MessageLoopDeps,
   processLiveAdmissionWorkItem,
   recoverPendingMessages,
 } from '@core/runtime/message-loop.js';
+import { logger } from '@core/infrastructure/logging/logger.js';
 import {
   decodeGroupMessageCursor,
   encodeGroupMessageCursor,
@@ -597,6 +605,40 @@ describe('recoverPendingMessages', () => {
 });
 
 describe('thread queue routing', () => {
+  it('warns when a live admission item matches no messages', async () => {
+    const queueJid = makeAgentThreadQueueKey(
+      'group@g.us',
+      'agent:team',
+      undefined,
+      'slack_beta',
+    );
+
+    await expect(
+      processLiveAdmissionWorkItem(
+        makeDeps(),
+        makeAdmissionItem({
+          id: 'admission-empty',
+          agentId: 'agent:team',
+          queueJid,
+        }),
+      ),
+    ).resolves.toBe('completed');
+
+    expect(logger.warn).toHaveBeenCalledOnce();
+    expect(logger.warn).toHaveBeenCalledWith(
+      {
+        itemId: 'admission-empty',
+        queueJid,
+        filter: {
+          chatJid: 'group@g.us',
+          threadId: null,
+          providerAccountId: 'slack_beta',
+        },
+      },
+      'Live admission work item matched no messages',
+    );
+  });
+
   it('processes a durable live admission item without route-wide scans', async () => {
     const msg = {
       id: 1,

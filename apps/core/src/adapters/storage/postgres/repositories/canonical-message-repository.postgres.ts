@@ -258,12 +258,24 @@ export class PostgresCanonicalMessageRepository {
       msg.providerAccountId?.trim() ||
       options.liveAdmission?.providerAccountId?.trim() ||
       null;
+    const existingConversationId = requestedProviderAccountId
+      ? undefined
+      : await this.graph.findConversationIdForJid(msg.chat_jid, tx);
+    const providerAccountId =
+      requestedProviderAccountId ??
+      (existingConversationId
+        ? await this.graph.getConversationInstallationId(
+            existingConversationId,
+            tx,
+          )
+        : undefined) ??
+      `channel-providerAccount:${CANONICAL_APP_ID}:${providerId}`;
     const conversationId = await this.graph.ensureConversation(
       msg.chat_jid,
       {
         timestamp: msg.timestamp,
         channel: providerId,
-        providerAccountId: requestedProviderAccountId,
+        providerAccountId,
       },
       tx,
     );
@@ -271,12 +283,8 @@ export class PostgresCanonicalMessageRepository {
       msg.chat_jid,
       msg.thread_id,
       tx,
-      { channel: providerId, providerAccountId: requestedProviderAccountId },
+      { channel: providerId, providerAccountId },
     );
-    const providerAccountId =
-      requestedProviderAccountId ??
-      (await this.graph.getConversationInstallationId(conversationId, tx)) ??
-      `channel-providerAccount:${CANONICAL_APP_ID}:${providerId}`;
     let canonicalMessageId = messageIdFor(
       msg.chat_jid,
       msg.id,

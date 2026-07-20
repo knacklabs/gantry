@@ -1,7 +1,18 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { quotePostgresIdentifier } from '@core/adapters/storage/postgres/storage-service.js';
+import {
+  DEFAULT_AGENT_ID,
+  DEFAULT_APP_ID,
+} from '@core/adapters/storage/postgres/seeds.js';
+import type { AgentId } from '@core/domain/agent/agent.js';
+import type { AppId } from '@core/domain/app/app.js';
 import { RUNTIME_EVENT_TYPES } from '@core/domain/events/runtime-event-types.js';
+import type {
+  ProviderAccountId,
+  ProviderId,
+} from '@core/domain/provider/provider.js';
+import { parseAgentThreadQueueKey } from '@core/shared/thread-queue-key.js';
 import { nowMs, toIso } from '@core/shared/time/datetime.js';
 
 import {
@@ -616,9 +627,49 @@ maybeDescribe('live admission work items (Postgres)', () => {
     });
     expect(JSON.stringify(result?.item)).not.toContain('sensitive prompt body');
 
+    const admissionFilter = parseAgentThreadQueueKey(
+      result?.item.queueJid ?? '',
+    );
+    const providerAccountId = admissionFilter.providerAccountId;
+    expect(providerAccountId).toBe('channel-providerAccount:default:telegram');
+    expect(result?.item.messageId).toBe(
+      `message:${providerAccountId}:${message.chat_jid}:${message.id}`,
+    );
+
+    const conversationsTable = `${quotePostgresIdentifier(
+      runtime.schemaName,
+    )}.${quotePostgresIdentifier('conversations')}`;
+    const messagesTable = `${quotePostgresIdentifier(
+      runtime.schemaName,
+    )}.${quotePostgresIdentifier('messages')}`;
+    const { rows: identities } = await runtime.service.pool.query<{
+      conversation_id: string;
+      conversation_provider_account_id: string;
+      message_id: string;
+      message_provider_account_id: string;
+    }>(
+      `SELECT c.id AS conversation_id,
+              c.provider_account_id AS conversation_provider_account_id,
+              m.id AS message_id,
+              m.provider_account_id AS message_provider_account_id
+       FROM ${messagesTable} m
+       JOIN ${conversationsTable} c ON c.id = m.conversation_id
+       WHERE m.id = $1`,
+      [result?.item.messageId],
+    );
+    expect(identities).toEqual([
+      {
+        conversation_id: `conversation:${providerAccountId}:${message.chat_jid}`,
+        conversation_provider_account_id: providerAccountId,
+        message_id: result?.item.messageId,
+        message_provider_account_id: providerAccountId,
+      },
+    ]);
+
     await expect(
-      runtime.ops.getMessagesSince('tg:live-admission-atomic', '', 10, {
-        threadId: null,
+      runtime.ops.getMessagesSince(admissionFilter.chatJid, '', 10, {
+        threadId: admissionFilter.threadId ?? null,
+        providerAccountId,
       }),
     ).resolves.toMatchObject([
       {
@@ -646,6 +697,118 @@ maybeDescribe('live admission work items (Postgres)', () => {
       limit: 10,
     });
     expect(claimed.map((item) => item.id)).toContain(result?.item.id);
+  });
+
+  it('reuses an existing installation account for a providerless follow-up', async () => {
+    const chatJid = 'tg:live-admission-existing-install';
+    const providerAccountId = 'telegram-install-existing' as ProviderAccountId;
+    await runtime.repositories.providerAccounts.saveProviderAccount({
+      id: providerAccountId,
+      appId: DEFAULT_APP_ID as AppId,
+      agentId: DEFAULT_AGENT_ID as AgentId,
+      providerId: 'telegram' as ProviderId,
+      externalIdentityRef: {
+        kind: 'provider_account',
+        value: 'telegram-install-existing',
+      },
+      label: 'Existing Telegram installation',
+      status: 'active',
+      config: {},
+      runtimeSecretRefs: {},
+      createdAt: '2026-06-16T00:00:02.000Z',
+      updatedAt: '2026-06-16T00:00:02.000Z',
+    });
+    await runtime.ops.storeMessage({
+      id: 'msg-install-seed',
+      chat_jid: chatJid,
+      provider: 'telegram',
+      providerAccountId,
+      sender: 'user-install',
+      sender_name: 'Install User',
+      content: 'seed with installation account',
+      timestamp: '2026-06-16T00:00:02.100Z',
+      is_from_me: false,
+      is_bot_message: false,
+    });
+
+    const followUp = {
+      id: 'msg-install-follow-up',
+      chat_jid: chatJid,
+      provider: 'telegram',
+      sender: 'user-install',
+      sender_name: 'Install User',
+      content: 'providerless follow-up',
+      timestamp: '2026-06-16T00:00:02.200Z',
+      is_from_me: false,
+      is_bot_message: false,
+    };
+    const result = await runtime.ops.storeMessageWithLiveAdmission?.(followUp, {
+      appId: 'default',
+      agentId: 'install_agent',
+      triggerDecision: { requiresTrigger: false },
+    });
+
+    expect(result?.outcome).toBe('enqueued');
+    const admissionFilter = parseAgentThreadQueueKey(
+      result?.item.queueJid ?? '',
+    );
+    expect(admissionFilter.providerAccountId).toBe(providerAccountId);
+    expect(result?.item.messageId).toBe(
+      `message:${providerAccountId}:${chatJid}:${followUp.id}`,
+    );
+
+    const conversationsTable = `${quotePostgresIdentifier(
+      runtime.schemaName,
+    )}.${quotePostgresIdentifier('conversations')}`;
+    const messagesTable = `${quotePostgresIdentifier(
+      runtime.schemaName,
+    )}.${quotePostgresIdentifier('messages')}`;
+    const { rows: conversations } = await runtime.service.pool.query<{
+      id: string;
+      provider_account_id: string;
+    }>(
+      `SELECT id, provider_account_id
+       FROM ${conversationsTable}
+       WHERE external_ref_json::jsonb->>'jid' = $1
+       ORDER BY id`,
+      [chatJid],
+    );
+    expect(conversations).toEqual([
+      {
+        id: `conversation:${providerAccountId}:${chatJid}`,
+        provider_account_id: providerAccountId,
+      },
+    ]);
+
+    const { rows: messages } = await runtime.service.pool.query<{
+      conversation_id: string;
+      provider_account_id: string;
+    }>(
+      `SELECT conversation_id, provider_account_id
+       FROM ${messagesTable}
+       WHERE id = $1`,
+      [result?.item.messageId],
+    );
+    expect(messages).toEqual([
+      {
+        conversation_id: `conversation:${providerAccountId}:${chatJid}`,
+        provider_account_id: providerAccountId,
+      },
+    ]);
+
+    await expect(
+      runtime.ops.getMessagesSince(admissionFilter.chatJid, '', 10, {
+        threadId: admissionFilter.threadId ?? null,
+        providerAccountId: admissionFilter.providerAccountId,
+      }),
+    ).resolves.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: followUp.id,
+          content: followUp.content,
+        }),
+      ]),
+    );
   });
 
   it('stores accepted runtime event and live admission atomically', async () => {

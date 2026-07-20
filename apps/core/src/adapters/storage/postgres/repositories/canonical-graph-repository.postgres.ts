@@ -1,4 +1,4 @@
-import { asc, eq, sql } from 'drizzle-orm';
+import { and, asc, eq, sql } from 'drizzle-orm';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 
 import type { ChatInfo } from '../../../../domain/repositories/domain-types.js';
@@ -438,6 +438,24 @@ export class PostgresCanonicalGraphRepository {
       .where(eq(pgSchema.conversationsPostgres.id, conversationId))
       .limit(1);
     return rows[0]?.providerAccountId;
+  }
+
+  async findConversationIdForJid(
+    jid: string,
+    executor: CanonicalExecutor = this.db,
+  ): Promise<string | undefined> {
+    const conversations = pgSchema.conversationsPostgres;
+    const rows = await executor
+      .select({ id: conversations.id })
+      .from(conversations)
+      .where(
+        and(
+          eq(conversations.appId, CANONICAL_APP_ID),
+          eq(sql<string>`${conversations.externalRefJson}::jsonb->>'jid'`, jid),
+        ),
+      )
+      .limit(1);
+    return rows[0]?.id;
   }
 
   async listConversationIds(): Promise<string[]> {

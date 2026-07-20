@@ -503,19 +503,30 @@ export async function processLiveAdmissionWorkItem(
   }
 
   const recoveredCursor = await deps.getOrRecoverCursor(item.queueJid);
+  const options = {
+    threadId: threadId ?? null,
+    ...(providerAccountId ? { providerAccountId } : {}),
+  };
   const replay = await collectPendingMessagesSince({
     getMessagesSince: opsRepository.getMessagesSince.bind(opsRepository),
     chatJid,
     sinceCursor: recoveredCursor,
     pageSize: MESSAGE_FETCH_PAGE_SIZE,
     maxMessages: MAX_MESSAGES_PER_PROMPT,
-    options: {
-      threadId: threadId ?? null,
-      ...(providerAccountId ? { providerAccountId } : {}),
-    },
+    options,
   });
   const messages = replay.messages;
-  if (messages.length === 0) return 'completed';
+  if (messages.length === 0) {
+    logger.warn(
+      {
+        itemId: item.id,
+        queueJid: item.queueJid,
+        filter: { chatJid, ...options },
+      },
+      'Live admission work item matched no messages',
+    );
+    return 'completed';
+  }
   return processQueueMessages(deps, item.queueJid, messages, replay, {
     trustedTriggerBypass:
       item.triggerDecision.source === 'callable_agent_follow_up',

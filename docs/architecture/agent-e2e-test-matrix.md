@@ -153,11 +153,12 @@ Legend: ✅ covered (cite) · 🔨 to build · 🏷 label-gated (live lane) · �
 
 ## 11. Route integrity (incident regressions)
 
-| Scenario                                                                           | Layer            | Status               |
-| ---------------------------------------------------------------------------------- | ---------------- | -------------------- |
-| Loader collapses mixed legacy key forms to ONE route (total preference order)      | unit/integration | 🔨 in route-fix lane |
-| Divergent conversationId rows load via derive+warn, never throw, never drop a chat | unit/integration | 🔨 in route-fix lane |
-| Corrupt-state seed via direct test-DB rows (documented API exception)              | integration      | 🔨                   |
+| Scenario                                                                                                                              | Layer            | Status                                                                                                                 |
+| ------------------------------------------------------------------------------------------------------------------------------------- | ---------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| Loader collapses mixed legacy key forms to ONE route (total preference order)                                                         | unit/integration | 🔨 in route-fix lane                                                                                                   |
+| Divergent conversationId rows load via derive+warn, never throw, never drop a chat                                                    | unit/integration | 🔨 in route-fix lane                                                                                                   |
+| Corrupt-state seed via direct test-DB rows (documented API exception)                                                                 | integration      | 🔨                                                                                                                     |
+| Providerless admission qualifies conversation/message/queue with ONE provider account (no silent turn drop, no parallel conversation) | unit/integration | ✅ canonical-message-ops-service.test.ts, message-loop.test.ts, live-admission-work-items.postgres.integration.test.ts |
 
 ## 12. Channel loop (Slack, dedicated test app)
 
