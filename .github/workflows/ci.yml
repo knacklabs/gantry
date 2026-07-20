@@ -104,6 +104,8 @@ jobs:
           run_check npm run test:e2e
           export GANTRY_TEST_DATABASE_URL=postgres://postgres:postgres@localhost:${{ job.services.postgres.ports[5432] }}/gantry_test
           run_check npm run test:e2e:postgres
+          run_check npm run test:integration:postgres
+          run_check npm run test:integration:postgres:chaos
 
       - name: Debug CI Hang Context
         if: ${{ always() && steps.tests.outcome != 'success' }}

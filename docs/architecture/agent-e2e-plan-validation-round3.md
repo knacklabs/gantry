@@ -104,7 +104,7 @@ restart.
    egress on that host path. A proxy-only assumption is unsupported as written.
 5. **Honest proof status:** current two-process E2E uses a deterministic child,
    disables the credential broker, and does not prove this live composition
-   (`apps/core/test/e2e/claim-protocol-two-process.e2e.test.ts:424-450`). V4 may
+   (`apps/core/test/e2e/claim-protocol-two-process.postgres.e2e.test.ts:424-450`). V4 may
    specify this test as the proof to add; it may not describe completion as
    already established.
 

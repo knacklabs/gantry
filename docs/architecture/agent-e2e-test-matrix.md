@@ -81,8 +81,8 @@ Legend: ✅ covered (cite) · 🔨 to build · 🏷 label-gated (live lane) · �
 | Scenario | Layer | Status |
 |---|---|---|
 | Register HTTP server via SDK; approve ONLY echo+get-sum | e2e | 🔨 |
-| Discovery + schema; denied tools invisible to the agent | e2e | 🔨 |
-| Turn calls `get-sum(20,22)`; fixture records call; tool result 42; MCP audit event | e2e | 🔨 |
+| Discovery + schema; denied tools invisible to the agent | e2e | ✅ mcp-client-loop.postgres.e2e.test.ts |
+| Turn calls `get-sum(20,22)`; fixture records call; tool result 42; MCP audit event | e2e | ✅ client path (non-model: fixture records exact args, result 42, MCP audit + runtime event) mcp-client-loop.postgres.e2e.test.ts · 🔨 real-turn |
 | stdio transport | integration | ✅ ipc-mcp-stdio.test.ts |
 | MCP server management lifecycle | integration | ✅ mcp-server-management.integration.test.ts + mcp-server.postgres.integration.test.ts |
 | Deep-MCP: every capability class of vendored everything-server (tools, resources, prompts, sampling, progress, logging, completions) — unsupported class = product bug or documented non-support | e2e-live | 🏷 |
@@ -101,10 +101,10 @@ Legend: ✅ covered (cite) · 🔨 to build · 🏷 label-gated (live lane) · �
 | Locked agent: forged authority IPC denied at parent | integration | ✅ ipc-locked-permission-denial.test.ts |
 | Eligibility: only Bash/RunCommand + non-gantry MCP reach classifier | integration | ✅ unit |
 | Full chain: real IPC boundary → durable interaction → decision → event repo | integration | 🔨 (the one genuinely new chain) |
-| Allow ONCE: runs, then authority expires after restart | integration + e2e recovery scenario | 🔨 |
-| Allow FUTURE: argv-leaf rule persists, auto-allows next same-leaf command, survives restart, agent-scoped (current semantics) | integration | 🔨 (promotion-postgres covers counters only) |
+| Allow ONCE: runs, then authority expires after restart | integration + e2e recovery scenario | ✅ integration permission-durable-authority.postgres.integration.test.ts · 🔨 e2e recovery |
+| Allow FUTURE: argv-leaf rule persists, auto-allows next same-leaf command, survives restart, agent-scoped (current semantics) | integration | ✅ permission-durable-authority.postgres.integration.test.ts |
 | Record-before-prompt ordering | integration | 🔨 |
-| Cancel: run interrupts cleanly, no partial effect, audit `cancelled` | integration | 🔨 |
+| Cancel: run interrupts cleanly, no partial effect, audit `cancelled` | integration | ✅ decision chain (cancelled record, no rule persisted) permission-durable-authority.postgres.integration.test.ts · 🔨 run-interrupt |
 | Deny: recorded, no execution | integration | 🔨 |
 | NO chat receipt on allow-future (regression, #239) | integration | 🔨 |
 | Real decision paths only — via classifier / in-process button-resolution callback / real Slack button (never a decide-API) | (constraint on all above) | — |
@@ -127,7 +127,7 @@ Legend: ✅ covered (cite) · 🔨 to build · 🏷 label-gated (live lane) · �
 
 | Scenario | Layer | Status |
 |---|---|---|
-| Write → recall → subject-boundary isolation (person/group/channel) | integration | 🔨 |
+| Write → recall → subject-boundary isolation (person/group/channel) | integration | ✅ memory-write-recall-boundary.postgres.integration.test.ts (subject-scoped fetch recall; embedding recall stays hermetically disabled) |
 | Turn 1 states fact → durable memory row collected; turn 2 → memory READ occurred | e2e | 🔨 |
 | Memory survives restart, still recallable | e2e | 🔨 |
 | Job-run memory collection persists | e2e (job scenario) | 🔨 |

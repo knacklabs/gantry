@@ -116,7 +116,7 @@ Run focused checks first:
 ```bash
 npm run test:unit -- apps/core/test/unit/session/session-commands.test.ts apps/core/test/unit/runtime/group-processing.test.ts apps/core/test/unit/jobs/compact-memory.test.ts apps/core/test/unit/runner/agent-runner-ipc.test.ts
 npm run test:unit -- apps/core/test/unit/runtime/session-resume-runtime.test.ts apps/core/test/unit/application/session-resume-use-cases.test.ts
-npm run test:integration:postgres -- apps/core/test/integration/session-continuity-postgres.integration.test.ts apps/core/test/integration/postgres-domain-repositories.integration.test.ts
+npm run test:integration:postgres -- apps/core/test/integration/session-continuity.postgres.integration.test.ts apps/core/test/integration/domain-repositories.postgres.integration.test.ts
 python3 .codex/scripts/check_architecture.py
 ```
 

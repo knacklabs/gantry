@@ -66,8 +66,8 @@ covered matrix row cites its existing test and adds only the rightmost gap.
   test:e2e:postgres but NOT test:integration:postgres (`.github/workflows/ci.yml`).
 - `test:integration:postgres` runs a hard-coded 19-file list that OMITS
   `fleet-capability-chaos-combo.postgres.integration.test.ts`,
-  `fleet-capability-state-repositories.integration.test.ts`, and
-  `postgres-domain-repositories.integration.test.ts` (capability-secret + binding
+  `fleet-capability-state-repositories.postgres.integration.test.ts`, and
+  `domain-repositories.postgres.integration.test.ts` (capability-secret + binding
   persistence). v2 EXTENDS that list to include the capability persistence suites
   the gate must cover. (chaos-combo is concurrency/convergence + slow → put it in
   its own shard, not the 15-min-critical path.)
@@ -427,7 +427,7 @@ command.)
 
 ## Acceptance criteria
 - All existing suites green. Extended `test:integration:postgres` (incl. the
-  fleet-capability + postgres-domain-repositories suites) runs in CI and gates.
+  fleet-capability + domain-repositories suites) runs in CI and gates.
 - The agent E2E gate completes a REAL `haiku` turn, everything driven via API, and
   proves the agent can invoke EVERY tool in its effective set (behavioral
   assertions).

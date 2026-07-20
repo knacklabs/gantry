@@ -39,7 +39,7 @@ integration checks:
 
 ```bash
 npm run test:unit -- apps/core/test/unit/application/session-resume-use-cases.test.ts apps/core/test/unit/runtime/session-resume-runtime.test.ts apps/core/test/unit/adapters/storage/postgres/canonical-session-repository.postgres.test.ts apps/core/test/unit/adapters/storage/postgres/canonical-ops-repo.postgres.test.ts
-npm run test:integration:postgres -- apps/core/test/integration/session-continuity-postgres.integration.test.ts apps/core/test/integration/postgres-domain-repositories.integration.test.ts
+npm run test:integration:postgres -- apps/core/test/integration/session-continuity.postgres.integration.test.ts apps/core/test/integration/domain-repositories.postgres.integration.test.ts
 ```
 
 Provider-session artifact and redaction changes should run:
