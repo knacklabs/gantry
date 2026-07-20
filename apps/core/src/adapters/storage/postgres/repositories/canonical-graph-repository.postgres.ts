@@ -4,6 +4,7 @@ import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import type { ChatInfo } from '../../../../domain/repositories/domain-types.js';
 import { nowIso as currentIso } from '../../../../shared/time/datetime.js';
 import {
+  fallbackProviderAccountId,
   normalizeProviderId,
   providerIdForJid as resolveProviderIdForJid,
 } from '../../../../channels/provider-registry.js';
@@ -218,7 +219,7 @@ export class PostgresCanonicalGraphRepository {
       normalizeProviderId(input.channel || providerIdForJid(jid)) || 'app';
     const providerAccountId =
       input.providerAccountId ??
-      `channel-providerAccount:${CANONICAL_APP_ID}:${providerId}`;
+      fallbackProviderAccountId(CANONICAL_APP_ID, providerId);
     const canonicalConversationId = conversationIdForJid(
       jid,
       input.providerAccountId,

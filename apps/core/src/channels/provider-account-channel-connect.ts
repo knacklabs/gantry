@@ -2,7 +2,10 @@ import type { RuntimeLease } from '../domain/ports/runtime-lease.js';
 import { agentIdForFolder } from '../domain/agent/agent-folder-id.js';
 import type { logger } from '../infrastructure/logging/logger.js';
 import type { ChannelAdapter, ChannelOpts } from './channel-provider.js';
-import type { Provider } from './provider-registry.js';
+import {
+  internalControlProviderAccountId,
+  type Provider,
+} from './provider-registry.js';
 
 interface ProviderAccountRuntimeSettings {
   providerAccounts: Record<
@@ -59,7 +62,7 @@ export async function connectProviderAccountChannels(input: {
   > = input.provider.internal
     ? [
         [
-          `control:${input.appId}`,
+          internalControlProviderAccountId(input.appId),
           {
             provider: input.provider.id,
             agentId: 'main_agent',

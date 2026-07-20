@@ -116,6 +116,30 @@ export function normalizeProviderId(id: string): string {
   return builtInPrefixAliases.get(normalized) ?? '';
 }
 
+/** Provider-account id the internal control channel registers under. */
+export function internalControlProviderAccountId(appId: string): string {
+  return `control:${appId}`;
+}
+
+/**
+ * Fallback provider-account id for a conversation whose message carried none.
+ * Internal providers (app: JIDs) have exactly one always-connected channel
+ * bound as control:<appId>; minting any other synthetic id there orphans the
+ * conversation from channel ownership and its turns are silently skipped.
+ */
+export function fallbackProviderAccountId(
+  appId: string,
+  providerId: string,
+): string {
+  const normalized = normalizeProviderId(providerId) || providerId;
+  // 'app' is the built-in internal provider; recognize it even before
+  // register-builtins has populated the registry (repository-level callers).
+  if (normalized === 'app' || getProvider(normalized)?.internal === true) {
+    return internalControlProviderAccountId(appId);
+  }
+  return `channel-providerAccount:${appId}:${normalized}`;
+}
+
 export function providerJidPrefix(providerId: string): string {
   const normalized = normalizeProviderId(providerId);
   if (!normalized) return '';

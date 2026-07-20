@@ -15,7 +15,10 @@ import {
 import type { NewMessage } from '../../../../domain/repositories/domain-types.js';
 import type { LiveAdmissionWorkItemEnqueueResult } from '../../../../domain/ports/live-turns.js';
 import { agentIdForFolder as normalizeAgentIdForFolder } from '../../../../domain/agent/agent-folder-id.js';
-import { normalizeProviderId } from '../../../../channels/provider-registry.js';
+import {
+  fallbackProviderAccountId,
+  normalizeProviderId,
+} from '../../../../channels/provider-registry.js';
 import { sanitizeRetryTailProviderPayload } from '../../../../domain/messages/retry-tail-provider-payload.js';
 import {
   encodeGroupMessageCursor,
@@ -269,7 +272,7 @@ export class PostgresCanonicalMessageRepository {
             tx,
           )
         : undefined) ??
-      `channel-providerAccount:${CANONICAL_APP_ID}:${providerId}`;
+      fallbackProviderAccountId(CANONICAL_APP_ID, providerId);
     const conversationId = await this.graph.ensureConversation(
       msg.chat_jid,
       {

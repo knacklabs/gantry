@@ -1099,6 +1099,84 @@ describe('CanonicalMessageOpsService', () => {
     });
   });
 
+  it('stamps the internal control provider account for providerless app-session admission', async () => {
+    const insertedValues: unknown[] = [];
+    const tx = {
+      select: vi.fn(),
+      insert: vi.fn(() => ({
+        values: vi.fn((values: unknown) => {
+          insertedValues.push(values);
+          if (
+            values &&
+            typeof values === 'object' &&
+            String((values as Record<string, unknown>).id).startsWith(
+              'live-admission:',
+            )
+          ) {
+            return {
+              onConflictDoNothing: vi.fn(() => ({
+                returning: vi.fn(async () => [values]),
+              })),
+            };
+          }
+          return { onConflictDoUpdate: vi.fn(async () => undefined) };
+        }),
+      })),
+      delete: vi.fn(),
+    };
+    const graph = {
+      findConversationIdForJid: vi.fn(async () => undefined),
+      ensureConversation: vi.fn(
+        async () => 'conversation:control:default:app:default:haiku-e2e',
+      ),
+      ensureThread: vi.fn(async () => null),
+      getConversationInstallationId: vi.fn(async () => null),
+      ensureParticipant: vi.fn(async () => undefined),
+    };
+    const repository = new PostgresCanonicalMessageRepository({} as never);
+    Object.assign(repository, { graph });
+
+    await repository.saveMessageWithExecutor(
+      tx as never,
+      {
+        id: '1710000002.000200',
+        chat_jid: 'app:default:haiku-e2e',
+        sender: 'api',
+        sender_name: 'API',
+        content: 'hello',
+        timestamp: '2026-05-06T00:00:00.000Z',
+      },
+      { liveAdmission: { appId: 'app-one', agentId: 'alpha' } },
+    );
+
+    // The internal app channel is bound as control:<appId>; any other
+    // synthetic account orphans the conversation from channel ownership and
+    // the turn is silently skipped ("No channel owns JID").
+    expect(graph.ensureConversation).toHaveBeenCalledWith(
+      'app:default:haiku-e2e',
+      expect.objectContaining({ providerAccountId: 'control:default' }),
+      tx,
+    );
+    expect(insertedValues[0]).toMatchObject({
+      id: 'message:control:default:app:default:haiku-e2e:1710000002.000200',
+      providerAccountId: 'control:default',
+    });
+    const admissionRow = insertedValues.find(
+      (value): value is Record<string, unknown> =>
+        !!value &&
+        typeof value === 'object' &&
+        String((value as Record<string, unknown>).id).startsWith(
+          'live-admission:',
+        ),
+    );
+    expect(String(admissionRow?.queueJid)).toContain(
+      'provider_account:control%3Adefault',
+    );
+    expect(String(admissionRow?.queueJid)).not.toContain(
+      'channel-providerAccount',
+    );
+  });
+
   it('reuses an existing conversation installation for providerless live admission', async () => {
     const insertedValues: unknown[] = [];
     const tx = {
