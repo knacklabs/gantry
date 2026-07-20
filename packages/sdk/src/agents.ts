@@ -1,7 +1,19 @@
 import type {
+  AgentProfileFileContentResponse,
+  AgentProfileFileKind,
+  AgentProfileFilesResponse,
   GetAgentDelegatesResponse,
   ReplaceAgentDelegatesRequest,
   ReplaceAgentDelegatesResponse,
+  SetAgentProfileFileRequest,
+  SetAgentProfileFileResponse,
+} from './openapi-types.js';
+
+export type {
+  AgentProfileFileContentResponse,
+  AgentProfileFileKind,
+  AgentProfileFilesResponse,
+  AgentProfileFileSummary,
 } from './openapi-types.js';
 
 type TransportLike = {
@@ -30,31 +42,6 @@ export type AgentAdminResponse = {
   agent: Record<string, unknown>;
   capabilities?: Record<string, unknown>;
   boundConversations: AgentAdminBoundConversation[];
-};
-
-export type AgentProfileFileKind = 'soul' | 'agents';
-
-export type AgentProfileFileSummary = {
-  kind: AgentProfileFileKind;
-  path: string;
-  version: number;
-  contentHash: string;
-  sizeBytes: number;
-  updatedAt: string | null;
-};
-
-export type AgentProfileFilesResponse = {
-  agentId: string;
-  files: AgentProfileFileSummary[];
-};
-
-export type AgentProfileFileContentResponse = {
-  agentId: string;
-  kind: AgentProfileFileKind;
-  path: string;
-  version: number;
-  contentHash: string;
-  content: string;
 };
 
 export function createAgentAdminClient(transport: TransportLike) {
@@ -88,9 +75,9 @@ export function createAgentAdminClient(transport: TransportLike) {
     setProfileFile: (
       agentId: string,
       kind: AgentProfileFileKind,
-      body: { content: string; expectedVersion?: number },
+      body: SetAgentProfileFileRequest,
     ) =>
-      transport.request<AgentProfileFileContentResponse>({
+      transport.request<SetAgentProfileFileResponse>({
         method: 'PUT',
         path: `/v1/agents/${encodeURIComponent(agentId)}/profile-files/${kind}`,
         body,

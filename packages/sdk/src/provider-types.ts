@@ -26,20 +26,3 @@ export type ConversationDiscoveryInput = {
   includeArchived?: boolean;
   providerMetadata?: Record<string, unknown>;
 };
-
-export type ConversationInstallInput = {
-  providerAccountId?: string;
-  threadId?: string;
-  displayName?: string;
-  memoryScope?: 'user' | 'conversation' | 'agent' | 'app';
-  memorySubject?: Record<string, unknown>;
-  routeConfig?: {
-    trigger?: string;
-    requiresTrigger?: boolean;
-    agentConfig?: Record<string, unknown>;
-  };
-  workspaceSnapshotId?: string | null;
-  permissionPolicyIds?: string[];
-  status?: 'active' | 'disabled';
-  metadata?: Record<string, unknown>;
-};

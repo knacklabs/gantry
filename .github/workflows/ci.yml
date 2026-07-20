@@ -74,6 +74,9 @@ jobs:
       - name: Build
         run: npm run build
 
+      - name: Check generated SDK types
+        run: npm run check:generated --workspace @gantry/sdk
+
       - name: Check package contents
         run: npm run security:package
 

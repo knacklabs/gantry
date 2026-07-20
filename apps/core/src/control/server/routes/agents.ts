@@ -636,7 +636,6 @@ async function agentBoundConversations(input: {
     displayName?: string;
     approverUserIds: string[];
     requiresTrigger: boolean;
-    trigger?: string;
   }>
 > {
   const repositories = getRuntimeStorage().repositories;
@@ -669,7 +668,6 @@ async function agentBoundConversation(
   displayName?: string;
   approverUserIds: string[];
   requiresTrigger: boolean;
-  trigger?: string;
 } | null> {
   const repositories = getRuntimeStorage().repositories;
   const conversation = await repositories.conversations.getConversation(
@@ -684,30 +682,13 @@ async function agentBoundConversation(
   const approvers = await repositories.conversations.listConversationApprovers(
     conversation.id,
   );
-  const route =
-    binding.memorySubject &&
-    typeof binding.memorySubject === 'object' &&
-    'route' in binding.memorySubject &&
-    binding.memorySubject.route &&
-    typeof binding.memorySubject.route === 'object'
-      ? (binding.memorySubject.route as {
-          requiresTrigger?: unknown;
-          trigger?: unknown;
-        })
-      : undefined;
   return {
     conversationId: conversation.id,
     provider: providerAccount.providerId,
     kind: conversation.kind,
     ...(conversation.title ? { displayName: conversation.title } : {}),
     approverUserIds: approvers.map((approver) => approver.externalUserId),
-    requiresTrigger:
-      typeof route?.requiresTrigger === 'boolean'
-        ? route.requiresTrigger
-        : conversation.kind !== 'direct',
-    ...(typeof route?.trigger === 'string' && route.trigger
-      ? { trigger: route.trigger }
-      : {}),
+    requiresTrigger: conversation.requiresTrigger,
   };
 }
 

@@ -1,3 +1,14 @@
+export type {
+  ModelDefaultSlot,
+  ModelDefaultsPatchRequest,
+  ModelDefaultsResponse,
+  ModelPreviewRequest,
+  ModelPreviewResponse,
+  ModelPreviewTarget,
+  ModelRecord,
+  ModelWorkload,
+} from './openapi-types.js';
+
 export type JobKind = 'manual' | 'once' | 'recurring';
 export type JobStatus =
   | 'active'
@@ -196,177 +207,6 @@ export interface JobEventRecord {
   event_type: string;
   payload: string | null;
   created_at: string;
-}
-
-export interface ModelRecord {
-  id: string;
-  displayName: string;
-  aliases: string[];
-  recommendedAlias: string;
-  responseFamily: string;
-  // Read-only support matrix: the public harness that can run this model and
-  // its internal execution provider diagnostic.
-  executionRoutes: Array<{
-    harness: string;
-    executionProviderId: string;
-  }>;
-  credentialProfileRef: string;
-  modelRoute: {
-    id: string;
-    label: string;
-    metadata: {
-      providerModelId: string;
-    };
-  };
-  capabilities: {
-    streaming: boolean;
-    toolUse: boolean;
-    mcpProjection: boolean;
-    browserProjection: boolean;
-    sandboxProjection: boolean;
-    providerSessionResume: boolean;
-    thinking: boolean;
-    tokenAccounting: boolean;
-    cacheAccounting: boolean;
-    structuredOutput: boolean;
-  };
-  supportedWorkloads: ModelWorkload[];
-  // Optional: deepagents-lane entries omit static limits; reported at runtime
-  // from the engine's model profile.
-  contextWindowTokens?: number;
-  maxOutputTokens?: number;
-  cacheMode: string;
-  cacheTokenFields: string[];
-  cacheSupport: {
-    providerId: string;
-    providerLabel: string;
-    cacheProvider: string;
-    statusLabel: string;
-    prompt: {
-      mode: string;
-      automatic: boolean;
-      requestControl: string;
-      ttlOptions: string[];
-      minimumTokenThresholds: Array<{
-        modelFamily: string;
-        tokens: number;
-      }>;
-      usageFields: Record<string, unknown>;
-      supported: boolean;
-      accounted: boolean;
-    };
-    response: {
-      mode: string;
-      enabledByDefault: boolean;
-      requestControl: string;
-      requestHeaders: string[];
-      responseHeaders: string[];
-      usageBehavior: string;
-      available: boolean;
-    };
-    tokenFields: string[];
-  };
-  supportsThinking?: boolean;
-  supportsTools?: boolean;
-  /** Curated per-million-token pricing (USD); omitted when no curated price. */
-  inputUsdPerMillionTokens?: number;
-  outputUsdPerMillionTokens?: number;
-  /**
-   * Credential-aware availability for the requesting app: true when the model's
-   * provider has an active Model Access credential. Present only on the model
-   * list endpoint; omitted when a model is embedded in a default slot.
-   */
-  available?: boolean;
-  source: {
-    label: string;
-    url: string;
-    verifiedAt: string;
-  };
-  experimental: boolean;
-}
-
-export type ModelWorkload =
-  | 'chat'
-  | 'one_time_job'
-  | 'recurring_job'
-  | 'memory_extractor'
-  | 'memory_dreaming'
-  | 'memory_consolidation';
-
-export interface ModelDefaultSlot {
-  configuredAlias: string | null;
-  effectiveAlias: string | null;
-  source: string;
-  inherited: boolean;
-  workload: ModelWorkload;
-  model: ModelRecord | null;
-}
-
-export interface ModelDefaultsResponse {
-  provider: {
-    id: string;
-    label: string;
-  } | null;
-  chat: ModelDefaultSlot;
-  jobs: {
-    oneTime: ModelDefaultSlot;
-    recurring: ModelDefaultSlot;
-  };
-  memory: {
-    mode: 'provider-managed';
-    extractor: ModelDefaultSlot;
-    dreaming: ModelDefaultSlot;
-    consolidation: ModelDefaultSlot;
-  };
-  defaults: {
-    chat: ModelDefaultSlot;
-    oneTime: ModelDefaultSlot;
-    recurring: ModelDefaultSlot;
-    memoryExtractor: ModelDefaultSlot;
-    memoryDreaming: ModelDefaultSlot;
-    memoryConsolidation: ModelDefaultSlot;
-  };
-}
-
-export interface ModelDefaultsPatchRequest {
-  chat?: string | null;
-  jobs?: string | null;
-  oneTime?: string | null;
-  recurring?: string | null;
-  memory?: 'reset' | 'provider-managed' | null;
-}
-
-export type ModelPreviewTarget = 'chat' | 'jobs' | 'job' | 'agent' | 'memory';
-
-export interface ModelPreviewRequest {
-  target: ModelPreviewTarget;
-  jobId?: string;
-  // For target 'agent': resolve a model alias against the agent's engine.
-  agentId?: string;
-  modelAlias?: string;
-  conversationJid?: string;
-  workspaceKey?: string;
-  kind?: 'one-time' | 'recurring';
-  task?: 'extractor' | 'dreaming' | 'consolidation';
-}
-
-export interface ModelPreviewResponse {
-  target: ModelPreviewTarget;
-  jobId?: string;
-  agentId?: string;
-  scope?: string;
-  kind?: 'one-time' | 'recurring';
-  task?: 'extractor' | 'dreaming' | 'consolidation';
-  // Resolved-route diagnostics for target 'agent'. `agentHarness` is the public
-  // selected harness; `executionProviderId` is the internal read-only
-  // diagnostic; `incompatible` carries the locked plan copy when the
-  // model/harness pairing is unsupported.
-  agentHarness?: string;
-  credentialProfile?: string;
-  executionProviderId?: string;
-  incompatible?: string;
-  selection: ModelDefaultSlot;
-  why: string[];
 }
 
 export interface CreateJobInput {

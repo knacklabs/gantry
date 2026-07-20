@@ -481,6 +481,7 @@ describe('provider conversation onboarding control SDK integration', () => {
       externalRef: { kind: 'conversation', value: 'C999' },
       kind: 'channel',
       title: 'ops',
+      requiresTrigger: true,
       status: 'active',
       createdAt: '2026-04-28T00:00:00.000Z',
       updatedAt: '2026-04-28T00:00:00.000Z',
@@ -532,7 +533,7 @@ describe('provider conversation onboarding control SDK integration', () => {
         ...state.conversationInstalls.get(installKey),
         memorySubject: {
           ...state.conversationInstalls.get(installKey).memorySubject,
-          route: { trigger: '/ops', requiresTrigger: true },
+          route: { trigger: '/ops', requiresTrigger: false },
         },
       });
       await client.agents.conversationInstalls.update(
@@ -545,21 +546,22 @@ describe('provider conversation onboarding control SDK integration', () => {
       expect(runtimeApp.app.projectConversationRoute).toHaveBeenLastCalledWith(
         'sl:C999',
         expect.objectContaining({
-          trigger: '/ops',
+          trigger: '@Agent One',
           requiresTrigger: true,
         }),
       );
-      await expect(client.agents.getAdmin('agent:one')).resolves.toEqual(
+      const agentAdmin = await client.agents.getAdmin('agent:one');
+      expect(agentAdmin).toEqual(
         expect.objectContaining({
           boundConversations: [
             expect.objectContaining({
               conversationId,
               requiresTrigger: true,
-              trigger: '/ops',
             }),
           ],
         }),
       );
+      expect(agentAdmin.boundConversations[0]).not.toHaveProperty('trigger');
 
       await client.agents.conversationInstalls.disable(
         'agent:one',

@@ -351,7 +351,7 @@ describe('DiscoverProviderConversationsService', () => {
 });
 
 describe('ConversationInstallControlService', () => {
-  it('preserves route metadata when updating an existing install', async () => {
+  it('preserves canonical route metadata when updating an existing install', async () => {
     const providerAccounts = {
       getProviderAccount: vi.fn(async () => ({
         id: 'slack_alpha',
@@ -373,7 +373,12 @@ describe('ConversationInstallControlService', () => {
           kind: 'conversation',
           appId: 'default',
           conversationId: 'conversation-1',
-          route: { trigger: '@main', requiresTrigger: true },
+          route: {
+            configuredConversationId: 'conversation-key',
+            trigger: '@main',
+            requiresTrigger: true,
+            agentConfig: { model: 'sonnet' },
+          },
         },
         permissionPolicyIds: [],
         createdAt: iso,
@@ -413,7 +418,10 @@ describe('ConversationInstallControlService', () => {
       expect.objectContaining({
         displayName: 'renamed',
         memorySubject: expect.objectContaining({
-          route: { trigger: '@main', requiresTrigger: true },
+          route: {
+            configuredConversationId: 'conversation-key',
+            agentConfig: { model: 'sonnet' },
+          },
         }),
       }),
     );
@@ -455,8 +463,6 @@ describe('ConversationInstallControlService', () => {
       conversationId: 'conversation-1' as never,
       patch: {
         routeConfig: {
-          trigger: '/ask',
-          requiresTrigger: true,
           agentConfig: { model: 'sonnet' },
         },
       },
@@ -466,8 +472,6 @@ describe('ConversationInstallControlService', () => {
       expect.objectContaining({
         memorySubject: expect.objectContaining({
           route: {
-            trigger: '/ask',
-            requiresTrigger: true,
             agentConfig: { model: 'sonnet' },
           },
         }),
@@ -475,7 +479,7 @@ describe('ConversationInstallControlService', () => {
     );
   });
 
-  it('merges route config patches onto existing route metadata', async () => {
+  it('updates agent config without retaining legacy trigger metadata', async () => {
     const providerAccounts = {
       getProviderAccount: vi.fn(async () => ({
         id: 'slack_alpha',
@@ -498,6 +502,7 @@ describe('ConversationInstallControlService', () => {
           appId: 'default',
           conversationId: 'conversation-1',
           route: {
+            configuredConversationId: 'conversation-key',
             trigger: '@main',
             requiresTrigger: true,
             agentConfig: { model: 'sonnet' },
@@ -534,16 +539,15 @@ describe('ConversationInstallControlService', () => {
       agentId: 'main_agent' as never,
       conversationId: 'conversation-1' as never,
       requireExisting: true,
-      patch: { routeConfig: { trigger: '/ask' } },
+      patch: { routeConfig: { agentConfig: { model: 'opus' } } },
     });
 
     expect(providerAccounts.saveConversationInstall).toHaveBeenCalledWith(
       expect.objectContaining({
         memorySubject: expect.objectContaining({
           route: {
-            trigger: '/ask',
-            requiresTrigger: true,
-            agentConfig: { model: 'sonnet' },
+            configuredConversationId: 'conversation-key',
+            agentConfig: { model: 'opus' },
           },
         }),
       }),

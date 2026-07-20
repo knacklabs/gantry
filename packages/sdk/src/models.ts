@@ -3,8 +3,8 @@ import type {
   ModelDefaultsResponse,
   ModelPreviewRequest,
   ModelPreviewResponse,
-  ModelRecord,
 } from './job-model-types.js';
+import type { ListModelsResponse } from './openapi-types.js';
 import type { RequestOptions } from './types.js';
 
 type ModelsTransport = {
@@ -14,7 +14,7 @@ type ModelsTransport = {
 export function createModelsClient(transport: ModelsTransport) {
   return {
     list: () =>
-      transport.request<{ models: ModelRecord[] }>({
+      transport.request<ListModelsResponse>({
         method: 'GET',
         path: '/v1/models',
       }),

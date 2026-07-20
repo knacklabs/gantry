@@ -2677,6 +2677,47 @@ describe('control server runtime hardening', () => {
     }
   });
 
+  it('rejects path-owned fields in conversation install bodies', async () => {
+    const port = await reservePort();
+    process.env.GANTRY_CONTROL_PORT = String(port);
+    process.env.GANTRY_CONTROL_API_KEYS_JSON = JSON.stringify([
+      {
+        kid: 'k',
+        token: 'conversation-admin-token',
+        scopes: ['agents:admin', 'conversations:admin'],
+        appId: 'app-one',
+      },
+    ]);
+    const handle = startControlServer({
+      app: {
+        registerGroup: vi.fn(),
+        queue: { enqueueMessageCheck: vi.fn() },
+      } as any,
+    });
+
+    try {
+      const response = await requestWithRetry(
+        `http://127.0.0.1:${port}/v1/agents/agent-1/conversation-installs/conversation-1`,
+        'conversation-admin-token',
+        {
+          method: 'PUT',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ metadata: { source: 'ignored' } }),
+        },
+      );
+
+      expect(response.status).toBe(400);
+      expect(await response.json()).toMatchObject({
+        error: { code: 'INVALID_REQUEST' },
+      });
+      expect(
+        domainRepositories.providerAccounts.saveConversationInstall,
+      ).not.toHaveBeenCalled();
+    } finally {
+      await handle.close();
+    }
+  });
+
   it('projects thread-scoped conversation installs to the live route table', async () => {
     const port = await reservePort();
     process.env.GANTRY_CONTROL_PORT = String(port);

@@ -555,7 +555,6 @@ export class SettingsDesiredStateService {
           }),
           route: {
             configuredConversationId: input.conversationKey,
-            requiresTrigger: binding.requiresTrigger,
             agentConfig: configuredAgentConfig(binding),
           },
         },

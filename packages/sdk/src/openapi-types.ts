@@ -83,6 +83,16 @@ export type PauseJobResponse = JsonResponse<'pauseJob', 200>;
 export type ResumeJobResponse = JsonResponse<'resumeJob', 200>;
 export type TriggerJobResponse = JsonResponse<'triggerJob', 202>;
 
+export type ListModelsResponse = JsonResponse<'listModels', 200>;
+export type ModelRecord = ListModelsResponse['models'][number];
+export type ModelWorkload = ModelRecord['supportedWorkloads'][number];
+export type ModelDefaultsResponse = JsonResponse<'getModelDefaults', 200>;
+export type ModelDefaultSlot = ModelDefaultsResponse['chat'];
+export type ModelDefaultsPatchRequest = JsonRequest<'patchModelDefaults'>;
+export type ModelPreviewRequest = JsonRequest<'previewModelSelection'>;
+export type ModelPreviewTarget = ModelPreviewRequest['target'];
+export type ModelPreviewResponse = JsonResponse<'previewModelSelection', 200>;
+
 export type ListRunsQuery = Query<'listRuns'>;
 export type ListRunsResponse = JsonResponse<'listRuns', 200>;
 export type GetRunResponse = JsonResponse<'getRun', 200>;
@@ -139,10 +149,14 @@ export type ListConversationInstallsResponse = JsonResponse<
   'listConversationInstalls',
   200
 >;
+export type EnableConversationInstallRequest =
+  JsonRequest<'enableConversationInstall'>;
 export type EnableConversationInstallResponse = JsonResponse<
   'enableConversationInstall',
   200
 >;
+export type UpdateConversationInstallRequest =
+  JsonRequest<'updateConversationInstall'>;
 export type UpdateConversationInstallResponse = JsonResponse<
   'updateConversationInstall',
   200
@@ -160,6 +174,37 @@ export type ReplaceAgentDelegatesResponse = JsonResponse<
   'replaceAgentDelegates',
   200
 >;
+export type AgentProfileFilesResponse = JsonResponse<
+  'listAgentProfileFiles',
+  200
+>;
+export type AgentProfileFileSummary =
+  AgentProfileFilesResponse['files'][number];
+export type AgentProfileFileContentResponse = JsonResponse<
+  'getAgentProfileFile',
+  200
+>;
+export type AgentProfileFileKind = AgentProfileFileContentResponse['kind'];
+export type SetAgentProfileFileRequest = JsonRequest<'setAgentProfileFile'>;
+export type SetAgentProfileFileResponse = JsonResponse<
+  'setAgentProfileFile',
+  200
+>;
+
+export type RuntimeSettingsResponse = JsonResponse<'getSettings', 200>;
+export type DesiredStateResponse = JsonResponse<'getDesiredState', 200>;
+export type DesiredStateUpdateRequest = JsonRequest<'updateDesiredState'>;
+export type DesiredStateUpdateResponse = JsonResponse<
+  'updateDesiredState',
+  200
+>;
+export type SettingsDocument = DesiredStateUpdateRequest['settings'];
+export type SettingsRevisionsResponse = JsonResponse<
+  'listSettingsRevisions',
+  200
+>;
+export type SettingsRevisionSummary =
+  SettingsRevisionsResponse['revisions'][number];
 
 export type CreateWebhookRequest = JsonRequest<'createWebhook'>;
 export type CreateWebhookResponse = JsonResponse<'createWebhook', 201>;

@@ -4,7 +4,10 @@ import {
   AgentPersonaSchema,
   AgentRelationshipModeSchema,
 } from '../agents/index.js';
-import { AgentHarnessSchema } from '../contract-primitives.js';
+import {
+  AgentHarnessSchema,
+  IsoDateTimeSchema,
+} from '../contract-primitives.js';
 
 const EgressDenylistPatternSchema = z
   .string()
@@ -339,3 +342,59 @@ export type RuntimeSettingsResponse = z.infer<
  */
 export const SettingsDocumentSchema = z.record(z.string(), z.unknown());
 export type SettingsDocument = z.infer<typeof SettingsDocumentSchema>;
+
+export const SettingsDesiredStateResponseSchema = z
+  .object({
+    revision: z.number().int().nonnegative(),
+    minReaderVersion: z.number().int().nonnegative().optional(),
+    settings: SettingsDocumentSchema.nullable(),
+    createdBy: z.string().optional(),
+    note: z.string().nullable().optional(),
+    updatedAt: IsoDateTimeSchema.nullable(),
+  })
+  .strict();
+export type SettingsDesiredStateResponse = z.infer<
+  typeof SettingsDesiredStateResponseSchema
+>;
+
+export const SettingsDesiredStateUpdateRequestSchema = z
+  .object({
+    settings: SettingsDocumentSchema,
+    expectedRevision: z.number().int().nonnegative().nullable().optional(),
+    note: z.string().nullable().optional(),
+  })
+  .strict();
+export type SettingsDesiredStateUpdateRequest = z.infer<
+  typeof SettingsDesiredStateUpdateRequestSchema
+>;
+
+export const SettingsDesiredStateUpdateResponseSchema = z
+  .object({
+    revision: z.number().int().nonnegative(),
+  })
+  .strict();
+export type SettingsDesiredStateUpdateResponse = z.infer<
+  typeof SettingsDesiredStateUpdateResponseSchema
+>;
+
+export const SettingsRevisionSummarySchema = z
+  .object({
+    revision: z.number().int().nonnegative(),
+    minReaderVersion: z.number().int().nonnegative(),
+    createdBy: z.string(),
+    note: z.string().nullable(),
+    createdAt: IsoDateTimeSchema,
+  })
+  .strict();
+export type SettingsRevisionSummary = z.infer<
+  typeof SettingsRevisionSummarySchema
+>;
+
+export const SettingsRevisionsResponseSchema = z
+  .object({
+    revisions: z.array(SettingsRevisionSummarySchema),
+  })
+  .strict();
+export type SettingsRevisionsResponse = z.infer<
+  typeof SettingsRevisionsResponseSchema
+>;

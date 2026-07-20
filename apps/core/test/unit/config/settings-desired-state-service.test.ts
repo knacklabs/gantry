@@ -153,10 +153,25 @@ describe('desired-state settings projection', () => {
     const reconciledSettings = parseRuntimeSettings(
       renderRuntimeSettingsYaml(revisionRoundTrip),
     );
-    const { service, setConversationRoute } = makeReconcileHarness();
+    const {
+      saveConversation,
+      saveConversationInstall,
+      service,
+      setConversationRoute,
+    } = makeReconcileHarness();
 
     await service.reconcile(reconciledSettings);
 
+    expect(saveConversation).toHaveBeenCalledWith(
+      expect.objectContaining({ requiresTrigger: true }),
+    );
+    const persistedInstall = saveConversationInstall.mock.calls[0]?.[0] as {
+      memorySubject: { route?: object };
+    };
+    expect(persistedInstall.memorySubject.route).not.toHaveProperty(
+      'requiresTrigger',
+    );
+    expect(persistedInstall.memorySubject.route).not.toHaveProperty('trigger');
     expect(setConversationRoute).toHaveBeenCalledWith(
       expect.any(String),
       expect.objectContaining({ requiresTrigger: true }),

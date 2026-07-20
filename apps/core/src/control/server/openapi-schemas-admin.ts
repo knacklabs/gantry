@@ -6,14 +6,6 @@ const runtimeSecretRefs = {
   type: 'object',
   additionalProperties: { type: 'string' },
 };
-const conversationInstallRouteConfig = {
-  type: 'object',
-  properties: {
-    trigger: { type: 'string' },
-    requiresTrigger: { type: 'boolean' },
-    agentConfig: metadata,
-  },
-};
 const stringArray = { type: 'array', items: { type: 'string' } };
 const envelope = (name: string, schema: JsonSchema): JsonSchema => ({
   type: 'object',
@@ -158,45 +150,6 @@ export const adminOpenApiSchemas: Record<string, JsonSchema> = {
     type: 'object',
     required: ['userIds'],
     properties: { userIds: stringArray },
-  },
-  ConversationInstall: {
-    type: 'object',
-    required: ['agentId', 'providerAccountId', 'conversationId', 'status'],
-    properties: {
-      id: { type: 'string' },
-      appId: { type: 'string' },
-      agentId: { type: 'string' },
-      providerAccountId: { type: 'string' },
-      conversationId: { type: 'string' },
-      threadId: { type: 'string' },
-      displayName: { type: 'string' },
-      status: { type: 'string' },
-      memoryScope: { type: 'string' },
-      memorySubject: metadata,
-      routeConfig: conversationInstallRouteConfig,
-      workspaceSnapshotId: { type: 'string' },
-      permissionPolicyIds: stringArray,
-      createdAt: isoDateTime,
-      updatedAt: isoDateTime,
-    },
-  },
-  ConversationInstallListResponse: arrayEnvelope(
-    'conversationInstalls',
-    'ConversationInstall',
-  ),
-  ConversationInstallRequest: {
-    type: 'object',
-    properties: {
-      providerAccountId: { type: 'string' },
-      threadId: { type: 'string' },
-      displayName: { type: 'string' },
-      memoryScope: { type: 'string' },
-      memorySubject: metadata,
-      routeConfig: conversationInstallRouteConfig,
-      workspaceSnapshotId: { type: 'string' },
-      permissionPolicyIds: stringArray,
-      status: { type: 'string' },
-    },
   },
   ConversationInstallDeleteResponse: {
     type: 'object',

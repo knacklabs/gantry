@@ -7,6 +7,8 @@ import {
 } from '../contract-primitives.js';
 import { AgentPersonaSchema } from '../agents/index.js';
 
+const AgentExecutionHarnessSchema = z.enum(['anthropic_sdk', 'deepagents']);
+
 export const JobScheduleSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('manual') }),
   z.object({ type: z.literal('once'), runAt: IsoDateTimeSchema }),
@@ -436,6 +438,16 @@ const ModelCacheSupportSchema = z.object({
   tokenFields: z.array(z.string()),
 });
 
+export const ModelWorkloadSchema = z.enum([
+  'chat',
+  'one_time_job',
+  'recurring_job',
+  'memory_extractor',
+  'memory_dreaming',
+  'memory_consolidation',
+]);
+export type ModelWorkload = z.infer<typeof ModelWorkloadSchema>;
+
 export const ModelRecordSchema = z.object({
   id: z.string(),
   displayName: z.string(),
@@ -446,7 +458,7 @@ export const ModelRecordSchema = z.object({
   executionRoutes: z.array(
     z
       .object({
-        harness: z.enum(['anthropic_sdk', 'deepagents']),
+        harness: AgentExecutionHarnessSchema,
         executionProviderId: z.string(),
       })
       .strict(),
@@ -475,16 +487,7 @@ export const ModelRecordSchema = z.object({
       structuredOutput: z.boolean(),
     })
     .strict(),
-  supportedWorkloads: z.array(
-    z.enum([
-      'chat',
-      'one_time_job',
-      'recurring_job',
-      'memory_extractor',
-      'memory_dreaming',
-      'memory_consolidation',
-    ]),
-  ),
+  supportedWorkloads: z.array(ModelWorkloadSchema),
   // Optional: deepagents-lane entries omit static limits/capability flags;
   // those are reported at runtime from the engine's model profile.
   contextWindowTokens: z.number().int().nonnegative().optional(),
@@ -515,16 +518,6 @@ export const ListModelsResponseSchema = z.object({
   models: z.array(ModelRecordSchema),
 });
 export type ListModelsResponse = z.infer<typeof ListModelsResponseSchema>;
-
-export const ModelWorkloadSchema = z.enum([
-  'chat',
-  'one_time_job',
-  'recurring_job',
-  'memory_extractor',
-  'memory_dreaming',
-  'memory_consolidation',
-]);
-export type ModelWorkload = z.infer<typeof ModelWorkloadSchema>;
 
 export const ModelDefaultSlotSchema = z.object({
   configuredAlias: z.string().nullable(),
@@ -619,6 +612,13 @@ export const ModelPreviewResponseSchema = z
     credentialProfile: z.string().optional(),
     executionProviderId: z.string().optional(),
     incompatible: z.string().optional(),
+    engine: AgentExecutionHarnessSchema.optional(),
+    engineLabel: z.string().optional(),
+    responseFamily: z.string().nullable().optional(),
+    diagnosticLane: z
+      .enum(['native_sdk', 'openai_direct'])
+      .nullable()
+      .optional(),
     selection: ModelDefaultSlotSchema,
     why: z.array(z.string()),
   })

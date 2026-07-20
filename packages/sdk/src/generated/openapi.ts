@@ -235,6 +235,54 @@ export interface paths {
         patch: operations["patchSettingsReadOnly"];
         trace?: never;
     };
+    "/v1/settings/desired-state": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read settings desired state
+         * @description Returns the latest app-scoped settings revision document.
+         */
+        get: operations["getDesiredState"];
+        /**
+         * Update settings desired state
+         * @description Validates and appends an app-scoped settings revision.
+         */
+        put: operations["updateDesiredState"];
+        /**
+         * Append settings desired state
+         * @description Validates and appends an app-scoped settings revision.
+         */
+        post: operations["postDesiredState"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/settings/revisions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List settings revisions
+         * @description Returns recent app-scoped settings revision metadata.
+         */
+        get: operations["listSettingsRevisions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/agents": {
         parameters: {
             query?: never;
@@ -818,7 +866,7 @@ export interface paths {
         head?: never;
         /**
          * Update a conversation install
-         * @description Updates install metadata, memory, or thread policy.
+         * @description Updates install display, memory, or thread settings.
          */
         patch: operations["updateConversationInstall"];
         trace?: never;
@@ -1743,6 +1791,515 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** @enum {string} */
+        AgentHarness: "auto" | "anthropic_sdk" | "deepagents";
+        /** @enum {string} */
+        AgentProfileFileKind: "soul" | "agents";
+        AgentProfileFileSummary: {
+            kind: components["schemas"]["AgentProfileFileKind"];
+            path: string;
+            version: number;
+            contentHash: string;
+            sizeBytes: number;
+            updatedAt: string | null;
+        };
+        AgentProfileFilesResponse: {
+            agentId: string;
+            files: components["schemas"]["AgentProfileFileSummary"][];
+        };
+        AgentProfileFileContentResponse: {
+            agentId: string;
+            kind: components["schemas"]["AgentProfileFileKind"];
+            path: string;
+            version: number;
+            contentHash: string;
+            content: string;
+        };
+        PutAgentProfileFileRequest: {
+            content: string;
+            expectedVersion?: number;
+        };
+        /** @enum {string} */
+        ModelWorkload: "chat" | "one_time_job" | "recurring_job" | "memory_extractor" | "memory_dreaming" | "memory_consolidation";
+        Model: {
+            id: string;
+            displayName: string;
+            aliases: string[];
+            recommendedAlias: string;
+            responseFamily: string;
+            executionRoutes: {
+                /** @enum {string} */
+                harness: "anthropic_sdk" | "deepagents";
+                executionProviderId: string;
+            }[];
+            credentialProfileRef: string;
+            modelRoute: {
+                id: string;
+                label: string;
+                metadata: {
+                    providerModelId: string;
+                };
+            };
+            capabilities: {
+                streaming: boolean;
+                toolUse: boolean;
+                mcpProjection: boolean;
+                browserProjection: boolean;
+                sandboxProjection: boolean;
+                providerSessionResume: boolean;
+                thinking: boolean;
+                tokenAccounting: boolean;
+                cacheAccounting: boolean;
+                structuredOutput: boolean;
+            };
+            supportedWorkloads: components["schemas"]["ModelWorkload"][];
+            contextWindowTokens?: number;
+            maxOutputTokens?: number;
+            cacheMode: string;
+            cacheTokenFields: string[];
+            cacheSupport: {
+                providerId: string;
+                providerLabel: string;
+                cacheProvider: string;
+                statusLabel: string;
+                prompt: {
+                    mode: string;
+                    automatic: boolean;
+                    requestControl: string;
+                    ttlOptions: string[];
+                    minimumTokenThresholds: {
+                        modelFamily: string;
+                        tokens: number;
+                    }[];
+                    usageFields: {
+                        [key: string]: unknown;
+                    };
+                    supported: boolean;
+                    accounted: boolean;
+                };
+                response: {
+                    mode: string;
+                    enabledByDefault: boolean;
+                    requestControl: string;
+                    requestHeaders: string[];
+                    responseHeaders: string[];
+                    usageBehavior: string;
+                    available: boolean;
+                };
+                tokenFields: string[];
+            };
+            supportsThinking?: boolean;
+            supportsTools?: boolean;
+            inputUsdPerMillionTokens?: number;
+            outputUsdPerMillionTokens?: number;
+            available?: boolean;
+            source: {
+                label: string;
+                url: string;
+                verifiedAt: string;
+            };
+            experimental: boolean;
+        };
+        ModelListResponse: {
+            models: components["schemas"]["Model"][];
+        };
+        ModelDefaultSlot: {
+            configuredAlias: string | null;
+            effectiveAlias: string | null;
+            source: string;
+            inherited: boolean;
+            workload: components["schemas"]["ModelWorkload"];
+            model: components["schemas"]["Model"] | null;
+        };
+        ModelDefaultsResponse: {
+            provider: {
+                id: string;
+                label: string;
+            } | null;
+            chat: components["schemas"]["ModelDefaultSlot"];
+            jobs: {
+                oneTime: components["schemas"]["ModelDefaultSlot"];
+                recurring: components["schemas"]["ModelDefaultSlot"];
+            };
+            memory: {
+                /** @constant */
+                mode: "provider-managed";
+                extractor: components["schemas"]["ModelDefaultSlot"];
+                dreaming: components["schemas"]["ModelDefaultSlot"];
+                consolidation: components["schemas"]["ModelDefaultSlot"];
+            };
+            defaults: {
+                chat: components["schemas"]["ModelDefaultSlot"];
+                oneTime: components["schemas"]["ModelDefaultSlot"];
+                recurring: components["schemas"]["ModelDefaultSlot"];
+                memoryExtractor: components["schemas"]["ModelDefaultSlot"];
+                memoryDreaming: components["schemas"]["ModelDefaultSlot"];
+                memoryConsolidation: components["schemas"]["ModelDefaultSlot"];
+            };
+        };
+        ModelDefaultsPatchRequest: {
+            chat?: string | null;
+            jobs?: string | null;
+            oneTime?: string | null;
+            recurring?: string | null;
+            memory?: "reset" | "provider-managed" | null;
+        };
+        ModelPreviewRequest: {
+            /** @enum {string} */
+            target: "chat" | "jobs" | "job" | "agent" | "memory";
+            jobId?: string;
+            agentId?: string;
+            modelAlias?: string;
+            conversationJid?: string;
+            workspaceKey?: string;
+            /** @enum {string} */
+            kind?: "one-time" | "recurring";
+            /** @enum {string} */
+            task?: "extractor" | "dreaming" | "consolidation";
+        };
+        ModelPreviewResponse: {
+            /** @enum {string} */
+            target: "chat" | "jobs" | "job" | "agent" | "memory";
+            jobId?: string;
+            scope?: string;
+            /** @enum {string} */
+            kind?: "one-time" | "recurring";
+            /** @enum {string} */
+            task?: "extractor" | "dreaming" | "consolidation";
+            agentId?: string;
+            agentHarness?: components["schemas"]["AgentHarness"];
+            credentialProfile?: string;
+            executionProviderId?: string;
+            incompatible?: string;
+            /** @enum {string} */
+            engine?: "anthropic_sdk" | "deepagents";
+            engineLabel?: string;
+            responseFamily?: string | null;
+            diagnosticLane?: ("native_sdk" | "openai_direct") | null;
+            selection: components["schemas"]["ModelDefaultSlot"];
+            why: string[];
+        };
+        SettingsResponse: {
+            settings: {
+                desiredState: {
+                    authoritative: boolean;
+                };
+                agent: {
+                    name: string;
+                    defaultModel: string;
+                    agentHarness: components["schemas"]["AgentHarness"];
+                    oneTimeJobDefaultModel: string;
+                    recurringJobDefaultModel: string;
+                };
+                agents: {
+                    [key: string]: {
+                        name: string;
+                        folder: string;
+                        delegates: string[];
+                        /** @enum {string} */
+                        persona?: "developer" | "generalist" | "sales" | "marketing" | "operations" | "research";
+                        /** @enum {string} */
+                        relationshipMode?: "personal" | "organization";
+                        model?: string;
+                        agentHarness?: components["schemas"]["AgentHarness"];
+                        /** @enum {string} */
+                        permissionMode?: "ask" | "auto" | "auto_strict";
+                        /** @enum {string} */
+                        runtime?: "worker" | "inline";
+                        maxTurns?: number;
+                        maxRunTokens?: number;
+                        /** @enum {string} */
+                        effort?: "low" | "medium" | "high" | "xhigh" | "max";
+                        thinking?: {
+                            /** @constant */
+                            mode: "off";
+                        } | {
+                            /** @constant */
+                            mode: "on";
+                            budgetTokens?: number;
+                        };
+                        maxOutputTokens?: number;
+                        oneTimeJobDefaultModel?: string;
+                        recurringJobDefaultModel?: string;
+                        toolRules?: ({
+                            tool: string;
+                            when?: {
+                                arg: string;
+                                matches: string;
+                            };
+                            /** @constant */
+                            action: "block";
+                            reason: string;
+                        } | {
+                            tool: string;
+                            /** @constant */
+                            action: "require_prior";
+                            prior: string;
+                            reason: string;
+                        })[];
+                        sources: {
+                            skills: {
+                                name?: string;
+                                id: string;
+                                version?: string;
+                                kind?: string;
+                            }[];
+                            mcpServers: {
+                                name?: string;
+                                id: string;
+                                version?: string;
+                                kind?: string;
+                            }[];
+                            tools: {
+                                name?: string;
+                                id: string;
+                                version?: string;
+                                kind?: string;
+                            }[];
+                        };
+                        capabilities: {
+                            id: string;
+                            version: string;
+                        }[];
+                        access?: {
+                            /** @enum {string} */
+                            preset: "full" | "locked";
+                        };
+                    };
+                };
+                providers: {
+                    [key: string]: {
+                        enabled: boolean;
+                    };
+                };
+                providerAccounts: {
+                    [key: string]: {
+                        agentId: string;
+                        provider: string;
+                        label: string;
+                        /** @enum {string} */
+                        status?: "active" | "disabled";
+                        runtimeSecretRefs: {
+                            [key: string]: string;
+                        };
+                        externalIdentityRef?: {
+                            [key: string]: string;
+                        };
+                        config?: {
+                            [key: string]: string;
+                        };
+                    };
+                };
+                conversations: {
+                    [key: string]: {
+                        providerAccount: string;
+                        externalId: string;
+                        /** @enum {string} */
+                        kind: "dm" | "direct" | "group" | "channel" | "chat" | "service" | "web";
+                        displayName: string;
+                        brainHarvest: boolean;
+                        requiresTrigger: boolean;
+                        senderPolicy: {
+                            allow: "*" | string[];
+                            /** @enum {string} */
+                            mode: "trigger" | "drop";
+                        };
+                        controlApprovers: string[];
+                        installedAgents: {
+                            [key: string]: {
+                                agentId: string;
+                                providerAccountId: string;
+                                threadId?: string;
+                                /** @enum {string} */
+                                status: "active" | "disabled";
+                                addedAt: string;
+                                /** @enum {string} */
+                                memoryScope: "conversation" | "user" | "agent" | "app";
+                                model?: string;
+                                /** @enum {string} */
+                                permissionMode?: "ask" | "auto" | "auto_strict";
+                            };
+                        };
+                    };
+                };
+                modelAliases?: {
+                    [key: string]: unknown;
+                };
+                memory: {
+                    enabled: boolean;
+                    dreaming: {
+                        enabled: boolean;
+                    };
+                };
+                runtime: {
+                    queue: {
+                        maxMessageRuns: number;
+                        maxJobRuns: number;
+                        maxMessageBacklog: number;
+                        maxTaskBacklog: number;
+                        maxRetries: number;
+                        baseRetryMs: number;
+                        drainDeadlineMs: number;
+                    };
+                    sandbox: {
+                        provider: "direct" | "sandbox_runtime";
+                        resourceLimits: {
+                            cpuSeconds: number;
+                            memoryMb: number;
+                            maxProcesses: number;
+                        };
+                    };
+                    artifactStore: {
+                        driver: "local" | "s3";
+                        bucket?: string;
+                        region?: string;
+                        endpoint?: string;
+                        forcePathStyle?: boolean;
+                    };
+                    deploymentMode: "workstation" | "fleet";
+                };
+                browser: {
+                    usage: {
+                        enabled: boolean;
+                        /** @enum {string} */
+                        mode: "audit" | "enforce";
+                        windowMs: number;
+                        maxActionsPerWindow: number;
+                        maxConcurrentPerSite: number;
+                    };
+                };
+                permissions: {
+                    yoloMode: {
+                        enabled: boolean;
+                        denylist: string[];
+                        denylistPaths: string[];
+                    };
+                    egress: {
+                        denylist: string[];
+                    };
+                    autoMode: {
+                        model?: string;
+                    };
+                };
+            };
+        };
+        SettingsDocument: {
+            [key: string]: unknown;
+        };
+        SettingsDesiredStateResponse: {
+            revision: number;
+            minReaderVersion?: number;
+            settings: components["schemas"]["SettingsDocument"] | null;
+            createdBy?: string;
+            note?: string | null;
+            updatedAt: string | null;
+        };
+        SettingsDesiredStateUpdateRequest: {
+            settings: components["schemas"]["SettingsDocument"];
+            expectedRevision?: number | null;
+            note?: string | null;
+        };
+        SettingsDesiredStateUpdateResponse: {
+            revision: number;
+        };
+        SettingsRevisionSummary: {
+            revision: number;
+            minReaderVersion: number;
+            createdBy: string;
+            note: string | null;
+            /** Format: date-time */
+            createdAt: string;
+        };
+        SettingsRevisionsResponse: {
+            revisions: components["schemas"]["SettingsRevisionSummary"][];
+        };
+        ConversationInstallRouteConfig: {
+            agentConfig?: {
+                [key: string]: unknown;
+            };
+        };
+        ConversationInstallRouteRequest: {
+            providerAccountId?: string;
+            threadId?: string;
+            displayName?: string;
+            /** @enum {string} */
+            memoryScope?: "user" | "conversation" | "agent" | "app";
+            memorySubject?: {
+                /** @enum {string} */
+                type: "app" | "agent" | "user" | "group" | "channel" | "conversation" | "common";
+                id: string;
+                displayName?: string;
+                externalRef?: {
+                    kind?: string;
+                    id: string;
+                    displayName?: string;
+                    providerId?: string;
+                    installationId?: string;
+                    metadata?: {
+                        [key: string]: unknown;
+                    };
+                    raw?: {
+                        [key: string]: unknown;
+                    };
+                };
+                metadata?: {
+                    [key: string]: unknown;
+                };
+            };
+            routeConfig?: components["schemas"]["ConversationInstallRouteConfig"];
+            workspaceSnapshotId?: string | null;
+            permissionPolicyIds?: string[];
+            /** @enum {string} */
+            status?: "active" | "disabled";
+        };
+        ConversationInstall: {
+            id: string;
+            appId: string;
+            agentId: string;
+            providerAccountId: string;
+            conversationId: string;
+            threadId?: string | null;
+            displayName: string;
+            /** @enum {string} */
+            status: "active" | "disabled";
+            /** @enum {string} */
+            memoryScope: "user" | "conversation" | "agent" | "app";
+            memorySubject?: {
+                /** @enum {string} */
+                type: "app" | "agent" | "user" | "group" | "channel" | "conversation" | "common";
+                id: string;
+                displayName?: string;
+                externalRef?: {
+                    kind?: string;
+                    id: string;
+                    displayName?: string;
+                    providerId?: string;
+                    installationId?: string;
+                    metadata?: {
+                        [key: string]: unknown;
+                    };
+                    raw?: {
+                        [key: string]: unknown;
+                    };
+                };
+                metadata?: {
+                    [key: string]: unknown;
+                };
+            };
+            routeConfig?: components["schemas"]["ConversationInstallRouteConfig"];
+            workspaceSnapshotId?: string | null;
+            permissionPolicyIds: string[];
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+            metadata?: {
+                [key: string]: unknown;
+            };
+        };
+        ConversationInstallListResponse: {
+            conversationInstalls: components["schemas"]["ConversationInstall"][];
+        };
         Agent: {
             /** @example agent:main */
             id: string;
@@ -1752,11 +2309,8 @@ export interface components {
             name: string;
             /** @enum {string} */
             status: "active" | "disabled";
-            /**
-             * @description Public agent harness. auto preserves provider-derived behavior; explicit values are user intent validated against the selected model.
-             * @enum {string}
-             */
-            agentHarness: "auto" | "anthropic_sdk" | "deepagents";
+            /** @description Public agent harness. auto preserves provider-derived behavior; explicit values are user intent validated against the selected model. */
+            agentHarness: components["schemas"]["AgentHarness"];
             currentConfigVersionId?: string | null;
             /** Format: date-time */
             createdAt: string;
@@ -1770,21 +2324,15 @@ export interface components {
             /** @example default */
             appId: string;
             name: string;
-            /**
-             * @description Public agent harness. auto preserves provider-derived behavior; explicit values are user intent validated against the selected model.
-             * @enum {string}
-             */
-            agentHarness?: "auto" | "anthropic_sdk" | "deepagents";
+            /** @description Public agent harness. auto preserves provider-derived behavior; explicit values are user intent validated against the selected model. */
+            agentHarness?: components["schemas"]["AgentHarness"];
         };
         AgentUpdateRequest: {
             name?: string;
             /** @enum {string} */
             status?: "active" | "disabled";
-            /**
-             * @description Public agent harness. auto preserves provider-derived behavior; explicit values are user intent validated against the selected model.
-             * @enum {string}
-             */
-            agentHarness?: "auto" | "anthropic_sdk" | "deepagents";
+            /** @description Public agent harness. auto preserves provider-derived behavior; explicit values are user intent validated against the selected model. */
+            agentHarness?: components["schemas"]["AgentHarness"];
         };
         ReplaceAgentDelegatesRequest: {
             delegates: string[];
@@ -2015,34 +2563,6 @@ export interface components {
             /** Format: date-time */
             updatedAt: string;
         };
-        AgentProfileFileSummary: {
-            /** @enum {string} */
-            kind: "soul" | "agents";
-            /** @example AGENTS.md */
-            path: string;
-            version: number;
-            contentHash: string;
-            sizeBytes: number;
-            /** Format: date-time */
-            updatedAt: string | null;
-        };
-        AgentProfileFilesResponse: {
-            agentId: string;
-            files: components["schemas"]["AgentProfileFileSummary"][];
-        };
-        AgentProfileFileContentResponse: {
-            agentId: string;
-            /** @enum {string} */
-            kind: "soul" | "agents";
-            path: string;
-            version: number;
-            contentHash: string;
-            content: string;
-        };
-        PutAgentProfileFileRequest: {
-            content: string;
-            expectedVersion?: number;
-        };
         HealthResponse: {
             /** @example ok */
             status: string;
@@ -2061,169 +2581,6 @@ export interface components {
             checks: {
                 [key: string]: unknown;
             }[];
-        };
-        Model: {
-            id: string;
-            displayName: string;
-            aliases: string[];
-            recommendedAlias: string;
-            responseFamily: string;
-            executionRoutes: {
-                harness: string;
-                executionProviderId: string;
-            }[];
-            credentialProfileRef: string;
-            modelRoute: {
-                /** @enum {string} */
-                id: "anthropic" | "openrouter" | "openai" | "groq" | "deepseek" | "xai" | "together" | "fireworks" | "cerebras" | "perplexity" | "gemini" | "bedrock" | "vertex";
-                label: string;
-                metadata: {
-                    providerModelId: string;
-                };
-            };
-            capabilities: {
-                streaming: boolean;
-                toolUse: boolean;
-                mcpProjection: boolean;
-                browserProjection: boolean;
-                sandboxProjection: boolean;
-                providerSessionResume: boolean;
-                thinking: boolean;
-                tokenAccounting: boolean;
-                cacheAccounting: boolean;
-                structuredOutput: boolean;
-            };
-            supportedWorkloads: ("chat" | "one_time_job" | "recurring_job" | "memory_extractor" | "memory_dreaming" | "memory_consolidation")[];
-            contextWindowTokens?: number;
-            maxOutputTokens?: number;
-            cacheMode?: string;
-            cacheTokenFields?: string[];
-            cacheSupport: {
-                providerId: string;
-                providerLabel: string;
-                cacheProvider: string;
-                statusLabel: string;
-                prompt: {
-                    mode: string;
-                    automatic: boolean;
-                    requestControl: string;
-                    ttlOptions: string[];
-                    minimumTokenThresholds: {
-                        modelFamily: string;
-                        tokens: number;
-                    }[];
-                    usageFields: {
-                        [key: string]: unknown;
-                    };
-                    supported: boolean;
-                    accounted: boolean;
-                };
-                response: {
-                    mode: string;
-                    enabledByDefault: boolean;
-                    requestControl: string;
-                    requestHeaders: string[];
-                    responseHeaders: string[];
-                    usageBehavior: string;
-                    available: boolean;
-                };
-                tokenFields: string[];
-            };
-            supportsTools?: boolean;
-            supportsThinking?: boolean;
-            inputUsdPerMillionTokens?: number;
-            outputUsdPerMillionTokens?: number;
-            available?: boolean;
-            source?: {
-                [key: string]: unknown;
-            };
-            experimental?: boolean;
-        };
-        ModelListResponse: {
-            models: components["schemas"]["Model"][];
-        };
-        ModelDefaultSlot: {
-            configuredAlias: string | null;
-            effectiveAlias: string | null;
-            source: string;
-            inherited: boolean;
-            workload: string;
-            model: components["schemas"]["Model"] | null;
-        };
-        ModelDefaultsResponse: {
-            provider: {
-                id: string;
-                label: string;
-            } | null;
-            chat: components["schemas"]["ModelDefaultSlot"];
-            jobs: {
-                oneTime: components["schemas"]["ModelDefaultSlot"];
-                recurring: components["schemas"]["ModelDefaultSlot"];
-            };
-            memory: {
-                /** @enum {string} */
-                mode: "provider-managed";
-                extractor: components["schemas"]["ModelDefaultSlot"];
-                dreaming: components["schemas"]["ModelDefaultSlot"];
-                consolidation: components["schemas"]["ModelDefaultSlot"];
-            };
-            defaults: {
-                chat: components["schemas"]["ModelDefaultSlot"];
-                oneTime: components["schemas"]["ModelDefaultSlot"];
-                recurring: components["schemas"]["ModelDefaultSlot"];
-                memoryExtractor: components["schemas"]["ModelDefaultSlot"];
-                memoryDreaming: components["schemas"]["ModelDefaultSlot"];
-                memoryConsolidation: components["schemas"]["ModelDefaultSlot"];
-            };
-        };
-        ModelDefaultsPatchRequest: {
-            chat?: string | null;
-            /** @description Model alias, "inherit", or null. */
-            jobs?: string | null;
-            oneTime?: string | null;
-            recurring?: string | null;
-            /** @description Use null, "reset", or "provider-managed". */
-            memory?: ("reset" | "provider-managed") | null;
-        };
-        ModelPreviewRequest: {
-            /** @enum {string} */
-            target: "chat" | "jobs" | "job" | "agent" | "memory";
-            jobId?: string;
-            /** @description Agent folder for "agent". */
-            agentId?: string;
-            /** @description Alias for "agent". */
-            modelAlias?: string;
-            /** @description Optional chat preview scope for session /model overrides. */
-            conversationJid?: string;
-            /** @description Optional workspace key preview scope for session /model overrides. */
-            workspaceKey?: string;
-            /** @enum {string} */
-            kind?: "one-time" | "recurring";
-            /** @enum {string} */
-            task?: "extractor" | "dreaming" | "consolidation";
-        };
-        ModelPreviewResponse: {
-            /** @enum {string} */
-            target: "chat" | "jobs" | "job" | "agent" | "memory";
-            jobId?: string;
-            agentId?: string;
-            scope?: string;
-            /** @enum {string} */
-            kind?: "one-time" | "recurring";
-            /** @enum {string} */
-            task?: "extractor" | "dreaming" | "consolidation";
-            /** @enum {string} */
-            agentHarness?: "auto" | "anthropic_sdk" | "deepagents";
-            credentialProfile?: string;
-            executionProviderId?: string;
-            incompatible?: string;
-            selection: components["schemas"]["ModelDefaultSlot"];
-            why: string[];
-        };
-        SettingsResponse: {
-            settings: {
-                [key: string]: unknown;
-            };
         };
         ReadOnlySettingsPatchRequest: {
             [key: string]: unknown;
@@ -2417,55 +2774,6 @@ export interface components {
         };
         ConversationApproversRequest: {
             userIds: string[];
-        };
-        ConversationInstall: {
-            id?: string;
-            appId?: string;
-            agentId: string;
-            providerAccountId: string;
-            conversationId: string;
-            threadId?: string;
-            displayName?: string;
-            status: string;
-            memoryScope?: string;
-            memorySubject?: {
-                [key: string]: unknown;
-            };
-            routeConfig?: {
-                trigger?: string;
-                requiresTrigger?: boolean;
-                agentConfig?: {
-                    [key: string]: unknown;
-                };
-            };
-            workspaceSnapshotId?: string;
-            permissionPolicyIds?: string[];
-            /** Format: date-time */
-            createdAt?: string;
-            /** Format: date-time */
-            updatedAt?: string;
-        };
-        ConversationInstallListResponse: {
-            conversationInstalls: components["schemas"]["ConversationInstall"][];
-        };
-        ConversationInstallRequest: {
-            providerAccountId?: string;
-            threadId?: string;
-            displayName?: string;
-            memoryScope?: string;
-            memorySubject?: {
-                [key: string]: unknown;
-            };
-            routeConfig?: {
-                trigger?: string;
-                requiresTrigger?: boolean;
-                agentConfig?: {
-                    [key: string]: unknown;
-                };
-            };
-            workspaceSnapshotId?: string;
-            permissionPolicyIds?: string[];
-            status?: string;
         };
         ConversationInstallDeleteResponse: {
             disabled: boolean;
@@ -3334,7 +3642,7 @@ export interface components {
             };
             nextAction: {
                 /** @enum {string} */
-                kind: "runtime_blocked" | "missing_model_credential" | "missing_provider_connection" | "missing_conversation_install" | "missing_access_approval" | "blocked_job" | "memory_review_setup" | "none";
+                kind: "runtime_blocked" | "missing_model_credential" | "missing_provider_account" | "missing_conversation_install" | "missing_access_approval" | "blocked_job" | "memory_review_setup" | "none";
                 label: string;
                 params?: {
                     [key: string]: string;
@@ -3352,7 +3660,7 @@ export interface components {
                 memory: "Ready" | "Needs setup" | "Needs review" | "Disabled";
                 nextAction: {
                     /** @enum {string} */
-                    kind: "runtime_blocked" | "missing_model_credential" | "missing_provider_connection" | "missing_conversation_install" | "missing_access_approval" | "blocked_job" | "memory_review_setup" | "none";
+                    kind: "runtime_blocked" | "missing_model_credential" | "missing_provider_account" | "missing_conversation_install" | "missing_access_approval" | "blocked_job" | "memory_review_setup" | "none";
                     label: string;
                     params?: {
                         [key: string]: string;
@@ -4022,6 +4330,118 @@ export interface operations {
             500: components["responses"]["InternalError"];
         };
     };
+    getDesiredState: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Request succeeded. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SettingsDesiredStateResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    updateDesiredState: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description JSON request payload. */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SettingsDesiredStateUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description Request succeeded. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SettingsDesiredStateUpdateResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    postDesiredState: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description JSON request payload. */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SettingsDesiredStateUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description Request succeeded. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SettingsDesiredStateUpdateResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    listSettingsRevisions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Request succeeded. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SettingsRevisionsResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalError"];
+        };
+    };
     listAgents: {
         parameters: {
             query?: never;
@@ -4403,7 +4823,7 @@ export interface operations {
                 /** @description Agent id. */
                 agentId: string;
                 /** @description Profile file kind (soul | agents). */
-                kind: string;
+                kind: components["schemas"]["AgentProfileFileKind"];
             };
             cookie?: never;
         };
@@ -4433,7 +4853,7 @@ export interface operations {
                 /** @description Agent id. */
                 agentId: string;
                 /** @description Profile file kind (soul | agents). */
-                kind: string;
+                kind: components["schemas"]["AgentProfileFileKind"];
             };
             cookie?: never;
         };
@@ -5102,7 +5522,7 @@ export interface operations {
         /** @description JSON request payload. */
         requestBody: {
             content: {
-                "application/json": components["schemas"]["ConversationInstallRequest"];
+                "application/json": components["schemas"]["ConversationInstallRouteRequest"];
             };
         };
         responses: {
@@ -5170,7 +5590,7 @@ export interface operations {
         /** @description JSON request payload. */
         requestBody: {
             content: {
-                "application/json": components["schemas"]["ConversationInstallRequest"];
+                "application/json": components["schemas"]["ConversationInstallRouteRequest"];
             };
         };
         responses: {

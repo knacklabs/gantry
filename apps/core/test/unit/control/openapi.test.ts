@@ -128,6 +128,10 @@ const expectedControlRoutes = [
   'POST /v1/sessions/ensure',
   'GET /v1/settings',
   'PATCH /v1/settings',
+  'GET /v1/settings/desired-state',
+  'PUT /v1/settings/desired-state',
+  'POST /v1/settings/desired-state',
+  'GET /v1/settings/revisions',
   'GET /v1/skills',
   'POST /v1/skills/install',
   'GET /v1/skills/{skillId}/files',
@@ -794,11 +798,6 @@ describe('control OpenAPI documentation', () => {
           properties: expect.objectContaining({
             id: expect.objectContaining({
               type: 'string',
-              enum: expect.arrayContaining([
-                'anthropic',
-                'openrouter',
-                'openai',
-              ]),
             }),
             label: { type: 'string' },
             metadata: expect.objectContaining({
@@ -813,13 +812,64 @@ describe('control OpenAPI documentation', () => {
         cacheMode: { type: 'string' },
         cacheTokenFields: expect.any(Object),
         cacheSupport: expect.objectContaining({ type: 'object' }),
+        source: expect.objectContaining({
+          type: 'object',
+          required: ['label', 'url', 'verifiedAt'],
+        }),
+        experimental: { type: 'boolean' },
       }),
+      required: expect.arrayContaining([
+        'cacheMode',
+        'cacheTokenFields',
+        'source',
+        'experimental',
+      ]),
     });
+    expect(
+      spec.components.schemas.Model.properties.modelRoute.properties.id,
+    ).not.toHaveProperty('enum');
+    expect(
+      spec.components.schemas.Model.properties.executionRoutes.items.properties
+        .harness.enum,
+    ).toEqual(['anthropic_sdk', 'deepagents']);
+    expect(
+      spec.components.schemas.Model.properties.supportedWorkloads.items,
+    ).toEqual({ $ref: '#/components/schemas/ModelWorkload' });
     expect(
       spec.paths['/v1/models/defaults']?.patch.requestBody.content[
         'application/json'
       ].schema,
     ).toEqual({ $ref: '#/components/schemas/ModelDefaultsPatchRequest' });
+    expect(
+      spec.paths['/v1/settings/desired-state']?.get.responses['200'].content[
+        'application/json'
+      ].schema,
+    ).toEqual({ $ref: '#/components/schemas/SettingsDesiredStateResponse' });
+    expect(
+      spec.paths['/v1/settings/desired-state']?.put.requestBody.content[
+        'application/json'
+      ].schema,
+    ).toEqual({
+      $ref: '#/components/schemas/SettingsDesiredStateUpdateRequest',
+    });
+    expect(
+      spec.paths['/v1/settings/desired-state']?.post.requestBody.content[
+        'application/json'
+      ].schema,
+    ).toEqual({
+      $ref: '#/components/schemas/SettingsDesiredStateUpdateRequest',
+    });
+    expect(spec.paths['/v1/settings/desired-state']?.post.operationId).toBe(
+      'postDesiredState',
+    );
+    expect(
+      spec.paths['/v1/settings/revisions']?.get.responses['200'].content[
+        'application/json'
+      ].schema,
+    ).toEqual({ $ref: '#/components/schemas/SettingsRevisionsResponse' });
+    expect(
+      spec.components.schemas.SettingsResponse.properties.settings.properties,
+    ).toHaveProperty('providerAccounts');
     expect(
       spec.paths['/v1/credentials/models/{providerId}']?.patch.requestBody
         .content['application/json'].schema,
@@ -876,36 +926,58 @@ describe('control OpenAPI documentation', () => {
     expect(
       spec.components.schemas.ModelDefaultsPatchRequest.properties.memory,
     ).toMatchObject({
-      oneOf: [
-        { type: 'string', enum: ['reset', 'provider-managed'] },
+      anyOf: [
+        { type: 'string', const: 'reset' },
+        { type: 'string', const: 'provider-managed' },
         { type: 'null' },
       ],
     });
     expect(spec.paths['/v1/models/preview']?.post).toMatchObject({
       'x-gantry-required-scopes': ['sessions:read', 'jobs:read'],
     });
-    const harnessEnum = ['auto', 'anthropic_sdk', 'deepagents'];
+    expect(spec.components.schemas.AgentHarness).toMatchObject({
+      type: 'string',
+      enum: expect.any(Array),
+    });
     expect(spec.components.schemas.Agent.required).toContain('agentHarness');
     expect(spec.components.schemas.Agent.properties.agentHarness).toMatchObject(
       {
-        type: 'string',
-        enum: harnessEnum,
+        $ref: '#/components/schemas/AgentHarness',
       },
     );
     expect(
       spec.components.schemas.AgentUpdateRequest.properties.agentHarness,
-    ).toMatchObject({ type: 'string', enum: harnessEnum });
+    ).toMatchObject({ $ref: '#/components/schemas/AgentHarness' });
     expect(
       spec.components.schemas.ModelPreviewRequest.properties.target.enum,
     ).toContain('agent');
     expect(
       spec.components.schemas.ModelPreviewResponse.properties,
     ).toMatchObject({
-      agentHarness: { type: 'string', enum: harnessEnum },
+      agentHarness: { $ref: '#/components/schemas/AgentHarness' },
       credentialProfile: { type: 'string' },
       executionProviderId: { type: 'string' },
       incompatible: { type: 'string' },
+      engine: {
+        type: 'string',
+        enum: spec.components.schemas.Model.properties.executionRoutes.items
+          .properties.harness.enum,
+      },
+      engineLabel: { type: 'string' },
+      responseFamily: expect.objectContaining({ anyOf: expect.any(Array) }),
+      diagnosticLane: expect.objectContaining({ anyOf: expect.any(Array) }),
     });
+    expect(
+      spec.components.schemas.ModelPreviewResponse.properties.diagnosticLane
+        .anyOf,
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          enum: ['native_sdk', 'openai_direct'],
+        }),
+        { type: 'null' },
+      ]),
+    );
     expect(
       spec.paths['/v1/guided-actions/execute']?.post.description,
     ).toContain('resume_job execution also requires jobs:write');
@@ -975,6 +1047,57 @@ describe('control OpenAPI documentation', () => {
     ]);
     expect(createAgentRequest.properties).not.toHaveProperty('agentEngine');
     expect(updateAgentRequest.properties).not.toHaveProperty('agentEngine');
+    expect(
+      spec.paths['/v1/agents/{agentId}/profile-files/{kind}']?.get.parameters,
+    ).toContainEqual(
+      expect.objectContaining({
+        name: 'kind',
+        schema: { $ref: '#/components/schemas/AgentProfileFileKind' },
+      }),
+    );
+    expect(
+      spec.components.schemas.PutAgentProfileFileRequest.properties.content,
+    ).toMatchObject({ type: 'string', maxLength: 2_000_000 });
+    expect(
+      spec.components.schemas.ConversationInstall.properties.routeConfig,
+    ).toEqual({
+      $ref: '#/components/schemas/ConversationInstallRouteConfig',
+    });
+    expect(
+      Object.keys(
+        spec.components.schemas.ConversationInstallRouteConfig.properties,
+      ),
+    ).toEqual(['agentConfig']);
+    const conversationInstallRouteRequest =
+      spec.components.schemas.ConversationInstallRouteRequest;
+    expect(conversationInstallRouteRequest).toMatchObject({
+      additionalProperties: false,
+    });
+    expect(
+      Object.keys(conversationInstallRouteRequest.properties).sort(),
+    ).toEqual([
+      'displayName',
+      'memoryScope',
+      'memorySubject',
+      'permissionPolicyIds',
+      'providerAccountId',
+      'routeConfig',
+      'status',
+      'threadId',
+      'workspaceSnapshotId',
+    ]);
+    expect(
+      spec.paths['/v1/agents/{agentId}/conversation-installs/{conversationId}']
+        ?.put.requestBody.content['application/json'].schema,
+    ).toEqual({
+      $ref: '#/components/schemas/ConversationInstallRouteRequest',
+    });
+    expect(
+      spec.paths['/v1/agents/{agentId}/conversation-installs/{conversationId}']
+        ?.patch.requestBody.content['application/json'].schema,
+    ).toEqual({
+      $ref: '#/components/schemas/ConversationInstallRouteRequest',
+    });
     expect(spec.paths['/v1/agents/{agentId}/delegates']?.get).toMatchObject({
       operationId: 'getAgentDelegates',
       'x-gantry-required-scopes': ['agents:admin'],

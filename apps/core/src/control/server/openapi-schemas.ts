@@ -1,14 +1,15 @@
 import type { JsonSchema } from './openapi-route-helpers.js';
-import { listModelRouteProviders } from '../../shared/model-provider-registry.js';
+import { contractOpenApiSchemas } from './openapi-contract-schemas.js';
 import { modelCredentialSchemas } from './openapi-model-credential-schemas.js';
-import {
-  agentHarnessProp,
-  modelPreviewSchemas,
-} from './openapi-model-preview-schemas.js';
 
 const isoDateTime = { type: 'string', format: 'date-time' };
 const metadata = { type: 'object', additionalProperties: true };
 const stringArray = { type: 'array', items: { type: 'string' } };
+const agentHarnessProp: JsonSchema = {
+  $ref: '#/components/schemas/AgentHarness',
+  description:
+    'Public agent harness. auto preserves provider-derived behavior; explicit values are user intent validated against the selected model.',
+};
 
 const envelope = (name: string, schema: JsonSchema): JsonSchema => ({
   type: 'object',
@@ -23,6 +24,7 @@ const arrayEnvelope = (name: string, itemRef: string): JsonSchema =>
   });
 
 export const openApiSchemas: Record<string, JsonSchema> = {
+  ...contractOpenApiSchemas,
   Agent: {
     type: 'object',
     required: ['id', 'appId', 'name', 'status', 'agentHarness', 'createdAt', 'updatedAt'], // prettier-ignore
@@ -266,56 +268,6 @@ export const openApiSchemas: Record<string, JsonSchema> = {
       updatedAt: isoDateTime,
     },
   },
-  AgentProfileFileSummary: {
-    type: 'object',
-    required: [
-      'kind',
-      'path',
-      'version',
-      'contentHash',
-      'sizeBytes',
-      'updatedAt',
-    ],
-    properties: {
-      kind: { type: 'string', enum: ['soul', 'agents'] },
-      path: { type: 'string', example: 'AGENTS.md' },
-      version: { type: 'integer' },
-      contentHash: { type: 'string' },
-      sizeBytes: { type: 'integer' },
-      updatedAt: { type: ['string', 'null'], format: 'date-time' },
-    },
-  },
-  AgentProfileFilesResponse: {
-    type: 'object',
-    required: ['agentId', 'files'],
-    properties: {
-      agentId: { type: 'string' },
-      files: {
-        type: 'array',
-        items: { $ref: '#/components/schemas/AgentProfileFileSummary' },
-      },
-    },
-  },
-  AgentProfileFileContentResponse: {
-    type: 'object',
-    required: ['agentId', 'kind', 'path', 'version', 'contentHash', 'content'],
-    properties: {
-      agentId: { type: 'string' },
-      kind: { type: 'string', enum: ['soul', 'agents'] },
-      path: { type: 'string' },
-      version: { type: 'integer' },
-      contentHash: { type: 'string' },
-      content: { type: 'string' },
-    },
-  },
-  PutAgentProfileFileRequest: {
-    type: 'object',
-    required: ['content'],
-    properties: {
-      content: { type: 'string' },
-      expectedVersion: { type: 'integer' },
-    },
-  },
   HealthResponse: {
     type: 'object',
     required: ['status', 'processRole', 'transport', 'features'],
@@ -337,292 +289,6 @@ export const openApiSchemas: Record<string, JsonSchema> = {
       checks: { type: 'array', items: metadata },
     },
   },
-  Model: {
-    type: 'object',
-    required: [
-      'id',
-      'displayName',
-      'aliases',
-      'recommendedAlias',
-      'responseFamily',
-      'executionRoutes',
-      'credentialProfileRef',
-      'modelRoute',
-      'capabilities',
-      'supportedWorkloads',
-      'cacheSupport',
-    ],
-    properties: {
-      id: { type: 'string' },
-      displayName: { type: 'string' },
-      aliases: stringArray,
-      recommendedAlias: { type: 'string' },
-      responseFamily: { type: 'string' },
-      executionRoutes: {
-        type: 'array',
-        items: {
-          type: 'object',
-          required: ['harness', 'executionProviderId'],
-          properties: {
-            harness: { type: 'string' },
-            executionProviderId: { type: 'string' },
-          },
-        },
-      },
-      credentialProfileRef: { type: 'string' },
-      modelRoute: {
-        type: 'object',
-        required: ['id', 'label', 'metadata'],
-        properties: {
-          id: {
-            type: 'string',
-            enum: listModelRouteProviders().map((provider) => provider.id),
-          },
-          label: { type: 'string' },
-          metadata: {
-            type: 'object',
-            required: ['providerModelId'],
-            additionalProperties: false,
-            properties: {
-              providerModelId: { type: 'string' },
-            },
-          },
-        },
-      },
-      capabilities: {
-        type: 'object',
-        required: [
-          'streaming',
-          'toolUse',
-          'mcpProjection',
-          'browserProjection',
-          'sandboxProjection',
-          'providerSessionResume',
-          'thinking',
-          'tokenAccounting',
-          'cacheAccounting',
-          'structuredOutput',
-        ],
-        properties: {
-          streaming: { type: 'boolean' },
-          toolUse: { type: 'boolean' },
-          mcpProjection: { type: 'boolean' },
-          browserProjection: { type: 'boolean' },
-          sandboxProjection: { type: 'boolean' },
-          providerSessionResume: { type: 'boolean' },
-          thinking: { type: 'boolean' },
-          tokenAccounting: { type: 'boolean' },
-          cacheAccounting: { type: 'boolean' },
-          structuredOutput: { type: 'boolean' },
-        },
-      },
-      supportedWorkloads: {
-        type: 'array',
-        items: {
-          type: 'string',
-          enum: [
-            'chat',
-            'one_time_job',
-            'recurring_job',
-            'memory_extractor',
-            'memory_dreaming',
-            'memory_consolidation',
-          ],
-        },
-      },
-      contextWindowTokens: { type: 'integer' },
-      maxOutputTokens: { type: 'integer' },
-      cacheMode: { type: 'string' },
-      cacheTokenFields: stringArray,
-      cacheSupport: {
-        type: 'object',
-        required: [
-          'providerId',
-          'providerLabel',
-          'cacheProvider',
-          'statusLabel',
-          'prompt',
-          'response',
-          'tokenFields',
-        ],
-        properties: {
-          providerId: { type: 'string' },
-          providerLabel: { type: 'string' },
-          cacheProvider: { type: 'string' },
-          statusLabel: { type: 'string' },
-          prompt: {
-            type: 'object',
-            required: [
-              'mode',
-              'automatic',
-              'requestControl',
-              'ttlOptions',
-              'minimumTokenThresholds',
-              'usageFields',
-              'supported',
-              'accounted',
-            ],
-            properties: {
-              mode: { type: 'string' },
-              automatic: { type: 'boolean' },
-              requestControl: { type: 'string' },
-              ttlOptions: stringArray,
-              minimumTokenThresholds: {
-                type: 'array',
-                items: {
-                  type: 'object',
-                  required: ['modelFamily', 'tokens'],
-                  properties: {
-                    modelFamily: { type: 'string' },
-                    tokens: { type: 'integer' },
-                  },
-                },
-              },
-              usageFields: metadata,
-              supported: { type: 'boolean' },
-              accounted: { type: 'boolean' },
-            },
-          },
-          response: {
-            type: 'object',
-            required: [
-              'mode',
-              'enabledByDefault',
-              'requestControl',
-              'requestHeaders',
-              'responseHeaders',
-              'usageBehavior',
-              'available',
-            ],
-            properties: {
-              mode: { type: 'string' },
-              enabledByDefault: { type: 'boolean' },
-              requestControl: { type: 'string' },
-              requestHeaders: stringArray,
-              responseHeaders: stringArray,
-              usageBehavior: { type: 'string' },
-              available: { type: 'boolean' },
-            },
-          },
-          tokenFields: stringArray,
-        },
-      },
-      supportsTools: { type: 'boolean' },
-      supportsThinking: { type: 'boolean' },
-      inputUsdPerMillionTokens: { type: 'number' },
-      outputUsdPerMillionTokens: { type: 'number' },
-      available: { type: 'boolean' },
-      source: metadata,
-      experimental: { type: 'boolean' },
-    },
-  },
-  ModelListResponse: arrayEnvelope('models', 'Model'),
-  ModelDefaultSlot: {
-    type: 'object',
-    required: [
-      'configuredAlias',
-      'effectiveAlias',
-      'source',
-      'inherited',
-      'workload',
-      'model',
-    ],
-    properties: {
-      configuredAlias: { type: ['string', 'null'] },
-      effectiveAlias: { type: ['string', 'null'] },
-      source: { type: 'string' },
-      inherited: { type: 'boolean' },
-      workload: { type: 'string' },
-      model: {
-        oneOf: [{ $ref: '#/components/schemas/Model' }, { type: 'null' }],
-      },
-    },
-  },
-  ModelDefaultsResponse: {
-    type: 'object',
-    required: ['provider', 'chat', 'jobs', 'memory', 'defaults'],
-    properties: {
-      provider: {
-        oneOf: [
-          {
-            type: 'object',
-            required: ['id', 'label'],
-            properties: {
-              id: { type: 'string' },
-              label: { type: 'string' },
-            },
-          },
-          { type: 'null' },
-        ],
-      },
-      chat: { $ref: '#/components/schemas/ModelDefaultSlot' },
-      jobs: {
-        type: 'object',
-        required: ['oneTime', 'recurring'],
-        properties: {
-          oneTime: { $ref: '#/components/schemas/ModelDefaultSlot' },
-          recurring: { $ref: '#/components/schemas/ModelDefaultSlot' },
-        },
-      },
-      memory: {
-        type: 'object',
-        required: ['mode', 'extractor', 'dreaming', 'consolidation'],
-        properties: {
-          mode: { type: 'string', enum: ['provider-managed'] },
-          extractor: { $ref: '#/components/schemas/ModelDefaultSlot' },
-          dreaming: { $ref: '#/components/schemas/ModelDefaultSlot' },
-          consolidation: { $ref: '#/components/schemas/ModelDefaultSlot' },
-        },
-      },
-      defaults: {
-        type: 'object',
-        required: [
-          'chat',
-          'oneTime',
-          'recurring',
-          'memoryExtractor',
-          'memoryDreaming',
-          'memoryConsolidation',
-        ],
-        properties: {
-          chat: { $ref: '#/components/schemas/ModelDefaultSlot' },
-          oneTime: { $ref: '#/components/schemas/ModelDefaultSlot' },
-          recurring: { $ref: '#/components/schemas/ModelDefaultSlot' },
-          memoryExtractor: {
-            $ref: '#/components/schemas/ModelDefaultSlot',
-          },
-          memoryDreaming: {
-            $ref: '#/components/schemas/ModelDefaultSlot',
-          },
-          memoryConsolidation: {
-            $ref: '#/components/schemas/ModelDefaultSlot',
-          },
-        },
-      },
-    },
-  },
-  ModelDefaultsPatchRequest: {
-    type: 'object',
-    additionalProperties: false,
-    properties: {
-      chat: { type: ['string', 'null'] },
-      jobs: {
-        oneOf: [{ type: 'string' }, { type: 'null' }],
-        description: 'Model alias, "inherit", or null.',
-      },
-      oneTime: { type: ['string', 'null'] },
-      recurring: { type: ['string', 'null'] },
-      memory: {
-        oneOf: [
-          { type: 'string', enum: ['reset', 'provider-managed'] },
-          { type: 'null' },
-        ],
-        description: 'Use null, "reset", or "provider-managed".',
-      },
-    },
-  },
-  ...modelPreviewSchemas,
-  SettingsResponse: envelope('settings', metadata),
   ReadOnlySettingsPatchRequest: metadata,
   SessionEnsureRequest: {
     type: 'object',

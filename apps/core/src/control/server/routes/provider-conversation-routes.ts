@@ -3,7 +3,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 
 import {
   ConversationApproverPutRequestSchema,
-  ConversationInstallRequestSchema,
+  ConversationInstallRouteRequestSchema,
   CreateProviderAccountRequestSchema,
   DiscoverProviderAccountRequestSchema,
   UpdateProviderAccountRequestSchema,
@@ -112,7 +112,7 @@ function parseConversationInstallPatch(
   conversationId: ConversationId,
   raw: unknown,
 ) {
-  const parsed = ConversationInstallRequestSchema.safeParse(raw);
+  const parsed = ConversationInstallRouteRequestSchema.safeParse(raw);
   if (!parsed.success) return null;
   return conversationInstallPatchFromParsed(appId, conversationId, parsed.data);
 }

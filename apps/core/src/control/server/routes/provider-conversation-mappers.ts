@@ -63,12 +63,6 @@ function memorySubjectToContract(subject: MemorySubject | undefined) {
 function routeConfigToContract(subject: MemorySubject | undefined) {
   if (!subject?.route) return undefined;
   return {
-    ...(subject.route.trigger !== undefined
-      ? { trigger: subject.route.trigger }
-      : {}),
-    ...(subject.route.requiresTrigger !== undefined
-      ? { requiresTrigger: subject.route.requiresTrigger }
-      : {}),
     ...(subject.route.agentConfig &&
     typeof subject.route.agentConfig === 'object' &&
     !Array.isArray(subject.route.agentConfig)

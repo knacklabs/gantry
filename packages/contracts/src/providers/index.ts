@@ -140,6 +140,17 @@ export type ConversationInstallRequest = z.infer<
   typeof ConversationInstallRequestSchema
 >;
 
+export const ConversationInstallRouteRequestSchema =
+  ConversationInstallRequestSchema.omit({
+    appId: true,
+    agentId: true,
+    conversationId: true,
+    metadata: true,
+  }).strict();
+export type ConversationInstallRouteRequest = z.infer<
+  typeof ConversationInstallRouteRequestSchema
+>;
+
 export const ConversationInstallResponseSchema = z.object({
   id: z.string(),
   appId: z.string(),

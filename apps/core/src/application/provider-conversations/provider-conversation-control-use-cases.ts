@@ -50,7 +50,7 @@ export interface ConversationInstallPatch {
   displayName?: string;
   memoryScope?: ConversationInstallMemoryScope;
   memorySubject?: MemorySubject;
-  routeConfig?: MemorySubjectRoute;
+  routeConfig?: Pick<MemorySubjectRoute, 'agentConfig'>;
   workspaceSnapshotId?: WorkspaceSnapshotId | null;
   permissionPolicyIds?: PermissionPolicyId[];
   status?: ConversationInstall['status'];
@@ -574,8 +574,25 @@ export class ConversationInstallControlService {
       memoryScope,
       memorySubject: input.patch.memorySubject,
     });
-    if (!input.patch.memorySubject && existing?.memorySubject?.route) {
-      memorySubject.route = existing.memorySubject.route;
+    const persistedRoute = input.patch.memorySubject
+      ? memorySubject.route
+      : existing?.memorySubject?.route;
+    if (persistedRoute) {
+      const canonicalRoute: MemorySubjectRoute = {
+        ...(persistedRoute.configuredConversationId !== undefined
+          ? {
+              configuredConversationId: persistedRoute.configuredConversationId,
+            }
+          : {}),
+        ...(persistedRoute.agentConfig !== undefined
+          ? { agentConfig: persistedRoute.agentConfig }
+          : {}),
+      };
+      if (Object.keys(canonicalRoute).length > 0) {
+        memorySubject.route = canonicalRoute;
+      } else {
+        delete memorySubject.route;
+      }
     }
     if (input.patch.routeConfig !== undefined) {
       memorySubject.route = {

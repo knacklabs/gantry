@@ -12,6 +12,7 @@ import {
   ReplaceAgentDelegatesRequestSchema,
   UpdateAgentRequestSchema,
   ConversationInstallRequestSchema,
+  ConversationInstallRouteRequestSchema,
   ConversationInstallListResponseSchema,
   ConversationInstallResponseSchema,
   BrowserProfileResponseSchema,
@@ -51,6 +52,10 @@ import {
   RuntimeSettingsConversationSchema,
   RuntimeSettingsResponseSchema,
   SchemaDescriptorSchema,
+  SettingsDesiredStateResponseSchema,
+  SettingsDesiredStateUpdateRequestSchema,
+  SettingsDesiredStateUpdateResponseSchema,
+  SettingsRevisionsResponseSchema,
   StreamEventSchema,
   ToolCatalogItemResponseSchema,
   ToolCatalogKindSchema,
@@ -515,6 +520,29 @@ describe('contracts package', () => {
       executionProviderId: 'deepagents:langchain',
     });
     expect(
+      ModelPreviewResponseSchema.parse({
+        target: 'memory',
+        task: 'extractor',
+        engine: 'deepagents',
+        engineLabel: 'DeepAgents',
+        responseFamily: 'openai',
+        diagnosticLane: 'openai_direct',
+        selection: {
+          configuredAlias: null,
+          effectiveAlias: 'gpt',
+          source: 'provider-managed',
+          inherited: false,
+          workload: 'memory_extractor',
+          model: null,
+        },
+        why: ['memory extractor uses provider-managed settings'],
+      }),
+    ).toMatchObject({
+      engine: 'deepagents',
+      responseFamily: 'openai',
+      diagnosticLane: 'openai_direct',
+    });
+    expect(
       CreateJobResponseSchema.parse({
         jobId: 'job-1',
         modelAlias: 'sonnet',
@@ -714,6 +742,48 @@ describe('contracts package', () => {
           autoMode: { model: 'sonnet', timeoutMs: 3000 },
         },
       },
+    });
+  });
+
+  it('defines desired-state and revision wire contracts', () => {
+    const settings = { agents: {} };
+
+    expect(
+      SettingsDesiredStateResponseSchema.parse({
+        revision: 2,
+        minReaderVersion: 1,
+        settings,
+        createdBy: 'control-api',
+        note: null,
+        updatedAt: iso,
+      }),
+    ).toMatchObject({ revision: 2, minReaderVersion: 1, settings });
+    expect(
+      SettingsDesiredStateUpdateRequestSchema.parse({
+        settings,
+        expectedRevision: 2,
+        note: 'update agent settings',
+      }),
+    ).toMatchObject({ expectedRevision: 2, settings });
+    expect(
+      SettingsDesiredStateUpdateResponseSchema.parse({ revision: 3 }),
+    ).toEqual({ revision: 3 });
+    expect(
+      SettingsRevisionsResponseSchema.parse({
+        revisions: [
+          {
+            revision: 3,
+            minReaderVersion: 1,
+            createdAt: iso,
+            createdBy: 'control-api',
+            note: 'update agent settings',
+          },
+        ],
+      }),
+    ).toMatchObject({ revisions: [{ revision: 3 }] });
+    expectInvalid(SettingsDesiredStateUpdateRequestSchema, {
+      settings,
+      expectedRevision: -1,
     });
   });
 
@@ -1470,6 +1540,15 @@ describe('contracts package', () => {
       memoryScope: 'sometimes',
     });
     expect(
+      ConversationInstallRouteRequestSchema.parse({
+        providerAccountId: 'installation-1',
+        memoryScope: 'conversation',
+      }),
+    ).toEqual({
+      providerAccountId: 'installation-1',
+      memoryScope: 'conversation',
+    });
+    expect(
       ConversationInstallResponseSchema.parse({
         id: 'install-1',
         appId: 'app-1',
@@ -1599,6 +1678,15 @@ describe('contracts package', () => {
     expectInvalid(ConversationInstallRequestSchema, {
       routeConfig: { [field]: value },
     });
+  });
+
+  it.each([
+    ['appId', 'app-1'],
+    ['agentId', 'agent-1'],
+    ['conversationId', 'conversation-1'],
+    ['metadata', { source: 'ignored' }],
+  ])('rejects path-owned install route field %s', (field, value) => {
+    expectInvalid(ConversationInstallRouteRequestSchema, { [field]: value });
   });
 
   it('validates pagination request and response schema constraints', () => {

@@ -3,7 +3,6 @@ import https from 'node:https';
 import { URL } from 'node:url';
 import type {
   ConversationDiscoveryInput,
-  ConversationInstallInput,
   ProviderAccountInput,
   ProviderAccountPatch,
 } from './provider-types.js';
@@ -23,7 +22,6 @@ import type * as OpenApi from './openapi-types.js';
 import { parseSessionSseEvent } from './session-events.js';
 import { createIngressesClient } from './ingresses.js';
 import { querySuffix } from './query-string.js';
-export type { RuntimeSettingsResponse } from './settings.js';
 import * as mcpServerClients from './mcp-servers.js';
 import { createModelsClient } from './models.js';
 import type {
@@ -52,11 +50,6 @@ export type {
   JobTriggerWaitResult,
   ListJobEventsInput,
   ListJobsInput,
-  ModelRecord,
-  ModelDefaultsPatchRequest,
-  ModelDefaultsResponse,
-  ModelPreviewRequest,
-  ModelPreviewResponse,
   UpdateJobInput,
 } from './job-model-types.js';
 export type * from './openapi-types.js';
@@ -518,7 +511,7 @@ export class GantryClient {
       enable: (
         agentId: string,
         conversationId: string,
-        input: ConversationInstallInput = {},
+        input: OpenApi.EnableConversationInstallRequest = {},
       ) =>
         this.transport.request<OpenApi.EnableConversationInstallResponse>({
           method: 'PUT',
@@ -528,7 +521,7 @@ export class GantryClient {
       update: (
         agentId: string,
         conversationId: string,
-        patch: ConversationInstallInput,
+        patch: OpenApi.UpdateConversationInstallRequest,
       ) =>
         this.transport.request<OpenApi.UpdateConversationInstallResponse>({
           method: 'PATCH',

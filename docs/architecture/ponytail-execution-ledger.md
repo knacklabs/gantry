@@ -298,3 +298,116 @@ production alone +116/-233, net **-117**), N2 +9/-37 (net **-28**), N3
 - Postgres integration startup is blocked in this symlinked worktree because
   Vitest cannot create `node_modules/.vite-temp` (`EPERM`); no integration test
   body ran, so focused unit coverage is the verification evidence for N4.
+
+## Phase 4 outcomes
+
+### Current-tree revalidation
+
+AR3, F4, and F17 all still applied after Phase 3 and the intervening merged
+changes. Canonical Zod schemas already owned the model/default/preview,
+agent-profile, runtime-settings, and ConversationInstall shapes, but Control
+OpenAPI still hand-copied or omitted them. The SDK then hand-copied the model,
+profile, runtime-settings, and desired-state types from that incomplete public
+description.
+
+Independent re-review then found four residual contract-to-SDK drifts in the
+first Phase 4 pass: install responses still emitted removed trigger-policy
+fields; the shared install request advertised path-owned identity and
+unsupported metadata; the model workload enum still had two definitions; and
+the SDK model list return retained one handwritten response mirror. All four
+were removed in this review-fix pass.
+
+The required pre-change consumer search covered `apps/`, `packages/`,
+`.github/`, and their nested tests. This checkout has no top-level `tools/`,
+`test/`, or `tests/` directory. The findings were:
+
+- the F4 handwritten model/default/preview types were consumed by the SDK
+  model client and root exports; richer job-only records remain distinct and
+  were preserved;
+- the F17 handwritten profile types were local to the SDK agent client;
+- the SDK settings client was the only handwritten consumer of the existing
+  runtime-settings and desired-state response shapes;
+- the enable/update routes need a strict route-specific install request because
+  app, agent, and conversation identity comes from the authenticated path, and
+  install metadata is not persisted;
+- stale install memory-route trigger fields had one remaining response mapper,
+  one desired-state writer, one agent-list reader, and one application merge
+  path even though Conversation now owns `requiresTrigger` and channel trigger
+  derivation;
+- `apps/core/src/cli/model-preview-types.ts` and the shared runtime
+  `ModelWorkload` are internal CLI/runtime shapes, not duplicate public SDK
+  declarations, and remain unchanged.
+
+| Item | Outcome     | Evidence and boundary                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| ---- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| AR3  | Implemented | Added one Zod-registry projection for canonical contract components; projected model, profile, runtime-settings, desired-state/revision, AgentHarness, and ConversationInstall schemas; documented the existing desired-state routes; generated SDK aliases from operations; and added the generated check to CI. The route request is now a strict canonical schema that omits path-owned identity and unsupported metadata. Install responses expose only `agentConfig` in `routeConfig`. |
+| F4   | Implemented | Deleted handwritten SDK model/default/preview declarations and the handwritten OpenAPI copies. Generated aliases now preserve the complete model contract. `ModelWorkloadSchema` is defined once and referenced by `ModelRecordSchema`, and `models.list()` returns generated `ListModelsResponse`. Existing memory-preview diagnostics remain canonical, while provider-neutral `modelRoute.id` remains an open string.                                                                    |
+| F17  | Implemented | Deleted handwritten SDK profile declarations and projected the canonical strict profile schemas, including nonnegative integers, the content length limit, and the profile-kind path parameter.                                                                                                                                                                                                                                                                                             |
+
+No Phase 4 item was skipped. The review fix changes only the install request
+validator, response projection, and trigger-policy source needed to make the
+runtime behavior match the canonical public contract. It does not add install
+metadata persistence or restore install-level trigger policy.
+
+### Surface impact
+
+| Surface                     | Classification       | Reason                                                                                                                                                         |
+| --------------------------- | -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Runtime behavior            | Changed              | Enable/update rejects ignored identity/metadata fields, install saves strip stale route policy, and agent-list trigger policy reads Conversation.              |
+| `settings.yaml`             | Unchanged by design  | The cutover does not add or remove desired-state fields in the human-readable settings surface.                                                                |
+| Postgres/runtime projection | Changed              | Desired-state reconciliation no longer mirrors Conversation `requiresTrigger` into install memory-route state; live routes still receive it from Conversation. |
+| Control API                 | Changed              | OpenAPI projects the strict route request and agentConfig-only route response that the handlers honor.                                                         |
+| SDK/contracts               | Changed              | Route-specific request, single workload schema, generated model-list response, and regenerated operation declarations remove the hand mirrors.                 |
+| CLI                         | Unchanged by design  | The internal CLI preview formatter/types are not public SDK contracts and remain in place.                                                                     |
+| Gantry MCP/admin tools      | Unchanged by design  | No MCP/admin tool schema or capability selection changed.                                                                                                      |
+| Channel/provider adapters   | Read-only/observable | Existing live route registration observes Conversation-owned trigger policy; provider transports and rendering are unchanged.                                  |
+| Docs/prompts                | Changed              | This ledger records the review fixes; prompts and product guidance are unchanged.                                                                              |
+| Audit/events                | Unchanged by design  | Existing control/settings/profile audit and event paths remain unchanged.                                                                                      |
+| Tests/verification          | Changed              | Contract, OpenAPI, mapper, route validation, desired-state, and onboarding regression coverage locks the corrected shapes and ownership.                       |
+
+### Net line delta
+
+Measured before adding this ledger section:
+
+- non-generated source, tests, and CI: +681/-915, net **-234 lines**;
+- regenerated SDK declaration: +873/-453, net **+420 lines**;
+- complete Phase 4 code/test/generated delta: +1,554/-1,368, net **+186
+  lines**.
+
+The generated declaration expanded because previously inline or incomplete
+OpenAPI copies now expose the full canonical runtime-settings/model shapes and
+new desired-state operations. Regeneration also absorbed pre-existing
+`missing_provider_connection` to `missing_provider_account` drift already
+present at Phase 4 start.
+
+### Verification notes
+
+- `npm run build:contracts`, `npm run build:sdk`, and `npm run typecheck`
+  passed after the review fixes.
+- Final focused contract/OpenAPI/mapper/install-service/desired-state/route-
+  validation matrix: six files, 160 tests passed. The focused onboarding
+  integration file also passed all five tests in the final worktree-safe
+  non-bundling config-loader run.
+- The definitive full unit run,
+  `npm run test:unit -- --pool=forks --maxWorkers=4 --retry=2 --reporter=dot`,
+  passed all 518 files and 6,424 tests in 1,963.88 seconds. An earlier
+  eight-worker diagnostic run passed 517 files and 6,418 tests but timed out
+  six unrelated spawned-runner cases; the two different cases that timed out
+  in an isolated rerun both passed when rerun directly before the clean full
+  run.
+- The exact workspace generated check cannot resolve new worktree-local
+  contract exports through this checkout's shared `node_modules` symlink: it
+  loads the primary checkout's built `@gantry/contracts`. The same generator
+  was run with a temporary worktree-local `tsx` path mapping; generation and
+  its final `--check` comparison passed. CI now runs the exact
+  `npm run check:generated --workspace @gantry/sdk` command in a normal
+  checkout after build.
+- `npm run format:check` and `git diff --check` passed.
+- Architecture checking began with 16 current-tree findings: ten file-size
+  ratchets, one existing control-route layer edge, three Telegram text-style
+  findings, and two active-doc references. It ends with the same baseline
+  except that `openapi-schemas.ts` is now below its size budget: 15 findings,
+  no new finding or exception.
+- Independent re-review found the four residual drift defects described above;
+  this outcomes update records their fixes. Re-review of the resulting
+  uncommitted work remains pending by request.
