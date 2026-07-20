@@ -170,7 +170,20 @@ Legend: ✅ covered (cite) · 🔨 to build · 🏷 label-gated (live lane) · �
 | Authority/lifecycle tools covered by their own scenarios (not blind invocation) | — | design rule |
 | Browser tool against loopback page | e2e | 🔨 (image lacks Chrome — runs in local smoke until media-render ships provisioning) |
 
-## 15. Security & recovery
+## 15. Multi-agent, delegation & elevated access (user, 2026-07-20)
+
+| Scenario | Layer | Status |
+|---|---|---|
+| **Elevated access loop**: agent hits a denied operation → calls `request_access` (scoped target) → REAL approval path grants → durable grant persisted (revision) → retry succeeds → grant survives restart; denied variant stays denied | e2e (haiku) + integration chain | 🔨 |
+| **Subagent delegation**: turn delegates via `AgentDelegation` to the fixture target agent → delegated turn runs → result returns to the parent turn → both runs + linkage in evidence/audit | e2e (haiku) | 🔨 |
+| Delegated/async task lifecycle plumbing (create → run → complete → result surfaced; failure → clean terminal state) | integration | ✅ partial: ipc-agent-task-lifecycle units; 🔨 durable chain through repos |
+| **Async task**: agent starts async work → turn ends → task completes later → completion notification/result recorded (quiet-until-terminal rule respected) | e2e | 🔨 |
+| **Bash/RunCommand real execution**: agent runs a scoped command in the worker sandbox → output captured in turn → permission decision + audit recorded (beyond the sweep: asserts output round-trip) | e2e (haiku) | 🔨 |
+| **Agents-as-tools**: agent invokes another agent as a TOOL (not delegation) and consumes its structured result | e2e | 🔨 (verify feature state first — agents-as-tools lane; row activates when shipped) |
+| **Two agents, one conversation**: two installed agents with distinct triggers → message for A runs ONLY A; message for B runs ONLY B; no cross-talk; routes stay disambiguated (incident-regression adjacent) | integration (routing) + e2e-live (chat) | 🔨 / 🏷 |
+| Two agents: permission prompt from A answered → grants apply to A only (scope isolation across co-resident agents) | integration | 🔨 |
+
+## 16. Security & recovery
 
 | Scenario | Layer | Status |
 |---|---|---|
@@ -179,7 +192,7 @@ Legend: ✅ covered (cite) · 🔨 to build · 🏷 label-gated (live lane) · �
 | Fork PRs never see secrets (workflow config review) | CI review | 🔨 |
 | i-have-adhd zero references (scoped guard, fragment-built token) | unit | 🔨 |
 
-## 16. Orphan suites (never ran in CI — adopt deliberately)
+## 17. Orphan suites (never ran in CI — adopt deliberately)
 
 | Suite | Status |
 |---|---|
