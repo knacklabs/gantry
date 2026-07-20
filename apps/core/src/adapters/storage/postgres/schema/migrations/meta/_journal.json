@@ -750,6 +750,13 @@
       "when": 1784000005000,
       "tag": "0109_identity_app_scoped_person_foreign_keys",
       "breakpoints": true
+    },
+    {
+      "idx": 110,
+      "version": "7",
+      "when": 1784540000000,
+      "tag": "0110_identity_memory_scope_cleanup",
+      "breakpoints": true
     }
   ]
 }
