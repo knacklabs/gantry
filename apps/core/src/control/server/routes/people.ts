@@ -4,6 +4,7 @@ import {
   AddPersonAliasRequestSchema,
   IdentityResolveRequestSchema,
   PeopleListQuerySchema,
+  PersonMergeApplyRequestSchema,
   PersonMergeRequestSchema,
 } from '@gantry/contracts';
 
@@ -15,6 +16,7 @@ import {
 import {
   identityAliasLinkedEvent,
   identityAliasRetiredEvent,
+  identityMergedEvent,
   identityResolvedEvent,
   publishIdentityResolvedEvent,
 } from '../../../application/identity/identity-runtime-events.js';
@@ -317,35 +319,38 @@ export async function handlePeopleRoutes(
     const auth = authorizeControlRequest(req, res, ctx.keys, ['people:admin']);
     if (!auth) return true;
     const body = (await readJson(req)) as Record<string, unknown>;
-    const parsed = PersonMergeRequestSchema.safeParse(body);
+    const parsed = (
+      merge.preview ? PersonMergeRequestSchema : PersonMergeApplyRequestSchema
+    ).safeParse(body);
     if (!parsed.success) {
       sendError(res, 400, 'INVALID_REQUEST', 'Invalid person merge request');
       return true;
     }
     const appId = readAppId(body, auth.appId);
     if (!assertPeopleAppAccess(res, appId, auth)) return true;
-    if (!merge.preview && !parsed.data.fingerprint) {
-      sendError(
-        res,
-        400,
-        'INVALID_REQUEST',
-        'fingerprint is required when applying a person merge; run preview first',
-      );
-      return true;
-    }
     try {
       const input = {
         appId,
         targetPersonId: merge.personId,
         sourcePersonId: parsed.data.sourcePersonId,
         idempotencyKey: parsed.data.idempotencyKey,
-        expectedFingerprint: parsed.data.fingerprint,
+        expectedFingerprint: (parsed.data as { fingerprint?: string })
+          .fingerprint,
         conflictResolution: parsed.data.conflictResolution,
         actor: auth.kid,
       };
       const result = merge.preview
         ? await service().previewMerge(input)
-        : await service().mergePeople(input);
+        : await service().mergePeople(input, (merged) =>
+            identityMergedEvent({
+              appId,
+              sourcePersonId: merged.sourcePersonId,
+              targetPersonId: merged.targetPersonId,
+              actor: auth.kid,
+              aliasesMoved: merged.aliasesToMove.length,
+              memoryRowsMoved: merged.memoryRowsToMove,
+            }),
+          );
       sendJson(res, 200, result);
     } catch (error) {
       if (!sendApplicationError(res, error)) throw error;

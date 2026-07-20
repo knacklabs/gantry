@@ -9,6 +9,8 @@ import type {
   NormalizedMemorySubject,
 } from './memory-types.js';
 
+// Used only by explicit single-app system jobs. User and IPC memory contexts
+// must provide their authenticated appId; normalizeSubject never falls back.
 export const DEFAULT_MEMORY_APP_ID = 'default';
 
 export function memoryAgentIdForWorkspaceFolder(
@@ -55,7 +57,7 @@ export function normalizeSubject(
     visibility?: MemorySubjectType;
   },
 ): NormalizedMemorySubject {
-  const appId = normalizeId(input.appId, DEFAULT_MEMORY_APP_ID);
+  const appId = normalizeRequiredId(input.appId, 'appId');
   const agentId = normalizeRequiredId(input.agentId, 'agentId');
   const personId = input.personId?.trim() || undefined;
   const userId = personId || input.userId?.trim() || undefined;

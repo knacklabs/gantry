@@ -2847,6 +2847,7 @@ describe('createGroupProcessor', () => {
           externalUserId: 'sl:U123',
           evidenceType: 'provider_user',
         }),
+        expect.any(Function),
       );
       expect(deps.opsRepository.getAgentTurnContext).toHaveBeenCalledWith(
         expect.objectContaining({

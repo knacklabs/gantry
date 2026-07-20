@@ -174,6 +174,29 @@ export function identityAliasRetiredEvent(
   };
 }
 
+export function identityMergedEvent(input: {
+  appId: string;
+  sourcePersonId: string;
+  targetPersonId: string;
+  actor: string;
+  aliasesMoved: number;
+  memoryRowsMoved: number;
+}): RuntimeEventPublishInput {
+  return {
+    appId: input.appId as never,
+    eventType: RUNTIME_EVENT_TYPES.IDENTITY_MERGED,
+    actor: input.actor,
+    payload: {
+      source: 'control_api',
+      sourcePersonId: input.sourcePersonId,
+      targetPersonId: input.targetPersonId,
+      actor: input.actor,
+      aliasesMoved: input.aliasesMoved,
+      memoryRowsMoved: input.memoryRowsMoved,
+    },
+  };
+}
+
 export async function publishMemoryHydrationDecisionEvent(
   publish: RuntimeEventPublisher | undefined,
   input: {

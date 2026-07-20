@@ -113,6 +113,7 @@ export class SessionInteractionModule {
     assertedAppId?: string | null;
     agentId?: string | null;
     conversationId: string;
+    conversationKind?: 'dm' | 'channel';
     title?: string | null;
     responseMode?: unknown;
     webhookId?: string | null;
@@ -135,11 +136,19 @@ export class SessionInteractionModule {
         'appId and conversationId must contain only letters, numbers, dot, underscore, or dash',
       );
     }
+    const conversationKind = input.conversationKind ?? 'channel';
+    if (input.appUser && conversationKind !== 'dm') {
+      throw new ApplicationError(
+        'INVALID_REQUEST',
+        'appUser can only be bound to a direct-message session',
+      );
+    }
     const conversationJid = `app:${input.appId}:${conversationId}`;
     let group = makeAppGroup({
       appId: input.appId,
       conversationId,
       conversationJid,
+      conversationKind,
       identityHash: this.deps
         .stableHash(`${input.appId}\0${conversationId}`)
         .slice(0, 12),
@@ -562,12 +571,14 @@ type AppGroupRegistration = {
   requiresTrigger: boolean;
   senderIdentityEvidenceType: 'web_user';
   systemSenderIds: string[];
+  conversationKind?: 'dm' | 'channel';
 };
 
 export function makeAppGroup(input: {
   appId: string;
   conversationId: string;
   conversationJid: string;
+  conversationKind?: 'dm' | 'channel';
   identityHash: string;
   addedAt: string;
 }): AppGroupRegistration {
@@ -588,6 +599,7 @@ export function makeAppGroup(input: {
     requiresTrigger: false,
     senderIdentityEvidenceType: 'web_user',
     systemSenderIds: ['sdk'],
+    conversationKind: input.conversationKind ?? 'channel',
   };
 }
 

@@ -36,15 +36,18 @@ describe('resolveCanonicalMemoryPersonId', () => {
       }),
     ).resolves.toBeUndefined();
 
-    expect(resolvePersonIdentity).toHaveBeenCalledWith({
-      appId: 'app-one',
-      provider: 'telegram',
-      providerAccountId: 'provider-telegram-1',
-      externalUserId: 'external-user-1',
-      displayName: 'External User',
-      evidenceType: 'provider_user',
-      createIfMissing: false,
-    });
+    expect(resolvePersonIdentity).toHaveBeenCalledWith(
+      {
+        appId: 'app-one',
+        provider: 'telegram',
+        providerAccountId: 'provider-telegram-1',
+        externalUserId: 'external-user-1',
+        displayName: 'External User',
+        evidenceType: 'provider_user',
+        createIfMissing: false,
+      },
+      expect.any(Function),
+    );
   });
 
   it.each([
@@ -72,6 +75,7 @@ describe('resolveCanonicalMemoryPersonId', () => {
 
     expect(resolvePersonIdentity).toHaveBeenCalledWith(
       expect.objectContaining({ provider }),
+      expect.any(Function),
     );
   });
 
@@ -95,6 +99,7 @@ describe('resolveCanonicalMemoryPersonId', () => {
 
     expect(resolvePersonIdentity).toHaveBeenCalledWith(
       expect.objectContaining({ provider: 'slack' }),
+      expect.any(Function),
     );
   });
 
@@ -126,6 +131,7 @@ describe('resolveCanonicalMemoryPersonId', () => {
         externalUserId: 'external-ci',
         createIfMissing: false,
       }),
+      expect.any(Function),
     );
   });
 

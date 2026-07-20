@@ -187,6 +187,7 @@ export async function handleSessionRoutes(
         assertedAppId,
         agentId: body.agentId ?? null,
         conversationId,
+        conversationKind: body.conversationKind,
         title: body.title ?? null,
         responseMode: body.responseMode,
         webhookId: body.webhookId ?? null,

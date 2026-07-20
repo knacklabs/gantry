@@ -2708,6 +2708,11 @@ export interface components {
             /** @description Optional agent id to bind the session to that agent workspace. */
             agentId?: string;
             conversationId: string;
+            /**
+             * @description Session conversation scope; appUser requires dm.
+             * @enum {string}
+             */
+            conversationKind?: "dm" | "channel";
             title?: string;
             /** @enum {string} */
             responseMode?: "sse" | "webhook" | "both" | "none";

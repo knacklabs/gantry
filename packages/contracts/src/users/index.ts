@@ -156,6 +156,13 @@ export const PersonMergeRequestSchema = z.object({
 });
 export type PersonMergeRequest = z.infer<typeof PersonMergeRequestSchema>;
 
+export const PersonMergeApplyRequestSchema = PersonMergeRequestSchema.extend({
+  fingerprint: z.string().min(1),
+});
+export type PersonMergeApplyRequest = z.infer<
+  typeof PersonMergeApplyRequestSchema
+>;
+
 export const PersonMergePreviewResponseSchema = z.object({
   summary: z.literal('Merge preview only. No data changed.'),
   sourcePersonId: z.string(),

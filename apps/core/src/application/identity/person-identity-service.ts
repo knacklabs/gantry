@@ -205,6 +205,12 @@ export interface PersonIdentityRepository {
   ): Promise<PersonAliasRecord | null>;
   previewMerge(input: PersonMergeInput): Promise<PersonMergePreview>;
   mergePeople(input: PersonMergeInput): Promise<PersonMergeApplyResult>;
+  mergePeople(
+    input: PersonMergeInput,
+    auditEventFactory?: (
+      result: PersonMergeApplyResult,
+    ) => RuntimeEventPublishInput,
+  ): Promise<PersonMergeApplyResult>;
 }
 
 export class PersonIdentityService {
@@ -301,11 +307,19 @@ export class PersonIdentityService {
     }));
   }
 
-  async mergePeople(input: PersonMergeInput): Promise<PersonMergeApplyResult> {
-    return this.repository.mergePeople({
-      ...input,
-      conflictResolution: input.conflictResolution ?? 'fail_on_conflict',
-    });
+  async mergePeople(
+    input: PersonMergeInput,
+    auditEventFactory?: (
+      result: PersonMergeApplyResult,
+    ) => RuntimeEventPublishInput,
+  ): Promise<PersonMergeApplyResult> {
+    return this.repository.mergePeople(
+      {
+        ...input,
+        conflictResolution: input.conflictResolution ?? 'fail_on_conflict',
+      },
+      auditEventFactory,
+    );
   }
 
   private normalizeAliasInput<

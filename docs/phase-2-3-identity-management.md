@@ -740,6 +740,43 @@ work rather than silently included in this feature.
 
 ## Verification After Hardening
 
+### PR review hardening decisions
+
+The PR review identified several places where the original implementation was
+correct in the common path but unsafe at boundaries. The follow-up changes make
+these decisions explicit:
+
+- SDK session creation now carries `conversationKind` (`dm` or `channel`).
+  Existing callers that omit it retain the channel default, while an
+  `appUser` assertion is accepted only for a direct-message session. This
+  prevents a channel session from accidentally becoming a personal-memory
+  session.
+- Live identity resolution passes its `identity.resolved` event factory into
+  the storage transaction. A newly created or matched identity and its audit
+  outbox record therefore commit together. The runtime fallback is retained
+  only for injected/non-transactional test resolvers; production storage uses
+  the transactional path.
+- Migration `0107` clears the historical `user_id` denormalization from
+  non-person memory rows before adding the app-scoped person foreign key.
+  Group/channel memory remains conversation-scoped, and existing group rows do
+  not make a fresh migration fail merely because the internal column was once
+  populated.
+- Alias hydration now filters by both `app_id` and person id. A person id that
+  is reused or presented across applications cannot cause another app's alias
+  to appear in the response.
+- Merge application has a separate public request contract requiring the
+  preview fingerprint. Preview remains permissive; apply cannot be generated
+  as a request that the route will inevitably reject. Merge changes also emit
+  `identity.merged` in the same transaction as the merge audit record.
+- Memory subject normalization no longer silently defaults a missing app id to
+  `default`. Explicit single-app system jobs may still name that app constant,
+  but authenticated memory IPC and application memory calls must carry the
+  app id explicitly.
+
+These are implementation hardening decisions, not product behavior changes:
+DMs still use personal memory, groups/channels still use conversation memory,
+and group sender identity resolution remains audit/authorization-only.
+
 - `npm run typecheck` passes.
 - `npm run format:check` passes.
 - SDK generated OpenAPI types are current.

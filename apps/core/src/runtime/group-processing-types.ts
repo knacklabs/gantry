@@ -216,6 +216,9 @@ export interface GroupProcessingDeps {
   normalizeProviderId?: (providerId: string) => string;
   resolvePersonIdentity?: (
     input: IdentityResolveInput,
+    auditEventFactory?: (
+      result: IdentityResolveResult,
+    ) => RuntimeEventPublishInput,
   ) => Promise<IdentityResolveResult>;
   publishRuntimeEvent?: (
     event: RuntimeEventPublishInput,
