@@ -104,4 +104,61 @@ describe('skill permission review install sequence', () => {
     expect(JSON.stringify(interaction)).toContain('Credential Center');
     expect(JSON.stringify(interaction)).not.toContain('PRIVATE_TOKEN_NAME');
   });
+  it('routes denied skill review messages through the originating provider account', async () => {
+    const requestPermissionApproval = vi.fn(async () => ({
+      approved: false,
+      reason: 'not today',
+    }));
+    const sendMessage = vi.fn(async () => undefined);
+    const reject = vi.fn();
+
+    await new Promise<void>((resolve) => {
+      startSkillPermissionReview({
+        deps: {
+          requestPermissionApproval,
+          sendMessage,
+        },
+        responder: { acceptData: vi.fn(), reject },
+        service: {} as never,
+        syncApprovedCapabilitySettings: vi.fn(async () => undefined),
+        appId: 'app:test',
+        agentId: 'agent:test',
+        sourceAgentFolder: 'main_agent',
+        targetJid: 'sl:C123',
+        threadId: '171234.567',
+        providerAccountId: 'slack_default',
+        skill: {
+          name: 'demo-skill',
+        },
+        assets: [],
+        fileSummaries: [],
+        skillMarkdownPreview: {
+          path: 'SKILL.md',
+          content: '',
+          truncated: false,
+        },
+        totalSizeBytes: 0,
+        reason: 'test install',
+        requestToolName: 'request_skill_install',
+        onSettled: resolve,
+      } as never);
+    });
+
+    expect(requestPermissionApproval).toHaveBeenCalledWith(
+      expect.objectContaining({
+        targetJid: 'sl:C123',
+        threadId: '171234.567',
+        providerAccountId: 'slack_default',
+      }),
+    );
+    expect(sendMessage).toHaveBeenCalledWith(
+      'sl:C123',
+      expect.stringContaining('demo-skill'),
+      { threadId: '171234.567', providerAccountId: 'slack_default' },
+    );
+    expect(reject).toHaveBeenCalledWith(
+      expect.stringContaining('demo-skill'),
+      'permission_denied',
+    );
+  });
 });

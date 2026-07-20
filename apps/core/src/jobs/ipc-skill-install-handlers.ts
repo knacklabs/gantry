@@ -211,6 +211,7 @@ async function completeSkillInstallCommandReview(input: {
       sourceAgentFolder,
       targetJid: input.targetJid,
       threadId: data.authThreadId,
+      providerAccountId: data.providerAccountId,
       decisionPolicy: 'same_channel',
       decisionOptions: ['allow_once', 'cancel'],
       toolName: 'request_skill_install',
@@ -252,7 +253,7 @@ async function completeSkillInstallCommandReview(input: {
       await deps.sendMessage(
         input.targetJid,
         message,
-        data.authThreadId ? { threadId: data.authThreadId } : undefined,
+        skillInstallMessageOptions(data),
       );
       return;
     }
@@ -278,7 +279,7 @@ async function completeSkillInstallCommandReview(input: {
       await deps.sendMessage(
         input.targetJid,
         skillInstallCommandReceipt({ ...installed, failed: [] }),
-        data.authThreadId ? { threadId: data.authThreadId } : undefined,
+        skillInstallMessageOptions(data),
       );
     }
     if (!installed.firstInstalled) {
@@ -438,6 +439,7 @@ const requestSkillPackageHandler = async (
       sourceAgentFolder,
       targetJid: requestedTargetJid,
       threadId: data.authThreadId,
+      providerAccountId: data.providerAccountId,
       skill: {
         name: parsed.metadata.name ?? input.fallbackName ?? 'requested-skill',
         description: parsed.metadata.description,
@@ -476,6 +478,17 @@ const requestSkillPackageHandler = async (
     );
   }
 };
+
+function skillInstallMessageOptions(data: Parameters<TaskHandler>[0]['data']) {
+  return data.authThreadId || data.providerAccountId
+    ? {
+        ...(data.authThreadId ? { threadId: data.authThreadId } : {}),
+        ...(data.providerAccountId
+          ? { providerAccountId: data.providerAccountId }
+          : {}),
+      }
+    : undefined;
+}
 
 function validateSameChannelApprovalTarget(input: {
   data: Parameters<TaskHandler>[0]['data'];

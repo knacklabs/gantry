@@ -28,6 +28,7 @@ export function startSkillPermissionReview(input: {
   sourceAgentFolder: string;
   targetJid: string;
   threadId?: string;
+  providerAccountId?: string;
   skill: {
     id?: string;
     name: string;
@@ -88,6 +89,7 @@ async function completeSkillPermissionReview(
     sourceAgentFolder: input.sourceAgentFolder,
     targetJid: input.targetJid,
     threadId: input.threadId,
+    providerAccountId: input.providerAccountId,
     decisionPolicy: 'same_channel',
     decisionOptions: ['allow_once', 'cancel'],
     toolName: input.requestToolName,
@@ -190,7 +192,7 @@ async function completeSkillPermissionReview(
       installedSkill.name,
       installedSkill.requiredEnvVars,
     ),
-    input.threadId ? { threadId: input.threadId } : undefined,
+    skillReviewMessageOptions(input),
   );
   input.responder.acceptData(
     skillApprovalMessage(
@@ -201,6 +203,19 @@ async function completeSkillPermissionReview(
     sameSessionContext,
     'skill_installed',
   );
+}
+
+function skillReviewMessageOptions(
+  input: Parameters<typeof startSkillPermissionReview>[0],
+) {
+  return input.threadId || input.providerAccountId
+    ? {
+        ...(input.threadId ? { threadId: input.threadId } : {}),
+        ...(input.providerAccountId
+          ? { providerAccountId: input.providerAccountId }
+          : {}),
+      }
+    : undefined;
 }
 
 async function notifyLifecycle(
@@ -226,7 +241,7 @@ async function rejectSkillRequestFromPermission(
   await input.deps.sendMessage(
     input.targetJid,
     message,
-    input.threadId ? { threadId: input.threadId } : undefined,
+    skillReviewMessageOptions(input),
   );
   input.responder.reject(message, 'permission_denied');
 }
@@ -247,6 +262,7 @@ function skillReviewInteraction(
       sourceAgentFolder: input.sourceAgentFolder,
       targetJid: input.targetJid,
       threadId: input.threadId,
+      providerAccountId: input.providerAccountId,
       toolName: input.requestToolName,
       capabilityType: 'skill',
       capabilityId: input.skill.id,
