@@ -76,10 +76,13 @@ function memoryRow(input: {
 describe('app-grade memory boundaries', () => {
   it('requires explicit agent context for normalized app memory boundaries', () => {
     expect(() => _testAppMemory.normalizeSubject({})).toThrow(
-      /memory subject requires agentId/,
+      /memory subject requires appId/,
     );
 
-    const context = _testAppMemory.normalizeSubject({ agentId: 'agent:kai' });
+    const context = _testAppMemory.normalizeSubject({
+      appId: 'default',
+      agentId: 'agent:kai',
+    });
 
     expect(context).toMatchObject({
       appId: 'default',

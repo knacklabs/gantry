@@ -1,6 +1,7 @@
 import type { NewMessage } from '../domain/types.js';
 import type { ConversationRoute } from '../domain/types.js';
 import {
+  identityResolvedEvent,
   publishIdentityResolvedEvent,
   publishMemoryHydrationDecisionEvent,
 } from '../application/identity/identity-runtime-events.js';
@@ -131,30 +132,52 @@ export async function resolveCanonicalMemoryPersonId(input: {
     return undefined;
   }
   try {
-    const resolved = await input.resolvePersonIdentity({
-      appId: input.appId,
-      provider,
-      providerAccountId: input.providerAccountId,
-      externalUserId,
-      displayName: message?.sender_name || externalUserId,
-      evidenceType,
-      // A DM can establish a new canonical person. A group/channel may only
-      // use an alias that was explicitly registered elsewhere.
-      createIfMissing: input.conversationKind === 'dm',
-    });
-    await publishIdentityResolvedEvent(input.publishRuntimeEvent, {
-      appId: input.appId,
-      source: 'live_turn',
-      provider,
-      providerAccountId: input.providerAccountId,
-      evidenceType,
-      status: resolved.status,
-      personId: resolved.personId,
-      verificationStatus: resolved.verificationStatus,
-      memoryHydrationEligible: resolved.memoryHydrationEligible,
-      conversationJid: input.chatJid,
-      threadId: input.threadId,
-    });
+    let identityEventPersisted = false;
+    const resolved = await input.resolvePersonIdentity(
+      {
+        appId: input.appId,
+        provider,
+        providerAccountId: input.providerAccountId,
+        externalUserId,
+        displayName: message?.sender_name || externalUserId,
+        evidenceType,
+        // A DM can establish a new canonical person. A group/channel may only
+        // use an alias that was explicitly registered elsewhere.
+        createIfMissing: input.conversationKind === 'dm',
+      },
+      (result) =>
+        (() => {
+          identityEventPersisted = true;
+          return identityResolvedEvent({
+            appId: input.appId,
+            source: 'live_turn',
+            provider,
+            providerAccountId: input.providerAccountId,
+            evidenceType,
+            status: result.status,
+            personId: result.personId,
+            verificationStatus: result.verificationStatus,
+            memoryHydrationEligible: result.memoryHydrationEligible,
+            conversationJid: input.chatJid,
+            threadId: input.threadId,
+          });
+        })(),
+    );
+    if (!identityEventPersisted) {
+      await publishIdentityResolvedEvent(input.publishRuntimeEvent, {
+        appId: input.appId,
+        source: 'live_turn',
+        provider,
+        providerAccountId: input.providerAccountId,
+        evidenceType,
+        status: resolved.status,
+        personId: resolved.personId,
+        verificationStatus: resolved.verificationStatus,
+        memoryHydrationEligible: resolved.memoryHydrationEligible,
+        conversationJid: input.chatJid,
+        threadId: input.threadId,
+      });
+    }
     const canHydratePersonalMemory =
       input.conversationKind === 'dm' && resolved.memoryHydrationEligible;
     const personId =

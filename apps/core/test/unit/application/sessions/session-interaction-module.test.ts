@@ -124,6 +124,7 @@ describe('SessionInteractionModule', () => {
     await module.ensureSession({
       appId: 'app-one',
       conversationId: 'conv-1',
+      conversationKind: 'dm',
       appUser: { authorityId: 'web-app', subject: 'user-1' },
     });
     expect(control.ensureAppSession).toHaveBeenCalledWith(

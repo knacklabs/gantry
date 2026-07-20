@@ -6,6 +6,7 @@ import type {
   PersonAliasResponse,
   PersonAliasVerificationStatus,
   PersonMergeApplyResponse,
+  PersonMergeApplyRequest,
   PersonMergeConflictResolution,
   PersonMergeRequest,
   PersonMergePreviewResponse,
@@ -80,7 +81,7 @@ export function createPeopleClient(request: Requester) {
           path: `/v1/people/${encodeURIComponent(personId)}/merge:preview`,
           body: input,
         }),
-      apply: (personId: string, input: PersonMergeInput) =>
+      apply: (personId: string, input: PersonMergeApplyRequest) =>
         request<PersonMergeApplyResponse>({
           method: 'POST',
           path: `/v1/people/${encodeURIComponent(personId)}/merge`,

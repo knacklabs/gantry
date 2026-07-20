@@ -486,10 +486,10 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
         void startUserVisibleTurn();
       });
     const cancelTurnUiTimers = async () => {
-      if (typingHeartbeatTimer) clearInterval(typingHeartbeatTimer);
-      if (progressTimer) clearInterval(progressTimer);
-      typingHeartbeatTimer = null;
-      progressTimer = null;
+      if (typingHeartbeatTimer) {
+        clearInterval(typingHeartbeatTimer);
+        typingHeartbeatTimer = null;
+      }
       clearBackgroundDemoteTimer();
       await initialProgress.cancel();
     };
@@ -593,7 +593,6 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
     const finalizeStreamingOutput = outputBuffer.flushBufferedOutput;
     let output: GroupAgentRunResult = 'error';
     const handleAgentOutput = async (result: AgentOutput) => {
-      lastAgentProgressAt = currentTimeMs();
       const isTurnCompleteMarker =
         agentOutputCallbacks.isAgentTurnCompleteMarker(result);
       const wasAwaitingResponseReceipt = awaitingResponseReceipt;

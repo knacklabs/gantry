@@ -55,7 +55,7 @@ import {
   ToolCatalogKindSchema,
   ToolCatalogProviderToolNameSchema,
   UpdateJobRequestSchema,
-  UserAliasResponseSchema,
+  PersonAliasResponseSchema,
   createCursorPageResponseSchema,
   createPageResponseSchema,
 } from '@contracts-src/index.js';
@@ -1614,10 +1614,10 @@ describe('contracts package', () => {
       ],
     ).toBeUndefined();
     expect(
-      UserAliasResponseSchema.parse({
+      PersonAliasResponseSchema.parse({
         id: 'alias-1',
         appId: 'app-1',
-        userId: 'user-1',
+        personId: 'person-1',
         provider: 'slack',
         providerAccountId: 'provider-account-1',
         externalUserId: 'U123',

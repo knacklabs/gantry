@@ -31,6 +31,7 @@ import {
   type RetirePersonAliasInput,
   personMergeFingerprint,
 } from '../../../../application/identity/person-identity-service.js';
+import type { RuntimeEventPublishInput } from '../../../../domain/events/events.js';
 import {
   assertAliasCanResolve,
   assertAliasOwnership,
@@ -79,41 +80,58 @@ export class PostgresPersonIdentityRepository implements PersonIdentityRepositor
     input: IdentityResolveInput,
     auditEventFactory?: (
       result: IdentityResolveResult,
-    ) => import('../../../../domain/events/events.js').RuntimeEventPublishInput,
+    ) => RuntimeEventPublishInput,
   ): Promise<IdentityResolveResult> {
     const alias = await this.findActiveAlias(this.db, input);
     if (alias) {
       const mapped = toAlias(alias);
-      return {
+      const result: IdentityResolveResult = {
         status: 'resolved',
         personId: mapped.personId,
         memoryHydrationEligible: true,
         matchedAlias: mapped,
         verificationStatus: mapped.verificationStatus,
       };
+      return auditEventFactory
+        ? this.db.transaction((tx) =>
+            this.appendResolutionAudit(tx, result, auditEventFactory),
+          )
+        : result;
     }
     if (await this.findRetiredAlias(this.db, input)) {
       assertAliasCanResolve(true);
     }
     if (input.createIfMissing === false) {
-      return {
+      const result: IdentityResolveResult = {
         status: 'unresolved',
         personId: null,
         memoryHydrationEligible: false,
       };
+      return auditEventFactory
+        ? this.db.transaction((tx) =>
+            this.appendResolutionAudit(tx, result, auditEventFactory),
+          )
+        : result;
     }
     return await this.db.transaction(async (tx) => {
       await lockPersonAliasKey(tx, input);
       const existing = await this.findActiveAlias(tx, input);
       if (existing) {
         const mapped = toAlias(existing);
-        return {
+        const result = {
           status: 'resolved' as const,
           personId: mapped.personId,
           memoryHydrationEligible: true,
           matchedAlias: mapped,
           verificationStatus: mapped.verificationStatus,
         };
+        if (auditEventFactory) {
+          await this.runtimeEvents.appendRuntimeEventWithExecutor(
+            tx,
+            auditEventFactory(result),
+          );
+        }
+        return result;
       }
       if (await this.findRetiredAlias(tx, input)) {
         assertAliasCanResolve(true);
@@ -165,6 +183,20 @@ export class PostgresPersonIdentityRepository implements PersonIdentityRepositor
       }
       return result;
     });
+  }
+
+  private async appendResolutionAudit(
+    executor: Executor,
+    result: IdentityResolveResult,
+    auditEventFactory: (
+      result: IdentityResolveResult,
+    ) => RuntimeEventPublishInput,
+  ): Promise<IdentityResolveResult> {
+    await this.runtimeEvents.appendRuntimeEventWithExecutor(
+      executor,
+      auditEventFactory(result),
+    );
+    return result;
   }
 
   async listPeople(
@@ -295,7 +327,12 @@ export class PostgresPersonIdentityRepository implements PersonIdentityRepositor
     return this.buildMergePreview(this.db, input);
   }
 
-  async mergePeople(input: PersonMergeInput): Promise<PersonMergeApplyResult> {
+  async mergePeople(
+    input: PersonMergeInput,
+    auditEventFactory?: (
+      result: PersonMergeApplyResult,
+    ) => RuntimeEventPublishInput,
+  ): Promise<PersonMergeApplyResult> {
     const conflictResolution = input.conflictResolution ?? 'fail_on_conflict';
     const idempotencyKey =
       input.idempotencyKey ||
@@ -399,7 +436,14 @@ export class PostgresPersonIdentityRepository implements PersonIdentityRepositor
           createdAt: timestamp,
         })
         .returning();
-      return auditToMergeApply(audit!, idempotencyKey, true);
+      const result = auditToMergeApply(audit!, idempotencyKey, true);
+      if (auditEventFactory) {
+        await this.runtimeEvents.appendRuntimeEventWithExecutor(
+          tx,
+          auditEventFactory(result),
+        );
+      }
+      return result;
     });
   }
 
@@ -408,7 +452,12 @@ export class PostgresPersonIdentityRepository implements PersonIdentityRepositor
       await this.db
         .select()
         .from(pgSchema.userAliasesPostgres)
-        .where(eq(pgSchema.userAliasesPostgres.userId, user.id))
+        .where(
+          and(
+            eq(pgSchema.userAliasesPostgres.appId, user.appId),
+            eq(pgSchema.userAliasesPostgres.userId, user.id),
+          ),
+        )
         .orderBy(desc(pgSchema.userAliasesPostgres.updatedAt))
     ).map(toAlias);
     const counts = await this.memoryCounts(user.appId, user.id);

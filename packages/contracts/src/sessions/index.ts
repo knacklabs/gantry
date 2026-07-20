@@ -11,6 +11,11 @@ export type AgentSessionStatus = z.infer<typeof AgentSessionStatusSchema>;
 export const ResponseModeSchema = z.enum(['sse', 'webhook', 'both', 'none']);
 export type ResponseMode = z.infer<typeof ResponseModeSchema>;
 
+export const SessionConversationKindSchema = z.enum(['dm', 'channel']);
+export type SessionConversationKind = z.infer<
+  typeof SessionConversationKindSchema
+>;
+
 export const AppUserAssertionSchema = z
   .object({
     authorityId: z.string().min(1),
@@ -24,6 +29,7 @@ export const CreateSessionRequestSchema = z
     appId: z.string().optional(),
     agentId: z.string().optional(),
     conversationId: z.string().optional(),
+    conversationKind: SessionConversationKindSchema.default('channel'),
     threadId: z.string().optional(),
     jobId: z.string().optional(),
     appUser: AppUserAssertionSchema.optional(),

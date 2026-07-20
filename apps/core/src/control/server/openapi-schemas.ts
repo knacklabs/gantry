@@ -632,6 +632,11 @@ export const openApiSchemas: Record<string, JsonSchema> = {
     properties: {
       appId: { type: 'string', description: 'Optional API key app assertion.' },
       conversationId: { type: 'string' },
+      conversationKind: {
+        type: 'string',
+        enum: ['dm', 'channel'],
+        description: 'Session conversation scope; appUser requires dm.',
+      },
       title: { type: 'string' },
       responseMode: {
         type: 'string',
