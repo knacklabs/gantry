@@ -209,6 +209,24 @@ model-selection + grant APIs actually work (the API-for-everything directive) an
 catches setup-path regressions — the failure class behind this session's
 incidents. Fully isolated; the small extra per-run time is accepted.
 
+## Isolation guarantee (v3.1, user directive — HARD contract)
+The gate NEVER touches the live local runtime. Every run builds a runtime home
+FROM SCRATCH and destroys it:
+- `GANTRY_HOME` = a fresh temp dir per run (mktemp-style), never `~/gantry`.
+  The harness REFUSES to start (hard assert) if the resolved GANTRY_HOME is the
+  user's real runtime home or if the database URL matches the live `gantry` DB.
+- Fresh disposable Postgres per run (CI service container / local throwaway
+  database or unique schema), migrated from zero. Never the live DB.
+- All runtime secrets (SECRET_ENCRYPTION_KEY, GANTRY_IPC_AUTH_SECRET, control
+  API keys) generated fresh per run — never read from `~/gantry/.env`.
+- Input secrets (E2E_ANTHROPIC_API_KEY, label-gated Slack/Google) come from a
+  gitignored `<repo>/.env.e2e` locally or protected-environment secrets in CI —
+  NOT from any file under `~/gantry`.
+- Full teardown after the run (temp home removed, DB dropped). A failed run
+  leaves its evidence bundle, not a half-alive runtime.
+- (Distinct by design: `scripts/agent-job-smoke.sh` deliberately targets the
+  LIVE runtime for the user-approved KnackLabs live smoke; the CI gate does not.)
+
 ## Fixture kit (v3.1 — complete inventory)
 Beyond the MCP test server, the gate needs these test doubles/fixtures:
 - **Attachment fixture:** a small file the agent must SEND during a turn; assert

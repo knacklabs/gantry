@@ -62,3 +62,4 @@ agents-sdk-docs
 # CocoIndex Code (ccc)
 /.cocoindex_code/
 .codex-wt-*
+.env.e2e
