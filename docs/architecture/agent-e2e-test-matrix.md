@@ -1,0 +1,193 @@
+# Agent E2E / Integration Test Matrix
+
+Tracking doc for the E2E gate (goal: `agent-e2e-ci-merge-gate-goal-prompt.md`).
+Add rows freely — this is the living checklist the implementer works from.
+
+## Discipline (applies to every row)
+
+1. **Behavioral assertions only** — assert tool CALLS (structured args), fixture
+   records, DB rows, runtime events, state transitions. NEVER model phrasing,
+   never NL snapshots.
+2. **Testing ladder** — public API where one exists → in-process service where
+   none does → NEVER a test-only endpoint.
+3. **Ponytail** — the MINIMUM scenarios that prove the behavior; no speculative
+   cases; reuse existing coverage (cite it, don't rebuild it).
+4. **Layer rule** — deterministic logic = integration (fast, no model creds,
+   every PR); composed proof = e2e (real image + real haiku turn, every PR);
+   expensive/external = e2e-live (label-gated).
+5. **Isolation** — e2e runs build a fresh GANTRY_HOME + disposable DB from
+   scratch, never `~/gantry`, never the live DB. Fresh onboarding via API each
+   run.
+
+Legend: ✅ covered (cite) · 🔨 to build · 🏷 label-gated (live lane) · 💤 deferred
+
+## 1. Runtime & boot
+
+| Scenario | Layer | Status |
+|---|---|---|
+| Image starts, migrations current, healthy | e2e | 🔨 |
+| Restart preserves desired state (settings revision projection) | e2e | 🔨 |
+| Security posture: prod image requires enforcing sandbox + non-prod secrets | integration | ✅ security-posture.test.ts |
+| Harness refuses to run against ~/gantry or live DB (isolation guard) | e2e (harness self-test) | 🔨 |
+
+## 2. Onboarding & model selection (API-driven)
+
+| Scenario | Layer | Status |
+|---|---|---|
+| Create agent + conversation binding via desired-state API; revision appended; survives restart | e2e | 🔨 |
+| Select `haiku` alias; turn evidence routes to selected model/provider/harness | e2e | 🔨 |
+| API contract: status codes + response shapes on onboarding endpoints | e2e (same pass) | 🔨 |
+| Scope enforcement: sessions-only key → 403 on admin endpoint | integration | 🔨 |
+| `sessions/ensure` honors `agentId` (bug fix first) | integration + e2e | 🔨 blocked on ponytail landing |
+
+## 3. Agent turn (haiku, behavioral)
+
+| Scenario | Layer | Status |
+|---|---|---|
+| ensure → message (202 ≠ done) → events → visible completion | e2e | 🔨 |
+| Evidence bundle complete (ids, alias/route, timings, audit ids, redacted failure) | e2e | 🔨 |
+| Inline-lane turn (LLM API path) completes once | e2e | 🔨 |
+| Turn-failure surfaces cleanly (bad model alias → clean terminal state, no zombie) | e2e | 🔨 |
+
+## 4. Skills
+
+| Scenario | Layer | Status |
+|---|---|---|
+| Install vendored `internal-comms` zip via `/v1/skills/install`; catalog + binding identity | e2e | 🔨 |
+| Selection survives restart; assets materialize incl. `examples/3p-updates.md` (progressive disclosure) | e2e | 🔨 |
+| Turn produces 3P STRUCTURE (Progress/Plans/Problems sections exist — structure, not wording) | e2e | 🔨 |
+| `gantry-admin` reserved name rejected by install API | integration | 🔨 |
+| `admin_permission_list` callable, returns expected shape | e2e | 🔨 |
+| Skill install/registry logic | integration | ✅ skills-registry-flow.integration.test.ts |
+
+## 5. MCP
+
+| Scenario | Layer | Status |
+|---|---|---|
+| Register HTTP server via SDK; approve ONLY echo+get-sum | e2e | 🔨 |
+| Discovery + schema; denied tools invisible to the agent | e2e | 🔨 |
+| Turn calls `get-sum(20,22)`; fixture records call; tool result 42; MCP audit event | e2e | 🔨 |
+| stdio transport | integration | ✅ ipc-mcp-stdio.test.ts |
+| MCP server management lifecycle | integration | ✅ mcp-server-management.integration.test.ts + mcp-server.postgres.integration.test.ts |
+| Deep-MCP: every capability class of vendored everything-server (tools, resources, prompts, sampling, progress, logging, completions) — unsupported class = product bug or documented non-support | e2e-live | 🏷 |
+
+## 6. Permissions (granular)
+
+| Scenario | Layer | Status |
+|---|---|---|
+| `ask`: eligible tool → human prompt, nothing auto-decided | integration | ✅ permission-classifier tests |
+| `auto`: read-only gate as evidence → classifier allow → auto_classifier allow_once | integration | ✅ permission-classifier.test.ts:539-612 |
+| `auto_strict`: unproven-safety asks WITHOUT classifier; proven still consults strict classifier | integration | ✅ permission-classifier.test.ts:614-667 |
+| Classifier unavailable/failure → fail-safe ask | integration | ✅ unit |
+| YOLO denylist hit → ask + event; unattended converts to denial | integration | ✅ classifier.test.ts:868-941 (attended); 🔨 unattended-context chain |
+| Locked agent: forged authority IPC denied at parent | integration | ✅ ipc-locked-permission-denial.test.ts |
+| Eligibility: only Bash/RunCommand + non-gantry MCP reach classifier | integration | ✅ unit |
+| Full chain: real IPC boundary → durable interaction → decision → event repo | integration | 🔨 (the one genuinely new chain) |
+| Allow ONCE: runs, then authority expires after restart | integration + e2e recovery scenario | 🔨 |
+| Allow FUTURE: argv-leaf rule persists, auto-allows next same-leaf command, survives restart, agent-scoped (current semantics) | integration | 🔨 (promotion-postgres covers counters only) |
+| Record-before-prompt ordering | integration | 🔨 |
+| Cancel: run interrupts cleanly, no partial effect, audit `cancelled` | integration | 🔨 |
+| Deny: recorded, no execution | integration | 🔨 |
+| NO chat receipt on allow-future (regression, #239) | integration | 🔨 |
+| Real decision paths only — via classifier / in-process button-resolution callback / real Slack button (never a decide-API) | (constraint on all above) | — |
+| Whole-chain credential-absence in events/logs | integration | 🔨 |
+
+## 7. Capabilities
+
+| Scenario | Layer | Status |
+|---|---|---|
+| Declare via settings surface → `capability:<id>` + scoped RunCommand rule projection | integration | ✅ configured-agent-tools.test.ts |
+| local_cli pinning (path/version/hash/templates); unrelated command denied | integration | ✅ semantic-capabilities.test.ts |
+| Persisted selected binding → projection → real admission | integration | 🔨 |
+| Real-image preflight pass AND fail-closed | e2e | 🔨 |
+| Secret lifecycle store→retrieve→rotate→audit (all four in one test) | integration | 🔨 |
+| Tampered ciphertext → integrity error → capability unavailable, no plaintext leak | integration | ✅ capability-secret units; 🔨 through-sandbox chain |
+| Egress: denylist blocks + `egress.connect` attribution (networkHosts = attribution NOT allowlist) | integration | ✅ egress-gateway.test.ts; 🔨 e2e with fixture pair |
+| Real gog/Sheets tier (throwaway sheet) | e2e-live | 🏷 |
+
+## 8. Memories
+
+| Scenario | Layer | Status |
+|---|---|---|
+| Write → recall → subject-boundary isolation (person/group/channel) | integration | 🔨 |
+| Turn 1 states fact → durable memory row collected; turn 2 → memory READ occurred | e2e | 🔨 |
+| Memory survives restart, still recallable | e2e | 🔨 |
+| Job-run memory collection persists | e2e (job scenario) | 🔨 |
+
+## 9. Jobs
+
+| Scenario | Layer | Status |
+|---|---|---|
+| Create via API → trigger → run completes → delivery → health `completed` (API twin of agent-job-smoke.sh) | e2e | 🔨 |
+| Pause → resume → trigger transitions + events | e2e | 🔨 |
+| Forced failure exhausts retries → dead-letter + clean terminal event | e2e | 🔨 |
+| Autonomous tool dead-end: ungranted tool surfaces cleanly (regression) | integration | 🔨 |
+| MCP-readiness race: slow init must NOT hard-fail (regression, fix on main) | integration (unit exists) + e2e real-turn | ✅ mcp-server-validation.test.ts · 🔨 e2e |
+| Local live smoke against the real runtime | manual/script | ✅ scripts/agent-job-smoke.sh |
+
+## 10. Attachments & delivery
+
+| Scenario | Layer | Status |
+|---|---|---|
+| Turn sends the deterministic attachment → workspace-direct delivery record, hash matches | e2e | 🔨 |
+| Oversize handling (>25MB refused cleanly) | integration | 🔨 |
+| Webhook fires with expected payload shape (loopback receiver) | e2e | 🔨 |
+
+## 11. Route integrity (incident regressions)
+
+| Scenario | Layer | Status |
+|---|---|---|
+| Loader collapses mixed legacy key forms to ONE route (total preference order) | unit/integration | 🔨 in route-fix lane |
+| Divergent conversationId rows load via derive+warn, never throw, never drop a chat | unit/integration | 🔨 in route-fix lane |
+| Corrupt-state seed via direct test-DB rows (documented API exception) | integration | 🔨 |
+
+## 12. Channel loop (Slack, dedicated test app)
+
+| Scenario | Layer | Status |
+|---|---|---|
+| Real user-pattern message → agent turn → outbound reply in channel | e2e-live | 🏷 |
+| Permission block renders (header/context structure); approve callback → tool proceeds + audit | e2e-live | 🏷 (needs real-user or signed-callback fixture — constraint per round-3) |
+| Attachment delivered in channel | e2e-live | 🏷 |
+
+## 13. Model matrix & policy gate
+
+| Scenario | Layer | Status |
+|---|---|---|
+| `haiku` + anthropic_sdk turn (required gate) | e2e | 🔨 |
+| `gpt-mini` + deepagents turn | e2e-live | 🏷 |
+| Catalog base/head diff adds changed aliases to live matrix | CI policy job | 🔨 |
+| Path-map classifies changed paths; UNKNOWN stays risky; `e2e-reviewed` acknowledges only | CI policy job | 🔨 |
+| `agent-e2e-gate` aggregates + branch protection verified | CI | 🔨 |
+
+## 14. All-tools sweep
+
+| Scenario | Layer | Status |
+|---|---|---|
+| Enumerate effective tool set (internal inspector); every read-only + fixture-backed tool invoked once; call + effect + audit asserted; unreachable granted tool = FAIL | e2e | 🔨 |
+| Authority/lifecycle tools covered by their own scenarios (not blind invocation) | — | design rule |
+| Browser tool against loopback page | e2e | 🔨 (image lacks Chrome — runs in local smoke until media-render ships provisioning) |
+
+## 15. Security & recovery
+
+| Scenario | Layer | Status |
+|---|---|---|
+| Skill+MCP selections survive restart; allow_once does NOT | e2e | 🔨 |
+| Logs + evidence credential-scrubbed (whole run grep) | e2e | 🔨 |
+| Fork PRs never see secrets (workflow config review) | CI review | 🔨 |
+| i-have-adhd zero references (scoped guard, fragment-built token) | unit | 🔨 |
+
+## 16. Orphan suites (never ran in CI — adopt deliberately)
+
+| Suite | Status |
+|---|---|
+| live-waiting-admission.postgres.integration | 💤 excluded-by-name; adopt = delete one exclude line |
+| pattern-candidate-atomic-claim.postgres.integration | 💤 same |
+| proactive-surfacing-opt-in.postgres.integration | 💤 same |
+| toolchain-bake-reconciler.postgres.integration | 💤 same |
+| worker-coordination.postgres.integration | 💤 same (known flaky-under-load heartbeat test) |
+
+## Add new scenarios below
+
+| Feature | Scenario | Layer | Notes |
+|---|---|---|---|
+| | | | |
