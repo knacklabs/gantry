@@ -242,6 +242,19 @@ Beyond the MCP test server, the gate needs these test doubles/fixtures:
 - **Delegation target agent:** a second minimal agent so `AgentDelegation` is
   exercisable in the all-tools sweep.
 - **Always-failing job fixture:** deterministically drives retry → dead-letter.
+- **Deep-MCP scenario (user, 2026-07-20 — label-gated):** a VENDORED, real
+  published version of `@modelcontextprotocol/server-everything` (exact version
+  pinned by content hash, full dependency closure vendored — no test-time
+  install; runs beside the harness in the correct network namespace).
+  Rationale: gantry is an MCP CLIENT PLATFORM — if it mishandles any MCP
+  capability class a compliant server offers (tools, resources, prompts,
+  sampling, progress, logging, completions), that is a PRODUCT BUG, not a test
+  limitation. The scenario walks every capability class the server advertises;
+  for each: either gantry handles it correctly (asserted behaviorally) or the
+  gate FAILS with a per-capability finding. A deliberate non-support decision
+  must be recorded explicitly in docs (fail-honest), not discovered by users.
+  The in-process echo/get-sum fixture remains the required-gate MCP test
+  (fast, recorded); deep-MCP runs on the label-gated lane.
 - **Inline-lane turn:** one cheap haiku call through the inline runtime / LLM API
   lane (the second execution path) so both lanes are proven, not just the worker.
 - stdio-MCP transport stays at the integration layer (existing `ipc-mcp-stdio`
