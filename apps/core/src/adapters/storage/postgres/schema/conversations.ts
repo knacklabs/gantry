@@ -1,4 +1,5 @@
 import {
+  foreignKey,
   index,
   pgTable,
   text,
@@ -98,6 +99,11 @@ export const conversationParticipantsPostgres = pgTable(
       table.providerAccountId,
       table.externalUserId,
     ),
+    appScopedPerson: foreignKey({
+      name: 'conversation_participants_app_user_fk',
+      columns: [table.appId, table.userId],
+      foreignColumns: [usersPostgres.appId, usersPostgres.id],
+    }),
   }),
 );
 

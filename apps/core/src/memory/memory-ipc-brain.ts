@@ -3,10 +3,6 @@ import type { MemoryIpcResponse } from '@gantry/contracts';
 import { createRuntimeBrainService } from '../brain/brain-runtime.js';
 import { nowMs } from '../shared/time/datetime.js';
 import {
-  DEFAULT_MEMORY_APP_ID,
-  memoryAgentIdForWorkspaceFolder,
-} from './app-memory-boundaries.js';
-import {
   assertMemoryRequestNotExpired,
   deadlineUnavailableResponse,
   hasEnoughMemoryBudget,
@@ -18,6 +14,8 @@ const BRAIN_IPC_PROVIDER = 'postgres';
 interface BrainIpcRequest {
   requestId: string;
   payload: Record<string, unknown>;
+  appId: string;
+  agentId: string;
   deadlineAtMs?: number;
 }
 
@@ -26,9 +24,7 @@ export async function processBrainSearchRequest(
 ): Promise<MemoryIpcResponse> {
   const query = String(request.payload.query || '').trim();
   if (!query) throw new Error('query is required');
-  // The memory IPC scope carries no app identity; the runtime is
-  // single-app today, so the brain is always the default app's brain.
-  const appId = DEFAULT_MEMORY_APP_ID;
+  const appId = request.appId;
   const brain = createRuntimeBrainService(appId);
   if (!hasEnoughMemoryBudget(request, nowMs)) {
     return deadlineUnavailableResponse(request, BRAIN_IPC_PROVIDER);
@@ -61,7 +57,7 @@ export async function processBrainQueryRequest(
 ): Promise<MemoryIpcResponse> {
   const question = String(request.payload.question || '').trim();
   if (!question) throw new Error('question is required');
-  const appId = DEFAULT_MEMORY_APP_ID;
+  const appId = request.appId;
   const brain = createRuntimeBrainService(appId);
   if (!hasEnoughMemoryBudget(request, nowMs)) {
     return deadlineUnavailableResponse(request, BRAIN_IPC_PROVIDER);
@@ -93,14 +89,13 @@ export async function processBrainQueryRequest(
 
 export async function processBrainWriteRequest(
   request: BrainIpcRequest,
-  sourceAgentFolder: string,
 ): Promise<MemoryIpcResponse> {
   const slug = String(request.payload.slug || '').trim();
   const markdown = String(request.payload.markdown || '').trim();
   if (!slug || !markdown) {
     throw new Error('slug and markdown are required');
   }
-  const appId = DEFAULT_MEMORY_APP_ID;
+  const appId = request.appId;
   const brain = createRuntimeBrainService(appId);
   assertMemoryRequestNotExpired(request, nowMs);
   const result = await brain.write({
@@ -116,7 +111,7 @@ export async function processBrainWriteRequest(
       typeof request.payload.source_ref === 'string'
         ? request.payload.source_ref
         : 'mcp-tool',
-    authorId: memoryAgentIdForWorkspaceFolder(sourceAgentFolder),
+    authorId: request.agentId,
   });
   return {
     ok: true,

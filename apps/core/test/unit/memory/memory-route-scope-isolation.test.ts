@@ -45,8 +45,9 @@ describe('memory route scope isolation', () => {
   it('resolves identical subjects regardless of memory model family', () => {
     const context = {
       appId: 'default',
+      agentId: 'agent:team-folder',
       chatJid: 'sl:C999',
-      userId: 'sl:U999',
+      personId: 'sl:U999',
       defaultScope: 'group' as const,
     };
 
@@ -66,8 +67,9 @@ describe('memory route scope isolation', () => {
         'team-folder',
         {
           appId: 'default',
+          agentId: 'agent:team-folder',
           chatJid: 'sl:C999',
-          userId: 'person:one',
+          personId: 'person:one',
           defaultScope: 'group',
         },
         'user',
@@ -78,8 +80,9 @@ describe('memory route scope isolation', () => {
         'dm-folder',
         {
           appId: 'default',
+          agentId: 'agent:dm-folder',
           chatJid: 'sl:D999',
-          userId: 'person:one',
+          personId: 'person:one',
           defaultScope: 'user',
         },
         'group',
@@ -99,8 +102,9 @@ describe('memory route scope isolation', () => {
 
     const context = {
       appId: 'default',
+      agentId: 'agent:dm-folder',
       chatJid: 'tg:-100123',
-      userId: 'tg:42',
+      personId: 'tg:42',
     };
     const subjectBefore = resolveTrustedMemorySubject('dm-folder', context);
 

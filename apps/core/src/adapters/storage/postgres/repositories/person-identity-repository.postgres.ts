@@ -29,6 +29,7 @@ import {
   type PersonListRepositoryInput,
   type PersonListRepositoryPage,
   type RetirePersonAliasInput,
+  personMergeFingerprint,
 } from '../../../../application/identity/person-identity-service.js';
 import {
   assertAliasCanResolve,
@@ -40,6 +41,7 @@ import {
   assertRetiredAliasCanBeRebound,
 } from '../../../../application/identity/person-identity-policy.js';
 import { nowIso } from '../../../../shared/time/datetime.js';
+import { stableSha256Json } from '../../../../shared/stable-hash.js';
 import * as pgSchema from '../schema/schema.js';
 import {
   auditToMergeApply,
@@ -329,6 +331,15 @@ export class PostgresPersonIdentityRepository implements PersonIdentityRepositor
       );
       assertMergeablePeople(people, input.targetPersonId, input.sourcePersonId);
       const preview = await this.buildMergePreview(tx, input);
+      if (
+        input.expectedFingerprint &&
+        preview.fingerprint !== input.expectedFingerprint
+      ) {
+        throw new ApplicationError(
+          'CONFLICT',
+          'Merge preview is stale; run preview again before applying the merge.',
+        );
+      }
       const aliasConflicts = preview.conflicts.filter(
         (conflict) => conflict.type === 'alias',
       );
@@ -383,6 +394,7 @@ export class PostgresPersonIdentityRepository implements PersonIdentityRepositor
           resultJson: {
             aliasesToMove: preview.aliasesToMove,
             excludedMemoryScopes: preview.excludedMemoryScopes,
+            fingerprint: preview.fingerprint,
           },
           createdAt: timestamp,
         })
@@ -631,8 +643,14 @@ export class PostgresPersonIdentityRepository implements PersonIdentityRepositor
         .limit(PERSON_MERGE_DETAIL_LIMIT + 1)
     ).map(toAlias);
     assertDetailLimit('alias', aliases.length, PERSON_MERGE_DETAIL_LIMIT);
-    const [sourceMemoryCount] = await executor
-      .select({ count: count() })
+    const sourceMemoryRows = await executor
+      .select({
+        id: pgSchema.memoryItemsPostgres.id,
+        updatedAt: pgSchema.memoryItemsPostgres.updatedAt,
+        status: pgSchema.memoryItemsPostgres.status,
+        kind: pgSchema.memoryItemsPostgres.kind,
+        key: pgSchema.memoryItemsPostgres.key,
+      })
       .from(pgSchema.memoryItemsPostgres)
       .where(
         and(
@@ -641,6 +659,11 @@ export class PostgresPersonIdentityRepository implements PersonIdentityRepositor
           eq(pgSchema.memoryItemsPostgres.userId, input.sourcePersonId),
         ),
       );
+    const sourceMemoryFingerprint = stableSha256Json(
+      sourceMemoryRows
+        .map((row) => ({ ...row }))
+        .sort((a, b) => a.id.localeCompare(b.id)),
+    );
     const excludedRows = await executor
       .select({
         subjectType: pgSchema.memoryItemsPostgres.subjectType,
@@ -671,9 +694,20 @@ export class PostgresPersonIdentityRepository implements PersonIdentityRepositor
       sourcePersonId: input.sourcePersonId,
       targetPersonId: input.targetPersonId,
       aliasesToMove: aliases,
-      memoryRowsToMove: Number(sourceMemoryCount?.count ?? 0),
+      memoryRowsToMove: sourceMemoryRows.length,
+      memoryRowsFingerprint: sourceMemoryFingerprint,
       excludedMemoryScopes: excluded,
       conflicts,
+      fingerprint: personMergeFingerprint({
+        summary: 'Merge preview only. No data changed.',
+        sourcePersonId: input.sourcePersonId,
+        targetPersonId: input.targetPersonId,
+        aliasesToMove: aliases,
+        memoryRowsToMove: sourceMemoryRows.length,
+        memoryRowsFingerprint: sourceMemoryFingerprint,
+        excludedMemoryScopes: excluded,
+        conflicts,
+      }),
     };
   }
 }

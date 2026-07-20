@@ -75,23 +75,34 @@ describe('ipc auth token', () => {
     ).not.toBe(computeMemoryIpcAuthToken('team-alpha', { appId: 'app-two' }));
     expect(
       computeMemoryIpcAuthToken('team-alpha', {
-        userId: 'u-1',
+        appId: 'app-one',
+        agentId: 'agent-one',
+      }),
+    ).not.toBe(
+      computeMemoryIpcAuthToken('team-alpha', {
+        appId: 'app-one',
+        agentId: 'agent-two',
+      }),
+    );
+    expect(
+      computeMemoryIpcAuthToken('team-alpha', {
+        personId: 'u-1',
         defaultScope: 'user',
       }),
     ).not.toBe(
       computeMemoryIpcAuthToken('team-alpha', {
-        userId: 'u-2',
+        personId: 'u-2',
         defaultScope: 'user',
       }),
     );
     expect(
       computeMemoryIpcAuthToken('team-alpha', {
-        userId: 'u-1',
+        personId: 'u-1',
         defaultScope: 'user',
       }),
     ).not.toBe(
       computeMemoryIpcAuthToken('team-alpha', {
-        userId: 'u-1',
+        personId: 'u-1',
         defaultScope: 'group',
       }),
     );

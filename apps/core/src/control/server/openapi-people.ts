@@ -29,6 +29,7 @@ const mergeResponseProperties = {
   targetPersonId: { type: 'string' },
   aliasesToMove: { type: 'array', items: personAlias },
   memoryRowsToMove: { type: 'integer', minimum: 0 },
+  memoryRowsFingerprint: { type: 'string' },
   excludedMemoryScopes: {
     type: 'object',
     required: ['group', 'channel', 'common'],
@@ -184,6 +185,7 @@ export const peopleOpenApiSchemas: Record<string, JsonSchema> = {
       appId: { type: 'string' },
       sourcePersonId: { type: 'string' },
       idempotencyKey: { type: 'string' },
+      fingerprint: { type: 'string' },
       conflictResolution: {
         type: 'string',
         enum: ['fail_on_conflict', 'keep_target'],
@@ -206,10 +208,11 @@ export const peopleOpenApiSchemas: Record<string, JsonSchema> = {
   },
   PersonMergePreviewResponse: {
     type: 'object',
-    required: ['summary', ...mergeResponseRequired],
+    required: ['summary', ...mergeResponseRequired, 'fingerprint'],
     properties: {
       summary: { const: 'Merge preview only. No data changed.' },
       ...mergeResponseProperties,
+      fingerprint: { type: 'string' },
     },
   },
   PersonMergeApplyResponse: {
@@ -220,6 +223,7 @@ export const peopleOpenApiSchemas: Record<string, JsonSchema> = {
       'idempotencyKey',
       'auditId',
       'applied',
+      'fingerprint',
     ],
     properties: {
       summary: {
@@ -227,6 +231,7 @@ export const peopleOpenApiSchemas: Record<string, JsonSchema> = {
           'Person merge completed. Personal memory and aliases now belong to the target person.',
       },
       ...mergeResponseProperties,
+      fingerprint: { type: 'string' },
       idempotencyKey: { type: 'string' },
       auditId: { type: 'string' },
       applied: { type: 'boolean' },

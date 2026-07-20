@@ -31,6 +31,7 @@ import type {
 import type { InlineAgentLoopLaneInput } from '../../runtime/agent-inline.js';
 import type { RunAgentOptions } from '../../runtime/agent-spawn-types.js';
 import { resolveWorkspaceFolderPath } from '../../platform/workspace-folder.js';
+import { memoryAgentIdForWorkspaceFolder } from '../../memory/app-memory-boundaries.js';
 import {
   PERMISSION_CLASSIFIER_MAX_STRING_LENGTH as CLASSIFIER_MAX,
   consultPermissionClassifierBeforePrompt,
@@ -155,7 +156,8 @@ export function createInlineCoreTools(
       sourceAgentFolder: laneInput.group.folder,
       conversationId: run.chatJid,
       appId: run.appId,
-      agentId: run.agentId,
+      agentId:
+        run.agentId ?? memoryAgentIdForWorkspaceFolder(laneInput.group.folder),
       providerAccountId: laneInput.group.providerAccountId,
       threadId: run.threadId,
       runId: activeRunId,

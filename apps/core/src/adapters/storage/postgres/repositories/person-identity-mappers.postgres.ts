@@ -231,6 +231,8 @@ export function auditToMergeApply(
       common: Number(excluded.common ?? 0),
     },
     conflicts: jsonArray(audit.conflictsJson) as PersonMergeConflict[],
+    fingerprint:
+      typeof stored.fingerprint === 'string' ? stored.fingerprint : undefined,
     idempotencyKey,
     auditId: audit.id,
     applied,
@@ -252,4 +254,20 @@ export function assertMergeAuditMatches(
       'idempotencyKey already belongs to a different person merge.',
     );
   }
+  if (
+    input.expectedFingerprint &&
+    storedFingerprint(audit) !== input.expectedFingerprint
+  ) {
+    throw new ApplicationError(
+      'CONFLICT',
+      'Merge preview is stale; run preview again before applying the merge.',
+    );
+  }
+}
+
+function storedFingerprint(audit: AuditRow): string | undefined {
+  const stored = jsonRecord(audit.resultJson);
+  return typeof stored.fingerprint === 'string'
+    ? stored.fingerprint
+    : undefined;
 }

@@ -2301,6 +2301,7 @@ export interface components {
             appId?: string;
             sourcePersonId: string;
             idempotencyKey?: string;
+            fingerprint?: string;
             /** @enum {string} */
             conflictResolution?: "fail_on_conflict" | "keep_target";
         };
@@ -2322,12 +2323,14 @@ export interface components {
             targetPersonId: string;
             aliasesToMove: components["schemas"]["PersonAlias"][];
             memoryRowsToMove: number;
+            memoryRowsFingerprint?: string;
             excludedMemoryScopes: {
                 group: number;
                 channel: number;
                 common: number;
             };
             conflicts: components["schemas"]["PersonMergeConflict"][];
+            fingerprint: string;
         };
         PersonMergeApplyResponse: {
             /** @constant */
@@ -2336,12 +2339,14 @@ export interface components {
             targetPersonId: string;
             aliasesToMove: components["schemas"]["PersonAlias"][];
             memoryRowsToMove: number;
+            memoryRowsFingerprint?: string;
             excludedMemoryScopes: {
                 group: number;
                 channel: number;
                 common: number;
             };
             conflicts: components["schemas"]["PersonMergeConflict"][];
+            fingerprint: string;
             idempotencyKey: string;
             auditId: string;
             applied: boolean;
@@ -2707,12 +2712,20 @@ export interface components {
             /** @enum {string} */
             responseMode?: "sse" | "webhook" | "both" | "none";
             webhookId?: string;
+            appUser?: {
+                authorityId: string;
+                subject: string;
+            };
         };
         SessionEnsureResponse: {
             sessionId: string;
             appId: string;
             conversationId: string;
             chatJid: string;
+            appUser?: {
+                authorityId: string;
+                subject: string;
+            };
         };
         /**
          * @description Permission decision. Exactly three options exist; timed grants are not supported.

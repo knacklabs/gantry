@@ -105,6 +105,57 @@ describe('SessionInteractionModule', () => {
     expect(control.ensureAppSession).not.toHaveBeenCalled();
   });
 
+  it('binds an SDK session to one immutable app user assertion', async () => {
+    const { module, control } = makeModule({
+      control: {
+        getAppSessionById: vi.fn(async () => ({
+          sessionId: 'session-1',
+          appId: 'app-one',
+          conversationId: 'conv-1',
+          conversationJid: 'app:app-one:conv-1',
+          workspaceKey: 'group',
+          defaultResponseMode: 'sse',
+          defaultWebhookId: null,
+          appUser: { authorityId: 'web-app', subject: 'user-1' },
+        })),
+      },
+    });
+
+    await module.ensureSession({
+      appId: 'app-one',
+      conversationId: 'conv-1',
+      appUser: { authorityId: 'web-app', subject: 'user-1' },
+    });
+    expect(control.ensureAppSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        appUser: { authorityId: 'web-app', subject: 'user-1' },
+      }),
+    );
+
+    await expect(
+      module.acceptMessage({
+        appId: 'app-one',
+        sessionId: 'session-1',
+        message: 'hello',
+        senderId: 'user-2',
+      }),
+    ).rejects.toMatchObject({
+      code: 'CONFLICT',
+      message: 'SDK session is bound to a different app user.',
+    });
+
+    await expect(
+      module.acceptMessage({
+        appId: 'app-one',
+        sessionId: 'session-1',
+        message: 'anonymous message',
+      }),
+    ).rejects.toMatchObject({
+      code: 'CONFLICT',
+      message: 'SDK session is bound to a different app user.',
+    });
+  });
+
   it('rejects waits for sessions outside the authenticated app', async () => {
     const { module, runtimeEvents } = makeModule({
       control: {

@@ -534,8 +534,9 @@ async function spawnAgentWithContext(
         : undefined,
       memoryIpcAuthToken: computeMemoryIpcAuthToken(group.folder, {
         appId: runnerAppId,
+        agentId: input.agentId ?? memoryAgentIdForWorkspaceFolder(group.folder),
         chatJid: input.chatJid,
-        userId: input.memoryUserId,
+        personId: input.memoryUserId,
         defaultScope: input.memoryDefaultScope || 'group',
         threadId: input.threadId,
         allowedActions: memoryIpcAllowedActions,
