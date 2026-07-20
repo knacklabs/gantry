@@ -226,6 +226,11 @@ async function spawnAgentWithContext(
     agentInput: input,
     appId: input.appId || 'default',
     accessPreset,
+    modelIdentity: {
+      alias: resolvedModel.value.modelEntry.displayName,
+      modelId: resolvedModel.value.runnerModel,
+      provider: resolvedModel.value.modelEntry.modelRoute.label,
+    },
     fileArtifactStore: () => getRuntimeFileArtifactStore(),
     measureAsync: (name, fn) => hostStartup.measureAsync(name, fn),
   });

@@ -169,6 +169,11 @@ export async function prepareInlineAgentHostContext(
         accessPreset: resolveAgentAccessPolicy(
           runtimeSettings.agents?.[group.folder]?.accessPreset,
         ).preset,
+        modelIdentity: {
+          alias: resolvedModel.value.modelEntry.displayName,
+          modelId: resolvedModel.value.runnerModel,
+          provider: resolvedModel.value.modelEntry.modelRoute.label,
+        },
         fileArtifactStore: () => getRuntimeFileArtifactStore(),
         measureAsync: async (_name, fn) => fn(),
       })

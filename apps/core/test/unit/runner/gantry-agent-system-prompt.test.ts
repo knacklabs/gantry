@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { buildRunnerSystemPrompt } from '@core/adapters/llm/anthropic-claude-agent/runner/system-prompt.js';
 import type { AgentRunnerInput } from '@core/adapters/llm/anthropic-claude-agent/runner/types.js';
@@ -26,6 +26,10 @@ const FULL_SECTIONS = [
 ];
 
 describe('buildGantryAgentSystemPrompt', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it('renders the OpenClaw-inspired full section order with stable and dynamic parts split', () => {
     const prompt = buildGantryAgentSystemPrompt({
       runtimeProjection: 'wrapped-tool-projection',
@@ -116,6 +120,88 @@ describe('buildGantryAgentSystemPrompt', () => {
     expect(prompt.prompt).toContain('## Assistant Output Directives');
     expect(prompt.prompt).not.toContain('## Workspace');
     expect(prompt.prompt).not.toContain('Public Gantry catalog:');
+  });
+
+  it('includes the date section with timezone in minimal mode dynamic tail', () => {
+    const prompt = buildGantryAgentSystemPrompt({
+      runtimeProjection: 'native-tool-projection',
+      promptMode: 'minimal',
+      assistantName: 'Asha',
+      currentDateTimeIso: '2026-06-17T00:00:00.000Z',
+      timezone: 'Asia/Kolkata',
+    });
+
+    expect(prompt.dynamicPrompt).toContain('## Current Date & Time');
+    expect(prompt.dynamicPrompt).toContain(
+      '2026-06-17T00:00:00.000Z (timezone: Asia/Kolkata). As of turn start; use the date tool when precision matters.',
+    );
+    expect(prompt.staticPrompt).not.toContain('## Current Date & Time');
+  });
+
+  it('renders the timezone next to the timestamp in full mode', () => {
+    const prompt = buildGantryAgentSystemPrompt({
+      runtimeProjection: 'wrapped-tool-projection',
+      promptMode: 'full',
+      currentDateTimeIso: '2026-06-17T00:00:00.000Z',
+      timezone: 'America/New_York',
+    });
+
+    expect(prompt.dynamicPrompt).toContain('(timezone: America/New_York)');
+    expect(prompt.staticPrompt).not.toContain('timezone:');
+  });
+
+  it('keeps the compiled profile in every prompt mode', () => {
+    for (const promptMode of ['full', 'minimal', 'none'] as const) {
+      const prompt = buildGantryAgentSystemPrompt({
+        runtimeProjection: 'native-tool-projection',
+        promptMode,
+        compiledSystemPrompt: 'compiled profile marker',
+        currentDateTimeIso: '2026-06-17T00:00:00.000Z',
+      });
+      expect(prompt.prompt, promptMode).toContain('compiled profile marker');
+    }
+  });
+
+  it('drops the receipts phrasing from Execution Bias', () => {
+    const prompt = buildGantryAgentSystemPrompt({
+      runtimeProjection: 'wrapped-tool-projection',
+      promptMode: 'full',
+      currentDateTimeIso: '2026-06-17T00:00:00.000Z',
+    });
+
+    expect(prompt.prompt).toContain(
+      'keep the user informed, protect approvals, and complete the work.',
+    );
+    expect(prompt.prompt).not.toContain('with receipts');
+  });
+
+  it('keeps the static prefix byte-identical across builds at different clock times (cache safety)', () => {
+    const input = {
+      prompt: 'summarize the plan',
+      workspaceFolder: 'main_agent',
+      chatJid: 'tg:team',
+      persona: 'generalist',
+      assistantName: 'Asha',
+      promptMode: 'full',
+      compiledSystemPrompt: 'custom profile prompt',
+      allowedTools: ['Read'],
+    } satisfies AgentRunnerInput;
+
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-06-17T00:00:00.000Z'));
+    const first = buildRunnerSystemPrompt(input, 'memory context');
+    vi.setSystemTime(new Date('2026-06-18T12:34:56.000Z'));
+    const second = buildRunnerSystemPrompt(input, 'memory context');
+
+    expect(first).toHaveLength(3);
+    expect(second).toHaveLength(3);
+    // Static prefix (everything before the dynamic boundary) must not vary
+    // with the clock or the prompt cache is broken.
+    expect(second[0]).toBe(first[0]);
+    expect(second[1]).toBe(first[1]);
+    expect(second[2]).not.toBe(first[2]);
+    expect(first[2]).toContain('2026-06-17T00:00:00.000Z');
+    expect(second[2]).toContain('2026-06-18T12:34:56.000Z');
   });
 
   it('renders none mode as base identity only', () => {

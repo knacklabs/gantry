@@ -23,6 +23,10 @@ export interface GantryAgentSystemPromptInput {
   threadId?: string;
   isScheduledJob?: boolean;
   currentDateTimeIso?: string;
+  // IANA timezone for the conversation. Defaults to the process timezone,
+  // which in the runner is the conversation TZ projected into env by
+  // buildBaseRunnerEnv (agent-spawn-helpers.ts).
+  timezone?: string;
   sandboxSummary?: string;
 }
 
@@ -102,6 +106,7 @@ export function buildGantryAgentSystemPrompt(
       mode,
       [...staticSections, documentationSection()],
       [
+        currentDateTimeSection(input),
         assistantOutputDirectivesSection(),
         runtimeSection(input),
         reasoningSection(),
@@ -162,7 +167,7 @@ function executionBiasSection(): string {
   return [
     '## Execution Bias',
     'Prefer concrete progress over commentary. Diagnose the real blocker, choose the smallest correct action, and verify the result.',
-    'Be a dependable operator for the team: keep the user informed, protect approvals, and complete the work with receipts.',
+    'Be a dependable operator for the team: keep the user informed, protect approvals, and complete the work.',
   ].join('\n');
 }
 
@@ -252,9 +257,14 @@ function sandboxSection(input: GantryAgentSystemPromptInput): string {
 }
 
 function currentDateTimeSection(input: GantryAgentSystemPromptInput): string {
+  const iso = input.currentDateTimeIso?.trim();
+  const timezone =
+    input.timezone?.trim() || Intl.DateTimeFormat().resolvedOptions().timeZone;
   return [
     '## Current Date & Time',
-    input.currentDateTimeIso?.trim() || 'Runtime did not provide a timestamp.',
+    iso
+      ? `${iso} (timezone: ${timezone}). As of turn start; use the date tool when precision matters.`
+      : 'Runtime did not provide a timestamp.',
   ].join('\n');
 }
 

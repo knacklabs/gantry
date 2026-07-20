@@ -11,7 +11,12 @@ import type {
   FileArtifactStore,
   FileArtifactWriteInput,
 } from '@core/domain/ports/file-artifact-store.js';
-import { PromptProfileService } from '@core/application/agents/prompt-profile-service.js';
+import {
+  DEFAULT_PROMPT_SECTION_BUDGETS,
+  LOCKED_OPERATING_GUIDANCE_BLOCK,
+  OPERATING_GUIDANCE_BLOCK,
+  PromptProfileService,
+} from '@core/application/agents/prompt-profile-service.js';
 
 const loggerSpies = vi.hoisted(() => ({
   info: vi.fn(),
@@ -288,6 +293,117 @@ describe('PromptProfileService', () => {
     ]) {
       expect(prompt).not.toContain(stale);
     }
+  });
+
+  it('keeps the raw operating guidance blocks within the section budget (truncation guard)', () => {
+    expect(OPERATING_GUIDANCE_BLOCK.length).toBeLessThanOrEqual(
+      DEFAULT_PROMPT_SECTION_BUDGETS.OPERATING_GUIDANCE,
+    );
+    expect(LOCKED_OPERATING_GUIDANCE_BLOCK.length).toBeLessThanOrEqual(
+      DEFAULT_PROMPT_SECTION_BUDGETS.OPERATING_GUIDANCE,
+    );
+  });
+
+  it('compiles the Communication and Output Style guidance untruncated', async () => {
+    const { service } = createService();
+
+    const prompt = await service.compileSystemPrompt({ agentFolder: 'team' });
+
+    expect(prompt).toContain('## Communication');
+    expect(prompt).toContain('## Output Style');
+    expect(prompt).toContain(
+      'Lead with the answer or outcome in the first sentence',
+    );
+    expect(prompt).toContain('Do not narrate execution');
+    expect(prompt).toContain(
+      'The single short acknowledgement before non-trivial live work is the only exception.',
+    );
+    expect(prompt).toContain(
+      'no closers ("Let me know if..."), no pleasantry filler',
+    );
+    expect(prompt).toContain('Never use dashes as punctuation');
+    expect(prompt).toContain('Hyphens appear only inside compound words');
+    expect(prompt).toContain(
+      'numbered or bulleted structure when the answer has multiple items',
+    );
+    expect(prompt).toContain('Reply in the language the user writes in.');
+    // Final line of the operating guidance block: proves the section tail
+    // survived the budget (the old 8500 budget silently cut Communication).
+    expect(prompt).toContain('never trade accuracy for brevity.');
+  });
+
+  it('renders the model identity line only when modelIdentity is provided', async () => {
+    const { service } = createService();
+
+    const withIdentity = await service.compileSystemPrompt({
+      agentFolder: 'team',
+      modelIdentity: {
+        alias: 'Fable 5',
+        modelId: 'claude-fable-5',
+        provider: 'Anthropic API',
+      },
+    });
+    expect(withIdentity).toContain(
+      '- You are running on Fable 5 (claude-fable-5) via Anthropic API. State this plainly if the user asks which model you are; deeper runtime internals stay internal.',
+    );
+
+    const withoutIdentity = await service.compileSystemPrompt({
+      agentFolder: 'team',
+    });
+    expect(withoutIdentity).not.toContain('You are running on');
+  });
+
+  it('injects stable runtime context lines into runtime rules', async () => {
+    const { service } = createService();
+
+    const prompt = await service.compileSystemPrompt({
+      agentFolder: 'team',
+      modelIdentity: {
+        alias: 'Fable 5',
+        modelId: 'claude-fable-5',
+        provider: 'Anthropic API',
+      },
+      runtimeContext: {
+        chatJid: 'tg:12345',
+        conversationKind: 'dm',
+        workspacePath: '/data/agents/team',
+      },
+    });
+
+    expect(prompt).toContain(
+      '- Channel: Telegram direct message. Telegram renders a limited HTML subset; hard message length cap 4096 characters; outbound workspace file attachments are capped at 25MB.',
+    );
+    expect(prompt).toContain(
+      '- Workspace root: /data/agents/team. Durable outputs belong under media/ inside the workspace; tmp paths are ephemeral and may not survive between runs.',
+    );
+    // Interactive runs carry the interruptibility contract. This is the final
+    // runtime-rules line, so its presence also proves the section fits its
+    // budget untruncated.
+    expect(prompt).toContain(
+      '- New user messages may arrive mid-run and supersede the current plan; treat messages delivered mid-run as fresh instructions, not history.',
+    );
+  });
+
+  it('replaces the interruptibility line with job context for scheduled jobs', async () => {
+    const { service } = createService();
+
+    const prompt = await service.compileSystemPrompt({
+      agentFolder: 'team',
+      runtimeContext: {
+        chatJid: 'sl:C123',
+        conversationKind: 'channel',
+        workspacePath: '/data/agents/team',
+        job: { id: 'job-1', name: 'Daily digest' },
+      },
+    });
+
+    expect(prompt).toContain(
+      '- Channel: Slack group conversation. Slack renders mrkdwn; keep single messages under 4000 characters; outbound workspace file attachments are capped at 25MB.',
+    );
+    expect(prompt).toContain(
+      '- This run executes scheduled job "Daily digest" (job-1). Job runs are quiet until terminal: deliver one final outcome report; do not send interim progress messages.',
+    );
+    expect(prompt).not.toContain('New user messages may arrive mid-run');
   });
 
   it('maps casual controls to reviewed tools and one-line progress', async () => {

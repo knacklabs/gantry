@@ -34,11 +34,11 @@ const AGENT_INSTRUCTIONS_SOURCE = 'gantry://agent-instructions';
 export const DEFAULT_PROMPT_SECTION_BUDGETS: Readonly<
   Record<PromptSectionName, number>
 > = {
-  RUNTIME_RULES: 1200,
+  RUNTIME_RULES: 2200,
   PERSONA: 1200,
   SOUL: 3000,
   CAPABILITY_GUIDANCE: 1500,
-  OPERATING_GUIDANCE: 8500,
+  OPERATING_GUIDANCE: 12000,
   AGENT_INSTRUCTIONS: 5000,
 };
 
@@ -222,9 +222,21 @@ const OPERATING_GUIDANCE_COMMUNICATION = [
   '- Skip filler and avoid pretending certainty.',
   '- Match the active channel formatting conventions.',
   '- Keep short answers short unless the user asks for detail.',
+  '',
+  '## Output Style',
+  '- Lead with the answer or outcome in the first sentence; supporting context follows.',
+  '- Do not narrate execution ("Let me run...", "Now I\'ll check...", step-by-step commentary). Speak in outcomes, answers, and necessary questions. The single short acknowledgement before non-trivial live work is the only exception.',
+  '- No preambles ("Great question", "Sure!"), no closers ("Let me know if..."), no pleasantry filler.',
+  '- Never use dashes as punctuation: no " - ", em dashes, or en dashes as clause separators. Hyphens appear only inside compound words.',
+  '- Keep sentences short. Use numbered or bulleted structure when the answer has multiple items.',
+  '- Reply in the language the user writes in.',
+  '- Be concise by default and complete when the user asks for depth; never trade accuracy for brevity.',
 ];
 
-const OPERATING_GUIDANCE_BLOCK = [
+// Exported for the budget-guard unit test: the raw block must always fit the
+// OPERATING_GUIDANCE section budget or the compiler silently truncates the
+// tail (which once dropped the entire Communication section).
+export const OPERATING_GUIDANCE_BLOCK = [
   ...OPERATING_GUIDANCE_HEAD,
   ...FULL_TOOL_ACCESS_GUIDANCE,
   '',
@@ -235,11 +247,29 @@ const OPERATING_GUIDANCE_BLOCK = [
 
 // Proactive recommendations are omitted for locked agents: every suggestion in
 // that block routes through request/approval machinery the agent must not know.
-const LOCKED_OPERATING_GUIDANCE_BLOCK = [
+export const LOCKED_OPERATING_GUIDANCE_BLOCK = [
   ...OPERATING_GUIDANCE_HEAD,
   ...LOCKED_TOOL_ACCESS_GUIDANCE,
   ...OPERATING_GUIDANCE_COMMUNICATION,
 ].join('\n');
+
+export interface PromptModelIdentity {
+  alias: string;
+  modelId: string;
+  provider: string;
+}
+
+// Stable-per-run facts injected into the compiled profile. Everything here
+// rides the static (cached) side of the runner prompt split, so values MUST
+// NOT vary turn-to-turn within one session; per-turn facts (time, speaker)
+// belong to the dynamic tail or the message payload instead.
+export interface PromptRuntimeContext {
+  chatJid?: string;
+  conversationKind?: 'dm' | 'channel';
+  workspacePath?: string;
+  // Present only for scheduled job runs.
+  job?: { id?: string; name?: string };
+}
 
 export interface CompilePromptProfileOptions {
   agentFolder: string;
@@ -249,6 +279,10 @@ export interface CompilePromptProfileOptions {
   // Resolved agent access preset (config/profiles). Locked agents receive the
   // locked instruction projection; absent defaults to full (today's prompt).
   accessPreset?: PromptAccessPreset;
+  // Resolved model identity for this run; rendered as a plain "You are running
+  // on ..." runtime rule. Changes only when model config changes (cache-safe).
+  modelIdentity?: PromptModelIdentity;
+  runtimeContext?: PromptRuntimeContext;
 }
 
 export interface ProfileMirrorInput {
@@ -299,6 +333,71 @@ function truncateDeterministically(content: string, budget: number): string {
   if (budget <= 0) return '';
   if (content.length <= budget) return content;
   return content.slice(0, budget).trimEnd();
+}
+
+// ponytail: jid prefixes and per-channel caps mirror the channel adapters
+// (tg: TELEGRAM_MESSAGE_MAX_LENGTH 4096, sl: SLACK_FALLBACK_CHUNK_MAX_LENGTH
+// 4000, dc: DISCORD_MESSAGE_MAX_LENGTH 2000, 25MB =
+// MAX_MESSAGE_FILE_ATTACHMENT_BYTES); not imported so the prompt compiler
+// stays free of channel-adapter dependencies.
+function channelContextLine(
+  chatJid: string | undefined,
+  conversationKind: 'dm' | 'channel' | undefined,
+): string | undefined {
+  if (!chatJid) return undefined;
+  const kind =
+    conversationKind === 'dm'
+      ? 'direct message'
+      : conversationKind === 'channel'
+        ? 'group conversation'
+        : 'conversation';
+  const attachments = 'outbound workspace file attachments are capped at 25MB';
+  if (chatJid.startsWith('tg:'))
+    return `- Channel: Telegram ${kind}. Telegram renders a limited HTML subset; hard message length cap 4096 characters; ${attachments}.`;
+  if (chatJid.startsWith('sl:'))
+    return `- Channel: Slack ${kind}. Slack renders mrkdwn; keep single messages under 4000 characters; ${attachments}.`;
+  if (chatJid.startsWith('dc:'))
+    return `- Channel: Discord ${kind}. Discord renders markdown; hard message length cap 2000 characters; ${attachments}.`;
+  if (chatJid.startsWith('teams:'))
+    return `- Channel: Microsoft Teams ${kind}. Teams renders basic HTML; ${attachments}.`;
+  if (chatJid.startsWith('app:'))
+    return `- Channel: embedded app ${kind}. Markdown renders natively; no hard message length cap; ${attachments}.`;
+  return `- Channel: ${kind}; ${attachments}.`;
+}
+
+function runtimeContextLines(options: CompilePromptProfileOptions): string[] {
+  const lines: string[] = [];
+  if (options.modelIdentity) {
+    const { alias, modelId, provider } = options.modelIdentity;
+    lines.push(
+      `- You are running on ${alias} (${modelId}) via ${provider}. State this plainly if the user asks which model you are; deeper runtime internals stay internal.`,
+    );
+  }
+  const context = options.runtimeContext;
+  if (!context) return lines;
+  const channel = channelContextLine(context.chatJid, context.conversationKind);
+  if (channel) lines.push(channel);
+  if (context.workspacePath) {
+    lines.push(
+      `- Workspace root: ${context.workspacePath}. Durable outputs belong under media/ inside the workspace; tmp paths are ephemeral and may not survive between runs.`,
+    );
+  }
+  if (context.job) {
+    const label =
+      context.job.name && context.job.id
+        ? `"${context.job.name}" (${context.job.id})`
+        : context.job.name
+          ? `"${context.job.name}"`
+          : (context.job.id ?? 'this scheduled job');
+    lines.push(
+      `- This run executes scheduled job ${label}. Job runs are quiet until terminal: deliver one final outcome report; do not send interim progress messages.`,
+    );
+  } else {
+    lines.push(
+      '- New user messages may arrive mid-run and supersede the current plan; treat messages delivered mid-run as fresh instructions, not history.',
+    );
+  }
+  return lines;
 }
 
 function renderSection(section: PromptSection): string {
@@ -391,9 +490,12 @@ export class PromptProfileService {
     const runtimeRules = makeSection(
       'RUNTIME_RULES',
       'gantry://runtime-rules',
-      accessPreset === 'locked'
-        ? LOCKED_RUNTIME_RULES_BLOCK
-        : RUNTIME_RULES_BLOCK,
+      [
+        accessPreset === 'locked'
+          ? LOCKED_RUNTIME_RULES_BLOCK
+          : RUNTIME_RULES_BLOCK,
+        ...runtimeContextLines(options),
+      ].join('\n'),
       this.sectionBudgets.RUNTIME_RULES,
     );
     if (runtimeRules) sections.push(runtimeRules);
