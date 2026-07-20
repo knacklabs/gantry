@@ -177,6 +177,25 @@ export function findConversationRouteForQueue<T>(
   const queueThreadId = normalizeThreadQueueId(queue.threadId);
   const queueAgentId = queue.agentId?.trim();
   const queueProviderAccountId = queue.providerAccountId?.trim();
+  if (
+    queueThreadId &&
+    queueAgentId &&
+    queueProviderAccountId &&
+    Object.hasOwn(routes, queueJid)
+  ) {
+    return routes[queueJid];
+  }
+  if (queueAgentId && queueProviderAccountId) {
+    const wholeConversationKey = makeAgentThreadQueueKey(
+      queue.chatJid,
+      queueAgentId,
+      undefined,
+      queueProviderAccountId,
+    );
+    if (Object.hasOwn(routes, wholeConversationKey)) {
+      return routes[wholeConversationKey];
+    }
+  }
   const candidates: Array<{
     route: T;
     routeThreadId?: string;

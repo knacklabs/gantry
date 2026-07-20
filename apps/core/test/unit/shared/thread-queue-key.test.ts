@@ -105,6 +105,45 @@ describe('thread queue keys', () => {
     ).toBeUndefined();
   });
 
+  it('selects an exact agent and provider route over divergent stale aliases', () => {
+    const exact = {
+      folder: 'main',
+      providerAccountId: 'telegram_named',
+      conversationId: 'conversation:telegram_named:tg:123',
+    };
+    const routes = {
+      'tg:123': {
+        folder: 'main',
+        providerAccountId: 'telegram_named',
+        conversationId: 'conversation:tg:123',
+      },
+      [makeAgentThreadQueueKey('tg:123', 'agent:main')]: {
+        folder: 'main',
+        providerAccountId: 'telegram_named',
+        conversationId: 'conversation:telegram_default:tg:123',
+      },
+      [makeAgentThreadQueueKey(
+        'tg:123',
+        'agent:main',
+        undefined,
+        'telegram_named',
+      )]: exact,
+    };
+
+    expect(
+      findConversationRouteForQueue(
+        routes,
+        makeAgentThreadQueueKey(
+          'tg:123',
+          'agent:main',
+          'topic:7',
+          'telegram_named',
+        ),
+        () => 'agent:main',
+      ),
+    ).toBe(exact);
+  });
+
   it('matches unscoped migrated route keys by stored provider account', () => {
     const route = { folder: 'triage', providerAccountId: 'one' };
     const routes = {
