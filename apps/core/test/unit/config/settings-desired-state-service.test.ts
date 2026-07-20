@@ -3510,3 +3510,235 @@ conversations:
     });
   });
 });
+
+describe('reconcile preserves agent-installed bindings', () => {
+  function agentInstalledSkill() {
+    return {
+      id: 'skill:agentic',
+      appId: 'default',
+      name: 'agentic-notes',
+      source: 'agent_created',
+      status: 'installed',
+      promptRefs: [],
+      toolIds: [],
+      workflowRefs: [],
+      storage: { type: 'local' },
+      createdAt: '2026-07-20T00:00:00.000Z',
+      updatedAt: '2026-07-20T00:00:00.000Z',
+    };
+  }
+
+  function agentSkillBinding(status: 'active' | 'disabled') {
+    return {
+      id: 'agent-skill-binding:agent:main_agent:skill:agentic',
+      appId: 'default',
+      agentId: 'agent:main_agent',
+      skillId: 'skill:agentic',
+      status,
+      createdAt: '2026-07-20T00:00:00.000Z',
+      updatedAt: '2026-07-20T00:00:00.000Z',
+    };
+  }
+
+  function agentRequestedMcpServer() {
+    return {
+      id: 'mcp:crm',
+      appId: 'default',
+      status: 'active',
+      name: 'crm',
+      createdSource: 'agent_request',
+      riskClass: 'medium',
+      transport: 'stdio_template',
+      config: { transport: 'stdio_template', templateId: 'crm' },
+      allowedToolPatterns: [],
+      autoApproveToolPatterns: [],
+      credentialRefs: [],
+    };
+  }
+
+  function agentMcpBinding(status: 'active' | 'disabled') {
+    return {
+      id: 'agent-mcp-binding:agent:main_agent:mcp:crm',
+      appId: 'default',
+      agentId: 'agent:main_agent',
+      serverId: 'mcp:crm',
+      status,
+      required: false,
+      permissionPolicyIds: [],
+      allowedToolPatterns: [],
+      createdAt: '2026-07-20T00:00:00.000Z',
+      updatedAt: '2026-07-20T00:00:00.000Z',
+    };
+  }
+
+  function repositoriesWithAgentInstalls(input: {
+    skillBindingStatus?: 'active' | 'disabled';
+    mcpBindingStatus?: 'active' | 'disabled';
+    mcpServer?: Record<string, unknown>;
+  }) {
+    const base = makeRepositories();
+    return makeRepositories({
+      skills: {
+        ...base.skills,
+        getSkill: vi.fn(async (id: string) =>
+          id === 'skill:agentic'
+            ? agentInstalledSkill()
+            : base.skills.getSkill(id),
+        ),
+        listAgentSkillBindings: vi.fn(async () => [
+          agentSkillBinding(input.skillBindingStatus ?? 'active'),
+        ]),
+      },
+      mcpServers: {
+        ...base.mcpServers,
+        getServer: vi.fn(async (id: string) =>
+          id === 'mcp:crm'
+            ? (input.mcpServer ?? agentRequestedMcpServer())
+            : base.mcpServers.getServer(id),
+        ),
+        listAgentBindings: vi.fn(async () => [
+          agentMcpBinding(input.mcpBindingStatus ?? 'active'),
+        ]),
+      },
+    });
+  }
+
+  it('unions agent-request-created active bindings into the replacement set', async () => {
+    const settings = createDefaultRuntimeSettings();
+    settings.agents.main_agent = {
+      name: 'Main',
+      folder: 'main_agent',
+      bindings: {},
+      sources: {
+        skills: [{ id: 'skill:admin' }],
+        mcpServers: [{ id: 'mcp:github' }],
+        tools: [],
+      },
+      capabilities: [],
+    };
+    const repositories = repositoriesWithAgentInstalls({});
+    const service = new SettingsDesiredStateService({
+      ops: makeOps(),
+      repositories,
+    });
+
+    await service.reconcile(settings);
+
+    const call =
+      repositories.agents.replaceAgentCapabilityBindings.mock.calls[0]?.[0];
+    expect(call.skillBindings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ skillId: 'skill:admin', status: 'active' }),
+        expect.objectContaining({ skillId: 'skill:agentic', status: 'active' }),
+      ]),
+    );
+    expect(call.mcpBindings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ serverId: 'mcp:github' }),
+        expect.objectContaining({ serverId: 'mcp:crm', status: 'active' }),
+      ]),
+    );
+  });
+
+  it('respects explicit removal: disabled agent-request bindings are not resurrected', async () => {
+    const settings = createDefaultRuntimeSettings();
+    settings.agents.main_agent = {
+      name: 'Main',
+      folder: 'main_agent',
+      bindings: {},
+      sources: {
+        skills: [{ id: 'skill:admin' }],
+        mcpServers: [],
+        tools: [],
+      },
+      capabilities: [],
+    };
+    const repositories = repositoriesWithAgentInstalls({
+      skillBindingStatus: 'disabled',
+      mcpBindingStatus: 'disabled',
+    });
+    const service = new SettingsDesiredStateService({
+      ops: makeOps(),
+      repositories,
+    });
+
+    await service.reconcile(settings);
+
+    const call =
+      repositories.agents.replaceAgentCapabilityBindings.mock.calls[0]?.[0];
+    expect(call.skillBindings).toEqual([
+      expect.objectContaining({ skillId: 'skill:admin' }),
+    ]);
+    expect(call.mcpBindings).toEqual([]);
+  });
+
+  it('does not preserve admin-created bindings absent from settings', async () => {
+    const settings = createDefaultRuntimeSettings();
+    settings.agents.main_agent = {
+      name: 'Main',
+      folder: 'main_agent',
+      bindings: {},
+      sources: { skills: [{ id: 'skill:admin' }], mcpServers: [], tools: [] },
+      capabilities: [],
+    };
+    const repositories = repositoriesWithAgentInstalls({
+      mcpServer: { ...agentRequestedMcpServer(), createdSource: 'admin' },
+    });
+    // The bound skill is admin-uploaded, not agent-created.
+    const previousGetSkill = repositories.skills.getSkill;
+    repositories.skills.getSkill = vi.fn(async (id: string) =>
+      id === 'skill:agentic'
+        ? { ...agentInstalledSkill(), source: 'admin_uploaded' }
+        : previousGetSkill(id),
+    );
+    const service = new SettingsDesiredStateService({
+      ops: makeOps(),
+      repositories,
+    });
+
+    await service.reconcile(settings);
+
+    const call =
+      repositories.agents.replaceAgentCapabilityBindings.mock.calls[0]?.[0];
+    expect(call.skillBindings).toEqual([
+      expect.objectContaining({ skillId: 'skill:admin' }),
+    ]);
+    expect(call.mcpBindings).toEqual([]);
+  });
+
+  it('warns and skips inactive configured MCP servers instead of failing the reconcile', async () => {
+    const { replaceDesiredStateCapabilities } =
+      await import('@core/config/settings/desired-state-capability-reconcile.js');
+    const repositories = makeRepositories();
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      await replaceDesiredStateCapabilities({
+        appId: 'default' as never,
+        agentId: 'agent:main_agent' as never,
+        agent: {
+          name: 'Main',
+          folder: 'main_agent',
+          bindings: {},
+          sources: {
+            skills: [],
+            mcpServers: [{ id: 'mcp:github' }, { id: 'mcp:missing' }],
+            tools: [],
+          },
+          capabilities: [],
+        } as never,
+        repositories,
+        now: '2026-07-20T00:00:00.000Z',
+      });
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining('mcp:missing is not active'),
+      );
+    } finally {
+      warn.mockRestore();
+    }
+    const call =
+      repositories.agents.replaceAgentCapabilityBindings.mock.calls[0]?.[0];
+    expect(call.mcpBindings).toEqual([
+      expect.objectContaining({ serverId: 'mcp:github' }),
+    ]);
+  });
+});

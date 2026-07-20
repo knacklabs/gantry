@@ -602,6 +602,78 @@ describe('McpToolProxy', () => {
     ).rejects.toThrow(/not approved for this agent/);
   });
 
+  it('ranks mcp_search_tools matches and marks reviewed-capability coverage', async () => {
+    vi.useFakeTimers();
+    mcpSdkMocks.client.listTools.mockResolvedValueOnce({
+      tools: [
+        { name: 'create_issue', description: 'Open a GitHub issue' },
+        { name: 'find_code', description: 'search code across repositories' },
+        { name: 'search_repositories', description: 'Find repositories' },
+      ],
+    });
+    const proxy = new McpToolProxy(mcpRepository({ remote: true }), {
+      tools: patternToolRepository(),
+      lookupHostname: vi.fn(async () => [
+        { address: '93.184.216.34', family: 4 as const },
+      ]),
+    });
+
+    const result = await proxy.searchTools({
+      appId: 'app-one' as never,
+      agentId: 'agent-one' as never,
+      query: 'search',
+    });
+
+    // Name-prefix match outranks description match; the non-matching tool is
+    // filtered out entirely.
+    expect(result.query).toBe('search');
+    expect(result.total).toBe(2);
+    expect(result.matches.map((match) => match.name)).toEqual([
+      'search_repositories',
+      'find_code',
+    ]);
+    // The reviewed mcp_pattern capability (search_*) covers the first match
+    // only; the other stays inventory-only.
+    expect(result.matches[0]).toMatchObject({
+      serverName: 'github',
+      coveredByReviewedCapability: true,
+      reviewedCapabilityIds: ['github.search.read'],
+    });
+    expect(result.matches[1]).toMatchObject({
+      serverName: 'github',
+      coveredByReviewedCapability: false,
+    });
+    expect(result.matches[1].reviewedCapabilityIds).toBeUndefined();
+  });
+
+  it('marks every mcp_search_tools match inventory-only when no reviewed capability is selected', async () => {
+    vi.useFakeTimers();
+    mcpSdkMocks.client.listTools.mockResolvedValueOnce({
+      tools: [{ name: 'search_repositories', description: 'Find repos' }],
+    });
+    const proxy = new McpToolProxy(mcpRepository({ remote: true }), {
+      tools: emptyToolRepository(),
+      lookupHostname: vi.fn(async () => [
+        { address: '93.184.216.34', family: 4 as const },
+      ]),
+    });
+
+    const result = await proxy.searchTools({
+      appId: 'app-one' as never,
+      agentId: 'agent-one' as never,
+      query: 'search',
+      limit: 5,
+    });
+
+    expect(result.limit).toBe(5);
+    expect(result.matches).toHaveLength(1);
+    expect(result.matches[0]).toMatchObject({
+      name: 'search_repositories',
+      coveredByReviewedCapability: false,
+      callable: false,
+    });
+  });
+
   it('follows remote MCP tools/list pagination for an explicit server refresh', async () => {
     vi.useFakeTimers();
     mcpSdkMocks.client.listTools

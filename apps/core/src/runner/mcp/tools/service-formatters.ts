@@ -24,6 +24,9 @@ export function formatMcpApprovalResponse(
     '- Allowed Capabilities: unchanged until a reviewed capability is granted.',
     '- Needs Review: raw MCP actions discovered from this source.',
     '',
+    `Usable this turn (gantry proxy): mcp_search_tools and mcp_list_tools with serverName="${context.server.name}" for inventory, mcp_describe_tool for schema, and mcp_call_tool only for actions a selected reviewed capability covers.`,
+    `Available from your next message: this source joins the projected tool surface; direct mcp__${context.server.name}__ tool names still require a selected reviewed capability.`,
+    '',
     'Next action:',
     `- Refresh source inventory: call mcp_list_tools with serverName="${context.server.name}"`,
     '- Request durable access: use request_access with target.kind=capability when a reviewed capability exists.',
@@ -137,6 +140,79 @@ export function formatMcpListToolsResponse(
     lines.push(
       '\nMore results are available; ask me to continue and I will fetch the next page.',
     );
+  }
+  return lines.join('\n');
+}
+
+export function formatMcpSearchToolsResponse(
+  data: unknown,
+  options: { includeReviewGuidance?: boolean } = {},
+): string {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) {
+    return 'No MCP tool search results were returned.';
+  }
+  const metadata = data as Record<string, unknown>;
+  const matches = Array.isArray(metadata.matches) ? metadata.matches : [];
+  const query = typeof metadata.query === 'string' ? metadata.query : undefined;
+  const lines =
+    options.includeReviewGuidance === false
+      ? ['Ranked MCP tool matches:']
+      : [
+          'Ranked MCP tool matches (source inventory):',
+          SOURCE_INVENTORY_AUTHORITY_GUIDANCE,
+        ];
+  if (query) {
+    lines.push(`query: ${formatUntrustedMcpMetadata(query, 200)}`);
+  }
+  const deferredServers = Array.isArray(metadata.deferredServers)
+    ? metadata.deferredServers.filter(
+        (server): server is string => typeof server === 'string',
+      )
+    : [];
+  if (deferredServers.length > 0) {
+    lines.push(
+      `Deferred inventories: ${deferredServers.join(', ')}. Call mcp_list_tools with serverName for a live refresh of one server.`,
+    );
+  }
+  if (matches.length === 0) {
+    lines.push('No matching MCP tools were found.');
+    return lines.join('\n');
+  }
+  for (const match of matches) {
+    if (!match || typeof match !== 'object' || Array.isArray(match)) continue;
+    const item = match as Record<string, unknown>;
+    const toolName = typeof item.name === 'string' ? item.name : 'unnamed_tool';
+    const serverName =
+      typeof item.serverName === 'string' ? item.serverName : 'unknown';
+    const description =
+      typeof item.description === 'string' ? item.description : undefined;
+    lines.push('- Tool metadata (untrusted MCP server data):');
+    lines.push(`  name: ${formatUntrustedMcpMetadata(toolName, 160)}`);
+    lines.push(`  server: ${formatUntrustedMcpMetadata(serverName, 80)}`);
+    if (description) {
+      lines.push(
+        `  description: ${formatUntrustedMcpMetadata(description, 300)}`,
+      );
+    }
+    lines.push(
+      `  call_data: {"serverName":${formatUntrustedMcpMetadata(serverName, 80)},"toolName":${formatUntrustedMcpMetadata(toolName, 160)}}`,
+    );
+    if (item.coveredByReviewedCapability === true) {
+      const capabilityIds = Array.isArray(item.reviewedCapabilityIds)
+        ? item.reviewedCapabilityIds.filter(
+            (id): id is string => typeof id === 'string',
+          )
+        : [];
+      lines.push(
+        capabilityIds.length > 0
+          ? `  covered_by_reviewed_capability: yes (${capabilityIds.join(', ')}) — callable through mcp_call_tool`
+          : '  covered_by_reviewed_capability: yes — callable through mcp_call_tool',
+      );
+    } else {
+      lines.push(
+        '  covered_by_reviewed_capability: no — inventory only; a reviewed capability must cover it before mcp_call_tool succeeds',
+      );
+    }
   }
   return lines.join('\n');
 }
@@ -317,14 +393,81 @@ export function formatSkillProposalResponse(
 ): string {
   const context = parseInstalledSkillContext(data);
   if (!context) return message;
+
+  // Inline every installed skill's files under one shared byte budget so the
+  // receipt is honest about what is usable THIS turn (inlined content) vs
+  // registered-only (available from the next message once the SDK surface
+  // reloads).
+  let remainingBytes = SAME_SESSION_SKILL_CONTEXT_MAX_BYTES;
+  const fileLines: string[] = [];
+  const inlinedSkillNames: string[] = [];
+  const registeredOnlySkillNames: string[] = [];
+  for (const [index, entry] of context.skills.entries()) {
+    let inlinedBytes = 0;
+    if (index > 0) {
+      fileLines.push('');
+      fileLines.push(`# Skill: ${entry.skill.name}`);
+    }
+    for (const file of entry.files) {
+      const contentBytes = Buffer.byteLength(file.content, 'utf-8');
+      fileLines.push('');
+      fileLines.push(`## ${file.path}`);
+      if (typeof file.sizeBytes === 'number') {
+        fileLines.push(`size=${file.sizeBytes} bytes`);
+      }
+      if (remainingBytes <= 0) {
+        fileLines.push(
+          '[Content omitted because the installed skill bundle is large.]',
+        );
+        continue;
+      }
+      const visibleContent =
+        contentBytes <= remainingBytes
+          ? file.content
+          : file.content.slice(0, remainingBytes);
+      const visibleBytes = Buffer.byteLength(visibleContent, 'utf-8');
+      remainingBytes -= visibleBytes;
+      inlinedBytes += visibleBytes;
+      fileLines.push('```');
+      fileLines.push(visibleContent);
+      fileLines.push('```');
+      if (contentBytes > visibleBytes) {
+        fileLines.push('[Content truncated for immediate skill context.]');
+      }
+    }
+    if (inlinedBytes > 0) {
+      inlinedSkillNames.push(entry.skill.name);
+    } else {
+      registeredOnlySkillNames.push(entry.skill.name);
+    }
+  }
+  if (registeredOnlySkillNames.length > 0) {
+    fileLines.push('');
+    fileLines.push(
+      `${registeredOnlySkillNames.length} more skill${registeredOnlySkillNames.length === 1 ? '' : 's'} registered; available from your next message.`,
+    );
+  }
+
+  const allSkillNames = context.skills.map((entry) => entry.skill.name);
+  const firstSkill = context.skills[0].skill;
+  const usableNowLine =
+    inlinedSkillNames.length > 0
+      ? `Usable this turn: inlined content of ${inlinedSkillNames.join(', ')}.`
+      : 'Usable this turn: none; the installed content was too large to inline.';
   const lines = [
     message,
     '',
     'Skill context:',
-    `- Skill: ${context.skill.name}`,
-    `- Skill ID: ${context.skill.id}`,
-    context.skill.description
-      ? `- Description: ${context.skill.description}`
+    `- Skill: ${firstSkill.name}`,
+    `- Skill ID: ${firstSkill.id}`,
+    firstSkill.description
+      ? `- Description: ${firstSkill.description}`
+      : undefined,
+    context.skills.length > 1
+      ? `- Also installed: ${context.skills
+          .slice(1)
+          .map((entry) => entry.skill.name)
+          .join(', ')}`
       : undefined,
     context.requiredEnvVars.length > 0
       ? '- Credentials: add the required login in Credential Center before using actions that need it.'
@@ -335,60 +478,64 @@ export function formatSkillProposalResponse(
     '- Allowed Capabilities: unchanged until a reviewed capability is granted.',
     '- Needs Review: any gantry.skill.json actions that are not reviewed yet.',
     '',
+    usableNowLine,
+    `Registered for future turns: ${allSkillNames.join(', ')} (available from your next message).`,
     // In fleet mode the install is not local: the skill activates on a worker
     // only after it propagates to eligible workers.
     options.deploymentMode === 'fleet'
-      ? 'Use this skill now by following its SKILL.md. Risky actions still require a reviewed capability grant. Gantry will load the skill automatically for later runs after it propagates to eligible workers.'
-      : 'Use this skill now by following its SKILL.md. Risky actions still require a reviewed capability grant. Gantry will load the skill automatically for later runs.',
+      ? 'Risky actions still require a reviewed capability grant. Gantry will load the skill automatically for later runs after it propagates to eligible workers.'
+      : 'Risky actions still require a reviewed capability grant. Gantry will load the skill automatically for later runs.',
     '',
     'Installed skill files:',
+    ...fileLines,
   ].filter((line): line is string => line !== undefined);
-
-  let remainingBytes = SAME_SESSION_SKILL_CONTEXT_MAX_BYTES;
-  for (const file of context.files) {
-    const contentBytes = Buffer.byteLength(file.content, 'utf-8');
-    lines.push('');
-    lines.push(`## ${file.path}`);
-    if (typeof file.sizeBytes === 'number') {
-      lines.push(`size=${file.sizeBytes} bytes`);
-    }
-    if (remainingBytes <= 0) {
-      lines.push(
-        '[Content omitted because the installed skill bundle is large.]',
-      );
-      continue;
-    }
-    const visibleContent =
-      contentBytes <= remainingBytes
-        ? file.content
-        : file.content.slice(0, remainingBytes);
-    remainingBytes -= Buffer.byteLength(visibleContent, 'utf-8');
-    lines.push('```');
-    lines.push(visibleContent);
-    lines.push('```');
-    if (contentBytes > Buffer.byteLength(visibleContent, 'utf-8')) {
-      lines.push('[Content truncated for immediate skill context.]');
-    }
-  }
   return lines.join('\n');
 }
 
-function parseInstalledSkillContext(data: unknown): {
+type InstalledSkillContextEntry = {
   skill: {
     id: string;
     name: string;
     description?: string;
   };
-  requiredEnvVars: string[];
   files: Array<{
     path: string;
     content: string;
     sizeBytes?: number;
   }>;
+};
+
+function parseInstalledSkillContext(data: unknown): {
+  skills: InstalledSkillContextEntry[];
+  requiredEnvVars: string[];
 } | null {
   if (!data || typeof data !== 'object' || Array.isArray(data)) return null;
   const record = data as Record<string, unknown>;
   if (record.type !== 'installed_skill_context') return null;
+  const first = parseInstalledSkillContextEntry(record);
+  if (!first || first.files.length === 0) return null;
+  const additional = Array.isArray(record.additionalSkills)
+    ? record.additionalSkills
+        .map((entry) =>
+          entry && typeof entry === 'object' && !Array.isArray(entry)
+            ? parseInstalledSkillContextEntry(entry as Record<string, unknown>)
+            : null,
+        )
+        .filter((entry): entry is InstalledSkillContextEntry => entry !== null)
+    : [];
+  return {
+    skills: [first, ...additional],
+    requiredEnvVars: Array.isArray(record.requiredEnvVars)
+      ? record.requiredEnvVars.filter(
+          (item): item is string => typeof item === 'string',
+        )
+      : [],
+  };
+}
+
+function parseInstalledSkillContextEntry(
+  record: Record<string, unknown>,
+): InstalledSkillContextEntry | null {
   const skill =
     record.skill &&
     typeof record.skill === 'object' &&
@@ -425,7 +572,6 @@ function parseInstalledSkillContext(data: unknown): {
         })
         .filter((file): file is NonNullable<typeof file> => file !== null)
     : [];
-  if (files.length === 0) return null;
   return {
     skill: {
       id: skill.id,
@@ -434,11 +580,6 @@ function parseInstalledSkillContext(data: unknown): {
         ? { description: skill.description }
         : {}),
     },
-    requiredEnvVars: Array.isArray(record.requiredEnvVars)
-      ? record.requiredEnvVars.filter(
-          (item): item is string => typeof item === 'string',
-        )
-      : [],
     files,
   };
 }

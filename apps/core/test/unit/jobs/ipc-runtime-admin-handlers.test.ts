@@ -326,8 +326,12 @@ describe('runtime admin IPC handlers', () => {
           skills: {
             getSkill: vi.fn(async () => null),
             listSkills: vi.fn(async () => []),
+            listAgentSkillBindings: vi.fn(async () => []),
           },
-          mcpServers: { getServer: vi.fn(async () => null) },
+          mcpServers: {
+            getServer: vi.fn(async () => null),
+            listAgentBindings: vi.fn(async () => []),
+          },
           settingsRevisions: fakeSettingsRevisions(),
         },
       }),
@@ -410,8 +414,12 @@ describe('runtime admin IPC handlers', () => {
           skills: {
             getSkill: vi.fn(async () => null),
             listSkills: vi.fn(async () => []),
+            listAgentSkillBindings: vi.fn(async () => []),
           },
-          mcpServers: { getServer: vi.fn(async () => null) },
+          mcpServers: {
+            getServer: vi.fn(async () => null),
+            listAgentBindings: vi.fn(async () => []),
+          },
           settingsRevisions: fakeSettingsRevisions(),
         },
       }),
@@ -526,8 +534,12 @@ describe('runtime admin IPC handlers', () => {
           skills: {
             getSkill: vi.fn(async () => null),
             listSkills: vi.fn(async () => []),
+            listAgentSkillBindings: vi.fn(async () => []),
           },
-          mcpServers: { getServer: vi.fn(async () => null) },
+          mcpServers: {
+            getServer: vi.fn(async () => null),
+            listAgentBindings: vi.fn(async () => []),
+          },
           settingsRevisions: fakeSettingsRevisions(),
         },
       }),
@@ -630,8 +642,12 @@ describe('runtime admin IPC handlers', () => {
           skills: {
             getSkill: vi.fn(async () => null),
             listSkills: vi.fn(async () => []),
+            listAgentSkillBindings: vi.fn(async () => []),
           },
-          mcpServers: { getServer: vi.fn(async () => null) },
+          mcpServers: {
+            getServer: vi.fn(async () => null),
+            listAgentBindings: vi.fn(async () => []),
+          },
           settingsRevisions,
         },
       }),
@@ -918,8 +934,12 @@ describe('runtime admin IPC handlers', () => {
           skills: {
             getSkill: vi.fn(async () => null),
             listSkills: vi.fn(async () => []),
+            listAgentSkillBindings: vi.fn(async () => []),
           },
-          mcpServers: { getServer: vi.fn(async () => null) },
+          mcpServers: {
+            getServer: vi.fn(async () => null),
+            listAgentBindings: vi.fn(async () => []),
+          },
           settingsRevisions,
         },
       }),
@@ -1065,8 +1085,12 @@ describe('runtime admin IPC handlers', () => {
           skills: {
             getSkill: vi.fn(async () => null),
             listSkills: vi.fn(async () => []),
+            listAgentSkillBindings: vi.fn(async () => []),
           },
-          mcpServers: { getServer: vi.fn(async () => null) },
+          mcpServers: {
+            getServer: vi.fn(async () => null),
+            listAgentBindings: vi.fn(async () => []),
+          },
           settingsRevisions: fakeSettingsRevisions(),
         },
       }),

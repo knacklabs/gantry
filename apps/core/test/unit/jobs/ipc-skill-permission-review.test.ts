@@ -16,6 +16,7 @@ describe('skill permission review install sequence', () => {
       order.push('rollback');
     });
     const service = {
+      installMaterializationCollisionForAgent: vi.fn(async () => null),
       installSkill: vi.fn(async () => {
         order.push('install');
         // A same-key writer queued mid-sequence must wait for the full
@@ -111,6 +112,9 @@ describe('skill permission review install sequence', () => {
     }));
     const sendMessage = vi.fn(async () => undefined);
     const reject = vi.fn();
+    const service = {
+      installMaterializationCollisionForAgent: vi.fn(async () => null),
+    };
 
     await new Promise<void>((resolve) => {
       startSkillPermissionReview({
@@ -119,7 +123,7 @@ describe('skill permission review install sequence', () => {
           sendMessage,
         },
         responder: { acceptData: vi.fn(), reject },
-        service: {} as never,
+        service: service as never,
         syncApprovedCapabilitySettings: vi.fn(async () => undefined),
         appId: 'app:test',
         agentId: 'agent:test',
@@ -159,6 +163,66 @@ describe('skill permission review install sequence', () => {
     expect(reject).toHaveBeenCalledWith(
       expect.stringContaining('demo-skill'),
       'permission_denied',
+    );
+  });
+
+  it('rejects an install-time materialization collision before asking for approval', async () => {
+    const collisionMessage =
+      'Skill "demo-skill" cannot be installed: it materializes to the same runtime directory "demo-skill" as the currently selected skill legacy (skill:legacy). Rename the skill or unselect the colliding skill first.';
+    const service = {
+      installMaterializationCollisionForAgent: vi.fn(
+        async () => collisionMessage,
+      ),
+      installSkill: vi.fn(),
+      bindSkillToAgent: vi.fn(),
+    };
+    const reject = vi.fn();
+    const requestPermissionApproval = vi.fn();
+    const onBlocked = vi.fn(async () => undefined);
+
+    await new Promise<void>((resolve) => {
+      startSkillPermissionReview({
+        deps: {
+          requestPermissionApproval,
+          sendMessage: vi.fn(async () => undefined),
+        },
+        responder: { acceptData: vi.fn(), reject },
+        logError: vi.fn(),
+        service,
+        syncApprovedCapabilitySettings: vi.fn(async () => undefined),
+        appId: 'app:test',
+        agentId: 'agent:test',
+        sourceAgentFolder: 'main_agent',
+        targetJid: 'chat:one',
+        skill: { name: 'demo-skill' },
+        assets: [],
+        fileSummaries: [],
+        skillMarkdownPreview: {
+          path: 'SKILL.md',
+          content: '',
+          truncated: false,
+        },
+        totalSizeBytes: 0,
+        reason: 'test install',
+        requestToolName: 'request_skill_install',
+        onBlocked,
+        onSettled: resolve,
+      } as never);
+    });
+
+    expect(
+      service.installMaterializationCollisionForAgent,
+    ).toHaveBeenCalledWith({
+      appId: 'app:test',
+      agentId: 'agent:test',
+      name: 'demo-skill',
+    });
+    expect(requestPermissionApproval).not.toHaveBeenCalled();
+    expect(service.installSkill).not.toHaveBeenCalled();
+    expect(onBlocked).toHaveBeenCalled();
+    expect(reject).toHaveBeenCalledWith(
+      collisionMessage,
+      'skill_materialization_collision',
     );
   });
 });

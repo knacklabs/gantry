@@ -311,7 +311,6 @@ function createRecoveredDelegatedAgentRun(
     const attachedMcpSourceIds = await resolveTurnSelectedMcpServerIds(
       deps,
       scopedTaskOwner,
-      toolPolicy.toolPolicyRules,
     );
     const runAgent = deps.runAgent ?? spawnAgent;
     let latestResult: string | null = null;

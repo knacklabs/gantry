@@ -548,3 +548,155 @@ describe('deployment-mode aware install guidance', () => {
     );
   });
 });
+
+describe('honest now/next-turn receipts', () => {
+  const installedSkillContext = {
+    type: 'installed_skill_context',
+    skill: { id: 'skill:refunds', name: 'refunds' },
+    requiredEnvVars: [],
+    files: [{ path: 'SKILL.md', content: '# refunds' }],
+  };
+
+  it('states the inlined-now vs registered-next-turn split for a single skill', async () => {
+    setRunnerEnv({ GANTRY_DEPLOYMENT_MODE: 'workstation' });
+    vi.resetModules();
+    const { formatSkillProposalResponse } =
+      await import('@core/runner/mcp/tools/service-formatters.js');
+
+    const text = formatSkillProposalResponse(installedSkillContext, 'Done.');
+    expect(text).toContain('Usable this turn: inlined content of refunds.');
+    expect(text).toContain(
+      'Registered for future turns: refunds (available from your next message).',
+    );
+    expect(text).not.toContain('It is available now');
+  });
+
+  it('inlines all installed skills up to the byte budget with an honest truncation line', async () => {
+    setRunnerEnv({ GANTRY_DEPLOYMENT_MODE: 'workstation' });
+    vi.resetModules();
+    const { formatSkillProposalResponse } =
+      await import('@core/runner/mcp/tools/service-formatters.js');
+    const { SAME_SESSION_SKILL_CONTEXT_MAX_BYTES } =
+      await import('@core/runner/mcp/tools/service-constants.js');
+
+    const context = {
+      type: 'installed_skill_context',
+      skill: { id: 'skill:alpha', name: 'alpha' },
+      requiredEnvVars: [],
+      files: [
+        {
+          path: 'SKILL.md',
+          content: 'x'.repeat(SAME_SESSION_SKILL_CONTEXT_MAX_BYTES),
+        },
+      ],
+      additionalSkills: [
+        {
+          skill: { id: 'skill:beta', name: 'beta' },
+          files: [{ path: 'SKILL.md', content: '# beta' }],
+        },
+        {
+          skill: { id: 'skill:gamma', name: 'gamma' },
+          files: [{ path: 'SKILL.md', content: '# gamma' }],
+        },
+      ],
+    };
+
+    const text = formatSkillProposalResponse(context, 'Done.');
+    expect(text).toContain('- Also installed: beta, gamma');
+    expect(text).toContain('Usable this turn: inlined content of alpha.');
+    expect(text).toContain(
+      'Registered for future turns: alpha, beta, gamma (available from your next message).',
+    );
+    expect(text).toContain(
+      '2 more skills registered; available from your next message.',
+    );
+    expect(text).toContain('# Skill: beta');
+    expect(text).toContain(
+      '[Content omitted because the installed skill bundle is large.]',
+    );
+  });
+
+  it('inlines every installed skill when the budget allows', async () => {
+    setRunnerEnv({ GANTRY_DEPLOYMENT_MODE: 'workstation' });
+    vi.resetModules();
+    const { formatSkillProposalResponse } =
+      await import('@core/runner/mcp/tools/service-formatters.js');
+
+    const context = {
+      ...installedSkillContext,
+      additionalSkills: [
+        {
+          skill: { id: 'skill:beta', name: 'beta' },
+          files: [{ path: 'SKILL.md', content: '# beta' }],
+        },
+      ],
+    };
+
+    const text = formatSkillProposalResponse(context, 'Done.');
+    expect(text).toContain(
+      'Usable this turn: inlined content of refunds, beta.',
+    );
+    expect(text).toContain('# beta');
+    expect(text).not.toContain('more skills registered');
+  });
+
+  it('states the same-turn proxy path and next-turn projection in the MCP receipt', async () => {
+    setRunnerEnv({ GANTRY_DEPLOYMENT_MODE: 'workstation' });
+    vi.resetModules();
+    const { formatMcpApprovalResponse } =
+      await import('@core/runner/mcp/tools/service-formatters.js');
+
+    const text = formatMcpApprovalResponse(
+      {
+        type: 'connected_mcp_context',
+        server: { id: 'mcp:crm', name: 'crm' },
+        availableToolNames: ['lookup_order'],
+      },
+      'Connected MCP source crm.',
+    );
+    expect(text).toContain(
+      'Usable this turn (gantry proxy): mcp_search_tools and mcp_list_tools with serverName="crm"',
+    );
+    expect(text).toContain(
+      'Available from your next message: this source joins the projected tool surface; direct mcp__crm__ tool names still require a selected reviewed capability.',
+    );
+    expect(text).toContain(
+      '- Allowed Capabilities: unchanged until a reviewed capability is granted.',
+    );
+  });
+
+  it('formats ranked mcp_search_tools matches with coverage marks', async () => {
+    setRunnerEnv({ GANTRY_DEPLOYMENT_MODE: 'workstation' });
+    vi.resetModules();
+    const { formatMcpSearchToolsResponse } =
+      await import('@core/runner/mcp/tools/service-formatters.js');
+
+    const text = formatMcpSearchToolsResponse({
+      query: 'search',
+      limit: 20,
+      total: 2,
+      matches: [
+        {
+          name: 'search_repositories',
+          description: 'Find repositories',
+          serverName: 'github',
+          coveredByReviewedCapability: true,
+          reviewedCapabilityIds: ['github.search.read'],
+        },
+        {
+          name: 'find_code',
+          serverName: 'github',
+          coveredByReviewedCapability: false,
+        },
+      ],
+    });
+    expect(text).toContain('Ranked MCP tool matches');
+    expect(text).toContain(
+      'covered_by_reviewed_capability: yes (github.search.read) — callable through mcp_call_tool',
+    );
+    expect(text).toContain(
+      'covered_by_reviewed_capability: no — inventory only; a reviewed capability must cover it before mcp_call_tool succeeds',
+    );
+    expect(text).toContain('"search_repositories"');
+  });
+});

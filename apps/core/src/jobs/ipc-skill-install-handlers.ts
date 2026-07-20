@@ -282,13 +282,13 @@ async function completeSkillInstallCommandReview(input: {
         skillInstallMessageOptions(data),
       );
     }
-    if (!installed.firstInstalled) {
+    if (installed.installed.length === 0) {
       input.responder.reject(message, 'skill_install_failed');
       return;
     }
     input.responder.acceptData(
       message,
-      installedSkillContext(installed.firstInstalled),
+      installedSkillContext(installed.installed),
       'skill_installed',
     );
     getRuntimeDeps().logInfo(
@@ -564,6 +564,7 @@ async function installSkillFromApprovedCommand(input: {
       skills: [],
       failed: [],
       skippedBeyondLimit: discovery.skippedBeyondLimit,
+      installed: [],
     };
     const installedMaterializationKeys = new Set<string>();
     for (const root of discovery.roots) {
@@ -575,6 +576,18 @@ async function installSkillFromApprovedCommand(input: {
           materializedSkillDirectoryNameFor(name).toLowerCase();
         if (installedMaterializationKeys.has(materializationKey)) {
           throw new Error(`Duplicate skill name: ${name}.`);
+        }
+        // Install-time collision validation (trace defect 3): fail this
+        // skill's install honestly instead of blowing up the next spawn.
+        const collision = await service.installMaterializationCollisionForAgent(
+          {
+            appId: input.appId,
+            agentId: input.agentId,
+            name,
+          },
+        );
+        if (collision) {
+          throw new Error(collision);
         }
         // One critical section per key: snapshot→install→bind→reread→sync,
         // and on failure the compensating rollback — a queued same-name
@@ -691,7 +704,7 @@ async function installSkillFromApprovedCommand(input: {
         if (outcome.kind === 'installed') {
           installedMaterializationKeys.add(materializationKey);
           result.skills.push(outcome.skill);
-          result.firstInstalled ??= { skill: outcome.skill, assets };
+          result.installed.push({ skill: outcome.skill, assets });
           continue;
         }
         const reason = outcome.reason;

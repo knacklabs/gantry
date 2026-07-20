@@ -153,7 +153,6 @@ export async function resolveDelegatedAgentTarget(input: {
   const attachedMcpSourceIds = await resolveTurnSelectedMcpServerIds(
     input.deps,
     targetOwner,
-    toolPolicy.toolPolicyRules,
   );
   return {
     ok: true as const,

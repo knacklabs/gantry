@@ -719,8 +719,7 @@ async function submitCapabilityReviewTask(
           toolName === 'request_skill_install'
             ? formatSkillProposalResponse(
                 response.data,
-                response.message ||
-                  `${requestLabel} approved. It is available now.`,
+                response.message || `${requestLabel} approved.`,
                 { deploymentMode },
               )
             : response.message ||
@@ -803,8 +802,7 @@ function registerSkillProposalTool(
             type: 'text' as const,
             text: formatSkillProposalResponse(
               response.data,
-              response.message ||
-                `${requestLabel} installed. It is available now.`,
+              response.message || `${requestLabel} installed.`,
               { deploymentMode },
             ),
           },

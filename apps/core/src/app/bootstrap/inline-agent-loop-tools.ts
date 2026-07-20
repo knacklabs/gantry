@@ -677,7 +677,6 @@ export function wireInlineAgentLoopTools(input: {
             attachedMcpSourceIds: await resolveTurnSelectedMcpServerIds(
               input,
               turnContext,
-              toolPolicy.toolPolicyRules,
             ),
             semanticCapabilities,
           };

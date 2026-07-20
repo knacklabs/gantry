@@ -373,7 +373,6 @@ async function runActiveJob(
               appId: executionAppId,
               agentId: executionAgentId,
             },
-            toolPolicy.effectiveAllowedTools,
           );
           const toolAccessRequirementPreflight =
             await assertToolAccessRequirementsReadyForRun({

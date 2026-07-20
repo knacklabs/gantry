@@ -618,4 +618,88 @@ describe('SkillService', () => {
     expect(adminSkill.name).toBe('admin-owned');
     expect(adminAgain.id).not.toBe(adminSkill.id);
   });
+
+  it('rejects provider-native reserved skill names at install time, not next spawn', async () => {
+    const { artifacts, service } = createService();
+
+    // Trace defect 3: "claude-api" previously passed install and only failed
+    // the NEXT Claude spawn in the materializer's reserved-name check.
+    await expect(
+      service.installSkill({
+        appId: 'app:one' as never,
+        name: 'Claude API',
+        assets: [asset],
+      }),
+    ).rejects.toThrow('reserved SDK-native skill name "claude-api"');
+    expect(artifacts.bundles.size).toBe(0);
+  });
+
+  it('reports an install-time materialization collision against a selected skill', async () => {
+    const { repo, service } = createService();
+    const now = '2026-07-20T00:00:00.000Z';
+    const baseSkill = {
+      appId: 'app:one' as never,
+      source: 'agent_created' as const,
+      status: 'installed' as const,
+      promptRefs: [],
+      toolIds: [],
+      workflowRefs: [],
+      createdAt: now as never,
+      updatedAt: now as never,
+    };
+    // Legacy/degenerate state: two installed same-key skills, and the agent is
+    // bound to the one an install of "Alpha" would NOT replace in place.
+    await repo.saveSkill({
+      ...baseSkill,
+      id: 'skill:a' as never,
+      name: 'Alpha',
+    });
+    await repo.saveSkill({
+      ...baseSkill,
+      id: 'skill:b' as never,
+      name: 'alpha',
+    });
+    await repo.saveAgentSkillBinding({
+      id: 'agent-skill-binding:agent:one:skill:b' as never,
+      appId: 'app:one' as never,
+      agentId: 'agent:one' as never,
+      skillId: 'skill:b' as never,
+      status: 'active',
+      createdAt: now as never,
+      updatedAt: now as never,
+    });
+
+    await expect(
+      service.installMaterializationCollisionForAgent({
+        appId: 'app:one' as never,
+        agentId: 'agent:one' as never,
+        name: 'Alpha',
+      }),
+    ).resolves.toContain(
+      'materializes to the same runtime directory "alpha" as the currently selected skill alpha (skill:b)',
+    );
+    // In-place replacement of the SAME selected skill id is not a collision.
+    await repo.saveAgentSkillBinding({
+      id: 'agent-skill-binding:agent:one:skill:a' as never,
+      appId: 'app:one' as never,
+      agentId: 'agent:one' as never,
+      skillId: 'skill:a' as never,
+      status: 'active',
+      createdAt: now as never,
+      updatedAt: now as never,
+    });
+    await repo.disableAgentSkillBinding({
+      appId: 'app:one' as never,
+      agentId: 'agent:one' as never,
+      skillId: 'skill:b' as never,
+      updatedAt: now,
+    });
+    await expect(
+      service.installMaterializationCollisionForAgent({
+        appId: 'app:one' as never,
+        agentId: 'agent:one' as never,
+        name: 'Alpha',
+      }),
+    ).resolves.toBeNull();
+  });
 });

@@ -63,23 +63,15 @@ export async function resolveTurnSelectedSkillContext(
 }
 
 export async function resolveTurnSelectedMcpServerIds(
-  deps: Pick<
-    GroupProcessingDeps,
-    'getMcpServerRepository' | 'getToolRepository' | 'getSkillRepository'
-  >,
+  deps: Pick<GroupProcessingDeps, 'getMcpServerRepository'>,
   turnContext?: { appId: string; agentId: string } | null,
-  toolPolicyRules?: readonly string[],
 ): Promise<string[] | undefined> {
   const mcpServers = deps.getMcpServerRepository?.();
-  const tools = deps.getToolRepository?.();
-  if (!turnContext || !mcpServers || !tools) return undefined;
+  if (!turnContext || !mcpServers) return undefined;
   return authorizedMcpServerIdsForAgent({
     mcpServers,
-    tools,
-    skills: deps.getSkillRepository?.(),
     appId: turnContext.appId,
     agentId: turnContext.agentId,
-    allowedTools: toolPolicyRules,
   });
 }
 

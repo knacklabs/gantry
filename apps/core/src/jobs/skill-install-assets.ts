@@ -28,7 +28,7 @@ export type ApprovedCommandSkillInstallResult = {
   skills: SkillCatalogItem[];
   failed: Array<{ name: string; reason: string }>;
   skippedBeyondLimit: boolean;
-  firstInstalled?: { skill: SkillCatalogItem; assets: InstalledSkillAsset[] };
+  installed: Array<{ skill: SkillCatalogItem; assets: InstalledSkillAsset[] }>;
 };
 
 export const MAX_SKILLS_PER_INSTALL_COMMAND = 25;
@@ -65,7 +65,7 @@ export function skillInstallCommandReceipt(
   }
   if (result.skills.length > 1) {
     lines.push(
-      `${result.skills[0].name} is ready in this conversation now. The other installed skills will be available from your next message.`,
+      'The installed skill content is shared with me in this conversation now, up to a size budget; every installed skill is registered and loads automatically from your next message.',
     );
   }
   if (result.skippedBeyondLimit) {
@@ -395,25 +395,39 @@ export async function rollbackInstalledSkillReplacement(input: {
   }
 }
 
-export function installedSkillContext(input: {
-  skill: SkillCatalogItem;
-  assets: InstalledSkillAsset[];
-}) {
-  return {
-    type: 'installed_skill_context',
-    activation: 'current_and_future_sessions',
+// Same-session context carries ALL installed skills; the runner-side formatter
+// inlines them in order under SAME_SESSION_SKILL_CONTEXT_MAX_BYTES and states
+// which skills are usable this turn vs registered for the next message.
+export function installedSkillContext(
+  installed: Array<{ skill: SkillCatalogItem; assets: InstalledSkillAsset[] }>,
+) {
+  const [first, ...rest] = installed;
+  const skillEntry = (input: {
+    skill: SkillCatalogItem;
+    assets: InstalledSkillAsset[];
+  }) => ({
     skill: {
       id: input.skill.id,
       name: input.skill.name,
       description: input.skill.description,
       requiredEnvVars: input.skill.requiredEnvVars ?? [],
     },
-    requiredEnvVars: input.skill.requiredEnvVars ?? [],
     files: input.assets.map((asset) => ({
       path: asset.path,
       ...(asset.contentType ? { contentType: asset.contentType } : {}),
       content: Buffer.from(asset.content).toString('utf-8'),
     })),
+  });
+  return {
+    type: 'installed_skill_context',
+    activation: 'current_and_future_sessions',
+    ...skillEntry(first),
+    requiredEnvVars: [
+      ...new Set(
+        installed.flatMap((entry) => entry.skill.requiredEnvVars ?? []),
+      ),
+    ],
+    ...(rest.length > 0 ? { additionalSkills: rest.map(skillEntry) } : {}),
   };
 }
 

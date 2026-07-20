@@ -548,7 +548,7 @@ describe('approved command skill installs', () => {
     expect(syncApprovedCapabilitySettings).toHaveBeenCalledTimes(2);
     expect(sendMessage.mock.calls[0]?.[1]).toBe(
       'I installed alpha, zeta.\n' +
-        'alpha is ready in this conversation now. The other installed skills will be available from your next message.',
+        'The installed skill content is shared with me in this conversation now, up to a size budget; every installed skill is registered and loads automatically from your next message.',
     );
   });
 
@@ -603,7 +603,7 @@ describe('approved command skill installs', () => {
     );
     expect(sendMessage.mock.calls[0]?.[1]).toBe(
       'I installed alpha, zeta.\n' +
-        'alpha is ready in this conversation now. The other installed skills will be available from your next message.',
+        'The installed skill content is shared with me in this conversation now, up to a size budget; every installed skill is registered and loads automatically from your next message.',
     );
     expect(sendMessage.mock.calls[0]?.[1]).not.toContain(
       RAW_SKILL_FAILURE_SENTINEL,
@@ -672,7 +672,7 @@ describe('approved command skill installs', () => {
     ]);
     expect(sendMessage.mock.calls[0]?.[1]).toBe(
       'I installed alpha, zeta.\n' +
-        'alpha is ready in this conversation now. The other installed skills will be available from your next message.',
+        'The installed skill content is shared with me in this conversation now, up to a size budget; every installed skill is registered and loads automatically from your next message.',
     );
   });
 
@@ -725,7 +725,7 @@ describe('approved command skill installs', () => {
     ).toBe('beta notes');
     expect(sendMessage.mock.calls[0]?.[1]).toBe(
       'I installed alpha, zeta.\n' +
-        'alpha is ready in this conversation now. The other installed skills will be available from your next message.',
+        'The installed skill content is shared with me in this conversation now, up to a size budget; every installed skill is registered and loads automatically from your next message.',
     );
   });
 
@@ -861,7 +861,7 @@ describe('approved command skill installs', () => {
     expect(syncApprovedCapabilitySettings).toHaveBeenCalledTimes(5);
     expect(sendMessage.mock.calls[0]?.[1]).toBe(
       'I installed alpha, zeta.\n' +
-        'alpha is ready in this conversation now. The other installed skills will be available from your next message.',
+        'The installed skill content is shared with me in this conversation now, up to a size budget; every installed skill is registered and loads automatically from your next message.',
     );
   });
 
@@ -936,7 +936,7 @@ describe('approved command skill installs', () => {
     expect(syncApprovedCapabilitySettings).toHaveBeenCalledTimes(4);
     expect(sendMessage.mock.calls[0]?.[1]).toBe(
       'I installed alpha, beta, zeta.\n' +
-        'alpha is ready in this conversation now. The other installed skills will be available from your next message.',
+        'The installed skill content is shared with me in this conversation now, up to a size budget; every installed skill is registered and loads automatically from your next message.',
     );
   });
 
@@ -966,7 +966,7 @@ describe('approved command skill installs', () => {
     expect(syncApprovedCapabilitySettings).toHaveBeenCalledTimes(4);
     expect(sendMessage.mock.calls[0]?.[1]).toBe(
       'I installed alpha, zeta.\n' +
-        'alpha is ready in this conversation now. The other installed skills will be available from your next message.',
+        'The installed skill content is shared with me in this conversation now, up to a size budget; every installed skill is registered and loads automatically from your next message.',
     );
   });
 
@@ -1092,5 +1092,66 @@ describe('approved command skill installs', () => {
       'Skill install command review failed',
     );
     expect(sendMessage).not.toHaveBeenCalled();
+  });
+});
+
+describe('installedSkillContext', () => {
+  it('carries ALL installed skills for same-session inlining', async () => {
+    const { installedSkillContext } =
+      await import('@core/jobs/skill-install-assets.js');
+    const skill = (id: string, name: string, envVars: string[] = []) =>
+      ({
+        id,
+        name,
+        description: `${name} description`,
+        requiredEnvVars: envVars,
+      }) as never;
+    const assets = (content: string) => [
+      { path: 'SKILL.md', content: Buffer.from(content) },
+    ];
+
+    const context = installedSkillContext([
+      {
+        skill: skill('skill:alpha', 'alpha', ['TOKEN_A']),
+        assets: assets('# alpha'),
+      },
+      {
+        skill: skill('skill:beta', 'beta', ['TOKEN_B']),
+        assets: assets('# beta'),
+      },
+      { skill: skill('skill:gamma', 'gamma'), assets: assets('# gamma') },
+    ]);
+
+    expect(context).toMatchObject({
+      type: 'installed_skill_context',
+      skill: { id: 'skill:alpha', name: 'alpha' },
+      files: [{ path: 'SKILL.md', content: '# alpha' }],
+      requiredEnvVars: ['TOKEN_A', 'TOKEN_B'],
+      additionalSkills: [
+        {
+          skill: { id: 'skill:beta', name: 'beta' },
+          files: [{ path: 'SKILL.md', content: '# beta' }],
+        },
+        {
+          skill: { id: 'skill:gamma', name: 'gamma' },
+          files: [{ path: 'SKILL.md', content: '# gamma' }],
+        },
+      ],
+    });
+  });
+
+  it('omits additionalSkills for a single installed skill', async () => {
+    const { installedSkillContext } =
+      await import('@core/jobs/skill-install-assets.js');
+
+    const context = installedSkillContext([
+      {
+        skill: { id: 'skill:solo', name: 'solo' } as never,
+        assets: [{ path: 'SKILL.md', content: Buffer.from('# solo') }],
+      },
+    ]);
+
+    expect(context.additionalSkills).toBeUndefined();
+    expect(context.skill).toMatchObject({ id: 'skill:solo' });
   });
 });

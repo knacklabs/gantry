@@ -81,6 +81,20 @@ export function startSkillPermissionReview(input: {
 async function completeSkillPermissionReview(
   input: Parameters<typeof startSkillPermissionReview>[0],
 ): Promise<void> {
+  // Install-time collision validation (trace defect 3): fail the install with
+  // an honest receipt now instead of blowing up the agent's next spawn.
+  const collision = await input.service.installMaterializationCollisionForAgent(
+    {
+      appId: input.appId,
+      agentId: input.agentId,
+      name: skillNameForReceipt(input.assets, input.skill.name),
+    },
+  );
+  if (collision) {
+    await notifyLifecycle(input.onBlocked);
+    input.responder.reject(collision, 'skill_materialization_collision');
+    return;
+  }
   await notifyLifecycle(input.onReviewStarted);
   const decision = await input.deps.requestPermissionApproval({
     requestId: `skill-${globalThis.crypto.randomUUID()}`,

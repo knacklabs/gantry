@@ -47,7 +47,7 @@ const PUBLIC_CATALOG = [
   'Files: FileSearch, FileRead, FileEdit, FileWrite, file',
   'Memory: memory_search, memory_save, reviewed memory tools',
   'Skills: selected skills and skill request tools',
-  'MCP/apps: mcp_list_tools, mcp_describe_tool, mcp_call_tool, async_mcp_call, request_mcp_server',
+  'MCP/apps: mcp_list_tools, mcp_search_tools, mcp_describe_tool, mcp_call_tool, async_mcp_call, request_mcp_server',
   'Commands: RunCommand(<argv pattern>)',
   'Tasks: todo_update; async_run_command/async_mcp_call/delegate_task/task_get/task_list/task_message/task_cancel only when mounted in this run',
   'Scheduler: scheduler_*',

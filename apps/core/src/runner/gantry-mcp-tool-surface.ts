@@ -38,6 +38,7 @@ export const BASELINE_GANTRY_MCP_TOOL_NAMES = [
   'agent_profile_read',
   'request_agent_profile_update',
   'mcp_list_tools',
+  'mcp_search_tools',
   'mcp_describe_tool',
   'mcp_call_tool',
 ] as const;

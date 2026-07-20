@@ -27,6 +27,7 @@ import {
   isLocalLoopbackHttpMcpUrl,
 } from './mcp-tool-proxy-network.js';
 import {
+  isReviewedMcpToolAllowed,
   isSourceInventoryToolAllowed,
   type ReviewedMaterializedMcpCapability,
 } from './mcp-tool-authorization.js';
@@ -89,6 +90,19 @@ interface McpToolCallInput {
   arguments?: Record<string, unknown>;
   timeoutMs?: number;
   signal?: AbortSignal;
+}
+
+export type McpToolSearchMatch = ListedMcpTool & {
+  coveredByReviewedCapability: boolean;
+  reviewedCapabilityIds?: string[];
+};
+
+export interface McpToolSearchResult {
+  query: string;
+  limit: number;
+  total: number;
+  matches: McpToolSearchMatch[];
+  deferredServers?: string[];
 }
 
 export class McpToolProxy {
@@ -235,6 +249,63 @@ export class McpToolProxy {
       total: filteredTools.length,
       ...(deferredServers.length > 0 ? { deferredServers } : {}),
       diagnostics,
+    };
+  }
+
+  // FTS-style ranked search over the live source inventory. The interface is
+  // semantic-ready: a future semantic backend swaps the scorer behind the same
+  // {query, limit} → typed-matches contract. Matches are marked with whether a
+  // selected reviewed capability covers them so the caller knows callable vs
+  // inventory-only; mcp_call_tool still rechecks at call time.
+  async searchTools(input: {
+    appId: AppId;
+    agentId: AgentId;
+    query: string;
+    limit?: number;
+  }): Promise<McpToolSearchResult> {
+    const [listed, reviewedCapabilities] = await Promise.all([
+      this.listTools({
+        appId: input.appId,
+        agentId: input.agentId,
+        query: input.query,
+        limit: input.limit,
+      }),
+      this.materializeReviewedCapabilities(input),
+    ]);
+    const reviewedByServer = new Map(
+      reviewedCapabilities.map((capability) => [capability.name, capability]),
+    );
+    const matches = listed.servers
+      .flatMap((server) =>
+        server.tools.map((tool) => {
+          const reviewed = reviewedByServer.get(server.name);
+          const covered = reviewed
+            ? isReviewedMcpToolAllowed(reviewed, tool.name)
+            : false;
+          return {
+            ...tool,
+            coveredByReviewedCapability: covered,
+            ...(covered && reviewed?.reviewedCapabilityIds?.length
+              ? { reviewedCapabilityIds: reviewed.reviewedCapabilityIds }
+              : {}),
+          };
+        }),
+      )
+      .sort((left, right) =>
+        compareMcpToolSearchResults(
+          { serverName: left.serverName, tool: left },
+          { serverName: right.serverName, tool: right },
+          input.query,
+        ),
+      );
+    return {
+      query: input.query,
+      limit: listed.limit,
+      total: listed.total,
+      matches,
+      ...(listed.deferredServers?.length
+        ? { deferredServers: listed.deferredServers }
+        : {}),
     };
   }
 

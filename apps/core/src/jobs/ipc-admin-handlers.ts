@@ -92,6 +92,7 @@ const {
   mcpCallToolHandler,
   mcpDescribeToolHandler,
   mcpListToolsHandler,
+  mcpSearchToolsHandler,
 } = createMcpToolHandlers(createMcpProxyForSourceGroup);
 configureSkillInstallHandlers({
   getStorage: getRuntimeStorage,
@@ -410,7 +411,7 @@ const adminPermissionRevokeHandler: TaskHandler = async (context) => {
   }
 };
 // prettier-ignore
-export const adminTaskHandlers: Record<string, TaskHandler> = { refresh_groups: refreshGroupsHandler, register_agent: registerAgentHandler, service_restart: serviceRestartHandler, settings_desired_state: settingsDesiredStateHandler, guided_action_preview: guidedActionPreviewHandler, request_settings_update: requestSettingsUpdateHandler, admin_permission_revoke: adminPermissionRevokeHandler, request_skill_install: requestSkillInstallHandler, request_skill_dependency_install: requestOnlyCapabilityHandler, request_permission: requestOnlyCapabilityHandler, request_skill_proposal: requestSkillProposalHandler, pattern_candidate_decision: patternCandidateDecisionHandler, proactive_surfacing_consent: proactiveSurfacingConsentHandler, request_mcp_server: requestMcpServerHandler, mcp_list_tools: mcpListToolsHandler, mcp_describe_tool: mcpDescribeToolHandler, mcp_call_tool: mcpCallToolHandler, async_mcp_call: asyncMcpCallToolHandler };
+export const adminTaskHandlers: Record<string, TaskHandler> = { refresh_groups: refreshGroupsHandler, register_agent: registerAgentHandler, service_restart: serviceRestartHandler, settings_desired_state: settingsDesiredStateHandler, guided_action_preview: guidedActionPreviewHandler, request_settings_update: requestSettingsUpdateHandler, admin_permission_revoke: adminPermissionRevokeHandler, request_skill_install: requestSkillInstallHandler, request_skill_dependency_install: requestOnlyCapabilityHandler, request_permission: requestOnlyCapabilityHandler, request_skill_proposal: requestSkillProposalHandler, pattern_candidate_decision: patternCandidateDecisionHandler, proactive_surfacing_consent: proactiveSurfacingConsentHandler, request_mcp_server: requestMcpServerHandler, mcp_list_tools: mcpListToolsHandler, mcp_search_tools: mcpSearchToolsHandler, mcp_describe_tool: mcpDescribeToolHandler, mcp_call_tool: mcpCallToolHandler, async_mcp_call: asyncMcpCallToolHandler };
 // prettier-ignore
 function validateSameChannelApprovalTarget(input: { data: Parameters<TaskHandler>[0]['data']; sourceAgentFolderJids: string[]; requestKind: string; reject: (error: string, code?: string, details?: string[]) => void }): string | null {
   const requestedTargetJid = toTrimmedString(input.data.chatJid, { maxLen: 512 });

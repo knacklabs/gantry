@@ -75,11 +75,8 @@ export async function materializeReviewedMcpCapabilities(
   );
   const serverIds = await authorizedMcpServerIdsForAgent({
     mcpServers: input.mcpServers,
-    tools: input.tools,
-    skills: input.skills,
     appId: input.appId,
     agentId: input.agentId,
-    allowedTools: [...reviewedToolNames, ...reviewedToolPatterns],
   });
   const capabilities = await new McpServerService(input.mcpServers, undefined, {
     lookupHostname: input.lookupHostname,
