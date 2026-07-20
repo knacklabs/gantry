@@ -209,6 +209,26 @@ model-selection + grant APIs actually work (the API-for-everything directive) an
 catches setup-path regressions — the failure class behind this session's
 incidents. Fully isolated; the small extra per-run time is accepted.
 
+## Memory coverage (v3.1, user directive — was missing)
+- Integration (deterministic, test Postgres): memory write → recall → subject
+  BOUNDARY scoping (person/group/channel isolation — a memory stored for one
+  subject is not recalled for another); retention/dedup behavior as implemented.
+- E2E behavioral (part of the haiku turn): turn 1 states a distinctive fact via
+  API → assert a durable memory record was collected (persisted row + audit, not
+  phrasing); turn 2 asks for it → assert the memory READ occurred and the reply
+  is consistent with recall (behavioral). Post-restart: the memory survives and
+  is still recallable.
+- Job-run memory: after the scheduled-job scenario completes, assert the
+  "collected durable memory after successful job run" path persisted its record.
+
+## Jobs lifecycle coverage (v3.1, user directive — expanded)
+- E2E (real turn): create a job via API → trigger → the run completes → delivery
+  recorded → job health `completed` (the API twin of scripts/agent-job-smoke.sh).
+- Lifecycle via API: pause → resume → trigger; assert state transitions +
+  events. Forced-failure path: a job that always fails exhausts retries →
+  dead-letter state + a clean terminal event (no zombie).
+- Autonomous dead-end regression (below) covers the ungranted-tool case.
+
 ## Regression scenarios — this session's incidents codified (v3, grill)
 Named permanent guards so the failures that motivated this gate can't silently
 return (each maps to a fix landed/landing this session):
