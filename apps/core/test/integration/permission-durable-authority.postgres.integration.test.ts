@@ -297,9 +297,9 @@ maybeDescribe('permission durable authority chain (Postgres)', () => {
         .filter((binding) => binding.status === 'active')
         .map((binding) => runtime.repositories.tools.getTool(binding.toolId)),
     );
-    expect(
-      tools.some((tool) => tool?.name?.includes('send-digest')),
-    ).toBe(false);
+    expect(tools.some((tool) => tool?.name?.includes('send-digest'))).toBe(
+      false,
+    );
 
     // No run-scoped transient grant either (no runId on this request).
     const grants = await runtime.service.db
@@ -335,9 +335,9 @@ maybeDescribe('permission durable authority chain (Postgres)', () => {
         .filter((binding) => binding.status === 'active')
         .map((binding) => runtime.repositories.tools.getTool(binding.toolId)),
     );
-    expect(
-      tools.some((tool) => tool?.name?.includes('rotate-keys')),
-    ).toBe(false);
+    expect(tools.some((tool) => tool?.name?.includes('rotate-keys'))).toBe(
+      false,
+    );
     const afterRestart = await evaluateGateWithFreshServices(command);
     expect(afterRestart.allowed).toBe(false);
   });

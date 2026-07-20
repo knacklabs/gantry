@@ -156,8 +156,7 @@ maybeDescribe('MCP client loop through the real proxy (Postgres)', () => {
         (event) =>
           event.eventType === 'tool_activity' &&
           (event.metadata as { toolName?: string }).toolName === 'echo' &&
-          (event.metadata as { resultClass?: string }).resultClass ===
-            'denied',
+          (event.metadata as { resultClass?: string }).resultClass === 'denied',
       ),
     ).toBe(true);
   });
