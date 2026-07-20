@@ -783,6 +783,53 @@ describe('validateIpcAuthRequest', () => {
     });
   });
 
+  it('preserves provider account scope from signed task request context', () => {
+    const payload = signedPayload(
+      {
+        requestId: 'task-provider-account-context',
+        nonce: randomUUID(),
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        type: 'request_skill_proposal',
+        context: {
+          responseKeyId: TEST_RESPONSE_KEY_ID,
+          threadId: '1784545366.449119',
+          providerAccountId: 'slack_default',
+        },
+      },
+      'team',
+      '1784545366.449119',
+    );
+
+    expect(parseTaskIpcData(payload, 'team')).toMatchObject({
+      type: 'request_skill_proposal',
+      authThreadId: '1784545366.449119',
+      providerAccountId: 'slack_default',
+    });
+  });
+
+  it('rejects signed task requests with mismatched provider account scope', () => {
+    const payload = signedPayload(
+      {
+        requestId: 'task-provider-account-mismatch',
+        nonce: randomUUID(),
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        type: 'request_skill_proposal',
+        providerAccountId: 'slack_other',
+        context: {
+          responseKeyId: TEST_RESPONSE_KEY_ID,
+          threadId: '1784545366.449119',
+          providerAccountId: 'slack_default',
+        },
+      },
+      'team',
+      '1784545366.449119',
+    );
+
+    expect(() => parseTaskIpcData(payload, 'team')).toThrow(
+      /providerAccountId mismatch/,
+    );
+  });
+
   it('preserves memory user ids from signed task requests', () => {
     const payload = signedPayload({
       requestId: 'task-memory-user-id',
