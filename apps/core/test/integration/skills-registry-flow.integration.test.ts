@@ -898,6 +898,12 @@ describe('skill registry integration flow', () => {
       deps as any,
     );
 
+    // The review runs detached; the install-time collision check adds async
+    // hops before the approval request, so wait for it instead of asserting
+    // on the microtask the handler happens to return on.
+    await vi.waitFor(() =>
+      expect(requestPermissionApproval).toHaveBeenCalledTimes(1),
+    );
     expect(requestPermissionApproval).toHaveBeenCalledTimes(1);
     expect([...state.skills.values()]).toHaveLength(0);
     expect([...state.bindings.values()]).toEqual([]);
