@@ -65,23 +65,29 @@ export async function forwardRuntimeEvents(input: {
     });
     if (input.forwardedKeys.has(eventKey)) continue;
     input.forwardedKeys.add(eventKey);
-    await publishRuntimeEvent({
-      appId: appId as never,
-      ...((event.agentId ?? input.turnAgentId)
-        ? { agentId: (event.agentId ?? input.turnAgentId) as never }
-        : {}),
-      ...((event.runId ?? input.runId)
-        ? { runId: (event.runId ?? input.runId) as never }
-        : {}),
-      ...(event.jobId ? { jobId: event.jobId as never } : {}),
-      conversationId: (event.conversationId ?? input.chatJid) as never,
-      ...((event.threadId ?? input.sessionThreadId)
-        ? { threadId: (event.threadId ?? input.sessionThreadId) as never }
-        : {}),
-      eventType: event.eventType,
-      actor: event.actor ?? 'runner',
-      responseMode: event.responseMode ?? 'none',
-      payload: event.payload,
-    });
+    try {
+      await publishRuntimeEvent({
+        appId: appId as never,
+        ...((event.agentId ?? input.turnAgentId)
+          ? { agentId: (event.agentId ?? input.turnAgentId) as never }
+          : {}),
+        ...((event.runId ?? input.runId)
+          ? { runId: (event.runId ?? input.runId) as never }
+          : {}),
+        ...(event.jobId ? { jobId: event.jobId as never } : {}),
+        conversationId: (event.conversationId ?? input.chatJid) as never,
+        ...((event.threadId ?? input.sessionThreadId)
+          ? { threadId: (event.threadId ?? input.sessionThreadId) as never }
+          : {}),
+        eventType: event.eventType,
+        actor: event.actor ?? 'runner',
+        responseMode: event.responseMode ?? 'none',
+        payload: event.payload,
+      });
+    } catch {
+      // Runtime events are observability/audit breadcrumbs. They must not
+      // fail a user-visible turn when storage is temporarily unhealthy or
+      // schema drift is being repaired.
+    }
   }
 }
