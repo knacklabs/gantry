@@ -811,6 +811,61 @@ maybeDescribe('live admission work items (Postgres)', () => {
     );
   });
 
+  it('converges a conversation created without a provider account with later admission', async () => {
+    const chatJid = 'app:default:session-convergence';
+    // Sessions/ensure path: the conversation row is created with NO provider
+    // account before any message arrives.
+    await runtime.ops.storeChatMetadata(
+      chatJid,
+      '2026-06-16T00:00:03.000Z',
+      'Session Convergence',
+      'app',
+    );
+
+    const result = await runtime.ops.storeMessageWithLiveAdmission?.(
+      {
+        id: 'msg-session-convergence',
+        chat_jid: chatJid,
+        sender: 'api',
+        sender_name: 'API',
+        content: 'hello from the session path',
+        timestamp: '2026-06-16T00:00:03.100Z',
+        is_from_me: false,
+        is_bot_message: false,
+      },
+      {
+        appId: 'default',
+        agentId: 'main_agent',
+        triggerDecision: { requiresTrigger: false },
+      },
+    );
+    expect(result?.outcome).toBe('enqueued');
+
+    // One jid = ONE conversation row; the admitted message attaches to it.
+    // (The raw-input id derivation used to fork a second, qualified row here,
+    // splitting the session's conversation from its messages.)
+    const conversationsTable = `${quotePostgresIdentifier(
+      runtime.schemaName,
+    )}.${quotePostgresIdentifier('conversations')}`;
+    const messagesTable = `${quotePostgresIdentifier(
+      runtime.schemaName,
+    )}.${quotePostgresIdentifier('messages')}`;
+    const { rows: conversations } = await runtime.service.pool.query<{
+      id: string;
+    }>(
+      `SELECT id FROM ${conversationsTable}
+       WHERE external_ref_json::jsonb->>'jid' = $1`,
+      [chatJid],
+    );
+    expect(conversations).toHaveLength(1);
+    const { rows: messages } = await runtime.service.pool.query<{
+      conversation_id: string;
+    }>(`SELECT conversation_id FROM ${messagesTable} WHERE id = $1`, [
+      result?.item.messageId,
+    ]);
+    expect(messages).toEqual([{ conversation_id: conversations[0]!.id }]);
+  });
+
   it('stores accepted runtime event and live admission atomically', async () => {
     const message = {
       id: 'msg-event-admission-1',
