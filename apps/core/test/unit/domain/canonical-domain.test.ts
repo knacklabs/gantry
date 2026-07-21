@@ -8,6 +8,10 @@ import { PostgresCanonicalGraphRepository } from '@core/adapters/storage/postgre
 
 describe('canonical Postgres persistence cut', () => {
   const adapterRoot = path.resolve('apps/core/src/adapters/storage/postgres');
+  const baselineMigration = path.join(
+    adapterRoot,
+    'schema/migrations/0000_ponytail_baseline.sql',
+  );
   const browserDriverPackagePattern = `${'play'}wright-core`;
 
   it('keeps distinct external user ids distinct in participant identity', () => {
@@ -116,23 +120,16 @@ describe('canonical Postgres persistence cut', () => {
     }
   });
 
-  it('records the destructive canonical persistence migration', () => {
-    const migration = fs.readFileSync(
-      path.join(
-        adapterRoot,
-        'schema/migrations/0009_canonical_persistence_adapter_cut.sql',
-      ),
-      'utf8',
-    );
+  it('records canonical persistence in the fresh baseline', () => {
+    const migration = fs.readFileSync(baselineMigration, 'utf8');
 
-    expect(migration).toContain('DROP TABLE IF EXISTS registered_groups');
-    expect(migration).toContain('CREATE TABLE messages');
-    expect(migration).toContain('CREATE TABLE users');
-    expect(migration).toContain('CREATE TABLE provider_sessions');
-    expect(migration).toContain('CREATE TABLE job_runs');
-    expect(migration).toContain('CREATE TABLE permission_audit_events');
-    expect(migration).toContain('CREATE TABLE agent_tool_bindings');
-    expect(migration).toContain('CREATE TABLE agent_skill_bindings');
+    expect(migration).toContain('CREATE TABLE "messages"');
+    expect(migration).toContain('CREATE TABLE "users"');
+    expect(migration).toContain('CREATE TABLE "provider_sessions"');
+    expect(migration).toContain('CREATE TABLE "job_runs"');
+    expect(migration).toContain('CREATE TABLE "permission_audit_events"');
+    expect(migration).toContain('CREATE TABLE "agent_tool_bindings"');
+    expect(migration).toContain('CREATE TABLE "agent_skill_bindings"');
   });
 
   it('stores message provider redelivery idempotency fields', () => {
@@ -140,30 +137,20 @@ describe('canonical Postgres persistence cut', () => {
       path.join(adapterRoot, 'schema/messages.ts'),
       'utf8',
     );
-    const migration = fs.readFileSync(
-      path.join(
-        adapterRoot,
-        'schema/migrations/0009_canonical_persistence_adapter_cut.sql',
-      ),
-      'utf8',
-    );
+    const migration = fs.readFileSync(baselineMigration, 'utf8');
 
     expect(schema).toContain("'messages'");
     expect(schema).toContain("providerId: text('provider')");
     expect(schema).toContain("providerAccountId: text('provider_account_id')");
     expect(schema).toContain("externalMessageId: text('external_message_id')");
     expect(migration).toContain('idx_messages_external_redelivery_unique');
-    expect(migration).toContain('WHERE external_message_id IS NOT NULL');
+    expect(migration).toContain(
+      'WHERE "messages"."external_message_id" IS NOT NULL',
+    );
   });
 
   it('records repository contract indexes and permission audit context', () => {
-    const migration = fs.readFileSync(
-      path.join(
-        adapterRoot,
-        'schema/migrations/0010_repository_contract_indexes.sql',
-      ),
-      'utf8',
-    );
+    const migration = fs.readFileSync(baselineMigration, 'utf8');
     const permissionsSchema = fs.readFileSync(
       path.join(adapterRoot, 'schema/permissions.ts'),
       'utf8',
@@ -171,8 +158,7 @@ describe('canonical Postgres persistence cut', () => {
 
     expect(migration).toContain('actor_context_json');
     expect(migration).toContain('action_preview');
-    expect(migration).toContain("COALESCE(thread_id, '')");
-    expect(migration).toContain('idx_agent_sessions_deterministic_key');
+    expect(migration).toContain('idx_agent_sessions_app_scope_key');
     expect(permissionsSchema).toContain(
       "actorContextJson: text('actor_context_json')",
     );

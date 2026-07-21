@@ -59,9 +59,6 @@ const allowedLegacyReferenceFiles = new Set([
   'apps/core/src/jobs/ipc-scheduler-mutate-handlers.ts',
   'apps/core/src/runtime/ipc-task-parsing.ts',
   'apps/core/src/runner/mcp/tools/scheduler-tool-helpers.ts',
-  'apps/core/src/adapters/storage/postgres/schema/migrations/0000_initial.sql',
-  'apps/core/src/adapters/storage/postgres/schema/migrations/0040_jobs_target_execution_context_notification_routes.sql',
-  'apps/core/src/adapters/storage/postgres/schema/migrations/0071_jobs_target_workspace_key_cutover.sql',
 ]);
 
 function collectFiles(root: string): string[] {
@@ -122,22 +119,21 @@ describe('job notification cleanup', () => {
     expect(source).not.toContain('linked_sessions: notificationRoutes.map');
   });
 
-  it('fails closed for legacy linked-session route migration inputs', () => {
+  it('keeps only canonical job routing fields in the fresh baseline', () => {
     const migration = fs.readFileSync(
       path.join(
         repoRoot,
-        'apps/core/src/adapters/storage/postgres/schema/migrations/0040_jobs_target_execution_context_notification_routes.sql',
+        'apps/core/src/adapters/storage/postgres/schema/migrations/0000_ponytail_baseline.sql',
       ),
       'utf8',
     );
 
-    expect(migration).toContain('rejects legacy linkedSessions');
-    expect(migration).toContain(
-      "COALESCE(NULLIF(target_json, '')::jsonb ? 'linkedSessions', false)",
-    );
-    expect(migration).not.toContain(
-      "jsonb_array_elements_text(normalized.target -> 'linkedSessions')",
-    );
+    expect(migration).toContain("'{executionContext,sessionId}'");
+    expect(migration).toContain("'{executionContext,workspaceKey}'");
+    expect(migration).toContain("'notificationRoutes'");
+    for (const term of legacyJobNotificationTerms) {
+      expect(migration).not.toContain(term);
+    }
   });
 
   it('keeps scheduler MCP mutation tools from accepting legacy routing aliases', () => {
