@@ -279,6 +279,9 @@ export class PostgresCanonicalMessageRepository {
         timestamp: msg.timestamp,
         channel: providerId,
         providerAccountId,
+        // A providerless admission that resolved its account FROM an existing
+        // conversation must converge to that row, not mint a qualified twin.
+        existingConversationId,
       },
       tx,
     );
@@ -286,7 +289,7 @@ export class PostgresCanonicalMessageRepository {
       msg.chat_jid,
       msg.thread_id,
       tx,
-      { channel: providerId, providerAccountId },
+      { channel: providerId, providerAccountId, existingConversationId },
     );
     let canonicalMessageId = messageIdFor(
       msg.chat_jid,
