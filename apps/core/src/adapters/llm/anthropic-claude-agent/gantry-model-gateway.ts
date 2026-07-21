@@ -524,17 +524,12 @@ export class GantryModelGatewayBroker implements AgentCredentialBroker {
       res.setHeader(key, value);
     });
     const tap = resolveGatewayTap(observation, response);
+    let pipeError: unknown;
     try {
-      const pipePromise = pipeUpstreamBody(response, res, tap);
-      if (auditPromise) {
-        const [, pipeResult] = await Promise.allSettled([
-          auditPromise,
-          pipePromise,
-        ]);
-        if (pipeResult.status === 'rejected') throw pipeResult.reason;
-      } else {
-        await pipePromise;
-      }
+      await pipeUpstreamBody(response, res, tap);
+      // Finalize streamed tool calls as soon as the response is complete. The
+      // runner can submit the next tool-result request before a slow audit
+      // sink settles, and that request must find the pending tool span.
       if (observation?.isStreaming) observation.finish({ status });
     } catch (error) {
       if (observation?.isStreaming)
@@ -542,8 +537,10 @@ export class GantryModelGatewayBroker implements AgentCredentialBroker {
           status,
           errorMessage: error instanceof Error ? error.message : String(error),
         });
-      throw error;
+      pipeError = error;
     }
+    if (auditPromise) await auditPromise;
+    if (pipeError) throw pipeError;
   }
   private async publishGatewayUseAudit(
     tokenRecord: GatewayTokenRecord,

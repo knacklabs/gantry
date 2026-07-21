@@ -9,6 +9,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { GantryModelGatewayBroker } from '@core/adapters/llm/anthropic-claude-agent/gantry-model-gateway.js';
 import type { AppId } from '@core/domain/app/app.js';
+import type { RuntimeEventPublishInput } from '@core/domain/events/events.js';
 import type {
   ModelCredential,
   ModelCredentialMetadata,
@@ -123,9 +124,11 @@ function request(input: {
 async function gateway(input: {
   providerId: 'anthropic' | 'openai';
   runId?: string;
+  audit?: (event: RuntimeEventPublishInput) => Promise<unknown> | unknown;
 }): Promise<{ url: string; token: string }> {
   const broker = new GantryModelGatewayBroker(
     new CredentialRepository(input.providerId),
+    input.audit ? { audit: input.audit } : undefined,
   );
   brokers.push(broker);
   const injection = await broker.getInjection({
@@ -217,13 +220,350 @@ describe('Gantry Model Gateway tracing', () => {
     expect(chat.spanContext().traceId).toBe(parent.spanContext().traceId);
     expect(chat.parentSpanContext?.spanId).toBe(parent.spanContext().spanId);
     expect(chat.attributes).toMatchObject({
-      'gen_ai.usage.input_tokens': 12,
+      'gen_ai.usage.input_tokens': 17,
       'gen_ai.usage.output_tokens': 4,
       'gen_ai.usage.cache_read_input_tokens': 3,
       'gen_ai.usage.cache_creation_input_tokens': 2,
       'gen_ai.usage.cost': expect.any(Number),
     });
     expect(chat.attributes['gen_ai.usage.cost']).toBeGreaterThan(0);
+  });
+
+  it('reconstructs an Anthropic tool span across consecutive gateway requests', async () => {
+    const exporter = new InMemorySpanExporter();
+    tracing(exporter);
+    const runId = 'run:gateway-anthropic-tool';
+    const turn = startTurnSpan({ runId, agentName: 'Anthropic Tool Agent' });
+    const toolResponse = Buffer.from(
+      JSON.stringify({
+        model: 'claude-sonnet-4-6',
+        stop_reason: 'tool_use',
+        content: [
+          {
+            type: 'tool_use',
+            id: 'anthropic-call',
+            name: 'mcp__github__search_code',
+            input: { query: 'otel' },
+          },
+        ],
+      }),
+    );
+    const finalResponse = Buffer.from(
+      JSON.stringify({
+        model: 'claude-sonnet-4-6',
+        stop_reason: 'end_turn',
+        content: [{ type: 'text', text: 'Done' }],
+      }),
+    );
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValueOnce(
+          new Response(toolResponse, {
+            headers: { 'content-type': 'application/json' },
+          }),
+        )
+        .mockResolvedValueOnce(
+          new Response(finalResponse, {
+            headers: { 'content-type': 'application/json' },
+          }),
+        ),
+    );
+    const endpoint = await gateway({ providerId: 'anthropic', runId });
+
+    expect(
+      await request({
+        ...endpoint,
+        body: Buffer.from(
+          JSON.stringify({
+            model: 'claude-sonnet-4-6',
+            messages: [{ role: 'user', content: 'Search' }],
+          }),
+        ),
+      }),
+    ).toEqual({ status: 200, body: toolResponse });
+    expect(
+      await request({
+        ...endpoint,
+        body: Buffer.from(
+          JSON.stringify({
+            model: 'claude-sonnet-4-6',
+            messages: [
+              {
+                role: 'user',
+                content: [
+                  {
+                    type: 'tool_result',
+                    tool_use_id: 'anthropic-call',
+                    content: [{ type: 'text', text: 'match' }],
+                  },
+                ],
+              },
+            ],
+          }),
+        ),
+      }),
+    ).toEqual({ status: 200, body: finalResponse });
+    turn.end('success');
+
+    const spans = exporter.getFinishedSpans();
+    const parent = spans.find(
+      (span) => span.attributes['gen_ai.operation.name'] === 'invoke_agent',
+    )!;
+    const tool = spans.find(
+      (span) => span.attributes['gen_ai.operation.name'] === 'execute_tool',
+    )!;
+    expect(tool.parentSpanContext?.spanId).toBe(parent.spanContext().spanId);
+    expect(tool.attributes).toMatchObject({
+      'gen_ai.tool.name': 'mcp__github__search_code',
+      'gen_ai.tool.call.id': 'anthropic-call',
+      'gantry.tool.transport': 'mcp',
+      'gantry.mcp.server': 'github',
+      'gen_ai.tool.call.arguments': JSON.stringify({ query: 'otel' }),
+      'gen_ai.tool.call.result': JSON.stringify([
+        { type: 'text', text: 'match' },
+      ]),
+      'gantry.tool.status': 'success',
+    });
+    const toolChat = spans.find(
+      (span) =>
+        typeof span.attributes['gen_ai.output.messages'] === 'string' &&
+        String(span.attributes['gen_ai.output.messages']).includes(
+          'anthropic-call',
+        ),
+    )!;
+    const output = JSON.parse(
+      String(toolChat.attributes['gen_ai.output.messages']),
+    ) as Array<{ parts: unknown[] }>;
+    expect(output[0]?.parts).toEqual([
+      {
+        type: 'tool_call',
+        id: 'anthropic-call',
+        name: 'mcp__github__search_code',
+        arguments: { query: 'otel' },
+      },
+    ]);
+    const legacyOutput = JSON.parse(
+      String(toolChat.attributes['gen_ai.completion']),
+    ) as Array<{ content: unknown }>;
+    expect(Array.isArray(legacyOutput[0]?.content)).toBe(true);
+  });
+
+  it('captures streamed OpenAI tool calls and closes them on the next request', async () => {
+    const exporter = new InMemorySpanExporter();
+    tracing(exporter);
+    const runId = 'run:gateway-openai-tool';
+    const turn = startTurnSpan({ runId, agentName: 'OpenAI Tool Agent' });
+    const toolStream =
+      frame({
+        model: 'gpt-5.5',
+        choices: [
+          {
+            delta: {
+              tool_calls: [
+                {
+                  index: 0,
+                  id: 'openai-',
+                  function: {
+                    name: 'mcp_call_',
+                    arguments: '{"serverName":"linear",',
+                  },
+                },
+              ],
+            },
+          },
+        ],
+      }) +
+      frame({
+        choices: [
+          {
+            delta: {
+              tool_calls: [
+                {
+                  index: 0,
+                  id: 'call',
+                  function: {
+                    name: 'tool',
+                    arguments: '"toolName":"search_issues"}',
+                  },
+                },
+              ],
+            },
+            finish_reason: 'tool_calls',
+          },
+        ],
+      }) +
+      frame('[DONE]');
+    const finalResponse = Buffer.from(
+      JSON.stringify({
+        model: 'gpt-5.5',
+        choices: [
+          {
+            finish_reason: 'stop',
+            message: { role: 'assistant', content: 'Done' },
+          },
+        ],
+      }),
+    );
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValueOnce(streamedResponse([toolStream]))
+        .mockResolvedValueOnce(
+          new Response(finalResponse, {
+            headers: { 'content-type': 'application/json' },
+          }),
+        ),
+    );
+    const endpoint = await gateway({ providerId: 'openai', runId });
+
+    expect(
+      await request({
+        ...endpoint,
+        body: Buffer.from(
+          JSON.stringify({
+            model: 'gpt-5.5',
+            stream: true,
+            stream_options: { include_usage: true },
+            messages: [{ role: 'user', content: 'Search' }],
+          }),
+        ),
+      }),
+    ).toEqual({ status: 200, body: Buffer.from(toolStream) });
+    expect(
+      await request({
+        ...endpoint,
+        body: Buffer.from(
+          JSON.stringify({
+            model: 'gpt-5.5',
+            messages: [
+              {
+                role: 'tool',
+                tool_call_id: 'openai-call',
+                content: JSON.stringify({ issues: [1] }),
+              },
+            ],
+          }),
+        ),
+      }),
+    ).toEqual({ status: 200, body: finalResponse });
+    turn.end('success');
+
+    const tool = exporter
+      .getFinishedSpans()
+      .find(
+        (span) => span.attributes['gen_ai.operation.name'] === 'execute_tool',
+      )!;
+    expect(tool.attributes).toMatchObject({
+      'gen_ai.tool.name': 'mcp_call_tool',
+      'gen_ai.tool.call.id': 'openai-call',
+      'gantry.tool.transport': 'mcp',
+      'gantry.mcp.server': 'linear',
+      'gen_ai.tool.call.arguments': JSON.stringify({
+        serverName: 'linear',
+        toolName: 'search_issues',
+      }),
+      'gen_ai.tool.call.result': JSON.stringify({ issues: [1] }),
+      'gantry.tool.status': 'unknown',
+    });
+  });
+
+  it('registers streamed tool calls before a slow usage audit settles', async () => {
+    const exporter = new InMemorySpanExporter();
+    tracing(exporter);
+    const runId = 'run:gateway-delayed-audit';
+    const turn = startTurnSpan({ runId, agentName: 'Delayed Audit Agent' });
+    let releaseAudit!: () => void;
+    const delayedAudit = new Promise<void>((resolve) => {
+      releaseAudit = resolve;
+    });
+    let forwardedAudits = 0;
+    const audit = (event: RuntimeEventPublishInput) => {
+      if (event.payload.outcome !== 'forwarded') return undefined;
+      forwardedAudits += 1;
+      return forwardedAudits === 1 ? delayedAudit : undefined;
+    };
+    const toolStream =
+      frame({
+        choices: [
+          {
+            delta: {
+              tool_calls: [
+                {
+                  index: 0,
+                  id: 'delayed-audit-call',
+                  function: { name: 'Read', arguments: '{"path":"/tmp/a"}' },
+                },
+              ],
+            },
+            finish_reason: 'tool_calls',
+          },
+        ],
+      }) + frame('[DONE]');
+    const finalResponse = Buffer.from(
+      JSON.stringify({
+        choices: [
+          {
+            finish_reason: 'stop',
+            message: { role: 'assistant', content: 'Done' },
+          },
+        ],
+      }),
+    );
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValueOnce(streamedResponse([toolStream]))
+        .mockResolvedValueOnce(
+          new Response(finalResponse, {
+            headers: { 'content-type': 'application/json' },
+          }),
+        ),
+    );
+    const endpoint = await gateway({ providerId: 'openai', runId, audit });
+
+    await request({
+      ...endpoint,
+      body: Buffer.from(
+        JSON.stringify({
+          model: 'gpt-5.5',
+          stream: true,
+          stream_options: { include_usage: true },
+          messages: [{ role: 'user', content: 'Read' }],
+        }),
+      ),
+    });
+    await request({
+      ...endpoint,
+      body: Buffer.from(
+        JSON.stringify({
+          model: 'gpt-5.5',
+          messages: [
+            {
+              role: 'tool',
+              tool_call_id: 'delayed-audit-call',
+              content: 'read result',
+            },
+          ],
+        }),
+      ),
+    });
+    releaseAudit();
+    turn.end('success');
+
+    const tool = exporter
+      .getFinishedSpans()
+      .find(
+        (span) => span.attributes['gen_ai.operation.name'] === 'execute_tool',
+      );
+    expect(tool?.attributes).toMatchObject({
+      'gen_ai.tool.call.id': 'delayed-audit-call',
+      'gantry.tool.status': 'unknown',
+      'gen_ai.tool.call.result': 'read result',
+    });
   });
 
   it('preserves chunked Anthropic SSE bytes and records streamed usage', async () => {
@@ -280,7 +620,7 @@ describe('Gantry Model Gateway tracing', () => {
 
     expect(result).toEqual({ status: 200, body: Buffer.from(source) });
     expect(chatSpan(exporter).attributes).toMatchObject({
-      'gen_ai.usage.input_tokens': 11,
+      'gen_ai.usage.input_tokens': 17,
       'gen_ai.usage.output_tokens': 3,
       'gen_ai.usage.cache_read_input_tokens': 4,
       'gen_ai.usage.cache_creation_input_tokens': 2,

@@ -5,6 +5,7 @@ import {
   contentCaptureEnabled,
   getTurnSpan,
   startTurnSpan,
+  takeDelegationToolSpan,
   tracingEnabled,
   TRACE_CONTENT_MAX_CHARS,
 } from './tracing.js';
@@ -16,6 +17,7 @@ import { updateLogContext } from '../logging/logger.js';
 interface TurnInputLike {
   runId?: string;
   parentRunId?: string;
+  parentTaskId?: string;
   appId?: string;
   agentId?: string;
   chatJid?: string;
@@ -53,10 +55,17 @@ export function createSpawnTurnTracker<F extends TurnFrameLike>(
   onOutput: ((frame: F) => Promise<void>) | undefined,
 ): SpawnTurnTracker<F> {
   const correlationId = input.runId ?? `credential-run:${randomUUID()}`;
+  const delegationParent = input.parentRunId
+    ? takeDelegationToolSpan({
+        parentRunId: input.parentRunId,
+        parentTaskId: input.parentTaskId,
+        prompt: input.prompt,
+      })
+    : undefined;
   const openTurnSpan = (continuation?: boolean) => {
-    const parentSpan = input.parentRunId
-      ? getTurnSpan(input.parentRunId)
-      : undefined;
+    const parentSpan =
+      (!continuation ? delegationParent : undefined) ??
+      (input.parentRunId ? getTurnSpan(input.parentRunId) : undefined);
     return startTurnSpan(
       {
         runId: correlationId,

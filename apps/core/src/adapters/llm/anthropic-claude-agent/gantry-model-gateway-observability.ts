@@ -72,7 +72,10 @@ export function resolveGatewayTap(
 ): GatewayStreamTap | undefined {
   try {
     return observation?.isStreaming
-      ? observation.streamTapFor(response.headers.get('content-type'))
+      ? observation.streamTapFor(
+          response.headers.get('content-type'),
+          response.status,
+        )
       : undefined;
   } catch {
     return undefined;
