@@ -220,10 +220,15 @@ export class PostgresCanonicalGraphRepository {
     const providerAccountId =
       input.providerAccountId ??
       fallbackProviderAccountId(CANONICAL_APP_ID, providerId);
-    const canonicalConversationId = conversationIdForJid(
-      jid,
-      input.providerAccountId,
-    );
+    // Convergence (#247 semantics): an existing conversation row for this jid
+    // stays authoritative; a canonical id (derived from the RESOLVED provider
+    // account, never the raw input) is minted only for genuinely new
+    // conversations. Deriving from the raw input used to fork one jid into a
+    // legacy-shaped row (sessions path, no account) plus a qualified row
+    // (admission path), splitting a session from its replies.
+    const existingByJid = await this.findConversationIdForJid(jid, executor);
+    const canonicalConversationId =
+      existingByJid ?? conversationIdForJid(jid, providerAccountId);
     const existingConversationId = input.existingConversationId?.trim();
     let conversationId = canonicalConversationId;
     if (
