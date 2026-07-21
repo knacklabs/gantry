@@ -132,35 +132,49 @@ maybeDescribe('agent-e2e haiku turn (real model, behavioral)', () => {
         });
 
         evidence.phase('seed-credential');
-        // Fail fast on a bad fixture key: Claude Code retries 401s ~10 times
-        // with minutes of backoff, so an invalid secret otherwise presents as
-        // a 150s no-terminal-event zombie instead of an actionable failure.
-        const keyProbe = await fetch(
-          'https://api.anthropic.com/v1/messages/count_tokens',
-          {
-            method: 'POST',
-            headers: {
-              'x-api-key': apiKey as string,
-              'anthropic-version': '2023-06-01',
-              'content-type': 'application/json',
+        // The secret may be either a plain API key (sk-ant-api...) or a
+        // Claude Code OAuth token; each maps to a different credential mode
+        // (x-api-key vs Authorization: Bearer at the gateway). Seeding an
+        // OAuth token as api_key yields an upstream 401 retry-loop zombie.
+        const isOauthToken = !(apiKey as string).startsWith('sk-ant-api');
+        if (!isOauthToken) {
+          // Fail fast on a bad fixture key: Claude Code retries 401s ~10
+          // times with minutes of backoff, so an invalid secret otherwise
+          // presents as a 150s no-terminal-event zombie.
+          const keyProbe = await fetch(
+            'https://api.anthropic.com/v1/messages/count_tokens',
+            {
+              method: 'POST',
+              headers: {
+                'x-api-key': apiKey as string,
+                'anthropic-version': '2023-06-01',
+                'content-type': 'application/json',
+              },
+              body: JSON.stringify({
+                model: 'claude-haiku-4-5-20251001',
+                messages: [{ role: 'user', content: 'ping' }],
+              }),
             },
-            body: JSON.stringify({
-              model: 'claude-haiku-4-5-20251001',
-              messages: [{ role: 'user', content: 'ping' }],
-            }),
-          },
-        );
-        if (keyProbe.status === 401 || keyProbe.status === 403) {
-          throw new Error(
-            `E2E_ANTHROPIC_API_KEY was rejected by the Anthropic API ` +
-              `(HTTP ${keyProbe.status}). Replace the repository secret with ` +
-              `a valid Anthropic API key (sk-ant-api...).`,
           );
+          if (keyProbe.status === 401 || keyProbe.status === 403) {
+            throw new Error(
+              `E2E_ANTHROPIC_API_KEY was rejected by the Anthropic API ` +
+                `(HTTP ${keyProbe.status}). Replace the repository secret ` +
+                `with a valid Anthropic API key (sk-ant-api...).`,
+            );
+          }
         }
         const seeded = await api.request<{ status: string }>(
           'PUT',
           '/v1/credentials/models/anthropic',
-          { body: { authMode: 'api_key', payload: { apiKey } } },
+          {
+            body: isOauthToken
+              ? {
+                  authMode: 'claude_code_oauth',
+                  payload: { oauthToken: apiKey },
+                }
+              : { authMode: 'api_key', payload: { apiKey } },
+          },
         );
         expect(seeded.status).toBe(200);
         expect(seeded.body.status).toBe('active');
