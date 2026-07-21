@@ -674,6 +674,7 @@ describe('SkillService', () => {
         appId: 'app:one' as never,
         agentId: 'agent:one' as never,
         name: 'Alpha',
+        skillId: 'skill:a' as never,
       }),
     ).resolves.toContain(
       'materializes to the same runtime directory "alpha" as the currently selected skill alpha (skill:b)',
@@ -699,7 +700,24 @@ describe('SkillService', () => {
         appId: 'app:one' as never,
         agentId: 'agent:one' as never,
         name: 'Alpha',
+        skillId: 'skill:a' as never,
       }),
     ).resolves.toBeNull();
+
+    await expect(
+      service.installMaterializationCollisionForAgent({
+        appId: 'app:one' as never,
+        agentId: 'agent:one' as never,
+        name: 'Alpha',
+      }),
+    ).resolves.toBeNull();
+
+    await expect(
+      service.installMaterializationCollisionForAgent({
+        appId: 'app:one' as never,
+        agentId: 'agent:one' as never,
+        name: 'alpha',
+      }),
+    ).resolves.toContain('currently selected skill Alpha (skill:a)');
   });
 });

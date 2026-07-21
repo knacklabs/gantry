@@ -73,7 +73,11 @@ function createReviewedGithubReadToolRepository(appId: string) {
         cannot: 'Mutate GitHub repositories.',
         credentialSource: 'none',
         implementationBindings: [
-          { kind: 'mcp_tool', mcpTool: GITHUB_REPOS_LIST_TOOL_NAME },
+          {
+            kind: 'mcp_pattern',
+            mcpServer: 'github',
+            mcpToolPatterns: ['repos_list'],
+          },
         ],
       }),
     }),
@@ -902,7 +906,11 @@ describe('ipc-interaction-handler', () => {
               cannot: 'Mutate CRM positions.',
               credentialSource: 'none',
               implementationBindings: [
-                { kind: 'mcp_tool', mcpTool: 'mcp__crm__read' },
+                {
+                  kind: 'mcp_pattern',
+                  mcpServer: 'crm',
+                  mcpToolPatterns: ['read'],
+                },
               ],
             }),
           }),

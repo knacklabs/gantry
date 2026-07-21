@@ -192,7 +192,12 @@ export class SettingsDesiredStateService {
         hasAnyCapability(agent) ||
         normalizedCapabilityFolders.has(folder)
       ) {
-        await this.replaceCapabilities(agentId, agent, now);
+        await this.replaceCapabilities(
+          agentId,
+          agent,
+          now,
+          settings.desiredState.authoritative,
+        );
         applied.push(`capabilities:${folder}`);
       } else {
         skipped.push(`capabilities:${folder}:not-authoritative-empty`);
@@ -344,6 +349,7 @@ export class SettingsDesiredStateService {
             accessPreset: 'full',
           },
           now,
+          true,
         );
         applied.push(`authoritative:disabled_absent_agent:${folder}`);
       }
@@ -716,6 +722,7 @@ export class SettingsDesiredStateService {
     const serverIds = new Set<string>();
     for (const agent of Object.values(settings.agents)) {
       for (const source of agent.sources.mcpServers) {
+        if (source.status === 'disabled') continue;
         serverIds.add(source.id);
       }
     }
@@ -740,15 +747,18 @@ export class SettingsDesiredStateService {
       })),
     );
     for (const [folder, agent] of Object.entries(settings.agents)) {
+      const activeSkillSources = agent.sources.skills.filter(
+        (source) => source.status !== 'disabled',
+      );
       const resolvedSkills = await resolveConfiguredSkillReferences({
         repository: this.deps.repositories.skills,
         appId: this.appId,
         agentId: agentIdForFolder(folder),
-        references: agent.sources.skills.map((source) => source.id),
+        references: activeSkillSources.map((source) => source.id),
       });
       const [skillCollision] = skillMaterializationCollisions(
         selectedSkillsFromResolvedSkillReferences(
-          agent.sources.skills.map((source) => source.id),
+          activeSkillSources.map((source) => source.id),
           resolvedSkills,
         ),
       );
@@ -787,7 +797,7 @@ export class SettingsDesiredStateService {
         }
       }
       for (const skillId of [
-        ...new Set(agent.sources.skills.map((source) => source.id)),
+        ...new Set(activeSkillSources.map((source) => source.id)),
       ]) {
         const skill = resolvedSkills.skills.get(skillId);
         const resolutionError = resolvedSkills.errors.get(skillId);
@@ -802,7 +812,11 @@ export class SettingsDesiredStateService {
         }
       }
       for (const serverId of [
-        ...new Set(agent.sources.mcpServers.map((source) => source.id)),
+        ...new Set(
+          agent.sources.mcpServers
+            .filter((source) => source.status !== 'disabled')
+            .map((source) => source.id),
+        ),
       ]) {
         const server = servers.get(serverId);
         if (
@@ -823,6 +837,7 @@ export class SettingsDesiredStateService {
     agentId: AgentId,
     agent: RuntimeConfiguredAgent,
     now: string,
+    authoritative: boolean,
   ): Promise<void> {
     await replaceDesiredStateCapabilities({
       appId: this.appId,
@@ -830,6 +845,7 @@ export class SettingsDesiredStateService {
       agent,
       repositories: this.deps.repositories,
       now,
+      authoritative,
     });
   }
 }

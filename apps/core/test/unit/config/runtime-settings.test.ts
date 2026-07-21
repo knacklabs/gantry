@@ -653,7 +653,7 @@ provider_accounts:
     expect(parsed.agent.recurringJobDefaultModel).toBe('opus-4.6');
   });
 
-  it('round-trips per-agent mcp tool scope through settings.yaml', () => {
+  it('round-trips per-agent source status and mcp tool scope through settings.yaml', () => {
     const settings = createDefaultRuntimeSettings();
     settings.agents.main_agent = {
       name: 'Main',
@@ -661,8 +661,11 @@ provider_accounts:
       delegates: [],
       bindings: {},
       sources: {
-        skills: [],
-        mcpServers: [{ id: 'github', tools: ['read_*'] }],
+        skills: [{ id: 'skill:retired', status: 'disabled' }],
+        mcpServers: [
+          { id: 'github', tools: ['read_*'] },
+          { id: 'mcp:retired', status: 'disabled' },
+        ],
         tools: [],
       },
       capabilities: [],
@@ -671,11 +674,31 @@ provider_accounts:
     const yaml = renderRuntimeSettingsYaml(settings);
     expect(yaml).toContain('mcp_servers:');
     expect(yaml).toContain('tools:');
+    expect(yaml).toContain('status: disabled');
 
     const parsed = parseRuntimeSettings(yaml);
-    expect(parsed.agents.main_agent.sources.mcpServers).toEqual([
-      { id: 'github', tools: ['read_*'] },
-    ]);
+    expect(parsed.agents.main_agent.sources).toEqual({
+      skills: [{ id: 'skill:retired', status: 'disabled' }],
+      mcpServers: [
+        { id: 'github', tools: ['read_*'] },
+        { id: 'mcp:retired', status: 'disabled' },
+      ],
+      tools: [],
+    });
+  });
+
+  it('rejects unsupported per-agent source status', () => {
+    expect(() =>
+      parseRuntimeSettings(`agents:
+  main_agent:
+    name: Main
+    access:
+      sources:
+        skills:
+          - id: skill:retired
+            status: removed
+`),
+    ).toThrow('status must be active or disabled');
   });
 
   it('defaults, renders, and parses per-agent delegates', () => {

@@ -23,6 +23,8 @@ export type SemanticCapabilityCredentialSource =
   | 'none';
 export type SemanticCapabilityImplementationKind =
   | 'tool_rule'
+  // Retained only so stored legacy definitions fail validation with a clear
+  // cutover error instead of becoming untyped input.
   | 'mcp_tool'
   | 'mcp_pattern'
   | 'adapter'
@@ -143,8 +145,9 @@ export function semanticCapabilityRuntimeRules(
   capability: SemanticCapabilityDefinition,
 ): string[] {
   const rules = capability.implementationBindings.flatMap((binding) => {
-    if (binding.rule) return [binding.rule.trim()];
-    if (binding.mcpTool) return [binding.mcpTool.trim()];
+    if (binding.kind === 'tool_rule' && binding.rule) {
+      return [binding.rule.trim()];
+    }
     if (binding.kind === 'mcp_pattern') {
       return mcpPatternBindingRuntimeRules(binding);
     }
@@ -422,8 +425,12 @@ function validateSemanticCapabilityBinding(
   if (binding.kind === 'tool_rule' && !binding.rule?.trim()) {
     return { ok: false, reason: 'tool_rule bindings require a rule.' };
   }
-  if (binding.kind === 'mcp_tool' && !binding.mcpTool?.trim()) {
-    return { ok: false, reason: 'mcp_tool bindings require an mcpTool.' };
+  if (binding.kind === 'mcp_tool') {
+    return {
+      ok: false,
+      reason:
+        'mcp_tool bindings are no longer supported; use an exact mcp_pattern binding.',
+    };
   }
   if (binding.kind === 'mcp_pattern') {
     const validation = validateMcpPatternBinding(binding);
@@ -434,10 +441,6 @@ function validateSemanticCapabilityBinding(
   }
   if (binding.rule) {
     const validation = validateReadableAgentToolRule(binding.rule);
-    if (!validation.ok) return validation;
-  }
-  if (binding.mcpTool) {
-    const validation = validateReadableAgentToolRule(binding.mcpTool);
     if (!validation.ok) return validation;
   }
   if (binding.kind !== 'local_cli') return { ok: true };

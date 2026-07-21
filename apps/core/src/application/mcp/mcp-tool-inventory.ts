@@ -192,10 +192,15 @@ export function mcpToolMatchesQuery(
   query: string | undefined,
 ): boolean {
   if (!query) return true;
-  const normalized = query.toLowerCase();
-  return [item.serverName, item.tool.name, item.tool.description ?? ''].some(
-    (value) => value.toLowerCase().includes(normalized),
-  );
+  const terms = mcpToolSearchTerms(query);
+  const searchable = [
+    item.serverName,
+    item.tool.name,
+    item.tool.description ?? '',
+  ]
+    .join(' ')
+    .toLowerCase();
+  return terms.length > 0 && terms.every((term) => searchable.includes(term));
 }
 
 export function compareMcpToolSearchResults(
@@ -318,14 +323,19 @@ function mcpToolSearchScore(
   query: string | undefined,
 ): number {
   if (!query) return 0;
-  const normalized = query.toLowerCase();
   const toolName = item.tool.name.toLowerCase();
   const description = item.tool.description?.toLowerCase() ?? '';
   const serverName = item.serverName.toLowerCase();
-  if (toolName === normalized) return 100;
-  if (toolName.startsWith(normalized)) return 80;
-  if (toolName.includes(normalized)) return 60;
-  if (description.includes(normalized)) return 40;
-  if (serverName.includes(normalized)) return 20;
-  return 0;
+  return mcpToolSearchTerms(query).reduce((score, term) => {
+    if (toolName === term) return score + 100;
+    if (toolName.startsWith(term)) return score + 80;
+    if (toolName.includes(term)) return score + 60;
+    if (description.includes(term)) return score + 40;
+    if (serverName.includes(term)) return score + 20;
+    return score;
+  }, 0);
+}
+
+function mcpToolSearchTerms(query: string): string[] {
+  return query.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
 }

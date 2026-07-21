@@ -1314,8 +1314,9 @@ describe('jobs/execution', () => {
               credentialSource: 'none',
               implementationBindings: [
                 {
-                  kind: 'mcp_tool',
-                  mcpTool: 'mcp__github__search_repositories',
+                  kind: 'mcp_pattern',
+                  mcpServer: 'github',
+                  mcpToolPatterns: ['search_repositories'],
                 },
               ],
             },
@@ -1340,8 +1341,9 @@ describe('jobs/execution', () => {
             credentialSource: 'none',
             implementationBindings: [
               {
-                kind: 'mcp_tool',
-                mcpTool: 'mcp__github__search_repositories',
+                kind: 'mcp_pattern',
+                mcpServer: 'github',
+                mcpToolPatterns: ['search_repositories'],
               },
             ],
           },

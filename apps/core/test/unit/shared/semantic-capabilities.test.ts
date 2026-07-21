@@ -100,7 +100,6 @@ describe('semantic capability catalog validation', () => {
   it('rejects implementation bindings without their kind-specific field', () => {
     for (const [binding, reason] of [
       [{ kind: 'tool_rule' as const }, 'tool_rule bindings require a rule.'],
-      [{ kind: 'mcp_tool' as const }, 'mcp_tool bindings require an mcpTool.'],
       [{ kind: 'adapter' as const }, 'adapter bindings require an adapterRef.'],
     ] as const) {
       expect(
@@ -112,6 +111,27 @@ describe('semantic capability catalog validation', () => {
         }),
       ).toEqual({ ok: false, reason });
     }
+  });
+
+  it('rejects legacy exact MCP tool bindings', () => {
+    expect(
+      validateSemanticCapabilityDefinition({
+        capabilityId: 'github.create_issue',
+        displayName: 'GitHub create issue',
+        category: 'MCP',
+        risk: 'write',
+        can: 'Create a GitHub issue.',
+        cannot: 'Call unrelated MCP tools.',
+        credentialSource: 'none',
+        implementationBindings: [
+          { kind: 'mcp_tool', mcpTool: 'mcp__github__create_issue' },
+        ],
+      }),
+    ).toEqual({
+      ok: false,
+      reason:
+        'mcp_tool bindings are no longer supported; use an exact mcp_pattern binding.',
+    });
   });
 
   it('uses generic labelization for skill action display names', () => {
@@ -174,7 +194,11 @@ describe('semantic capability catalog validation', () => {
         cannot: 'Call unrelated MCP tools.',
         credentialSource: 'skill_secret',
         implementationBindings: [
-          { kind: 'mcp_tool', mcpTool: 'mcp__github__create_issue' },
+          {
+            kind: 'mcp_pattern',
+            mcpServer: 'github',
+            mcpToolPatterns: ['create_issue'],
+          },
         ],
         networkHosts: ['api.github.com:443'],
       }),

@@ -141,8 +141,9 @@ describe('capabilityStatusText access projection', () => {
       credentialSource: 'none',
       implementationBindings: [
         {
-          kind: 'mcp_tool',
-          mcpTool: 'mcp__crm__lookup_order',
+          kind: 'mcp_pattern',
+          mcpServer: 'crm',
+          mcpToolPatterns: ['lookup_order'],
         },
       ],
     };
@@ -640,6 +641,36 @@ describe('honest now/next-turn receipts', () => {
     expect(text).not.toContain('more skills registered');
   });
 
+  it('keeps multibyte inlined skill content within the byte budget', async () => {
+    setRunnerEnv({ GANTRY_DEPLOYMENT_MODE: 'workstation' });
+    vi.resetModules();
+    const { formatSkillProposalResponse } =
+      await import('@core/runner/mcp/tools/service-formatters.js');
+    const { SAME_SESSION_SKILL_CONTEXT_MAX_BYTES } =
+      await import('@core/runner/mcp/tools/service-constants.js');
+
+    const text = formatSkillProposalResponse(
+      {
+        ...installedSkillContext,
+        files: [
+          {
+            path: 'SKILL.md',
+            content: '文'.repeat(SAME_SESSION_SKILL_CONTEXT_MAX_BYTES),
+          },
+        ],
+      },
+      'Done.',
+    );
+    const visibleContent = /## SKILL\.md\n```\n([\s\S]*?)\n```/.exec(text)?.[1];
+
+    expect(visibleContent).toBeDefined();
+    expect(
+      Buffer.byteLength(visibleContent ?? '', 'utf-8'),
+    ).toBeLessThanOrEqual(SAME_SESSION_SKILL_CONTEXT_MAX_BYTES);
+    expect(visibleContent).not.toContain('\uFFFD');
+    expect(text).toContain('[Content truncated for immediate skill context.]');
+  });
+
   it('states the same-turn proxy path and next-turn projection in the MCP receipt', async () => {
     setRunnerEnv({ GANTRY_DEPLOYMENT_MODE: 'workstation' });
     vi.resetModules();
@@ -675,6 +706,7 @@ describe('honest now/next-turn receipts', () => {
       query: 'search',
       limit: 20,
       total: 2,
+      deferredServers: ['billing'],
       matches: [
         {
           name: 'search_repositories',
@@ -691,6 +723,9 @@ describe('honest now/next-turn receipts', () => {
       ],
     });
     expect(text).toContain('Ranked MCP tool matches');
+    expect(text).toContain(
+      'Partial results: could not refresh MCP inventories for billing.',
+    );
     expect(text).toContain(
       'covered_by_reviewed_capability: yes (github.search.read) — callable through mcp_call_tool',
     );

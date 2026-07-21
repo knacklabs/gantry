@@ -57,12 +57,9 @@ export function reviewedMcpReadBindingsForRuntimeAccess(input: {
     const capability = readCapabilities.get(access.selectedCapabilityId);
     if (!capability) continue;
     const reviewedPatterns = new Set(
-      capability.implementationBindings.flatMap((binding) => {
-        if (binding.kind === 'mcp_tool' && binding.mcpTool?.trim()) {
-          return [binding.mcpTool.trim()];
-        }
-        return mcpPatternBindingRuntimeRules(binding);
-      }),
+      capability.implementationBindings.flatMap((binding) =>
+        mcpPatternBindingRuntimeRules(binding),
+      ),
     );
     for (const toolPattern of access.allowedTools) {
       if (!reviewedPatterns.has(toolPattern)) continue;
@@ -208,17 +205,6 @@ function projectCapabilityRuntimeAccess(
       });
       continue;
     }
-    if (binding.kind === 'mcp_tool' && binding.mcpTool?.trim()) {
-      access.push({
-        ...common,
-        sourceType: 'mcp_server',
-        reviewedServerId: mcpServerIdFromTool(binding.mcpTool) ?? 'unknown',
-        allowedTools: [binding.mcpTool.trim()],
-        credentialRefs: [],
-        networkHosts: [],
-      });
-      continue;
-    }
     if (binding.kind === 'mcp_pattern') {
       const patternRules = mcpPatternBindingRuntimeRules(binding);
       if (patternRules.length > 0) {
@@ -348,11 +334,6 @@ function stringList(values: readonly string[] | undefined): string[] {
     if (trimmed) out.add(trimmed);
   }
   return [...out];
-}
-
-function mcpServerIdFromTool(toolName: string): string | undefined {
-  const match = /^mcp__([A-Za-z0-9_-]+)__/.exec(toolName.trim());
-  return match?.[1];
 }
 
 async function activeSkillActionProjectionKeys(

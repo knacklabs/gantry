@@ -3943,23 +3943,24 @@ describe('reconcile preserves agent-installed bindings', () => {
     );
   });
 
-  it('respects explicit removal: disabled agent-request bindings are not resurrected', async () => {
+  it('removes active agent-request bindings explicitly disabled by an authoritative revision', async () => {
     const settings = createDefaultRuntimeSettings();
+    settings.desiredState.authoritative = true;
     settings.agents.main_agent = {
       name: 'Main',
       folder: 'main_agent',
       bindings: {},
       sources: {
-        skills: [{ id: 'skill:admin' }],
-        mcpServers: [],
+        skills: [
+          { id: 'skill:admin' },
+          { id: 'skill:agentic', status: 'disabled' },
+        ],
+        mcpServers: [{ id: 'mcp:crm', status: 'disabled' }],
         tools: [],
       },
       capabilities: [],
     };
-    const repositories = repositoriesWithAgentInstalls({
-      skillBindingStatus: 'disabled',
-      mcpBindingStatus: 'disabled',
-    });
+    const repositories = repositoriesWithAgentInstalls({});
     const service = new SettingsDesiredStateService({
       ops: makeOps(),
       repositories,
@@ -3973,6 +3974,12 @@ describe('reconcile preserves agent-installed bindings', () => {
       expect.objectContaining({ skillId: 'skill:admin' }),
     ]);
     expect(call.mcpBindings).toEqual([]);
+    expect(repositories.skills.getSkill).not.toHaveBeenCalledWith(
+      'skill:agentic',
+    );
+    expect(repositories.mcpServers.getServer).not.toHaveBeenCalledWith(
+      'mcp:crm',
+    );
   });
 
   it('does not preserve admin-created bindings absent from settings', async () => {
@@ -4031,6 +4038,7 @@ describe('reconcile preserves agent-installed bindings', () => {
         } as never,
         repositories,
         now: '2026-07-20T00:00:00.000Z',
+        authoritative: true,
       });
       expect(warn).toHaveBeenCalledWith(
         expect.stringContaining('mcp:missing is not active'),

@@ -329,8 +329,9 @@ describe('agent capability composition', () => {
           credentialSource: 'none',
           implementationBindings: [
             {
-              kind: 'mcp_tool',
-              mcpTool: 'mcp__caw-ats__ats_list_positions',
+              kind: 'mcp_pattern',
+              mcpServer: 'caw-ats',
+              mcpToolPatterns: ['ats_list_positions'],
             },
           ],
           source: {

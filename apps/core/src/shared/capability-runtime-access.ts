@@ -59,11 +59,11 @@ export type CapabilityRuntimeAccess =
 
 const EXACT_EXTERNAL_MCP_TOOL_RE = /^mcp__([A-Za-z0-9_-]+)__[A-Za-z0-9_.-]+$/;
 const PATTERN_EXTERNAL_MCP_TOOL_RE =
-  /^mcp__([A-Za-z0-9_-]+)__[A-Za-z0-9_.-]+\*$/;
+  /^mcp__([A-Za-z0-9_-]+)__[A-Za-z0-9_.-]+\*?$/;
 
-// Reviewed full-name MCP tool patterns (mcp__server__prefix*) selected via
-// mcp_pattern capability bindings. These are the single action authority for
-// pattern-bound servers; inventory stays discovery-only.
+// Reviewed full-name MCP tool patterns (exact or mcp__server__prefix*) selected
+// via mcp_pattern capability bindings. These are the single action authority;
+// inventory stays discovery-only.
 export function reviewedExternalMcpToolPatternsFromRuntimeAccess(
   runtimeAccess: readonly CapabilityRuntimeAccess[] | undefined,
 ): string[] {

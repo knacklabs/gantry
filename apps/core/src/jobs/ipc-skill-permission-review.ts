@@ -88,6 +88,7 @@ async function completeSkillPermissionReview(
       appId: input.appId,
       agentId: input.agentId,
       name: skillNameForReceipt(input.assets, input.skill.name),
+      ...(input.skill.id ? { skillId: input.skill.id as never } : {}),
     },
   );
   if (collision) {
@@ -159,6 +160,15 @@ async function completeSkillPermissionReview(
         skillNameForReceipt(input.assets, input.skill.name),
       ).toLowerCase(),
       async () => {
+        const collision =
+          await input.service.installMaterializationCollisionForAgent({
+            appId: input.appId,
+            agentId: input.agentId,
+            name: skillNameForReceipt(input.assets, input.skill.name),
+            ...(input.skill.id ? { skillId: input.skill.id as never } : {}),
+          });
+        if (collision)
+          throw new InstallMaterializationCollisionError(collision);
         let installedSkillId: string | undefined;
         try {
           const installed = await input.service.installSkill({
@@ -191,6 +201,10 @@ async function completeSkillPermissionReview(
     );
   } catch (err) {
     await notifyLifecycle(input.onBlocked);
+    if (err instanceof InstallMaterializationCollisionError) {
+      input.responder.reject(err.message, 'skill_materialization_collision');
+      return;
+    }
     throw err;
   }
   const sameSessionContext = buildInstalledSkillSameSessionContext(
@@ -218,6 +232,8 @@ async function completeSkillPermissionReview(
     'skill_installed',
   );
 }
+
+class InstallMaterializationCollisionError extends Error {}
 
 function skillReviewMessageOptions(
   input: Parameters<typeof startSkillPermissionReview>[0],

@@ -229,4 +229,66 @@ describe('skill permission review install sequence', () => {
       'skill_materialization_collision',
     );
   });
+
+  it('rechecks collision identity under the install lock after approval', async () => {
+    const collisionMessage =
+      'Skill "demo-skill" cannot be installed because a distinct selected skill now owns the same runtime directory.';
+    const service = {
+      installMaterializationCollisionForAgent: vi
+        .fn()
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce(collisionMessage),
+      installSkill: vi.fn(),
+      bindSkillToAgent: vi.fn(),
+    };
+    const reject = vi.fn();
+    const requestPermissionApproval = vi.fn(async () => ({
+      approved: true,
+      decidedBy: 'user:approver',
+    }));
+
+    await new Promise<void>((resolve) => {
+      startSkillPermissionReview({
+        deps: {
+          requestPermissionApproval,
+          sendMessage: vi.fn(async () => undefined),
+        },
+        responder: { acceptData: vi.fn(), reject },
+        logError: vi.fn(),
+        service,
+        syncApprovedCapabilitySettings: vi.fn(async () => undefined),
+        appId: 'app:test',
+        agentId: 'agent:test',
+        sourceAgentFolder: 'main_agent',
+        targetJid: 'chat:one',
+        skill: { id: 'skill:requested', name: 'demo-skill' },
+        assets: [],
+        fileSummaries: [],
+        skillMarkdownPreview: {
+          path: 'SKILL.md',
+          content: '',
+          truncated: false,
+        },
+        totalSizeBytes: 0,
+        reason: 'test install',
+        requestToolName: 'request_skill_install',
+        onSettled: resolve,
+      } as never);
+    });
+
+    expect(requestPermissionApproval).toHaveBeenCalledOnce();
+    expect(
+      service.installMaterializationCollisionForAgent,
+    ).toHaveBeenNthCalledWith(2, {
+      appId: 'app:test',
+      agentId: 'agent:test',
+      name: 'demo-skill',
+      skillId: 'skill:requested',
+    });
+    expect(service.installSkill).not.toHaveBeenCalled();
+    expect(reject).toHaveBeenCalledWith(
+      collisionMessage,
+      'skill_materialization_collision',
+    );
+  });
 });

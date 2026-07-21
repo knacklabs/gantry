@@ -646,6 +646,32 @@ describe('McpToolProxy', () => {
     expect(result.matches[1].reviewedCapabilityIds).toBeUndefined();
   });
 
+  it('matches tokenized search terms across server, tool name, and description', async () => {
+    vi.useFakeTimers();
+    mcpSdkMocks.client.listTools.mockResolvedValueOnce({
+      tools: [
+        { name: 'create_ticket', description: 'Create an issue' },
+        { name: 'create_repository', description: 'Create a repository' },
+      ],
+    });
+    const proxy = new McpToolProxy(mcpRepository({ remote: true }), {
+      tools: emptyToolRepository(),
+      lookupHostname: vi.fn(async () => [
+        { address: '93.184.216.34', family: 4 as const },
+      ]),
+    });
+
+    const result = await proxy.searchTools({
+      appId: 'app-one' as never,
+      agentId: 'agent-one' as never,
+      query: 'github create issue',
+    });
+
+    expect(result.matches.map((match) => match.name)).toEqual([
+      'create_ticket',
+    ]);
+  });
+
   it('marks every mcp_search_tools match inventory-only when no reviewed capability is selected', async () => {
     vi.useFakeTimers();
     mcpSdkMocks.client.listTools.mockResolvedValueOnce({
@@ -720,12 +746,18 @@ describe('McpToolProxy', () => {
     expect(mcpSdkMocks.client.listTools).toHaveBeenNthCalledWith(
       1,
       {},
-      { timeout: 60_000 },
+      expect.objectContaining({
+        timeout: 60_000,
+        signal: expect.any(AbortSignal),
+      }),
     );
     expect(mcpSdkMocks.client.listTools).toHaveBeenNthCalledWith(
       2,
       { cursor: 'page-2' },
-      { timeout: 60_000 },
+      expect.objectContaining({
+        timeout: 60_000,
+        signal: expect.any(AbortSignal),
+      }),
     );
   });
 
@@ -885,7 +917,7 @@ describe('McpToolProxy', () => {
     expect(mcpSdkMocks.client.listTools).not.toHaveBeenCalled();
   });
 
-  it('does not fan out to every uncached MCP server without an explicit serverName', async () => {
+  it('cold-searches every connected MCP server', async () => {
     vi.useFakeTimers();
     const proxy = new McpToolProxy(multiMcpRepository(['github', 'linear']), {
       tools: emptyToolRepository(),
@@ -893,51 +925,57 @@ describe('McpToolProxy', () => {
         { address: '93.184.216.34', family: 4 as const },
       ]),
     });
+    mcpSdkMocks.client.listTools
+      .mockResolvedValueOnce({
+        tools: [{ name: 'create_issue', description: 'Open an issue' }],
+      })
+      .mockResolvedValueOnce({
+        tools: [{ name: 'search_issues', description: 'Find an issue' }],
+      });
 
     await expect(
-      proxy.listTools({
+      proxy.searchTools({
         appId: 'app-one' as never,
         agentId: 'agent-one' as never,
         query: 'issue',
       }),
     ).resolves.toMatchObject({
       limit: 20,
-      total: 0,
-      deferredServers: ['github', 'linear'],
-      servers: [],
+      total: 2,
+      matches: [
+        { serverName: 'github', name: 'create_issue' },
+        { serverName: 'linear', name: 'search_issues' },
+      ],
     });
-    expect(mcpSdkMocks.client.listTools).not.toHaveBeenCalled();
+    expect(mcpSdkMocks.client.listTools).toHaveBeenCalledTimes(2);
+  });
 
-    mcpSdkMocks.client.listTools.mockResolvedValueOnce({
-      tools: [{ name: 'create_issue', description: 'Open an issue' }],
+  it('returns partial cold-search results when one MCP source fails', async () => {
+    vi.useFakeTimers();
+    const proxy = new McpToolProxy(multiMcpRepository(['github', 'linear']), {
+      tools: emptyToolRepository(),
+      lookupHostname: vi.fn(async () => [
+        { address: '93.184.216.34', family: 4 as const },
+      ]),
     });
+    mcpSdkMocks.client.listTools
+      .mockResolvedValueOnce({
+        tools: [{ name: 'create_issue', description: 'Open an issue' }],
+      })
+      .mockRejectedValueOnce(new Error('linear unavailable'));
+
     await expect(
-      proxy.listTools({
+      proxy.searchTools({
         appId: 'app-one' as never,
         agentId: 'agent-one' as never,
-        serverName: 'github',
         query: 'issue',
       }),
     ).resolves.toMatchObject({
-      serverName: 'github',
-      query: 'issue',
-      total: 1,
-      servers: [{ name: 'github' }],
-    });
-
-    await expect(
-      proxy.listTools({
-        appId: 'app-one' as never,
-        agentId: 'agent-one' as never,
-        query: 'issue',
-      }),
-    ).resolves.toMatchObject({
-      query: 'issue',
       total: 1,
       deferredServers: ['linear'],
-      servers: [{ name: 'github' }],
+      matches: [{ serverName: 'github', name: 'create_issue' }],
     });
-    expect(mcpSdkMocks.client.listTools).toHaveBeenCalledTimes(1);
+    expect(mcpSdkMocks.client.listTools).toHaveBeenCalledTimes(2);
   });
 
   it('reports inventory timing and invalidates the cache when source revision changes', async () => {
@@ -1271,7 +1309,7 @@ describe('McpToolProxy', () => {
     );
   });
 
-  it('honors run-local MCP tool approvals for the current call', async () => {
+  it('honors an exact reviewed MCP pattern for the current call', async () => {
     vi.useFakeTimers();
     const publishRuntimeEvent = vi.fn(async () => undefined);
     const appendAuditEvent = vi.fn(async () => undefined);
@@ -1279,8 +1317,7 @@ describe('McpToolProxy', () => {
     const proxy = new McpToolProxy(
       mcpRepository({ remote: true, appendAuditEvent }),
       {
-        tools: emptyToolRepository(),
-        liveToolRules: ['mcp__github__create_issue'],
+        tools: toolRepository(),
         lookupHostname: vi.fn(async () => [
           { address: '93.184.216.34', family: 4 as const },
         ]),
@@ -1379,8 +1416,7 @@ describe('McpToolProxy', () => {
         }),
     );
     const proxy = new McpToolProxy(mcpRepository({ remote: true }), {
-      tools: emptyToolRepository(),
-      liveToolRules: ['mcp__github__create_issue'],
+      tools: toolRepository(),
       lookupHostname: vi.fn(async () => [
         { address: '93.184.216.34', family: 4 as const },
       ]),
@@ -1410,8 +1446,7 @@ describe('McpToolProxy', () => {
   it('keeps schema discovery on the short proxy timeout for long tool calls', async () => {
     mockCreateIssueToolDetail();
     const proxy = new McpToolProxy(mcpRepository({ remote: true }), {
-      tools: emptyToolRepository(),
-      liveToolRules: ['mcp__github__create_issue'],
+      tools: toolRepository(),
       lookupHostname: vi.fn(async () => [
         { address: '93.184.216.34', family: 4 as const },
       ]),
@@ -1459,8 +1494,7 @@ describe('McpToolProxy', () => {
           }),
       );
     const proxy = new McpToolProxy(mcpRepository({ remote: true }), {
-      tools: emptyToolRepository(),
-      liveToolRules: ['mcp__github__create_issue'],
+      tools: toolRepository(),
       lookupHostname: vi.fn(async () => [
         { address: '93.184.216.34', family: 4 as const },
       ]),
@@ -1499,8 +1533,7 @@ describe('McpToolProxy', () => {
     const publishRuntimeEvent = vi.fn(async () => undefined);
     const appendAuditEvent = vi.fn(async () => undefined);
     const proxy = new McpToolProxy(mcpRepository({ appendAuditEvent }), {
-      tools: emptyToolRepository(),
-      liveToolRules: ['mcp__github__create_issue'],
+      tools: toolRepository(),
       publishRuntimeEvent,
       runHandle: 'run-stdio',
     });
@@ -1559,8 +1592,7 @@ describe('McpToolProxy', () => {
     const proxy = new McpToolProxy(
       mcpRepository({ remote: true, appendAuditEvent }),
       {
-        tools: emptyToolRepository(),
-        liveToolRules: ['mcp__github__create_issue'],
+        tools: toolRepository(),
         lookupHostname: vi.fn(async () => [
           { address: '93.184.216.34', family: 4 as const },
         ]),
@@ -1595,8 +1627,7 @@ describe('McpToolProxy', () => {
     vi.useFakeTimers();
     mockCreateIssueToolDetail();
     const proxy = new McpToolProxy(mcpRepository({ remote: true }), {
-      tools: emptyToolRepository(),
-      liveToolRules: ['mcp__github__create_issue'],
+      tools: toolRepository(),
       lookupHostname: vi.fn(async () => [
         { address: '93.184.216.34', family: 4 as const },
       ]),
@@ -1628,8 +1659,7 @@ describe('McpToolProxy', () => {
     vi.useFakeTimers();
     mockCreateIssueToolDetail();
     const proxy = new McpToolProxy(mcpRepository({ remote: true }), {
-      tools: emptyToolRepository(),
-      liveToolRules: ['mcp__github__create_issue'],
+      tools: toolRepository(),
       lookupHostname: vi.fn(async () => [
         { address: '93.184.216.34', family: 4 as const },
       ]),
@@ -1670,8 +1700,7 @@ describe('McpToolProxy', () => {
     const proxy = new McpToolProxy(
       mcpRepository({ remote: true, appendAuditEvent }),
       {
-        tools: emptyToolRepository(),
-        liveToolRules: ['mcp__github__create_issue'],
+        tools: toolRepository(),
         lookupHostname: vi.fn(async () => [
           { address: '93.184.216.34', family: 4 as const },
         ]),
@@ -1716,8 +1745,7 @@ describe('McpToolProxy', () => {
     const proxy = new McpToolProxy(
       mcpRepository({ remote: true, appendAuditEvent }),
       {
-        tools: emptyToolRepository(),
-        liveToolRules: ['mcp__github__create_issue'],
+        tools: toolRepository(),
         lookupHostname: vi.fn(async () => [
           { address: '93.184.216.34', family: 4 as const },
         ]),
@@ -1775,8 +1803,7 @@ describe('McpToolProxy', () => {
       new Error('upstream token=secret-value failure'),
     );
     const failedProxy = new McpToolProxy(mcpRepository({ remote: true }), {
-      tools: emptyToolRepository(),
-      liveToolRules: ['mcp__github__create_issue'],
+      tools: toolRepository(),
       lookupHostname: vi.fn(async () => [
         { address: '93.184.216.34', family: 4 as const },
       ]),
@@ -1827,8 +1854,7 @@ describe('McpToolProxy', () => {
     const proxy = new McpToolProxy(
       mcpRepository({ remote: true, appendAuditEvent }),
       {
-        tools: emptyToolRepository(),
-        liveToolRules: ['mcp__github__create_issue'],
+        tools: toolRepository(),
         lookupHostname: vi.fn(async () => [
           { address: '93.184.216.34', family: 4 as const },
         ]),
@@ -1880,8 +1906,7 @@ describe('McpToolProxy', () => {
     const proxy = new McpToolProxy(
       mcpRepository({ remote: true, appendAuditEvent }),
       {
-        tools: emptyToolRepository(),
-        liveToolRules: ['mcp__github__create_issue'],
+        tools: toolRepository(),
         lookupHostname: vi.fn(async () => [
           { address: '93.184.216.34', family: 4 as const },
         ]),
@@ -1936,8 +1961,7 @@ describe('McpToolProxy', () => {
     const proxy = new McpToolProxy(
       mcpRepository({ remote: true, appendAuditEvent }),
       {
-        tools: emptyToolRepository(),
-        liveToolRules: ['mcp__github__create_issue'],
+        tools: toolRepository(),
         lookupHostname: vi.fn(async () => [
           { address: '93.184.216.34', family: 4 as const },
         ]),
@@ -1996,8 +2020,7 @@ describe('McpToolProxy', () => {
     const proxy = new McpToolProxy(
       mcpRepository({ remote: true, appendAuditEvent }),
       {
-        tools: emptyToolRepository(),
-        liveToolRules: ['mcp__github__create_issue'],
+        tools: toolRepository(),
         lookupHostname: vi.fn(async () => [
           { address: '93.184.216.34', family: 4 as const },
         ]),
@@ -2050,8 +2073,7 @@ describe('McpToolProxy', () => {
     const proxy = new McpToolProxy(
       mcpRepository({ remote: true, appendAuditEvent }),
       {
-        tools: emptyToolRepository(),
-        liveToolRules: ['mcp__github__create_issue'],
+        tools: toolRepository(),
         lookupHostname: vi.fn(async () => [
           { address: '93.184.216.34', family: 4 as const },
         ]),
@@ -2103,8 +2125,7 @@ describe('McpToolProxy', () => {
     const proxy = new McpToolProxy(
       mcpRepository({ remote: true, appendAuditEvent }),
       {
-        tools: emptyToolRepository(),
-        liveToolRules: ['mcp__github__create_issue'],
+        tools: toolRepository(),
         lookupHostname: vi.fn(async () => [
           { address: '93.184.216.34', family: 4 as const },
         ]),
@@ -2151,6 +2172,26 @@ describe('McpToolProxy', () => {
       }),
     ).rejects.toThrow(
       'MCP tool is not approved for this agent: mcp__github__create_issue',
+    );
+  });
+
+  it('intersects reviewed MCP patterns with the per-agent source tool scope', async () => {
+    const proxy = new McpToolProxy(
+      mcpRepository({ bindingAllowedToolPatterns: ['read_*'] }),
+      {
+        tools: patternToolRepository(),
+      },
+    );
+
+    await expect(
+      proxy.callTool({
+        appId: 'app-one' as never,
+        agentId: 'agent-one' as never,
+        serverName: 'github',
+        toolName: 'search_delete',
+      }),
+    ).rejects.toThrow(
+      'MCP tool is not approved for this agent: mcp__github__search_delete',
     );
   });
 
@@ -2326,7 +2367,11 @@ function toolRepository() {
       cannot: 'Call unrelated GitHub MCP tools.',
       credentialSource: 'none',
       implementationBindings: [
-        { kind: 'mcp_tool', mcpTool: 'mcp__github__create_issue' },
+        {
+          kind: 'mcp_pattern',
+          mcpServer: 'github',
+          mcpToolPatterns: ['create_issue'],
+        },
       ],
     }),
     createdAt: new Date(0).toISOString(),

@@ -22,24 +22,13 @@ export function isReviewedMcpToolAllowed(
   const fullToolName = toolName.startsWith('mcp__')
     ? toolName
     : `mcp__${capability.name}__${toolName}`;
-  if (capability.reviewedToolNames.includes(fullToolName)) return true;
-  return (capability.reviewedToolPatterns ?? []).some(
-    (pattern) =>
-      pattern.endsWith('*') && fullToolName.startsWith(pattern.slice(0, -1)),
-  );
-}
-
-export function exactExternalMcpToolNames(
-  rules: readonly string[] | undefined,
-): string[] {
-  const out = new Set<string>();
-  for (const rule of rules ?? []) {
-    const trimmed = rule.trim();
-    if (/^mcp__(?!gantry__)[A-Za-z0-9_-]+__[A-Za-z0-9_.-]+$/.test(trimmed)) {
-      out.add(trimmed);
-    }
+  if (!reviewedToolNameAllowedBySourceScope(capability, fullToolName)) {
+    return false;
   }
-  return [...out];
+  if (capability.reviewedToolNames.includes(fullToolName)) return true;
+  return (capability.reviewedToolPatterns ?? []).some((pattern) =>
+    mcpToolPatternCovers(pattern, fullToolName),
+  );
 }
 
 export function reviewedToolNameAllowedBySourceScope(

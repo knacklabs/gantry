@@ -127,7 +127,11 @@ function laneInput() {
           cannot: 'Mutate CRM records.',
           credentialSource: 'none',
           implementationBindings: [
-            { kind: 'mcp_tool', mcpTool: 'mcp__crm__read' },
+            {
+              kind: 'mcp_pattern',
+              mcpServer: 'crm',
+              mcpToolPatterns: ['read'],
+            },
           ],
         },
       ],

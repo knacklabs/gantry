@@ -101,12 +101,13 @@ function parseConfiguredAgentSourceRef(
     if (
       key !== 'name' &&
       key !== 'id' &&
+      key !== 'status' &&
       key !== 'version' &&
       key !== 'kind' &&
       key !== 'tools'
     ) {
       throw new Error(
-        `${pathPrefix}.${key} is not supported. Configure name, id, version, or kind.`,
+        `${pathPrefix}.${key} is not supported. Configure name, id, status, version, or kind.`,
       );
     }
     if (key === 'version' && !allowVersion) {
@@ -125,6 +126,13 @@ function parseConfiguredAgentSourceRef(
   };
   if (map.name !== undefined) {
     source.name = parseStringValue(map.name, `${pathPrefix}.name`);
+  }
+  if (map.status !== undefined) {
+    const status = parseStringValue(map.status, `${pathPrefix}.status`);
+    if (status !== 'active' && status !== 'disabled') {
+      throw new Error(`${pathPrefix}.status must be active or disabled`);
+    }
+    source.status = status;
   }
   if (map.version !== undefined || options.requireVersion) {
     source.version = parseVersionValue(map.version, `${pathPrefix}.version`);

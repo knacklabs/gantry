@@ -46,6 +46,33 @@ function patternToolRepository() {
   } as never;
 }
 
+function legacyExactToolRepository() {
+  const tool = {
+    id: 'tool:github-search-read',
+    appId: 'app-one',
+    name: 'capability:github.search.read',
+    inputSchema: semanticCapabilityInputSchema({
+      capabilityId: 'github.search.read',
+      displayName: 'GitHub search read',
+      category: 'mcp',
+      risk: 'read',
+      can: 'Search GitHub repositories.',
+      cannot: 'Mutate GitHub state.',
+      credentialSource: 'none',
+      implementationBindings: [
+        {
+          kind: 'mcp_tool',
+          mcpTool: 'mcp__github__search_repositories',
+        },
+      ],
+    }),
+  };
+  return {
+    listAgentToolBindings: async () => [{ status: 'active', toolId: tool.id }],
+    getTool: async () => tool,
+  } as never;
+}
+
 describe('reviewed MCP pattern projection', () => {
   it('projects pattern rules and mcp_server runtime access from the selected capability', async () => {
     const policy = await resolveAgentToolRuntimePolicy({
@@ -106,5 +133,16 @@ describe('reviewed MCP pattern projection', () => {
         allowProjectedThirdPartyMcpTools: true,
       }),
     ).toThrow();
+  });
+
+  it('rejects legacy exact MCP bindings instead of projecting action authority', async () => {
+    await expect(
+      resolveAgentToolRuntimePolicy({
+        repository: legacyExactToolRepository(),
+        appId: 'app-one',
+        agentId: 'agent-one',
+        errorSubject: 'Configured agent tool',
+      }),
+    ).rejects.toThrow(/reviewed capability definition/);
   });
 });

@@ -171,7 +171,7 @@ export function formatMcpSearchToolsResponse(
     : [];
   if (deferredServers.length > 0) {
     lines.push(
-      `Deferred inventories: ${deferredServers.join(', ')}. Call mcp_list_tools with serverName for a live refresh of one server.`,
+      `Partial results: could not refresh MCP inventories for ${deferredServers.join(', ')}.`,
     );
   }
   if (matches.length === 0) {
@@ -424,7 +424,7 @@ export function formatSkillProposalResponse(
       const visibleContent =
         contentBytes <= remainingBytes
           ? file.content
-          : file.content.slice(0, remainingBytes);
+          : utf8PrefixWithinBytes(file.content, remainingBytes);
       const visibleBytes = Buffer.byteLength(visibleContent, 'utf-8');
       remainingBytes -= visibleBytes;
       inlinedBytes += visibleBytes;
@@ -490,6 +490,15 @@ export function formatSkillProposalResponse(
     ...fileLines,
   ].filter((line): line is string => line !== undefined);
   return lines.join('\n');
+}
+
+function utf8PrefixWithinBytes(content: string, maxBytes: number): string {
+  if (maxBytes <= 0) return '';
+  const bytes = Buffer.from(content, 'utf-8');
+  if (bytes.byteLength <= maxBytes) return content;
+  return new TextDecoder().decode(bytes.subarray(0, maxBytes), {
+    stream: true,
+  });
 }
 
 type InstalledSkillContextEntry = {

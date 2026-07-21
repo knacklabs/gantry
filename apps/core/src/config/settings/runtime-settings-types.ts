@@ -158,6 +158,7 @@ export interface RuntimeConfiguredBinding {
 export interface RuntimeConfiguredAgentSourceRef {
   name?: string;
   id: string;
+  status?: 'active' | 'disabled';
   version?: string;
   kind?: 'builtin' | 'skill' | 'mcp' | 'adapter' | 'local_cli';
   // Per-agent MCP operation scope (subset of the server's reviewed tool

@@ -342,6 +342,9 @@ function renderAgentSourceListYaml(
     } else {
       lines.push(`          - id: ${quoteYamlString(source.id)}`);
     }
+    if (source.status !== undefined) {
+      lines.push(`            status: ${source.status}`);
+    }
     if (source.version !== undefined) {
       lines.push(`            version: ${quoteYamlString(source.version)}`);
     }

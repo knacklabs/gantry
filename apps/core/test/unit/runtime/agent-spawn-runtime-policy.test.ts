@@ -29,6 +29,20 @@ function reviewedGithubRuntimeAccess(): CapabilityRuntimeAccess[] {
   ];
 }
 
+function reviewedGithubPatternRuntimeAccess(): CapabilityRuntimeAccess[] {
+  return [
+    {
+      selectedCapabilityId: 'github.search.read',
+      sourceType: 'mcp_server',
+      auditLabel: 'GitHub search read',
+      reviewedServerId: 'github',
+      allowedTools: ['mcp__github__search_*'],
+      credentialRefs: [],
+      networkHosts: [],
+    },
+  ];
+}
+
 function githubMcpRecord(
   transport: 'stdio_template' | 'http' = 'stdio_template',
 ): MaterializedMcpServer {
@@ -160,6 +174,48 @@ describe('agent spawn runtime policy', () => {
         'mcp__github__search_repositories',
       ],
       projectedMcpSourceIds: ['mcp:github'],
+    });
+  });
+
+  it('projects pattern-only MCP authority on the next Anthropic SDK spawn', () => {
+    const projection = resolveRunnerMcpProjection(DEFAULT_AGENT_ENGINE, {
+      runtimeAccess: reviewedGithubPatternRuntimeAccess(),
+      mcpSourceRecords: [githubMcpRecord()],
+    });
+
+    expect(projection).toEqual({
+      reviewedMcpToolNames: ['mcp__github__search_*'],
+      projectedMcpSourceIds: ['mcp:github'],
+    });
+  });
+
+  it('projects only the intersection of capability patterns and source scope', () => {
+    const record = githubMcpRecord();
+    record.binding.allowedToolPatterns = ['search_repositories'];
+
+    const projection = resolveRunnerMcpProjection(DEFAULT_AGENT_ENGINE, {
+      runtimeAccess: reviewedGithubPatternRuntimeAccess(),
+      mcpSourceRecords: [record],
+    });
+
+    expect(projection).toEqual({
+      reviewedMcpToolNames: ['mcp__github__search_repositories'],
+      projectedMcpSourceIds: ['mcp:github'],
+    });
+  });
+
+  it('does not project a pattern authority outside the source scope', () => {
+    const record = githubMcpRecord();
+    record.binding.allowedToolPatterns = ['read_*'];
+
+    const projection = resolveRunnerMcpProjection(DEFAULT_AGENT_ENGINE, {
+      runtimeAccess: reviewedGithubPatternRuntimeAccess(),
+      mcpSourceRecords: [record],
+    });
+
+    expect(projection).toEqual({
+      reviewedMcpToolNames: [],
+      projectedMcpSourceIds: [],
     });
   });
 

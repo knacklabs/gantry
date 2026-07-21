@@ -218,25 +218,31 @@ export class SkillService {
   // materialized directory collides with a DIFFERENT skill currently enabled
   // for the agent would pass install but fail the next spawn's projection.
   // Returns an honest failure reason, or null when the install is safe (a
-  // same-key enabled skill with the same catalog id is an in-place
-  // replacement, not a collision).
+  // same catalog id, or the exact package name when no id exists yet, is an
+  // in-place replacement rather than a same-directory collision).
   async installMaterializationCollisionForAgent(input: {
     appId: AppId;
     agentId: AgentId;
     name: string;
+    skillId?: SkillId;
   }): Promise<string | null> {
     const key = skillMaterializationKeyForName(input.name);
-    const replacement = await this.findExistingSkillByMaterializationKey({
-      appId: input.appId,
-      name: input.name,
-    });
+    const replacementSkillId =
+      input.skillId ??
+      (
+        await this.skills.listSkills({
+          appId: input.appId,
+          statuses: ['installed'],
+        })
+      ).find((skill) => skill.name === input.name)?.id;
     const enabledSkills = await this.skills.listEnabledSkillsForAgent({
       appId: input.appId,
       agentId: input.agentId,
     });
     const colliding = enabledSkills.find(
       (skill) =>
-        skillMaterializationKey(skill) === key && skill.id !== replacement?.id,
+        skillMaterializationKey(skill) === key &&
+        skill.id !== replacementSkillId,
     );
     if (!colliding) return null;
     return `Skill "${input.name}" cannot be installed: it materializes to the same runtime directory "${key}" as the currently selected skill ${colliding.name} (${colliding.id}). Rename the skill or unselect the colliding skill first.`;

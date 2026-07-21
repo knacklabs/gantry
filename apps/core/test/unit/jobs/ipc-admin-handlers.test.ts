@@ -219,6 +219,65 @@ describe('admin IPC handlers', () => {
     expect(requestPermissionApproval).not.toHaveBeenCalled();
   });
 
+  it('routes denied MCP reviews through the originating provider account', async () => {
+    const runtimeHome = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'gantry-admin-ipc-'),
+    );
+    runtimeHomes.push(runtimeHome);
+    const { adminTaskHandlers, taskData } =
+      await loadAdminHandlers(runtimeHome);
+    const requestPermissionApproval = vi.fn(async () => ({
+      approved: false,
+      reason: 'not today',
+    }));
+    const sendMessage = vi.fn(async () => undefined);
+
+    await adminTaskHandlers.request_mcp_server({
+      data: taskData(
+        'mcp-provider-account',
+        {
+          type: 'request_mcp_server',
+          chatJid: 'sl:C123',
+          targetJid: 'sl:C123',
+          providerAccountId: 'slack_secondary',
+          payload: {
+            name: 'github',
+            transport: 'stdio_template',
+            templateId: 'npx-package',
+            sandboxProfileId: 'mcp-stdio',
+            args: ['@modelcontextprotocol/server-github'],
+            reason: 'Use the GitHub MCP source.',
+          },
+        },
+        '171234.567',
+      ) as never,
+      sourceAgentFolder: 'main_agent',
+      deps: depsWithAdminTools([], {
+        requestPermissionApproval,
+        sendMessage,
+      }) as never,
+      conversationBindings: {},
+      sourceAgentFolderJids: ['sl:C123'],
+    });
+
+    await vi.waitFor(() => expect(sendMessage).toHaveBeenCalledTimes(1));
+    expect(requestPermissionApproval).toHaveBeenCalledWith(
+      expect.objectContaining({
+        targetJid: 'sl:C123',
+        threadId: '171234.567',
+        providerAccountId: 'slack_secondary',
+      }),
+    );
+    expect(sendMessage).toHaveBeenCalledWith(
+      'sl:C123',
+      expect.stringContaining('github'),
+      {
+        threadId: '171234.567',
+        providerAccountId: 'slack_secondary',
+      },
+    );
+  });
+
   it('rejects direct request_permission semantic capability requests outside request_access', async () => {
     const runtimeHome = fs.mkdtempSync(
       path.join(os.tmpdir(), 'gantry-admin-ipc-'),

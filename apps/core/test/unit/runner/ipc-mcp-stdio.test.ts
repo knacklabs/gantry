@@ -631,7 +631,13 @@ function cawAtsMcpCapability(mcpTool: string): Record<string, unknown> {
     can: 'Call approved tools on the caw-ats MCP server.',
     cannot: 'Call unapproved MCP tools or receive raw credentials.',
     credentialSource: 'none',
-    implementationBindings: [{ kind: 'mcp_tool', mcpTool }],
+    implementationBindings: [
+      {
+        kind: 'mcp_pattern',
+        mcpServer: 'caw-ats',
+        mcpToolPatterns: [allowedToolPattern],
+      },
+    ],
     source: {
       source: 'mcp',
       serverName: 'caw-ats',

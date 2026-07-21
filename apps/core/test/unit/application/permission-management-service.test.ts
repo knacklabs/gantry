@@ -131,8 +131,9 @@ function mcpCapability(
     credentialSource: 'none',
     implementationBindings: [
       {
-        kind: 'mcp_tool',
-        mcpTool: `mcp__caw-ats__${toolName}`,
+        kind: 'mcp_pattern',
+        mcpServer: 'caw-ats',
+        mcpToolPatterns: [toolName],
       },
     ],
     preflight: { kind: 'none' },

@@ -81,6 +81,7 @@ export {
 } from './mcp-tool-proxy-network.js';
 
 const MCP_PROXY_TIMEOUT_MS = 60_000;
+const MCP_INVENTORY_SEARCH_CONCURRENCY = 4;
 
 interface McpToolCallInput {
   appId: AppId;
@@ -151,7 +152,9 @@ export class McpToolProxy {
       (capability) => !input.serverName || capability.name === input.serverName,
     );
     const shouldFetchUncached =
-      Boolean(input.serverName) || matchingCapabilities.length <= 1;
+      Boolean(input.serverName) ||
+      Boolean(input.query?.trim()) ||
+      matchingCapabilities.length <= 1;
     const connectedServerNames: string[] = [];
     const allowedToolCountByServer = new Map<string, number>();
     const diagnostics: McpToolListDiagnostics = {
@@ -172,21 +175,70 @@ export class McpToolProxy {
       serverName: string;
       tool: ListedMcpTool;
     }> = [];
+    const inventories = new Map<string, CachedMcpInventory>();
+    const uncachedCapabilities: ReviewedMaterializedMcpCapability[] = [];
     const deferredServers: string[] = [];
     for (const capability of matchingCapabilities) {
       connectedServerNames.push(capability.name);
-      let inventory = readCachedMcpInventory(input, capability);
+      const inventory = readCachedMcpInventory(input, capability);
       if (inventory) {
         diagnostics.inventoryCacheHits += 1;
+        inventories.set(capability.name, inventory);
       } else {
         diagnostics.inventoryCacheMisses += 1;
         if (shouldFetchUncached) {
-          diagnostics.liveListCalls += 1;
-          const fetchStartedAt = Date.now();
-          inventory = await this.fetchAndCacheInventory(input, capability);
-          diagnostics.liveListMs += Math.max(0, Date.now() - fetchStartedAt);
+          uncachedCapabilities.push(capability);
         }
       }
+    }
+    diagnostics.liveListCalls = uncachedCapabilities.length;
+    for (
+      let offset = 0;
+      offset < uncachedCapabilities.length;
+      offset += MCP_INVENTORY_SEARCH_CONCURRENCY
+    ) {
+      const fetched = await Promise.all(
+        uncachedCapabilities
+          .slice(offset, offset + MCP_INVENTORY_SEARCH_CONCURRENCY)
+          .map(async (capability) => {
+            const controller = new AbortController();
+            const fetchStartedAt = Date.now();
+            let timeout: ReturnType<typeof setTimeout> | undefined;
+            try {
+              const inventory = await Promise.race([
+                this.fetchAndCacheInventory(
+                  input,
+                  capability,
+                  controller.signal,
+                ),
+                new Promise<never>((_, reject) => {
+                  timeout = setTimeout(() => {
+                    controller.abort();
+                    reject(new Error('MCP inventory fetch timed out.'));
+                  }, MCP_PROXY_TIMEOUT_MS);
+                  timeout.unref?.();
+                }),
+              ]);
+              return { capability, inventory };
+            } catch {
+              return { capability };
+            } finally {
+              if (timeout) clearTimeout(timeout);
+              diagnostics.liveListMs += Math.max(
+                0,
+                Date.now() - fetchStartedAt,
+              );
+            }
+          }),
+      );
+      for (const result of fetched) {
+        if (result.inventory) {
+          inventories.set(result.capability.name, result.inventory);
+        }
+      }
+    }
+    for (const capability of matchingCapabilities) {
+      const inventory = inventories.get(capability.name);
       if (!inventory) {
         deferredServers.push(capability.name);
         continue;
@@ -492,13 +544,17 @@ export class McpToolProxy {
       agentId: AgentId;
     },
     capability: ReviewedMaterializedMcpCapability,
+    signal?: AbortSignal,
   ): Promise<CachedMcpInventory> {
     const client = await this.connect(capability);
     try {
+      signal?.throwIfAborted();
       const tools = await fetchMcpToolListPages({
         client,
         timeoutMs: MCP_PROXY_TIMEOUT_MS,
+        ...(signal ? { signal } : {}),
       });
+      signal?.throwIfAborted();
       const listedTools: ListedMcpTool[] = [];
       let totalAllowed = 0;
       for (const tool of tools.tools) {

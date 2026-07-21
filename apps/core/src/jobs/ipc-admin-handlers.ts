@@ -273,6 +273,7 @@ const requestMcpServerHandler: TaskHandler = async (context) => {
       sourceAgentFolder,
       targetJid: requestedTargetJid,
       threadId: data.authThreadId,
+      providerAccountId: data.providerAccountId,
       server: { name },
       transport,
       sandboxProfileId,
@@ -701,7 +702,7 @@ function hasAgentSuppliedCapabilityDefinition(
   );
 }
 // prettier-ignore
-function startMcpPermissionReview(input: { deps: Parameters<TaskHandler>[0]['deps']; responder: Pick<ReturnType<typeof createTaskResponder>, 'acceptData' | 'reject'>; service: McpServerService; appId: import('../domain/app/app.js').AppId; agentId: import('../domain/agent/agent.js').AgentId; sourceAgentFolder: string; targetJid: string; threadId?: string; server: { name: string }; transport: string; sandboxProfileId?: string; transportConfig: import('../domain/mcp/mcp-servers.js').McpServerTransportConfig; origin: string; requestedToolPatterns: string[]; credentialRefs: import('../domain/mcp/mcp-servers.js').McpCredentialRef[]; credentialNeeds: string[]; networkHosts: string[]; reason: string }): void {
+function startMcpPermissionReview(input: { deps: Parameters<TaskHandler>[0]['deps']; responder: Pick<ReturnType<typeof createTaskResponder>, 'acceptData' | 'reject'>; service: McpServerService; appId: import('../domain/app/app.js').AppId; agentId: import('../domain/agent/agent.js').AgentId; sourceAgentFolder: string; targetJid: string; threadId?: string; providerAccountId?: string; server: { name: string }; transport: string; sandboxProfileId?: string; transportConfig: import('../domain/mcp/mcp-servers.js').McpServerTransportConfig; origin: string; requestedToolPatterns: string[]; credentialRefs: import('../domain/mcp/mcp-servers.js').McpCredentialRef[]; credentialNeeds: string[]; networkHosts: string[]; reason: string }): void {
   void completeMcpPermissionReview(input).catch((err) => {
     logger.error(
       { err, serverName: input.server.name, sourceAgentFolder: input.sourceAgentFolder },
@@ -723,6 +724,7 @@ async function completeMcpPermissionReview(
     sourceAgentFolder: input.sourceAgentFolder,
     targetJid: input.targetJid,
     threadId: input.threadId,
+    providerAccountId: input.providerAccountId,
     decisionPolicy: 'same_channel',
     decisionOptions: ['allow_once', 'cancel'],
     toolName: 'request_mcp_server',
@@ -801,7 +803,7 @@ async function completeMcpPermissionReview(
   await input.deps.sendMessage(
     input.targetJid,
     `Connected MCP source ${input.server.name}. Review a capability before using durable MCP actions.`,
-    input.threadId ? { threadId: input.threadId } : undefined,
+    mcpReviewMessageOptions(input),
   );
   input.responder.acceptData(
     `Connected MCP source ${input.server.name}. Review a capability before using durable MCP actions.`,
@@ -822,9 +824,21 @@ async function rejectMcpRequestFromPermission(
   await input.deps.sendMessage(
     input.targetJid,
     message,
-    input.threadId ? { threadId: input.threadId } : undefined,
+    mcpReviewMessageOptions(input),
   );
   input.responder.reject(message, 'permission_denied');
+}
+function mcpReviewMessageOptions(
+  input: Parameters<typeof startMcpPermissionReview>[0],
+) {
+  return input.threadId || input.providerAccountId
+    ? {
+        ...(input.threadId ? { threadId: input.threadId } : {}),
+        ...(input.providerAccountId
+          ? { providerAccountId: input.providerAccountId }
+          : {}),
+      }
+    : undefined;
 }
 async function createMcpProxyForSourceGroup(input: {
   appId: import('../domain/app/app.js').AppId;

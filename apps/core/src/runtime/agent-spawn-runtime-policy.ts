@@ -13,7 +13,7 @@ import {
 import { DEEPAGENTS_ENGINE, type AgentEngine } from '../shared/agent-engine.js';
 import { listExecutableModelProviders } from '../shared/model-provider-registry.js';
 import {
-  filterMcpToolNamesBySourceScopes,
+  intersectMcpToolRulesWithSourceScopes,
   reviewedMcpToolPatterns,
 } from '../shared/mcp-tool-scope.js';
 
@@ -272,12 +272,11 @@ export function resolveRunnerMcpProjection(
           : reviewedMcpToolPatterns(definition),
     }),
   );
-  const sourceScopedReviewedMcpToolNames = filterMcpToolNamesBySourceScopes(
-    reviewedExternalMcpToolNamesFromRuntimeAccess(input.runtimeAccess, {
-      serverNames: mcpSourceScopes.map((scope) => scope.name),
-    }),
-    mcpSourceScopes,
-  );
+  const sourceScopedReviewedMcpToolNames =
+    intersectMcpToolRulesWithSourceScopes(
+      reviewedExternalMcpToolPatternsFromRuntimeAccess(input.runtimeAccess),
+      mcpSourceScopes,
+    );
   const reviewedMcpServerNames = new Set(
     sourceScopedReviewedMcpToolNames.flatMap((toolName) => {
       const match = /^mcp__([A-Za-z0-9_-]+)__/.exec(toolName.trim());
