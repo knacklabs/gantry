@@ -293,6 +293,21 @@ export class GantryModelGatewayBroker implements AgentCredentialBroker {
     this.listenPromise ??= new Promise<void>((resolve, reject) => {
       const server = http.createServer((req, res) => {
         void this.handleRequest(req, res).catch((error) => {
+          if (
+            !(error instanceof GatewayRequestBodyTooLargeError) &&
+            !(error instanceof GatewayBadRequestError)
+          ) {
+            logger.error(
+              {
+                err: error,
+                method: req.method,
+                path: req.url?.split('?')[0],
+                clientAborted: req.aborted,
+                responseHeadersSent: res.headersSent,
+              },
+              'Gantry Model Gateway request failed',
+            );
+          }
           if (!res.headersSent) {
             res.statusCode =
               error instanceof GatewayRequestBodyTooLargeError

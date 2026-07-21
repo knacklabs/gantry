@@ -9,6 +9,7 @@ import {
   closeEgressGatewaysForTest,
   ensureEgressGateway,
 } from '@core/runtime/egress-gateway.js';
+import { requestDirect } from '@core/runtime/egress-gateway-proxying.js';
 import { SANDBOX_RUNTIME_MODEL_GATEWAY_HOST } from '@core/runtime/agent-spawn-runtime-policy.js';
 
 beforeEach(() => {
@@ -23,6 +24,40 @@ afterEach(async () => {
 });
 
 describe('egress gateway', () => {
+  it('does not leave the connect deadline on an established HTTP stream', async () => {
+    const target = await startTargetServer(50);
+    try {
+      const upstream = requestDirect(
+        { headers: {}, method: 'GET' } as http.IncomingMessage,
+        new URL(`http://127.0.0.1:${target.port}/slow-response`),
+      );
+      const socketTimeout = new Promise<number>((resolve) => {
+        upstream.once('socket', (socket) => {
+          const observe = () => resolve(socket.timeout);
+          if (socket.connecting) socket.once('connect', observe);
+          else observe();
+        });
+      });
+      const response = new Promise<string>((resolve, reject) => {
+        upstream.once('response', (res) => {
+          const chunks: Buffer[] = [];
+          res.on('data', (chunk) => chunks.push(Buffer.from(chunk)));
+          res.once('end', () =>
+            resolve(Buffer.concat(chunks).toString('utf-8')),
+          );
+        });
+        upstream.once('error', reject);
+      });
+
+      upstream.end();
+
+      await expect(socketTimeout).resolves.toBe(0);
+      await expect(response).resolves.toBe('ok');
+    } finally {
+      await target.close();
+    }
+  });
+
   it('blocks private CONNECT targets by default and audits the decision', async () => {
     const target = await startTargetServer();
     const publishRuntimeEvent = vi.fn();
@@ -504,12 +539,12 @@ describe('egress gateway', () => {
   });
 });
 
-async function startTargetServer(): Promise<{
+async function startTargetServer(responseDelayMs = 0): Promise<{
   port: number;
   close: () => Promise<void>;
 }> {
   const server = http.createServer((_req, res) => {
-    res.end('ok');
+    setTimeout(() => res.end('ok'), responseDelayMs);
   });
   await new Promise<void>((resolve) => {
     server.listen(0, '127.0.0.1', () => resolve());

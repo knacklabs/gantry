@@ -23,6 +23,10 @@
   failures. Every accepted client, direct upstream, and upstream-proxy socket
   must have an error listener before piping so routine `ECONNRESET` events do
   not escape as uncaught exceptions and trigger launchd restarts.
+- Egress HTTP connection deadlines apply only until the upstream socket
+  connects. Clear socket timeouts after connection so long-running model and
+  tool response streams remain bounded by their owning run deadline instead of
+  an unrelated transport-idle timeout.
 - Thread/topic ids on live permission prompts are routing scope. Persisted
   `Always allow` grants and selected capability runtime projection must use the
   parent conversation identity. Thread/topic ids may choose approval delivery

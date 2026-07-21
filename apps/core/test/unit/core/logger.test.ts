@@ -83,6 +83,29 @@ describe('logger', () => {
     });
   });
 
+  it('preserves error codes and causes while redacting them', () => {
+    const records: LogRecord[] = [];
+    const cause = Object.assign(new Error('socket failed for sk-ant-secret'), {
+      code: 'ECONNRESET',
+    });
+    const error = new Error('fetch failed', { cause });
+    const l = createLogger({
+      sink: { write: (record) => records.push(record) },
+    });
+
+    l.error({ err: error }, 'gateway failure');
+
+    expect(records[0]?.context?.err).toMatchObject({
+      type: 'Error',
+      message: 'fetch failed',
+      cause: {
+        type: 'Error',
+        message: 'socket failed for [REDACTED]',
+        code: 'ECONNRESET',
+      },
+    });
+  });
+
   it('keeps base and child context for string-only log calls', () => {
     const records: LogRecord[] = [];
     const l = createLogger({

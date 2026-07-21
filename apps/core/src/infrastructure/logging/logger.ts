@@ -108,10 +108,23 @@ const SECRET_VALUE_PATTERNS: RegExp[] = [
 ];
 const LOGGER_HANDLER_MARK = Symbol.for('gantry.logger.handler');
 
-function sanitizeError(err: Error): Record<string, unknown> {
+function sanitizeError(err: Error, depth = 0): Record<string, unknown> {
+  const code = 'code' in err ? err.code : undefined;
+  const cause = 'cause' in err ? err.cause : undefined;
   return {
     type: err.constructor.name,
     message: redactString(err.message),
+    ...(typeof code === 'string' || typeof code === 'number' ? { code } : {}),
+    ...(cause !== undefined
+      ? {
+          cause:
+            depth >= 3
+              ? '[TRUNCATED_DEPTH]'
+              : cause instanceof Error
+                ? sanitizeError(cause, depth + 1)
+                : redactValue(cause, depth + 1),
+        }
+      : {}),
     stack: err.stack ? redactString(err.stack) : undefined,
   };
 }
