@@ -27,11 +27,7 @@ import path from 'node:path';
 
 import { afterAll, describe, expect, it } from 'vitest';
 
-import {
-  AgentE2EApiClient,
-  TERMINAL_RUN_EVENT_TYPES,
-  type SessionEvent,
-} from '../harness/api-client.js';
+import { AgentE2EApiClient, type SessionEvent } from '../harness/api-client.js';
 import {
   redactText,
   startEvidenceRun,
@@ -140,34 +136,10 @@ maybeDescribe('agent-e2e haiku turn (real model, behavioral)', () => {
         // Claude Code OAuth token; each maps to a different credential mode
         // (x-api-key vs Authorization: Bearer at the gateway). Seeding an
         // OAuth token as api_key yields an upstream 401 retry-loop zombie.
+        // All real model traffic flows through the agent path (gateway ->
+        // Claude Code); the test never calls the provider API directly. A bad
+        // credential surfaces as error_status=401 in the failure log dump.
         const isOauthToken = !(apiKey as string).startsWith('sk-ant-api');
-        if (!isOauthToken) {
-          // Fail fast on a bad fixture key: Claude Code retries 401s ~10
-          // times with minutes of backoff, so an invalid secret otherwise
-          // presents as a 150s no-terminal-event zombie.
-          const keyProbe = await fetch(
-            'https://api.anthropic.com/v1/messages/count_tokens',
-            {
-              method: 'POST',
-              headers: {
-                'x-api-key': apiKey as string,
-                'anthropic-version': '2023-06-01',
-                'content-type': 'application/json',
-              },
-              body: JSON.stringify({
-                model: 'claude-haiku-4-5-20251001',
-                messages: [{ role: 'user', content: 'ping' }],
-              }),
-            },
-          );
-          if (keyProbe.status === 401 || keyProbe.status === 403) {
-            throw new Error(
-              `E2E_ANTHROPIC_API_KEY was rejected by the Anthropic API ` +
-                `(HTTP ${keyProbe.status}). Replace the repository secret ` +
-                `with a valid Anthropic API key (sk-ant-api...).`,
-            );
-          }
-        }
         const seeded = await api.request<{ status: string }>(
           'PUT',
           '/v1/credentials/models/anthropic',
@@ -243,32 +215,12 @@ maybeDescribe('agent-e2e haiku turn (real model, behavioral)', () => {
 
         // Live sessions deliberately keep the run OPEN after replying (the
         // persistent SDK session waits for follow-ups; run.completed lands
-        // only after the live idle window). The behavioral completion signal
-        // is the durable outbound reply — a run FAILURE event before it is
-        // still fatal.
-        const { match: outbound, events } = await api.waitForSessionEvent(
+        // only after the live idle window) and STREAM the reply, so no
+        // separate outbound event fires. The behavioral completion signal is
+        // the durable outbound message ROW; a run failure before it is fatal.
+        const { reply, events } = await api.waitForDurableAssistantReply(
           sessionId,
-          (event) => {
-            if (
-              event.eventType !== 'run.started' &&
-              TERMINAL_RUN_EVENT_TYPES.has(event.eventType) &&
-              event.eventType !== 'run.completed'
-            ) {
-              throw new Error(
-                `run ended ${event.eventType} before an outbound reply ` +
-                  `(payload: ${JSON.stringify(event.payload).slice(0, 300)})`,
-              );
-            }
-            return (
-              event.eventType === 'session.message.outbound' &&
-              typeof payloadOf(event).text === 'string' &&
-              (payloadOf(event).text as string).trim().length > 0
-            );
-          },
-          {
-            timeoutMs: TURN_TIMEOUT_MS - 30_000,
-            description: 'durable outbound assistant message',
-          },
+          { timeoutMs: TURN_TIMEOUT_MS - 30_000 },
         );
         evidence.events.push(...events);
 
@@ -286,9 +238,8 @@ maybeDescribe('agent-e2e haiku turn (real model, behavioral)', () => {
           evidence.evidence.harness = startedPayload.agent_engine;
         }
 
-        // The outbound event IS the persisted delivery record for API
-        // sessions (channels/app.ts). NO assertion on reply phrasing.
-        expect(outbound, 'durable outbound assistant message').toBeDefined();
+        // Durable persisted reply row exists. NO assertion on reply phrasing.
+        expect(reply, 'durable outbound assistant message row').toBeDefined();
 
         // Usage evidence when surfaced: alias/provider consistent with haiku
         // on anthropic (covers alias or full runner model id).

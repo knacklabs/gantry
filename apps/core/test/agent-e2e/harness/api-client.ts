@@ -154,6 +154,67 @@ export class AgentE2EApiClient {
   }
 
   /**
+   * Poll until a durable OUTBOUND message row with non-empty text exists for
+   * the session (GET /v1/sessions/{id}/messages). Live sessions stream the
+   * reply and keep the run open, so the persisted row — not a run.completed
+   * or outbound event — is the completion signal. A run-failure event
+   * observed before the reply is fatal.
+   */
+  async waitForDurableAssistantReply(
+    sessionId: string,
+    options: { timeoutMs?: number } = {},
+  ): Promise<{ reply: Record<string, unknown>; events: SessionEvent[] }> {
+    const timeoutMs = options.timeoutMs ?? 120_000;
+    const deadline = Date.now() + timeoutMs;
+    const events: SessionEvent[] = [];
+    let cursor = 0;
+    while (Date.now() < deadline) {
+      const page = await this.listEvents(sessionId, cursor);
+      for (const event of page) {
+        events.push(event);
+        cursor = Math.max(cursor, event.eventId);
+        if (
+          TERMINAL_RUN_EVENT_TYPES.has(event.eventType) &&
+          event.eventType !== 'run.completed'
+        ) {
+          throw new Error(
+            `run ended ${event.eventType} before a durable reply ` +
+              `(payload: ${JSON.stringify(event.payload).slice(0, 300)})`,
+          );
+        }
+      }
+      const listed = await this.expect<{
+        messages: Array<{
+          direction?: string;
+          parts?: Array<{ kind: string; text?: string; markdown?: string }>;
+        }>;
+      }>(
+        200,
+        'GET',
+        `/v1/sessions/${encodeURIComponent(sessionId)}/messages?limit=50`,
+      );
+      const reply = listed.messages.find(
+        (message) =>
+          message.direction === 'outbound' &&
+          (message.parts ?? []).some(
+            (part) =>
+              (part.kind === 'text' && part.text?.trim()) ||
+              (part.kind === 'markdown' && part.markdown?.trim()),
+          ),
+      );
+      if (reply) {
+        return { reply: reply as Record<string, unknown>, events };
+      }
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+    throw new Error(
+      `No durable outbound assistant message for session ${sessionId} ` +
+        `within ${timeoutMs}ms ` +
+        `(events: ${events.map((event) => event.eventType).join(', ') || 'none'})`,
+    );
+  }
+
+  /**
    * Poll events until `predicate` matches (a 202 on the message POST is
    * accepted-not-done). Returns every event observed plus the match.
    */
