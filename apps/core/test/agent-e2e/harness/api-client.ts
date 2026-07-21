@@ -170,6 +170,10 @@ export class AgentE2EApiClient {
     const deadline = Date.now() + timeoutMs;
     const events: SessionEvent[] = [];
     let cursor = 0;
+    // The terminal streaming chunk carries only the sanitizer's REMAINING
+    // delta (usually empty when everything already streamed), so the reply
+    // text must be accumulated across the done=false chunks.
+    let streamedText = '';
     while (Date.now() < deadline) {
       const page = await this.listEvents(sessionId, cursor);
       for (const event of page) {
@@ -190,13 +194,14 @@ export class AgentE2EApiClient {
         };
         const hasText =
           typeof payload.text === 'string' && payload.text.trim().length > 0;
-        if (
-          (event.eventType === 'session.message.outbound' && hasText) ||
-          (event.eventType === 'session.message.streaming' &&
-            payload.done === true &&
-            hasText)
-        ) {
+        if (event.eventType === 'session.message.outbound' && hasText) {
           return { reply: payload as Record<string, unknown>, events };
+        }
+        if (event.eventType === 'session.message.streaming') {
+          if (hasText) streamedText += payload.text as string;
+          if (payload.done === true && streamedText.trim().length > 0) {
+            return { reply: { text: streamedText, done: true }, events };
+          }
         }
       }
       await new Promise((resolve) => setTimeout(resolve, 500));
