@@ -145,6 +145,27 @@ export class AgentE2EApiClient {
     sessionId: string,
     options: { afterEventId?: number; timeoutMs?: number } = {},
   ): Promise<{ terminal: SessionEvent; events: SessionEvent[] }> {
+    const { match, events } = await this.waitForSessionEvent(
+      sessionId,
+      (event) => TERMINAL_RUN_EVENT_TYPES.has(event.eventType),
+      { ...options, description: 'terminal run event' },
+    );
+    return { terminal: match, events };
+  }
+
+  /**
+   * Poll events until `predicate` matches (a 202 on the message POST is
+   * accepted-not-done). Returns every event observed plus the match.
+   */
+  async waitForSessionEvent(
+    sessionId: string,
+    predicate: (event: SessionEvent) => boolean,
+    options: {
+      afterEventId?: number;
+      timeoutMs?: number;
+      description?: string;
+    } = {},
+  ): Promise<{ match: SessionEvent; events: SessionEvent[] }> {
     const timeoutMs = options.timeoutMs ?? 120_000;
     const deadline = Date.now() + timeoutMs;
     const events: SessionEvent[] = [];
@@ -154,14 +175,15 @@ export class AgentE2EApiClient {
       for (const event of page) {
         events.push(event);
         cursor = Math.max(cursor, event.eventId);
-        if (TERMINAL_RUN_EVENT_TYPES.has(event.eventType)) {
-          return { terminal: event, events };
+        if (predicate(event)) {
+          return { match: event, events };
         }
       }
       await new Promise((resolve) => setTimeout(resolve, 500));
     }
     throw new Error(
-      `No terminal run event for session ${sessionId} within ${timeoutMs}ms ` +
+      `No ${options.description ?? 'matching'} event for session ` +
+        `${sessionId} within ${timeoutMs}ms ` +
         `(saw: ${events.map((event) => event.eventType).join(', ') || 'none'})`,
     );
   }

@@ -27,7 +27,11 @@ import path from 'node:path';
 
 import { afterAll, describe, expect, it } from 'vitest';
 
-import { AgentE2EApiClient, type SessionEvent } from '../harness/api-client.js';
+import {
+  AgentE2EApiClient,
+  TERMINAL_RUN_EVENT_TYPES,
+  type SessionEvent,
+} from '../harness/api-client.js';
 import {
   redactText,
   startEvidenceRun,
@@ -237,19 +241,38 @@ maybeDescribe('agent-e2e haiku turn (real model, behavioral)', () => {
         );
         expect(accepted.accepted).toBe(true);
 
-        const { terminal, events } = await api.waitForTerminalRunEvent(
+        // Live sessions deliberately keep the run OPEN after replying (the
+        // persistent SDK session waits for follow-ups; run.completed lands
+        // only after the live idle window). The behavioral completion signal
+        // is the durable outbound reply — a run FAILURE event before it is
+        // still fatal.
+        const { match: outbound, events } = await api.waitForSessionEvent(
           sessionId,
-          { timeoutMs: TURN_TIMEOUT_MS - 30_000 },
+          (event) => {
+            if (
+              event.eventType !== 'run.started' &&
+              TERMINAL_RUN_EVENT_TYPES.has(event.eventType) &&
+              event.eventType !== 'run.completed'
+            ) {
+              throw new Error(
+                `run ended ${event.eventType} before an outbound reply ` +
+                  `(payload: ${JSON.stringify(event.payload).slice(0, 300)})`,
+              );
+            }
+            return (
+              event.eventType === 'session.message.outbound' &&
+              typeof payloadOf(event).text === 'string' &&
+              (payloadOf(event).text as string).trim().length > 0
+            );
+          },
+          {
+            timeoutMs: TURN_TIMEOUT_MS - 30_000,
+            description: 'durable outbound assistant message',
+          },
         );
         evidence.events.push(...events);
 
         evidence.phase('verify');
-        // Behavioral: the run completed (not failed/timeout/dead-lettered).
-        expect(
-          terminal.eventType,
-          `terminal run event (payload: ${JSON.stringify(terminal.payload).slice(0, 300)})`,
-        ).toBe('run.completed');
-
         // The run exists and executed on the anthropic claude-agent-sdk lane.
         const started = events.find((e) => e.eventType === 'run.started');
         expect(started, 'run.started event').toBeDefined();
@@ -257,21 +280,14 @@ maybeDescribe('agent-e2e haiku turn (real model, behavioral)', () => {
         expect(startedPayload.execution_provider_id).toBe(
           'anthropic:claude-agent-sdk',
         );
-        const runId = payloadOf(terminal).runId ?? startedPayload.runId;
+        const runId = startedPayload.runId;
         if (typeof runId === 'string') evidence.evidence.runId = runId;
         if (typeof startedPayload.agent_engine === 'string') {
           evidence.evidence.harness = startedPayload.agent_engine;
         }
 
-        // A durable assistant delivery record exists: for API sessions the
-        // outbound event IS the persisted delivery record (channels/app.ts).
-        // NO assertion on reply phrasing — only that a non-empty reply exists.
-        const outbound = events.find(
-          (e) =>
-            e.eventType === 'session.message.outbound' &&
-            typeof payloadOf(e).text === 'string' &&
-            (payloadOf(e).text as string).trim().length > 0,
-        );
+        // The outbound event IS the persisted delivery record for API
+        // sessions (channels/app.ts). NO assertion on reply phrasing.
         expect(outbound, 'durable outbound assistant message').toBeDefined();
 
         // Usage evidence when surfaced: alias/provider consistent with haiku
