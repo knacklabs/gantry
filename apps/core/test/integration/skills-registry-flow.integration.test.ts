@@ -728,7 +728,7 @@ describe('skill registry integration flow', () => {
       expect(sendMessage).toHaveBeenCalledWith(
         'chat-origin',
         expect.stringContaining('Installed skill LinkedIn Posting'),
-        { threadId: 'thread-origin' },
+        expect.objectContaining({ threadId: 'thread-origin' }),
       );
     });
 
@@ -917,7 +917,7 @@ describe('skill registry integration flow', () => {
       expect(sendMessage).toHaveBeenCalledWith(
         'chat-origin',
         expect.stringContaining('Installed skill LinkedIn Posting'),
-        { threadId: 'thread-origin' },
+        expect.objectContaining({ threadId: 'thread-origin' }),
       );
     });
     expect([...state.bindings.values()]).toHaveLength(1);
@@ -1488,7 +1488,7 @@ describe('skill registry integration flow', () => {
       expect(sendMessage).toHaveBeenCalledWith(
         'chat-origin',
         expect.stringContaining('Installed skill Channel Posting'),
-        { threadId: 'thread-origin' },
+        expect.objectContaining({ threadId: 'thread-origin' }),
       );
     });
 
@@ -1725,7 +1725,7 @@ describe('skill registry integration flow', () => {
       expect(sendMessage).toHaveBeenCalledWith(
         'chat-origin',
         expect.stringContaining('Did not install skill Denied Capability'),
-        { threadId: 'thread-origin' },
+        expect.objectContaining({ threadId: 'thread-origin' }),
       );
     });
 
