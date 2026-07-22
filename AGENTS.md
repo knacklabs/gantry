@@ -102,18 +102,8 @@ A task is not PR-ready until all of these exist:
 - Keep tasks bounded and capability-driven.
 - Do not decompose by document file or arbitrary file count.
 - Do not bypass `verify.py` with ad hoc validation commands.
-- Evidence enters `.factory/` only via `record_*` scripts validating
-  `.agents/schemas/` (incl. a pinned `generated_by`) — never hand-written.
-- Review runs as ONE autoreview pass in Codex — never inline in the
-  coordinating session, never nested reviewers.
+- Evidence enters `.factory/` only via `record_*` scripts validating `.agents/schemas/` (pinned `generated_by`) — never hand-written.
+- Review runs as ONE autoreview pass in Codex — never inline, never nested reviewers.
 - Keep the template repo independent of any client-specific source repo.
 - Do not keep long policy blocks in `AGENTS.md`; move them into docs.
-- PRs: the orchestrator IS authorized to push story branches and raise PRs
-  once `pr_ready` evidence exists — one PR per story, never bundled
-  (client authorization 2026-07-22). MERGING stays human-gated: never
-  auto-merge, gate on literal green. No session links in PR bodies or
-  commit trailers.
-- Every PR that changes runtime behavior adds or extends agent-e2e coverage
-  for it (hermetic; matrix rows in `docs/architecture/agent-e2e-test-matrix.md`
-  flip with test-file citations). A PR with no e2e delta states why in its
-  body. The agent-e2e gate is the merge bar (client directive 2026-07-22).
+- PRs: orchestrator may push story branches + raise PRs once `pr_ready` (one per story); merging stays human-gated; runtime-behavior PRs carry their agent-e2e delta (or state why not). Policy: `docs/review-instructions.md`.
