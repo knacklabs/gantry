@@ -1,6 +1,7 @@
 import {
   ADMIN_MCP_TOOL_NAMES,
   AUTHORITY_CHANGING_GANTRY_MCP_TOOL_NAMES,
+  SCHEDULER_MCP_TOOL_NAMES,
 } from '../shared/admin-mcp-tools.js';
 import {
   selectedMemoryIpcActionsFromToolRules,
@@ -66,20 +67,7 @@ export const DELEGATED_TASK_GANTRY_MCP_TOOL_NAMES = [
 export { AUTHORITY_CHANGING_GANTRY_MCP_TOOL_NAMES };
 
 export const OPTIONAL_GANTRY_MCP_TOOL_NAMES = [
-  'scheduler_list_models',
-  'scheduler_upsert_job',
-  'scheduler_get_job',
-  'scheduler_list_jobs',
-  'scheduler_list_notification_targets',
-  'scheduler_update_job',
-  'scheduler_delete_job',
-  'scheduler_pause_job',
-  'scheduler_resume_job',
-  'scheduler_run_now',
-  'scheduler_list_runs',
-  'scheduler_list_events',
-  'scheduler_wait_for_events',
-  'scheduler_get_dead_letter',
+  ...SCHEDULER_MCP_TOOL_NAMES,
 ] as const;
 
 export const REVIEWED_GANTRY_MCP_TOOL_NAMES = [

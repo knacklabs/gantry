@@ -69,6 +69,22 @@ describe('durable access policy', () => {
     ).toEqual({ ok: true });
   });
 
+  it('allows exact Gantry scheduler tools as durable access rules', () => {
+    expect(
+      validateDurableAccessRule('mcp__gantry__scheduler_list_jobs'),
+    ).toEqual({
+      ok: true,
+    });
+    expect(validateDurableAccessRule('mcp__gantry__scheduler_run_now')).toEqual(
+      {
+        ok: true,
+      },
+    );
+    expect(
+      formatDurableAccessRulesForUser(['mcp__gantry__scheduler_run_now']),
+    ).toBe('Scheduler Run Now');
+  });
+
   it('rejects exact third-party MCP tools', () => {
     expect(validateDurableAccessRule('mcp__github__get_issue')).toEqual({
       ok: false,
@@ -169,6 +185,32 @@ describe('durable access policy', () => {
       ok: false,
       reason:
         'Persistent RunCommand rules cannot reference generated runtime paths; use a reviewed stable capability or let Gantry-owned runtime scratch reads stay internal.',
+    });
+  });
+
+  it('rejects scheduler mutation tools as durable exact tool rules', () => {
+    expect(
+      validateDurableAccessRule('mcp__gantry__scheduler_upsert_job'),
+    ).toEqual({
+      ok: false,
+      reason: expect.stringContaining(
+        'Persistent access approvals support only',
+      ),
+    });
+    expect(
+      validateDurableAccessRule('mcp__gantry__scheduler_delete_job'),
+    ).toEqual({
+      ok: false,
+      reason: expect.stringContaining(
+        'Persistent access approvals support only',
+      ),
+    });
+  });
+
+  it('rejects non-exact scheduler wildcard rules as durable access rules', () => {
+    expect(validateDurableAccessRule('mcp__gantry__scheduler_*')).toEqual({
+      ok: false,
+      reason: 'Wildcard persistent tool grants are not supported.',
     });
   });
 

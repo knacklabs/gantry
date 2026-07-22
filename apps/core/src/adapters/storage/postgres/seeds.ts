@@ -4,6 +4,7 @@ import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import * as pgSchema from './schema/schema.js';
 import {
   ADMIN_MCP_TOOL_FULL_NAMES,
+  DURABLE_SCHEDULER_MCP_TOOL_FULL_NAMES,
   adminMcpToolIdForFullName,
 } from '../../../shared/admin-mcp-tools.js';
 import {
@@ -195,6 +196,15 @@ export const DEFAULT_TOOL_CATALOG = [
       'high',
     ),
   ),
+  ...DURABLE_SCHEDULER_MCP_TOOL_FULL_NAMES.map((name) =>
+    hostTool(
+      name,
+      schedulerToolDisplayName(name),
+      schedulerToolDescription(name),
+      'admin',
+      schedulerToolRisk(name),
+    ),
+  ),
 ] as const;
 
 function gantryFacadeTool(
@@ -345,4 +355,32 @@ function adminToolDescription(name: string): string {
     default:
       return 'Built-in Gantry admin MCP tool.';
   }
+}
+
+function schedulerToolDisplayName(name: string): string {
+  return name
+    .replace(/^mcp__gantry__scheduler_/, 'Scheduler ')
+    .replaceAll(/[._-]+/g, ' ')
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function schedulerToolDescription(name: string): string {
+  switch (name) {
+    case 'mcp__gantry__scheduler_run_now':
+      return 'Trigger an existing scheduler job for the current authorized workspace.';
+    case 'mcp__gantry__scheduler_get_job':
+    case 'mcp__gantry__scheduler_list_jobs':
+      return 'Inspect scheduler jobs visible to the current authorized workspace.';
+    case 'mcp__gantry__scheduler_list_events':
+    case 'mcp__gantry__scheduler_wait_for_events':
+    case 'mcp__gantry__scheduler_list_runs':
+    case 'mcp__gantry__scheduler_get_dead_letter':
+      return 'Inspect scheduler run evidence visible to the current authorized workspace.';
+    default:
+      return 'Inspect scheduler metadata visible to the current authorized workspace.';
+  }
+}
+
+function schedulerToolRisk(name: string): 'low' | 'medium' | 'high' {
+  return name === 'mcp__gantry__scheduler_run_now' ? 'medium' : 'low';
 }

@@ -129,6 +129,18 @@ describe('storage-service', () => {
     await service.close();
   });
 
+  it('seeds durable scheduler tools as selectable built-in catalog entries', () => {
+    const seededToolNames = new Set(
+      DEFAULT_TOOL_CATALOG.map((tool) => tool.name),
+    );
+
+    expect(seededToolNames.has('mcp__gantry__scheduler_run_now')).toBe(true);
+    expect(seededToolNames.has('mcp__gantry__scheduler_list_jobs')).toBe(true);
+    expect(seededToolNames.has('mcp__gantry__scheduler_upsert_job')).toBe(
+      false,
+    );
+  });
+
   it('rejects skipped runtime migrations before the current migration head', async () => {
     const service = new PostgresStorageService(
       'postgres://user:pass@127.0.0.1:5432/gantry',

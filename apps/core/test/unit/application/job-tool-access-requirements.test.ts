@@ -16,6 +16,7 @@ describe('job tool access requirements', () => {
         'FileWrite',
         'AgentDelegation',
         'mcp__gantry__settings_desired_state',
+        'mcp__gantry__scheduler_run_now',
         'capability:example.records.append',
         'RunCommand(npm test *)',
         'Browser',
@@ -27,6 +28,7 @@ describe('job tool access requirements', () => {
       'FileWrite',
       'AgentDelegation',
       'mcp__gantry__settings_desired_state',
+      'mcp__gantry__scheduler_run_now',
       'capability:example.records.append',
       'RunCommand(npm test *)',
     ]);
@@ -72,6 +74,14 @@ describe('job tool access requirements', () => {
       expect(() => normalizeToolAccessRequirements(rules)).toThrow(message);
     },
   );
+
+  it('builds request_access recovery for exact scheduler tool requirements', () => {
+    expect(
+      toolAccessRequirementRecoveryAction('mcp__gantry__scheduler_run_now'),
+    ).toBe(
+      'request_access {"target":{"kind":"tool","name":"mcp__gantry__scheduler_run_now"},"temporaryOnly":false,"reason":"This autonomous run requires mcp__gantry__scheduler_run_now access."}',
+    );
+  });
 
   it('reports missing tool access requirements without granting permission', () => {
     expect(

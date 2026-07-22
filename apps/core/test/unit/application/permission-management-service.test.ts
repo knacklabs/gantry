@@ -767,6 +767,58 @@ describe('PermissionManagementService', () => {
     expect(decision.actionPreview).toContain('revoke FileRead');
   });
 
+  it('revokes exact scheduler MCP grants through the scheduler catalog binding', async () => {
+    const service = new PermissionManagementService({
+      now: () => '2026-05-15T12:00:00.000Z',
+    });
+    const tool: ToolCatalogItem = {
+      ...toolItem('mcp__gantry__scheduler_run_now'),
+      id: 'tool:mcp__gantry__scheduler_run_now' as never,
+      name: 'mcp__gantry__scheduler_run_now',
+    };
+    const binding = activeBinding(tool);
+    const disableAgentToolBinding = vi.fn(async () => ({
+      ...binding,
+      status: 'disabled' as const,
+    }));
+    const mirrorAgentToolRulesToSettings = vi.fn(async () => undefined);
+
+    const result = await service.revokePersistentToolRuleGrant({
+      appId: 'app:test' as never,
+      agentId: 'agent:test' as never,
+      sourceAgentFolder: 'main_agent',
+      toolName: 'mcp__gantry__scheduler_run_now',
+      toolRepository: {
+        getTool: vi.fn(async (toolId: string) =>
+          toolId === 'tool:mcp__gantry__scheduler_run_now' ? tool : null,
+        ),
+        listTools: vi.fn(async () => [tool]),
+        saveTool: vi.fn(),
+        saveAgentToolBinding: vi.fn(),
+        disableAgentToolBinding,
+        listAgentToolBindings: vi.fn(async () => [binding]),
+        listAgentToolBindingsForAgents: vi.fn(),
+      },
+      mirrorAgentToolRulesToSettings,
+    });
+
+    expect(result).toEqual({
+      revokedRule: 'mcp__gantry__scheduler_run_now',
+      toolId: 'tool:mcp__gantry__scheduler_run_now',
+    });
+    expect(disableAgentToolBinding).toHaveBeenCalledWith({
+      appId: 'app:test',
+      agentId: 'agent:test',
+      toolId: 'tool:mcp__gantry__scheduler_run_now',
+      updatedAt: '2026-05-15T12:00:00.000Z',
+    });
+    expect(mirrorAgentToolRulesToSettings).toHaveBeenCalledWith(
+      'main_agent',
+      ['mcp__gantry__scheduler_run_now'],
+      { appId: 'app:test', mode: 'remove' },
+    );
+  });
+
   it('removes expanded live rules when revoking a skill action grant', async () => {
     const service = new PermissionManagementService({
       now: () => '2026-05-15T12:00:00.000Z',

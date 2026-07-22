@@ -195,6 +195,45 @@ describe('request permission review helpers', () => {
     }
   });
 
+  it('suggests persistent grants for exact scheduler tool requests', () => {
+    for (const toolName of [
+      'mcp__gantry__scheduler_list_jobs',
+      'mcp__gantry__scheduler_run_now',
+    ]) {
+      expect(
+        requestPermissionReviewSuggestions({
+          permissionKind: 'tool',
+          toolName,
+          temporaryOnly: false,
+        }),
+      ).toEqual([
+        {
+          type: 'addRules',
+          behavior: 'allow',
+          destination: 'session',
+          rules: [{ toolName }],
+        },
+      ]);
+      expect(
+        requestPermissionSetupDecisionOptions({
+          permissionKind: 'tool',
+          toolName,
+          temporaryOnly: false,
+        }),
+      ).toContain('allow_persistent_rule');
+    }
+  });
+
+  it('does not suggest persistent grants for scheduler mutation tool requests', () => {
+    expect(
+      requestPermissionSetupDecisionOptions({
+        permissionKind: 'tool',
+        toolName: 'mcp__gantry__scheduler_upsert_job',
+        temporaryOnly: false,
+      }),
+    ).not.toContain('allow_persistent_rule');
+  });
+
   it('prefers explicit scoped RunCommand permission over capability metadata on setup requests', () => {
     expect(
       requestPermissionReviewSuggestions({
@@ -1295,6 +1334,57 @@ describe('request permission review helpers', () => {
     expect(mirrorAgentToolRulesToSettings).toHaveBeenCalledWith(
       'main_agent',
       ['Browser'],
+      { appId: 'app:test' },
+    );
+  });
+
+  it('binds exact scheduler MCP persistent approvals to scheduler catalog tools', async () => {
+    const mirrorAgentToolRulesToSettings = vi.fn(async () => undefined);
+    const repository = {
+      getTool: vi.fn(async (toolId: string) =>
+        toolId === 'tool:mcp__gantry__scheduler_run_now'
+          ? {
+              id: 'tool:mcp__gantry__scheduler_run_now',
+              appId: 'app:test',
+              name: 'mcp__gantry__scheduler_run_now',
+              status: 'active',
+              selectable: true,
+            }
+          : null,
+      ),
+      listTools: vi.fn(async () => []),
+      saveTool: vi.fn(async () => undefined),
+      saveAgentToolBinding: vi.fn(async () => undefined),
+      disableAgentToolBinding: vi.fn(async () => null),
+    };
+
+    const persisted = await persistRequestPermissionRules({
+      appId: 'app:test' as never,
+      agentId: 'agent:test' as never,
+      deps: {
+        getToolRepository: () => repository as never,
+        mirrorAgentToolRulesToSettings,
+      },
+      sourceAgentFolder: 'main_agent',
+      updates: [
+        {
+          type: 'addRules',
+          behavior: 'allow',
+          rules: [{ toolName: 'mcp__gantry__scheduler_run_now' }],
+        },
+      ],
+    });
+
+    expect(persisted).toEqual(['mcp__gantry__scheduler_run_now']);
+    expect(repository.saveTool).not.toHaveBeenCalled();
+    expect(repository.saveAgentToolBinding).toHaveBeenCalledWith(
+      expect.objectContaining({
+        toolId: 'tool:mcp__gantry__scheduler_run_now',
+      }),
+    );
+    expect(mirrorAgentToolRulesToSettings).toHaveBeenCalledWith(
+      'main_agent',
+      ['mcp__gantry__scheduler_run_now'],
       { appId: 'app:test' },
     );
   });
