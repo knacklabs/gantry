@@ -63,3 +63,6 @@ agents-sdk-docs
 /.cocoindex_code/
 .codex-wt-*
 .env.e2e
+
+# local skill-plugin clone, not part of this repo
+i-have-adhd/
