@@ -38,18 +38,72 @@ export function resolveGatewayUpstream(
 export function assertProviderPathAllowed(
   provider: ModelProviderDefinition,
   upstreamPathname: string,
+  method = 'POST',
   upstreamPathPrefix = provider.gateway.upstreamPathPrefix,
 ): void {
   const providerPath = stripUpstreamPathPrefix(
     upstreamPathname,
     upstreamPathPrefix,
   );
-  const allowed = allowedGatewayPaths(provider).has(providerPath);
+  const allowed =
+    method === 'GET'
+      ? isAllowedGatewayReadPath(provider, providerPath)
+      : method === 'POST' &&
+        allowedGatewayPostPaths(provider).has(providerPath);
   if (!allowed) {
     throw new GatewayBadRequestError(
       `Model gateway path is not allowed for ${provider.id}.`,
     );
   }
+}
+
+export function isGatewayMethodAllowed(
+  method: string,
+  gatewayPathname: string,
+): boolean {
+  if (method === 'POST') return true;
+  if (method !== 'GET') return false;
+  return (
+    /^\/openai\/v1\/(?:batches|files)(?:\/|$)/.test(gatewayPathname) ||
+    /^\/anthropic\/v1\/messages\/batches(?:\/|$)/.test(gatewayPathname)
+  );
+}
+
+export function isProviderBatchPath(
+  provider: ModelProviderDefinition,
+  providerPath: string,
+): boolean {
+  if (provider.id === 'openai') {
+    return /^\/v1\/(?:batches|files)(?:\/|$)/.test(providerPath);
+  }
+  return (
+    provider.id === 'anthropic' &&
+    /^\/v1\/messages\/batches(?:\/|$)/.test(providerPath)
+  );
+}
+
+export function isProviderBatchSubmissionPath(
+  provider: ModelProviderDefinition,
+  providerPath: string,
+  method: string,
+): boolean {
+  if (method !== 'POST') return false;
+  return provider.id === 'openai'
+    ? providerPath === '/v1/batches'
+    : provider.id === 'anthropic' && providerPath === '/v1/messages/batches';
+}
+
+export function isProviderBatchResultPath(
+  provider: ModelProviderDefinition,
+  providerPath: string,
+): boolean {
+  if (provider.id === 'openai') {
+    return /^\/v1\/files\/[^/]+\/content$/.test(providerPath);
+  }
+  return (
+    provider.id === 'anthropic' &&
+    /^\/v1\/messages\/batches\/[^/]+\/results$/.test(providerPath)
+  );
 }
 
 export async function injectProviderAuth(input: {
@@ -169,14 +223,42 @@ export async function injectProviderAuth(input: {
   headers[auth.headerName ?? auth.field] = value;
 }
 
-function allowedGatewayPaths(provider: ModelProviderDefinition): Set<string> {
+function allowedGatewayPostPaths(
+  provider: ModelProviderDefinition,
+): Set<string> {
   if (provider.id === 'openai') {
-    return new Set(['/v1/embeddings', '/v1/chat/completions', '/v1/responses']);
+    return new Set([
+      '/v1/embeddings',
+      '/v1/chat/completions',
+      '/v1/responses',
+      '/v1/files',
+      '/v1/batches',
+    ]);
   }
   if (provider.executionRoute.engine === DEEPAGENTS_ENGINE) {
     return new Set(['/chat/completions', '/v1/chat/completions']);
   }
-  return new Set(['/v1/messages', '/v1/messages/count_tokens']);
+  const paths = new Set(['/v1/messages', '/v1/messages/count_tokens']);
+  if (provider.id === 'anthropic') paths.add('/v1/messages/batches');
+  return paths;
+}
+
+function isAllowedGatewayReadPath(
+  provider: ModelProviderDefinition,
+  providerPath: string,
+): boolean {
+  if (provider.id === 'openai') {
+    return (
+      /^\/v1\/batches(?:\/[^/]+)?$/.test(providerPath) ||
+      /^\/v1\/files\/[^/]+\/content$/.test(providerPath)
+    );
+  }
+  if (provider.id === 'anthropic') {
+    return /^\/v1\/messages\/batches(?:\/[^/]+(?:\/results)?)?$/.test(
+      providerPath,
+    );
+  }
+  return false;
 }
 
 function stripUpstreamPathPrefix(pathname: string, prefix: string): string {

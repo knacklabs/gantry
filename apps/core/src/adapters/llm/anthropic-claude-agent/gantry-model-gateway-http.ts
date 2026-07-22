@@ -69,8 +69,6 @@ export function usageFromGatewayPayload(
 }
 
 export const DEFAULT_LOOPBACK_HOST = '127.0.0.1';
-export const ALLOWED_GATEWAY_METHODS = new Set(['POST']);
-
 const ALLOWED_REQUEST_HEADERS = new Set([
   'accept',
   'anthropic-beta',

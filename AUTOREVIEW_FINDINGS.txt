@@ -1,0 +1,58 @@
+review still running: codex elapsed=60s pid=76828
+review still running: codex elapsed=120s pid=76828
+review still running: codex elapsed=180s pid=76828
+review still running: codex elapsed=240s pid=76828
+review still running: codex elapsed=300s pid=76828
+review still running: codex elapsed=360s pid=76828
+review still running: codex elapsed=420s pid=76828
+review still running: codex elapsed=480s pid=76828
+review still running: codex elapsed=540s pid=76828
+review still running: codex elapsed=600s pid=76828
+review still running: codex elapsed=660s pid=76828
+review still running: codex elapsed=720s pid=76828
+review still running: codex elapsed=780s pid=76828
+review still running: codex elapsed=840s pid=76828
+review still running: codex elapsed=900s pid=76828
+review still running: codex elapsed=960s pid=76828
+review still running: codex elapsed=1020s pid=76828
+review still running: codex elapsed=1080s pid=76828
+autoreview target: local
+branch: feature/observer-s3-batch
+engine: codex
+thinking: xhigh
+tools: on
+web_search: on
+bundle: 187916 chars
+autoreview findings: 7
+[P1] [P1] Restrict batch routes to batch-scoped gateway tokens
+apps/core/src/adapters/llm/anthropic-claude-agent/gantry-model-gateway-routing.ts:197
+Every ordinary OpenAI or Anthropic model-runtime token can now access batch submission, listing, and result-download paths because authorization checks only the provider, path, and method; the token's run scope is never considered. An agent holding its normal gateway token can therefore enqueue work outside `ChatBatchStateMachine`'s reservation/daily-cap accounting and inspect other batch results for the same credential. The request-rate limiter also counts a many-item batch as one request. Mint a distinct batch-purpose token and require that scope for every batch/file path.
+
+[P1] [P1] Preflight the provider payload before marking submission unknown
+apps/core/src/memory/chat-batch-state-machine.ts:111
+The intent is changed to `submission_unknown` before transport validation, credential resolution, or even the transport's abort check. Deterministic pre-send failures—such as missing credentials, an already-aborted signal, whitespace-only custom IDs, or a provider envelope exceeding the upload limit—therefore consume the daily reservation and remain unknown even though no request was sent. A retry with the same correlation ID returns the existing row at line 109 and never submits it. Perform all preflight work before this transition or record known pre-send failures separately.
+
+[P1] [P1] Preserve the output-token cap through durable submission
+apps/core/src/memory/chat-batch-state-machine.ts:119
+The batch port supports `maxOutputTokens`, and both transports honor it, but `ChatBatchSubmitInput` omits the field and this call never passes it. Consequently OpenAI batches omit `max_completion_tokens` entirely and Anthropic silently uses its hard-coded 4096-token default. That can invalidate the caller's cost reservation and make result files far larger than expected. Add the cap to the durable input, include it in the content hash/snapshot, and pass it to `submitBatch`.
+
+[P1] [P1] Bound batch result downloads before buffering them
+apps/core/src/adapters/llm/chat-batch-http.ts:49
+`fetchBatchText` buffers the entire result file into one string; JSONL parsing then creates another line array and a parsed row array, while the OpenAI transport downloads output and error files concurrently. The 14 MiB upload limit does not bound output size: thousands of requests can each return thousands of tokens, so a valid completed batch can exhaust the core process repeatedly during result retries. Stream and parse JSONL incrementally with explicit byte/row limits before building the durable result snapshot.
+
+[P2] [P2] Derive batch cost from real provider usage fields
+apps/core/src/adapters/llm/openai-memory/openai-chat-batch.ts:417
+For official OpenAI responses, none of `body.total_cost_usd`, `usage.total_cost_usd`, or `usage.cost_usd` exists; the Anthropic adapter probes the same nonexistent fields. The tests fabricate `cost_usd`, so production rows produce `provider_reported_cost_usd: null` and the persisted batch cost remains null. The [OpenAI batch response schema](https://platform.openai.com/docs/api-reference/batch/object) and [Anthropic batch pricing](https://docs.anthropic.com/en/docs/about-claude/pricing#batch-processing) provide token usage/pricing rather than a per-result USD field. Estimate cost from catalog pricing and batch/cache discounts so persisted accounting reflects actual usage.
+
+[P2] [P2] Reorder provider results to the immutable request snapshot
+apps/core/src/memory/chat-batch-state-machine.ts:204
+The state machine verifies only that result custom IDs form the expected set and then stores the provider order unchanged. OpenAI explicitly downloads the output and error files separately and concatenates all output rows before all error rows, so any mixed-success batch necessarily loses its original ordering; providers may also return rows out of input order. Rebuild the result array by `customId` in `requestSnapshot` order before persisting it so ordered replay cannot apply pages in the wrong sequence.
+
+[P1] [P1] Exclude Claude OAuth from the direct batch transport
+apps/core/src/shared/model-provider-registry.ts:156
+Marking Anthropic as batch-capable applies to both of its credential modes, including `claude_code_oauth`. The batch transport checks only provider family/capability, and the gateway will inject that OAuth token as a bearer into the raw Message Batches API. This violates the repository's explicit Anthropic-SDK-only OAuth boundary and may expose a subscription credential to an unsupported direct API path; failures also occur after the intent becomes unknown. Batch eligibility must depend on the active credential mode and reject OAuth before creating the intent.
+
+overall: patch is incorrect (0.99)
+The new batch core has multiple blocking safety and correctness defects: ordinary gateway tokens gain unaccounted batch/read authority, deterministic pre-send failures become permanently ambiguous, output limits are dropped, and valid result files can exhaust process memory. Production cost accounting and ordered replay also do not match real provider responses, while Anthropic OAuth is routed outside its permitted SDK lane.
+
+

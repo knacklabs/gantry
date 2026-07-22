@@ -1540,6 +1540,77 @@ describe('GantryModelGatewayBroker', () => {
     }
   });
 
+  it.each([
+    ['POST', '/v1/messages/batches'],
+    ['GET', '/v1/messages/batches'],
+    ['GET', '/v1/messages/batches/msgbatch_123'],
+    ['GET', '/v1/messages/batches/msgbatch_123/results'],
+  ])(
+    'proxies Anthropic %s %s through the scoped credential',
+    async (method, path) => {
+      const repo = new MutableModelCredentialRepository();
+      repo.set('anthropic', 'sk-anthropic-batch-upstream');
+      const upstreamFetch = vi.fn(
+        async (_url: URL, _options?: RequestInit) =>
+          new Response('{"type":"message_batch"}', {
+            headers: { 'content-type': 'application/json' },
+          }),
+      );
+      vi.stubGlobal('fetch', upstreamFetch);
+      const broker = new GantryModelGatewayBroker(repo);
+      try {
+        const injection = await broker.getInjection({
+          binding: {
+            profile: 'gantry',
+            purpose: 'model_batch',
+            appId,
+            runId: 'run:anthropic-batch' as never,
+            modelCredentialProviderId: 'anthropic',
+            modelBatchRequestCount: 1,
+          },
+        });
+
+        const response = await gatewayRequest({
+          url: `${injection.env[anthropicBaseUrlKey]}${path}`,
+          token: injection.env[anthropicApiKeyKey]!,
+          method,
+        });
+
+        expect(response.status).toBe(200);
+        expect(upstreamFetch).toHaveBeenCalledWith(
+          new URL(`https://api.anthropic.com${path}`),
+          expect.objectContaining({
+            method,
+            headers: expect.objectContaining({
+              'x-api-key': 'sk-anthropic-batch-upstream',
+            }),
+          }),
+        );
+        const options = upstreamFetch.mock.calls[0]?.[1];
+        if (method === 'GET') {
+          expect(options).not.toHaveProperty('body');
+        } else {
+          expect(options?.body).toEqual(Buffer.from('{}'));
+        }
+        if (method === 'POST') {
+          for (const [invalidMethod, invalidPath] of [
+            ['POST', '/v1/messages/batches/msgbatch_123'],
+            ['GET', '/v1/messages/batches/msgbatch_123/cancel'],
+          ]) {
+            const invalid = await gatewayRequest({
+              url: `${injection.env[anthropicBaseUrlKey]}${invalidPath}`,
+              token: injection.env[anthropicApiKeyKey]!,
+              method: invalidMethod,
+            });
+            expect(invalid.status).toBe(400);
+          }
+          expect(upstreamFetch).toHaveBeenCalledTimes(1);
+        }
+      } finally {
+        await broker.close();
+      }
+    },
+  );
   it('proxies OpenAI chat-completions traffic for the DeepAgents lane', async () => {
     const repo = new MutableModelCredentialRepository();
     repo.set('openai', 'sk-openai-chat-upstream');
@@ -1580,7 +1651,65 @@ describe('GantryModelGatewayBroker', () => {
     }
   });
 
-  it('rejects disallowed OpenAI paths before the upstream fetch', async () => {
+  it.each([
+    ['POST', '/v1/files'],
+    ['POST', '/v1/batches'],
+    ['GET', '/v1/batches'],
+    ['GET', '/v1/batches/batch_123'],
+    ['GET', '/v1/files/file_123/content'],
+  ])(
+    'proxies OpenAI %s %s through the scoped credential',
+    async (method, path) => {
+      const repo = new MutableModelCredentialRepository();
+      repo.set('openai', 'sk-openai-batch-upstream');
+      const upstreamFetch = vi.fn(
+        async (_url: URL, _options?: RequestInit) =>
+          new Response('{"object":"batch"}', {
+            headers: { 'content-type': 'application/json' },
+          }),
+      );
+      vi.stubGlobal('fetch', upstreamFetch);
+      const broker = new GantryModelGatewayBroker(repo);
+      try {
+        const injection = await broker.getInjection({
+          binding: {
+            profile: 'gantry',
+            purpose: 'model_batch',
+            appId,
+            runId: 'run:openai-batch' as never,
+            modelCredentialProviderId: 'openai',
+            modelBatchRequestCount: 1,
+          },
+        });
+
+        const response = await gatewayRequest({
+          url: `${injection.env.OPENAI_BASE_URL}${path}`,
+          token: injection.env.OPENAI_API_KEY!,
+          method,
+        });
+
+        expect(response.status).toBe(200);
+        expect(upstreamFetch).toHaveBeenCalledWith(
+          new URL(`https://api.openai.com${path}`),
+          expect.objectContaining({
+            method,
+            headers: expect.objectContaining({
+              authorization: 'Bearer sk-openai-batch-upstream',
+            }),
+          }),
+        );
+        const options = upstreamFetch.mock.calls[0]?.[1];
+        if (method === 'GET') {
+          expect(options).not.toHaveProperty('body');
+        } else {
+          expect(options?.body).toEqual(Buffer.from('{}'));
+        }
+      } finally {
+        await broker.close();
+      }
+    },
+  );
+  it('continues to reject disallowed OpenAI paths before the upstream fetch', async () => {
     const repo = new MutableModelCredentialRepository();
     repo.set('openai', 'sk-openai-upstream');
     const upstreamFetch = vi.fn(async () => new Response('should not call'));
@@ -1597,11 +1726,135 @@ describe('GantryModelGatewayBroker', () => {
       });
 
       const disallowed = await gatewayRequest({
-        url: `${injection.env.OPENAI_BASE_URL}/v1/files`,
+        url: `${injection.env.OPENAI_BASE_URL}/v1/fine_tuning/jobs`,
         token: injection.env.OPENAI_API_KEY!,
       });
       expect(disallowed.status).toBe(400);
+
+      for (const path of [
+        '/v1/files',
+        '/v1/files/file_123',
+        '/v1/batches/batch_123/results',
+      ]) {
+        const response = await gatewayRequest({
+          url: `${injection.env.OPENAI_BASE_URL}${path}`,
+          token: injection.env.OPENAI_API_KEY!,
+          method: 'GET',
+        });
+        expect(response.status).toBe(403);
+      }
+      const nonBatchGet = await gatewayRequest({
+        url: `${injection.env.OPENAI_BASE_URL}/v1/chat/completions`,
+        token: injection.env.OPENAI_API_KEY!,
+        method: 'GET',
+      });
+      expect(nonBatchGet.status).toBe(405);
       expect(upstreamFetch).not.toHaveBeenCalled();
+    } finally {
+      await broker.close();
+    }
+  });
+
+  it.each([
+    ['anthropic', 'POST', '/v1/messages/batches'],
+    ['anthropic', 'GET', '/v1/messages/batches'],
+    ['anthropic', 'GET', '/v1/messages/batches/msgbatch_123/results'],
+    ['openai', 'POST', '/v1/files'],
+    ['openai', 'POST', '/v1/batches'],
+    ['openai', 'GET', '/v1/batches'],
+    ['openai', 'GET', '/v1/files/file_123/content'],
+  ] as const)(
+    'rejects ordinary %s model-runtime tokens on %s batch path %s',
+    async (providerId, method, path) => {
+      const repo = new MutableModelCredentialRepository();
+      repo.set(providerId, `sk-${providerId}-ordinary`);
+      const upstreamFetch = vi.fn(async () => new Response('{"ok":true}'));
+      vi.stubGlobal('fetch', upstreamFetch);
+      const broker = new GantryModelGatewayBroker(repo);
+      try {
+        const injection = await broker.getInjection({
+          binding: {
+            profile: 'gantry',
+            purpose: 'model_runtime',
+            appId,
+            runId: `run:${providerId}-ordinary` as never,
+            modelCredentialProviderId: providerId,
+          },
+        });
+        const baseUrl =
+          providerId === 'anthropic'
+            ? injection.env[anthropicBaseUrlKey]!
+            : injection.env.OPENAI_BASE_URL!;
+        const token =
+          providerId === 'anthropic'
+            ? injection.env[anthropicApiKeyKey]!
+            : injection.env.OPENAI_API_KEY!;
+
+        const response = await gatewayRequest({
+          url: `${baseUrl}${path}`,
+          token,
+          method,
+        });
+
+        expect(response.status).toBe(403);
+        expect(upstreamFetch).not.toHaveBeenCalled();
+      } finally {
+        await broker.close();
+      }
+    },
+  );
+
+  it('charges each item in a batch submission against the request-rate cap', async () => {
+    const repo = new MutableModelCredentialRepository();
+    repo.set('anthropic', 'sk-anthropic-weighted-batch');
+    const upstreamFetch = vi.fn(async () => new Response('{"ok":true}'));
+    vi.stubGlobal('fetch', upstreamFetch);
+    const broker = new GantryModelGatewayBroker(repo, {
+      limits: () => ({ providers: { anthropic: { requestsPerMinute: 3 } } }),
+    });
+    try {
+      const injection = await broker.getInjection({
+        binding: {
+          profile: 'gantry',
+          purpose: 'model_batch',
+          appId,
+          runId: 'run:weighted-batch' as never,
+          modelCredentialProviderId: 'anthropic',
+          modelBatchRequestCount: 4,
+        },
+      });
+
+      const response = await gatewayRequest({
+        url: `${injection.env[anthropicBaseUrlKey]}/v1/messages/batches`,
+        token: injection.env[anthropicApiKeyKey]!,
+      });
+
+      expect(response.status).toBe(429);
+      expect(upstreamFetch).not.toHaveBeenCalled();
+    } finally {
+      await broker.close();
+    }
+  });
+
+  it('rejects Claude OAuth for a batch-purpose token before token issue', async () => {
+    const repo = new MutableModelCredentialRepository();
+    repo.setWithMode('anthropic', 'claude_code_oauth', {
+      oauthToken: 'oauth-anthropic-batch',
+    });
+    const broker = new GantryModelGatewayBroker(repo);
+    try {
+      await expect(
+        broker.getInjection({
+          binding: {
+            profile: 'gantry',
+            purpose: 'model_batch',
+            appId,
+            runId: 'run:oauth-batch' as never,
+            modelCredentialProviderId: 'anthropic',
+            modelBatchRequestCount: 1,
+          },
+        }),
+      ).rejects.toThrow('does not support chat batches');
     } finally {
       await broker.close();
     }

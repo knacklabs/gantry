@@ -124,6 +124,8 @@ function request(input: {
 async function gateway(input: {
   providerId: 'anthropic' | 'openai';
   runId?: string;
+  purpose?: 'model_runtime' | 'model_batch';
+  modelBatchRequestCount?: number;
   audit?: (event: RuntimeEventPublishInput) => Promise<unknown> | unknown;
 }): Promise<{ url: string; token: string }> {
   const broker = new GantryModelGatewayBroker(
@@ -134,9 +136,12 @@ async function gateway(input: {
   const injection = await broker.getInjection({
     binding: {
       profile: 'gantry',
-      purpose: 'model_runtime',
+      purpose: input.purpose ?? 'model_runtime',
       appId,
       modelCredentialProviderId: input.providerId,
+      ...(input.modelBatchRequestCount
+        ? { modelBatchRequestCount: input.modelBatchRequestCount }
+        : {}),
       ...(input.runId ? { runId: input.runId as never } : {}),
     },
   });
@@ -723,6 +728,42 @@ describe('Gantry Model Gateway tracing', () => {
     });
   });
 
+  it.each([
+    ['anthropic', '/v1/messages/batches'],
+    ['openai', '/v1/files'],
+    ['openai', '/v1/batches'],
+  ] as const)(
+    'does not trace %s%s transport requests as chat generations',
+    async (providerId, path) => {
+      const exporter = new InMemorySpanExporter();
+      tracing(exporter);
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(
+          async () =>
+            new Response('{"object":"batch"}', {
+              headers: { 'content-type': 'application/json' },
+            }),
+        ),
+      );
+      const endpoint = await gateway({
+        providerId,
+        purpose: 'model_batch',
+        modelBatchRequestCount: 1,
+      });
+      const url = new URL(endpoint.url);
+      url.pathname = `/${providerId}${path}`;
+
+      const result = await request({
+        ...endpoint,
+        url: url.href,
+        body: Buffer.from('{}'),
+      });
+
+      expect(result.status).toBe(200);
+      expect(exporter.getFinishedSpans()).toEqual([]);
+    },
+  );
   it('is byte-identical and emits no spans when tracing is disabled', async () => {
     const exporter = new InMemorySpanExporter();
     initTracing(
