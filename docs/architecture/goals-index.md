@@ -1,164 +1,237 @@
-# Goals Index — execution queue
+# Goals Index — execution queue + status board
 
-Master ordered list of engineering goals so they can be executed one after the
-other. Each row links a detailed goal-prompt / audit / roadmap doc in this
-folder. Status: **in-flight** · **ready** (scoped, blocked only on an earlier
-row) · **roadmap** (needs an earlier cycle + some design) · **ideation** (not
-yet scoped) · **shipped** (reference).
+Master tracker for engineering goals. **Scan the board first**, then read the
+stage detail below it. Each goal links a detailed goal-prompt / audit / roadmap
+doc in this folder. Done-vs-pending reconciled against merged PRs 2026-07-22.
 
 Every implementation cycle runs through the gantry-goal-pipeline (Codex
 implements, Claude orchestrates) with a mandatory Codex plan-validation pass on
 the goal doc before stage 1, per AGENTS.md.
 
+**Status vocabulary:** `shipped` (merged) · `staged` (built, not merged) ·
+`in-flight` (building now) · `build-ready` (design locked, deps clear) ·
+`scoped`/`locked` (design done, not queued) · `roadmap` (needs a prior cycle +
+design) · `ideation` (not yet scoped).
+
+**Checklist legend:** `[x]` merged · `[~]` built, staged (not merged) ·
+`[>]` in flight · `[ ]` pending.
+
+**This file = DURABLE status** (committed, survives sessions). Live session
+mechanics — Codex task ids, worktree paths, in-flight lane state — live in the
+session-state scratchpad, which points back here for canonical status. Do not
+duplicate status between them (that is bug-family 1 — same fact, two lifecycles).
+
 **Standing habit (user directive 2026-07-19): bug-pattern-driven simplification.**
 At every cycle closeout, classify that cycle's review findings into pattern
 families; recurring families re-rank this queue toward the simplification that
-retires them. Families observed so far (2026-07-19 session, ~35 findings):
-(1) same fact stored twice with different lifecycles — the dominant family;
-(2) mutation-before-authorization / delivery-failure confused with commit
-failure; (3) consolidation fidelity loss when unifying copies; (4) generated
-defaults blind to deployment reality (migrations); (5) type-system lies.
-Family 1 evidence spans permission storage (cured by #233), settings export
-(Group C), and async tasks (callable-agent follow-up state added NEW jsonb-key
-state in privateCorrelationJson) — which is why the durable-work primitive
-precedes Group C. 2026-07-19 validation-loop additions: family 3 struck again
-(appId-less desired-state provider vs its appId-passing sibling — ponytail
-slice 1), family 2 flavor in Slack attachment double-failure reported as
-success, and a fresh TOCTOU (workspace attachment containment) reinforcing the
-B2 hardening batch.
+retires them. Families observed (2026-07-19, ~35 findings): (1) same fact stored
+twice with different lifecycles — the dominant family; (2) mutation-before-
+authorization / delivery-failure confused with commit failure; (3) consolidation
+fidelity loss when unifying copies; (4) generated defaults blind to deployment
+reality; (5) type-system lies.
 
 ---
 
-## Execution order (run top-to-bottom)
+## Status board — active goals (scan here first)
 
-**Now — three implementation lanes running in parallel (2026-07-19):**
+| Goal | Progress | Active now | Blocked on |
+|---|---|---|---|
+| Permission engine redesign | design ✅ · plan ⏳ · build ⏳ | writing plan | fold in floor+promotion + simplification |
+| Observer program | 1/6 shipped · 2/6 staged · 3/6 pending | land S2 + S3a | my verify → autoreview → merge |
+| Agent E2E merge gate | foundation + core rows shipped | many rows pending; matrix tracker itself behind | per-row, in progress |
+| Capability authoring | uncommitted lane, not merged | commit / reconcile it | at-risk; edits mcp-tool-proxy → blocks MCP hybrid |
+| MCP hybrid search | design ✅ · build ⏳ | — | capability-authoring must land first |
+| Ponytail audit | phased re-derive in progress (wt-ponytail) | reconcile phase live | final cutover GATED — your go, any red = STOP |
 
-1. **Ponytail audit Phase 3** — slice 1 COMMITTED (N1/N5-N7/N9, AR1 19→0,
-   app-scoped desired-state provider); **slice 2 in flight** (AR2+F5+F14 canonical
-   routing + deferred trigger-bridge removal); then slice 3 (F9+N2-N4+N8), Phases
-   4-6; Phases 7-9 (DB baselining + live restamp) LAST, only after explicit user
-   cutover go + the live-settings runbook in the branch execution ledger.
-   _(worktree `wt-ponytail`, `feature/ponytail-audit`)_
-2. **S3/MinIO file-artifact bytes** — PROTOCOL DECIDED (user 2026-07-20):
-   pending-state row + upload + verified commit + TTL janitor for orphans. Lane
-   stays LOW PRIORITY (live uses local; opt-in path) — resume with that protocol
-   when prioritized. `artifact-store-s3-goal-prompt.md`
-   _(worktree `wt-attach`, `feature/s3-file-artifacts`)_
-3. **Durable-work primitive** — DEFERRED until ponytail ships (user
-   2026-07-20): it refactors jobs/interactions state that Phases 5-6 delete/move.
-   Becomes the FIRST post-cutover lane on the settled tree. Plan-validation
-   COMPLETE. `durable-work-primitive-goal-prompt.md`
-   _(worktree `wt-convo`, `feature/durable-work-primitive`)_
-4. **Media render capability + environment-facts guidance** — V4 SHAPE LOCKED
-   (user 2026-07-20): FACADE-PREFLIGHT v1 — provisioner + facade + selected
-   skill + env-facts; capability/inventory/admission machinery CUT (3 rounds
-   NOT-SAFE → YAGNI). One focused validation round on the v4 delta, then
-   implementation queues after the E2E gate lane. `media-render-goal-prompt.md`
-   _(worktree `wt-media`, `feature/media-render-capability`)_
-5. **Route-loader dedup + conversationId leak (incident closeout)** — the
-   durable fix behind the 2026-07-20 routing incident: loader imports every
-   active `conversation-route:%` row without dedup by chat+account, and the
-   settings projection leaks the settings key into `route.conversationId`.
-   Small fix lane + regression tests (incl. the sourceAgentFolderJids
-   chat-jid derivation test skipped during the live hotfix).
-   _(worktree `wt-routefix`, `fix/route-loader-dedup`)_
-6. **Permission floor + command-class promotion** — grill-scoped 2026-07-20.
-   Stay-direct posture confirmed. auto_strict becomes the new-agent default
-   (deterministic read-only pre-gate + YOLO backstop under the classifier) AND
-   "allow for future" persists a user-confirmed command-NAME class scoped to
-   conversation+agent (kills the novel-task prompt flood). Tight scope:
-   env-facts defers to media Stage 5, audit-write fix is separate.
-   `permission-floor-and-promotion-goal-prompt.md`
-7. **Fail-loud audit writes (separate tiny lane)** — `runtime_events` insert in
-   `publishGatewayUseAudit` has thrown ~98× since 2026-07-04 (WARN-swallowed);
-   durable credential/model-usage audit silently not persisting. Fix the insert
-   + add a failure counter so silent audit loss can't hide. Not yet scoped.
-8. **Agent E2E CI merge gate** — grill-scoped 2026-07-20, full build one goal.
-   Packaged real-image runtime + real agent turn + evidence artifacts; wire the
-   omitted `test:integration:postgres` into CI; GRANULAR permission + capability
-   matrices at the integration layer (dedup existing tests) + thin real-turn E2E
-   proofs; skill (internal-comms) + MCP (everything server) fixtures; path-map
-   policy classifier with `e2e-reviewed` override; hermetic always-required +
-   label-gated live model matrix; `agent-e2e-gate` required check. i-have-adhd
-   hard-excluded. `agent-e2e-ci-merge-gate-goal-prompt.md` — plan-validation next.
-
-Per-lane loop: codex lands → independent verify (typecheck + FULL unit +
-throwaway-DB integration when schema touched) → local autoreview to clean →
-commit. Merge only on explicit user "merge NNN".
-
-**Next — PRIORITIZED by user 2026-07-19 ("UX improvements and latency of agent
-messages as next, that's important"):**
-
-4. **Messaging hot-path** — Stages 1-2 SHIPPED (#235 cleanup, #236 latency:
-   first-token piping, cache parity, SDK off critical path). **Stage 3 CLOSED
-   (user 2026-07-20, YAGNI)**: hydration watermark / upsert-collapse /
-   double-fetch / liveness-heartbeat contracts stay unbuilt — reopen ONLY on a
-   real latency/liveness complaint. `messaging-hotpath-and-liveness-goal-prompt.md`
-5. **Model management: unify then UX** — FINALIZED 2026-07-19; starts when the
-   ponytail lane closes (shares the settings parser/renderer surface). 8 decisions
-   locked (aggressive knob collapse, sticky conversation switch via
-   settings-approval gate, tokens+cache stats, disclosed cheapest-sibling
-   auto-upgrade + capabilities facet for image→text-only); folds in
-   `status-cost-cache-visibility-goal-prompt.md`; Stage B rides the V3 phrase
-   seam. `model-management-goal-prompt.md`
-
-**Then — medium, scoped:**
-
-6. **Jobs recovery-intent → columns + CAS.** `coordination-representation-audit-2026-07-18.md` (B1) — may fold into goal 4.
-7. **Coordination hardening batch** — skill-install advisory lock, session-compaction Set, TOCTOU fallback, canonical-serializer unify, stringify dedup keys. `coordination-representation-audit-2026-07-18.md` (B2 + low) — may fold into goal 4.
-8. **`desired-state-current-export` rewrite** — schema-driven merge, fail-loud on unknown fields. `coordination-representation-audit-2026-07-18.md` (Group C)
-9. **Permission decision simplification** — one sequencer, one mode vocabulary, one authority block, one copy layer. `permission-simplification-goal-prompt.md`
-10. **Remaining Fable arch cycles** (#2–#8). `fable-architecture-review-2026-07-16.md`
-
-**Roadmap — after the above, needs design:**
-
-13. **KB / document ingestion per workspace.** `platform-roadmap-2026-07.md` (#1)
-14. **Tenant isolation hardening** — hostile-tenant review; verified via the E2E harness matrix. `platform-roadmap-2026-07.md` (#3)
-15. **E2E persona/topology harness** — goal-prompt drafted in session scratchpad _(promote into this folder as `e2e-harness-goal-prompt.md`)_.
-16. **Connector strategy execution** — direct OAuth, `providers.yaml` templates, org-owned GitHub+Google v1 _(design doc in `~/.gstack` projects dir)_.
-
-**Ideation — not yet scoped (do not auto-start):**
-
-- **Prompt-driven flows** — natural-language flows, not node/edge authoring; deferred.
-- **Identity + memory MCP** — personId alias (link-don't-merge), person-scoped memory MCP, UI last; rides the connector strategy.
-- **Blueprints + per-tenant evals.** `platform-roadmap-2026-07.md` (#4, LATER)
+**Pending / queued goals:** see the **Queued**, **Then**, and **Parked** sections
+below — those hold the authoritative order and readiness (do not duplicate them
+here). _(Permission floor+promotion is folded into the permission engine
+redesign; Fail-loud audit writes is unscoped — Parked, not queued.)_
 
 ---
 
-## Other goal-prompts on disk (status to verify before scheduling)
+## Active goals — stage detail
 
+### Permission engine redesign  ·  PENDING (design locked, unbuilt)
+Live git/sandbox pain root-caused to AUTHORIZATION (not sandbox). Design LOCKED:
+deterministic risk analyzer + decision memory + ask-once-genuine-risk. RCA +
+design in the session scratchpad (`permission-engine-redesign.md`).
+- [x] Root-cause RCA (git prompts = authorization; direct mode not the lever)
+- [x] Design locked (risk analyzer · decision memory · classifier shrinks · ask-once)
+- [ ] Network/FS investigation — Codex ran, **output unrecovered** (grill from code instead)
+- [>] Full implementation plan (grilling now)
+- [ ] Fable + Codex adversarial critique of the plan (security-critical)
+- [ ] Build via goal-pipeline (git deterministic-gate = slice #1)
+- **Consolidation:** supersedes `permission-floor-and-promotion-goal-prompt.md`
+  and folds `permission-simplification-goal-prompt.md`; also fixes telemetry
+  (RunCommand command text) + `select:`-as-Bash misparse.
+
+### Observer program  ·  IN PROGRESS (1 shipped, 2 staged, 3 pending)
+Curious Observer: harvest firehose → nightly dream → deterministic value floor +
+batch LLM judge → private ≤1/day digest. Behind `observer.enabled` (default off).
+Design of record: session `proactive-observer-plan.md`. API+SDK+E2E every stage.
+- [x] S1 foundations — MERGED **#264** (proactive_insights, deliveries, cursors, read-only API/SDK/E2E)
+- [~] S2 emission — staged `wt-observer-s2` (floor conf≥0.6 · evidence≥1 · dedup cosine≥0.86)
+- [~] S3a batch-core + fix — staged `wt-observer-s3` (gateway batch endpoints, prefer-orphan state machine; 7 autoreview fixes applied)
+- [ ] S3b — xAI Grok + Kimi transports (same declared-capability slot)
+- [ ] S4 — digest delivery (staging · settlement · freshness revalidation · evidence permalinks · feedback capture · artifact)
+- [ ] S5 — setup wizard + preview + status + cold-start backfill
+- **Next action:** verify → autoreview → PR → merge S2 and S3a. Exclude the
+  plan/GOAL scratch docs from the autoreview *diff* only — do NOT delete the
+  design record.
+- **Contract gap:** Observer has NO committed `*-goal-prompt.md`; its design of
+  record (`proactive-observer-plan.md`) lives in the scratchpad (ephemeral).
+  Promote it to a committed goal-prompt to satisfy the pipeline contract before
+  later stages.
+
+### Agent E2E CI merge gate  ·  IN PROGRESS (many rows pending)
+Packaged real-image runtime + real agent turn + evidence; the merge bar. Goal
+doc: `agent-e2e-ci-merge-gate-goal-prompt.md` (RESTAGED v3). Row tracker
+`agent-e2e-test-matrix.md` is itself BEHIND (PRs #256–#261 added tests without
+flipping its rows), so neither it nor this checklist is a reliable count —
+reconcile the matrix separately before trusting any "% done".
+- [x] Gate foundation — **#238** (CI-gated postgres lanes, fixture kit)
+- [x] Stage C packaged-runtime harness — **#242**
+- [x] First real haiku turn — **#246**
+- [x] Matrix rows: permission chain **#256** · memory/route **#257** · jobs lifecycle **#258** · boot+onboarding **#259** · capabilities **#260** · delegation **#261**
+- [>] Many matrix rows still pending: packaged boot/restart, haiku model gate, all-tools coverage, security/recovery
+- [ ] Flip `agent-e2e-gate` to a **required check** (LAST — only when the matrix is green)
+- **Next action:** reconcile the matrix tracker, then work the pending batches. NOT near closeout.
+
+### Capability authoring  ·  ACTIVE LANE (uncommitted, at risk)
+The lane that lets agents author capabilities; edits `mcp-tool-proxy.ts`. Built as
+uncommitted work in `wt-pr237` (no committed goal-prompt yet). Blocks MCP hybrid
+search — both edit mcp-tool-proxy, so no concurrent edits.
+- [>] Built in `wt-pr237`, **uncommitted** — the diff there is the source of record
+- [ ] Commit / reconcile the lane → then it (and MCP hybrid) can proceed
+- **Source of record:** the `wt-pr237` worktree diff, until a goal-prompt is committed.
+
+### MCP hybrid search  ·  BLOCKED (design locked, dep unmet)
+Extends `mcp_search_tools`: FTS ranking + light stemming + opt-in semantic layer
+(reuses memory's embedding provider + cache; degrades to FTS). Goal doc:
+`mcp-hybrid-search-goal-prompt.md` (GRILL-LOCKED 2026-07-21).
+- [x] Design grill-locked
+- [x] Dep: #237 on main (`mcp_search_tools` live)
+- [ ] Dep: capability-authoring landed — **NOT met** (uncommitted in wt-pr237,
+      edits `mcp-tool-proxy.ts`; both efforts touch it → concurrent edits forbidden)
+- [ ] Build (plan-validation → stages → autoreview → PR)
+- **Status: blocked on capability-authoring landing.** NB: capability *catalog*
+  (#255, merged) is a different thing from capability *authoring* (the wt-pr237 lane).
+
+### Ponytail audit (separate track, gated)  ·  IN PROGRESS (unmerged lane)
+Main-sync re-derive + phased cutover, all in `wt-ponytail` (`feature/ponytail-audit`,
+unmerged). **The live worktree runs AHEAD of this board — re-derive the exact
+phase from its git log, don't trust a phase number written here.**
+- [~] Re-derive + baseline phases committed in the lane (through the DB-baseline phase)
+- [ ] Final offline cutover / live restamp — **GATED**: explicit user cutover go +
+      fresh-green + required e2e rows green; **any red = STOP**. Nothing merged to main.
+
+---
+
+## Queued — design locked, not started (run top-to-bottom when a slot opens)
+
+1. **Durable-work primitive** — **FIRST post-Ponytail-cutover lane** (recorded
+   user directive 2026-07-20); plan-validation complete. Refactors jobs/
+   interactions state that Ponytail Phases 5–6 move. NB: its goal-prompt
+   (`durable-work-primitive-goal-prompt.md`) lives on the
+   `feature/durable-work-primitive` branch, NOT this tree — land it here before
+   the pipeline runs.
+2. **Model management: unify then UX** — FINALIZED 2026-07-19; starts when the
+   ponytail lane closes (shares the settings parser/renderer surface). Folds in
+   `status-cost-cache-visibility-goal-prompt.md`. `model-management-goal-prompt.md`
+3. **Media render capability + env-facts** — **NOT runnable — gated on
+   validation, do NOT auto-run.** Round-3 plan-validation
+   (`media-render-plan-validation-round3.md`) = NOT APPROVED FOR IMPLEMENTATION
+   (unresolved sandbox + capability-routing). The v4 FACADE-PREFLIGHT delta needs
+   a fresh validation pass + a committed v4 goal-prompt before the pipeline.
+   Queues after the E2E gate. `wt-media` (unmerged). `media-render-goal-prompt.md`
+4. **S3/MinIO file-artifact bytes** — protocol decided (pending-row + upload +
+   verified commit + TTL janitor); LOW PRIORITY (live uses local). `wt-attach`
+   (unmerged). `artifact-store-s3-goal-prompt.md`
+
+## Then — medium, scoped
+
+5. **Jobs recovery-intent → columns + CAS.** `coordination-representation-audit-2026-07-18.md` (B1)
+6. **Coordination hardening batch** — advisory locks, TOCTOU fallback, serializer unify. (B2)
+7. **`desired-state-current-export` rewrite** — schema-driven merge, fail-loud. (Group C)
+8. **Remaining Fable arch cycles** (#2–#8). `fable-architecture-review-2026-07-16.md`
+
+## Parked — goal-prompt on disk, unscoped (verify before scheduling)
+
+Goals with a doc in this folder but no merged PR and no active lane. Status to
+confirm before promoting into the board:
 `cross-provider-conversation-context-goal-prompt.md` ·
 `generative-ui-goal-prompt.md` ·
 `durable-async-tool-burst-queue-goal-prompt.md` ·
 `event-driven-waits-agent-subagent-goal-prompt.md` ·
 `non-blocking-session-compaction-goal-prompt.md` ·
-`status-cost-cache-visibility-goal-prompt.md` ·
-`inline-agent-feature-parity-goal-prompt.md` ·
 `multi-agent-provider-onboarding-goal-prompt.md` ·
-`onboarding-stale-settings-goal-prompt.md` ·
-`deepagents-cache-savings-goal-prompt.md`
+`deepagents-cache-savings-goal-prompt.md`.
 
-## Shipped (reference only — do not re-execute)
+Unscoped fixes with NO goal doc yet (symptom + proposed counter only — need a
+goal-prompt + plan-validation before scheduling):
+**Fail-loud audit writes** — `runtime_events` insert in `publishGatewayUseAudit`
+throws WARN-swallowed; add a failure counter so silent audit loss can't hide.
 
-- Conversation quality V1+V3+V4 (agent voice, casual-control mappings via
-  reviewed flows, edit-in-place progress cards) — PR #232; V2 stays UI-gated.
-  `conversation-quality-goal-prompt.md`
-- Permission durable-storage simplification (sweep, one recovery orchestrator,
-  `permission_prompts` envelope schema, 12 invariants) — PR #233. `permission-durable-storage-goal-prompt.md`
-- Group onboarding (one-tap join registration + CLI/settings fixes) — PR #231.
-- Agents-as-tools (per-orchestrator callable-agent delegation, 6 stages) — PR #230. `agents-as-tools-goal-prompt.md`
-- Classifier/SSRF bug fixes (truncation-gate split, pinning egress for direct-mode SDK) — PR #229.
-- OTel LLM observability + UX stages A-D consolidation — PR #220. `otel-llm-observability-goal-prompt.md`
-- C+D prompt-lifecycle / question-recovery envelope — PR #228 (its write-only
-  leftovers were deleted by #233 by design). `cd-envelope-durability-fix.md`
-- Auto-permission mode/action-based/classifier/run-origin-trust — PR #212. `auto-permission-*-goal-prompt.md`
-- Lightweight agent modes — PR #207 (phase 2 goal still open). `lightweight-agent-modes-goal-prompt.md`
-- Dev experience Tier 1 (guardrails/usage, control/observability) — PR #209. `dev-guardrails-and-usage-goal-prompt.md`, `dev-control-and-observability-goal-prompt.md`
-- Setup/management UX overhaul — PR #200. `setup-management-ux-goal-prompt.md`
-- Company brain core — PR #195 (Stage 2 = Slack tap + dream job open). `company-brain-core-goal-prompt.md`, `company-brain-harvest-goal-prompt.md`
-- Arch quick wins (error counters, per-turn log correlation, durable send ordering) — PR #226.
+## Roadmap — after the above, needs design
+
+- **KB / document ingestion per workspace.** `platform-roadmap-2026-07.md` (#1)
+- **Tenant isolation hardening** — hostile-tenant review; verified via E2E matrix. (#3)
+- **E2E persona/topology harness** — goal-prompt drafted in scratchpad.
+- **Connector strategy execution** — direct OAuth, `providers.yaml`, org-owned
+  GitHub+Google v1 _(design doc in `~/.gstack` projects dir)_.
+
+## Ideation — not yet scoped (do not auto-start)
+
+- **Prompt-driven flows** — natural-language flows, not node/edge authoring.
+- **Identity + memory MCP** — personId alias (link-don't-merge), person-scoped
+  memory MCP; rides the connector strategy.
+- **Blueprints + per-tenant evals.** `platform-roadmap-2026-07.md` (#4, LATER)
 
 ---
 
-_Maintenance: when a goal ships, move its row to **Shipped** with the PR number.
-When a new audit lands, add its doc here and slot it into the execution order._
+## Lane hygiene — worktree triage
+
+Live worktree/lane state is ephemeral, so it lives in the session scratchpad
+(`SESSION-STATE.md`), NOT this durable board. To triage stale worktrees,
+regenerate the list on demand: `git worktree list` + `gh pr list --state merged
+--limit 80`, then `git -C <path> status --short` on each before any
+`git worktree remove` — a merged branch can still hold uncommitted work (e.g. the
+capability-authoring lane). Do not maintain a worktree list here.
+
+## Shipped (reference only — do not re-execute)
+
+- Observer S1 foundations — #264.
+- OTel trace enrichment (span taxonomy beyond base) — **#262** _(verify full
+  agent/LLM/tool/MCP taxonomy scope before reopening)_. `otel-llm-observability-goal-prompt.md`
+- Agent output style — **#243**. `agent-output-style-goal-prompt.md`
+- Agent E2E: foundation #238 · Stage C #242 · first real turn #246 · matrix rows #256/#257/#258/#259/#260/#261.
+- Capability Catalog (source-agnostic ready-actions projection) — #255.
+- Session interaction-response API — #252.
+- MCP/skill acquisition single-authority refactor (PR #237 develop→main).
+- Messaging hot-path Stages 1–2 — #235/#236. Stage 3 CLOSED (YAGNI). `messaging-hotpath-and-liveness-goal-prompt.md`
+- Silence allow-for-future permission receipts — #239.
+- Security advisory gate fixes — axios #244 · shell-quote #249 · fast-uri #263.
+- Route-loader dedup + conversationId leak — #247.
+- Conversation quality V1+V3+V4 — #232. `conversation-quality-goal-prompt.md`
+- Permission durable-storage simplification — #233. `permission-durable-storage-goal-prompt.md`
+- Group onboarding (one-tap join) — #231.
+- Agents-as-tools (callable-agent delegation) — #230. `agents-as-tools-goal-prompt.md`
+- Classifier/SSRF bug fixes — #229.
+- OTel LLM observability base + UX A–D — #220. `otel-llm-observability-goal-prompt.md`
+- C+D prompt-lifecycle / question-recovery envelope — #228.
+- Auto-permission mode/action-based/classifier/run-origin-trust — #212.
+- Lightweight agent modes — #207. `lightweight-agent-modes-goal-prompt.md`
+- Inline-agent feature parity (lightweight phase 2) — #208. `inline-agent-feature-parity-goal-prompt.md`
+- Onboarding stale-settings fix — #205. `onboarding-stale-settings-goal-prompt.md`
+- Status/cost/cache visibility (base; UX remainder folds into model-management) — #201. `status-cost-cache-visibility-goal-prompt.md`
+- Dev experience Tier 1 — #209. `dev-guardrails-and-usage-goal-prompt.md`, `dev-control-and-observability-goal-prompt.md`
+- Setup/management UX overhaul — #200. `setup-management-ux-goal-prompt.md`
+- Company brain core — #195; Stage 2 (Slack tap + dream job) shipped (`01b3b45da` + fix `0be885dab`). `company-brain-core-goal-prompt.md`, `company-brain-harvest-goal-prompt.md`
+- Arch quick wins (error counters, log correlation, durable send ordering) — #226.
+
+---
+
+_Maintenance: when a goal ships, tick its stage `[x]` with the PR number and move
+the row to **Shipped**. When a new audit lands, add its doc and slot it into the
+board. Keep durable status HERE; keep session mechanics in the scratchpad._
