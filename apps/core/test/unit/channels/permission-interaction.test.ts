@@ -118,6 +118,70 @@ describe('permission interaction', () => {
     expect(normalizePermissionAction('deny')).toBeNull();
   });
 
+  it('labels and settles MCP capability allow-once as granting no access', () => {
+    const request = {
+      requestId: 'permission_mcp_capability',
+      sourceAgentFolder: 'main_agent',
+      toolName: 'request_permission',
+      displayName: 'MCP capability: Sum reads',
+      toolInput: {
+        capabilityProposalKind: 'mcp_capability',
+      },
+    } satisfies PermissionApprovalRequest;
+
+    expect(permissionButtonLabel('allow_once', request)).toBe(
+      'Allow once (no access)',
+    );
+    expect(
+      formatPermissionReceiptText(request.requestId, request, {
+        approved: true,
+        mode: 'allow_once',
+        decidedBy: 'Ravi',
+      }),
+    ).toBe(
+      'No MCP access granted: MCP Capability: Sum Reads. MCP action authority requires Allow for future; nothing changed.',
+    );
+
+    const recoveredRequest = {
+      ...request,
+      toolInput: undefined,
+      suggestions: [
+        {
+          type: 'addRules' as const,
+          behavior: 'allow' as const,
+          rules: [{ toolName: 'capability:mcp.sum.read.123456789abc' }],
+        },
+      ],
+      semanticCapabilityDefinitions: {
+        'mcp.sum.read.123456789abc': {
+          capabilityId: 'mcp.sum.read.123456789abc',
+          displayName: 'Sum reads',
+          category: 'MCP',
+          risk: 'read' as const,
+          can: 'Read sums.',
+          cannot: 'Call other tools.',
+          credentialSource: 'none' as const,
+          implementationBindings: [],
+          source: { kind: 'mcp_capability_proposal' },
+        },
+      },
+    } satisfies PermissionApprovalRequest;
+    expect(permissionButtonLabel('allow_once', recoveredRequest)).toBe(
+      'Allow once (no access)',
+    );
+    expect(
+      formatPermissionReceiptText(
+        recoveredRequest.requestId,
+        recoveredRequest,
+        {
+          approved: true,
+          mode: 'allow_once',
+          decidedBy: 'Ravi',
+        },
+      ),
+    ).toContain('No MCP access granted');
+  });
+
   it('allows persistent approval only when one displayed rule maps to one update', () => {
     const request = requestWithSuggestions([
       {

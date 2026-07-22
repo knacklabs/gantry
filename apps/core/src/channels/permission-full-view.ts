@@ -68,10 +68,23 @@ export function buildPermissionPromptFullView(
   );
   if (file?.preview) {
     const isSettings = request.toolName === 'request_settings_update';
+    const isMcpCapabilityScope = file.path === 'mcp-capability-scope.txt';
     return fullView(
-      isSettings ? 'View settings change' : 'View diff',
-      isSettings ? 'Settings change' : 'Full payload',
-      isSettings ? 'settings-change.yaml' : 'permission-payload.txt',
+      isSettings
+        ? 'View settings change'
+        : isMcpCapabilityScope
+          ? 'View MCP scope'
+          : 'View diff',
+      isSettings
+        ? 'Settings change'
+        : isMcpCapabilityScope
+          ? 'MCP capability scope'
+          : 'Full payload',
+      isSettings
+        ? 'settings-change.yaml'
+        : isMcpCapabilityScope
+          ? file.path
+          : 'permission-payload.txt',
       file.preview,
     );
   }

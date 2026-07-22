@@ -1,4 +1,10 @@
 import type { AppId } from '../../domain/app/app.js';
+import type { AgentId } from '../../domain/agent/agent.js';
+import {
+  mcpBindingAuthorityPrecondition,
+  McpBindingAuthorityChangedError,
+  type McpBindingAuthorityPrecondition,
+} from '../../domain/mcp/mcp-servers.js';
 import type { SettingsRevisionRepository } from '../../domain/ports/fleet-capability-state.js';
 import type { SettingsRevisionMirror } from './settings-import-service.js';
 import type {
@@ -21,6 +27,12 @@ import type {
   RuntimeConfiguredAgentSourceRef,
   RuntimeSettings,
 } from './runtime-settings-types.js';
+import { parseSemanticCapabilityRule } from '../../shared/semantic-capability-ids.js';
+import { mcpCapabilityGrantTokenKey } from './mcp-capability-grant-provenance.js';
+import {
+  capturePendingMcpSourceEdits,
+  restorePendingMcpSourceEdits,
+} from './mcp-source-projection-preservation.js';
 
 const MAX_STALE_SETTINGS_RETRIES = 3;
 
@@ -39,7 +51,18 @@ export async function applyRuntimeSettingsDesiredState(input: {
   appId?: AppId;
   previousSettings?: RuntimeSettings;
   reloadRuntimeState?: () => Promise<void>;
+  expectedMcpBindingAgentIds?: AgentId[];
+  expectedMcpBindings?: McpBindingAuthorityPrecondition[];
 }): Promise<RuntimeSettings> {
+  const expectedMcpBindingAgentIds =
+    input.expectedMcpBindingAgentIds ??
+    (input.expectedMcpBindings === undefined
+      ? undefined
+      : [
+          ...new Set(
+            input.expectedMcpBindings.map((binding) => binding.agentId),
+          ),
+        ]);
   const service = new SettingsDesiredStateService({
     ops: input.ops,
     repositories: input.repositories,
@@ -65,24 +88,48 @@ export async function applyRuntimeSettingsDesiredState(input: {
   }
   const rollback = async () => {
     if (!input.previousSettings) return;
-    saveRuntimeSettings(input.runtimeHome, input.previousSettings);
-    await service.reconcile(input.previousSettings);
+    const rollbackSettings = structuredClone(input.previousSettings);
+    const rollbackFence =
+      (expectedMcpBindingAgentIds?.length ?? 0) > 0
+        ? await snapshotConfiguredMcpBindingAuthority({
+            settings: rollbackSettings,
+            repositories: input.repositories,
+            appId: input.appId ?? ('default' as AppId),
+            additionalAgentIds: expectedMcpBindingAgentIds,
+          })
+        : undefined;
+    applyMcpBindingSnapshotsToRuntimeSettings(rollbackSettings, rollbackFence);
+    await service.reconcile(rollbackSettings, {
+      expectedMcpBindingAgentIds: rollbackFence?.agentIds,
+      expectedMcpBindings: rollbackFence?.bindings,
+    });
+    saveRuntimeSettings(input.runtimeHome, rollbackSettings);
     await input.reloadRuntimeState?.();
-    activateRuntimeModelAliases(input.previousSettings);
+    activateRuntimeModelAliases(rollbackSettings);
   };
+  let forwardReconcileApplied = false;
   try {
-    saveRuntimeSettings(input.runtimeHome, settings);
-    const reconcile = await service.reconcile(reconcileSettings);
+    const reconcile = await service.reconcile(reconcileSettings, {
+      expectedMcpBindingAgentIds,
+      expectedMcpBindings: input.expectedMcpBindings,
+    });
     if (reconcile.invalidReferences.length > 0) {
       throw new Error(
         `settings desired state contains invalid references:\n${reconcile.invalidReferences.join('\n')}`,
       );
     }
+    forwardReconcileApplied = true;
+    saveRuntimeSettings(input.runtimeHome, settings);
     await input.reloadRuntimeState?.();
     activateRuntimeModelAliases(settings);
     return settings;
   } catch (err) {
-    await rollback();
+    if (
+      forwardReconcileApplied ||
+      !(err instanceof McpBindingAuthorityChangedError)
+    ) {
+      await rollback();
+    }
     throw err;
   }
 }
@@ -175,6 +222,8 @@ export async function addAgentToolRulesToSyncedRuntimeSettings(input: {
   settingsRevisions?: SettingsRevisionRepository;
   pool?: SettingsRevisionMirror['pool'];
   createdBy?: string;
+  expectedMcpBindings?: McpBindingAuthorityPrecondition[];
+  mcpCapabilityGrantToken?: string;
 }): Promise<void> {
   for (let attempt = 0; attempt <= MAX_STALE_SETTINGS_RETRIES; attempt += 1) {
     const base = await loadSyncedMutationBaseSettings({
@@ -189,12 +238,46 @@ export async function addAgentToolRulesToSyncedRuntimeSettings(input: {
       input.agentFolder,
       input.rules,
     );
-    await addActiveMcpSourcesToRuntimeSettings({
+    const pendingMcpSourceEdits = capturePendingMcpSourceEdits({
       settings: nextSettings,
-      agentFolder: input.agentFolder,
+      agentIds: base.mcpBindingPreconditionAgentIds,
+      bindings: base.mcpBindingPreconditions,
+    });
+    await addAllMcpSourcesToRuntimeSettings({
+      settings: nextSettings,
       repositories: input.repositories,
       appId: input.appId ?? ('default' as AppId),
     });
+    restorePendingMcpSourceEdits(nextSettings, pendingMcpSourceEdits);
+    const currentMcpAuthority = await snapshotConfiguredMcpBindingAuthority({
+      settings: nextSettings,
+      repositories: input.repositories,
+      appId: input.appId ?? ('default' as AppId),
+      additionalAgentIds: [
+        ...(base.mcpBindingPreconditionAgentIds ?? []),
+        ...(input.expectedMcpBindings ?? []).map((binding) => binding.agentId),
+      ],
+    });
+    const expectedMcpBindings = mergeMcpBindingPreconditions(
+      currentMcpAuthority.bindings,
+      input.expectedMcpBindings,
+    );
+    const expectedMcpBindingAgentIds = currentMcpAuthority.agentIds;
+    const requestedCapabilityIds = new Set(
+      input.rules
+        .map(parseSemanticCapabilityRule)
+        .filter((id): id is string => id !== null),
+    );
+    const mcpCapabilityGrantTokens = input.mcpCapabilityGrantToken
+      ? Object.fromEntries(
+          (nextSettings.agents[input.agentFolder]?.capabilities ?? [])
+            .filter((capability) => requestedCapabilityIds.has(capability.id))
+            .map((capability) => [
+              mcpCapabilityGrantTokenKey(input.agentFolder, capability),
+              input.mcpCapabilityGrantToken!,
+            ]),
+        )
+      : undefined;
     if (input.settingsRevisions) {
       const appId = input.appId ?? ('default' as AppId);
       const {
@@ -218,6 +301,9 @@ export async function addAgentToolRulesToSyncedRuntimeSettings(input: {
             },
             revisionMirrorRequired: true,
             expectedRevision: base.expectedRevision,
+            expectedMcpBindingAgentIds,
+            expectedMcpBindings,
+            mcpCapabilityGrantTokens,
           },
           nextSettings,
         );
@@ -246,6 +332,8 @@ export async function addAgentToolRulesToSyncedRuntimeSettings(input: {
       repositories: input.repositories,
       appId: input.appId,
       reloadRuntimeState: input.reloadRuntimeState,
+      expectedMcpBindingAgentIds,
+      expectedMcpBindings,
     });
     return;
   }
@@ -255,34 +343,27 @@ export async function addActiveMcpSourcesToRuntimeSettings(input: {
   agentFolder: string;
   repositories: Pick<SettingsDesiredStateRepositories, 'mcpServers'>;
   appId: AppId;
-}): Promise<void> {
+}): Promise<McpBindingAuthorityPrecondition[]> {
   const folder = input.agentFolder.trim();
   const agent = input.settings.agents[folder];
-  if (!agent) return;
+  if (!agent) return [];
   const bindings = await input.repositories.mcpServers.listAgentBindings({
     appId: input.appId,
     agentId: agentIdForFolder(folder),
-    limit: 500,
   });
   const existing = new Map(
     agent.sources.mcpServers.map((source) => [source.id, source]),
   );
   const next: RuntimeConfiguredAgentSourceRef[] = [...agent.sources.mcpServers];
   for (const binding of bindings) {
-    if (binding.status !== 'active') continue;
     const id = String(binding.serverId);
     const existingSource = existing.get(id);
     if (existingSource) {
-      if (
-        existingSource.tools?.length &&
-        binding.allowedToolPatterns.length > 0
-      ) {
-        existingSource.tools = [
-          ...new Set([...existingSource.tools, ...binding.allowedToolPatterns]),
-        ];
-      }
+      existingSource.status = binding.status;
+      setExactMcpSourceTools(existingSource, binding.allowedToolPatterns);
       continue;
     }
+    if (binding.status !== 'active') continue;
     existing.set(id, { id });
     next.push({
       id,
@@ -292,6 +373,136 @@ export async function addActiveMcpSourcesToRuntimeSettings(input: {
     });
   }
   agent.sources.mcpServers = next.sort((a, b) => a.id.localeCompare(b.id));
+  return bindings.map(mcpBindingAuthorityPrecondition);
+}
+
+export async function addAllMcpSourcesToRuntimeSettings(input: {
+  settings: RuntimeSettings;
+  repositories: Pick<SettingsDesiredStateRepositories, 'mcpServers'>;
+  appId: AppId;
+}): Promise<McpBindingAuthorityPrecondition[]> {
+  const snapshots: McpBindingAuthorityPrecondition[] = [];
+  for (const agentFolder of Object.keys(input.settings.agents).sort()) {
+    snapshots.push(
+      ...(await addActiveMcpSourcesToRuntimeSettings({
+        ...input,
+        agentFolder,
+      })),
+    );
+  }
+  return snapshots;
+}
+
+export function configuredMcpBindingAgentIds(
+  settings: RuntimeSettings,
+): AgentId[] {
+  return Object.keys(settings.agents).sort().map(agentIdForFolder);
+}
+
+export async function snapshotConfiguredMcpBindingAuthority(input: {
+  settings: RuntimeSettings;
+  repositories: Pick<SettingsDesiredStateRepositories, 'mcpServers'>;
+  appId: AppId;
+  additionalAgentIds?: readonly AgentId[];
+}): Promise<{
+  agentIds: AgentId[];
+  bindings: McpBindingAuthorityPrecondition[];
+}> {
+  const agentIds = [
+    ...new Set([
+      ...configuredMcpBindingAgentIds(input.settings),
+      ...(input.additionalAgentIds ?? []),
+    ]),
+  ].sort();
+  const bindings: McpBindingAuthorityPrecondition[] = [];
+  for (const agentId of agentIds) {
+    bindings.push(
+      ...(
+        await input.repositories.mcpServers.listAgentBindings({
+          appId: input.appId,
+          agentId,
+        })
+      ).map(mcpBindingAuthorityPrecondition),
+    );
+  }
+  return { agentIds, bindings };
+}
+
+function mergeMcpBindingPreconditions(
+  projected: readonly McpBindingAuthorityPrecondition[],
+  reviewed: readonly McpBindingAuthorityPrecondition[] | undefined,
+): McpBindingAuthorityPrecondition[] {
+  const byId = new Map(projected.map((binding) => [binding.id, binding]));
+  for (const binding of reviewed ?? []) byId.set(binding.id, binding);
+  return [...byId.values()];
+}
+
+function applyMcpBindingSnapshotsToRuntimeSettings(
+  settings: RuntimeSettings,
+  snapshot:
+    | {
+        agentIds: readonly AgentId[];
+        bindings: readonly McpBindingAuthorityPrecondition[];
+      }
+    | undefined,
+): void {
+  if (!snapshot) return;
+  const fencedAgentIds = new Set(snapshot.agentIds);
+  const bindingsByAgent = new Map<AgentId, McpBindingAuthorityPrecondition[]>();
+  for (const binding of snapshot.bindings) {
+    const bindings = bindingsByAgent.get(binding.agentId) ?? [];
+    bindings.push(binding);
+    bindingsByAgent.set(binding.agentId, bindings);
+  }
+  for (const [folder, configuredAgent] of Object.entries(settings.agents)) {
+    const agentId = agentIdForFolder(folder);
+    if (!fencedAgentIds.has(agentId)) continue;
+    const currentBindings = bindingsByAgent.get(agentId) ?? [];
+    const currentByServerId = new Map(
+      currentBindings.map((binding) => [String(binding.serverId), binding]),
+    );
+    const existingByServerId = new Map(
+      configuredAgent.sources.mcpServers.map((source) => [source.id, source]),
+    );
+    for (const source of configuredAgent.sources.mcpServers) {
+      const binding = currentByServerId.get(source.id);
+      if (!binding) {
+        source.status = 'disabled';
+        continue;
+      }
+      source.status = binding.status;
+      setExactMcpSourceTools(source, binding.allowedToolPatterns);
+    }
+    for (const binding of currentBindings) {
+      if (
+        binding.status !== 'active' ||
+        existingByServerId.has(String(binding.serverId))
+      ) {
+        continue;
+      }
+      configuredAgent.sources.mcpServers.push({
+        id: String(binding.serverId),
+        status: 'active',
+        ...(binding.allowedToolPatterns.length > 0
+          ? { tools: [...binding.allowedToolPatterns] }
+          : {}),
+      });
+    }
+    configuredAgent.sources.mcpServers.sort((left, right) =>
+      left.id.localeCompare(right.id),
+    );
+  }
+}
+
+function setExactMcpSourceTools(
+  source: RuntimeConfiguredAgentSourceRef,
+  allowedToolPatterns: readonly string[],
+): void {
+  if (allowedToolPatterns.length > 0) {
+    source.tools = [...allowedToolPatterns];
+    return;
+  }
+  delete source.tools;
 }
 
 export async function removeAgentToolRulesFromSyncedRuntimeSettings(input: {
@@ -318,6 +529,25 @@ export async function removeAgentToolRulesFromSyncedRuntimeSettings(input: {
     input.agentFolder,
     input.rules,
   );
+  const pendingMcpSourceEdits = capturePendingMcpSourceEdits({
+    settings: nextSettings,
+    agentIds: base.mcpBindingPreconditionAgentIds,
+    bindings: base.mcpBindingPreconditions,
+  });
+  await addAllMcpSourcesToRuntimeSettings({
+    settings: nextSettings,
+    repositories: input.repositories,
+    appId: input.appId ?? ('default' as AppId),
+  });
+  restorePendingMcpSourceEdits(nextSettings, pendingMcpSourceEdits);
+  const currentMcpAuthority = await snapshotConfiguredMcpBindingAuthority({
+    settings: nextSettings,
+    repositories: input.repositories,
+    appId: input.appId ?? ('default' as AppId),
+    additionalAgentIds: base.mcpBindingPreconditionAgentIds,
+  });
+  const expectedMcpBindings = currentMcpAuthority.bindings;
+  const expectedMcpBindingAgentIds = currentMcpAuthority.agentIds;
   if (input.settingsRevisions) {
     const appId = input.appId ?? ('default' as AppId);
     const { importWorkstationSettings } =
@@ -337,6 +567,8 @@ export async function removeAgentToolRulesFromSyncedRuntimeSettings(input: {
         },
         revisionMirrorRequired: true,
         expectedRevision: base.expectedRevision,
+        expectedMcpBindingAgentIds,
+        expectedMcpBindings,
       },
       nextSettings,
     );
@@ -355,6 +587,8 @@ export async function removeAgentToolRulesFromSyncedRuntimeSettings(input: {
     repositories: input.repositories,
     appId: input.appId,
     reloadRuntimeState: input.reloadRuntimeState,
+    expectedMcpBindingAgentIds,
+    expectedMcpBindings,
   });
 }
 
@@ -362,7 +596,12 @@ async function loadSyncedMutationBaseSettings(input: {
   runtimeHome: string;
   settingsRevisions?: SettingsRevisionRepository;
   appId: AppId;
-}): Promise<{ settings: RuntimeSettings; expectedRevision?: number }> {
+}): Promise<{
+  settings: RuntimeSettings;
+  expectedRevision?: number;
+  mcpBindingPreconditionAgentIds?: AgentId[];
+  mcpBindingPreconditions?: McpBindingAuthorityPrecondition[];
+}> {
   if (!input.settingsRevisions) {
     return { settings: loadRuntimeSettings(input.runtimeHome) };
   }
@@ -377,5 +616,7 @@ async function loadSyncedMutationBaseSettings(input: {
   return {
     settings: settingsFromRevisionDocument(latest.settingsDocument),
     expectedRevision: latest.revision,
+    mcpBindingPreconditionAgentIds: latest.mcpBindingPreconditionAgentIds,
+    mcpBindingPreconditions: latest.mcpBindingPreconditions,
   };
 }

@@ -376,6 +376,10 @@ export function createGroupAgentRunner(input: {
     const attachedMcpSourceIds = await resolveTurnSelectedMcpServerIds(
       deps,
       turnContext,
+      {
+        conversationId: group.conversationId,
+        threadId: sessionThreadId ?? undefined,
+      },
     );
     const currentAccessFingerprint = buildProviderSessionAccessFingerprint({
       toolPolicyRules: configuredToolPolicy.toolPolicyRules,

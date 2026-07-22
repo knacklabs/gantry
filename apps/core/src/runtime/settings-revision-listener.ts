@@ -9,9 +9,9 @@ import type {
 } from '../config/settings/desired-state-service.js';
 import {
   CURRENT_SETTINGS_READER_VERSION,
-  importWorkstationSettings,
-  settingsFromRevisionDocument,
+  applySettingsRevisionWithMcpFenceRecovery,
 } from '../config/settings/settings-import-service.js';
+import type { SettingsRevisionMirror } from '../config/settings/settings-import-service.js';
 import type { SettingsRevisionWakeupSource } from '../config/settings/settings-revision-notify.js';
 import {
   markSettingsLoaded,
@@ -29,6 +29,7 @@ export interface SettingsRevisionListenerDeps {
   appId: AppId;
   runtimeHome: string;
   settingsRevisions: SettingsRevisionRepository;
+  revisionPool?: SettingsRevisionMirror['pool'];
   ops: SettingsDesiredStateOps;
   repositories: SettingsDesiredStateRepositories;
   wakeupSource: SettingsRevisionWakeupSource;
@@ -152,8 +153,8 @@ export class SettingsRevisionListener {
       this.holdForSkew(latest);
       return { result: 'held', revision: latest.revision };
     }
-    await this.applyRevision(latest);
-    return { result: 'applied', revision: latest.revision };
+    const appliedRevision = await this.applyRevision(latest);
+    return { result: 'applied', revision: appliedRevision };
   }
 
   /** Revision number currently applied (0 before any apply). */
@@ -181,35 +182,39 @@ export class SettingsRevisionListener {
     );
   }
 
-  private async applyRevision(revision: SettingsRevision): Promise<void> {
-    const settings = settingsFromRevisionDocument(revision.settingsDocument);
-    await importWorkstationSettings(
-      {
-        runtimeHome: this.deps.runtimeHome,
-        ops: this.deps.ops,
-        repositories: this.deps.repositories,
-        appId: this.deps.appId,
-        reloadRuntimeState: this.deps.reloadRuntimeState,
+  private async applyRevision(revision: SettingsRevision): Promise<number> {
+    const applied = await applySettingsRevisionWithMcpFenceRecovery({
+      runtimeHome: this.deps.runtimeHome,
+      ops: this.deps.ops,
+      repositories: this.deps.repositories,
+      appId: this.deps.appId,
+      revision,
+      reloadRuntimeState: this.deps.reloadRuntimeState,
+      revisionMirror: {
+        settingsRevisions: this.deps.settingsRevisions,
+        pool: this.deps.revisionPool,
+        createdBy: 'settings-revision-listener:mcp-fence-recovery',
+        logWarn: this.deps.logWarn,
       },
-      settings,
-    );
+    });
     const previousRevision = this.appliedRevision;
-    this.appliedRevision = revision.revision;
+    this.appliedRevision = applied.revision;
     if (previousRevision === 0) {
       markSettingsLoaded();
       try {
         await this.deps.onFirstRevisionApplied?.();
       } catch (err) {
         this.deps.logWarn?.(
-          { err, revision: revision.revision },
+          { err, revision: applied.revision },
           'First-revision start hook failed; held services may need a restart',
         );
       }
     }
     this.deps.logInfo?.(
-      { appId: revision.appId, revision: revision.revision },
+      { appId: revision.appId, revision: applied.revision },
       'Applied settings revision',
     );
+    return applied.revision;
   }
 
   /** Mark the worker as awaiting its first revision (red /readyz). */

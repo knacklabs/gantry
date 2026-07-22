@@ -5,17 +5,35 @@ import type {
   SettingsRevision,
   SettingsRevisionRepository,
 } from '../../../../domain/ports/fleet-capability-state.js';
+import type { McpBindingAuthorityPrecondition } from '../../../../domain/mcp/mcp-servers.js';
+import type { AgentId } from '../../../../domain/agent/agent.js';
 import { nowIso } from '../../../../shared/time/datetime.js';
 import * as pgSchema from '../schema/schema.js';
-import type { CanonicalDb } from './canonical-graph-repository.postgres.js';
+import type {
+  CanonicalDb,
+  CanonicalExecutor,
+} from './canonical-graph-repository.postgres.js';
+import { assertExpectedMcpBindingsUnchanged } from './mcp-binding-authority-fence.postgres.js';
 import { isUniqueViolation } from './worker-coordination-lease.postgres.js';
 
 type SettingsRevisionRow =
   typeof pgSchema.settingsRevisionsPostgres.$inferSelect;
 
 const MAX_APPEND_ATTEMPTS = 5;
+// Keep replay preconditions out of the public settings document without adding
+// a one-feature schema column. The repository owns this envelope and always
+// decodes it back into the caller-visible note plus typed internal metadata.
+const REVISION_METADATA_PREFIX = 'gantry:settings-revision-metadata:v1:';
+
+interface StoredSettingsRevisionMetadata {
+  note: string | null;
+  mcpBindingPreconditionAgentIds: AgentId[];
+  mcpBindingPreconditions: McpBindingAuthorityPrecondition[];
+  mcpCapabilityGrantTokens: Record<string, string>;
+}
 
 function toSettingsRevision(row: SettingsRevisionRow): SettingsRevision {
+  const metadata = decodeStoredRevisionMetadata(row.note);
   return {
     appId: row.appId,
     revision: row.revision,
@@ -25,9 +43,138 @@ function toSettingsRevision(row: SettingsRevisionRow): SettingsRevision {
     >,
     minReaderVersion: row.minReaderVersion,
     createdBy: row.createdBy,
-    note: row.note ?? null,
+    note: metadata.note,
+    ...(metadata.mcpBindingPreconditionAgentIds.length > 0
+      ? {
+          mcpBindingPreconditionAgentIds:
+            metadata.mcpBindingPreconditionAgentIds,
+          mcpBindingPreconditions: metadata.mcpBindingPreconditions,
+        }
+      : {}),
+    ...(Object.keys(metadata.mcpCapabilityGrantTokens).length > 0
+      ? { mcpCapabilityGrantTokens: metadata.mcpCapabilityGrantTokens }
+      : {}),
     createdAt: row.createdAt,
   };
+}
+
+function encodeStoredRevisionNote(input: {
+  note?: string | null;
+  expectedMcpBindingAgentIds?: AgentId[];
+  expectedMcpBindings?: McpBindingAuthorityPrecondition[];
+  mcpCapabilityGrantTokens?: Record<string, string>;
+}): string | null {
+  const note = input.note ?? null;
+  if (
+    !input.expectedMcpBindingAgentIds?.length &&
+    !input.expectedMcpBindings?.length &&
+    !Object.keys(input.mcpCapabilityGrantTokens ?? {}).length &&
+    !note?.startsWith(REVISION_METADATA_PREFIX)
+  ) {
+    return note;
+  }
+  return `${REVISION_METADATA_PREFIX}${JSON.stringify({
+    note,
+    mcpBindingPreconditionAgentIds: input.expectedMcpBindingAgentIds ?? [
+      ...new Set((input.expectedMcpBindings ?? []).map((item) => item.agentId)),
+    ],
+    mcpBindingPreconditions: input.expectedMcpBindings ?? [],
+    mcpCapabilityGrantTokens: input.mcpCapabilityGrantTokens ?? {},
+  } satisfies StoredSettingsRevisionMetadata)}`;
+}
+
+function decodeStoredRevisionMetadata(
+  value: string | null,
+): StoredSettingsRevisionMetadata {
+  if (!value?.startsWith(REVISION_METADATA_PREFIX)) {
+    return {
+      note: value ?? null,
+      mcpBindingPreconditionAgentIds: [],
+      mcpBindingPreconditions: [],
+      mcpCapabilityGrantTokens: {},
+    };
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value.slice(REVISION_METADATA_PREFIX.length));
+  } catch {
+    throw new Error('Invalid MCP binding preconditions on settings revision.');
+  }
+  if (!isStoredSettingsRevisionMetadata(parsed)) {
+    throw new Error('Invalid MCP binding preconditions on settings revision.');
+  }
+  return parsed;
+}
+
+function isStoredSettingsRevisionMetadata(
+  value: unknown,
+): value is StoredSettingsRevisionMetadata {
+  if (!value || typeof value !== 'object') return false;
+  const metadata = value as Partial<StoredSettingsRevisionMetadata>;
+  if (metadata.note !== null && typeof metadata.note !== 'string') return false;
+  if (
+    !Array.isArray(metadata.mcpBindingPreconditions) ||
+    !metadata.mcpBindingPreconditions.every(isMcpBindingPrecondition)
+  ) {
+    return false;
+  }
+  if (metadata.mcpBindingPreconditionAgentIds === undefined) {
+    metadata.mcpBindingPreconditionAgentIds = [
+      ...new Set(metadata.mcpBindingPreconditions.map((item) => item.agentId)),
+    ];
+  }
+  if (metadata.mcpCapabilityGrantTokens === undefined) {
+    metadata.mcpCapabilityGrantTokens = {};
+  }
+  if (
+    !metadata.mcpCapabilityGrantTokens ||
+    typeof metadata.mcpCapabilityGrantTokens !== 'object' ||
+    Array.isArray(metadata.mcpCapabilityGrantTokens) ||
+    !Object.entries(metadata.mcpCapabilityGrantTokens).every(
+      ([key, token]) =>
+        key.length > 0 && typeof token === 'string' && token.length > 0,
+    )
+  ) {
+    return false;
+  }
+  if (
+    !Array.isArray(metadata.mcpBindingPreconditionAgentIds) ||
+    !metadata.mcpBindingPreconditionAgentIds.every(
+      (agentId) => typeof agentId === 'string',
+    )
+  ) {
+    return false;
+  }
+  const agentIds = new Set(metadata.mcpBindingPreconditionAgentIds);
+  return metadata.mcpBindingPreconditions.every((binding) =>
+    agentIds.has(binding.agentId),
+  );
+}
+
+function isMcpBindingPrecondition(
+  value: unknown,
+): value is McpBindingAuthorityPrecondition {
+  if (!value || typeof value !== 'object') return false;
+  const binding = value as Record<string, unknown>;
+  return (
+    typeof binding.id === 'string' &&
+    typeof binding.appId === 'string' &&
+    typeof binding.agentId === 'string' &&
+    typeof binding.serverId === 'string' &&
+    (binding.status === 'active' || binding.status === 'disabled') &&
+    typeof binding.required === 'boolean' &&
+    isStringArray(binding.permissionPolicyIds) &&
+    isStringArray(binding.allowedToolPatterns) &&
+    (binding.conversationId === undefined ||
+      typeof binding.conversationId === 'string') &&
+    (binding.threadId === undefined || typeof binding.threadId === 'string')
+  );
+}
+
+function isStringArray(value: unknown): value is string[] {
+  return (
+    Array.isArray(value) && value.every((item) => typeof item === 'string')
+  );
 }
 
 export class PostgresSettingsRevisionRepository implements SettingsRevisionRepository {
@@ -40,9 +187,36 @@ export class PostgresSettingsRevisionRepository implements SettingsRevisionRepos
     createdBy: string;
     note?: string | null;
     expectedRevision?: number | null;
+    expectedMcpBindingAgentIds?: AgentId[];
+    expectedMcpBindings?: McpBindingAuthorityPrecondition[];
+    mcpCapabilityGrantTokens?: Record<string, string>;
     now?: string;
   }): Promise<AppendSettingsRevisionResult> {
     const now = input.now ?? nowIso();
+    if (
+      (input.expectedMcpBindingAgentIds?.length ?? 0) > 0 ||
+      (input.expectedMcpBindings?.length ?? 0) > 0
+    ) {
+      const expectedRevision = input.expectedRevision;
+      if (expectedRevision === undefined || expectedRevision === null) {
+        throw new Error(
+          'Expected MCP bindings require a conditional settings revision append.',
+        );
+      }
+      try {
+        return await this.db.transaction(async (tx) => {
+          await assertExpectedMcpBindingsUnchanged(tx, input);
+          return this.appendAtExpectedRevisionWithDb(tx, {
+            ...input,
+            expectedRevision,
+            now,
+          });
+        });
+      } catch (err) {
+        if (!isUniqueViolation(err)) throw err;
+        return this.settingsRevisionConflict(input.appId, expectedRevision);
+      }
+    }
     if (
       input.expectedRevision !== undefined &&
       input.expectedRevision !== null
@@ -66,7 +240,7 @@ export class PostgresSettingsRevisionRepository implements SettingsRevisionRepos
         settingsDocumentJson: input.settingsDocument,
         minReaderVersion: input.minReaderVersion,
         createdBy: input.createdBy,
-        note: input.note ?? null,
+        note: encodeStoredRevisionNote(input),
         createdAt: now,
       };
       try {
@@ -95,10 +269,36 @@ export class PostgresSettingsRevisionRepository implements SettingsRevisionRepos
     minReaderVersion: number;
     createdBy: string;
     note?: string | null;
+    expectedMcpBindingAgentIds?: AgentId[];
+    expectedMcpBindings?: McpBindingAuthorityPrecondition[];
+    mcpCapabilityGrantTokens?: Record<string, string>;
     expectedRevision: number;
     now: string;
   }): Promise<AppendSettingsRevisionResult> {
-    const latest = await this.getLatestSettingsRevision(input.appId);
+    try {
+      return await this.appendAtExpectedRevisionWithDb(this.db, input);
+    } catch (err) {
+      if (!isUniqueViolation(err)) throw err;
+      return this.settingsRevisionConflict(input.appId, input.expectedRevision);
+    }
+  }
+
+  private async appendAtExpectedRevisionWithDb(
+    db: CanonicalExecutor,
+    input: {
+      appId: string;
+      settingsDocument: Record<string, unknown>;
+      minReaderVersion: number;
+      createdBy: string;
+      note?: string | null;
+      expectedMcpBindingAgentIds?: AgentId[];
+      expectedMcpBindings?: McpBindingAuthorityPrecondition[];
+      mcpCapabilityGrantTokens?: Record<string, string>;
+      expectedRevision: number;
+      now: string;
+    },
+  ): Promise<AppendSettingsRevisionResult> {
+    const latest = await this.getLatestSettingsRevisionWithDb(db, input.appId);
     const currentRevision = latest?.revision ?? 0;
     if (currentRevision !== input.expectedRevision) {
       return {
@@ -113,27 +313,36 @@ export class PostgresSettingsRevisionRepository implements SettingsRevisionRepos
       settingsDocumentJson: input.settingsDocument,
       minReaderVersion: input.minReaderVersion,
       createdBy: input.createdBy,
-      note: input.note ?? null,
+      note: encodeStoredRevisionNote(input),
       createdAt: input.now,
     };
-    try {
-      await this.db.insert(pgSchema.settingsRevisionsPostgres).values(row);
-    } catch (err) {
-      if (!isUniqueViolation(err)) throw err;
-      const head = await this.getLatestSettingsRevision(input.appId);
-      return {
-        status: 'conflict',
-        expectedRevision: input.expectedRevision,
-        actualRevision: head?.revision ?? input.expectedRevision + 1,
-      };
-    }
+    await db.insert(pgSchema.settingsRevisionsPostgres).values(row);
     return { status: 'appended', revision: toSettingsRevision(row) };
+  }
+
+  private async settingsRevisionConflict(
+    appId: string,
+    expectedRevision: number,
+  ): Promise<AppendSettingsRevisionResult> {
+    const head = await this.getLatestSettingsRevision(appId);
+    return {
+      status: 'conflict',
+      expectedRevision,
+      actualRevision: head?.revision ?? expectedRevision + 1,
+    };
   }
 
   async getLatestSettingsRevision(
     appId: string,
   ): Promise<SettingsRevision | null> {
-    const rows = await this.db
+    return this.getLatestSettingsRevisionWithDb(this.db, appId);
+  }
+
+  private async getLatestSettingsRevisionWithDb(
+    db: CanonicalExecutor,
+    appId: string,
+  ): Promise<SettingsRevision | null> {
+    const rows = await db
       .select()
       .from(pgSchema.settingsRevisionsPostgres)
       .where(eq(pgSchema.settingsRevisionsPostgres.appId, appId))

@@ -13,6 +13,7 @@ import {
 } from '../shared/agent-tool-references.js';
 import { generatedRuntimeSkillPathDisplay } from '../shared/generated-runtime-paths.js';
 import {
+  isMcpCapabilityProposalRequest,
   skillActionCapabilityDisplayName,
   type SemanticCapabilityDefinition,
 } from '../shared/semantic-capabilities.js';
@@ -145,7 +146,10 @@ export function permissionButtonLabel(
 ): string {
   const batchLabel = permissionBatchButtonLabel(_request, mode);
   if (batchLabel) return batchLabel;
-  if (mode === 'allow_once') return 'Allow once';
+  if (mode === 'allow_once')
+    return isMcpCapabilityProposal(_request)
+      ? 'Allow once (no access)'
+      : 'Allow once';
   if (mode === 'cancel') return 'Cancel';
   return 'Allow for future';
 }
@@ -215,9 +219,27 @@ export function formatPermissionReceiptText(
       `Allowed for future: ${summary}. Saved for ${agentName}. Manage access to revoke it later.`,
     );
   }
+  if (isMcpCapabilityProposal(request)) {
+    return limitPermissionMessage(
+      `No MCP access granted: ${summary}. MCP action authority requires Allow for future; nothing changed.`,
+    );
+  }
   return limitPermissionMessage(
     `Allowed once: ${summary}. The agent will continue this request.`,
   );
+}
+
+function isMcpCapabilityProposal(
+  request: PermissionApprovalRequest | undefined,
+): boolean {
+  const rule = request ? firstPersistentRule(request) : undefined;
+  const capabilityId = rule ? parseSemanticCapabilityRule(rule) : undefined;
+  return isMcpCapabilityProposalRequest({
+    toolName: request?.toolName ?? '',
+    toolInput: request?.toolInput,
+    capabilityId,
+    semanticCapabilityDefinitions: request?.semanticCapabilityDefinitions,
+  });
 }
 
 export const PERMISSION_GLYPH = '🔐';

@@ -270,6 +270,7 @@ export function capabilityStatusText(): string {
           'Agent access model:',
           '- Use an available action when one fits.',
           '- If the action is missing, request_access target.kind=capability for the reviewed capability id.',
+          '- If an attached MCP source has the action but no reviewed capability covers it, use request_access target.kind=mcp_capability with the server name, exact tools or trailing-star patterns, read/write risk, and a clear display name.',
           '- If an exact Gantry facade or admin tool is missing, request_access target.kind=tool with a durable Gantry tool name such as AgentDelegation or mcp__gantry__request_settings_update.',
           '- If setup is missing, request source setup through the Gantry access flow; setup records inventory, not authority.',
           '- Use request_access target.kind=run_command only as a temporary exact-command fallback when no reviewed capability fits.',
@@ -348,7 +349,9 @@ export function capabilityStatusText(): string {
       : ['- none connected yet']),
     ...(attachedMcpSourceIds.length > 0
       ? [
-          'MCP source rule: ready sources are already attached. Inspect them with mcp_list_tools, fetch one-tool schema/details with mcp_describe_tool when needed, call approved immediate actions through mcp_call_tool, and use async_mcp_call for long-running or parallel work. Do not request the same MCP capability again unless the tool response says access is missing or denied.',
+          lockedAccessPreset
+            ? 'MCP source rule: ready sources are already attached. Inspect them with mcp_list_tools, fetch one-tool schema/details with mcp_describe_tool when needed, call approved immediate actions through mcp_call_tool, and use async_mcp_call for long-running or parallel work.'
+            : 'MCP source rule: ready sources are already attached. Inspect them with mcp_list_tools, fetch one-tool schema/details with mcp_describe_tool when needed, call approved immediate actions through mcp_call_tool, and use async_mcp_call for long-running or parallel work. When an inventoried action lacks reviewed coverage, propose it with request_access target.kind=mcp_capability. Do not request the same MCP capability again once selected.',
         ]
       : []),
     ...(requestableBrowserTools.length > 0

@@ -111,8 +111,9 @@ describe('locked prompt assembly', () => {
       expect(explicit).toBe(implicit);
       // Full agents keep the machinery guidance.
       expect(implicit).toContain(
-        'request_access target.kind=capability for durable reviewed access',
+        'request_access target.kind=capability for an existing reviewed capability id',
       );
+      expect(implicit).toContain('target.kind=mcp_capability');
       expect(implicit).toContain('## Proactive recommendations');
       expect(implicit).toContain('Gantry request tools');
     }

@@ -22,6 +22,7 @@ import { initializeRuntimeStorage } from '../../adapters/storage/postgres/runtim
 import { SettingsDesiredStateService } from '../../config/settings/desired-state-service.js';
 import {
   CURRENT_SETTINGS_READER_VERSION,
+  applySettingsRevisionWithMcpFenceRecovery,
   importWorkstationSettings,
   settingsFromRevisionDocument,
   settingsToRevisionDocument,
@@ -286,20 +287,25 @@ async function loadRevisionAuthoritySettings(input: {
         );
       }
     }
-    await input.importWorkstationSettings(
-      {
-        runtimeHome: input.runtimeHome,
-        ops: input.storage.ops,
-        repositories: input.storage.repositories,
-        appId,
+    const applied = await applySettingsRevisionWithMcpFenceRecovery({
+      runtimeHome: input.runtimeHome,
+      ops: input.storage.ops,
+      repositories: input.storage.repositories,
+      appId,
+      revision: latest,
+      revisionMirror: {
+        settingsRevisions: input.storage.repositories.settingsRevisions,
+        pool: input.storage.service.pool,
+        createdBy: 'startup:mcp-fence-recovery',
+        logWarn: (context, message) => input.logger.warn(context, message),
       },
-      settings,
-    );
+      applySettings: input.importWorkstationSettings,
+    });
     input.logger.info(
-      { appId, revision: latest.revision },
+      { appId, revision: applied.revision },
       'Loaded workstation settings from settings revision',
     );
-    return settings;
+    return applied.settings;
   }
 
   const settings = input.loadRuntimeSettings(input.runtimeHome);

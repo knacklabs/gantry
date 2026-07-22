@@ -1,4 +1,5 @@
 import type { McpServerRepository } from '../../domain/ports/repositories.js';
+import type { AgentMcpServerBinding } from '../../domain/mcp/mcp-servers.js';
 
 // Discovery is not authorization: every ACTIVE bound MCP server is a projected
 // source (inventory-only connects included), regardless of which mcp__ tool
@@ -8,14 +9,17 @@ export async function authorizedMcpServerIdsForAgent(input: {
   mcpServers: McpServerRepository;
   appId: string;
   agentId: string;
+  conversationId?: string;
+  threadId?: string;
 }): Promise<string[]> {
   const bindings = await input.mcpServers.listAgentBindings({
     appId: input.appId as never,
     agentId: input.agentId as never,
-    limit: 500,
   });
   const activeBindings = bindings.filter(
-    (binding) => binding.status === 'active',
+    (binding) =>
+      binding.status === 'active' &&
+      mcpBindingMatchesRouteScope(binding, input),
   );
   const servers = await Promise.all(
     activeBindings.map((binding) =>
@@ -27,4 +31,20 @@ export async function authorizedMcpServerIdsForAgent(input: {
     if (!server || server.appId !== input.appId) return [];
     return [String(binding.serverId)];
   });
+}
+
+export function mcpBindingMatchesRouteScope(
+  binding: Pick<AgentMcpServerBinding, 'conversationId' | 'threadId'>,
+  scope: { conversationId?: string; threadId?: string },
+): boolean {
+  if (binding.threadId !== undefined && binding.conversationId === undefined) {
+    return false;
+  }
+  if (
+    binding.conversationId !== undefined &&
+    binding.conversationId !== scope.conversationId
+  ) {
+    return false;
+  }
+  return binding.threadId === undefined || binding.threadId === scope.threadId;
 }

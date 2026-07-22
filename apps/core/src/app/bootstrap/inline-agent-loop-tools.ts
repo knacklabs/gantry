@@ -677,6 +677,10 @@ export function wireInlineAgentLoopTools(input: {
             attachedMcpSourceIds: await resolveTurnSelectedMcpServerIds(
               input,
               turnContext,
+              {
+                conversationId: laneInput.group.conversationId,
+                threadId: laneInput.input.threadId ?? undefined,
+              },
             ),
             semanticCapabilities,
           };

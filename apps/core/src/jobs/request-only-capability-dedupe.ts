@@ -3,6 +3,7 @@ export function requestOnlyCapabilityPendingKey(input: {
     appId?: string;
     authThreadId?: string;
     jobId?: string;
+    providerAccountId?: string;
   };
   sourceAgentFolder: string;
   targetJid: string;
@@ -17,6 +18,7 @@ export function requestOnlyCapabilityPendingKey(input: {
     agent: input.sourceAgentFolder,
     targetJid: input.targetJid,
     threadId: input.data.authThreadId ?? null,
+    providerAccountId: input.data.providerAccountId ?? null,
     jobId: input.data.jobId ?? null,
     toolInput: input.review.toolInput,
   });
