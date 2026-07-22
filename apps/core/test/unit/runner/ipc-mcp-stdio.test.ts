@@ -121,88 +121,12 @@ function createMcpFixture(): {
     JSON.stringify({ type: 'module' }),
   );
   copyDirectory(path.resolve('apps/core/src/runner/mcp'), runnerMcpDir);
-  fs.copyFileSync(
-    path.resolve('apps/core/src/shared/callable-agent-manifest.ts'),
-    path.join(sharedDir, 'callable-agent-manifest.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve('apps/core/src/shared/canonical-json.ts'),
-    path.join(sharedDir, 'canonical-json.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve('apps/core/src/shared/ipc-signing.ts'),
-    path.join(sharedDir, 'ipc-signing.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve('apps/core/src/shared/model-catalog.ts'),
-    path.join(sharedDir, 'model-catalog.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve('apps/core/src/shared/model-catalog-provider-metadata.ts'),
-    path.join(sharedDir, 'model-catalog-provider-metadata.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve('apps/core/src/shared/model-catalog-lookup.ts'),
-    path.join(sharedDir, 'model-catalog-lookup.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve('apps/core/src/shared/model-provider-registry.ts'),
-    path.join(sharedDir, 'model-provider-registry.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve(
-      'apps/core/src/shared/model-provider-registry-openai-compatible.ts',
-    ),
-    path.join(sharedDir, 'model-provider-registry-openai-compatible.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve('apps/core/src/shared/model-catalog-openai-compatible.ts'),
-    path.join(sharedDir, 'model-catalog-openai-compatible.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve('apps/core/src/shared/model-catalog-bedrock.ts'),
-    path.join(sharedDir, 'model-catalog-bedrock.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve('apps/core/src/shared/agent-engine.ts'),
-    path.join(sharedDir, 'agent-engine.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve('apps/core/src/shared/model-cache-support.ts'),
-    path.join(sharedDir, 'model-cache-support.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve('apps/core/src/shared/model-catalog-format.ts'),
-    path.join(sharedDir, 'model-catalog-format.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve('apps/core/src/shared/model-recommendation.ts'),
-    path.join(sharedDir, 'model-recommendation.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve('apps/core/src/shared/model-execution-route.ts'),
-    path.join(sharedDir, 'model-execution-route.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve('apps/core/src/shared/model-catalog-availability.ts'),
-    path.join(sharedDir, 'model-catalog-availability.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve('apps/core/src/shared/model-families.ts'),
-    path.join(sharedDir, 'model-families.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve('apps/core/src/shared/scheduler-job-plan.ts'),
-    path.join(sharedDir, 'scheduler-job-plan.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve('apps/core/src/shared/human-format.ts'),
-    path.join(sharedDir, 'human-format.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve('apps/core/src/shared/operator-error.ts'),
-    path.join(sharedDir, 'operator-error.ts'),
-  );
+  fs.cpSync(path.resolve('apps/core/src/shared'), sharedDir, {
+    recursive: true,
+    // ponytail: whole-tree copy retires the hand-maintained file list that
+    // silently broke whenever a new shared module became runner-reachable
+    filter: (src) => fs.lstatSync(src).isDirectory() || src.endsWith('.ts'),
+  });
   fs.copyFileSync(
     path.resolve(
       'apps/core/src/application/guided-actions/guided-action-model.ts',
@@ -220,64 +144,8 @@ function createMcpFixture(): {
     path.join(applicationMcpDir, 'mcp-tool-output-bounds.ts'),
   );
   fs.copyFileSync(
-    path.resolve('apps/core/src/shared/admin-mcp-tools.ts'),
-    path.join(sharedDir, 'admin-mcp-tools.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve('apps/core/src/shared/agent-tool-references.ts'),
-    path.join(sharedDir, 'agent-tool-references.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve('apps/core/src/shared/gantry-tool-facades.ts'),
-    path.join(sharedDir, 'gantry-tool-facades.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve('apps/core/src/shared/bash-command-parser.ts'),
-    path.join(sharedDir, 'bash-command-parser.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve('apps/core/src/shared/durable-access-policy.ts'),
-    path.join(sharedDir, 'durable-access-policy.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve('apps/core/src/shared/sensitive-material.ts'),
-    path.join(sharedDir, 'sensitive-material.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve('apps/core/src/shared/semantic-capability-ids.ts'),
-    path.join(sharedDir, 'semantic-capability-ids.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve('apps/core/src/shared/neutral-ca-trust-env.ts'),
-    path.join(sharedDir, 'neutral-ca-trust-env.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve('apps/core/src/shared/network-host-declaration.ts'),
-    path.join(sharedDir, 'network-host-declaration.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve('apps/core/src/shared/semantic-capabilities.ts'),
-    path.join(sharedDir, 'semantic-capabilities.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve('apps/core/src/shared/job-setup-labels.ts'),
-    path.join(sharedDir, 'job-setup-labels.ts'),
-  );
-  fs.copyFileSync(
     path.resolve('apps/core/src/channels/provider-delivery-labels.ts'),
     path.join(channelsDir, 'provider-delivery-labels.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve('apps/core/src/shared/user-visible-messages.ts'),
-    path.join(sharedDir, 'user-visible-messages.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve('apps/core/src/shared/path-validation.ts'),
-    path.join(sharedDir, 'path-validation.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve('apps/core/src/shared/memory-ipc-actions.ts'),
-    path.join(sharedDir, 'memory-ipc-actions.ts'),
   );
   fs.copyFileSync(
     path.resolve('apps/core/src/runner/memory-timeouts.ts'),
@@ -290,34 +158,6 @@ function createMcpFixture(): {
   fs.copyFileSync(
     path.resolve('apps/core/src/runner/gantry-mcp-tool-surface.ts'),
     path.join(runnerDir, 'gantry-mcp-tool-surface.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve('apps/core/src/shared/private-fs.ts'),
-    path.join(sharedDir, 'private-fs.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve('apps/core/src/shared/live-tool-rules.ts'),
-    path.join(sharedDir, 'live-tool-rules.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve('apps/core/src/shared/tool-access-view.ts'),
-    path.join(sharedDir, 'tool-access-view.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve('apps/core/src/shared/capability-guidance.ts'),
-    path.join(sharedDir, 'capability-guidance.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve('apps/core/src/shared/generated-runtime-paths.ts'),
-    path.join(sharedDir, 'generated-runtime-paths.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve('apps/core/src/shared/tool-rule-matcher.ts'),
-    path.join(sharedDir, 'tool-rule-matcher.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve('apps/core/src/shared/time/datetime.ts'),
-    path.join(sharedTimeDir, 'datetime.ts'),
   );
   symlinkPackage(root, 'zod', 'node_modules/zod');
   symlinkPackage(root, 'cron-parser', 'node_modules/cron-parser');
