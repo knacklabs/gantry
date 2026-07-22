@@ -19,7 +19,7 @@
       "history": ".factory/history/PAY-1/"
     },
     {
-      "status": "pending",
+      "status": "active",
       "key": "PERM-1",
       "title": "Permission engine: git deterministic-gate slice",
       "epic": "permission-engine",
@@ -419,5 +419,5 @@
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-07-22T17:32:45+00:00"
+  "updated_at": "2026-07-22T17:34:07+00:00"
 }

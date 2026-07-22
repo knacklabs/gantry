@@ -13,15 +13,7 @@ import {
   GANTRY_FACADE_INPUT_SCHEMAS,
   validateGantryFacadeToolInput,
 } from '../../../../shared/gantry-tool-facades.js';
-import {
-  ToolExecutionClassifier,
-  ToolExecutionPolicyService,
-} from '../../../../shared/tool-execution-policy-service.js';
-import {
-  evaluateNeutralToolPreChecks,
-  evaluateNeutralToolPolicy,
-  LOCKED_ACCESS_PRESET_DENY_REASON,
-} from '../../../../runner/tool-gate-core.js';
+import { evaluateNeutralToolPreChecks } from '../../../../runner/tool-gate-core.js';
 import {
   requestPermissionApprovalViaIpc,
   type PermissionIpcRuntimeEnv,
@@ -75,24 +67,18 @@ const WEB_FETCH_TIMEOUT_MS = 20_000;
 export function createGantryFacadeTools(
   config: GantryFacadeToolsConfig,
 ): StructuredToolInterface[] {
-  const classifier = new ToolExecutionClassifier();
-  const policy = new ToolExecutionPolicyService();
   return DEEPAGENTS_GANTRY_FACADE_TOOL_NAMES.filter(
     (toolName) =>
       (toolName !== 'AgentDelegation' ||
         (config.asyncTaskToolsEnabled === true && config.delegateTaskTool)) &&
       (config.filesystemToolsEnabled ||
         !DEEPAGENTS_FILESYSTEM_FACADE_TOOL_NAMES.has(toolName)),
-  ).map((toolName) =>
-    createOneFacadeTool(toolName, config, classifier, policy),
-  );
+  ).map((toolName) => createOneFacadeTool(toolName, config));
 }
 
 function createOneFacadeTool(
   toolName: DeepAgentsFacadeToolName,
   config: GantryFacadeToolsConfig,
-  classifier: ToolExecutionClassifier,
-  policy: ToolExecutionPolicyService,
 ): StructuredToolInterface {
   return tool(
     async (input: unknown): Promise<unknown> => {
@@ -110,22 +96,6 @@ function createOneFacadeTool(
       });
       if (preChecks) return gatedToolErrorResult(preChecks.reason);
 
-      const decision = evaluateNeutralToolPolicy({
-        classifier,
-        policy,
-        toolName: policyRequest.toolName,
-        toolInput: policyRequest.toolInput,
-        context: config.gateContext,
-        allowedToolRules: config.configuredAllowedTools,
-      });
-      if (decision.status === 'allow') {
-        return executeFacadeTool(toolName, input, config);
-      }
-
-      if (config.lockedAccessPreset) {
-        return gatedToolErrorResult(LOCKED_ACCESS_PRESET_DENY_REASON);
-      }
-
       const approval = await requestPermissionApprovalViaIpc(
         config.permissionEnv,
         {
@@ -134,8 +104,6 @@ function createOneFacadeTool(
           agentFolder: config.workspaceFolder,
           targetJid: config.permissionEnv.chatJid || undefined,
           toolName,
-          decisionReason: decision.reason,
-          closestRule: decision.closestRule,
           toolInput: input,
           threadId: config.gateContext.threadId,
         },

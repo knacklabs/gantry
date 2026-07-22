@@ -4,16 +4,8 @@ import { tool } from '@langchain/core/tools';
 import type { StructuredToolInterface } from '@langchain/core/tools';
 import { z } from 'zod';
 
-import {
-  ToolExecutionClassifier,
-  ToolExecutionPolicyService,
-} from '../../../../shared/tool-execution-policy-service.js';
 import { NEUTRAL_CA_TRUST_ENV_KEYS } from '../../../../shared/neutral-ca-trust-env.js';
-import {
-  evaluateNeutralToolPreChecks,
-  evaluateNeutralToolPolicy,
-  LOCKED_ACCESS_PRESET_DENY_REASON,
-} from '../../../../runner/tool-gate-core.js';
+import { evaluateNeutralToolPreChecks } from '../../../../runner/tool-gate-core.js';
 import {
   requestPermissionApprovalViaIpc,
   type PermissionIpcRuntimeEnv,
@@ -156,9 +148,6 @@ const shellInputSchema = z.object({
 export function createGantryShellTool(
   config: GantryShellToolConfig,
 ): StructuredToolInterface {
-  const classifier = new ToolExecutionClassifier();
-  const policy = new ToolExecutionPolicyService();
-
   const gatedFunc = async (input: { command: string }): Promise<unknown> => {
     const command = typeof input?.command === 'string' ? input.command : '';
     if (!command.trim()) {
@@ -180,22 +169,6 @@ export function createGantryShellTool(
       return denyMessage(preChecks.reason);
     }
 
-    const decision = evaluateNeutralToolPolicy({
-      classifier,
-      policy,
-      toolName: SHELL_POLICY_TOOL_NAME,
-      toolInput: policyInput,
-      context: config.gateContext,
-      allowedToolRules: config.configuredAllowedTools,
-    });
-    if (decision.status === 'allow') {
-      return runShellCommand(command, config);
-    }
-
-    if (config.lockedAccessPreset) {
-      return denyMessage(LOCKED_ACCESS_PRESET_DENY_REASON);
-    }
-
     const approval = await requestPermissionApprovalViaIpc(
       config.permissionEnv,
       {
@@ -206,8 +179,6 @@ export function createGantryShellTool(
         // Surface the canonical public capability name in the prompt, matching
         // how the host renders RunCommand approvals on the other lane.
         toolName: GANTRY_SHELL_TOOL_NAME,
-        decisionReason: decision.reason,
-        closestRule: decision.closestRule,
         toolInput: policyInput,
         threadId: config.gateContext.threadId,
       },

@@ -12,6 +12,7 @@ import type {
   AgentOutput,
   RunAgentOptions,
 } from './agent-spawn-types.js';
+import { registerPermissionRunRestriction } from './permission-decision-coordinator.js';
 
 type HostStartupTiming = ReturnType<typeof createRunnerHostStartupTiming>;
 
@@ -105,4 +106,12 @@ export async function prepareWorkerAuthorityProjection(input: {
     warn: input.warn,
   });
   return { accessPreset, hideAuthorityTools, callableAgentManifest };
+}
+
+export function registerWorkerPermissionRunRestriction(input: {
+  sourceAgentFolder: string;
+  responseKeyId: string;
+  hideAuthorityTools: boolean;
+}): void {
+  registerPermissionRunRestriction(input);
 }

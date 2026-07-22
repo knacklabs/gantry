@@ -94,27 +94,6 @@ export function createCanUseToolCallback(
   // instructing a hidden request tool.
   const capabilityRequestToolsHidden =
     lockedAccessPreset || input.agentInput.hideAuthorityTools === true;
-  const denyLockedToolUse = (toolName: string) => {
-    const message =
-      'capability not provisioned: this agent runs with a locked access preset and cannot request new tools, skills, MCP servers, or permissions. Provision the capability before the run.';
-    log(`Permission auto-denied by locked access preset: tool=${toolName}`);
-    emitJobToolActivity(
-      input.agentInput,
-      input.getNewSessionId,
-      'deny',
-      toolName,
-      {
-        ok: false,
-        reason: message,
-        decision: 'denied_by_profile',
-      },
-    );
-    return {
-      behavior: 'deny' as const,
-      message,
-      interrupt: false,
-    };
-  };
   return async (toolName, rawToolInput, permissionOpts) => {
     input.recordToolActivity(toolName);
     emitJobToolActivity(
@@ -238,7 +217,9 @@ export function createCanUseToolCallback(
       toolInput,
       denylist: input.agentInput.egressDenylist ?? [],
     });
-    if (sandboxNetworkAccessDecision) return sandboxNetworkAccessDecision;
+    if (sandboxNetworkAccessDecision?.behavior === 'deny') {
+      return sandboxNetworkAccessDecision;
+    }
 
     if (toolName === 'Agent') {
       const modelDenial = validateAgentToolInput(toolInput, currentModel);
@@ -358,13 +339,6 @@ export function createCanUseToolCallback(
         autonomousAllowedToolRules: currentAutonomousAllowedToolRules(),
         capabilityRequestToolsHidden,
       });
-      if (toolDecision.status === 'allow' && !yoloDenylistReason) {
-        log(`Autonomous run allowed tool ${toolName}: ${toolDecision.reason}`);
-        return allowToolUse(toolDecision.reason);
-      }
-      if (lockedAccessPreset) {
-        return denyLockedToolUse(toolName);
-      }
       if (permissionOpts.signal.aborted) {
         return {
           behavior: 'deny' as const,
@@ -377,7 +351,9 @@ export function createCanUseToolCallback(
         : toolDecision.recoveryAction;
       const recoveryMessage =
         yoloDenylistReason ??
-        `${toolDecision.reason} Recovery: ${toolDecision.recoveryAction}`;
+        (toolDecision.recoveryAction
+          ? `${toolDecision.reason} Recovery: ${toolDecision.recoveryAction}`
+          : toolDecision.reason);
       const nonPromptableDenial = denyNonPromptableAutonomousRecovery({
         agentInput: input.agentInput,
         getNewSessionId: input.getNewSessionId,
@@ -506,26 +482,11 @@ export function createCanUseToolCallback(
       };
     }
 
-    if (
-      !yoloDenylistReason &&
-      input.capabilities.alwaysAllowedTools.includes(toolName)
-    ) {
-      return allowToolUse('always_allowed');
-    }
     const currentToolDecision = toolExecutionPolicy.evaluate({
       request: toolExecutionRequest,
       allowedToolRules: currentAllowedToolRules(),
       capabilityRequestToolsHidden,
     });
-    if (currentToolDecision.status === 'allow' && !yoloDenylistReason) {
-      log(
-        `Permission allowed for tool ${toolName}: ${currentToolDecision.reason}`,
-      );
-      return allowToolUse(currentToolDecision.reason);
-    }
-    if (lockedAccessPreset) {
-      return denyLockedToolUse(toolName);
-    }
     if (permissionOpts.signal.aborted) {
       return {
         behavior: 'deny' as const,

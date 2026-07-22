@@ -78,6 +78,10 @@ function combinedConsoleOutput(): string {
 describe('createCanUseToolCallback', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    permissionMock.requestPermissionApproval.mockResolvedValue({
+      approved: true,
+      mode: 'allow_once',
+    });
     vi.spyOn(dns, 'lookup').mockResolvedValue([
       { address: '104.16.30.34', family: 4 },
     ]);
@@ -122,7 +126,7 @@ describe('createCanUseToolCallback', () => {
       behavior: 'allow',
       updatedInput: { host },
     });
-    expect(permissionMock.requestPermissionApproval).not.toHaveBeenCalled();
+    expect(permissionMock.requestPermissionApproval).toHaveBeenCalledTimes(1);
     expect(dns.lookup).toHaveBeenCalledWith(host, {
       all: true,
       verbatim: true,
@@ -382,7 +386,7 @@ describe('createCanUseToolCallback', () => {
     );
   });
 
-  it('auto-allows a non-denylisted command matching the same allow rule', async () => {
+  it('routes a non-denylisted matching rule through the host coordinator', async () => {
     const canUseTool = makeCallback({
       agentInput: {
         runMode: 'normal',
@@ -416,7 +420,7 @@ describe('createCanUseToolCallback', () => {
         }),
       }),
     );
-    expect(permissionMock.requestPermissionApproval).not.toHaveBeenCalled();
+    expect(permissionMock.requestPermissionApproval).toHaveBeenCalledTimes(1);
     expect(combinedConsoleOutput()).not.toContain(
       'permission.yolo_denylist_hit',
     );
@@ -540,7 +544,7 @@ describe('createCanUseToolCallback', () => {
         }),
       }),
     );
-    expect(permissionMock.requestPermissionApproval).not.toHaveBeenCalled();
+    expect(permissionMock.requestPermissionApproval).toHaveBeenCalledTimes(1);
   });
 
   it('offers persistent access in autonomous job prompts with suggestions', async () => {
@@ -658,6 +662,10 @@ describe('createCanUseToolCallback', () => {
   });
 
   it('auto-denies un-provisioned tools for a locked agent without prompting', async () => {
+    permissionMock.requestPermissionApproval.mockResolvedValue({
+      approved: false,
+      reason: 'capability not provisioned: locked access preset',
+    });
     const canUseTool = makeCallback({
       capabilities: {
         allowedTools: [],
@@ -679,13 +687,14 @@ describe('createCanUseToolCallback', () => {
         message: expect.stringContaining('capability not provisioned'),
       }),
     );
-    expect(permissionMock.requestPermissionApproval).not.toHaveBeenCalled();
-    expect(combinedConsoleOutput()).toContain(
-      'Permission auto-denied by locked access preset',
-    );
+    expect(permissionMock.requestPermissionApproval).toHaveBeenCalledTimes(1);
   });
 
   it('auto-denies native Agent tools for a locked agent without prompting', async () => {
+    permissionMock.requestPermissionApproval.mockResolvedValue({
+      approved: false,
+      reason: 'capability not provisioned: locked access preset',
+    });
     const canUseTool = makeCallback({
       capabilities: {
         allowedTools: [],
@@ -707,7 +716,7 @@ describe('createCanUseToolCallback', () => {
         message: expect.stringContaining('capability not provisioned'),
       }),
     );
-    expect(permissionMock.requestPermissionApproval).not.toHaveBeenCalled();
+    expect(permissionMock.requestPermissionApproval).toHaveBeenCalledTimes(1);
   });
 
   it('does not auto-allow native Agent without the Gantry wrapper path', async () => {
@@ -800,7 +809,11 @@ describe('createCanUseToolCallback', () => {
     expect(permissionMock.requestPermissionApproval).not.toHaveBeenCalled();
   });
 
-  it('still allows pre-provisioned tools for a locked agent', async () => {
+  it('lets locked authority beat a pre-provisioned rule', async () => {
+    permissionMock.requestPermissionApproval.mockResolvedValue({
+      approved: false,
+      reason: 'capability not provisioned: locked access preset',
+    });
     const canUseTool = makeCallback({
       agentInput: {
         runMode: 'normal',
@@ -831,7 +844,12 @@ describe('createCanUseToolCallback', () => {
       makePermissionOptions({ displayName: 'lookup' }) as never,
     );
 
-    expect(decision.behavior).toBe('allow');
-    expect(permissionMock.requestPermissionApproval).not.toHaveBeenCalled();
+    expect(decision).toEqual(
+      expect.objectContaining({
+        behavior: 'deny',
+        message: expect.stringContaining('locked access preset'),
+      }),
+    );
+    expect(permissionMock.requestPermissionApproval).toHaveBeenCalledTimes(1);
   });
 });

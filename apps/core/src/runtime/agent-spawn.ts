@@ -95,6 +95,7 @@ import {
 import {
   prepareAgentSpawn,
   prepareWorkerAuthorityProjection,
+  registerWorkerPermissionRunRestriction,
 } from './agent-spawn-preparation.js';
 import { resolveSpawnExecutionAdapter } from './agent-spawn-execution-adapter.js';
 import {
@@ -107,6 +108,7 @@ import {
   projectSpawnRunnerInput,
 } from './agent-spawn-input-projection.js';
 import { createSpawnAgent } from './agent-spawn-entry.js';
+import { unregisterPermissionRunRestriction } from './permission-decision-coordinator.js';
 export { writeGroupsSnapshot } from './agent-spawn-snapshots.js';
 export type { AvailableGroup } from './agent-spawn-types.js';
 export type { AgentInput, AgentOutput } from './agent-spawn-types.js';
@@ -248,6 +250,11 @@ async function spawnAgentWithContext(
   const ipcAuth = createIpcAuthEnvelope(group.folder, input.threadId, {
     appId: input.appId || 'default',
     agentId: input.agentId,
+  });
+  registerWorkerPermissionRunRestriction({
+    sourceAgentFolder: group.folder,
+    responseKeyId: ipcAuth.responseKeyId,
+    hideAuthorityTools,
   });
   let hostCredentials: Awaited<ReturnType<typeof credentials>> | undefined;
   let preparedExecution:
@@ -774,6 +781,10 @@ async function spawnAgentWithContext(
     });
     return output;
   } finally {
+    unregisterPermissionRunRestriction({
+      sourceAgentFolder: group.folder,
+      responseKeyId: ipcAuth.responseKeyId,
+    });
     cleanupRunnerTempDir(runnerTempDir, logger.warn.bind(logger));
     if (browserIpcEnabled) {
       revokeBrowserIpcAuthorization({

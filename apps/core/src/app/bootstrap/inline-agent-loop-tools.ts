@@ -6,6 +6,7 @@ import {
   type CallableAgentToolManifestEntry,
 } from '../../application/core-tools/callable-agent-tools.js';
 import { runDurablePermissionInteraction } from '../../application/interactions/durable-interaction-handler.js';
+import { decisionForMode } from '../../domain/permission-decision.js';
 import { reviewedMcpReadBindingsForRuntimeAccess } from '../../application/agents/agent-tool-runtime-rules.js';
 import { synthesizeHostPermissionSuggestions } from '../../application/permissions/permission-suggestion-synthesis.js';
 import {
@@ -52,6 +53,7 @@ import {
   permissionTelemetryContext,
 } from '../../runtime/ipc-permission-telemetry.js';
 import { sanitizeIpcToolInput } from '../../runtime/ipc-tool-input-sanitization.js';
+import { coordinatePermissionDecision } from '../../runtime/permission-decision-coordinator.js';
 import {
   ToolExecutionClassifier,
   ToolExecutionPolicyService,
@@ -169,6 +171,7 @@ export function createInlineCoreTools(
       yoloMode,
       permissionMode: run.permissionMode,
       accessPreset: deps.getAgentAccessPreset(laneInput.group.folder),
+      fixedImageRestricted: run.hideAuthorityTools === true,
     },
     sendMessage: deps.sendMessage,
     ...(deps.getFileArtifactStore
@@ -331,7 +334,6 @@ export function createInlineCoreTools(
         memoryBlock: run.memoryContextBlock ?? '',
         yoloMode,
       });
-      if (precheck) return { allowed: false, reason: precheck.reason };
       const decision = support.evaluateToolPolicy({
         classifier,
         policy,
@@ -351,100 +353,9 @@ export function createInlineCoreTools(
           ),
         ],
       });
-      if (decision.status === 'allow') return { allowed: true };
-      if (deps.getAgentAccessPreset(laneInput.group.folder) === 'locked') {
-        return {
-          allowed: false,
-          reason:
-            'capability not provisioned: this agent runs with a locked access preset.',
-        };
-      }
       const permissionRequestId = `permission-${randomUUID()}`;
       const suggestions = synthesizeHostPermissionSuggestions(name, toolInput);
-      const promotionRepository = deps.getPermissionPromotionRepository();
-      const promotion = promotionRepository
-        ? {
-            repository: promotionRepository,
-            offer: async (request: PermissionApprovalRequest) => {
-              const interaction = await runDurablePermissionInteraction({
-                request,
-                sourceAgentFolder: laneInput.group.folder,
-                prompt: deps.requestPermissionApproval,
-              });
-              if (interaction.resolved)
-                recordHumanPermissionPromotionSignal({
-                  repository: promotionRepository,
-                  appId: request.appId,
-                  agentFolder: laneInput.group.folder,
-                  request,
-                  decision: interaction.decision,
-                });
-              return interaction;
-            },
-          }
-        : undefined;
-      let classifierDecision:
-        | Awaited<ReturnType<typeof consultPermissionClassifierBeforePrompt>>
-        | undefined;
       const displayToolInput = sanitizeIpcToolInput(toolInput);
-      const classifierInput = sanitizeIpcToolInput(toolInput, CLASSIFIER_MAX);
-      if (deps.publishRuntimeEvent) {
-        classifierDecision = await consultPermissionClassifierBeforePrompt({
-          permissionMode: run.permissionMode,
-          requestFamily: 'tool',
-          appId: run.appId,
-          agentId: run.agentId,
-          agentFolder: laneInput.group.folder,
-          runId: run.runId,
-          jobId: run.jobId,
-          conversationId: run.chatJid,
-          threadId: run.threadId,
-          correlationId: permissionRequestId,
-          actor: 'permission',
-          intentSource: 'operator_message',
-          turnIntentSummary: run.prompt,
-          canonicalToolName: name,
-          toolInput: classifierInput.toolInput,
-          toolInputRedactedPaths: classifierInput.redactedPaths,
-          toolInputTruncatedPaths: classifierInput.truncatedPaths,
-          policyDecisionReason: decision.reason,
-          approvedCapabilityIds,
-          workspaceRoot: resolveWorkspaceFolderPath(laneInput.group.folder),
-          reviewedMcpReadBindings,
-          yoloMode: permissionSettings.permissions.yoloMode,
-          suggestions,
-          ...(promotion ? { promotion } : {}),
-          classifierConfig: permissionRuntimeConfig,
-          signal: context?.signal,
-          publishRuntimeEvent: deps.publishRuntimeEvent,
-          classifierConsult: deps.classifierConsult,
-        });
-        if (classifierDecision?.decision === 'allow') return { allowed: true };
-      }
-      if (run.permissionMode !== 'ask' && run.isScheduledJob === true) {
-        return {
-          allowed: false,
-          reason: classifierDecision
-            ? `Classifier requested human approval: ${classifierDecision.reason}`
-            : 'This tool is not eligible for unattended auto-permission.',
-        };
-      }
-      // Denylist-forced prompts must not offer a future grant the denylist
-      // would never honor.
-      const effectiveSuggestions = classifierDecision?.denylistHit
-        ? undefined
-        : suggestions;
-      const promotionHintCount = classifierDecision?.denylistHit
-        ? undefined
-        : (classifierDecision?.promotionHintCount ??
-          (await permissionPromotionHintCount({
-            promotion,
-            appId: run.appId,
-            agentFolder: laneInput.group.folder,
-            canonicalToolName: name,
-            toolInput,
-            suggestions,
-          })));
       const request: PermissionApprovalRequest = {
         requestId: permissionRequestId,
         requestFamily: 'tool',
@@ -469,90 +380,195 @@ export function createInlineCoreTools(
         toolInput: toolInput as Record<string, unknown>,
         toolInputSanitized: displayToolInput.altered,
         toolInputSanitizedPaths: displayToolInput.alteredPaths,
-        suggestions: effectiveSuggestions,
-        ...(promotionHintCount ? { promotionHintCount } : {}),
-        decisionOptions: effectiveSuggestions
-          ? promotionHintCount
-            ? ['allow_persistent_rule', 'allow_once', 'cancel']
-            : ['allow_once', 'allow_persistent_rule', 'cancel']
-          : ['allow_once', 'cancel'],
+        suggestions,
       };
-      const interaction = await runDurablePermissionInteraction({
+      const promotionRepository = deps.getPermissionPromotionRepository();
+      const coordinatedDecision = await coordinatePermissionDecision({
         request,
-        sourceAgentFolder: laneInput.group.folder,
-        beforePrompt: async () => {
-          laneInput.jobActivity.beginPermissionRequest(
-            request.requestId,
-            request.toolName,
+        hardDenyReason: precheck?.reason,
+        accessPreset: deps.getAgentAccessPreset(laneInput.group.folder),
+        fixedImageRestricted: run.hideAuthorityTools === true,
+        reviewedRuleDecision: decision,
+        tail: async () => {
+          const promotion = promotionRepository
+            ? {
+                repository: promotionRepository,
+                offer: async (promotionRequest: PermissionApprovalRequest) => {
+                  const interaction = await runDurablePermissionInteraction({
+                    request: promotionRequest,
+                    sourceAgentFolder: laneInput.group.folder,
+                    prompt: deps.requestPermissionApproval,
+                  });
+                  if (interaction.resolved)
+                    recordHumanPermissionPromotionSignal({
+                      repository: promotionRepository,
+                      appId: promotionRequest.appId,
+                      agentFolder: laneInput.group.folder,
+                      request: promotionRequest,
+                      decision: interaction.decision,
+                    });
+                  return interaction;
+                },
+              }
+            : undefined;
+          let classifierDecision:
+            | Awaited<
+                ReturnType<typeof consultPermissionClassifierBeforePrompt>
+              >
+            | undefined;
+          const classifierInput = sanitizeIpcToolInput(
+            toolInput,
+            CLASSIFIER_MAX,
           );
-          await laneInput.emitOutput({
-            status: 'success',
-            result: null,
-            interactionBoundary: 'user_interaction',
-          });
-          await publishInlinePermissionEvent(
-            deps,
-            request,
-            RUNTIME_EVENT_TYPES.PERMISSION_REQUESTED,
-            permissionTelemetryContext(request, {
-              sourceAgentFolder: laneInput.group.folder,
-              decision: 'requested',
-            }),
-          );
-        },
-        prompt: deps.requestPermissionApproval,
-        afterDecision: async (permissionDecision) => {
-          await publishInlinePermissionEvent(
-            deps,
-            request,
-            permissionDecisionEventType(permissionDecision),
-            permissionTelemetryContext(request, {
-              sourceAgentFolder: laneInput.group.folder,
-              decision: permissionDecisionName(permissionDecision),
-              decisionMode: permissionDecision.mode,
-              decidedBy: permissionDecision.decidedBy,
-            }),
-          );
-          if (permissionDecision.approved) {
-            await publishInlinePermissionEvent(
-              deps,
-              request,
-              RUNTIME_EVENT_TYPES.PERMISSION_RESUMED,
-              permissionTelemetryContext(request, {
-                sourceAgentFolder: laneInput.group.folder,
-                decision: 'resumed',
-                decisionMode: permissionDecision.mode,
-              }),
-            );
+          if (deps.publishRuntimeEvent) {
+            classifierDecision = await consultPermissionClassifierBeforePrompt({
+              permissionMode: run.permissionMode,
+              requestFamily: 'tool',
+              appId: run.appId,
+              agentId: run.agentId,
+              agentFolder: laneInput.group.folder,
+              runId: run.runId,
+              jobId: run.jobId,
+              conversationId: run.chatJid,
+              threadId: run.threadId,
+              correlationId: permissionRequestId,
+              actor: 'permission',
+              intentSource: 'operator_message',
+              turnIntentSummary: run.prompt,
+              canonicalToolName: name,
+              toolInput: classifierInput.toolInput,
+              toolInputRedactedPaths: classifierInput.redactedPaths,
+              toolInputTruncatedPaths: classifierInput.truncatedPaths,
+              policyDecisionReason: decision.reason,
+              approvedCapabilityIds,
+              workspaceRoot: resolveWorkspaceFolderPath(laneInput.group.folder),
+              reviewedMcpReadBindings,
+              yoloMode: permissionSettings.permissions.yoloMode,
+              suggestions,
+              ...(promotion ? { promotion } : {}),
+              classifierConfig: permissionRuntimeConfig,
+              signal: context?.signal,
+              publishRuntimeEvent: deps.publishRuntimeEvent,
+              classifierConsult: deps.classifierConsult,
+            });
+            if (classifierDecision?.decision === 'allow') {
+              return decisionForMode(request, 'allow_once', 'auto_classifier');
+            }
           }
-          await publishInlinePermissionEvent(
-            deps,
+          if (run.permissionMode !== 'ask' && run.isScheduledJob === true) {
+            return {
+              ...decisionForMode(request, 'cancel', 'runtime'),
+              reason: classifierDecision
+                ? `Classifier requested human approval: ${classifierDecision.reason}`
+                : 'This tool is not eligible for unattended auto-permission.',
+            };
+          }
+          const effectiveSuggestions = classifierDecision?.denylistHit
+            ? undefined
+            : suggestions;
+          const promotionHintCount = classifierDecision?.denylistHit
+            ? undefined
+            : (classifierDecision?.promotionHintCount ??
+              (await permissionPromotionHintCount({
+                promotion,
+                appId: run.appId,
+                agentFolder: laneInput.group.folder,
+                canonicalToolName: name,
+                toolInput,
+                suggestions,
+              })));
+          request.suggestions = effectiveSuggestions;
+          request.promotionHintCount = promotionHintCount;
+          request.decisionOptions = effectiveSuggestions
+            ? promotionHintCount
+              ? ['allow_persistent_rule', 'allow_once', 'cancel']
+              : ['allow_once', 'allow_persistent_rule', 'cancel']
+            : ['allow_once', 'cancel'];
+          const interaction = await runDurablePermissionInteraction({
             request,
-            RUNTIME_EVENT_TYPES.PERMISSION_FINAL_OUTCOME,
-            permissionTelemetryContext(request, {
-              sourceAgentFolder: laneInput.group.folder,
-              decision: permissionDecisionName(permissionDecision),
-              approved: permissionDecision.approved,
-              decisionMode: permissionDecision.mode,
-            }),
-          );
-          laneInput.jobActivity.finishPermissionRequest(request.requestId);
+            sourceAgentFolder: laneInput.group.folder,
+            beforePrompt: async () => {
+              laneInput.jobActivity.beginPermissionRequest(
+                request.requestId,
+                request.toolName,
+              );
+              await laneInput.emitOutput({
+                status: 'success',
+                result: null,
+                interactionBoundary: 'user_interaction',
+              });
+              await publishInlinePermissionEvent(
+                deps,
+                request,
+                RUNTIME_EVENT_TYPES.PERMISSION_REQUESTED,
+                permissionTelemetryContext(request, {
+                  sourceAgentFolder: laneInput.group.folder,
+                  decision: 'requested',
+                }),
+              );
+            },
+            prompt: deps.requestPermissionApproval,
+            afterDecision: async (permissionDecision) => {
+              await publishInlinePermissionEvent(
+                deps,
+                request,
+                permissionDecisionEventType(permissionDecision),
+                permissionTelemetryContext(request, {
+                  sourceAgentFolder: laneInput.group.folder,
+                  decision: permissionDecisionName(permissionDecision),
+                  decisionMode: permissionDecision.mode,
+                  decidedBy: permissionDecision.decidedBy,
+                }),
+              );
+              if (permissionDecision.approved) {
+                await publishInlinePermissionEvent(
+                  deps,
+                  request,
+                  RUNTIME_EVENT_TYPES.PERMISSION_RESUMED,
+                  permissionTelemetryContext(request, {
+                    sourceAgentFolder: laneInput.group.folder,
+                    decision: 'resumed',
+                    decisionMode: permissionDecision.mode,
+                  }),
+                );
+              }
+              await publishInlinePermissionEvent(
+                deps,
+                request,
+                RUNTIME_EVENT_TYPES.PERMISSION_FINAL_OUTCOME,
+                permissionTelemetryContext(request, {
+                  sourceAgentFolder: laneInput.group.folder,
+                  decision: permissionDecisionName(permissionDecision),
+                  approved: permissionDecision.approved,
+                  decisionMode: permissionDecision.mode,
+                }),
+              );
+              laneInput.jobActivity.finishPermissionRequest(request.requestId);
+            },
+          });
+          if (interaction.resolved)
+            recordHumanPermissionPromotionSignal({
+              repository: promotionRepository,
+              appId: request.appId,
+              agentFolder: laneInput.group.folder,
+              request,
+              decision: interaction.decision,
+            });
+          return interaction.resolved
+            ? interaction.decision
+            : {
+                approved: false,
+                mode: 'cancel' as const,
+                reason: 'Remote MCP permission request was denied.',
+              };
         },
       });
-      if (interaction.resolved)
-        recordHumanPermissionPromotionSignal({
-          repository: promotionRepository,
-          appId: request.appId,
-          agentFolder: laneInput.group.folder,
-          request,
-          decision: interaction.decision,
-        });
-      return interaction.resolved && interaction.decision.approved
+      return coordinatedDecision.approved
         ? { allowed: true }
         : {
             allowed: false,
             reason:
-              interaction.decision.reason ??
+              coordinatedDecision.reason ??
               'Remote MCP permission request was denied.',
           };
     },

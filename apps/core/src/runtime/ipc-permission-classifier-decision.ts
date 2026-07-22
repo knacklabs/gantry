@@ -23,8 +23,92 @@ import { runDurablePermissionInteraction } from '../application/interactions/dur
 import { resolveAgentToolRuntimePolicy } from '../application/agents/agent-tool-runtime-rules.js';
 import { resolveWorkspaceFolderPath } from '../platform/workspace-folder.js';
 import type { YoloModeSettings } from '../shared/yolo-mode-policy.js';
+import {
+  evaluateYoloModeDenylist,
+  yoloModeDenylistDenyReason,
+} from '../shared/yolo-mode-policy.js';
+import {
+  buildAgentToolExecutionRequest,
+  evaluateProtectedCapabilityToolUse,
+  ToolExecutionClassifier,
+  ToolExecutionPolicyService,
+} from '../shared/tool-execution-policy-service.js';
+import {
+  coordinatePermissionDecision,
+  permissionRunRestriction,
+} from './permission-decision-coordinator.js';
 
 export async function resolvePermissionIpcDecision(input: {
+  request: ParsedPermissionIpcRequest;
+  sourceAgentFolder: string;
+  deps: IpcDeps;
+}): Promise<PermissionApprovalDecision> {
+  const settings = input.deps.getPermissionRuntimeSettings?.();
+  const agentSettings = settings?.agents[input.sourceAgentFolder] as
+    | { accessPreset?: 'full' | 'locked' }
+    | null
+    | undefined;
+  const fixedImageRestricted = input.request.responseKeyId
+    ? (permissionRunRestriction({
+        sourceAgentFolder: input.sourceAgentFolder,
+        responseKeyId: input.request.responseKeyId,
+      })?.hideAuthorityTools ?? false)
+    : false;
+  const protectedCapability = evaluateProtectedCapabilityToolUse(
+    input.request.toolName,
+    input.request.toolInput,
+  );
+  const yoloMode = (
+    settings?.permissions as { yoloMode?: YoloModeSettings } | undefined
+  )?.yoloMode;
+  const yoloMatch = evaluateYoloModeDenylist({
+    settings: yoloMode,
+    toolName: input.request.toolName,
+    toolInput: input.request.toolInput,
+  });
+  return coordinatePermissionDecision({
+    request: input.request,
+    hardDenyReason: protectedCapability
+      ? `Denied by Gantry tool execution policy: ${protectedCapability.reason} ${protectedCapability.recoveryAction}`
+      : yoloMatch
+        ? yoloModeDenylistDenyReason(yoloMatch)
+        : undefined,
+    accessPreset: agentSettings?.accessPreset,
+    fixedImageRestricted,
+    reviewedRuleDecision: async () => {
+      const repository = input.deps.getToolRepository?.();
+      if (!repository) return undefined;
+      const policy = await resolveAgentToolRuntimePolicy({
+        repository,
+        appId: input.request.appId ?? 'default',
+        agentId:
+          input.request.agentId ?? agentIdForFolder(input.sourceAgentFolder),
+        errorSubject: 'Configured agent tool',
+        skillRepository: input.deps.getSkillRepository?.(),
+      }).catch(() => undefined);
+      if (!policy) return undefined;
+      return new ToolExecutionPolicyService().evaluate({
+        request: buildAgentToolExecutionRequest(
+          new ToolExecutionClassifier(),
+          input.request.toolName,
+          input.request.toolInput,
+          {
+            isScheduledJob: Boolean(input.request.jobId),
+            jobId: input.request.jobId,
+            threadId: input.request.threadId,
+            conversationId: input.request.targetJid ?? '',
+          },
+        ),
+        ...(input.request.jobId
+          ? { autonomousAllowedToolRules: policy.rules }
+          : { allowedToolRules: policy.rules }),
+      });
+    },
+    tail: () => resolvePermissionIpcDecisionTail(input),
+  });
+}
+
+async function resolvePermissionIpcDecisionTail(input: {
   request: ParsedPermissionIpcRequest;
   sourceAgentFolder: string;
   deps: IpcDeps;

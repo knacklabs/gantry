@@ -327,6 +327,7 @@ import type {
 } from '@core/shared/runner-sandbox-provider.js';
 import type { RunAgentOptions } from '@core/runtime/agent-spawn-types.js';
 import { SANDBOX_RUNTIME_MODEL_GATEWAY_HOST } from '@core/runtime/agent-spawn-runtime-policy.js';
+import { permissionRunRestriction } from '@core/runtime/permission-decision-coordinator.js';
 import {
   processPermissionIpcRequest,
   processUserQuestionIpcRequest,
@@ -1128,18 +1129,27 @@ describe('agent-spawn timeout behavior', () => {
     } as never);
 
     const resultPromise = spawnTestAgent(testGroup, testInput, () => {});
+    await vi.advanceTimersByTimeAsync(10);
+    const env = vi.mocked(spawn).mock.calls.at(-1)?.[2]?.env as Record<
+      string,
+      string
+    >;
+    const restrictionKey = {
+      sourceAgentFolder: testGroup.folder,
+      responseKeyId: env.GANTRY_IPC_RESPONSE_KEY_ID,
+    };
+    expect(permissionRunRestriction(restrictionKey)).toEqual({
+      hideAuthorityTools: true,
+    });
     emitOutputMarker(fakeProc, { status: 'success', result: 'started' });
     await vi.advanceTimersByTimeAsync(10);
     fakeProc.emit('close', 0);
     await vi.advanceTimersByTimeAsync(10);
     await resultPromise;
 
-    const env = vi.mocked(spawn).mock.calls.at(-1)?.[2]?.env as Record<
-      string,
-      string
-    >;
     expect(env.GANTRY_AGENT_ACCESS_PRESET).toBe('locked');
     expect(env.GANTRY_NO_PERMISSION_TOOLS).toBe('1');
+    expect(permissionRunRestriction(restrictionKey)).toBeUndefined();
   });
 
   it('projects the full access preset for a default agent', async () => {

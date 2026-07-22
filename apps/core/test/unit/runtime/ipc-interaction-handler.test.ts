@@ -722,14 +722,7 @@ describe('ipc-interaction-handler', () => {
       logger: { warn: vi.fn(), error: vi.fn(), info: vi.fn() },
     });
 
-    expect(classifierConsult).toHaveBeenCalledWith(
-      expect.objectContaining({
-        canonicalToolName: GITHUB_REPOS_LIST_TOOL_NAME,
-        turnIntentSummary: 'Inspect the current worktree.',
-        approvedCapabilityIds: [GITHUB_REPOS_READ_CAPABILITY_ID],
-        posture: 'allow_leaning',
-      }),
-    );
+    expect(classifierConsult).not.toHaveBeenCalled();
     expect(requestPermissionApproval).not.toHaveBeenCalled();
     expect(
       JSON.parse(
@@ -746,22 +739,18 @@ describe('ipc-interaction-handler', () => {
     ).toMatchObject({
       approved: true,
       mode: 'allow_once',
-      decidedBy: 'auto_classifier',
+      decidedBy: 'reviewed_rule',
       decisionClassification: 'user_temporary',
     });
     expect(publishRuntimeEvent).toHaveBeenCalledWith(
       expect.objectContaining({
-        eventType: 'permission.classifier_decision',
+        eventType: 'permission.allowed',
         payload: expect.objectContaining({
-          decision: 'allow',
-          intentSource: 'runner_summary',
+          decision: 'allowed',
+          decidedBy: 'reviewed_rule',
         }),
       }),
     );
-    const classifierEvent = publishRuntimeEvent.mock.calls.find(
-      ([event]) => event.eventType === 'permission.classifier_decision',
-    )?.[0];
-    expect(classifierEvent?.payload).not.toHaveProperty('suggestionKey');
   });
 
   it('honors a conversation override on the live agent-qualified route key', async () => {
@@ -822,28 +811,13 @@ describe('ipc-interaction-handler', () => {
       } as never,
     });
 
-    expect(classifierConsult).toHaveBeenCalledOnce();
-    expect(classifierConsult.mock.calls[0]?.[0].toolInput).toEqual({
-      owner: 'cawstudios',
-    });
-    expect(classifierConsult.mock.calls[0]?.[0].turnIntentSummary).toBe(
-      'Inspect the worktree.',
-    );
-    expect(publishRuntimeEvent).toHaveBeenCalledWith(
-      expect.objectContaining({
-        // Non-authoritative event metadata from the request itself.
-        runId: 'run:runner-supplied',
-        payload: expect.objectContaining({ intentSource: 'runner_summary' }),
-      }),
-    );
-    expect(publishRuntimeEvent.mock.calls[0]?.[0].payload).not.toHaveProperty(
-      'suggestionKey',
-    );
+    expect(classifierConsult).not.toHaveBeenCalled();
+    expect(publishRuntimeEvent).not.toHaveBeenCalled();
     expect(requestPermissionApproval).not.toHaveBeenCalled();
     expect(decision).toMatchObject({
       approved: true,
       mode: 'allow_once',
-      decidedBy: 'auto_classifier',
+      decidedBy: 'reviewed_rule',
     });
   });
 
@@ -918,22 +892,13 @@ describe('ipc-interaction-handler', () => {
       } as never,
     });
 
-    expect(classifierConsult).toHaveBeenCalledWith(
-      expect.objectContaining({
-        turnIntentSummary: '',
-        posture: 'allow_leaning',
-      }),
-    );
-    expect(publishRuntimeEvent).toHaveBeenCalledWith(
-      expect.objectContaining({
-        payload: expect.objectContaining({ intentSource: 'none' }),
-      }),
-    );
+    expect(classifierConsult).not.toHaveBeenCalled();
+    expect(publishRuntimeEvent).not.toHaveBeenCalled();
     expect(requestPermissionApproval).not.toHaveBeenCalled();
     expect(decision).toMatchObject({
       approved: true,
       mode: 'allow_once',
-      decidedBy: 'auto_classifier',
+      decidedBy: 'reviewed_rule',
     });
   });
 
@@ -1050,8 +1015,8 @@ describe('ipc-interaction-handler', () => {
     expect(decision).toMatchObject({
       approved: false,
       mode: 'cancel',
-      decidedBy: 'runtime',
-      reason: expect.stringContaining('YOLO-mode denylist backstop'),
+      decidedBy: 'hard_deny',
+      reason: expect.stringContaining('YOLO-mode denylist rule matched'),
     });
   });
 
