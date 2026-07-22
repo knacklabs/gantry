@@ -1549,7 +1549,7 @@ describe('GantryModelGatewayBroker', () => {
     'proxies Anthropic %s %s through the scoped credential',
     async (method, path) => {
       const repo = new MutableModelCredentialRepository();
-      repo.set('anthropic', 'sk-anthropic-batch-upstream');
+      repo.set('anthropic', 'abcdefghijklmnopqrstuvwxyz');
       const upstreamFetch = vi.fn(
         async (_url: URL, _options?: RequestInit) =>
           new Response('{"type":"message_batch"}', {
@@ -1582,7 +1582,7 @@ describe('GantryModelGatewayBroker', () => {
           expect.objectContaining({
             method,
             headers: expect.objectContaining({
-              'x-api-key': 'sk-anthropic-batch-upstream',
+              'x-api-key': 'abcdefghijklmnopqrstuvwxyz',
             }),
           }),
         );
@@ -1661,7 +1661,7 @@ describe('GantryModelGatewayBroker', () => {
     'proxies OpenAI %s %s through the scoped credential',
     async (method, path) => {
       const repo = new MutableModelCredentialRepository();
-      repo.set('openai', 'sk-openai-batch-upstream');
+      repo.set('openai', 'abcdefghijklmnopqrstuvwxyz');
       const upstreamFetch = vi.fn(
         async (_url: URL, _options?: RequestInit) =>
           new Response('{"object":"batch"}', {
@@ -1694,7 +1694,7 @@ describe('GantryModelGatewayBroker', () => {
           expect.objectContaining({
             method,
             headers: expect.objectContaining({
-              authorization: 'Bearer sk-openai-batch-upstream',
+              authorization: 'Bearer abcdefghijklmnopqrstuvwxyz',
             }),
           }),
         );
@@ -1767,7 +1767,7 @@ describe('GantryModelGatewayBroker', () => {
     'rejects ordinary %s model-runtime tokens on %s batch path %s',
     async (providerId, method, path) => {
       const repo = new MutableModelCredentialRepository();
-      repo.set(providerId, `sk-${providerId}-ordinary`);
+      repo.set(providerId, 'abcdefghijklmnopqrstuvwxyz');
       const upstreamFetch = vi.fn(async () => new Response('{"ok":true}'));
       vi.stubGlobal('fetch', upstreamFetch);
       const broker = new GantryModelGatewayBroker(repo);
@@ -1806,7 +1806,7 @@ describe('GantryModelGatewayBroker', () => {
 
   it('charges each item in a batch submission against the request-rate cap', async () => {
     const repo = new MutableModelCredentialRepository();
-    repo.set('anthropic', 'sk-anthropic-weighted-batch');
+    repo.set('anthropic', 'abcdefghijklmnopqrstuvwxyz');
     const upstreamFetch = vi.fn(async () => new Response('{"ok":true}'));
     vi.stubGlobal('fetch', upstreamFetch);
     const broker = new GantryModelGatewayBroker(repo, {
@@ -1839,7 +1839,7 @@ describe('GantryModelGatewayBroker', () => {
   it('rejects Claude OAuth for a batch-purpose token before token issue', async () => {
     const repo = new MutableModelCredentialRepository();
     repo.setWithMode('anthropic', 'claude_code_oauth', {
-      oauthToken: 'oauth-anthropic-batch',
+      oauthToken: 'abcdefghijklmnopqrstuvwxyz',
     });
     const broker = new GantryModelGatewayBroker(repo);
     try {

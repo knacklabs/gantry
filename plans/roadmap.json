@@ -55,7 +55,7 @@
       ]
     },
     {
-      "status": "pending",
+      "status": "active",
       "key": "OBS-1",
       "title": "Observer: land staged S2 emission + S3a batch-core",
       "epic": "observer",
@@ -419,5 +419,5 @@
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-07-22T17:32:45+00:00"
+  "updated_at": "2026-07-22T17:33:27+00:00"
 }
