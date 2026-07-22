@@ -1,0 +1,421 @@
+{
+  "items": [
+    {
+      "status": "pending",
+      "key": "PAY-1",
+      "title": "Architecture gate paydown \u2014 check:architecture exit 0",
+      "epic": "harness-hygiene",
+      "skill": "backend",
+      "order": 1,
+      "story": "First story through the harness. Five failing sections inventoried in the goal-prompt: file-size splits (genai-spans worst), dangling doc refs, layer-import caps, provider-boundary tokens in tests, provider literals in prompt-profile-service.",
+      "acceptance_criteria": [
+        "npm run check:architecture exits 0",
+        "python3 .agents/scripts/verify.py passes end to end",
+        "npm run typecheck and npm test green; no test deleted",
+        "no public API/contract change; contracts package diff empty",
+        "any remaining architecture exception carries an expiry/ratchet note"
+      ]
+    },
+    {
+      "status": "pending",
+      "key": "PERM-1",
+      "title": "Permission engine: git deterministic-gate slice",
+      "epic": "permission-engine",
+      "skill": "backend",
+      "order": 2,
+      "depends_on": [
+        "PAY-1"
+      ],
+      "story": "Slice #1 of the hardened goal-prompt: deterministic rails precede any cache/classifier allow; git operations in trusted roots stop prompting.",
+      "acceptance_criteria": [
+        "git clone/pull/fetch/status in trusted roots produce zero permission prompts in live runs",
+        "hard-deny/locked/fixed-image restrictions resolve BEFORE any cache or classifier allow",
+        "RunCommand telemetry records the command text (closes the RCA blind spot)",
+        "goal-prompt slice-1 acceptance list satisfied with tests pinning the ordering invariant"
+      ]
+    },
+    {
+      "status": "pending",
+      "key": "PERM-2",
+      "title": "Permission engine: decision coordinator build (remainder)",
+      "epic": "permission-engine",
+      "skill": "backend",
+      "order": 3,
+      "depends_on": [
+        "PERM-1"
+      ],
+      "story": "Async host-side decision coordinator (cache -> classifier -> human) per the plan-validation-hardened goal-prompt; parse-fail and interpreter-with-string leaves always ask.",
+      "acceptance_criteria": [
+        "single authority path: every lane reaches the coordinator via authenticated IPC on rule-miss",
+        "deterministic ask-floors re-run on every cache hit; never cached away",
+        "classifier verdicts cached with schema-enforced shape; ask-once behavior demonstrated live",
+        "goal-prompt acceptance criteria satisfied incl. its folded validation gaps"
+      ]
+    },
+    {
+      "status": "pending",
+      "key": "OBS-1",
+      "title": "Observer: land staged S2 emission + S3a batch-core",
+      "epic": "observer",
+      "skill": "backend",
+      "order": 4,
+      "depends_on": [
+        "PAY-1"
+      ],
+      "story": "Verify, one autoreview pass, and merge the rescued WIP branches feature/observer-s2-emission (e055dc14a) and feature/observer-s3-batch (a51a4909d) \u2014 the staged work was uncommitted tmp diffs until rescued 2026-07-22; exclude scratch docs from the review diff without deleting the design record.",
+      "acceptance_criteria": [
+        "S2 floor (conf>=0.6, evidence>=1, dedup cosine>=0.86) merged behind observer.enabled default-off",
+        "S3a gateway batch endpoints + prefer-orphan state machine merged with its 7 autoreview fixes",
+        "API/SDK/E2E coverage per stage as in the goal-prompt",
+        "goals-index rows recomputed on close"
+      ]
+    },
+    {
+      "status": "pending",
+      "key": "OBS-2",
+      "title": "Observer S3b: xAI Grok + Kimi batch transports",
+      "epic": "observer",
+      "skill": "backend",
+      "order": 5,
+      "depends_on": [
+        "OBS-1"
+      ],
+      "acceptance_criteria": [
+        "both transports fill the same declared-capability slot as the Anthropic batch path",
+        "transport selection is config-driven; no provider literals outside adapters",
+        "hermetic tests cover both transports"
+      ]
+    },
+    {
+      "status": "pending",
+      "key": "OBS-3",
+      "title": "Observer S4: digest delivery",
+      "epic": "observer",
+      "skill": "backend",
+      "order": 6,
+      "depends_on": [
+        "OBS-2"
+      ],
+      "acceptance_criteria": [
+        "staging -> settlement -> freshness revalidation -> delivery pipeline per goal-prompt",
+        "evidence permalinks + feedback capture + delivery artifact recorded",
+        "at most one digest per day, owner-private routing enforced"
+      ]
+    },
+    {
+      "status": "pending",
+      "key": "OBS-4",
+      "title": "Observer S5: setup wizard + preview + cold-start backfill",
+      "epic": "observer",
+      "skill": "backend",
+      "order": 7,
+      "depends_on": [
+        "OBS-3"
+      ],
+      "acceptance_criteria": [
+        "gantry observer setup wizard step (extends apps/core/src/cli/setup-flow.ts)",
+        "preview + status surfaces work without enabling delivery",
+        "cold-start backfill bounded and idempotent"
+      ]
+    },
+    {
+      "status": "pending",
+      "key": "E2E-1",
+      "title": "E2E: reconcile the test-matrix tracker",
+      "epic": "agent-e2e-gate",
+      "skill": "backend",
+      "order": 8,
+      "depends_on": [
+        "PAY-1"
+      ],
+      "story": "Matrix doc is behind reality (PRs #256-#261 added tests without flipping rows). Reconciling fires deferral D-0002 (persona/topology harness re-draft). Also reconcile feature/agent-e2e-haiku-turn: 15 commits, +382/-11 real diff vs main beyond merged #246 \u2014 salvage or discard with a citation.",
+      "acceptance_criteria": [
+        "every matrix row states its true status with PR/test citations",
+        "gap list of genuinely-uncovered rows produced",
+        "D-0002 resolved: persona-harness scope re-drafted or explicitly re-deferred",
+        "feature/agent-e2e-haiku-turn dispositioned: salvaged into a row or discarded with rationale"
+      ]
+    },
+    {
+      "status": "pending",
+      "key": "E2E-2",
+      "title": "E2E: remaining matrix rows",
+      "epic": "agent-e2e-gate",
+      "skill": "backend",
+      "order": 9,
+      "depends_on": [
+        "E2E-1"
+      ],
+      "acceptance_criteria": [
+        "packaged boot/restart, haiku model gate, all-tools coverage, security/recovery rows implemented per reconciled gap list",
+        "rows flip with citations per the standing merge-bar discipline"
+      ]
+    },
+    {
+      "status": "pending",
+      "key": "E2E-3",
+      "title": "E2E: flip agent-e2e-gate to a required check",
+      "epic": "agent-e2e-gate",
+      "skill": "backend",
+      "order": 10,
+      "depends_on": [
+        "E2E-2"
+      ],
+      "acceptance_criteria": [
+        "agent-e2e-gate is a required status check on main",
+        "full matrix green at flip time"
+      ]
+    },
+    {
+      "status": "pending",
+      "key": "CAP-1",
+      "title": "Close out the capability-authoring lane",
+      "epic": "capability-search",
+      "skill": "backend",
+      "order": 11,
+      "depends_on": [
+        "PAY-1"
+      ],
+      "story": "Rescued WIP snapshot feature/capability-authoring @ 13ae2e698 (source of record). Imported WITHOUT a goal-prompt as a closeout exception (epics grill 2026-07-22): finishing in-flight work, not a new goal. Verify, one autoreview pass, merge; it edits mcp-tool-proxy.ts so nothing else may touch that file concurrently.",
+      "acceptance_criteria": [
+        "branch verified (typecheck + unit + relevant integration) and reviewed via one autoreview pass",
+        "merged to main or explicitly split/reverted with a decision note",
+        "mcp-tool-proxy.ts conflict window closed"
+      ]
+    },
+    {
+      "status": "pending",
+      "key": "CAP-2",
+      "title": "MCP hybrid search",
+      "epic": "capability-search",
+      "skill": "backend",
+      "order": 12,
+      "depends_on": [
+        "CAP-1"
+      ],
+      "acceptance_criteria": [
+        "FTS ranking + light stemming on mcp_search_tools",
+        "opt-in semantic layer reusing memory embedding provider + cache, degrading to FTS",
+        "grill-locked goal-prompt acceptance list satisfied"
+      ]
+    },
+    {
+      "status": "pending",
+      "key": "PONY-1",
+      "title": "Ponytail Phase-8 offline cutover",
+      "epic": "ponytail",
+      "skill": "backend",
+      "order": 13,
+      "depends_on": [
+        "PAY-1"
+      ],
+      "story": "Phases 1-7 committed on feature/ponytail-audit through 9ffa146c2 (93-table baseline + Phase-8 runbook); post-Phase-7 in-flight diff rescued as e4104edc8. HARD GATE: executes ONLY on the user's explicit cutover go, behind a fully green ship gate + required e2e rows; any red = STOP.",
+      "acceptance_criteria": [
+        "explicit user cutover go recorded before execution",
+        "fresh-green full gate + required e2e rows at cutover time",
+        "offline restamp/reset executed per the Phase-8 runbook with rollback verified available",
+        "post-restart runtime smoke green",
+        "lane merged to main"
+      ]
+    },
+    {
+      "status": "pending",
+      "key": "OTEL-1",
+      "title": "OTel permission/decision spans",
+      "epic": "observability",
+      "skill": "backend",
+      "order": 14,
+      "depends_on": [
+        "PAY-1"
+      ],
+      "story": "Completes the observability taxonomy shipped in #220 (base) and #262 (tool-execution spans). Reconciled 2026-07-22: not started; no lane work exists.",
+      "acceptance_criteria": [
+        "permission/decision spans per otel-permission-spans-goal-prompt.md",
+        "span taxonomy verified against the full agent/LLM/tool/MCP scope note on #262",
+        "hermetic tests cover the new spans"
+      ]
+    },
+    {
+      "status": "pending",
+      "key": "DUR-1",
+      "title": "Durable-work primitive",
+      "epic": "post-cutover",
+      "skill": "backend",
+      "order": 15,
+      "depends_on": [
+        "PONY-1"
+      ],
+      "story": "Starts after the Ponytail cutover lands (it refactors jobs/interactions state the cutover moves). Fires deferral D-0001 (data retention) at start.",
+      "acceptance_criteria": [
+        "goal-prompt acceptance list satisfied",
+        "D-0001 resolved: retention scoped into this lane or re-deferred with a new trigger"
+      ]
+    },
+    {
+      "status": "pending",
+      "key": "MDL-1",
+      "title": "Model management: unify then UX",
+      "epic": "post-cutover",
+      "skill": "backend",
+      "order": 16,
+      "depends_on": [
+        "PONY-1"
+      ],
+      "story": "Starts after the Ponytail lane closes (shares the settings parser/renderer surface). Folds status-cost-cache-visibility UX remainder.",
+      "acceptance_criteria": [
+        "model-management goal-prompt acceptance list satisfied",
+        "status/cost/cache UX remainder folded in or explicitly re-scoped"
+      ]
+    },
+    {
+      "status": "pending",
+      "key": "CO-1",
+      "title": "Jobs recovery-intent -> columns + CAS",
+      "epic": "coordination-hardening",
+      "skill": "backend",
+      "order": 17,
+      "depends_on": [
+        "PAY-1"
+      ],
+      "acceptance_criteria": [
+        "audit item B1 implemented: recovery intent as columns with compare-and-set transitions",
+        "no JSON-blob state machine remains for recovery intent",
+        "concurrent-recovery test pins the CAS invariant"
+      ]
+    },
+    {
+      "status": "pending",
+      "key": "CO-2",
+      "title": "Coordination hardening batch (locks, TOCTOU, serializer)",
+      "epic": "coordination-hardening",
+      "skill": "backend",
+      "order": 18,
+      "depends_on": [
+        "CO-1"
+      ],
+      "acceptance_criteria": [
+        "audit item B2 implemented: advisory locks, TOCTOU fallback, serializer unify",
+        "each fix carries a regression test"
+      ]
+    },
+    {
+      "status": "pending",
+      "key": "CO-3",
+      "title": "desired-state-current-export rewrite",
+      "epic": "coordination-hardening",
+      "skill": "backend",
+      "order": 19,
+      "depends_on": [
+        "PAY-1"
+      ],
+      "acceptance_criteria": [
+        "audit Group C implemented: schema-driven merge, fail-loud on unknown fields",
+        "round-trip export/import test green"
+      ]
+    },
+    {
+      "status": "pending",
+      "key": "ART-1",
+      "title": "S3/MinIO file-artifact bytes",
+      "epic": "artifact-store",
+      "skill": "backend",
+      "order": 20,
+      "depends_on": [
+        "PAY-1"
+      ],
+      "story": "LOW PRIORITY (live uses local backend). Protocol decided: pending-row + upload + verified commit + TTL janitor. feature/s3-file-artifacts holds one [HOLD] stage-1 commit built commit-first BEFORE the protocol decision \u2014 rework to the decided protocol, do not merge as-is.",
+      "acceptance_criteria": [
+        "goal-prompt protocol implemented with verified-commit semantics",
+        "TTL janitor covered by tests",
+        "local backend remains the default"
+      ]
+    }
+  ],
+  "epics": [
+    {
+      "id": "harness-hygiene",
+      "title": "Harness hygiene",
+      "objective": "Green deterministic gates so every story verifies honestly",
+      "source_refs": [
+        "docs/architecture/architecture-debt-paydown-goal-prompt.md"
+      ]
+    },
+    {
+      "id": "permission-engine",
+      "title": "Permission engine redesign",
+      "objective": "Deterministic rails + host-side decision coordinator; ask only on genuine risk",
+      "source_refs": [
+        "docs/architecture/permission-engine-redesign-goal-prompt.md",
+        "docs/architecture/git-permission-rca.md"
+      ]
+    },
+    {
+      "id": "observer",
+      "title": "Curious Observer program",
+      "objective": "Harvest -> nightly dream -> value floor + batch judge -> daily private digest",
+      "source_refs": [
+        "docs/architecture/proactive-observer-goal-prompt.md"
+      ]
+    },
+    {
+      "id": "agent-e2e-gate",
+      "title": "Agent E2E CI merge gate",
+      "objective": "Packaged real-runtime E2E matrix as the merge bar",
+      "source_refs": [
+        "docs/architecture/agent-e2e-ci-merge-gate-goal-prompt.md",
+        "docs/architecture/agent-e2e-test-matrix.md"
+      ]
+    },
+    {
+      "id": "capability-search",
+      "title": "Capability authoring + MCP hybrid search",
+      "objective": "Agents author capabilities; tool search gains FTS + optional semantic layer",
+      "source_refs": [
+        "docs/architecture/mcp-hybrid-search-goal-prompt.md"
+      ]
+    },
+    {
+      "id": "ponytail",
+      "title": "Ponytail cutover",
+      "objective": "Land the phased re-derive: Phase-8 offline cutover, gated on explicit user go",
+      "source_refs": [
+        "docs/architecture/ponytail-audit-2026-07-16.md"
+      ]
+    },
+    {
+      "id": "observability",
+      "title": "OTel observability remainder",
+      "objective": "Permission/decision spans completing the shipped #220/#262 taxonomy",
+      "source_refs": [
+        "docs/architecture/otel-permission-spans-goal-prompt.md"
+      ]
+    },
+    {
+      "id": "post-cutover",
+      "title": "Post-Ponytail-cutover lanes",
+      "objective": "Durable-work primitive and model management, gated on the user-authorized cutover",
+      "source_refs": [
+        "docs/architecture/durable-work-primitive-goal-prompt.md",
+        "docs/architecture/model-management-goal-prompt.md"
+      ]
+    },
+    {
+      "id": "coordination-hardening",
+      "title": "Coordination hardening",
+      "objective": "Retire coordination-representation audit findings (B1/B2/C)",
+      "source_refs": [
+        "docs/architecture/coordination-representation-audit-2026-07-18.md"
+      ]
+    },
+    {
+      "id": "artifact-store",
+      "title": "Artifact store S3 bytes",
+      "objective": "S3/MinIO file-artifact bytes with verified commit + TTL janitor",
+      "source_refs": [
+        "docs/architecture/artifact-store-s3-goal-prompt.md"
+      ]
+    }
+  ],
+  "generated_by": "human",
+  "updated_at": "2026-07-22T12:34:54+00:00"
+}
