@@ -1154,7 +1154,7 @@ def check_provider_boundary(
         ):
             issues.append(
                 f"approvedProviderBoundaryPaths must not broadly approve `{broad_path}`; "
-                "record exact current debt in .codex/provider-boundary-exceptions.json."
+                "record exact current debt in scripts/provider-boundary-exceptions.json."
             )
 
     for prefix in approved_paths:

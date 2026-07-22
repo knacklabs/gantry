@@ -9,7 +9,7 @@ const DEFAULT_TIMEOUT_MS = 300_000;
 
 function usage() {
   return `Usage:
-  node .codex/scripts/agent_chat_test.mjs "message" [options]
+  node scripts/agent_chat_test.mjs "message" [options]
 
 Options:
   --runtime-home <path>       Runtime home. Default: ~/gantry

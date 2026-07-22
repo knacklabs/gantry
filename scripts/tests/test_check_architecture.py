@@ -11,7 +11,6 @@ from pathlib import Path
 SCRIPTS_DIR = Path(__file__).resolve().parents[1]
 REPO_ROOT = Path(__file__).resolve().parents[3]
 CHECK_SCRIPT = SCRIPTS_DIR / "check_architecture.py"
-VERIFY_SCRIPT = SCRIPTS_DIR / "verify.py"
 
 
 def write_text(path: Path, content: str) -> None:
@@ -46,9 +45,9 @@ def make_base_fixture(root: Path) -> Path:
         "packages/sdk/src",
     ):
         write_text(root / rel_dir / "README.md", "Fixture purpose.\n")
-    write_json(root / ".codex/architecture-exceptions.json", [])
+    write_json(root / "scripts/architecture-exceptions.json", [])
     write_json(
-        root / ".codex/provider-boundary-exceptions.json",
+        root / "scripts/provider-boundary-exceptions.json",
         {
             "version": 1,
             "cleanupPlanId": "test-provider-boundary-plan",
@@ -56,7 +55,7 @@ def make_base_fixture(root: Path) -> Path:
         },
     )
     write_json(
-        root / ".codex/architecture-map.json",
+        root / "scripts/architecture-map.json",
         {
             "version": 1,
             "layers": {
@@ -175,7 +174,7 @@ def run_architecture_check(root: Path) -> subprocess.CompletedProcess[str]:
             "--root",
             str(root),
             "--exceptions",
-            ".codex/architecture-exceptions.json",
+            "scripts/architecture-exceptions.json",
         ],
         capture_output=True,
         text=True,
@@ -228,7 +227,7 @@ class CheckArchitectureTests(unittest.TestCase):
             root = make_base_fixture(Path(tmp))
             write_lines(root / "apps/core/src/domain/oversized.ts", 701)
             write_json(
-                root / ".codex/architecture-exceptions.json",
+                root / "scripts/architecture-exceptions.json",
                 [
                     {
                         "file": "apps/core/src/domain/oversized.ts",
@@ -250,7 +249,7 @@ class CheckArchitectureTests(unittest.TestCase):
             root = make_base_fixture(Path(tmp))
             write_text(root / "apps/core/src/runtime/index.ts", "export * from './ok.js';\n")
             write_json(
-                root / ".codex/architecture-exceptions.json",
+                root / "scripts/architecture-exceptions.json",
                 [
                     {
                         "file": "apps/core/src/runtime/index.ts",
@@ -270,7 +269,7 @@ class CheckArchitectureTests(unittest.TestCase):
             root = make_base_fixture(Path(tmp))
             write_text(root / "apps/core/src/runtime/index.ts", "export * from './ok.js';\n")
             write_json(
-                root / ".codex/architecture-exceptions.json",
+                root / "scripts/architecture-exceptions.json",
                 [
                     {
                         "file": "apps/core/src/runtime/index.ts",
@@ -373,7 +372,7 @@ class CheckArchitectureTests(unittest.TestCase):
                 "export const env = 'ANTHROPIC_MODEL';\n",
             )
             write_json(
-                root / ".codex/provider-boundary-exceptions.json",
+                root / "scripts/provider-boundary-exceptions.json",
                 {
                     "version": 1,
                     "cleanupPlanId": "test-provider-boundary-plan",
@@ -428,9 +427,9 @@ class CheckArchitectureTests(unittest.TestCase):
     def test_provider_boundary_rejects_broad_config_memory_shared_approval(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = make_base_fixture(Path(tmp))
-            architecture_map = json.loads((root / ".codex/architecture-map.json").read_text())
+            architecture_map = json.loads((root / "scripts/architecture-map.json").read_text())
             architecture_map["approvedProviderBoundaryPaths"] = ["apps/core/src/config"]
-            write_json(root / ".codex/architecture-map.json", architecture_map)
+            write_json(root / "scripts/architecture-map.json", architecture_map)
             result = run_architecture_check(root)
             self.assertEqual(result.returncode, 1)
             self.assertIn("[Provider Boundary]", result.stdout)
@@ -445,9 +444,9 @@ class CheckArchitectureTests(unittest.TestCase):
             with self.subTest(broad_path=broad_path):
                 with tempfile.TemporaryDirectory() as tmp:
                     root = make_base_fixture(Path(tmp))
-                    architecture_map = json.loads((root / ".codex/architecture-map.json").read_text())
+                    architecture_map = json.loads((root / "scripts/architecture-map.json").read_text())
                     architecture_map["approvedProviderSpecificPaths"] = [broad_path]
-                    write_json(root / ".codex/architecture-map.json", architecture_map)
+                    write_json(root / "scripts/architecture-map.json", architecture_map)
                     result = run_architecture_check(root)
                     self.assertEqual(result.returncode, 1)
                     self.assertIn("[Architecture Map Hygiene]", result.stdout)
@@ -459,9 +458,9 @@ class CheckArchitectureTests(unittest.TestCase):
     def test_provider_boundary_rejects_runtime_approval_bypass(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = make_base_fixture(Path(tmp))
-            architecture_map = json.loads((root / ".codex/architecture-map.json").read_text())
+            architecture_map = json.loads((root / "scripts/architecture-map.json").read_text())
             architecture_map["approvedProviderBoundaryPaths"] = ["apps/core/src/runtime"]
-            write_json(root / ".codex/architecture-map.json", architecture_map)
+            write_json(root / "scripts/architecture-map.json", architecture_map)
             result = run_architecture_check(root)
             self.assertEqual(result.returncode, 1)
             self.assertIn("[Provider Boundary]", result.stdout)
@@ -470,9 +469,9 @@ class CheckArchitectureTests(unittest.TestCase):
     def test_provider_boundary_empty_config_fails_closed(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = make_base_fixture(Path(tmp))
-            architecture_map = json.loads((root / ".codex/architecture-map.json").read_text())
+            architecture_map = json.loads((root / "scripts/architecture-map.json").read_text())
             architecture_map["approvedProviderBoundaryPaths"] = []
-            write_json(root / ".codex/architecture-map.json", architecture_map)
+            write_json(root / "scripts/architecture-map.json", architecture_map)
             result = run_architecture_check(root)
             self.assertEqual(result.returncode, 1)
             self.assertIn("[Provider Boundary]", result.stdout)
@@ -513,7 +512,7 @@ class CheckArchitectureTests(unittest.TestCase):
                 "export const value = { query, OpenAI };\n",
             )
             write_json(
-                root / ".codex/architecture-exceptions.json",
+                root / "scripts/architecture-exceptions.json",
                 [
                     {
                         "file": "apps/core/src/runtime/model-break.ts",
@@ -676,9 +675,9 @@ class CheckArchitectureTests(unittest.TestCase):
                 "export const profile = '~/Library/Application Support/Google/Chrome';\n",
             )
             write_json(
-                root / ".codex/architecture-map.json",
+                root / "scripts/architecture-map.json",
                 {
-                    **json.loads((root / ".codex/architecture-map.json").read_text()),
+                    **json.loads((root / "scripts/architecture-map.json").read_text()),
                     "browserDefaultProfilePathPatterns": [
                         "~[/\\\\]Library[/\\\\]Application Support[/\\\\]Google[/\\\\]Chrome"
                     ],
@@ -724,7 +723,7 @@ class CheckArchitectureTests(unittest.TestCase):
             root = make_base_fixture(Path(tmp))
             write_text(root / "apps/core/src/runtime/index.ts", "export * from './ok.js';\n")
             write_json(
-                root / ".codex/architecture-exceptions.json",
+                root / "scripts/architecture-exceptions.json",
                 [
                     {
                         "file": "apps/core/src/runtime/index.ts",
@@ -738,29 +737,6 @@ class CheckArchitectureTests(unittest.TestCase):
             self.assertIn("[Exception Hygiene]", result.stdout)
             self.assertIn("missing required fields: removeByPhase", result.stdout)
 
-
-class VerifyContractTests(unittest.TestCase):
-    def test_verify_print_only_includes_architecture_and_runtime_truth_phases(
-        self,
-    ) -> None:
-        result = subprocess.run(
-            [sys.executable, str(VERIFY_SCRIPT), "--print-only"],
-            cwd=REPO_ROOT,
-            capture_output=True,
-            text=True,
-        )
-        self.assertEqual(result.returncode, 0, msg=result.stdout + result.stderr)
-        phases = [line.split(":", 1)[0] for line in result.stdout.splitlines() if ":" in line]
-        self.assertIn("architecture", phases)
-        self.assertIn("runtime-truth", phases)
-        self.assertIn("build", phases)
-        self.assertIn("e2e", phases)
-        self.assertLess(phases.index("structural"), phases.index("architecture"))
-        self.assertLess(phases.index("structural"), phases.index("build"))
-        self.assertLess(phases.index("architecture"), phases.index("runtime-truth"))
-        self.assertLess(phases.index("runtime-truth"), phases.index("factory-python-tests"))
-        self.assertLess(phases.index("factory-python-tests"), phases.index("typecheck"))
-        self.assertLess(phases.index("tests"), phases.index("e2e"))
 
 
 if __name__ == "__main__":

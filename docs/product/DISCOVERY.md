@@ -3,14 +3,34 @@
 Phase 0a. Lightweight on purpose: no .factory ceremony until client sign-off.
 
 ## Problem
-<!-- What hurts, for whom, observed where? -->
+
+Gantry (this repo) is a provider-neutral, channel-neutral agent runtime that
+has been built over months under an in-repo Codex factory. That factory's
+process (Linear-first tasks, `.codex` machinery, gantry-goal-pipeline) grew
+organically and was replaced 2026-07-22 by the symphony-forge harness
+(`docs/decisions/0002-symphony-forge-adoption.md`) so future goals run through
+one deterministic, evidence-recorded pipeline. Product intent lives in
+`docs/product/BRIEF.md`; the engineering goal queue lives in
+`docs/architecture/goals-index.md`.
 
 ## Stakeholders
-<!-- Client-side names and roles; who signs off? -->
+
+- vrknetha — owner/lead dev; acts as PM, EM, and client for this repo.
+  Sign-off and decision acceptance are theirs.
 
 ## Client-approved decisions
+
 <!-- Each becomes docs/decisions/NNNN-<slug>.md via: ./forge decision new <slug> -->
-- [ ]
+- [ ] `0002-symphony-forge-adoption` — proposed, awaiting human accept
+- [ ] `0003-early-stage-no-backcompat` — proposed, awaiting human accept
+- [ ] `0004-gantry-naming-and-public-repo` — proposed, awaiting human accept
+- [x] 28 pre-harness decision records migrated to numbered, frontmattered form
+  (0000–0001, 0005–0033) with historical acceptance transcribed
 
 ## Prototype notes (phase 0b)
-<!-- What was shown, what the client said, what changed. -->
+
+Not applicable — the product is long past prototype; live runtime ships from
+this repo (see `goals-index.md` Shipped section). Phase 0 here covers the
+harness migration itself: legacy `.codex` factory rehomed 2026-07-22
+(`check_dual_runtime.py` clean), at-risk lane work rescued to branches, and
+scratchpad designs promoted into `docs/architecture/`.

@@ -8,7 +8,7 @@ Public durable `agentHarness` / `agent_harness` values are `auto`,
 `anthropic_sdk`, and `deepagents`; `executionProviderId` stays internal/read-only
 diagnostic detail. Claude OAuth/subscription is
 Anthropic-SDK-only. This is an **approved provider-boundary path**
-(`.codex/architecture-map.json` + `architecture_rules.py`): DeepAgents /
+(`scripts/architecture-map.json` + `architecture_rules.py`): DeepAgents /
 LangChain / `@langchain/openrouter` imports and `OPENAI_`/`ANTHROPIC_` env keys
 live only here.
 

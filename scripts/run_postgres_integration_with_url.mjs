@@ -6,7 +6,7 @@ const [databaseUrl, ...args] = process.argv.slice(2);
 
 if (!databaseUrl) {
   console.error(
-    'Usage: node .codex/scripts/run_postgres_integration_with_url.mjs <postgres-url> [vitest args...]',
+    'Usage: node scripts/run_postgres_integration_with_url.mjs <postgres-url> [vitest args...]',
   );
   process.exit(2);
 }

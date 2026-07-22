@@ -209,10 +209,10 @@ runtime database.
 
 ## Optional Codex Factory
 
-The `.codex/` and `.factory/` folders contain optional maintainer automation for
-planning, decomposition, verification, and review. Public contributors are not
-required to use it. Maintainers who enable the harness should first read
-[.codex/README.md](.codex/README.md), [WORKFLOW.md](WORKFLOW.md),
+The `.agents/`, `.codex/`, and `.factory/` folders contain optional maintainer
+automation for planning, decomposition, verification, and review. Public
+contributors are not required to use it. Maintainers who enable the harness
+should first read [AGENTS.md](AGENTS.md), [WORKFLOW.md](WORKFLOW.md),
 [docs/FACTORY.md](docs/FACTORY.md), and [docs/QUALITY.md](docs/QUALITY.md).
 
 ## Documentation

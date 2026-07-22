@@ -39,17 +39,17 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--root", help="Repository root path. Defaults to `git rev-parse --show-toplevel`.")
     parser.add_argument(
         "--exceptions",
-        default=".codex/architecture-exceptions.json",
+        default="scripts/architecture-exceptions.json",
         help="Path to architecture exceptions JSON (absolute or relative to --root).",
     )
     parser.add_argument(
         "--map",
-        default=".codex/architecture-map.json",
+        default="scripts/architecture-map.json",
         help="Path to architecture map JSON (absolute or relative to --root).",
     )
     parser.add_argument(
         "--provider-boundary-exceptions",
-        default=".codex/provider-boundary-exceptions.json",
+        default="scripts/provider-boundary-exceptions.json",
         help="Path to provider boundary exceptions JSON (absolute or relative to --root).",
     )
     return parser.parse_args()

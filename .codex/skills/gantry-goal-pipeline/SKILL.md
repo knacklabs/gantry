@@ -1,3 +1,5 @@
+> **Note (2026-07-22):** the symphony-forge harness (`AGENTS.md`, `./forge next`) now owns the implementation pipeline for new goals (`docs/decisions/0002-symphony-forge-adoption.md`). This skill is retained for in-flight lanes that were built under it.
+
 ---
 name: gantry-goal-pipeline
 description: End-to-end Gantry plan implementation pipeline. Use when the user asks to implement or pursue a plan, goal prompt, feature, fix, refactor, PR update, or "same as the goal" workflow with subagent implementation, ponytail simplicity, no-commentary implementation, autoreview, build, launchctl restart, Knacklabs lead gen smoke, and PR/pipeline closeout.
@@ -58,7 +60,7 @@ For any non-trivial plan or feature:
 
 1. Ground the plan in current repo truth:
    - Follow the repo `AGENTS.md` mandatory read order.
-   - Run `python3 .codex/scripts/stage_orchestrator.py` when the plan overlaps
+   - Run `python3 .agents/scripts/forge.py next` when the plan overlaps
      an existing phase or goal prompt.
    - Read the relevant code, tests, schemas, and docs before trusting the plan.
 2. Convert the plan into a goal prompt or update the existing goal prompt file
@@ -109,10 +111,10 @@ changes, the default closeout pipeline is:
 ```bash
 npm run build
 npm test
-python3 .codex/scripts/check_architecture.py
-python3 .codex/scripts/check_task_completion.py
-python3 .codex/scripts/validate_artifacts.py --allow-missing-run
-python3 .codex/scripts/verify.py
+python3 scripts/check_architecture.py
+python3 .agents/scripts/verify.py
+python3 .agents/scripts/pr_ready.py
+python3 .agents/scripts/verify.py
 ```
 
 Use disposable Postgres for DB-backed tests when required by repo instructions.
@@ -128,7 +130,7 @@ and returns findings verbatim (user decision 2026-07-11, confirmed working).
 Enablers: `[sandbox_workspace_write] network_access=true` in the OPERATOR's
 `~/.codex/config.toml` (user-level on purpose — repo config must not relax
 egress) and an allow prefix_rule for the helper path in repo
-`.codex/rules/default.rules`. The plugin's native `review` command is not
+`~/.codex/rules/gantry.rules` (operator-level). The plugin's native `review` command is not
 used.
 
 Before starting a new review, check whether one is already running:

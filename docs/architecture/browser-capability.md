@@ -206,7 +206,7 @@ Useful checks during browser-related changes:
 npm run test:unit -- apps/core/test/unit/runtime/browser-capability.test.ts apps/core/test/unit/runtime/ipc-browser-handler.test.ts apps/core/test/unit/runtime/agent-spawn.test.ts apps/core/test/unit/runner/browser-tools.test.ts apps/core/test/unit/runner/agent-capabilities.test.ts
 npm run typecheck
 npm run build
-python3 .codex/scripts/check_architecture.py
+python3 scripts/check_architecture.py
 ```
 
 Cleanup searches should confirm that phrase-based browser intent, old action

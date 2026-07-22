@@ -1,3 +1,5 @@
+> **Note (2026-07-22):** the symphony-forge harness (`AGENTS.md`, `./forge next`) now owns the implementation pipeline for new goals (`docs/decisions/0002-symphony-forge-adoption.md`). This skill is retained for in-flight lanes that were built under it.
+
 ---
 name: gantry-goal-pipeline
 description: Orchestrate a Gantry plan to a finished PR — Claude writes a goal-prompt doc, delegates implementation stages to the Codex plugin (xhigh + ponytail), verifies and commits between stages, and closes with the autoreview loop. Use when the user asks to implement a plan/goal prompt, "run the goal pipeline", "same as the goal", or hands over a docs/architecture/*-goal-prompt.md to execute.
@@ -123,7 +125,7 @@ until node "$COMPANION" status <task-id> | grep -qE '\| (completed|failed|error|
    diff clearly embodies choices the contract didn't specify is itself a
    finding — send a follow-up asking Codex to backfill the ledger.
 2. Run the smallest relevant checks: focused vitest files, `npm run build`,
-   `python3 .codex/scripts/check_task_completion.py`.
+   `python3 .agents/scripts/verify.py`.
 3. **Autoreview the stage's LOCAL diff BEFORE committing** (not the whole branch
    after). Run `autoreview --mode local --thinking xhigh` (reviews the uncommitted
    working tree) via a codex plain-command handoff (§4 closeout handoff shape,
@@ -139,10 +141,10 @@ until node "$COMPANION" status <task-id> | grep -qE '\| (completed|failed|error|
 
 ```bash
 npm run build && npm test
-python3 .codex/scripts/check_architecture.py
-python3 .codex/scripts/check_task_completion.py
-python3 .codex/scripts/validate_artifacts.py --allow-missing-run
-python3 .codex/scripts/verify.py
+python3 scripts/check_architecture.py
+python3 .agents/scripts/verify.py
+python3 .agents/scripts/pr_ready.py
+python3 .agents/scripts/verify.py
 python3 ~/.claude/skills/autoreview/scripts/autoreview --mode branch --base origin/main --thinking xhigh
 ```
 
@@ -161,7 +163,7 @@ decision 2026-07-11, confirmed working end-to-end). Prerequisites: the
 OPERATOR's `~/.codex/config.toml` has `[sandbox_workspace_write]
 network_access = true` (the helper's inner `codex exec` engine needs it;
 kept user-level on purpose — the repo config must NOT relax egress, per
-autoreview r10 2026-07-12) and repo `.codex/rules/default.rules` has an
+autoreview r10 2026-07-12) and `~/.codex/rules/gantry.rules` (operator-level) has an
 allow prefix_rule for `python3 <autoreview script path>`. The handoff prompt must demand ONE plain
 command — no shell wrapper (forbidden rule), no `env` prefix (prompt rule that
 dies under headless approval), no `&&` chaining:

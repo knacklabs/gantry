@@ -56,7 +56,7 @@ npm run test:integration -- apps/core/test/integration/claude-agent-sdk-boundary
 rg -n "PROTECTED_CAPABILITY_PATTERN|mcpServers.*Bash|\\.mcp\\.json.*Bash|permissionMode.*Bash|alwaysAllowedTools|continue: false|target_json\\.capabilityPolicy|jobExtraTools|runScript\\(" apps/core/src apps/core/test docs --glob '!docs/architecture/current-verification-commands.md'
 rg -n "scheduler_grant_tool" apps/core/src apps/core/test docs --glob '!docs/architecture/current-verification-commands.md'
 rg -n "allow_job_policy" apps/core/src apps/core/test docs --glob '!docs/architecture/current-verification-commands.md'
-python3 .codex/scripts/check_architecture.py
+python3 scripts/check_architecture.py
 ```
 
 Expected cleanup-search interpretation:
@@ -120,7 +120,7 @@ Architecture cleanup slices that touch outbound delivery contracts should also r
 ```bash
 rg -n "iterTelegramTextChunks|countTelegramTextChunks|sendWithPartialDeliveryGuard|PartialMessageDeliveryError|TELEGRAM_DRAFT_MAX_LENGTH|partially_sent" .
 rg -n "bot\\.api\\.sendMessage\\(|chat\\.postMessage\\(|sdkClient\\.sendMessage\\(" apps/core/src/app apps/core/src/runtime apps/core/src/jobs apps/core/src/session apps/core/src/domain apps/core/src/application
-python3 .codex/scripts/check_architecture.py
+python3 scripts/check_architecture.py
 ```
 
 ## Default Test And Build
@@ -140,14 +140,14 @@ GANTRY_TEST_DATABASE_URL=postgres://user:pass@localhost:5432/gantry_test npm run
 
 `npm run test:integration:postgres` fails loudly when `GANTRY_TEST_DATABASE_URL` is missing or not a Postgres URL, so a green default test run cannot be mistaken for database-backed evidence. Stop and remove the disposable container after the check; do not run feature verification against persistent developer data under `~/gantry/postgres`.
 
-Architecture exceptions in `.codex/architecture-exceptions.json` are ratchets
+Architecture exceptions in `scripts/architecture-exceptions.json` are ratchets
 for existing boundary debt. Each exception must stay time-bounded and include a
-maximum count so `python3 .codex/scripts/check_architecture.py` still fails
+maximum count so `python3 scripts/check_architecture.py` still fails
 when a branch adds new layer, provider, risky-execution, old-term, or
 wrapper-only debt.
 
 Anthropic/Claude provider-boundary debt is tracked separately in
-`.codex/provider-boundary-exceptions.json`. Entries must use exact file paths
+`scripts/provider-boundary-exceptions.json`. Entries must use exact file paths
 and exact token counts. The checker fails when a new token appears outside
 `apps/core/src/adapters/llm/anthropic-claude-agent/**`, when an expected count
 changes, or when broad config, memory, or shared paths are approved for this
@@ -156,17 +156,16 @@ gate.
 ## Factory And Release Gates
 
 ```bash
-python3 .codex/scripts/check_agents_hygiene.py
-python3 .codex/scripts/check_architecture.py
-python3 .codex/scripts/verify.py
-python3 .codex/scripts/validate_artifacts.py --allow-missing-run
-python3 .codex/scripts/validate_work.py
+python3 .agents/scripts/check_agents_hygiene.py
+python3 scripts/check_architecture.py
+python3 .agents/scripts/verify.py
+python3 .agents/scripts/pr_ready.py
 ```
 
 LOCAL-35 refactor phase progress uses the recorded T0 baseline:
 
 ```bash
-python3 .codex/scripts/check_refactor_line_delta.py --check-diff --baseline-file docs/architecture/refactor-baseline.md
+python3 scripts/check_refactor_line_delta.py --check-diff --baseline-file docs/architecture/refactor-baseline.md
 ```
 
 By default this phase check includes committed changes, tracked working-tree
@@ -177,32 +176,25 @@ scope; the default gate must remain the working review scope.
 The final PR or overall refactor deletion target remains a branch-base check:
 
 ```bash
-python3 .codex/scripts/check_refactor_line_delta.py --check-diff --base-ref origin/main
+python3 scripts/check_refactor_line_delta.py --check-diff --base-ref origin/main
 ```
 
-`python3 .codex/scripts/verify.py` runs structural format checks, build,
-architecture, runtime truth, factory Python tests, typecheck, tests, and e2e
-unless overridden with `FACTORY_*` environment variables. It prints phase
-start/finish progress and records per-phase timing in `.factory/verify.json` so
-long phases are diagnosable while they run. Each phase has a 30-minute timeout
-by default; local factory debugging can override that with
-`FACTORY_VERIFY_TIMEOUT_SECONDS`.
+`python3 .agents/scripts/verify.py` runs the deterministic gate as three
+phases — structural, typecheck, tests — and records the evidence in
+`.factory/verify.json`. This repo pins the phase commands via `.envrc`:
+`FACTORY_STRUCTURAL_CMD` (`npm run format:check && npm run check:architecture`),
+`FACTORY_TYPECHECK_CMD` (`npm run typecheck`), and `FACTORY_TEST_CMD`
+(`npm test`). Postgres-backed and e2e lanes remain explicit per the sections
+above.
 
 Use this command to inspect the deterministic verification contract without running every phase:
 
 ```bash
-python3 .codex/scripts/verify.py --print-only
-```
-
-Use this command when you want independent read-only post-build checks to run in
-parallel without changing the default command contract:
-
-```bash
-python3 .codex/scripts/verify.py --parallel-safe
+python3 .agents/scripts/verify.py --print-only
 ```
 
 ## Missing Or Currently Failing Commands
 
-As of 2026-05-06, the domain/application cutover removes the legacy `RegisteredGroup` type and the monolithic runtime ops port from active ports. `python3 .codex/scripts/check_architecture.py` may still report old runtime terminology in adapter, CLI, and host-runtime compatibility surfaces until those outer seams are renamed to provider/conversation/thread language.
+As of 2026-05-06, the domain/application cutover removes the legacy `RegisteredGroup` type and the monolithic runtime ops port from active ports. `python3 scripts/check_architecture.py` may still report old runtime terminology in adapter, CLI, and host-runtime compatibility surfaces until those outer seams are renamed to provider/conversation/thread language.
 
 For this persistence cut, treat remaining matches for old table names in earlier migration files as historical migration context. Active Postgres schema and repository tables must use the canonical table names from migration `0009_canonical_persistence_adapter_cut`.
