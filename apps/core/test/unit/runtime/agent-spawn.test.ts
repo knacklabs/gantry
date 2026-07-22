@@ -199,6 +199,8 @@ vi.mock('@core/runtime/agent-spawn-layout.js', () => ({
 
 // Mock prompt-profile
 vi.mock('@core/application/agents/prompt-profile-service.js', () => ({
+  registerChannelPromptPresentationRenderer: vi.fn(),
+  renderChannelPromptPresentationLine: vi.fn(() => undefined),
   PromptProfileService: vi.fn(function PromptProfileService() {
     return {
       compileSystemPrompt: vi.fn(() => ''),

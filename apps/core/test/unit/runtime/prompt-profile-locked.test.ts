@@ -3,7 +3,9 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   PromptProfileService,
   defaultAgentsPromptMarkdown,
+  renderChannelPromptPresentationLine,
 } from '@core/application/agents/prompt-profile-service.js';
+import '@core/channels/register-builtins.js';
 
 // Tool names and flow phrases a locked (public-facing) agent must never see in
 // its assembled instructions.
@@ -78,8 +80,7 @@ describe('locked prompt assembly', () => {
         provider: 'Anthropic API',
       },
       runtimeContext: {
-        chatJid: 'tg:1',
-        conversationKind: 'dm',
+        channelContextLine: renderChannelPromptPresentationLine('tg:1', 'dm'),
         workspacePath: '/data/agents/support_agent',
       },
     });
