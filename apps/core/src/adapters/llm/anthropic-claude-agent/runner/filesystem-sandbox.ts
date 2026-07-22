@@ -12,7 +12,6 @@ const PROTECTED_FILESYSTEM_DENY_WRITE_PATHS_ENV =
 const LOCAL_CLI_CREDENTIAL_DIRS_ENV = 'GANTRY_LOCAL_CLI_CREDENTIAL_DIRS_JSON';
 
 interface BuildSdkFilesystemSandboxOptions {
-  platform?: NodeJS.Platform;
   denyReadPaths?: readonly string[];
   denyWritePaths?: readonly string[];
   httpProxyPort?: number;
@@ -69,7 +68,6 @@ export function buildSdkFilesystemSandbox(
   paths: readonly string[],
   options: BuildSdkFilesystemSandboxOptions = {},
 ): SandboxSettings {
-  const platform = options.platform ?? process.platform;
   const denyReadPaths = options.denyReadPaths ?? paths;
   const denyWritePaths = options.denyWritePaths ?? paths;
   return {
@@ -79,11 +77,12 @@ export function buildSdkFilesystemSandbox(
     allowUnsandboxedCommands: false,
     network: {
       allowLocalBinding: true,
+      allowUnixSockets: ['/'],
+      allowMachLookup: ['*'],
       ...(options.httpProxyPort
         ? { httpProxyPort: options.httpProxyPort }
         : {}),
     },
-    ...(platform === 'darwin' ? { enableWeakerNetworkIsolation: true } : {}),
     filesystem: {
       denyRead: normalizeFilesystemSandboxPaths(denyReadPaths),
       denyWrite: normalizeFilesystemSandboxPaths(denyWritePaths),

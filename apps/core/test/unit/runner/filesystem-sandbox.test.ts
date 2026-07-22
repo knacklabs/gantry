@@ -22,38 +22,28 @@ describe('Claude SDK filesystem sandbox settings', () => {
     delete process.env.GANTRY_SANDBOX_RUNTIME_PROXY;
   });
 
-  it('keeps Bash sandboxed and enables macOS trustd lookup for approved CLI TLS', () => {
+  it('limits the direct SDK profile to protected-path denies with broad local IPC', () => {
     const protectedPath = '/tmp/protected';
 
-    expect(
-      buildSdkFilesystemSandbox([protectedPath], { platform: 'darwin' }),
-    ).toMatchObject({
+    expect(buildSdkFilesystemSandbox([protectedPath])).toEqual({
       enabled: true,
       failIfUnavailable: true,
       autoAllowBashIfSandboxed: false,
       allowUnsandboxedCommands: false,
-      network: { allowLocalBinding: true },
-      enableWeakerNetworkIsolation: true,
+      network: {
+        allowLocalBinding: true,
+        allowUnixSockets: ['/'],
+        allowMachLookup: ['*'],
+      },
       filesystem: {
-        denyRead: expect.arrayContaining([
-          expect.stringMatching(/\/tmp\/protected$/),
-        ]),
-        denyWrite: expect.arrayContaining([
-          expect.stringMatching(/\/tmp\/protected$/),
-        ]),
+        denyRead: [expect.stringMatching(/\/tmp\/protected$/)],
+        denyWrite: [expect.stringMatching(/\/tmp\/protected$/)],
       },
     });
   });
 
-  it('does not request the macOS-only trustd exception on non-Darwin platforms', () => {
-    expect(
-      buildSdkFilesystemSandbox(['/tmp/protected'], { platform: 'linux' }),
-    ).not.toHaveProperty('enableWeakerNetworkIsolation');
-  });
-
   it('supports separate read and write sandbox protections', () => {
     const sandbox = buildSdkFilesystemSandbox([], {
-      platform: 'linux',
       denyReadPaths: ['/tmp/runtime/settings.json'],
       denyWritePaths: ['/tmp/runtime/skills', '/tmp/credentials'],
     });
@@ -88,6 +78,30 @@ describe('Claude SDK filesystem sandbox settings', () => {
         expect.stringMatching(/\/tmp\/credentials$/),
       ]),
     });
+  });
+
+  it('keeps credential and settings paths in the read denylist', () => {
+    process.env.HOME = '/Users/tester';
+    process.env.GANTRY_PROTECTED_FILESYSTEM_DENY_READ_PATHS_JSON =
+      JSON.stringify([
+        '~/.ssh',
+        '~/.aws',
+        '~/.config/gantry/settings.yaml',
+      ]);
+    process.env.GANTRY_PROTECTED_FILESYSTEM_DENY_WRITE_PATHS_JSON =
+      JSON.stringify(['~/.config/gantry/settings.yaml']);
+    const paths = readProtectedFilesystemSandboxPaths();
+
+    const sandbox = buildSdkFilesystemSandbox(paths.denyWrite, {
+      denyReadPaths: paths.denyRead,
+      denyWritePaths: paths.denyWrite,
+    });
+
+    expect(sandbox.filesystem?.denyRead).toEqual([
+      '/Users/tester/.aws',
+      '/Users/tester/.config/gantry/settings.yaml',
+      '/Users/tester/.ssh',
+    ]);
   });
 
   it('avoids host filesystem probes when the runner is already sandboxed', () => {

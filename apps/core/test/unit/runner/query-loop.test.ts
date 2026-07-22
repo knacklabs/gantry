@@ -1,3 +1,5 @@
+import fs from 'node:fs';
+
 import { describe, expect, it, vi } from 'vitest';
 
 vi.hoisted(() => {
@@ -30,6 +32,23 @@ describe('Claude query loop usage event IDs', () => {
 });
 
 describe('Claude query loop declarative tool names', () => {
+  it('does not pass allowedTools while retaining canUseTool in SDK query options', () => {
+    const source = fs.readFileSync(
+      new URL(
+        '../../../src/adapters/llm/anthropic-claude-agent/runner/query-loop.ts',
+        import.meta.url,
+      ),
+      'utf8',
+    );
+    const queryOptions = source.slice(
+      source.indexOf('const sdkQuery = query({'),
+      source.indexOf('const sdkQueryIteratorMs'),
+    );
+
+    expect(queryOptions).not.toMatch(/\n\s*allowedTools:/);
+    expect(queryOptions).toMatch(/\n\s*canUseTool:/);
+  });
+
   it('canonicalizes first-party Gantry MCP names to bare rule names', () => {
     expect(canonicalGantryToolRuleName('mcp__gantry__send_message')).toBe(
       'send_message',

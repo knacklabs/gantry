@@ -359,7 +359,6 @@ export async function runQuery(
       },
       skills: enabledSdkSkills,
       tools: [...capabilities.availableTools],
-      allowedTools: [...capabilities.allowedTools],
       disallowedTools: [...capabilities.disallowedTools],
       env: isolatedSdkEnv,
       // Without this the subprocess's own stderr is lost and startup failures
