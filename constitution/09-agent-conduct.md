@@ -67,6 +67,18 @@ confidence is low, don't propose blind: name exactly what you would verify
 to raise it, or ask. An opinion without reasoning is noise; a menu without
 a recommendation is abdication.
 
+## 7. The loop is autonomous — gates are the permission
+
+Once a plan is approved, drive the loop end to end. A clean local review
+is the permission to commit and start the next stage; a passing gate is
+the permission to enter the next phase. Asking a human "shall I proceed?"
+after a gate already said yes is not caution — it is re-asking a question
+the machinery answered, and it burns the human's attention on the one
+thing the harness made free. Stop ONLY for: an open worker signal, a gate
+refusal you cannot resolve within the approved plan, a human-only act
+(decision accept, sign-off, PR merge), or scope the plan does not cover.
+Report progress as you go; never pause for it.
+
 ---
 
 Working when: diffs contain fewer unnecessary changes, fewer rewrites from

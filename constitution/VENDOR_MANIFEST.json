@@ -1,5 +1,5 @@
 {
-  "harness_commit": "f879e0df0f331174678a1731317dc6ffb0d19e4a",
+  "harness_commit": "2a1d285628c391775e99eb4cb806f2befa7a295d",
   "files": {
     ".agents/scripts/check_agents_hygiene.py": "bbfda3eb84548114eb4cd5cf17af46747de5c2c895e4519397f1d4d9d8fb76a0",
     ".agents/scripts/check_dual_runtime.py": "e33936d5c3f2adeec6df6b0728b5b60352a4128d628d431845bdea3ed2b78816",
@@ -21,7 +21,7 @@
     ".agents/scripts/forge_cli/findings.py": "37760e08dbcf051f407db096d73960d61704430b18a8bc75d0a5fb467747e6f5",
     ".agents/scripts/forge_cli/gstack.py": "36b0d32c42baba0228392af927f0929672c543b507f1f0c58cba5f9691076145",
     ".agents/scripts/forge_cli/lessons.py": "57c1d37966c77c900dce960e7fa324d0dedf3abbfb6a75642533bf81cd8447d9",
-    ".agents/scripts/forge_cli/phase.py": "27d496994fc4dce44b1b047757c462620f40799bca9f9960a9a23caba6600d33",
+    ".agents/scripts/forge_cli/phase.py": "fcf78c38d5936caf935e83499b45ba1066a0410378d49151ef136256a9ee1773",
     ".agents/scripts/forge_cli/plans.py": "44dcb7a09cdc0d35e8b91688b4f4bf473cb5cc96a5fdfffe06956b8f15fe8ebd",
     ".agents/scripts/forge_cli/roadmap.py": "60270eef47f4479804df816921e427c59e2735152f5ad79f6d84350aa00798eb",
     ".agents/scripts/forge_cli/scaffold.py": "d3f67461bfa0b13605a0a04cabaa0a2a5f9831ae982732631dc7e960c0af303b",
@@ -55,7 +55,7 @@
     ".agents/prompts/decomposer.md": "b88f247c5b41a0e6f771a3962eb26982955f7a229d3f07dffb5df7b40683c4b0",
     ".agents/prompts/griller.md": "3afed75715bd0916faea41b554852aeaa81796eded5625ef721acdabff7a7ea2",
     ".agents/prompts/harvester.md": "b6e291853c6777e0a97fff7d81f001bbf6ddcd9892b251b82ff62e5ac560ab45",
-    ".agents/prompts/implementer.md": "896ea34b132c4a27f0e928ee731ad5ed279bb1a1c4609f58778374ac3bed0f1b",
+    ".agents/prompts/implementer.md": "9580c732ff243bc1a370a72f7e8084fb275d96c4e68b17009e9b0f355d56f99a",
     ".agents/prompts/planner.md": "adc60bbbb59dc742c584fd861e09dc44d8f06b06556aa773e7093f6d0dc81fec",
     ".agents/prompts/pr-ready.md": "33a3146a6db66b78b81884e557aef0f86458fdb4e18660dcdbf728f75fc0b905",
     ".agents/prompts/reviewer.md": "fd069aa950d5aea9737c103bc5a6c0ea59b596476a18bad27426b440fcb64830",

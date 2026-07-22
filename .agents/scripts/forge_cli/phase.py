@@ -145,7 +145,9 @@ def cmd_next(args: argparse.Namespace) -> None:
                 steps.append(f"[dev] Stage progress: {done_n}/{len(stages)} done — {action}")
                 steps.append("[dev] Stage Loop (WORKFLOW.md): /codex:rescue implements → "
                              "inspect diff → validate assumptions → smallest checks → "
-                             "LOCAL autoreview until clean → commit → forge stage done")
+                             "LOCAL autoreview until clean → commit → forge stage done — "
+                             "then start the next stage WITHOUT asking; gates are the "
+                             "permission (conduct §7)")
             steps.append("[dev] Implement the next bounded leaf task via /codex:rescue --background "
                          "(.agents/prompts/implementer.md)")
             if user_facing:

@@ -288,6 +288,13 @@ catches cross-stage issues the local passes cannot see). `pr_ready.py`
 refuses while any stage is not done; `forge next` shows stage progress; the
 tracker archives to `.factory/history/<issue>/` at ship.
 
+The loop is AUTONOMOUS between gates (conduct §7): a clean local review IS
+the permission to commit and start the next stage — the orchestrator never
+pauses to ask "proceed?" after a review or between stages, and the same
+holds across phase transitions (verify → review → functional → pr_ready).
+It stops only for an open signal, a gate refusal it cannot resolve within
+the approved plan, a human-only act, or scope the plan does not cover.
+
 ## Task Planning
 Per-task planning runs in Claude Code plan mode by default (exploration
 delegated to Codex: `/codex:rescue --model gpt-5.6-terra --effort high` —

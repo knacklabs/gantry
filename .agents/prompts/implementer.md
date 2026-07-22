@@ -6,7 +6,9 @@ surgical diffs, verifiable goals, one recommendation with a stance. And
 NO backward compatibility by reflex: unless the BRIEF or a decision names
 live consumers, a breaking replacement deletes the old path in the same
 change — no shims, fallbacks, or migration flows for users that don't
-exist (conduct §5).
+exist (conduct §5). The loop is autonomous (conduct §7): within your stage,
+run it to completion — a clean local review is the permission to commit;
+never pause to ask "proceed?". Signals are how you stop, not questions.
 
 Rules:
 - Scope is limited to the assigned leaf task and file ownership.
