@@ -1344,102 +1344,121 @@ describe('ipc-interaction-handler', () => {
     },
   );
 
-  it('emits structured permission events and redacted Bash command telemetry', async () => {
-    const claimedPath = path.join(tempDir, 'claimed-bash-permission.json');
-    fs.writeFileSync(claimedPath, '{}');
-    const publishRuntimeEvent = vi.fn(async () => undefined);
-    const createTransientGrant = vi.fn(async () => true);
-    const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
-    configurePendingInteractionDurability({
-      repository: {
-        getActiveRunLease: vi.fn(async () => ({
+  it.each(['Bash', 'RunCommand'])(
+    'emits structured permission events, decision reasons, and redacted %s command telemetry',
+    async (toolName) => {
+      const claimedPath = path.join(tempDir, 'claimed-bash-permission.json');
+      fs.writeFileSync(claimedPath, '{}');
+      const publishRuntimeEvent = vi.fn(async () => undefined);
+      const createTransientGrant = vi.fn(async () => true);
+      const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+      configurePendingInteractionDurability({
+        repository: {
+          getActiveRunLease: vi.fn(async () => ({
+            runId: 'run:test',
+            jobId: 'job:test',
+            workerInstanceId: 'worker-1',
+            leaseToken: 'lease-token',
+            fencingVersion: 7,
+            status: 'active',
+            claimedAt: '2026-06-10T00:00:00.000Z',
+            expiresAt: '2026-06-10T00:05:00.000Z',
+            heartbeatAt: '2026-06-10T00:00:00.000Z',
+          })),
+          createPendingInteraction: vi.fn(async () => true),
+          findPendingPermissionPromptByMember: vi.fn(async () => null),
+          listPendingInteractions: vi.fn(async () => []),
+          resolvePendingInteraction: vi.fn(async () => true),
+          createTransientGrant,
+        } as never,
+      });
+      const command =
+        'OPENAI_API_KEY=sk-ant-testtoken123456789012345 npm test -- --runInBand';
+
+      await processPermissionInteractionIpc({
+        request: {
+          requestId: 'perm-bash-once',
+          appId: 'app:test',
+          agentId: 'agent:test',
+          responseNonce: 'nonce',
+          sourceAgentFolder: 'main_agent',
+          runHandle: 'agent-run-1',
+          runId: 'run:test',
+          runLeaseToken: 'lease-token',
+          runLeaseFencingVersion: 7,
+          jobId: 'job:test',
+          targetJid: 'tg:team',
+          threadId: 'thread:test',
+          toolName,
+          decisionReason: 'No allow rule matched.',
+          toolInput: { command },
+        },
+        sourceAgentFolder: 'main_agent',
+        deps: {
+          requestPermissionApproval: vi.fn(async () => ({
+            approved: true,
+            mode: 'allow_once',
+            decidedBy: 'owner',
+            reason: 'safe for this run',
+            decisionClassification: 'user_temporary',
+          })),
+          publishRuntimeEvent,
+        },
+        ipcBaseDir: tempDir,
+        file: 'claimed-bash-permission.json',
+        claimedPath,
+        logger,
+      });
+
+      expect(
+        publishRuntimeEvent.mock.calls.map((call) => call[0].eventType),
+      ).toEqual([
+        'interaction.pending',
+        'permission.requested',
+        'permission.allowed',
+        'permission.resumed',
+        'permission.final_outcome',
+      ]);
+      expect(publishRuntimeEvent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          appId: 'app:test',
+          agentId: 'agent:test',
           runId: 'run:test',
           jobId: 'job:test',
-          workerInstanceId: 'worker-1',
-          leaseToken: 'lease-token',
-          fencingVersion: 7,
-          status: 'active',
-          claimedAt: '2026-06-10T00:00:00.000Z',
-          expiresAt: '2026-06-10T00:05:00.000Z',
-          heartbeatAt: '2026-06-10T00:00:00.000Z',
-        })),
-        createPendingInteraction: vi.fn(async () => true),
-        findPendingPermissionPromptByMember: vi.fn(async () => null),
-        listPendingInteractions: vi.fn(async () => []),
-        resolvePendingInteraction: vi.fn(async () => true),
-        createTransientGrant,
-      } as never,
-    });
-    const command =
-      'OPENAI_API_KEY=sk-ant-testtoken123456789012345 npm test -- --runInBand';
-
-    await processPermissionInteractionIpc({
-      request: {
-        requestId: 'perm-bash-once',
-        appId: 'app:test',
-        agentId: 'agent:test',
-        responseNonce: 'nonce',
-        sourceAgentFolder: 'main_agent',
-        runHandle: 'agent-run-1',
-        runId: 'run:test',
-        runLeaseToken: 'lease-token',
-        runLeaseFencingVersion: 7,
-        jobId: 'job:test',
-        targetJid: 'tg:team',
-        threadId: 'thread:test',
-        toolName: 'Bash',
-        toolInput: { command },
-      },
-      sourceAgentFolder: 'main_agent',
-      deps: {
-        requestPermissionApproval: vi.fn(async () => ({
-          approved: true,
-          mode: 'allow_once',
-          decidedBy: 'owner',
-          reason: 'safe for this run',
-          decisionClassification: 'user_temporary',
-        })),
-        publishRuntimeEvent,
-      },
-      ipcBaseDir: tempDir,
-      file: 'claimed-bash-permission.json',
-      claimedPath,
-      logger,
-    });
-
-    expect(
-      publishRuntimeEvent.mock.calls.map((call) => call[0].eventType),
-    ).toEqual([
-      'interaction.pending',
-      'permission.requested',
-      'permission.allowed',
-      'permission.resumed',
-      'permission.final_outcome',
-    ]);
-    expect(publishRuntimeEvent).toHaveBeenCalledWith(
-      expect.objectContaining({
-        appId: 'app:test',
-        agentId: 'agent:test',
-        runId: 'run:test',
-        jobId: 'job:test',
-        conversationId: 'tg:team',
-        threadId: 'thread:test',
-        correlationId: 'perm-bash-once',
-        payload: expect.objectContaining({
-          toolName: 'Bash',
-          canonicalCapability: 'Bash',
-          commandPreview:
-            'OPENAI_API_KEY=[REDACTED_SECRET] npm test -- --runInBand',
-          commandHash: expect.any(String),
+          conversationId: 'tg:team',
+          threadId: 'thread:test',
+          correlationId: 'perm-bash-once',
+          payload: expect.objectContaining({
+            toolName,
+            canonicalCapability: toolName,
+            commandPreview:
+              'OPENAI_API_KEY=[REDACTED_SECRET] npm test -- --runInBand',
+            commandHash: expect.any(String),
+          }),
         }),
-      }),
-    );
-    expect(JSON.stringify(logger.info.mock.calls)).not.toContain('sk-ant');
-    expect(JSON.stringify(publishRuntimeEvent.mock.calls)).not.toContain(
-      'sk-ant',
-    );
-    expect(createTransientGrant).toHaveBeenCalledOnce();
-  });
+      );
+      expect(JSON.stringify(logger.info.mock.calls)).not.toContain('sk-ant');
+      expect(JSON.stringify(publishRuntimeEvent.mock.calls)).not.toContain(
+        'sk-ant',
+      );
+      for (const eventType of [
+        'permission.requested',
+        'permission.allowed',
+        'permission.resumed',
+        'permission.final_outcome',
+      ]) {
+        expect(publishRuntimeEvent).toHaveBeenCalledWith(
+          expect.objectContaining({
+            eventType,
+            payload: expect.objectContaining({
+              decisionReason: 'No allow rule matched.',
+            }),
+          }),
+        );
+      }
+      expect(createTransientGrant).toHaveBeenCalledOnce();
+    },
+  );
 
   it('releases a live callback claim when grant application fails so retry can claim it', async () => {
     const claimedPath = path.join(tempDir, 'claimed-failed-grant.json');
