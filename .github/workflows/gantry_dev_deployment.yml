@@ -18,7 +18,7 @@ env:
 jobs:
   deploy:
     name: Deploy to gantry-reagent Dev
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     environment: ATS Dev
 
     steps:

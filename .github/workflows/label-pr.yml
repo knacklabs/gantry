@@ -6,11 +6,11 @@ on:
 
 jobs:
   label:
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     permissions:
       pull-requests: write
     steps:
-      - uses: actions/github-script@v7
+      - uses: actions/github-script@v9
         with:
           script: |
             const body = context.payload.pull_request.body || '';
