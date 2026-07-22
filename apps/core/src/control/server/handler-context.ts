@@ -7,7 +7,14 @@ import type {
   ReadinessRoleRequirements,
 } from './system-health.js';
 import type { JobManagementServiceDeps } from '../../application/jobs/job-management-types.js';
-import type { ControlPlaneStorageSettings } from '../../application/control-plane/control-plane-storage-model.js';
+import type {
+  ControlAgentSettingsPort,
+  ControlAgentSettingsView,
+  ControlObserverStatus,
+  ControlSettingsImportPort,
+  EffectiveControlRuntimeSettings,
+  ResolveControlObserverStatus,
+} from '../../application/control-plane/control-plane-storage-model.js';
 import type { AppId } from '../../domain/app/app.js';
 import type {
   ModelCatalogEntry,
@@ -27,8 +34,13 @@ type ProjectionSettingsOverrides = {
   };
 };
 
-type InternalRuntimeSettings = ControlPlaneStorageSettings & {
-  modelFamilies?: Record<string, string[]>;
+type InternalRuntimeSettings = EffectiveControlRuntimeSettings;
+
+export type {
+  ControlAgentSettingsPort,
+  ControlAgentSettingsView,
+  ControlObserverStatus,
+  ControlSettingsImportPort,
 };
 
 export type ControlServerState = {
@@ -106,6 +118,9 @@ export type ControlRouteContext = {
     enabled: boolean;
     dreamingEnabled: boolean;
   };
+  agentSettings: ControlAgentSettingsPort;
+  settingsImport: ControlSettingsImportPort;
+  resolveObserverStatus: ResolveControlObserverStatus;
   getEgressSettings?: () => EgressSettings;
   getDefaultModelConfig: (
     kind?: 'interactive' | 'oneTimeJob' | 'recurringJob',

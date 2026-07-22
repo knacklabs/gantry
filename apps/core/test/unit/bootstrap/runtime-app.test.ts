@@ -94,6 +94,7 @@ async function loadRuntimeAppWithPersistedRoutes(
 
   vi.doMock('@core/application/agents/prompt-profile-service.js', () => ({
     PromptProfileService,
+    registerChannelPromptPresentationRenderer: vi.fn(),
   }));
   vi.doMock('@core/platform/profile-file-mirror.js', () => ({
     writeProfileFileMirror,

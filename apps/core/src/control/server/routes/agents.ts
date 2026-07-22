@@ -43,20 +43,11 @@ import type { ConversationInstall } from '../../../domain/provider/provider.js';
 import type { ConversationRoute } from '../../../domain/types.js';
 import {
   authorizeControlRequest,
+  type ControlAgentSettingsView,
   type ControlRouteContext,
 } from '../handler-context.js';
 import { readJson, sendError, sendJson } from '../http.js';
 import { nowIso } from '../../../shared/time/datetime.js';
-import {
-  createDefaultRuntimeSettings,
-  loadRuntimeSettings,
-  writeDesiredRuntimeSettings,
-} from '../../../config/settings/runtime-settings.js';
-import {
-  settingsFromRevisionDocument,
-  settingsToRevisionDocument,
-} from '../../../config/settings/settings-import-service.js';
-import type { RuntimeSettings } from '../../../config/settings/runtime-settings-types.js';
 import { writeControlDesiredState } from './settings.js';
 import { parseAgentThreadQueueKey } from '../../../shared/thread-queue-key.js';
 
@@ -177,15 +168,13 @@ export async function handleAgentRoutes(
     await getRuntimeStorage().repositories.agents.saveAgent(agent);
     let settingsWritten = false;
     if (parsed.data.agentHarness) {
-      await writeAgentHarnessSetting(
-        ctx.runtimeHome,
-        auth.appId as AppId,
+      await ctx.agentSettings.writeAgentHarnessSetting({
+        runtimeHome: ctx.runtimeHome,
+        appId: auth.appId as AppId,
         folder,
-        {
-          name: agent.name,
-          agentHarness: parsed.data.agentHarness,
-        },
-      );
+        name: agent.name,
+        agentHarness: parsed.data.agentHarness,
+      });
       settingsWritten = true;
     }
     if (!settingsWritten)
@@ -263,7 +252,10 @@ export async function handleAgentRoutes(
     }
 
     if (req.method === 'GET') {
-      const { settings, revision } = await loadAgentDelegateSettings(appId);
+      const { settings, revision } = await loadAgentDelegateSettings(
+        ctx,
+        appId,
+      );
       const delegates = settings.agents[folder]?.delegates ?? [];
       sendJson(res, 200, {
         agentId,
@@ -337,7 +329,10 @@ export async function handleAgentRoutes(
         );
       }
 
-      const { settings, revision } = await loadAgentDelegateSettings(appId);
+      const { settings, revision } = await loadAgentDelegateSettings(
+        ctx,
+        appId,
+      );
       const configuredOrchestrator = settings.agents[folder];
       if (!configuredOrchestrator) {
         sendError(
@@ -354,7 +349,7 @@ export async function handleAgentRoutes(
         ctx,
         key: auth,
         body: {
-          settings: settingsToRevisionDocument(settings),
+          settings: ctx.agentSettings.serializeRevisionDocument(settings),
           expectedRevision: parsed.data.expectedRevision ?? revision,
         },
       });
@@ -537,15 +532,13 @@ export async function handleAgentRoutes(
     if (parsed.data.agentHarness && updated.status === 'active') {
       const folder = folderForAgentId(updated.id);
       if (folder) {
-        await writeAgentHarnessSetting(
-          ctx.runtimeHome,
-          auth.appId as AppId,
+        await ctx.agentSettings.writeAgentHarnessSetting({
+          runtimeHome: ctx.runtimeHome,
+          appId: auth.appId as AppId,
           folder,
-          {
-            name: updated.name,
-            agentHarness: parsed.data.agentHarness,
-          },
-        );
+          name: updated.name,
+          agentHarness: parsed.data.agentHarness,
+        });
         settingsWritten = true;
       }
     }
@@ -593,37 +586,6 @@ function agentToResponse(ctx: ControlRouteContext, agent: Agent) {
     createdAt: agent.createdAt,
     updatedAt: agent.updatedAt,
   };
-}
-
-async function writeAgentHarnessSetting(
-  runtimeHome: string,
-  appId: AppId,
-  folder: string,
-  input: {
-    name: string;
-    agentHarness: 'auto' | 'anthropic_sdk' | 'deepagents';
-  },
-): Promise<void> {
-  const settings = loadRuntimeSettings(runtimeHome);
-  const previousSettings = structuredClone(settings);
-  const existing = settings.agents[folder];
-  settings.agents[folder] = {
-    ...existing,
-    name: input.name,
-    folder,
-    bindings: existing?.bindings ?? {},
-    sources: existing?.sources ?? { skills: [], mcpServers: [], tools: [] },
-    capabilities: existing?.capabilities ?? [],
-    accessPreset: existing?.accessPreset ?? 'full',
-    agentHarness: input.agentHarness,
-  };
-  await writeDesiredRuntimeSettings({
-    runtimeHome,
-    settings,
-    previousSettings,
-    appId,
-    createdBy: 'control-api:agent-harness',
-  });
 }
 
 async function agentBoundConversations(input: {
@@ -713,19 +675,22 @@ async function agentBoundConversation(
 }
 
 async function loadAgentDelegateSettings(
+  ctx: ControlRouteContext,
   appId: AppId,
-): Promise<{ settings: RuntimeSettings; revision: number }> {
+): Promise<{ settings: ControlAgentSettingsView; revision: number }> {
   const latest =
     await getRuntimeStorage().repositories.settingsRevisions.getLatestSettingsRevision(
       appId,
     );
   return latest
     ? {
-        settings: settingsFromRevisionDocument(latest.settingsDocument),
+        settings: ctx.agentSettings.decodeRevisionDocument(
+          latest.settingsDocument,
+        ),
         revision: latest.revision,
       }
     : {
-        settings: createDefaultRuntimeSettings(),
+        settings: ctx.agentSettings.defaultSettings(),
         revision: 0,
       };
 }
@@ -745,7 +710,7 @@ async function resolveCallableDelegateRoster(input: {
   orchestrator: Agent;
   folder: string;
   delegates: readonly string[];
-  settings: RuntimeSettings;
+  settings: ControlAgentSettingsView;
   conversationRoutes: Record<string, ConversationRoute>;
 }) {
   if (input.orchestrator.status !== 'active') return [];

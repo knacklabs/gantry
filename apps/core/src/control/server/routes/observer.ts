@@ -8,11 +8,6 @@ import {
   type ObserverInsightState,
   type ObserverSubjectKey,
 } from '../../../domain/ports/observer-insights.js';
-import {
-  resolveVerifiedObserverActivationStatus,
-  type ObserverActivationStatus,
-} from '../../../config/settings/observer-activation.js';
-import type { RuntimeSettings } from '../../../config/settings/runtime-settings-types.js';
 import { canAccessApp } from '../app-identity.js';
 import { isValidControlId, type ApiKeyRecord } from '../auth.js';
 import {
@@ -105,16 +100,6 @@ function encodeCursor(cursor: ObserverListCursor): string {
   return Buffer.from(JSON.stringify(cursor), 'utf8').toString('base64url');
 }
 
-function responseOwner(status: ObserverActivationStatus) {
-  if (!('owner' in status)) return null;
-  return {
-    recipient: status.owner.recipient,
-    conversation: status.owner.conversation,
-    conversationJid: status.owner.conversationJid,
-    providerAccountId: status.owner.providerAccountId,
-  };
-}
-
 export async function handleObserverRoutes(
   req: IncomingMessage,
   res: ServerResponse,
@@ -134,29 +119,7 @@ export async function handleObserverRoutes(
   const repository = repositories.observerInsights;
 
   if (pathname === '/v1/observer/status') {
-    const settings = ctx.getEffectiveRuntimeSettings() as RuntimeSettings;
-    const currentSettings = ctx.getInternalRuntimeSettings() as RuntimeSettings;
-    const memoryState = ctx.getEffectiveMemoryState?.() ?? {
-      enabled: settings.memory.enabled,
-      dreamingEnabled: settings.memory.dreaming.enabled,
-    };
-    const activationSettings: RuntimeSettings = {
-      ...settings,
-      conversations: currentSettings.conversations,
-      memory: {
-        ...settings.memory,
-        enabled: memoryState.enabled,
-        dreaming: {
-          ...settings.memory.dreaming,
-          enabled: memoryState.dreamingEnabled,
-        },
-      },
-    };
-    const activation = await resolveVerifiedObserverActivationStatus(
-      activationSettings,
-      appId,
-      repositories.conversations,
-    );
+    const status = await ctx.resolveObserverStatus(appId as never);
     const brain = createRuntimeBrainService(appId);
     const [brainStatus, insights, pendingInsights] = await Promise.all([
       brain.status(appId),
@@ -164,11 +127,7 @@ export async function handleObserverRoutes(
       repository.count({ appId, state: 'pending' }),
     ]);
     sendJson(res, 200, {
-      enabled: activation.enabled,
-      activation: activation.state,
-      message: activation.message,
-      dreamingEnabled: memoryState.enabled && memoryState.dreamingEnabled,
-      owner: responseOwner(activation),
+      ...status,
       counts: {
         evidence: brainStatus.channelPages,
         insights,

@@ -1173,7 +1173,7 @@
     "rule": "forbidden_import_by_layer",
     "reason": "Agent profile-file endpoints materialize visible profile mirrors and resolve the workspace folder; capped so additional adapter->runtime/config imports fail until the canonical boundary slice extracts a profile composition seam.",
     "removeByPhase": "canonical-boundary-cleanup-phase",
-    "maxViolations": 3
+    "maxViolations": 2
   },
   {
     "file": "apps/core/src/app/bootstrap/fleet-boot.ts",

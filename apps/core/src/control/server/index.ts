@@ -26,10 +26,6 @@ import {
   syncRuntimeSettingsFromProjection,
 } from '../../config/index.js';
 import {
-  RUNTIME_MEMORY_DREAMING_ENABLED,
-  RUNTIME_MEMORY_ENABLED,
-} from '../../config/memory.js';
-import {
   resolveRuntimeSecurityPosture,
   validateProductionSecurityGate,
 } from '../../shared/security-posture.js';
@@ -223,6 +219,28 @@ function isLiveIngressRoute(pathname: string): boolean {
   return /^\/webhooks\/[^/]+(?:\/wait)?$/.test(pathname);
 }
 
+function missingControlPort(name: string): never {
+  throw new Error(`${name} was not composed at the app root`);
+}
+
+function unavailableControlAgentSettingsPort(): ControlRouteContext['agentSettings'] {
+  return {
+    decodeRevisionDocument: () => missingControlPort('agentSettings'),
+    defaultSettings: () => missingControlPort('agentSettings'),
+    serializeRevisionDocument: () => missingControlPort('agentSettings'),
+    writeAgentHarnessSetting: async () => missingControlPort('agentSettings'),
+  };
+}
+
+function unavailableControlSettingsImportPort(): ControlRouteContext['settingsImport'] {
+  return {
+    serializeRevisionDocument: () => missingControlPort('settingsImport'),
+    importWorkstation: async () => missingControlPort('settingsImport'),
+    importFleet: async () => missingControlPort('settingsImport'),
+    classifyImportError: () => null,
+  };
+}
+
 export function startControlServer(input: {
   app: RuntimeApp;
   getBrowserStatus?: JobManagementServiceDeps['getBrowserStatus'];
@@ -249,6 +267,10 @@ export function startControlServer(input: {
   liveCapacityLimit?: () => number;
   /** Lifecycle-owned settings that are actually active in this process. */
   getEffectiveRuntimeSettings?: ControlRouteContext['getEffectiveRuntimeSettings'];
+  getEffectiveMemoryState?: ControlRouteContext['getEffectiveMemoryState'];
+  agentSettings?: ControlRouteContext['agentSettings'];
+  settingsImport?: ControlRouteContext['settingsImport'];
+  resolveObserverStatus?: ControlRouteContext['resolveObserverStatus'];
 }): ControlServerHandle {
   configureDesiredSettingsStorageProvider(async () => {
     const storage = getRuntimeStorage();
@@ -349,10 +371,19 @@ export function startControlServer(input: {
     getRuntimeSettings: () => getPublicRuntimeSettings(),
     getInternalRuntimeSettings: () => getRuntimeSettingsForConfig(),
     getEffectiveRuntimeSettings,
-    getEffectiveMemoryState: () => ({
-      enabled: RUNTIME_MEMORY_ENABLED,
-      dreamingEnabled: RUNTIME_MEMORY_DREAMING_ENABLED,
-    }),
+    getEffectiveMemoryState:
+      input.getEffectiveMemoryState ??
+      (() => ({
+        enabled: getEffectiveRuntimeSettings().memory.enabled,
+        dreamingEnabled:
+          getEffectiveRuntimeSettings().memory.dreaming.enabled ?? false,
+      })),
+    agentSettings: input.agentSettings ?? unavailableControlAgentSettingsPort(),
+    settingsImport:
+      input.settingsImport ?? unavailableControlSettingsImportPort(),
+    resolveObserverStatus:
+      input.resolveObserverStatus ??
+      (async () => missingControlPort('resolveObserverStatus')),
     getEgressSettings: () => getRuntimeSettingsForConfig().permissions.egress,
     getDefaultModelConfig,
     getModelDefaults: getRuntimeModelDefaults,

@@ -3,14 +3,6 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { getRuntimeStorage } from '../../../adapters/storage/postgres/runtime-store.js';
 import { parseRuntimeSettingsObject } from '../../../config/settings/runtime-settings-parser.js';
 import type { RuntimeSettings } from '../../../config/settings/runtime-settings-types.js';
-import {
-  importFleetSettingsRevision,
-  importWorkstationSettings,
-  SettingsRevisionConflictError,
-  SettingsStaleMutationError,
-  settingsFromRevisionDocument,
-  settingsToRevisionDocument,
-} from '../../../config/settings/settings-import-service.js';
 import type { AppId } from '../../../domain/app/app.js';
 import { logger } from '../../../infrastructure/logging/logger.js';
 import type { RuntimeDeploymentMode } from '../../../shared/runtime-deployment-mode.js';
@@ -179,7 +171,7 @@ async function handleDesiredState(
           ?.observability ??
         (head
           ? undefined
-          : settingsToRevisionDocument(
+          : ctx.settingsImport.serializeRevisionDocument(
               ctx.getInternalRuntimeSettings() as RuntimeSettings,
             ).observability);
       const inboundDocument = {
@@ -217,7 +209,7 @@ async function handleDesiredState(
       if (isWorkstation) {
         let revision = 0;
         try {
-          const outcome = await importWorkstationSettings(
+          const outcome = await ctx.settingsImport.importWorkstation(
             {
               runtimeHome: ctx.runtimeHome,
               ops: storage.ops,
@@ -230,7 +222,8 @@ async function handleDesiredState(
                 pool: storage.service.pool,
                 createdBy: `control-api:${key.kid}`,
                 note,
-                logWarn: (context, message) => logger.warn(context, message),
+                logWarn: (context: Record<string, unknown>, message: string) =>
+                  logger.warn(context, message),
               },
               revisionMirrorRequired: true,
               expectedRevision: effectiveExpectedRevision,
@@ -246,26 +239,27 @@ async function handleDesiredState(
                   )
                 )?.revision ?? 0);
         } catch (err) {
+          const importError = ctx.settingsImport.classifyImportError(err);
           // A concurrent winner can make the in-memory previousSettings stale
           // before reload completes — retryable for unguarded writers, same
           // as a CAS conflict.
           if (
-            err instanceof SettingsStaleMutationError &&
+            importError?.kind === 'stale' &&
             callerGuard === null &&
             !lastAttempt
           ) {
             continue;
           }
-          if (err instanceof SettingsRevisionConflictError) {
+          if (importError?.kind === 'conflict') {
             if (callerGuard === null && !lastAttempt) continue;
             sendError(
               res,
               409,
               'REVISION_CONFLICT',
-              `expectedRevision ${err.expectedRevision} does not match the current revision ${err.actualRevision}.`,
+              `expectedRevision ${importError.expectedRevision} does not match the current revision ${importError.actualRevision}.`,
               {
-                expectedRevision: err.expectedRevision,
-                actualRevision: err.actualRevision,
+                expectedRevision: importError.expectedRevision,
+                actualRevision: importError.actualRevision,
               },
             );
             return true;
@@ -283,7 +277,7 @@ async function handleDesiredState(
         sendJson(res, 200, { revision });
         return true;
       }
-      const outcome = await importFleetSettingsRevision(
+      const outcome = await ctx.settingsImport.importFleet(
         {
           runtimeHome: ctx.runtimeHome,
           ops: getRuntimeStorage().ops,
@@ -383,7 +377,3 @@ async function handleRevisionsList(
   });
   return true;
 }
-
-// Re-exported so route tests can assert the document round-trip path used by
-// the worker listener matches the API write path.
-export { settingsFromRevisionDocument };

@@ -32,11 +32,16 @@ import {
   createGroupJoinOnboardingCoordinator,
   getDeploymentMode,
   getRuntimeQueueConfig,
+  getRuntimeSettingsForConfig,
   loadRuntimeSettings,
+  RUNTIME_MEMORY_DREAMING_ENABLED,
+  RUNTIME_MEMORY_ENABLED,
 } from '../config/index.js';
 import { getBrowserStatus } from '../runtime/browser-capability.js';
 import { startSettingsReloadWatcher } from '../runtime/settings-reload-watcher.js';
 import {
+  createControlAgentSettingsPort,
+  createControlSettingsImportPort,
   prepareFleetSettings,
   startFleetSubsystems,
   type FleetSubsystems,
@@ -57,6 +62,10 @@ import { getOldestWaitingLiveAdmissionSeconds } from './bootstrap/runtime-servic
 import type { HostnameLookup } from '../domain/network/public-address-policy.js';
 import { defaultHostnameLookup } from '../infrastructure/network/hostname-lookup.js';
 import { createRepositoryRuntimeSecretProvider } from '../adapters/credentials/repository-runtime-secret-provider.js';
+import {
+  createResolveObserverStatus,
+  type EffectiveControlRuntimeSettings,
+} from '../application/control-plane/control-plane-storage-model.js';
 
 export { escapeXml, formatMessages } from '../messaging/router.js';
 export {
@@ -162,7 +171,8 @@ export async function startGantryRuntime(
       runtimeSettings = loadRuntimeSettings(GANTRY_HOME);
     }
   }
-  let effectiveRuntimeSettings = runtimeSettings;
+  let effectiveRuntimeSettings: EffectiveControlRuntimeSettings =
+    runtimeSettings;
   if (!options.skipPreflight && fleetSettingsLoaded) {
     const validation = await validateRuntimePreflightWithStorage(GANTRY_HOME);
     if (!validation.ok && validation.failure) {
@@ -404,6 +414,21 @@ export async function startGantryRuntime(
       liveExecution: roleCaps.liveExecution,
       liveTurnsEnabled: runtimeSettings.runtime.liveTurns.enabled,
       getEffectiveRuntimeSettings: () => effectiveRuntimeSettings,
+      getEffectiveMemoryState: () => ({
+        enabled: RUNTIME_MEMORY_ENABLED,
+        dreamingEnabled: RUNTIME_MEMORY_DREAMING_ENABLED,
+      }),
+      agentSettings: createControlAgentSettingsPort(),
+      settingsImport: createControlSettingsImportPort(),
+      resolveObserverStatus: createResolveObserverStatus({
+        getEffectiveRuntimeSettings: () => effectiveRuntimeSettings,
+        getInternalRuntimeSettings: getRuntimeSettingsForConfig,
+        getEffectiveMemoryState: () => ({
+          enabled: RUNTIME_MEMORY_ENABLED,
+          dreamingEnabled: RUNTIME_MEMORY_DREAMING_ENABLED,
+        }),
+        conversations: storage.repositories.conversations,
+      }),
       // Locked contract: the workstation `all` role keeps the historical
       // readiness check set (no role-specific checks); split roles gate on
       // exactly the subsystems they run.
