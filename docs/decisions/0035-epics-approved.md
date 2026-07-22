@@ -15,8 +15,9 @@ confirmed by the client; digest-bound to the import JSON).
 
 ## Decision
 
-The PM approves these eight epics for import (18 stories, all gated behind
-PAY-1 per the client's "paydown first" directive):
+The PM approves these ten epics for import (20 stories, all downstream of
+PAY-1 per the client's "paydown first" directive; reconciled against merged
+PRs 2026-07-22 at the client's request):
 
 1. `harness-hygiene` — architecture gate paydown (PAY-1, first story)
 2. `permission-engine` — git deterministic-gate slice, then the decision
@@ -26,14 +27,18 @@ PAY-1 per the client's "paydown first" directive):
    (E2E-1..3)
 5. `capability-search` — capability-authoring closeout (exception, no
    goal-prompt) + MCP hybrid search (CAP-1, CAP-2)
-6. `post-cutover` — durable-work primitive + model management, textually
-   gated on the user-authorized Ponytail cutover (DUR-1, MDL-1)
-7. `coordination-hardening` — audit items B1/B2/C (CO-1..3)
-8. `artifact-store` — S3/MinIO bytes, low priority (ART-1)
+6. `ponytail` — Phase-8 offline cutover; Phases 1–7 in-lane + rescued WIP;
+   executes only on the client's explicit go (PONY-1)
+7. `observability` — OTel permission/decision spans completing #220/#262
+   (OTEL-1, not started)
+8. `post-cutover` — durable-work primitive + model management, depends_on
+   PONY-1 (DUR-1, MDL-1)
+9. `coordination-hardening` — audit items B1/B2/C (CO-1..3)
+10. `artifact-store` — S3/MinIO bytes, low priority (ART-1)
 
 Excluded from import (board-tracked with named gates): media-render,
-Ponytail cutover, Fable arch cycles #2–8, tenant isolation, KB ingestion,
-connector strategy, Parked/Ideation items.
+Fable arch cycles #2–8, tenant isolation, KB ingestion, connector
+strategy, Parked/Ideation items.
 
 ## Consequences
 

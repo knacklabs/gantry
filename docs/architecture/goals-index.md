@@ -71,8 +71,10 @@ Curious Observer: harvest firehose → nightly dream → deterministic value flo
 batch LLM judge → private ≤1/day digest. Behind `observer.enabled` (default off).
 Design of record: session `proactive-observer-plan.md`. API+SDK+E2E every stage.
 - [x] S1 foundations — MERGED **#264** (proactive_insights, deliveries, cursors, read-only API/SDK/E2E)
-- [~] S2 emission — staged `wt-observer-s2` (floor conf≥0.6 · evidence≥1 · dedup cosine≥0.86)
-- [~] S3a batch-core + fix — staged `wt-observer-s3` (gateway batch endpoints, prefer-orphan state machine; 7 autoreview fixes applied)
+- [~] S2 emission — was an UNCOMMITTED diff in `wt-observer-s2`; rescued as WIP
+      `e055dc14a` on `feature/observer-s2-emission` 2026-07-22 (floor conf≥0.6 · evidence≥1 · dedup cosine≥0.86)
+- [~] S3a batch-core + fix — was an UNCOMMITTED diff in `wt-observer-s3`; rescued as WIP
+      `a51a4909d` on `feature/observer-s3-batch` 2026-07-22 (gateway batch endpoints, prefer-orphan state machine; 7 autoreview fixes applied)
 - [ ] S3b — xAI Grok + Kimi transports (same declared-capability slot)
 - [ ] S4 — digest delivery (staging · settlement · freshness revalidation · evidence permalinks · feedback capture · artifact)
 - [ ] S5 — setup wizard + preview + status + cold-start backfill
@@ -117,12 +119,14 @@ Extends `mcp_search_tools`: FTS ranking + light stemming + opt-in semantic layer
   (#255, merged) is a different thing from capability *authoring* (the wt-pr237 lane).
 
 ### Ponytail audit (separate track, gated)  ·  IN PROGRESS (unmerged lane)
-Main-sync re-derive + phased cutover, all in `wt-ponytail` (`feature/ponytail-audit`,
-unmerged). **The live worktree runs AHEAD of this board — re-derive the exact
-phase from its git log, don't trust a phase number written here.**
-- [~] Re-derive + baseline phases committed in the lane (through the DB-baseline phase)
-- [ ] Final offline cutover / live restamp — **GATED**: explicit user cutover go +
-      fresh-green + required e2e rows green; **any red = STOP**. Nothing merged to main.
+Main-sync re-derive + phased cutover on `feature/ponytail-audit` (unmerged).
+Reconciled vs the lane git log 2026-07-22:
+- [~] Phases 1–7 committed in-lane through `9ffa146c2` (Phase 7 = 102 migrations
+      replaced by one 93-table baseline + Phase-8 offline restamp/reset/rollback runbook)
+- [~] Post-Phase-7 in-flight diff (169M+22?? — capability guards, tool-permission-gate,
+      query-loop re-derive) rescued as WIP `e4104edc8` 2026-07-22
+- [ ] Phase 8: final offline cutover / live restamp — **GATED**: explicit user cutover
+      go + fresh-green + required e2e rows green; **any red = STOP**. Nothing merged to main.
 
 ---
 
@@ -144,6 +148,11 @@ phase from its git log, don't trust a phase number written here.**
 4. **S3/MinIO file-artifact bytes** — protocol decided (pending-row + upload +
    verified commit + TTL janitor); LOW PRIORITY (live uses local). `wt-attach`
    (unmerged). `artifact-store-s3-goal-prompt.md`
+5. **OTel permission/decision spans** — goal-prompt committed
+   (`otel-permission-spans-goal-prompt.md`); reconciled 2026-07-22: NOT
+   started (the `feature/otel-permission-spans` branch has no unique work;
+   its tmp worktree was wiped — nothing lost). OTel shipped so far: base
+   #220 · dev-observability #209 · tool-execution spans #262.
 
 ## Then — medium, scoped
 
