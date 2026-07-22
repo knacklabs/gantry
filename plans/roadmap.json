@@ -1,7 +1,7 @@
 {
   "items": [
     {
-      "status": "active",
+      "status": "done",
       "key": "PAY-1",
       "title": "Architecture gate paydown \u2014 check:architecture exit 0",
       "epic": "harness-hygiene",
@@ -14,7 +14,9 @@
         "npm run typecheck and npm test green; no test deleted",
         "no public API/contract change; contracts package diff empty",
         "any remaining architecture exception carries an expiry/ratchet note"
-      ]
+      ],
+      "completed_at": "2026-07-22T17:32:45+00:00",
+      "history": ".factory/history/PAY-1/"
     },
     {
       "status": "pending",
@@ -417,5 +419,5 @@
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-07-22T12:36:40+00:00"
+  "updated_at": "2026-07-22T17:32:45+00:00"
 }
