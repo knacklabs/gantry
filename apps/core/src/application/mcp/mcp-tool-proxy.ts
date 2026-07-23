@@ -1,7 +1,3 @@
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
-import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
-
 import type { AgentId } from '../../domain/agent/agent.js';
 import type { AppId } from '../../domain/app/app.js';
 import type { RuntimeEventPublishInput } from '../../domain/events/events.js';
@@ -59,9 +55,10 @@ import {
 import { publishMcpToolActivity } from './mcp-tool-proxy-audit.js';
 import {
   connectMcpToolProxyClient,
-  type McpToolProxyClientAdapters,
+  MCP_TOOL_PROXY_CLIENT_ADAPTERS,
 } from './mcp-tool-proxy-connection.js';
 
+export { MCP_TOOL_PROXY_CLIENT_ADAPTERS } from './mcp-tool-proxy-connection.js';
 export { clearMcpToolProxyInventoryCache } from './mcp-tool-inventory.js';
 export {
   assertMcpNetworkHostAllowed,
@@ -70,29 +67,6 @@ export {
 
 const MCP_PROXY_TIMEOUT_MS = 60_000;
 const MCP_INVENTORY_SEARCH_CONCURRENCY = 4;
-type McpClientTransport = Parameters<Client['connect']>[0];
-export const MCP_TOOL_PROXY_CLIENT_ADAPTERS: McpToolProxyClientAdapters<
-  McpClientTransport,
-  Client
-> = {
-  createClient: (onToolsChanged) =>
-    new Client(
-      { name: 'gantry-mcp-proxy', version: '1.0.0' },
-      {
-        capabilities: {},
-        listChanged: {
-          tools: {
-            autoRefresh: false,
-            debounceMs: 250,
-            onChanged: onToolsChanged,
-          },
-        },
-      },
-    ),
-  createHttpTransport: (url, options) =>
-    new StreamableHTTPClientTransport(url, options),
-  createSseTransport: (url, options) => new SSEClientTransport(url, options),
-};
 interface McpToolCallInput {
   appId: AppId;
   agentId: AgentId;

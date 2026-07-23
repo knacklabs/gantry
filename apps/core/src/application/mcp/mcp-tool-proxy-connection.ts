@@ -1,3 +1,7 @@
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+
 import type { HostnameLookup } from '../../domain/network/public-address-policy.js';
 import { ApplicationError } from '../common/application-error.js';
 import type { MaterializedMcpCapability } from './mcp-server-service.js';
@@ -45,6 +49,31 @@ export type McpToolProxyClientAdapters<
       fetch: typeof globalThis.fetch;
     },
   ): TTransport;
+};
+
+type McpClientTransport = Parameters<Client['connect']>[0];
+
+export const MCP_TOOL_PROXY_CLIENT_ADAPTERS: McpToolProxyClientAdapters<
+  McpClientTransport,
+  Client
+> = {
+  createClient: (onToolsChanged) =>
+    new Client(
+      { name: 'gantry-mcp-proxy', version: '1.0.0' },
+      {
+        capabilities: {},
+        listChanged: {
+          tools: {
+            autoRefresh: false,
+            debounceMs: 250,
+            onChanged: onToolsChanged,
+          },
+        },
+      },
+    ),
+  createHttpTransport: (url, options) =>
+    new StreamableHTTPClientTransport(url, options),
+  createSseTransport: (url, options) => new SSEClientTransport(url, options),
 };
 
 export async function connectMcpToolProxyClient<
