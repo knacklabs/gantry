@@ -246,9 +246,7 @@ describe('runner sandbox provider', () => {
       },
     });
     provider.start(baseInput);
-    const baseline = String(
-      vi.mocked(fs.writeFileSync).mock.calls.at(-1)?.[1],
-    );
+    const baseline = String(vi.mocked(fs.writeFileSync).mock.calls.at(-1)?.[1]);
     const envKeys = [
       'GANTRY_PROTECTED_FILESYSTEM_PATHS_JSON',
       'GANTRY_PROTECTED_FILESYSTEM_DENY_READ_PATHS_JSON',
@@ -258,7 +256,8 @@ describe('runner sandbox provider', () => {
     const originalEnv = envKeys.map((key) => [key, process.env[key]] as const);
 
     try {
-      for (const key of envKeys) process.env[key] = JSON.stringify(['/changed']);
+      for (const key of envKeys)
+        process.env[key] = JSON.stringify(['/changed']);
       provider.start(baseInput);
       expect(String(vi.mocked(fs.writeFileSync).mock.calls.at(-1)?.[1])).toBe(
         baseline,

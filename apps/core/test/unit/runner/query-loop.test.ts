@@ -51,9 +51,7 @@ describe('Claude query loop declarative tool names', () => {
     expect(sandboxConstruction).toContain(
       'readProtectedFilesystemSandboxPaths()',
     );
-    expect(sandboxConstruction).toContain(
-      '...localCliCredentialDirectories',
-    );
+    expect(sandboxConstruction).toContain('...localCliCredentialDirectories');
     expect(sandboxConstruction).toContain('denyReadPaths:');
     expect(sandboxConstruction).toContain('denyWritePaths:');
     expect(source).toContain('readProtectedFilesystemSandboxPaths');

@@ -88,7 +88,10 @@ maybeDescribe(
       try {
         await harness?.teardown({ failed });
       } finally {
-        if (fakeHome && !(failed && process.env.KEEP_EVIDENCE?.trim() === '1')) {
+        if (
+          fakeHome &&
+          !(failed && process.env.KEEP_EVIDENCE?.trim() === '1')
+        ) {
           fs.rmSync(fakeHome, { recursive: true, force: true });
         }
       }
