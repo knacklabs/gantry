@@ -10,9 +10,7 @@ import type {
   PermissionDecision,
   PermissionDecisionId,
 } from '../../domain/permissions/permissions.js';
-import type {
-  AgentToolBinding,
-} from '../../domain/tools/tools.js';
+import type { AgentToolBinding } from '../../domain/tools/tools.js';
 import { ensureAgentToolCatalogItem } from '../../domain/tools/agent-tool-catalog-references.js';
 import {
   expandSemanticCapabilityPermissionRules,
@@ -29,9 +27,7 @@ import {
   withMcpCapabilityProposalSourceLocks,
 } from './mcp-capability-source-bindings.js';
 import { permissionDecisionExpiresAt } from './permission-decision-expiry.js';
-import {
-  adminMcpToolIdForFullName,
-} from '../../shared/admin-mcp-tools.js';
+import { adminMcpToolIdForFullName } from '../../shared/admin-mcp-tools.js';
 import {
   isCanonicalBrowserCapabilityRule,
   persistentPermissionToolId,
@@ -40,9 +36,7 @@ import {
   appendLiveToolRules,
   removeLiveToolRules,
 } from '../../shared/live-tool-rules.js';
-import {
-  durableAccessRuleAuditPreview,
-} from '../../shared/durable-access-policy.js';
+import { durableAccessRuleAuditPreview } from '../../shared/durable-access-policy.js';
 import { permissionUpdateAllowedToolRules } from '../../shared/permission-tool-rules.js';
 import { nowIso } from '../../shared/time/datetime.js';
 import {

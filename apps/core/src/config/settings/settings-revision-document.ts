@@ -3,9 +3,7 @@ import type { AppId } from '../../domain/app/app.js';
 import type { McpBindingAuthorityPrecondition } from '../../domain/mcp/mcp-servers.js';
 import type { SettingsRevisionRepository } from '../../domain/ports/fleet-capability-state.js';
 import { migrateLegacyAgentBindings } from './settings-revision-legacy-bindings.js';
-import {
-  parseRuntimeSettings,
-} from './runtime-settings.js';
+import { parseRuntimeSettings } from './runtime-settings.js';
 import { renderRuntimeSettingsYaml } from './runtime-settings-renderer.js';
 import { parseRuntimeSettingsObject } from './runtime-settings-parser.js';
 import type { RuntimeSettings } from './runtime-settings-types.js';

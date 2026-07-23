@@ -77,9 +77,7 @@ export async function publishMcpToolActivity(input: {
     ...(typeof activity.toolResultError === 'boolean'
       ? { toolResultError: activity.toolResultError }
       : {}),
-    ...(input.options.runHandle
-      ? { runHandle: input.options.runHandle }
-      : {}),
+    ...(input.options.runHandle ? { runHandle: input.options.runHandle } : {}),
   };
   await input.mcpServers.appendAuditEvent({
     id: `mcp-audit:${globalThis.crypto.randomUUID()}` as never,

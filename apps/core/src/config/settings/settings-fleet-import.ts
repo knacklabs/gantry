@@ -213,9 +213,9 @@ export async function appendRejectedMcpApprovalRecoveryRevision(input: {
     });
     const projectedBindings =
       await input.projectionOps.addAllMcpSourcesToRuntimeSettings({
-      settings: recoverySettings,
-      repositories: input.deps.repositories,
-      appId: input.appId,
+        settings: recoverySettings,
+        repositories: input.deps.repositories,
+        appId: input.appId,
       });
     restorePendingMcpSourceEdits(recoverySettings, pendingMcpSourceEdits);
     const configuredAgentIds = Object.keys(recoverySettings.agents)
@@ -376,11 +376,11 @@ export async function importFleetSettingsRevisionWithProjectionOps(
       restorePendingMcpSourceEdits(revisionSettings, pendingMcpSourceEdits);
       const snapshot =
         await projectionOps.snapshotConfiguredMcpBindingAuthority({
-        settings: revisionSettings,
-        repositories: deps.repositories,
-        appId,
-        additionalAgentIds: latest?.mcpBindingPreconditionAgentIds,
-      });
+          settings: revisionSettings,
+          repositories: deps.repositories,
+          appId,
+          additionalAgentIds: latest?.mcpBindingPreconditionAgentIds,
+        });
       expectedRevision ??= latest!.revision;
       expectedMcpBindingAgentIds = snapshot.agentIds;
       expectedMcpBindings = snapshot.bindings;

@@ -1,4 +1,7 @@
-import { firstPersistentRule, PERSISTENT_RULE_APPROVAL_MAX_RULES } from '../domain/permission-decision.js';
+import {
+  firstPersistentRule,
+  PERSISTENT_RULE_APPROVAL_MAX_RULES,
+} from '../domain/permission-decision.js';
 import type {
   PermissionApprovalDecisionMode,
   PermissionApprovalRequest,

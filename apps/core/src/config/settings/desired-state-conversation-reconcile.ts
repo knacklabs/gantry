@@ -39,7 +39,10 @@ export async function reconcileDesiredConversations(input: {
   applied: string[];
   skipped: string[];
 }): Promise<void> {
-  if (!input.repositories.conversations || !input.repositories.providerAccounts) {
+  if (
+    !input.repositories.conversations ||
+    !input.repositories.providerAccounts
+  ) {
     if (Object.keys(input.settings.conversations).length > 0) {
       input.skipped.push('conversation_approvers:missing-repositories');
     }
@@ -97,14 +100,10 @@ async function ensureDesiredConversation(input: {
   const conversations = input.repositories.conversations;
   if (!conversations) return null;
   const configuredProviderAccount =
-    input.conversation.providerAccount ??
-    input.conversation.providerConnection;
-  const connectionSettings =
-    input.providerAccounts[configuredProviderAccount];
+    input.conversation.providerAccount ?? input.conversation.providerConnection;
+  const connectionSettings = input.providerAccounts[configuredProviderAccount];
   if (!connectionSettings) {
-    input.skipped.push(
-      `conversation:${input.key}:missing-provider-connection`,
-    );
+    input.skipped.push(`conversation:${input.key}:missing-provider-connection`);
     return null;
   }
   const jid = jidForConfiguredConversation(

@@ -19,14 +19,10 @@ import {
   applyRuntimeSettingsDesiredState,
   snapshotConfiguredMcpBindingAuthority,
 } from './restart-sync.js';
-import {
-  activateRuntimeModelAliases,
-} from './runtime-settings.js';
+import { activateRuntimeModelAliases } from './runtime-settings.js';
 import { normalizeConfiguredCapabilitiesInSettings } from './configured-capability-normalization.js';
 import type { RuntimeSettings } from './runtime-settings-types.js';
-import {
-  nextMcpCapabilityGrantTokens,
-} from './mcp-capability-grant-provenance.js';
+import { nextMcpCapabilityGrantTokens } from './mcp-capability-grant-provenance.js';
 import {
   capturePendingMcpSourceEdits,
   restorePendingMcpSourceEdits,

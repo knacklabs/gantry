@@ -17,9 +17,7 @@ import {
   type SemanticCapabilityDefinition,
 } from '../shared/semantic-capabilities.js';
 import { parseSemanticCapabilityRule } from '../shared/semantic-capability-ids.js';
-import {
-  firstPersistentRule,
-} from '../domain/permission-decision.js';
+import { firstPersistentRule } from '../domain/permission-decision.js';
 import {
   buildPermissionPromptFullView,
   formatInteractionDetailLine as formatPromptInteractionDetailLine,

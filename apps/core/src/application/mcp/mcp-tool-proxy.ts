@@ -71,18 +71,26 @@ export {
 const MCP_PROXY_TIMEOUT_MS = 60_000;
 const MCP_INVENTORY_SEARCH_CONCURRENCY = 4;
 type McpClientTransport = Parameters<Client['connect']>[0];
-const MCP_TOOL_PROXY_CLIENT_ADAPTERS: McpToolProxyClientAdapters<McpClientTransport, Client> = {
+const MCP_TOOL_PROXY_CLIENT_ADAPTERS: McpToolProxyClientAdapters<
+  McpClientTransport,
+  Client
+> = {
   createClient: (onToolsChanged) =>
     new Client(
       { name: 'gantry-mcp-proxy', version: '1.0.0' },
       {
         capabilities: {},
         listChanged: {
-          tools: { autoRefresh: false, debounceMs: 250, onChanged: onToolsChanged },
+          tools: {
+            autoRefresh: false,
+            debounceMs: 250,
+            onChanged: onToolsChanged,
+          },
         },
       },
     ),
-  createHttpTransport: (url, options) => new StreamableHTTPClientTransport(url, options),
+  createHttpTransport: (url, options) =>
+    new StreamableHTTPClientTransport(url, options),
   createSseTransport: (url, options) => new SSEClientTransport(url, options),
 };
 interface McpToolCallInput {
@@ -695,5 +703,4 @@ export class McpToolProxy {
       finalizeDenied,
     });
   }
-
 }
