@@ -88,8 +88,8 @@ export function SetupConversationDetails({
         </label>
       ) : null}
       <p className="m-0 text-sm text-text-secondary">
-        Sender policy is managed by the provider. Conversation approvers govern
-        who can approve requests for this agent.
+        Sender policy: provider-native. Conversation approvers govern who can
+        approve requests for this agent.
       </p>
       <label className="flex items-center gap-2 text-sm text-text">
         <input
