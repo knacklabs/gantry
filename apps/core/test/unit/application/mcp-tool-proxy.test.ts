@@ -40,8 +40,10 @@ import {
   assertMcpNetworkHostAllowed,
   clearMcpToolProxyInventoryCache,
   createGuardedMcpFetch,
+  MCP_TOOL_PROXY_CLIENT_ADAPTERS,
   McpToolProxy,
 } from '@core/application/mcp/mcp-tool-proxy.js';
+import { connectMcpToolProxyClient } from '@core/application/mcp/mcp-tool-proxy-connection.js';
 import {
   fetchMcpToolListPages,
   MAX_MCP_REMOTE_TOOL_METADATA_BYTES,
@@ -2291,20 +2293,18 @@ describe('McpToolProxy', () => {
   it('revalidates current network policy before reusing cached remote clients', async () => {
     vi.useFakeTimers();
     const denylist: string[] = [];
-    const proxy = new McpToolProxy(mcpRepository(), {
-      tools: toolRepository(),
+    const options = {
       egressDenylist: denylist,
       lookupHostname: vi.fn(async () => [
         { address: '93.184.216.34', family: 4 as const },
       ]),
-    });
-    const connect = (
-      proxy as unknown as {
-        connect(
-          capability: ReturnType<typeof remoteCapability>,
-        ): Promise<unknown>;
-      }
-    ).connect.bind(proxy);
+    };
+    const connect = (capability: ReturnType<typeof remoteCapability>) =>
+      connectMcpToolProxyClient(
+        capability,
+        options,
+        MCP_TOOL_PROXY_CLIENT_ADAPTERS,
+      );
     const capability = remoteCapability(['api.github.com:443']);
 
     await connect(capability);

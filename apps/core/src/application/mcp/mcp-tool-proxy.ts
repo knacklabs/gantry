@@ -71,7 +71,7 @@ export {
 const MCP_PROXY_TIMEOUT_MS = 60_000;
 const MCP_INVENTORY_SEARCH_CONCURRENCY = 4;
 type McpClientTransport = Parameters<Client['connect']>[0];
-const MCP_TOOL_PROXY_CLIENT_ADAPTERS: McpToolProxyClientAdapters<
+export const MCP_TOOL_PROXY_CLIENT_ADAPTERS: McpToolProxyClientAdapters<
   McpClientTransport,
   Client
 > = {
