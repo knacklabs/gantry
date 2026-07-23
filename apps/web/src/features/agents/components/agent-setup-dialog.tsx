@@ -76,7 +76,7 @@ export function AgentSetupDialog({
             path: '/agent-setups',
             method: 'POST',
             body: { appId: 'default', name, purpose: purpose || undefined },
-            schema: draftSchema,
+            schema: persistedDraftSchema,
           });
       setDraftId(result.agentId);
       if ('version' in result && typeof result.version === 'number') {
