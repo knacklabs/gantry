@@ -408,6 +408,13 @@ export async function exportCurrentDesiredState(input: {
   // manufactures duplicate conversations with mangled external ids.
   const exportedGroups = groupEntries
     .filter(([jid]) => !jid.includes('::'))
+    .filter(([, group]) => {
+      const providerAccountId = group.providerAccountId?.trim();
+      return (
+        !providerAccountId ||
+        !isCanonicalFallbackProviderAccountId(providerAccountId)
+      );
+    })
     .map(([jid, group]) => {
       const agentId = agentIdForFolder(group.folder);
       return {
@@ -608,7 +615,10 @@ function isInternalAppControlProviderAccount(
 function isCanonicalFallbackProviderAccount(
   connection: ProviderAccount,
 ): boolean {
-  const id = String(connection.id);
+  return isCanonicalFallbackProviderAccountId(String(connection.id));
+}
+
+function isCanonicalFallbackProviderAccountId(id: string): boolean {
   return (
     id.startsWith('channel-providerAccount:') ||
     id.startsWith('channel-providerConnection:')
