@@ -16,6 +16,8 @@ logs/
 !.claude/skills/**
 !.claude/CLAUDE.md
 !.claude/settings.json
+!.claude/memory/
+!.claude/memory/**
 .codex/goals/*
 .codex/sessions/*
 .codex/archived_sessions/*
