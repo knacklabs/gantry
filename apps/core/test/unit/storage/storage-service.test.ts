@@ -7,6 +7,7 @@ import {
   createStorageService,
   postgresMigrationsFolder,
   resolvePostgresPoolConfig,
+  resolveRuntimePostgresPoolMax,
 } from '@core/adapters/storage/postgres/storage-service.js';
 import {
   DEFAULT_SKILL_CATALOG,
@@ -45,6 +46,25 @@ describe('storage-service', () => {
     );
 
     expect(config.max).toBeGreaterThanOrEqual(20);
+  });
+
+  it('uses the default runtime postgres pool size when unset', () => {
+    expect(resolveRuntimePostgresPoolMax({})).toBe(20);
+  });
+
+  it('honors GANTRY_POSTGRES_POOL_MAX for constrained managed pools', () => {
+    expect(
+      resolveRuntimePostgresPoolMax({ GANTRY_POSTGRES_POOL_MAX: '10' }),
+    ).toBe(10);
+  });
+
+  it('rejects invalid GANTRY_POSTGRES_POOL_MAX values', () => {
+    expect(() =>
+      resolveRuntimePostgresPoolMax({ GANTRY_POSTGRES_POOL_MAX: '0' }),
+    ).toThrow(/positive integer/);
+    expect(() =>
+      resolveRuntimePostgresPoolMax({ GANTRY_POSTGRES_POOL_MAX: 'ten' }),
+    ).toThrow(/positive integer/);
   });
 
   it('constructs postgres storage with custom runtime schema', async () => {
