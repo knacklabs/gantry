@@ -144,6 +144,8 @@ export class MicrosoftTeamsSdkClient implements TeamsSdkClient {
     const channelData = record(activityRecord.channelData);
     const tenant = record(channelData.tenant);
     const channel = record(channelData.channel);
+    const quotedReply = teamsQuotedReply(activityRecord);
+    const replyToId = quotedReply.replyToId ?? activity.replyToId;
     const actionInvoke = adaptiveCardActionInvoke(activity);
     this.rememberConversationReference(conversationId, reference);
     if (actionInvoke?.valid === false) {
@@ -162,7 +164,7 @@ export class MicrosoftTeamsSdkClient implements TeamsSdkClient {
       await this.onMessage?.({
         conversationId,
         id: activity.id,
-        text: activity.text,
+        text: quotedReply.text ?? activity.text,
         name: activity.name,
         value: actionValue,
         from: activity.from
@@ -176,9 +178,9 @@ export class MicrosoftTeamsSdkClient implements TeamsSdkClient {
             : activity.timestamp,
         threadId:
           teamsThreadIdFromConversationId(conversationId) ??
-          activity.replyToId ??
+          replyToId ??
           activity.id,
-        replyToId: activity.replyToId,
+        replyToId,
         conversationName: activity.conversation?.name,
         conversationType: activity.conversation?.conversationType,
         attachments: activity.attachments?.map((attachment) => ({
@@ -355,6 +357,32 @@ function record(value: unknown): Record<string, unknown> {
 
 function stringValue(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
+function teamsQuotedReply(activity: Record<string, unknown>): {
+  replyToId?: string;
+  text?: string;
+} {
+  const text = stringValue(activity.text);
+  const entityReplyToId = Array.isArray(activity.entities)
+    ? activity.entities
+        .map((entity) =>
+          stringValue(record(record(entity).quotedReply).messageId),
+        )
+        .find(Boolean)
+    : undefined;
+  const markerReplyToId = text?.match(
+    /<quoted\s+messageId=(["'])([^"']+)\1\s*\/>/iu,
+  )?.[2];
+  return {
+    replyToId:
+      entityReplyToId ??
+      stringValue(markerReplyToId) ??
+      stringValue(activity.replyToId),
+    text: text
+      ?.replace(/^\s*<quoted\s+messageId=(["'])([^"']+)\1\s*\/>\s*/iu, '')
+      .trim(),
+  };
 }
 
 function teamsThreadIdFromConversationId(

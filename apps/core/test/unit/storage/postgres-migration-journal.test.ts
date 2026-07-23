@@ -1669,4 +1669,19 @@ describe('Postgres migration journal', () => {
       'WHERE left(btrim("runtime_secret_refs_json"), 1) =',
     );
   });
+
+  it('keeps the permission-promotion denied migration compatible with older journals', () => {
+    const migration = fs.readFileSync(
+      path.resolve(
+        'apps/core/src/adapters/storage/postgres/schema/migrations/0099_permission_promotion_denied_at.sql',
+      ),
+      'utf8',
+    );
+    expect(migration).toContain(
+      'CREATE TABLE IF NOT EXISTS permission_promotion_counters',
+    );
+    expect(migration).toContain(
+      'ADD COLUMN IF NOT EXISTS denied_at timestamptz',
+    );
+  });
 });

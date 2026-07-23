@@ -107,6 +107,97 @@ describe('MicrosoftTeamsSdkClient', () => {
     );
   });
 
+  it('normalizes Teams quoted replies from entity metadata', async () => {
+    const inbound = vi.fn(async () => undefined);
+    const process = vi.fn(async (request, response, logic) => {
+      await logic({ activity: Activity.fromObject(request.body) });
+      response.status(200).end();
+    });
+    const client = new MicrosoftTeamsSdkClient(credentials, {
+      adapter: { process, continueConversation: vi.fn() } as never,
+      authorize: (async (request, _response, next) => {
+        request.user = { aud: 'bot-app-id' };
+        next();
+      }) as never,
+    });
+    await client.start({ credentials, onMessage: inbound });
+
+    await client.handleHttpIngress!(
+      Object.assign(new EventEmitter(), {
+        method: 'POST',
+        headers: { authorization: 'Bearer token' },
+      }) as never,
+      responseStub() as never,
+      {
+        type: 'message',
+        id: 'reply-activity-1',
+        text: 'A1B2',
+        replyToId: 'thread-root-1',
+        channelId: 'msteams',
+        serviceUrl: 'https://smba.trafficmanager.net/emea/',
+        conversation: { id: 'conversation-1', tenantId: 'tenant-id' },
+        from: { id: 'teams-user-1', aadObjectId: 'aad-user-1' },
+        recipient: { id: 'bot-app-id' },
+        entities: [
+          {
+            type: 'quotedReply',
+            quotedReply: { messageId: 'captcha-message-1' },
+          },
+        ],
+      },
+    );
+
+    expect(inbound).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: 'A1B2',
+        replyToId: 'captcha-message-1',
+        threadId: 'captcha-message-1',
+      }),
+    );
+  });
+
+  it('normalizes and removes the Teams quoted-reply text marker', async () => {
+    const inbound = vi.fn(async () => undefined);
+    const process = vi.fn(async (request, response, logic) => {
+      await logic({ activity: Activity.fromObject(request.body) });
+      response.status(200).end();
+    });
+    const client = new MicrosoftTeamsSdkClient(credentials, {
+      adapter: { process, continueConversation: vi.fn() } as never,
+      authorize: (async (request, _response, next) => {
+        request.user = { aud: 'bot-app-id' };
+        next();
+      }) as never,
+    });
+    await client.start({ credentials, onMessage: inbound });
+
+    await client.handleHttpIngress!(
+      Object.assign(new EventEmitter(), {
+        method: 'POST',
+        headers: { authorization: 'Bearer token' },
+      }) as never,
+      responseStub() as never,
+      {
+        type: 'message',
+        id: 'reply-activity-2',
+        text: ' <quoted messageId="captcha-message-2"/> C3D4 ',
+        channelId: 'msteams',
+        serviceUrl: 'https://smba.trafficmanager.net/emea/',
+        conversation: { id: 'conversation-2', tenantId: 'tenant-id' },
+        from: { id: 'teams-user-1', aadObjectId: 'aad-user-1' },
+        recipient: { id: 'bot-app-id' },
+      },
+    );
+
+    expect(inbound).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: 'C3D4',
+        replyToId: 'captcha-message-2',
+        threadId: 'captcha-message-2',
+      }),
+    );
+  });
+
   it('unwraps a real Action.Execute payload and returns the required invoke response', async () => {
     const inbound = vi.fn(async () => undefined);
     const sendActivity = vi.fn(async () => ({ id: '' }));
