@@ -42,6 +42,7 @@ import type {
 import type {
   AgentConfigRepository,
   AgentRepository,
+  AgentSetupDraftRepository,
   AgentRunRepository,
   AgentSessionDigestRepository,
   AgentSessionRepository,
@@ -87,6 +88,7 @@ import { PostgresSkillCatalogRepository } from './skill-repository.postgres.js';
 import { PostgresRuntimeEventRepository } from './runtime-event-repository.postgres.js';
 import { PostgresToolCatalogRepository } from './tool-repository.postgres.js';
 import { PostgresAgentRepository } from './agent-repository.postgres.js';
+import { PostgresAgentSetupDraftRepository } from './agent-setup-draft-repository.postgres.js';
 import { PostgresOutboundDeliveryRepository } from './outbound-delivery-repository.postgres.js';
 import { PostgresCapabilitySecretRepository } from './capability-secret-repository.postgres.js';
 import { PostgresModelCredentialRepository } from './model-credential-repository.postgres.js';
@@ -121,6 +123,7 @@ import { PostgresGroupJoinOnboardingRepository } from './group-join-onboarding-r
 export interface PostgresDomainRepositoryBundle {
   apps: AppRepository;
   agents: AgentRepository;
+  agentSetupDrafts: AgentSetupDraftRepository;
   agentConfigs: AgentConfigRepository;
   providerAccounts: ProviderAccountRepository;
   conversations: ConversationRepository;
@@ -1744,6 +1747,7 @@ export function createPostgresDomainRepositories(
   return {
     apps: new PostgresAppRepository(db),
     agents: new PostgresAgentRepository(db),
+    agentSetupDrafts: new PostgresAgentSetupDraftRepository(db),
     agentConfigs: new PostgresAgentConfigRepository(db),
     providerAccounts: new PostgresProviderAccountRepository(db),
     conversations: new PostgresConversationRepository(db),

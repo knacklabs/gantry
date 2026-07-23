@@ -1,5 +1,6 @@
 export * from './apps.js';
 export * from './agents.js';
+export * from './agent-setup-drafts.js';
 export * from './async-tasks.js';
 export * from './brain.js';
 export * from './browser.js';

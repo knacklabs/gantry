@@ -736,6 +736,13 @@
       "when": 1784800000000,
       "tag": "0107_agent_description",
       "breakpoints": true
+    },
+    {
+      "idx": 108,
+      "version": "7",
+      "when": 1784800001000,
+      "tag": "0108_agent_setup_drafts",
+      "breakpoints": true
     }
   ]
 }

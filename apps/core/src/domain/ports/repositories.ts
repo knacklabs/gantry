@@ -4,6 +4,7 @@ import type {
   AgentConfigVersionId,
   AgentId,
 } from '../agent/agent.js';
+import type { AgentSetupDraft } from '../agent/agent-setup-draft.js';
 import type { App, AppId } from '../app/app.js';
 import type {
   CapabilitySecret,
@@ -128,6 +129,16 @@ export interface AgentRepository {
     agentId: AgentId;
     updatedAt: string;
   }): Promise<Agent | null>;
+}
+
+export interface AgentSetupDraftRepository {
+  getDraft(input: {
+    appId: AppId;
+    agentId: AgentId;
+  }): Promise<AgentSetupDraft | null>;
+  listDrafts(appId: AppId): Promise<AgentSetupDraft[]>;
+  saveDraft(draft: AgentSetupDraft): Promise<void>;
+  deleteDraft(input: { appId: AppId; agentId: AgentId }): Promise<boolean>;
 }
 
 export interface AgentConfigRepository {
