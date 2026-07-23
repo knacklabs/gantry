@@ -9,7 +9,7 @@ an arbitrary agent without knowing the internal routes and CLI sequence.
 
 ## Scope / Non-goals
 
-Implement a catalog-driven `/ui/setup` flow for agent identity, model access,
+Implement a catalog-driven `/ui/agents/setup` flow for agent identity, model access,
 provider connection, conversation policy/binding, profile, and readiness. The
 flow uses neutral labels and examples and accepts no persona-, person-,
 workspace-, or channel-specific defaults.
