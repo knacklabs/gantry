@@ -105,10 +105,11 @@ and the committed goal prompt.
    return an actionable 409 response; no restart occurs without an explicit
    authorized user action.
 
-5. **Canonical identity integration** — Merge the approved shared-repository
-   identity branch after current shared main; replace only the People preview
-   data adapter, resolving `server/index.ts` and lockfile conflicts without
-   parallel identity storage. Acceptance: criterion 7.
+5. **Canonical identity integration** — After the other developer's identity
+   change lands on shared `main`, merge that updated `main` into this feature
+   branch and replace only the People preview data adapter. Preserve current
+   routes and view models without parallel identity storage. Acceptance:
+   criterion 7.
 
 6. **Verification and cleanup** — Add focused tests, search for stale
    persona/channel-specific setup copy and obsolete binding paths, run the
@@ -117,9 +118,9 @@ and the committed goal prompt.
 
 ## Risks
 
-- The incoming identity branch may conflict with current control-server and
-  lockfile work. Mitigation: merge after the owner API seam is isolated and
-  preserve shared-main behavior in a dedicated integration commit.
+- The incoming identity change is owned by another developer. Mitigation: do
+  not merge their branch directly; wait for it to land on shared `main`, then
+  merge that shared-main revision in a dedicated integration commit.
 - Provider verification can leak credentials if implemented as a generic UI
   form. Mitigation: accept raw input only at the server secret boundary and
   return redacted connection metadata.

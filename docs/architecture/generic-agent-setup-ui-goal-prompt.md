@@ -4,7 +4,7 @@
 
 Deliver a generic, catalog-driven web setup flow for creating and operating any Gantry agent. The experience must use neutral labels, examples, validation, and status messages. It must not contain character-, person-, workspace-, or channel-specific defaults.
 
-The feature branch must first be integrated with the current shared `main` branch. The incoming identity-management change is the canonical People and alias foundation; it is an explicit integration dependency, not a parallel identity implementation.
+The feature branch must first be integrated with the current shared `main` branch. The incoming identity-management change is the canonical People and alias foundation once it lands on shared `main`; it is an explicit future integration dependency, not a parallel identity implementation.
 
 ## Product Contract
 
@@ -46,9 +46,9 @@ Wire existing live model, conversation discovery, and binding behavior through t
 
 Implement the minimum application and Control API contracts for secure provider connection verification, exact conversation lookup, sender/trigger policy persistence, transactional binding, profile read/update, memory status, and operational readiness/restart status. Expose matching SDK and web clients.
 
-### Stage 4 — Identity integration
+### Stage 4 — Identity integration after shared-main release
 
-Merge the approved identity-management branch from the shared repository. Replace only the People preview adapter with the canonical People API; preserve routes, view models, and generic UI language.
+After the other developer's identity change has merged into shared `main`, merge that updated `main` into this feature branch. Replace only the People preview adapter with the canonical People API; preserve routes, view models, and generic UI language.
 
 ### Stage 5 — End-to-end readiness
 

@@ -16,8 +16,8 @@ workspace-, and channel-specific default language.
 
 Proceed with the committed generic agent setup UI goal prompt. Use existing
 provider-neutral and desired-state contracts where available, integrate the
-canonical identity-management branch rather than creating a parallel identity
-model, and keep credentials server-side.
+canonical identity-management API only after its other-developer change lands
+on shared `main`, and keep credentials server-side.
 
 ## Consequences
 
