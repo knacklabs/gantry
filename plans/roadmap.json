@@ -1,12 +1,251 @@
 {
   "items": [
     {
+      "status": "pending",
+      "key": "SEC-1",
+      "title": "CI: stop running pull-request code on the persistent self-hosted runner",
+      "epic": "runtime-hardening-audit",
+      "skill": "backend",
+      "kind": "feature",
+      "story": "Critical audit finding: public PR code runs on a self-hosted runner that later holds the model key (ci.yml self-hosted + checkout PR content + npm ci + docker build + sudo + E2E_ANTHROPIC_API_KEY in one job). Run pull_request validation on GitHub-hosted or truly ephemeral one-job runners; move the real-model turn to a separate workflow gated on a reviewed trusted SHA / protected environment; do not expose a persistent host Docker daemon to PR code; minimize GITHUB_TOKEN permissions.",
+      "acceptance_criteria": [
+        "pull_request jobs no longer run on a persistent self-hosted runner (GitHub-hosted or destroyed-after-run ephemeral)",
+        "the secret-bearing real-model step runs only from a trusted SHA / protected environment, not from PR-controlled code",
+        "GITHUB_TOKEN permissions minimized; no persistent host Docker daemon exposed to PR code",
+        "authorized canary PR proves PR code cannot persist a marker/process/binary/Docker object observable by a later trusted job"
+      ],
+      "source_refs": [
+        "docs/architecture/runtime-hardening-audit-2026-07-22.md"
+      ],
+      "order": 1
+    },
+    {
+      "status": "pending",
+      "key": "SEC-2",
+      "title": "Inbound attachments: one atomic O_NOFOLLOW writer for Telegram + Slack",
+      "epic": "runtime-hardening-audit",
+      "skill": "backend",
+      "kind": "feature",
+      "story": "High audit finding: Telegram (fs.writeFile / open(path,'w')) and Slack (lstat-then-open race) attachment writers can follow a symlink out of the workspace and truncate a service-account-writable file. Create one shared hardened writer: O_CREAT|O_EXCL|O_NOFOLLOW into a verified attachment dir, validate the descriptor + containment, stream in, then atomically publish without replacing an existing target (or use generated immutable storage names + original name as metadata). Reuse the descriptor-containment pattern already in workspace-message-attachment.ts (currently a reader).",
+      "acceptance_criteria": [
+        "every inbound channel attachment write goes through one shared O_NOFOLLOW descriptor-based writer",
+        "real-filesystem adversarial tests: existing final-file symlink, final-file swap during open, ancestor swap, hard links, streaming + buffered paths; the outside target is never truncated or unlinked",
+        "no check-then-open race remains (atomic create-if-absent)"
+      ],
+      "source_refs": [
+        "docs/architecture/runtime-hardening-audit-2026-07-22.md"
+      ],
+      "order": 2
+    },
+    {
+      "status": "pending",
+      "key": "SEC-3",
+      "title": "LLM passthrough: race-free concurrency admission + fewer body copies",
+      "epic": "runtime-hardening-audit",
+      "skill": "backend",
+      "kind": "feature",
+      "story": "High audit finding: /llm/v1/* has a per-minute counter but no concurrency semaphore, and buffers \u226416 MiB bodies several times (public read -> parse -> reserialize -> loopback -> gateway read). Acquire a race-free global and per-app/key concurrency permit BEFORE reading the body; reject excess before consuming bodies; release in one finally covering disconnect/parse/setup/provider failures. Reduce the body limit unless 16 MiB is justified. (Loopback collapse is the separate SIMP-3.)",
+      "acceptance_criteria": [
+        "a global and per-app/key concurrency permit is acquired before body read; excess requests are rejected before body consumption",
+        "the permit is released in a single finally covering disconnect, parse failure, setup failure, provider failure, and streamed cleanup",
+        "barrier test: with upstream held, more-than-cap requests prove only the allowed number begin body consumption; RSS and open sockets measured under concurrent max-size requests"
+      ],
+      "source_refs": [
+        "docs/architecture/runtime-hardening-audit-2026-07-22.md"
+      ],
+      "order": 3
+    },
+    {
+      "status": "pending",
+      "key": "PERF-1",
+      "title": "IPC replay: move marker cleanup off the per-request admission path",
+      "epic": "runtime-hardening-audit",
+      "skill": "backend",
+      "kind": "feature",
+      "story": "High audit finding: reserveFreshIpcRequestId runs pruneConsumedIpcRequestIds first, which readdirSync + read/parse every replay marker on EVERY signed IPC request (~O(rate^2) over the 5-min window). Remove cleanup from admission; use periodic/amortized bounded cleanup, expiry-bucketed dirs, or a durable-uniqueness store with TTL. Preserve atomic create-if-absent replay protection; do a constant/tightly-bounded amount of work per request; avoid synchronous directory-wide I/O on the event loop.",
+      "acceptance_criteria": [
+        "no synchronous directory-wide scan on the request admission path",
+        "prepopulate 5k and 20k markers; one validation performs a bounded number of FS ops with stable latency",
+        "replay rejection after process restart and concurrent duplicate reservation still hold"
+      ],
+      "source_refs": [
+        "docs/architecture/runtime-hardening-audit-2026-07-22.md"
+      ],
+      "order": 4
+    },
+    {
+      "status": "pending",
+      "key": "PERF-2",
+      "title": "Jobs: batch the latest-run projection (kill the list N+1)",
+      "epic": "runtime-hardening-audit",
+      "skill": "backend",
+      "kind": "feature",
+      "story": "High audit finding: GET /v1/jobs runs loadLatestRunsByJobId = Promise.all of one listJobRuns(job.id,1) per job (up to 500 concurrent). Add one batch repository method returning the latest run for all requested job IDs via DISTINCT ON (job_id) or a window function; build the visibility metadata synchronously from two maps. Subsumes the audit's simplification #4.",
+      "acceptance_criteria": [
+        "a 500-job list issues a constant, small number of SQL queries (instrumented)",
+        "latest-run ordering, health/staleness, error summaries, app filtering, and the public response schema are unchanged",
+        "load test: concurrent list requests hold pool wait time and p95/p99 within target"
+      ],
+      "source_refs": [
+        "docs/architecture/runtime-hardening-audit-2026-07-22.md"
+      ],
+      "order": 5
+    },
+    {
+      "status": "pending",
+      "key": "PERF-3",
+      "title": "SSE: reserve the stream permit before subscription setup",
+      "epic": "runtime-hardening-audit",
+      "skill": "backend",
+      "kind": "feature",
+      "story": "Medium audit finding (TOCTOU): the session event-stream cap is checked before activeStreams is incremented after an await, so >25 concurrent setups all pass. Reserve/increment a token synchronously immediately after the check, before the first await; release it in one idempotent cleanup on setup failure/disconnect/close/normal end (mirror the sibling wait route). NOTE: overlaps CO-2 (coordination hardening TOCTOU batch) \u2014 land it there or here, not twice.",
+      "acceptance_criteria": [
+        "the stream permit is reserved synchronously before the first await",
+        "barrier test: 26 concurrent requests admit exactly 25; the rest get 429 TOO_MANY_STREAMS; permits returned once on failure/disconnect",
+        "reconciled with CO-2 so the TOCTOU fix is not duplicated"
+      ],
+      "source_refs": [
+        "docs/architecture/runtime-hardening-audit-2026-07-22.md"
+      ],
+      "order": 6
+    },
+    {
+      "status": "pending",
+      "key": "SEC-4",
+      "title": "Rate limits: cluster-authoritative store or declared singleton (decision required)",
+      "epic": "runtime-hardening-audit",
+      "skill": "backend",
+      "kind": "feature",
+      "story": "Medium audit finding: control + gateway rate limiters are per-process in-memory Maps, so the effective limit multiplies by replica count and resets on restart. Architecture decision required: enforce counters through one shared atomic store (Postgres/Redis) OR make the service singleton and reject horizontally-scaled config; document per-process vs cluster-wide for each limit. Record a decision before implementing.",
+      "acceptance_criteria": [
+        "a decision record chooses shared-store vs declared-singleton and is accepted",
+        "two live replicas accept a combined count equal to the configured cluster limit (if shared-store) OR horizontally-scaled config is rejected (if singleton)",
+        "each limit documented as per-process or cluster-wide"
+      ],
+      "source_refs": [
+        "docs/architecture/runtime-hardening-audit-2026-07-22.md"
+      ],
+      "order": 7
+    },
+    {
+      "status": "pending",
+      "key": "PERF-4",
+      "title": "Live-admission: admission caps + terminal retention (decision required)",
+      "epic": "runtime-hardening-audit",
+      "skill": "backend",
+      "kind": "feature",
+      "story": "Medium audit finding: the durable live-admission table has no per-app/per-conversation admission cap at insert and no terminal retention (rows with identity metadata accumulate forever). Add atomic admission limits at the insert transaction returning an explicit overloaded/deferred outcome; define terminal retention with an ended_at index and a bounded purge/archival job. Architecture decision required and its retention half overlaps DUR-1 / deferral D-0001 \u2014 reconcile so retention is defined once.",
+      "acceptance_criteria": [
+        "atomic per-app (and optionally per-conversation) admission cap; overload returns an explicit outcome; exact replay still returns the existing item",
+        "terminal retention defined with an ended_at-based index and a bounded purge that never removes active/deferred/recently-completed items",
+        "retention ownership reconciled with DUR-1 / D-0001 (defined once)"
+      ],
+      "source_refs": [
+        "docs/architecture/runtime-hardening-audit-2026-07-22.md"
+      ],
+      "order": 8
+    },
+    {
+      "status": "pending",
+      "key": "CI-1",
+      "title": "Make check:architecture a required CI gate",
+      "epic": "runtime-hardening-audit",
+      "skill": "backend",
+      "kind": "feature",
+      "story": "Medium audit finding: check:architecture is a documented ratchet but absent from CI. PAY-1 already restored a green baseline (exit 0). Add the command as a required CI step; add a fixture/controlled mutation per rule class proving CI fails on one additional violation; baseline any accepted debt with exact path/count entries. Sequence with E2E-3 (the same make-a-green-checker-required move).",
+      "acceptance_criteria": [
+        "check:architecture runs in ci.yml and a clean HEAD passes it",
+        "a controlled mutation per rule class proves CI fails on one added violation",
+        "expired/over-budget exceptions fail the gate"
+      ],
+      "source_refs": [
+        "docs/architecture/runtime-hardening-audit-2026-07-22.md"
+      ],
+      "order": 9
+    },
+    {
+      "status": "pending",
+      "key": "SIMP-1",
+      "title": "One canonical source for runtime queue defaults",
+      "epic": "runtime-hardening-audit",
+      "skill": "backend",
+      "kind": "refactor",
+      "story": "Audit simplification: queue defaults are encoded three times (settings-defaults, settings-parser, group-queue-policy). Export one immutable RuntimeQueueSettings default; parse by overlaying validated input onto it; pass resolved queue settings into GroupQueue. Preserve values, 0=unlimited, validation ranges, host-capacity clamping, YAML rendering, workstation defaults.",
+      "acceptance_criteria": [
+        "one canonical default; parseSettings({}) equals it; round-trips through renderer/parser",
+        "duplicate parser/queue-policy constants removed; no config/runtime circular dependency",
+        "boundary tests for zero, negative, oversized values retained"
+      ],
+      "source_refs": [
+        "docs/architecture/runtime-hardening-audit-2026-07-22.md"
+      ],
+      "order": 10
+    },
+    {
+      "status": "pending",
+      "key": "SIMP-2",
+      "title": "Construct control application services once in the composition root",
+      "epic": "runtime-hardening-audit",
+      "skill": "backend",
+      "kind": "refactor",
+      "story": "Audit simplification: createJobManagementService and createSessionInteractionModule are rebuilt per route from global getters. Build them once in the control-server composition root and pass through ControlRouteContext; keep live settings getters behind explicit getters so settings-reload behavior is unchanged.",
+      "acceptance_criteria": [
+        "job and session services constructed once and injected via ControlRouteContext",
+        "live values (settings reload, app identity, credential broker, clocks, event exchange) still read live",
+        "route tests pass before and after settings reload and runtime-store init"
+      ],
+      "source_refs": [
+        "docs/architecture/runtime-hardening-audit-2026-07-22.md"
+      ],
+      "order": 11
+    },
+    {
+      "status": "pending",
+      "key": "SIMP-3",
+      "title": "Collapse the direct-LLM loopback HTTP hop into one in-process service",
+      "epic": "runtime-hardening-audit",
+      "skill": "backend",
+      "kind": "refactor",
+      "story": "Audit simplification (pairs with SEC-3): the direct API path serializes and buffers the same request through two in-process HTTP layers (public route -> loopback -> model gateway). Extract provider forwarding into one in-process application operation used directly by the public route; keep the loopback HTTP adapter only for child runners that need an HTTP endpoint. Do after SEC-3's concurrency admission lands.",
+      "acceptance_criteria": [
+        "the direct API path no longer makes a loopback HTTP hop; one body reader and one serialize/deserialize cycle removed",
+        "provider credential isolation, per-app/route audit, provider path confinement, streaming, cancellation, rate limits, and child-runner gateway support unchanged",
+        "contract test: identical provider URL/headers/body/frames/usage/errors/cancellation before and after"
+      ],
+      "depends_on": [
+        "SEC-3"
+      ],
+      "source_refs": [
+        "docs/architecture/runtime-hardening-audit-2026-07-22.md"
+      ],
+      "order": 12
+    },
+    {
+      "status": "pending",
+      "key": "SIMP-4",
+      "title": "Make durable coordination mandatory; remove process-local fallbacks",
+      "epic": "runtime-hardening-audit",
+      "skill": "backend",
+      "kind": "refactor",
+      "story": "Audit simplification: AsyncTaskRepository atomic admission/claim are optional, and session compaction falls back to a process-global Set when the durable method is absent \u2014 two coordination systems with different guarantees. Make atomic admission/claim required for production repositories; the in-memory test repository implements the same atomic semantics. Removes createTaskWithLocalAdmission, optional-method probing, and the global compaction dedup set. Overlaps DUR-1 \u2014 fold in unless it lands sooner as standalone cleanup.",
+      "acceptance_criteria": [
+        "atomic admission/claim required; local count/create and global compaction-dedup fallbacks removed",
+        "per-app/per-agent backlog caps, compaction dedup, stale-task recovery, fencing, and restart-safe records unchanged",
+        "concurrent admission tests pass against Postgres and the in-memory repository (two workers, restart, stale tasks, cap boundaries)",
+        "reconciled with DUR-1 (not implemented twice)"
+      ],
+      "source_refs": [
+        "docs/architecture/runtime-hardening-audit-2026-07-22.md"
+      ],
+      "order": 13
+    },
+    {
       "status": "done",
       "key": "PAY-1",
       "title": "Architecture gate paydown \u2014 check:architecture exit 0",
       "epic": "harness-hygiene",
       "skill": "backend",
-      "order": 1,
+      "order": 14,
       "story": "First story through the harness. Five failing sections inventoried in the goal-prompt: file-size splits (genai-spans worst), dangling doc refs, layer-import caps, provider-boundary tokens in tests, provider literals in prompt-profile-service.",
       "acceptance_criteria": [
         "npm run check:architecture exits 0",
@@ -24,7 +263,7 @@
       "title": "Permission engine: git deterministic-gate slice",
       "epic": "permission-engine",
       "skill": "backend",
-      "order": 2,
+      "order": 15,
       "depends_on": [
         "PAY-1"
       ],
@@ -42,7 +281,7 @@
       "title": "Permission engine: decision coordinator build (remainder)",
       "epic": "permission-engine",
       "skill": "backend",
-      "order": 3,
+      "order": 16,
       "depends_on": [
         "PERM-1"
       ],
@@ -60,7 +299,7 @@
       "title": "Observer: land staged S2 emission + S3a batch-core",
       "epic": "observer",
       "skill": "backend",
-      "order": 4,
+      "order": 17,
       "depends_on": [
         "PAY-1"
       ],
@@ -80,7 +319,7 @@
       "title": "Observer S3b: xAI Grok + Kimi batch transports",
       "epic": "observer",
       "skill": "backend",
-      "order": 5,
+      "order": 18,
       "depends_on": [
         "OBS-1"
       ],
@@ -96,7 +335,7 @@
       "title": "Observer S4: digest delivery",
       "epic": "observer",
       "skill": "backend",
-      "order": 6,
+      "order": 19,
       "depends_on": [
         "OBS-2"
       ],
@@ -112,7 +351,7 @@
       "title": "Observer S5: setup wizard + preview + cold-start backfill",
       "epic": "observer",
       "skill": "backend",
-      "order": 7,
+      "order": 20,
       "depends_on": [
         "OBS-3"
       ],
@@ -128,7 +367,7 @@
       "title": "E2E: reconcile the test-matrix tracker",
       "epic": "agent-e2e-gate",
       "skill": "backend",
-      "order": 8,
+      "order": 21,
       "depends_on": [
         "PAY-1"
       ],
@@ -146,7 +385,7 @@
       "title": "E2E: remaining matrix rows",
       "epic": "agent-e2e-gate",
       "skill": "backend",
-      "order": 9,
+      "order": 22,
       "depends_on": [
         "E2E-1"
       ],
@@ -161,7 +400,7 @@
       "title": "E2E: flip agent-e2e-gate to a required check",
       "epic": "agent-e2e-gate",
       "skill": "backend",
-      "order": 10,
+      "order": 23,
       "depends_on": [
         "E2E-2"
       ],
@@ -176,7 +415,7 @@
       "title": "Close out the capability-authoring lane",
       "epic": "capability-search",
       "skill": "backend",
-      "order": 11,
+      "order": 24,
       "depends_on": [
         "PAY-1"
       ],
@@ -193,7 +432,7 @@
       "title": "MCP hybrid search",
       "epic": "capability-search",
       "skill": "backend",
-      "order": 12,
+      "order": 25,
       "depends_on": [
         "CAP-1"
       ],
@@ -209,7 +448,7 @@
       "title": "Ponytail Phase-8 offline cutover",
       "epic": "ponytail",
       "skill": "backend",
-      "order": 13,
+      "order": 26,
       "depends_on": [
         "PAY-1"
       ],
@@ -228,7 +467,7 @@
       "title": "OTel permission/decision spans",
       "epic": "observability",
       "skill": "backend",
-      "order": 14,
+      "order": 27,
       "depends_on": [
         "PAY-1"
       ],
@@ -245,7 +484,7 @@
       "title": "Durable-work primitive",
       "epic": "post-cutover",
       "skill": "backend",
-      "order": 15,
+      "order": 28,
       "depends_on": [
         "PONY-1"
       ],
@@ -261,7 +500,7 @@
       "title": "Model management: unify then UX",
       "epic": "post-cutover",
       "skill": "backend",
-      "order": 16,
+      "order": 29,
       "depends_on": [
         "PONY-1"
       ],
@@ -277,7 +516,7 @@
       "title": "Jobs recovery-intent -> columns + CAS",
       "epic": "coordination-hardening",
       "skill": "backend",
-      "order": 17,
+      "order": 30,
       "depends_on": [
         "PAY-1"
       ],
@@ -293,7 +532,7 @@
       "title": "Coordination hardening batch (locks, TOCTOU, serializer)",
       "epic": "coordination-hardening",
       "skill": "backend",
-      "order": 18,
+      "order": 31,
       "depends_on": [
         "CO-1"
       ],
@@ -308,7 +547,7 @@
       "title": "desired-state-current-export rewrite",
       "epic": "coordination-hardening",
       "skill": "backend",
-      "order": 19,
+      "order": 32,
       "depends_on": [
         "PAY-1"
       ],
@@ -323,7 +562,7 @@
       "title": "S3/MinIO file-artifact bytes",
       "epic": "artifact-store",
       "skill": "backend",
-      "order": 20,
+      "order": 33,
       "depends_on": [
         "PAY-1"
       ],
@@ -418,8 +657,12 @@
       "source_refs": [
         "docs/architecture/artifact-store-s3-goal-prompt.md"
       ]
+    },
+    {
+      "id": "runtime-hardening-audit",
+      "title": "Runtime hardening audit (2026-07-22)"
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-07-23T03:18:19+00:00"
+  "updated_at": "2026-07-23T08:33:35+00:00"
 }
