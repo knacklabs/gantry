@@ -6,7 +6,7 @@ import type { SchedulerEventAppSession } from './app-session-resolution.js';
 export async function publishSchedulerRunCompletion(input: {
   currentJob: Job;
   runId: string;
-  runStatus: 'completed' | 'failed' | 'timeout' | 'dead_lettered';
+  runStatus: 'paused' | 'completed' | 'failed' | 'timeout' | 'dead_lettered';
   notified: boolean;
   startNotified: boolean;
   summary: string;

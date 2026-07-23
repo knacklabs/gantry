@@ -165,7 +165,7 @@ export function createSchedulerJobEventEmitter(input: {
 export async function publishSchedulerCompletionEvent(input: {
   currentJob: Job;
   runId: string;
-  runStatus: 'completed' | 'failed' | 'timeout' | 'dead_lettered';
+  runStatus: 'paused' | 'completed' | 'failed' | 'timeout' | 'dead_lettered';
   notified: boolean;
   startNotified: boolean;
   summary: string;

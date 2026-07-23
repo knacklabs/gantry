@@ -53,6 +53,7 @@ export const RUNTIME_EVENT_TYPES = {
   RUN_STARTUP_DIAGNOSTIC: 'run.startup_diagnostic',
   RUN_FAILOVER: 'run.failover',
   RUN_CANCELED: 'run.canceled',
+  RUN_PAUSED: 'run.paused',
   RUN_COMPLETED: 'run.completed',
   RUN_FAILED: 'run.failed',
   RUN_TIMEOUT: 'run.timeout',

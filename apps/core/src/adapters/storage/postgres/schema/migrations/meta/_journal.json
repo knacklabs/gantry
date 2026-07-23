@@ -736,6 +736,13 @@
       "when": 1784700000000,
       "tag": "0107_permission_decision_memory",
       "breakpoints": true
+    },
+    {
+      "idx": 108,
+      "version": "7",
+      "when": 1784700100000,
+      "tag": "0108_job_runs_paused_status",
+      "breakpoints": true
     }
   ]
 }

@@ -657,7 +657,12 @@ async function runActiveJob(
             leaseToken: leaseContext.lease.leaseToken,
             workerInstanceId: leaseContext.lease.workerInstanceId,
             fencingVersion: leaseContext.lease.fencingVersion,
-            leaseOutcome: error ? 'failed' : 'completed',
+            leaseOutcome:
+              state.runStatus === 'paused'
+                ? 'released'
+                : error
+                  ? 'failed'
+                  : 'completed',
             runStatus: state.runStatus,
             resultSummary: safeResultSummary
               ? safeResultSummary.slice(0, 500)
@@ -681,7 +686,12 @@ async function runActiveJob(
           leaseToken: leaseContext.lease.leaseToken,
           workerInstanceId: leaseContext.lease.workerInstanceId,
           fencingVersion: leaseContext.lease.fencingVersion,
-          leaseOutcome: error ? 'failed' : 'completed',
+          leaseOutcome:
+            runStatus === 'paused'
+              ? 'released'
+              : error
+                ? 'failed'
+                : 'completed',
           runStatus,
           resultSummary: safeResultSummary
             ? safeResultSummary.slice(0, 500)

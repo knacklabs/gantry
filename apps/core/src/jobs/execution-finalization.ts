@@ -20,6 +20,7 @@ import type { SchedulerDependencies } from './types.js';
 const MAX_RETRY_BACKOFF_MS = 30 * 24 * 60 * 60 * 1000;
 
 export type SchedulerRunStatus =
+  | 'paused'
   | 'completed'
   | 'failed'
   | 'timeout'
@@ -150,7 +151,10 @@ export async function finalizeSchedulerJobRun(input: {
         : 'failed';
     }
     if (!pausedForSetupDuringRun && toolDenial) {
-      runStatus = 'failed';
+      // A denied tool on a fenced job run is a pending permission ASK, not a
+      // hard failure: the job pauses awaiting approval, so the run that raised
+      // the ask is `paused` (resumable) rather than `failed`.
+      runStatus = 'paused';
       const setupState = setupStateForDeniedTool({
         toolName: toolDenial.toolName,
         recoveryAction: toolDenial.recoveryAction,

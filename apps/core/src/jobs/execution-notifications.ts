@@ -20,7 +20,7 @@ import {
 
 type TerminalRunStatus = Extract<
   JobRunStatus,
-  'completed' | 'failed' | 'timeout' | 'dead_lettered'
+  'paused' | 'completed' | 'failed' | 'timeout' | 'dead_lettered'
 >;
 
 export type JobNotificationLifecycleUpdateResult =

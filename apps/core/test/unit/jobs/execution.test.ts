@@ -567,7 +567,7 @@ describe('jobs/execution', () => {
     );
     expect(opsRepository.completeJobRun).toHaveBeenCalledWith(
       expect.any(String),
-      'failed',
+      'paused',
       null,
       expect.stringContaining('Tool not on autonomous run allowlist'),
     );
@@ -643,7 +643,7 @@ describe('jobs/execution', () => {
     );
     expect(opsRepository.completeJobRun).toHaveBeenCalledWith(
       expect.any(String),
-      'failed',
+      'paused',
       null,
       expect.stringContaining('Tool not on autonomous run allowlist'),
     );
@@ -1830,7 +1830,7 @@ describe('jobs/execution', () => {
     );
     expect(opsRepository.completeJobRun).toHaveBeenCalledWith(
       expect.any(String),
-      'failed',
+      'paused',
       null,
       expect.stringContaining('Missing tool access requirement before run'),
     );
@@ -2099,7 +2099,7 @@ describe('jobs/execution', () => {
     );
   });
 
-  it('keeps explicit tool denial as terminal error', async () => {
+  it('pauses the run (not terminal error) on an explicit tool denial', async () => {
     const job = makeJob({
       access_requirements: [{ target: { kind: 'tool_rule', rule: 'Browser' } }],
     });
@@ -2152,13 +2152,13 @@ describe('jobs/execution', () => {
 
     expect(opsRepository.completeJobRun).toHaveBeenCalledWith(
       expect.any(String),
-      'failed',
+      'paused',
       'blocked',
       expect.stringContaining('Permission denied for Bash'),
     );
     expect(opsRepository.completeJobRun).toHaveBeenCalledWith(
       expect.any(String),
-      'failed',
+      'paused',
       'blocked',
       expect.not.stringContaining('post-run usage'),
     );
@@ -2244,7 +2244,7 @@ describe('jobs/execution', () => {
     );
     expect(opsRepository.completeJobRun).toHaveBeenCalledWith(
       expect.any(String),
-      'failed',
+      'paused',
       null,
       expect.stringContaining('Claude Code returned an error result'),
     );

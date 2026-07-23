@@ -10,7 +10,7 @@ export function formatRunStatusMessage(args: {
   job: Job;
   runId: string;
   runShortId?: number | null;
-  runStatus: 'completed' | 'failed' | 'timeout' | 'dead_lettered';
+  runStatus: 'paused' | 'completed' | 'failed' | 'timeout' | 'dead_lettered';
   summary: string;
   nextRun: string | null;
   retryCount: number;
@@ -91,11 +91,12 @@ export function selectJobNotificationSummary(summary: string): string {
 }
 
 function statusLabel(
-  status: 'completed' | 'failed' | 'timeout' | 'dead_lettered',
+  status: 'paused' | 'completed' | 'failed' | 'timeout' | 'dead_lettered',
   summary: string,
   denial: AutonomousToolDenial | null,
 ): string {
   if (denial) return 'Needs permission';
+  if (status === 'paused') return 'Needs permission';
   if (status === 'completed') {
     if (realNeedsAttention(summary)) return 'Completed with issues';
     if (hasPendingMemoryReviewSummary(summary)) return 'Needs memory review';
@@ -201,7 +202,7 @@ function labelFromKey(key: string): string {
 
 function notificationOutcome(
   summary: string,
-  status: 'completed' | 'failed' | 'timeout' | 'dead_lettered',
+  status: 'paused' | 'completed' | 'failed' | 'timeout' | 'dead_lettered',
   denial: AutonomousToolDenial | null,
 ): string {
   if (denial) {
@@ -232,7 +233,7 @@ function notificationOutcome(
 }
 
 function notificationAction(
-  status: 'completed' | 'failed' | 'timeout' | 'dead_lettered',
+  status: 'paused' | 'completed' | 'failed' | 'timeout' | 'dead_lettered',
   summary: string,
   denial: AutonomousToolDenial | null,
 ): string | null {
@@ -287,7 +288,7 @@ function pendingMemoryReviewCount(summary: string): number | null {
 
 function nextRunLabel(
   nextRun: string | null,
-  status: 'completed' | 'failed' | 'timeout' | 'dead_lettered',
+  status: 'paused' | 'completed' | 'failed' | 'timeout' | 'dead_lettered',
 ): string | null {
   const formattedNextRun = nextRun ? formatNextRun(nextRun) : null;
   if (formattedNextRun) return `Runs again ${formattedNextRun}.`;
