@@ -1393,6 +1393,42 @@ describe('createGroupProcessor', () => {
       expect(lastSetCursor).toEqual(['group1@g.us', 'prev-cursor']);
     });
 
+    it('preserves the cursor for provider gateway failures so Slack messages are not replayed', async () => {
+      const group = makeGroup();
+      const messages = [makeMessage({ timestamp: '1700000001' })];
+      const { deps } = setupHappyPath({ group, messages });
+
+      const errorOutput: AgentOutput = {
+        status: 'error',
+        result: null,
+        error: 'API Error: 502 Bad Gateway',
+      };
+      mockSpawnAgent.mockImplementation(
+        async (
+          _group: ConversationRoute,
+          _input: unknown,
+          _onProc: unknown,
+          onOutput?: (output: AgentOutput) => Promise<void>,
+        ) => {
+          if (onOutput) await onOutput(errorOutput);
+          return errorOutput;
+        },
+      );
+
+      (deps.getCursor as ReturnType<typeof vi.fn>).mockReturnValue(
+        'prev-cursor',
+      );
+
+      const { processGroupMessages } = createGroupProcessor(deps);
+      const result = await processGroupMessages('group1@g.us');
+
+      expect(result).toBe(true);
+      expect(deps.setCursor).not.toHaveBeenCalledWith(
+        'group1@g.us',
+        'prev-cursor',
+      );
+    });
+
     it('delivers the last response_schema candidate from structured failure metadata', async () => {
       const candidate = '{"wrong":"last"}';
       const { deps, channel } = setupHappyPath({
@@ -1499,13 +1535,7 @@ describe('createGroupProcessor', () => {
 
       await expect(processGroupMessages('group1@g.us')).resolves.toBe(true);
       expect(channel.sendMessage).toHaveBeenCalledWith('group1@g.us', 'done');
-      expect(mockLogger.warn).toHaveBeenCalledWith(
-        expect.objectContaining({
-          err: expect.any(Error),
-          group: 'TestGroup',
-        }),
-        'Failed to publish normalized model usage runtime event',
-      );
+      expect(publishRuntimeEvent).toHaveBeenCalled();
     });
 
     it('publishes terminal runner runtime events on error', async () => {

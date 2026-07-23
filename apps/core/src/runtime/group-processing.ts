@@ -62,6 +62,10 @@ import { buildGroupProcessingConversationContext } from './group-processing-cont
 import { createGroupOutputBuffer } from './group-output-buffer.js';
 import { activeTurnUiCleanupByQueue } from './group-active-turn-cleanup.js';
 import { createGroupProcessingSessionCommandHandlers } from './group-processing-session-command-handlers.js';
+import {
+  isFailoverEligibleError,
+  isMissingProviderSessionError,
+} from './failover-eligibility.js';
 let streamingGenerationCounter = 0;
 const PERMISSION_BACKGROUND_DEMOTE_MS = 120_000;
 type ProgressHeartbeat = ReturnType<typeof startGroupProgressHeartbeats>;
@@ -494,6 +498,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
       cancel: cancelTurnUiTimers,
     });
     let hadError = false;
+    let lastAgentError: string | undefined;
     let outputSentToUser = false;
     let streamedTranscriptDeliveryStatus: 'none' | 'sent' | 'partially_sent' =
       'none';
@@ -661,6 +666,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
       }
       if (result.status === 'error') {
         hadError = true;
+        lastAgentError = result.error;
         await resumeTurnProgress();
         await finalizeStreamingOutput('error-marker');
         if (!outputSentToUser && isModelAccessAuthFailure(result.error)) {
@@ -741,6 +747,9 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
         deps,
         acknowledgeFailedTurn:
           options.finalRetry === true && !deps.queue.isShuttingDown?.(),
+        preserveCursor:
+          isFailoverEligibleError(lastAgentError) ||
+          isMissingProviderSessionError(lastAgentError),
         logger,
       });
     } else {
