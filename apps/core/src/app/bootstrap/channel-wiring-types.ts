@@ -26,6 +26,7 @@ import type {
 import type { Provider } from '../../channels/provider-registry.js';
 import type { logger } from '../../infrastructure/logging/logger.js';
 import type { RuntimeSecretProvider } from '../../domain/ports/runtime-secret-provider.js';
+import type { GroupJoinOnboardingCoordinator } from '../../domain/ports/group-join-onboarding.js';
 import type { AppId } from '../../domain/app/app.js';
 import type { RuntimeEventPublishInput } from '../../domain/events/events.js';
 import type {
@@ -59,6 +60,9 @@ export type RetryTailRecoveryEnqueue = (
 ) => Promise<void>;
 
 export type ChannelAccountOptions = { providerAccountId?: string };
+export type ChannelStreamResetOptions = ChannelAccountOptions & {
+  threadId?: string;
+};
 
 export interface DurableOutboundAttemptInput {
   appId: AppId;
@@ -119,6 +123,7 @@ export interface ChannelWiringDeps {
   shouldLogDenied: typeof shouldLogDenied;
   logger: Pick<typeof logger, 'info' | 'warn' | 'debug' | 'error'>;
   runtimeSecrets: RuntimeSecretProvider;
+  groupJoinOnboarding?: GroupJoinOnboardingCoordinator;
   publishRuntimeEvent?: (event: RuntimeEventPublishInput) => Promise<unknown>;
   brainHarvestTap?: BrainChannelHarvestTap;
 }
@@ -180,7 +185,7 @@ export interface ChannelWiring {
     rawText: string,
     options?: StreamingChunkOptions,
   ) => Promise<boolean>;
-  resetStreaming: (jid: string, options?: ChannelAccountOptions) => void;
+  resetStreaming: (jid: string, options?: ChannelStreamResetOptions) => void;
   setTyping: (
     jid: string,
     isTyping: boolean,

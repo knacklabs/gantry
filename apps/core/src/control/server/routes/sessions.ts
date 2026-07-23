@@ -28,13 +28,22 @@ import {
   ensureSessionForControl,
   type SessionEventSubscription,
 } from '../session-interaction-adapter.js';
+import {
+  listSessionPendingInteractions,
+  respondToSessionPermissionInteraction,
+  SESSION_INTERACTION_DECISIONS,
+  type SessionInteractionDecision,
+  type SessionInteractionRespondOutcome,
+} from '../session-interaction-approvals.js';
 import { nowMs as currentTimeMs } from '../../../shared/time/datetime.js';
 
 function sendApplicationError(res: ServerResponse, error: unknown): boolean {
   const notFoundCode =
     error instanceof Error && error.message === 'Webhook not found'
       ? 'WEBHOOK_NOT_FOUND'
-      : 'SESSION_NOT_FOUND';
+      : error instanceof Error && error.message === 'Agent not found'
+        ? 'AGENT_NOT_FOUND'
+        : 'SESSION_NOT_FOUND';
   return sendApplicationErrorResponse(res, error, { NOT_FOUND: notFoundCode });
 }
 
@@ -176,6 +185,7 @@ export async function handleSessionRoutes(
       const result = await ensureSessionForControl(ctx, {
         appId,
         assertedAppId,
+        agentId: body.agentId ?? null,
         conversationId,
         title: body.title ?? null,
         responseMode: body.responseMode,
@@ -220,6 +230,59 @@ export async function handleSessionRoutes(
         limit,
       });
       sendJson(res, 200, result);
+    } catch (error) {
+      if (!sendApplicationError(res, error)) throw error;
+    }
+    return true;
+  }
+
+  if (sessionRoute?.action === 'interactions' && req.method === 'GET') {
+    const auth = authorizeControlRequest(req, res, ctx.keys, ['sessions:read']);
+    if (!auth) return true;
+    try {
+      const session = await createSessionInteractionModule().requireSession({
+        appId: auth.appId,
+        sessionId: sessionRoute.sessionId,
+      });
+      sendJson(res, 200, await listSessionPendingInteractions(session));
+    } catch (error) {
+      if (!sendApplicationError(res, error)) throw error;
+    }
+    return true;
+  }
+
+  if (sessionRoute?.action === 'interaction-respond' && req.method === 'POST') {
+    const auth = authorizeControlRequest(req, res, ctx.keys, [
+      'approvals:write',
+    ]);
+    if (!auth) return true;
+    const body = (await readJson(req)) as Record<string, unknown>;
+    const decision = body.decision;
+    if (
+      !SESSION_INTERACTION_DECISIONS.includes(
+        decision as SessionInteractionDecision,
+      )
+    ) {
+      sendError(
+        res,
+        400,
+        'INVALID_REQUEST',
+        `decision must be one of ${SESSION_INTERACTION_DECISIONS.join(', ')}`,
+      );
+      return true;
+    }
+    try {
+      const session = await createSessionInteractionModule().requireSession({
+        appId: auth.appId,
+        sessionId: sessionRoute.sessionId,
+      });
+      const outcome = await respondToSessionPermissionInteraction({
+        session,
+        interactionId: sessionRoute.interactionId,
+        decision: decision as SessionInteractionDecision,
+        decidedBy: `api-key:${auth.kid}`,
+      });
+      sendSessionInteractionRespondOutcome(res, outcome);
     } catch (error) {
       if (!sendApplicationError(res, error)) throw error;
     }
@@ -435,6 +498,72 @@ export async function handleSessionRoutes(
   }
 
   return false;
+}
+
+function sendSessionInteractionRespondOutcome(
+  res: ServerResponse,
+  outcome: SessionInteractionRespondOutcome,
+): void {
+  switch (outcome.status) {
+    case 'resolved':
+      sendJson(res, 200, outcome);
+      return;
+    case 'not_found':
+      sendError(
+        res,
+        404,
+        'INTERACTION_NOT_FOUND',
+        'No pending interaction with this id exists for this session.',
+      );
+      return;
+    case 'already_resolved':
+      sendError(
+        res,
+        409,
+        'INTERACTION_ALREADY_RESOLVED',
+        'This interaction was already decided.',
+      );
+      return;
+    case 'question_unsupported':
+      sendError(
+        res,
+        409,
+        'INTERACTION_KIND_UNSUPPORTED',
+        'Question interactions cannot be answered through this API yet; only permission interactions are supported.',
+      );
+      return;
+    case 'batch_unsupported':
+      sendError(
+        res,
+        409,
+        'INTERACTION_BATCH_UNSUPPORTED',
+        'This interaction is part of a batched channel prompt; decide it from the channel that rendered it.',
+      );
+      return;
+    case 'option_unavailable':
+      sendError(
+        res,
+        409,
+        'DECISION_UNAVAILABLE',
+        `This decision is not available for this interaction. Available: ${outcome.options.join(', ') || 'none'}.`,
+      );
+      return;
+    case 'malformed':
+      sendError(
+        res,
+        409,
+        'INTERACTION_MALFORMED',
+        'The pending interaction record is missing its permission request snapshot.',
+      );
+      return;
+    default:
+      sendError(
+        res,
+        503,
+        'INTERACTION_RETRYABLE',
+        'Could not record the decision. Please retry.',
+      );
+  }
 }
 
 async function writeSseEvent(

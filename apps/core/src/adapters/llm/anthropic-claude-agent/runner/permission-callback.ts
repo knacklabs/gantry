@@ -6,8 +6,10 @@ import { formatDuration } from '../../../../shared/human-format.js';
 import { isPlainObject } from '../../../../shared/object.js';
 import { persistentPermissionUpdates } from '../../../../shared/permission-tool-rules.js';
 import { AUTO_PERMISSION_CLASSIFIER_WAIT_MS } from '../../../../shared/permission-mode.js';
-import { hasValidIpcResponseSignature } from './ipc-signing.js';
-import { createSignedIpcRequestEnvelope } from './ipc-signing.js';
+import {
+  createSignedIpcRequestEnvelope,
+  hasValidIpcResponseSignature,
+} from '../../../../shared/ipc-signing.js';
 import type { SemanticCapabilityDefinition } from '../../../../shared/semantic-capabilities.js';
 import {
   IPC_AUTH_TOKEN,
@@ -20,6 +22,7 @@ import {
   JOB_RUN_LEASE_FENCING_VERSION,
   JOB_RUN_LEASE_TOKEN,
   IPC_RESPONSE_KEY_ID,
+  IPC_RESPONSE_VERIFY_KEY,
   PERMISSION_MODE,
   PERMISSION_REQUEST_TIMEOUT_MS,
   PROVIDER_ACCOUNT_ID,
@@ -248,6 +251,7 @@ async function requestPermissionApprovalInner(options: {
             }
             if (
               !hasValidIpcResponseSignature(
+                IPC_RESPONSE_VERIFY_KEY,
                 raw as Record<string, unknown>,
                 responsePayload,
               )

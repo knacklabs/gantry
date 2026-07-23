@@ -1,0 +1,1360 @@
+[
+ {
+  "file": "apps/core/src/adapters/credentials/agent-credential-broker-factory.ts",
+  "rule": "provider_specific_path",
+  "reason": "The credential factory composes the Gantry Model Gateway implementation from the approved Anthropic-compatible LLM adapter boundary; capped to this one import path.",
+  "removeByPhase": "model-gateway-composition-boundary-cleanup",
+  "maxViolations": 2
+ },
+ {
+  "file": "apps/core/src/adapters/storage/postgres/factory.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 1
+ },
+ {
+  "file": "apps/core/src/adapters/storage/postgres/repositories/canonical-graph-repository.postgres.ts",
+  "rule": "provider_specific_path",
+  "reason": "Default LlmProfile insertion persists canonical response_family API shape, not an SDK provider selector; capped so repository projection does not grow provider branches.",
+  "removeByPhase": "schema-generated-llm-profile-defaults",
+  "maxViolations": 1
+ },
+ {
+  "file": "apps/core/src/adapters/storage/postgres/repositories/control-plane-graph.postgres.ts",
+  "rule": "provider_specific_path",
+  "reason": "Default LlmProfile insertion persists canonical response_family API shape, not an SDK provider selector; capped so repository projection does not grow provider branches.",
+  "removeByPhase": "schema-generated-llm-profile-defaults",
+  "maxViolations": 1
+ },
+ {
+  "file": "apps/core/src/adapters/storage/postgres/schema/agents.ts",
+  "rule": "provider_specific_path",
+  "reason": "Baseline provider/channel terminology debt from provider-neutral refactor; capped so new provider-specific code outside approved adapters fails.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 1
+ },
+ {
+  "file": "apps/core/src/adapters/storage/postgres/seeds.ts",
+  "rule": "provider_specific_path",
+  "reason": "Seeded LlmProfile rows persist the current canonical response family, not a provider selector; capped so storage projection does not grow provider-specific branches.",
+  "removeByPhase": "schema-generated-llm-profile-defaults",
+  "maxViolations": 1
+ },
+ {
+  "file": "apps/core/src/adapters/storage/postgres/storage-readiness.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 3
+ },
+ {
+  "file": "apps/core/src/adapters/storage/postgres/storage-readiness.ts",
+  "rule": "provider_specific_path",
+  "reason": "Baseline provider/channel terminology debt from provider-neutral refactor; capped so new provider-specific code outside approved adapters fails.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 1
+ },
+ {
+  "file": "apps/core/src/app/bootstrap/channel-capability-ports.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 1
+ },
+ {
+  "file": "apps/core/src/app/bootstrap/channel-wiring-types.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 3
+ },
+ {
+  "file": "apps/core/src/app/bootstrap/channel-wiring.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 7
+ },
+ {
+  "file": "apps/core/src/app/bootstrap/runtime-app.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 5
+ },
+ {
+  "file": "apps/core/src/app/bootstrap/runtime-services.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 3
+ },
+ {
+  "file": "apps/core/src/app/bootstrap/startup.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception. +1 (2026-07-14): observability tracing bootstrap (initTracing/shutdownTracing from infrastructure/observability) \u2014 settings-adjacent init; move behind a domain port when the boundary slice lands.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 6
+ },
+ {
+  "file": "apps/core/src/app/index.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Runtime composition wires infrastructure adapters, including the bounded MCP DNS lookup adapter, into application/runtime ports.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 6
+ },
+ {
+  "file": "apps/core/src/channels/channel-provider.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 1
+ },
+ {
+  "file": "apps/core/src/channels/slack/channel-delivery.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 3
+ },
+ {
+  "file": "apps/core/src/channels/slack/channel-state.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 3
+ },
+ {
+  "file": "apps/core/src/channels/telegram/channel-connect.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 4
+ },
+ {
+  "file": "apps/core/src/channels/telegram/channel-delivery.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 4
+ },
+ {
+  "file": "apps/core/src/channels/telegram/channel-prompts.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 4
+ },
+ {
+  "file": "apps/core/src/channels/telegram/channel-shared.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 4
+ },
+ {
+  "file": "apps/core/src/channels/telegram/channel-state.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 1
+ },
+ {
+  "file": "apps/core/src/cli/provider.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 3
+ },
+ {
+  "file": "apps/core/src/cli/config.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 3
+ },
+ {
+  "file": "apps/core/src/cli/doctor.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 5
+ },
+ {
+  "file": "apps/core/src/cli/group-args.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 2
+ },
+ {
+  "file": "apps/core/src/cli/group-harness.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Local CLI agent-harness administration follows existing CLI settings-persistence adapters; capped so additional config imports fail until CLI settings writes are ported.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 1
+ },
+ {
+  "file": "apps/core/src/cli/group-helpers.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 4
+ },
+ {
+  "file": "apps/core/src/cli/group-policy-format.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 1
+ },
+ {
+  "file": "apps/core/src/cli/group.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 3
+ },
+ {
+  "file": "apps/core/src/cli/index.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 4
+ },
+ {
+  "file": "apps/core/src/cli/local.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 3
+ },
+ {
+  "file": "apps/core/src/cli/memory-health.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor, plus embedding default/model imports for the semantic-memory health check; capped so new imports fail until the boundary slice removes this exception.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 3
+ },
+ {
+  "file": "apps/core/src/cli/model.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Local CLI model-default administration follows existing CLI settings-persistence adapters; capped so additional config imports fail until CLI settings writes are ported.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 1
+ },
+ {
+  "file": "apps/core/src/cli/memory-status.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 3
+ },
+ {
+  "file": "apps/core/src/cli/memory.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 4
+ },
+ {
+  "file": "apps/core/src/cli/memory-embeddings-backfill.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "CLI embedding backfill command drives the runtime backfill engine and reads embedding settings, following the existing CLI memory-administration adapters; capped until the canonical boundary cleanup ports CLI memory writes.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 6
+ },
+ {
+  "file": "apps/core/src/cli/onboarding-config.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 6
+ },
+ {
+  "file": "apps/core/src/cli/onboarding-state.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 2
+ },
+ {
+  "file": "apps/core/src/cli/runtime-group-db.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 4
+ },
+ {
+  "file": "apps/core/src/cli/setup-credentials.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 1
+ },
+ {
+  "file": "apps/core/src/cli/setup-flow-core-steps.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 2
+ },
+ {
+  "file": "apps/core/src/cli/setup-flow-final-steps.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 3
+ },
+ {
+  "file": "apps/core/src/cli/setup-flow-state.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 6
+ },
+ {
+  "file": "apps/core/src/cli/setup-flow.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 1
+ },
+ {
+  "file": "apps/core/src/cli/slack.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 4
+ },
+ {
+  "file": "apps/core/src/cli/status.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor, plus WP3 deployment-role display: `gantry status` resolves the process role and role-capability summary from the runtime roles module (resolveProcessRole/roleCapabilities). Capped so new imports fail until the boundary slice removes this exception.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 6
+ },
+ {
+  "file": "apps/core/src/cli/telegram-connect.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 3
+ },
+ {
+  "file": "apps/core/src/cli/telegram.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 3
+ },
+ {
+  "file": "apps/core/src/cli/teams.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Teams setup follows the existing CLI setup adapter pattern for env/settings persistence while the Graph discovery seam lives under channels; capped so additional config imports fail until the boundary slice extracts setup persistence.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 4
+ },
+ {
+  "file": "apps/core/src/cli/discord.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Discord setup follows the existing CLI setup adapter pattern for env/settings persistence while the REST discovery seam lives under channels; capped so additional config imports fail until the boundary slice extracts setup persistence.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 4
+ },
+ {
+  "file": "apps/core/src/config/env/index.ts",
+  "rule": "provider_specific_path",
+  "reason": "Exact config provider-name debt after removing the broad config provider allowlist; capped so new provider-specific config leakage fails.",
+  "removeByPhase": "provider-boundary-config-cleanup-phase",
+  "maxViolations": 3
+ },
+ {
+  "file": "apps/core/src/config/index.ts",
+  "rule": "provider_specific_path",
+  "reason": "Exact config provider-name debt after removing the broad config provider allowlist; capped so new provider-specific config leakage fails.",
+  "removeByPhase": "provider-boundary-config-cleanup-phase",
+  "maxViolations": 10
+ },
+ {
+  "file": "apps/core/src/config/preflight.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 3
+ },
+ {
+  "file": "apps/core/src/config/settings/desired-state-provider-conversations.ts",
+  "rule": "provider_specific_path",
+  "reason": "Exact settings provider-conversation debt after removing the broad config provider allowlist; capped so new provider-specific config leakage fails.",
+  "removeByPhase": "provider-boundary-config-cleanup-phase",
+  "maxViolations": 14
+ },
+ {
+  "file": "apps/core/src/config/settings/memory-snapshot.ts",
+  "rule": "provider_specific_path",
+  "reason": "Exact settings memory model debt after removing the broad config provider allowlist; capped so new provider-specific config leakage fails.",
+  "removeByPhase": "provider-boundary-config-cleanup-phase",
+  "maxViolations": 2
+ },
+ {
+  "file": "apps/core/src/config/settings/runtime-settings-memory-parser.ts",
+  "rule": "provider_specific_path",
+  "reason": "Exact settings memory model debt after removing the broad config provider allowlist; capped so new provider-specific config leakage fails.",
+  "removeByPhase": "provider-boundary-config-cleanup-phase",
+  "maxViolations": 1
+ },
+ {
+  "file": "apps/core/src/config/settings/control-allowlist.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 1
+ },
+ {
+  "file": "apps/core/src/config/settings/runtime-home.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 1
+ },
+ {
+  "file": "apps/core/src/config/settings/runtime-settings-defaults.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 3
+ },
+ {
+  "file": "apps/core/src/config/settings/runtime-settings-parser.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 1
+ },
+ {
+  "file": "apps/core/src/config/settings/runtime-settings.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Settings desired-state helpers still bridge provider JID and agent-folder legacy primitives until the conversation repository becomes the only registration path; capped so additional imports fail.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 2
+ },
+ {
+  "file": "apps/core/src/config/settings/runtime-settings.ts",
+  "rule": "provider_specific_path",
+  "reason": "Exact settings provider-name debt after removing the broad config provider allowlist; capped so new provider-specific config leakage fails.",
+  "removeByPhase": "provider-boundary-config-cleanup-phase",
+  "maxViolations": 11
+ },
+ {
+  "file": "apps/core/src/config/settings/runtime-settings-validation.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 5
+ },
+ {
+  "file": "apps/core/src/config/settings/sender-allowlist.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 1
+ },
+ {
+  "file": "apps/core/src/config/settings/storage.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 1
+ },
+ {
+  "file": "apps/core/src/config/source-classification.ts",
+  "rule": "provider_specific_path",
+  "reason": "Exact config source-classification provider debt after removing the broad config provider allowlist; capped so new provider-specific config leakage fails.",
+  "removeByPhase": "provider-boundary-config-cleanup-phase",
+  "maxViolations": 17
+ },
+ {
+  "file": "apps/core/src/control/server/handler-context.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 1
+ },
+ {
+  "file": "apps/core/src/control/server/index.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 2
+ },
+ {
+  "file": "apps/core/src/control/server/routes/jobs.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 1
+ },
+ {
+  "file": "apps/core/src/control/server/routes/memory.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 3
+ },
+ {
+  "file": "apps/core/src/domain/repositories/domain-types.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 1
+ },
+ {
+  "file": "apps/core/src/infrastructure/pgboss/scheduler-engine.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Scheduler engine composes config plus the full runtime jobs surface (concurrency, capability dispatch/starvation/readiness, session/worker identity, schedule, types) added by the process-role split; capped at exact current count until the scheduler is split behind an application job port.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 10
+ },
+ {
+  "file": "apps/core/src/infrastructure/service/launchd.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 2
+ },
+ {
+  "file": "apps/core/src/infrastructure/service/manager.ts",
+  "rule": "direct_risky_execution",
+  "reason": "Baseline host-execution debt pending sandbox adapter cutover; capped so new direct execution calls fail.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 1
+ },
+ {
+  "file": "apps/core/src/infrastructure/service/manager.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 3
+ },
+ {
+  "file": "apps/core/src/jobs/execution.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 4
+ },
+ {
+  "file": "apps/core/src/jobs/ipc-admin-handlers.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 5
+ },
+ {
+  "file": "apps/core/src/jobs/ipc-handler.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 2
+ },
+ {
+  "file": "apps/core/src/jobs/ipc-scheduler-create-handlers.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 3
+ },
+ {
+  "file": "apps/core/src/jobs/ipc-scheduler-mutate-handlers.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 3
+ },
+ {
+  "file": "apps/core/src/jobs/ipc-shared.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 5
+ },
+ {
+  "file": "apps/core/src/jobs/schedule-math.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 2
+ },
+ {
+  "file": "apps/core/src/jobs/schedule.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 2
+ },
+ {
+  "file": "apps/core/src/jobs/scheduler.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 3
+ },
+ {
+  "file": "apps/core/src/jobs/scheduler.ts",
+  "rule": "forbidden_external_import_by_layer",
+  "reason": "Non-executing-role manual trigger spins an ephemeral send-only pg-boss client directly; capped at exact count until the queue transport is behind an adapter port.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 1
+ },
+ {
+  "file": "apps/core/src/jobs/system-jobs.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 2
+ },
+ {
+  "file": "apps/core/src/jobs/types.ts",
+  "rule": "forbidden_external_import_by_layer",
+  "reason": "Baseline external-import debt from runtime-to-adapter extraction; capped so new runtime package imports fail until adapter ports replace this path.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 1
+ },
+ {
+  "file": "apps/core/src/memory/app-memory-boundaries.ts",
+  "rule": "forbidden_external_import_by_layer",
+  "reason": "Baseline external-import debt from runtime-to-adapter extraction; capped so new runtime package imports fail until adapter ports replace this path.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 1
+ },
+ {
+  "file": "apps/core/src/memory/app-memory-boundaries.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 1
+ },
+ {
+  "file": "apps/core/src/memory/app-memory-dreaming.ts",
+  "rule": "forbidden_external_import_by_layer",
+  "reason": "Baseline external-import debt from runtime-to-adapter extraction; capped so new runtime package imports fail until adapter ports replace this path.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 2
+ },
+ {
+  "file": "apps/core/src/memory/app-memory-dreaming.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 1
+ },
+ {
+  "file": "apps/core/src/memory/app-memory-service.ts",
+  "rule": "forbidden_external_import_by_layer",
+  "reason": "Baseline external-import debt from runtime-to-adapter extraction; capped so new runtime package imports fail until adapter ports replace this path.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 2
+ },
+ {
+  "file": "apps/core/src/memory/app-memory-service.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 4
+ },
+ {
+  "file": "apps/core/src/memory/app-memory-backfill.ts",
+  "rule": "forbidden_external_import_by_layer",
+  "reason": "Semantic-memory embedding backfill engine carrying the same Postgres-backed runtime debt as the memory service slice; replace with repository ports in the canonical boundary cleanup.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 1
+ },
+ {
+  "file": "apps/core/src/memory/app-memory-backfill.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Semantic-memory embedding backfill engine carrying the same Postgres-backed runtime debt as the memory service slice; replace with repository ports in the canonical boundary cleanup.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 3
+ },
+ {
+  "file": "apps/core/src/memory/app-memory-backfill-candidates.ts",
+  "rule": "forbidden_external_import_by_layer",
+  "reason": "Semantic-memory backfill candidate scan carrying the same Postgres-backed runtime debt as the memory service slice; replace with repository ports in the canonical boundary cleanup.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 2
+ },
+ {
+  "file": "apps/core/src/memory/app-memory-backfill-candidates.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Semantic-memory backfill candidate scan carrying the same Postgres-backed runtime debt as the memory service slice; replace with repository ports in the canonical boundary cleanup.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 1
+ },
+ {
+  "file": "apps/core/src/memory/app-memory-backfill-runs.ts",
+  "rule": "forbidden_external_import_by_layer",
+  "reason": "Semantic-memory backfill run records carrying the same Postgres-backed runtime debt as the memory service slice; replace with repository ports in the canonical boundary cleanup.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 2
+ },
+ {
+  "file": "apps/core/src/memory/app-memory-backfill-runs.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Semantic-memory backfill run records carrying the same Postgres-backed runtime debt as the memory service slice; replace with repository ports in the canonical boundary cleanup.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 2
+ },
+ {
+  "file": "apps/core/src/memory/app-memory-backfill-provider-batch.ts",
+  "rule": "forbidden_external_import_by_layer",
+  "reason": "Semantic-memory provider batch poll/import carrying the same Postgres-backed runtime debt as the memory service slice; replace with repository ports in the canonical boundary cleanup.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 2
+ },
+ {
+  "file": "apps/core/src/memory/app-memory-backfill-provider-batch.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Semantic-memory provider batch poll/import carrying the same Postgres-backed runtime debt as the memory service slice; replace with repository ports in the canonical boundary cleanup.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 2
+ },
+ {
+  "file": "apps/core/src/memory/app-memory-embedding-writes.ts",
+  "rule": "forbidden_external_import_by_layer",
+  "reason": "Shared semantic-memory embedding write helper carrying the same Postgres-backed runtime debt as the memory service slice; replace with repository ports in the canonical boundary cleanup.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 2
+ },
+ {
+  "file": "apps/core/src/memory/app-memory-embedding-writes.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Shared semantic-memory embedding write helper carrying the same Postgres-backed runtime debt as the memory service slice; replace with repository ports in the canonical boundary cleanup.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 1
+ },
+ {
+  "file": "apps/core/src/memory/memory-embedding-cache-store.ts",
+  "rule": "forbidden_external_import_by_layer",
+  "reason": "Query-embedding cache store carrying the same Postgres-backed runtime debt as the memory service slice; replace with repository ports in the canonical boundary cleanup.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 2
+ },
+ {
+  "file": "apps/core/src/memory/memory-embedding-cache-store.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Query-embedding cache store carrying the same Postgres-backed runtime debt as the memory service slice; replace with repository ports in the canonical boundary cleanup.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 1
+ },
+ {
+  "file": "apps/core/src/memory/app-memory-dream-embeddings.ts",
+  "rule": "forbidden_external_import_by_layer",
+  "reason": "Dream embedding writes now persist pgvector columns via the shared embedding write helper, carrying the same Postgres-backed runtime debt as the memory service slice; replace with repository ports in the canonical boundary cleanup.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 1
+ },
+ {
+  "file": "apps/core/src/memory/app-memory-dream-embeddings.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Dream embedding writes now persist pgvector columns via the shared embedding write helper, carrying the same Postgres-backed runtime debt as the memory service slice; replace with repository ports in the canonical boundary cleanup.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 2
+ },
+ {
+  "file": "apps/core/src/memory/app-memory-recall-embedding.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Recall query-embedding capability reads embedding config/schema and the shared logger, carrying the same Postgres-backed runtime debt as the memory service slice; replace with repository ports in the canonical boundary cleanup.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 3
+ },
+ {
+  "file": "apps/core/src/memory/app-memory-embedding-status.ts",
+  "rule": "forbidden_external_import_by_layer",
+  "reason": "Semantic-memory status counts read embedding schema directly, carrying the same Postgres-backed runtime debt as the memory service slice; replace with repository ports in the canonical boundary cleanup.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 2
+ },
+ {
+  "file": "apps/core/src/memory/app-memory-embedding-status.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Semantic-memory status counts read embedding schema/config directly, carrying the same Postgres-backed runtime debt as the memory service slice; replace with repository ports in the canonical boundary cleanup.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 2
+ },
+ {
+  "file": "apps/core/src/memory/app-memory-trigger-dreaming.ts",
+  "rule": "forbidden_external_import_by_layer",
+  "reason": "Split from app-memory-service to keep file-size ratchet while preserving existing Postgres-backed memory dreaming debt; replace with repository ports in the canonical boundary cleanup.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 2
+ },
+ {
+  "file": "apps/core/src/memory/app-memory-trigger-dreaming.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Split from app-memory-service to keep file-size ratchet while preserving existing Postgres-backed memory dreaming debt; replace with repository ports in the canonical boundary cleanup.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 2
+ },
+ {
+  "file": "apps/core/src/memory/app-memory-item-queries.ts",
+  "rule": "forbidden_external_import_by_layer",
+  "reason": "Split from app-memory-service to keep file-size ratchet while preserving existing Postgres-backed memory debt; replace with repository ports in the canonical boundary cleanup.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 2
+ },
+ {
+  "file": "apps/core/src/memory/app-memory-item-queries.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Split from app-memory-service to keep file-size ratchet while preserving existing Postgres-backed memory debt; replace with repository ports in the canonical boundary cleanup.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 1
+ },
+ {
+  "file": "apps/core/src/memory/app-memory-review.ts",
+  "rule": "forbidden_external_import_by_layer",
+  "reason": "Memory review storage remains in the current Postgres-backed memory service slice; replace with repository ports in the canonical boundary cleanup.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 2
+ },
+ {
+  "file": "apps/core/src/memory/app-memory-review.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Memory review storage remains in the current Postgres-backed memory service slice; replace with repository ports in the canonical boundary cleanup.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 1
+ },
+ {
+  "file": "apps/core/src/memory/maintenance-queue.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 2
+ },
+ {
+  "file": "apps/core/src/memory/memory-embedding-cache.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 2
+ },
+ {
+  "file": "apps/core/src/memory/memory-embeddings.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Brokered memory embeddings still resolve credential-broker adapters from the runtime memory module in this slice; extract provider wiring into an adapter-owned composition point.",
+  "removeByPhase": "memory-embedding-provider-adapter-extraction",
+  "maxViolations": 4
+ },
+ {
+  "file": "apps/core/src/memory/memory-ipc.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 2
+ },
+ {
+  "file": "apps/core/src/memory/memory-types.ts",
+  "rule": "provider_specific_path",
+  "reason": "Baseline provider/channel terminology debt from provider-neutral refactor; capped so new provider-specific code outside approved adapters fails.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 7
+ },
+ {
+  "file": "apps/core/src/messaging/router.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 2
+ },
+ {
+  "file": "apps/core/src/platform/workspace-folder.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 1
+ },
+ {
+  "file": "apps/core/src/platform/sender-allowlist.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 8
+ },
+ {
+  "file": "apps/core/src/runtime/agent-spawn-host.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 4
+ },
+ {
+  "file": "apps/core/src/runtime/agent-spawn-process.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 2
+ },
+ {
+  "file": "apps/core/src/runtime/agent-spawn-types.ts",
+  "rule": "forbidden_external_import_by_layer",
+  "reason": "Baseline external-import debt from runtime-to-adapter extraction; capped so new runtime package imports fail until adapter ports replace this path.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 1
+ },
+ {
+  "file": "apps/core/src/runtime/agent-spawn.ts",
+  "rule": "forbidden_external_import_by_layer",
+  "reason": "Baseline external-import debt from runtime-to-adapter extraction; capped so new runtime package imports fail until adapter ports replace this path.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 1
+ },
+ {
+  "file": "apps/core/src/runtime/agent-spawn.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 5
+ },
+ {
+  "file": "apps/core/src/runtime/browser-capability.ts",
+  "rule": "direct_risky_execution",
+  "reason": "Baseline host-execution debt pending sandbox adapter cutover; capped so new direct execution calls fail.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 1
+ },
+ {
+  "file": "apps/core/src/runtime/browser-capability.ts",
+  "rule": "forbidden_external_import_by_layer",
+  "reason": "Baseline external-import debt from runtime-to-adapter extraction; capped so new runtime package imports fail until adapter ports replace this path.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 1
+ },
+ {
+  "file": "apps/core/src/runtime/browser-process.ts",
+  "rule": "forbidden_external_import_by_layer",
+  "reason": "Browser runtime inspects persisted Chrome command lines to reject non-visible or non-profile-owned session adoption; capped to this host process helper until runtime process ports are extracted.",
+  "removeByPhase": "browser-process-port-extraction",
+  "maxViolations": 1
+ },
+ {
+  "file": "apps/core/src/runtime/browser-profiles.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 1
+ },
+ {
+  "file": "apps/core/src/runtime/continuation-input.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 1
+ },
+ {
+  "file": "apps/core/src/runtime/group-processing-types.ts",
+  "rule": "forbidden_external_import_by_layer",
+  "reason": "Baseline external-import debt from runtime-to-adapter extraction; capped so new runtime package imports fail until adapter ports replace this path.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 1
+ },
+ {
+  "file": "apps/core/src/runtime/group-processing.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 2
+ },
+ {
+  "file": "apps/core/src/runtime/group-queue-stop.ts",
+  "rule": "forbidden_external_import_by_layer",
+  "reason": "Baseline external-import debt from runtime-to-adapter extraction; capped so new runtime package imports fail until adapter ports replace this path.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 1
+ },
+ {
+  "file": "apps/core/src/runtime/group-queue.ts",
+  "rule": "forbidden_external_import_by_layer",
+  "reason": "Baseline external-import debt from runtime-to-adapter extraction; capped so new runtime package imports fail until adapter ports replace this path.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 1
+ },
+ {
+  "file": "apps/core/src/runtime/group-registry.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 2
+ },
+ {
+  "file": "apps/core/src/runtime/ipc-auth-validation.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 2
+ },
+ {
+  "file": "apps/core/src/runtime/ipc-auth.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 3
+ },
+ {
+  "file": "apps/core/src/runtime/ipc-browser-handler.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 2
+ },
+ {
+  "file": "apps/core/src/runtime/ipc-interaction-handler.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 1
+ },
+ {
+  "file": "apps/core/src/runtime/ipc.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 3
+ },
+ {
+  "file": "apps/core/src/runtime/message-loop.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 2
+ },
+ {
+  "file": "apps/core/src/shared/message-cursor.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 1
+ },
+ {
+  "file": "apps/core/src/shared/browser-site.ts",
+  "rule": "forbidden_external_import_by_layer",
+  "reason": "Browser usage settings and runtime auditing need one shared public-suffix-aware eTLD+1 normalizer; capped to this helper until shared parser dependencies are formally modeled.",
+  "removeByPhase": "browser-usage-config-contract",
+  "maxViolations": 1
+ },
+ {
+  "file": "apps/core/src/application/mcp/mcp-output-schema-validator.ts",
+  "rule": "forbidden_external_import_by_layer",
+  "reason": "MCP outputSchema validation uses the installed JSON Schema validator until MCP proxy execution is split behind an adapter-owned validation port; capped to the single validator import.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 1
+ },
+ {
+  "file": "apps/core/src/application/mcp/mcp-tool-proxy.ts",
+  "rule": "forbidden_external_import_by_layer",
+  "reason": "Current MCP proxy owns direct MCP SDK transport calls until the MCP proxy is split behind an adapter port; capped so additional SDK imports fail.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 4
+ },
+ {
+  "file": "apps/core/src/messaging/text-styles.ts",
+  "rule": "provider_specific_path",
+  "reason": "Baseline channel formatting dialect name remains in the messaging formatter until provider-specific rendering is moved fully behind channel adapters.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 1
+ },
+ {
+  "file": "apps/core/src/shared/model-catalog.ts",
+  "rule": "provider_specific_path",
+  "reason": "Exact shared model-catalog provider debt after removing the broad shared provider allowlist; capped so new provider-specific shared leakage fails.",
+  "removeByPhase": "provider-boundary-model-catalog-cleanup-phase",
+  "maxViolations": 44
+ },
+ {
+  "file": "apps/core/src/shared/model-catalog-openai-compatible.ts",
+  "rule": "provider_specific_path",
+  "reason": "Sibling of model-catalog.ts holding the eight OpenAI-compatible DeepAgents-lane catalog entries (groq/deepseek/xai/together/fireworks/cerebras/perplexity/gemini); extracted to keep model-catalog.ts under its line budget. Same intentional provider-catalog debt, capped to its exact entry set.",
+  "removeByPhase": "provider-boundary-model-catalog-cleanup-phase",
+  "maxViolations": 46
+ },
+ {
+  "file": "apps/core/src/shared/model-cache-support.ts",
+  "rule": "provider_specific_path",
+  "reason": "Provider-side cache accounting maps catalog cache modes to registry-declared provider behavior in one exact helper; capped so cache logic cannot spread into other shared files.",
+  "removeByPhase": "provider-cache-registry-cleanup-phase",
+  "maxViolations": 6
+ },
+ {
+  "file": "apps/core/src/shared/model-provider-registry.ts",
+  "rule": "provider_specific_path",
+  "reason": "The model provider registry is the intentional source of truth for provider definitions, credential modes, gateway behavior, and cache metadata until the architecture checker has first-class provider-registry ownership.",
+  "removeByPhase": "provider-registry-boundary-rule",
+  "maxViolations": 41
+ },
+ {
+  "file": "apps/core/src/shared/model-provider-registry-openai-compatible.ts",
+  "rule": "provider_specific_path",
+  "reason": "Sibling of model-provider-registry.ts holding the eight OpenAI-compatible DeepAgents-lane provider definitions (groq/deepseek/xai/together/fireworks/cerebras/perplexity/gemini); extracted to keep model-provider-registry.ts under its line budget. Same intentional provider-registry source-of-truth debt, capped to its exact provider set.",
+  "removeByPhase": "provider-registry-boundary-rule",
+  "maxViolations": 22
+ },
+ {
+  "file": "apps/core/src/cli/settings.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Local settings CLI is an adapter over settings.yaml parsing and runtime storage export; extract a command port before tightening this boundary.",
+  "removeByPhase": "settings-desired-state-port-extraction",
+  "maxViolations": 2
+ },
+ {
+  "file": "apps/core/src/cli/credentials.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "The credentials CLI is an owner/admin adapter over settings-backed credential readiness and still imports runtime settings directly until the credential command service is extracted.",
+  "removeByPhase": "credential-cli-service-boundary",
+  "maxViolations": 1
+ },
+ {
+  "file": "apps/core/src/jobs/ipc-runtime-admin-handlers.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Runtime admin IPC composes reviewed settings.yaml writes, preflight, and storage-backed validation until the admin settings tool is moved behind an application port.",
+  "removeByPhase": "settings-desired-state-port-extraction",
+  "maxViolations": 9
+ },
+ {
+  "file": "apps/core/src/runtime/settings-reload-watcher.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Runtime settings watcher composes filesystem reload, validation, and desired-state reconciliation until reload is represented as an application port.",
+  "removeByPhase": "settings-desired-state-port-extraction",
+  "maxViolations": 6
+ },
+ {
+  "file": "apps/core/src/runtime/egress-gateway.ts",
+  "rule": "forbidden_external_import_by_layer",
+  "reason": "The runtime-owned egress gateway owns temporary Node HTTP/socket plumbing until the outbound transport adapter port is extracted.",
+  "removeByPhase": "egress-gateway-adapter-extraction",
+  "maxViolations": 3
+ },
+ {
+  "file": "apps/core/src/adapters/llm/anthropic-claude-agent/execution-adapter.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Anthropic execution adapter currently consumes the host runtime spawn contract while this phase extracts provider-specific preparation behind a runtime-selected adapter; collapse to an application-owned port in the next boundary cleanup.",
+  "removeByPhase": "provider-neutral execution adapter follow-up",
+  "maxViolations": 3
+ },
+ {
+  "file": "apps/core/src/adapters/llm/anthropic-claude-agent/memory-query.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Anthropic memory LLM adapter reuses existing config and credential-broker access while direct SDK imports are moved out of memory; move credential runtime config behind an application port next.",
+  "removeByPhase": "memory credential port cleanup",
+  "maxViolations": 3
+ },
+ {
+  "file": "apps/core/src/adapters/llm/openai-memory/memory-gateway-injection.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "OpenAI-family memory LLM adapter reuses the same credential-broker runtime config as the Anthropic memory adapter to reach the Gantry model gateway; move credential runtime config behind an application port next.",
+  "removeByPhase": "memory credential port cleanup",
+  "maxViolations": 1
+ },
+ {
+  "file": "apps/core/src/memory/extractor-llm.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Pre-existing memory runtime dependencies on config and logging remain unchanged by the Anthropic SDK extraction.",
+  "removeByPhase": "memory service layering cleanup",
+  "maxViolations": 2
+ },
+ {
+  "file": "apps/core/src/memory/memory-llm-proposals.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Split from extractor-llm to keep file-size ratchet while preserving existing memory LLM config and logging dependencies.",
+  "removeByPhase": "memory service layering cleanup",
+  "maxViolations": 2
+ },
+ {
+  "file": "apps/core/src/control/server/routes/agents.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Agent profile-file endpoints materialize visible profile mirrors and resolve the workspace folder; capped so additional adapter->runtime/config imports fail until the canonical boundary slice extracts a profile composition seam.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 2
+ },
+ {
+  "file": "apps/core/src/app/bootstrap/fleet-boot.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Fleet bootstrap composes Postgres runtime-store, S3/local artifact stores, and settings/config services at the worker entrypoint; capped at exact current count until the fleet-boot composition is moved behind an application bootstrap port.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 8
+ },
+ {
+  "file": "apps/core/src/app/bootstrap/fleet-boot.ts",
+  "rule": "forbidden_external_import_by_layer",
+  "reason": "Fleet bootstrap composes Postgres runtime-store, S3/local artifact stores, and settings/config services at the worker entrypoint; capped at exact current count until the fleet-boot composition is moved behind an application bootstrap port.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 1
+ },
+ {
+  "file": "apps/core/src/jobs/toolchain-bake-bootstrap.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Toolchain bake bootstrap wires config, Postgres runtime-store, and S3/local artifact stores for first-boot bake provisioning; capped at exact current count until artifact provisioning moves behind a port.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 5
+ },
+ {
+  "file": "apps/core/src/jobs/toolchain-bake-queue.ts",
+  "rule": "forbidden_external_import_by_layer",
+  "reason": "Toolchain bake/manifest job uses pg/pg-boss directly for LISTEN/NOTIFY and queue plumbing; capped at exact count until the queue transport is behind an adapter port.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 1
+ },
+ {
+  "file": "apps/core/src/jobs/toolchain-manifest-listener.ts",
+  "rule": "forbidden_external_import_by_layer",
+  "reason": "Toolchain bake/manifest job uses pg/pg-boss directly for LISTEN/NOTIFY and queue plumbing; capped at exact count until the queue transport is behind an adapter port.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 1
+ },
+ {
+  "file": "apps/core/src/jobs/toolchain-manifest-notify.ts",
+  "rule": "forbidden_external_import_by_layer",
+  "reason": "Toolchain bake/manifest job uses pg/pg-boss directly for LISTEN/NOTIFY and queue plumbing; capped at exact count until the queue transport is behind an adapter port.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 1
+ },
+ {
+  "file": "apps/core/src/config/settings/settings-import-service.ts",
+  "rule": "forbidden_external_import_by_layer",
+  "reason": "Fleet settings revision import/notify uses pg directly for LISTEN/NOTIFY revision propagation; capped at exact count until the settings transport is behind an adapter port.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 1
+ },
+ {
+  "file": "apps/core/src/config/settings/settings-revision-notify.ts",
+  "rule": "forbidden_external_import_by_layer",
+  "reason": "Fleet settings revision import/notify uses pg directly for LISTEN/NOTIFY revision propagation; capped at exact count until the settings transport is behind an adapter port.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 1
+ },
+ {
+  "file": "apps/core/src/cli/artifacts.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Artifacts/bake CLI composes config plus runtime toolchain queue/reaper/notify services as a local admin adapter; capped at exact count until the toolchain command service is extracted.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 4
+ },
+ {
+  "file": "apps/core/src/cli/bake.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Artifacts/bake CLI composes config plus runtime toolchain queue/reaper/notify services as a local admin adapter; capped at exact count until the toolchain command service is extracted.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 4
+ },
+ {
+  "file": "apps/core/src/cli/group-access.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Group-access CLI is a local admin adapter over settings.yaml desired-state writers and runtime settings types; capped at exact count until the group-access command service is extracted.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 3
+ },
+ {
+  "file": "apps/core/src/cli/group-engine.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Group-engine CLI verb is a local admin adapter over settings.yaml desired-state writers and runtime settings types (mirrors group-access); capped at exact count until the agent-command service is extracted.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 3
+ },
+ {
+  "file": "apps/core/src/cli/group-list.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Group-list CLI verb reads runtime settings to render each agent's effective engine; capped at exact count until the agent-command service is extracted.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 1
+ },
+ {
+  "file": "apps/core/src/control/server/routes/system.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "System control routes read draining state, settings-load state, and config directly for /readyz, /metrics, and /v1/status; capped at exact count until readiness/draining are injected through ControlRouteContext.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 3
+ },
+ {
+  "file": "apps/core/src/control/server/routes/settings.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Settings control routes parse and import fleet settings revisions via config services directly; capped at exact count until settings parse/import is injected through ControlRouteContext.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 2
+ },
+ {
+  "file": "apps/core/src/runtime/settings-revision-listener.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Runtime settings revision listener composes desired-state service, settings import, and revision notify directly; capped at exact count until revision propagation is an application port.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 3
+ },
+ {
+  "file": "apps/core/src/jobs/execution-readiness.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Job execution-readiness reads config and the Postgres runtime-store directly to compute fleet readiness; capped at exact count until readiness storage access is behind a repository port.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 2
+ },
+ {
+  "file": "apps/core/src/runtime/ipc-interaction-processing.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "IPC interaction processing reads the agent access policy from config/profiles for locked-agent enforcement; capped to this single import until access policy is exposed through a runtime-owned port.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 1
+ },
+ {
+  "file": "apps/core/src/jobs/toolchain-bake-runner.ts",
+  "rule": "direct_risky_execution",
+  "reason": "Toolchain bake runner spawns the registry-pinned npm install child process directly for bake jobs; capped to this single call until bake execution moves through the sandbox adapter.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 1
+ },
+ {
+  "file": "apps/core/src/shared/agent-engine.ts",
+  "rule": "provider_specific_path",
+  "reason": "public AgentEngine vocabulary per docs/architecture/deepagents-agent-engine-handoff-plan.md",
+  "removeByPhase": "provider-boundary-model-catalog-cleanup-phase",
+  "maxViolations": 2
+ },
+ {
+  "file": "apps/core/src/shared/model-execution-route.ts",
+  "rule": "provider_specific_path",
+  "reason": "public AgentEngine vocabulary per docs/architecture/deepagents-agent-engine-handoff-plan.md",
+  "removeByPhase": "provider-boundary-model-catalog-cleanup-phase",
+  "maxViolations": 4
+ },
+ {
+  "file": "apps/core/src/memory/app-memory-review-create.ts",
+  "rule": "forbidden_external_import_by_layer",
+  "reason": "Memory review creation queries Postgres via drizzle exactly like its sibling memory query modules; capped so new external imports fail until the canonical storage-port refactor removes direct drizzle use from the memory layer.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 2
+ },
+ {
+  "file": "apps/core/src/memory/app-memory-review-create.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Memory review creation reads the Postgres schema tables directly like its sibling memory query modules; capped so new adapter imports fail until the canonical storage-port refactor.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 1
+ },
+ {
+  "file": "apps/core/src/memory/app-memory-dreaming-review-routing.ts",
+  "rule": "forbidden_external_import_by_layer",
+  "reason": "Dream review routing journals decisions and updates candidate status via drizzle exactly like its sibling memory dreaming modules; capped until the canonical storage-port refactor.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 1
+ },
+ {
+  "file": "apps/core/src/memory/app-memory-dreaming-review-routing.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Dream review routing reads Postgres schema tables directly like its sibling memory dreaming modules; capped until the canonical storage-port refactor.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 1
+ },
+ {
+  "file": "apps/core/src/shared/sdk-native-skill-names.ts",
+  "rule": "provider_specific_path",
+  "reason": "anthropic_sdk is a deliberate sentinel token of the agent-harness selection contract (decision 0028); relocation would force a forbidden application-to-adapter import. Exact ratchet; review trigger ledgered as deferral D-0004.",
+  "removeByPhase": "agent-harness-vocabulary-supersedes-0028",
+  "maxViolations": 4
+ }
+]

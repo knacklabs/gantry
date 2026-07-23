@@ -1,23 +1,29 @@
+# Implementation default (what /codex:rescue runs): the GPT-5.6 flagship at
+# medium effort — bounded tasks with approved plans rarely need more; escalate
+# effort to high for migrations/cross-domain/concurrency/security-sensitive
+# work. Code EXPLORATION goes through /codex:rescue --model gpt-5.6-terra
+# --effort high (read-only by default); explore.config.toml serves
+# Codex-native sessions — raw codex exec is hook-blocked, no exceptions.
+# Agents under .codex/agents/ override per-role.
+model = "gpt-5.6-sol"
+model_reasoning_effort = "medium"
 plan_mode_reasoning_effort = "high"
+# Terse output: artifacts and diffs carry the substance, not prose.
+model_verbosity = "low"
+model_reasoning_summary = "concise"
 personality = "pragmatic"
-sandbox_mode = "workspace-write"
+sandbox_mode = "danger-full-access"
 web_search = "cached"
-max_concurrent_threads_per_session = 8
 
 [features]
-hooks = false
+codex_hooks = true
 multi_agent = true
-goals = true
-image_generation = true
-apply_patch_freeform = true
-apply_patch_streaming_events = true
-unified_exec = true
-shell_snapshot = true
-apps_mcp_path_override = true
-artifact = true
-child_agents_md = true
-memories = true
-prevent_idle_sleep = true
-realtime_conversation = true
-workspace_owner_usage_nudge = true
-enable_request_compression = false
+streamable_shell = true
+skills = true
+
+[agents]
+max_threads = 6
+max_depth = 1
+
+[projects."/workspace"]
+trust_level = "trusted"

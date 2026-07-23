@@ -116,7 +116,7 @@ desired-state endpoints below.
 
 Fleet deployments distribute configuration as a versioned, typed JSON settings
 document through the control API instead of a file each worker watches
-([Settings Authority](../decisions/2026-06-11-settings-authority.md)). Both
+([Settings Authority](../decisions/0025-settings-authority.md)). Both
 surfaces — the workstation `settings.yaml` auto-importer and this API — run the
 same schema validation and produce the same document-path-level errors.
 
@@ -705,7 +705,7 @@ workloads. Each `ModelRecord` carries an `executionRoutes` array
 (`{ harness, executionProviderId }`) that is read-only diagnostic. The active
 API exposes `agentHarness` as the public selector and keeps
 `executionProviderId` internal/read-only diagnostic. The 2026-06-14 harness contract in
-[`docs/decisions/2026-06-14-agent-harness-selection.md`](../decisions/2026-06-14-agent-harness-selection.md)
+[`docs/decisions/0028-agent-harness-selection.md`](../decisions/0028-agent-harness-selection.md)
 defines the agent-level `agentHarness` (`auto`, `anthropic_sdk`, or
 `deepagents`) and the `settings.yaml` key `agent_harness`. DeepAgents-lane entries omit the static
 `contextWindowTokens`/`maxOutputTokens` limits because those are reported at

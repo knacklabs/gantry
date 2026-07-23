@@ -152,6 +152,8 @@ vi.mock('@core/infrastructure/logging/logger.js', () => ({
     error: vi.fn(),
   },
   redactString: (value: string) => value,
+  withLogContext: (_context: unknown, callback: () => unknown) => callback(),
+  updateLogContext: vi.fn(),
 }));
 
 import { RUNTIME_EVENT_TYPES } from '@core/domain/events/runtime-event-types.js';

@@ -43,18 +43,17 @@ import type {
   RuntimeStorageSettings,
 } from './runtime-settings-types.js';
 import {
+  quoteYamlKey,
+  renderAgentDelegatesYaml,
   renderLimitsSettingsYaml,
   renderModelAliasesYaml,
   renderModelFamiliesYaml,
+  renderObserverSettingsYaml,
+  renderObservabilitySettingsYaml,
 } from './runtime-settings-optional-blocks-renderer.js';
 import { resolveConfiguredAgentRuntime } from './runtime-settings-agent-runtime.js';
-
+import { renderProvidersYaml } from './runtime-settings-provider-renderer.js';
 const SYSTEM_DEFAULT_MODEL_ALIAS = 'opus';
-
-function quoteYamlKey(key: string): string {
-  if (/^[A-Za-z0-9_-]+$/.test(key)) return key;
-  return JSON.stringify(key);
-}
 
 function renderDefaultsYaml(
   lines: string[],
@@ -273,6 +272,7 @@ function renderConfiguredAgentsYaml(
         `    recurring_job_default_model: ${quoteYamlString(agent.recurringJobDefaultModel)}`,
       );
     }
+    renderAgentDelegatesYaml(lines, agent.delegates);
     if (agent.toolRules?.length) {
       lines.push('    tool_rules:');
       for (const rule of agent.toolRules) {
@@ -343,6 +343,9 @@ function renderAgentSourceListYaml(
       lines.push(`            id: ${quoteYamlString(source.id)}`);
     } else {
       lines.push(`          - id: ${quoteYamlString(source.id)}`);
+    }
+    if (source.status !== undefined) {
+      lines.push(`            status: ${source.status}`);
     }
     if (source.version !== undefined) {
       lines.push(`            version: ${quoteYamlString(source.version)}`);
@@ -672,19 +675,6 @@ function renderRuntimeProcessYaml(
   lines.push(...renderArtifactStoreYamlLines(runtime.artifactStore), '');
 }
 
-function renderProvidersYaml(lines: string[], settings: RuntimeSettings): void {
-  const enabledProviders = Object.entries(settings.providers)
-    .filter(([, provider]) => provider.enabled)
-    .sort(([a], [b]) => a.localeCompare(b));
-  if (enabledProviders.length === 0) return;
-
-  lines.push('providers:');
-  for (const [providerId] of enabledProviders) {
-    lines.push(`  ${quoteYamlKey(providerId)}:`, '    enabled: true');
-  }
-  lines.push('');
-}
-
 export function renderRuntimeSettingsYaml(settings: RuntimeSettings): string {
   const lines: string[] = [];
   if (settings.desiredState.authoritative) {
@@ -714,8 +704,9 @@ export function renderRuntimeSettingsYaml(settings: RuntimeSettings): string {
     renderPermissionSettingsYaml(lines, settings.permissions);
   }
   renderLimitsSettingsYaml(lines, settings.limits);
+  renderObservabilitySettingsYaml(lines, settings.observability);
+  renderObserverSettingsYaml(lines, settings.observer);
   renderModelFamiliesYaml(lines, settings.modelFamilies);
   renderModelAliasesYaml(lines, settings.modelAliases);
-
   return lines.join('\n');
 }

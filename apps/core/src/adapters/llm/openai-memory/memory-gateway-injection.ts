@@ -7,6 +7,7 @@ import { createAgentCredentialBroker } from '../../credentials/agent-credential-
 import { getRuntimeStorage } from '../../storage/postgres/runtime-store.js';
 import type { AgentCredentialBroker } from '../../../domain/ports/agent-credential-broker.js';
 import type { AgentCredentialInjection } from '../../../domain/models/credentials.js';
+import type { AgentCredentialPurpose } from '../../../domain/models/credentials.js';
 import type { AgentRunId } from '../../../domain/events/events.js';
 import type { AppId } from '../../../domain/app/app.js';
 import type { ModelRouteId } from '../../../shared/model-catalog.js';
@@ -36,6 +37,9 @@ export async function resolveGatewayMemoryInjection(input: {
   appId: AppId;
   modelRouteId: ModelRouteId;
   runId: AgentRunId;
+  purpose?: Extract<AgentCredentialPurpose, 'model_runtime' | 'model_batch'>;
+  modelBatchRequestCount?: number;
+  modelBatchId?: string;
 }): Promise<GatewayMemoryInjection> {
   const brokerConfig = getCredentialBrokerRuntimeConfig();
   const configKey = `${brokerConfig.mode}:${brokerConfig.gatewayBindHost}`;
@@ -70,10 +74,14 @@ export async function resolveGatewayMemoryInjection(input: {
   const broker = requireGatewayBroker(await memoryCredentialBrokerPromise);
   const injection = await getAgentCredentialInjection({
     mode: 'gantry',
-    purpose: 'model_runtime',
+    purpose: input.purpose ?? 'model_runtime',
     appId: input.appId,
     runId: input.runId,
     modelRouteId: input.modelRouteId,
+    ...(input.modelBatchRequestCount
+      ? { modelBatchRequestCount: input.modelBatchRequestCount }
+      : {}),
+    ...(input.modelBatchId ? { modelBatchId: input.modelBatchId } : {}),
     broker,
   });
   return {
@@ -82,10 +90,14 @@ export async function resolveGatewayMemoryInjection(input: {
       broker.revokeInjection?.({
         binding: {
           profile: 'gantry',
-          purpose: 'model_runtime',
+          purpose: input.purpose ?? 'model_runtime',
           appId: input.appId,
           runId: input.runId,
           modelRouteId: input.modelRouteId,
+          ...(input.modelBatchRequestCount
+            ? { modelBatchRequestCount: input.modelBatchRequestCount }
+            : {}),
+          ...(input.modelBatchId ? { modelBatchId: input.modelBatchId } : {}),
         },
       }) ?? Promise.resolve(),
   };

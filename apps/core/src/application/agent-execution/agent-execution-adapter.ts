@@ -56,6 +56,7 @@ export interface AgentExecutionRunInput {
   selectedSkillDisplays?: string[];
   attachedMcpSourceIds?: string[];
   semanticCapabilities?: SemanticCapabilityDefinition[];
+  providerSessionAccessFingerprint?: string;
   isScheduledJob?: boolean;
   jobId?: string;
   jobName?: string;

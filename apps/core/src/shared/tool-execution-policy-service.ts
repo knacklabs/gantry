@@ -178,8 +178,16 @@ export class ToolExecutionPolicyService {
     request: ToolExecutionRequest;
     allowedToolRules?: readonly string[];
     autonomousAllowedToolRules?: readonly string[];
+    // True for locked-preset / fixed-image agents whose capability request
+    // tools are hidden: recovery guidance must say "provision before the run"
+    // instead of instructing a hidden request tool.
+    capabilityRequestToolsHidden?: boolean;
   }): ToolPolicyDecision {
-    const protectedDecision = evaluateProtectedCapabilityRequest(input.request);
+    const requestToolsHidden = input.capabilityRequestToolsHidden === true;
+    const protectedDecision = evaluateProtectedCapabilityRequest(
+      input.request,
+      requestToolsHidden,
+    );
     if (protectedDecision) return protectedDecision;
 
     if (input.request.executionMode === 'autonomous') {
@@ -203,7 +211,10 @@ export class ToolExecutionPolicyService {
       }
       return decision(input.request, 'deny', {
         reason: autonomousDenyReason(input.request.toolName, toolPolicy.reason),
-        recoveryAction: autonomousGrantRecovery(input.request),
+        recoveryAction: autonomousGrantRecovery(
+          input.request,
+          requestToolsHidden,
+        ),
         closestRule: toolPolicy.closestRule,
       });
     }
@@ -251,6 +262,7 @@ export function evaluateProtectedCapabilityToolUse(
 
 function evaluateProtectedCapabilityRequest(
   request: ToolExecutionRequest,
+  requestToolsHidden = false,
 ): ToolPolicyDecision | null {
   if (CAPABILITY_REQUEST_TOOLS.has(request.toolName)) return null;
 
@@ -264,7 +276,7 @@ function evaluateProtectedCapabilityRequest(
     ) {
       return decision(request, 'deny', {
         reason: `Config setting "${setting}" changes capability or permission policy.`,
-        recoveryAction: protectedCapabilityRecovery(),
+        recoveryAction: protectedCapabilityRecovery(requestToolsHidden),
       });
     }
     return null;
@@ -277,7 +289,7 @@ function evaluateProtectedCapabilityRequest(
       return decision(request, 'deny', {
         reason:
           'Shell command attempts to change MCP capability configuration.',
-        recoveryAction: protectedCapabilityRecovery(),
+        recoveryAction: protectedCapabilityRecovery(requestToolsHidden),
       });
     }
     if (hasProtectedPathInGhTextPayloadCommand(command)) {
@@ -286,7 +298,7 @@ function evaluateProtectedCapabilityRequest(
         reason: mentionedPath
           ? `Shell command references protected capability target "${mentionedPath}".`
           : 'Shell command references protected capability target through GitHub payload arguments.',
-        recoveryAction: protectedCapabilityRecovery(),
+        recoveryAction: protectedCapabilityRecovery(requestToolsHidden),
       });
     }
     const safeTextPayloadCommand =
@@ -295,7 +307,7 @@ function evaluateProtectedCapabilityRequest(
     if (!safeTextPayloadCommand && protectedPathMention) {
       return decision(request, 'deny', {
         reason: `Shell command references protected capability target "${protectedPathMention}".`,
-        recoveryAction: protectedCapabilityRecovery(),
+        recoveryAction: protectedCapabilityRecovery(requestToolsHidden),
       });
     }
     const mutatesTarget =
@@ -312,7 +324,7 @@ function evaluateProtectedCapabilityRequest(
     if (mutationTarget) {
       return decision(request, 'deny', {
         reason: `Shell command mutates protected capability target "${mutationTarget}".`,
-        recoveryAction: protectedCapabilityRecovery(),
+        recoveryAction: protectedCapabilityRecovery(requestToolsHidden),
       });
     }
     return null;
@@ -325,7 +337,7 @@ function evaluateProtectedCapabilityRequest(
   if (protectedKind) {
     return decision(request, 'deny', {
       reason: `File path "${request.targetResource}" is ${protectedKind}.`,
-      recoveryAction: protectedCapabilityRecovery(),
+      recoveryAction: protectedCapabilityRecovery(requestToolsHidden),
     });
   }
   return null;
@@ -538,11 +550,26 @@ function stringField(input: unknown, field: string): string | undefined {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined;
 }
 
-function protectedCapabilityRecovery(): string {
+// Mode-aware recovery phrasing: locked-preset and fixed-image agents have the
+// capability request tools hidden, so guidance must never instruct calling
+// one; it says to provision the reviewed capability before the run instead.
+const HIDDEN_REQUEST_TOOLS_RECOVERY_PREFIX =
+  'Capability request tools are not available in this run (locked or fixed-image agent).';
+
+function protectedCapabilityRecovery(requestToolsHidden = false): string {
+  if (requestToolsHidden) {
+    return `${HIDDEN_REQUEST_TOOLS_RECOVERY_PREFIX} Ask an operator to provision the reviewed change before the run.`;
+  }
   return 'Use request_skill_install, request_skill_proposal, request_skill_dependency_install, request_mcp_server, or request_access so the change is reviewed, stored durably, and activated through Gantry access flows.';
 }
 
-function autonomousGrantRecovery(request: ToolExecutionRequest): string {
+function autonomousGrantRecovery(
+  request: ToolExecutionRequest,
+  requestToolsHidden = false,
+): string {
+  if (requestToolsHidden) {
+    return `${HIDDEN_REQUEST_TOOLS_RECOVERY_PREFIX} Ask an operator to provision a reviewed capability covering ${publicGantryToolNameForSdkTool(request.toolName)} before the run.`;
+  }
   if (isKnownProjectedBrowserMcpToolName(request.toolName)) {
     return 'request_access { "target": { "kind": "capability", "id": "browser.use" }, "temporaryOnly": false, "reason": "This autonomous run needs browser access." }';
   }

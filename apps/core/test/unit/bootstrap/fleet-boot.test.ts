@@ -88,7 +88,11 @@ vi.mock('@core/config/settings/settings-import-service.js', async () => {
   };
 });
 
-vi.mock('@core/infrastructure/logging/logger.js', () => ({ logger: log }));
+vi.mock('@core/infrastructure/logging/logger.js', () => ({
+  logger: log,
+  withLogContext: (_context: unknown, callback: () => unknown) => callback(),
+  updateLogContext: vi.fn(),
+}));
 
 import {
   buildBakeOutcomeNotice,
@@ -235,20 +239,25 @@ describe('buildBakeOutcomeNotice', () => {
     expect(log.warn).not.toHaveBeenCalled();
   });
 
-  it('sends the failure notice with the reason (unchanged)', async () => {
+  it('keeps the raw bake failure reason out of the chat notice', async () => {
     const sendMessage = vi.fn(async () => {});
     const notice = buildBakeOutcomeNotice(sendMessage);
+    const rawReason =
+      'RAW_BAKE_FAILURE_SENTINEL: npm install left-pad@1.3.0 failed (exit 1)';
 
     await notice.sendFailureNotice({
       dependency: bakeDependency(),
-      reason: 'npm install failed (exit 1)',
+      reason: rawReason,
     });
 
     expect(sendMessage).toHaveBeenCalledOnce();
     expect(sendMessage).toHaveBeenCalledWith(
       'tg:approvals',
-      'Dependency bake failed: npm install failed (exit 1)',
+      "I couldn't prepare that dependency. I left it unavailable; try again after the setup issue is fixed.",
     );
+    expect(String(sendMessage.mock.calls[0]?.[1])).not.toContain(rawReason);
+    expect(String(sendMessage.mock.calls[0]?.[1])).not.toContain('left-pad');
+    expect(String(sendMessage.mock.calls[0]?.[1])).not.toContain('npm install');
   });
 
   it('logs instead of sending when there is no approval conversation', async () => {
@@ -335,6 +344,7 @@ describe('startFleetSubsystems', () => {
       expect(reconcilerInstances).toHaveLength(1);
       expect(reconcilerInstances[0]?.start).toHaveBeenCalledOnce();
       expect(onSettingsReady).toHaveBeenCalledOnce();
+      expect(onSettingsReady).toHaveBeenCalledWith({});
 
       // Subsequent revisions never double-start.
       latest.current = revisionRow(2);

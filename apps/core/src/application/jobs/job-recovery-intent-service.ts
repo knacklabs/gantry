@@ -89,17 +89,6 @@ export async function createJobRecoveryIntent(input: {
   return { intent: nextIntent, created: true };
 }
 
-export function shouldRunRecoveryIntent(
-  job: Pick<Job, 'recovery_intent'>,
-  dedupeKey: string,
-): boolean {
-  return (
-    job.recovery_intent?.dedupe_key === dedupeKey &&
-    (job.recovery_intent.state === 'pending' ||
-      job.recovery_intent.state === 'failed')
-  );
-}
-
 export async function transitionJobRecoveryIntent(input: {
   job: Job;
   dedupeKey: string;

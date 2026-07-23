@@ -3,7 +3,9 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   PromptProfileService,
   defaultAgentsPromptMarkdown,
+  renderChannelPromptPresentationLine,
 } from '@core/application/agents/prompt-profile-service.js';
+import '@core/channels/register-builtins.js';
 
 // Tool names and flow phrases a locked (public-facing) agent must never see in
 // its assembled instructions.
@@ -66,6 +68,34 @@ describe('locked prompt assembly', () => {
       );
     },
   );
+
+  it('keeps the Output Style block and model line for locked agents', async () => {
+    const prompt = await makeService().compileSystemPrompt({
+      agentFolder: 'support_agent',
+      persona: 'generalist',
+      accessPreset: 'locked',
+      modelIdentity: {
+        alias: 'Fable 5',
+        modelId: 'claude-fable-5',
+        provider: 'Anthropic API',
+      },
+      runtimeContext: {
+        channelContextLine: renderChannelPromptPresentationLine('tg:1', 'dm'),
+        workspacePath: '/data/agents/support_agent',
+      },
+    });
+
+    expect(prompt).toContain('## Output Style');
+    expect(prompt).toContain('never trade accuracy for brevity.');
+    expect(prompt).toContain(
+      '- You are running on Fable 5 (claude-fable-5) via Anthropic API. State this plainly if the user asks which model you are; deeper runtime internals stay internal.',
+    );
+    expect(prompt).toContain('- Channel: Telegram direct message.');
+    for (const banned of BANNED_LOCKED_STRINGS) {
+      expect(prompt).not.toContain(banned);
+    }
+    expect(prompt).not.toContain('## Proactive recommendations');
+  });
 
   it('keeps the full prompt byte-identical with and without an explicit full preset', async () => {
     for (const persona of ['developer', 'operations'] as const) {

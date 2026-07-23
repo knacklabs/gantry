@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { buildRunnerSystemPrompt } from '@core/adapters/llm/anthropic-claude-agent/runner/system-prompt.js';
 import type { AgentRunnerInput } from '@core/adapters/llm/anthropic-claude-agent/runner/types.js';
@@ -26,6 +26,10 @@ const FULL_SECTIONS = [
 ];
 
 describe('buildGantryAgentSystemPrompt', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it('renders the OpenClaw-inspired full section order with stable and dynamic parts split', () => {
     const prompt = buildGantryAgentSystemPrompt({
       runtimeProjection: 'wrapped-tool-projection',
@@ -67,7 +71,6 @@ describe('buildGantryAgentSystemPrompt', () => {
     expect(prompt.prompt).toContain(
       'For multi-step work, then use todo_update',
     );
-    expect(prompt.prompt).toContain('Rich UI: render_status');
     expect(prompt.prompt).toContain('Use render_* rich UI tools');
     expect(prompt.prompt).toContain(
       'Use only the Gantry tools mounted in the current run',
@@ -84,6 +87,8 @@ describe('buildGantryAgentSystemPrompt', () => {
     expect(prompt.prompt).toContain('RunCommand(<scope>)');
     expect(prompt.prompt).not.toContain('WebFetch');
     expect(prompt.prompt).not.toContain('DeepAgents');
+    expect(prompt.prompt).not.toContain('Public Gantry catalog:');
+    expect(prompt.prompt).not.toContain('Scheduler: scheduler_*');
   });
 
   it('does not re-inject request_access taxonomy (owned by the profile, stripped for locked)', () => {
@@ -118,6 +123,141 @@ describe('buildGantryAgentSystemPrompt', () => {
     expect(prompt.prompt).not.toContain('Public Gantry catalog:');
   });
 
+  it('includes the date section with timezone in minimal mode dynamic tail', () => {
+    const prompt = buildGantryAgentSystemPrompt({
+      runtimeProjection: 'native-tool-projection',
+      promptMode: 'minimal',
+      assistantName: 'Asha',
+      currentDateTimeIso: '2026-06-17T00:00:00.000Z',
+      timezone: 'Asia/Kolkata',
+    });
+
+    expect(prompt.dynamicPrompt).toContain('## Current Date & Time');
+    expect(prompt.dynamicPrompt).toContain(
+      '2026-06-17T00:00:00.000Z (timezone: Asia/Kolkata). As of turn start; use the date tool when precision matters.',
+    );
+    expect(prompt.staticPrompt).not.toContain('## Current Date & Time');
+  });
+
+  it('renders the timezone next to the timestamp in full mode', () => {
+    const prompt = buildGantryAgentSystemPrompt({
+      runtimeProjection: 'wrapped-tool-projection',
+      promptMode: 'full',
+      currentDateTimeIso: '2026-06-17T00:00:00.000Z',
+      timezone: 'America/New_York',
+    });
+
+    expect(prompt.dynamicPrompt).toContain('(timezone: America/New_York)');
+    expect(prompt.staticPrompt).not.toContain('timezone:');
+  });
+
+  it('keeps the compiled profile in every prompt mode', () => {
+    for (const promptMode of ['full', 'minimal', 'none'] as const) {
+      const prompt = buildGantryAgentSystemPrompt({
+        runtimeProjection: 'native-tool-projection',
+        promptMode,
+        compiledSystemPrompt: 'compiled profile marker',
+        currentDateTimeIso: '2026-06-17T00:00:00.000Z',
+      });
+      expect(prompt.prompt, promptMode).toContain('compiled profile marker');
+    }
+  });
+
+  it('keeps the same capability catalog in both prompt modes and runtime families', () => {
+    const compiledSystemPrompt = [
+      '[[CAPABILITY_GUIDANCE]]',
+      '# Capability catalog',
+      '- Calendar · Team calendar — Find availability and manage events.',
+      '- Linear — Search connected issue inventory.',
+      '[[/CAPABILITY_GUIDANCE]]',
+    ].join('\n');
+
+    for (const promptMode of ['full', 'minimal'] as const) {
+      const shared = buildGantryAgentSystemPrompt({
+        runtimeProjection: 'wrapped-tool-projection',
+        promptMode,
+        compiledSystemPrompt,
+        currentDateTimeIso: '2026-07-20T00:00:00.000Z',
+      });
+      expect(shared.staticPrompt, promptMode).toContain(
+        'Calendar · Team calendar',
+      );
+      expect(shared.staticPrompt, promptMode).toContain('Linear');
+    }
+
+    const anthropic = buildRunnerSystemPrompt(
+      {
+        prompt: 'schedule a meeting',
+        workspaceFolder: 'main_agent',
+        chatJid: 'tg:team',
+        compiledSystemPrompt,
+      },
+      '',
+    );
+    const deepAgents = composeDeepAgentSystemPrompt({
+      prompt: 'schedule a meeting',
+      workspaceFolder: 'main_agent',
+      chatJid: 'tg:team',
+      compiledSystemPrompt,
+    });
+
+    expect(anthropic).toHaveLength(3);
+    expect(anthropic[0]).toContain('Calendar · Team calendar');
+    expect(anthropic[2]).not.toContain('# Capability catalog');
+    expect(deepAgents).toContain('Calendar · Team calendar');
+  });
+
+  it('drops the receipts phrasing from Execution Bias', () => {
+    const prompt = buildGantryAgentSystemPrompt({
+      runtimeProjection: 'wrapped-tool-projection',
+      promptMode: 'full',
+      currentDateTimeIso: '2026-06-17T00:00:00.000Z',
+    });
+
+    expect(prompt.prompt).toContain(
+      'keep the user informed, protect approvals, and complete the work.',
+    );
+    expect(prompt.prompt).not.toContain('with receipts');
+  });
+
+  it('keeps the static prefix byte-identical across builds at different clock times (cache safety)', () => {
+    const input = {
+      prompt: 'summarize the plan',
+      workspaceFolder: 'main_agent',
+      chatJid: 'tg:team',
+      persona: 'generalist',
+      assistantName: 'Asha',
+      promptMode: 'full',
+      compiledSystemPrompt:
+        '# Capability catalog\n- Calendar · Team calendar — Manage events.',
+      allowedTools: ['Read'],
+    } satisfies AgentRunnerInput;
+
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-06-17T00:00:00.000Z'));
+    const first = buildRunnerSystemPrompt(input, 'memory context');
+    vi.setSystemTime(new Date('2026-06-18T12:34:56.000Z'));
+    const second = buildRunnerSystemPrompt(input, 'memory context');
+    const changedMessage = buildRunnerSystemPrompt(
+      { ...input, prompt: 'a different user message' },
+      'memory context',
+    );
+
+    expect(first).toHaveLength(3);
+    expect(second).toHaveLength(3);
+    // Static prefix (everything before the dynamic boundary) must not vary
+    // with the clock or the prompt cache is broken.
+    expect(second[0]).toBe(first[0]);
+    expect(second[1]).toBe(first[1]);
+    expect(changedMessage[0]).toBe(first[0]);
+    expect(changedMessage[1]).toBe(first[1]);
+    expect(second[2]).not.toBe(first[2]);
+    expect(first[2]).toContain('2026-06-17T00:00:00.000Z');
+    expect(second[2]).toContain('2026-06-18T12:34:56.000Z');
+    expect(first[0]).toContain('# Capability catalog');
+    expect(first[2]).not.toContain('# Capability catalog');
+  });
+
   it('renders none mode as base identity only', () => {
     const prompt = buildGantryAgentSystemPrompt({
       runtimeProjection: 'native-tool-projection',
@@ -130,7 +270,7 @@ describe('buildGantryAgentSystemPrompt', () => {
     expect(prompt.dynamicPrompt).toBe('');
   });
 
-  it('includes adaptive work receipt guidance', () => {
+  it('uses plain-prose outcome guidance without receipt headings', () => {
     const prompt = buildGantryAgentSystemPrompt({
       runtimeProjection: 'wrapped-tool-projection',
       promptMode: 'full',
@@ -142,17 +282,20 @@ describe('buildGantryAgentSystemPrompt', () => {
     );
     expect(prompt.prompt).toContain('Do not produce long reports');
     expect(prompt.prompt).toContain(
-      'End pure chat answers with the answer only; do not add a receipt.',
+      'End pure chat answers with the answer only.',
     );
-    expect(prompt.prompt).toContain('include only:');
-    expect(prompt.prompt).toContain('Completed: <short outcome>');
-    expect(prompt.prompt).toContain('include the full receipt:');
-    expect(prompt.prompt).toContain('Used: <tools/capabilities>');
     expect(prompt.prompt).toContain(
-      'Changed: <files/accounts/channels or none>',
+      'For work actions, lead with the outcome in plain prose. Include supporting details only when useful or requested; never append a labeled receipt block.',
     );
-    expect(prompt.prompt).toContain('Delegated: yes/no');
-    expect(prompt.prompt).toContain('Needs attention: <blocker or none>');
+    for (const receiptHeading of [
+      'Completed:',
+      'Used:',
+      'Changed:',
+      'Delegated:',
+      'Needs attention:',
+    ]) {
+      expect(prompt.prompt).not.toContain(receiptHeading);
+    }
   });
 
   it('uses the unified static/dynamic prompt path for Anthropic personas', () => {

@@ -247,6 +247,12 @@ export interface MessageRepository {
     after?: string;
     limit?: number;
   }): Promise<Message[]>;
+  /**
+   * All conversation row ids for a chat jid. One jid can map to multiple rows
+   * (legacy-shaped plus account-qualified) until the Phase-8 restamp; readers
+   * that only know the jid must union across them.
+   */
+  listConversationIdsForJid(jid: string): Promise<ConversationId[]>;
 }
 
 export interface AgentSessionRepository {

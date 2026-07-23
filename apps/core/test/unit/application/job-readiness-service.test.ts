@@ -641,7 +641,17 @@ describe('job readiness service', () => {
       state: 'mcp_missing_credential',
       requirementType: 'mcp_server',
       requirementId: 'records',
+      message:
+        'A Gantry credential is required before this can run. Add it in Credential Center, then try again.',
+      nextAction:
+        'Add the required credentials in Credential Center, then resume or recheck the job.',
     });
+    expect(JSON.stringify(result.setupState.blockers[0])).not.toContain(
+      'GOOGLE_TOKEN_REF',
+    );
+    expect(JSON.stringify(result.setupState.blockers[0])).not.toContain(
+      'gantry credentials access set',
+    );
   });
 
   it('accepts required MCP server credentials from Gantry Credentials', async () => {

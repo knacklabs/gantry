@@ -1,12 +1,15 @@
 import fs from 'fs';
 import path from 'path';
-import { createHmac, randomUUID, verify as cryptoVerify } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 
-import { nowIso, nowMs, toIso } from '../shared/time/datetime.js';
+import { nowIso, nowMs } from '../shared/time/datetime.js';
 import { formatDuration } from '../shared/human-format.js';
+import {
+  createSignedIpcRequestEnvelope,
+  hasValidIpcResponseSignature,
+} from '../shared/ipc-signing.js';
 import { isPlainObject } from '../shared/object.js';
 import { persistentPermissionUpdates } from '../shared/permission-tool-rules.js';
-import { canonicalJson } from '../shared/canonical-json.js';
 import { AUTO_PERMISSION_CLASSIFIER_WAIT_MS } from '../shared/permission-mode.js';
 import type { SemanticCapabilityDefinition } from '../shared/semantic-capabilities.js';
 import { waitForIpcResponseFile } from './ipc-response-wait.js';
@@ -39,7 +42,7 @@ export interface PermissionIpcRuntimeEnv {
   ipcResponseKeyId: string;
   agentRunHandle?: string;
   permissionRequestTimeoutMs: number;
-  permissionMode?: 'ask' | 'auto';
+  permissionMode?: 'ask' | 'auto' | 'auto_strict';
   senderId?: string;
   senderIsControlApprover?: boolean;
   turnIntentSummary?: string;
@@ -178,7 +181,8 @@ export async function requestPermissionApprovalViaIpc(
     fs.renameSync(requestTmpPath, requestPath);
 
     const autoClassifierWait =
-      env.permissionRequestTimeoutMs <= 0 && env.permissionMode === 'auto';
+      env.permissionRequestTimeoutMs <= 0 &&
+      (env.permissionMode === 'auto' || env.permissionMode === 'auto_strict');
     if (env.permissionRequestTimeoutMs <= 0 && !autoClassifierWait) {
       return {
         approved: false,
@@ -326,53 +330,5 @@ function readPermissionResponse(input: {
           ? err.message
           : 'Failed to read permission response',
     };
-  }
-}
-
-export function createSignedIpcRequestEnvelope(
-  requestSigningKey: string | undefined,
-  payload: Record<string, unknown>,
-): Record<string, unknown> {
-  const signedPayload = {
-    ...payload,
-    requestId:
-      typeof payload.requestId === 'string' && payload.requestId.trim()
-        ? payload.requestId
-        : `ipc-${randomUUID()}`,
-    nonce: randomUUID(),
-    expiresAt: toIso(nowMs() + 5 * 60_000),
-  };
-  const signature = signIpcRequestPayload(requestSigningKey, signedPayload);
-  return signature ? { ...signedPayload, signature } : signedPayload;
-}
-
-function signIpcRequestPayload(
-  requestSigningKey: string | undefined,
-  payload: Record<string, unknown>,
-): string | undefined {
-  const key = requestSigningKey?.trim();
-  if (!key) return undefined;
-  return createHmac('sha256', key).update(canonicalJson(payload)).digest('hex');
-}
-
-export function hasValidIpcResponseSignature(
-  verifyKey: string | undefined,
-  raw: Record<string, unknown>,
-  payload: Record<string, unknown>,
-): boolean {
-  const key = verifyKey?.trim();
-  if (!key) return false;
-  const signature =
-    typeof raw.signature === 'string' ? raw.signature.trim() : '';
-  if (!signature) return false;
-  try {
-    return cryptoVerify(
-      null,
-      Buffer.from(JSON.stringify(payload)),
-      key,
-      Buffer.from(signature, 'base64'),
-    );
-  } catch {
-    return false;
   }
 }

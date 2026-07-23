@@ -16,6 +16,10 @@ const mockEnsureEgressGateway = vi.hoisted(() =>
   })),
 );
 const mockCloseEgressGateway = vi.hoisted(() => vi.fn(async () => undefined));
+const observedSpawnLogContexts = vi.hoisted(
+  () => [] as Array<Record<string, unknown>>,
+);
+const observedSpawnTrackerIds = vi.hoisted(() => [] as string[]);
 
 // Mock config
 vi.mock('@core/config/index.js', () => ({
@@ -77,7 +81,32 @@ vi.mock('@core/infrastructure/logging/logger.js', () => ({
     error: vi.fn(),
   },
   redactString: (value: string) => value,
+  withLogContext: (_context: unknown, callback: () => unknown) => callback(),
+  updateLogContext: () => undefined,
 }));
+
+vi.mock(
+  '@core/infrastructure/observability/spawn-log-context.js',
+  async (importOriginal) => {
+    const actual =
+      await importOriginal<
+        typeof import('@core/infrastructure/observability/spawn-log-context.js')
+      >();
+    return {
+      ...actual,
+      runSpawnWithLogContext: (
+        input: Record<string, unknown>,
+        run: Parameters<typeof actual.runSpawnWithLogContext>[1],
+      ) => {
+        observedSpawnLogContexts.push(input);
+        return actual.runSpawnWithLogContext(input as never, (tracker) => {
+          observedSpawnTrackerIds.push(tracker.correlationId);
+          return run(tracker);
+        });
+      },
+    };
+  },
+);
 
 // Mock fs
 vi.mock('fs', async () => {
@@ -170,6 +199,8 @@ vi.mock('@core/runtime/agent-spawn-layout.js', () => ({
 
 // Mock prompt-profile
 vi.mock('@core/application/agents/prompt-profile-service.js', () => ({
+  registerChannelPromptPresentationRenderer: vi.fn(),
+  renderChannelPromptPresentationLine: vi.fn(() => undefined),
   PromptProfileService: vi.fn(function PromptProfileService() {
     return {
       compileSystemPrompt: vi.fn(() => ''),
@@ -267,7 +298,7 @@ import {
   getHostRuntimeCredentialEnv,
   prepareHostRuntimeContext,
 } from '@core/runtime/agent-spawn-host.js';
-import { createSignedIpcRequestEnvelope } from '@core/runner/mcp/signing.js';
+import { createSignedIpcRequestEnvelope } from '@core/shared/ipc-signing.js';
 import { parseMemoryIpcRequest } from '@core/runtime/ipc-parsing.js';
 import type {
   AgentMcpServerBinding,
@@ -296,6 +327,11 @@ import type {
 } from '@core/shared/runner-sandbox-provider.js';
 import type { RunAgentOptions } from '@core/runtime/agent-spawn-types.js';
 import { SANDBOX_RUNTIME_MODEL_GATEWAY_HOST } from '@core/runtime/agent-spawn-runtime-policy.js';
+import {
+  processPermissionIpcRequest,
+  processUserQuestionIpcRequest,
+} from '@core/runtime/ipc-interaction-handler.js';
+import { isActiveRunLeaseForInteraction } from '@core/application/interactions/pending-interaction-durability.js';
 
 const anthropicEnvKey = (suffix: string) => ['ANTHROPIC', suffix].join('_');
 
@@ -700,6 +736,8 @@ describe('agent-spawn timeout behavior', () => {
         },
       },
     } as any);
+    observedSpawnLogContexts.length = 0;
+    observedSpawnTrackerIds.length = 0;
     process.env.GANTRY_IMAGE_CAPABILITIES_JSON = JSON.stringify([
       'acme.records.get',
       'acme.invoices.read',
@@ -1009,6 +1047,8 @@ describe('agent-spawn timeout behavior', () => {
         appId: 'app-one',
         agentId: 'agent-one',
         runId: 'run-one',
+        runLeaseToken: 'lease-one',
+        runLeaseFencingVersion: 1,
         threadId: 'reply-one',
         toolPolicyRules: ['Browser'],
         attachedSkillSourceIds: ['skill:one'],
@@ -1117,6 +1157,27 @@ describe('agent-spawn timeout behavior', () => {
     expect(env.GANTRY_AGENT_ACCESS_PRESET).toBe('full');
     expect(env.GANTRY_NO_PERMISSION_TOOLS).toBe('');
     expect(env.GANTRY_DEPLOYMENT_MODE).toBe('workstation');
+  });
+
+  it('enables async task tools with a direct runner when the repository is available', async () => {
+    const resultPromise = spawnTestAgent(
+      testGroup,
+      testInput,
+      () => {},
+      undefined,
+      { asyncTaskRepositoryAvailable: true },
+    );
+    emitOutputMarker(fakeProc, { status: 'success', result: 'started' });
+    await vi.advanceTimersByTimeAsync(10);
+    fakeProc.emit('close', 0);
+    await vi.advanceTimersByTimeAsync(10);
+    await resultPromise;
+
+    const env = vi.mocked(spawn).mock.calls.at(-1)?.[2]?.env as Record<
+      string,
+      string
+    >;
+    expect(env.GANTRY_ASYNC_TASK_TOOLS_ENABLED).toBe('1');
   });
 
   it('projects the fleet deployment mode into the runner env', async () => {
@@ -1619,7 +1680,7 @@ describe('agent-spawn timeout behavior', () => {
     const writeSpy = vi.spyOn(fakeProc.stdin, 'write');
     const group = {
       ...testGroup,
-      agentConfig: { permissionMode: 'auto' },
+      agentConfig: { permissionMode: 'auto_strict' },
     } as ConversationRoute;
 
     const resultPromise = spawnTestAgent(
@@ -1633,7 +1694,7 @@ describe('agent-spawn timeout behavior', () => {
     await resultPromise;
 
     expect(JSON.parse(String(writeSpy.mock.calls[0]?.[0]))).toMatchObject({
-      permissionMode: 'auto',
+      permissionMode: 'auto_strict',
     });
     const env = vi.mocked(spawn).mock.calls.at(-1)?.[2]?.env;
     expect(env?.GANTRY_PERMISSION_MODE).toBe('auto');
@@ -1805,6 +1866,43 @@ describe('agent-spawn timeout behavior', () => {
       expect.arrayContaining(['127.0.0.1', 'localhost', '::1']),
     );
     expect(env.NO_PROXY).not.toContain('api.github.com');
+  });
+
+  it('projects the gateway egress denylist into the direct SDK runner', async () => {
+    const egress = { denylist: ['blocked.example'] };
+    vi.mocked(getRuntimeSettingsForConfig).mockReturnValue({
+      permissions: {
+        yoloMode: {
+          enabled: true,
+          denylist: [],
+          denylistPaths: [],
+        },
+        egress,
+      },
+      runtime: {
+        sandbox: {
+          provider: 'direct',
+          resourceLimits: {
+            cpuSeconds: 0,
+            memoryMb: 0,
+            maxProcesses: 0,
+          },
+        },
+      },
+    } as any);
+    const writeSpy = vi.spyOn(fakeProc.stdin, 'write');
+
+    const resultPromise = spawnTestAgent(testGroup, testInput, () => {});
+    await vi.advanceTimersByTimeAsync(10);
+    fakeProc.emit('close', 0);
+    await vi.advanceTimersByTimeAsync(10);
+    await resultPromise;
+
+    const runnerInput = JSON.parse(String(writeSpy.mock.calls[0]?.[0]));
+    expect(runnerInput.egressDenylist).toEqual(egress.denylist);
+    expect(mockEnsureEgressGateway).toHaveBeenCalledWith(
+      expect.objectContaining({ settings: egress }),
+    );
   });
 
   it('lets sandbox-runtime provide in-sandbox proxy env for runner traffic', async () => {
@@ -3616,6 +3714,7 @@ describe('agent-spawn timeout behavior', () => {
       undefined,
       {
         purpose: 'model_runtime',
+        runId: expect.stringMatching(/^credential-run:/),
         runContext: expect.objectContaining({
           chatJid: 'test@g.us',
         }),
@@ -3967,6 +4066,144 @@ describe('agent-spawn timeout behavior', () => {
     });
     expect(getHostRuntimeCredentialEnv).not.toHaveBeenCalled();
     expect(spawn).not.toHaveBeenCalled();
+  });
+
+  it('passes canonical correlation ids through the spawn entrypoint', async () => {
+    await runtimeSpawnAgent(
+      { ...testGroup, agentId: 'agent:route-canonical' },
+      {
+        ...testInput,
+        runId: 'run-entrypoint-context',
+        appId: 'app-entrypoint-context',
+      },
+      () => {},
+    );
+
+    expect(observedSpawnLogContexts.at(-1)).toMatchObject({
+      correlationRunId: 'run-entrypoint-context',
+      appId: 'app-entrypoint-context',
+      agentId: 'agent:route-canonical',
+      turn: expect.objectContaining({
+        runId: 'run-entrypoint-context',
+        appId: 'app-entrypoint-context',
+        agentId: 'agent:route-canonical',
+      }),
+    });
+  });
+
+  it('keeps an unfenced delegated child run id only for correlation while interactions remain live', async () => {
+    vi.mocked(getSelectedAgentRuntime).mockReturnValueOnce('inline');
+    const requestPermissionApproval = vi.fn(async (request) => {
+      if (!(await isActiveRunLeaseForInteraction(request))) {
+        throw new Error('stale delegated child run');
+      }
+      return {
+        approved: true,
+        mode: 'allow_once' as const,
+        decidedBy: 'owner',
+        decisionClassification: 'user_temporary' as const,
+      };
+    });
+    const requestUserAnswer = vi.fn(async (request) => {
+      if (!(await isActiveRunLeaseForInteraction(request))) {
+        throw new Error('stale delegated child run');
+      }
+      return {
+        requestId: 'question-delegated-child',
+        answers: { choice: 'continue' },
+        answeredBy: 'owner',
+      };
+    });
+    const inlineAgentLoopLane = vi.fn(async ({ input }) => {
+      expect(input).not.toHaveProperty('runId');
+      expect(input).not.toHaveProperty('runLeaseToken');
+      expect(input).not.toHaveProperty('runLeaseFencingVersion');
+      await expect(
+        isActiveRunLeaseForInteraction({
+          runId: input.runId,
+          runLeaseToken: input.runLeaseToken,
+          runLeaseFencingVersion: input.runLeaseFencingVersion,
+        }),
+      ).resolves.toBe(true);
+      await expect(
+        processPermissionIpcRequest(
+          {
+            requestId: 'permission-delegated-child',
+            sourceAgentFolder: testGroup.folder,
+            targetJid: testInput.chatJid,
+            runId: input.runId,
+            runLeaseToken: input.runLeaseToken,
+            runLeaseFencingVersion: input.runLeaseFencingVersion,
+            toolName: 'Bash',
+          },
+          { requestPermissionApproval },
+        ),
+      ).resolves.toMatchObject({ approved: true });
+      await expect(
+        processUserQuestionIpcRequest(
+          {
+            requestId: 'question-delegated-child',
+            sourceAgentFolder: testGroup.folder,
+            targetJid: testInput.chatJid,
+            runId: input.runId,
+            runLeaseToken: input.runLeaseToken,
+            runLeaseFencingVersion: input.runLeaseFencingVersion,
+            questions: [],
+          },
+          { requestUserAnswer },
+        ),
+      ).resolves.toMatchObject({ answers: { choice: 'continue' } });
+      return { status: 'success' as const, result: 'delegated child done' };
+    });
+
+    await expect(
+      spawnTestAgent(
+        testGroup,
+        {
+          ...testInput,
+          runtime: 'inline',
+          parentTaskId: 'delegated-task-1',
+          runId: 'persisted-child-run-1',
+        },
+        vi.fn(),
+        undefined,
+        { inlineAgentLoopLane } as never,
+      ),
+    ).resolves.toMatchObject({
+      status: 'success',
+      result: 'delegated child done',
+    });
+
+    expect(requestPermissionApproval).toHaveBeenCalledOnce();
+    expect(requestUserAnswer).toHaveBeenCalledOnce();
+    expect(observedSpawnLogContexts.at(-1)).toMatchObject({
+      correlationRunId: 'persisted-child-run-1',
+      turn: expect.objectContaining({ runId: 'persisted-child-run-1' }),
+    });
+    expect(getHostRuntimeCredentialEnv).toHaveBeenLastCalledWith(
+      'test-group',
+      undefined,
+      expect.objectContaining({
+        runId: 'persisted-child-run-1',
+        runContext: expect.not.objectContaining({
+          runId: expect.anything(),
+          runLeaseToken: expect.anything(),
+          runLeaseFencingVersion: expect.anything(),
+        }),
+      }),
+    );
+  });
+
+  it('passes log-only correlation without adding runner identity', async () => {
+    await runtimeSpawnAgent(testGroup, testInput, () => {}, undefined, {
+      correlationRunId: 'run-entrypoint-log-only',
+      runnerSandboxProvider: new DirectRunnerSandboxProvider(),
+    });
+
+    expect(observedSpawnLogContexts.at(-1)).toMatchObject({
+      correlationRunId: 'run-entrypoint-log-only',
+      turn: expect.not.objectContaining({ runId: expect.anything() }),
+    });
   });
 
   it('routes an OpenAI model to the DeepAgents adapter (engine derived from provider)', async () => {
@@ -4347,6 +4584,28 @@ describe('agent-spawn timeout behavior', () => {
       'inline',
     );
     expect(spawn).not.toHaveBeenCalled();
+  });
+
+  it('uses the minted turn tracker id for inline credential correlation', async () => {
+    vi.mocked(getSelectedAgentRuntime).mockReturnValueOnce('inline');
+
+    await spawnTestAgent(testGroup, testInput, vi.fn());
+
+    const trackerId = observedSpawnTrackerIds.at(-1);
+    expect(trackerId).toMatch(/^credential-run:/);
+    expect(getHostRuntimeCredentialEnv).toHaveBeenCalledWith(
+      'test-group',
+      undefined,
+      expect.objectContaining({
+        purpose: 'model_runtime',
+        runId: trackerId,
+        runContext: expect.not.objectContaining({
+          runId: expect.anything(),
+          runLeaseToken: expect.anything(),
+          runLeaseFencingVersion: expect.anything(),
+        }),
+      }),
+    );
   });
 
   it('rejects response schemas for worker runtime before spawning', async () => {

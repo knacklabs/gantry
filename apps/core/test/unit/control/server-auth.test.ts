@@ -20,6 +20,7 @@ import {
 import {
   getControlEnvValue,
   getConfiguredAgentRuntime,
+  syncRuntimeSettingsFromProjection,
 } from '@core/config/index.js';
 import { signExternalIngressRequest } from '@core/application/external-ingress/signature.js';
 import { preflightModelProvider } from '@core/adapters/llm/model-provider-preflight.js';
@@ -45,6 +46,9 @@ vi.mock('@core/cli/slack-chat-discovery.js', () => ({
 const mockedPreflightModelProvider = vi.mocked(preflightModelProvider);
 const mockedGetControlEnvValue = vi.mocked(getControlEnvValue);
 const mockedGetConfiguredAgentRuntime = vi.mocked(getConfiguredAgentRuntime);
+const mockedSyncRuntimeSettingsFromProjection = vi.mocked(
+  syncRuntimeSettingsFromProjection,
+);
 const mockedListSlackRecentChats = vi.mocked(listSlackRecentChats);
 
 vi.mock('@core/config/index.js', async () => {
@@ -3019,6 +3023,158 @@ describe('control server runtime hardening', () => {
           folder: 'agent-1',
           providerAccountId: 'slack-one',
           conversationKind: 'channel',
+        }),
+      );
+    } finally {
+      await handle.close();
+    }
+  });
+
+  it('keeps an explicit runtime secret ref clear authoritative during settings export', async () => {
+    const port = await reservePort();
+    process.env.GANTRY_CONTROL_PORT = String(port);
+    process.env.GANTRY_CONTROL_API_KEYS_JSON = JSON.stringify([
+      {
+        kid: 'k',
+        token: 'providers-admin-token',
+        scopes: ['providers:admin'],
+        appId: 'app-one',
+      },
+    ]);
+    const providerAccount = {
+      id: 'slack-one',
+      appId: 'app-one',
+      agentId: 'agent-1',
+      providerId: 'slack',
+      label: 'Slack',
+      status: 'active' as const,
+      config: { workspace: 'T1' },
+      runtimeSecretRefs: { bot_token: 'env:SLACK_BOT_TOKEN' },
+      createdAt: '2026-04-24T00:00:00.000Z',
+      updatedAt: '2026-04-24T00:00:00.000Z',
+    };
+    domainRepositories.providerAccounts.getProviderAccount.mockResolvedValue(
+      providerAccount,
+    );
+    domainRepositories.providerAccounts.updateProviderAccount.mockResolvedValue(
+      {
+        ...providerAccount,
+        runtimeSecretRefs: {},
+      },
+    );
+    const handle = startControlServer({
+      app: {
+        registerGroup: vi.fn(),
+        queue: { enqueueMessageCheck: vi.fn() },
+      } as any,
+    });
+
+    try {
+      const response = await requestWithRetry(
+        `http://127.0.0.1:${port}/v1/provider-accounts/slack-one`,
+        'providers-admin-token',
+        {
+          method: 'PATCH',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ runtimeSecretRefs: {} }),
+        },
+      );
+
+      expect(response.status).toBe(200);
+      expect(
+        domainRepositories.providerAccounts.updateProviderAccount,
+      ).toHaveBeenCalledWith(
+        expect.objectContaining({
+          patch: expect.objectContaining({
+            runtimeSecretRefs: {},
+          }),
+        }),
+      );
+      expect(mockedSyncRuntimeSettingsFromProjection).toHaveBeenCalledWith(
+        expect.objectContaining({
+          overrides: {
+            providerAccount: {
+              id: 'slack-one',
+              runtimeSecretRefs: {},
+            },
+          },
+        }),
+      );
+      expect(await response.json()).toMatchObject({
+        config: { workspace: 'T1' },
+        runtimeSecretRefs: {},
+      });
+    } finally {
+      await handle.close();
+    }
+  });
+
+  it('persists a direct-conversation approver clear through the repository', async () => {
+    const port = await reservePort();
+    process.env.GANTRY_CONTROL_PORT = String(port);
+    process.env.GANTRY_CONTROL_API_KEYS_JSON = JSON.stringify([
+      {
+        kid: 'k',
+        token: 'conversations-admin-token',
+        scopes: ['conversations:admin'],
+        appId: 'app-one',
+      },
+    ]);
+    const providerAccount = {
+      id: 'slack-one',
+      appId: 'app-one',
+      agentId: 'agent-1',
+      providerId: 'slack',
+      label: 'Slack',
+      status: 'active' as const,
+      config: {},
+      runtimeSecretRefs: {},
+      createdAt: '2026-04-24T00:00:00.000Z',
+      updatedAt: '2026-04-24T00:00:00.000Z',
+    };
+    domainRepositories.providerAccounts.getProviderAccount.mockResolvedValue(
+      providerAccount,
+    );
+    domainRepositories.conversations.getConversation.mockResolvedValue({
+      id: 'conversation-1',
+      appId: 'app-one',
+      providerAccountId: 'slack-one',
+      externalRef: { kind: 'conversation', value: 'D123' },
+      kind: 'direct',
+      title: 'Direct message',
+      status: 'active',
+      createdAt: '2026-04-24T00:00:00.000Z',
+      updatedAt: '2026-04-24T00:00:00.000Z',
+    });
+    domainRepositories.conversations.replaceConversationApprovers.mockResolvedValue(
+      [],
+    );
+    const handle = startControlServer({
+      app: {
+        registerGroup: vi.fn(),
+        queue: { enqueueMessageCheck: vi.fn() },
+      } as any,
+    });
+
+    try {
+      const response = await requestWithRetry(
+        `http://127.0.0.1:${port}/v1/conversations/conversation-1/approvers`,
+        'conversations-admin-token',
+        {
+          method: 'PUT',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ userIds: [] }),
+        },
+      );
+
+      expect(response.status).toBe(200);
+      expect(
+        domainRepositories.conversations.replaceConversationApprovers,
+      ).toHaveBeenCalledWith(
+        expect.objectContaining({
+          appId: 'app-one',
+          conversationId: 'conversation-1',
+          externalUserIds: [],
         }),
       );
     } finally {

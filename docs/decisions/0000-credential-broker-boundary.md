@@ -1,3 +1,9 @@
+---
+status: accepted
+confirmed_by: "vrknetha"
+date: 2026-04-26
+---
+
 # Credential Boundary
 
 ## Context

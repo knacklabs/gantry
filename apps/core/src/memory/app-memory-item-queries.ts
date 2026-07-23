@@ -1,7 +1,8 @@
-import { and, desc, eq, sql } from 'drizzle-orm';
+import { and, desc, eq, sql, type SQL } from 'drizzle-orm';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 
 import * as pgSchema from '../adapters/storage/postgres/schema/schema.js';
+import type { ObserverSubjectKey } from '../domain/ports/observer-insights.js';
 import type { PatternCandidateSubject } from '../domain/ports/pattern-candidates.js';
 import {
   detectPatternCandidates,
@@ -33,6 +34,38 @@ import type {
 } from './memory-types.js';
 
 type Db = NodePgDatabase<typeof pgSchema>;
+
+export async function listObserverActiveMemoryValues(input: {
+  db: Db;
+  appId: string;
+  subject: ObserverSubjectKey;
+}): Promise<string[]> {
+  const filters: SQL[] = [
+    eq(pgSchema.memoryItemsPostgres.appId, input.appId),
+    eq(pgSchema.memoryItemsPostgres.status, 'active'),
+  ];
+  if (input.subject.startsWith('conversation:')) {
+    filters.push(
+      eq(pgSchema.memoryItemsPostgres.conversationId, input.subject),
+    );
+  } else if (input.subject === 'observer:app') {
+    filters.push(eq(pgSchema.memoryItemsPostgres.subjectType, 'common'));
+  } else {
+    filters.push(eq(pgSchema.memoryItemsPostgres.subjectId, input.subject));
+  }
+
+  const rows = await input.db
+    .select({
+      value: sql<
+        string | null
+      >`${pgSchema.memoryItemsPostgres.valueJson}->>'value'`,
+    })
+    .from(pgSchema.memoryItemsPostgres)
+    .where(and(...filters));
+  return rows.flatMap((row) =>
+    typeof row.value === 'string' ? [row.value] : [],
+  );
+}
 
 export async function findActiveMemoryByKey(input: {
   db: Db;

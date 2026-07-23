@@ -1,4 +1,4 @@
-export type PermissionMode = 'ask' | 'auto';
+export type PermissionMode = 'ask' | 'auto' | 'auto_strict';
 
 export const AUTO_PERMISSION_CLASSIFIER_WAIT_MS = 20_000;
 

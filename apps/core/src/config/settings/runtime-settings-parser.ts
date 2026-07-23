@@ -45,6 +45,8 @@ import { parseMemorySettings } from './runtime-settings-memory-parser.js';
 import { parseBrowserSettings } from './runtime-settings-browser-parser.js';
 import { parsePermissionSettings } from './runtime-settings-permissions-parser.js';
 import { parseLimitsSettings } from './runtime-settings-limits-parser.js';
+import { parseObservabilitySettings } from './runtime-settings-observability-parser.js';
+import { parseObserverSettings } from './runtime-settings-observer-parser.js';
 import { parseModelFamilies } from './runtime-settings-model-families-parser.js';
 import {
   modelAliasesToCatalogEntries,
@@ -361,9 +363,12 @@ function parseConversationInstalledAgents(
     if (
       permissionMode !== undefined &&
       permissionMode !== 'ask' &&
-      permissionMode !== 'auto'
+      permissionMode !== 'auto' &&
+      permissionMode !== 'auto_strict'
     ) {
-      throw new Error(`${installPath}.permission_mode must be ask or auto`);
+      throw new Error(
+        `${installPath}.permission_mode must be one of ask, auto, or auto_strict`,
+      );
     }
     installs[installId] = {
       agentId,
@@ -953,11 +958,13 @@ export function parseRuntimeSettingsObject(
       key !== 'browser' &&
       key !== 'permissions' &&
       key !== 'limits' &&
+      key !== 'observability' &&
+      key !== 'observer' &&
       key !== 'model_families' &&
       key !== 'model_aliases'
     ) {
       throw new Error(
-        `${key} is not supported. Supported root keys are defaults, desired_state, providers, provider_accounts, conversations, agents, storage, agent, model_access, memory, runtime, browser, permissions, limits, model_families, and model_aliases.`,
+        `${key} is not supported. Supported root keys are defaults, desired_state, providers, provider_accounts, conversations, agents, storage, agent, model_access, memory, runtime, browser, permissions, limits, observability, observer, model_families, and model_aliases.`,
       );
     }
   }
@@ -1002,6 +1009,8 @@ export function parseRuntimeSettingsObject(
     const browser = parseBrowserSettings(root.browser);
     const permissions = parsePermissionSettings(root.permissions);
     const limits = parseLimitsSettings(root.limits);
+    const observability = parseObservabilitySettings(root.observability);
+    const observer = parseObserverSettings(root.observer);
 
     return {
       desiredState,
@@ -1019,6 +1028,8 @@ export function parseRuntimeSettingsObject(
       browser,
       permissions,
       limits,
+      observability,
+      observer,
       modelFamilies,
       modelAliases,
     };

@@ -33,6 +33,7 @@ import {
 } from '../shared/trigger-pattern.js';
 export * from './memory.js';
 export { SettingsDesiredStateService } from './settings/desired-state-service.js';
+export { createGroupJoinOnboardingCoordinator } from './settings/group-join-onboarding.js';
 export { configureDesiredSettingsStorageProvider } from './settings/runtime-settings.js';
 export {
   applyRuntimeSettingsDesiredState,
@@ -64,6 +65,11 @@ export type ControlEnvKey =
   | 'SECRET_ENCRYPTION_KEY'
   | 'SECRET_ENCRYPTION_KEYRING_JSON';
 export function getControlEnvValue(key: ControlEnvKey): string {
+  return envValueDynamic(key);
+}
+// Registered runtime secrets (source-classification.ts) read from process env
+// first, then GANTRY_HOME/.env — managed services pass a minimal process env.
+export function readRuntimeSecretEnv(key: string): string {
   return envValueDynamic(key);
 }
 const GANTRY_HOME_RAW =
@@ -137,6 +143,7 @@ function getPublicConfiguredAgents(settings: RuntimeSettings) {
         permissionMode: agent.permissionMode,
         oneTimeJobDefaultModel: agent.oneTimeJobDefaultModel,
         recurringJobDefaultModel: agent.recurringJobDefaultModel,
+        delegates: agent.delegates,
         bindings: agent.bindings,
         sources: agent.sources,
         capabilities: agent.capabilities,
@@ -185,6 +192,7 @@ export function getPublicRuntimeSettings() {
         enabled: settings.memory.dreaming.enabled,
       },
     },
+    observer: settings.observer,
     runtime: {
       queue: settings.runtime.queue,
       sandbox: settings.runtime.sandbox,

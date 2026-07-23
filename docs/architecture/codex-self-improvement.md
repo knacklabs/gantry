@@ -1,3 +1,6 @@
+> **Historical (2026-07-22):** this describes the pre-harness `.codex` factory, whose machinery was removed when the symphony-forge harness was adopted (see `docs/decisions/0002-symphony-forge-adoption.md`). Retained as architecture history; do not run the commands in it.
+<!-- doc-references: frozen 2026-07-22 (decision 0036) -->
+
 # Codex Self-Improvement Harness
 
 The self-improvement harness helps future coding agents reuse architecture

@@ -7,6 +7,7 @@ import {
   stopLiveAdmissionLoop,
   stopLiveTurnRecoveryLoop,
 } from '@core/app/bootstrap/runtime-services.js';
+import { createChannelWiring } from '@core/app/bootstrap/channel-wiring.js';
 import { buildLiveTurnRecoveryCapabilityGate } from '@core/app/bootstrap/live-turn-recovery-capability-gate.js';
 import { RuntimeApp } from '@core/app/bootstrap/runtime-app.js';
 import type { ChannelWiring } from '@core/app/bootstrap/channel-wiring-types.js';
@@ -187,6 +188,61 @@ function makeChannelWiring(): ChannelWiring {
     disconnectChannels: vi.fn(async () => {}),
     isControlApproverAllowed: vi.fn(async () => true),
   };
+}
+
+async function makeConnectedTelegramWiring(
+  app: RuntimeApp,
+  providerSend: ReturnType<typeof vi.fn>,
+): Promise<ChannelWiring> {
+  const channelWiring = createChannelWiring(app, {
+    providerIds: [
+      {
+        id: 'telegram',
+        label: 'Telegram',
+        jidPrefix: 'tg:',
+        folderPrefix: 'telegram_',
+        isGroupJid: (jid: string) => jid.startsWith('tg:'),
+        canStreamToJid: () => false,
+        formatting: 'telegram-html',
+        isEnabled: () => true,
+        create: () => ({
+          name: 'telegram',
+          connect: vi.fn(async () => undefined),
+          sendMessage: providerSend,
+          isConnected: vi.fn(() => true),
+          ownsJid: vi.fn((jid: string) => jid.startsWith('tg:')),
+          disconnect: vi.fn(async () => undefined),
+        }),
+        setup: {
+          envKeys: [],
+          describe: () => 'Telegram',
+          run: async () => undefined,
+        },
+      },
+    ],
+    opsRepository: {
+      storeMessage: vi.fn(async () => undefined),
+      storeChatMetadata: vi.fn(async () => undefined),
+    },
+  });
+  await channelWiring.connectEnabledChannels(
+    {
+      providers: { telegram: { enabled: true } },
+      runtime: {
+        liveTurns: { enabled: false },
+      },
+      providerAccounts: {
+        telegram_default: {
+          agentId: 'agent:main',
+          provider: 'telegram',
+          label: 'Telegram',
+          runtimeSecretRefs: {},
+        },
+      },
+    } as never,
+    { providerInbound: false },
+  );
+  return channelWiring;
 }
 
 describe('buildLiveTurnRecoveryCapabilityGate', () => {
@@ -1818,10 +1874,11 @@ describe('startRuntimeServices', () => {
     }
   });
 
-  it('installs durable outbound delivery before scheduler startup', async () => {
+  it('installs durable outbound delivery before IPC and scheduler startup', async () => {
     const order: string[] = [];
     const app = makeApp();
     const channelWiring = makeChannelWiring();
+    let ipcDeps: any;
     vi.mocked(
       channelWiring.setDurableOutboundAttemptFactory as any,
     ).mockImplementation(() => {
@@ -1837,7 +1894,8 @@ describe('startRuntimeServices', () => {
         startSchedulerLoop: vi.fn(() => {
           order.push('startSchedulerLoop');
         }) as any,
-        startIpcWatcher: vi.fn(() => {
+        startIpcWatcher: vi.fn((deps) => {
+          ipcDeps = deps;
           order.push('startIpcWatcher');
         }) as any,
         writeGroupsSnapshot: vi.fn() as any,
@@ -1858,11 +1916,148 @@ describe('startRuntimeServices', () => {
     );
 
     expect(order).toEqual([
-      'startIpcWatcher',
       'setDurableOutboundAttemptFactory',
       'startOutboundDeliveryRecoveryLoop',
+      'startIpcWatcher',
       'startSchedulerLoop',
     ]);
+
+    await ipcDeps.sendMessage('tg:primary', 'durable', {
+      threadId: '42',
+    });
+    expect(channelWiring.sendMessage).toHaveBeenCalledWith(
+      'tg:primary',
+      'durable',
+      {
+        durability: 'required',
+        throwOnMissing: true,
+        messageOptions: { threadId: '42' },
+      },
+    );
+  });
+
+  it('persists IPC sends and leaves provider failures retryable', async () => {
+    const order: string[] = [];
+    const app = makeApp();
+    const providerSend = vi.fn(async () => {
+      order.push('providerSend');
+      throw new Error('provider unavailable');
+    });
+    const channelWiring = await makeConnectedTelegramWiring(app, providerSend);
+    let ipcDeps: any;
+    let queuedDelivery: any;
+    let queuedItem: any;
+    const enqueueDelivery = vi.fn(async (input: any) => {
+      order.push('enqueueDelivery');
+      queuedDelivery = input.delivery;
+      queuedItem = { ...input.items[0] };
+      return { created: true, delivery: input.delivery };
+    });
+    const markDeliveryItemFailed = vi.fn(async (input: any) => {
+      order.push('markDeliveryItemFailed');
+      queuedItem = {
+        ...queuedItem,
+        status:
+          queuedItem.attemptCount < input.maxAttempts ? 'pending' : 'failed',
+        claimToken: undefined,
+        claimExpiresAt: undefined,
+        nextAttemptAt: '2026-07-17T00:00:01.000Z',
+      };
+      return { applied: true, delivery: queuedDelivery };
+    });
+
+    try {
+      await startRuntimeServices(
+        { app, channelWiring },
+        {
+          startSchedulerLoop: vi.fn() as any,
+          startIpcWatcher: vi.fn((deps) => {
+            ipcDeps = deps;
+          }) as any,
+          writeGroupsSnapshot: vi.fn() as any,
+          opsRepository: {} as any,
+          getToolRepository: vi.fn(() => ({}) as any),
+          getOutboundDeliveryRepository: vi.fn(
+            () =>
+              ({
+                enqueueDelivery,
+                markDeliveryItemFailed,
+              }) as any,
+          ),
+          recoverPendingMessages: vi.fn() as any,
+          startOutboundDeliveryRecoveryLoop: vi.fn() as any,
+          logger: {
+            info: vi.fn(),
+            warn: vi.fn(),
+            fatal: vi.fn(),
+          },
+          exit: vi.fn() as any,
+        },
+      );
+
+      await expect(
+        ipcDeps.sendMessage('tg:primary', 'retry me'),
+      ).rejects.toThrow('provider unavailable');
+
+      expect(order).toEqual([
+        'enqueueDelivery',
+        'providerSend',
+        'markDeliveryItemFailed',
+      ]);
+      expect(enqueueDelivery).toHaveBeenCalledOnce();
+      expect(markDeliveryItemFailed).toHaveBeenCalledWith(
+        expect.objectContaining({
+          maxAttempts: 4,
+          retryBaseDelayMs: 1_000,
+          retryMaxDelayMs: 30_000,
+        }),
+      );
+      expect(queuedItem).toMatchObject({
+        status: 'pending',
+        attemptCount: 1,
+        claimToken: undefined,
+        claimExpiresAt: undefined,
+        nextAttemptAt: '2026-07-17T00:00:01.000Z',
+      });
+    } finally {
+      await channelWiring.disconnectChannels();
+    }
+  });
+
+  it('fails closed for required IPC sends without outbound storage', async () => {
+    const app = makeApp();
+    const providerSend = vi.fn(async () => undefined);
+    const channelWiring = await makeConnectedTelegramWiring(app, providerSend);
+    let ipcDeps: any;
+
+    try {
+      await startRuntimeServices(
+        { app, channelWiring },
+        {
+          startSchedulerLoop: vi.fn() as any,
+          startIpcWatcher: vi.fn((deps) => {
+            ipcDeps = deps;
+          }) as any,
+          writeGroupsSnapshot: vi.fn() as any,
+          opsRepository: {} as any,
+          getToolRepository: vi.fn(() => ({}) as any),
+          recoverPendingMessages: vi.fn() as any,
+          logger: {
+            info: vi.fn(),
+            warn: vi.fn(),
+            fatal: vi.fn(),
+          },
+          exit: vi.fn() as any,
+        },
+      );
+
+      await expect(
+        ipcDeps.sendMessage('tg:primary', 'must persist'),
+      ).rejects.toThrow(/Durable outbound delivery is required/);
+      expect(providerSend).not.toHaveBeenCalled();
+    } finally {
+      await channelWiring.disconnectChannels();
+    }
   });
 
   it('wires durable scheduler sends', async () => {

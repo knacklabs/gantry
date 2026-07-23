@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import http from 'node:http';
 import { createHash } from 'node:crypto';
+import { Readable, Writable } from 'node:stream';
 
 import {
   extractGatewayResponseUsage,
@@ -207,17 +208,29 @@ function gatewayRequest(input: {
 }
 
 function gatewayStreamingRequest(input: { url: string; token: string }): {
-  firstChunk: Promise<string>;
-  done: Promise<{ status: number; body: string }>;
+  firstChunk: Promise<{
+    status: number;
+    headers: http.IncomingHttpHeaders;
+    body: Buffer;
+  }>;
+  done: Promise<{ status: number; body: Buffer }>;
 } {
-  let resolveFirstChunk!: (value: string) => void;
+  let resolveFirstChunk!: (value: {
+    status: number;
+    headers: http.IncomingHttpHeaders;
+    body: Buffer;
+  }) => void;
   let rejectFirstChunk!: (error: unknown) => void;
   let sawFirstChunk = false;
-  const firstChunk = new Promise<string>((resolve, reject) => {
+  const firstChunk = new Promise<{
+    status: number;
+    headers: http.IncomingHttpHeaders;
+    body: Buffer;
+  }>((resolve, reject) => {
     resolveFirstChunk = resolve;
     rejectFirstChunk = reject;
   });
-  const done = new Promise<{ status: number; body: string }>(
+  const done = new Promise<{ status: number; body: Buffer }>(
     (resolve, reject) => {
       const req = http.request(
         input.url,
@@ -235,13 +248,17 @@ function gatewayStreamingRequest(input: { url: string; token: string }): {
             chunks.push(buffer);
             if (!sawFirstChunk) {
               sawFirstChunk = true;
-              resolveFirstChunk(buffer.toString('utf-8'));
+              resolveFirstChunk({
+                status: res.statusCode ?? 0,
+                headers: res.headers,
+                body: buffer,
+              });
             }
           });
           res.on('end', () =>
             resolve({
               status: res.statusCode ?? 0,
-              body: Buffer.concat(chunks).toString('utf-8'),
+              body: Buffer.concat(chunks),
             }),
           );
         },
@@ -934,10 +951,29 @@ describe('GantryModelGatewayBroker', () => {
     }
   });
 
-  it('streams upstream provider responses without buffering the full body', async () => {
+  it('streams byte-identically before a blocked usage audit settles', async () => {
     const repo = new MutableModelCredentialRepository();
-    repo.set('anthropic', 'sk-ant-stream');
+    repo.set('anthropic', 'mock-anthropic-cred');
+    const firstBytes = Buffer.from('data: first\n\n');
+    const secondBytes = Buffer.from('data: second\n\n');
     let releaseSecondChunk!: () => void;
+    let releaseUsageAudit!: () => void;
+    let resolveUsageAuditSettled!: () => void;
+    let auditCalls = 0;
+    let usageAuditSettled = false;
+    const usageAuditGate = new Promise<void>((resolve) => {
+      releaseUsageAudit = resolve;
+    });
+    const usageAuditSettledPromise = new Promise<void>((resolve) => {
+      resolveUsageAuditSettled = resolve;
+    });
+    const audit = vi.fn(async () => {
+      auditCalls += 1;
+      if (auditCalls !== 2) return;
+      await usageAuditGate;
+      usageAuditSettled = true;
+      resolveUsageAuditSettled();
+    });
     vi.stubGlobal(
       'fetch',
       vi.fn(
@@ -945,9 +981,9 @@ describe('GantryModelGatewayBroker', () => {
           new Response(
             new ReadableStream<Uint8Array>({
               start(controller) {
-                controller.enqueue(Buffer.from('data: first\n\n'));
+                controller.enqueue(firstBytes);
                 releaseSecondChunk = () => {
-                  controller.enqueue(Buffer.from('data: second\n\n'));
+                  controller.enqueue(secondBytes);
                   controller.close();
                 };
               },
@@ -958,7 +994,7 @@ describe('GantryModelGatewayBroker', () => {
           ),
       ),
     );
-    const broker = new GantryModelGatewayBroker(repo);
+    const broker = new GantryModelGatewayBroker(repo, { audit });
     try {
       const injection = await broker.getInjection({
         binding: {
@@ -974,11 +1010,160 @@ describe('GantryModelGatewayBroker', () => {
         token: injection.env[anthropicApiKeyKey]!,
       });
 
-      await expect(response.firstChunk).resolves.toBe('data: first\n\n');
+      const firstChunk = await response.firstChunk;
+      expect(firstChunk).toMatchObject({
+        status: 200,
+        headers: { 'content-type': 'text/event-stream' },
+      });
+      expect(firstChunk.body).toEqual(firstBytes);
+      expect(usageAuditSettled).toBe(false);
       releaseSecondChunk();
+      releaseUsageAudit();
+      await usageAuditSettledPromise;
       await expect(response.done).resolves.toMatchObject({
         status: 200,
-        body: 'data: first\n\ndata: second\n\n',
+        body: Buffer.concat([firstBytes, secondBytes]),
+      });
+    } finally {
+      await broker.close();
+    }
+  });
+
+  it('awaits the usage audit before surfacing a streaming pipe error', async () => {
+    const repo = new MutableModelCredentialRepository();
+    repo.set('anthropic', 'mock-anthropic-cred');
+    const pipeError = new Error('client disconnected');
+    let releaseUsageAudit!: () => void;
+    let auditCalls = 0;
+    let pipeWrites = 0;
+    let pipeRejected = false;
+    let usageAuditSettled = false;
+    const usageAuditGate = new Promise<void>((resolve) => {
+      releaseUsageAudit = resolve;
+    });
+    const audit = vi.fn(async () => {
+      auditCalls += 1;
+      if (auditCalls !== 2) return;
+      await usageAuditGate;
+      usageAuditSettled = true;
+    });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(
+            new ReadableStream<Uint8Array>({
+              start(controller) {
+                controller.enqueue(Buffer.from('data: first\n\n'));
+                controller.enqueue(Buffer.from('data: second\n\n'));
+                controller.close();
+              },
+            }),
+            { headers: { 'content-type': 'text/event-stream' } },
+          ),
+      ),
+    );
+    const broker = new GantryModelGatewayBroker(repo, { audit });
+    try {
+      const injection = await broker.getInjection({
+        binding: {
+          profile: 'gantry',
+          purpose: 'model_runtime',
+          appId,
+          modelRouteId: 'anthropic',
+        },
+      });
+      const req = Object.assign(Readable.from(['{}']), {
+        url: '/anthropic/v1/messages',
+        method: 'POST',
+        headers: {
+          'x-api-key': injection.env[anthropicApiKeyKey]!,
+          'content-type': 'application/json',
+        },
+      }) as unknown as http.IncomingMessage;
+      const res = Object.assign(
+        new Writable({
+          write(_chunk, _encoding, callback) {
+            pipeWrites += 1;
+            if (pipeWrites === 1) {
+              callback();
+              return;
+            }
+            pipeRejected = true;
+            callback(pipeError);
+          },
+        }),
+        { statusCode: 200, setHeader: vi.fn() },
+      ) as unknown as http.ServerResponse;
+
+      const handlerPromise = (
+        broker as unknown as {
+          handleRequest(
+            request: http.IncomingMessage,
+            response: http.ServerResponse,
+          ): Promise<void>;
+        }
+      ).handleRequest(req, res);
+      let handlerSettled = false;
+      void handlerPromise.then(
+        () => {
+          handlerSettled = true;
+        },
+        () => {
+          handlerSettled = true;
+        },
+      );
+
+      await vi.waitFor(() => expect(audit).toHaveBeenCalledTimes(2));
+      await vi.waitFor(() => expect(pipeRejected).toBe(true));
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      expect(handlerSettled).toBe(false);
+      expect(usageAuditSettled).toBe(false);
+      releaseUsageAudit();
+      await expect(handlerPromise).rejects.toBe(pipeError);
+      expect(usageAuditSettled).toBe(true);
+    } finally {
+      await broker.close();
+    }
+  });
+
+  it('delivers the full stream when the usage audit throws', async () => {
+    const repo = new MutableModelCredentialRepository();
+    repo.set('anthropic', 'mock-anthropic-cred');
+    const expected = Buffer.from('data: first\n\ndata: second\n\n');
+    let auditCalls = 0;
+    const audit = vi.fn(async () => {
+      auditCalls += 1;
+      if (auditCalls === 2) throw new Error('audit unavailable');
+    });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(expected, {
+            headers: { 'content-type': 'text/event-stream' },
+          }),
+      ),
+    );
+    const broker = new GantryModelGatewayBroker(repo, { audit });
+    try {
+      const injection = await broker.getInjection({
+        binding: {
+          profile: 'gantry',
+          purpose: 'model_runtime',
+          appId,
+          modelRouteId: 'anthropic',
+        },
+      });
+
+      const response = gatewayStreamingRequest({
+        url: `${injection.env[anthropicBaseUrlKey]}/v1/messages`,
+        token: injection.env[anthropicApiKeyKey]!,
+      });
+
+      await expect(response.done).resolves.toMatchObject({
+        status: 200,
+        body: expected,
       });
     } finally {
       await broker.close();
@@ -1355,6 +1540,77 @@ describe('GantryModelGatewayBroker', () => {
     }
   });
 
+  it.each([
+    ['POST', '/v1/messages/batches'],
+    ['GET', '/v1/messages/batches'],
+    ['GET', '/v1/messages/batches/msgbatch_123'],
+    ['GET', '/v1/messages/batches/msgbatch_123/results'],
+  ])(
+    'proxies Anthropic %s %s through the scoped credential',
+    async (method, path) => {
+      const repo = new MutableModelCredentialRepository();
+      repo.set('anthropic', 'abcdefghijklmnopqrstuvwxyz');
+      const upstreamFetch = vi.fn(
+        async (_url: URL, _options?: RequestInit) =>
+          new Response('{"type":"message_batch"}', {
+            headers: { 'content-type': 'application/json' },
+          }),
+      );
+      vi.stubGlobal('fetch', upstreamFetch);
+      const broker = new GantryModelGatewayBroker(repo);
+      try {
+        const injection = await broker.getInjection({
+          binding: {
+            profile: 'gantry',
+            purpose: 'model_batch',
+            appId,
+            runId: 'run:anthropic-batch' as never,
+            modelCredentialProviderId: 'anthropic',
+            modelBatchRequestCount: 1,
+          },
+        });
+
+        const response = await gatewayRequest({
+          url: `${injection.env[anthropicBaseUrlKey]}${path}`,
+          token: injection.env[anthropicApiKeyKey]!,
+          method,
+        });
+
+        expect(response.status).toBe(200);
+        expect(upstreamFetch).toHaveBeenCalledWith(
+          new URL(`https://api.anthropic.com${path}`),
+          expect.objectContaining({
+            method,
+            headers: expect.objectContaining({
+              'x-api-key': 'abcdefghijklmnopqrstuvwxyz',
+            }),
+          }),
+        );
+        const options = upstreamFetch.mock.calls[0]?.[1];
+        if (method === 'GET') {
+          expect(options).not.toHaveProperty('body');
+        } else {
+          expect(options?.body).toEqual(Buffer.from('{}'));
+        }
+        if (method === 'POST') {
+          for (const [invalidMethod, invalidPath] of [
+            ['POST', '/v1/messages/batches/msgbatch_123'],
+            ['GET', '/v1/messages/batches/msgbatch_123/cancel'],
+          ]) {
+            const invalid = await gatewayRequest({
+              url: `${injection.env[anthropicBaseUrlKey]}${invalidPath}`,
+              token: injection.env[anthropicApiKeyKey]!,
+              method: invalidMethod,
+            });
+            expect(invalid.status).toBe(400);
+          }
+          expect(upstreamFetch).toHaveBeenCalledTimes(1);
+        }
+      } finally {
+        await broker.close();
+      }
+    },
+  );
   it('proxies OpenAI chat-completions traffic for the DeepAgents lane', async () => {
     const repo = new MutableModelCredentialRepository();
     repo.set('openai', 'sk-openai-chat-upstream');
@@ -1395,7 +1651,205 @@ describe('GantryModelGatewayBroker', () => {
     }
   });
 
-  it('rejects disallowed OpenAI paths before the upstream fetch', async () => {
+  it.each([
+    ['POST', '/v1/files'],
+    ['GET', '/v1/batches'],
+    ['GET', '/v1/batches/batch_123'],
+  ])(
+    'proxies OpenAI %s %s through the scoped credential',
+    async (method, path) => {
+      const repo = new MutableModelCredentialRepository();
+      repo.set('openai', 'abcdefghijklmnopqrstuvwxyz');
+      const upstreamFetch = vi.fn(
+        async (_url: URL, _options?: RequestInit) =>
+          new Response('{"object":"batch"}', {
+            headers: { 'content-type': 'application/json' },
+          }),
+      );
+      vi.stubGlobal('fetch', upstreamFetch);
+      const broker = new GantryModelGatewayBroker(repo);
+      try {
+        const injection = await broker.getInjection({
+          binding: {
+            profile: 'gantry',
+            purpose: 'model_batch',
+            appId,
+            runId: 'run:openai-batch' as never,
+            modelCredentialProviderId: 'openai',
+            modelBatchRequestCount: 1,
+            ...(path === '/v1/batches/batch_123'
+              ? { modelBatchId: 'batch_123' }
+              : {}),
+          },
+        });
+
+        const response = await gatewayRequest({
+          url: `${injection.env.OPENAI_BASE_URL}${path}`,
+          token: injection.env.OPENAI_API_KEY!,
+          method,
+        });
+
+        expect(response.status).toBe(200);
+        expect(upstreamFetch).toHaveBeenCalledWith(
+          new URL(`https://api.openai.com${path}`),
+          expect.objectContaining({
+            method,
+            headers: expect.objectContaining({
+              authorization: 'Bearer abcdefghijklmnopqrstuvwxyz',
+            }),
+          }),
+        );
+        const options = upstreamFetch.mock.calls[0]?.[1];
+        if (method === 'GET') {
+          expect(options).not.toHaveProperty('body');
+        } else {
+          expect(options?.body).toEqual(Buffer.from('{}'));
+        }
+      } finally {
+        await broker.close();
+      }
+    },
+  );
+
+  it('allows own-batch file content and rejects a foreign file id before upstream fetch', async () => {
+    const repo = new MutableModelCredentialRepository();
+    repo.set('openai', 'abcdefghijklmnopqrstuvwxyz');
+    const upstreamFetch = vi.fn(
+      async (urlInput: URL, options?: RequestInit) => {
+        const path = urlInput.pathname;
+        if (path === '/v1/files' && options?.method === 'POST') {
+          return Response.json({ id: 'file_input_own' });
+        }
+        if (path === '/v1/batches' && options?.method === 'POST') {
+          return Response.json({ id: 'batch_own' });
+        }
+        if (path === '/v1/files/file_input_own/content') {
+          return new Response('own batch content');
+        }
+        return new Response('foreign content');
+      },
+    );
+    vi.stubGlobal('fetch', upstreamFetch);
+    const broker = new GantryModelGatewayBroker(repo);
+    try {
+      const injection = await broker.getInjection({
+        binding: {
+          profile: 'gantry',
+          purpose: 'model_batch',
+          appId,
+          runId: 'run:openai-owned-file' as never,
+          modelCredentialProviderId: 'openai',
+          modelBatchRequestCount: 1,
+        },
+      });
+      const baseUrl = injection.env.OPENAI_BASE_URL!;
+      const token = injection.env.OPENAI_API_KEY!;
+
+      await expect(
+        gatewayRequest({ url: `${baseUrl}/v1/files`, token }),
+      ).resolves.toMatchObject({ status: 200 });
+      const callsBeforeForeignCreate = upstreamFetch.mock.calls.length;
+      await expect(
+        gatewayRequest({
+          url: `${baseUrl}/v1/batches`,
+          token,
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ input_file_id: 'file_input_foreign' }),
+        }),
+      ).resolves.toMatchObject({ status: 403 });
+      expect(upstreamFetch).toHaveBeenCalledTimes(callsBeforeForeignCreate);
+      await expect(
+        gatewayRequest({
+          url: `${baseUrl}/v1/batches`,
+          token,
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ input_file_id: 'file_input_own' }),
+        }),
+      ).resolves.toMatchObject({ status: 200 });
+
+      const own = await gatewayRequest({
+        url: `${baseUrl}/v1/files/file_input_own/content`,
+        token,
+        method: 'GET',
+      });
+      expect(own).toMatchObject({ status: 200, body: 'own batch content' });
+
+      const callsBeforeForeignRead = upstreamFetch.mock.calls.length;
+      const foreign = await gatewayRequest({
+        url: `${baseUrl}/v1/files/file_foreign/content`,
+        token,
+        method: 'GET',
+      });
+      expect(foreign.status).toBe(403);
+      expect(foreign.body).toContain('Forbidden model gateway token scope');
+      expect(upstreamFetch).toHaveBeenCalledTimes(callsBeforeForeignRead);
+    } finally {
+      await broker.close();
+    }
+  });
+
+  it('learns result-file ownership only from the token-bound batch response', async () => {
+    const repo = new MutableModelCredentialRepository();
+    repo.set('openai', 'abcdefghijklmnopqrstuvwxyz');
+    const upstreamFetch = vi.fn(async (urlInput: URL) => {
+      if (urlInput.pathname === '/v1/batches/batch_own') {
+        return Response.json({
+          id: 'batch_own',
+          status: 'completed',
+          output_file_id: 'file_output_own',
+        });
+      }
+      if (urlInput.pathname === '/v1/files/file_output_own/content') {
+        return new Response('own result content');
+      }
+      return new Response('foreign result content');
+    });
+    vi.stubGlobal('fetch', upstreamFetch);
+    const broker = new GantryModelGatewayBroker(repo);
+    try {
+      const injection = await broker.getInjection({
+        binding: {
+          profile: 'gantry',
+          purpose: 'model_batch',
+          appId,
+          runId: 'run:openai-result-file' as never,
+          modelCredentialProviderId: 'openai',
+          modelBatchRequestCount: 1,
+          modelBatchId: 'batch_own',
+        },
+      });
+      const baseUrl = injection.env.OPENAI_BASE_URL!;
+      const token = injection.env.OPENAI_API_KEY!;
+
+      await expect(
+        gatewayRequest({
+          url: `${baseUrl}/v1/batches/batch_own`,
+          token,
+          method: 'GET',
+        }),
+      ).resolves.toMatchObject({ status: 200 });
+      await expect(
+        gatewayRequest({
+          url: `${baseUrl}/v1/files/file_output_own/content`,
+          token,
+          method: 'GET',
+        }),
+      ).resolves.toMatchObject({ status: 200, body: 'own result content' });
+
+      const callsBeforeForeignRead = upstreamFetch.mock.calls.length;
+      await expect(
+        gatewayRequest({
+          url: `${baseUrl}/v1/files/file_output_foreign/content`,
+          token,
+          method: 'GET',
+        }),
+      ).resolves.toMatchObject({ status: 403 });
+      expect(upstreamFetch).toHaveBeenCalledTimes(callsBeforeForeignRead);
+    } finally {
+      await broker.close();
+    }
+  });
+  it('continues to reject disallowed OpenAI paths before the upstream fetch', async () => {
     const repo = new MutableModelCredentialRepository();
     repo.set('openai', 'sk-openai-upstream');
     const upstreamFetch = vi.fn(async () => new Response('should not call'));
@@ -1412,11 +1866,135 @@ describe('GantryModelGatewayBroker', () => {
       });
 
       const disallowed = await gatewayRequest({
-        url: `${injection.env.OPENAI_BASE_URL}/v1/files`,
+        url: `${injection.env.OPENAI_BASE_URL}/v1/fine_tuning/jobs`,
         token: injection.env.OPENAI_API_KEY!,
       });
       expect(disallowed.status).toBe(400);
+
+      for (const path of [
+        '/v1/files',
+        '/v1/files/file_123',
+        '/v1/batches/batch_123/results',
+      ]) {
+        const response = await gatewayRequest({
+          url: `${injection.env.OPENAI_BASE_URL}${path}`,
+          token: injection.env.OPENAI_API_KEY!,
+          method: 'GET',
+        });
+        expect(response.status).toBe(403);
+      }
+      const nonBatchGet = await gatewayRequest({
+        url: `${injection.env.OPENAI_BASE_URL}/v1/chat/completions`,
+        token: injection.env.OPENAI_API_KEY!,
+        method: 'GET',
+      });
+      expect(nonBatchGet.status).toBe(405);
       expect(upstreamFetch).not.toHaveBeenCalled();
+    } finally {
+      await broker.close();
+    }
+  });
+
+  it.each([
+    ['anthropic', 'POST', '/v1/messages/batches'],
+    ['anthropic', 'GET', '/v1/messages/batches'],
+    ['anthropic', 'GET', '/v1/messages/batches/msgbatch_123/results'],
+    ['openai', 'POST', '/v1/files'],
+    ['openai', 'POST', '/v1/batches'],
+    ['openai', 'GET', '/v1/batches'],
+    ['openai', 'GET', '/v1/files/file_123/content'],
+  ] as const)(
+    'rejects ordinary %s model-runtime tokens on %s batch path %s',
+    async (providerId, method, path) => {
+      const repo = new MutableModelCredentialRepository();
+      repo.set(providerId, 'abcdefghijklmnopqrstuvwxyz');
+      const upstreamFetch = vi.fn(async () => new Response('{"ok":true}'));
+      vi.stubGlobal('fetch', upstreamFetch);
+      const broker = new GantryModelGatewayBroker(repo);
+      try {
+        const injection = await broker.getInjection({
+          binding: {
+            profile: 'gantry',
+            purpose: 'model_runtime',
+            appId,
+            runId: `run:${providerId}-ordinary` as never,
+            modelCredentialProviderId: providerId,
+          },
+        });
+        const baseUrl =
+          providerId === 'anthropic'
+            ? injection.env[anthropicBaseUrlKey]!
+            : injection.env.OPENAI_BASE_URL!;
+        const token =
+          providerId === 'anthropic'
+            ? injection.env[anthropicApiKeyKey]!
+            : injection.env.OPENAI_API_KEY!;
+
+        const response = await gatewayRequest({
+          url: `${baseUrl}${path}`,
+          token,
+          method,
+        });
+
+        expect(response.status).toBe(403);
+        expect(upstreamFetch).not.toHaveBeenCalled();
+      } finally {
+        await broker.close();
+      }
+    },
+  );
+
+  it('charges each item in a batch submission against the request-rate cap', async () => {
+    const repo = new MutableModelCredentialRepository();
+    repo.set('anthropic', 'abcdefghijklmnopqrstuvwxyz');
+    const upstreamFetch = vi.fn(async () => new Response('{"ok":true}'));
+    vi.stubGlobal('fetch', upstreamFetch);
+    const broker = new GantryModelGatewayBroker(repo, {
+      limits: () => ({ providers: { anthropic: { requestsPerMinute: 3 } } }),
+    });
+    try {
+      const injection = await broker.getInjection({
+        binding: {
+          profile: 'gantry',
+          purpose: 'model_batch',
+          appId,
+          runId: 'run:weighted-batch' as never,
+          modelCredentialProviderId: 'anthropic',
+          modelBatchRequestCount: 4,
+        },
+      });
+
+      const response = await gatewayRequest({
+        url: `${injection.env[anthropicBaseUrlKey]}/v1/messages/batches`,
+        token: injection.env[anthropicApiKeyKey]!,
+      });
+
+      expect(response.status).toBe(429);
+      expect(upstreamFetch).not.toHaveBeenCalled();
+    } finally {
+      await broker.close();
+    }
+  });
+
+  it('rejects Claude OAuth for a batch-purpose token before token issue', async () => {
+    const repo = new MutableModelCredentialRepository();
+    repo.setWithMode('anthropic', 'claude_code_oauth', {
+      oauthToken: 'abcdefghijklmnopqrstuvwxyz',
+    });
+    const broker = new GantryModelGatewayBroker(repo);
+    try {
+      await expect(
+        broker.getInjection({
+          binding: {
+            profile: 'gantry',
+            purpose: 'model_batch',
+            appId,
+            runId: 'run:oauth-batch' as never,
+            modelCredentialProviderId: 'anthropic',
+            modelBatchRequestCount: 1,
+          },
+        }),
+      ).rejects.toThrow('does not support chat batches');
     } finally {
       await broker.close();
     }

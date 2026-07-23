@@ -13,6 +13,7 @@ import { nowIso } from '../../shared/time/datetime.js';
 import { agentIdForFolder } from '../../domain/agent/agent-folder-id.js';
 import type { SlackMessageLike } from './channel-state.js';
 import { ingestSlackSlashCommand as ingestSlackSlashCommandEvent } from './slash-command-ingest.js';
+import { shouldLogUnregisteredChatDrop } from '../unregistered-chat-drop-log.js';
 
 type SlackIngestOpts = Pick<
   ChannelOpts,
@@ -28,6 +29,13 @@ type EnrichedSlackMessage = {
 };
 type SlackRouteMatch = [string, ConversationRoute, string | undefined];
 
+function escapeRegex(str: string): string {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function leadingBotMentionPattern(botUserId: string): RegExp {
+  return new RegExp(`^<@${escapeRegex(botUserId)}>[,:]?\\s*`);
+}
 function dedupeRouteAliases(matches: SlackRouteMatch[]): SlackRouteMatch[] {
   const byIdentity = new Map<
     string,
@@ -129,10 +137,18 @@ export async function ingestSlackMessage(input: {
   const singleRoute =
     routeMatches.length === 1 ? routeMatches[0]?.[1] : undefined;
   if (routeMatches.length < 1 && isGroupConversation) {
-    logger.debug(
-      { jid, chatName },
-      'Message from unregistered Slack conversation',
-    );
+    if (shouldLogUnregisteredChatDrop('slack', jid)) {
+      logger.info(
+        {
+          provider: 'slack',
+          providerAccountId: input.opts.providerAccountId,
+          chatId: event.channel,
+          jid,
+          chatName,
+        },
+        'Message from unregistered Slack conversation',
+      );
+    }
     return;
   }
   const enriched = await input.enrichMessage(jid, event);
@@ -140,11 +156,11 @@ export async function ingestSlackMessage(input: {
   const content =
     input.botUserId && singleRoute
       ? rawContent.replace(
-          new RegExp(`^<@${input.botUserId}>\\s+`),
+          leadingBotMentionPattern(input.botUserId),
           `${triggerForRoute(singleRoute)} `,
         )
       : input.botUserId && routeMatches.length > 1
-        ? rawContent.replace(new RegExp(`^<@${input.botUserId}>\\s*`), '')
+        ? rawContent.replace(leadingBotMentionPattern(input.botUserId), '')
         : rawContent;
   if (!content) return;
   const triggeredRoutes =

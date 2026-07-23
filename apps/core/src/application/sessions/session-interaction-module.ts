@@ -13,11 +13,14 @@ import type {
 } from '../../domain/repositories/ops-repo.js';
 import type { LiveAdmissionWorkItemEnqueueResult } from '../../domain/ports/live-turns.js';
 import type {
+  AgentRepository,
   AgentRunRepository,
   AgentSessionRepository,
   MessageRepository,
   ProviderSessionRepository,
 } from '../../domain/ports/repositories.js';
+import type { AgentId } from '../../domain/agent/agent.js';
+import { folderForAgentId } from '../../domain/agent/agent-folder-id.js';
 import type { IsoTimestamp } from '../../shared/time/primitives.js';
 import type { AgentRuntime } from '../../shared/agent-runtime.js';
 import { ApplicationError } from '../common/application-error.js';
@@ -78,6 +81,7 @@ export type SessionInteractionDeps = {
   control: SessionControlPort;
   ops: RuntimeChatMetadataRepository & RuntimeMessageRepository;
   repositories: {
+    agents: AgentRepository;
     agentSessions: AgentSessionRepository;
     providerSessions: ProviderSessionRepository;
     messages: MessageRepository;
@@ -104,6 +108,7 @@ export class SessionInteractionModule {
   async ensureSession(input: {
     appId: string;
     assertedAppId?: string | null;
+    agentId?: string | null;
     conversationId: string;
     title?: string | null;
     responseMode?: unknown;
@@ -127,7 +132,7 @@ export class SessionInteractionModule {
       );
     }
     const conversationJid = `app:${input.appId}:${conversationId}`;
-    const group = makeAppGroup({
+    let group = makeAppGroup({
       appId: input.appId,
       conversationId,
       conversationJid,
@@ -136,6 +141,31 @@ export class SessionInteractionModule {
         .slice(0, 12),
       addedAt: this.deps.now(),
     });
+    const requestedAgentId = input.agentId?.trim();
+    if (requestedAgentId) {
+      const agent = await this.deps.repositories.agents.getAgent(
+        requestedAgentId as AgentId,
+      );
+      if (!agent || agent.appId !== input.appId) {
+        throw new ApplicationError('NOT_FOUND', 'Agent not found');
+      }
+      if (agent.status !== 'active') {
+        throw new ApplicationError(
+          'INVALID_REQUEST',
+          `Agent is not active: ${requestedAgentId}`,
+        );
+      }
+      const agentFolder = folderForAgentId(agent.id);
+      if (!agentFolder) {
+        throw new ApplicationError(
+          'INVALID_REQUEST',
+          'Agent does not have a settings folder.',
+        );
+      }
+      // Bind the session to the requested agent's workspace folder so turns
+      // run with that agent's config and grants instead of a synthetic one.
+      group = { ...group, name: agent.name, folder: agentFolder };
+    }
     const defaultWebhookId = await this.resolveOwnedWebhookId(
       input.appId,
       input.webhookId ?? null,
@@ -188,10 +218,26 @@ export class SessionInteractionModule {
   }): Promise<{ messages: unknown[] }> {
     const session = await this.requireSession(input);
     if (!session.conversationId) return { messages: [] };
-    const messages = await this.deps.repositories.messages.listRecentMessages({
-      conversationId: session.conversationId as never,
-      limit: input.limit,
-    });
+    // The session stores its SHORT conversation id; canonical message rows
+    // key on conversation-row ids, and one jid can map to several rows until
+    // the Phase-8 restamp — resolve by jid and union.
+    const conversationIds =
+      await this.deps.repositories.messages.listConversationIdsForJid(
+        session.conversationJid,
+      );
+    if (conversationIds.length === 0) return { messages: [] };
+    const lists = await Promise.all(
+      conversationIds.map((conversationId) =>
+        this.deps.repositories.messages.listRecentMessages({
+          conversationId,
+          limit: input.limit,
+        }),
+      ),
+    );
+    const messages = lists
+      .flat()
+      .sort((a, b) => (a.createdAt < b.createdAt ? -1 : 1))
+      .slice(-input.limit);
     return { messages };
   }
 
@@ -428,7 +474,7 @@ export class SessionInteractionModule {
     return { emitted: true, eventId: event.eventId };
   }
 
-  private async requireSession(input: {
+  async requireSession(input: {
     appId: string;
     sessionId: string;
   }): Promise<SessionAppRecord> {

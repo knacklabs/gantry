@@ -58,6 +58,9 @@ export type DiscordInteraction = {
     nick?: string | null;
   };
   user?: DiscordUser;
+  message?: {
+    id?: string;
+  };
 };
 
 export type DiscordInteractionOption = {

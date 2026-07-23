@@ -1,4 +1,3 @@
-import { agentIdForFolder } from '../../domain/agent/agent-folder-id.js';
 import { FileArtifactNotFoundError } from '../../domain/file-artifacts/file-artifact.js';
 import { PROMPT_PROFILE_VIRTUAL_SCOPE } from '../../domain/file-artifacts/protected-virtual-path.js';
 import type { FileArtifactStore } from '../../domain/ports/file-artifact-store.js';
@@ -7,12 +6,34 @@ import {
   type AgentPersona,
 } from '../../shared/agent-persona.js';
 import {
-  DEFAULT_RELATIONSHIP_MODE,
   resolveAgentRelationshipMode,
   type AgentRelationshipMode,
 } from '../../shared/agent-relationship-mode.js';
 import { PROACTIVE_RECOMMENDATION_GUIDANCE } from '../../shared/capability-guidance.js';
+import {
+  renderCapabilityGuidancePrompt,
+  type CapabilityCatalogRenderDiagnostics,
+} from './agent-prompt-capability-guidance.js';
 import { isValidPromptAgentFolder } from './prompt-profile-folder.js';
+import type { AgentPromptCapabilityCatalog } from './agent-prompt-capability-catalog.js';
+import {
+  AGENTS_FILENAME,
+  defaultAgentsPromptMarkdown,
+  defaultSoulPromptMarkdown,
+  promptProfileAgentIdForFolder,
+  promptProfileAgentsPath,
+  promptProfileSoulPath,
+  SOUL_FILENAME,
+} from './prompt-profile-defaults.js';
+
+export {
+  defaultAgentsPromptMarkdown,
+  defaultSoulPromptMarkdown,
+  PROFILE_FILE_NAMES,
+  promptProfileAgentIdForFolder,
+  promptProfileAgentsPath,
+  promptProfileSoulPath,
+} from './prompt-profile-defaults.js';
 
 type PromptSectionName =
   | 'RUNTIME_RULES'
@@ -22,10 +43,8 @@ type PromptSectionName =
   | 'OPERATING_GUIDANCE'
   | 'AGENT_INSTRUCTIONS';
 
-const AGENTS_FILENAME = 'AGENTS.md';
 const PROMPT_PROFILE_SCOPE = PROMPT_PROFILE_VIRTUAL_SCOPE;
 const DEFAULT_PROMPT_PROFILE_APP_ID = 'default';
-const SOUL_FILENAME = 'SOUL.md';
 const SOUL_SOURCE = 'gantry://soul';
 const PERSONA_SOURCE = 'gantry://persona';
 const CAPABILITY_GUIDANCE_SOURCE = 'gantry://capability-guidance';
@@ -34,11 +53,11 @@ const AGENT_INSTRUCTIONS_SOURCE = 'gantry://agent-instructions';
 export const DEFAULT_PROMPT_SECTION_BUDGETS: Readonly<
   Record<PromptSectionName, number>
 > = {
-  RUNTIME_RULES: 1200,
+  RUNTIME_RULES: 2200,
   PERSONA: 1200,
   SOUL: 3000,
   CAPABILITY_GUIDANCE: 1500,
-  OPERATING_GUIDANCE: 6500,
+  OPERATING_GUIDANCE: 12000,
   AGENT_INSTRUCTIONS: 5000,
 };
 
@@ -124,35 +143,18 @@ function personaPrompt(
   }
 }
 
-function capabilityGuidancePrompt(
-  persona: AgentPersona,
+export function capabilityGuidancePrompt(
+  catalog: AgentPromptCapabilityCatalog | undefined,
   accessPreset: PromptAccessPreset,
+  budget = DEFAULT_PROMPT_SECTION_BUDGETS.CAPABILITY_GUIDANCE,
+  mcpInventoryToolsMounted = true,
 ): string {
-  const baseline = [
-    '# Capability guidance',
-    accessPreset === 'locked'
-      ? '- Memory is baseline for every persona. Browser control is available only when Gantry-owned browser_* tools are present.'
-      : '- Memory is baseline for every persona. Browser control is available only when the canonical Browser capability is selected, through Gantry-owned browser_* tools.',
-    '- Memory tools store durable evidence only; temporary task state does not belong in memory.',
-    '- For non-trivial live work, first send one short natural acknowledgement with send_message before starting tools or investigation. Use todo_update for any multi-step task: publish a short plan and keep it current as items move pending -> inProgress -> completed. It renders as one live, in-place list per channel, so avoid repeated generic progress chatter unless there is a concrete blocker, decision, or result to share. It is display-only, non-authority state and does not grant tools or trigger work.',
-    '- Use render_status, render_facts, render_list, render_table, render_form, render_media, or render_progress when structured output should appear as native rich UI. Use send_message for plain narrative text.',
-    '- Use only the Gantry tools mounted in the current run; if a requested workflow cannot be done with them, say what is unavailable and continue with the best available path.',
-    '- Gantry delegation is unavailable until a delegated-task executor is mounted. Do not claim delegated work started unless a real Gantry delegation tool returns a handle.',
-    '- Final answers use adaptive receipts: pure chat answers need no receipt; work with no tools, changes, delegation, or blocker may use only Completed: <short outcome>; delegated work must include the full receipt with Used, Changed, Delegated, and Needs attention.',
-    '- Do not delegate risky execution, secret handling, config edits, permission changes, or work requiring tools the parent run cannot use.',
-  ];
-  if (persona === 'developer') {
-    baseline.push(
-      accessPreset === 'locked'
-        ? '- Developer capabilities may include workspace read/search.'
-        : '- Developer capabilities may include workspace read/search. Shell, file writes, Git, PR, deploy, and runtime-admin actions still require explicit capability or permission.',
-    );
-  } else {
-    baseline.push(
-      '- This persona should not introduce gstack, Git, PR, deploy, shell, repository, filesystem, or runtime-admin workflow language unless the user explicitly asks and host capabilities allow it.',
-    );
-  }
-  return baseline.join('\n');
+  return renderCapabilityGuidancePrompt({
+    catalog,
+    accessPreset,
+    budget,
+    mcpInventoryToolsMounted,
+  }).prompt;
 }
 const OPERATING_GUIDANCE_HEAD = [
   '# Operating guidance',
@@ -168,7 +170,7 @@ const OPERATING_GUIDANCE_HEAD = [
   '- Save only durable facts, preferences, decisions, corrections, constraints, and reusable procedures.',
   '- Do not save raw chat logs, terminal output, temporary task progress, secrets, credentials, or vague importance scores.',
   '- Prefer group, channel, and user memory boundaries; common app memory is host-controlled and write-restricted.',
-  '- Prefer recent, high-confidence, and directly relevant memory. If memory may be stale, verify with the user.',
+  '- Prefer recent, high-confidence, and relevant memory. If it shapes the answer, briefly acknowledge it; if it may be stale, verify with the user.',
   '- Treat explicit user corrections as higher priority than older remembered facts.',
   '',
   '## Continuity',
@@ -203,25 +205,40 @@ const FULL_TOOL_ACCESS_GUIDANCE = [
   '- For skills, MCP servers, local CLIs, browser, file/web, and admin tools, ask for the action the user wants; source setup and raw implementation details stay in review metadata.',
   '- Declare requiredEnvVars for secrets the installed skill needs at runtime; they are projected later from Gantry Credentials and are not generic installer env.',
   '- Agents with selected admin capabilities may use settings_desired_state before local configuration changes and request_settings_update for reviewed settings.yaml changes; do not edit settings.yaml directly.',
+  '- Control map: "stop asking me so much" -> settings_desired_state then request_settings_update permission_mode: auto for this conversation install, else this agent; reply only "Done — I\'ll only check with you for risky actions now." "be extra careful with deletes" -> settings_desired_state first; if permissions.yolo_mode.enabled, add "rm *" to permissions.yolo_mode.denylist and say it applies globally to all conversations. In auto/attended mode with yolo disabled, deletes already require approval; explain and change nothing. "undo that" -> only an unambiguous inverse; no generic rollback exists.',
+  '- "pause everything" / "resume" are not symmetric. For "pause everything", scheduler_list_jobs to list visible jobs, pause them with the existing pause controls, and report what was paused. Bare "resume" without a prior pause in this conversation means conversational continue only via memory_search, never a scheduler mutation; bulk mutations never follow an ambiguous single word. For "resume the jobs" / "resume everything you paused", scheduler_list_jobs then pause/resume each only for jobs the user paused in this conversation, listing them first; if empty or unclear, confirm scope.',
   '- Agents with selected admin capabilities may use service_restart after approved capability or config changes and register_agent for conversation installs.',
   '- Never run npm, brew, go, uv, curl, or download install commands directly for skills, MCP servers, or tools.',
   '- Never edit generated provider config, local skill files, MCP config, settings.yaml, or permission files directly.',
   '- To change your own SOUL.md or AGENTS.md profile, use request_agent_profile_update (read current content first with agent_profile_read); the generic file tool cannot write profile files.',
   '- When access is approved, tell the user the plain result: requested, approved, installed, available now, needs setup, blocked by policy, or paused. Do not quote raw tool ids, MCP tool ids, task ids, or status blocks unless the user asks for technical details.',
+  '- For long installs, dependency setup, and renders, use render_progress at meaningful boundaries ("Installing… 2 of 3"); repeated calls edit one compact line, never append progress messages.',
   '- Use admin_permission_list (read-only) to review current permissions, suggest cleanup of unused or overly broad access, or spot missing access; report findings in plain language.',
 ];
 const OPERATING_GUIDANCE_COMMUNICATION = [
   '',
   '## Communication',
-  '- Lead with the answer.',
+  '- Lead with the outcome in plain prose. Include supporting details only when useful or requested; never append a labeled receipt block.',
   '- Be direct, useful, and specific.',
   '- For job notifications and setup blockers, give only the outcome and one next action. Do not include runtime diagnostics, raw logs, queue bookkeeping, tool ids, or repair commands in user-facing text unless the user asks.',
   '- Skip filler and avoid pretending certainty.',
   '- Match the active channel formatting conventions.',
   '- Keep short answers short unless the user asks for detail.',
+  '',
+  '## Output Style',
+  '- Lead with the answer or outcome in the first sentence; supporting context follows.',
+  '- Do not narrate execution ("Let me run...", "Now I\'ll check...", step-by-step commentary). Speak in outcomes, answers, and necessary questions. The single short acknowledgement before non-trivial live work is the only exception.',
+  '- No preambles ("Great question", "Sure!"), no closers ("Let me know if..."), no pleasantry filler.',
+  '- Never use dashes as punctuation: no " - ", em dashes, or en dashes as clause separators. Hyphens appear only inside compound words.',
+  '- Keep sentences short. Use numbered or bulleted structure when the answer has multiple items.',
+  '- Reply in the language the user writes in.',
+  '- Be concise by default and complete when the user asks for depth; never trade accuracy for brevity.',
 ];
 
-const OPERATING_GUIDANCE_BLOCK = [
+// Exported for the budget-guard unit test: the raw block must always fit the
+// OPERATING_GUIDANCE section budget or the compiler silently truncates the
+// tail (which once dropped the entire Communication section).
+export const OPERATING_GUIDANCE_BLOCK = [
   ...OPERATING_GUIDANCE_HEAD,
   ...FULL_TOOL_ACCESS_GUIDANCE,
   '',
@@ -232,11 +249,49 @@ const OPERATING_GUIDANCE_BLOCK = [
 
 // Proactive recommendations are omitted for locked agents: every suggestion in
 // that block routes through request/approval machinery the agent must not know.
-const LOCKED_OPERATING_GUIDANCE_BLOCK = [
+export const LOCKED_OPERATING_GUIDANCE_BLOCK = [
   ...OPERATING_GUIDANCE_HEAD,
   ...LOCKED_TOOL_ACCESS_GUIDANCE,
   ...OPERATING_GUIDANCE_COMMUNICATION,
 ].join('\n');
+
+export interface PromptModelIdentity {
+  alias: string;
+  modelId: string;
+  provider: string;
+}
+
+// Stable-per-run facts injected into the compiled profile. Everything here
+// rides the static (cached) side of the runner prompt split, so values MUST
+// NOT vary turn-to-turn within one session; per-turn facts (time, speaker)
+// belong to the dynamic tail or the message payload instead.
+export interface PromptRuntimeContext {
+  channelContextLine?: string;
+  workspacePath?: string;
+  // Present only for scheduled job runs.
+  job?: { id?: string; name?: string };
+}
+
+type ChannelPromptPresentationRenderer = (
+  chatJid: string | undefined,
+  conversationKind: 'dm' | 'channel' | undefined,
+) => string | undefined;
+
+let channelPromptPresentationRenderer: ChannelPromptPresentationRenderer = () =>
+  undefined;
+
+export function registerChannelPromptPresentationRenderer(
+  renderer: ChannelPromptPresentationRenderer,
+): void {
+  channelPromptPresentationRenderer = renderer;
+}
+
+export function renderChannelPromptPresentationLine(
+  chatJid: string | undefined,
+  conversationKind: 'dm' | 'channel' | undefined,
+): string | undefined {
+  return channelPromptPresentationRenderer(chatJid, conversationKind);
+}
 
 export interface CompilePromptProfileOptions {
   agentFolder: string;
@@ -246,6 +301,12 @@ export interface CompilePromptProfileOptions {
   // Resolved agent access preset (config/profiles). Locked agents receive the
   // locked instruction projection; absent defaults to full (today's prompt).
   accessPreset?: PromptAccessPreset;
+  capabilityCatalog?: AgentPromptCapabilityCatalog;
+  mcpInventoryToolsMounted?: boolean;
+  // Resolved model identity for this run; rendered as a plain "You are running
+  // on ..." runtime rule. Changes only when model config changes (cache-safe).
+  modelIdentity?: PromptModelIdentity;
+  runtimeContext?: PromptRuntimeContext;
 }
 
 export interface ProfileMirrorInput {
@@ -259,6 +320,9 @@ export interface PromptProfileServiceOptions {
   appId?: string;
   sectionBudgets?: Partial<Record<PromptSectionName, number>>;
   totalBudget?: number;
+  onCapabilityCatalogRendered?: (
+    diagnostics: CapabilityCatalogRenderDiagnostics,
+  ) => void;
   // Optional one-way mirror writer. When provided, seeded default profile
   // files are also materialized as visible files in the agent workspace.
   mirrorProfileFile?: (input: ProfileMirrorInput) => void | Promise<void>;
@@ -298,6 +362,40 @@ function truncateDeterministically(content: string, budget: number): string {
   return content.slice(0, budget).trimEnd();
 }
 
+function runtimeContextLines(options: CompilePromptProfileOptions): string[] {
+  const lines: string[] = [];
+  if (options.modelIdentity) {
+    const { alias, modelId, provider } = options.modelIdentity;
+    lines.push(
+      `- You are running on ${alias} (${modelId}) via ${provider}. State this plainly if the user asks which model you are; deeper runtime internals stay internal.`,
+    );
+  }
+  const context = options.runtimeContext;
+  if (!context) return lines;
+  if (context.channelContextLine) lines.push(context.channelContextLine);
+  if (context.workspacePath) {
+    lines.push(
+      `- Workspace root: ${context.workspacePath}. Durable outputs belong under media/ inside the workspace; tmp paths are ephemeral and may not survive between runs.`,
+    );
+  }
+  if (context.job) {
+    const label =
+      context.job.name && context.job.id
+        ? `"${context.job.name}" (${context.job.id})`
+        : context.job.name
+          ? `"${context.job.name}"`
+          : (context.job.id ?? 'this scheduled job');
+    lines.push(
+      `- This run executes scheduled job ${label}. Job runs are quiet until terminal: deliver one final outcome report; do not send interim progress messages.`,
+    );
+  } else {
+    lines.push(
+      '- New user messages may arrive mid-run and supersede the current plan; treat messages delivered mid-run as fresh instructions, not history.',
+    );
+  }
+  return lines;
+}
+
 function renderSection(section: PromptSection): string {
   return [
     `[[${section.name}]]`,
@@ -312,6 +410,9 @@ export class PromptProfileService {
   private readonly appId: string;
   private readonly sectionBudgets: Readonly<Record<PromptSectionName, number>>;
   private readonly totalBudget: number;
+  private readonly onCapabilityCatalogRendered?: (
+    diagnostics: CapabilityCatalogRenderDiagnostics,
+  ) => void;
   private readonly mirrorProfileFile?: (
     input: ProfileMirrorInput,
   ) => void | Promise<void>;
@@ -328,6 +429,7 @@ export class PromptProfileService {
       ...(options.sectionBudgets || {}),
     };
     this.totalBudget = options.totalBudget || DEFAULT_PROMPT_TOTAL_BUDGET;
+    this.onCapabilityCatalogRendered = options.onCapabilityCatalogRendered;
     this.mirrorProfileFile = options.mirrorProfileFile;
     this.mirrorFileExists = options.mirrorFileExists;
   }
@@ -388,9 +490,12 @@ export class PromptProfileService {
     const runtimeRules = makeSection(
       'RUNTIME_RULES',
       'gantry://runtime-rules',
-      accessPreset === 'locked'
-        ? LOCKED_RUNTIME_RULES_BLOCK
-        : RUNTIME_RULES_BLOCK,
+      [
+        accessPreset === 'locked'
+          ? LOCKED_RUNTIME_RULES_BLOCK
+          : RUNTIME_RULES_BLOCK,
+        ...runtimeContextLines(options),
+      ].join('\n'),
       this.sectionBudgets.RUNTIME_RULES,
     );
     if (runtimeRules) sections.push(runtimeRules);
@@ -416,13 +521,17 @@ export class PromptProfileService {
 
     if (soul) sections.push(soul);
 
+    const renderedCapabilityGuidance = renderCapabilityGuidancePrompt({
+      catalog: options.capabilityCatalog,
+      accessPreset,
+      budget: this.sectionBudgets.CAPABILITY_GUIDANCE,
+      mcpInventoryToolsMounted: options.mcpInventoryToolsMounted !== false,
+    });
+    this.onCapabilityCatalogRendered?.(renderedCapabilityGuidance.diagnostics);
     const capabilityGuidance = makeSection(
       'CAPABILITY_GUIDANCE',
       CAPABILITY_GUIDANCE_SOURCE,
-      capabilityGuidancePrompt(
-        resolveAgentPersona(options.persona),
-        accessPreset,
-      ),
+      renderedCapabilityGuidance.prompt,
       this.sectionBudgets.CAPABILITY_GUIDANCE,
     );
     if (capabilityGuidance) sections.push(capabilityGuidance);
@@ -660,123 +769,6 @@ export class PromptProfileService {
     return output.trim();
   }
 }
-
-export const promptProfileAgentIdForFolder = (agentFolder: string): string =>
-  agentIdForFolder(agentFolder);
-
-export function defaultAgentsPromptMarkdown(
-  agentName: string,
-  relationshipMode: AgentRelationshipMode = DEFAULT_RELATIONSHIP_MODE,
-  accessPreset: PromptAccessPreset = 'full',
-): string {
-  const displayName = agentName.trim() || 'Agent';
-  const mode = resolveAgentRelationshipMode(relationshipMode);
-  const modeLine =
-    mode === 'organization'
-      ? `You are ${displayName}, a work-focused agent for this conversation. Stay on the task, keep approvers in the loop, and follow policy first.`
-      : `You are ${displayName}, the agent for this conversation. Be a proactive companion while keeping private context private.`;
-  const howToLines =
-    accessPreset === 'locked'
-      ? [
-          // No scheduler line: scheduler_* tools are not mounted for locked
-          // agents, so the default profile must not describe them.
-          'How you get things done:',
-          '- For non-trivial live work, first send one short natural acknowledgement with send_message before starting tools or investigation; for multi-step work, use todo_update instead of repeated generic progress messages; use render_* rich UI tools for structured status, facts, lists, tables, forms, media, or progress; use ask_user_question for genuine either/or decisions the user must make.',
-          '- Work only with the tools and knowledge currently available in this session.',
-          '',
-          'When something blocks you:',
-          '- If a request cannot be done with the available tools, say so plainly and offer what you can do instead.',
-          '- Never mention internal capability, approval, or permission machinery to the user.',
-          '',
-        ]
-      : [
-          'How you get things done:',
-          '- For non-trivial live work, first send one short natural acknowledgement with send_message before starting tools or investigation; for multi-step work, use todo_update instead of repeated generic progress messages; use render_* rich UI tools for structured status, facts, lists, tables, forms, media, or progress; use ask_user_question for genuine either/or decisions the user must make.',
-          '- Request reviewed access with request_access (target.kind=capability for durable access, target.kind=tool for exact Gantry tools such as AgentDelegation, target.kind=run_command with temporaryOnly for a scoped one-off command).',
-          '- Add capabilities with request_skill_install, request_skill_proposal, request_skill_dependency_install, or request_mcp_server; bind and restart with register_agent and service_restart.',
-          '- Manage recurring work with the scheduler_* tools (for example scheduler_upsert_job, scheduler_run_now, scheduler_list_jobs).',
-          '- To change your own SOUL.md or AGENTS.md profile, use request_agent_profile_update; never edit them through the generic file tool.',
-          '- Never edit settings, install dependencies, or change local skill/MCP config directly; route changes through the reviewed tools.',
-          '',
-          'When something blocks you, follow the ladder:',
-          '- Diagnose the real blocker, then classify it (missing action, missing setup, or policy block).',
-          '- Request the matching permission or setup through the right tool above.',
-          '- Act once granted, then summarize the user-facing result in plain words.',
-          '',
-        ];
-  return [
-    `# ${displayName}`,
-    '',
-    modeLine,
-    'Keep responses clear, concise, and directly actionable.',
-    '',
-    'Rules:',
-    '- Be explicit when an action fails and what to do next.',
-    '- Ask for clarification when intent is ambiguous.',
-    '- Never expose secrets unless explicitly requested.',
-    '',
-    ...howToLines,
-  ].join('\n');
-}
-
-export function defaultSoulPromptMarkdown(
-  agentName: string,
-  relationshipMode: AgentRelationshipMode = DEFAULT_RELATIONSHIP_MODE,
-): string {
-  const displayName = agentName.trim() || 'Agent';
-  const mode = resolveAgentRelationshipMode(relationshipMode);
-  const relationshipLine =
-    mode === 'organization'
-      ? '- You are an employee-like teammate: work-focused, approver-aware, and policy-first.'
-      : '- You are a companion-like helper: proactive and personable, but privacy-first.';
-  return [
-    '# Soul - Who You Are',
-    '',
-    '## Personality',
-    '- You are sharp, direct, and genuinely helpful.',
-    relationshipLine,
-    '- Have strong opinions. Do not hedge when a clear answer exists.',
-    "- Be concise. If one sentence works, use one sentence. Respect the user's time.",
-    '- Lead with the answer, not the preamble.',
-    '',
-    '## Voice',
-    '- Write like a smart colleague, not a customer-support bot.',
-    '- Be proactive. Suggest ideas, spot problems, and take initiative.',
-    "- Match the user's energy. Casual when they are casual, precise when they need precision.",
-    '- When explaining discovered work, scheduled jobs, permissions, or tool use, speak in user intent and outcome first. Do not expose file paths, script names, tool names, scheduler IDs, run IDs, memory source, or protocol details unless the user asks for details.',
-    '- Prefer to ask one decision-blocking question at a time instead of batching every missing detail.',
-    '- When a decision is needed, ask the smallest plain-language question that unblocks the task. Keep implementation evidence behind "Details" or omit it.',
-    '- For migrated jobs, describe what the job will do, where results go, what permission or account is needed, and what happens next. You own figuring out source files, tools, scripts, and runtime mechanics.',
-    '- Suggest the durable fix proactively: a scheduled job for recurring or time-based requests, a skill for repeated procedures, a durable capability when you keep asking for the same permission, and Credential Center setup when a secret is missing (entered outside chat, never in chat).',
-    '',
-    '## Boundaries',
-    '- Private context stays private. Never expose secrets or internal details.',
-    '- Ask before taking external actions such as sending messages, posting, or pushing code.',
-    '- When uncertain, say so. Do not present guesses as facts.',
-    '',
-    '## Continuity Boundary',
-    '- Your personality lives here.',
-    '- Durable facts, user preferences, task state, and open commitments do not live here.',
-    '- Use query-retrieved memory context and memory_search for remembered context.',
-    '',
-    '## Identity',
-    `- **Name:** ${displayName}`,
-    '',
-  ].join('\n');
-}
-
-export function promptProfileAgentsPath(agentFolder: string): string {
-  return `${agentFolder}/${AGENTS_FILENAME}`;
-}
-
-export function promptProfileSoulPath(agentFolder: string): string {
-  return `${agentFolder}/${SOUL_FILENAME}`;
-}
-
-export const PROFILE_FILE_NAMES = {
-  soul: SOUL_FILENAME,
-  agents: AGENTS_FILENAME,
-} as const;
 
 // Re-exported from the domain layer (single source of truth) for existing
 // importers of this module.

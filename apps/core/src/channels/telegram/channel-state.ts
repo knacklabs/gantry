@@ -1,4 +1,3 @@
-import { createHash } from 'crypto';
 import { Bot } from 'grammy';
 import { ChannelAdapter, ChannelOpts } from '../channel-provider.js';
 import type { RuntimeLease } from '../../domain/ports/runtime-lease.js';
@@ -6,6 +5,7 @@ import {
   MessageDeliveryResult,
   PermissionApprovalDecision,
   PermissionApprovalRequest,
+  PermissionCallbackScope,
   ProgressUpdateOptions,
   StreamingChunkOptions,
   UserQuestionRequest,
@@ -24,9 +24,11 @@ import {
   ActiveGroupStreamState,
   ActiveProgressState,
   PendingUserQuestionState,
+  TelegramUserQuestionCallbackTarget,
   formatTelegramStreamingText,
   sendTelegramMessageWithResult,
   editTelegramMessage,
+  sanitizeTelegramErrorMessage,
   splitTelegramDeliveryText,
 } from './channel-shared.js';
 import { logger } from '../../infrastructure/logging/logger.js';
@@ -36,6 +38,8 @@ import {
   writeProgressStateEntries,
 } from '../progress-state-file.js';
 import { nowMs as currentTimeMs } from '../../shared/time/datetime.js';
+import { StreamResetEpochs } from '../stream-reset-epochs.js';
+import { dropPendingTelegramInteraction } from './disconnect.js';
 export abstract class TelegramChannelState implements ChannelAdapter {
   name = 'telegram';
   protected bot: Bot<TelegramContext> | null = null;
@@ -50,7 +54,11 @@ export abstract class TelegramChannelState implements ChannelAdapter {
   protected pendingPermissionPrompts = new Map<
     string,
     {
-      callbackId: string;
+      callback: {
+        providerAlias: string;
+        scope: PermissionCallbackScope;
+        matchKind: 'individual' | 'batch';
+      };
       sourceAgentFolder: string;
       decisionPolicy?: PermissionApprovalRequest['decisionPolicy'];
       approvalContextJid?: string;
@@ -61,12 +69,14 @@ export abstract class TelegramChannelState implements ChannelAdapter {
       resolve: (decision: PermissionApprovalDecision) => void;
     }
   >();
-  protected pendingPermissionCallbackIds = new Map<string, string>();
-  private permissionCallbackCounter = 0;
+  protected pendingUserQuestionCallbackIds = new Map<
+    string,
+    TelegramUserQuestionCallbackTarget
+  >();
   protected pendingUserQuestions = new Map<string, PendingUserQuestionState>();
   protected pendingUserQuestionOtherPrompts = new Map<
     string,
-    { requestId: string; questionIndex: number }
+    TelegramUserQuestionCallbackTarget
   >();
   protected pendingTodos = new Map<
     string,
@@ -76,6 +86,7 @@ export abstract class TelegramChannelState implements ChannelAdapter {
   protected activeGroupStreams = new Map<string, ActiveGroupStreamState>();
   protected streamGenerationByJid = new Map<string, number>();
   protected sealedStreamGenerationByJid = new Map<string, number>();
+  protected readonly streamResetEpochs = new StreamResetEpochs();
   protected activeProgressMessages = new Map<string, ActiveProgressState>();
   protected sealedProgressGenerationByKey = new Map<string, number>();
   private progressStateLoaded = false;
@@ -85,6 +96,19 @@ export abstract class TelegramChannelState implements ChannelAdapter {
     TELEGRAM_MEDIA_DOWNLOAD_QUEUE_MAX,
   );
   protected nextDraftIdOffset = 1;
+  dropPendingInteraction(
+    kind: 'permission' | 'question',
+    request: PermissionApprovalRequest | UserQuestionRequest,
+  ): void {
+    dropPendingTelegramInteraction(
+      kind,
+      request,
+      this.pendingPermissionPrompts,
+      this.pendingUserQuestions,
+      this.pendingUserQuestionCallbackIds,
+      this.pendingUserQuestionOtherPrompts,
+    );
+  }
   constructor(botToken: string, opts: ChannelOpts) {
     this.botToken = botToken;
     this.opts = opts;
@@ -92,33 +116,8 @@ export abstract class TelegramChannelState implements ChannelAdapter {
   supportsInteractionCallbacks(): boolean {
     return this.interactionCallbacksEnabled;
   }
-  protected nextPermissionCallbackId(): string {
-    for (let attempts = 0; attempts < 1000; attempts += 1) {
-      this.permissionCallbackCounter =
-        (this.permissionCallbackCounter + 1) % Number.MAX_SAFE_INTEGER;
-      const id = `p${this.permissionCallbackCounter.toString(36)}`;
-      if (!this.pendingPermissionCallbackIds.has(id)) return id;
-    }
-    throw new Error('Unable to allocate Telegram permission callback id');
-  }
-  protected permissionCallbackIdForRequest(requestId: string): string {
-    return `p${createHash('sha256').update(requestId).digest('hex').slice(0, 24)}`;
-  }
-  protected redactBotToken(input: string): string {
-    if (!input) return input;
-    return input.split(this.botToken).join('[REDACTED_BOT_TOKEN]');
-  }
   protected sanitizeErrorMessage(err: unknown): string {
-    const message =
-      err instanceof Error
-        ? err.message
-        : typeof err === 'object' &&
-            err !== null &&
-            'message' in err &&
-            typeof (err as { message?: unknown }).message === 'string'
-          ? ((err as { message: string }).message ?? '')
-          : String(err);
-    return this.redactBotToken(message);
+    return sanitizeTelegramErrorMessage(err, this.botToken);
   }
   protected sanitizeTelegramFilePath(rawPath: string): string | null {
     const normalized = rawPath.replace(/\\/g, '/').trim();
@@ -181,12 +180,27 @@ export abstract class TelegramChannelState implements ChannelAdapter {
     for (const [key, state] of this.activeDraftStreams.entries()) {
       if (!key.startsWith(`${jid}:`)) continue;
       state.closeStream();
-      this.activeDraftStreams.delete(key);
+      this.streamResetEpochs.deleteState(key, this.activeDraftStreams);
     }
     for (const key of this.activeGroupStreams.keys()) {
       if (!key.startsWith(`${jid}:`)) continue;
-      this.activeGroupStreams.delete(key);
+      this.streamResetEpochs.deleteState(key, this.activeGroupStreams);
     }
+  }
+  resetStreaming(jid: string, options?: { threadId?: string }): void {
+    if (options) {
+      const key = this.buildDraftStreamKey(jid, options.threadId);
+      this.streamResetEpochs.bump(key);
+      this.activeDraftStreams.get(key)?.closeStream();
+      this.streamResetEpochs.deleteState(key, this.activeDraftStreams);
+      this.streamResetEpochs.deleteState(key, this.activeGroupStreams);
+      return;
+    }
+    const prefix = `${jid}:`;
+    this.streamResetEpochs.bumpMatching(this.activeDraftStreams.keys(), prefix);
+    this.streamResetEpochs.bumpMatching(this.activeGroupStreams.keys(), prefix);
+    this.sealStreamingGenerationOnReset(jid);
+    this.clearStreamingStateForJid(jid);
   }
   protected shouldAcceptStreamingChunk(
     jid: string,
@@ -194,17 +208,13 @@ export abstract class TelegramChannelState implements ChannelAdapter {
   ): boolean {
     if (generation === undefined) return true;
     const sealed = this.sealedStreamGenerationByJid.get(jid);
-    if (sealed !== undefined && generation <= sealed) {
-      return false;
-    }
+    if (sealed !== undefined && generation <= sealed) return false;
     const latest = this.streamGenerationByJid.get(jid);
     if (latest === undefined) {
       this.streamGenerationByJid.set(jid, generation);
       return true;
     }
-    if (generation < latest) {
-      return false;
-    }
+    if (generation < latest) return false;
     if (generation > latest) {
       this.clearStreamingStateForJid(jid);
       this.streamGenerationByJid.set(jid, generation);
@@ -217,32 +227,22 @@ export abstract class TelegramChannelState implements ChannelAdapter {
   ): boolean {
     if (generation === undefined) return true;
     const sealed = this.sealedStreamGenerationByJid.get(jid);
-    if (sealed !== undefined && generation <= sealed) {
-      return false;
-    }
+    if (sealed !== undefined && generation <= sealed) return false;
     const latest = this.streamGenerationByJid.get(jid);
     if (latest === undefined) return true;
     return generation === latest;
   }
-
   protected markStreamingGenerationDone(
     jid: string,
     generation?: number,
   ): void {
     if (generation === undefined) return;
     const sealed = this.sealedStreamGenerationByJid.get(jid);
-    if (sealed === undefined || generation > sealed) {
+    if (sealed === undefined || generation > sealed)
       this.sealedStreamGenerationByJid.set(jid, generation);
-    }
   }
-
   protected sealStreamingGenerationOnReset(jid: string): void {
-    const latest = this.streamGenerationByJid.get(jid);
-    if (latest === undefined) return;
-    const sealed = this.sealedStreamGenerationByJid.get(jid);
-    if (sealed === undefined || latest > sealed) {
-      this.sealedStreamGenerationByJid.set(jid, latest);
-    }
+    this.markStreamingGenerationDone(jid, this.streamGenerationByJid.get(jid));
   }
 
   protected isLikelyPrivateChatId(numericId: string): boolean {
@@ -341,7 +341,6 @@ export abstract class TelegramChannelState implements ChannelAdapter {
       return action();
     }
   }
-
   protected async handleGroupStreamingChunk(
     jid: string,
     numericId: string,
@@ -354,6 +353,7 @@ export abstract class TelegramChannelState implements ChannelAdapter {
       ? Number.parseInt(options.threadId, 10)
       : undefined;
     const key = this.buildDraftStreamKey(jid, options.threadId);
+    const streamEpoch = this.streamResetEpochs.current(key);
     let state = this.activeGroupStreams.get(key);
     if (!state) {
       state = {
@@ -365,7 +365,15 @@ export abstract class TelegramChannelState implements ChannelAdapter {
       };
       this.activeGroupStreams.set(key, state);
     }
-
+    const isCurrentState = () =>
+      this.streamResetEpochs.isCurrent(key, streamEpoch) &&
+      this.activeGroupStreams.get(key) === state &&
+      this.isCurrentStreamingGeneration(jid, options.generation);
+    const finishCurrentState = () => {
+      if (!isCurrentState()) return;
+      this.streamResetEpochs.deleteState(key, this.activeGroupStreams);
+      this.markStreamingGenerationDone(jid, options.generation);
+    };
     if (text) state.rawBuffer += text;
     const renderedBuffer = formatTelegramStreamingText(
       state.rawBuffer,
@@ -373,10 +381,7 @@ export abstract class TelegramChannelState implements ChannelAdapter {
     );
     const hasContent = renderedBuffer.trim().length > 0;
     if (!hasContent) {
-      if (options.done) {
-        this.activeGroupStreams.delete(key);
-        this.markStreamingGenerationDone(jid, options.generation);
-      }
+      if (options.done) finishCurrentState();
       return false;
     }
     const now = currentTimeMs();
@@ -471,15 +476,13 @@ export abstract class TelegramChannelState implements ChannelAdapter {
           'Telegram group stream update had no text changes',
         );
         if (options.done) {
-          this.activeGroupStreams.delete(key);
-          if (
-            overflowParts.length > 0 &&
-            this.isCurrentStreamingGeneration(jid, options.generation)
-          ) {
+          if (!isCurrentState()) return delivered || Boolean(state.messageId);
+          if (overflowParts.length > 0 && isCurrentState()) {
             const sendOptions = state.threadId
               ? { message_thread_id: state.threadId }
               : {};
             for (const part of overflowParts) {
+              if (!isCurrentState()) break;
               await this.withTelegramGroupRateLimitRetry(jid, () =>
                 sendTelegramMessageWithResult(
                   this.bot!.api,
@@ -492,7 +495,7 @@ export abstract class TelegramChannelState implements ChannelAdapter {
               delivered = true;
             }
           }
-          this.markStreamingGenerationDone(jid, options.generation);
+          finishCurrentState();
         }
         return delivered || Boolean(state.messageId);
       }
@@ -507,13 +510,11 @@ export abstract class TelegramChannelState implements ChannelAdapter {
           const sendOptions = state.threadId
             ? { message_thread_id: state.threadId }
             : {};
-          if (
-            overflowParts.length > 0 &&
-            this.isCurrentStreamingGeneration(jid, options.generation)
-          ) {
+          if (overflowParts.length > 0 && isCurrentState()) {
             const sentOverflowMessageIds: string[] = [];
             try {
               for (const part of overflowParts) {
+                if (!isCurrentState()) break;
                 const messageId = await this.withTelegramGroupRateLimitRetry(
                   jid,
                   () =>
@@ -532,8 +533,7 @@ export abstract class TelegramChannelState implements ChannelAdapter {
                 }
                 delivered = true;
               }
-              this.activeGroupStreams.delete(key);
-              this.markStreamingGenerationDone(jid, options.generation);
+              finishCurrentState();
               return delivered || Boolean(state.messageId);
             } catch (tailErr) {
               const unsentOverflowText = overflowParts
@@ -572,8 +572,7 @@ export abstract class TelegramChannelState implements ChannelAdapter {
                     }
                   : {}),
               });
-              this.activeGroupStreams.delete(key);
-              this.markStreamingGenerationDone(jid, options.generation);
+              finishCurrentState();
               throw partial;
             }
           }
@@ -614,31 +613,27 @@ export abstract class TelegramChannelState implements ChannelAdapter {
               externalMessageIds: visibleExternalMessageIds,
             });
           }
-          this.activeGroupStreams.delete(key);
-          this.markStreamingGenerationDone(jid, options.generation);
+          finishCurrentState();
           throw partial;
         }
-        if (this.isCurrentStreamingGeneration(jid, options.generation)) {
+        if (isCurrentState()) {
           await this.sendMessage(jid, renderedBuffer, {
             threadId: options.threadId,
           });
           delivered = true;
         }
-        this.activeGroupStreams.delete(key);
-        this.markStreamingGenerationDone(jid, options.generation);
+        finishCurrentState();
       }
       return delivered || Boolean(state.messageId);
     }
     if (options.done) {
-      this.activeGroupStreams.delete(key);
-      if (
-        overflowParts.length > 0 &&
-        this.isCurrentStreamingGeneration(jid, options.generation)
-      ) {
+      if (!isCurrentState()) return delivered || Boolean(state.messageId);
+      if (overflowParts.length > 0 && isCurrentState()) {
         const sendOptions = state.threadId
           ? { message_thread_id: state.threadId }
           : {};
         for (const part of overflowParts) {
+          if (!isCurrentState()) break;
           await this.withTelegramGroupRateLimitRetry(jid, () =>
             sendTelegramMessageWithResult(
               this.bot!.api,
@@ -651,7 +646,7 @@ export abstract class TelegramChannelState implements ChannelAdapter {
           delivered = true;
         }
       }
-      this.markStreamingGenerationDone(jid, options.generation);
+      finishCurrentState();
     }
     return delivered || Boolean(state.messageId);
   }
@@ -684,14 +679,15 @@ export abstract class TelegramChannelState implements ChannelAdapter {
   abstract requestPermissionApproval(
     jid: string,
     request: PermissionApprovalRequest,
+    onPromptDelivered?: (messageId: string) => void,
   ): Promise<PermissionApprovalDecision>;
   abstract requestUserAnswer(
     jid: string,
     request: UserQuestionRequest,
+    onPromptDelivered?: (messageId: string) => void,
   ): Promise<UserQuestionResponse>;
   abstract isConnected(): boolean;
   abstract ownsJid(jid: string): boolean;
-  abstract resetStreaming(jid: string): void;
   abstract disconnect(): Promise<void>;
   abstract setTyping(jid: string, isTyping: boolean): Promise<void>;
 }

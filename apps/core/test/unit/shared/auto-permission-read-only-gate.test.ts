@@ -36,21 +36,86 @@ afterEach(() => {
 });
 
 describe('auto-permission deterministic read-only gate', () => {
-  it('proves simple reviewed reads inside a real workspace', () => {
-    const workspaceRoot = makeTempRoot();
-    fs.mkdirSync(path.join(workspaceRoot, 'docs'));
-    fs.writeFileSync(path.join(workspaceRoot, 'README.md'), 'Gantry');
-
-    for (const [command, capabilityIds] of [
-      ['ls', ['filesystem.list']],
-      ['ls docs', ['workspace.read']],
-      ['cat README.md', ['filesystem.read']],
-    ] as const) {
+  it.each([
+    ['ls -a', ['filesystem.list']],
+    ['ls -l docs', ['workspace.read']],
+    ['ls -la', ['filesystem.read']],
+    ['pwd', ['filesystem.read']],
+    ['stat README.md', ['filesystem.read']],
+    ['file README.md', ['filesystem.read']],
+    ['head -n 1 README.md', ['filesystem.read']],
+    ['tail -n 1 README.md', ['filesystem.read']],
+    ['wc -l README.md', ['filesystem.read']],
+    ['du', ['filesystem.read']],
+    ['du -sh docs', ['filesystem.read']],
+    ['df -h .', ['filesystem.read']],
+    ['which node', ['filesystem.read']],
+    ['grep -n Gantry README.md', ['filesystem.read']],
+  ] as const)(
+    'proves reviewed read-only command: %s',
+    (command, capabilityIds) => {
+      const workspaceRoot = makeTempRoot();
+      fs.mkdirSync(path.join(workspaceRoot, 'docs'));
+      fs.writeFileSync(path.join(workspaceRoot, 'README.md'), 'Gantry');
+      fs.writeFileSync(path.join(workspaceRoot, 'docs', 'guide.md'), 'Gantry');
       expect(shell(command, [...capabilityIds], workspaceRoot)).toMatchObject({
         allowed: true,
       });
-    }
+    },
+  );
+
+  it('keeps cat in the reviewed read-only set', () => {
+    const workspaceRoot = makeTempRoot();
+    fs.writeFileSync(path.join(workspaceRoot, 'README.md'), 'Gantry');
+    expect(
+      shell('cat README.md', ['filesystem.read'], workspaceRoot),
+    ).toMatchObject({ allowed: true });
   });
+
+  it('rejects file -f because NAMEFILE targets are not validated', () => {
+    const workspaceRoot = makeTempRoot();
+    fs.writeFileSync(path.join(workspaceRoot, 'targets.txt'), '/etc/passwd\n');
+
+    expect(
+      shell('file -f targets.txt', ['filesystem.read'], workspaceRoot),
+    ).toMatchObject({ allowed: false });
+  });
+
+  it.each([
+    'rg -n Gantry README.md',
+    'rg Gantry docs',
+    'rg --files docs',
+    'find docs -name credentials.json',
+  ])('leaves recursive-by-default searchers unproven: %s', (command) => {
+    const workspaceRoot = makeTempRoot();
+    fs.mkdirSync(path.join(workspaceRoot, 'docs'));
+    fs.writeFileSync(
+      path.join(workspaceRoot, 'docs', 'credentials.json'),
+      'secret',
+    );
+
+    expect(shell(command, ['filesystem.read'], workspaceRoot)).toMatchObject({
+      allowed: false,
+    });
+  });
+
+  it.each([
+    'git status',
+    'git --no-optional-locks status',
+    'git --no-pager log',
+    'git diff -- README.md',
+    'git show HEAD',
+    'git show HEAD:.npmrc',
+    'git branch',
+    'git branch --list',
+  ])(
+    'leaves git commands unproven for classifier consultation: %s',
+    (command) => {
+      expect(
+        shell(command, ['filesystem.read', 'git.read'], makeTempRoot()),
+      ).toMatchObject({ allowed: false });
+    },
+  );
 
   it('requires a matching selected capability boundary', () => {
     const workspaceRoot = makeTempRoot();
@@ -61,19 +126,6 @@ describe('auto-permission deterministic read-only gate', () => {
     expect(
       shell('cat README.md', ['google.drive.files.read'], workspaceRoot),
     ).toMatchObject({ allowed: false });
-  });
-
-  it('keeps git out of the silent set (fsmonitor hooks run on status)', () => {
-    const workspaceRoot = makeTempRoot();
-    for (const command of [
-      'git status',
-      'git --no-optional-locks status',
-      'git log',
-    ]) {
-      expect(shell(command, ['git.status'], workspaceRoot)).toMatchObject({
-        allowed: false,
-      });
-    }
   });
 
   it('blocks a symlink target that escapes the workspace', () => {
@@ -131,6 +183,7 @@ describe('auto-permission deterministic read-only gate', () => {
     'cat README.md > /tmp/copy',
     'cat README.md | tee /tmp/copy',
     'cat README.md && rm README.md',
+    'rm README.md',
     'cat README.md # inspect',
     'cat *.md',
     'unknown-tool status',
@@ -166,12 +219,29 @@ describe('auto-permission deterministic read-only gate', () => {
     'cat apikey.txt',
     'cat config/keys.json',
     'cat ssh-key.txt',
-    'ls -a',
-    'ls -A docs',
-    'ls -la',
     'ls -L docs',
     'ls -H docs',
-    'ls -f',
+    'grep -r Gantry docs',
+    'grep --recursive Gantry docs',
+    'grep -d recurse . .',
+    'grep -drecurse . .',
+    'grep --directories recurse . .',
+    'grep --directories=recurse . .',
+    'df',
+    'df -h',
+    'find -O1 /etc',
+    'find -f /etc',
+    'find . -follow -name report.txt',
+    'find . -exec rm README.md +',
+    'find . -execdir rm README.md +',
+    'find . -delete',
+    'find . -ok rm README.md +',
+    'find . -okdir rm README.md +',
+    'find . -fprintf report.txt',
+    'find . -fprint report.txt',
+    'find . -fprint0 report.txt',
+    'find . -fls report.txt',
+    'find /tmp -name report.txt',
   ])('blocks non-provable or secret shell input: %s', (command) => {
     expect(
       shell(command, ['filesystem.read', 'git.status'], makeTempRoot()),

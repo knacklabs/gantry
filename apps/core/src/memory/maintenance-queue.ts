@@ -216,7 +216,3 @@ export function getMemoryMaintenanceQueue(): MemoryMaintenanceQueue {
   }
   return maintenanceQueueSingleton;
 }
-
-export function resetMemoryMaintenanceQueueForTests(): void {
-  maintenanceQueueSingleton = null;
-}

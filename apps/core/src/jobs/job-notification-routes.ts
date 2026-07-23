@@ -111,12 +111,6 @@ export function buildCanonicalJobLifecycleTarget(input: {
   };
 }
 
-export function notificationRouteKey(
-  route: Pick<NormalizedJobNotificationRoute, 'conversationJid' | 'threadId'>,
-): string {
-  return `${route.conversationJid}\u0000${route.threadId ?? ''}`;
-}
-
 function normalizeRoutes(
   routes: readonly JobNotificationRoute[],
 ): NormalizedJobNotificationRoute[] {

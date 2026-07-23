@@ -4,26 +4,26 @@ Operator-facing reference for the three ways Gantry's single binary is deployed:
 **workstation**, **fleet**, and the **locked support stack** (a fleet variant).
 This doc is the operator view; the decisions behind it are the ADRs:
 
-- [Process Roles and Multi-Live](../decisions/2026-06-12-process-roles-and-multi-live.md)
+- [Process Roles and Multi-Live](../decisions/0027-process-roles-and-multi-live.md)
   — the `GANTRY_PROCESS_ROLE` deployment env; control-plane separation; the
   multi-live cutover (live execution scales horizontally now). **This supersedes
   the single-live-host topology in the deployment-modes ADR.**
-- [Deployment Modes](../decisions/2026-06-11-deployment-modes.md) — the
+- [Deployment Modes](../decisions/0023-deployment-modes.md) — the
   `runtime.deployment_mode` key; topology vs security-posture axes (§4/§5 on the
   single live host are superseded by the process-roles ADR above).
-- [Capability Artifacts](../decisions/2026-06-11-capability-artifacts.md) — skills
+- [Capability Artifacts](../decisions/0021-capability-artifacts.md) — skills
   and toolchains as current-state S3 artifacts + sandboxed bake jobs.
-- [Settings Authority](../decisions/2026-06-11-settings-authority.md) — one
+- [Settings Authority](../decisions/0025-settings-authority.md) — one
   desired-state service, two surfaces (YAML watcher vs control API).
-- [Locked Preset](../decisions/2026-06-11-locked-preset.md) — `access.preset:
+- [Locked Preset](../decisions/0024-locked-preset.md) — `access.preset:
 locked`, parent-side enforcement, isolation tiers.
-- [Delivery Vehicle](../decisions/2026-06-11-delivery-vehicle.md) — Terraform/
+- [Delivery Vehicle](../decisions/0022-delivery-vehicle.md) — Terraform/
   AWS-first.
 
 Note: "profile" in this doc's title is operator vocabulary for the deployment
 shape. The runtime **setting** is `runtime.deployment_mode` (`workstation|fleet`)
 — it is **not** named "profile", which is reserved for agent persona tooling. See
-[Deployment Modes](../decisions/2026-06-11-deployment-modes.md).
+[Deployment Modes](../decisions/0023-deployment-modes.md).
 
 ## Architecture Sketch (Fleet)
 
@@ -149,7 +149,7 @@ operator-visible signal.
 
 ## Security Posture vs Topology
 
-These are **two axes** ([Deployment Modes](../decisions/2026-06-11-deployment-modes.md)):
+These are **two axes** ([Deployment Modes](../decisions/0023-deployment-modes.md)):
 
 - **Topology** = `runtime.deployment_mode` (`workstation|fleet`), a settings key.
 - **Security posture** = the existing env var (values `production|remote`),
@@ -357,6 +357,6 @@ copy-paste runbook.
   fencing, recovery.
 - [live-horizontal-execution.md](./live-horizontal-execution.md) — durable
   multi-worker live turns; the recovery-coordinator lease.
-- [Process Roles and Multi-Live ADR](../decisions/2026-06-12-process-roles-and-multi-live.md)
+- [Process Roles and Multi-Live ADR](../decisions/0027-process-roles-and-multi-live.md)
   — the role model, control-plane separation, and the multi-live cutover.
 - [TODOS.md](../../TODOS.md) — deferred items (browser snapshots, GCP/Azure, etc.).

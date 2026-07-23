@@ -241,6 +241,9 @@ describe('skill registry integration flow', () => {
   let artifactRoot: string;
 
   beforeEach(() => {
+    vi.mocked(syncRuntimeSettingsFromProjection)
+      .mockReset()
+      .mockResolvedValue(undefined);
     fs.rmSync('/tmp/gantry-skills-integration-home', {
       recursive: true,
       force: true,
@@ -725,7 +728,7 @@ describe('skill registry integration flow', () => {
       expect(sendMessage).toHaveBeenCalledWith(
         'chat-origin',
         expect.stringContaining('Installed skill LinkedIn Posting'),
-        { threadId: 'thread-origin' },
+        expect.objectContaining({ threadId: 'thread-origin' }),
       );
     });
 
@@ -825,7 +828,9 @@ describe('skill registry integration flow', () => {
     expect(enabled.map((skill: StoredSkill) => skill.id)).toEqual([
       activeBinding?.skillId,
     ]);
-    expect(syncRuntimeSettingsFromProjection).toHaveBeenCalledTimes(2);
+    await vi.waitFor(() => {
+      expect(syncRuntimeSettingsFromProjection).toHaveBeenCalledTimes(2);
+    });
   });
 
   it('coalesces duplicate pending staged skill install reviews', async () => {
@@ -893,6 +898,12 @@ describe('skill registry integration flow', () => {
       deps as any,
     );
 
+    // The review runs detached; the install-time collision check adds async
+    // hops before the approval request, so wait for it instead of asserting
+    // on the microtask the handler happens to return on.
+    await vi.waitFor(() =>
+      expect(requestPermissionApproval).toHaveBeenCalledTimes(1),
+    );
     expect(requestPermissionApproval).toHaveBeenCalledTimes(1);
     expect([...state.skills.values()]).toHaveLength(0);
     expect([...state.bindings.values()]).toEqual([]);
@@ -906,7 +917,7 @@ describe('skill registry integration flow', () => {
       expect(sendMessage).toHaveBeenCalledWith(
         'chat-origin',
         expect.stringContaining('Installed skill LinkedIn Posting'),
-        { threadId: 'thread-origin' },
+        expect.objectContaining({ threadId: 'thread-origin' }),
       );
     });
     expect([...state.bindings.values()]).toHaveLength(1);
@@ -965,17 +976,18 @@ describe('skill registry integration flow', () => {
     await vi.waitFor(() => {
       expect(sendMessage).toHaveBeenCalledWith(
         'chat-origin',
-        expect.stringContaining('Installed skill LinkedIn Posting'),
+        expect.stringContaining('I installed LinkedIn Posting.'),
         { threadId: 'thread-origin' },
       );
     });
     expect(
       sendMessage.mock.calls.some((call) =>
-        String(call[1]).includes(
-          'gantry credentials access set LINKEDIN_ACCESS_TOKEN',
-        ),
+        String(call[1]).includes('Credential Center'),
       ),
     ).toBe(true);
+    expect(JSON.stringify(sendMessage.mock.calls)).not.toContain(
+      'LINKEDIN_ACCESS_TOKEN',
+    );
     const approved = [...state.skills.values()].filter(
       (skill) => skill.status === 'installed',
     );
@@ -1476,7 +1488,7 @@ describe('skill registry integration flow', () => {
       expect(sendMessage).toHaveBeenCalledWith(
         'chat-origin',
         expect.stringContaining('Installed skill Channel Posting'),
-        { threadId: 'thread-origin' },
+        expect.objectContaining({ threadId: 'thread-origin' }),
       );
     });
 
@@ -1713,7 +1725,7 @@ describe('skill registry integration flow', () => {
       expect(sendMessage).toHaveBeenCalledWith(
         'chat-origin',
         expect.stringContaining('Did not install skill Denied Capability'),
-        { threadId: 'thread-origin' },
+        expect.objectContaining({ threadId: 'thread-origin' }),
       );
     });
 

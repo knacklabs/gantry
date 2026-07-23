@@ -1,13 +1,25 @@
 import type { RuntimeSettings } from './runtime-settings-types.js';
+import { quoteYamlString } from './yaml.js';
 
-// Renderers for the optional tail blocks of settings.yaml (`limits`,
-// `model_families`). Each is omitted entirely when empty so an absent block
-// stays absent across round-trips. Extracted from runtime-settings-renderer.ts
-// to keep that file under its line budget.
+// Renderers for the optional tail blocks of settings.yaml. Each is omitted
+// entirely when default so an absent block stays absent across round-trips.
+// Extracted from runtime-settings-renderer.ts to keep that file under its line
+// budget.
 
-function quoteYamlKey(key: string): string {
+export function quoteYamlKey(key: string): string {
   if (/^[A-Za-z0-9_-]+$/.test(key)) return key;
   return JSON.stringify(key);
+}
+
+export function renderAgentDelegatesYaml(
+  lines: string[],
+  delegates: string[] | undefined,
+): void {
+  if (!delegates?.length) return;
+  lines.push('    delegates:');
+  for (const delegate of delegates) {
+    lines.push(`      - ${quoteYamlString(delegate)}`);
+  }
 }
 
 // Optional in-memory per-provider request rate caps. Omitted when no caps are
@@ -25,6 +37,50 @@ export function renderLimitsSettingsYaml(
     lines.push(
       `  ${quoteYamlKey(providerId)}:`,
       `    requests_per_minute: ${limit.requestsPerMinute}`,
+    );
+  }
+  lines.push('');
+}
+
+export function renderObservabilitySettingsYaml(
+  lines: string[],
+  observability: RuntimeSettings['observability'],
+): void {
+  const { tracing } = observability;
+  if (
+    !tracing.enabled &&
+    tracing.endpoint === '' &&
+    tracing.captureContent &&
+    tracing.sampleRate === 1 &&
+    tracing.environment === undefined
+  ) {
+    return;
+  }
+  lines.push(
+    'observability:',
+    '  tracing:',
+    `    enabled: ${tracing.enabled ? 'true' : 'false'}`,
+    `    endpoint: ${quoteYamlString(tracing.endpoint)}`,
+    `    capture_content: ${tracing.captureContent ? 'true' : 'false'}`,
+    `    sample_rate: ${tracing.sampleRate}`,
+  );
+  if (tracing.environment !== undefined) {
+    lines.push(`    environment: ${quoteYamlString(tracing.environment)}`);
+  }
+  lines.push('');
+}
+
+export function renderObserverSettingsYaml(
+  lines: string[],
+  observer: RuntimeSettings['observer'],
+): void {
+  if (!observer.enabled && !observer.owner) return;
+  lines.push('observer:', `  enabled: ${observer.enabled ? 'true' : 'false'}`);
+  if (observer.owner) {
+    lines.push(
+      '  owner:',
+      `    recipient: ${quoteYamlString(observer.owner.recipient)}`,
+      `    conversation: ${quoteYamlString(observer.owner.conversation)}`,
     );
   }
   lines.push('');

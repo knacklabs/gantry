@@ -6,8 +6,10 @@ import type {
 
 import {
   AgentCapabilitiesResponseSchema,
+  AgentDelegatesResponseSchema,
   AgentHarnessSchema,
   AgentResponseSchema,
+  ReplaceAgentDelegatesRequestSchema,
   UpdateAgentRequestSchema,
   ConversationInstallRequestSchema,
   ConversationInstallListResponseSchema,
@@ -153,6 +155,7 @@ describe('contracts package', () => {
     const agent = {
       name: 'Main',
       folder: 'main_agent',
+      delegates: ['researcher', 'future_agent'],
       bindings: {},
       sources: { skills: [], mcpServers: [], tools: [] },
       capabilities: [],
@@ -163,7 +166,7 @@ describe('contracts package', () => {
         maxTurns: 12,
         maxRunTokens: 8192,
         effort: 'xhigh',
-        permissionMode: 'auto',
+        permissionMode: 'auto_strict',
         thinking: { mode: 'on', budgetTokens: 4096 },
         maxOutputTokens: 2048,
         toolRules: [
@@ -185,9 +188,10 @@ describe('contracts package', () => {
       maxTurns: 12,
       maxRunTokens: 8192,
       effort: 'xhigh',
-      permissionMode: 'auto',
+      permissionMode: 'auto_strict',
       thinking: { mode: 'on', budgetTokens: 4096 },
       maxOutputTokens: 2048,
+      delegates: ['researcher', 'future_agent'],
       toolRules: expect.arrayContaining([
         expect.objectContaining({ action: 'block' }),
         expect.objectContaining({ action: 'require_prior' }),
@@ -208,6 +212,10 @@ describe('contracts package', () => {
     expectInvalid(RuntimeSettingsConfiguredAgentSchema, {
       ...agent,
       maxOutputTokens: 0,
+    });
+    expectInvalid(RuntimeSettingsConfiguredAgentSchema, {
+      ...agent,
+      delegates: ['researcher', 42],
     });
     expectInvalid(RuntimeSettingsConfiguredAgentSchema, {
       ...agent,
@@ -596,9 +604,10 @@ describe('contracts package', () => {
             relationshipMode: 'organization',
             model: 'sonnet',
             agentHarness: 'deepagents',
-            permissionMode: 'auto',
+            permissionMode: 'auto_strict',
             oneTimeJobDefaultModel: 'inherit',
             recurringJobDefaultModel: 'inherit',
+            delegates: ['researcher', 'future_agent'],
             bindings: {
               main_agent_shared_channel: {
                 jid: 'slack:C123',
@@ -609,6 +618,7 @@ describe('contracts package', () => {
                 trigger: '@main',
                 addedAt: iso,
                 requiresTrigger: true,
+                permissionMode: 'auto_strict',
               },
             },
             sources: { skills: [], mcpServers: [], tools: [] },
@@ -644,6 +654,7 @@ describe('contracts package', () => {
                 memoryScope: 'conversation',
                 trigger: '@main',
                 requiresTrigger: true,
+                permissionMode: 'auto_strict',
               },
             },
           },
@@ -659,6 +670,7 @@ describe('contracts package', () => {
             addedAt: iso,
             requiresTrigger: true,
             memoryScope: 'conversation',
+            permissionMode: 'auto_strict',
           },
         },
         conversationInstalls: {
@@ -672,9 +684,11 @@ describe('contracts package', () => {
             memoryScope: 'conversation',
             trigger: '@main',
             requiresTrigger: true,
+            permissionMode: 'auto_strict',
           },
         },
         memory: { enabled: true, dreaming: { enabled: false } },
+        observer: { enabled: false },
         runtime: {
           queue: {
             maxMessageRuns: 1,
@@ -720,8 +734,30 @@ describe('contracts package', () => {
     );
     expect(parsed.settings.agent.agentHarness).toBe('auto');
     expect(parsed.settings.agents.main_agent?.agentHarness).toBe('deepagents');
-    expect(parsed.settings.agents.main_agent?.permissionMode).toBe('auto');
+    expect(parsed.settings.agents.main_agent?.permissionMode).toBe(
+      'auto_strict',
+    );
+    expect(parsed.settings.agents.main_agent?.delegates).toEqual([
+      'researcher',
+      'future_agent',
+    ]);
+    expect(
+      parsed.settings.agents.main_agent?.bindings.main_agent_shared_channel
+        ?.permissionMode,
+    ).toBe('auto_strict');
+    expect(
+      parsed.settings.conversations.shared_channel?.installedAgents.main_agent
+        ?.permissionMode,
+    ).toBe('auto_strict');
+    expect(
+      parsed.settings.bindings.main_agent_shared_channel?.permissionMode,
+    ).toBe('auto_strict');
+    expect(
+      parsed.settings.conversationInstalls.main_agent_shared_channel
+        ?.permissionMode,
+    ).toBe('auto_strict');
     expect(parsed.settings.permissions.autoMode).toEqual({ model: 'sonnet' });
+    expect(parsed.settings.observer).toEqual({ enabled: false });
     expectInvalid(RuntimeSettingsResponseSchema, {
       settings: {
         ...parsed.settings,
@@ -848,6 +884,57 @@ describe('contracts package', () => {
     ).toEqual({ agentHarness: 'anthropic_sdk' });
     expect(UpdateAgentRequestSchema.parse({ status: 'active' })).toEqual({
       status: 'active',
+    });
+    expect(
+      ReplaceAgentDelegatesRequestSchema.parse({
+        delegates: [' researcher '],
+        expectedRevision: 4,
+      }),
+    ).toEqual({ delegates: ['researcher'], expectedRevision: 4 });
+    expect(
+      AgentDelegatesResponseSchema.parse({
+        agentId: 'agent:orchestrator',
+        revision: 4,
+        delegates: ['researcher'],
+        resolved: [
+          {
+            ref: 'researcher',
+            agentId: 'agent:researcher',
+            toolName: 'delegate_to_researcher_abcd',
+            displayName: 'Researcher',
+            persona: 'research',
+          },
+        ],
+      }),
+    ).toMatchObject({
+      agentId: 'agent:orchestrator',
+      delegates: ['researcher'],
+      resolved: [{ persona: 'research' }],
+    });
+    expectInvalid(ReplaceAgentDelegatesRequestSchema, {
+      delegates: ['researcher'],
+      unexpected: true,
+    });
+    expectInvalid(ReplaceAgentDelegatesRequestSchema, { delegates: [''] });
+    expectInvalid(ReplaceAgentDelegatesRequestSchema, {
+      delegates: ['x'.repeat(161)],
+    });
+    expectInvalid(ReplaceAgentDelegatesRequestSchema, {
+      delegates: Array.from({ length: 101 }, (_, index) => `agent-${index}`),
+    });
+    expectInvalid(AgentDelegatesResponseSchema, {
+      agentId: 'agent:orchestrator',
+      revision: 4,
+      delegates: [],
+      resolved: [
+        {
+          ref: 'researcher',
+          agentId: 'agent:researcher',
+          toolName: 'delegate_to_researcher_abcd',
+          displayName: 'Researcher',
+          persona: 'finance',
+        },
+      ],
     });
     expectInvalid(CreateAgentRequestSchema, { appId: 'app-1', name: '' });
     const forbiddenAgentRequestFields = [

@@ -11,6 +11,7 @@ import { PartialMessageDeliveryError } from '@core/domain/messages/partial-deliv
 import { RUNTIME_EVENT_TYPES } from '@core/domain/events/runtime-event-types.js';
 import { buildProviderSessionAccessFingerprint } from '@core/runtime/provider-session-access-fingerprint.js';
 import { createAgentExecutionAdapterRegistry } from '@core/application/agent-execution/agent-execution-adapter-registry.js';
+import { stableSha256Json } from '@core/shared/stable-hash.js';
 
 // ---------------------------------------------------------------------------
 // Mocks
@@ -50,10 +51,13 @@ const mockLogger = vi.hoisted(() => ({
   warn: vi.fn(),
   error: vi.fn(),
   debug: vi.fn(),
+  updateLogContext: vi.fn(),
 }));
 vi.mock('@core/infrastructure/logging/logger.js', () => ({
   logger: mockLogger,
   redactString: (value: string) => value,
+  withLogContext: (_context: unknown, callback: () => unknown) => callback(),
+  updateLogContext: mockLogger.updateLogContext,
 }));
 
 const mockRunDreamingSweep = vi.fn();
@@ -127,7 +131,15 @@ const { createGroupProcessor } =
   await import('@core/runtime/group-processing.js');
 const { RUNTIME_RESULT_SUMMARY_MAX_CHARS } =
   await import('@core/runtime/session-resume-runtime.js');
-const EMPTY_ACCESS_FINGERPRINT = buildProviderSessionAccessFingerprint({});
+const EMPTY_ACCESS_FINGERPRINT = buildProviderSessionAccessFingerprint({
+  accessPreset: 'full',
+  capabilityCatalogDigest: stableSha256Json({
+    schemaVersion: 1,
+    readyActions: [],
+    installedSkills: [],
+    connectedMcpSources: [],
+  }),
+});
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -258,6 +270,7 @@ function makeDeps(
 
   return {
     channelRuntime: makeChannel(),
+    getConversationRoutes: vi.fn().mockReturnValue({}),
     getGroup: vi.fn().mockReturnValue(undefined),
     clearSession: vi.fn(),
     getCursor: vi.fn().mockReturnValue('0'),
@@ -2156,7 +2169,52 @@ describe('createGroupProcessor', () => {
         expect.objectContaining({
           expectedAgentSessionId: 'agent-session:1',
           accessFingerprint: expect.stringMatching(
-            /^provider-session-access:v1:/,
+            /^provider-session-access:v2:/,
+          ),
+        }),
+      );
+      expect(mockSpawnAgent.mock.calls[0][1]).toEqual(
+        expect.objectContaining({
+          providerSessionAccessFingerprint: expect.stringMatching(
+            /^provider-session-access:v2:/,
+          ),
+          capabilityCatalog: expect.objectContaining({
+            schemaVersion: 1,
+            digest: expect.any(String),
+          }),
+        }),
+      );
+    });
+
+    it('expires a full-preset provider session when the agent becomes locked', async () => {
+      const group = makeGroup({ requiresTrigger: false });
+      const { deps } = setupHappyPath({ group });
+      deps.getAgentLockStatus = vi.fn(() => 'locked');
+      (deps.opsRepository as any).getAgentTurnContext = vi
+        .fn()
+        .mockResolvedValue({
+          appId: 'app:test',
+          agentId: 'agent:test',
+          agentSessionId: 'agent-session:1',
+          providerSessionId: 'provider-session:full',
+          externalSessionId: 'claude-session-full',
+          providerSessionAccessFingerprint: EMPTY_ACCESS_FINGERPRINT,
+        });
+
+      const { processGroupMessages } = createGroupProcessor(deps);
+      await processGroupMessages('group1@g.us');
+
+      expect(deps.opsRepository.expireProviderSession).toHaveBeenCalledWith({
+        providerSessionId: 'provider-session:full',
+        agentSessionId: 'agent-session:1',
+        provider: 'anthropic:claude-agent-sdk',
+        externalSessionId: 'claude-session-full',
+      });
+      expect(mockSpawnAgent.mock.calls[0][1]).not.toHaveProperty('sessionId');
+      expect(mockSpawnAgent.mock.calls[0][1]).toEqual(
+        expect.objectContaining({
+          providerSessionAccessFingerprint: expect.stringMatching(
+            /^provider-session-access:v2:/,
           ),
         }),
       );
@@ -2763,7 +2821,7 @@ describe('createGroupProcessor', () => {
       expect(deps.queue.closeStdin).not.toHaveBeenCalled();
     });
 
-    it('keeps typing heartbeat alive and posts elapsed progress for long runs', async () => {
+    it('keeps typing heartbeat alive without host progress for long runs', async () => {
       const group = makeGroup({ requiresTrigger: false });
       const messages = [makeMessage()];
       const channel = makeChannel({
@@ -2809,7 +2867,7 @@ describe('createGroupProcessor', () => {
       ).toBe(true);
     });
 
-    it('keeps elapsed progress updating after visible output is already shown', async () => {
+    it('does not post host progress after visible output is shown', async () => {
       const group = makeGroup({ requiresTrigger: false });
       const messages = [makeMessage()];
       const channel = makeChannel({
@@ -3070,7 +3128,7 @@ describe('createGroupProcessor', () => {
       );
     });
 
-    it('does not post elapsed progress on the first heartbeat tick', async () => {
+    it('does not post host progress on the first heartbeat tick', async () => {
       const group = makeGroup({ requiresTrigger: false });
       const messages = [makeMessage()];
       const channel = makeChannel({
@@ -4050,7 +4108,7 @@ describe('createGroupProcessor', () => {
       expect(progressTexts).not.toContain('Waiting for your input.');
     });
 
-    it('excludes permission wait time from final elapsed progress', async () => {
+    it('keeps final progress duration-free across permission waits', async () => {
       vi.useFakeTimers();
       const streamingChannel = makeChannel({
         sendStreamingChunk: vi.fn().mockResolvedValue(true),
@@ -4970,6 +5028,34 @@ describe('createGroupProcessor', () => {
         }), // options
       );
       expect(mockSpawnAgent.mock.calls[0][1]).not.toHaveProperty('sessionId');
+    });
+
+    it('keeps unfenced interactive permission and question IPC outside scheduled run identity', async () => {
+      const { deps } = setupHappyPath();
+      (deps.opsRepository as any).getAgentTurnContext = vi
+        .fn()
+        .mockResolvedValue({
+          appId: 'app:test',
+          agentId: 'agent:test',
+          agentSessionId: 'agent-session:1',
+        });
+      (deps.opsRepository as any).createSessionAgentRun = vi
+        .fn()
+        .mockResolvedValue('agent-run:interactive-1');
+
+      const { processGroupMessages } = createGroupProcessor(deps);
+      await processGroupMessages('group1@g.us');
+
+      const agentInput = mockSpawnAgent.mock.calls[0][1];
+      expect(agentInput).not.toHaveProperty('runId');
+      expect(agentInput).not.toHaveProperty('runLeaseToken');
+      expect(agentInput).not.toHaveProperty('runLeaseFencingVersion');
+      expect(mockSpawnAgent.mock.calls[0][4]).toMatchObject({
+        correlationRunId: 'agent-run:interactive-1',
+      });
+      expect(mockLogger.updateLogContext).toHaveBeenCalledWith(
+        expect.objectContaining({ runId: 'agent-run:interactive-1' }),
+      );
     });
 
     it('passes channel conversation kind to getAgentTurnContext', async () => {

@@ -1,3 +1,8 @@
+import { materializedSkillDirectoryNameFor } from '../domain/skills/skills.js';
+import {
+  skillNameForReceipt,
+  withSkillMaterializationLock,
+} from './skill-install-assets.js';
 import { SkillService } from '../application/skills/skill-service.js';
 import type { AgentId } from '../domain/agent/agent.js';
 import type { AppId } from '../domain/app/app.js';
@@ -15,6 +20,7 @@ export function startSkillPermissionReview(input: {
     ReturnType<typeof createTaskResponder>,
     'acceptData' | 'reject'
   >;
+  logError?: (context: Record<string, unknown>, message: string) => void;
   service: SkillService;
   syncApprovedCapabilitySettings: (appId: AppId) => Promise<void>;
   appId: AppId;
@@ -22,6 +28,7 @@ export function startSkillPermissionReview(input: {
   sourceAgentFolder: string;
   targetJid: string;
   threadId?: string;
+  providerAccountId?: string;
   skill: {
     id?: string;
     name: string;
@@ -50,9 +57,19 @@ export function startSkillPermissionReview(input: {
 }): void {
   void completeSkillPermissionReview(input)
     .catch(async (err) => {
+      input.logError?.(
+        {
+          appId: input.appId,
+          agentId: input.agentId,
+          skillName: input.skill.name,
+          toolName: input.requestToolName,
+          err,
+        },
+        'Skill permission review failed',
+      );
       await notifyLifecycle(input.onBlocked);
       input.responder.reject(
-        err instanceof Error ? err.message : 'Skill permission review failed.',
+        'The skill could not be installed. Explain this in plain language and say you can try again after the setup issue is fixed.',
         'permission_review_failed',
       );
     })
@@ -64,6 +81,21 @@ export function startSkillPermissionReview(input: {
 async function completeSkillPermissionReview(
   input: Parameters<typeof startSkillPermissionReview>[0],
 ): Promise<void> {
+  // Install-time collision validation (trace defect 3): fail the install with
+  // an honest receipt now instead of blowing up the agent's next spawn.
+  const collision = await input.service.installMaterializationCollisionForAgent(
+    {
+      appId: input.appId,
+      agentId: input.agentId,
+      name: skillNameForReceipt(input.assets, input.skill.name),
+      ...(input.skill.id ? { skillId: input.skill.id as never } : {}),
+    },
+  );
+  if (collision) {
+    await notifyLifecycle(input.onBlocked);
+    input.responder.reject(collision, 'skill_materialization_collision');
+    return;
+  }
   await notifyLifecycle(input.onReviewStarted);
   const decision = await input.deps.requestPermissionApproval({
     requestId: `skill-${globalThis.crypto.randomUUID()}`,
@@ -72,6 +104,7 @@ async function completeSkillPermissionReview(
     sourceAgentFolder: input.sourceAgentFolder,
     targetJid: input.targetJid,
     threadId: input.threadId,
+    providerAccountId: input.providerAccountId,
     decisionPolicy: 'same_channel',
     decisionOptions: ['allow_once', 'cancel'],
     toolName: input.requestToolName,
@@ -117,34 +150,61 @@ async function completeSkillPermissionReview(
     );
   }
 
-  let installedSkillId: string | undefined;
   let installedSkill: SkillCatalogItem | undefined;
   try {
-    const installed = await input.service.installSkill({
-      appId: input.appId,
-      agentId: input.agentId,
-      fallbackName: input.skill.name,
-      createdBy: decision.decidedBy,
-      requiredEnvVars: input.skill.requiredEnvVars,
-      assets: input.assets,
-    });
-    installedSkill = installed;
-    installedSkillId = installed.id;
-    await input.service.bindSkillToAgent({
-      appId: input.appId,
-      agentId: input.agentId,
-      skillId: installed.id,
-    });
-    await input.syncApprovedCapabilitySettings(input.appId);
+    // The full install→bind→sync→compensation sequence holds the keyed lock
+    // so a concurrent same-name writer can never interleave with a partial
+    // state from this path.
+    installedSkill = await withSkillMaterializationLock(
+      materializedSkillDirectoryNameFor(
+        skillNameForReceipt(input.assets, input.skill.name),
+      ).toLowerCase(),
+      async () => {
+        const collision =
+          await input.service.installMaterializationCollisionForAgent({
+            appId: input.appId,
+            agentId: input.agentId,
+            name: skillNameForReceipt(input.assets, input.skill.name),
+            ...(input.skill.id ? { skillId: input.skill.id as never } : {}),
+          });
+        if (collision)
+          throw new InstallMaterializationCollisionError(collision);
+        let installedSkillId: string | undefined;
+        try {
+          const installed = await input.service.installSkill({
+            appId: input.appId,
+            agentId: input.agentId,
+            fallbackName: input.skill.name,
+            createdBy: decision.decidedBy,
+            requiredEnvVars: input.skill.requiredEnvVars,
+            assets: input.assets,
+          });
+          installedSkillId = installed.id;
+          await input.service.bindSkillToAgent({
+            appId: input.appId,
+            agentId: input.agentId,
+            skillId: installed.id,
+          });
+          await input.syncApprovedCapabilitySettings(input.appId);
+          return installed;
+        } catch (err) {
+          if (installedSkillId) {
+            await input.service.rollbackInstalledSkillBinding({
+              appId: input.appId,
+              agentId: input.agentId,
+              skillId: installedSkillId as never,
+            });
+          }
+          throw err;
+        }
+      },
+    );
   } catch (err) {
-    if (installedSkillId) {
-      await input.service.rollbackInstalledSkillBinding({
-        appId: input.appId,
-        agentId: input.agentId,
-        skillId: installedSkillId as never,
-      });
-    }
     await notifyLifecycle(input.onBlocked);
+    if (err instanceof InstallMaterializationCollisionError) {
+      input.responder.reject(err.message, 'skill_materialization_collision');
+      return;
+    }
     throw err;
   }
   const sameSessionContext = buildInstalledSkillSameSessionContext(
@@ -160,7 +220,7 @@ async function completeSkillPermissionReview(
       installedSkill.name,
       installedSkill.requiredEnvVars,
     ),
-    input.threadId ? { threadId: input.threadId } : undefined,
+    skillReviewMessageOptions(input),
   );
   input.responder.acceptData(
     skillApprovalMessage(
@@ -171,6 +231,22 @@ async function completeSkillPermissionReview(
     sameSessionContext,
     'skill_installed',
   );
+}
+
+class InstallMaterializationCollisionError extends Error {}
+
+function skillReviewMessageOptions(
+  input: Parameters<typeof startSkillPermissionReview>[0],
+) {
+  return input.threadId || input.providerAccountId
+    ? {
+        ...(input.threadId ? { threadId: input.threadId } : {}),
+        ...(input.providerAccountId
+          ? { providerAccountId: input.providerAccountId }
+          : {}),
+        agentId: input.agentId,
+      }
+    : undefined;
 }
 
 async function notifyLifecycle(
@@ -196,7 +272,7 @@ async function rejectSkillRequestFromPermission(
   await input.deps.sendMessage(
     input.targetJid,
     message,
-    input.threadId ? { threadId: input.threadId } : undefined,
+    skillReviewMessageOptions(input),
   );
   input.responder.reject(message, 'permission_denied');
 }
@@ -217,6 +293,7 @@ function skillReviewInteraction(
       sourceAgentFolder: input.sourceAgentFolder,
       targetJid: input.targetJid,
       threadId: input.threadId,
+      providerAccountId: input.providerAccountId,
       toolName: input.requestToolName,
       capabilityType: 'skill',
       capabilityId: input.skill.id,
@@ -229,8 +306,9 @@ function skillReviewInteraction(
       ...(input.skill.requiredEnvVars?.length
         ? [
             {
-              label: 'Requires env',
-              value: input.skill.requiredEnvVars.join(', '),
+              label: 'Credentials',
+              value:
+                'Required before some skill actions can run; add them in Credential Center.',
             },
           ]
         : []),

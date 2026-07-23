@@ -1,3 +1,5 @@
+import dns from 'node:dns/promises';
+
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const permissionMock = vi.hoisted(() => ({
@@ -76,6 +78,9 @@ function combinedConsoleOutput(): string {
 describe('createCanUseToolCallback', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.spyOn(dns, 'lookup').mockResolvedValue([
+      { address: '104.16.30.34', family: 4 },
+    ]);
     vi.spyOn(console, 'log').mockImplementation(() => undefined);
     vi.spyOn(console, 'error').mockImplementation(() => undefined);
   });
@@ -84,145 +89,18 @@ describe('createCanUseToolCallback', () => {
     vi.restoreAllMocks();
   });
 
-  it('denies parentless SandboxNetworkAccess after an allow-once approved Bash tool call', async () => {
-    permissionMock.requestPermissionApproval.mockResolvedValueOnce({
-      approved: true,
-      mode: 'allow_once',
-      updatedPermissions: undefined,
-      decidedBy: 'user',
-    });
-
-    const canUseTool = makeCallback();
-    const bash = await canUseTool(
-      'Bash',
-      { command: 'npm install' },
-      makePermissionOptions({
-        toolUseID: 'toolu_bash_1',
-        agentID: 'subagent-a',
-      }) as never,
-    );
-    const network = await canUseTool(
-      'SandboxNetworkAccess',
-      { host: 'registry.npmjs.org' },
-      makePermissionOptions({
-        toolUseID: 'toolu_network_1',
-        agentID: 'subagent-a',
-      }) as never,
-    );
-
-    expect(bash.behavior).toBe('allow');
-    expect(network).toEqual(
-      expect.objectContaining({
-        behavior: 'deny',
-        message: expect.stringContaining('without a parent tool-use id'),
-      }),
-    );
-    expect(permissionMock.requestPermissionApproval).toHaveBeenCalledTimes(1);
-  });
-
-  it('suppresses SandboxNetworkAccess only when it carries the approved parent tool-use id', async () => {
-    permissionMock.requestPermissionApproval.mockResolvedValueOnce({
-      approved: true,
-      mode: 'allow_once',
-      updatedPermissions: undefined,
-      decidedBy: 'user',
-    });
-
-    const canUseTool = makeCallback();
-    const bash = await canUseTool(
-      'Bash',
-      { command: 'npm install' },
-      makePermissionOptions({
-        toolUseID: 'toolu_bash_1',
-        agentID: 'subagent-a',
-      }) as never,
-    );
-    const network = await canUseTool(
-      'SandboxNetworkAccess',
-      { host: 'registry.npmjs.org', parentToolUseID: 'toolu_bash_1' },
-      makePermissionOptions({
-        toolUseID: 'toolu_network_1',
-        parentToolUseID: 'toolu_bash_1',
-        agentID: 'subagent-a',
-      }) as never,
-    );
-
-    expect(bash.behavior).toBe('allow');
-    expect(network).toEqual({
-      behavior: 'allow',
-      updatedInput: {
-        host: 'registry.npmjs.org',
-        parentToolUseID: 'toolu_bash_1',
-      },
-    });
-    expect(permissionMock.requestPermissionApproval).toHaveBeenCalledTimes(1);
-  });
-
-  it('does not suppress parentless SandboxNetworkAccess across SDK agent principals', async () => {
-    permissionMock.requestPermissionApproval.mockResolvedValueOnce({
-      approved: true,
-      mode: 'allow_once',
-      updatedPermissions: undefined,
-      decidedBy: 'user',
-    });
-
-    const canUseTool = makeCallback();
-    const bash = await canUseTool(
-      'Bash',
-      { command: 'npm install' },
-      makePermissionOptions({
-        toolUseID: 'toolu_bash_1',
-        agentID: 'subagent-a',
-      }) as never,
-    );
-    const network = await canUseTool(
-      'SandboxNetworkAccess',
-      { host: 'registry.npmjs.org' },
-      makePermissionOptions({
-        toolUseID: 'toolu_network_1',
-        agentID: 'subagent-b',
-      }) as never,
-    );
-
-    expect(bash.behavior).toBe('allow');
-    expect(network).toEqual(
-      expect.objectContaining({
-        behavior: 'deny',
-        message: expect.stringContaining('without a parent tool-use id'),
-      }),
-    );
-    expect(permissionMock.requestPermissionApproval).toHaveBeenCalledTimes(1);
-  });
-
-  it('suppresses parentless scheduled SandboxNetworkAccess for reviewed local CLI command bindings', async () => {
+  it('allows direct-mode SDK network access to a public host through the egress gateway', async () => {
+    const host = 'registry.npmjs.org';
     const canUseTool = makeCallback({
       agentInput: {
         runMode: 'normal',
-        isScheduledJob: true,
+        isScheduledJob: false,
         appId: 'default',
         agentId: 'agent:test',
         runId: 'run-1',
-        jobId: 'job-1',
         chatJid: 'tg:test',
-        threadId: undefined,
-        runtimeAccess: [
-          {
-            selectedCapabilityId: 'acme.records.get',
-            sourceType: 'local_cli',
-            auditLabel: 'Fixture Records get',
-            commandRules: ['RunCommand(/opt/homebrew/bin/acme records get *)'],
-            credentialDirs: [],
-            networkBindings: [
-              {
-                commandRules: [
-                  'RunCommand(/opt/homebrew/bin/acme records get *)',
-                ],
-                hosts: ['oauth2.googleapis.com'],
-              },
-            ],
-          },
-        ],
-        allowedTools: ['RunCommand(/opt/homebrew/bin/acme records get *)'],
+        allowedTools: [],
+        egressDenylist: ['blocked.example'],
         yoloMode: {
           enabled: true,
           denylist: [],
@@ -230,30 +108,181 @@ describe('createCanUseToolCallback', () => {
         },
       } as never,
     });
-    const bash = await canUseTool(
-      'Bash',
-      {
-        command:
-          '/opt/homebrew/bin/acme records get fixture_sheet_001 "Fixture Leads!A1:Z1" --json --account operator@example.test',
-      },
-      makePermissionOptions({
-        toolUseID: 'toolu_bash_1',
-        agentID: 'agent:test',
-      }) as never,
-    );
+
     const network = await canUseTool(
       'SandboxNetworkAccess',
-      { host: 'oauth2.googleapis.com' },
+      { host },
       makePermissionOptions({
         toolUseID: 'toolu_network_1',
         agentID: 'agent:test',
       }) as never,
     );
 
-    expect(bash.behavior).toBe('allow');
     expect(network).toEqual({
       behavior: 'allow',
-      updatedInput: { host: 'oauth2.googleapis.com' },
+      updatedInput: { host },
+    });
+    expect(permissionMock.requestPermissionApproval).not.toHaveBeenCalled();
+    expect(dns.lookup).toHaveBeenCalledWith(host, {
+      all: true,
+      verbatim: true,
+    });
+  });
+
+  it('denies direct-mode SDK network access to localhost by name', async () => {
+    const network = await makeCallback()(
+      'SandboxNetworkAccess',
+      { host: 'LOCALHOST.' },
+      makePermissionOptions({ toolUseID: 'toolu_network_localhost' }) as never,
+    );
+
+    expect(network).toEqual({
+      behavior: 'deny',
+      message: 'Host localhost is a loopback hostname.',
+      interrupt: false,
+    });
+    expect(dns.lookup).not.toHaveBeenCalled();
+  });
+
+  it.each(['127.0.0.1', '10.20.30.40', '169.254.169.254'])(
+    'denies direct-mode SDK network access when DNS resolves to %s',
+    async (address) => {
+      vi.mocked(dns.lookup).mockResolvedValueOnce([{ address, family: 4 }]);
+
+      const network = await makeCallback()(
+        'SandboxNetworkAccess',
+        { host: 'private-target.example' },
+        makePermissionOptions({
+          toolUseID: 'toolu_network_resolved_private',
+        }) as never,
+      );
+
+      expect(network).toEqual({
+        behavior: 'deny',
+        message: `Host private-target.example resolved to non-public address ${address}.`,
+        interrupt: false,
+      });
+    },
+  );
+
+  it('strips an authority port before resolving and denies a private destination', async () => {
+    vi.mocked(dns.lookup).mockResolvedValueOnce([
+      { address: '10.20.30.40', family: 4 },
+    ]);
+
+    const network = await makeCallback()(
+      'SandboxNetworkAccess',
+      { host: 'private-target.example:8443' },
+      makePermissionOptions({ toolUseID: 'toolu_network_authority' }) as never,
+    );
+
+    expect(network).toEqual({
+      behavior: 'deny',
+      message:
+        'Host private-target.example resolved to non-public address 10.20.30.40.',
+      interrupt: false,
+    });
+    expect(dns.lookup).toHaveBeenCalledWith('private-target.example', {
+      all: true,
+      verbatim: true,
+    });
+  });
+
+  it('denies direct-mode SDK network access when DNS resolution fails', async () => {
+    vi.mocked(dns.lookup).mockRejectedValueOnce(new Error('lookup failed'));
+
+    const network = await makeCallback()(
+      'SandboxNetworkAccess',
+      { host: 'unresolvable.example' },
+      makePermissionOptions({ toolUseID: 'toolu_network_unresolved' }) as never,
+    );
+
+    expect(network).toEqual({
+      behavior: 'deny',
+      message:
+        'SDK sandbox network access could not safely resolve unresolvable.example.',
+      interrupt: false,
+    });
+  });
+
+  it('denies direct-mode SDK network access when the target cannot be resolved safely', async () => {
+    const network = await makeCallback()(
+      'SandboxNetworkAccess',
+      { host: 'https://invalid.example/path' },
+      makePermissionOptions({ toolUseID: 'toolu_network_invalid' }) as never,
+    );
+
+    expect(network).toEqual({
+      behavior: 'deny',
+      message:
+        'SDK sandbox network access could not safely resolve https://invalid.example/path.',
+      interrupt: false,
+    });
+    expect(dns.lookup).not.toHaveBeenCalled();
+  });
+
+  it('denies direct-mode SDK network access to a non-public address', async () => {
+    const canUseTool = makeCallback({
+      agentInput: {
+        runMode: 'normal',
+        isScheduledJob: false,
+        appId: 'default',
+        agentId: 'agent:test',
+        runId: 'run-1',
+        chatJid: 'tg:test',
+        allowedTools: [],
+        egressDenylist: [],
+        yoloMode: { enabled: true, denylist: [], denylistPaths: [] },
+      } as never,
+    });
+
+    const network = await canUseTool(
+      'SandboxNetworkAccess',
+      { host: '10.0.0.7' },
+      makePermissionOptions({ toolUseID: 'toolu_network_private' }) as never,
+    );
+
+    expect(network).toEqual({
+      behavior: 'deny',
+      message: 'Host 10.0.0.7 resolved to non-public address 10.0.0.7.',
+      interrupt: false,
+    });
+    expect(permissionMock.requestPermissionApproval).not.toHaveBeenCalled();
+  });
+
+  it('denies direct-mode SDK network access to a denylisted WebFetch host', async () => {
+    const canUseTool = makeCallback({
+      agentInput: {
+        runMode: 'normal',
+        isScheduledJob: false,
+        appId: 'default',
+        agentId: 'agent:test',
+        runId: 'run-1',
+        chatJid: 'tg:test',
+        allowedTools: [],
+        egressDenylist: ['blocked.example'],
+        yoloMode: {
+          enabled: true,
+          denylist: [],
+          denylistPaths: [],
+        },
+      } as never,
+    });
+
+    const network = await canUseTool(
+      'SandboxNetworkAccess',
+      { host: 'blocked.example', parentToolUseID: 'toolu_webfetch_1' },
+      makePermissionOptions({
+        toolUseID: 'toolu_network_1',
+        parentToolUseID: 'toolu_webfetch_1',
+      }) as never,
+    );
+
+    expect(network).toEqual({
+      behavior: 'deny',
+      message:
+        'Host blocked.example matched permissions.egress.denylist pattern blocked.example.',
+      interrupt: false,
     });
     expect(permissionMock.requestPermissionApproval).not.toHaveBeenCalled();
   });

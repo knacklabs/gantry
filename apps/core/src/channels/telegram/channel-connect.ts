@@ -1,19 +1,13 @@
 import { ASSISTANT_NAME, TRIGGER_PATTERN } from '../../config/index.js';
-import {
-  findDurablePermissionInteractionByRequestId,
-  findDurableQuestionInteractionByRequestId,
-  resolveDurablePermissionInteractionByRequestId,
-  resolveDurableQuestionInteractionByRequestId,
-} from '../../application/interactions/pending-interaction-durability.js';
+import { resolveDurableQuestionInteractionByRequestId } from '../../application/interactions/pending-interaction-durability.js';
 import { logger } from '../../infrastructure/logging/logger.js';
-import { findConversationRoutesForChat } from '../../shared/thread-queue-key.js';
 import {
-  decisionForMode,
   normalizePermissionAction,
   permissionDecisionOptions,
 } from '../permission-interaction.js';
 
 import { TelegramChannelPrompts } from './channel-prompts.js';
+import { resolveDurableTelegramPermissionCallback } from './permission-callback.js';
 import {
   TELEGRAM_PERMISSION_CALLBACK_PATTERN,
   TELEGRAM_DEAD_LETTER_ACTION_CALLBACK_PATTERN,
@@ -25,8 +19,11 @@ import {
 } from './bot-setup.js';
 import { registerTelegramMediaHandlers } from './media-ingestion.js';
 import { clearProgressActions } from './progress-message-actions.js';
-
-const TELEGRAM_BOT_COMMANDS = new Set(['chatid', 'ping']);
+import { handleTelegramTextMessage } from './text-message-handler.js';
+import {
+  handleTelegramGroupJoinCallback,
+  handleTelegramGroupMembershipUpdate,
+} from './group-join-onboarding.js';
 
 export abstract class TelegramChannelConnect extends TelegramChannelPrompts {
   private async clearRestoredProgressActions(): Promise<void> {
@@ -65,95 +62,53 @@ export abstract class TelegramChannelConnect extends TelegramChannelPrompts {
         typeof ctx.callbackQuery?.data === 'string'
           ? ctx.callbackQuery.data
           : '';
+      if (
+        await handleTelegramGroupJoinCallback({
+          ctx,
+          opts: this.opts,
+          assistantName: ASSISTANT_NAME,
+          isApproverAuthorized: (chatId, userId, sourceAgentFolder) =>
+            this.isTelegramApproverAuthorized(
+              chatId,
+              userId,
+              sourceAgentFolder,
+            ),
+          sanitizeErrorMessage: (err) => this.sanitizeErrorMessage(err),
+        })
+      ) {
+        return;
+      }
       const userQuestionMatch =
         TELEGRAM_USER_QUESTION_CALLBACK_PATTERN.exec(data);
       if (userQuestionMatch) {
         const action = userQuestionMatch[1] as 'select' | 'done' | 'other';
-        const requestId = userQuestionMatch[2];
-        const questionIndex = Number.parseInt(userQuestionMatch[3], 10);
-        const optionIndex = userQuestionMatch[4]
-          ? Number.parseInt(userQuestionMatch[4], 10)
+        const callbackId = userQuestionMatch[2];
+        const callbackTarget =
+          this.pendingUserQuestionCallbackIds.get(callbackId);
+        if (!callbackTarget) {
+          await ctx.answerCallbackQuery({
+            text: 'Question is no longer active.',
+            show_alert: true,
+          });
+          return;
+        }
+        const requestId = callbackTarget.requestId;
+        const questionIndex = callbackTarget.questionIndex;
+        const optionIndex = userQuestionMatch[3]
+          ? Number.parseInt(userQuestionMatch[3], 10)
           : undefined;
-        const key = this.pendingUserQuestionKey(requestId, questionIndex);
+        if (!Number.isInteger(questionIndex)) return;
+        const key = this.pendingUserQuestionKey(
+          callbackTarget.appId,
+          callbackTarget.sourceAgentFolder,
+          requestId,
+          questionIndex,
+        );
         const pending = this.pendingUserQuestions.get(key);
         if (!pending) {
-          const callbackChatId =
-            ctx.callbackQuery?.message?.chat?.id?.toString() ||
-            ctx.chat?.id?.toString() ||
-            '';
-          const userId = ctx.from?.id?.toString() || '';
-          const durable = await findDurableQuestionInteractionByRequestId({
-            requestId,
-          });
-          const authorized =
-            durable?.targetJid === `tg:${callbackChatId}` &&
-            userId &&
-            (await this.isTelegramApproverAuthorized(
-              callbackChatId,
-              userId,
-              durable.sourceAgentFolder,
-            ));
-          const answeredBy =
-            ctx.from?.first_name || ctx.from?.username || userId || 'unknown';
-          if (authorized && action === 'other') {
-            const threadId = (
-              ctx.callbackQuery?.message as
-                | { message_thread_id?: number }
-                | undefined
-            )?.message_thread_id;
-            let promptMessageId: number | undefined;
-            try {
-              const prompt = await ctx.api.sendMessage(
-                callbackChatId,
-                'Reply to this message with your answer.',
-                {
-                  ...(typeof threadId === 'number'
-                    ? { message_thread_id: threadId }
-                    : {}),
-                  reply_markup: {
-                    force_reply: true,
-                    input_field_placeholder: 'Type your answer…',
-                  },
-                },
-              );
-              promptMessageId = prompt.message_id;
-            } catch (err) {
-              logger.debug(
-                { requestId, err: this.sanitizeErrorMessage(err) },
-                'Failed to send Telegram durable Other free-text prompt',
-              );
-            }
-            if (promptMessageId === undefined) {
-              await ctx.answerCallbackQuery({
-                text: 'Could not start a free-text reply.',
-                show_alert: true,
-              });
-              return;
-            }
-            this.pendingUserQuestionOtherPrompts.set(
-              `${callbackChatId}:${promptMessageId}`,
-              { requestId, questionIndex },
-            );
-            await ctx.answerCallbackQuery({ text: 'Reply with your answer.' });
-            return;
-          }
-          const resolved =
-            authorized &&
-            (action === 'done' ||
-              (optionIndex !== undefined && Number.isInteger(optionIndex)))
-              ? await resolveDurableQuestionInteractionByRequestId({
-                  requestId,
-                  questionIndex,
-                  optionIndex,
-                  finalize: action === 'done',
-                  answeredBy,
-                })
-              : false;
           await ctx.answerCallbackQuery({
-            text: resolved
-              ? 'Answer recorded. Details will update in chat.'
-              : 'Question is no longer active.',
-            show_alert: !resolved,
+            text: 'Question is no longer active.',
+            show_alert: true,
           });
           return;
         }
@@ -222,7 +177,12 @@ export abstract class TelegramChannelConnect extends TelegramChannelPrompts {
           }
           this.pendingUserQuestionOtherPrompts.set(
             `${pending.chatId}:${promptMessageId}`,
-            { requestId, questionIndex },
+            {
+              appId: pending.appId,
+              sourceAgentFolder: pending.sourceAgentFolder,
+              requestId,
+              questionIndex,
+            },
           );
           await ctx.answerCallbackQuery({ text: 'Reply with your answer.' });
           return;
@@ -267,6 +227,21 @@ export abstract class TelegramChannelConnect extends TelegramChannelPrompts {
         }
 
         if (pending.multiSelect) {
+          const persisted = await resolveDurableQuestionInteractionByRequestId({
+            requestId,
+            appId: pending.appId,
+            sourceAgentFolder: pending.sourceAgentFolder,
+            questionIndex,
+            optionIndex,
+            finalize: false,
+          });
+          if (!persisted) {
+            await ctx.answerCallbackQuery({
+              text: 'Question is no longer active.',
+              show_alert: true,
+            });
+            return;
+          }
           if (pending.selectedOptionIndexes.has(optionIndex)) {
             pending.selectedOptionIndexes.delete(optionIndex);
           } else {
@@ -389,58 +364,22 @@ export abstract class TelegramChannelConnect extends TelegramChannelPrompts {
       const mode = normalizePermissionAction(permissionMatch[1]);
       if (!mode) return;
       const callbackId = permissionMatch[2];
-      const requestId =
-        this.pendingPermissionCallbackIds.get(callbackId) || callbackId;
-      const pending = this.pendingPermissionPrompts.get(requestId);
+      const pending = this.pendingPermissionPrompts.get(callbackId);
       if (!pending) {
-        const callbackQuery = ctx.callbackQuery as
-          | {
-              from?: {
-                id?: number | string;
-                first_name?: string;
-                username?: string;
-              };
-            }
-          | undefined;
-        const decidedBy =
-          callbackQuery?.from?.first_name ||
-          callbackQuery?.from?.username ||
-          ctx.from?.first_name ||
-          ctx.from?.username ||
-          ctx.from?.id?.toString() ||
-          'unknown';
-        const durable = await findDurablePermissionInteractionByRequestId({
-          requestId,
-        });
-        const callbackChatId =
-          ctx.callbackQuery?.message?.chat?.id?.toString() ||
-          ctx.chat?.id?.toString() ||
-          '';
-        const userId =
-          callbackQuery?.from?.id?.toString() || ctx.from?.id?.toString() || '';
-        const authorized =
-          durable?.targetJid === `tg:${callbackChatId}` &&
-          userId &&
-          (await this.isTelegramApproverAuthorized(
-            callbackChatId,
-            userId,
-            durable.sourceAgentFolder,
-            durable.decisionPolicy as never,
-            durable.threadId ?? undefined,
-          ));
-        const resolved = authorized
-          ? await resolveDurablePermissionInteractionByRequestId({
-              requestId,
-              mode,
-              approverRef: decidedBy,
-              reason: `resolved via Telegram after channel restart`,
-            })
-          : false;
-        await ctx.answerCallbackQuery({
-          text: resolved
-            ? 'Decision recorded. Details will update in chat.'
-            : 'Permission request is no longer active.',
-          show_alert: !resolved,
+        await resolveDurableTelegramPermissionCallback({
+          context: ctx,
+          appId: this.opts.appId || 'default',
+          providerAlias: callbackId,
+          mode,
+          sanitizeErrorMessage: (err) => this.sanitizeErrorMessage(err),
+          isAuthorized: (approvalContextJid, userId, recovered) =>
+            this.isTelegramApproverAuthorized(
+              approvalContextJid.replace(/^tg:/, ''),
+              userId,
+              recovered.sourceAgentFolder,
+              recovered.decisionPolicy as never,
+              recovered.threadId ?? undefined,
+            ),
         });
         return;
       }
@@ -496,7 +435,7 @@ export abstract class TelegramChannelConnect extends TelegramChannelPrompts {
       if (!authorized) {
         logger.warn(
           {
-            requestId,
+            requestId: pending.request.requestId,
             userId,
             chatId:
               callbackQuery?.message?.chat?.id?.toString() ||
@@ -516,30 +455,40 @@ export abstract class TelegramChannelConnect extends TelegramChannelPrompts {
         return;
       }
 
-      const decidedBy =
-        callbackQuery?.from?.first_name ||
-        callbackQuery?.from?.username ||
-        ctx.from?.first_name ||
-        ctx.from?.username ||
-        userId ||
-        'unknown';
-      const decision = decisionForMode(pending.request, mode, decidedBy);
-      await this.resolvePermissionPrompt(requestId, {
-        ...decision,
-        reason:
-          mode === 'allow_once'
-            ? 'allowed once via Telegram'
-            : mode === 'allow_persistent_rule'
-              ? 'persistent rule allowed via Telegram'
-              : 'canceled via Telegram',
-      });
+      const settled = await this.claimAndResolvePermissionPrompt(
+        callbackId,
+        mode,
+        userId,
+        mode === 'allow_once'
+          ? 'allowed once via Telegram'
+          : mode === 'allow_persistent_rule'
+            ? 'persistent rule allowed via Telegram'
+            : 'canceled via Telegram',
+      );
+      if (settled === 'already_decided') {
+        await ctx.answerCallbackQuery({
+          text: 'Permission request was already decided.',
+          show_alert: true,
+        });
+        return;
+      }
+      if (settled === 'retryable') {
+        await ctx.answerCallbackQuery({
+          text: 'Could not record the decision. Please retry.',
+          show_alert: true,
+        });
+        return;
+      }
+
       await ctx.answerCallbackQuery({
         text:
-          mode === 'allow_once'
-            ? 'Allowed once. Details posted in chat.'
-            : mode === 'allow_persistent_rule'
-              ? 'Allowed for future. Details posted in chat.'
-              : 'Canceled.',
+          mode === 'allow_persistent_rule' && pending.request.permissionBatch
+            ? 'Starting individual review.'
+            : mode === 'allow_once'
+              ? 'Allowed once.'
+              : mode === 'allow_persistent_rule'
+                ? 'Allowed for future.'
+                : 'Canceled.',
       });
     });
 
@@ -548,123 +497,27 @@ export abstract class TelegramChannelConnect extends TelegramChannelPrompts {
       return;
     }
 
-    // Telegram bot commands handled above — skip them in the general handler
-    // so they don't also get stored as messages. All other /commands flow through.
+    this.bot.on('my_chat_member', (ctx) =>
+      handleTelegramGroupMembershipUpdate({
+        ctx,
+        opts: this.opts,
+        assistantName: ASSISTANT_NAME,
+        isApproverAuthorized: (chatId, userId, sourceAgentFolder) =>
+          this.isTelegramApproverAuthorized(chatId, userId, sourceAgentFolder),
+        sanitizeErrorMessage: (err) => this.sanitizeErrorMessage(err),
+      }),
+    );
 
-    this.bot.on('message:text', async (ctx) => {
-      if (ctx.message.text.startsWith('/')) {
-        const cmd = ctx.message.text.slice(1).split(/[\s@]/)[0].toLowerCase();
-        if (TELEGRAM_BOT_COMMANDS.has(cmd)) return;
-      }
-
-      const chatJid = `tg:${ctx.chat.id}`;
-      let content = ctx.message.text;
-      const timestamp = new Date(ctx.message.date * 1000).toISOString();
-      const senderName =
-        ctx.from?.first_name ||
-        ctx.from?.username ||
-        ctx.from?.id.toString() ||
-        'Unknown';
-      const sender = ctx.from?.id.toString() || '';
-      const msgId = ctx.message.message_id.toString();
-      const threadId = ctx.message.message_thread_id;
-
-      const replyTo = ctx.message.reply_to_message;
-      const replyToMessageId = replyTo?.message_id?.toString();
-      const replyToContent = replyTo?.text || replyTo?.caption;
-      const replyToSenderName = replyTo
-        ? replyTo.from?.first_name ||
-          replyTo.from?.username ||
-          replyTo.from?.id?.toString() ||
-          'Unknown'
-        : undefined;
-
-      // A reply to an "Other" ForceReply prompt answers a pending question.
-      if (typeof replyTo?.message_id === 'number') {
-        const handledOther = await this.tryResolveUserQuestionOtherReply({
-          chatId: ctx.chat.id.toString(),
-          replyToMessageId: replyTo.message_id,
-          text: ctx.message.text,
-          userId: sender,
-          answeredBy: senderName,
-        });
-        if (handledOther) return;
-      }
-
-      // Determine chat name
-      const chatName =
-        ctx.chat.type === 'private'
-          ? senderName
-          : (ctx.chat as any).title || chatJid;
-
-      // Translate Telegram @bot_username mentions into TRIGGER_PATTERN format.
-      // Telegram @mentions (e.g., @andy_ai_bot) won't match TRIGGER_PATTERN
-      // (for example, ^@Default Agent\b), so we prepend the trigger when the bot is @mentioned.
-      const botUsername = ctx.me?.username?.toLowerCase();
-      if (botUsername) {
-        const entities = ctx.message.entities || [];
-        const isBotMentioned = entities.some((entity) => {
-          if (entity.type === 'mention') {
-            const mentionText = content
-              .substring(entity.offset, entity.offset + entity.length)
-              .toLowerCase();
-            return mentionText === `@${botUsername}`;
-          }
-          return false;
-        });
-        if (isBotMentioned && !TRIGGER_PATTERN.test(content)) {
-          content = `@${ASSISTANT_NAME} ${content}`;
-        }
-      }
-
-      // Store chat metadata for discovery
-      const isGroup =
-        ctx.chat.type === 'group' || ctx.chat.type === 'supergroup';
-      await this.opts.onChatMetadata(
-        chatJid,
-        timestamp,
-        chatName,
-        'telegram',
-        isGroup,
-        { providerAccountId: this.opts.providerAccountId },
-      );
-
-      const hasRegisteredRoute =
-        findConversationRoutesForChat(
-          this.opts.conversationRoutes(),
-          chatJid,
-          threadId?.toString(),
-        ).length > 0;
-      if (!hasRegisteredRoute && isGroup) {
-        logger.debug(
-          { chatJid, chatName },
-          'Message from unregistered Telegram chat',
-        );
-        return;
-      }
-
-      // Deliver message — startMessageLoop() will pick it up
-      await this.opts.onMessage(chatJid, {
-        id: msgId,
-        chat_jid: chatJid,
-        provider: 'telegram',
-        sender,
-        sender_name: senderName,
-        content,
-        timestamp,
-        is_from_me: false,
-        external_message_id: msgId,
-        thread_id: threadId ? threadId.toString() : undefined,
-        reply_to_message_id: replyToMessageId,
-        reply_to_message_content: replyToContent,
-        reply_to_sender_name: replyToSenderName,
-      });
-
-      logger.info(
-        { chatJid, chatName, sender: senderName },
-        'Telegram message stored',
-      );
-    });
+    this.bot.on('message:text', (ctx) =>
+      handleTelegramTextMessage({
+        ctx,
+        opts: this.opts,
+        assistantName: ASSISTANT_NAME,
+        triggerPattern: TRIGGER_PATTERN,
+        tryResolveOther: (input) =>
+          this.tryResolveUserQuestionOtherReply(input),
+      }),
+    );
 
     registerTelegramMediaHandlers({
       bot: this.bot,

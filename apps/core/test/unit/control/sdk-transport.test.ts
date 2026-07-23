@@ -226,6 +226,39 @@ describe('@gantry/sdk transport', () => {
     });
   });
 
+  it('builds observer status and paginated insight requests', async () => {
+    const client = new GantryClient({
+      apiKey: 'test-key',
+      baseUrl: 'http://127.0.0.1:3939',
+    });
+    const request = vi
+      .spyOn(
+        (client as unknown as { transport: { request: () => unknown } })
+          .transport,
+        'request',
+      )
+      .mockResolvedValue({ insights: [], nextCursor: null });
+
+    await client.observer.status({ appId: 'app/one' });
+    await client.observer.insights({
+      appId: 'app/one',
+      subject: 'msu_44444444444444444444444444444444',
+      type: 'commitment',
+      state: 'pending',
+      limit: 10,
+      cursor: 'cursor/one',
+    });
+
+    expect(request).toHaveBeenNthCalledWith(1, {
+      method: 'GET',
+      path: '/v1/observer/status?appId=app%2Fone',
+    });
+    expect(request).toHaveBeenNthCalledWith(2, {
+      method: 'GET',
+      path: '/v1/observer/insights?appId=app%2Fone&subject=msu_44444444444444444444444444444444&type=commitment&state=pending&limit=10&cursor=cursor%2Fone',
+    });
+  });
+
   it('builds ingress management requests', async () => {
     const seen: Array<{ method?: string; url?: string; body: unknown }> = [];
     const port = await listen((req, res) => {

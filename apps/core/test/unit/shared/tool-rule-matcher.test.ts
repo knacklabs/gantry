@@ -22,8 +22,44 @@ describe('autonomous tool rule matcher', () => {
   it('rejects empty, global, and unsupported wildcard rules', () => {
     expect(validateAutonomousToolRule('').ok).toBe(false);
     expect(validateAutonomousToolRule('*').ok).toBe(false);
-    expect(validateAutonomousToolRule('mcp__github__search*').ok).toBe(false);
+    expect(validateAutonomousToolRule('mcp__github__se*rch').ok).toBe(false);
     expect(validateAutonomousToolRule('mcp__github__*').ok).toBe(true);
+  });
+
+  it('supports reviewed MCP prefix pattern rules for third-party servers only', () => {
+    expect(validateAutonomousToolRule('mcp__github__search_*')).toEqual({
+      ok: true,
+    });
+    expect(
+      validateAutonomousToolRule('mcp__gantry__scheduler_*'),
+    ).toMatchObject({
+      ok: false,
+      reason: expect.stringContaining('Gantry MCP pattern grants'),
+    });
+    expect(
+      anyToolRuleMatches(['mcp__github__search_*'], 'mcp__github__search_code'),
+    ).toBe(true);
+    expect(
+      anyToolRuleMatches(
+        ['mcp__github__search_*'],
+        'mcp__github__create_issue',
+      ),
+    ).toBe(false);
+    expect(
+      anyToolRuleMatches(['mcp__github__search_*'], 'mcp__linear__search_code'),
+    ).toBe(false);
+    expect(
+      evaluateAutonomousToolUse({
+        rules: ['mcp__github__search_*'],
+        toolName: 'mcp__github__search_repositories',
+      }),
+    ).toMatchObject({ allowed: true, matchedRule: 'mcp__github__search_*' });
+    expect(
+      evaluateAutonomousToolUse({
+        rules: ['mcp__github__search_*'],
+        toolName: 'mcp__github__delete_repository',
+      }),
+    ).toMatchObject({ allowed: false });
   });
 
   it('rejects provider-native exact names as durable autonomous rules', () => {

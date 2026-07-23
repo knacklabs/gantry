@@ -2,7 +2,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { spawn } from 'child_process';
-import { createHash, generateKeyPairSync } from 'crypto';
+import { generateKeyPairSync } from 'crypto';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
@@ -21,10 +21,6 @@ const HEARTBEAT_RUNNER_TIMEOUT_MS = 60_000;
 const HEARTBEAT_TEST_TIMEOUT_MS = 70_000;
 
 const tempRoots: string[] = [];
-
-function sha256(value: string): string {
-  return createHash('sha256').update(value).digest('hex');
-}
 
 afterEach(() => {
   for (const root of tempRoots.splice(0)) {
@@ -163,10 +159,12 @@ function createRunnerFixture(): {
     path.resolve('apps/core/src/runner/gantry-agent-system-prompt.ts'),
     path.join(runnerDir, 'gantry-agent-system-prompt.ts'),
   );
-  fs.copyFileSync(
-    path.resolve('apps/core/src/shared/memory-boundary.ts'),
-    path.join(sharedDir, 'memory-boundary.ts'),
-  );
+  fs.cpSync(path.resolve('apps/core/src/shared'), sharedDir, {
+    recursive: true,
+    // ponytail: whole-tree copy retires the hand-maintained file list that
+    // silently broke whenever a new shared module became runner-reachable
+    filter: (src) => fs.lstatSync(src).isDirectory() || src.endsWith('.ts'),
+  });
   fs.copyFileSync(
     path.resolve('apps/core/src/runner/runtime-signal-pump.ts'),
     path.join(runnerDir, 'runtime-signal-pump.ts'),
@@ -192,200 +190,6 @@ function createRunnerFixture(): {
   fs.copyFileSync(
     path.resolve('apps/core/src/domain/events/runtime-event-types.ts'),
     path.join(domainEventsDir, 'runtime-event-types.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve('apps/core/src/shared/time/datetime.ts'),
-    path.join(sharedTimeDir, 'datetime.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve('apps/core/src/shared/canonical-json.ts'),
-    path.join(sharedDir, 'canonical-json.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve('apps/core/src/shared/no-proxy.ts'),
-    path.join(sharedDir, 'no-proxy.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve('apps/core/src/shared/neutral-ca-trust-env.ts'),
-    path.join(sharedDir, 'neutral-ca-trust-env.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve('apps/core/src/shared/network-host-declaration.ts'),
-    path.join(sharedDir, 'network-host-declaration.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve('apps/core/src/shared/object.ts'),
-    path.join(sharedDir, 'object.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve('apps/core/src/shared/model-catalog.ts'),
-    path.join(sharedDir, 'model-catalog.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve('apps/core/src/shared/model-catalog-provider-metadata.ts'),
-    path.join(sharedDir, 'model-catalog-provider-metadata.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve('apps/core/src/shared/model-catalog-lookup.ts'),
-    path.join(sharedDir, 'model-catalog-lookup.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve('apps/core/src/shared/model-provider-registry.ts'),
-    path.join(sharedDir, 'model-provider-registry.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve(
-      'apps/core/src/shared/model-provider-registry-openai-compatible.ts',
-    ),
-    path.join(sharedDir, 'model-provider-registry-openai-compatible.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve('apps/core/src/shared/model-catalog-openai-compatible.ts'),
-    path.join(sharedDir, 'model-catalog-openai-compatible.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve('apps/core/src/shared/model-catalog-bedrock.ts'),
-    path.join(sharedDir, 'model-catalog-bedrock.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve('apps/core/src/shared/agent-engine.ts'),
-    path.join(sharedDir, 'agent-engine.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve('apps/core/src/shared/model-cache-support.ts'),
-    path.join(sharedDir, 'model-cache-support.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve('apps/core/src/shared/model-catalog-format.ts'),
-    path.join(sharedDir, 'model-catalog-format.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve('apps/core/src/shared/model-recommendation.ts'),
-    path.join(sharedDir, 'model-recommendation.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve('apps/core/src/shared/model-execution-route.ts'),
-    path.join(sharedDir, 'model-execution-route.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve('apps/core/src/shared/model-families.ts'),
-    path.join(sharedDir, 'model-families.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve('apps/core/src/shared/model-usage.ts'),
-    path.join(sharedDir, 'model-usage.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve('apps/core/src/shared/agent-persona.ts'),
-    path.join(sharedDir, 'agent-persona.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve('apps/core/src/shared/sdk-native-skill-names.ts'),
-    path.join(sharedDir, 'sdk-native-skill-names.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve('apps/core/src/shared/operator-error.ts'),
-    path.join(sharedDir, 'operator-error.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve('apps/core/src/shared/admin-mcp-tools.ts'),
-    path.join(sharedDir, 'admin-mcp-tools.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve('apps/core/src/shared/agent-tool-references.ts'),
-    path.join(sharedDir, 'agent-tool-references.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve('apps/core/src/shared/gantry-tool-facades.ts'),
-    path.join(sharedDir, 'gantry-tool-facades.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve('apps/core/src/shared/bash-command-parser.ts'),
-    path.join(sharedDir, 'bash-command-parser.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve('apps/core/src/shared/generated-runtime-paths.ts'),
-    path.join(sharedDir, 'generated-runtime-paths.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve('apps/core/src/shared/semantic-capability-ids.ts'),
-    path.join(sharedDir, 'semantic-capability-ids.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve('apps/core/src/shared/semantic-capabilities.ts'),
-    path.join(sharedDir, 'semantic-capabilities.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve('apps/core/src/shared/capability-runtime-access.ts'),
-    path.join(sharedDir, 'capability-runtime-access.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve('apps/core/src/shared/memory-ipc-actions.ts'),
-    path.join(sharedDir, 'memory-ipc-actions.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve('apps/core/src/shared/tool-rule-matcher.ts'),
-    path.join(sharedDir, 'tool-rule-matcher.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve('apps/core/src/shared/tool-execution-policy-service.ts'),
-    path.join(sharedDir, 'tool-execution-policy-service.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve('apps/core/src/shared/tool-execution-bash-policy.ts'),
-    path.join(sharedDir, 'tool-execution-bash-policy.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve('apps/core/src/shared/tool-execution-protected-paths.ts'),
-    path.join(sharedDir, 'tool-execution-protected-paths.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve('apps/core/src/shared/private-fs.ts'),
-    path.join(sharedDir, 'private-fs.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve('apps/core/src/shared/tool-access-view.ts'),
-    path.join(sharedDir, 'tool-access-view.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve('apps/core/src/shared/live-tool-rules.ts'),
-    path.join(sharedDir, 'live-tool-rules.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve('apps/core/src/shared/permission-tool-rules.ts'),
-    path.join(sharedDir, 'permission-tool-rules.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve('apps/core/src/shared/durable-access-policy.ts'),
-    path.join(sharedDir, 'durable-access-policy.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve('apps/core/src/shared/yolo-mode-policy.ts'),
-    path.join(sharedDir, 'yolo-mode-policy.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve('apps/core/src/shared/sensitive-material.ts'),
-    path.join(sharedDir, 'sensitive-material.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve('apps/core/src/shared/permission-timeout.ts'),
-    path.join(sharedDir, 'permission-timeout.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve('apps/core/src/shared/permission-mode.ts'),
-    path.join(sharedDir, 'permission-mode.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve('apps/core/src/shared/stable-hash.ts'),
-    path.join(sharedDir, 'stable-hash.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve('apps/core/src/shared/human-format.ts'),
-    path.join(sharedDir, 'human-format.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve('apps/core/src/shared/gantry-home.ts'),
-    path.join(sharedDir, 'gantry-home.ts'),
   );
   fs.writeFileSync(
     path.join(sdkDir, 'package.json'),
@@ -941,6 +745,7 @@ async function runRunner(
         TEST_IPC_RESPONSE_SIGNING_KEY: fixture.responseSigningKey,
         GANTRY_WORKSPACE_GROUP_DIR: path.join(fixture.root, 'group'),
         GANTRY_WORKSPACE_EXTRA_DIR: path.join(fixture.root, 'extra'),
+        GANTRY_EGRESS_PROXY_URL: 'http://127.0.0.1:18080/',
         TEST_SDK_RECORD_PATH: fixture.recordPath,
         ...(typeof input.jobId === 'string'
           ? { GANTRY_JOB_ID: input.jobId }
@@ -1101,6 +906,14 @@ describe('agent-runner IPC lifecycle', () => {
       expect(sdkEnv.GANTRY_MCP_SERVERS_JSON).toBeUndefined();
       expect(sdkEnv.GANTRY_MCP_ALLOWED_TOOLS_JSON).toBeUndefined();
       expect(sdkEnv.ENABLE_TOOL_SEARCH).toBe('false');
+      expect(call?.sandbox).toEqual(
+        expect.objectContaining({
+          network: expect.objectContaining({
+            allowLocalBinding: true,
+            httpProxyPort: 18080,
+          }),
+        }),
+      );
       const startupDiagnostics = readRunnerOutputs(result.stdout).flatMap(
         (output) =>
           Array.isArray(output.runtimeEvents) ? output.runtimeEvents : [],
@@ -1157,6 +970,25 @@ describe('agent-runner IPC lifecycle', () => {
       );
     },
     SLOW_RUNNER_IPC_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    'fails closed when direct mode receives a non-loopback SDK sandbox proxy',
+    async () => {
+      const fixture = createRunnerFixture();
+
+      const result = await runRunner(fixture, baseInput(), {
+        GANTRY_EGRESS_PROXY_URL: 'http://gateway.example:18080/',
+        TEST_EXIT_AFTER_QUERY: '1',
+      });
+
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain(
+        'GANTRY_EGRESS_PROXY_URL must identify the run-scoped loopback HTTP egress gateway.',
+      );
+      expect(fs.existsSync(fixture.recordPath)).toBe(false);
+    },
+    RUNNER_IPC_TEST_TIMEOUT_MS,
   );
 
   it(
@@ -2790,7 +2622,7 @@ describe('agent-runner IPC lifecycle', () => {
   );
 
   it(
-    'suppresses SDK sandbox network prompts after Gantry allowed a scoped tool',
+    'allows SDK network prompts in direct mode without token or host review',
     async () => {
       const fixture = createRunnerFixture();
 
@@ -2808,23 +2640,8 @@ describe('agent-runner IPC lifecycle', () => {
       );
 
       expect(result.exitCode).toBe(0);
-      expect(result.stdout).toContain('"eventType":"sandbox.blocked"');
-      expect(result.stdout).toContain('sdk_network_gate_suppressed');
-      expect(result.stdout).toContain(
-        `"networkToolUseIDHash":"${sha256('toolu_network_1')}"`,
-      );
-      expect(result.stdout).toContain(
-        `"parentToolUseIDHash":"${sha256('toolu_bash_1')}"`,
-      );
-      expect(result.stdout).not.toContain(
-        '"networkToolUseID":"toolu_network_1"',
-      );
-      expect(result.stdout).not.toContain('"parentToolUseID":"toolu_bash_1"');
-      expect(result.stdout).toContain('"approvedToolName":"Bash"');
-      expect(result.stdout).toContain('"inputHash"');
-      expect(result.stdout).toContain('"hostHash"');
-      expect(result.stdout).not.toContain('registry.npmjs.org');
-      expect(result.stdout).not.toContain('npm test --runInBand');
+      expect(result.stdout).not.toContain('sdk_network_gate_');
+      expect(result.stdout).not.toContain('"eventType":"sandbox.blocked"');
       const call = readRecord(fixture.recordPath).calls[0];
       expect(call?.permissionDecisions?.tool).toEqual(
         expect.objectContaining({
@@ -2843,7 +2660,7 @@ describe('agent-runner IPC lifecycle', () => {
   );
 
   it(
-    'suppresses repeated SDK sandbox network prompts for an allowed tool invocation',
+    'allows repeated SDK network prompts without per-invocation state',
     async () => {
       const fixture = createRunnerFixture();
 
@@ -2879,7 +2696,7 @@ describe('agent-runner IPC lifecycle', () => {
   );
 
   it(
-    'scheduled jobs correlate parentless SDK network prompts through typed local CLI runtime access',
+    'scheduled jobs allow parentless SDK network prompts with typed local CLI runtime access',
     async () => {
       const fixture = createRunnerFixture();
       const credentialDir = path.join(fixture.root, 'credentials', 'acme');
@@ -2921,9 +2738,7 @@ describe('agent-runner IPC lifecycle', () => {
       );
 
       expect(result.exitCode).toBe(0);
-      expect(result.stdout).toContain(
-        'sdk_network_gate_suppressed_parentless_recent_tool',
-      );
+      expect(result.stdout).not.toContain('sdk_network_gate_');
       const call = readRecord(fixture.recordPath).calls[0];
       const expectedCredentialDir = path.join(
         fs.realpathSync.native(path.dirname(credentialDir)),
@@ -2941,7 +2756,7 @@ describe('agent-runner IPC lifecycle', () => {
   );
 
   it(
-    'denies parentless SDK sandbox network prompts after a scheduled command without host binding',
+    'allows parentless SDK network prompts after a scheduled command without host binding',
     async () => {
       const fixture = createRunnerFixture();
 
@@ -2961,11 +2776,7 @@ describe('agent-runner IPC lifecycle', () => {
       );
 
       expect(result.exitCode).toBe(0);
-      expect(result.stdout).toContain('sdk_network_gate_denied');
-      expect(result.stdout).toContain(
-        `"networkToolUseIDHash":"${sha256('toolu_network_1')}"`,
-      );
-      expect(result.stdout).not.toContain('"parentToolUseID":"toolu_bash_1"');
+      expect(result.stdout).not.toContain('sdk_network_gate_');
       const call = readRecord(fixture.recordPath).calls[0];
       expect(call?.permissionDecisions?.tool).toEqual(
         expect.objectContaining({
@@ -2973,10 +2784,8 @@ describe('agent-runner IPC lifecycle', () => {
         }),
       );
       expect(call?.permissionDecisions?.network).toEqual({
-        behavior: 'deny',
-        interrupt: false,
-        message:
-          'SDK requested sandbox network access without a parent tool-use id. Approve the tool call through Gantry first.',
+        behavior: 'allow',
+        updatedInput: { host: 'registry.npmjs.org' },
       });
       expect(
         fs.existsSync(path.join(fixture.ipcDir, 'permission-requests')),

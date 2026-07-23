@@ -7,6 +7,7 @@ import type {
   SettingsDesiredStateOps,
   SettingsDesiredStateRepositories,
 } from '../config/settings/desired-state-service.js';
+import type { EffectiveControlRuntimeSettings } from '../application/control-plane/control-plane-storage-model.js';
 import {
   CURRENT_SETTINGS_READER_VERSION,
   importWorkstationSettings,
@@ -44,7 +45,9 @@ export interface SettingsRevisionListenerDeps {
    * Errors are logged, not thrown — a failed deferred start must not poison
    * the applied revision.
    */
-  onFirstRevisionApplied?: () => Promise<void> | void;
+  onFirstRevisionApplied?: (
+    settings: EffectiveControlRuntimeSettings,
+  ) => Promise<void> | void;
   logWarn?: (context: Record<string, unknown>, message: string) => void;
   logInfo?: (context: Record<string, unknown>, message: string) => void;
   setIntervalFn?: typeof setInterval;
@@ -198,7 +201,7 @@ export class SettingsRevisionListener {
     if (previousRevision === 0) {
       markSettingsLoaded();
       try {
-        await this.deps.onFirstRevisionApplied?.();
+        await this.deps.onFirstRevisionApplied?.(settings);
       } catch (err) {
         this.deps.logWarn?.(
           { err, revision: revision.revision },

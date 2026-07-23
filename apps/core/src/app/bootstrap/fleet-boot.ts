@@ -11,12 +11,18 @@ import {
 } from '../../adapters/storage/postgres/runtime-store.js';
 import {
   ARTIFACTS_DIR,
+  createDefaultRuntimeSettings,
   getRuntimeSettingsForConfig,
+  loadRuntimeSettings,
 } from '../../config/index.js';
 import {
   CURRENT_SETTINGS_READER_VERSION,
+  importFleetSettingsRevision,
   importWorkstationSettings,
+  SettingsRevisionConflictError,
+  SettingsStaleMutationError,
   settingsFromRevisionDocument,
+  settingsToRevisionDocument,
 } from '../../config/settings/settings-import-service.js';
 import { PostgresSettingsRevisionWakeupSource } from '../../config/settings/settings-revision-notify.js';
 import type { AppId } from '../../domain/app/app.js';
@@ -39,8 +45,87 @@ import {
 } from '../../runtime/settings-load-state.js';
 import { SettingsRevisionListener } from '../../runtime/settings-revision-listener.js';
 import type { RuntimeApp } from './runtime-app.js';
+import type {
+  ControlAgentSettingsPort,
+  ControlSettingsImportPort,
+  EffectiveControlRuntimeSettings,
+} from '../../application/control-plane/control-plane-storage-model.js';
 
 const SEED_COMMAND = 'gantry settings import --file settings.yaml';
+
+export function createControlAgentSettingsPort(): ControlAgentSettingsPort {
+  return {
+    decodeRevisionDocument: settingsFromRevisionDocument,
+    defaultSettings: createDefaultRuntimeSettings,
+    serializeRevisionDocument: (settings) =>
+      settingsToRevisionDocument(
+        settings as ReturnType<typeof settingsFromRevisionDocument>,
+      ),
+    writeAgentHarnessSetting: async (input) => {
+      const storage = getRuntimeStorage();
+      const settings = loadRuntimeSettings(input.runtimeHome);
+      const previousSettings = structuredClone(settings);
+      const existing = settings.agents[input.folder];
+      settings.agents[input.folder] = {
+        ...existing,
+        name: input.name,
+        folder: input.folder,
+        bindings: existing?.bindings ?? {},
+        sources: existing?.sources ?? { skills: [], mcpServers: [], tools: [] },
+        capabilities: existing?.capabilities ?? [],
+        accessPreset: existing?.accessPreset ?? 'full',
+        agentHarness: input.agentHarness,
+      };
+      await importWorkstationSettings(
+        {
+          runtimeHome: input.runtimeHome,
+          ops: storage.ops,
+          repositories: storage.repositories,
+          appId: input.appId,
+          previousSettings,
+          revisionMirror: {
+            settingsRevisions: storage.repositories.settingsRevisions,
+            pool: storage.service.pool,
+            createdBy: 'control-api:agent-harness',
+          },
+          revisionMirrorRequired: true,
+        },
+        settings,
+      );
+    },
+  };
+}
+
+export function createControlSettingsImportPort(): ControlSettingsImportPort {
+  return {
+    serializeRevisionDocument: (settings) =>
+      settingsToRevisionDocument(
+        settings as ReturnType<typeof settingsFromRevisionDocument>,
+      ),
+    importWorkstation: (deps, settings) =>
+      importWorkstationSettings(
+        deps as unknown as Parameters<typeof importWorkstationSettings>[0],
+        settings as ReturnType<typeof settingsFromRevisionDocument>,
+      ),
+    importFleet: (deps, settings, options) =>
+      importFleetSettingsRevision(
+        deps as unknown as Parameters<typeof importFleetSettingsRevision>[0],
+        settings as ReturnType<typeof settingsFromRevisionDocument>,
+        options,
+      ),
+    classifyImportError: (error) => {
+      if (error instanceof SettingsStaleMutationError) return { kind: 'stale' };
+      if (error instanceof SettingsRevisionConflictError) {
+        return {
+          kind: 'conflict',
+          expectedRevision: error.expectedRevision,
+          actualRevision: error.actualRevision,
+        };
+      }
+      return null;
+    },
+  };
+}
 
 export interface FleetSettingsResult {
   loaded: boolean;
@@ -148,7 +233,9 @@ export async function startFleetSubsystems(input: {
   /** Whether a settings revision was applied at boot (prepareFleetSettings). */
   settingsLoaded: boolean;
   /** Released once, with the held subsystems, on the first applied revision. */
-  onSettingsReady?: () => Promise<void> | void;
+  onSettingsReady?: (
+    settings: EffectiveControlRuntimeSettings,
+  ) => Promise<void> | void;
 }): Promise<FleetSubsystems> {
   const storage = getRuntimeStorage();
   const workerInstanceId = currentWorkerInstanceId() ?? `fleet-${process.pid}`;
@@ -225,7 +312,7 @@ export async function startFleetSubsystems(input: {
       (context, message) => logger.warn(context, message),
     ),
     reloadRuntimeState: () => input.app.loadState(),
-    onFirstRevisionApplied: async () => {
+    onFirstRevisionApplied: async (settings) => {
       // No-op when everything already started at boot (settingsLoaded).
       if (capabilitySubsystemsStarted) return;
       // A revision NOTIFY can land mid-drain, after shutdown stopped the
@@ -235,7 +322,7 @@ export async function startFleetSubsystems(input: {
       if (isDraining()) return;
       registerBrowserSync();
       await startCapabilitySubsystems();
-      await input.onSettingsReady?.();
+      await input.onSettingsReady?.(settings);
       logger.info(
         'First settings revision applied; held fleet services started',
       );
@@ -316,10 +403,10 @@ export function buildBakeOutcomeNotice(
         deliveryFailureMessage:
           'Failed to deliver toolchain bake success notice',
       }),
-    sendFailureNotice: async ({ dependency, reason }) =>
+    sendFailureNotice: async ({ dependency }) =>
       deliver({
         dependency,
-        text: `Dependency bake failed: ${reason}`,
+        text: "I couldn't prepare that dependency. I left it unavailable; try again after the setup issue is fixed.",
         missingConversationMessage:
           'Toolchain bake failed but has no approval conversation to notify',
         deliveryFailureMessage:

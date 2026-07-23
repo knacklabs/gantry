@@ -147,7 +147,7 @@ talk to through this backend) should be provisioned with
 `agents.<id>.access.preset: locked` in settings, so it physically cannot
 enumerate or invoke any `request_*`/`admin_*`/`settings_*` tool and works only
 with capabilities an operator pre-provisioned. See
-[Locked Preset](../decisions/2026-06-11-locked-preset.md) and
+[Locked Preset](../decisions/0024-locked-preset.md) and
 [Agent Internals For SDK Consumers](./agent-internals.md#locked-access-preset).
 The preset is set on the agent, not in SDK calls — your client code is unchanged.
 

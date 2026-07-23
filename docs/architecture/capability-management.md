@@ -370,18 +370,23 @@ per-API-key `maxTokens` ceiling rejects requests whose `max_tokens` /
 
 ### Auto-permission mode
 
-Per-agent `permission_mode: auto` adds an LLM classifier between "policy says
-ask a human" and the prompt actually rendering. The classifier is a policy
-relief valve, not an authority: its verdict space is `allow | ask` only — it
-can never deny, and it is never consulted for anything the deterministic
-tiers already decide (pre-checks, `tool_rules`, locked access presets, and
-the hard always-ask families: spend, credentials, settings mutations,
-outward-facing sends, delegation, admin/review prompts).
+Per-agent `permission_mode: auto` adds an allow-leaning LLM classifier between
+"policy says ask a human" and the prompt actually rendering. Per the user
+decision recorded in
+`docs/architecture/runtime-permission-ux-goal-prompt.md` Stage B, an unproven
+eligible call is still classified: `allow` is the default unless the classifier
+identifies concrete risk, and `ask` is the exception. `auto_strict` preserves
+the deterministic-proof-only posture. In both modes the classifier is a policy
+relief valve, not durable authority: its verdict space is `allow | ask` only,
+and it is never consulted for anything the deterministic tiers already decide
+(pre-checks, `tool_rules`, locked access presets, and the hard always-ask
+families: spend, credentials, settings mutations, outward-facing sends,
+delegation, admin/review prompts).
 
 ```yaml
 agents:
   support:
-    permission_mode: auto # default: ask
+    permission_mode: auto # allow-leaning; use auto_strict for proof-only
 permissions:
   auto_mode:
     model: haiku # optional; defaults to the memory extractor slot model
@@ -397,39 +402,50 @@ button, which the channel authenticates):
 2. Eligibility is deterministic and narrow: third-party MCP tools
    (`mcp__<server>__<op>`, excluding the Gantry server) and shell
    (`Bash`/`RunCommand`). Everything else keeps today's behavior.
-3. A deterministic read-only gate runs BEFORE any model call. Silent allow
-   requires all of:
-   - **Provably read-only.** Shell: a parser-proven single `ls`/`cat`
-     invocation with reviewed flags only (no hidden-entry or
-     symlink-following flags), every target realpath-resolved against the
-     agent's workspace root — symlink escapes, hidden segments (`.npmrc`,
-     `.aws/…`), protected paths, and secret-looking names all block. Git is
-     excluded from the silent set entirely: even `git status` executes
-     repo-configured commands (`core.fsmonitor`), and `.git/config` is
-     agent-writable. MCP: a reviewed read binding — a semantic capability
-     with read risk whose reviewed implementation binding covers this exact
-     tool; annotations and name shapes alone are untrusted hints and ask.
+3. A deterministic read-only gate runs BEFORE any model call and checks:
+   - **Provably read-only.** Shell: a parser-proven single invocation of one
+     reviewed executable — `ls`, `cat`, `pwd`, `stat`, `file`, `head`, `tail`,
+     `wc`, `du`, `df`, `which`, or `grep` — using only its
+     command-specific allowlisted flags. Shell controls, expansions, globs,
+     redirects, executable paths, and secret-shaped arguments block. Every
+     explicit filesystem target is realpath-resolved against the agent's
+     workspace root; symlink escapes, hidden segments (`.npmrc`, `.aws/…`),
+     protected paths, and secret-looking names block. `cat`, `stat`, `file`,
+     `head`, `tail`, `wc`, `df`, and `grep` require validated operands; `ls` and
+     `du` may default to the workspace. All `grep` directory modes
+     (`-d ACTION`) and recursive flags block. Allowlisted `ls` hidden/recursive
+     flags and `du` may enumerate or measure hidden descendants below a
+     validated root, but do not read their contents; explicit hidden operands
+     still block. Git is excluded from the silent set entirely: even
+     `git status` executes repo-configured commands (`core.fsmonitor`), and
+     `.git/config` is agent-writable. MCP: a reviewed read binding — a semantic
+     capability with read risk whose reviewed implementation binding covers
+     this exact tool; annotations and name shapes alone are untrusted hints and
+     ask.
    - **Non-secret.** Secret-shaped input keys (`apiKey`, `secretId`,
      `tokenRef`, …), paths, and values (bearer/JWT/PEM patterns) block.
    - **Inside an approved capability boundary** (the agent's admin-selected
      capabilities).
-   Anything not provable asks without consulting the model.
-4. For calls that pass the floor, one short LLM call judges the invocation
-   against best-effort task context (never a trust input). The verdict can
-   only narrow `allow` to `ask` — it can never widen the deterministic
-   floor. `allow` resolves the request as an `allow_once` decision recorded
-   with `decidedBy: auto_classifier`; `ask` falls through to the normal
-   prompt when interactive (approvable only by control approvers) and denies
-   with the classifier's reason when unattended. Timeouts, parse failures,
-   or an unconfigured model all collapse to `ask` — the worst case is
-   exactly today's behavior.
+4. In `auto_strict`, an unproven call asks without consulting the model; a
+   proven call receives one strict classifier pass that may only narrow the
+   deterministic result to `ask`. In `auto`, eligible proven and unproven calls
+   receive one allow-leaning classifier pass against best-effort task context
+   (never a trust input). `allow` resolves the request as an `allow_once`
+   decision recorded with `decidedBy: auto_classifier`; `ask` falls through to
+   the normal prompt when interactive (approvable only by control approvers)
+   and denies with the classifier's reason when unattended. Denylist matches
+   and secret-redacted inputs always ask. Display-only truncation does not skip
+   classification; the classifier receives a separately bounded redacted view.
+   Timeouts, parse failures, or an
+   unconfigured model also collapse to `ask`.
 
 Conversation-level data exposure is governed by Agent Access and the
 channel's approver configuration, not by this gate: whoever may converse
 with an agent may receive what its granted capabilities can already read.
-The admin's capability selection is the authorization for provable
-in-boundary reads; everything unprovable or mutating reaches a control
-approver.
+The admin's capability selection is the authorization boundary for provable
+in-boundary reads. `auto_strict` sends everything unprovable to a control
+approver; `auto` may resolve an eligible unproven call as a one-time allow under
+the allow-leaning risk rubric above.
 
 Every verdict (including failure-coded asks) is published as a
 `permission.classifier_decision` runtime event, so the audit trail is
@@ -440,19 +456,20 @@ permission request used to deny immediately, an auto-mode runner waits a
 bounded classifier window; the host answers eligible requests allow-or-deny
 within it and denies ineligible ones immediately.
 
-Decisions compound instead of repeating: each auto-allow carrying a
-synthesizable durable-rule suggestion increments a per-agent counter, and at
-three allows for the same rule shape the operator gets a one-tap prompt —
-"make this permanent?" with `Allow for future` — that lands in the existing
-audited persistent-grant path. The offer is made at most once per rule shape,
-and the ruleset stays inspectable configuration, never model memory.
-Promotion only synthesizes rule shapes the durable-access policy already
-accepts (scoped `RunCommand(...)` rules); third-party MCP calls are
-auto-allowed per call but produce no durable offer — their lasting grants
-remain reviewed semantic capabilities via `request_access`.
+Promotion is based only on explicitly human-attributed approvals; classifier
+auto-allows and system-generated decisions never increment the counter. After
+two human allow-once approvals for the same synthesizable durable-rule shape,
+the normal permission prompt makes `Allow for future` the primary option and
+shows the repeated-approval hint. There is no separate promotion-offer flow.
+The ruleset stays inspectable configuration, never model memory. Promotion
+only synthesizes rule shapes the durable-access policy already accepts (scoped
+`RunCommand(...)` rules); third-party MCP calls produce no durable suggestion —
+their lasting grants remain reviewed semantic capabilities via
+`request_access`.
 
-The conversation-level `/permissions ask|auto|default` command overrides the
-agent setting for the current conversation, mirroring `/thinking`.
+The conversation-level `/permissions ask|auto|auto_strict|default` command
+overrides the agent setting for the current conversation, mirroring
+`/thinking`.
 
 ## Administration Model
 

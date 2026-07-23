@@ -1,7 +1,11 @@
 import fs from 'fs';
 import path from 'path';
 
-import { bashExecutableName, parseBashCommand } from './bash-command-parser.js';
+import {
+  bashExecutableName,
+  parseBashCommand,
+  type BashCommandParseResult,
+} from './bash-command-parser.js';
 import { mcpToolPatternCovers } from './mcp-tool-scope.js';
 import { allProtectedPathMentions } from './tool-execution-protected-paths.js';
 
@@ -46,9 +50,10 @@ const CAT_OPTIONS = new Set([
   '--show-tabs',
   '--squeeze-blank',
 ]);
-// No -a/-A (hidden entries), -H/-L (symlink following), or -f (BSD ls -f
-// implies -a): those bypass the hidden/symlink target checks below.
-const LS_OPTIONS = /^-(?:[1CFRSTUbcdghiklmnopqrstux@])+$/;
+// -H/-L remain excluded because they follow symlinks beyond the checked target.
+const LS_OPTIONS = /^-(?:[1ACFRSTUabcdfghiklmnopqrstux@])+$/;
+const LS_LONG_OPTIONS =
+  /^--(?:all|almost-all|classify|directory|file-type|group-directories-first|human-readable|inode|long|numeric-uid-gid|recursive|reverse|size|color(?:=\w+)?|sort=\w+|time=\w+)$/;
 const SHELL_CONTROL_OR_EXPANSION = /[\r\n#;&|<>`$(){}*?\[\]]/;
 const SECRET_KEY =
   /(?:^|[_-])(?:apikey|authorization|credential|key|password|private[_-]?key|secret|token)(?:$|[_-])/i;
@@ -102,7 +107,7 @@ function evaluateShellRead(
     return blocked('Protected paths require approval.');
   }
 
-  const parsed = parseBashCommand(command);
+  const parsed = parseGateCommand(command);
   if (!parsed.ok || parsed.leaves.length !== 1) {
     return blocked(
       parsed.ok
@@ -115,30 +120,68 @@ function evaluateShellRead(
     return blocked('Secret or redirected reads require approval.');
   }
 
-  // No git in the silent set: even `git status` executes repo-configured
-  // commands (core.fsmonitor), and .git/config is agent-writable. Durable
-  // git rules come from the "Allow for future" prompt button instead.
-  if (!['ls', 'cat'].includes(leaf.argv[0] ?? '')) {
+  const executable = bashExecutableName(leaf.argv[0] ?? '');
+  if (leaf.argv[0] !== executable) {
     return blocked('Executable path is not an exact reviewed read command.');
   }
-  const executable = bashExecutableName(leaf.argv[0] ?? '');
+  const args = leaf.argv.slice(1);
   if (executable === 'ls') {
+    const fileArgs = collectPlainFileArgs(args, isLsArg);
+    if (!fileArgs) return blockedReadShape('list');
     return evaluateFileRead(
       'list',
-      leaf.argv.slice(1),
+      fileArgs,
       capabilityIds,
-      isLsArg,
       false,
       workspaceRoot,
     );
   }
   if (executable === 'cat') {
+    const fileArgs = collectPlainFileArgs(args, isCatArg);
+    if (!fileArgs) return blockedReadShape('read');
     return evaluateFileRead(
       'read',
-      leaf.argv.slice(1),
+      fileArgs,
       capabilityIds,
-      isCatArg,
       true,
+      workspaceRoot,
+    );
+  }
+  if (executable === 'pwd') {
+    if (!args.every((arg) => /^-[LP]$/.test(arg))) {
+      return blockedReadShape('read');
+    }
+    return evaluateFileRead('read', ['.'], capabilityIds, false, workspaceRoot);
+  }
+  if (executable === 'which') {
+    const names = args.filter((arg) => !/^-(?:a|s)$/.test(arg));
+    if (
+      names.length === 0 ||
+      args.some((arg) => arg.startsWith('-') && !/^-(?:a|s)$/.test(arg)) ||
+      names.some((name) => !/^[A-Za-z0-9_.+-]+$/.test(name))
+    ) {
+      return blockedReadShape('read');
+    }
+    return evaluateFileRead('read', ['.'], capabilityIds, false, workspaceRoot);
+  }
+  if (executable === 'grep') {
+    const fileArgs = grepFileArgs(args);
+    if (!fileArgs) return blockedReadShape('read');
+    return evaluateFileRead(
+      'read',
+      fileArgs,
+      capabilityIds,
+      true,
+      workspaceRoot,
+    );
+  }
+  const fileArgs = simpleReadFileArgs(executable, args);
+  if (fileArgs) {
+    return evaluateFileRead(
+      'read',
+      fileArgs,
+      capabilityIds,
+      executable !== 'du',
       workspaceRoot,
     );
   }
@@ -149,24 +192,13 @@ function evaluateShellRead(
 
 function evaluateFileRead(
   action: 'list' | 'read',
-  args: readonly string[],
+  fileArgs: readonly string[],
   capabilityIds: readonly string[],
-  validArg: (arg: string) => boolean,
   requiresTarget: boolean,
   workspaceRoot: string | undefined,
 ): AutoPermissionReadOnlyGateResult {
-  const fileArgs: string[] = [];
-  let optionsEnded = false;
-  for (const arg of args) {
-    if (!optionsEnded && arg === '--') {
-      optionsEnded = true;
-    } else if (optionsEnded || !arg.startsWith('-')) {
-      fileArgs.push(arg);
-    }
-  }
   if (
     (requiresTarget && fileArgs.length === 0) ||
-    args.some((arg) => !validArg(arg)) ||
     fileArgs.some((arg) => !isProvablyWorkspacePath(arg))
   ) {
     return blocked(`The file ${action} command shape is not provably safe.`);
@@ -259,7 +291,12 @@ function evaluateMcpRead(
 }
 
 function isLsArg(arg: string): boolean {
-  return arg === '--' || !arg.startsWith('-') || LS_OPTIONS.test(arg);
+  return (
+    arg === '--' ||
+    !arg.startsWith('-') ||
+    LS_OPTIONS.test(arg) ||
+    LS_LONG_OPTIONS.test(arg)
+  );
 }
 
 function isCatArg(arg: string): boolean {
@@ -267,10 +304,119 @@ function isCatArg(arg: string): boolean {
 }
 
 function isProvablyWorkspacePath(value: string): boolean {
-  if (!value || value.startsWith('/') || value.startsWith('~')) return false;
+  if (!value || value.startsWith('~')) return false;
   // Hidden segments (.npmrc, .netrc, .aws/…) are where credentials live;
   // they are never provably non-secret, so they always ask.
   return !hasHiddenPathSegment(value);
+}
+
+function parseGateCommand(command: string): BashCommandParseResult {
+  return parseBashCommand(command);
+}
+
+function collectPlainFileArgs(
+  args: readonly string[],
+  validArg: (arg: string) => boolean,
+): string[] | undefined {
+  const fileArgs: string[] = [];
+  let optionsEnded = false;
+  for (const arg of args) {
+    if (!optionsEnded && arg === '--') {
+      optionsEnded = true;
+    } else if (!validArg(arg)) {
+      return undefined;
+    } else if (optionsEnded || !arg.startsWith('-')) {
+      fileArgs.push(arg);
+    }
+  }
+  return fileArgs;
+}
+
+function simpleReadFileArgs(
+  executable: string,
+  args: readonly string[],
+): string[] | undefined {
+  const options: Record<string, RegExp> = {
+    stat: /^-[Flnqrstx]+$/,
+    file: /^-[bikLNsvz]+$|^--(?:brief|dereference|mime|mime-type|special-files)$/,
+    wc: /^-[clmwL]+$|^--(?:bytes|chars|lines|max-line-length|words)$/,
+    du: /^-[achksx]+$|^-d\d+$|^--max-depth=\d+$/,
+    df: /^-[hiklmPT]+$/,
+  };
+  const option = options[executable];
+  if (option) {
+    return collectPlainFileArgs(
+      args,
+      (arg) => arg === '--' || !arg.startsWith('-') || option.test(arg),
+    );
+  }
+  if (executable !== 'head' && executable !== 'tail') return undefined;
+  const fileArgs: string[] = [];
+  let optionsEnded = false;
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index]!;
+    if (!optionsEnded && arg === '--') {
+      optionsEnded = true;
+    } else if (optionsEnded || !arg.startsWith('-')) {
+      fileArgs.push(arg);
+    } else if (/^-[qvz]+$|^-[nc]\d+$|^--(?:bytes|lines)=\d+$/.test(arg)) {
+      continue;
+    } else if (/^(?:-[nc]|--bytes|--lines)$/.test(arg)) {
+      if (!/^\d+$/.test(args[index + 1] ?? '')) return undefined;
+      index += 1;
+    } else {
+      return undefined;
+    }
+  }
+  return fileArgs;
+}
+
+function grepFileArgs(args: readonly string[]): string[] | undefined {
+  const noValueOption =
+    /^-(?:[EFGHILTZabchilnoqsvwxyz]+)$|^--(?:basic-regexp|extended-regexp|fixed-strings|ignore-case|line-number|no-messages|only-matching|quiet|text|word-regexp|with-filename)$/;
+  const valueOption =
+    /^(?:-A|-B|-C|-m|--after-context|--before-context|--context|--max-count)$/;
+  const fileArgs: string[] = [];
+  let patternSeen = false;
+  let optionsEnded = false;
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index]!;
+    if (!optionsEnded && arg === '--') {
+      optionsEnded = true;
+      continue;
+    }
+    if (!optionsEnded && /^(?:-e|--regexp)$/.test(arg)) {
+      if (!args[index + 1]) return undefined;
+      patternSeen = true;
+      index += 1;
+      continue;
+    }
+    if (!optionsEnded && /^-e.+/.test(arg)) {
+      patternSeen = true;
+      continue;
+    }
+    if (!optionsEnded && /^(?:-d.*|--directories(?:=.*)?)$/.test(arg)) {
+      return undefined;
+    }
+    if (!optionsEnded && valueOption.test(arg)) {
+      if (!args[index + 1]) return undefined;
+      index += 1;
+      continue;
+    }
+    if (!optionsEnded && arg.startsWith('-')) {
+      if (!noValueOption.test(arg)) return undefined;
+      continue;
+    }
+    if (!patternSeen) patternSeen = true;
+    else fileArgs.push(arg);
+  }
+  return patternSeen && fileArgs.length > 0 ? fileArgs : undefined;
+}
+
+function blockedReadShape(
+  action: 'list' | 'read',
+): AutoPermissionReadOnlyGateResult {
+  return blocked(`The file ${action} command shape is not provably safe.`);
 }
 
 function hasHiddenPathSegment(value: string): boolean {

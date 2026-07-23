@@ -694,6 +694,41 @@
       "when": 1783924932751,
       "tag": "0101_drop_run_permission_origin",
       "breakpoints": true
+    },
+    {
+      "idx": 102,
+      "version": "7",
+      "when": 1784393767889,
+      "tag": "0102_group_join_onboarding",
+      "breakpoints": true
+    },
+    {
+      "idx": 103,
+      "version": "7",
+      "when": 1784430629236,
+      "tag": "0103_permission_durable_storage_cutover",
+      "breakpoints": true
+    },
+    {
+      "idx": 104,
+      "version": "7",
+      "when": 1784625000000,
+      "tag": "0104_runtime_events_identity_repair",
+      "breakpoints": true
+    },
+    {
+      "idx": 105,
+      "version": "7",
+      "when": 1784661847706,
+      "tag": "0105_observer_foundations",
+      "breakpoints": true
+    },
+    {
+      "idx": 106,
+      "version": "7",
+      "when": 1784689256869,
+      "tag": "0106_observer_chat_batches",
+      "breakpoints": true
     }
   ]
 }

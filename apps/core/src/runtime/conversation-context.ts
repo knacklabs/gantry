@@ -178,10 +178,3 @@ function messageKey(message: NewMessage) {
 function isThreadRootMessage(message: NewMessage, threadId: string) {
   return message.external_message_id === threadId || message.id === threadId;
 }
-
-export const _testConversationContext = {
-  CHANNEL_CONTEXT_LIMIT,
-  THREAD_CONTEXT_LIMIT,
-  THREAD_LONG_FIRST_REPLIES,
-  THREAD_LONG_LATEST_REPLIES,
-};

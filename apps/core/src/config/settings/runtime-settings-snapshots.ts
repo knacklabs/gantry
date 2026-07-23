@@ -6,6 +6,8 @@ import {
   type RuntimeMemorySettingsSnapshot,
   type RuntimeStorageSettingsSnapshot,
 } from './memory-snapshot.js';
+import { parseObserverSettings } from './runtime-settings-observer-parser.js';
+import type { RuntimeObserverSettings } from './runtime-settings-types.js';
 import { settingsFilePath } from './runtime-home.js';
 import { parseSimpleYamlObject } from './yaml.js';
 
@@ -26,6 +28,14 @@ export function readRuntimeMemorySettingsSnapshot(
   const filePath = settingsFilePath(runtimeHome);
   if (!fs.existsSync(filePath)) return {};
   return parseRuntimeMemorySnapshotFromRoot(readRuntimeSettingsRoot(filePath));
+}
+
+export function readRuntimeObserverSettingsSnapshot(
+  runtimeHome: string,
+): RuntimeObserverSettings {
+  const filePath = settingsFilePath(runtimeHome);
+  if (!fs.existsSync(filePath)) return { enabled: false };
+  return parseObserverSettings(readRuntimeSettingsRoot(filePath).observer);
 }
 
 export function readRuntimeStorageSettingsSnapshot(

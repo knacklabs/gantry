@@ -12,6 +12,7 @@ export type RouteDoc = {
   scopes?: string[];
   status?: '200' | '201' | '202' | '409';
   body?: BodyKind;
+  conflict?: boolean;
   parameters?: JsonSchema[];
 };
 
@@ -48,6 +49,10 @@ export const ids = {
   conversation: id('conversationId', 'Conversation id.'),
   file: id('filePath', 'Skill-relative file path.'),
   ingress: id('ingressId', 'Ingress id.'),
+  interaction: id(
+    'interactionId',
+    'Pending interaction id (the permission request id from the interactions list).',
+  ),
   job: id('jobId', 'Job id.'),
   memory: id('memoryId', 'Memory item id.'),
   modelCredentialProvider: id('providerId', 'Model credential provider id.'),
@@ -69,7 +74,7 @@ export function doc(
   summary: string,
   description: string,
   scopes?: string[],
-  options: Pick<RouteDoc, 'body' | 'parameters' | 'status'> = {},
+  options: Pick<RouteDoc, 'body' | 'conflict' | 'parameters' | 'status'> = {},
 ): RouteDoc {
   return {
     method,

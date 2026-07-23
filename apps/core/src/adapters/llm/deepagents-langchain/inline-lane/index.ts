@@ -40,7 +40,9 @@ import {
   reconcileDeepAgentSkillFiles,
   resolveDeepAgentSkillProjection,
 } from '../skill-projection.js';
+import { resolveDeepAgentsPromptCache } from '../prompt-cache.js';
 import { createBuiltinToolExclusionMiddleware } from '../runner/builtin-tool-exclusion.js';
+import { applyCachePromptControl } from '../runner/cache-control.js';
 import { isAbortError } from '../runner/live-control.js';
 import {
   buildRunnerModel,
@@ -53,6 +55,7 @@ import {
 } from '../runner/stream-normalizer.js';
 import * as memory from './gantry-memory-middleware.js';
 import { createInlineSkillsMiddleware } from './skills.js';
+import { abortedOutput, structuredOutputError } from './inline-lane-output.js';
 
 const CHECKPOINT_POOL_MAX_CONNECTIONS = 1;
 const DENY_ALL_FILESYSTEM: FilesystemPermission[] = [
@@ -99,8 +102,13 @@ export function createDeepAgentsInlineAgentLoopLane(input: {
     const hasProjectedSkills = Boolean(skillProjection);
     const backend = (config: { state: unknown; store?: BaseStore }) =>
       new StateBackend(config);
-
     const sessionId = laneInput.input.sessionId ?? randomUUID();
+    const promptCache = resolveDeepAgentsPromptCache({
+      modelEntry: laneInput.resolvedModel.value.modelEntry,
+      conversationId: laneInput.input.chatJid,
+      threadId: laneInput.input.threadId,
+      accessFingerprint: laneInput.input.providerSessionAccessFingerprint,
+    });
     const stop = new AbortController();
     const pendingFollowups: string[] = [];
     let closeRequested = false;
@@ -141,7 +149,11 @@ export function createDeepAgentsInlineAgentLoopLane(input: {
         });
       }
 
-      const model = await buildInlineModel(laneInput, sessionId);
+      const model = await buildInlineModel(
+        laneInput,
+        sessionId,
+        promptCache.promptCacheKey,
+      );
       remoteMcp = toolsDisabled
         ? { tools: [], close: () => Promise.resolve() }
         : await connectRemoteMcpTools(laneInput.mcpServers, {
@@ -212,9 +224,12 @@ export function createDeepAgentsInlineAgentLoopLane(input: {
           : queued.join('\n');
         if (!prompt) break;
         currentMemoryQuery = prompt;
-        const messages = memory.buildInlineTurnMessages(
-          prompt,
-          firstTurn ? laneInput.input.memoryContextBlock : undefined,
+        const messages = applyCachePromptControl(
+          memory.buildInlineTurnMessages(
+            prompt,
+            firstTurn ? laneInput.input.memoryContextBlock : undefined,
+          ),
+          promptCache.cacheMode,
         );
         firstTurn = false;
 
@@ -371,6 +386,7 @@ async function openCheckpointer(input: {
 async function buildInlineModel(
   input: Parameters<ProviderInlineAgentLoopLane>[0],
   sessionId: string,
+  promptCacheKey?: string,
 ): Promise<ResolvedRunnerModel> {
   if (!input.resolvedModel.ok) throw new Error(input.resolvedModel.message);
   const baseUrl = input.modelCredentialEnv.OPENAI_BASE_URL?.trim();
@@ -389,6 +405,7 @@ async function buildInlineModel(
     gatewayBaseUrl: baseUrl,
     gatewayToken: token,
     sessionId,
+    ...(promptCacheKey ? { promptCacheKey } : {}),
     effort: input.effort,
     configuredThinking: input.configuredThinking,
     maxOutputTokens: input.maxOutputTokens,
@@ -683,26 +700,4 @@ function responseFormatForSchema(
   const normalized = { ...schema, name, title: name };
   if (structuredOutput === true) return ProviderStrategy.fromSchema(normalized);
   return ToolStrategy.fromSchema(normalized);
-}
-function structuredOutputError(
-  error: unknown,
-  newSessionId: string,
-): RunnerOutputFrame & { structuredOutputValidationFailure: true } {
-  const detail = error instanceof Error ? ` ${error.message}` : '';
-  return {
-    status: 'error',
-    result: null,
-    error: `Inline structured output failed schema validation.${detail}`,
-    structuredOutputValidationFailure: true,
-    newSessionId,
-  };
-}
-
-function abortedOutput(newSessionId?: string): RunnerOutputFrame {
-  return {
-    status: 'error',
-    result: null,
-    error: 'Inline DeepAgents lane aborted.',
-    ...(newSessionId ? { newSessionId } : {}),
-  };
 }

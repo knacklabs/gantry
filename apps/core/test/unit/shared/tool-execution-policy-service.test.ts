@@ -442,6 +442,72 @@ describe('ToolExecutionPolicyService', () => {
     }
   });
 
+  it('allows autonomous MCP calls matching a reviewed pattern rule', () => {
+    const request = classifier.classify({
+      origin: 'sdk',
+      toolName: 'mcp__github__search_repositories',
+      toolInput: { q: 'gantry' },
+      executionMode: 'autonomous',
+      runContext: { jobId: 'job-pattern' },
+    });
+
+    expect(
+      policy.evaluate({
+        request,
+        autonomousAllowedToolRules: ['mcp__github__search_*'],
+      }),
+    ).toMatchObject({
+      status: 'allow',
+      matchedRule: 'mcp__github__search_*',
+    });
+  });
+
+  it('gives provision-before-run recovery when capability request tools are hidden', () => {
+    const request = classifier.classify({
+      origin: 'sdk',
+      toolName: 'mcp__github__create_issue',
+      toolInput: { title: 'Bug' },
+      executionMode: 'autonomous',
+      runContext: { jobId: 'job-hidden' },
+    });
+
+    const visible = policy.evaluate({
+      request,
+      autonomousAllowedToolRules: [],
+    });
+    expect(visible.status).toBe('deny');
+    expect(visible.recoveryAction).toContain('request_mcp_server');
+
+    const hidden = policy.evaluate({
+      request,
+      autonomousAllowedToolRules: [],
+      capabilityRequestToolsHidden: true,
+    });
+    expect(hidden.status).toBe('deny');
+    expect(hidden.recoveryAction).toContain(
+      'provision a reviewed capability covering mcp__github__create_issue before the run',
+    );
+    expect(hidden.recoveryAction).not.toContain('request_mcp_server');
+    expect(hidden.recoveryAction).not.toContain('request_access');
+  });
+
+  it('gives provision-before-run recovery for protected capability writes when request tools are hidden', () => {
+    const request = classifier.classify({
+      origin: 'sdk',
+      toolName: 'Write',
+      toolInput: { file_path: '/repo/.mcp.json', content: '{}' },
+    });
+
+    const hidden = policy.evaluate({
+      request,
+      capabilityRequestToolsHidden: true,
+    });
+    expect(hidden.status).toBe('deny');
+    expect(hidden.recoveryAction).toContain('provision the reviewed change');
+    expect(hidden.recoveryAction).not.toContain('request_mcp_server');
+    expect(hidden.recoveryAction).not.toContain('request_skill_install');
+  });
+
   it('does not suggest durable approval for generated runtime paths', () => {
     const resultPath =
       '/Users/example/gantry/agents/main_agent/.llm-runtime/claude/projects/-Users-example-gantry-agents-main-agent/run-1/tool-results/result.txt';

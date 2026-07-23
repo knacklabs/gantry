@@ -28,12 +28,13 @@ export class GatewayRateLimiter {
   }
 
   // Sliding-window admission for one (app, provider). Prunes timestamps older
-  // than the window, rejects (without recording) when the window is already
-  // full, otherwise records `now` and admits. Returns true when admitted.
+  // than the window, rejects (without recording) when the weighted request
+  // would exceed the window, otherwise records its weight and admits.
   admit(
     appId: string,
     providerId: string,
     limit: number,
+    weight = 1,
     nowMs = Date.now(),
   ): boolean {
     const key = `${appId}:${providerId}`;
@@ -41,11 +42,12 @@ export class GatewayRateLimiter {
     const recent = (this.windows.get(key) ?? []).filter(
       (timestamp) => timestamp > cutoff,
     );
-    if (recent.length >= limit) {
+    const normalizedWeight = Math.max(1, Math.floor(weight));
+    if (recent.length + normalizedWeight > limit) {
       this.windows.set(key, recent);
       return false;
     }
-    recent.push(nowMs);
+    recent.push(...Array.from({ length: normalizedWeight }, () => nowMs));
     this.windows.set(key, recent);
     return true;
   }
@@ -63,12 +65,16 @@ export async function applyRateCap(input: {
   limiter: GatewayRateLimiter;
   appId: string;
   providerId: string;
+  weight?: number;
   audit: (limit: number) => Promise<unknown> | unknown;
   reject: (limit: number) => void;
 }): Promise<boolean> {
   const limit = input.limiter.requestsPerMinute(input.providerId);
   if (limit === undefined) return false;
-  if (input.limiter.admit(input.appId, input.providerId, limit)) return false;
+  if (
+    input.limiter.admit(input.appId, input.providerId, limit, input.weight ?? 1)
+  )
+    return false;
   await input.audit(limit);
   input.reject(limit);
   return true;

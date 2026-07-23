@@ -32,9 +32,12 @@ import {
 import { McpToolProxy } from '../../application/mcp/mcp-tool-proxy.js';
 import { resolveMcpCredentialEnvForAgent } from '../../application/capability-secrets/mcp-secret-projection.js';
 import type { AsyncTaskRecord } from '../../domain/ports/async-tasks.js';
-import type { RuntimeAgentSessionRepository } from '../../domain/repositories/ops-repo.js';
+import type {
+  RuntimeAgentSessionRepository,
+  RuntimeMessageRepository,
+} from '../../domain/repositories/ops-repo.js';
 import { agentIdForFolder } from '../../domain/agent/agent-folder-id.js';
-import { resolveConversationRoute } from './runtime-app-routes.js';
+import { conversationBoundAgentRoute } from '../../application/core-tools/callable-agent-tools.js';
 
 interface AsyncTaskRecoveryDeps extends Partial<
   Pick<
@@ -58,7 +61,8 @@ interface AsyncTaskRecoveryDeps extends Partial<
   >
 > {
   logger: Pick<Logger, 'warn'>;
-  opsRepository?: RuntimeAgentSessionRepository;
+  opsRepository?: RuntimeAgentSessionRepository &
+    Pick<RuntimeMessageRepository, 'storeMessageWithLiveAdmission'>;
 }
 
 export async function recoverStaleAsyncCommandTasks(
@@ -68,62 +72,55 @@ export async function recoverStaleAsyncCommandTasks(
   const repository = deps.getAsyncTaskRepository?.();
   if (!repository) return;
   const runnerSandboxProvider = deps.runnerSandboxProvider;
-  const service =
-    runnerSandboxProvider?.enforcing === true
-      ? new AsyncCommandTaskService(
-          repository,
-          {
-            run: async (input) =>
-              runSandboxedAsyncCommand(runnerSandboxProvider, {
-                ...input,
-                cwd: input.cwd ?? process.cwd(),
-                env: buildAsyncCommandEnv(),
-                timeoutMs: DEFAULT_ASYNC_COMMAND_TIMEOUT_MS,
-                outputMaxBytes: 4_000,
-                protectedReadPaths: [...(input.protectedReadPaths ?? [])],
-                protectedWritePaths: [...(input.protectedWritePaths ?? [])],
-                allowedNetworkHosts: [...(input.allowedNetworkHosts ?? [])],
-                egressProxyUrl: input.egressProxyUrl,
-                resourceLimits:
-                  input.resourceLimits ?? DEFAULT_ASYNC_RESOURCE_LIMITS,
-              }),
-          },
-          {
-            createRecoveredDelegatedAgentRun:
-              createRecoveredDelegatedAgentRun(deps),
-            prepareRun: async ({ task, allowedNetworkHosts }) => {
-              const gateway = await ensureEgressGateway({
-                key: `${task.appId}:${task.agentId}:${task.id}`,
-                settings: deps.getEgressSettings?.() ?? { denylist: [] },
-                principal: {
-                  appId: task.appId,
-                  agentId: task.agentId,
-                  ...(task.conversationId
-                    ? { conversationId: task.conversationId }
-                    : {}),
-                  ...(task.threadId ? { threadId: task.threadId } : {}),
-                  ...(task.parentRunId ? { runId: task.parentRunId } : {}),
-                  ...(task.parentJobId ? { jobId: task.parentJobId } : {}),
-                },
-                ...(allowedNetworkHosts && allowedNetworkHosts.length > 0
-                  ? { allowedNetworkHosts }
-                  : {}),
-                ...(deps.publishRuntimeEvent
-                  ? { publishRuntimeEvent: deps.publishRuntimeEvent }
-                  : {}),
-              });
-              return {
-                egressProxyUrl: gateway.proxyUrl,
-                cleanup: () => closeEgressGateway(gateway),
-              };
-            },
-          },
-        )
-      : new AsyncCommandTaskService(repository, {
-          run: async () => ({
-            errorSummary: 'async command runner unavailable',
-          }),
+  const service = new AsyncCommandTaskService(
+    repository,
+    {
+      run: async (input) => {
+        if (!runnerSandboxProvider) {
+          throw new Error('Runner sandbox provider is unavailable.');
+        }
+        return runSandboxedAsyncCommand(runnerSandboxProvider, {
+          ...input,
+          cwd: input.cwd ?? process.cwd(),
+          env: buildAsyncCommandEnv(),
+          timeoutMs: DEFAULT_ASYNC_COMMAND_TIMEOUT_MS,
+          outputMaxBytes: 4_000,
+          protectedReadPaths: [...(input.protectedReadPaths ?? [])],
+          protectedWritePaths: [...(input.protectedWritePaths ?? [])],
+          allowedNetworkHosts: [...(input.allowedNetworkHosts ?? [])],
+          egressProxyUrl: input.egressProxyUrl,
+          resourceLimits: input.resourceLimits ?? DEFAULT_ASYNC_RESOURCE_LIMITS,
         });
+      },
+    },
+    {
+      completionMessageRepository: deps.opsRepository,
+      createRecoveredDelegatedAgentRun: createRecoveredDelegatedAgentRun(deps),
+      prepareRun: async ({ task }) => {
+        const gateway = await ensureEgressGateway({
+          key: `${task.appId}:${task.agentId}:${task.id}`,
+          settings: deps.getEgressSettings?.() ?? { denylist: [] },
+          principal: {
+            appId: task.appId,
+            agentId: task.agentId,
+            ...(task.conversationId
+              ? { conversationId: task.conversationId }
+              : {}),
+            ...(task.threadId ? { threadId: task.threadId } : {}),
+            ...(task.parentRunId ? { runId: task.parentRunId } : {}),
+            ...(task.parentJobId ? { jobId: task.parentJobId } : {}),
+          },
+          ...(deps.publishRuntimeEvent
+            ? { publishRuntimeEvent: deps.publishRuntimeEvent }
+            : {}),
+        });
+        return {
+          egressProxyUrl: gateway.proxyUrl,
+          cleanup: () => closeEgressGateway(gateway),
+        };
+      },
+    },
+  );
   try {
     const timedOutCompactions = await recoverStaleSessionCompactionTasks(
       appId,
@@ -143,11 +140,9 @@ export async function recoverStaleAsyncCommandTasks(
     if (recovered > 0) {
       deps.logger.warn({ recovered }, 'Recovered stale async command tasks');
     }
-    if (runnerSandboxProvider?.enforcing === true) {
-      const queued = await service.recoverQueuedTasks({ appId });
-      if (queued > 0) {
-        deps.logger.warn({ queued }, 'Recovered queued async command tasks');
-      }
+    const queued = await service.recoverQueuedTasks({ appId });
+    if (queued > 0) {
+      deps.logger.warn({ queued }, 'Recovered queued async command tasks');
     }
     const queuedMcp = await recoverQueuedAsyncMcpTasks({
       repository,
@@ -286,13 +281,14 @@ function createRecoveredDelegatedAgentRun(
     const conversationId = runInput.task.conversationId ?? '';
     const routes = deps.conversationRoutes?.() ?? {};
     const recoveryAgentId = taskInput.targetAgentId ?? runInput.task.agentId;
-    const group = resolveConversationRoute(
+    const group = conversationBoundAgentRoute({
       routes,
-      conversationId,
-      runInput.task.threadId,
-      recoveryAgentId,
-      taskInput.providerAccountId,
-    );
+      chatJid: conversationId,
+      threadId: runInput.task.threadId,
+      callerAgentId: runInput.task.agentId,
+      callerProviderAccountId: taskInput.providerAccountId,
+      targetAgentId: recoveryAgentId,
+    });
     if (!group) {
       throw new Error('Delegated task conversation is unavailable.');
     }
@@ -315,7 +311,6 @@ function createRecoveredDelegatedAgentRun(
     const attachedMcpSourceIds = await resolveTurnSelectedMcpServerIds(
       deps,
       scopedTaskOwner,
-      toolPolicy.toolPolicyRules,
     );
     const runAgent = deps.runAgent ?? spawnAgent;
     let latestResult: string | null = null;
@@ -330,6 +325,7 @@ function createRecoveredDelegatedAgentRun(
         threadId: runInput.task.threadId ?? undefined,
         workspaceFolder: group.folder,
         parentTaskId: runInput.task.id,
+        parentRunId: runInput.task.parentRunId ?? undefined,
         persona: group.agentConfig?.persona,
         thinking: group.agentConfig?.thinking,
         toolPolicyRules: toolPolicy.toolPolicyRules,
@@ -374,6 +370,7 @@ function createRecoveredDelegatedAgentRun(
         executionAdapter: deps.executionAdapter,
         executionAdapters: deps.executionAdapters,
         runnerSandboxProvider: deps.runnerSandboxProvider!,
+        conversationRoutes: routes,
         asyncTaskRepositoryAvailable: Boolean(deps.getAsyncTaskRepository?.()),
       },
     );

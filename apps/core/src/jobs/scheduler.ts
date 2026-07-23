@@ -96,17 +96,6 @@ export { runtimeJobSchedulePlanner };
 export { sweepCompletedOneTimeJobs };
 export { _setMemoryMaintenanceQueueForTests };
 
-export async function runSchedulerTick(
-  deps: SchedulerDependencies,
-): Promise<void> {
-  deps = {
-    ...deps,
-    opsRepository: deps.opsRepository ?? getRuntimeRepositories(),
-  };
-  await registerSystemJobs(deps);
-  activeSchedulerEngine?.requestSync();
-}
-
 export function requestSchedulerSync(jobId?: string): void {
   activeSchedulerEngine?.requestSync(jobId);
 }

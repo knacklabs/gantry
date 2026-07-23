@@ -212,39 +212,3 @@ export function _setRuntimeStorageForTest(nextRuntime: StorageRuntime): void {
       : null,
   );
 }
-
-/** @internal test hook */
-export function _setRuntimeRepositoriesForTest(
-  ops: RuntimeOpsRepositories,
-): void {
-  runtime = {
-    service: {
-      migrate: async () => {},
-      healthCheck: async () => ({
-        lexicalSearch: true,
-        vectorSearch: false,
-        runtimeEvents: true,
-        eventBusOutbox: true,
-      }),
-      close: async () => {},
-    } as StorageRuntime['service'],
-    ops,
-    control: {} as StorageRuntime['control'],
-    repositories: {} as StorageRuntime['repositories'],
-    runtimeEvents: {} as StorageRuntime['runtimeEvents'],
-    runtimeEventNotifier: {
-      close: async () => {},
-    } as StorageRuntime['runtimeEventNotifier'],
-    liveAdmissionWakeupSource: {
-      subscribe: () => () => {},
-      close: async () => {},
-    },
-    liveTurnCommandWakeupSource: {
-      subscribe: () => () => {},
-      close: async () => {},
-    },
-    fileArtifacts: {} as StorageRuntime['fileArtifacts'],
-    skillArtifacts: {} as StorageRuntime['skillArtifacts'],
-    browserProfileSnapshots: {} as StorageRuntime['browserProfileSnapshots'],
-  };
-}

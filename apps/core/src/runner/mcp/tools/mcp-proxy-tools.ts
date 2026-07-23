@@ -26,6 +26,7 @@ import {
   formatMcpCallToolResponse,
   formatMcpDescribeToolResponse,
   formatMcpListToolsResponse,
+  formatMcpSearchToolsResponse,
 } from './service-formatters.js';
 
 export function registerMcpProxyTools(server: McpServer): void {
@@ -98,6 +99,73 @@ export function registerMcpProxyTools(server: McpServer): void {
                   formatMcpListToolsResponse(response.data),
                   SOURCE_INVENTORY_AUTHORITY_GUIDANCE,
                   UNREVIEWED_DISCOVERY_GUIDANCE,
+                  capabilityStatusText(),
+                ]
+            ).join('\n\n'),
+          },
+        ],
+      };
+    },
+  );
+
+  server.tool(
+    'mcp_search_tools',
+    lockedAccessPreset
+      ? 'Search tools by keyword across MCP server sources connected to this agent. Returns ranked matches.'
+      : 'Search connected MCP source inventory by keyword over tool name, description, and server name. Matches are ranked and marked with whether a selected reviewed capability covers them; mcp_call_tool still rechecks reviewed action capability at call time.',
+    {
+      query: z
+        .string()
+        .min(1)
+        .describe('Keyword to search over MCP server, tool, and description'),
+      limit: z
+        .number()
+        .int()
+        .min(1)
+        .max(50)
+        .optional()
+        .describe('Maximum matches to return, up to 50'),
+    },
+    async (args) => {
+      const taskId = makeIpcId('mcp-search-tools');
+      writeIpcFile(TASKS_DIR, {
+        type: 'mcp_search_tools',
+        taskId,
+        targetJid: chatJid,
+        chatJid,
+        authThreadId: threadId,
+        payload: {
+          query: args.query,
+          limit: args.limit,
+        },
+        timestamp: nowIso(),
+      });
+      const response = await waitForTaskResponse(taskId, MCP_PROXY_WAIT_MS);
+      if (!response?.ok) {
+        return {
+          content: [
+            {
+              type: 'text' as const,
+              text: response?.error || 'MCP tool search failed.',
+            },
+          ],
+          isError: true,
+        };
+      }
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: (lockedAccessPreset
+              ? [
+                  formatMcpSearchToolsResponse(response.data, {
+                    includeReviewGuidance: false,
+                  }),
+                  capabilityStatusText(),
+                ]
+              : [
+                  formatMcpSearchToolsResponse(response.data),
+                  SOURCE_INVENTORY_AUTHORITY_GUIDANCE,
                   capabilityStatusText(),
                 ]
             ).join('\n\n'),

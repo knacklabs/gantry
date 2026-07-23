@@ -70,6 +70,9 @@ function operationFromDoc(doc: RouteDoc) {
     responses: {
       [status]: response(statusDescription(status), responseSchema),
       ...errors,
+      ...(doc.conflict
+        ? { '409': { $ref: '#/components/responses/Conflict' } }
+        : {}),
     },
   };
   const requestSchema = openApiRequestSchemas[doc.operationId];
@@ -127,6 +130,10 @@ export const GANTRY_OPENAPI_DOCUMENT = {
     { name: 'Webhooks', description: 'Outbound callback delivery.' },
     { name: 'External Ingresses', description: 'Signed inbound entrypoints.' },
     { name: 'Memory', description: 'App-scoped durable memory.' },
+    {
+      name: 'Observer',
+      description: 'App-scoped proactive insight status and history.',
+    },
     { name: 'Settings', description: 'Read-only settings projection.' },
     { name: 'Skills', description: 'Reviewed local skill packages.' },
     { name: 'MCP Servers', description: 'Reviewed third-party MCP servers.' },
@@ -178,6 +185,9 @@ export const GANTRY_OPENAPI_DOCUMENT = {
         $ref: '#/components/schemas/ErrorEnvelope',
       }),
       NotFound: response('Requested resource was not found.', {
+        $ref: '#/components/schemas/ErrorEnvelope',
+      }),
+      Conflict: response('Revision conflict.', {
         $ref: '#/components/schemas/ErrorEnvelope',
       }),
       InternalError: response('Unexpected control server failure.', {

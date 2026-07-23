@@ -195,7 +195,7 @@ describe('rich interaction MCP tools', () => {
     const { parseRichInteractionIpcRequest } =
       await import('@core/runtime/ipc-parsing.js');
     const { createSignedIpcRequestEnvelope } =
-      await import('@core/runner/mcp/signing.js');
+      await import('@core/shared/ipc-signing.js');
     const { computeIpcAuthToken } = await import('@core/runtime/ipc-auth.js');
     const { clearConsumedIpcRequestIds } =
       await import('@core/runtime/ipc-auth-validation.js');

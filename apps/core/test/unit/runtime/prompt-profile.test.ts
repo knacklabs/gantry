@@ -11,7 +11,17 @@ import type {
   FileArtifactStore,
   FileArtifactWriteInput,
 } from '@core/domain/ports/file-artifact-store.js';
-import { PromptProfileService } from '@core/application/agents/prompt-profile-service.js';
+import {
+  capabilityGuidancePrompt,
+  DEFAULT_PROMPT_SECTION_BUDGETS,
+  LOCKED_OPERATING_GUIDANCE_BLOCK,
+  OPERATING_GUIDANCE_BLOCK,
+  PromptProfileService,
+  renderChannelPromptPresentationLine,
+} from '@core/application/agents/prompt-profile-service.js';
+import type { AgentPromptCapabilityCatalog } from '@core/application/agents/agent-prompt-capability-catalog.js';
+import { renderCapabilityGuidancePrompt } from '@core/application/agents/agent-prompt-capability-guidance.js';
+import '@core/channels/register-builtins.js';
 
 const loggerSpies = vi.hoisted(() => ({
   info: vi.fn(),
@@ -23,6 +33,8 @@ vi.mock('@core/infrastructure/logging/logger.js', () => ({
     info: loggerSpies.info,
     warn: loggerSpies.warn,
   },
+  withLogContext: (_context: unknown, callback: () => unknown) => callback(),
+  updateLogContext: vi.fn(),
 }));
 
 type ArtifactKey = `${string}:${string}:${string}:${string}`;
@@ -257,11 +269,21 @@ describe('PromptProfileService', () => {
     expect(prompt).toContain(
       'first send one short natural acknowledgement with send_message',
     );
-    expect(prompt).toContain('pending -> inProgress -> completed');
     expect(prompt).toContain('repeated generic progress chatter');
+    expect(prompt).toContain('# Capability catalog');
     expect(prompt).toContain(
-      'Gantry delegation is unavailable until a delegated-task executor is mounted. Do not claim delegated work started unless a real Gantry delegation tool returns a handle.',
+      'This is a read-only snapshot for this agent; execution policy still applies.',
     );
+    expect(prompt).toContain('If it shapes the answer, briefly acknowledge it');
+    for (const receiptHeading of [
+      'Completed:',
+      'Used:',
+      'Changed:',
+      'Delegated:',
+      'Needs attention:',
+    ]) {
+      expect(prompt).not.toContain(receiptHeading);
+    }
     expect(prompt).not.toContain('pending -> in_progress -> completed');
 
     // No stale tool names leak into the compiled prompt.
@@ -273,6 +295,363 @@ describe('PromptProfileService', () => {
     ]) {
       expect(prompt).not.toContain(stale);
     }
+  });
+
+  it('keeps the raw operating guidance blocks within the section budget (truncation guard)', () => {
+    expect(OPERATING_GUIDANCE_BLOCK.length).toBeLessThanOrEqual(
+      DEFAULT_PROMPT_SECTION_BUDGETS.OPERATING_GUIDANCE,
+    );
+    expect(LOCKED_OPERATING_GUIDANCE_BLOCK.length).toBeLessThanOrEqual(
+      DEFAULT_PROMPT_SECTION_BUDGETS.OPERATING_GUIDANCE,
+    );
+  });
+
+  it('renders the same real catalog for full and locked profiles without locked acquisition guidance', async () => {
+    const catalog: AgentPromptCapabilityCatalog = {
+      schemaVersion: 1,
+      digest: 'catalog:test',
+      readyActions: [
+        {
+          kind: 'reviewed_capability',
+          stableRef: 'calendar.manage',
+          revision: '1',
+          displayName: 'Team calendar',
+          description: 'Find availability and create or update events.',
+          category: 'Calendar',
+        },
+      ],
+      installedSkills: [
+        {
+          kind: 'skill',
+          stableRef: 'skill:incident-triage',
+          revision: 'sha256:skill',
+          displayName: 'incident-triage',
+          description: 'Diagnose incidents from logs and recent changes.',
+          category: 'Skills',
+        },
+      ],
+      connectedMcpSources: [
+        {
+          kind: 'mcp_source',
+          stableRef: 'mcp:linear',
+          revision: '2026-07-20T00:00:00.000Z',
+          displayName: 'Linear',
+          description: 'Search issues, projects, and workflow metadata.',
+          category: 'MCP',
+        },
+      ],
+    };
+    const service = createService().service;
+    const full = await service.compileSystemPrompt({
+      agentFolder: 'team',
+      capabilityCatalog: catalog,
+    });
+    const locked = await service.compileSystemPrompt({
+      agentFolder: 'team',
+      accessPreset: 'locked',
+      capabilityCatalog: catalog,
+    });
+
+    for (const entry of ['Team calendar', 'incident-triage', 'Linear']) {
+      expect(full).toContain(entry);
+      expect(locked).toContain(entry);
+    }
+    expect(full).toContain(
+      'Acquire first -> request_access for the reviewed capability.',
+    );
+    expect(locked).not.toContain('Acquire first');
+    expect(locked).not.toContain('request_access');
+    expect(locked).toContain('If no provisioned action fits');
+  });
+
+  it('omits MCP discovery and acquisition guidance when inventory facades are not mounted', async () => {
+    const prompt = await createService().service.compileSystemPrompt({
+      agentFolder: 'team',
+      mcpInventoryToolsMounted: false,
+    });
+
+    expect(prompt).not.toContain('Discovery');
+    expect(prompt).not.toContain('mcp_search_tools');
+    expect(prompt).not.toContain('Acquire first');
+  });
+
+  it('includes MCP discovery and acquisition guidance when inventory facades are mounted', async () => {
+    const service = createService().service;
+    const full = await service.compileSystemPrompt({
+      agentFolder: 'team',
+      mcpInventoryToolsMounted: true,
+    });
+    const locked = await service.compileSystemPrompt({
+      agentFolder: 'team',
+      accessPreset: 'locked',
+      mcpInventoryToolsMounted: true,
+    });
+
+    expect(full).toContain('Discovery');
+    expect(full).toContain('mcp_search_tools');
+    expect(full).toContain('Acquire first');
+    expect(locked).toContain('mcp_search_tools');
+    expect(locked).not.toContain('Acquire first');
+    expect(locked).not.toContain('request_access');
+  });
+
+  it('truncates only whole trailing catalog entries within the section budget', () => {
+    const catalog: AgentPromptCapabilityCatalog = {
+      schemaVersion: 1,
+      digest: 'catalog:large',
+      readyActions: Array.from({ length: 8 }, (_, index) => ({
+        kind: 'reviewed_capability' as const,
+        stableRef: `ready:${index}`,
+        displayName: `Ready action ${index}`,
+        description: 'A deliberately long ready-action description. '.repeat(8),
+        category: 'Operations',
+      })),
+      installedSkills: Array.from({ length: 40 }, (_, index) => ({
+        kind: 'skill' as const,
+        stableRef: `skill:${index.toString().padStart(2, '0')}`,
+        displayName: `Skill ${index.toString().padStart(2, '0')}`,
+        description: `Description for skill ${index}.`,
+        category: 'Skills',
+      })),
+      connectedMcpSources: [],
+    };
+
+    const rendered = capabilityGuidancePrompt(catalog, 'full');
+
+    expect(rendered.length).toBeLessThanOrEqual(
+      DEFAULT_PROMPT_SECTION_BUDGETS.CAPABILITY_GUIDANCE,
+    );
+    for (let index = 0; index < 8; index += 1) {
+      expect(rendered).toContain(`Ready action ${index}`);
+    }
+    expect(rendered).toMatch(/\+\d+ more installed skills/);
+    for (const line of rendered
+      .split('\n')
+      .filter((candidate) => candidate.startsWith('- Skill '))) {
+      expect(line).toMatch(/ — Description for skill \d+\.$/);
+    }
+  });
+
+  it('reports rendered and omitted catalog counts after whole-entry truncation', async () => {
+    const onCapabilityCatalogRendered = vi.fn();
+    const service = new PromptProfileService({
+      onCapabilityCatalogRendered,
+      sectionBudgets: { CAPABILITY_GUIDANCE: 500 },
+    });
+    const catalog: AgentPromptCapabilityCatalog = {
+      schemaVersion: 1,
+      digest: 'catalog:diagnostics',
+      readyActions: [
+        {
+          kind: 'reviewed_capability',
+          stableRef: 'ready:calendar',
+          displayName: 'Team calendar',
+          description: 'Find availability and manage events.',
+          category: 'Calendar',
+        },
+      ],
+      installedSkills: Array.from({ length: 20 }, (_, index) => ({
+        kind: 'skill' as const,
+        stableRef: `skill:${index}`,
+        displayName: `Skill ${index}`,
+        description: `Use workflow ${index} safely and consistently.`,
+        category: 'Skills',
+      })),
+      connectedMcpSources: [],
+    };
+
+    await service.compileSystemPrompt({
+      agentFolder: 'team',
+      capabilityCatalog: catalog,
+    });
+
+    const diagnostics = onCapabilityCatalogRendered.mock.calls[0]?.[0];
+    expect(diagnostics.rendered.readyActions).toBe(1);
+    expect(diagnostics.omitted.readyActions).toBe(0);
+    expect(diagnostics.rendered.installedSkills).toBeLessThan(20);
+    expect(
+      diagnostics.rendered.installedSkills +
+        diagnostics.omitted.installedSkills,
+    ).toBe(20);
+  });
+
+  it('reserves a connected source and its exact omitted count after many skills', () => {
+    const catalog: AgentPromptCapabilityCatalog = {
+      schemaVersion: 1,
+      digest: 'catalog:balanced-truncation',
+      readyActions: [],
+      installedSkills: Array.from({ length: 40 }, (_, index) => ({
+        kind: 'skill' as const,
+        stableRef: `skill:${index.toString().padStart(2, '0')}`,
+        displayName: `Skill ${index.toString().padStart(2, '0')}`,
+        description: `Long skill description ${index} `.repeat(8),
+        category: 'Skills',
+      })),
+      connectedMcpSources: Array.from({ length: 20 }, (_, index) => ({
+        kind: 'mcp_source' as const,
+        stableRef: `mcp:source-${index.toString().padStart(2, '0')}`,
+        displayName: `Connected source ${index.toString().padStart(2, '0')}`,
+        description: `Long connected source description ${index} `.repeat(8),
+        category: 'MCP',
+      })),
+    };
+
+    const rendered = renderCapabilityGuidancePrompt({
+      catalog,
+      accessPreset: 'full',
+      mcpInventoryToolsMounted: true,
+      budget: DEFAULT_PROMPT_SECTION_BUDGETS.CAPABILITY_GUIDANCE,
+    });
+
+    expect(rendered.prompt.length).toBeLessThanOrEqual(
+      DEFAULT_PROMPT_SECTION_BUDGETS.CAPABILITY_GUIDANCE,
+    );
+    expect(rendered.prompt).toContain('Connected source 00');
+    expect(rendered.prompt).toContain('- +19 more connected sources');
+    expect(rendered.diagnostics.rendered.connectedMcpSources).toBe(1);
+    expect(rendered.diagnostics.omitted.connectedMcpSources).toBe(19);
+  });
+
+  it('compiles the Communication and Output Style guidance untruncated', async () => {
+    const { service } = createService();
+
+    const prompt = await service.compileSystemPrompt({ agentFolder: 'team' });
+
+    expect(prompt).toContain('## Communication');
+    expect(prompt).toContain('## Output Style');
+    expect(prompt).toContain(
+      'Lead with the answer or outcome in the first sentence',
+    );
+    expect(prompt).toContain('Do not narrate execution');
+    expect(prompt).toContain(
+      'The single short acknowledgement before non-trivial live work is the only exception.',
+    );
+    expect(prompt).toContain(
+      'no closers ("Let me know if..."), no pleasantry filler',
+    );
+    expect(prompt).toContain('Never use dashes as punctuation');
+    expect(prompt).toContain('Hyphens appear only inside compound words');
+    expect(prompt).toContain(
+      'numbered or bulleted structure when the answer has multiple items',
+    );
+    expect(prompt).toContain('Reply in the language the user writes in.');
+    // Final line of the operating guidance block: proves the section tail
+    // survived the budget (the old 8500 budget silently cut Communication).
+    expect(prompt).toContain('never trade accuracy for brevity.');
+  });
+
+  it('renders the model identity line only when modelIdentity is provided', async () => {
+    const { service } = createService();
+
+    const withIdentity = await service.compileSystemPrompt({
+      agentFolder: 'team',
+      modelIdentity: {
+        alias: 'Fable 5',
+        modelId: 'claude-fable-5',
+        provider: 'Anthropic API',
+      },
+    });
+    expect(withIdentity).toContain(
+      '- You are running on Fable 5 (claude-fable-5) via Anthropic API. State this plainly if the user asks which model you are; deeper runtime internals stay internal.',
+    );
+
+    const withoutIdentity = await service.compileSystemPrompt({
+      agentFolder: 'team',
+    });
+    expect(withoutIdentity).not.toContain('You are running on');
+  });
+
+  it('injects stable runtime context lines into runtime rules', async () => {
+    const { service } = createService();
+
+    const prompt = await service.compileSystemPrompt({
+      agentFolder: 'team',
+      modelIdentity: {
+        alias: 'Fable 5',
+        modelId: 'claude-fable-5',
+        provider: 'Anthropic API',
+      },
+      runtimeContext: {
+        channelContextLine: renderChannelPromptPresentationLine(
+          'tg:12345',
+          'dm',
+        ),
+        workspacePath: '/data/agents/team',
+      },
+    });
+
+    expect(prompt).toContain(
+      '- Channel: Telegram direct message. Telegram renders a limited HTML subset; hard message length cap 4096 characters; outbound workspace file attachments are capped at 25MB.',
+    );
+    expect(prompt).toContain(
+      '- Workspace root: /data/agents/team. Durable outputs belong under media/ inside the workspace; tmp paths are ephemeral and may not survive between runs.',
+    );
+    // Interactive runs carry the interruptibility contract. This is the final
+    // runtime-rules line, so its presence also proves the section fits its
+    // budget untruncated.
+    expect(prompt).toContain(
+      '- New user messages may arrive mid-run and supersede the current plan; treat messages delivered mid-run as fresh instructions, not history.',
+    );
+  });
+
+  it('replaces the interruptibility line with job context for scheduled jobs', async () => {
+    const { service } = createService();
+
+    const prompt = await service.compileSystemPrompt({
+      agentFolder: 'team',
+      runtimeContext: {
+        channelContextLine: renderChannelPromptPresentationLine(
+          'sl:C123',
+          'channel',
+        ),
+        workspacePath: '/data/agents/team',
+        job: { id: 'job-1', name: 'Daily digest' },
+      },
+    });
+
+    expect(prompt).toContain(
+      '- Channel: Slack group conversation. Slack renders mrkdwn; keep single messages under 4000 characters; outbound workspace file attachments are capped at 25MB.',
+    );
+    expect(prompt).toContain(
+      '- This run executes scheduled job "Daily digest" (job-1). Job runs are quiet until terminal: deliver one final outcome report; do not send interim progress messages.',
+    );
+    expect(prompt).not.toContain('New user messages may arrive mid-run');
+  });
+
+  it('keeps channel prompt presentation byte-identical to the previous path', () => {
+    const before = [
+      '- Channel: Telegram direct message. Telegram renders a limited HTML subset; hard message length cap 4096 characters; outbound workspace file attachments are capped at 25MB.',
+      '- Channel: Slack group conversation. Slack renders mrkdwn; keep single messages under 4000 characters; outbound workspace file attachments are capped at 25MB.',
+      '- Channel: conversation; outbound workspace file attachments are capped at 25MB.',
+    ];
+    const after = [
+      renderChannelPromptPresentationLine('tg:12345', 'dm'),
+      renderChannelPromptPresentationLine('sl:C123', 'channel'),
+      renderChannelPromptPresentationLine('other:123', undefined),
+    ];
+
+    expect(after).toEqual(before);
+  });
+
+  it('maps casual controls to reviewed tools and one-line progress', async () => {
+    const { service } = createService();
+
+    const prompt = await service.compileSystemPrompt({ agentFolder: 'team' });
+
+    expect(prompt).toContain('"stop asking me so much"');
+    expect(prompt).toContain('request_settings_update permission_mode: auto');
+    expect(prompt).toContain(
+      "Done — I'll only check with you for risky actions now.",
+    );
+    expect(prompt).toContain('"be extra careful with deletes"');
+    expect(prompt).toContain('permissions.yolo_mode.denylist');
+    expect(prompt).toContain('"pause everything" / "resume"');
+    expect(prompt).toContain('scheduler_list_jobs to list visible jobs');
+    expect(prompt).toContain('existing pause controls');
+    expect(prompt).toContain('report what was paused');
+    expect(prompt).toContain('scheduler_list_jobs then pause/resume each');
+    expect(prompt).toContain('no generic rollback exists');
+    expect(prompt).toContain('repeated calls edit one compact line');
   });
 
   it('does not overwrite existing per-agent prompt artifacts', async () => {

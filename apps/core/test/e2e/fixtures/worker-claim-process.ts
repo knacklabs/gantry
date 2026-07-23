@@ -1,6 +1,6 @@
 /**
  * Standalone worker process for the two-process claim e2e. Spawned as a SEPARATE
- * OS process (via tsx) by claim-protocol-two-process.e2e.test.ts. It connects to
+ * OS process (via tsx) by claim-protocol-two-process.postgres.e2e.test.ts. It connects to
  * the shared disposable Postgres at a fixed schema, then competes for a single
  * scheduled run through the REAL scheduler claim protocol:
  *

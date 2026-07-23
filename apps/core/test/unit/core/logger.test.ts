@@ -3,11 +3,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fixedClock } from '@core/shared/time/datetime.js';
 import {
   createLogger,
+  currentLogContext,
   installGlobalErrorHandlers,
   logger,
   redactString,
   type LogRecord,
   type LogSink,
+  withLogContext,
 } from '@core/infrastructure/logging/logger.js';
 
 describe('logger', () => {
@@ -81,6 +83,56 @@ describe('logger', () => {
       message: 'child event',
       context: { scope: 'root', group: 'team-a', event: 'start' },
     });
+  });
+
+  it('isolates per-turn context across concurrent async work', async () => {
+    const records: LogRecord[] = [];
+    const l = createLogger({
+      level: 'debug',
+      sink: { write: (record) => records.push(record) },
+    });
+
+    await Promise.all([
+      withLogContext(
+        { runId: 'run-a', appId: 'app-a', agentId: 'agent-a' },
+        async () => {
+          await Promise.resolve();
+          l.info('turn a');
+        },
+      ),
+      withLogContext(
+        { runId: 'run-b', appId: 'app-b', agentId: 'agent-b' },
+        async () => {
+          await Promise.resolve();
+          l.info('turn b');
+        },
+      ),
+    ]);
+
+    expect(records).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          context: { runId: 'run-a', appId: 'app-a', agentId: 'agent-a' },
+        }),
+        expect.objectContaining({
+          context: { runId: 'run-b', appId: 'app-b', agentId: 'agent-b' },
+        }),
+      ]),
+    );
+    expect(currentLogContext()).toBeUndefined();
+  });
+
+  it('redacts merged object context once', () => {
+    const redact = vi.fn((value: unknown) => value);
+    const l = createLogger({
+      level: 'debug',
+      sink: { write: () => undefined },
+      redact,
+    });
+
+    l.info({ event: 'start' }, 'event');
+
+    expect(redact).toHaveBeenCalledTimes(1);
   });
 
   it('keeps base and child context for string-only log calls', () => {

@@ -4,7 +4,7 @@ import {
   isLocalControlHost,
   resolveRuntimeSecurityPosture,
   validateProductionSecurityGate,
-} from '@core/config/security-posture.js';
+} from '@core/shared/security-posture.js';
 
 const encryptionKey = Buffer.from(
   '00112233445566778899aabbccddeeff102132435465768798a9bacbdcedfe0f',

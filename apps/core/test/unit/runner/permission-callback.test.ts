@@ -3,18 +3,15 @@ import os from 'os';
 import path from 'path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock(
-  '@core/adapters/llm/anthropic-claude-agent/runner/ipc-signing.js',
-  async () => {
-    const actual = await vi.importActual<
-      typeof import('@core/adapters/llm/anthropic-claude-agent/runner/ipc-signing.js')
-    >('@core/adapters/llm/anthropic-claude-agent/runner/ipc-signing.js');
-    return {
-      ...actual,
-      hasValidIpcResponseSignature: vi.fn(() => true),
-    };
-  },
-);
+vi.mock('@core/shared/ipc-signing.js', async () => {
+  const actual = await vi.importActual<
+    typeof import('@core/shared/ipc-signing.js')
+  >('@core/shared/ipc-signing.js');
+  return {
+    ...actual,
+    hasValidIpcResponseSignature: vi.fn(() => true),
+  };
+});
 
 async function waitForFiles(dir: string, count: number): Promise<string[]> {
   const deadline = Date.now() + 2_000;

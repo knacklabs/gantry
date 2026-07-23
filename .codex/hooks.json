@@ -6,19 +6,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "/usr/bin/python3 \"$(git rev-parse --show-toplevel)/.codex/scripts/session_start.py\"",
-            "timeout": 5
-          }
-        ]
-      }
-    ],
-    "UserPromptSubmit": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "/usr/bin/python3 \"$(git rev-parse --show-toplevel)/.codex/scripts/user_prompt_submit.py\"",
-            "timeout": 5
+            "command": "/usr/bin/python3 \"$(git rev-parse --show-toplevel)/.agents/scripts/session_start.py\"",
+            "statusMessage": "Loading factory context"
           }
         ]
       }
@@ -29,8 +18,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "/usr/bin/python3 \"$(git rev-parse --show-toplevel)/.codex/scripts/pre_tool_use.py\"",
-            "timeout": 3
+            "command": "/usr/bin/python3 \"$(git rev-parse --show-toplevel)/.agents/scripts/pre_tool_use.py\"",
+            "statusMessage": "Applying factory command policy"
           }
         ]
       }
@@ -40,8 +29,9 @@
         "hooks": [
           {
             "type": "command",
-            "command": "/usr/bin/python3 \"$(git rev-parse --show-toplevel)/.codex/scripts/stop_continue.py\"",
-            "timeout": 10
+            "command": "/usr/bin/python3 \"$(git rev-parse --show-toplevel)/.agents/scripts/stop_continue.py\"",
+            "timeout": 30,
+            "statusMessage": "Checking factory completion"
           }
         ]
       }

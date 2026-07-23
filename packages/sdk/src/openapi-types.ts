@@ -90,6 +90,14 @@ export type GetRunResponse = JsonResponse<'getRun', 200>;
 export type QueryUsageQuery = Query<'queryUsage'>;
 export type QueryUsageResponse = JsonResponse<'queryUsage', 200>;
 
+export type GetObserverStatusQuery = Query<'getObserverStatus'>;
+export type ObserverStatusResponse = JsonResponse<'getObserverStatus', 200>;
+export type ListObserverInsightsQuery = Query<'listObserverInsights'>;
+export type ObserverInsightListResponse = JsonResponse<
+  'listObserverInsights',
+  200
+>;
+
 export type ListProvidersResponse = JsonResponse<'listProviders', 200>;
 export type CreateProviderAccountResponse = JsonResponse<
   'createProviderAccount',
@@ -151,6 +159,13 @@ export type DisableConversationInstallQuery =
   Query<'disableConversationInstall'>;
 export type DisableConversationInstallResponse = JsonResponse<
   'disableConversationInstall',
+  200
+>;
+
+export type GetAgentDelegatesResponse = JsonResponse<'getAgentDelegates', 200>;
+export type ReplaceAgentDelegatesRequest = JsonRequest<'replaceAgentDelegates'>;
+export type ReplaceAgentDelegatesResponse = JsonResponse<
+  'replaceAgentDelegates',
   200
 >;
 

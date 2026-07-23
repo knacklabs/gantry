@@ -3,28 +3,29 @@ import type {
   PermissionApprovalDecision,
   PermissionApprovalRequest,
   UserQuestionRequest,
+  UserQuestionResponse,
 } from '../domain/types.js';
 import { RUNTIME_EVENT_TYPES } from '../domain/events/runtime-event-types.js';
 import { PermissionManagementService } from '../application/permissions/permission-management-service.js';
 import type { PausedJobCapabilityRecheckResult } from '../application/jobs/job-permission-recovery.js';
-import {
-  formatDurableAccessRuleForEvent,
-  formatDurableAccessRulesForUser,
-} from '../shared/durable-access-policy.js';
+import { formatDurableAccessRuleForEvent } from '../shared/durable-access-policy.js';
 import {
   permissionUpdateAllowedToolRules,
   persistentPermissionUpdates,
 } from '../shared/permission-tool-rules.js';
 import { redactSensitiveText } from '../shared/sensitive-material.js';
+import { incrementOperationalError } from '../shared/operational-error-counters.js';
 import { archiveIpcErrorFile } from './ipc-filesystem.js';
 import {
   getIpcResponseSigningPrivateKey,
   sealIpcResponseSigningPrivateKey,
 } from './ipc-auth.js';
-import { durablePermissionCallbackId } from './ipc-durable-permission.js';
 import {
   applyPermissionInteractionDecision,
+  DurableInteractionPersistenceError,
   isActiveRunLeaseForInteraction,
+  releasePermissionInteractionCallback,
+  replayPersistedPermissionDecisionForRequest,
   resolvePendingInteractionRecord,
 } from '../application/interactions/pending-interaction-durability.js';
 import {
@@ -32,7 +33,7 @@ import {
   beginDurableQuestionInteraction,
   durablePermissionRequestSnapshot,
   finishDurableQuestionInteraction,
-  resolveDurablePermissionInteraction,
+  resolveDurablePermissionInteractionOutcome,
 } from '../application/interactions/durable-interaction-handler.js';
 import {
   resolveAgentLockStatus,
@@ -40,11 +41,16 @@ import {
 } from '../config/profiles.js';
 import { memoryAgentIdForWorkspaceFolder } from '../memory/app-memory-boundaries.js';
 import type { IpcDeps } from './ipc-domain-types.js';
+import type { ParsedPermissionIpcRequest } from './ipc-parsing.js';
 import {
   processUserQuestionIpcRequest,
   writePermissionIpcResponse,
   writeUserQuestionIpcResponse,
 } from './ipc-interaction-handler.js';
+import {
+  writePermissionInteractionFailure,
+  writeUserQuestionInteractionFailure,
+} from './ipc-interaction-failure.js';
 import { resolvePermissionIpcDecision } from './ipc-permission-classifier-decision.js';
 import { recordHumanPermissionPromotionSignal } from './permission-classifier.js';
 import { synthesizeHostPermissionSuggestions } from '../application/permissions/permission-suggestion-synthesis.js';
@@ -53,6 +59,16 @@ import {
   permissionDecisionName,
   permissionTelemetryContext,
 } from './ipc-permission-telemetry.js';
+import {
+  publishPendingInteractionRuntimeEvent,
+  publishPermissionRuntimeEvent,
+} from './ipc-interaction-runtime-events.js';
+
+export { publishPendingInteractionRuntimeEvent };
+export {
+  writePermissionInteractionFailure,
+  writeUserQuestionInteractionFailure,
+} from './ipc-interaction-failure.js';
 
 type LogContext = Record<string, unknown>;
 export type IpcInteractionLogger = {
@@ -89,80 +105,8 @@ export function interactionInFlightKey(input: {
   ].join(':');
 }
 
-export function writePermissionInteractionFailure(input: {
-  ipcBaseDir: string;
-  sourceAgentFolder: string;
-  requestId: string;
-  responseNonce?: string;
-  threadId?: string;
-  responseKeyId?: string;
-  reason?: string;
-  logger: IpcInteractionLogger;
-}): void {
-  try {
-    writePermissionIpcResponse(
-      input.ipcBaseDir,
-      input.sourceAgentFolder,
-      {
-        requestId: input.requestId,
-        ...(input.responseNonce ? { responseNonce: input.responseNonce } : {}),
-        approved: false,
-        reason: input.reason ?? 'Failed to process permission request',
-      },
-      getIpcResponseSigningPrivateKey(
-        input.sourceAgentFolder,
-        input.threadId,
-        input.responseKeyId,
-      ),
-    );
-  } catch (err) {
-    input.logger.warn(
-      {
-        sourceAgentFolder: input.sourceAgentFolder,
-        requestId: input.requestId,
-        err,
-      },
-      'Failed to write permission IPC denial fallback',
-    );
-  }
-}
-
-export function writeUserQuestionInteractionFailure(input: {
-  ipcBaseDir: string;
-  sourceAgentFolder: string;
-  requestId: string;
-  threadId?: string;
-  responseKeyId?: string;
-  logger: IpcInteractionLogger;
-}): void {
-  try {
-    writeUserQuestionIpcResponse(
-      input.ipcBaseDir,
-      input.sourceAgentFolder,
-      {
-        requestId: input.requestId,
-        answers: {},
-      },
-      getIpcResponseSigningPrivateKey(
-        input.sourceAgentFolder,
-        input.threadId,
-        input.responseKeyId,
-      ),
-    );
-  } catch (err) {
-    input.logger.warn(
-      {
-        sourceAgentFolder: input.sourceAgentFolder,
-        requestId: input.requestId,
-        err,
-      },
-      'Failed to write user question IPC fallback response',
-    );
-  }
-}
-
 export async function processPermissionInteractionIpc(input: {
-  request: PermissionApprovalRequest;
+  request: ParsedPermissionIpcRequest;
   sourceAgentFolder: string;
   deps: IpcDeps;
   ipcBaseDir: string;
@@ -170,6 +114,8 @@ export async function processPermissionInteractionIpc(input: {
   claimedPath: string;
   logger: IpcInteractionLogger;
 }): Promise<void> {
+  let decision: PermissionApprovalDecision | undefined;
+  let authorityApplicationStarted = false;
   // Parent-side security boundary: locked agents never reach any permission
   // authority outcome (durable pending row, prompt, transient or persistent
   // grant). The gate runs before recordPendingInteractionRequested so a forged
@@ -199,9 +145,6 @@ export async function processPermissionInteractionIpc(input: {
       payload: {
         ...requestedContext,
         decisionPolicy: input.request.decisionPolicy ?? null,
-        permissionCallbackId: durablePermissionCallbackId(
-          input.request.requestId,
-        ),
         request: durablePermissionRequestSnapshot(input.request),
       },
       callbackRoute: {
@@ -231,11 +174,18 @@ export async function processPermissionInteractionIpc(input: {
       payload: requestedContext,
     });
     await assertActiveScheduledPermissionLease(input);
-    const decision = await resolvePermissionIpcDecision({
-      request: input.request,
-      sourceAgentFolder: input.sourceAgentFolder,
-      deps: input.deps,
-    });
+    decision =
+      (await replayPersistedPermissionDecisionForRequest({
+        appId: input.request.appId,
+        sourceAgentFolder: input.sourceAgentFolder,
+        requestId: input.request.requestId,
+      })) ??
+      (await resolvePermissionIpcDecision({
+        request: input.request,
+        sourceAgentFolder: input.sourceAgentFolder,
+        deps: input.deps,
+      }));
+    const claimedDecision = decision;
     await assertActiveScheduledPermissionLease(input);
     const decisionContext = permissionTelemetryContext(input.request, {
       sourceAgentFolder: input.sourceAgentFolder,
@@ -249,6 +199,7 @@ export async function processPermissionInteractionIpc(input: {
       payload: decisionContext,
     });
     await assertActiveScheduledPermissionLease(input);
+    authorityApplicationStarted = true;
     const applied = await applyPermissionInteractionDecision({
       request: input.request,
       sourceAgentFolder: input.sourceAgentFolder,
@@ -284,7 +235,7 @@ export async function processPermissionInteractionIpc(input: {
             sourceAgentFolder: input.sourceAgentFolder,
             decision: 'persisted',
             persistedRules: permissionUpdateAllowedToolRules(
-              decision.updatedPermissions,
+              claimedDecision.updatedPermissions,
             ).map(formatDurableAccessRuleForEvent),
           },
         );
@@ -297,19 +248,16 @@ export async function processPermissionInteractionIpc(input: {
             payload: persistedContext,
           },
         );
-        await sendPermissionOutcomeMessage(input.deps, input.request, {
-          text: formatPersistentPermissionOutcome({
-            rules: permissionUpdateAllowedToolRules(
-              decision.updatedPermissions,
-            ),
-            semanticCapabilityDefinitions:
-              input.request.semanticCapabilityDefinitions,
-            recovery,
-          }),
-        });
+        const outcomeMessage = formatPersistentPermissionOutcome(recovery);
+        if (outcomeMessage) {
+          await sendPermissionOutcomeMessage(input.deps, input.request, {
+            text: outcomeMessage,
+          });
+        }
       },
     });
     if (!applied) {
+      await releasePermissionDecisionClaim(decision);
       input.logger.warn(
         decisionContext,
         'Withholding permission IPC response because grant application failed',
@@ -369,19 +317,41 @@ export async function processPermissionInteractionIpc(input: {
       | PermissionApprovalDecision['updatedPermissions']
       | undefined;
     await assertActiveScheduledPermissionLease(input);
-    const resolved = await resolveDurablePermissionInteraction({
+    const resolveInput = {
       request: input.request,
       sourceAgentFolder: input.sourceAgentFolder,
       decision,
       updatedPermissions: responsePermissionUpdates,
-    });
-    if (!resolved) {
+    };
+    let resolutionOutcome =
+      await resolveDurablePermissionInteractionOutcome(resolveInput);
+    if (resolutionOutcome === 'retryable_error') {
       input.logger.warn(
         permissionTelemetryContext(input.request, {
           sourceAgentFolder: input.sourceAgentFolder,
           decision: permissionDecisionName(decision),
         }),
+        'Retrying durable permission resolution after a transient failure',
+      );
+      await assertActiveScheduledPermissionLease(input);
+      resolutionOutcome =
+        await resolveDurablePermissionInteractionOutcome(resolveInput);
+    }
+    if (resolutionOutcome !== 'resolved') {
+      incrementOperationalError('interaction', 'permission_request');
+      input.logger.warn(
+        permissionTelemetryContext(input.request, {
+          sourceAgentFolder: input.sourceAgentFolder,
+          decision: permissionDecisionName(decision),
+          resolutionOutcome,
+        }),
         'Withholding permission IPC response because durable resolution failed',
+      );
+      archiveIpcErrorFile(
+        input.ipcBaseDir,
+        input.sourceAgentFolder,
+        input.file,
+        input.claimedPath,
       );
       return;
     }
@@ -407,6 +377,9 @@ export async function processPermissionInteractionIpc(input: {
     );
     fs.unlinkSync(input.claimedPath);
   } catch (err) {
+    if (!authorityApplicationStarted) {
+      await releasePermissionDecisionClaim(decision);
+    }
     if (err instanceof StaleScheduledPermissionLeaseError) {
       await publishPermissionRuntimeEvent(input.deps, input.request, {
         eventType: RUNTIME_EVENT_TYPES.PERMISSION_FINAL_OUTCOME,
@@ -424,6 +397,20 @@ export async function processPermissionInteractionIpc(input: {
       );
       return;
     }
+    if (err instanceof DurableInteractionPersistenceError) {
+      input.logger.error(
+        { file: input.file, sourceAgentFolder: input.sourceAgentFolder, err },
+        'Withholding permission IPC response after durable persistence failure',
+      );
+      archiveIpcErrorFile(
+        input.ipcBaseDir,
+        input.sourceAgentFolder,
+        input.file,
+        input.claimedPath,
+      );
+      return;
+    }
+    incrementOperationalError('interaction', 'permission_request');
     writePermissionInteractionFailure({
       ipcBaseDir: input.ipcBaseDir,
       sourceAgentFolder: input.sourceAgentFolder,
@@ -462,6 +449,15 @@ export async function processPermissionInteractionIpc(input: {
       input.claimedPath,
     );
   }
+}
+
+async function releasePermissionDecisionClaim(
+  decision: PermissionApprovalDecision | undefined,
+): Promise<void> {
+  if (!decision?.permissionCallbackClaim) return;
+  await releasePermissionInteractionCallback({
+    claim: decision.permissionCallbackClaim,
+  });
 }
 
 async function denyLockedPermissionInteraction(
@@ -538,37 +534,14 @@ function persistentPermissionScopeRequest(
   return parentConversationRequest;
 }
 
-function formatPersistentPermissionOutcome(input: {
-  rules: string[];
-  semanticCapabilityDefinitions?: PermissionApprovalRequest['semanticCapabilityDefinitions'];
-  recovery: PausedJobCapabilityRecheckResult;
-}): string {
-  const lines = [
-    `Allowed for future: ${formatDurableAccessRulesForUser(input.rules, {
-      semanticCapabilityDefinitions: input.semanticCapabilityDefinitions,
-    })}.`,
-  ];
-  if (input.recovery.queued.length > 0) {
-    lines.push(
-      `Job ready: ${input.recovery.queued
-        .map((job) => job.name || job.jobId)
-        .join(', ')}. It will run now.`,
-    );
-  }
-  if (input.recovery.stillBlocked.length > 0) {
-    const blocker = input.recovery.stillBlocked[0];
-    lines.push(
-      `Still needs setup: ${blocker.nextAction ?? 'review job setup'}.`,
-    );
-  }
-  if (
-    input.recovery.checked === 0 &&
-    input.recovery.queued.length === 0 &&
-    input.recovery.stillBlocked.length === 0
-  ) {
-    lines.push('No paused setup jobs needed retry.');
-  }
-  return lines.join('\n');
+function formatPersistentPermissionOutcome(
+  recovery: PausedJobCapabilityRecheckResult,
+): string | undefined {
+  const blocker = recovery.stillBlocked[0];
+  if (!blocker) return undefined;
+  const nextAction = blocker.nextAction ?? 'review job setup';
+  const punctuation = /[.!?]$/.test(nextAction) ? '' : '.';
+  return `Still needs setup: ${nextAction}${punctuation}`;
 }
 
 async function sendPermissionOutcomeMessage(
@@ -661,64 +634,6 @@ async function assertActiveScheduledQuestionLease(input: {
   throw new StaleScheduledQuestionLeaseError();
 }
 
-async function publishPermissionRuntimeEvent(
-  deps: IpcDeps,
-  request: PermissionApprovalRequest,
-  input: {
-    eventType: (typeof RUNTIME_EVENT_TYPES)[keyof typeof RUNTIME_EVENT_TYPES];
-    payload: Record<string, unknown>;
-  },
-): Promise<void> {
-  if (!deps.publishRuntimeEvent || !request.appId) return;
-  try {
-    await deps.publishRuntimeEvent({
-      appId: request.appId as never,
-      agentId: request.agentId as never,
-      runId: request.runId as never,
-      jobId: request.jobId as never,
-      conversationId: request.targetJid as never,
-      threadId: request.threadId as never,
-      eventType: input.eventType,
-      actor: 'permission',
-      correlationId: request.requestId,
-      payload: input.payload,
-    });
-  } catch {
-    // Runtime-event telemetry is best-effort; permission IPC response delivery
-    // must not fail because event persistence is temporarily unavailable.
-  }
-}
-
-export async function publishPendingInteractionRuntimeEvent(
-  deps: IpcDeps,
-  request: PermissionApprovalRequest | UserQuestionRequest,
-  kind: 'permission' | 'question',
-  sourceAgentFolder: string,
-): Promise<void> {
-  if (!deps.publishRuntimeEvent) return;
-  try {
-    await deps.publishRuntimeEvent({
-      appId: (request.appId ?? 'default') as never,
-      agentId: request.agentId as never,
-      runId: request.runId as never,
-      jobId: request.jobId as never,
-      conversationId: request.targetJid as never,
-      threadId: request.threadId as never,
-      eventType: RUNTIME_EVENT_TYPES.INTERACTION_PENDING,
-      actor: 'interaction',
-      correlationId: request.requestId,
-      payload: {
-        kind,
-        requestId: request.requestId,
-        sourceAgentFolder,
-        status: 'pending',
-      },
-    });
-  } catch {
-    // Durable interaction recording succeeded; wakeup telemetry is best-effort.
-  }
-}
-
 function pathForGroupIpc(
   ipcBaseDir: string,
   sourceAgentFolder: string,
@@ -736,7 +651,7 @@ export async function processUserQuestionInteractionIpc(input: {
   logger: IpcInteractionLogger;
 }): Promise<void> {
   try {
-    await beginDurableQuestionInteraction({
+    const began = await beginDurableQuestionInteraction({
       request: input.request,
       sourceAgentFolder: input.sourceAgentFolder,
       payload: {
@@ -763,49 +678,75 @@ export async function processUserQuestionInteractionIpc(input: {
           ) ?? null,
       },
     });
+    if (!began) {
+      input.logger.warn(
+        {
+          requestId: input.request.requestId,
+          sourceAgentFolder: input.sourceAgentFolder,
+        },
+        'Withholding orphaned user question IPC after restart',
+      );
+      archiveIpcErrorFile(
+        input.ipcBaseDir,
+        input.sourceAgentFolder,
+        input.file,
+        input.claimedPath,
+      );
+      return;
+    }
+    const request = input.request;
+    const processingInput = { ...input, request };
     await publishPendingInteractionRuntimeEvent(
       input.deps,
-      input.request,
+      request,
       'question',
       input.sourceAgentFolder,
     );
-    await assertActiveScheduledQuestionLease(input);
-    const response = await processUserQuestionIpcRequest(input.request, {
+    await assertActiveScheduledQuestionLease(processingInput);
+    const promptedResponse = await processUserQuestionIpcRequest(request, {
       requestUserAnswer: input.deps.requestUserAnswer,
     });
-    await assertActiveScheduledQuestionLease(input);
+    const response: UserQuestionResponse = {
+      requestId: request.requestId,
+      answers: promptedResponse.answers,
+      ...(promptedResponse.answeredBy
+        ? { answeredBy: promptedResponse.answeredBy }
+        : {}),
+    };
+    await assertActiveScheduledQuestionLease(processingInput);
     const resolved = await finishDurableQuestionInteraction({
-      request: input.request,
+      request,
       sourceAgentFolder: input.sourceAgentFolder,
       response,
     });
     if (!resolved) {
+      incrementOperationalError('interaction', 'user_question_request');
       input.logger.warn(
         {
           sourceAgentFolder: input.sourceAgentFolder,
-          requestId: input.request.requestId,
-          appId: input.request.appId,
-          agentId: input.request.agentId,
-          runId: input.request.runId,
-          jobId: input.request.jobId,
+          requestId: request.requestId,
+          appId: request.appId,
+          agentId: request.agentId,
+          runId: request.runId,
+          jobId: request.jobId,
         },
         'Withholding user question IPC response because durable resolution failed',
       );
       return;
     }
-    await assertActiveScheduledQuestionLease(input);
+    await assertActiveScheduledQuestionLease(processingInput);
     writeUserQuestionIpcResponse(
       input.ipcBaseDir,
       input.sourceAgentFolder,
       {
-        requestId: input.request.requestId,
+        requestId: request.requestId,
         answers: response.answers || {},
         answeredBy: response.answeredBy,
       },
       getIpcResponseSigningPrivateKey(
         input.sourceAgentFolder,
-        input.request.threadId,
-        input.request.responseKeyId,
+        request.threadId,
+        request.responseKeyId,
       ),
     );
     fs.unlinkSync(input.claimedPath);
@@ -819,6 +760,20 @@ export async function processUserQuestionInteractionIpc(input: {
       );
       return;
     }
+    if (err instanceof DurableInteractionPersistenceError) {
+      input.logger.error(
+        { file: input.file, sourceAgentFolder: input.sourceAgentFolder, err },
+        'Withholding user question IPC response after durable persistence failure',
+      );
+      archiveIpcErrorFile(
+        input.ipcBaseDir,
+        input.sourceAgentFolder,
+        input.file,
+        input.claimedPath,
+      );
+      return;
+    }
+    incrementOperationalError('interaction', 'user_question_request');
     writeUserQuestionInteractionFailure({
       ipcBaseDir: input.ipcBaseDir,
       sourceAgentFolder: input.sourceAgentFolder,

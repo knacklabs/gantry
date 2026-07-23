@@ -1,6 +1,7 @@
 import net from 'node:net';
 
 import { startControlServer } from '@core/control/server/index.js';
+import type { ControlRouteContext } from '@core/control/server/handler-context.js';
 
 export async function reserveControlPort(): Promise<number> {
   return await new Promise<number>((resolve, reject) => {
@@ -24,12 +25,19 @@ export async function startTestControlServer(input: {
   token: string;
   appId: string;
   scopes: string[];
+  extraKeys?: Array<{
+    kid: string;
+    token: string;
+    scopes: string[];
+    appId: string;
+  }>;
   runtimeApp?: unknown;
   routeProfile?: 'full' | 'ops';
   processRole?: 'all' | 'control' | 'live-worker' | 'job-worker';
   liveExecution?: boolean;
   liveTurnsEnabled?: boolean;
   localOwnerUi?: boolean;
+  resolveObserverStatus?: ControlRouteContext['resolveObserverStatus'];
 }) {
   const port = await reserveControlPort();
   process.env.GANTRY_CONTROL_PORT = String(port);
@@ -40,6 +48,7 @@ export async function startTestControlServer(input: {
       scopes: input.scopes,
       appId: input.appId,
     },
+    ...(input.extraKeys ?? []),
   ]);
   if (input.localOwnerUi) {
     process.env.GANTRY_UI_LOCAL_OWNER_ENABLED = 'true';
@@ -56,6 +65,9 @@ export async function startTestControlServer(input: {
       : {}),
     ...(input.liveTurnsEnabled !== undefined
       ? { liveTurnsEnabled: input.liveTurnsEnabled }
+      : {}),
+    ...(input.resolveObserverStatus
+      ? { resolveObserverStatus: input.resolveObserverStatus }
       : {}),
   });
   await waitForControlPort(port);

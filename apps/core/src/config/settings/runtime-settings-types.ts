@@ -158,6 +158,7 @@ export interface RuntimeConfiguredBinding {
 export interface RuntimeConfiguredAgentSourceRef {
   name?: string;
   id: string;
+  status?: 'active' | 'disabled';
   version?: string;
   kind?: 'builtin' | 'skill' | 'mcp' | 'adapter' | 'local_cli';
   // Per-agent MCP operation scope (subset of the server's reviewed tool
@@ -200,6 +201,7 @@ export type { AgentRuntime };
 export interface RuntimeConfiguredAgent {
   name: string;
   folder: string;
+  delegates: string[];
   runtime?: AgentRuntime;
   maxTurns?: number;
   maxRunTokens?: number;
@@ -321,6 +323,24 @@ export interface RuntimeLimitSettings {
   providers: Record<string, RuntimeProviderLimit>;
 }
 
+export interface RuntimeObservabilitySettings {
+  tracing: {
+    enabled: boolean;
+    endpoint: string;
+    captureContent: boolean;
+    sampleRate: number;
+    environment?: string;
+  };
+}
+
+export interface RuntimeObserverSettings {
+  enabled: boolean;
+  owner?: {
+    recipient: string;
+    conversation: string;
+  };
+}
+
 export interface RuntimeCustomModelAliasSource {
   label: string;
   url: string;
@@ -368,6 +388,8 @@ export interface RuntimeSettings {
   // Optional in-memory per-provider request rate caps (settings.yaml `limits`).
   // Absent/empty -> no caps. Restart-owned; no DB projection.
   limits: RuntimeLimitSettings;
+  observability: RuntimeObservabilitySettings;
+  observer: RuntimeObserverSettings;
   // Optional per-family member-order override for model families. Maps a family
   // alias to a list of member aliases OR provider ids in preference order;
   // absent/empty -> the hardcoded MODEL_FAMILIES order. Unknown tokens are

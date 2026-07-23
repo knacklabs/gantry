@@ -106,6 +106,78 @@ afterEach(() => {
 });
 
 describe('admin IPC handlers', () => {
+  it('keeps group sync failures out of the agent-facing response', async () => {
+    const runtimeHome = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'gantry-admin-ipc-'),
+    );
+    runtimeHomes.push(runtimeHome);
+    const { adminTaskHandlers, taskData } =
+      await loadAdminHandlers(runtimeHome);
+    const rawReason = 'RAW_GROUP_SYNC_SENTINEL: provider cursor exploded';
+
+    await adminTaskHandlers.refresh_groups({
+      data: taskData('group-sync-failure') as never,
+      sourceAgentFolder: 'main_agent',
+      deps: depsWithAdminTools([], {
+        syncGroups: vi.fn(async () => {
+          throw new Error(rawReason);
+        }),
+      }) as never,
+      conversationBindings: {},
+      sourceAgentFolderJids: ['sl:C123'],
+    });
+
+    const response = readResponse(runtimeHome, 'group-sync-failure');
+    expect(response).toMatchObject({
+      ok: false,
+      error:
+        'I could not refresh the conversation list. Explain this in plain language and say you can try again after the sync issue is fixed.',
+      code: 'internal_error',
+    });
+    expect(JSON.stringify(response)).not.toContain(rawReason);
+  });
+
+  it('keeps dependency review failures out of the chat message', async () => {
+    const runtimeHome = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'gantry-admin-ipc-'),
+    );
+    runtimeHomes.push(runtimeHome);
+    const { adminTaskHandlers, taskData } =
+      await loadAdminHandlers(runtimeHome);
+    const rawReason =
+      'RAW_DEPENDENCY_REVIEW_SENTINEL: npm install secret-package failed';
+    const deps = depsWithAdminTools([], {
+      requestPermissionApproval: vi.fn(async () => {
+        throw new Error(rawReason);
+      }),
+    });
+
+    await adminTaskHandlers.request_skill_dependency_install({
+      data: taskData('dependency-review-failure', {
+        type: 'request_skill_dependency_install',
+        chatJid: 'sl:C123',
+        payload: {
+          ecosystem: 'npm',
+          packages: ['secret-package'],
+          reason: 'Install the required dependency.',
+        },
+      }) as never,
+      sourceAgentFolder: 'main_agent',
+      deps: deps as never,
+      conversationBindings: {},
+      sourceAgentFolderJids: ['sl:C123'],
+    });
+
+    await vi.waitFor(() => expect(deps.sendMessage).toHaveBeenCalledTimes(1));
+    const message = String(deps.sendMessage.mock.calls[0]?.[1]);
+    expect(message).toBe(
+      'I could not finish that setup request. I left the current setup unchanged; try again after the setup issue is fixed.',
+    );
+    expect(message).not.toContain(rawReason);
+    expect(message).not.toContain('secret-package');
+    expect(message).not.toContain('npm install');
+  });
+
   it('rejects remote MCP server requests before approval because runtime cannot project them yet', async () => {
     const runtimeHome = fs.mkdtempSync(
       path.join(os.tmpdir(), 'gantry-admin-ipc-'),
@@ -145,6 +217,65 @@ describe('admin IPC handlers', () => {
         'request_mcp_server supports only stdio_template servers until Gantry has a DNS-pinned remote MCP transport.',
     });
     expect(requestPermissionApproval).not.toHaveBeenCalled();
+  });
+
+  it('routes denied MCP reviews through the originating provider account', async () => {
+    const runtimeHome = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'gantry-admin-ipc-'),
+    );
+    runtimeHomes.push(runtimeHome);
+    const { adminTaskHandlers, taskData } =
+      await loadAdminHandlers(runtimeHome);
+    const requestPermissionApproval = vi.fn(async () => ({
+      approved: false,
+      reason: 'not today',
+    }));
+    const sendMessage = vi.fn(async () => undefined);
+
+    await adminTaskHandlers.request_mcp_server({
+      data: taskData(
+        'mcp-provider-account',
+        {
+          type: 'request_mcp_server',
+          chatJid: 'sl:C123',
+          targetJid: 'sl:C123',
+          providerAccountId: 'slack_secondary',
+          payload: {
+            name: 'github',
+            transport: 'stdio_template',
+            templateId: 'npx-package',
+            sandboxProfileId: 'mcp-stdio',
+            args: ['@modelcontextprotocol/server-github'],
+            reason: 'Use the GitHub MCP source.',
+          },
+        },
+        '171234.567',
+      ) as never,
+      sourceAgentFolder: 'main_agent',
+      deps: depsWithAdminTools([], {
+        requestPermissionApproval,
+        sendMessage,
+      }) as never,
+      conversationBindings: {},
+      sourceAgentFolderJids: ['sl:C123'],
+    });
+
+    await vi.waitFor(() => expect(sendMessage).toHaveBeenCalledTimes(1));
+    expect(requestPermissionApproval).toHaveBeenCalledWith(
+      expect.objectContaining({
+        targetJid: 'sl:C123',
+        threadId: '171234.567',
+        providerAccountId: 'slack_secondary',
+      }),
+    );
+    expect(sendMessage).toHaveBeenCalledWith(
+      'sl:C123',
+      expect.stringContaining('github'),
+      {
+        threadId: '171234.567',
+        providerAccountId: 'slack_secondary',
+      },
+    );
   });
 
   it('rejects direct request_permission semantic capability requests outside request_access', async () => {

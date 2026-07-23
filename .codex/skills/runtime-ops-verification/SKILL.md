@@ -10,7 +10,7 @@ handoff steps that must prove the built checkout is what actually runs.
 
 ## Required Workflow
 
-1. Read `docs/architecture/current-verification-commands.md` and run `python3 .codex/scripts/stage_orchestrator.py` to confirm the current phase contract.
+1. Read `docs/architecture/current-verification-commands.md` and run `python3 .agents/scripts/forge.py next` to confirm the current phase contract.
 2. Build first, restart second, verify third. Do not restart after a failed build.
 3. Use the current local launchd label `com.gantry` for service workflows.
 4. Prefer the repo-built CLI entrypoint when a global shim is missing, stale, or permission-blocked.

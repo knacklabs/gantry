@@ -16,7 +16,7 @@ Use this skill when a task changes LLM providers, channel providers, browser pro
 5. Native Agent subagent model overrides must resolve through the same catalog and stay on the parent provider backend; use a separate session or job for cross-provider delegation.
 6. Translate provider failures into stable application errors or decisions at the adapter boundary.
 7. Add or update provider-session, resume, channel wiring, or message persistence tests for changed behavior.
-8. Run `python3 .codex/scripts/check_architecture.py` and `python3 .codex/scripts/check_task_completion.py` before final handoff when possible.
+8. Run `python3 scripts/check_architecture.py` before final handoff when possible.
 
 ## Evidence To Provide
 

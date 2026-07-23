@@ -29,13 +29,19 @@ import { stopOutboundDeliveryRecoveryLoop } from '../jobs/outbound-delivery-reco
 import { publishBrowserJobActivityEvent } from '../jobs/browser-activity-events.js';
 import {
   GANTRY_HOME,
+  createGroupJoinOnboardingCoordinator,
   getDeploymentMode,
   getRuntimeQueueConfig,
+  getRuntimeSettingsForConfig,
   loadRuntimeSettings,
+  RUNTIME_MEMORY_DREAMING_ENABLED,
+  RUNTIME_MEMORY_ENABLED,
 } from '../config/index.js';
 import { getBrowserStatus } from '../runtime/browser-capability.js';
 import { startSettingsReloadWatcher } from '../runtime/settings-reload-watcher.js';
 import {
+  createControlAgentSettingsPort,
+  createControlSettingsImportPort,
   prepareFleetSettings,
   startFleetSubsystems,
   type FleetSubsystems,
@@ -56,6 +62,10 @@ import { getOldestWaitingLiveAdmissionSeconds } from './bootstrap/runtime-servic
 import type { HostnameLookup } from '../domain/network/public-address-policy.js';
 import { defaultHostnameLookup } from '../infrastructure/network/hostname-lookup.js';
 import { createRepositoryRuntimeSecretProvider } from '../adapters/credentials/repository-runtime-secret-provider.js';
+import {
+  createResolveObserverStatus,
+  type EffectiveControlRuntimeSettings,
+} from '../application/control-plane/control-plane-storage-model.js';
 
 export { escapeXml, formatMessages } from '../messaging/router.js';
 export {
@@ -94,6 +104,11 @@ export async function startGantryRuntime(
   });
   const channelWiring = createChannelWiring(app, {
     brainHarvestTap: createRuntimeBrainChannelHarvestTap(),
+    groupJoinOnboarding: createGroupJoinOnboardingCoordinator({
+      runtimeHome: GANTRY_HOME,
+      repository: () => getRuntimeStorage().repositories.groupJoinOnboarding,
+      reloadRuntimeState: () => app.loadState(),
+    }),
     publishRuntimeEvent: async (event) => {
       await getRuntimeEventExchange().publish(event);
     },
@@ -121,12 +136,14 @@ export async function startGantryRuntime(
     isControlApproverAllowed: channelWiring.isControlApproverAllowed,
   });
 
-  let { runtimeSettings } = await runStartup(app, {
+  const startup = await runStartup(app, {
     settingsAuthority: shouldDeferPreflightForFleetRole ? 'file' : 'revision',
     validateSettingsImportPreflight: options.skipPreflight
       ? () => ({ ok: true })
       : validateRuntimePreflight,
   });
+  let { runtimeSettings } = startup;
+  const { closeTracing, initTracingFromSettings } = startup;
   const storage = getRuntimeStorage();
   channelWiring.setRuntimeSecrets(
     createRepositoryRuntimeSecretProvider({
@@ -154,11 +171,19 @@ export async function startGantryRuntime(
       runtimeSettings = loadRuntimeSettings(GANTRY_HOME);
     }
   }
+  let effectiveRuntimeSettings: EffectiveControlRuntimeSettings =
+    runtimeSettings;
   if (!options.skipPreflight && fleetSettingsLoaded) {
     const validation = await validateRuntimePreflightWithStorage(GANTRY_HOME);
     if (!validation.ok && validation.failure) {
       throw new Error(formatRuntimePreflightFailure(validation.failure));
     }
+  }
+  // Settings are final on every path here (workstation revision authority, or
+  // fleet after prepareFleetSettings). A fleet worker with no revision yet
+  // skips init: tracing must never configure from a stale local mirror.
+  if (fleetSettingsLoaded) {
+    initTracingFromSettings(runtimeSettings);
   }
   // P2 guard: a fleet worker with no settings revision must not claim
   // scheduled jobs under bundled default settings (/readyz red only protects
@@ -224,6 +249,7 @@ export async function startGantryRuntime(
     },
     closeLiveTurnAuthority: shutdownLiveTurnAuthority,
     closeSettingsWatcher: settingsWatcher.close,
+    closeTracing,
     closeLiveRecoveryCoordinatorLease: async () => {
       await liveRecoveryCoordinatorLeaseManager.stop();
     },
@@ -273,6 +299,7 @@ export async function startGantryRuntime(
       {
         mcpHostnameLookup,
         opsRepository: storage.ops,
+        getAgentRepository: () => storage.repositories.agents,
         getToolRepository: () => storage.repositories.tools,
         getSkillRepository: () => storage.repositories.skills,
         getAsyncTaskRepository: () => storage.repositories.asyncTasks,
@@ -348,7 +375,21 @@ export async function startGantryRuntime(
         bakeExecution: roleCaps.bakeExecution,
         capabilityReconciliation: roleCaps.workerRegistration,
         settingsLoaded: fleetSettingsLoaded,
-        onSettingsReady: async () => {
+        onSettingsReady: async (settings) => {
+          // Effective settings are a restart-owned snapshot. The held first
+          // fleet revision completes boot; later revisions stay pending.
+          effectiveRuntimeSettings = settings;
+          // Tracing was skipped at boot (no revision yet); initialize from
+          // the first authoritative revision BEFORE the scheduler guard —
+          // control/live-worker roles never hold a scheduler start.
+          try {
+            initTracingFromSettings(loadRuntimeSettings(GANTRY_HOME));
+          } catch (err) {
+            logger.warn(
+              { err },
+              'Failed to initialize tracing on first settings revision',
+            );
+          }
           const start = heldSchedulerStart;
           heldSchedulerStart = undefined;
           if (!start) return;
@@ -372,6 +413,22 @@ export async function startGantryRuntime(
       processRole,
       liveExecution: roleCaps.liveExecution,
       liveTurnsEnabled: runtimeSettings.runtime.liveTurns.enabled,
+      getEffectiveRuntimeSettings: () => effectiveRuntimeSettings,
+      getEffectiveMemoryState: () => ({
+        enabled: RUNTIME_MEMORY_ENABLED,
+        dreamingEnabled: RUNTIME_MEMORY_DREAMING_ENABLED,
+      }),
+      agentSettings: createControlAgentSettingsPort(),
+      settingsImport: createControlSettingsImportPort(),
+      resolveObserverStatus: createResolveObserverStatus({
+        getEffectiveRuntimeSettings: () => effectiveRuntimeSettings,
+        getInternalRuntimeSettings: getRuntimeSettingsForConfig,
+        getEffectiveMemoryState: () => ({
+          enabled: RUNTIME_MEMORY_ENABLED,
+          dreamingEnabled: RUNTIME_MEMORY_DREAMING_ENABLED,
+        }),
+        conversations: storage.repositories.conversations,
+      }),
       // Locked contract: the workstation `all` role keeps the historical
       // readiness check set (no role-specific checks); split roles gate on
       // exactly the subsystems they run.

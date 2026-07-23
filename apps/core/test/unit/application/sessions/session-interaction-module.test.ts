@@ -460,4 +460,123 @@ describe('SessionInteractionModule', () => {
     expect(next).not.toHaveBeenCalled();
     expect(close).toHaveBeenCalledTimes(1);
   });
+
+  describe('ensureSession agent targeting', () => {
+    const agent = {
+      id: 'agent:folder-one',
+      appId: 'app-one',
+      name: 'My Agent',
+      status: 'active',
+    };
+
+    it('binds the ensured session to the requested agent folder', async () => {
+      const getAgent = vi.fn(async () => agent);
+      const { module, control } = makeModule({
+        repositories: { agents: { getAgent } },
+      });
+
+      const result = await module.ensureSession({
+        appId: 'app-one',
+        agentId: 'agent:folder-one',
+        conversationId: 'conv-1',
+      });
+
+      expect(getAgent).toHaveBeenCalledWith('agent:folder-one');
+      expect(control.ensureAppSession).toHaveBeenCalledWith(
+        expect.objectContaining({
+          appId: 'app-one',
+          conversationId: 'conv-1',
+          conversationJid: 'app:app-one:conv-1',
+          folder: 'folder-one',
+        }),
+      );
+      expect(result.registerGroup.group).toMatchObject({
+        name: 'My Agent',
+        folder: 'folder-one',
+      });
+      expect(result.session.workspaceKey).toBe('folder-one');
+    });
+
+    it('keeps the synthetic folder when agentId is omitted', async () => {
+      const getAgent = vi.fn();
+      const { module, control } = makeModule({
+        repositories: { agents: { getAgent } },
+      });
+
+      const result = await module.ensureSession({
+        appId: 'app-one',
+        conversationId: 'conv-1',
+      });
+
+      expect(getAgent).not.toHaveBeenCalled();
+      expect(result.registerGroup.group.folder).toBe(
+        'app_123456789abc_app_one_conv_1',
+      );
+      expect(control.ensureAppSession).toHaveBeenCalledWith(
+        expect.objectContaining({ folder: 'app_123456789abc_app_one_conv_1' }),
+      );
+    });
+
+    it('rejects an unknown agentId without creating a session', async () => {
+      const { module, control } = makeModule({
+        repositories: { agents: { getAgent: vi.fn(async () => null) } },
+      });
+
+      await expect(
+        module.ensureSession({
+          appId: 'app-one',
+          agentId: 'agent:missing',
+          conversationId: 'conv-1',
+        }),
+      ).rejects.toMatchObject({
+        code: 'NOT_FOUND',
+        message: 'Agent not found',
+      });
+      expect(control.ensureAppSession).not.toHaveBeenCalled();
+    });
+
+    it('rejects an agent that belongs to another app', async () => {
+      const { module, control } = makeModule({
+        repositories: {
+          agents: {
+            getAgent: vi.fn(async () => ({ ...agent, appId: 'app-two' })),
+          },
+        },
+      });
+
+      await expect(
+        module.ensureSession({
+          appId: 'app-one',
+          agentId: 'agent:folder-one',
+          conversationId: 'conv-1',
+        }),
+      ).rejects.toMatchObject({
+        code: 'NOT_FOUND',
+        message: 'Agent not found',
+      });
+      expect(control.ensureAppSession).not.toHaveBeenCalled();
+    });
+
+    it('rejects an agent that is not active', async () => {
+      const { module, control } = makeModule({
+        repositories: {
+          agents: {
+            getAgent: vi.fn(async () => ({ ...agent, status: 'disabled' })),
+          },
+        },
+      });
+
+      await expect(
+        module.ensureSession({
+          appId: 'app-one',
+          agentId: 'agent:folder-one',
+          conversationId: 'conv-1',
+        }),
+      ).rejects.toMatchObject({
+        code: 'INVALID_REQUEST',
+        message: 'Agent is not active: agent:folder-one',
+      });
+      expect(control.ensureAppSession).not.toHaveBeenCalled();
+    });
+  });
 });

@@ -12,10 +12,14 @@ import { RunScopedToolSuccessLedger } from '@core/runner/tool-gate-core.js';
 
 const mcpState = vi.hoisted(() => ({
   serverTools: {} as Record<string, unknown[]>,
+  clientConfigs: [] as unknown[],
 }));
 
 vi.mock(['@langchain', 'mcp-adapters'].join('/'), () => ({
   MultiServerMCPClient: class {
+    constructor(config: unknown) {
+      mcpState.clientConfigs.push(config);
+    }
     async initializeConnections() {
       return mcpState.serverTools;
     }
@@ -48,6 +52,7 @@ describe('dropCollidingThirdPartyTools', () => {
     vi.restoreAllMocks();
     vi.unstubAllEnvs();
     mcpState.serverTools = {};
+    mcpState.clientConfigs = [];
   });
 
   it('drops a third-party tool that shadows a selected Gantry authority tool and warns', () => {
@@ -107,6 +112,144 @@ describe('declarative DeepAgents tool-rule wrapper', () => {
     vi.restoreAllMocks();
     vi.unstubAllEnvs();
     mcpState.serverTools = {};
+    mcpState.clientConfigs = [];
+  });
+
+  it('does not cap every Gantry MCP tool at the callable-agent deadline', async () => {
+    vi.stubEnv('GANTRY_MCP_SERVER_PATH', '/tmp/fake-gantry-mcp.js');
+    mcpState.serverTools = { gantry: [] };
+
+    const connected = await connectGantryAndThirdPartyMcpTools({
+      configuredAllowedTools: [],
+      hideAuthorityTools: false,
+      gate: {
+        workspaceFolder: 'group',
+        memoryBlock: '',
+        gateContext: { conversationId: 'tg:group' },
+        permissionEnv: {},
+        lockedAccessPreset: false,
+      } as never,
+    });
+    const config = mcpState.clientConfigs[0] as {
+      mcpServers: Record<string, { defaultToolTimeout?: number }>;
+    };
+
+    expect(config.mcpServers.gantry?.defaultToolTimeout).toBeUndefined();
+    await connected.close();
+  });
+
+  it('extends the MCP timeout only for projected callable-agent tools', async () => {
+    vi.stubEnv('GANTRY_MCP_SERVER_PATH', '/tmp/fake-gantry-mcp.js');
+    vi.stubEnv('GANTRY_ASYNC_TASK_TOOLS_ENABLED', '1');
+    const invokeCallable = vi.fn(async () => [
+      'delegated',
+      { receipt: 'specialist-result' },
+    ]);
+    const callable = {
+      name: 'delegate_to_reviewer_hash',
+      description: 'Delegate to Reviewer.',
+      schema: z.object({ objective: z.string() }),
+      responseFormat: 'content_and_artifact',
+      invoke: async (
+        input: { id: string; args: { objective: string } },
+        config?: { timeout?: number },
+      ) => {
+        const [content, artifact] = await invokeCallable(input.args, config);
+        return { content, artifact, tool_call_id: input.id };
+      },
+    };
+    const memorySearch = structuredTool(
+      'memory_search',
+      'Search memory.',
+      vi.fn(async () => 'results'),
+    );
+    mcpState.serverTools = {
+      gantry: [callable, memorySearch],
+    };
+
+    const connected = await connectGantryAndThirdPartyMcpTools({
+      configuredAllowedTools: ['AgentDelegation'],
+      callableAgentManifest: [
+        {
+          toolName: 'reviewer_hash',
+          targetAgentId: 'agent:reviewer',
+          displayName: 'Reviewer',
+          persona: 'research',
+        },
+      ],
+      hideAuthorityTools: false,
+      gate: {
+        workspaceFolder: 'group',
+        memoryBlock: '',
+        gateContext: { conversationId: 'tg:group' },
+        permissionEnv: {},
+        lockedAccessPreset: false,
+      } as never,
+    });
+
+    const projected = connected.tools.find(
+      ({ name }) => name === callable.name,
+    );
+    expect(projected).toBe(callable);
+    expect(projected).toMatchObject({ responseFormat: 'content_and_artifact' });
+    const result = await projected?.invoke({
+      type: 'tool_call',
+      id: 'call-1',
+      name: callable.name,
+      args: { objective: 'Review this' },
+    } as never);
+    expect(result).toMatchObject({
+      content: 'delegated',
+      artifact: { receipt: 'specialist-result' },
+      tool_call_id: 'call-1',
+    });
+    expect(invokeCallable).toHaveBeenCalledWith(
+      { objective: 'Review this' },
+      expect.objectContaining({ timeout: 80_000 }),
+    );
+    expect(memorySearch.invoke).not.toHaveBeenCalled();
+    await connected.close();
+  });
+
+  it('keeps callable-agent metadata through declarative rules', async () => {
+    vi.stubEnv('GANTRY_MCP_SERVER_PATH', '/tmp/fake-gantry-mcp.js');
+    vi.stubEnv('GANTRY_ASYNC_TASK_TOOLS_ENABLED', '1');
+    const callable = structuredTool(
+      'delegate_to_reviewer_hash',
+      'Delegate to Reviewer.',
+      vi.fn(async () => 'delegated'),
+    );
+    mcpState.serverTools = { gantry: [callable] };
+
+    const connected = await connectGantryAndThirdPartyMcpTools({
+      configuredAllowedTools: ['AgentDelegation'],
+      callableAgentManifest: [
+        {
+          toolName: 'reviewer_hash',
+          targetAgentId: 'agent:reviewer',
+          displayName: 'Reviewer',
+          persona: 'research',
+        },
+      ],
+      toolRules: [{ tool: 'Bash', action: 'block', reason: 'blocked' }],
+      hideAuthorityTools: false,
+      gate: {
+        workspaceFolder: 'group',
+        memoryBlock: '',
+        gateContext: { conversationId: 'tg:group' },
+        permissionEnv: {},
+        lockedAccessPreset: false,
+      } as never,
+    });
+
+    expect(connected.tools).toContainEqual(
+      expect.objectContaining({
+        name: callable.name,
+        description: callable.description,
+        schema: callable.schema,
+      }),
+    );
+    await connected.close();
   });
 
   it('enforces canonical Bash block rules on the RunCommand model tool', async () => {

@@ -299,6 +299,7 @@ async function processQueueMessages(
     responseSchema?: Record<string, unknown>;
     agentControls?: AgentControlOverrides;
   },
+  options: { trustedTriggerBypass?: boolean } = {},
 ): Promise<MessageAdmissionProcessingResult> {
   const opsRepository = resolveMessageRepository(deps);
   const { chatJid, threadId, agentId, providerAccountId } =
@@ -393,7 +394,8 @@ async function processQueueMessages(
     return enqueueMessageCheck(deps, queueJid);
   }
 
-  const needsTrigger = group.requiresTrigger !== false;
+  const needsTrigger =
+    group.requiresTrigger !== false && !options.trustedTriggerBypass;
   if (needsTrigger) {
     const allowlistCfg = loadSenderAllowlist();
     const hasTrigger = initialBatch.some(
@@ -501,20 +503,34 @@ export async function processLiveAdmissionWorkItem(
   }
 
   const recoveredCursor = await deps.getOrRecoverCursor(item.queueJid);
+  const options = {
+    threadId: threadId ?? null,
+    ...(providerAccountId ? { providerAccountId } : {}),
+  };
   const replay = await collectPendingMessagesSince({
     getMessagesSince: opsRepository.getMessagesSince.bind(opsRepository),
     chatJid,
     sinceCursor: recoveredCursor,
     pageSize: MESSAGE_FETCH_PAGE_SIZE,
     maxMessages: MAX_MESSAGES_PER_PROMPT,
-    options: {
-      threadId: threadId ?? null,
-      ...(providerAccountId ? { providerAccountId } : {}),
-    },
+    options,
   });
   const messages = replay.messages;
-  if (messages.length === 0) return 'completed';
-  return processQueueMessages(deps, item.queueJid, messages, replay);
+  if (messages.length === 0) {
+    logger.warn(
+      {
+        itemId: item.id,
+        queueJid: item.queueJid,
+        filter: { chatJid, ...options },
+      },
+      'Live admission work item matched no messages',
+    );
+    return 'completed';
+  }
+  return processQueueMessages(deps, item.queueJid, messages, replay, {
+    trustedTriggerBypass:
+      item.triggerDecision.source === 'callable_agent_follow_up',
+  });
 }
 
 export async function recoverPendingMessages(

@@ -1,9 +1,6 @@
 import type { JobCapabilityRequirement } from '../../domain/types.js';
 import { ApplicationError } from '../common/application-error.js';
-import {
-  isValidSemanticCapabilityId,
-  semanticCapabilityRule,
-} from '../../shared/semantic-capability-ids.js';
+import { isValidSemanticCapabilityId } from '../../shared/semantic-capability-ids.js';
 import {
   RUN_COMMAND_TOOL_NAME,
   validateReadableAgentToolRule,
@@ -49,17 +46,6 @@ export function normalizeCapabilityRequirements(
     });
   }
   return out;
-}
-
-export function capabilityRequirementToolRules(
-  requirements: readonly JobCapabilityRequirement[] | undefined,
-): string[] {
-  const normalized = normalizeCapabilityRequirements(requirements);
-  return [
-    ...new Set(
-      normalized.map((item) => semanticCapabilityRule(item.capabilityId)),
-    ),
-  ];
 }
 
 export function formatCapabilityRequirement(

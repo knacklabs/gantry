@@ -8,9 +8,21 @@ import {
   makeThreadQueueKey,
   parseAgentThreadQueueKey,
   parseThreadQueueKey,
+  routesForConversationId,
 } from '@core/shared/thread-queue-key.js';
 
 describe('thread queue keys', () => {
+  it('scopes routes to one canonical conversation and fails closed without its id', () => {
+    const shared = { conversationId: 'conversation:shared' };
+    const other = { conversationId: 'conversation:other' };
+    const routes = { shared, other };
+
+    expect(routesForConversationId(routes, 'conversation:shared')).toEqual({
+      shared,
+    });
+    expect(routesForConversationId(routes, undefined)).toEqual({});
+  });
+
   it('keeps thread-only parsing compatible when an agent is present', () => {
     const queueJid = makeAgentThreadQueueKey(
       'sl:C123',
@@ -68,6 +80,68 @@ describe('thread queue keys', () => {
         () => 'agent:triage',
       ),
     ).toBeUndefined();
+  });
+
+  it('does not collapse same chat and agent routes across canonical conversations', () => {
+    const routes = {
+      'sl:C123': {
+        folder: 'triage',
+        providerAccountId: 'one',
+        conversationId: 'conversation:first',
+      },
+      [makeAgentThreadQueueKey('sl:C123', 'agent:triage')]: {
+        folder: 'triage',
+        providerAccountId: 'one',
+        conversationId: 'conversation:second',
+      },
+    };
+
+    expect(
+      findConversationRouteForQueue(
+        routes,
+        makeAgentThreadQueueKey('sl:C123', 'agent:triage', undefined, 'one'),
+        () => 'agent:triage',
+      ),
+    ).toBeUndefined();
+  });
+
+  it('selects an exact agent and provider route over divergent stale aliases', () => {
+    const exact = {
+      folder: 'main',
+      providerAccountId: 'telegram_named',
+      conversationId: 'conversation:telegram_named:tg:123',
+    };
+    const routes = {
+      'tg:123': {
+        folder: 'main',
+        providerAccountId: 'telegram_named',
+        conversationId: 'conversation:tg:123',
+      },
+      [makeAgentThreadQueueKey('tg:123', 'agent:main')]: {
+        folder: 'main',
+        providerAccountId: 'telegram_named',
+        conversationId: 'conversation:telegram_default:tg:123',
+      },
+      [makeAgentThreadQueueKey(
+        'tg:123',
+        'agent:main',
+        undefined,
+        'telegram_named',
+      )]: exact,
+    };
+
+    expect(
+      findConversationRouteForQueue(
+        routes,
+        makeAgentThreadQueueKey(
+          'tg:123',
+          'agent:main',
+          'topic:7',
+          'telegram_named',
+        ),
+        () => 'agent:main',
+      ),
+    ).toBe(exact);
   });
 
   it('matches unscoped migrated route keys by stored provider account', () => {

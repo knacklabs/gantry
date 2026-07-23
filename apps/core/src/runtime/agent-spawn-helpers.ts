@@ -44,6 +44,7 @@ export function deepAgentsFilesystemEnabledEnv(
 
 export type RunnerAgentInput = Omit<AgentInput, 'toolPolicyRules'> & {
   allowedTools?: string[];
+  egressDenylist?: string[];
   modelCredentialEnv?: Record<string, string>;
   toolNetworkEnv?: Record<string, string>;
   deepAgentCheckpointer?: {
@@ -164,7 +165,8 @@ export function buildBaseRunnerEnv(input: {
     GANTRY_NO_PERMISSION_TOOLS: input.hideAuthorityTools ? '1' : '',
     GANTRY_AGENT_ACCESS_PRESET: input.agentAccessPreset,
     GANTRY_DEPLOYMENT_MODE: input.deploymentMode,
-    GANTRY_PERMISSION_MODE: input.permissionMode,
+    GANTRY_PERMISSION_MODE:
+      input.permissionMode === 'auto_strict' ? 'auto' : input.permissionMode,
     GANTRY_TURN_INTENT_SUMMARY: input.turnIntentSummary.slice(0, 1_500),
     GANTRY_INTERACTIVE_PERMISSION_TIMEOUT_MS: String(input.permissionTimeoutMs),
     GANTRY_PERMISSION_TIMEOUT_MS: String(input.permissionTimeoutMs),

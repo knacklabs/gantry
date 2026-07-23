@@ -11,6 +11,7 @@ import {
   buildAsyncCommandEnv,
   runSandboxedAsyncCommand,
 } from '@core/jobs/async-command-sandbox-runner.js';
+import { DirectRunnerSandboxProvider } from '@core/adapters/sandbox/runner-sandbox-provider.js';
 import type {
   RunnerSandboxProvider,
   RunnerSandboxSpawnInput,
@@ -75,6 +76,20 @@ function baseInput(signal = new AbortController().signal) {
   };
 }
 
+function makeLaunchControl() {
+  const directory = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'gantry-async-runner-'),
+  );
+  tempDirs.push(directory);
+  return {
+    directory,
+    pidFile: path.join(directory, 'pid'),
+    pgidFile: path.join(directory, 'pgid'),
+    readyFile: path.join(directory, 'ready'),
+    continueFile: path.join(directory, 'continue'),
+  };
+}
+
 describe('async command sandbox runner', () => {
   afterEach(() => {
     vi.useRealTimers();
@@ -106,17 +121,7 @@ describe('async command sandbox runner', () => {
 
   it('projects sandbox policy and launch barrier files to the enforcing provider', async () => {
     vi.useFakeTimers();
-    const launchDir = fs.mkdtempSync(
-      path.join(os.tmpdir(), 'gantry-async-runner-'),
-    );
-    tempDirs.push(launchDir);
-    const launchControl = {
-      directory: launchDir,
-      pidFile: path.join(launchDir, 'pid'),
-      pgidFile: path.join(launchDir, 'pgid'),
-      readyFile: path.join(launchDir, 'ready'),
-      continueFile: path.join(launchDir, 'continue'),
-    };
+    const launchControl = makeLaunchControl();
     const { provider, child } = makeProvider({
       onStart: (options) => {
         fs.writeFileSync(launchControl.readyFile, '');
@@ -125,11 +130,14 @@ describe('async command sandbox runner', () => {
           args: ['-c', expect.stringContaining('GANTRY_ASYNC_COMMAND_SCRIPT')],
           cwd: process.cwd(),
           workspaceRoot: process.cwd(),
-          configFilePath: path.join(launchDir, 'sandbox-runtime.json'),
+          configFilePath: path.join(
+            launchControl.directory,
+            'sandbox-runtime.json',
+          ),
           egressProxyUrl: 'http://127.0.0.1:18080',
           allowedNetworkHosts: ['api.example.com:443'],
-          runtimeReadPaths: [process.cwd(), launchDir],
-          runtimeWritePaths: [process.cwd(), launchDir],
+          runtimeReadPaths: [process.cwd(), launchControl.directory],
+          runtimeWritePaths: [process.cwd(), launchControl.directory],
           protectedReadPaths: ['/secret/read'],
           protectedWritePaths: ['/secret/write'],
           sandboxProfile: {
@@ -149,7 +157,7 @@ describe('async command sandbox runner', () => {
         expect(options.env).toMatchObject({
           PATH: '/usr/bin',
           GANTRY_ASYNC_COMMAND_SCRIPT: 'echo ok',
-          GANTRY_ASYNC_LAUNCH_DIR: launchDir,
+          GANTRY_ASYNC_LAUNCH_DIR: launchControl.directory,
           GANTRY_ASYNC_PID_FILE: launchControl.pidFile,
           GANTRY_ASYNC_PGID_FILE: launchControl.pgidFile,
           GANTRY_ASYNC_READY_FILE: launchControl.readyFile,
@@ -205,13 +213,54 @@ describe('async command sandbox runner', () => {
     });
   });
 
-  it('fails closed without an enforcing sandbox and times out active children', async () => {
-    await expect(
-      runSandboxedAsyncCommand(makeProvider({ enforcing: false }).provider, {
+  it('executes a direct command with the egress gateway environment', async () => {
+    // A pure-shell command reads the injected egress env directly. Deliberately
+    // not a `node -e` child: node fails to load libc (SIGTRAP) under the
+    // sandbox's minimal env in containerized CI, which this test is not about.
+    const result = await runSandboxedAsyncCommand(
+      new DirectRunnerSandboxProvider(),
+      {
         ...baseInput(),
-      }),
-    ).rejects.toThrow('requires an enforcing runner sandbox');
+        command: 'printf %s "${GANTRY_EGRESS_PROXY_URL}|${HTTP_PROXY}"',
+        env: { PATH: process.env.PATH },
+        launchControl: makeLaunchControl(),
+      },
+    );
 
+    expect(result).toEqual({
+      outputSummary: 'http://127.0.0.1:18080|http://127.0.0.1:18080',
+      errorSummary: '',
+    });
+  });
+
+  it('kills a direct command process group on timeout', async () => {
+    let pid: number | undefined;
+    const resultPromise = runSandboxedAsyncCommand(
+      new DirectRunnerSandboxProvider(),
+      {
+        ...baseInput(),
+        // A pure-shell loop that ignores SIGTERM: the runner must escalate to
+        // SIGKILL. Deliberately not a `node -e` child — spawning node under the
+        // sandbox's process constraints aborts early (SIGABRT/SIGTRAP) in
+        // containerized CI before the timeout, which this test is not about.
+        command: "trap '' TERM; while :; do sleep 1; done",
+        env: { PATH: process.env.PATH },
+        timeoutMs: 500,
+        launchControl: makeLaunchControl(),
+        onProcessStarted: (handle) => {
+          pid = handle.pid;
+        },
+      },
+    );
+
+    await expect(resultPromise).rejects.toThrow(
+      /Command timed out with signal SIG(?:TERM|KILL)\./,
+    );
+    expect(pid).toEqual(expect.any(Number));
+    expect(() => process.kill(pid as number, 0)).toThrow();
+  });
+
+  it('times out active children under an enforcing sandbox', async () => {
     vi.useFakeTimers();
     const { provider, child } = makeProvider();
     child.kill.mockImplementation(() => {

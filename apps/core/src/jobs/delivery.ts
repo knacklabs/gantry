@@ -1,4 +1,5 @@
 import { logger } from '../infrastructure/logging/logger.js';
+import { incrementOperationalError } from '../shared/operational-error-counters.js';
 import type { Job, MessageSendOptions } from '../domain/types.js';
 import {
   getPartialMessageDeliveryMetadata,
@@ -183,6 +184,7 @@ export async function sendJobNotification(input: {
         });
         if (enqueueResult !== false) delivered = true;
       } catch (err) {
+        incrementOperationalError('delivery', 'notification_enqueue');
         logger.warn(
           {
             err,
@@ -223,8 +225,13 @@ export async function sendJobNotification(input: {
         ),
         { scope: 'job-notification', target: route.conversationJid },
       );
-      if (isDeliverySent(settlement)) delivered = true;
+      if (isDeliverySent(settlement)) {
+        delivered = true;
+      } else {
+        incrementOperationalError('delivery', 'notification_send');
+      }
     } catch (err) {
+      incrementOperationalError('delivery', 'notification_send');
       logger.warn(
         { jobId: input.job.id, jid: route.conversationJid, err },
         'Failed to send scheduler status message',

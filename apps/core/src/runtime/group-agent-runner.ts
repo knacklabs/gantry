@@ -9,13 +9,7 @@ import type {
   GroupProcessingDeps,
   GroupProcessingRepository,
 } from './group-processing-types.js';
-import {
-  memoryScopeForConversationKind,
-  resolveTurnToolPolicy,
-  resolveTurnSemanticCapabilities,
-  resolveTurnSelectedMcpServerIds,
-  resolveTurnSelectedSkillContext,
-} from './group-run-context.js';
+import { memoryScopeForConversationKind } from './group-run-context.js';
 import {
   resolveSingleNonSelfSenderId,
   buildApprovedSkillContextBlock,
@@ -27,10 +21,7 @@ import {
 } from './session-resume-runtime.js';
 import { createRuntimeModelStatusAccess as createModelStatus } from './model-status-store.js';
 import { recordRuntimeModelUsage } from './model-status-output.js';
-import {
-  buildProviderSessionAccessFingerprint,
-  providerSessionAccessFingerprintMatches,
-} from './provider-session-access-fingerprint.js';
+import { providerSessionAccessFingerprintMatches } from './provider-session-access-fingerprint.js';
 import { buildBoundedMemoryRecallQuery } from '../memory/app-memory-recall-query.js';
 import { appIdFromConversationJid } from '../shared/app-conversation-jid.js';
 import {
@@ -51,13 +42,19 @@ import {
 import { forwardRuntimeEvents } from './runtime-event-forwarding.js';
 import { isMissingProviderSessionError } from './failover-eligibility.js';
 import { createConfiguredRunTokenBudget } from './agent-spawn-host.js';
-import { logger, redactString } from '../infrastructure/logging/logger.js';
+import {
+  logger,
+  redactString,
+  updateLogContext,
+  withLogContext,
+} from '../infrastructure/logging/logger.js';
 import { memoryReviewerApproverAllowed } from './group-agent-runner-memory-review.js';
 import { prepareCompactionDeltaReplay } from './group-agent-runner-compaction-delta.js';
 import { maintenanceCompactionPromptForExecutionProvider } from './group-agent-runner-maintenance-compaction.js';
 import { hasAsyncTaskRepository } from './group-agent-runner-async-task-repository.js';
 import { resolveInitialGroupExecutionProviderId } from './group-initial-execution-provider.js';
 import { RUNTIME_EVENT_TYPES } from '../domain/events/runtime-event-types.js';
+import { resolveGroupAgentAccessContext } from './group-agent-access-context.js';
 const DEFAULT_ASSISTANT_NAME = 'Gantry';
 const WORKSPACE_FOLDER_INPUT_KEY = `workspace${'Folder'}`;
 export type GroupAgentRunResult = 'success' | 'error' | 'stopped';
@@ -77,7 +74,7 @@ export function createGroupAgentRunner(input: {
   const { deps, ops } = input;
   const runAgentImpl = deps.runAgent ?? spawnAgent;
   const collectSessionMemory = deps.collectSessionMemory;
-  return async function runAgent(
+  async function runAgentWithContext(
     group: ConversationRoute,
     prompt: string,
     chatJid: string,
@@ -362,23 +359,22 @@ export function createGroupAgentRunner(input: {
       skillArtifactStore: deps.getSkillArtifactStore?.(),
       turnContext,
     });
-    const [configuredToolPolicy, selectedSkillContext, semanticCapabilities] =
-      await Promise.all([
-        resolveTurnToolPolicy(deps, turnContext),
-        resolveTurnSelectedSkillContext(deps, turnContext),
-        resolveTurnSemanticCapabilities(deps, turnContext),
-      ]);
-    const attachedMcpSourceIds = await resolveTurnSelectedMcpServerIds(
+    const {
+      configuredToolPolicy,
+      selectedSkillContext,
+      semanticCapabilities,
+      attachedMcpSourceIds,
+      capabilityCatalog,
+      currentAccessFingerprint,
+    } = await resolveGroupAgentAccessContext({
       deps,
       turnContext,
-      configuredToolPolicy.toolPolicyRules,
-    );
-    const currentAccessFingerprint = buildProviderSessionAccessFingerprint({
-      toolPolicyRules: configuredToolPolicy.toolPolicyRules,
-      runtimeAccess: configuredToolPolicy.runtimeAccess,
-      attachedSkillSourceIds: selectedSkillContext.ids,
-      attachedMcpSourceIds,
-      semanticCapabilities,
+      catalogScope: {
+        appId: turnContext?.appId ?? runtimeAppId,
+        agentId:
+          turnContext?.agentId ?? memoryAgentIdForWorkspaceFolder(group.folder),
+      },
+      agentFolder: group.folder,
     });
     if (
       turnContext?.providerSessionId &&
@@ -473,6 +469,12 @@ export function createGroupAgentRunner(input: {
                 : 'message',
           })
         : undefined;
+    updateLogContext({
+      runId: runState.runId,
+      appId: runtimeAppId,
+      agentId:
+        turnContext?.agentId ?? memoryAgentIdForWorkspaceFolder(group.folder),
+    });
     try {
       const credentialBroker = await deps.getCredentialBroker?.();
       const runOptions = buildRuntimeRunOptions({
@@ -489,6 +491,7 @@ export function createGroupAgentRunner(input: {
         executionAdapters: deps.executionAdapters,
         runnerSandboxProvider: deps.runnerSandboxProvider,
         asyncTaskRepositoryAvailable: hasAsyncTaskRepository(deps),
+        conversationRoutes: deps.getConversationRoutes?.() ?? {},
         turnContext,
       });
       const expireTurnProviderSession = async (
@@ -540,6 +543,8 @@ export function createGroupAgentRunner(input: {
             selectedSkillDisplays: selectedSkillContext.displays,
             attachedMcpSourceIds,
             semanticCapabilities,
+            capabilityCatalog,
+            providerSessionAccessFingerprint: currentAccessFingerprint,
             assistantName: group.trigger || DEFAULT_ASSISTANT_NAME,
             thinking: group.agentConfig?.thinking,
             memoryContextBlock: agentInput.memoryContextBlock,
@@ -550,14 +555,12 @@ export function createGroupAgentRunner(input: {
             ...(agentInput.resumeSessionId
               ? { sessionId: agentInput.resumeSessionId }
               : {}),
-            ...(options?.existingRunId && runState.runId
-              ? { runId: runState.runId }
-              : {}),
-            ...(options?.existingRunLeaseToken
-              ? { runLeaseToken: options.existingRunLeaseToken }
-              : {}),
-            ...(typeof options?.existingRunLeaseFencingVersion === 'number'
+            ...(options?.existingRunId &&
+            options.existingRunLeaseToken &&
+            typeof options.existingRunLeaseFencingVersion === 'number'
               ? {
+                  runId: options.existingRunId,
+                  runLeaseToken: options.existingRunLeaseToken,
                   runLeaseFencingVersion:
                     options.existingRunLeaseFencingVersion,
                 }
@@ -590,7 +593,7 @@ export function createGroupAgentRunner(input: {
             );
           },
           wrappedOnOutput,
-          runOptions,
+          { ...runOptions, correlationRunId: runState.runId },
         ).then((output) => runTokenBudget.enforce(output));
       let output = await invokeAgent({
         memoryContextBlock,
@@ -744,5 +747,16 @@ export function createGroupAgentRunner(input: {
       }
       return 'error';
     }
+  }
+
+  return (...args: Parameters<typeof runAgentWithContext>) => {
+    const [group, , chatJid] = args;
+    return withLogContext(
+      {
+        appId: appIdFromConversationJid(chatJid) ?? 'default',
+        agentId: memoryAgentIdForWorkspaceFolder(group.folder),
+      },
+      () => runAgentWithContext(...args),
+    );
   };
 }

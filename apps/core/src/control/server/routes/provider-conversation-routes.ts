@@ -223,7 +223,8 @@ export async function handleProviderConversationRoutes(
       return true;
     }
     try {
-      const providerAccount = await services().providerAccounts.update({
+      const providerAccountService = services().providerAccounts;
+      const providerAccount = await providerAccountService.update({
         appId: auth.appId as AppId,
         providerAccountId:
           providerAccountRoute.providerAccountId as ProviderAccountId,
@@ -247,7 +248,17 @@ export async function handleProviderConversationRoutes(
       } else {
         await projectProviderAccountRoutesToRuntime(ctx, providerAccount.id);
       }
-      await ctx.syncSettingsFromProjection(auth.appId as AppId);
+      await ctx.syncSettingsFromProjection(
+        auth.appId as AppId,
+        parsed.data.runtimeSecretRefs === undefined
+          ? undefined
+          : {
+              providerAccount: {
+                id: providerAccount.id,
+                runtimeSecretRefs: parsed.data.runtimeSecretRefs,
+              },
+            },
+      );
       sendJson(res, 200, providerAccountToResponse(providerAccount));
     } catch (error) {
       if (!sendApplicationError(res, error)) throw error;

@@ -10,21 +10,27 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
       - name: Check scaffold files
-        run: python3 .codex/scripts/check_factory_scaffold.py
+        run: python3 .agents/scripts/check_factory_scaffold.py
       - name: Check AGENTS hygiene
-        run: python3 .codex/scripts/check_agents_hygiene.py
-      - name: Check LOCAL-35 phase refactor source line delta
-        if: "${{ github.event_name == 'pull_request' && (contains(toJson(github.event.pull_request.labels), 'PR: Refactor') || contains(toJson(github.event.pull_request.labels), 'refactor')) }}"
-        run: python3 .codex/scripts/check_refactor_line_delta.py --check-diff --baseline-file docs/architecture/refactor-baseline.md
+        run: python3 .agents/scripts/check_agents_hygiene.py
+      - name: Check dual runtime
+        run: python3 .agents/scripts/check_dual_runtime.py
+      - name: Check context ledger freshness
+        run: python3 .agents/scripts/forge.py context scan --check
+      - name: Check repo budget
+        run: python3 .agents/scripts/check_repo_budget.py
       - name: Compile factory scripts
-        run: python3 -m compileall .codex/scripts
-      - name: Unit test gate validation logic
-        run: python3 -m unittest discover -s .codex/scripts/tests -p "test_*.py"
-      - name: Validate artifact contract (scaffold-safe)
-        run: python3 .codex/scripts/validate_artifacts.py --allow-missing-run
+        run: python3 -m compileall .agents/scripts
+      - name: Gate regression tests
+        run: |
+          python3 -m pip install --quiet pytest
+          python3 -m pytest .agents/tests -q
+      - name: Smoke test forge init
+        run: |
+          python3 .agents/scripts/forge.py init --name smoke --target "$RUNNER_TEMP/forge-smoke"
+          python3 .agents/scripts/check_dual_runtime.py "$RUNNER_TEMP/forge-smoke"
+          python3 .agents/scripts/check_factory_scaffold.py "$RUNNER_TEMP/forge-smoke"

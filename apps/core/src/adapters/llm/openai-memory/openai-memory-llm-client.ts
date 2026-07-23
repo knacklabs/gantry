@@ -20,6 +20,7 @@ import {
   hasGatewayMemoryAccess,
   resolveGatewayMemoryInjection,
 } from './memory-gateway-injection.js';
+import { createOpenAiChatBatchCapability } from './openai-chat-batch.js';
 
 /**
  * Route-aware memory LLM client for the OpenAI response family. It speaks the
@@ -32,6 +33,7 @@ export function createOpenAiMemoryLlmClient(): MemoryLlmClient {
   return {
     isConfigured: hasGatewayMemoryAccess,
     query: runOpenAiMemoryQuery,
+    batch: createOpenAiChatBatchCapability(),
   };
 }
 

@@ -141,6 +141,7 @@ export function createChannelPersistenceHandlers({
   };
 
   return {
+    groupJoinOnboarding: resolved.groupJoinOnboarding,
     ensureMessageRoute: ensureConfiguredConversationRoute,
     onMessage: async (chatJid: string, msg: NewMessage) => {
       const canRoute = await ensureConfiguredConversationRoute(chatJid, msg);

@@ -22,8 +22,14 @@ import {
 } from './ipc-auth-validation.js';
 import { parseInteractionDescriptor } from './ipc-interaction-descriptor-parsing.js';
 import { sanitizeIpcToolInput } from './ipc-tool-input-sanitization.js';
+import { PERMISSION_CLASSIFIER_MAX_STRING_LENGTH } from './permission-classifier-prompt.js';
 
 const IPC_REQUEST_ID_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/;
+export type ParsedPermissionIpcRequest = PermissionApprovalRequest & {
+  classifierToolInput?: Record<string, unknown>;
+  toolInputRedactedPaths?: string[];
+  toolInputTruncatedPaths?: string[];
+};
 export interface ParsedIpcMessage {
   type: 'message';
   appId?: string;
@@ -301,7 +307,7 @@ export function parseMemoryIpcRequest(
 export function parsePermissionIpcRequest(
   raw: unknown,
   sourceAgentFolder: string,
-): PermissionApprovalRequest {
+): ParsedPermissionIpcRequest {
   if (!isPlainObject(raw)) throw new Error('Invalid permission IPC payload');
   const binding = validateIpcAuthRequest(
     raw,
@@ -399,6 +405,14 @@ export function parsePermissionIpcRequest(
     altered: toolInputSanitized,
     alteredPaths: toolInputSanitizedPaths,
   } = sanitizeIpcToolInput(raw.toolInput);
+  const {
+    toolInput: classifierToolInput,
+    redactedPaths: toolInputRedactedPaths,
+    truncatedPaths: toolInputTruncatedPaths,
+  } = sanitizeIpcToolInput(
+    raw.toolInput,
+    PERMISSION_CLASSIFIER_MAX_STRING_LENGTH,
+  );
   const suggestions = parsePermissionApprovalUpdates(raw.suggestions);
   const semanticCapabilityDefinitions =
     parseSemanticCapabilityDefinitionsRecord(raw.semanticCapabilityDefinitions);
@@ -436,6 +450,9 @@ export function parsePermissionIpcRequest(
     ...(toolInput ? { toolInput } : {}),
     ...(toolInputSanitized ? { toolInputSanitized: true } : {}),
     ...(toolInputSanitizedPaths.length > 0 ? { toolInputSanitizedPaths } : {}),
+    ...(classifierToolInput ? { classifierToolInput } : {}),
+    ...(toolInputRedactedPaths.length > 0 ? { toolInputRedactedPaths } : {}),
+    ...(toolInputTruncatedPaths.length > 0 ? { toolInputTruncatedPaths } : {}),
     ...(semanticCapabilityDefinitions ? { semanticCapabilityDefinitions } : {}),
     ...(suggestions ? { suggestions } : {}),
     ...(decisionOptions ? { decisionOptions } : {}),

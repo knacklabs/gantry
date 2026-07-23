@@ -1,0 +1,16 @@
+{
+  "artifact": "signal",
+  "phase": "any delegated phase",
+  "recorded_by": "forge signal raise --kind <k> --by <agent> -m \"...\"",
+  "generated_by": ["implementer", "autoreview", "functional-checker", "docs-decomposer", "griller"],
+  "required": {
+    "generated_by": "str",
+    "kind": "str",
+    "message": "str"
+  },
+  "optional": {
+    "refs": "list",
+    "task": "str"
+  },
+  "kind_note": "kind: contradiction | confusion | blocked | scope-change. A signal is an EVENT — the worker pauses that thread after raising; the orchestrator resolves and resumes. Open signals block pr_ready."
+}

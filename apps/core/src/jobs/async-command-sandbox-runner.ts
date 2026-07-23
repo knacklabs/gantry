@@ -9,6 +9,7 @@ import type {
 } from '../shared/runner-sandbox-provider.js';
 import { NEUTRAL_CA_TRUST_ENV_KEYS } from '../shared/neutral-ca-trust-env.js';
 import { nowIso } from '../shared/time/datetime.js';
+import { buildToolNetworkEnv } from '../shared/tool-network-env.js';
 import type {
   AsyncCommandLaunchControl,
   AsyncCommandProcessHandle,
@@ -76,11 +77,6 @@ export async function runSandboxedAsyncCommand(
     launchControl?: AsyncCommandLaunchControl;
   },
 ): Promise<{ outputSummary?: string; errorSummary?: string }> {
-  if (!provider.enforcing) {
-    throw new Error(
-      'Async command execution requires an enforcing runner sandbox.',
-    );
-  }
   if (input.signal.aborted) throw new Error('Command aborted.');
   const configFilePath = input.launchControl
     ? path.join(input.launchControl.directory, 'sandbox-runtime.json')
@@ -106,7 +102,10 @@ export async function runSandboxedAsyncCommand(
     ],
     protectedReadPaths: input.protectedReadPaths,
     protectedWritePaths: input.protectedWritePaths,
-    resourceLimits: input.resourceLimits,
+    // RLIMIT_NPROC is user-wide, so it cannot safely cap one direct process tree.
+    resourceLimits: provider.enforcing
+      ? input.resourceLimits
+      : { ...input.resourceLimits, maxProcesses: 0 },
     sandboxProfile: {
       id: 'async-command',
       network: input.egressProxyUrl ? 'required' : 'none',
@@ -122,6 +121,19 @@ export async function runSandboxedAsyncCommand(
     },
     env: {
       ...input.env,
+      ...(!provider.enforcing && input.egressProxyUrl
+        ? {
+            ...buildToolNetworkEnv({
+              proxyUrl: input.egressProxyUrl,
+              caBundlePath: input.env.NODE_EXTRA_CA_CERTS,
+              noProxy: {
+                NO_PROXY: input.env.NO_PROXY,
+                no_proxy: input.env.no_proxy,
+              },
+            }),
+            GANTRY_EGRESS_PROXY_URL: input.egressProxyUrl,
+          }
+        : {}),
       GANTRY_ASYNC_COMMAND_SCRIPT: input.command,
       ...(input.launchControl
         ? {

@@ -27,7 +27,7 @@ import {
   scheduledPermissionSuggestionPlan,
 } from './permission-suggestions.js';
 import { sandboxBlockedRuntimeEvents } from './sandbox-events.js';
-import { createSdkSandboxNetworkGate } from './sdk-sandbox-network-gate.js';
+import { decideSdkSandboxNetworkAccess } from './sdk-sandbox-network-gate.js';
 import { readExternalMcpAllowedTools } from './external-mcp-tool-rules.js';
 import { applyBashTrustEnv } from './bash-trust-env.js';
 import { log } from './logging.js';
@@ -68,7 +68,6 @@ export function createCanUseToolCallback(
   const toolExecutionClassifier = new ToolExecutionClassifier();
   const toolExecutionPolicy = new ToolExecutionPolicyService();
   const liveApprovedRules = new Set<string>();
-  const sdkSandboxNetworkGate = createSdkSandboxNetworkGate(input.agentInput);
   const skillActionCapabilities = readRunnerSkillActionCapabilities();
   const currentAllowedToolRules = (): string[] => [
     ...(input.agentInput.allowedTools ?? []),
@@ -90,6 +89,11 @@ export function createCanUseToolCallback(
     ...liveApprovedRules,
   ];
   const lockedAccessPreset = input.capabilities.permissionMode === 'deny';
+  // Locked-preset and fixed-image agents run without the capability request
+  // tools; recovery guidance must say "provision before the run" instead of
+  // instructing a hidden request tool.
+  const capabilityRequestToolsHidden =
+    lockedAccessPreset || input.agentInput.hideAuthorityTools === true;
   const denyLockedToolUse = (toolName: string) => {
     const message =
       'capability not provisioned: this agent runs with a locked access preset and cannot request new tools, skills, MCP servers, or permissions. Provision the capability before the run.';
@@ -215,13 +219,6 @@ export function createCanUseToolCallback(
       permissionOpts.agentID?.trim() ||
       input.agentInput.agentId ||
       input.workspaceFolder;
-    const rememberAllowedTool = () =>
-      sdkSandboxNetworkGate.rememberAllowedTool(
-        toolName,
-        toolInput,
-        permissionOpts,
-        sdkApprovalPrincipal,
-      );
     const allowToolUse = (reason = 'allowed') => {
       emitJobToolActivity(
         input.agentInput,
@@ -233,9 +230,15 @@ export function createCanUseToolCallback(
           reason,
         },
       );
-      rememberAllowedTool();
       return { behavior: 'allow' as const, updatedInput: trustInput() };
     };
+
+    const sandboxNetworkAccessDecision = await decideSdkSandboxNetworkAccess({
+      toolName,
+      toolInput,
+      denylist: input.agentInput.egressDenylist ?? [],
+    });
+    if (sandboxNetworkAccessDecision) return sandboxNetworkAccessDecision;
 
     if (toolName === 'Agent') {
       const modelDenial = validateAgentToolInput(toolInput, currentModel);
@@ -319,14 +322,6 @@ export function createCanUseToolCallback(
         interrupt: false,
       };
     }
-    const sandboxNetworkAccessDecision = sdkSandboxNetworkGate.decide(
-      toolName,
-      toolInput,
-      permissionOpts,
-      sdkApprovalPrincipal,
-    );
-    if (sandboxNetworkAccessDecision) return sandboxNetworkAccessDecision;
-
     const yoloDenylistMatch = evaluateYoloModeDenylist({
       settings: input.agentInput.yoloMode,
       toolName,
@@ -361,6 +356,7 @@ export function createCanUseToolCallback(
       const toolDecision = toolExecutionPolicy.evaluate({
         request: toolExecutionRequest,
         autonomousAllowedToolRules: currentAutonomousAllowedToolRules(),
+        capabilityRequestToolsHidden,
       });
       if (toolDecision.status === 'allow' && !yoloDenylistReason) {
         log(`Autonomous run allowed tool ${toolName}: ${toolDecision.reason}`);
@@ -458,7 +454,6 @@ export function createCanUseToolCallback(
         )) {
           liveApprovedRules.add(rule);
         }
-        rememberAllowedTool();
         emitJobToolActivity(
           input.agentInput,
           input.getNewSessionId,
@@ -520,6 +515,7 @@ export function createCanUseToolCallback(
     const currentToolDecision = toolExecutionPolicy.evaluate({
       request: toolExecutionRequest,
       allowedToolRules: currentAllowedToolRules(),
+      capabilityRequestToolsHidden,
     });
     if (currentToolDecision.status === 'allow' && !yoloDenylistReason) {
       log(
@@ -596,7 +592,6 @@ export function createCanUseToolCallback(
       )) {
         liveApprovedRules.add(rule);
       }
-      rememberAllowedTool();
       emitJobToolActivity(
         input.agentInput,
         input.getNewSessionId,

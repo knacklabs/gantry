@@ -20,20 +20,6 @@ export interface ToolAccessRequirementPreflightResult {
   missingTools: string[];
 }
 
-export function normalizeToolAccessRequirementsInput(
-  value: unknown,
-  fieldName = 'toolAccessRequirements',
-): string[] | undefined {
-  if (value === undefined) return undefined;
-  if (!Array.isArray(value)) {
-    throw new ApplicationError(
-      'INVALID_REQUEST',
-      `${fieldName} must be an array of readable tool rules.`,
-    );
-  }
-  return normalizeToolAccessRequirements(value, fieldName);
-}
-
 export function normalizeToolAccessRequirements(
   values: readonly unknown[],
   fieldName = 'toolAccessRequirements',
@@ -63,20 +49,6 @@ export function normalizeToolAccessRequirements(
     }
   }
   return out;
-}
-
-export function normalizeRequiredMcpServersInput(
-  value: unknown,
-  fieldName = 'requiredMcpServers',
-): string[] | undefined {
-  if (value === undefined) return undefined;
-  if (!Array.isArray(value)) {
-    throw new ApplicationError(
-      'INVALID_REQUEST',
-      `${fieldName} must be an array of MCP server names or ids.`,
-    );
-  }
-  return normalizeRequiredMcpServers(value, fieldName);
 }
 
 export function normalizeRequiredMcpServers(

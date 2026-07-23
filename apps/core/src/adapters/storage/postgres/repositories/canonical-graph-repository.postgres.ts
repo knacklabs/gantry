@@ -1,9 +1,10 @@
-import { asc, eq, sql } from 'drizzle-orm';
+import { and, asc, eq, sql } from 'drizzle-orm';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 
 import type { ChatInfo } from '../../../../domain/repositories/domain-types.js';
 import { nowIso as currentIso } from '../../../../shared/time/datetime.js';
 import {
+  fallbackProviderAccountId,
   normalizeProviderId,
   providerIdForJid as resolveProviderIdForJid,
 } from '../../../../channels/provider-registry.js';
@@ -207,19 +208,70 @@ export class PostgresCanonicalGraphRepository {
       name?: string | null;
       channel?: string | null;
       agentFolder?: string | null;
+      existingConversationId?: string | null;
       isGroup?: boolean | null;
       timestamp?: string | null;
       providerAccountId?: string | null;
     } = {},
     executor: CanonicalExecutor = this.db,
   ): Promise<string> {
-    await this.ensureApp(executor);
     const providerId =
       normalizeProviderId(input.channel || providerIdForJid(jid)) || 'app';
     const providerAccountId =
       input.providerAccountId ??
-      `channel-providerAccount:${CANONICAL_APP_ID}:${providerId}`;
-    const conversationId = conversationIdForJid(jid, input.providerAccountId);
+      fallbackProviderAccountId(CANONICAL_APP_ID, providerId);
+    const canonicalConversationId = conversationIdForJid(
+      jid,
+      input.providerAccountId,
+    );
+    const existingConversationId = input.existingConversationId?.trim();
+    let conversationId = canonicalConversationId;
+    if (
+      existingConversationId &&
+      existingConversationId !== canonicalConversationId
+    ) {
+      const c = pgSchema.conversationsPostgres;
+      const rows = await executor
+        .select({
+          appId: c.appId,
+          providerAccountId: c.providerAccountId,
+          externalRefJson: c.externalRefJson,
+        })
+        .from(c)
+        .where(eq(c.id, existingConversationId))
+        .limit(1);
+      const existing = rows[0];
+      if (existing) {
+        const ref = parseJson<Record<string, unknown>>(
+          existing.externalRefJson,
+          {},
+        );
+        const externalConversationId = externalConversationIdForJid(jid);
+        const externalIds = [
+          [ref.jid, jid],
+          [ref.value, externalConversationId],
+          [ref.externalConversationId, externalConversationId],
+        ].filter(([value]) => typeof value === 'string');
+        const matchesRoute =
+          existing.appId === CANONICAL_APP_ID &&
+          existing.providerAccountId === providerAccountId &&
+          externalIds.length > 0 &&
+          externalIds.every(
+            ([value, expected]) => value === expected || value === jid,
+          ) &&
+          (typeof ref.providerId !== 'string' ||
+            normalizeProviderId(ref.providerId) === providerId) &&
+          (typeof ref.providerAccountId !== 'string' ||
+            ref.providerAccountId === providerAccountId);
+        if (!matchesRoute) {
+          throw new Error(
+            `Existing conversation ${existingConversationId} does not match route ${jid} for app ${CANONICAL_APP_ID} and provider account ${providerAccountId}`,
+          );
+        }
+        conversationId = existingConversationId;
+      }
+    }
+    await this.ensureApp(executor);
     const title = input.name || jid;
     const now = input.timestamp || currentIso();
     const hasKnownKind = input.isGroup !== undefined && input.isGroup !== null;
@@ -438,6 +490,24 @@ export class PostgresCanonicalGraphRepository {
       .where(eq(pgSchema.conversationsPostgres.id, conversationId))
       .limit(1);
     return rows[0]?.providerAccountId;
+  }
+
+  async findConversationIdForJid(
+    jid: string,
+    executor: CanonicalExecutor = this.db,
+  ): Promise<string | undefined> {
+    const conversations = pgSchema.conversationsPostgres;
+    const rows = await executor
+      .select({ id: conversations.id })
+      .from(conversations)
+      .where(
+        and(
+          eq(conversations.appId, CANONICAL_APP_ID),
+          eq(sql<string>`${conversations.externalRefJson}::jsonb->>'jid'`, jid),
+        ),
+      )
+      .limit(1);
+    return rows[0]?.id;
   }
 
   async listConversationIds(): Promise<string[]> {

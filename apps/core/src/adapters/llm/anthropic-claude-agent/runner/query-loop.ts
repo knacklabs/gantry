@@ -2,7 +2,6 @@ import {
   query,
   type EffortLevel,
   type HookInput,
-  type PostToolUseHookInput,
   type ThinkingConfig,
 } from '@anthropic-ai/claude-agent-sdk';
 import { randomUUID } from 'node:crypto';
@@ -26,6 +25,7 @@ import {
   normalizeFilesystemSandboxPaths,
   readLocalCliCredentialDirectories,
   readProtectedFilesystemSandboxPaths,
+  requireSdkSandboxEgressProxyPort,
 } from './filesystem-sandbox.js';
 import { createSafetyPreToolUseHook } from './protected-capability-hook.js';
 import {
@@ -79,39 +79,13 @@ import {
 } from '../../../../runner/tool-gate-core.js';
 import { canonicalGantryToolRuleName } from '../../../../shared/gantry-tool-facades.js';
 import { emitJobToolActivity } from './tool-permission-events.js';
+import { recordSuccessfulToolUse } from './query-tool-success-ledger.js';
+
+export { recordSuccessfulToolUse } from './query-tool-success-ledger.js';
 
 interface RunQueryOptions {
   enableIpcFollowups?: boolean;
   persistSdkSession?: boolean;
-}
-
-function toolResponseIsError(response: unknown): boolean {
-  if (Array.isArray(response)) return response.some(toolResponseIsError);
-  if (!response || typeof response !== 'object') return false;
-  const value = response as {
-    is_error?: unknown;
-    isError?: unknown;
-    status?: unknown;
-    error?: unknown;
-    content?: unknown;
-  };
-  return (
-    value.is_error === true ||
-    value.isError === true ||
-    value.status === 'error' ||
-    Boolean(value.error) ||
-    toolResponseIsError(value.content)
-  );
-}
-
-export function recordSuccessfulToolUse(
-  hookInput: Pick<PostToolUseHookInput, 'tool_name' | 'tool_response'>,
-  toolSuccessLedger: RunScopedToolSuccessLedger,
-): void {
-  if (toolResponseIsError(hookInput.tool_response)) return;
-  toolSuccessLedger.recordSuccess(
-    canonicalGantryToolRuleName(hookInput.tool_name),
-  );
 }
 
 function localCliCredentialDirectoriesFromRuntimeAccess(
@@ -287,6 +261,9 @@ export async function runQuery(
       : buildSdkFilesystemSandbox(protectedFilesystemDenyWritePaths, {
           denyReadPaths: protectedFilesystemDenyReadPaths,
           denyWritePaths: protectedFilesystemDenyWritePaths,
+          httpProxyPort: requireSdkSandboxEgressProxyPort(
+            process.env.GANTRY_EGRESS_PROXY_URL,
+          ),
         });
   const workspaceFolder = agentInput.workspaceFolder;
   const enabledSdkSkills = readClaudeSdkSkillNamesFromEnv();
@@ -313,6 +290,7 @@ export async function runQuery(
     runHandle: process.env.GANTRY_AGENT_RUN_HANDLE,
     runId: agentInput.runId,
     parentTaskId: agentInput.parentTaskId,
+    callableAgentManifest: agentInput.callableAgentManifest,
     runLeaseToken: agentInput.runLeaseToken,
     runLeaseFencingVersion: agentInput.runLeaseFencingVersion,
     liveStopActionToken: process.env.GANTRY_LIVE_STOP_ACTION_TOKEN,
@@ -384,6 +362,9 @@ export async function runQuery(
       allowedTools: [...capabilities.allowedTools],
       disallowedTools: [...capabilities.disallowedTools],
       env: isolatedSdkEnv,
+      // Without this the subprocess's own stderr is lost and startup failures
+      // surface only as "Claude Code process exited with code 1".
+      stderr: (data: string) => log(`[claude-code stderr] ${data}`),
       ...(claudeCodeExecutable
         ? { pathToClaudeCodeExecutable: claudeCodeExecutable }
         : {}),
@@ -490,7 +471,14 @@ export async function runQuery(
         message.type === 'system'
           ? `system/${(message as { subtype?: string }).subtype}`
           : message.type;
-      log(`[msg #${messageCount}] type=${msgType}`);
+      // api_retry/auth errors carry the reason in the payload; without it a
+      // failing turn logs an undiagnosable retry loop.
+      const errorDetail = (
+        message as { error?: unknown; error_status?: unknown }
+      ).error_status
+        ? ` error_status=${String((message as { error_status?: unknown }).error_status)} error=${String((message as { error?: unknown }).error ?? '')}`
+        : '';
+      log(`[msg #${messageCount}] type=${msgType}${errorDetail}`);
       if (!firstSdkMessageLogged) {
         firstSdkMessageLogged = true;
         firstSdkEventMs = elapsedMs();
@@ -637,7 +625,7 @@ export async function runQuery(
           message,
           fallbackModel: configuredModel,
         });
-        const contextUsage = await readContextUsage(sdkQuery);
+        const contextUsagePromise = readContextUsage(sdkQuery);
         const continuedByFollowup = steeringGate.pendingCount() > 0;
         writeOutput({
           status: 'success',
@@ -645,7 +633,6 @@ export async function runQuery(
           newSessionId,
           ...(primeToolAttempts.length > 0 ? { primeToolAttempts } : {}),
           ...(continuedByFollowup ? { continuedByFollowup: true } : {}),
-          ...(contextUsage ? { contextUsage } : {}),
           ...(usage
             ? {
                 usage,
@@ -665,6 +652,16 @@ export async function runQuery(
         visibleTextSinceLastResult = '';
         pendingStructuredToPartialBoundary = false;
         steeringGate.markTurnBoundary();
+        const contextUsage = await contextUsagePromise;
+        if (contextUsage) {
+          writeOutput({
+            status: 'success',
+            result: null,
+            newSessionId,
+            runtimeEventOnly: true,
+            contextUsage,
+          });
+        }
       }
     }
   } finally {

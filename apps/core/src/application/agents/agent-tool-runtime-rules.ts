@@ -9,10 +9,12 @@ import {
   BROWSER_PROJECTED_MCP_RULE_REJECTION_REASON,
   isBrowserActionMcpToolRule,
   isProjectedBrowserMcpToolRule,
+  isReviewedMcpPatternRule,
   isThirdPartyMcpToolRule,
   validateReadableAgentToolRule,
 } from '../../shared/agent-tool-references.js';
 import {
+  mcpPatternBindingRuntimeRules,
   projectToolCatalogItemToRuntimeRules,
   semanticCapabilityFromToolCatalogItem,
   type SemanticCapabilityDefinition,
@@ -32,6 +34,7 @@ export interface AgentToolRuntimeRuleResolutionInput {
 export interface AgentToolRuntimePolicy {
   rules: string[];
   runtimeAccess: CapabilityRuntimeAccess[];
+  semanticCapabilities: SemanticCapabilityDefinition[];
   reviewedMcpReadBindings: ReviewedMcpReadBinding[];
 }
 
@@ -55,10 +58,9 @@ export function reviewedMcpReadBindingsForRuntimeAccess(input: {
     const capability = readCapabilities.get(access.selectedCapabilityId);
     if (!capability) continue;
     const reviewedPatterns = new Set(
-      capability.implementationBindings
-        .filter((binding) => binding.kind === 'mcp_tool')
-        .map((binding) => binding.mcpTool?.trim())
-        .filter((pattern): pattern is string => Boolean(pattern)),
+      capability.implementationBindings.flatMap((binding) =>
+        mcpPatternBindingRuntimeRules(binding),
+      ),
     );
     for (const toolPattern of access.allowedTools) {
       if (!reviewedPatterns.has(toolPattern)) continue;
@@ -144,6 +146,7 @@ export async function resolveAgentToolRuntimePolicy(
   return {
     rules,
     runtimeAccess,
+    semanticCapabilities,
     reviewedMcpReadBindings: reviewedMcpReadBindingsForRuntimeAccess({
       runtimeAccess,
       semanticCapabilities,
@@ -204,15 +207,18 @@ function projectCapabilityRuntimeAccess(
       });
       continue;
     }
-    if (binding.kind === 'mcp_tool' && binding.mcpTool?.trim()) {
-      access.push({
-        ...common,
-        sourceType: 'mcp_server',
-        reviewedServerId: mcpServerIdFromTool(binding.mcpTool) ?? 'unknown',
-        allowedTools: [binding.mcpTool.trim()],
-        credentialRefs: [],
-        networkHosts: [],
-      });
+    if (binding.kind === 'mcp_pattern') {
+      const patternRules = mcpPatternBindingRuntimeRules(binding);
+      if (patternRules.length > 0) {
+        access.push({
+          ...common,
+          sourceType: 'mcp_server',
+          reviewedServerId: binding.mcpServer?.trim() ?? 'unknown',
+          allowedTools: patternRules,
+          credentialRefs: [],
+          networkHosts: [],
+        });
+      }
       continue;
     }
     if (binding.kind === 'tool_rule' && binding.rule?.trim()) {
@@ -332,11 +338,6 @@ function stringList(values: readonly string[] | undefined): string[] {
   return [...out];
 }
 
-function mcpServerIdFromTool(toolName: string): string | undefined {
-  const match = /^mcp__([A-Za-z0-9_-]+)__/.exec(toolName.trim());
-  return match?.[1];
-}
-
 async function activeSkillActionProjectionKeys(
   input: AgentToolRuntimeRuleResolutionInput,
 ): Promise<Set<string> | undefined> {
@@ -415,6 +416,14 @@ export function validateAgentToolRuntimeRules(input: {
     );
   }
   for (const rule of input.rules) {
+    // Reviewed MCP pattern rules are projections from a reviewed mcp_pattern
+    // capability binding; they are valid at projection time only and stay
+    // rejected as durable raw grants by validateReadableAgentToolRule.
+    if (
+      input.allowProjectedThirdPartyMcpTools &&
+      isReviewedMcpPatternRule(rule)
+    )
+      continue;
     const validation = validateReadableAgentToolRule(rule);
     if (!validation.ok) {
       fail(rule, validation.reason);

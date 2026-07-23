@@ -1,7 +1,13 @@
-export type SessionRoute = {
-  sessionId: string;
-  action: 'get' | 'messages' | 'events' | 'wait' | 'runs';
-};
+export type SessionRoute =
+  | {
+      sessionId: string;
+      action: 'get' | 'messages' | 'events' | 'wait' | 'runs' | 'interactions';
+    }
+  | {
+      sessionId: string;
+      action: 'interaction-respond';
+      interactionId: string;
+    };
 
 export type JobRoute =
   | { jobId: string; action: 'pause' | 'resume' | 'trigger' }
@@ -33,9 +39,19 @@ export function parseSessionRoute(pathname: string): SessionRoute | null {
   if (baseMatch) {
     return { sessionId: decodeURIComponent(baseMatch[1]!), action: 'get' };
   }
-  const match = /^\/v1\/sessions\/([^/]+)\/(messages|events|wait)$/.exec(
-    pathname,
-  );
+  const respondMatch =
+    /^\/v1\/sessions\/([^/]+)\/interactions\/([^/]+)\/respond$/.exec(pathname);
+  if (respondMatch) {
+    return {
+      sessionId: decodeURIComponent(respondMatch[1]!),
+      action: 'interaction-respond',
+      interactionId: decodeURIComponent(respondMatch[2]!),
+    };
+  }
+  const match =
+    /^\/v1\/sessions\/([^/]+)\/(messages|events|wait|interactions)$/.exec(
+      pathname,
+    );
   const runsMatch = /^\/v1\/sessions\/([^/]+)\/runs$/.exec(pathname);
   if (runsMatch) {
     return {
@@ -46,7 +62,7 @@ export function parseSessionRoute(pathname: string): SessionRoute | null {
   if (!match) return null;
   return {
     sessionId: decodeURIComponent(match[1]!),
-    action: match[2] as SessionRoute['action'],
+    action: match[2] as 'messages' | 'events' | 'wait' | 'interactions',
   };
 }
 

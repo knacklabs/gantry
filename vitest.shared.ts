@@ -4,13 +4,15 @@ import { defineConfig } from 'vitest/config';
 interface VitestConfigOptions {
   include: string[];
   exclude?: string[];
+  fileParallelism?: boolean;
   withCoverage?: boolean;
 }
 
 export function makeVitestConfig(options: VitestConfigOptions) {
-  const { exclude, include, withCoverage = false } = options;
+  const { exclude, fileParallelism, include, withCoverage = false } = options;
   const testConfig: {
     exclude?: string[];
+    fileParallelism?: boolean;
     include: string[];
     setupFiles?: string[];
     testTimeout?: number;
@@ -23,6 +25,7 @@ export function makeVitestConfig(options: VitestConfigOptions) {
     };
   } = {
     exclude,
+    fileParallelism,
     include,
     setupFiles: ['apps/core/test/setup/runtime-env.ts'],
     testTimeout: 30_000,

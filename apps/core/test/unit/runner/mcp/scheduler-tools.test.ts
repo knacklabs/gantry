@@ -566,7 +566,7 @@ describe('scheduler MCP tools', () => {
     const { registerSchedulerTools } =
       await import('../../../../src/runner/mcp/tools/scheduler.js');
     const { schedulerJobConfirmationToken } =
-      await import('../../../../src/jobs/job-plan-formatter.js');
+      await import('../../../../src/shared/scheduler-job-plan.js');
     const tools = new Map<
       string,
       (

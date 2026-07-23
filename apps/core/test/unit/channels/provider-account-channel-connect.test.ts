@@ -88,6 +88,10 @@ describe('connectProviderAccountChannels', () => {
       inbound: true,
       interactionCallbacks: true,
     });
+    expect(create).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ appId: 'app-one' }),
+    );
     expect(channels[1].connect).toHaveBeenCalledWith({
       inbound: false,
       interactionCallbacks: false,

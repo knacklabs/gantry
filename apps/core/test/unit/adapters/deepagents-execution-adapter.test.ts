@@ -266,7 +266,7 @@ describe('DeepAgentsLangChainExecutionAdapter', () => {
     }
   });
 
-  it('uses stable prompt cache keys per conversation thread', async () => {
+  it('uses stable prompt cache keys per conversation thread and access fingerprint', async () => {
     const adapter = new DeepAgentsLangChainExecutionAdapter();
     const entry = catalogEntry('grok');
     const base = {
@@ -274,10 +274,14 @@ describe('DeepAgentsLangChainExecutionAdapter', () => {
       chatJid: 'conversation-1',
       isScheduledJob: true,
     };
-    const prepare = (threadId: string) =>
+    const prepare = (threadId: string, accessFingerprint = 'access:v2:first') =>
       adapter.prepare(
         prepareInput({
-          input: { ...base, threadId },
+          input: {
+            ...base,
+            threadId,
+            providerSessionAccessFingerprint: accessFingerprint,
+          },
           effectiveModel: entry.runnerModel,
           effectiveModelEntry: entry,
           modelCredentialProjection: projectionFor('xai'),
@@ -287,12 +291,16 @@ describe('DeepAgentsLangChainExecutionAdapter', () => {
     const first = await prepare('thread-a');
     const second = await prepare('thread-a');
     const otherThread = await prepare('thread-b');
+    const otherAccess = await prepare('thread-a', 'access:v2:changed');
 
     expect(first.env.GANTRY_DEEPAGENTS_PROMPT_CACHE_KEY).toBe(
       second.env.GANTRY_DEEPAGENTS_PROMPT_CACHE_KEY,
     );
     expect(first.env.GANTRY_DEEPAGENTS_PROMPT_CACHE_KEY).not.toBe(
       otherThread.env.GANTRY_DEEPAGENTS_PROMPT_CACHE_KEY,
+    );
+    expect(first.env.GANTRY_DEEPAGENTS_PROMPT_CACHE_KEY).not.toBe(
+      otherAccess.env.GANTRY_DEEPAGENTS_PROMPT_CACHE_KEY,
     );
   });
 

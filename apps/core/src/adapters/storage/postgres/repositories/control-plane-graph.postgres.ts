@@ -78,8 +78,10 @@ export async function ensureControlGraph(
     })
     .onConflictDoUpdate({
       target: pgSchema.agentsPostgres.id,
+      // Do not overwrite name on conflict: synthetic agents already have
+      // name === folder, and sessions ensured against a real onboarded agent
+      // must not clobber its human-assigned name.
       set: {
-        name: input.agentFolder || 'default',
         updatedAt: now,
       },
     });

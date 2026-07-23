@@ -4,6 +4,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import {
   CreateAgentRequestSchema,
   PutAgentProfileFileRequestSchema,
+  ReplaceAgentDelegatesRequestSchema,
   UpdateAgentRequestSchema,
 } from '@gantry/contracts';
 
@@ -23,7 +24,10 @@ import {
   getRuntimeStorage,
 } from '../../../adapters/storage/postgres/runtime-store.js';
 import { FileArtifactNotFoundError } from '../../../domain/file-artifacts/file-artifact.js';
-import { folderForAgentId } from '../../../domain/agent/agent-folder-id.js';
+import {
+  agentIdForFolder,
+  folderForAgentId,
+} from '../../../domain/agent/agent-folder-id.js';
 import { isValidWorkspaceFolder } from '../../../platform/workspace-folder.js';
 import { createProfileFileMirrorWriter } from '../../../platform/profile-file-mirror.js';
 import { RUNTIME_EVENT_TYPES } from '../../../domain/events/runtime-event-types.js';
@@ -36,10 +40,12 @@ import {
 } from '../handler-context.js';
 import { readJson, sendError, sendJson } from '../http.js';
 import { nowIso } from '../../../shared/time/datetime.js';
+import { writeControlDesiredState } from './settings.js';
 import {
-  loadRuntimeSettings,
-  writeDesiredRuntimeSettings,
-} from '../../../config/settings/runtime-settings.js';
+  agentIdentityMap,
+  loadAgentDelegateSettings,
+  resolveCallableDelegateRoster,
+} from './agent-delegate-route-helpers.js';
 
 const PROFILE_JSON_BODY_MAX_BYTES = MAX_PROFILE_CONTENT_BYTES * 6 + 64 * 1024;
 
@@ -158,15 +164,13 @@ export async function handleAgentRoutes(
     await getRuntimeStorage().repositories.agents.saveAgent(agent);
     let settingsWritten = false;
     if (parsed.data.agentHarness) {
-      await writeAgentHarnessSetting(
-        ctx.runtimeHome,
-        auth.appId as AppId,
+      await ctx.agentSettings.writeAgentHarnessSetting({
+        runtimeHome: ctx.runtimeHome,
+        appId: auth.appId as AppId,
         folder,
-        {
-          name: agent.name,
-          agentHarness: parsed.data.agentHarness,
-        },
-      );
+        name: agent.name,
+        agentHarness: parsed.data.agentHarness,
+      });
       settingsWritten = true;
     }
     if (!settingsWritten)
@@ -217,6 +221,139 @@ export async function handleAgentRoutes(
     } catch (error) {
       if (!sendApplicationError(res, error)) throw error;
     }
+    return true;
+  }
+
+  const delegatesMatch = pathname.match(/^\/v1\/agents\/([^/]+)\/delegates$/);
+  if (delegatesMatch) {
+    const auth = authorizeControlRequest(req, res, ctx.keys, ['agents:admin']);
+    if (!auth) return true;
+    const appId = auth.appId as AppId;
+    const agentId = decodeURIComponent(delegatesMatch[1]) as AgentId;
+    const repositories = getRuntimeStorage().repositories;
+    const orchestrator = await repositories.agents.getAgent(agentId);
+    if (!orchestrator || orchestrator.appId !== appId) {
+      sendError(res, 404, 'NOT_FOUND', 'Agent not found');
+      return true;
+    }
+    const folder = folderForAgentId(orchestrator.id);
+    if (!folder) {
+      sendError(
+        res,
+        400,
+        'INVALID_REQUEST',
+        'Agent does not have a settings folder.',
+      );
+      return true;
+    }
+
+    if (req.method === 'GET') {
+      const { settings, revision } = await loadAgentDelegateSettings(
+        ctx,
+        appId,
+      );
+      const delegates = settings.agents[folder]?.delegates ?? [];
+      sendJson(res, 200, {
+        agentId,
+        revision,
+        delegates,
+        resolved: await resolveCallableDelegateRoster({
+          appId,
+          orchestrator,
+          folder,
+          delegates,
+          settings,
+          conversationRoutes: ctx.app.getConversationRoutes(),
+        }),
+      });
+      return true;
+    }
+
+    if (req.method === 'PUT') {
+      if (orchestrator.status !== 'active') {
+        sendError(
+          res,
+          400,
+          'INVALID_REQUEST',
+          'Delegates can only be updated for active agents.',
+        );
+        return true;
+      }
+      const parsed = ReplaceAgentDelegatesRequestSchema.safeParse(
+        await readJson(req),
+      );
+      if (!parsed.success) {
+        sendError(res, 400, 'INVALID_REQUEST', 'Invalid delegates update');
+        return true;
+      }
+      const agents = await repositories.agents.listAgents(appId);
+      const byIdentity = agentIdentityMap(agents);
+      const seen = new Set<string>();
+      const canonicalDelegates: string[] = [];
+      for (const delegate of parsed.data.delegates) {
+        const target = byIdentity.get(delegate);
+        if (!target) {
+          sendError(
+            res,
+            400,
+            'INVALID_REQUEST',
+            `Delegate ${delegate} is not a registered agent in this app.`,
+          );
+          return true;
+        }
+        if (target.id === orchestrator.id) {
+          sendError(
+            res,
+            400,
+            'INVALID_REQUEST',
+            'An agent cannot delegate to itself.',
+          );
+          return true;
+        }
+        if (seen.has(String(target.id))) {
+          sendError(
+            res,
+            400,
+            'INVALID_REQUEST',
+            `Delegate ${delegate} resolves to a duplicate agent.`,
+          );
+          return true;
+        }
+        seen.add(String(target.id));
+        canonicalDelegates.push(
+          folderForAgentId(target.id) ?? String(target.id),
+        );
+      }
+
+      const { settings, revision } = await loadAgentDelegateSettings(
+        ctx,
+        appId,
+      );
+      const configuredOrchestrator = settings.agents[folder];
+      if (!configuredOrchestrator) {
+        sendError(
+          res,
+          409,
+          'SETTINGS_NOT_CONFIGURED',
+          'Agent is not present in desired settings. Seed desired state through /v1/settings/desired-state before updating delegates.',
+        );
+        return true;
+      }
+      configuredOrchestrator.delegates = canonicalDelegates;
+      await writeControlDesiredState({
+        res,
+        ctx,
+        key: auth,
+        body: {
+          settings: ctx.agentSettings.serializeRevisionDocument(settings),
+          expectedRevision: parsed.data.expectedRevision ?? revision,
+        },
+      });
+      return true;
+    }
+
+    res.setHeader('Allow', 'GET, PUT');
+    sendError(res, 405, 'METHOD_NOT_ALLOWED', 'Method not allowed');
     return true;
   }
 
@@ -391,15 +528,13 @@ export async function handleAgentRoutes(
     if (parsed.data.agentHarness && updated.status === 'active') {
       const folder = folderForAgentId(updated.id);
       if (folder) {
-        await writeAgentHarnessSetting(
-          ctx.runtimeHome,
-          auth.appId as AppId,
+        await ctx.agentSettings.writeAgentHarnessSetting({
+          runtimeHome: ctx.runtimeHome,
+          appId: auth.appId as AppId,
           folder,
-          {
-            name: updated.name,
-            agentHarness: parsed.data.agentHarness,
-          },
-        );
+          name: updated.name,
+          agentHarness: parsed.data.agentHarness,
+        });
         settingsWritten = true;
       }
     }
@@ -447,37 +582,6 @@ function agentToResponse(ctx: ControlRouteContext, agent: Agent) {
     createdAt: agent.createdAt,
     updatedAt: agent.updatedAt,
   };
-}
-
-async function writeAgentHarnessSetting(
-  runtimeHome: string,
-  appId: AppId,
-  folder: string,
-  input: {
-    name: string;
-    agentHarness: 'auto' | 'anthropic_sdk' | 'deepagents';
-  },
-): Promise<void> {
-  const settings = loadRuntimeSettings(runtimeHome);
-  const previousSettings = structuredClone(settings);
-  const existing = settings.agents[folder];
-  settings.agents[folder] = {
-    ...existing,
-    name: input.name,
-    folder,
-    bindings: existing?.bindings ?? {},
-    sources: existing?.sources ?? { skills: [], mcpServers: [], tools: [] },
-    capabilities: existing?.capabilities ?? [],
-    accessPreset: existing?.accessPreset ?? 'full',
-    agentHarness: input.agentHarness,
-  };
-  await writeDesiredRuntimeSettings({
-    runtimeHome,
-    settings,
-    previousSettings,
-    appId,
-    createdBy: 'control-api:agent-harness',
-  });
 }
 
 async function agentBoundConversations(input: {

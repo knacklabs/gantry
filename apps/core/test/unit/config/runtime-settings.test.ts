@@ -6,10 +6,12 @@ import { describe, expect, it, vi } from 'vitest';
 
 import {
   createDefaultRuntimeSettings,
+  ensureConfiguredAgent,
   ensureConfiguredConversationBinding,
   loadRuntimeSettings,
   mirrorAgentToolRulesToRuntimeSettings,
   parseRuntimeSettings,
+  readRuntimeObserverSettingsSnapshot,
   saveRuntimeSettings,
   withRuntimeModelAliases,
 } from '@core/config/settings/runtime-settings.js';
@@ -17,12 +19,19 @@ import { renderRuntimeSettingsYaml } from '@core/config/settings/runtime-setting
 import { validateLoadedRuntimeSettings } from '@core/config/settings/runtime-settings-validation.js';
 import { settingsFilePath } from '@core/config/settings/runtime-home.js';
 import { addActiveMcpSourcesToRuntimeSettings } from '@core/config/settings/restart-sync.js';
-import { runSettingsCommand } from '@core/cli/settings.js';
+import {
+  reportWorkstationSettingsImportOutcome,
+  runSettingsCommand,
+} from '@core/cli/settings.js';
 import {
   deriveBindingsFromConversationInstalls,
   flattenConversationInstalls,
 } from '@core/config/settings/runtime-settings-binding-derivation.js';
 import type { RuntimeConfiguredConversation } from '@core/config/settings/runtime-settings-types.js';
+import {
+  parseSimpleYamlObject,
+  quoteYamlString,
+} from '@core/config/settings/yaml.js';
 
 function emptySources() {
   return { skills: [], mcpServers: [], tools: [] };
@@ -34,6 +43,7 @@ describe('runtime settings', () => {
     settings.agents.main_agent = {
       name: 'ReAgent',
       folder: 'main_agent',
+      delegates: [],
       bindings: {},
       sources: emptySources(),
       capabilities: [{ id: 'mcp.caw-ats.access', version: '1' }],
@@ -138,6 +148,7 @@ conversations:
       agent_two:
         provider_account: slack_two
         added_at: 2026-05-02T00:00:00.000Z
+        permission_mode: auto_strict
 `);
 
     expect(Object.keys(parsed.providerAccounts)).toEqual([
@@ -158,6 +169,20 @@ conversations:
       parseRuntimeSettings(renderRuntimeSettingsYaml(parsed)).conversations
         .shared_channel.installedAgents.agent_two.addedAt,
     ).toBe('2026-05-02T00:00:00.000Z');
+    expect(
+      parseRuntimeSettings(renderRuntimeSettingsYaml(parsed)).conversations
+        .shared_channel.installedAgents.agent_two.permissionMode,
+    ).toBe('auto_strict');
+    expect(() =>
+      parseRuntimeSettings(
+        renderRuntimeSettingsYaml(parsed).replace(
+          'permission_mode: auto_strict',
+          'permission_mode: always',
+        ),
+      ),
+    ).toThrow(
+      'conversations.shared_channel.installed_agents.agent_two.permission_mode must be one of ask, auto, or auto_strict',
+    );
     expect(renderRuntimeSettingsYaml(parsed)).toContain(
       'signing_secret_ref: "gantry-secret:SLACK_ONE_SIGNING_SECRET"',
     );
@@ -169,6 +194,7 @@ conversations:
     settings.agents.agent_one = {
       name: 'One',
       folder: 'agent_one',
+      delegates: [],
       bindings: {},
       sources: emptySources(),
       capabilities: [],
@@ -628,15 +654,19 @@ provider_accounts:
     expect(parsed.agent.recurringJobDefaultModel).toBe('opus-4.6');
   });
 
-  it('round-trips per-agent mcp tool scope through settings.yaml', () => {
+  it('round-trips per-agent source status and mcp tool scope through settings.yaml', () => {
     const settings = createDefaultRuntimeSettings();
     settings.agents.main_agent = {
       name: 'Main',
       folder: 'main_agent',
+      delegates: [],
       bindings: {},
       sources: {
-        skills: [],
-        mcpServers: [{ id: 'github', tools: ['read_*'] }],
+        skills: [{ id: 'skill:retired', status: 'disabled' }],
+        mcpServers: [
+          { id: 'github', tools: ['read_*'] },
+          { id: 'mcp:retired', status: 'disabled' },
+        ],
         tools: [],
       },
       capabilities: [],
@@ -645,11 +675,67 @@ provider_accounts:
     const yaml = renderRuntimeSettingsYaml(settings);
     expect(yaml).toContain('mcp_servers:');
     expect(yaml).toContain('tools:');
+    expect(yaml).toContain('status: disabled');
 
     const parsed = parseRuntimeSettings(yaml);
-    expect(parsed.agents.main_agent.sources.mcpServers).toEqual([
-      { id: 'github', tools: ['read_*'] },
+    expect(parsed.agents.main_agent.sources).toEqual({
+      skills: [{ id: 'skill:retired', status: 'disabled' }],
+      mcpServers: [
+        { id: 'github', tools: ['read_*'] },
+        { id: 'mcp:retired', status: 'disabled' },
+      ],
+      tools: [],
+    });
+  });
+
+  it('rejects unsupported per-agent source status', () => {
+    expect(() =>
+      parseRuntimeSettings(`agents:
+  main_agent:
+    name: Main
+    access:
+      sources:
+        skills:
+          - id: skill:retired
+            status: removed
+`),
+    ).toThrow('status must be active or disabled');
+  });
+
+  it('defaults, renders, and parses per-agent delegates', () => {
+    const settings = createDefaultRuntimeSettings();
+    ensureConfiguredAgent(settings, {
+      agentId: 'main_agent',
+      agentName: 'Main',
+    });
+    expect(settings.agents.main_agent.delegates).toEqual([]);
+    expect(renderRuntimeSettingsYaml(settings)).not.toContain('delegates:');
+
+    settings.agents.main_agent.delegates = ['researcher', 'future_agent'];
+    const yaml = renderRuntimeSettingsYaml(settings);
+    expect(yaml).toContain(
+      '    delegates:\n      - researcher\n      - future_agent',
+    );
+    expect(parseRuntimeSettings(yaml).agents.main_agent.delegates).toEqual([
+      'researcher',
+      'future_agent',
     ]);
+    expect(
+      parseRuntimeSettings('agents:\n  main_agent:\n    name: Main\n').agents
+        .main_agent.delegates,
+    ).toEqual([]);
+  });
+
+  it('rejects non-string per-agent delegates', () => {
+    expect(() =>
+      parseRuntimeSettings(`agents:
+  main_agent:
+    name: Main
+    delegates:
+      - researcher
+      - 42
+`),
+    ).toThrow('agents.main_agent.delegates[1] must be a non-empty string');
   });
 
   it('rejects tool scope on non-mcp source refs', () => {
@@ -703,6 +789,239 @@ provider_accounts:
     expect(parsed.runtime.queue).toEqual(settings.runtime.queue);
   });
 
+  it('keeps decimal-looking scalars as strings (thread timestamps, versions)', () => {
+    expect(
+      parseSimpleYamlObject(`decimal: 0.5
+integer: 1
+thread_ts: 171.222
+version: 1.2.3
+quoted_decimal: "0.5"
+`),
+    ).toEqual({
+      decimal: '0.5',
+      integer: 1,
+      thread_ts: '171.222',
+      version: '1.2.3',
+      quoted_decimal: '0.5',
+    });
+    expect(quoteYamlString('171.222')).toBe('171.222');
+    expect(quoteYamlString('1.2.3')).toBe('1.2.3');
+  });
+
+  it('defaults observer off and omits the default block', () => {
+    const settings = createDefaultRuntimeSettings();
+    expect(settings.observer).toEqual({ enabled: false });
+
+    const yaml = renderRuntimeSettingsYaml(settings);
+    expect(yaml).not.toContain('observer:');
+    expect(parseRuntimeSettings(yaml).observer).toEqual(settings.observer);
+  });
+
+  it('parses, renders, and snapshots observer owner settings', () => {
+    const settings = createDefaultRuntimeSettings();
+    settings.observer = {
+      enabled: true,
+      owner: { recipient: 'U123', conversation: 'owner_dm' },
+    };
+
+    const yaml = renderRuntimeSettingsYaml(settings);
+    expect(yaml).toContain('observer:');
+    expect(yaml).toContain('recipient: U123');
+    expect(yaml).toContain('conversation: owner_dm');
+    expect(parseRuntimeSettings(yaml).observer).toEqual(settings.observer);
+
+    const runtimeHome = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'gantry-observer-settings-'),
+    );
+    try {
+      saveRuntimeSettings(runtimeHome, settings);
+      expect(readRuntimeObserverSettingsSnapshot(runtimeHome)).toEqual(
+        settings.observer,
+      );
+    } finally {
+      fs.rmSync(runtimeHome, { recursive: true, force: true });
+    }
+  });
+
+  it('requires the observer owner to be a verified DM approver', () => {
+    const settings = createDefaultRuntimeSettings();
+    settings.providers.telegram = { enabled: true };
+    settings.providerAccounts.telegram_owner = {
+      agentId: 'main_agent',
+      provider: 'telegram',
+      label: 'Owner Telegram',
+      runtimeSecretRefs: { bot_token: 'env:TELEGRAM_BOT_TOKEN' },
+    };
+    settings.conversations.owner_dm = {
+      providerAccount: 'telegram_owner',
+      externalId: '42',
+      kind: 'dm',
+      displayName: 'Owner DM',
+      senderPolicy: { allow: '*', mode: 'trigger' },
+      controlApprovers: ['someone-else'],
+      installedAgents: {},
+    };
+    settings.observer = {
+      enabled: true,
+      owner: { recipient: '42', conversation: 'owner_dm' },
+    };
+
+    const result = validateLoadedRuntimeSettings(
+      '/tmp/gantry-observer-owner',
+      settings,
+    );
+    expect(result.failure?.details.join('\n')).toContain(
+      'observer.owner.recipient must be a verified control approver of the owner conversation.',
+    );
+  });
+
+  it('rejects malformed observer settings', () => {
+    for (const [yaml, error] of [
+      ['observer: true\n', /observer must be a mapping/],
+      [
+        'observer:\n  enabled: "true"\n',
+        /observer\.enabled must be true\/false/,
+      ],
+      [
+        'observer:\n  owner:\n    recipient: U123\n',
+        /observer\.owner\.conversation must be a non-empty string/,
+      ],
+      [
+        'observer:\n  owner:\n    recipient: U123\n    conversation: owner_dm\n    role: admin\n',
+        /observer\.owner\.role is not supported/,
+      ],
+    ] as const) {
+      expect(() => parseRuntimeSettings(yaml)).toThrow(error);
+    }
+  });
+
+  it('defaults observability tracing and omits the default block', () => {
+    const settings = createDefaultRuntimeSettings();
+    expect(settings.observability).toEqual({
+      tracing: {
+        enabled: false,
+        endpoint: '',
+        captureContent: true,
+        sampleRate: 1,
+      },
+    });
+
+    const yaml = renderRuntimeSettingsYaml(settings);
+    expect(yaml).not.toContain('observability:');
+    expect(parseRuntimeSettings(yaml).observability).toEqual(
+      settings.observability,
+    );
+  });
+
+  it('accepts the complete observability tracing block', () => {
+    const parsed = parseRuntimeSettings(`observability:
+  tracing:
+    enabled: true
+    endpoint: https://telemetry.example.test/v1/traces
+    capture_content: false
+    sample_rate: 0.25
+    environment: staging
+`);
+
+    expect(parsed.observability).toEqual({
+      tracing: {
+        enabled: true,
+        endpoint: 'https://telemetry.example.test/v1/traces',
+        captureContent: false,
+        sampleRate: 0.25,
+        environment: 'staging',
+      },
+    });
+  });
+
+  it('accepts observability sample rate boundaries', () => {
+    for (const sampleRate of [0, 1]) {
+      const parsed = parseRuntimeSettings(`observability:
+  tracing:
+    sample_rate: ${sampleRate}
+`);
+      expect(parsed.observability.tracing.sampleRate).toBe(sampleRate);
+    }
+  });
+
+  it('rejects unknown observability keys', () => {
+    expect(() =>
+      parseRuntimeSettings(`observability:
+  metrics: {}
+`),
+    ).toThrow(/observability\.metrics is not supported/);
+    expect(() =>
+      parseRuntimeSettings(`observability:
+  tracing:
+    exporter: custom
+`),
+    ).toThrow(/observability\.tracing\.exporter is not supported/);
+  });
+
+  it('rejects observability mapping and leaf type errors', () => {
+    for (const [yaml, error] of [
+      ['observability: true\n', /observability must be a mapping/],
+      [
+        'observability:\n  tracing: true\n',
+        /observability\.tracing must be a mapping/,
+      ],
+      [
+        'observability:\n  tracing:\n    enabled: "true"\n',
+        /observability\.tracing\.enabled must be true\/false/,
+      ],
+      [
+        'observability:\n  tracing:\n    endpoint: 123\n',
+        /observability\.tracing\.endpoint must be a string/,
+      ],
+      [
+        'observability:\n  tracing:\n    capture_content: "false"\n',
+        /observability\.tracing\.capture_content must be true\/false/,
+      ],
+      [
+        'observability:\n  tracing:\n    environment: 123\n',
+        /observability\.tracing\.environment must be a string/,
+      ],
+    ] as const) {
+      expect(() => parseRuntimeSettings(yaml)).toThrow(error);
+    }
+  });
+
+  it('rejects invalid observability sample rates', () => {
+    for (const sampleRate of ['fast', '[]', '-0.1', '1.1']) {
+      expect(() =>
+        parseRuntimeSettings(`observability:
+  tracing:
+    sample_rate: ${sampleRate}
+`),
+      ).toThrow(
+        /observability\.tracing\.sample_rate must be a number between 0 and 1/,
+      );
+    }
+  });
+
+  it('round-trips non-default observability with empty optional strings', () => {
+    const settings = createDefaultRuntimeSettings();
+    settings.observability.tracing.captureContent = false;
+    settings.observability.tracing.sampleRate = 0.25;
+    settings.observability.tracing.environment = '';
+
+    const yaml = renderRuntimeSettingsYaml(settings);
+    expect(yaml).toContain('observability:');
+    expect(yaml).toContain('endpoint: ""');
+    expect(yaml).toContain('sample_rate: 0.25');
+    expect(yaml).toContain('environment: ""');
+    expect(parseRuntimeSettings(yaml).observability).toEqual(
+      settings.observability,
+    );
+
+    // Tiny rates render in scientific notation; the parser must round-trip.
+    settings.observability.tracing.sampleRate = 1e-7;
+    const tinyYaml = renderRuntimeSettingsYaml(settings);
+    expect(
+      parseRuntimeSettings(tinyYaml).observability.tracing.sampleRate,
+    ).toBe(1e-7);
+  });
+
   it('defaults model_families to empty and omits the block when empty', () => {
     const settings = createDefaultRuntimeSettings();
     expect(settings.modelFamilies).toEqual({});
@@ -749,6 +1068,7 @@ provider_accounts:
     settings.agents.worker = {
       name: 'Worker',
       folder: 'worker',
+      delegates: [],
       model: 'fast-job',
       bindings: {},
       sources: emptySources(),
@@ -1116,6 +1436,28 @@ agent:
     }
   });
 
+  it('prints explicit workstation import outcomes for non-TTY consumers', () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+
+    reportWorkstationSettingsImportOutcome('settings import', {
+      status: 'revision_created',
+      revision: 7,
+    });
+    reportWorkstationSettingsImportOutcome('settings import', {
+      status: 'applied_no_revision',
+    });
+    reportWorkstationSettingsImportOutcome('settings import', {
+      status: 'no_op',
+    });
+
+    expect(log.mock.calls).toEqual([
+      ['settings import outcome: revision_created(7)'],
+      ['settings import outcome: applied_no_revision'],
+      ['settings import outcome: no_op'],
+    ]);
+    log.mockRestore();
+  });
+
   it('accepts credential encryption keyring without direct encryption key', () => {
     const originalDatabaseUrl = process.env.GANTRY_DATABASE_URL;
     const originalSecretEncryptionKey = process.env.SECRET_ENCRYPTION_KEY;
@@ -1373,6 +1715,7 @@ agents:
     settings.agents.no_effort = {
       name: 'No effort',
       folder: 'no_effort',
+      delegates: [],
       model: 'haiku',
       effort: 'high',
       bindings: {},
@@ -1383,6 +1726,7 @@ agents:
     settings.agents.no_thinking = {
       name: 'No thinking',
       folder: 'no_thinking',
+      delegates: [],
       model: 'haiku',
       thinking: { mode: 'on' },
       bindings: {},
@@ -1393,6 +1737,7 @@ agents:
     settings.agents.no_output_cap = {
       name: 'No output cap',
       folder: 'no_output_cap',
+      delegates: [],
       model: 'opus',
       maxOutputTokens: 4096,
       bindings: {},
@@ -1427,6 +1772,7 @@ agents:
     settings.agents.inherited = {
       name: 'Inherited',
       folder: 'inherited',
+      delegates: [],
       model: 'opus',
       effort: 'high',
       thinking: { mode: 'on' },
@@ -1479,6 +1825,7 @@ agents:
       settings.agents.main_agent = {
         name: 'Main',
         folder: 'main_agent',
+        delegates: [],
         bindings: {},
         sources: { skills: [], mcpServers: [], tools: [] },
         capabilities: [],
@@ -1623,6 +1970,7 @@ agents:
     settings.agents.kai = {
       name: 'Kai',
       folder: 'kai',
+      delegates: [],
       agentHarness: 'anthropic_sdk',
       bindings: {},
       sources: { skills: [], mcpServers: [], tools: [] },
@@ -1771,6 +2119,7 @@ agents:
       settings.agents.main_agent = {
         name: 'Main',
         folder: 'main_agent',
+        delegates: [],
         bindings: {},
         sources: emptySources(),
         capabilities: [
@@ -1814,6 +2163,7 @@ agents:
       settings.agents.main_agent = {
         name: 'Main',
         folder: 'main_agent',
+        delegates: [],
         bindings: {},
         sources: emptySources(),
         capabilities: [],
@@ -1843,6 +2193,7 @@ agents:
     settings.agents.main_agent = {
       name: 'Main',
       folder: 'main_agent',
+      delegates: [],
       bindings: {},
       sources: emptySources(),
       capabilities: [
@@ -1869,6 +2220,7 @@ agents:
     settings.agents.main_agent = {
       name: 'Main',
       folder: 'main_agent',
+      delegates: [],
       bindings: {},
       sources: emptySources(),
       capabilities: [{ id: 'tool:permission-rule:abc123', version: 'builtin' }],
@@ -1894,6 +2246,7 @@ agents:
       settings.agents.main_agent = {
         name: 'Main',
         folder: 'main_agent',
+        delegates: [],
         bindings: {},
         sources: emptySources(),
         capabilities: [{ id: toolRule, version: 'builtin' }],
@@ -1946,6 +2299,7 @@ agents:
       settings.agents.main_agent = {
         name: 'Main',
         folder: 'main_agent',
+        delegates: [],
         bindings: {},
         sources: emptySources(),
         capabilities: [],
@@ -1975,6 +2329,7 @@ agents:
       settings.agents.main_agent = {
         name: 'Main',
         folder: 'main_agent',
+        delegates: [],
         bindings: {},
         sources: emptySources(),
         capabilities: [],
@@ -2004,6 +2359,7 @@ agents:
       settings.agents.main_agent = {
         name: 'Main',
         folder: 'main_agent',
+        delegates: [],
         bindings: {},
         sources: emptySources(),
         capabilities: [],
@@ -2039,6 +2395,7 @@ agents:
       settings.agents.main_agent = {
         name: 'Main',
         folder: 'main_agent',
+        delegates: [],
         bindings: {},
         sources: emptySources(),
         capabilities: [],
@@ -2068,6 +2425,7 @@ agents:
       settings.agents.main_agent = {
         name: 'Main',
         folder: 'main_agent',
+        delegates: [],
         bindings: {},
         sources: emptySources(),
         capabilities: [],
@@ -2178,6 +2536,7 @@ agents:
     settings.agents.kai = {
       name: 'Kai',
       folder: 'kai',
+      delegates: [],
       bindings: {},
       sources: {
         skills: [

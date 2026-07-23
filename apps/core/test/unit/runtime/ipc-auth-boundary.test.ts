@@ -783,6 +783,53 @@ describe('validateIpcAuthRequest', () => {
     });
   });
 
+  it('preserves provider account scope from signed task request context', () => {
+    const payload = signedPayload(
+      {
+        requestId: 'task-provider-account-context',
+        nonce: randomUUID(),
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        type: 'request_skill_proposal',
+        context: {
+          responseKeyId: TEST_RESPONSE_KEY_ID,
+          threadId: '1784545366.449119',
+          providerAccountId: 'slack_default',
+        },
+      },
+      'team',
+      '1784545366.449119',
+    );
+
+    expect(parseTaskIpcData(payload, 'team')).toMatchObject({
+      type: 'request_skill_proposal',
+      authThreadId: '1784545366.449119',
+      providerAccountId: 'slack_default',
+    });
+  });
+
+  it('rejects signed task requests with mismatched provider account scope', () => {
+    const payload = signedPayload(
+      {
+        requestId: 'task-provider-account-mismatch',
+        nonce: randomUUID(),
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        type: 'request_skill_proposal',
+        providerAccountId: 'slack_other',
+        context: {
+          responseKeyId: TEST_RESPONSE_KEY_ID,
+          threadId: '1784545366.449119',
+          providerAccountId: 'slack_default',
+        },
+      },
+      'team',
+      '1784545366.449119',
+    );
+
+    expect(() => parseTaskIpcData(payload, 'team')).toThrow(
+      /providerAccountId mismatch/,
+    );
+  });
+
   it('preserves memory user ids from signed task requests', () => {
     const payload = signedPayload({
       requestId: 'task-memory-user-id',
@@ -1148,6 +1195,14 @@ describe('validateIpcAuthRequest', () => {
       'apiToken',
       ...Array.from({ length: 62 }, (_, index) => `extra_${index + 38}`),
     ]);
+    expect(parsed.classifierToolInput).toMatchObject({
+      command: 'x'.repeat(600),
+      apiToken: '[REDACTED]',
+    });
+    expect(parsed.toolInputRedactedPaths).toEqual(['apiToken']);
+    expect(parsed.toolInputTruncatedPaths).toEqual(
+      Array.from({ length: 62 }, (_, index) => `extra_${index + 38}`),
+    );
   });
 
   it('records every altered tool input dot-path', () => {
@@ -1178,6 +1233,16 @@ describe('validateIpcAuthRequest', () => {
       'entries.21',
       'unsupported',
     ]);
+    expect(result.redactedPaths).toEqual(['apiToken', 'authText']);
+    expect(result.truncatedPaths).toEqual([
+      'long',
+      'nested.child.tooDeep',
+      'wide.item_40',
+      'wide.item_41',
+      'entries.20',
+      'entries.21',
+      'unsupported',
+    ]);
     expect(result.toolInput).toMatchObject({
       apiToken: '[REDACTED]',
       authText: '[REDACTED]',
@@ -1188,14 +1253,32 @@ describe('validateIpcAuthRequest', () => {
     });
   });
 
+  it('distinguishes display truncation from secret redaction paths', () => {
+    const benign = sanitizeIpcToolInput({ command: 'x'.repeat(501) });
+    const secret = sanitizeIpcToolInput({
+      command: 'curl -H "Authorization: Bearer abcdefgh123456"',
+    });
+
+    expect(benign.alteredPaths).toEqual(['command']);
+    expect(benign.redactedPaths).toEqual([]);
+    expect(benign.truncatedPaths).toEqual(['command']);
+    expect(secret.alteredPaths).toEqual(['command']);
+    expect(secret.redactedPaths).toEqual(['command']);
+    expect(secret.truncatedPaths).toEqual([]);
+  });
+
   it('records a root alteration for non-object tool input', () => {
     expect(sanitizeIpcToolInput('not-an-object')).toEqual({
       altered: true,
       alteredPaths: ['$'],
+      redactedPaths: [],
+      truncatedPaths: ['$'],
     });
     expect(sanitizeIpcToolInput(undefined)).toEqual({
       altered: false,
       alteredPaths: [],
+      redactedPaths: [],
+      truncatedPaths: [],
     });
   });
 
@@ -1432,7 +1515,7 @@ describe('parseIpcMessage', () => {
     stopIpcWatcher();
   });
 
-  it('keeps signed app scope and bounded FileArtifact refs', () => {
+  it('keeps signed app scope and defaults source-less refs to FileArtifact', () => {
     const payload = {
       type: 'message',
       requestId: 'msg-1',
@@ -1446,8 +1529,14 @@ describe('parseIpcMessage', () => {
         providerAccountId: 'provider-account:slack:a',
       },
       files: [
-        { scope: 'reports', path: 'daily.md', version: 2 },
-        { path: 'summary.txt' },
+        {
+          source: 'artifact',
+          scope: 'reports',
+          path: 'daily.md',
+          version: 2,
+        },
+        { source: 'workspace', path: 'summary.txt' },
+        { path: 'source-less.txt' },
         { scope: 'ignored' },
       ],
     };
@@ -1458,10 +1547,35 @@ describe('parseIpcMessage', () => {
       chatJid: 'tg:team',
       text: 'See attached report.',
       files: [
-        { scope: 'reports', path: 'daily.md', version: 2 },
-        { path: 'summary.txt' },
+        {
+          source: 'artifact',
+          scope: 'reports',
+          path: 'daily.md',
+          version: 2,
+        },
+        { source: 'workspace', path: 'summary.txt' },
+        { source: 'artifact', path: 'source-less.txt' },
       ],
     });
+  });
+
+  it.each([
+    ['unknown', 'remote'],
+    ['malformed', 42],
+  ])('rejects %s IPC message file sources loudly', (label, source) => {
+    const payload = {
+      type: 'message',
+      requestId: `msg-invalid-source-${label}`,
+      chatJid: 'tg:team',
+      text: 'See attached report.',
+      nonce: randomUUID(),
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      files: [{ source, path: 'report.txt' }],
+    };
+
+    expect(() => parseIpcMessage(signedPayload(payload), 'team')).toThrow(
+      'Invalid IPC message file source',
+    );
   });
 });
 
@@ -1505,7 +1619,7 @@ describe('appendOwnedFileArtifactDegradeText', () => {
         appId: 'app:test',
         sourceAgentFolder: 'team',
         text: 'See attached report.',
-        files: [{ scope: 'reports', path: 'daily.md' }],
+        files: [{ source: 'artifact', scope: 'reports', path: 'daily.md' }],
       }),
     ).resolves.toMatchObject({
       text: 'See attached report.\n\nAttachments:\n- daily.md (text/markdown, 1024 bytes)',
@@ -1563,10 +1677,10 @@ describe('appendOwnedFileArtifactDegradeText', () => {
         appId: 'app:test',
         sourceAgentFolder: 'team',
         text: 'See attached report.',
-        files: [{ scope: 'reports', path: 'large.bin' }],
+        files: [{ source: 'artifact', scope: 'reports', path: 'large.bin' }],
       }),
     ).resolves.toEqual({
-      text: 'See attached report.\n\nAttachments:\n- Attachment unavailable.',
+      text: 'See attached report.\n\nAttachments:\n- Attachment unavailable: exceeds 25 MB',
     });
     expect(readFileArtifact).not.toHaveBeenCalled();
   });
@@ -1578,10 +1692,10 @@ describe('appendOwnedFileArtifactDegradeText', () => {
         appId: 'app:test',
         sourceAgentFolder: 'team',
         text: 'Ship the note.',
-        files: [{ path: 'daily.md' }],
+        files: [{ source: 'artifact', path: 'daily.md' }],
       }),
     ).resolves.toBe(
-      'Ship the note.\n\nAttachments:\n- Attachment unavailable.',
+      'Ship the note.\n\nAttachments:\n- Attachment unavailable: FileArtifact store unavailable',
     );
   });
 
@@ -1594,10 +1708,10 @@ describe('appendOwnedFileArtifactDegradeText', () => {
         appId: 'app:test',
         sourceAgentFolder: 'team',
         text: 'Ship the note.',
-        files: [{ path: '../secret.txt' }],
+        files: [{ source: 'artifact', path: '../secret.txt' }],
       }),
     ).resolves.toBe(
-      'Ship the note.\n\nAttachments:\n- Attachment unavailable.',
+      'Ship the note.\n\nAttachments:\n- Attachment unavailable: invalid path: File artifact path must be a safe relative virtual path without empty, dot, dot-dot, absolute, or drive segments.',
     );
   });
 });

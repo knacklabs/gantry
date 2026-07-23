@@ -264,9 +264,11 @@ export function inlineWorkerOnlyConfiguredCapabilityLabels(input: {
   if (resolveConfiguredAgentRuntime(input.agent) !== 'inline') return [];
   const labels = new Set<string>();
   for (const source of input.agent.sources.tools) {
+    if (source.status === 'disabled') continue;
     if (source.kind === 'local_cli') labels.add(source.id);
   }
   for (const source of input.agent.sources.mcpServers) {
+    if (source.status === 'disabled') continue;
     if (input.stdioMcpServerIds?.has(source.id)) labels.add(source.id);
   }
   for (const capability of input.agent.capabilities) {
@@ -284,7 +286,9 @@ export function inlineConfiguredSkillEngineConstraintError(input: {
   defaultRecurringJobDefaultModel?: string;
   modelFamilyOrder?: FamilyOrderOverrides;
 }): string | null {
-  const skillIds = input.agent.sources.skills.map((source) => source.id);
+  const skillIds = input.agent.sources.skills
+    .filter((source) => source.status !== 'disabled')
+    .map((source) => source.id);
   if (
     resolveConfiguredAgentRuntime(input.agent) !== 'inline' ||
     skillIds.length === 0

@@ -450,6 +450,9 @@ export function parseTaskIpcData(
   if (threadBinding.agentId) {
     parsed.agentId = threadBinding.agentId;
   }
+  if (threadBinding.providerAccountId) {
+    parsed.providerAccountId = threadBinding.providerAccountId;
+  }
   if (threadBinding.responseKeyId) {
     parsed.responseKeyId = threadBinding.responseKeyId;
   }

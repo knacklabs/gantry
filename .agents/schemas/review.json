@@ -1,0 +1,26 @@
+{
+  "artifact": "review",
+  "phase": "review",
+  "recorded_by": "record_review_from_json.py --aspect quality|performance|security",
+  "generated_by": ["autoreview"],
+  "required": {
+    "generated_by": "str",
+    "score": "int",
+    "summary": "str",
+    "blocking_findings": "list"
+  },
+  "optional": {
+    "non_blocking_findings": "list",
+    "residual_risks": "list",
+    "recommendation": "str",
+    "reviewed_scope": "list",
+    "skills_used": "list"
+  },
+  "required_skills": {
+    "user_facing": ["review-animations"]
+  },
+  "ranges": {
+    "score": [0, 10]
+  },
+  "findings_note": "Finding entries SHOULD be objects {category: kebab-case defect class, area: module/dir, summary} so `forge findings patterns` can cluster recurring classes across tasks; plain strings are accepted but cluster on exact text only."
+}

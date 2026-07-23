@@ -37,6 +37,8 @@ import type {
   RunnerSandboxProvider,
   RunnerSandboxSpawnInput,
 } from '../shared/runner-sandbox-provider.js';
+import type { CallableAgentToolManifestEntry } from '../application/core-tools/callable-agent-tools.js';
+import type { AgentPromptCapabilityCatalog } from '../application/agents/agent-prompt-capability-catalog.js';
 
 export type AgentToolRule =
   | {
@@ -73,12 +75,16 @@ export interface AgentInput {
   selectedSkillDisplays?: string[];
   attachedMcpSourceIds?: string[];
   semanticCapabilities?: SemanticCapabilityDefinition[];
+  capabilityCatalog?: AgentPromptCapabilityCatalog;
+  providerSessionAccessFingerprint?: string;
   hideAuthorityTools?: boolean;
   isScheduledJob?: boolean;
   jobId?: string;
   jobName?: string;
   runId?: string;
+  parentRunId?: string;
   parentTaskId?: string;
+  callableAgentManifest?: CallableAgentToolManifestEntry[];
   runLeaseToken?: string;
   runLeaseFencingVersion?: number;
   liveStopActionToken?: string;
@@ -141,6 +147,7 @@ export interface AgentOutputRuntimeEvent {
 export interface RunAgentOptions {
   timeoutMs?: number;
   signal?: AbortSignal;
+  correlationRunId?: string;
   credentialBroker?: AgentCredentialBroker;
   skillRepository?: SkillCatalogRepository;
   skillArtifactStore?: SkillArtifactStore;
@@ -163,6 +170,7 @@ export interface RunAgentOptions {
   executionAdapters?: AgentExecutionAdapterRegistry;
   runnerSandboxProvider: RunnerSandboxProvider;
   asyncTaskRepositoryAvailable?: boolean;
+  conversationRoutes?: Record<string, ConversationRoute>;
 }
 
 export interface HostRuntimeContext {

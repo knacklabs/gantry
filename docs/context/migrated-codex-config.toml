@@ -1,0 +1,23 @@
+plan_mode_reasoning_effort = "high"
+personality = "pragmatic"
+sandbox_mode = "workspace-write"
+web_search = "cached"
+max_concurrent_threads_per_session = 8
+
+[features]
+hooks = false
+multi_agent = true
+goals = true
+image_generation = true
+apply_patch_freeform = true
+apply_patch_streaming_events = true
+unified_exec = true
+shell_snapshot = true
+apps_mcp_path_override = true
+artifact = true
+child_agents_md = true
+memories = true
+prevent_idle_sleep = true
+realtime_conversation = true
+workspace_owner_usage_nudge = true
+enable_request_compression = false

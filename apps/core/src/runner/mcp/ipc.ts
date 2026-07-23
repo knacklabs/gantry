@@ -36,7 +36,7 @@ import {
 import {
   createSignedIpcRequestEnvelope,
   verifyIpcResponsePayload,
-} from './signing.js';
+} from '../../shared/ipc-signing.js';
 import {
   ensurePrivateDirSync,
   writePrivateFileSync,

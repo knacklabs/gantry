@@ -156,7 +156,10 @@ describe('buildPermissionPromptParts', () => {
     expect(skill.bodyLines).toContain('Files: 2 (4.5 KB)');
     expect(skill.bodyLines).toContain('Review files:');
     expect(skill.bodyLines).toContain('- SKILL.md (1.2 KB, sha256:abc123)');
-    expect(skill.bodyLines).toContain('Requires env: LINKEDIN_ACCESS_TOKEN');
+    expect(skill.bodyLines).toContain(
+      'Credentials: required before some skill actions can run; add them in Credential Center.',
+    );
+    expect(skill.bodyLines.join('\n')).not.toContain('LINKEDIN_ACCESS_TOKEN');
     expect(skill.bodyLines).toContain('SKILL.md preview:');
     expect(skill.bodyLines).toContain(
       '# LinkedIn Posting\n\nUse this skill to publish approved LinkedIn posts.',

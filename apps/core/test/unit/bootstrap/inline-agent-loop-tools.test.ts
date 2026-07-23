@@ -3,6 +3,7 @@ import { z } from 'zod';
 
 import {
   createInlineCoreTools,
+  createInlineCoreToolsForRun,
   wireInlineAgentLoopTools,
 } from '@core/app/bootstrap/inline-agent-loop-tools.js';
 import {
@@ -13,6 +14,11 @@ import {
   formatMemoryToolResponse,
   formatMemoryWriteResponse,
 } from '@core/runner/mcp/formatting.js';
+import type {
+  AsyncTaskCreateInput,
+  AsyncTaskRecord,
+} from '@core/domain/ports/async-tasks.js';
+import { makeAgentThreadQueueKey } from '@core/shared/thread-queue-key.js';
 
 const publishRuntimeEvent = vi.fn(async () => undefined);
 const sendMessage = vi.fn(async () => undefined);
@@ -31,7 +37,31 @@ function wire(overrides: Record<string, unknown> = {}) {
       executionAdapters: undefined,
       runnerSandboxProvider: { enforcing: true },
       getCredentialBroker: vi.fn(async () => undefined),
-      getConversationRoutes: vi.fn(() => ({})),
+      getConversationRoutes: vi.fn(() => ({
+        [makeAgentThreadQueueKey(
+          'conversation:test',
+          'agent-1',
+          undefined,
+          'slack-main',
+        )]: {
+          name: 'Main',
+          folder: 'main_agent',
+          trigger: '',
+          added_at: new Date(0).toISOString(),
+          agentId: 'agent-1',
+          providerAccountId: 'slack-main',
+          conversationId: 'conversation:shared',
+        },
+        [makeAgentThreadQueueKey('conversation:test', 'agent:reviewer')]: {
+          name: 'Reviewer',
+          folder: 'reviewer',
+          trigger: '',
+          added_at: new Date(0).toISOString(),
+          agentId: 'agent:reviewer',
+          providerAccountId: 'slack-reviewer',
+          conversationId: 'conversation:shared',
+        },
+      })),
       resolveExecutionProviderId: vi.fn(async () => 'test:inline'),
     },
     channelWiring: {
@@ -64,6 +94,7 @@ function laneInput() {
     group: {
       name: 'Test',
       folder: 'main_agent',
+      providerAccountId: 'slack-main',
       trigger: '@test',
       added_at: new Date(0).toISOString(),
     },
@@ -96,7 +127,11 @@ function laneInput() {
           cannot: 'Mutate CRM records.',
           credentialSource: 'none',
           implementationBindings: [
-            { kind: 'mcp_tool', mcpTool: 'mcp__crm__read' },
+            {
+              kind: 'mcp_pattern',
+              mcpServer: 'crm',
+              mcpToolPatterns: ['read'],
+            },
           ],
         },
       ],
@@ -307,6 +342,188 @@ describe('inline core tool bootstrap', () => {
     expect(repository.listTasks).toHaveBeenCalledOnce();
   });
 
+  it('preloads a conversation-bound callable agent with its persona', async () => {
+    const listAgents = vi.fn(async () => [
+      {
+        id: 'agent:main_agent',
+        appId: 'default',
+        name: 'Main',
+        status: 'active',
+      },
+      {
+        id: 'agent:reviewer',
+        appId: 'default',
+        name: 'Reviewer',
+        status: 'active',
+      },
+    ]);
+    wire({
+      getAgentRepository: () => ({ listAgents }),
+      getPermissionRuntimeSettings: () => ({
+        agents: {
+          main_agent: { delegates: ['reviewer'] },
+          reviewer: { persona: 'research' },
+        },
+        permissions: {
+          autoMode: {},
+          yoloMode: { enabled: false },
+        },
+        memory: { llm: { models: { extractor: 'sonnet' } } },
+      }),
+    });
+    const input = laneInput();
+    input.input.toolPolicyRules = ['AgentDelegation'];
+
+    const tools = await createInlineCoreToolsForRun(input, support());
+    const projected = tools.tools.find(({ name }) =>
+      name.startsWith('delegate_to_'),
+    );
+
+    expect(projected).toMatchObject({
+      description: 'Delegate to Reviewer (research).',
+    });
+    expect(projected?.name.length).toBeLessThanOrEqual(64);
+    expect(listAgents).toHaveBeenCalledWith('default');
+  });
+
+  it('records AgentDelegation authority for inline callable-agent tasks', async () => {
+    const tasks: AsyncTaskRecord[] = [];
+    const repository = {
+      createTask: vi.fn(async (taskInput: AsyncTaskCreateInput) => {
+        const task: AsyncTaskRecord = {
+          ...taskInput,
+          conversationId: taskInput.conversationId ?? null,
+          threadId: taskInput.threadId ?? null,
+          parentRunId: taskInput.parentRunId ?? null,
+          parentJobId: taskInput.parentJobId ?? null,
+          parentJobRunId: taskInput.parentJobRunId ?? null,
+          privateCorrelationJson: taskInput.privateCorrelationJson ?? {},
+          createdAt: taskInput.now,
+          updatedAt: taskInput.now,
+        };
+        tasks.push(task);
+        return task;
+      }),
+      getTask: vi.fn(
+        async (taskId: string) =>
+          tasks.find((task) => task.id === taskId) ?? null,
+      ),
+      transitionTask: vi.fn(async (transition) => {
+        const index = tasks.findIndex((task) => task.id === transition.taskId);
+        const current = tasks[index];
+        if (!current) return null;
+        const updated = {
+          ...current,
+          status: transition.status,
+          updatedAt: transition.now,
+          privateCorrelationJson:
+            transition.privateCorrelationJson ?? current.privateCorrelationJson,
+        };
+        tasks[index] = updated;
+        return updated;
+      }),
+      listTasks: vi.fn(async () => []),
+      countTasksByStatus: vi.fn(async () => []),
+      claimQueuedTask: vi.fn(async () => null),
+    };
+    const listAgents = vi.fn(async () => [
+      {
+        id: 'agent:main_agent',
+        appId: 'default',
+        name: 'Main',
+        status: 'active',
+      },
+      {
+        id: 'agent:reviewer',
+        appId: 'default',
+        name: 'Reviewer',
+        status: 'active',
+      },
+    ]);
+    wire({
+      getAsyncTaskRepository: () => repository,
+      getAgentRepository: () => ({ listAgents }),
+      getPermissionRuntimeSettings: () => ({
+        agents: {
+          main_agent: { delegates: ['reviewer'] },
+          reviewer: { persona: 'research' },
+        },
+        permissions: {
+          autoMode: {},
+          yoloMode: { enabled: false },
+        },
+        memory: { llm: { models: { extractor: 'sonnet' } } },
+      }),
+    });
+    const input = laneInput();
+    input.input.toolPolicyRules = ['AgentDelegation'];
+    const tools = await createInlineCoreToolsForRun(input, support());
+    const callableTool = tools.tools.find(({ name }) =>
+      name.startsWith('delegate_to_'),
+    );
+
+    vi.stubEnv('SECRET_ENCRYPTION_KEY', Buffer.alloc(32, 1).toString('base64'));
+    const result = await tools.execute(callableTool!.name, {
+      objective: 'Review the change',
+      syncWaitTimeoutMs: 1,
+    });
+    vi.unstubAllEnvs();
+
+    expect(result).not.toMatchObject({ isError: true });
+    expect(tasks).toHaveLength(1);
+    expect(tasks[0]?.authoritySnapshotJson).toEqual({
+      toolName: 'AgentDelegation',
+      maxDepth: 1,
+    });
+    expect(tasks[0]?.authoritySnapshotJson.toolName).not.toBe('delegate_task');
+  });
+
+  it.each([
+    { label: 'delegated child', parentTaskId: 'task-parent' },
+    { label: 'locked access', locked: true },
+    { label: 'authority-hidden run', hideAuthorityTools: true },
+    { label: 'empty allowlist', emptyAllowlist: true },
+    { label: 'missing AgentDelegation', noDelegation: true },
+    { label: 'missing executor', noExecutor: true },
+    { label: 'tools disabled', toolsDisabled: true },
+  ])('suppresses callable-agent tools for $label', async (scenario) => {
+    const listAgents = vi.fn(async () => {
+      throw new Error('agent inventory unavailable');
+    });
+    wire({
+      getAgentAccessPreset: () => (scenario.locked ? 'locked' : 'full'),
+      getAsyncTaskRepository: () =>
+        scenario.noExecutor ? undefined : { listTasks: vi.fn(async () => []) },
+      getAgentRepository: () => ({ listAgents }),
+      getPermissionRuntimeSettings: () => ({
+        agents: {
+          main_agent: {
+            delegates: scenario.emptyAllowlist ? [] : ['reviewer'],
+          },
+        },
+        permissions: {
+          autoMode: {},
+          yoloMode: { enabled: false },
+        },
+        memory: { llm: { models: { extractor: 'sonnet' } } },
+      }),
+    });
+    const input = laneInput();
+    input.input.toolPolicyRules = scenario.noDelegation
+      ? []
+      : ['AgentDelegation'];
+    input.input.parentTaskId = scenario.parentTaskId;
+    input.input.hideAuthorityTools = scenario.hideAuthorityTools;
+    input.input.disableTools = scenario.toolsDisabled;
+
+    const tools = await createInlineCoreToolsForRun(input, support());
+
+    expect(
+      tools.tools.some(({ name }) => name.startsWith('delegate_to_')),
+    ).toBe(false);
+    expect(listAgents).not.toHaveBeenCalled();
+  });
+
   it('resolves send_message attachments from the runtime file store', async () => {
     const fileArtifacts = {
       listFileArtifacts: vi.fn(async () => [
@@ -328,7 +545,7 @@ describe('inline core tool bootstrap', () => {
     await expect(
       tools.execute('send_message', {
         text: 'Status attached.',
-        files: [{ path: 'reports/status.txt' }],
+        files: [{ source: 'artifact', path: 'reports/status.txt' }],
       }),
     ).resolves.toEqual({
       content: [{ type: 'text', text: 'Message sent.' }],
@@ -413,7 +630,7 @@ describe('inline core tool bootstrap', () => {
       appId: 'default',
       agentFolder: 'main_agent',
       suggestionKey: 'main_agent|RunCommand(git status)',
-      allowCount: 3,
+      allowCount: 2,
       lastOfferedAt: null,
       deniedAt: null,
       createdAt: '2026-07-12T00:00:00.000Z',
@@ -421,7 +638,7 @@ describe('inline core tool bootstrap', () => {
     };
     const incrementAndGet = vi.fn(async () => ({
       ...counter,
-      allowCount: 4,
+      allowCount: 3,
     }));
     wire({
       getPermissionPromotionRepository: () => ({
@@ -440,12 +657,23 @@ describe('inline core tool bootstrap', () => {
       })) as never),
     );
 
+    // A real inline allow-once decision carries the approver's identity;
+    // recordHumanPermissionPromotionSignal only counts human decisions.
+    requestPermissionApproval.mockResolvedValueOnce({
+      approved: true,
+      mode: 'allow_once' as const,
+      decidedBy: 'user-1',
+    });
+
     await tools.authorizeThirdPartyMcpTool('RunCommand', {
       command: 'git status',
     });
 
     expect(requestPermissionApproval).toHaveBeenCalledWith(
-      expect.objectContaining({ promotionHintCount: 3 }),
+      expect.objectContaining({
+        promotionHintCount: 2,
+        decisionOptions: ['allow_persistent_rule', 'allow_once', 'cancel'],
+      }),
     );
     await vi.waitFor(() => expect(incrementAndGet).toHaveBeenCalledOnce());
   });
@@ -468,7 +696,7 @@ describe('inline core tool bootstrap', () => {
     expect(requestPermissionApproval).not.toHaveBeenCalled();
   });
 
-  it('auto-allows an eligible remote MCP tool without rendering a prompt and audits the verdict', async () => {
+  it('auto-allows a deterministic-safe remote MCP tool after classifier consultation', async () => {
     const classifierConsult = vi.fn(async () => ({
       decision: 'allow' as const,
       reason: 'Read-only lookup matches the turn intent.',
@@ -506,11 +734,7 @@ describe('inline core tool bootstrap', () => {
       tools.authorizeThirdPartyMcpTool('mcp__crm__read', { id: 'crm-1' }),
     ).resolves.toEqual({ allowed: true });
     expect(classifierConsult).toHaveBeenCalledWith(
-      expect.objectContaining({
-        turnIntentSummary: 'hello',
-        canonicalToolName: 'mcp__crm__read',
-        approvedCapabilityIds: ['mcp.crm.access'],
-      }),
+      expect.objectContaining({ posture: 'allow_leaning' }),
     );
     expect(requestPermissionApproval).not.toHaveBeenCalled();
     expect(input.emitOutput).not.toHaveBeenCalled();
@@ -562,7 +786,7 @@ describe('inline core tool bootstrap', () => {
     );
 
     await expect(
-      tools.authorizeThirdPartyMcpTool('mcp__crm__read', { id: 'crm-1' }),
+      tools.authorizeThirdPartyMcpTool('mcp__crm__lookup', { id: 'crm-1' }),
     ).resolves.toEqual({ allowed: true });
     expect(classifierConsult).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -632,6 +856,87 @@ describe('inline core tool bootstrap', () => {
     );
   });
 
+  it('classifies benign inline input beyond the display limit with full input', async () => {
+    const classifierConsult = vi.fn(async () => ({
+      decision: 'allow' as const,
+      reason: 'Benign lookup.',
+      latencyMs: 1,
+    }));
+    wire({
+      classifierConsult,
+      getPermissionRuntimeSettings: () => ({
+        agents: {},
+        permissions: {
+          autoMode: {},
+          yoloMode: { enabled: false },
+        },
+        memory: { llm: { models: { extractor: 'sonnet' } } },
+      }),
+    });
+    const input = laneInput();
+    input.input.permissionMode = 'auto';
+    const tools = createInlineCoreTools(
+      input,
+      support((() => ({
+        status: 'prompt',
+        reason: 'Approval required.',
+      })) as never),
+    );
+    const query = 'x'.repeat(600);
+
+    await expect(
+      tools.authorizeThirdPartyMcpTool('mcp__crm__lookup', { query }),
+    ).resolves.toEqual({ allowed: true });
+
+    expect(classifierConsult).toHaveBeenCalledWith(
+      expect.objectContaining({ toolInput: { query } }),
+    );
+    expect(requestPermissionApproval).not.toHaveBeenCalled();
+  });
+
+  it('asks instead of classifying inline input truncated at the classifier limit', async () => {
+    const classifierConsult = vi.fn(async () => ({
+      decision: 'allow' as const,
+      reason: 'Only the prefix was visible.',
+      latencyMs: 1,
+    }));
+    wire({
+      classifierConsult,
+      getPermissionRuntimeSettings: () => ({
+        agents: {},
+        permissions: {
+          autoMode: {},
+          yoloMode: { enabled: false },
+        },
+        memory: { llm: { models: { extractor: 'sonnet' } } },
+      }),
+    });
+    const input = laneInput();
+    input.input.permissionMode = 'auto';
+    const tools = createInlineCoreTools(
+      input,
+      support((() => ({
+        status: 'prompt',
+        reason: 'Approval required.',
+      })) as never),
+    );
+
+    await expect(
+      tools.authorizeThirdPartyMcpTool('mcp__crm__lookup', {
+        query: 'x'.repeat(16_001),
+      }),
+    ).resolves.toEqual({ allowed: true });
+
+    expect(classifierConsult).not.toHaveBeenCalled();
+    expect(requestPermissionApproval).toHaveBeenCalledOnce();
+    expect(publishRuntimeEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'permission.classifier_decision',
+        payload: expect.objectContaining({ failureCode: 'input_truncated' }),
+      }),
+    );
+  });
+
   it('denies an unattended classifier ask without prompting', async () => {
     const classifierConsult = vi.fn(async () => ({
       decision: 'ask' as const,
@@ -666,7 +971,7 @@ describe('inline core tool bootstrap', () => {
     );
 
     await expect(
-      tools.authorizeThirdPartyMcpTool('mcp__crm__read', { id: 'crm-1' }),
+      tools.authorizeThirdPartyMcpTool('mcp__crm__lookup', { id: 'crm-1' }),
     ).resolves.toEqual({
       allowed: false,
       reason:
@@ -721,7 +1026,7 @@ describe('inline core tool bootstrap', () => {
         })) as never),
       );
 
-      await tools.authorizeThirdPartyMcpTool('mcp__crm__read', {
+      await tools.authorizeThirdPartyMcpTool('mcp__crm__lookup', {
         id: 'crm-1',
       });
 
@@ -738,6 +1043,7 @@ describe('inline core tool bootstrap', () => {
   it.each([
     ['ask', 'mcp__crm__read'],
     ['auto', 'mcp__gantry__request_access'],
+    ['auto_strict', 'mcp__gantry__request_access'],
   ] as const)(
     'does not consult in mode %s for ineligible/non-auto tool %s',
     async (permissionMode, toolName) => {

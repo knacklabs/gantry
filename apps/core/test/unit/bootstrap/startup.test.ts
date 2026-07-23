@@ -323,7 +323,10 @@ describe('runStartup', () => {
     const settingsRevisions = {
       getLatestSettingsRevision: vi.fn(async () => null),
     };
-    const importWorkstationSettings = vi.fn(async () => ({ revision: 1 }));
+    const importWorkstationSettings = vi.fn(async () => ({
+      status: 'revision_created' as const,
+      revision: 1,
+    }));
     const warn = vi.fn();
 
     const result = await runStartup(makeApp(), {
@@ -363,7 +366,9 @@ describe('runStartup', () => {
     const settingsRevisions = {
       getLatestSettingsRevision: vi.fn(async () => latestRevision),
     };
-    const importWorkstationSettings = vi.fn(async () => ({}));
+    const importWorkstationSettings = vi.fn(async () => ({
+      status: 'applied_no_revision' as const,
+    }));
     const warn = vi.fn();
     const initializeRuntimeStorage = vi.fn(
       async () =>
@@ -416,7 +421,10 @@ describe('runStartup', () => {
     const settingsRevisions = {
       getLatestSettingsRevision: vi.fn(async () => null),
     };
-    const importWorkstationSettings = vi.fn(async () => ({ revision: 1 }));
+    const importWorkstationSettings = vi.fn(async () => ({
+      status: 'revision_created' as const,
+      revision: 1,
+    }));
 
     await expect(
       runStartup(makeApp(), {
@@ -516,7 +524,10 @@ describe('runStartup', () => {
       await runStartup(makeApp(), {
         ensureRuntimeLayoutDirectories: vi.fn(),
         initializeRuntimeStorage,
-        importWorkstationSettings: vi.fn(async () => ({ revision: 1 })),
+        importWorkstationSettings: vi.fn(async () => ({
+          status: 'revision_created' as const,
+          revision: 1,
+        })),
         settingsAuthority: 'revision',
         settingsFileExists: vi.fn(() => true),
         validateSettingsImportPreflight: vi.fn(() => ({ ok: true })),
@@ -551,7 +562,9 @@ describe('runStartup', () => {
     const settingsRevisions = {
       getLatestSettingsRevision: vi.fn(async () => latestRevision),
     };
-    const importWorkstationSettings = vi.fn(async () => ({}));
+    const importWorkstationSettings = vi.fn(async () => ({
+      status: 'applied_no_revision' as const,
+    }));
     const warn = vi.fn();
     const storageRuntime = {
       ops: {},

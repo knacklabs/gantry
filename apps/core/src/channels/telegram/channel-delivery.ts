@@ -19,11 +19,13 @@ import {
   TELEGRAM_STREAM_CHUNK_MAX_LENGTH,
   TELEGRAM_USER_QUESTION_TIMEOUT_MS,
   ActiveDraftStreamState,
+  createPendingTelegramUserQuestion,
   editTelegramMessage,
   escapeTelegramMarkdownV2,
   sendTelegramMessageWithResult,
   splitTelegramDeliveryText,
   telegramThreadOptionsFromString,
+  telegramQuestionCallbackId,
 } from './channel-shared.js';
 import { telegramActionReplyMarkup } from './message-action-affordances.js';
 import {
@@ -35,12 +37,16 @@ import {
 import { sendTelegramPlannedChunk } from './send-planned-chunk.js';
 import { appendTelegramDocumentMessageIds as appendDocIds } from './file-delivery.js';
 import { renderTelegramChannelAgentTodo } from './agent-todo-delivery.js';
-import { bindTelegramPermissionPromptMessage } from './prompt-binding.js';
 import { unescapeTelegramEscapedMarkdownV2 } from './markdown-v2-unescape.js';
 import { sendTelegramTyping } from './typing-indicator.js';
 import { renderTelegramRichInteraction } from './rich-interaction.js';
 import { addTelegramReaction } from './reactions.js';
 import { disconnectTelegramDelivery } from './disconnect.js';
+import { requestTelegramPermissionApproval } from './permission-approval-delivery.js';
+import {
+  DurableInteractionPersistenceError,
+  recordDurableQuestionAnswerProgress,
+} from '../../application/interactions/pending-interaction-durability.js';
 
 export abstract class TelegramChannelDelivery extends TelegramChannelConnect {
   private readonly reactionKeys = new Set<string>();
@@ -229,6 +235,7 @@ export abstract class TelegramChannelDelivery extends TelegramChannelConnect {
       this.markStreamingGenerationDone(jid, options.generation);
       return false;
     }
+    const guard = this.streamResetEpochs.guard(key, this.activeDraftStreams);
     if (!state) {
       const draftThreadId = Number.isFinite(parsedThreadId)
         ? parsedThreadId
@@ -251,7 +258,6 @@ export abstract class TelegramChannelDelivery extends TelegramChannelConnect {
         closeStream: queue.close,
         streamPromise: Promise.resolve(),
       };
-      const createdState = streamState;
       streamState.streamPromise = this.draftStreamApi
         .streamMessage(
           parsedChatId,
@@ -269,24 +275,22 @@ export abstract class TelegramChannelDelivery extends TelegramChannelConnect {
           const fallbackText = streamState.rawBuffer.trim();
           if (
             fallbackText &&
+            guard(streamState) &&
             this.isCurrentStreamingGeneration(jid, streamState.generation)
           ) {
             await this.sendMessage(jid, fallbackText, {
               threadId: options.threadId,
             });
           }
+          if (guard(streamState))
+            this.streamResetEpochs.deleteState(key, this.activeDraftStreams);
         })
         .finally(() => {
-          const current = this.activeDraftStreams.get(key);
-          if (current === createdState) {
-            this.activeDraftStreams.delete(key);
-          }
+          if (guard(streamState)) this.activeDraftStreams.delete(key);
         });
       this.activeDraftStreams.set(key, streamState);
       state = streamState;
     }
-    if (!state) return false;
-
     let delivered = false;
 
     if (text) {
@@ -311,7 +315,11 @@ export abstract class TelegramChannelDelivery extends TelegramChannelConnect {
     if (options.done) {
       state.closeStream();
       await state.streamPromise;
+      if (!guard(state, true)) {
+        return delivered || this.activeDraftStreams.has(key);
+      }
       this.markStreamingGenerationDone(jid, options.generation);
+      this.streamResetEpochs.prune(key);
       delivered = delivered || state.rawBuffer.trim().length > 0;
     }
     return delivered || Boolean(this.activeDraftStreams.get(key));
@@ -537,80 +545,31 @@ export abstract class TelegramChannelDelivery extends TelegramChannelConnect {
   async requestPermissionApproval(
     jid: string,
     request: PermissionApprovalRequest,
+    onPromptDelivered?: (messageId: string) => void,
   ): Promise<PermissionApprovalDecision> {
-    if (!this.interactionCallbacksEnabled) {
-      return {
-        approved: false,
-        reason: 'This Telegram connection cannot collect approvals right now.',
-      };
-    }
-    if (!this.bot) {
-      return { approved: false, reason: 'Telegram bot is not connected' };
-    }
-    const chatId = jid.replace(/^tg:/, '');
-    if (!chatId) {
-      return {
-        approved: false,
-        reason: 'This Telegram conversation could not be identified.',
-      };
-    }
-    if (this.pendingPermissionPrompts.has(request.requestId)) {
-      return {
-        approved: false,
-        reason: 'This approval request is already awaiting a decision.',
-      };
-    }
-    const callbackId = this.permissionCallbackIdForRequest(request.requestId);
-    const timeoutMs = TELEGRAM_USER_QUESTION_TIMEOUT_MS;
-    try {
-      const sent = await this.sendPermissionPromptMessage({
-        chatId,
-        request,
-        callbackId,
-        timeoutMs,
-        threadOpts: telegramThreadOptionsFromString(request.threadId),
-      });
-      bindTelegramPermissionPromptMessage(request, chatId, sent.message_id);
-      return await new Promise<PermissionApprovalDecision>((resolve) => {
-        const timer = setTimeout(() => {
-          void this.resolvePermissionPrompt(request.requestId, {
-            approved: false,
-            decidedBy: 'system',
-            reason: 'timed out',
-          });
-        }, timeoutMs);
-        this.pendingPermissionPrompts.set(request.requestId, {
-          callbackId,
-          sourceAgentFolder: request.sourceAgentFolder,
-          decisionPolicy: request.decisionPolicy,
-          approvalContextJid: request.approvalContextJid,
-          request,
-          chatId,
-          messageId: sent.message_id,
-          timer,
-          resolve,
-        });
-        this.pendingPermissionCallbackIds.set(callbackId, request.requestId);
-      });
-    } catch (err) {
-      logger.error(
-        {
-          jid,
-          requestId: request.requestId,
-          error: this.sanitizeErrorMessage(err),
-        },
-        'Failed to send Telegram permission prompt',
-      );
-      return {
-        approved: false,
-        reason: 'Failed to send approval prompt to Telegram',
-      };
-    }
+    return requestTelegramPermissionApproval({
+      interactionCallbacksEnabled: this.interactionCallbacksEnabled,
+      botConnected: this.bot !== null,
+      jid,
+      request,
+      pendingPrompts: this.pendingPermissionPrompts,
+      sendPrompt: (input) => this.sendPermissionPromptMessage(input),
+      settlePrompt: (providerAlias, mode, approverRef, reason) =>
+        this.claimAndResolvePermissionPrompt(
+          providerAlias,
+          mode,
+          approverRef,
+          reason,
+        ),
+      onPromptDelivered,
+      sanitizeErrorMessage: (err) => this.sanitizeErrorMessage(err),
+    });
   }
 
   async requestUserAnswer(
     jid: string,
     request: UserQuestionRequest,
+    onPromptDelivered?: (messageId: string, questionIndex?: number) => void,
   ): Promise<UserQuestionResponse> {
     if (!this.interactionCallbacksEnabled) {
       return {
@@ -633,7 +592,12 @@ export abstract class TelegramChannelDelivery extends TelegramChannelConnect {
 
     for (let i = 0; i < request.questions.length; i += 1) {
       const question = request.questions[i];
-      const pendingKey = this.pendingUserQuestionKey(request.requestId, i);
+      const pendingKey = this.pendingUserQuestionKey(
+        request.appId || 'default',
+        request.sourceAgentFolder,
+        request.requestId,
+        i,
+      );
       if (this.pendingUserQuestions.has(pendingKey)) {
         logger.warn(
           { requestId: request.requestId, questionIndex: i },
@@ -643,61 +607,74 @@ export abstract class TelegramChannelDelivery extends TelegramChannelConnect {
       }
 
       try {
+        const callbackId = telegramQuestionCallbackId();
         const sent = await this.sendUserQuestionPromptMessage({
           chatId,
           requestId: request.requestId,
           questionIndex: i,
+          callbackId,
           question,
           threadOpts: telegramThreadOptionsFromString(request.threadId),
         });
 
-        const selection = await new Promise<{
-          selected: string | string[];
-          answeredBy?: string;
-        }>((resolve) => {
-          const timer = setTimeout(() => {
-            const timedOut = this.pendingUserQuestions.get(pendingKey);
-            if (!timedOut) return;
-            // Fire-and-forget is intentional: timer callback should never block
-            // the event loop while we cleanup stale pending prompts.
-            void this.finalizeUserQuestionPrompt(
-              timedOut,
-              timedOut.multiSelect ? [] : '',
-              'system',
-              'timed out',
-            );
-          }, timeoutMs);
-
-          this.pendingUserQuestions.set(pendingKey, {
-            requestId: request.requestId,
-            sourceAgentFolder: request.sourceAgentFolder,
-            questionIndex: i,
-            questionHeader: question.header,
-            questionText: question.question,
-            promptText: sent.promptText,
-            promptIsHtml: sent.promptIsHtml,
-            optionLabels: question.options.map((option) => option.label),
-            multiSelect: question.multiSelect,
-            selectedOptionIndexes: new Set<number>(),
-            chatId,
-            messageId: sent.messageId,
-            timer,
-            resolve,
-          });
+        const selectionPromise = createPendingTelegramUserQuestion({
+          callbackId,
+          pendingKey,
+          request,
+          question,
+          questionIndex: i,
+          chatId,
+          messageId: sent.messageId,
+          promptText: sent.promptText,
+          promptIsHtml: sent.promptIsHtml,
+          timeoutMs,
+          pendingQuestions: this.pendingUserQuestions,
+          callbacks: this.pendingUserQuestionCallbackIds,
+          finalize: (pending, selection, selectedBy, outcome) =>
+            this.finalizeUserQuestionPrompt(
+              pending,
+              selection,
+              selectedBy,
+              outcome,
+            ),
         });
+        onPromptDelivered?.(String(sent.messageId), i);
+        const selection = await selectionPromise;
 
         const isEmptySelection = Array.isArray(selection.selected)
           ? selection.selected.length === 0
           : selection.selected.trim().length === 0;
         if (isEmptySelection) {
-          // Timeout or explicit empty submission: omit this answer so the SDK
-          // receives an empty answer map and treats it as unanswered/declined.
+          const progressRecorded = await recordDurableQuestionAnswerProgress({
+            requestId: request.requestId,
+            appId: request.appId,
+            sourceAgentFolder: request.sourceAgentFolder,
+            answers: { [question.question]: selection.selected },
+            completedQuestionIndexes: [i],
+          });
+          if (!progressRecorded) {
+            throw new DurableInteractionPersistenceError(
+              'Telegram user question progress was not persisted',
+            );
+          }
           continue;
         }
 
         if (selection.answeredBy) answeredBy = selection.answeredBy;
         answers[question.question] = selection.selected;
+        const progressRecorded = await recordDurableQuestionAnswerProgress({
+          requestId: request.requestId,
+          appId: request.appId,
+          sourceAgentFolder: request.sourceAgentFolder,
+          answers: { [question.question]: selection.selected },
+        });
+        if (!progressRecorded) {
+          throw new DurableInteractionPersistenceError(
+            'Telegram user question progress was not persisted',
+          );
+        }
       } catch (err) {
+        if (err instanceof DurableInteractionPersistenceError) throw err;
         logger.warn(
           {
             requestId: request.requestId,
@@ -735,14 +712,10 @@ export abstract class TelegramChannelDelivery extends TelegramChannelConnect {
   ownsJid(jid: string): boolean {
     return jid.startsWith('tg:');
   }
-  resetStreaming(jid: string): void {
-    this.sealStreamingGenerationOnReset(jid);
-    this.clearStreamingStateForJid(jid);
-  }
-
   async disconnect(): Promise<void> {
     this.isStopping = true;
     this.clearPollingRetryTimer();
+    this.streamResetEpochs.clear();
     const disconnected = await disconnectTelegramDelivery({
       bot: this.bot,
       activeDraftStreams: this.activeDraftStreams,
@@ -752,8 +725,15 @@ export abstract class TelegramChannelDelivery extends TelegramChannelConnect {
       activeProgressMessages: this.activeProgressMessages,
       mediaIngestionQueue: this.mediaIngestionQueue,
       pendingPermissionPrompts: this.pendingPermissionPrompts,
-      pendingPermissionCallbackIds: this.pendingPermissionCallbackIds,
+      settlePermissionPrompt: (providerAlias) =>
+        this.claimAndResolvePermissionPrompt(
+          providerAlias,
+          'cancel',
+          'system',
+          'Telegram channel disconnected',
+        ),
       pendingUserQuestions: this.pendingUserQuestions,
+      pendingUserQuestionCallbackIds: this.pendingUserQuestionCallbackIds,
       releasePollingLease: () => this.releasePollingLease(),
     });
     this.bot = disconnected.bot;

@@ -104,11 +104,6 @@ export async function browserProfileNeedsRestore(
   return marker?.content_hash !== snapshot.contentHash;
 }
 
-/** @internal test hook */
-export function _getBrowserProfileSyncForTest(): BrowserProfileSyncDeps | null {
-  return coordinator;
-}
-
 interface SnapshotMarker {
   content_hash: string;
 }

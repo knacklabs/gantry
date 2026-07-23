@@ -19,6 +19,7 @@ import {
 } from '../../../config/index.js';
 import { LocalFileArtifactBytes } from '../../artifacts/files/local-file-artifact-bytes.js';
 import { LocalSkillArtifactStore } from '../../artifacts/skills/local-skill-artifact-store.js';
+import { RemoteFirstSkillArtifactStore } from '../../artifacts/skills/remote-first-skill-artifact-store.js';
 import { S3SkillArtifactStore } from '../../artifacts/skills/s3-skill-artifact-store.js';
 import { createS3ArtifactClient } from '../../artifacts/skills/s3-artifact-client.js';
 import { LocalBrowserProfileArtifactStore } from '../../artifacts/browser-profiles/local-browser-profile-artifact-store.js';
@@ -202,7 +203,10 @@ function createSkillArtifactStore(
       endpoint: artifactStore.endpoint,
       forcePathStyle: artifactStore.forcePathStyle,
     });
-    return new S3SkillArtifactStore(client, bucket);
+    return new RemoteFirstSkillArtifactStore(
+      new S3SkillArtifactStore(client, bucket),
+      new LocalSkillArtifactStore(ARTIFACTS_DIR),
+    );
   }
   return new LocalSkillArtifactStore(ARTIFACTS_DIR);
 }

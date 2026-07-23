@@ -1,4 +1,7 @@
-import { decisionForMode } from '../domain/permission-decision.js';
+import {
+  decisionForMode,
+  firstPersistentRule,
+} from '../domain/permission-decision.js';
 import type {
   PermissionApprovalDecision,
   PermissionApprovalRequest,
@@ -10,6 +13,7 @@ import {
 } from '../shared/thread-queue-key.js';
 import { agentIdForFolder } from '../domain/agent/agent-folder-id.js';
 import type { IpcDeps } from './ipc-domain-types.js';
+import type { ParsedPermissionIpcRequest } from './ipc-parsing.js';
 import {
   consultPermissionClassifierBeforePrompt,
   permissionPromotionHintCount,
@@ -21,7 +25,7 @@ import { resolveWorkspaceFolderPath } from '../platform/workspace-folder.js';
 import type { YoloModeSettings } from '../shared/yolo-mode-policy.js';
 
 export async function resolvePermissionIpcDecision(input: {
-  request: PermissionApprovalRequest;
+  request: ParsedPermissionIpcRequest;
   sourceAgentFolder: string;
   deps: IpcDeps;
 }): Promise<PermissionApprovalDecision> {
@@ -86,7 +90,7 @@ export async function resolvePermissionIpcDecision(input: {
   const shouldConsultClassifier =
     input.deps.publishRuntimeEvent &&
     classifierConfig &&
-    permissionMode === 'auto';
+    (permissionMode === 'auto' || permissionMode === 'auto_strict');
   const toolRepository = input.deps.getToolRepository?.();
   const reviewedMcpReadBindings =
     shouldConsultClassifier &&
@@ -125,9 +129,9 @@ export async function resolvePermissionIpcDecision(input: {
           : 'none',
         turnIntentSummary: input.request.turnIntentSummary ?? '',
         canonicalToolName: input.request.toolName,
-        toolInput: input.request.toolInput,
-        toolInputSanitized: input.request.toolInputSanitized,
-        toolInputSanitizedPaths: input.request.toolInputSanitizedPaths,
+        toolInput: input.request.classifierToolInput ?? input.request.toolInput,
+        toolInputRedactedPaths: input.request.toolInputRedactedPaths,
+        toolInputTruncatedPaths: input.request.toolInputTruncatedPaths,
         policyDecisionReason:
           input.request.decisionReason ?? 'Human approval is required.',
         approvedCapabilityIds,
@@ -145,7 +149,10 @@ export async function resolvePermissionIpcDecision(input: {
   if (classifierDecision?.decision === 'allow') {
     return decisionForMode(input.request, 'allow_once', 'auto_classifier');
   }
-  if (permissionMode === 'auto' && input.request.unattended) {
+  if (
+    (permissionMode === 'auto' || permissionMode === 'auto_strict') &&
+    input.request.unattended
+  ) {
     return {
       ...decisionForMode(input.request, 'cancel', 'runtime'),
       reason: classifierDecision
@@ -170,5 +177,20 @@ export async function resolvePermissionIpcDecision(input: {
       toolInput: input.request.toolInput,
       suggestions: input.request.suggestions,
     }));
+  const effectiveDecisionOptions = input.request.decisionOptions?.length
+    ? input.request.decisionOptions
+    : firstPersistentRule(input.request)
+      ? ['allow_once', 'allow_persistent_rule', 'cancel']
+      : ['allow_once', 'cancel'];
+  if (
+    input.request.promotionHintCount &&
+    effectiveDecisionOptions.includes('allow_persistent_rule')
+  ) {
+    input.request.decisionOptions = [
+      'allow_persistent_rule',
+      'allow_once',
+      'cancel',
+    ];
+  }
   return input.deps.requestPermissionApproval(input.request);
 }

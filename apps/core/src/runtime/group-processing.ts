@@ -23,7 +23,6 @@ import { runDreamingForGroup } from './memory-dreaming-runner.js';
 import { settleDeliveryAttempt } from '../jobs/delivery.js';
 import { resolveMemoryUserId } from './session-resume-runtime.js';
 import { firstThreadQueueId } from '../shared/thread-queue-key.js';
-import { formatElapsed } from './time-format.js';
 import { createRuntimeModelStatusAccess } from './model-status-store.js';
 import { getConfiguredModelProvidersForApp } from '../adapters/storage/postgres/runtime-store.js';
 import { resolveGroupProcessingRouteContext } from './command-override-route-key.js';
@@ -53,7 +52,6 @@ import {
   type GroupAgentRunResult,
 } from './group-agent-runner.js';
 import { createSessionCommandAgentRunners } from './group-session-command-runner.js';
-import { nowMs as currentTimeMs } from '../shared/time/datetime.js';
 import {
   isModelAccessAuthFailure,
   sendModelAccessAuthFailureNotice,
@@ -366,25 +364,9 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
       setTurnTyping(isTyping)
     );
     await setTypingState(true);
-    let startedAt = currentTimeMs();
-    let pausedAt: number | null = null;
-    let pausedTotalMs = 0;
-    const activeElapsedMs = () =>
-      currentTimeMs() -
-      startedAt -
-      pausedTotalMs -
-      (pausedAt === null ? 0 : currentTimeMs() - pausedAt);
-    let lastAgentProgressAt = startedAt;
+    let progressPaused = false;
     let typingHeartbeatTimer: ReturnType<typeof setInterval> | null = null;
-    let progressTimer: ReturnType<typeof setInterval> | null = null;
     let progressHeartbeat: ProgressHeartbeat | null = null;
-    const resetActiveElapsed = () => {
-      startedAt = currentTimeMs();
-      pausedAt = null;
-      pausedTotalMs = 0;
-      lastAgentProgressAt = startedAt;
-      progressHeartbeat?.reset();
-    };
     let backgroundDemoteTimer: ReturnType<typeof setTimeout> | null = null;
     let backgroundDemoted = false;
     const turnUiToken = Symbol(queueJid);
@@ -410,7 +392,6 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
       await progress.sendFinalProgressUpdate({
         enabled: true,
         state,
-        elapsed: formatElapsed(activeElapsedMs()),
         options: buildProgressOptions({ done: true }),
         send: sendProgressToChannel,
         onError: (err) =>
@@ -439,7 +420,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
       activeGenerationHasOutput = false;
       sentAnyTurnDoneProgress = false;
       sentTurnDoneProgressGeneration = null;
-      resetActiveElapsed();
+      progressPaused = false;
       typingActive = true;
       progressHeartbeat?.resume();
       void setTurnTyping(true).catch((err) =>
@@ -489,18 +470,13 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
     progressHeartbeat = startGroupProgressHeartbeats({
       supportsProgress,
       isTypingActive: () => typingActive,
-      hasVisibleOutput: () => activeGenerationHasOutput,
-      getLastAgentProgressAt: () => lastAgentProgressAt,
-      getElapsedMs: activeElapsedMs,
       chatJid,
       providerAccountId: group.providerAccountId,
       groupName: group.name,
       channelRuntime: deps.channelRuntime,
-      buildProgressOptions,
-      sendProgressToChannel,
       log: logger,
     });
-    ({ typingHeartbeatTimer, progressTimer } = progressHeartbeat);
+    typingHeartbeatTimer = progressHeartbeat.typingHeartbeatTimer;
     const unregisterContinuationHandler =
       deps.queue.registerContinuationHandler?.(queueJid, () => {
         void startUserVisibleTurn();
@@ -509,10 +485,6 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
       if (typingHeartbeatTimer) {
         clearInterval(typingHeartbeatTimer);
         typingHeartbeatTimer = null;
-      }
-      if (progressTimer) {
-        clearInterval(progressTimer);
-        progressTimer = null;
       }
       clearBackgroundDemoteTimer();
       await initialProgress.cancel();
@@ -552,9 +524,9 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
       clearTimeout(backgroundDemoteTimer);
       backgroundDemoteTimer = null;
     };
-    const pauseActiveElapsed = async () => {
-      if (pausedAt !== null) return;
-      pausedAt = currentTimeMs();
+    const pauseTurnProgress = async () => {
+      if (progressPaused) return;
+      progressPaused = true;
       progressHeartbeat?.pause();
       if (supportsProgress) {
         await sendWaitingForUserResponseProgress();
@@ -569,10 +541,9 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
       }, PERMISSION_BACKGROUND_DEMOTE_MS);
       backgroundDemoteTimer.unref?.();
     };
-    const resumeActiveElapsed = async () => {
-      if (pausedAt === null) return;
-      pausedTotalMs += currentTimeMs() - pausedAt;
-      pausedAt = null;
+    const resumeTurnProgress = async () => {
+      if (!progressPaused) return;
+      progressPaused = false;
       clearBackgroundDemoteTimer();
       progressHeartbeat?.resume();
       if (backgroundDemoted) {
@@ -618,7 +589,6 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
     const finalizeStreamingOutput = outputBuffer.flushBufferedOutput;
     let output: GroupAgentRunResult = 'error';
     const handleAgentOutput = async (result: AgentOutput) => {
-      lastAgentProgressAt = currentTimeMs();
       const isTurnCompleteMarker = isAgentTurnCompleteMarker(result);
       const wasAwaitingResponseReceipt = awaitingResponseReceipt;
       if (
@@ -627,7 +597,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
         !isTurnCompleteMarker
       ) {
         awaitingResponseReceipt = false;
-        await resumeActiveElapsed();
+        await resumeTurnProgress();
         startNextContentStream();
         await sendResponseReceipt();
       }
@@ -651,7 +621,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
           done: true,
           terminal: false,
         });
-        await pauseActiveElapsed();
+        await pauseTurnProgress();
         await setTypingState(false);
         awaitingResponseReceipt = true;
         resetIdleTimer();
@@ -691,7 +661,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
       }
       if (result.status === 'error') {
         hadError = true;
-        await resumeActiveElapsed();
+        await resumeTurnProgress();
         await finalizeStreamingOutput('error-marker');
         if (!outputSentToUser && isModelAccessAuthFailure(result.error)) {
           applyDeliverySettlement(
@@ -749,7 +719,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
         logger,
       });
       await finalizeStreamingOutput('turn-complete');
-      await resumeActiveElapsed();
+      await resumeTurnProgress();
       if (output === 'success' && pendingIdleBoundary) {
         notifyTurnIdle();
       }

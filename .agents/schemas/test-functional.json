@@ -1,0 +1,23 @@
+{
+  "artifact": "test-functional",
+  "phase": "functional-check",
+  "recorded_by": "record_test_from_json.py --kind functional",
+  "generated_by": ["functional-checker"],
+  "required": {
+    "generated_by": "str",
+    "status": "str",
+    "score": "int",
+    "summary": "str",
+    "blocking_findings": "list"
+  },
+  "optional": {
+    "manual_validation_steps": "list",
+    "non_blocking_findings": "list",
+    "residual_risks": "list",
+    "recommendation": "str",
+    "reviewed_scope": "list"
+  },
+  "ranges": {
+    "score": [0, 10]
+  }
+}

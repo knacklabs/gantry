@@ -5,6 +5,7 @@ import {
 } from './configured-agent-tools.js';
 import { authorizedMcpServerIdsForAgent } from '../application/mcp/mcp-authorized-servers.js';
 import { skillActionDefinitionsForAgent } from '../application/agents/agent-capability-skill-actions.js';
+import { resolveAgentPromptCapabilityCatalog } from '../application/agents/agent-prompt-capability-catalog.js';
 import { selectedSkillDisplay } from '../domain/skills/skill-identity.js';
 import {
   semanticCapabilityFromToolCatalogItem,
@@ -25,6 +26,7 @@ export async function resolveTurnToolPolicy(
     return {
       toolPolicyRules: undefined,
       runtimeAccess: [],
+      semanticCapabilities: [],
     };
   }
   return resolveConfiguredToolPolicy({
@@ -33,13 +35,6 @@ export async function resolveTurnToolPolicy(
     appId: turnContext.appId,
     agentId: turnContext.agentId,
   });
-}
-
-export async function resolveTurnSelectedSkillIds(
-  deps: Pick<GroupProcessingDeps, 'getSkillRepository'>,
-  turnContext?: { appId: string; agentId: string } | null,
-): Promise<string[] | undefined> {
-  return (await resolveTurnSelectedSkillContext(deps, turnContext)).ids;
 }
 
 export async function resolveTurnSelectedSkillContext(
@@ -70,23 +65,31 @@ export async function resolveTurnSelectedSkillContext(
 }
 
 export async function resolveTurnSelectedMcpServerIds(
-  deps: Pick<
-    GroupProcessingDeps,
-    'getMcpServerRepository' | 'getToolRepository' | 'getSkillRepository'
-  >,
+  deps: Pick<GroupProcessingDeps, 'getMcpServerRepository'>,
   turnContext?: { appId: string; agentId: string } | null,
-  toolPolicyRules?: readonly string[],
 ): Promise<string[] | undefined> {
   const mcpServers = deps.getMcpServerRepository?.();
-  const tools = deps.getToolRepository?.();
-  if (!turnContext || !mcpServers || !tools) return undefined;
+  if (!turnContext || !mcpServers) return undefined;
   return authorizedMcpServerIdsForAgent({
     mcpServers,
-    tools,
-    skills: deps.getSkillRepository?.(),
     appId: turnContext.appId,
     agentId: turnContext.agentId,
-    allowedTools: toolPolicyRules,
+  });
+}
+
+export function resolveTurnPromptCapabilityCatalog(
+  deps: Pick<
+    GroupProcessingDeps,
+    'getSkillRepository' | 'getMcpServerRepository'
+  >,
+  scope: { appId: string; agentId: string },
+  readySemanticCapabilities: readonly SemanticCapabilityDefinition[],
+) {
+  return resolveAgentPromptCapabilityCatalog({
+    ...scope,
+    readySemanticCapabilities,
+    skillRepository: deps.getSkillRepository?.(),
+    mcpServerRepository: deps.getMcpServerRepository?.(),
   });
 }
 

@@ -98,6 +98,39 @@ export const UpdateAgentRequestSchema = z
   .strict();
 export type UpdateAgentRequest = z.infer<typeof UpdateAgentRequestSchema>;
 
+export const ReplaceAgentDelegatesRequestSchema = z
+  .object({
+    delegates: z.array(z.string().trim().min(1).max(160)).max(100),
+    expectedRevision: z.number().int().nonnegative().optional(),
+  })
+  .strict();
+export type ReplaceAgentDelegatesRequest = z.infer<
+  typeof ReplaceAgentDelegatesRequestSchema
+>;
+
+export const AgentDelegateResolvedSchema = z
+  .object({
+    ref: z.string(),
+    agentId: z.string(),
+    toolName: z.string(),
+    displayName: z.string(),
+    persona: AgentPersonaSchema,
+  })
+  .strict();
+export type AgentDelegateResolved = z.infer<typeof AgentDelegateResolvedSchema>;
+
+export const AgentDelegatesResponseSchema = z
+  .object({
+    agentId: z.string(),
+    revision: z.number().int().nonnegative(),
+    delegates: z.array(z.string()),
+    resolved: z.array(AgentDelegateResolvedSchema),
+  })
+  .strict();
+export type AgentDelegatesResponse = z.infer<
+  typeof AgentDelegatesResponseSchema
+>;
+
 export const AgentResponseSchema = z.object({
   id: z.string(),
   appId: z.string(),

@@ -1,0 +1,74 @@
+{
+  "files": {
+    "migrated-AGENTS.md": {
+      "sha256": "86b16dea688a4ae3e8773c36ebd6784b73474168f2818cf5539dcb948b559d17",
+      "added": "2026-07-22T11:07:16+00:00",
+      "status": "harvested",
+      "outputs": [
+        "docs/decisions/0003-early-stage-no-backcompat.md",
+        "docs/decisions/0004-gantry-naming-and-public-repo.md",
+        "docs/decisions/0002-symphony-forge-adoption.md"
+      ],
+      "notes": "Product facts already canonical in docs/product/BRIEF.md; architecture rules canonical across docs/architecture/ (capability-management, current-verification-commands, codebase-refactor-principles, components) and 31 existing docs/decisions/ records; execution/orchestration standards superseded per 0002. Two previously unrecorded choices extracted as 0003 and 0004.",
+      "marked_at": "2026-07-22T11:10:14+00:00"
+    },
+    "migrated-CLAUDE.md": {
+      "sha256": "6cb5f0cc5d4896ef69d73c98983c710869fc01e5141a0de1601e4a8918e6f675",
+      "added": "2026-07-22T11:07:16+00:00",
+      "status": "ignored",
+      "outputs": [],
+      "notes": "Pointer doc duplicating migrated-AGENTS.md; the agent-facing capability tool list is canonical in docs/architecture/capability-management.md.",
+      "marked_at": "2026-07-22T11:10:14+00:00"
+    },
+    "migrated-FACTORY.md": {
+      "sha256": "99757d97a9b473a4c3ffaf1be7210943d28734dd7ff1a5f326e2d3622881cbbe",
+      "added": "2026-07-22T11:07:16+00:00",
+      "status": "harvested",
+      "outputs": [
+        "docs/decisions/0002-symphony-forge-adoption.md"
+      ],
+      "notes": "Old factory operating contract and gpt-5.5/gpt-5.3 reasoning matrix; superseded by docs/FACTORY.md per 0002.",
+      "marked_at": "2026-07-22T11:10:14+00:00"
+    },
+    "migrated-QUALITY.md": {
+      "sha256": "e1c6abd20dc3ff1fd4676a94ab1d257f4b538d3b058db6f581a5f0fdea3138c4",
+      "added": "2026-07-22T11:07:16+00:00",
+      "status": "harvested",
+      "outputs": [
+        "docs/decisions/0002-symphony-forge-adoption.md"
+      ],
+      "notes": "Old seven-reviewer quality bar superseded by docs/QUALITY.md per 0002; repo-specific test-tree layout and npm/Postgres gates already canonical in docs/architecture/current-verification-commands.md.",
+      "marked_at": "2026-07-22T11:10:14+00:00"
+    },
+    "migrated-WORKFLOW.md": {
+      "sha256": "0467920db92930a4416380590615c8f8285e1670e0f61164a4c620b59a6ca677",
+      "added": "2026-07-22T11:07:16+00:00",
+      "status": "harvested",
+      "outputs": [
+        "docs/decisions/0002-symphony-forge-adoption.md"
+      ],
+      "notes": "Old Linear-first factory workflow; superseded by vendored WORKFLOW.md per 0002.",
+      "marked_at": "2026-07-22T11:10:14+00:00"
+    },
+    "migrated-codex-config.toml": {
+      "sha256": "eef2a0ffa1386dbd56d2a016a1a76dcd3caed73f2b9ce244050734c27a89aab9",
+      "added": "2026-07-22T11:07:16+00:00",
+      "status": "harvested",
+      "outputs": [
+        "docs/decisions/0002-symphony-forge-adoption.md"
+      ],
+      "notes": "Pre-adopt .codex/config.toml; replaced by the adopted adapter config in commit 7a3b24798 per 0002.",
+      "marked_at": "2026-07-22T11:10:14+00:00"
+    },
+    "migrated-codex-hooks.json": {
+      "sha256": "b1f167c3a3291d086c7c2d0467f89dda8dc54952f86b76269d5410283599fec1",
+      "added": "2026-07-22T11:07:16+00:00",
+      "status": "harvested",
+      "outputs": [
+        "docs/decisions/0002-symphony-forge-adoption.md"
+      ],
+      "notes": "Pre-adopt .codex/hooks.json wiring legacy scripts; replaced by adopted hooks per 0002.",
+      "marked_at": "2026-07-22T11:10:14+00:00"
+    }
+  }
+}

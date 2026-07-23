@@ -37,12 +37,20 @@ vi.mock('@core/session/session-commands.js', () => ({
 vi.mock('@core/messaging/router.js', () => ({
   formatMessages: (...args: unknown[]) => mockFormatMessages(...args),
 }));
+vi.mock('@core/infrastructure/logging/logger.js', () => ({
+  logger: {
+    debug: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
+  },
+}));
 
 import {
   MessageLoopDeps,
   processLiveAdmissionWorkItem,
   recoverPendingMessages,
 } from '@core/runtime/message-loop.js';
+import { logger } from '@core/infrastructure/logging/logger.js';
 import {
   decodeGroupMessageCursor,
   encodeGroupMessageCursor,
@@ -597,6 +605,40 @@ describe('recoverPendingMessages', () => {
 });
 
 describe('thread queue routing', () => {
+  it('warns when a live admission item matches no messages', async () => {
+    const queueJid = makeAgentThreadQueueKey(
+      'group@g.us',
+      'agent:team',
+      undefined,
+      'slack_beta',
+    );
+
+    await expect(
+      processLiveAdmissionWorkItem(
+        makeDeps(),
+        makeAdmissionItem({
+          id: 'admission-empty',
+          agentId: 'agent:team',
+          queueJid,
+        }),
+      ),
+    ).resolves.toBe('completed');
+
+    expect(logger.warn).toHaveBeenCalledOnce();
+    expect(logger.warn).toHaveBeenCalledWith(
+      {
+        itemId: 'admission-empty',
+        queueJid,
+        filter: {
+          chatJid: 'group@g.us',
+          threadId: null,
+          providerAccountId: 'slack_beta',
+        },
+      },
+      'Live admission work item matched no messages',
+    );
+  });
+
   it('processes a durable live admission item without route-wide scans', async () => {
     const msg = {
       id: 1,
@@ -1158,6 +1200,43 @@ describe('thread queue routing', () => {
       id: '10',
     });
     expect(saveState).toHaveBeenCalledOnce();
+  });
+
+  it('admits a trusted callable follow-up in a trigger-required conversation', async () => {
+    mockGetMessagesSince.mockReturnValueOnce([
+      {
+        ...makePendingMessage(1),
+        sender: 'gantry:callable-agent',
+        content:
+          'Callable agent task completed after being queued.\nTask ID: task-1\nResult:\ndone',
+      },
+    ]);
+    const deps = makeDeps({
+      getConversationRoutes: () => ({
+        'group@g.us': {
+          name: 'Team',
+          folder: 'team',
+          trigger: '@Andy',
+          added_at: '2024-01-01T00:00:00.000Z',
+          requiresTrigger: true,
+        },
+      }),
+    });
+
+    await expect(
+      processLiveAdmissionWorkItem(
+        deps,
+        makeAdmissionItem({
+          triggerDecision: {
+            source: 'callable_agent_follow_up',
+            requiresTrigger: false,
+            taskId: 'task-1',
+          },
+        }),
+      ),
+    ).resolves.toBe('completed');
+
+    expect(deps.sentTo).toEqual(['group@g.us']);
   });
 
   it('ignores untagged messages in a new thread when the parent conversation requires a trigger', async () => {

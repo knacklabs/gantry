@@ -8,9 +8,15 @@ import {
 import {
   GANTRY_HOME,
   resolveRuntimeBootstrapStorageConfigFromEnv,
+  readRuntimeSecretEnv,
 } from '../../config/index.js';
 import type { AppId } from '../../domain/app/app.js';
 import { logger } from '../../infrastructure/logging/logger.js';
+import {
+  initTracing,
+  parseOtlpHeaders,
+  shutdownTracing,
+} from '../../infrastructure/observability/tracing.js';
 import { ensureRuntimeLayoutDirectories } from '../../platform/runtime-layout.js';
 import { initializeRuntimeStorage } from '../../adapters/storage/postgres/runtime-store.js';
 import { SettingsDesiredStateService } from '../../config/settings/desired-state-service.js';
@@ -57,6 +63,8 @@ interface StartupDeps {
 
 export interface StartupResult {
   runtimeSettings: RuntimeSettings;
+  initTracingFromSettings: (settings: RuntimeSettings) => void;
+  closeTracing: () => Promise<void>;
 }
 
 const STARTUP_CREDENTIAL_BINDING_TIMEOUT_MS = 3_000;
@@ -157,8 +165,34 @@ export async function runStartup(
   );
   await waitForCredentialBindings(app, resolved.logger);
 
+  // Deliberately NOT called here: split fleet roles enter runStartup with
+  // settingsAuthority 'file' and only obtain the authoritative revision via
+  // prepareFleetSettings() afterwards. The caller invokes this exactly once
+  // when settings are final so tracing never configures from a stale mirror.
+  const initTracingFromSettings = (settings: RuntimeSettings): void => {
+    try {
+      const tracing = settings.observability.tracing;
+      initTracing({
+        enabled: tracing.enabled,
+        endpoint: tracing.endpoint || undefined,
+        // Managed services (launchd/systemd) pass a minimal process env;
+        // runtime secrets live in GANTRY_HOME/.env (process env still wins).
+        headers: parseOtlpHeaders(
+          readRuntimeSecretEnv('GANTRY_OTEL_TRACES_HEADERS'),
+        ),
+        captureContent: tracing.captureContent,
+        sampleRate: tracing.sampleRate,
+        environment: tracing.environment,
+      });
+    } catch (err) {
+      resolved.logger.warn({ err }, 'Failed to initialize tracing');
+    }
+  };
+
   return {
     runtimeSettings,
+    initTracingFromSettings,
+    closeTracing: shutdownTracing,
   };
 }
 
@@ -296,7 +330,10 @@ async function loadRevisionAuthoritySettings(input: {
     settings,
   );
   input.logger.info(
-    { appId, revision: outcome.revision ?? 0 },
+    {
+      appId,
+      revision: outcome.status === 'revision_created' ? outcome.revision : 0,
+    },
     'Seeded workstation settings revision from settings.yaml',
   );
   return settings;

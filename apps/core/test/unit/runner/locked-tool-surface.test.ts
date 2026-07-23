@@ -84,6 +84,7 @@ describe('locked tool surface mounting', () => {
     // pre-provisioned baseline tools still mount.
     expect(names.has('send_message')).toBe(true);
     expect(names.has('mcp_list_tools')).toBe(true);
+    expect(names.has('mcp_search_tools')).toBe(true);
     expect(names.has('mcp_describe_tool')).toBe(true);
   });
 

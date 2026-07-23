@@ -10,7 +10,7 @@ Targets (measured gates from the deployment-modes plan):
 
 Background: [deployment-profiles.md](../architecture/deployment-profiles.md) and the
 ADRs under [docs/decisions/](../decisions/) (delivery vehicle, deployment modes,
-[process roles and multi-live](../decisions/2026-06-12-process-roles-and-multi-live.md),
+[process roles and multi-live](../decisions/0027-process-roles-and-multi-live.md),
 capability artifacts, locked preset).
 
 Module reference:

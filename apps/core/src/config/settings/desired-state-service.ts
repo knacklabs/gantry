@@ -43,6 +43,7 @@ import {
   hasAnyCapability,
   isInternalProviderAccount,
   isValidExternalUserId,
+  listDbOnlyGroupJids,
   loadMcpServersById,
   memorySubjectForConfiguredBinding,
   normalizeRuntimeSecretRefs,
@@ -83,6 +84,7 @@ import type {
 import { resolveAgentToolReference } from '../../domain/tools/agent-tool-catalog-references.js';
 import { nowIso } from '../../shared/time/datetime.js';
 import { makeAgentThreadQueueKey } from '../../shared/thread-queue-key.js';
+import { validateDesiredStateCapabilityReferences } from './desired-state-capability-validation.js';
 
 export class SettingsDesiredStateService {
   private readonly appId: AppId;
@@ -113,10 +115,13 @@ export class SettingsDesiredStateService {
     settings: RuntimeSettings,
   ): Promise<SettingsDesiredStateDriftReport> {
     settings = (await this.normalizeConfiguredCapabilities(settings)).settings;
-    const groups = await this.deps.ops.getAllConversationRoutes();
+    const [groups, chats] = await Promise.all([
+      this.deps.ops.getAllConversationRoutes(),
+      this.deps.ops.getAllChats?.() ?? Promise.resolve([]),
+    ]);
     const configuredFolders = new Set(Object.keys(settings.agents));
     const configuredJids = new Set<string>();
-    for (const binding of configuredRoutingBindings(settings)) {
+    for (const binding of configuredRoutingBindings(settings, groups)) {
       configuredJids.add(binding.jid);
       configuredJids.add(
         makeAgentThreadQueueKey(
@@ -135,9 +140,11 @@ export class SettingsDesiredStateService {
             .filter((folder) => !configuredFolders.has(folder)),
         ),
       ].sort(),
-      dbOnlyGroupJids: Object.keys(groups)
-        .filter((jid) => !configuredJids.has(jid))
-        .sort(),
+      dbOnlyGroupJids: listDbOnlyGroupJids({
+        groups,
+        chats,
+        configuredJids,
+      }),
       invalidReferences: await this.validateCapabilityReferences(settings),
     };
   }
@@ -162,7 +169,10 @@ export class SettingsDesiredStateService {
     const existingGroups = await this.deps.ops.getAllConversationRoutes();
     const configuredFolders = new Set(Object.keys(settings.agents));
     const configuredJids = new Set<string>();
-    const bindingsByAgent = configuredRoutingBindingsByAgent(settings);
+    const bindingsByAgent = configuredRoutingBindingsByAgent(
+      settings,
+      existingGroups,
+    );
     const providerAccountEntries = Object.entries(settings.providerAccounts);
 
     for (const [folder, agent] of Object.entries(settings.agents)) {
@@ -183,7 +193,12 @@ export class SettingsDesiredStateService {
         hasAnyCapability(agent) ||
         normalizedCapabilityFolders.has(folder)
       ) {
-        await this.replaceCapabilities(agentId, agent, now);
+        await this.replaceCapabilities(
+          agentId,
+          agent,
+          now,
+          settings.desiredState.authoritative,
+        );
         applied.push(`capabilities:${folder}`);
       } else {
         skipped.push(`capabilities:${folder}:not-authoritative-empty`);
@@ -245,6 +260,7 @@ export class SettingsDesiredStateService {
         await this.deps.ops.setConversationRoute(routeKey, {
           name: agent.name,
           folder,
+          conversationId: binding.conversationId,
           trigger: binding.trigger,
           added_at: binding.addedAt,
           requiresTrigger: binding.requiresTrigger,
@@ -327,12 +343,14 @@ export class SettingsDesiredStateService {
           {
             name: agent.name,
             folder,
+            delegates: [],
             bindings: {},
             sources: { skills: [], mcpServers: [], tools: [] },
             capabilities: [],
             accessPreset: 'full',
           },
           now,
+          true,
         );
         applied.push(`authoritative:disabled_absent_agent:${folder}`);
       }
@@ -549,6 +567,7 @@ export class SettingsDesiredStateService {
             conversationId: installConversation.id,
           }),
           route: {
+            configuredConversationId: input.conversationKey,
             trigger: binding.trigger,
             requiresTrigger: binding.requiresTrigger,
             agentConfig: configuredAgentConfig(binding),
@@ -700,117 +719,18 @@ export class SettingsDesiredStateService {
   async validateCapabilityReferences(
     settings: RuntimeSettings,
   ): Promise<string[]> {
-    const errors: string[] = [];
-    const serverIds = new Set<string>();
-    for (const agent of Object.values(settings.agents)) {
-      for (const source of agent.sources.mcpServers) {
-        serverIds.add(source.id);
-      }
-    }
-    const servers = await loadMcpServersById(
-      this.deps.repositories.mcpServers,
-      [...serverIds],
-    );
-    const catalogSemanticCapabilityDefinitions =
-      semanticCapabilityDefinitionsFromCatalogTools(
-        await this.deps.repositories.tools.listTools({
-          appId: this.appId,
-          statuses: ['active'],
-        }),
-      );
-    errors.push(
-      ...(await inlineAgentRuntimeCapabilityErrors({
-        appId: this.appId,
-        settings,
-        repositories: this.deps.repositories,
-        servers,
-        catalogSemanticCapabilityDefinitions,
-      })),
-    );
-    for (const [folder, agent] of Object.entries(settings.agents)) {
-      const resolvedSkills = await resolveConfiguredSkillReferences({
-        repository: this.deps.repositories.skills,
-        appId: this.appId,
-        agentId: agentIdForFolder(folder),
-        references: agent.sources.skills.map((source) => source.id),
-      });
-      const [skillCollision] = skillMaterializationCollisions(
-        selectedSkillsFromResolvedSkillReferences(
-          agent.sources.skills.map((source) => source.id),
-          resolvedSkills,
-        ),
-      );
-      if (skillCollision) {
-        errors.push(
-          `agents.${folder}.sources.skills contains ${formatSkillMaterializationCollisionFragment(skillCollision)}`,
-        );
-      }
-      const skillActionDefinitionsForAgent = skillActionDefinitionsForSkills([
-        ...resolvedSkills.skills.values(),
-      ]);
-      const skillActionDefinitions = {
-        ...catalogSemanticCapabilityDefinitions,
-        ...semanticCapabilityDefinitionsById(skillActionDefinitionsForAgent),
-      };
-      const normalizedCapabilities = normalizeConfiguredCapabilities({
-        capabilities: agent.capabilities,
-      }).capabilities;
-      for (const capability of [
-        ...new Set(normalizedCapabilities.map((item) => item.id)),
-      ]) {
-        const toolReference = settingsCapabilityToToolReference({
-          id: capability,
-          version: 'builtin',
-        });
-        const resolved = await resolveAgentToolReference({
-          repository: this.deps.repositories.tools,
-          appId: this.appId,
-          reference: toolReference,
-          semanticCapabilityDefinitions: skillActionDefinitions,
-        });
-        if (resolved.error) {
-          errors.push(
-            `agents.${folder}.capabilities contains unavailable capability ${capability}: ${resolved.error}`,
-          );
-        }
-      }
-      for (const skillId of [
-        ...new Set(agent.sources.skills.map((source) => source.id)),
-      ]) {
-        const skill = resolvedSkills.skills.get(skillId);
-        const resolutionError = resolvedSkills.errors.get(skillId);
-        if (!skill || resolutionError) {
-          errors.push(
-            `agents.${folder}.sources.skills contains ${resolutionError ?? `unavailable skill: ${skillId}`}`,
-          );
-        } else if (!skill.storage) {
-          errors.push(
-            `agents.${folder}.sources.skills references skill without artifact storage: ${skillId}`,
-          );
-        }
-      }
-      for (const serverId of [
-        ...new Set(agent.sources.mcpServers.map((source) => source.id)),
-      ]) {
-        const server = servers.get(serverId);
-        if (
-          !server ||
-          server.appId !== this.appId ||
-          server.status !== 'active'
-        ) {
-          errors.push(
-            `agents.${folder}.sources.mcp_servers contains unavailable MCP server: ${serverId}`,
-          );
-        }
-      }
-    }
-    return errors.sort();
+    return validateDesiredStateCapabilityReferences({
+      appId: this.appId,
+      deps: this.deps,
+      settings,
+    });
   }
 
   private async replaceCapabilities(
     agentId: AgentId,
     agent: RuntimeConfiguredAgent,
     now: string,
+    authoritative: boolean,
   ): Promise<void> {
     await replaceDesiredStateCapabilities({
       appId: this.appId,
@@ -818,6 +738,7 @@ export class SettingsDesiredStateService {
       agent,
       repositories: this.deps.repositories,
       now,
+      authoritative,
     });
   }
 }

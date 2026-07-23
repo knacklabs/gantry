@@ -405,10 +405,11 @@ describe('McpServerService', () => {
           eventType: 'startup_failure',
           serverId: server.id,
           agentId: 'agent:one',
-          reason: expect.stringContaining('GITHUB_TOKEN'),
+          reason: expect.stringContaining('Credential Center'),
         }),
       ]),
     );
+    expect(JSON.stringify(repo.auditEvents)).not.toContain('GITHUB_TOKEN');
   });
 
   it('fails required remote MCP materialization when DNS validation times out', async () => {

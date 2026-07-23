@@ -72,6 +72,7 @@ import { assertSafeExecutionProviderId } from '../../../../domain/sessions/execu
 import type { ExternalRef } from '../../../../shared/ids/branded-id.js';
 import * as pgSchema from '../schema/schema.js';
 import {
+  CANONICAL_APP_ID,
   jsonb,
   type CanonicalDb,
 } from './canonical-graph-repository.postgres.js';
@@ -102,6 +103,8 @@ import { PostgresSettingsRevisionRepository } from './settings-revision-reposito
 import { PostgresAsyncTaskRepository } from './async-task-repository.postgres.js';
 import { PostgresPatternCandidateRepository } from './pattern-candidate-repository.postgres.js';
 import { PostgresProactiveSurfacingRepository } from './proactive-surfacing-repository.postgres.js';
+import { PostgresObserverInsightRepository } from './observer-insight-repository.postgres.js';
+import { PostgresChatBatchRepository } from './chat-batch-repository.postgres.js';
 import type {
   RuntimeDependencyRepository,
   SettingsRevisionRepository,
@@ -109,8 +112,12 @@ import type {
 } from '../../../../domain/ports/fleet-capability-state.js';
 import type { AsyncTaskRepository } from '../../../../domain/ports/async-tasks.js';
 import type { PatternCandidateRepository } from '../../../../domain/ports/pattern-candidates.js';
+import type { ObserverInsightRepository } from '../../../../domain/ports/observer-insights.js';
+import type { ChatBatchRepository } from '../../../../domain/ports/chat-batches.js';
 import type { PermissionPromotionRepository } from '../../../../domain/ports/permission-promotion.js';
+import type { GroupJoinOnboardingRepository } from '../../../../domain/ports/group-join-onboarding.js';
 import { PostgresPermissionPromotionRepository } from './permission-promotion-repository.postgres.js';
+import { PostgresGroupJoinOnboardingRepository } from './group-join-onboarding-repository.postgres.js';
 export interface PostgresDomainRepositoryBundle {
   apps: AppRepository;
   agents: AgentRepository;
@@ -141,7 +148,10 @@ export interface PostgresDomainRepositoryBundle {
   asyncTasks: AsyncTaskRepository;
   patternCandidates: PatternCandidateRepository;
   proactiveSurfacing: PostgresProactiveSurfacingRepository;
+  observerInsights: ObserverInsightRepository;
+  chatBatches: ChatBatchRepository;
   permissionPromotions: PermissionPromotionRepository;
+  groupJoinOnboarding: GroupJoinOnboardingRepository;
 }
 type JsonRecord = Record<string, unknown>;
 function encodeJson(value: unknown): string {
@@ -223,6 +233,10 @@ function channelControlApproverId(
 ): string {
   return `channel-control:${safeIdPart(conversationId)}:${safeIdPart(externalUserId)}`;
 }
+
+// Real approver IDs cannot be empty, so this row durably records a clear.
+const AUTHORITATIVE_EMPTY_APPROVER = '';
+
 function externalRef<Kind extends string>(
   value: unknown,
   fallbackKind: Kind,
@@ -949,7 +963,9 @@ export class PostgresConversationRepository implements ConversationRepository {
   async listConversationApprovers(
     conversationId: Conversation['id'],
   ): Promise<ConversationApprover[]> {
-    return this.listConversationApproverRows([conversationId]);
+    return (await this.listConversationApproverRows([conversationId])).filter(
+      (approver) => approver.externalUserId !== AUTHORITATIVE_EMPTY_APPROVER,
+    );
   }
   async listConversationApproversForConversations(
     conversationIds: readonly Conversation['id'][],
@@ -999,9 +1015,11 @@ export class PostgresConversationRepository implements ConversationRepository {
             ),
           ),
         );
-      if (input.externalUserIds.length === 0) return;
       await tx.insert(pgSchema.conversationApproversPostgres).values(
-        input.externalUserIds.map((externalUserId) => ({
+        (input.externalUserIds.length
+          ? input.externalUserIds
+          : [AUTHORITATIVE_EMPTY_APPROVER]
+        ).map((externalUserId) => ({
           id: channelControlApproverId(input.conversationId, externalUserId),
           appId: input.appId,
           conversationId: input.conversationId,
@@ -1045,6 +1063,20 @@ export class PostgresConversationRepository implements ConversationRepository {
 }
 export class PostgresMessageRepository implements MessageRepository {
   constructor(private readonly db: CanonicalDb) {}
+  async listConversationIdsForJid(jid: string): Promise<Conversation['id'][]> {
+    const c = pgSchema.conversationsPostgres;
+    const rows = await this.db
+      .select({ id: c.id })
+      .from(c)
+      .where(
+        and(
+          eq(c.appId, CANONICAL_APP_ID),
+          eq(sql<string>`${c.externalRefJson}::jsonb->>'jid'`, jid),
+        ),
+      )
+      .orderBy(asc(c.id));
+    return rows.map((row) => row.id as Conversation['id']);
+  }
   async getMessage(id: Message['id']): Promise<Message | null> {
     const m = pgSchema.messagesPostgres;
     const rows = await this.db.select().from(m).where(eq(m.id, id)).limit(1);
@@ -1731,7 +1763,10 @@ export function createPostgresDomainRepositories(
     pendingAccessRequests: new PostgresPendingAccessRequestsRepository(db),
     sandboxes: new PostgresSandboxRepository(db),
     outboundDeliveries: new PostgresOutboundDeliveryRepository(db),
-    workerCoordination: new PostgresWorkerCoordinationRepository(db),
+    workerCoordination: new PostgresWorkerCoordinationRepository(
+      db,
+      options.liveTurnCommandNotifier,
+    ),
     liveTurns: new PostgresLiveTurnRepository(
       db,
       options.liveTurnCommandNotifier,
@@ -1741,6 +1776,9 @@ export function createPostgresDomainRepositories(
     asyncTasks: new PostgresAsyncTaskRepository(db),
     patternCandidates: new PostgresPatternCandidateRepository(db),
     proactiveSurfacing: new PostgresProactiveSurfacingRepository(db),
+    observerInsights: new PostgresObserverInsightRepository(db),
+    chatBatches: new PostgresChatBatchRepository(db),
     permissionPromotions: new PostgresPermissionPromotionRepository(db),
+    groupJoinOnboarding: new PostgresGroupJoinOnboardingRepository(db),
   };
 }

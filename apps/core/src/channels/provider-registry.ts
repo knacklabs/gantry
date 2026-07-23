@@ -1,4 +1,5 @@
 import { ChannelFactory } from './channel-provider.js';
+import { registerChannelPromptPresentationRenderer } from '../application/agents/prompt-profile-service.js';
 
 export interface ChannelProviderSetupContext {
   runtimeHome: string;
@@ -25,6 +26,13 @@ export type ChannelFormattingDialect =
   | 'telegram-html'
   | 'telegram-markdown-v2';
 
+export interface PromptPresentationDescriptor {
+  label: string;
+  formattingDescription: string;
+  maxMessageGuidance?: string;
+  attachmentGuidance: string;
+}
+
 export interface Provider {
   id: string;
   label: string;
@@ -35,6 +43,7 @@ export interface Provider {
   isGroupJid: (jid: string) => boolean;
   canStreamToJid?: (jid: string) => boolean;
   formatting: ChannelFormattingDialect;
+  promptPresentation?: PromptPresentationDescriptor;
   isEnabled: (settings: ChannelProviderSettingsLike) => boolean;
   create: ChannelFactory;
   setup: ChannelProviderSetup;
@@ -116,6 +125,30 @@ export function normalizeProviderId(id: string): string {
   return builtInPrefixAliases.get(normalized) ?? '';
 }
 
+/** Provider-account id the internal control channel registers under. */
+export function internalControlProviderAccountId(appId: string): string {
+  return `control:${appId}`;
+}
+
+/**
+ * Fallback provider-account id for a conversation whose message carried none.
+ * Internal providers (app: JIDs) have exactly one always-connected channel
+ * bound as control:<appId>; minting any other synthetic id there orphans the
+ * conversation from channel ownership and its turns are silently skipped.
+ */
+export function fallbackProviderAccountId(
+  appId: string,
+  providerId: string,
+): string {
+  const normalized = normalizeProviderId(providerId) || providerId;
+  // 'app' is the built-in internal provider; recognize it even before
+  // register-builtins has populated the registry (repository-level callers).
+  if (normalized === 'app' || getProvider(normalized)?.internal === true) {
+    return internalControlProviderAccountId(appId);
+  }
+  return `channel-providerAccount:${appId}:${normalized}`;
+}
+
 export function providerJidPrefix(providerId: string): string {
   const normalized = normalizeProviderId(providerId);
   if (!normalized) return '';
@@ -144,6 +177,32 @@ export function providerForJid(jid: string): Provider | undefined {
   }
   return undefined;
 }
+
+export function renderChannelPromptPresentation(
+  chatJid: string | undefined,
+  conversationKind: 'dm' | 'channel' | undefined,
+): string | undefined {
+  if (!chatJid) return undefined;
+  const kind =
+    conversationKind === 'dm'
+      ? 'direct message'
+      : conversationKind === 'channel'
+        ? 'group conversation'
+        : 'conversation';
+  const descriptor = providerForJid(chatJid)?.promptPresentation;
+  if (!descriptor) {
+    return `- Channel: ${kind}; outbound workspace file attachments are capped at 25MB.`;
+  }
+  return `- Channel: ${descriptor.label} ${kind}. ${[
+    descriptor.formattingDescription,
+    descriptor.maxMessageGuidance,
+    descriptor.attachmentGuidance,
+  ]
+    .filter(Boolean)
+    .join('; ')}.`;
+}
+
+registerChannelPromptPresentationRenderer(renderChannelPromptPresentation);
 
 export function providerIdForJid(jid: string, fallback = 'app'): string {
   const provider = providerForJid(jid);

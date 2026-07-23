@@ -22,6 +22,15 @@ import type {
   RuntimeSettings,
 } from './runtime-settings-types.js';
 
+const MAX_STALE_SETTINGS_RETRIES = 3;
+
+type ProjectionSettingsOverrides = {
+  providerAccount?: {
+    id: string;
+    runtimeSecretRefs: Record<string, string>;
+  };
+};
+
 export async function applyRuntimeSettingsDesiredState(input: {
   runtimeHome: string;
   settings: RuntimeSettings;
@@ -87,47 +96,72 @@ export async function syncRuntimeSettingsFromProjection(input: {
   settingsRevisions?: SettingsRevisionRepository;
   pool?: SettingsRevisionMirror['pool'];
   createdBy?: string;
+  overrides?: ProjectionSettingsOverrides;
 }): Promise<void> {
-  const settings = loadRuntimeSettings(input.runtimeHome);
   const service = new SettingsDesiredStateService({
     ops: input.ops,
     repositories: input.repositories,
     appId: input.appId,
   });
-  const exported = await service.exportCurrent(settings);
-  if (input.settingsRevisions) {
-    const appId = input.appId ?? ('default' as AppId);
-    const { importWorkstationSettings } =
-      await import('./settings-import-service.js');
-    await importWorkstationSettings(
-      {
-        runtimeHome: input.runtimeHome,
-        ops: input.ops,
-        repositories: input.repositories,
-        appId,
-        previousSettings: settings,
-        reloadRuntimeState: input.reloadRuntimeState,
-        revisionMirror: {
-          settingsRevisions: input.settingsRevisions,
-          pool: input.pool,
-          createdBy: input.createdBy ?? 'projection-sync',
-        },
-        revisionMirrorRequired: true,
-      },
-      exported,
-    );
+  for (let attempt = 0; attempt <= MAX_STALE_SETTINGS_RETRIES; attempt += 1) {
+    const settings = loadRuntimeSettings(input.runtimeHome);
+    const exported = await service.exportCurrent(settings);
+    const providerAccountOverride = input.overrides?.providerAccount;
+    if (providerAccountOverride) {
+      const account = exported.providerAccounts[providerAccountOverride.id];
+      if (account) {
+        account.runtimeSecretRefs = providerAccountOverride.runtimeSecretRefs;
+      }
+    }
+    if (input.settingsRevisions) {
+      const appId = input.appId ?? ('default' as AppId);
+      const {
+        importWorkstationSettings,
+        SettingsRevisionConflictError,
+        SettingsStaleMutationError,
+      } = await import('./settings-import-service.js');
+      try {
+        await importWorkstationSettings(
+          {
+            runtimeHome: input.runtimeHome,
+            ops: input.ops,
+            repositories: input.repositories,
+            appId,
+            previousSettings: settings,
+            reloadRuntimeState: input.reloadRuntimeState,
+            revisionMirror: {
+              settingsRevisions: input.settingsRevisions,
+              pool: input.pool,
+              createdBy: input.createdBy ?? 'projection-sync',
+            },
+            revisionMirrorRequired: true,
+          },
+          exported,
+        );
+        return;
+      } catch (err) {
+        if (
+          (!(err instanceof SettingsStaleMutationError) &&
+            !(err instanceof SettingsRevisionConflictError)) ||
+          attempt === MAX_STALE_SETTINGS_RETRIES
+        ) {
+          throw err;
+        }
+      }
+      continue;
+    }
+    if (exported.runtime.deploymentMode === 'fleet') {
+      throw new Error(
+        'Fleet settings projection sync requires the settings revisions repository.',
+      );
+    }
+    await applyRuntimeSettingsDesiredState({
+      ...input,
+      settings: exported,
+      previousSettings: settings,
+    });
     return;
   }
-  if (exported.runtime.deploymentMode === 'fleet') {
-    throw new Error(
-      'Fleet settings projection sync requires the settings revisions repository.',
-    );
-  }
-  await applyRuntimeSettingsDesiredState({
-    ...input,
-    settings: exported,
-    previousSettings: settings,
-  });
 }
 
 export async function addAgentToolRulesToSyncedRuntimeSettings(input: {
@@ -142,58 +176,80 @@ export async function addAgentToolRulesToSyncedRuntimeSettings(input: {
   pool?: SettingsRevisionMirror['pool'];
   createdBy?: string;
 }): Promise<void> {
-  const previousSettings = loadRuntimeSettings(input.runtimeHome);
-  const nextSettings = structuredClone(previousSettings);
-  addAgentToolRulesToRuntimeSettings(
-    nextSettings,
-    input.agentFolder,
-    input.rules,
-  );
-  await addActiveMcpSourcesToRuntimeSettings({
-    settings: nextSettings,
-    agentFolder: input.agentFolder,
-    repositories: input.repositories,
-    appId: input.appId ?? ('default' as AppId),
-  });
-  if (input.settingsRevisions) {
-    const appId = input.appId ?? ('default' as AppId);
-    const { importWorkstationSettings } =
-      await import('./settings-import-service.js');
-    await importWorkstationSettings(
-      {
-        runtimeHome: input.runtimeHome,
-        ops: input.ops,
-        repositories: input.repositories,
-        appId,
-        previousSettings,
-        reloadRuntimeState: input.reloadRuntimeState,
-        revisionMirror: {
-          settingsRevisions: input.settingsRevisions,
-          pool: input.pool,
-          createdBy: input.createdBy ?? 'permission:persistent-tool-rule',
-        },
-        revisionMirrorRequired: true,
-      },
+  for (let attempt = 0; attempt <= MAX_STALE_SETTINGS_RETRIES; attempt += 1) {
+    const base = await loadSyncedMutationBaseSettings({
+      runtimeHome: input.runtimeHome,
+      settingsRevisions: input.settingsRevisions,
+      appId: input.appId ?? ('default' as AppId),
+    });
+    const previousSettings = base.settings;
+    const nextSettings = structuredClone(previousSettings);
+    addAgentToolRulesToRuntimeSettings(
       nextSettings,
+      input.agentFolder,
+      input.rules,
     );
+    await addActiveMcpSourcesToRuntimeSettings({
+      settings: nextSettings,
+      agentFolder: input.agentFolder,
+      repositories: input.repositories,
+      appId: input.appId ?? ('default' as AppId),
+    });
+    if (input.settingsRevisions) {
+      const appId = input.appId ?? ('default' as AppId);
+      const {
+        importWorkstationSettings,
+        SettingsRevisionConflictError,
+        SettingsStaleMutationError,
+      } = await import('./settings-import-service.js');
+      try {
+        await importWorkstationSettings(
+          {
+            runtimeHome: input.runtimeHome,
+            ops: input.ops,
+            repositories: input.repositories,
+            appId,
+            previousSettings,
+            reloadRuntimeState: input.reloadRuntimeState,
+            revisionMirror: {
+              settingsRevisions: input.settingsRevisions,
+              pool: input.pool,
+              createdBy: input.createdBy ?? 'permission:persistent-tool-rule',
+            },
+            revisionMirrorRequired: true,
+            expectedRevision: base.expectedRevision,
+          },
+          nextSettings,
+        );
+        return;
+      } catch (err) {
+        if (
+          (!(err instanceof SettingsStaleMutationError) &&
+            !(err instanceof SettingsRevisionConflictError)) ||
+          attempt === MAX_STALE_SETTINGS_RETRIES
+        ) {
+          throw err;
+        }
+      }
+      continue;
+    }
+    if (nextSettings.runtime.deploymentMode === 'fleet') {
+      throw new Error(
+        'Fleet tool-rule settings mutation requires the settings revisions repository.',
+      );
+    }
+    await applyRuntimeSettingsDesiredState({
+      runtimeHome: input.runtimeHome,
+      settings: nextSettings,
+      previousSettings,
+      ops: input.ops,
+      repositories: input.repositories,
+      appId: input.appId,
+      reloadRuntimeState: input.reloadRuntimeState,
+    });
     return;
   }
-  if (nextSettings.runtime.deploymentMode === 'fleet') {
-    throw new Error(
-      'Fleet tool-rule settings mutation requires the settings revisions repository.',
-    );
-  }
-  await applyRuntimeSettingsDesiredState({
-    runtimeHome: input.runtimeHome,
-    settings: nextSettings,
-    previousSettings,
-    ops: input.ops,
-    repositories: input.repositories,
-    appId: input.appId,
-    reloadRuntimeState: input.reloadRuntimeState,
-  });
 }
-
 export async function addActiveMcpSourcesToRuntimeSettings(input: {
   settings: RuntimeSettings;
   agentFolder: string;
@@ -250,7 +306,12 @@ export async function removeAgentToolRulesFromSyncedRuntimeSettings(input: {
   pool?: SettingsRevisionMirror['pool'];
   createdBy?: string;
 }): Promise<void> {
-  const previousSettings = loadRuntimeSettings(input.runtimeHome);
+  const base = await loadSyncedMutationBaseSettings({
+    runtimeHome: input.runtimeHome,
+    settingsRevisions: input.settingsRevisions,
+    appId: input.appId ?? ('default' as AppId),
+  });
+  const previousSettings = base.settings;
   const nextSettings = structuredClone(previousSettings);
   removeAgentToolRulesFromRuntimeSettings(
     nextSettings,
@@ -275,6 +336,7 @@ export async function removeAgentToolRulesFromSyncedRuntimeSettings(input: {
           createdBy: input.createdBy ?? 'permission:persistent-tool-rule',
         },
         revisionMirrorRequired: true,
+        expectedRevision: base.expectedRevision,
       },
       nextSettings,
     );
@@ -294,4 +356,26 @@ export async function removeAgentToolRulesFromSyncedRuntimeSettings(input: {
     appId: input.appId,
     reloadRuntimeState: input.reloadRuntimeState,
   });
+}
+
+async function loadSyncedMutationBaseSettings(input: {
+  runtimeHome: string;
+  settingsRevisions?: SettingsRevisionRepository;
+  appId: AppId;
+}): Promise<{ settings: RuntimeSettings; expectedRevision?: number }> {
+  if (!input.settingsRevisions) {
+    return { settings: loadRuntimeSettings(input.runtimeHome) };
+  }
+  const latest = await input.settingsRevisions.getLatestSettingsRevision(
+    input.appId,
+  );
+  if (!latest) {
+    return { settings: loadRuntimeSettings(input.runtimeHome) };
+  }
+  const { settingsFromRevisionDocument } =
+    await import('./settings-import-service.js');
+  return {
+    settings: settingsFromRevisionDocument(latest.settingsDocument),
+    expectedRevision: latest.revision,
+  };
 }

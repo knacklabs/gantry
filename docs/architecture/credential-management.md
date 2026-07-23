@@ -141,7 +141,7 @@ and mode metadata.
 
 The active credential modes follow from the model's provider and selected
 agent harness. The agent harness contract is recorded in
-`docs/decisions/2026-06-14-agent-harness-selection.md`. `agentHarness` is
+`docs/decisions/0028-agent-harness-selection.md`. `agentHarness` is
 durable user/admin intent with values `auto`, `anthropic_sdk`, and
 `deepagents`; in `settings.yaml`, the key is `agent_harness`. `auto` derives the
 internal execution lane from the model provider, while explicit

@@ -60,6 +60,7 @@ import { handleGuidedActionRoutes } from './routes/guided-actions.js';
 import { handleJobRoutes } from './routes/jobs.js';
 import { handleLlmRoutes } from './routes/llm.js';
 import { handleMemoryRoutes } from './routes/memory.js';
+import { handleObserverRoutes } from './routes/observer.js';
 import { handleMcpServerRoutes } from './routes/mcp-servers.js';
 import { handleModelRoutes } from './routes/models.js';
 import { handleOpenApiRoutes } from './routes/openapi.js';
@@ -202,6 +203,7 @@ function createControlRequestHandler(
       )
         return;
       if (await handleMemoryRoutes(req, res, ctx, url, routePathname)) return;
+      if (await handleObserverRoutes(req, res, ctx, url, routePathname)) return;
       if (await handleBrainRoutes(req, res, ctx, url, routePathname)) return;
       if (await handleCredentialRoutes(req, res, ctx, routePathname)) return;
       if (await handleModelRoutes(req, res, ctx, routePathname)) return;
@@ -255,6 +257,28 @@ function isLiveIngressRoute(pathname: string): boolean {
   return /^\/webhooks\/[^/]+(?:\/wait)?$/.test(pathname);
 }
 
+function missingControlPort(name: string): never {
+  throw new Error(`${name} was not composed at the app root`);
+}
+
+function unavailableControlAgentSettingsPort(): ControlRouteContext['agentSettings'] {
+  return {
+    decodeRevisionDocument: () => missingControlPort('agentSettings'),
+    defaultSettings: () => missingControlPort('agentSettings'),
+    serializeRevisionDocument: () => missingControlPort('agentSettings'),
+    writeAgentHarnessSetting: async () => missingControlPort('agentSettings'),
+  };
+}
+
+function unavailableControlSettingsImportPort(): ControlRouteContext['settingsImport'] {
+  return {
+    serializeRevisionDocument: () => missingControlPort('settingsImport'),
+    importWorkstation: async () => missingControlPort('settingsImport'),
+    importFleet: async () => missingControlPort('settingsImport'),
+    classifyImportError: () => null,
+  };
+}
+
 export function startControlServer(input: {
   app: RuntimeApp;
   getBrowserStatus?: JobManagementServiceDeps['getBrowserStatus'];
@@ -279,6 +303,12 @@ export function startControlServer(input: {
   isSchedulerReady?: () => boolean;
   oldestWaitingLiveAdmissionSeconds?: () => number;
   liveCapacityLimit?: () => number;
+  /** Lifecycle-owned settings that are actually active in this process. */
+  getEffectiveRuntimeSettings?: ControlRouteContext['getEffectiveRuntimeSettings'];
+  getEffectiveMemoryState?: ControlRouteContext['getEffectiveMemoryState'];
+  agentSettings?: ControlRouteContext['agentSettings'];
+  settingsImport?: ControlRouteContext['settingsImport'];
+  resolveObserverStatus?: ControlRouteContext['resolveObserverStatus'];
 }): ControlServerHandle {
   configureDesiredSettingsStorageProvider(async () => {
     const storage = getRuntimeStorage();
@@ -356,6 +386,12 @@ export function startControlServer(input: {
     activeTriggerWaits: 0,
   };
   let webhookFlushInFlight = false;
+  let effectiveRuntimeSettings:
+    | ReturnType<typeof getRuntimeSettingsForConfig>
+    | undefined;
+  const getEffectiveRuntimeSettings =
+    input.getEffectiveRuntimeSettings ??
+    (() => (effectiveRuntimeSettings ??= getRuntimeSettingsForConfig()));
   const ctx: ControlRouteContext = {
     app: input.app,
     runtimeHome: GANTRY_HOME,
@@ -383,6 +419,20 @@ export function startControlServer(input: {
     triggerRateLimiter: createRateLimiter(),
     getRuntimeSettings: () => getPublicRuntimeSettings(),
     getInternalRuntimeSettings: () => getRuntimeSettingsForConfig(),
+    getEffectiveRuntimeSettings,
+    getEffectiveMemoryState:
+      input.getEffectiveMemoryState ??
+      (() => ({
+        enabled: getEffectiveRuntimeSettings().memory.enabled,
+        dreamingEnabled:
+          getEffectiveRuntimeSettings().memory.dreaming.enabled ?? false,
+      })),
+    agentSettings: input.agentSettings ?? unavailableControlAgentSettingsPort(),
+    settingsImport:
+      input.settingsImport ?? unavailableControlSettingsImportPort(),
+    resolveObserverStatus:
+      input.resolveObserverStatus ??
+      (async () => missingControlPort('resolveObserverStatus')),
     getEgressSettings: () => getRuntimeSettingsForConfig().permissions.egress,
     getDefaultModelConfig,
     getModelDefaults: getRuntimeModelDefaults,
@@ -428,7 +478,7 @@ export function startControlServer(input: {
     sendConversationIngressProjection: input.sendConversationIngressProjection,
     addMessageReaction: input.addMessageReaction,
     getBrowserStatus: input.getBrowserStatus,
-    syncSettingsFromProjection: (appId: AppId) => {
+    syncSettingsFromProjection: (appId: AppId, overrides) => {
       const storage = getRuntimeStorage();
       return syncRuntimeSettingsFromProjection({
         runtimeHome: GANTRY_HOME,
@@ -439,6 +489,7 @@ export function startControlServer(input: {
         pool: storage.service?.pool,
         createdBy: 'control-api:projection-sync',
         reloadRuntimeState: () => input.app.loadState(),
+        overrides,
       });
     },
     getSelectedAgentHarness: (agentFolder?: string) =>

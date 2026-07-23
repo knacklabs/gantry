@@ -1,0 +1,166 @@
+# harness.yaml — precedence manifest AND skill allowlist: one owner per
+# lifecycle phase, and the pinned generators for every recorded artifact.
+# The dual-runtime linter treats this file as canon; recorders enforce each
+# artifact's generated_by against the pins mirrored in .agents/schemas/.
+# Adopting a new tool = a PR to this file + the schema file, never a local
+# dev choice. Changes land by PR only.
+version: 1
+
+# When guidance conflicts, earlier wins.
+precedence:
+  - constitution
+  - factory-gates
+  - gstack
+  - other-skills
+
+phases:
+  discovery: # 0a
+    owner: "gstack:/office-hours"
+    grill:
+      contract: ".agents/prompts/griller.md"
+      allowed: ["griller"]
+      schema: ".agents/schemas/grill.json"
+      gate: "record_signoff.py refuses without a fresh, passing .factory/grills/signoff.json"
+    notes: "Lightweight on purpose: no .factory ceremony before sign-off — except the handover grill."
+  prototype: # 0b
+    owner: "prototype-skill"
+    allowed:
+      - "ponytail:lite"
+      - "emil-design-eng"
+      - "frontend-design"
+      - "apple-design"
+    notes: >-
+      Proof for client sign-off; may take weeks — no gate is time-driven.
+      After sign-off the outcome is PRESERVED under prototype/ (code,
+      screenshots, walkthrough notes) as the UX reference for future UI/UX
+      changes. Reference forever, imported never: production code must not
+      depend on anything in prototype/.
+  handoff:
+    owner: "codex:docs-decomposer"
+    allowed:
+      - "docs-decomposer"
+      - "human"
+    artifact: "plans/roadmap.json via ./forge roadmap import"
+    schema: ".agents/schemas/roadmap.json"
+    roles: "docs/ROLES.md — PM approves epics, EM grooms + assigns, dev picks"
+    gate: "accepted epics-approved decision (PM) — import refuses without it"
+    grill:
+      contract: ".agents/prompts/griller.md"
+      allowed: ["griller"]
+      schema: ".agents/schemas/grill.json"
+      gate: "roadmap import also refuses without a fresh, passing .factory/grills/epics.json"
+    notes: >-
+      The project-level decomposition after sign-off: PM-approved epics and
+      EM-groomed stories (story, acceptance_criteria, skill, assignee) in
+      build-wave order. The roadmap survives task cycles; refined by PR (a
+      human edit counts as generated_by: human). Team roster: plans/team.json
+      (optional; ./forge team set).
+  planning:
+    owner: "claude-code:plan-mode"
+    alternate: "codex:planner-high"
+    exploration: "/codex:rescue --model gpt-5.6-terra --effort high (read-only by default) — NEVER Claude Code itself, NEVER raw codex exec"
+    contract: ".agents/prompts/planner.md"
+    plan_artifact: "plans/active/<issue>-<slug>.md via forge.py plan save"
+    decisions: "docs/decisions/ records BEFORE decomposition is recorded"
+    grill:
+      contract: ".agents/prompts/griller.md (--gate plan; /grill-me in Claude satisfies it)"
+      allowed: ["griller"]
+      schema: ".agents/schemas/grill.json"
+      gate: "plan save refuses without a fresh, passing, same-issue .factory/grills/plan.json"
+    notes: >-
+      Claude Code plan mode is the default planner; the planner-high Codex
+      agent is the sanctioned alternative when a dev prefers it. Either way
+      the contract is identical: same sections (incl. Decisions), same
+      forge.py plan save step, same gates. When planning in Claude, delegate
+      ALL codebase exploration to Codex read-only runs
+      (/codex:rescue --model gpt-5.6-terra --effort high — read-only by
+      default; raw codex exec is hook-blocked, no exceptions).
+      Approval is the saved plan file, not a flag.
+  decomposition:
+    owner: "codex:docs-decomposer"
+    allowed:
+      - "docs-decomposer"
+      - "planner-high"
+      - "claude-code:plan-mode"
+    contract: ".agents/prompts/decomposer.md"
+    schema: ".agents/schemas/decomposition.json"
+    notes: "Per-task task graph; records the user_facing flag the ship gate reads."
+  implementation:
+    owner: "codex:/codex:rescue"
+    model: "gpt-5.6-sol"
+    reasoning: "medium (escalate effort to high for migrations/cross-domain/security-sensitive)"
+    prompts: ".agents/prompts/implementer.md"
+    required_skills: # ENFORCED by feature type — the decomposition's user_facing flag:
+      # the recorder refuses a user-facing testing artifact unless skills_used
+      # attests every one of these (mirrored in .agents/schemas/test-automated.json).
+      user_facing:
+        - "emil-design-eng"
+        - "frontend-design"
+    advisory_skills:
+      - skill: "apple-design"
+        when: "user_facing: true AND the task involves gestures, transitions, or motion"
+      - skill: "animation-vocabulary"
+        when: "naming a motion effect precisely in a spec or prompt"
+    notes: >-
+      The implementer also writes and runs the automated tests and records
+      the testing artifact — there is no separate tester subagent.
+      Design skills (emilkowalski/skills + Anthropic frontend-design,
+      installed by doctor) never record artifacts, so they carry no
+      generated_by pin — the implementer remains the attested generator and
+      lists what it loaded in skills_used.
+  testing:
+    owner: "codex:implementer"
+    allowed:
+      - "implementer"
+    schema: ".agents/schemas/test-automated.json"
+    functional:
+      owner: "codex:functional-checker"
+      allowed:
+        - "functional-checker"
+      schema: ".agents/schemas/test-functional.json"
+      when: "decomposition.user_facing == true (otherwise not required)"
+  review:
+    owner: "codex:autoreview"
+    allowed:
+      - "autoreview"
+    contract: ".agents/prompts/reviewer.md"
+    schema: ".agents/schemas/review.json"
+    required_skills: # enforced: user-facing review artifacts must attest this in skills_used
+      user_facing:
+        - "review-animations"
+    required_skills_note: >-
+      Loaded as INPUT to autoreview's quality lens, not a second reviewer —
+      the artifact stays generated_by: autoreview.
+    notes: >-
+      ONE autoreview run reviews through three lenses (quality incl.
+      over-engineering, performance, security) and emits the three gate
+      artifacts. Never nest reviewers; never review inline in the
+      coordinating session.
+  ship:
+    owner: ".agents/scripts/pr_ready.py"
+    merge: manual
+
+evolution:
+  lessons:
+    artifact: "plans/lessons.jsonl via ./forge lesson add"
+    schema: ".agents/schemas/lesson.json"
+    allowed:
+      - "implementer"
+      - "autoreview"
+      - "planner-high"
+      - "orchestrator"
+      - "human"
+    notes: >-
+      The learn->apply loop: record after a repeated failure or accepted
+      review finding; `forge lesson relevant` surfaces matching lessons
+      before planning/implementation; the skill-miner curates at retro
+      cadence (promote recurring lessons to decisions/constitution, retire
+      stale ones).
+  findings:
+    artifact: "./forge findings patterns over .factory/history/*/reviews/"
+    doctrine: "WORKFLOW.md 'Recurring Findings' — recurring class => consolidate or split out, never a fourth patch"
+
+disabled_in_factory_repos:
+  - "gstack:/codex"
+  - "gstack:/ship"
+  - "codex-plugin-cc:stop-hook-review-gate"

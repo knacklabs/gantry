@@ -712,6 +712,7 @@ describe('CanonicalMessageOpsService', () => {
     const repository = new PostgresCanonicalMessageRepository({} as never);
     Object.assign(repository, {
       graph: {
+        findConversationIdForJid: vi.fn(async () => undefined),
         ensureConversation: vi.fn(async () => 'conversation:sl:C123'),
         ensureThread: vi.fn(async () => null),
         getConversationInstallationId: vi.fn(async () => null),
@@ -753,6 +754,7 @@ describe('CanonicalMessageOpsService', () => {
     const repository = new PostgresCanonicalMessageRepository({} as never);
     Object.assign(repository, {
       graph: {
+        findConversationIdForJid: vi.fn(async () => undefined),
         ensureConversation: vi.fn(async () => 'conversation:sl:C123'),
         ensureThread: vi.fn(async () => null),
         getConversationInstallationId: vi.fn(async () => null),
@@ -794,6 +796,7 @@ describe('CanonicalMessageOpsService', () => {
       delete: vi.fn(),
     };
     const graph = {
+      findConversationIdForJid: vi.fn(async () => undefined),
       ensureConversation: vi.fn(async () => 'conversation:slack_beta:sl:C123'),
       ensureThread: vi.fn(async () => 'thread:slack_beta:sl:C123:root'),
       getConversationInstallationId: vi.fn(async () => 'slack_alpha'),
@@ -830,6 +833,7 @@ describe('CanonicalMessageOpsService', () => {
       expect.objectContaining({ providerAccountId: 'slack_beta' }),
     );
     expect(graph.getConversationInstallationId).not.toHaveBeenCalled();
+    expect(graph.findConversationIdForJid).not.toHaveBeenCalled();
     expect(insertedValues[0]).toMatchObject({
       id: 'message:slack_beta:sl:C123:1710000001.000100',
       providerAccountId: 'slack_beta',
@@ -870,6 +874,7 @@ describe('CanonicalMessageOpsService', () => {
       const repository = new PostgresCanonicalMessageRepository({} as never);
       Object.assign(repository, {
         graph: {
+          findConversationIdForJid: vi.fn(async () => undefined),
           ensureConversation: vi.fn(
             async () => 'conversation:slack_beta:sl:C123',
           ),
@@ -936,6 +941,7 @@ describe('CanonicalMessageOpsService', () => {
       delete: vi.fn(),
     };
     const graph = {
+      findConversationIdForJid: vi.fn(async () => undefined),
       ensureConversation: vi.fn(async () => 'conversation:slack_beta:sl:C123'),
       ensureThread: vi.fn(async () => 'thread:slack_beta:sl:C123:root'),
       getConversationInstallationId: vi.fn(async () => 'slack_alpha'),
@@ -977,6 +983,7 @@ describe('CanonicalMessageOpsService', () => {
       expect.objectContaining({ providerAccountId: 'slack_beta' }),
     );
     expect(graph.getConversationInstallationId).not.toHaveBeenCalled();
+    expect(graph.findConversationIdForJid).not.toHaveBeenCalled();
     expect(insertedValues[0]).toMatchObject({
       id: 'message:slack_beta:sl:C123:1710000001.000100',
       providerAccountId: 'slack_beta',
@@ -1008,15 +1015,21 @@ describe('CanonicalMessageOpsService', () => {
       })),
       delete: vi.fn(),
     };
+    const graph = {
+      findConversationIdForJid: vi.fn(async () => undefined),
+      ensureConversation: vi.fn(
+        async () =>
+          'conversation:channel-providerAccount:default:slack:sl:C123',
+      ),
+      ensureThread: vi.fn(
+        async () =>
+          'thread:channel-providerAccount:default:slack:sl:C123:thread-1',
+      ),
+      getConversationInstallationId: vi.fn(async () => null),
+      ensureParticipant: vi.fn(async () => undefined),
+    };
     const repository = new PostgresCanonicalMessageRepository({} as never);
-    Object.assign(repository, {
-      graph: {
-        ensureConversation: vi.fn(async () => 'conversation:sl:C123'),
-        ensureThread: vi.fn(async () => 'thread:sl:C123:thread-1'),
-        getConversationInstallationId: vi.fn(async () => null),
-        ensureParticipant: vi.fn(async () => undefined),
-      },
-    });
+    Object.assign(repository, { graph });
 
     await repository.saveMessageWithExecutor(
       tx as never,
@@ -1041,6 +1054,40 @@ describe('CanonicalMessageOpsService', () => {
           'live-admission:',
         ),
     );
+    const messageRow = insertedValues[0];
+
+    expect(graph.ensureConversation).toHaveBeenCalledWith(
+      'sl:C123',
+      expect.objectContaining({
+        providerAccountId: 'channel-providerAccount:default:slack',
+      }),
+      tx,
+    );
+    expect(graph.ensureThread).toHaveBeenCalledWith(
+      'sl:C123',
+      'thread-1',
+      tx,
+      expect.objectContaining({
+        providerAccountId: 'channel-providerAccount:default:slack',
+      }),
+    );
+    expect(graph.getConversationInstallationId).not.toHaveBeenCalled();
+    expect(graph.findConversationIdForJid).toHaveBeenCalledWith('sl:C123', tx);
+    expect(graph.ensureParticipant).toHaveBeenCalledWith(
+      expect.objectContaining({
+        conversationId:
+          'conversation:channel-providerAccount:default:slack:sl:C123',
+        providerAccountId: 'channel-providerAccount:default:slack',
+      }),
+      tx,
+    );
+    expect(messageRow).toMatchObject({
+      id: 'message:channel-providerAccount:default:slack:sl:C123:1710000001.000100',
+      providerAccountId: 'channel-providerAccount:default:slack',
+      conversationId:
+        'conversation:channel-providerAccount:default:slack:sl:C123',
+      threadId: 'thread:channel-providerAccount:default:slack:sl:C123:thread-1',
+    });
 
     expect(admissionRow).toMatchObject({
       id: 'live-admission:app-one:agent:alpha:channel-providerAccount:default:slack:message:channel-providerAccount:default:slack:sl:C123:1710000001.000100',
@@ -1050,6 +1097,169 @@ describe('CanonicalMessageOpsService', () => {
       idempotencyKey:
         'live-admission:app-one:agent:alpha:channel-providerAccount:default:slack:sl:C123:thread-1:1710000001.000100',
     });
+  });
+
+  it('stamps the internal control provider account for providerless app-session admission', async () => {
+    const insertedValues: unknown[] = [];
+    const tx = {
+      select: vi.fn(),
+      insert: vi.fn(() => ({
+        values: vi.fn((values: unknown) => {
+          insertedValues.push(values);
+          if (
+            values &&
+            typeof values === 'object' &&
+            String((values as Record<string, unknown>).id).startsWith(
+              'live-admission:',
+            )
+          ) {
+            return {
+              onConflictDoNothing: vi.fn(() => ({
+                returning: vi.fn(async () => [values]),
+              })),
+            };
+          }
+          return { onConflictDoUpdate: vi.fn(async () => undefined) };
+        }),
+      })),
+      delete: vi.fn(),
+    };
+    const graph = {
+      findConversationIdForJid: vi.fn(async () => undefined),
+      ensureConversation: vi.fn(
+        async () => 'conversation:control:default:app:default:haiku-e2e',
+      ),
+      ensureThread: vi.fn(async () => null),
+      getConversationInstallationId: vi.fn(async () => null),
+      ensureParticipant: vi.fn(async () => undefined),
+    };
+    const repository = new PostgresCanonicalMessageRepository({} as never);
+    Object.assign(repository, { graph });
+
+    await repository.saveMessageWithExecutor(
+      tx as never,
+      {
+        id: '1710000002.000200',
+        chat_jid: 'app:default:haiku-e2e',
+        sender: 'api',
+        sender_name: 'API',
+        content: 'hello',
+        timestamp: '2026-05-06T00:00:00.000Z',
+      },
+      { liveAdmission: { appId: 'app-one', agentId: 'alpha' } },
+    );
+
+    // The internal app channel is bound as control:<appId>; any other
+    // synthetic account orphans the conversation from channel ownership and
+    // the turn is silently skipped ("No channel owns JID").
+    expect(graph.ensureConversation).toHaveBeenCalledWith(
+      'app:default:haiku-e2e',
+      expect.objectContaining({ providerAccountId: 'control:default' }),
+      tx,
+    );
+    expect(insertedValues[0]).toMatchObject({
+      id: 'message:control:default:app:default:haiku-e2e:1710000002.000200',
+      providerAccountId: 'control:default',
+    });
+    const admissionRow = insertedValues.find(
+      (value): value is Record<string, unknown> =>
+        !!value &&
+        typeof value === 'object' &&
+        String((value as Record<string, unknown>).id).startsWith(
+          'live-admission:',
+        ),
+    );
+    expect(String(admissionRow?.queueJid)).toContain(
+      'provider_account:control%3Adefault',
+    );
+    expect(String(admissionRow?.queueJid)).not.toContain(
+      'channel-providerAccount',
+    );
+  });
+
+  it('reuses an existing conversation installation for providerless live admission', async () => {
+    const insertedValues: unknown[] = [];
+    const tx = {
+      select: vi.fn(),
+      insert: vi.fn(() => ({
+        values: vi.fn((values: unknown) => {
+          insertedValues.push(values);
+          if (
+            values &&
+            typeof values === 'object' &&
+            String((values as Record<string, unknown>).id).startsWith(
+              'live-admission:',
+            )
+          ) {
+            return {
+              onConflictDoNothing: vi.fn(() => ({
+                returning: vi.fn(async () => [values]),
+              })),
+            };
+          }
+          return { onConflictDoUpdate: vi.fn(async () => undefined) };
+        }),
+      })),
+      delete: vi.fn(),
+    };
+    const existingConversationId = 'conversation:slack_install:sl:C-existing';
+    const graph = {
+      findConversationIdForJid: vi.fn(async () => existingConversationId),
+      getConversationInstallationId: vi.fn(async () => 'slack_install'),
+      ensureConversation: vi.fn(async () => existingConversationId),
+      ensureThread: vi.fn(
+        async () => 'thread:slack_install:sl:C-existing:thread-1',
+      ),
+      ensureParticipant: vi.fn(async () => undefined),
+    };
+    const repository = new PostgresCanonicalMessageRepository({} as never);
+    Object.assign(repository, { graph });
+
+    await repository.saveMessageWithExecutor(
+      tx as never,
+      {
+        id: '1710000002.000100',
+        chat_jid: 'sl:C-existing',
+        provider: 'slack',
+        sender: 'U123',
+        sender_name: 'Ravi',
+        content: '@Alpha follow-up',
+        timestamp: '2026-05-06T00:00:01.000Z',
+        thread_id: 'thread-1',
+      },
+      { liveAdmission: { appId: 'app-one', agentId: 'alpha' } },
+    );
+
+    expect(graph.findConversationIdForJid).toHaveBeenCalledWith(
+      'sl:C-existing',
+      tx,
+    );
+    expect(graph.getConversationInstallationId).toHaveBeenCalledWith(
+      existingConversationId,
+      tx,
+    );
+    expect(graph.ensureConversation).toHaveBeenCalledWith(
+      'sl:C-existing',
+      expect.objectContaining({ providerAccountId: 'slack_install' }),
+      tx,
+    );
+    expect(
+      graph.findConversationIdForJid.mock.invocationCallOrder[0],
+    ).toBeLessThan(graph.ensureConversation.mock.invocationCallOrder[0] ?? 0);
+
+    expect(insertedValues[0]).toMatchObject({
+      id: 'message:slack_install:sl:C-existing:1710000002.000100',
+      providerAccountId: 'slack_install',
+      conversationId: existingConversationId,
+      threadId: 'thread:slack_install:sl:C-existing:thread-1',
+    });
+    expect(insertedValues).toContainEqual(
+      expect.objectContaining({
+        queueJid:
+          'sl:C-existing::thread:thread-1::agent:agent%3Aalpha::provider_account:slack_install',
+        messageId: 'message:slack_install:sl:C-existing:1710000002.000100',
+      }),
+    );
   });
 
   it('preserves stored attachment refs when replacing hydrated attachment rows', async () => {
@@ -1098,6 +1308,7 @@ describe('CanonicalMessageOpsService', () => {
     const repository = new PostgresCanonicalMessageRepository({} as never);
     Object.assign(repository, {
       graph: {
+        findConversationIdForJid: vi.fn(async () => undefined),
         ensureConversation: vi.fn(async () => 'conversation:sl:C123'),
         ensureThread: vi.fn(async () => null),
         getConversationInstallationId: vi.fn(async () => null),

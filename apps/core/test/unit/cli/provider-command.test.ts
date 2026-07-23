@@ -616,63 +616,66 @@ describe('channel CLI command', () => {
     );
   });
 
-  it('installs conversations through desired settings', async () => {
-    const { note } = mockClack();
-    mockProviders();
-    const iso = new Date(0).toISOString();
-    const settings: any = {
-      providers: { telegram: { enabled: true } },
-      providerAccounts: {
-        telegram_main: {
-          agentId: 'main_agent',
-          provider: 'telegram',
-          label: 'Telegram Main',
-          runtimeSecretRefs: { bot_token: 'env:TELEGRAM_BOT_TOKEN' },
-        },
-      },
-      conversations: {},
-      agents: {
-        main_agent: {
-          name: 'Main',
-          folder: 'main_agent',
-          bindings: {},
-          sources: { skills: [], mcpServers: [], tools: [] },
-          capabilities: [],
-        },
-      },
-    };
-    const saveConversationInstall = vi.fn();
-    const writeDesiredRuntimeSettings = vi.fn(async () => ({
-      reconciled: true,
-    }));
-    vi.doMock('@core/config/settings/desired-settings-writer.js', () => ({
-      loadDesiredRuntimeSettingsForWrite: vi.fn(async () => settings),
-      noteRestartRequired: vi.fn(),
-      writeDesiredRuntimeSettings,
-    }));
-    vi.doMock('@core/adapters/storage/postgres/runtime-store.js', () => ({
-      initializeRuntimeStorage: vi.fn(async () => undefined),
-      closeRuntimeStorage: vi.fn(async () => undefined),
-      getRuntimeStorage: () => ({
-        repositories: {
-          providerAccounts: {
-            getProviderAccount: vi.fn(async () => ({
-              id: 'telegram_main',
-              appId: 'default',
-              agentId: 'agent:main_agent',
-              providerId: 'telegram',
-              label: 'Telegram Main',
-              status: 'active',
-              config: {},
-              runtimeSecretRefs: {},
-              createdAt: iso,
-              updatedAt: iso,
-            })),
-            saveConversationInstall,
+  it.each([
+    ['account-qualified', 'conversation:telegram_main:tg:-100', false],
+    ['legacy', 'conversation:tg:-100', true],
+  ])(
+    'bootstraps a conversation install from a provider JID stored under the %s id',
+    async (_label, storedConversationId, includeMismatchedScopedRow) => {
+      const { note } = mockClack();
+      mockProviders();
+      const iso = new Date(0).toISOString();
+      const settings: any = {
+        providers: { telegram: { enabled: true } },
+        providerAccounts: {
+          telegram_main: {
+            agentId: 'main_agent',
+            provider: 'telegram',
+            label: 'Telegram Main',
+            runtimeSecretRefs: { bot_token: 'env:TELEGRAM_BOT_TOKEN' },
           },
-          conversations: {
-            getConversation: vi.fn(async () => ({
-              id: 'conversation:tg:-100',
+        },
+        conversations: {},
+        agents: {
+          main_agent: {
+            name: 'Main',
+            folder: 'main_agent',
+            bindings: {},
+            sources: { skills: [], mcpServers: [], tools: [] },
+            capabilities: [],
+          },
+        },
+      };
+      const saveConversationInstall = vi.fn();
+      const writeDesiredRuntimeSettings = vi.fn(async () => ({
+        reconciled: true,
+      }));
+      vi.doMock('@core/config/settings/desired-settings-writer.js', () => ({
+        loadDesiredRuntimeSettingsForWrite: vi.fn(async () => settings),
+        noteRestartRequired: vi.fn(),
+        writeDesiredRuntimeSettings,
+      }));
+      const saveConversation = vi.fn();
+      const getConversation = vi.fn(async (id: string) => {
+        if (
+          includeMismatchedScopedRow &&
+          id === 'conversation:telegram_main:tg:-100'
+        ) {
+          return {
+            id,
+            appId: 'default',
+            providerAccountId: 'telegram_other',
+            externalRef: { kind: 'conversation', value: '-100' },
+            kind: 'channel',
+            title: 'Other Ops',
+            status: 'active',
+            createdAt: iso,
+            updatedAt: iso,
+          };
+        }
+        return id === storedConversationId
+          ? {
+              id: storedConversationId,
               appId: 'default',
               providerAccountId: 'telegram_main',
               externalRef: { kind: 'conversation', value: '-100' },
@@ -681,60 +684,102 @@ describe('channel CLI command', () => {
               status: 'active',
               createdAt: iso,
               updatedAt: iso,
-            })),
+            }
+          : null;
+      });
+      vi.doMock('@core/adapters/storage/postgres/runtime-store.js', () => ({
+        initializeRuntimeStorage: vi.fn(async () => undefined),
+        closeRuntimeStorage: vi.fn(async () => undefined),
+        getRuntimeStorage: () => ({
+          repositories: {
+            providerAccounts: {
+              getProviderAccount: vi.fn(async () => ({
+                id: 'telegram_main',
+                appId: 'default',
+                agentId: 'agent:main_agent',
+                providerId: 'telegram',
+                label: 'Telegram Main',
+                status: 'active',
+                config: {},
+                runtimeSecretRefs: {},
+                createdAt: iso,
+                updatedAt: iso,
+              })),
+              saveConversationInstall,
+            },
+            conversations: {
+              getConversation,
+              listConversationApprovers: vi.fn(async () => [
+                { externalUserId: '5759865942' },
+              ]),
+              saveConversation,
+            },
+          },
+        }),
+      }));
+      vi.doMock('@core/config/settings/runtime-settings.js', () => ({
+        ensureRuntimeSettings: vi.fn(),
+      }));
+      vi.doMock('@core/config/env/file.js', () => ({ readEnvFile: vi.fn() }));
+      vi.doMock('@core/config/settings/runtime-home.js', () => ({
+        envFilePath: (runtimeHome: string) => `${runtimeHome}/.env`,
+      }));
+
+      const { runConversationCommand } = await import('@core/cli/provider.js');
+      const code = await runConversationCommand('/tmp/gantry', [
+        'install',
+        '--agent',
+        'main_agent',
+        '--provider-account',
+        'telegram_main',
+        '--conversation',
+        'tg:-100',
+      ]);
+
+      expect(code).toBe(0);
+      expect(saveConversationInstall).not.toHaveBeenCalled();
+      expect(saveConversation).not.toHaveBeenCalled();
+      const conversationKey = Object.keys(settings.conversations)[0];
+      expect(conversationKey).toMatch(/^[A-Za-z0-9][A-Za-z0-9_-]{0,95}$/);
+      expect(conversationKey).not.toContain(':');
+      expect(settings.conversations[conversationKey]).toMatchObject({
+        providerAccount: 'telegram_main',
+        externalId: '-100',
+        senderPolicy: { allow: '*', mode: 'trigger' },
+        controlApprovers: ['5759865942'],
+        installedAgents: {
+          main_agent: {
+            agentId: 'main_agent',
+            providerAccountId: 'telegram_main',
+            status: 'active',
+            memoryScope: 'conversation',
+            requiresTrigger: true,
           },
         },
-      }),
-    }));
-    vi.doMock('@core/config/settings/runtime-settings.js', () => ({
-      ensureRuntimeSettings: vi.fn(),
-    }));
-    vi.doMock('@core/config/env/file.js', () => ({ readEnvFile: vi.fn() }));
-    vi.doMock('@core/config/settings/runtime-home.js', () => ({
-      envFilePath: (runtimeHome: string) => `${runtimeHome}/.env`,
-    }));
-
-    const { runConversationCommand } = await import('@core/cli/provider.js');
-    const code = await runConversationCommand('/tmp/gantry', [
-      'install',
-      '--agent',
-      'main_agent',
-      '--provider-account',
-      'telegram_main',
-      '--conversation',
-      'conversation:tg:-100',
-    ]);
-
-    expect(code).toBe(0);
-    expect(saveConversationInstall).not.toHaveBeenCalled();
-    const conversationKey = Object.keys(settings.conversations)[0];
-    expect(conversationKey).toMatch(/^[A-Za-z0-9][A-Za-z0-9_-]{0,95}$/);
-    expect(conversationKey).not.toContain(':');
-    expect(settings.conversations[conversationKey]).toMatchObject({
-      providerAccount: 'telegram_main',
-      externalId: '-100',
-      installedAgents: {
-        main_agent: {
-          agentId: 'main_agent',
-          providerAccountId: 'telegram_main',
-          status: 'active',
-          memoryScope: 'conversation',
-          requiresTrigger: true,
-        },
-      },
-    });
-    expect(writeDesiredRuntimeSettings).toHaveBeenCalledWith(
-      expect.objectContaining({
-        runtimeHome: '/tmp/gantry',
-        settings,
-        createdBy: 'cli:conversation-install',
-      }),
-    );
-    expect(note).toHaveBeenCalledWith(
-      expect.stringContaining('Status: Installed'),
-      'Conversation Install',
-    );
-  });
+      });
+      expect(writeDesiredRuntimeSettings).toHaveBeenCalledWith(
+        expect.objectContaining({
+          runtimeHome: '/tmp/gantry',
+          settings,
+          createdBy: 'cli:conversation-install',
+        }),
+      );
+      expect(note).toHaveBeenCalledWith(
+        expect.stringContaining('Status: Installed'),
+        'Conversation Install',
+      );
+      if (includeMismatchedScopedRow) {
+        expect(getConversation).toHaveBeenNthCalledWith(
+          1,
+          'conversation:telegram_main:tg:-100',
+        );
+        expect(getConversation).toHaveBeenNthCalledWith(
+          2,
+          'conversation:tg:-100',
+        );
+      }
+    },
+  );
 
   it('shows and replaces conversation approvers through local services', async () => {
     const { note } = mockClack();

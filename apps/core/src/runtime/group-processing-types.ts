@@ -144,6 +144,7 @@ export interface GroupProcessingDeps {
     agentId?: string | null,
     providerAccountId?: string | null,
   ) => ConversationRoute | undefined;
+  getConversationRoutes?: () => Record<string, ConversationRoute>;
   clearSession: (
     workspaceFolder: string,
     threadId?: string | null,

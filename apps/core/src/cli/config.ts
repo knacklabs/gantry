@@ -37,6 +37,9 @@ function blockedKeyMessage(key: string): string {
 }
 
 function isSensitiveKey(key: string): boolean {
+  // Registered runtime secrets are always masked, whatever their name
+  // (e.g. GANTRY_OTEL_TRACES_HEADERS carries an OTLP auth header).
+  if (classifyConfigKey(key)?.lane === 'runtime-secret') return true;
   return /(TOKEN|SECRET|PASSWORD|API_KEY|ACCESS_KEY|PRIVATE_KEY|DATABASE_URL|DB_URL|POSTGRES_URL)/i.test(
     key,
   );

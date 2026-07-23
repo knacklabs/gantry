@@ -1,0 +1,57 @@
+name: gardener
+
+on:
+  schedule:
+    - cron: '0 3 * * *' # daily heartbeat
+  workflow_dispatch:
+
+permissions:
+  issues: write
+  contents: read
+
+jobs:
+  nudge:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Collect gardening state
+        id: state
+        run: |
+          # Real scan into the disposable CI workspace so unscanned/changed
+          # inbox files count as pending (scan --check detects drift but
+          # does not register it; list would then undercount).
+          python3 .agents/scripts/forge.py context scan >/dev/null
+          PENDING=$(python3 .agents/scripts/forge.py context list --pending | wc -l | tr -d ' ')
+          PROPOSED=$(ls .agents/skills/proposed/*.md 2>/dev/null | wc -l | tr -d ' ')
+          echo "pending=$PENDING" >> "$GITHUB_OUTPUT"
+          echo "proposed=$PROPOSED" >> "$GITHUB_OUTPUT"
+      - name: Open or update the gardening issue
+        if: steps.state.outputs.pending != '0' || steps.state.outputs.proposed != '0'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PENDING: ${{ steps.state.outputs.pending }}
+          PROPOSED: ${{ steps.state.outputs.proposed }}
+        run: |
+          TITLE="Gardening: context/skills need attention"
+          BODY="Daily gardener report:
+
+          - Unharvested context files: **$PENDING** (\`forge.py context list --pending\`; harvest per \`.agents/prompts/harvester.md\`)
+          - Proposed skills awaiting human review: **$PROPOSED** (\`.agents/skills/proposed/\`; promote or reject per \`.agents/prompts/skill-miner.md\`)
+
+          Run the harvest/review locally (the /forge skill routes it), commit the ledger, and this issue closes on the next clean run."
+          EXISTING=$(gh issue list --state open --search "in:title Gardening:" --json number --jq '.[0].number' || true)
+          if [ -n "$EXISTING" ]; then
+            gh issue comment "$EXISTING" --body "$BODY"
+          else
+            gh issue create --title "$TITLE" --body "$BODY" --label maintenance || gh issue create --title "$TITLE" --body "$BODY"
+          fi
+      - name: Close the gardening issue when clean
+        if: steps.state.outputs.pending == '0' && steps.state.outputs.proposed == '0'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          EXISTING=$(gh issue list --state open --search "in:title Gardening:" --json number --jq '.[0].number' || true)
+          [ -n "$EXISTING" ] && gh issue close "$EXISTING" --comment "Gardener: inbox harvested and no proposals pending. Closing." || true

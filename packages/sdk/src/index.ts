@@ -25,7 +25,6 @@ import { createIngressesClient } from './ingresses.js';
 import { querySuffix } from './query-string.js';
 export type { RuntimeSettingsResponse } from './settings.js';
 import * as mcpServerClients from './mcp-servers.js';
-import { jobListQuery } from './job-list-query.js';
 import { createModelsClient } from './models.js';
 import type {
   CreateJobInput,
@@ -334,7 +333,18 @@ export class GantryClient {
     list: (input?: ListJobsInput) =>
       this.transport.request<OpenApi.ListJobsResponse>({
         method: 'GET',
-        path: `/v1/jobs${jobListQuery(input)}`,
+        path: `/v1/jobs${querySuffix({
+          agentId: input?.agentId || undefined,
+          workspaceKey: input?.workspaceKey || undefined,
+          conversationJid: input?.conversationJid || undefined,
+          kind: input?.kind || undefined,
+          limit: input?.limit,
+          status: Array.isArray(input?.status)
+            ? input.status
+            : input?.status
+              ? [input.status]
+              : undefined,
+        })}`,
       }),
     get: (jobId: string) =>
       this.transport.request<JobRecord>({
@@ -403,6 +413,19 @@ export class GantryClient {
       this.transport.request<OpenApi.QueryUsageResponse>({
         method: 'GET',
         path: `/v1/usage${querySuffix(input)}`,
+      }),
+  };
+
+  readonly observer = {
+    status: (input: OpenApi.GetObserverStatusQuery = {}) =>
+      this.transport.request<OpenApi.ObserverStatusResponse>({
+        method: 'GET',
+        path: `/v1/observer/status${querySuffix(input)}`,
+      }),
+    insights: (input: OpenApi.ListObserverInsightsQuery = {}) =>
+      this.transport.request<OpenApi.ObserverInsightListResponse>({
+        method: 'GET',
+        path: `/v1/observer/insights${querySuffix(input)}`,
       }),
   };
 

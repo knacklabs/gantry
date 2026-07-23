@@ -20,7 +20,7 @@ import {
   formatSchedulerJobPlan,
   schedulerJobConfirmationToken,
   type SchedulerJobPlanInput,
-} from './job-plan-formatter.js';
+} from '../shared/scheduler-job-plan.js';
 
 type SchedulerCreateScheduleType = Exclude<JobScheduleType, 'manual'>;
 

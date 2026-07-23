@@ -12,9 +12,7 @@ export function parseAutonomousToolDenial(
   );
   if (!prefixMatch || prefixMatch.index === undefined) return null;
   const afterPrefix = value.slice(prefixMatch.index + prefixMatch[0].length);
-  const recoveryBoundary = afterPrefix.search(/\.\s*Recovery:/i);
-  const sentenceBoundary =
-    recoveryBoundary >= 0 ? recoveryBoundary : afterPrefix.search(/\.\s/);
+  const sentenceBoundary = findToolRuleSentenceBoundary(afterPrefix);
   const toolName = (
     sentenceBoundary >= 0 ? afterPrefix.slice(0, sentenceBoundary) : afterPrefix
   )
@@ -27,4 +25,45 @@ export function parseAutonomousToolDenial(
     toolName,
     recoveryAction: recoveryMatch?.[1]?.trim(),
   };
+}
+
+function findToolRuleSentenceBoundary(value: string): number {
+  let parenthesisDepth = 0;
+  let quote: "'" | '"' | '`' | undefined;
+  let escaped = false;
+  for (let index = 0; index < value.length - 1; index += 1) {
+    const character = value[index]!;
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (character === '\\') {
+      escaped = true;
+      continue;
+    }
+    if (quote) {
+      if (character === quote) quote = undefined;
+      continue;
+    }
+    if (character === "'" || character === '"' || character === '`') {
+      quote = character;
+      continue;
+    }
+    if (character === '(') {
+      parenthesisDepth += 1;
+      continue;
+    }
+    if (character === ')') {
+      parenthesisDepth = Math.max(0, parenthesisDepth - 1);
+      continue;
+    }
+    if (
+      character === '.' &&
+      parenthesisDepth === 0 &&
+      /\s/.test(value[index + 1]!)
+    ) {
+      return index;
+    }
+  }
+  return -1;
 }

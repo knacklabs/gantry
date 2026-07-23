@@ -548,19 +548,6 @@ async function listPageTargets(
   }) as Record<string, unknown>[];
 }
 
-export async function browserTargetUrl(
-  port: number,
-  targetId: string,
-  options?: BrowserCdpTargetOptions,
-): Promise<string | undefined> {
-  const target = (await listPageTargets(port, options)).find(
-    (row) => row.id === targetId,
-  );
-  if (!target || isInternalChromeTarget(target)) return undefined;
-  const url = target.url;
-  return typeof url === 'string' && url ? url : undefined;
-}
-
 async function closeInternalPageTargets(
   port: number,
   options?: BrowserCdpTargetOptions,

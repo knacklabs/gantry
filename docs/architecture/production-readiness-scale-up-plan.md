@@ -382,7 +382,7 @@ AWS ECS docs checked on 2026-06-22:
    - Acceptance: 8 CPU / 8 GB baseline passes the gates above.
    - Verify: mixed-load run, cold-vs-warm sandbox timing run, worker recovery
      run, then evaluate the exported evidence with
-     `python3 .codex/scripts/production_benchmark_gates.py --input <evidence.jsonl>`.
+     `python3 scripts/production_benchmark_gates.py --input <evidence.jsonl>`.
 
 ## Risks
 
@@ -415,12 +415,12 @@ aws bedrock list-foundation-models --region ap-south-1 --by-output-modality TEXT
 aws bedrock list-foundation-models --region ap-south-2 --by-output-modality TEXT --query 'modelSummaries[?contains(inferenceTypesSupported, `ON_DEMAND`)].modelId'
 npm run test:unit -- apps/core/test/unit/models/model-catalog.test.ts
 npm run test:unit -- apps/core/test/unit/adapters/deepagents-execution-adapter.test.ts apps/core/test/unit/adapters/deepagents-model-factory.test.ts
-python3 .codex/scripts/production_benchmark_gates.py --input <evidence.jsonl>
+python3 scripts/production_benchmark_gates.py --input <evidence.jsonl>
 terraform fmt -check -recursive ops/terraform
 terraform -chdir=ops/terraform/envs/ecs init -backend=false
 terraform -chdir=ops/terraform/envs/ecs validate
-python3 .codex/scripts/check_architecture.py
-python3 .codex/scripts/check_task_completion.py
+python3 scripts/check_architecture.py
+python3 .agents/scripts/verify.py
 ```
 
 The production benchmark evidence file is JSONL. It must include real

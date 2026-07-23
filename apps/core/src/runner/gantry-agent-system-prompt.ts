@@ -23,6 +23,10 @@ export interface GantryAgentSystemPromptInput {
   threadId?: string;
   isScheduledJob?: boolean;
   currentDateTimeIso?: string;
+  // IANA timezone for the conversation. Defaults to the process timezone,
+  // which in the runner is the conversation TZ projected into env by
+  // buildBaseRunnerEnv (agent-spawn-helpers.ts).
+  timezone?: string;
   sandboxSummary?: string;
 }
 
@@ -32,27 +36,6 @@ export interface GantryAgentSystemPrompt {
   dynamicPrompt: string;
   prompt: string;
 }
-
-const TOOL_STATES = [
-  'Ready',
-  'Needs approval',
-  'Needs setup',
-  'Unavailable in this mode',
-];
-
-const PUBLIC_CATALOG = [
-  'Communication: send_message, ask_user_question',
-  'Rich UI: render_status, render_facts, render_list, render_table, render_form, render_media, render_progress',
-  'Web: WebSearch, WebRead, Browser',
-  'Files: FileSearch, FileRead, FileEdit, FileWrite, file',
-  'Memory: memory_search, memory_save, reviewed memory tools',
-  'Skills: selected skills and skill request tools',
-  'MCP/apps: mcp_list_tools, mcp_describe_tool, mcp_call_tool, async_mcp_call, request_mcp_server',
-  'Commands: RunCommand(<argv pattern>)',
-  'Tasks: todo_update; async_run_command/async_mcp_call/delegate_task/task_get/task_list/task_message/task_cancel only when mounted in this run',
-  'Scheduler: scheduler_*',
-  'Admin: settings, permission, restart, register-agent tools',
-];
 
 export function resolveGantryAgentPromptMode(
   value: GantryAgentPromptMode | undefined,
@@ -102,6 +85,7 @@ export function buildGantryAgentSystemPrompt(
       mode,
       [...staticSections, documentationSection()],
       [
+        currentDateTimeSection(input),
         assistantOutputDirectivesSection(),
         runtimeSection(input),
         reasoningSection(),
@@ -141,17 +125,12 @@ function toolingSection(mode: GantryAgentPromptMode): string {
     mode === 'minimal'
       ? [
           'Use only Gantry public tools. Raw harness tools and raw subagents are implementation details.',
-          'If a capability is missing, request access or setup instead of inventing a workaround.',
+          'The agent-scoped ready actions, installed skills, and connected sources are listed under # Capability catalog in the compiled profile.',
         ]
       : [
-          `Tool states: ${TOOL_STATES.join(', ')}.`,
-          'Public Gantry catalog:',
-          ...PUBLIC_CATALOG.map((line) => `- ${line}`),
-          '',
-          'Use Ready tools first. If the tool you need is missing, inspect the catalog/source. If it is still missing, request access or setup. If policy blocks the action, say so plainly.',
-          'Use WebSearch for discovery and WebRead for exact source reading.',
-          'Use FileSearch, FileRead, FileEdit, and FileWrite for approved host file work. Use file only for Gantry FileArtifacts.',
-          'Use MCP tools through mcp_list_tools, mcp_describe_tool, and mcp_call_tool. Use async_mcp_call for long-running or parallel MCP work, then task_get or task_list for status.',
+          'Use only Gantry public tools mounted in this run. Raw harness tools and raw subagents are implementation details.',
+          'The agent-scoped ready actions, installed skills, and connected sources are listed under # Capability catalog in the compiled profile.',
+          'Use matching ready actions first. If policy blocks an action, say so plainly.',
           'Never use raw harness subagents. Gantry delegation tools are unavailable until Gantry mounts a real delegated-task executor.',
           'Do not describe raw provider or harness tool names to users unless the user asks for runtime internals.',
         ];
@@ -162,7 +141,7 @@ function executionBiasSection(): string {
   return [
     '## Execution Bias',
     'Prefer concrete progress over commentary. Diagnose the real blocker, choose the smallest correct action, and verify the result.',
-    'Be a dependable operator for the team: keep the user informed, protect approvals, and complete the work with receipts.',
+    'Be a dependable operator for the team: keep the user informed, protect approvals, and complete the work.',
   ].join('\n');
 }
 
@@ -188,7 +167,6 @@ function skillsSection(): string {
   return [
     '## Skills',
     'Use selected skills when they directly fit the task. Read only the skill material needed for the current step.',
-    'Request skill installation, proposal, or dependency setup through Gantry skill request tools.',
   ].join('\n');
 }
 
@@ -204,6 +182,7 @@ function gantryControlSection(): string {
     'Use render_* rich UI tools for structured status, facts, lists, tables, forms, media, or progress that should render natively; keep send_message for plain narrative.',
     'Use only the Gantry tools mounted in the current run; if a requested workflow cannot be done with them, say what is unavailable and continue with the best available path.',
     'Avoid repeated generic progress chatter; keep progress in todo_update unless there is a concrete blocker, decision, or result to share.',
+    'For long installs, dependency setup, and renders, use render_progress before the slow step and update the same compact line only at meaningful boundaries; do not append separate progress messages.',
     'Use ask_user_question for decision-blocking questions.',
     'If Gantry mounts async_run_command or async_mcp_call, use it for approved long-running work. If Gantry mounts delegate_task, use task_get/task_list/task_message/task_cancel to inspect, steer, and cancel delegated work.',
   ].join('\n');
@@ -212,7 +191,7 @@ function gantryControlSection(): string {
 function selfUpdateSection(): string {
   return [
     '## Self-Update',
-    'Use request_agent_profile_update for durable profile changes. Do not edit profile files directly through host filesystem tools.',
+    'Do not edit profile files directly through host filesystem tools. Use only reviewed profile controls mounted in the current run.',
     'Save durable facts with reviewed memory tools only when they are useful beyond the current turn.',
   ].join('\n');
 }
@@ -251,9 +230,14 @@ function sandboxSection(input: GantryAgentSystemPromptInput): string {
 }
 
 function currentDateTimeSection(input: GantryAgentSystemPromptInput): string {
+  const iso = input.currentDateTimeIso?.trim();
+  const timezone =
+    input.timezone?.trim() || Intl.DateTimeFormat().resolvedOptions().timeZone;
   return [
     '## Current Date & Time',
-    input.currentDateTimeIso?.trim() || 'Runtime did not provide a timestamp.',
+    iso
+      ? `${iso} (timezone: ${timezone}). As of turn start; use the date tool when precision matters.`
+      : 'Runtime did not provide a timestamp.',
   ].join('\n');
 }
 
@@ -263,16 +247,9 @@ function assistantOutputDirectivesSection(): string {
     'Use concise, direct user-facing language. Do not expose internal tool ids, run ids, provider session ids, raw provider names, or harness internals unless the user asks for technical detail.',
     'Default to conversational replies: 1-3 short sentences for normal answers.',
     'Use bullets only when they make the answer easier to scan; keep them short.',
-    'Do not produce long reports, implementation logs, or receipt blocks unless the user asks or a blocker/action summary requires it.',
-    'End pure chat answers with the answer only; do not add a receipt.',
-    'End work actions with an adaptive receipt. If nothing changed, no tools/capabilities were used, no delegation happened, and nothing needs attention, include only:',
-    'Completed: <short outcome>',
-    'When tools/capabilities were used, something changed, delegation happened, or user attention is needed, include the full receipt:',
-    'Completed: <short outcome>',
-    'Used: <tools/capabilities>',
-    'Changed: <files/accounts/channels or none>',
-    'Delegated: yes/no',
-    'Needs attention: <blocker or none>',
+    'Do not produce long reports or implementation logs unless the user asks or a blocker/action summary requires it.',
+    'End pure chat answers with the answer only.',
+    'For work actions, lead with the outcome in plain prose. Include supporting details only when useful or requested; never append a labeled receipt block.',
   ].join('\n');
 }
 

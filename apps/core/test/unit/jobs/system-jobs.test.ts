@@ -47,6 +47,14 @@ async function loadSystemJobs(
   triggerDreaming = vi.fn(),
   listPendingReviews = vi.fn(async () => []),
   configOverrides: Record<string, unknown> = {},
+  runBrainDreamBatch = vi.fn(async () => ({
+    runId: 'brain-1',
+    pages: 0,
+    applied: 0,
+    noop: 0,
+    rejected: 0,
+    proposed: 0,
+  })),
 ) {
   vi.resetModules();
   vi.doMock('@core/config/index.js', () => ({
@@ -54,6 +62,9 @@ async function loadSystemJobs(
     MEMORY_MAINTENANCE_MAX_PENDING: 5_000,
     RUNTIME_MEMORY_DREAMING_ENABLED: true,
     RUNTIME_MEMORY_DREAMING_ALERTS_ENABLED: false,
+    getRuntimeSettingsForConfig: vi.fn(() => ({
+      observer: { enabled: false },
+    })),
     TIMEZONE: 'UTC',
     MEMORY_BACKFILL_ENABLED: false,
     MEMORY_BACKFILL_CRON: '45 3 * * *',
@@ -71,6 +82,10 @@ async function loadSystemJobs(
     AppMemoryService: {
       getInstance: () => ({ triggerDreaming, listPendingReviews }),
     },
+  }));
+  vi.doMock('@core/brain/brain-runtime.js', () => ({
+    createRuntimeBrainService: vi.fn(() => ({})),
+    runRuntimeBrainDreamBatch: runBrainDreamBatch,
   }));
   return import('@core/jobs/system-jobs.js');
 }
@@ -639,6 +654,198 @@ describe('system memory dreaming jobs', () => {
       }),
       { statementTimeoutMs: 2_000 },
     );
+  });
+
+  it('keeps the scheduled brain receipt exact while observer is off', async () => {
+    const runBrainDreamBatch = vi.fn(async () => ({
+      runId: 'brain-1',
+      pages: 2,
+      applied: 1,
+      noop: 2,
+      rejected: 3,
+      proposed: 4,
+    }));
+    const { handleSystemJob } = await loadSystemJobs(
+      undefined,
+      undefined,
+      {},
+      runBrainDreamBatch,
+    );
+
+    await expect(
+      handleSystemJob(
+        makeJob({
+          id: 'system:brain-dreaming',
+          name: 'Brain Dreaming',
+          prompt: '__system:brain_dream',
+        }),
+        { folder: 'agent' },
+      ),
+    ).resolves.toBe(
+      'Brain dreaming complete: 2 page(s), 1 applied, 2 no-op, 3 rejected, 4 proposed.',
+    );
+    expect(runBrainDreamBatch).toHaveBeenCalledWith({
+      appId: 'default',
+      signal: undefined,
+      observerEnabled: false,
+      observerOwnerRecipient: null,
+    });
+  });
+
+  it('keeps ordinary brain dreaming active when observer owner configuration is missing', async () => {
+    const runBrainDreamBatch = vi.fn(async () => ({
+      runId: 'brain-1',
+      pages: 0,
+      applied: 0,
+      noop: 0,
+      rejected: 0,
+      proposed: 0,
+    }));
+    const { handleSystemJob } = await loadSystemJobs(
+      undefined,
+      undefined,
+      {
+        getRuntimeSettingsForConfig: vi.fn(() => ({
+          observer: { enabled: true },
+        })),
+      },
+      runBrainDreamBatch,
+    );
+
+    await expect(
+      handleSystemJob(
+        makeJob({
+          id: 'system:brain-dreaming',
+          name: 'Brain Dreaming',
+          prompt: '__system:brain_dream',
+        }),
+        { folder: 'agent' },
+      ),
+    ).resolves.toBe(
+      'Brain dreaming complete: 0 page(s), 0 applied, 0 no-op, 0 rejected, 0 proposed.',
+    );
+    expect(runBrainDreamBatch).toHaveBeenCalledWith({
+      appId: 'default',
+      signal: undefined,
+      observerEnabled: false,
+      observerOwnerRecipient: null,
+    });
+  });
+
+  it('appends the observer emission receipt only while observer is enabled', async () => {
+    const runBrainDreamBatch = vi.fn(async () => ({
+      runId: 'brain-1',
+      pages: 1,
+      applied: 0,
+      noop: 0,
+      rejected: 0,
+      proposed: 0,
+      observer: {
+        persisted: 1,
+        deduplicated: 0,
+        filtered: 0,
+        message:
+          'Insight emission complete: 1 persisted, 0 deduplicated, 0 filtered.',
+      },
+    }));
+    const { handleSystemJob } = await loadSystemJobs(
+      undefined,
+      undefined,
+      {
+        getRuntimeSettingsForConfig: vi.fn(() => ({
+          observer: {
+            enabled: true,
+            owner: { recipient: 'owner-1', conversation: 'owner-dm' },
+          },
+        })),
+      },
+      runBrainDreamBatch,
+    );
+
+    await expect(
+      handleSystemJob(
+        makeJob({
+          id: 'system:brain-dreaming',
+          name: 'Brain Dreaming',
+          prompt: '__system:brain_dream',
+        }),
+        { folder: 'agent' },
+      ),
+    ).resolves.toBe(
+      'Brain dreaming complete: 1 page(s), 0 applied, 0 no-op, 0 rejected, 0 proposed. Insight emission complete: 1 persisted, 0 deduplicated, 0 filtered.',
+    );
+    expect(runBrainDreamBatch).toHaveBeenCalledWith({
+      appId: 'default',
+      signal: undefined,
+      observerEnabled: true,
+      observerOwnerRecipient: 'owner-1',
+    });
+  });
+
+  it('reads observer settings for each scheduled run without reimporting', async () => {
+    let observer: {
+      enabled: boolean;
+      owner?: { recipient: string; conversation: string };
+    } = { enabled: false };
+    const getRuntimeSettingsForConfig = vi.fn(() => ({ observer }));
+    const runBrainDreamBatch = vi.fn(async () => ({
+      runId: 'brain-1',
+      pages: 0,
+      applied: 0,
+      noop: 0,
+      rejected: 0,
+      proposed: 0,
+      observer: {
+        persisted: 0,
+        deduplicated: 0,
+        filtered: 0,
+        message:
+          'Insight emission complete: 0 persisted, 0 deduplicated, 0 filtered.',
+      },
+    }));
+    const { handleSystemJob } = await loadSystemJobs(
+      undefined,
+      undefined,
+      { getRuntimeSettingsForConfig },
+      runBrainDreamBatch,
+    );
+    const job = makeJob({
+      id: 'system:brain-dreaming',
+      name: 'Brain Dreaming',
+      prompt: '__system:brain_dream',
+    });
+
+    await expect(handleSystemJob(job, { folder: 'agent' })).resolves.toBe(
+      'Brain dreaming complete: 0 page(s), 0 applied, 0 no-op, 0 rejected, 0 proposed.',
+    );
+
+    observer = {
+      enabled: true,
+      owner: { recipient: 'owner-2', conversation: 'owner-dm' },
+    };
+    await expect(handleSystemJob(job, { folder: 'agent' })).resolves.toBe(
+      'Brain dreaming complete: 0 page(s), 0 applied, 0 no-op, 0 rejected, 0 proposed. Insight emission complete: 0 persisted, 0 deduplicated, 0 filtered.',
+    );
+
+    expect(getRuntimeSettingsForConfig).toHaveBeenCalledTimes(2);
+    expect(runBrainDreamBatch.mock.calls).toEqual([
+      [
+        {
+          appId: 'default',
+          signal: undefined,
+          observerEnabled: false,
+          observerOwnerRecipient: null,
+        },
+      ],
+      [
+        {
+          appId: 'default',
+          signal: undefined,
+          observerEnabled: true,
+          observerOwnerRecipient: 'owner-2',
+        },
+      ],
+    ]);
   });
 
   it('runs scheduled DM dreaming against user subject without thread scope', async () => {

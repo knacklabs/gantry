@@ -1,4 +1,19 @@
-type ZodFactory = Record<string, (...args: any[]) => any>;
+import {
+  createCallableAgentToolSchema,
+  type CallableAgentToolInput,
+} from '../../application/core-tools/callable-agent-tools.js';
+import type { CoreMessageFile } from '../../application/core-tools/send-message.js';
+
+interface ZodFactory {
+  object(shape: Record<string, unknown>): any;
+  string(): any;
+  number(): any;
+  boolean(): any;
+  array(schema: unknown): any;
+  enum(values: readonly string[]): any;
+  literal(value: string): any;
+  union(options: readonly unknown[]): any;
+}
 
 export interface CoreToolInputSchema<Output> {
   safeParse(
@@ -11,7 +26,7 @@ export interface CoreToolInputSchema<Output> {
 export type CoreToolInputByName = {
   send_message: {
     text: string;
-    files?: Array<{ scope?: string; path: string; version?: number }>;
+    files?: CoreMessageFile[];
     sender?: string;
   };
   ask_user_question: {
@@ -52,7 +67,7 @@ export type CoreToolSchemas = {
   [Name in keyof CoreToolInputByName]: CoreToolInputSchema<
     CoreToolInputByName[Name]
   >;
-};
+} & { callable_agent: CoreToolInputSchema<CallableAgentToolInput> };
 
 export function createCoreToolSchemas(z: ZodFactory): CoreToolSchemas {
   const taskIdSchema = z.object({ taskId: z.string().min(1).max(160) });
@@ -61,11 +76,22 @@ export function createCoreToolSchemas(z: ZodFactory): CoreToolSchemas {
       text: z.string(),
       files: z
         .array(
-          z.object({
-            scope: z.string().optional(),
-            path: z.string(),
-            version: z.number().int().positive().optional(),
-          }),
+          z.union([
+            z
+              .object({
+                source: z.literal('artifact').optional(),
+                scope: z.string().optional(),
+                path: z.string(),
+                version: z.number().int().positive().optional(),
+              })
+              .strict(),
+            z
+              .object({
+                source: z.literal('workspace'),
+                path: z.string(),
+              })
+              .strict(),
+          ]),
         )
         .max(5)
         .optional(),
@@ -120,6 +146,7 @@ export function createCoreToolSchemas(z: ZodFactory): CoreToolSchemas {
         .max(30 * 60_000)
         .optional(),
     }),
+    callable_agent: createCallableAgentToolSchema(z),
     task_get: taskIdSchema,
     task_list: z.object({}),
     task_cancel: taskIdSchema,

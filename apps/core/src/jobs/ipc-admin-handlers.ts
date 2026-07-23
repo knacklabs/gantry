@@ -92,6 +92,7 @@ const {
   mcpCallToolHandler,
   mcpDescribeToolHandler,
   mcpListToolsHandler,
+  mcpSearchToolsHandler,
 } = createMcpToolHandlers(createMcpProxyForSourceGroup);
 configureSkillInstallHandlers({
   getStorage: getRuntimeStorage,
@@ -135,7 +136,7 @@ const refreshGroupsHandler: TaskHandler = async (context) => {
       'refresh_groups failed unexpectedly',
     );
     reject(
-      err instanceof Error ? err.message : 'Failed to refresh group metadata.',
+      'I could not refresh the conversation list. Explain this in plain language and say you can try again after the sync issue is fixed.',
       'internal_error',
     );
   }
@@ -272,6 +273,7 @@ const requestMcpServerHandler: TaskHandler = async (context) => {
       sourceAgentFolder,
       targetJid: requestedTargetJid,
       threadId: data.authThreadId,
+      providerAccountId: data.providerAccountId,
       server: { name },
       transport,
       sandboxProfileId,
@@ -284,8 +286,12 @@ const requestMcpServerHandler: TaskHandler = async (context) => {
       reason,
     });
   } catch (err) {
+    logger.error(
+      { err, sourceAgentFolder },
+      'MCP server request failed unexpectedly',
+    );
     reject(
-      err instanceof Error ? err.message : 'MCP server request failed.',
+      'The MCP server request could not be completed. Explain this in plain language and say you can try again after the setup issue is fixed.',
       'invalid_request',
     );
   }
@@ -406,7 +412,7 @@ const adminPermissionRevokeHandler: TaskHandler = async (context) => {
   }
 };
 // prettier-ignore
-export const adminTaskHandlers: Record<string, TaskHandler> = { refresh_groups: refreshGroupsHandler, register_agent: registerAgentHandler, service_restart: serviceRestartHandler, settings_desired_state: settingsDesiredStateHandler, guided_action_preview: guidedActionPreviewHandler, request_settings_update: requestSettingsUpdateHandler, admin_permission_revoke: adminPermissionRevokeHandler, request_skill_install: requestSkillInstallHandler, request_skill_dependency_install: requestOnlyCapabilityHandler, request_permission: requestOnlyCapabilityHandler, request_skill_proposal: requestSkillProposalHandler, pattern_candidate_decision: patternCandidateDecisionHandler, proactive_surfacing_consent: proactiveSurfacingConsentHandler, request_mcp_server: requestMcpServerHandler, mcp_list_tools: mcpListToolsHandler, mcp_describe_tool: mcpDescribeToolHandler, mcp_call_tool: mcpCallToolHandler, async_mcp_call: asyncMcpCallToolHandler };
+export const adminTaskHandlers: Record<string, TaskHandler> = { refresh_groups: refreshGroupsHandler, register_agent: registerAgentHandler, service_restart: serviceRestartHandler, settings_desired_state: settingsDesiredStateHandler, guided_action_preview: guidedActionPreviewHandler, request_settings_update: requestSettingsUpdateHandler, admin_permission_revoke: adminPermissionRevokeHandler, request_skill_install: requestSkillInstallHandler, request_skill_dependency_install: requestOnlyCapabilityHandler, request_permission: requestOnlyCapabilityHandler, request_skill_proposal: requestSkillProposalHandler, pattern_candidate_decision: patternCandidateDecisionHandler, proactive_surfacing_consent: proactiveSurfacingConsentHandler, request_mcp_server: requestMcpServerHandler, mcp_list_tools: mcpListToolsHandler, mcp_search_tools: mcpSearchToolsHandler, mcp_describe_tool: mcpDescribeToolHandler, mcp_call_tool: mcpCallToolHandler, async_mcp_call: asyncMcpCallToolHandler };
 // prettier-ignore
 function validateSameChannelApprovalTarget(input: { data: Parameters<TaskHandler>[0]['data']; sourceAgentFolderJids: string[]; requestKind: string; reject: (error: string, code?: string, details?: string[]) => void }): string | null {
   const requestedTargetJid = toTrimmedString(input.data.chatJid, { maxLen: 512 });
@@ -621,7 +627,8 @@ function startRequestOnlyCapabilityReview(input: { deps: Parameters<TaskHandler>
         { err, sourceAgentFolder: input.sourceAgentFolder, toolName: input.review.toolName },
         'Capability permission review failed',
       );
-      message = `Not approved: ${input.review.displayName}. Reason: ${err instanceof Error ? err.message : 'permission review failed'}.`;
+      message =
+        'I could not finish that setup request. I left the current setup unchanged; try again after the setup issue is fixed.';
       try {
         await getRuntimeStorage().repositories.pendingAccessRequests.markResolved({
           appId: input.appId,
@@ -681,7 +688,7 @@ async function maybeEnqueueDependencyBakeOnApproval(input: {
       { err, appId: input.appId },
       'Failed to enqueue approved toolchain bake',
     );
-    return `Approved ${input.review.displayName}, but the toolchain bake could not be queued: ${err instanceof Error ? err.message : 'bake enqueue failed'}.`;
+    return `Approved ${input.review.displayName}, but I could not queue the setup. I left it unavailable; try again after the setup issue is fixed.`;
   }
 }
 function hasAgentSuppliedCapabilityDefinition(
@@ -695,14 +702,14 @@ function hasAgentSuppliedCapabilityDefinition(
   );
 }
 // prettier-ignore
-function startMcpPermissionReview(input: { deps: Parameters<TaskHandler>[0]['deps']; responder: Pick<ReturnType<typeof createTaskResponder>, 'acceptData' | 'reject'>; service: McpServerService; appId: import('../domain/app/app.js').AppId; agentId: import('../domain/agent/agent.js').AgentId; sourceAgentFolder: string; targetJid: string; threadId?: string; server: { name: string }; transport: string; sandboxProfileId?: string; transportConfig: import('../domain/mcp/mcp-servers.js').McpServerTransportConfig; origin: string; requestedToolPatterns: string[]; credentialRefs: import('../domain/mcp/mcp-servers.js').McpCredentialRef[]; credentialNeeds: string[]; networkHosts: string[]; reason: string }): void {
+function startMcpPermissionReview(input: { deps: Parameters<TaskHandler>[0]['deps']; responder: Pick<ReturnType<typeof createTaskResponder>, 'acceptData' | 'reject'>; service: McpServerService; appId: import('../domain/app/app.js').AppId; agentId: import('../domain/agent/agent.js').AgentId; sourceAgentFolder: string; targetJid: string; threadId?: string; providerAccountId?: string; server: { name: string }; transport: string; sandboxProfileId?: string; transportConfig: import('../domain/mcp/mcp-servers.js').McpServerTransportConfig; origin: string; requestedToolPatterns: string[]; credentialRefs: import('../domain/mcp/mcp-servers.js').McpCredentialRef[]; credentialNeeds: string[]; networkHosts: string[]; reason: string }): void {
   void completeMcpPermissionReview(input).catch((err) => {
     logger.error(
       { err, serverName: input.server.name, sourceAgentFolder: input.sourceAgentFolder },
       'MCP source review failed',
     );
     input.responder.reject(
-      err instanceof Error ? err.message : 'MCP source review failed.',
+      'The MCP server request could not be completed. Explain this in plain language and say you can try again after the setup issue is fixed.',
       'permission_review_failed',
     );
   });
@@ -717,6 +724,7 @@ async function completeMcpPermissionReview(
     sourceAgentFolder: input.sourceAgentFolder,
     targetJid: input.targetJid,
     threadId: input.threadId,
+    providerAccountId: input.providerAccountId,
     decisionPolicy: 'same_channel',
     decisionOptions: ['allow_once', 'cancel'],
     toolName: 'request_mcp_server',
@@ -795,7 +803,7 @@ async function completeMcpPermissionReview(
   await input.deps.sendMessage(
     input.targetJid,
     `Connected MCP source ${input.server.name}. Review a capability before using durable MCP actions.`,
-    input.threadId ? { threadId: input.threadId } : undefined,
+    mcpReviewMessageOptions(input),
   );
   input.responder.acceptData(
     `Connected MCP source ${input.server.name}. Review a capability before using durable MCP actions.`,
@@ -816,9 +824,21 @@ async function rejectMcpRequestFromPermission(
   await input.deps.sendMessage(
     input.targetJid,
     message,
-    input.threadId ? { threadId: input.threadId } : undefined,
+    mcpReviewMessageOptions(input),
   );
   input.responder.reject(message, 'permission_denied');
+}
+function mcpReviewMessageOptions(
+  input: Parameters<typeof startMcpPermissionReview>[0],
+) {
+  return input.threadId || input.providerAccountId
+    ? {
+        ...(input.threadId ? { threadId: input.threadId } : {}),
+        ...(input.providerAccountId
+          ? { providerAccountId: input.providerAccountId }
+          : {}),
+      }
+    : undefined;
 }
 async function createMcpProxyForSourceGroup(input: {
   appId: import('../domain/app/app.js').AppId;

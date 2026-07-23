@@ -38,6 +38,14 @@ const sdkState = vi.hoisted(() => ({
     streamMessages: unknown[];
     permissionDecision?: unknown;
   }>,
+  getContextUsage: undefined as
+    | undefined
+    | (() => Promise<{
+        totalTokens: number;
+        maxTokens: number;
+        percentage: number;
+        model?: string;
+      }>),
 }));
 const clockState = vi.hoisted(() => ({
   nowMs: () => Date.now(),
@@ -52,9 +60,8 @@ vi.mock('@core/shared/time/datetime.js', async (importOriginal) => {
   };
 });
 
-vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
-  SYSTEM_PROMPT_DYNAMIC_BOUNDARY: '__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__',
-  query: async function* ({
+vi.mock('@anthropic-ai/claude-agent-sdk', () => {
+  const query = async function* ({
     prompt,
     options,
   }: {
@@ -293,8 +300,15 @@ vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
     }
 
     yield { type: 'result', subtype: 'success', result: 'ok' };
-  },
-}));
+  };
+  Object.defineProperty(query.prototype, 'getContextUsage', {
+    get: () => sdkState.getContextUsage,
+  });
+  return {
+    SYSTEM_PROMPT_DYNAMIC_BOUNDARY: '__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__',
+    query,
+  };
+});
 
 async function nextWithTimeout<T>(
   iterator: AsyncIterator<T>,
@@ -341,6 +355,9 @@ function prepareRuntimeEnv(): {
   vi.stubEnv('GANTRY_IPC_AUTH_TOKEN', 'runner-ipc-token');
   vi.stubEnv('GANTRY_IPC_RESPONSE_VERIFY_KEY', 'runner-response-verify-key');
   vi.stubEnv('GANTRY_NO_PERMISSION_TOOLS', '');
+  // Production always projects the run-scoped egress gateway (ensureEgressGateway
+  // is unconditional in spawnAgent); the SDK sandbox fails closed without it.
+  vi.stubEnv('GANTRY_EGRESS_PROXY_URL', 'http://127.0.0.1:18081/');
   vi.stubEnv('ANTHROPIC_API_KEY', 'raw-provider-key');
   vi.stubEnv('CLAUDE_CODE_OAUTH_TOKEN', 'raw-oauth-token');
   vi.stubEnv('CLAUDE_CONFIG_DIR', path.join(root, 'claude-config'));
@@ -383,6 +400,7 @@ afterEach(() => {
   }
   sdkState.mode = 'success';
   sdkState.calls.length = 0;
+  sdkState.getContextUsage = undefined;
   clockState.nowMs = () => Date.now();
   vi.unstubAllEnvs();
 });
@@ -505,6 +523,79 @@ describe('Claude Agent SDK boundary integration', () => {
         }),
       ]),
     );
+  });
+
+  it('emits result-only output before context usage retrieval settles', async () => {
+    const env = prepareRuntimeEnv();
+    let releaseContextUsage!: (usage: {
+      totalTokens: number;
+      maxTokens: number;
+      percentage: number;
+      model: string;
+    }) => void;
+    sdkState.getContextUsage = () =>
+      new Promise((resolve) => {
+        releaseContextUsage = resolve;
+      });
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const { runQuery } = await importRunQuery();
+
+    const queryDone = runQuery(
+      'hello from Gantry',
+      env.mcpServerPath,
+      runnerInput(),
+      sdkProcessEnv(),
+      'sonnet',
+      undefined,
+      undefined,
+    );
+
+    await vi.waitFor(() => {
+      expect(
+        logSpy.mock.calls
+          .map((call) => String(call[0] ?? ''))
+          .filter((line) => line.startsWith('{'))
+          .map((line) => JSON.parse(line) as { result: string | null })
+          .some((output) => output.result === 'ok'),
+      ).toBe(true);
+    });
+    releaseContextUsage({
+      totalTokens: 120,
+      maxTokens: 1_000,
+      percentage: 12,
+      model: 'sonnet',
+    });
+    await queryDone;
+
+    const outputs = logSpy.mock.calls
+      .map((call) => String(call[0] ?? ''))
+      .filter((line) => line.startsWith('{'))
+      .map(
+        (line) =>
+          JSON.parse(line) as {
+            result: string | null;
+            runtimeEventOnly?: boolean;
+            contextUsage?: { totalTokens: number };
+          },
+      );
+    logSpy.mockRestore();
+    const resultIndex = outputs.findIndex((output) => output.result === 'ok');
+    const contextUsageIndex = outputs.findIndex(
+      (output) => output.contextUsage?.totalTokens === 120,
+    );
+
+    expect(resultIndex).toBeGreaterThanOrEqual(0);
+    expect(contextUsageIndex).toBeGreaterThan(resultIndex);
+    expect(outputs[contextUsageIndex]).toMatchObject({
+      result: null,
+      runtimeEventOnly: true,
+      contextUsage: {
+        totalTokens: 120,
+        maxTokens: 1_000,
+        percentage: 12,
+        model: 'sonnet',
+      },
+    });
   });
 
   it('ignores SDK thinking deltas and streams only text deltas', async () => {
@@ -762,6 +853,8 @@ describe('Claude Agent SDK boundary integration', () => {
         GANTRY_MEMORY_DEFAULT_SCOPE: 'group',
         GANTRY_BROWSER_PROFILE_NAME: '',
         GANTRY_ADMIN_MCP_TOOLS_JSON: '[]',
+        GANTRY_NO_PERMISSION_TOOLS: '',
+        GANTRY_CALLABLE_AGENT_MANIFEST_JSON: '[]',
         GANTRY_CONFIGURED_ALLOWED_TOOLS_JSON: '[]',
         GANTRY_SEMANTIC_CAPABILITIES_JSON: '[]',
         GANTRY_SELECTED_SKILLS_JSON: '[]',

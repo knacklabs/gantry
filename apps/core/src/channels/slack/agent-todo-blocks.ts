@@ -2,6 +2,7 @@ import type { AgentTodoRender } from '../../domain/ports/task-lifecycle.js';
 import {
   agentTodoStopActions,
   countCompletedAgentTodos,
+  formatAgentProgressLine,
   formatAgentTodoHeader,
   formatAgentTodoLine,
   hasAgentTodoCardHeader,
@@ -33,6 +34,20 @@ export function buildAgentTodoBlocks(
   render: AgentTodoRender,
   options: { providerAccountId?: string } = {},
 ): SlackBlock[] {
+  if (render.cardKind === 'progress') {
+    return [
+      {
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: truncateSlackText(
+            formatAgentProgressLine(render, escapeSlackMrkdwn),
+            2900,
+          ),
+        },
+      },
+    ];
+  }
   const title = formatAgentTodoHeader(render);
   const heading = hasAgentTodoCardHeader(render) ? title : `📋 ${title}`;
   const lines: string[] = [];

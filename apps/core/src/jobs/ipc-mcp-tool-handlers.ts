@@ -37,12 +37,14 @@ export function createMcpToolHandlers(
   createMcpProxyForSourceGroup: CreateMcpProxyForSourceGroup,
 ): {
   mcpListToolsHandler: TaskHandler;
+  mcpSearchToolsHandler: TaskHandler;
   mcpDescribeToolHandler: TaskHandler;
   mcpCallToolHandler: TaskHandler;
   asyncMcpCallToolHandler: TaskHandler;
 } {
   return {
     mcpListToolsHandler: mcpListToolsHandler(createMcpProxyForSourceGroup),
+    mcpSearchToolsHandler: mcpSearchToolsHandler(createMcpProxyForSourceGroup),
     mcpDescribeToolHandler: mcpDescribeToolHandler(
       createMcpProxyForSourceGroup,
     ),
@@ -50,6 +52,61 @@ export function createMcpToolHandlers(
     asyncMcpCallToolHandler: asyncMcpCallToolHandler(
       createMcpProxyForSourceGroup,
     ),
+  };
+}
+
+function mcpSearchToolsHandler(
+  createMcpProxyForSourceGroup: CreateMcpProxyForSourceGroup,
+): TaskHandler {
+  return async (context) => {
+    const { data, deps, sourceAgentFolder, sourceAgentFolderJids } = context;
+    const { acceptData, reject } = createTaskResponder(
+      sourceAgentFolder,
+      data.taskId,
+      data.authThreadId,
+      data.responseKeyId,
+    );
+    if (!data.appId) {
+      reject('MCP tool search requires signed app scope.', 'forbidden');
+      return;
+    }
+    const requestedTargetJid = validateSameChannelMcpTarget({
+      data,
+      sourceAgentFolderJids,
+      requestKind: 'MCP tool search',
+      reject,
+    });
+    if (!requestedTargetJid) return;
+    try {
+      const searchInput = mcpListToolsProxyInput(data.payload || {});
+      if (!searchInput.query) {
+        reject('Missing required field: query.', 'invalid_request');
+        return;
+      }
+      const agentId = agentIdForMcpTask(data, sourceAgentFolder);
+      const proxy = await createMcpProxyForSourceGroup({
+        appId: data.appId as never,
+        agentId,
+        deps,
+        ipcDir: context.ipcBaseDir
+          ? path.join(context.ipcBaseDir, sourceAgentFolder)
+          : undefined,
+        runHandle: data.runHandle,
+        runId: data.runId,
+      });
+      const result = await proxy.searchTools({
+        appId: data.appId as never,
+        agentId,
+        query: searchInput.query,
+        limit: searchInput.limit,
+      });
+      acceptData('Connected MCP tools searched for this agent.', result);
+    } catch (err) {
+      reject(
+        err instanceof Error ? err.message : 'MCP tool search failed.',
+        'mcp_proxy_failed',
+      );
+    }
   };
 }
 

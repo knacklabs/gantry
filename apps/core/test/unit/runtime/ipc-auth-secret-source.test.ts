@@ -53,6 +53,9 @@ describe('ipc auth secret source', () => {
     }));
     vi.doMock('@core/infrastructure/logging/logger.js', () => ({
       logger: { warn: vi.fn() },
+      withLogContext: (_context: unknown, callback: () => unknown) =>
+        callback(),
+      updateLogContext: vi.fn(),
     }));
 
     const { computeIpcAuthToken } = await import('@core/runtime/ipc-auth.js');
@@ -95,6 +98,9 @@ describe('ipc auth secret source', () => {
     }));
     vi.doMock('@core/infrastructure/logging/logger.js', () => ({
       logger: { warn: vi.fn() },
+      withLogContext: (_context: unknown, callback: () => unknown) =>
+        callback(),
+      updateLogContext: vi.fn(),
     }));
 
     const { computeIpcAuthToken } = await import('@core/runtime/ipc-auth.js');
@@ -135,6 +141,9 @@ describe('ipc auth secret source', () => {
     }));
     vi.doMock('@core/infrastructure/logging/logger.js', () => ({
       logger: { warn: vi.fn() },
+      withLogContext: (_context: unknown, callback: () => unknown) =>
+        callback(),
+      updateLogContext: vi.fn(),
     }));
 
     await expect(import('@core/runtime/ipc-auth.js')).rejects.toThrow(

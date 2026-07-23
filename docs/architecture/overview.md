@@ -514,7 +514,7 @@ Cited at:
 ## 9. External Ingress + Outbound Webhooks
 
 Two opposite directions, drawn side by side. Policy lives in
-[`docs/decisions/2026-04-30-external-ingress-vs-outbound-webhooks.md`](../decisions/2026-04-30-external-ingress-vs-outbound-webhooks.md).
+[`docs/decisions/0014-external-ingress-vs-outbound-webhooks.md`](../decisions/0014-external-ingress-vs-outbound-webhooks.md).
 
 ```mermaid
 flowchart LR

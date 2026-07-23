@@ -18,6 +18,7 @@ import { isValidSemanticCapabilityId } from '../../shared/semantic-capability-id
 import {
   formatSkillMaterializationCollision,
   skillMaterializationCollisions,
+  skillMaterializationKey,
 } from '../../domain/skills/skill-identity.js';
 import {
   normalizeConfiguredCapabilities,
@@ -46,26 +47,30 @@ export async function replaceDesiredStateCapabilities(input: {
   agent: RuntimeConfiguredAgent;
   repositories: SettingsDesiredStateRepositories;
   now: string;
+  authoritative: boolean;
 }): Promise<void> {
+  const activeSkillSources = input.agent.sources.skills.filter(
+    (source) => source.status !== 'disabled',
+  );
   const resolvedSkills = await resolveConfiguredSkillReferences({
     repository: input.repositories.skills,
     appId: input.appId,
     agentId: input.agentId,
-    references: input.agent.sources.skills.map((source) => source.id),
+    references: activeSkillSources.map((source) => source.id),
   });
   if (resolvedSkills.errors.size > 0) {
     throw new Error([...resolvedSkills.errors.values()][0]);
   }
   const skillIds = [
     ...new Set(
-      input.agent.sources.skills
+      activeSkillSources
         .map((source) => source.id)
         .map((reference) => String(resolvedSkills.skills.get(reference)!.id)),
     ),
   ];
   const [skillCollision] = skillMaterializationCollisions(
     selectedSkillsFromResolvedSkillReferences(
-      input.agent.sources.skills.map((source) => source.id),
+      activeSkillSources.map((source) => source.id),
       resolvedSkills,
     ),
   );
@@ -80,6 +85,37 @@ export async function replaceDesiredStateCapabilities(input: {
     ...input,
     skillActionDefinitions,
   });
+  // Agent-request-created ACTIVE bindings survive omission. An authoritative
+  // settings revision can remove one by retaining its exact source id with
+  // status: disabled.
+  const preserved = await agentInstalledBindingsToPreserve({
+    appId: input.appId,
+    agentId: input.agentId,
+    repositories: input.repositories,
+    configuredSkillIds: new Set(skillIds),
+    configuredSkillKeys: new Set(
+      [...resolvedSkills.skills.values()].map((skill) =>
+        skillMaterializationKey(skill),
+      ),
+    ),
+    configuredMcpServerIds: new Set(
+      mcpBindings.map((binding) => String(binding.serverId)),
+    ),
+    explicitlyRemovedSkillIds: new Set(
+      input.authoritative
+        ? input.agent.sources.skills
+            .filter((source) => source.status === 'disabled')
+            .map((source) => source.id)
+        : [],
+    ),
+    explicitlyRemovedMcpServerIds: new Set(
+      input.authoritative
+        ? input.agent.sources.mcpServers
+            .filter((source) => source.status === 'disabled')
+            .map((source) => source.id)
+        : [],
+    ),
+  });
   await input.repositories.agents.replaceAgentCapabilityBindings({
     appId: input.appId,
     agentId: input.agentId,
@@ -92,19 +128,88 @@ export async function replaceDesiredStateCapabilities(input: {
       createdAt: input.now,
       updatedAt: input.now,
     })),
-    skillBindings: skillIds.map((skillId) => ({
-      id: `agent-skill-binding:${input.agentId}:${skillId}` as never,
-      appId: input.appId,
-      agentId: input.agentId,
-      skillId: skillId as never,
-      status: 'active' as const,
-      createdAt: input.now,
-      updatedAt: input.now,
-    })),
-    mcpBindings,
+    skillBindings: [
+      ...skillIds.map((skillId) => ({
+        id: `agent-skill-binding:${input.agentId}:${skillId}` as never,
+        appId: input.appId,
+        agentId: input.agentId,
+        skillId: skillId as never,
+        status: 'active' as const,
+        createdAt: input.now,
+        updatedAt: input.now,
+      })),
+      ...preserved.skillBindings,
+    ],
+    mcpBindings: [...mcpBindings, ...preserved.mcpBindings],
     updatedAt: input.now,
   });
   await replaceAgentToolSources(input);
+}
+
+async function agentInstalledBindingsToPreserve(input: {
+  appId: AppId;
+  agentId: AgentId;
+  repositories: SettingsDesiredStateRepositories;
+  configuredSkillIds: ReadonlySet<string>;
+  configuredSkillKeys: ReadonlySet<string>;
+  configuredMcpServerIds: ReadonlySet<string>;
+  explicitlyRemovedSkillIds: ReadonlySet<string>;
+  explicitlyRemovedMcpServerIds: ReadonlySet<string>;
+}) {
+  const skillBindings = await input.repositories.skills.listAgentSkillBindings({
+    appId: input.appId,
+    agentId: input.agentId,
+  });
+  const preservedSkillBindings = [];
+  for (const binding of skillBindings) {
+    if (binding.status !== 'active') continue;
+    if (input.configuredSkillIds.has(String(binding.skillId))) continue;
+    if (input.explicitlyRemovedSkillIds.has(String(binding.skillId))) continue;
+    const skill = await input.repositories.skills.getSkill(binding.skillId);
+    if (!skill || skill.appId !== input.appId) continue;
+    if (skill.source !== 'agent_created' || skill.status !== 'installed') {
+      continue;
+    }
+    if (input.configuredSkillKeys.has(skillMaterializationKey(skill))) {
+      // A configured skill materializes to the same runtime directory; the
+      // settings selection wins so the next spawn projection cannot collide.
+      console.warn(
+        `[settings] agent-installed skill ${skill.id} collides with a configured skill directory; not preserving its binding for ${input.agentId}`,
+      );
+      continue;
+    }
+    preservedSkillBindings.push(binding);
+  }
+
+  const mcpBindings = await input.repositories.mcpServers.listAgentBindings({
+    appId: input.appId,
+    agentId: input.agentId,
+    limit: 500,
+  });
+  const preservedMcpBindings = [];
+  for (const binding of mcpBindings) {
+    if (binding.status !== 'active') continue;
+    if (input.configuredMcpServerIds.has(String(binding.serverId))) continue;
+    if (input.explicitlyRemovedMcpServerIds.has(String(binding.serverId))) {
+      continue;
+    }
+    const server = await input.repositories.mcpServers.getServer(
+      binding.serverId,
+    );
+    if (
+      !server ||
+      server.appId !== input.appId ||
+      server.status !== 'active' ||
+      server.createdSource !== 'agent_request'
+    ) {
+      continue;
+    }
+    preservedMcpBindings.push(binding);
+  }
+  return {
+    skillBindings: preservedSkillBindings,
+    mcpBindings: preservedMcpBindings,
+  };
 }
 
 export async function inlineAgentRuntimeCapabilityErrors(input: {
@@ -143,6 +248,7 @@ export async function inlineAgentRuntimeCapabilityErrors(input: {
           agent.sources.mcpServers
             .filter(
               (source) =>
+                source.status !== 'disabled' &&
                 input.servers.get(source.id)?.transport === 'stdio_template',
             )
             .map((source) => source.id),
@@ -153,7 +259,9 @@ export async function inlineAgentRuntimeCapabilityErrors(input: {
       repository: input.repositories.skills,
       appId: input.appId,
       agentId: `agent:${folder}` as AgentId,
-      references: agent.sources.skills.map((source) => source.id),
+      references: agent.sources.skills
+        .filter((source) => source.status !== 'disabled')
+        .map((source) => source.id),
     });
     const skillActionDefinitions = {
       ...input.catalogSemanticCapabilityDefinitions,
@@ -208,20 +316,26 @@ async function replaceAgentToolSources(input: {
   now: string;
 }): Promise<void> {
   if (!input.repositories.tools.replaceAgentToolSources) {
-    if (input.agent.sources.tools.length === 0) return;
+    if (
+      input.agent.sources.tools.every((source) => source.status === 'disabled')
+    ) {
+      return;
+    }
     throw new Error('Tool source attachments repository is unavailable.');
   }
   await input.repositories.tools.replaceAgentToolSources({
     appId: input.appId,
     agentId: input.agentId,
-    sources: input.agent.sources.tools.map((source) =>
-      configuredToolSourceToAttachment({
-        appId: input.appId,
-        agentId: input.agentId,
-        source,
-        now: input.now,
-      }),
-    ),
+    sources: input.agent.sources.tools
+      .filter((source) => source.status !== 'disabled')
+      .map((source) =>
+        configuredToolSourceToAttachment({
+          appId: input.appId,
+          agentId: input.agentId,
+          source,
+          now: input.now,
+        }),
+      ),
     updatedAt: input.now,
   });
 }
@@ -306,36 +420,44 @@ async function configuredMcpSourceBindings(input: {
   repositories: SettingsDesiredStateRepositories;
   now: string;
 }) {
-  return Promise.all(
-    input.agent.sources.mcpServers.map(async (source) => {
-      const serverId = source.id as McpServerId;
-      const server = await input.repositories.mcpServers.getServer(serverId);
-      if (
-        !server ||
-        server.appId !== input.appId ||
-        server.status !== 'active'
-      ) {
-        throw new Error(
-          `MCP server ${source.id} is not active for that source.`,
-        );
-      }
-      return {
-        id: `agent-mcp-binding:${input.agentId}:${serverId}` as never,
-        appId: input.appId,
-        agentId: input.agentId,
-        serverId,
-        status: 'active' as const,
-        required: false,
-        permissionPolicyIds: [],
-        allowedToolPatterns: normalizeMcpToolScope({
-          serverName: server.name,
-          requested: source.tools,
-          definitionPatterns: reviewedMcpToolPatterns(server),
-        }),
-        createdAt: input.now,
-        updatedAt: input.now,
-      };
-    }),
+  const bindings = await Promise.all(
+    input.agent.sources.mcpServers
+      .filter((source) => source.status !== 'disabled')
+      .map(async (source) => {
+        const serverId = source.id as McpServerId;
+        const server = await input.repositories.mcpServers.getServer(serverId);
+        if (
+          !server ||
+          server.appId !== input.appId ||
+          server.status !== 'active'
+        ) {
+          // One dead source must not fail the whole reconcile: warn and skip the
+          // binding; the rest of the desired state still applies.
+          console.warn(
+            `[settings] MCP server ${source.id} is not active for agents.${input.agent.folder}.sources.mcp_servers; skipping that binding`,
+          );
+          return null;
+        }
+        return {
+          id: `agent-mcp-binding:${input.agentId}:${serverId}` as never,
+          appId: input.appId,
+          agentId: input.agentId,
+          serverId,
+          status: 'active' as const,
+          required: false,
+          permissionPolicyIds: [],
+          allowedToolPatterns: normalizeMcpToolScope({
+            serverName: server.name,
+            requested: source.tools,
+            definitionPatterns: reviewedMcpToolPatterns(server),
+          }),
+          createdAt: input.now,
+          updatedAt: input.now,
+        };
+      }),
+  );
+  return bindings.filter(
+    (binding): binding is NonNullable<typeof binding> => binding !== null,
   );
 }
 

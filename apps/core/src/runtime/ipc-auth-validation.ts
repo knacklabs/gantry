@@ -24,6 +24,7 @@ import {
 interface IpcThreadBinding {
   appId?: string;
   agentId?: string;
+  providerAccountId?: string;
   authThreadId?: string;
   payloadThreadId?: string | null;
   responseKeyId?: string;
@@ -79,6 +80,16 @@ function readResponseKeyIdField(
   return parsed;
 }
 
+function readProviderAccountIdField(
+  value: unknown,
+  label: string,
+): string | undefined {
+  const parsed = toTrimmedString(value, { maxLen: 255 });
+  if (parsed === undefined) {
+    throw new Error(`${label} must be a string up to 255 characters`);
+  }
+  return parsed;
+}
 function readAppIdField(value: unknown, label: string): string | undefined {
   const parsed = toTrimmedString(value, { maxLen: 128 });
   if (parsed === undefined) {
@@ -155,9 +166,34 @@ function readTrustedThreadBinding(
   if (contextAgentId && payloadAgentId && contextAgentId !== payloadAgentId) {
     throw new Error(`${label} agentId mismatch`);
   }
+  const contextProviderAccountId =
+    context &&
+    Object.prototype.hasOwnProperty.call(context, 'providerAccountId')
+      ? readProviderAccountIdField(
+          context.providerAccountId,
+          `${label} context.providerAccountId`,
+        )
+      : undefined;
+  const payloadProviderAccountId = Object.prototype.hasOwnProperty.call(
+    raw,
+    'providerAccountId',
+  )
+    ? readProviderAccountIdField(
+        raw.providerAccountId,
+        `${label} providerAccountId`,
+      )
+    : undefined;
+  if (
+    contextProviderAccountId &&
+    payloadProviderAccountId &&
+    contextProviderAccountId !== payloadProviderAccountId
+  ) {
+    throw new Error(`${label} providerAccountId mismatch`);
+  }
   return {
     appId: contextAppId ?? payloadAppId,
     agentId: contextAgentId ?? payloadAgentId,
+    providerAccountId: contextProviderAccountId ?? payloadProviderAccountId,
     authThreadId:
       typeof trustedThreadId === 'string' && trustedThreadId
         ? trustedThreadId

@@ -47,6 +47,9 @@ it('redacts owner-defined browser usage override sites from public settings', as
   expect(config.getPublicRuntimeSettings().runtime).not.toHaveProperty(
     'liveTurns',
   );
+  expect(config.getPublicRuntimeSettings().observer).toEqual({
+    enabled: false,
+  });
 });
 
 it('projects configured agent access using the public contract shape', async () => {

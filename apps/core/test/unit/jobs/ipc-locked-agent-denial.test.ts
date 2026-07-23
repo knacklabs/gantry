@@ -4,6 +4,8 @@ import path from 'node:path';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { makeAgentThreadQueueKey } from '@core/shared/thread-queue-key.js';
+
 const runtimeHomes: string[] = [];
 
 function lockedSettings(folder: string) {
@@ -243,6 +245,46 @@ describe('locked agent parent-side IPC denial', () => {
     const response = readResponse(runtimeHome, 'locked-profile-read');
     expect(response.code).not.toBe('denied_by_profile');
     expect(publishRuntimeEvent).not.toHaveBeenCalled();
+  });
+
+  it('authorizes a bare chat jid from an agent and provider-qualified route key', async () => {
+    const runtimeHome = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'gantry-qualified-route-ipc-'),
+    );
+    runtimeHomes.push(runtimeHome);
+    const { processTaskIpc, taskData } = await loadHandler(
+      runtimeHome,
+      fullSettings('support_agent'),
+    );
+    const qualifiedRouteKey = makeAgentThreadQueueKey(
+      'sl:C123',
+      'agent:support_agent',
+      undefined,
+      'slack_default',
+    );
+    const deps = makeDeps({
+      conversationRoutes: () => ({
+        [qualifiedRouteKey]: {
+          folder: 'support_agent',
+          providerAccountId: 'slack_default',
+        },
+      }),
+    });
+
+    await processTaskIpc(
+      taskData('qualified-route-profile-read', 'agent_profile_read', {
+        payload: { file: 'invalid' },
+      }) as never,
+      'support_agent',
+      deps,
+    );
+
+    expect(
+      readResponse(runtimeHome, 'qualified-route-profile-read'),
+    ).toMatchObject({
+      code: 'invalid_request',
+      error: 'file must be soul or agents.',
+    });
   });
 
   it('fails closed when settings are unreadable during a denied-type task', async () => {

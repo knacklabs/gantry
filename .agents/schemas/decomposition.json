@@ -1,0 +1,18 @@
+{
+  "artifact": "decomposition",
+  "phase": "decomposing",
+  "recorded_by": "record_decomposition_from_json.py",
+  "generated_by": ["docs-decomposer", "planner-high", "claude-code:plan-mode"],
+  "required": {
+    "generated_by": "str",
+    "user_facing": "bool",
+    "tasks": "list"
+  },
+  "optional": {
+    "project": "str",
+    "doc_roots": "list",
+    "epics": "list",
+    "build_waves": "list",
+    "status": "str"
+  }
+}
