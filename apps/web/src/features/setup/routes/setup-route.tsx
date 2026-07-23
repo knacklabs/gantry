@@ -90,7 +90,7 @@ const stages = [
   {
     id: 'review',
     title: 'Review',
-    description: 'Check readiness before you make the agent available.',
+    description: 'Review the changes made in the earlier setup steps.',
     fields: [],
   },
 ] as const;
@@ -215,7 +215,7 @@ export function SetupRoute() {
             <Button
               onClick={() => {
                 if (isFinalStage && !connection.transport) {
-                  requestConnection('Verify agent setup');
+                  requestConnection('Review agent setup');
                   return;
                 }
                 if (invalidFields.length) {
@@ -228,7 +228,7 @@ export function SetupRoute() {
                 );
               }}
             >
-              {isFinalStage ? 'Verify setup' : 'Continue'}
+              {isFinalStage ? 'Finish review' : 'Continue'}
               {!isFinalStage ? (
                 <ChevronRight size={16} aria-hidden="true" />
               ) : null}
@@ -323,11 +323,11 @@ function ModelReadiness({ readiness }: { readiness?: 'ready' | 'attention' }) {
 function ReviewSummary({ connected }: { connected: boolean }) {
   return (
     <div className="rounded-md border border-border bg-surface-muted p-4 text-sm text-text-secondary">
-      <p className="m-0 font-semibold text-text">Ready to verify</p>
+      <p className="m-0 font-semibold text-text">Review setup</p>
       <p className="mt-1 mb-0 leading-5">
         {connected
-          ? 'Verification will check the configured agent, model, connection, conversation policy, and profile.'
-          : 'Connect Gantry to verify configured access and readiness. No changes will be sent from this draft.'}
+          ? 'Creation, connection discovery, conversation access, and profile edits are saved in their respective steps. This review does not send additional changes.'
+          : 'Connect Gantry to view runtime-backed setup options. This local draft has not sent any changes.'}
       </p>
     </div>
   );
