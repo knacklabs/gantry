@@ -153,7 +153,7 @@ function isAllowedUiApiRoute(method: string, pathname: string): boolean {
     [/^\/v1\/memory\/dreaming\/status$/, ['GET']],
     [/^\/v1\/memory\/dreaming\/trigger$/, ['POST']],
     [/^\/v1\/providers$/, ['GET']],
-    [/^\/v1\/provider-accounts$/, ['GET']],
+    [/^\/v1\/provider-accounts$/, ['GET', 'POST']],
     [/^\/v1\/provider-accounts\/[^/]+\/discover-conversations$/, ['POST']],
     [/^\/v1\/conversations$/, ['GET']],
     [/^\/v1\/conversations\/[^/]+$/, ['GET']],

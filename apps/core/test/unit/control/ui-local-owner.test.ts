@@ -117,6 +117,20 @@ describe('local-owner UI request guard', () => {
     ).toBeUndefined();
   });
 
+  it('allows JSON provider-account creation without exposing account updates', () => {
+    const mutation = request({
+      method: 'POST',
+      headers: { ...browserHeaders, 'content-type': 'application/json' },
+    });
+
+    expect(
+      validateLocalOwnerUiRequest(mutation, '/v1/provider-accounts'),
+    ).toBeUndefined();
+    expect(
+      validateLocalOwnerUiRequest(mutation, '/v1/provider-accounts/account-1'),
+    ).toContain('not available');
+  });
+
   it('allows JSON agent creation without exposing agent mutation routes', () => {
     const mutation = request({
       method: 'POST',
