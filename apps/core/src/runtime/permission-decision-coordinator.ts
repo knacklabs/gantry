@@ -3,11 +3,11 @@ import type {
   PermissionApprovalDecision,
   PermissionApprovalRequest,
 } from '../domain/types.js';
-import type { ToolPolicyDecision } from '../shared/tool-execution-policy-service.js';
 import {
   evaluatePermissionDeterministicRails,
   type PermissionDeterministicRailsInput,
-} from '../shared/permission-deterministic-rails.js';
+} from '../domain/permission-deterministic-rails.js';
+import type { ToolPolicyDecision } from '../shared/tool-execution-policy-service.js';
 
 export type DeterministicPermissionRails = (
   input: PermissionDeterministicRailsInput,

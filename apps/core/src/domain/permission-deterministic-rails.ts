@@ -1,21 +1,21 @@
-import path from 'node:path';
-
-import { decisionForMode } from '../domain/permission-decision.js';
+import permissionCredentialPathPattern from './permission-credential-path-pattern.json' with { type: 'json' };
+import { decisionForMode } from './permission-decision.js';
 import type {
   PermissionApprovalDecision,
   PermissionApprovalRequest,
-} from '../domain/types.js';
+} from './types.js';
 import {
   evaluateAutoPermissionReadOnlyGate,
   type McpReadBinding,
-} from './auto-permission-read-only-gate.js';
+} from '../shared/auto-permission-read-only-gate.js';
 import {
   bashExecutableName,
   destructiveBashCommandHint,
   parseBashCommand,
   type BashCommandLeaf,
-} from './bash-command-parser.js';
-import { allProtectedPathMentions } from './tool-execution-protected-paths.js';
+} from '../shared/bash-command-parser.js';
+import { outOfTrustedRootReason } from '../shared/permission-trusted-paths.js';
+import { allProtectedPathMentions } from '../shared/tool-execution-protected-paths.js';
 
 export interface PermissionDeterministicRailsInput {
   request: PermissionApprovalRequest;
@@ -30,7 +30,7 @@ const DESTRUCTIVE_EXECUTABLE =
   /^(?:dd|mkfs(?:\..+)?|rm|rmdir|shred|truncate|unlink)$/;
 const PRIVILEGED_EXECUTABLE = /^(?:doas|launchctl|pkexec|su|sudo|systemctl)$/;
 const CREDENTIAL_PATH = new RegExp(
-  String.raw`(?:^|/)(?:\.ssh|\.aws|\.gnupg|\.azure|\.claude|\.codex|\.anthropic|\.config/(?:gh|github-copilot|codex|gcloud)|\.kube|\.docker|\.npmrc|\.pypirc|\.netrc|\.git-credentials|\.env(?:\.[^/]+)?|environ(?:ment)?|id_(?:dsa|ecdsa|ed25519|rsa)(?:\.pub)?|[^/]*(?:api[_-]?key|credential|private[_-]?key|secret|token)[^/]*|(?:[^/]*[_.-])?keys?(?:[_.-][^/]*)?|[^/]+\.(?:key|pem|p12|pfx))(?:/|$)`,
+  permissionCredentialPathPattern.pattern,
   'i',
 );
 
@@ -153,72 +153,6 @@ function containsProtectedPath(
       ...leaf.redirects.map(({ target }) => target),
     ]),
   ].some((value) => CREDENTIAL_PATH.test(value.replaceAll('\\', '/')));
-}
-
-function outOfTrustedRootReason(
-  leaves: readonly BashCommandLeaf[],
-  workspaceRoot: string | undefined,
-  trustedRoots: readonly string[],
-): string | undefined {
-  if (!workspaceRoot || !path.isAbsolute(workspaceRoot)) {
-    return 'Command working directory is unavailable or non-canonical.';
-  }
-  if (trustedRoots.length === 0) {
-    return 'Command is outside the owner-declared trusted roots.';
-  }
-  for (const leaf of leaves) {
-    const cwd = leafCwd(leaf, workspaceRoot);
-    if (!isTrustedPath(cwd, trustedRoots)) {
-      return `Command working directory is outside the owner-declared trusted roots: ${cwd}.`;
-    }
-    for (const candidate of pathCandidates(leaf)) {
-      if (
-        candidate.startsWith('~/') ||
-        !isTrustedPath(path.resolve(cwd, candidate), trustedRoots)
-      ) {
-        return `Command target is outside the owner-declared trusted roots: ${candidate}.`;
-      }
-    }
-  }
-  return undefined;
-}
-
-function leafCwd(leaf: BashCommandLeaf, workspaceRoot: string): string {
-  let cwd = path.resolve(workspaceRoot);
-  if (bashExecutableName(leaf.argv[0] ?? '') !== 'git') return cwd;
-  for (let index = 1; index < leaf.argv.length; index += 1) {
-    if (leaf.argv[index] !== '-C') continue;
-    if (leaf.argv[index + 1]) cwd = path.resolve(cwd, leaf.argv[index + 1]);
-    index += 1;
-  }
-  return cwd;
-}
-
-function pathCandidates(leaf: BashCommandLeaf): string[] {
-  return [
-    ...leaf.redirects.map(({ target }) => target),
-    ...leaf.argv.slice(1).flatMap((arg) => {
-      const value = arg.includes('=') ? arg.slice(arg.indexOf('=') + 1) : arg;
-      return path.isAbsolute(value) || /^(?:\.{1,2}|~)(?:\/|$)/.test(value)
-        ? [value]
-        : [];
-    }),
-  ];
-}
-
-function isTrustedPath(
-  candidate: string,
-  trustedRoots: readonly string[],
-): boolean {
-  return trustedRoots.some((root) => {
-    const relative = path.relative(path.resolve(root), path.resolve(candidate));
-    return (
-      relative === '' ||
-      (!path.isAbsolute(relative) &&
-        relative !== '..' &&
-        !relative.startsWith(`..${path.sep}`))
-    );
-  });
 }
 
 function isPrivilegedLeaf(leaf: BashCommandLeaf): boolean {

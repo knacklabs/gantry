@@ -26,7 +26,6 @@ import {
 import { resolvePackageRootFromSourceDir } from '../platform/package-root.js';
 import {
   computeBrowserIpcAuthToken,
-  createIpcAuthEnvelope,
   computeMemoryIpcAuthToken,
   registerBrowserIpcAuthorization,
   revokeBrowserIpcAuthorization,
@@ -95,8 +94,8 @@ import {
 import {
   prepareAgentSpawn,
   prepareWorkerAuthorityProjection,
-  registerWorkerPermissionRunRestriction,
 } from './agent-spawn-preparation.js';
+import { setupPermissionRunRestriction } from './agent-spawn-permission-run-restriction.js';
 import { resolveSpawnExecutionAdapter } from './agent-spawn-execution-adapter.js';
 import {
   resolveAgentSpawnLogContext,
@@ -108,7 +107,6 @@ import {
   projectSpawnRunnerInput,
 } from './agent-spawn-input-projection.js';
 import { createSpawnAgent } from './agent-spawn-entry.js';
-import { unregisterPermissionRunRestriction } from './permission-decision-coordinator.js';
 export { writeGroupsSnapshot } from './agent-spawn-snapshots.js';
 export type { AvailableGroup } from './agent-spawn-types.js';
 export type { AgentInput, AgentOutput } from './agent-spawn-types.js';
@@ -247,15 +245,8 @@ async function spawnAgentWithContext(
   let egressGateway:
     | Awaited<ReturnType<typeof ensureEgressGateway>>
     | undefined;
-  const ipcAuth = createIpcAuthEnvelope(group.folder, input.threadId, {
-    appId: input.appId || 'default',
-    agentId: input.agentId,
-  });
-  registerWorkerPermissionRunRestriction({
-    sourceAgentFolder: group.folder,
-    responseKeyId: ipcAuth.responseKeyId,
-    hideAuthorityTools,
-  });
+  const { ipcAuth, unregisterPermissionRunRestriction } =
+    setupPermissionRunRestriction(group.folder, input, hideAuthorityTools);
   let hostCredentials: Awaited<ReturnType<typeof credentials>> | undefined;
   let preparedExecution:
     | Awaited<ReturnType<typeof executionAdapter.prepare>>
@@ -781,10 +772,7 @@ async function spawnAgentWithContext(
     });
     return output;
   } finally {
-    unregisterPermissionRunRestriction({
-      sourceAgentFolder: group.folder,
-      responseKeyId: ipcAuth.responseKeyId,
-    });
+    unregisterPermissionRunRestriction();
     cleanupRunnerTempDir(runnerTempDir, logger.warn.bind(logger));
     if (browserIpcEnabled) {
       revokeBrowserIpcAuthorization({

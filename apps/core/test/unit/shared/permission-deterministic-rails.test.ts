@@ -5,7 +5,7 @@ import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import type { PermissionApprovalRequest } from '@core/domain/types.js';
-import { evaluatePermissionDeterministicRails } from '@core/shared/permission-deterministic-rails.js';
+import { evaluatePermissionDeterministicRails } from '@core/domain/permission-deterministic-rails.js';
 
 const tempRoots: string[] = [];
 

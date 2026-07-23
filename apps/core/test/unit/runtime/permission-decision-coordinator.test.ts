@@ -9,7 +9,7 @@ import {
   unregisterPermissionRunRestriction,
 } from '@core/runtime/permission-decision-coordinator.js';
 import * as permissionCoordinator from '@core/runtime/permission-decision-coordinator.js';
-import { registerWorkerPermissionRunRestriction } from '@core/runtime/agent-spawn-preparation.js';
+import { registerWorkerPermissionRunRestriction } from '@core/runtime/agent-spawn-permission-run-restriction.js';
 import { resolvePermissionIpcDecision } from '@core/runtime/ipc-permission-classifier-decision.js';
 
 const GATES = [

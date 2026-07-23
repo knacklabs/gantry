@@ -14,15 +14,8 @@ import {
 } from '../../shared/tool-execution-policy-service.js';
 import type { YoloModeSettings } from '../../shared/yolo-mode-policy.js';
 import { readWorkspaceMessageAttachment } from '../../platform/workspace-message-attachment.js';
-import {
-  permissionDecisionEventType,
-  permissionDecisionName,
-  permissionTelemetryContext,
-} from '../ipc-permission-telemetry.js';
-import { coordinatePermissionDecision } from '../permission-decision-coordinator.js';
 import { processMemoryRequest } from '../../memory/memory-ipc.js';
 import {
-  runDurablePermissionInteraction,
   runDurableQuestionInteraction,
   type DurableInteractionOperations,
 } from '../../application/interactions/durable-interaction-handler.js';
@@ -52,6 +45,7 @@ import type {
   McpCompatibleToolError,
   McpCompatibleToolResult,
 } from './contracts.js';
+import { coordinateCoreToolPermission } from './core-tool-permission-coordinator.js';
 
 export type {
   CoreToolDefinition,
@@ -506,82 +500,11 @@ async function gateCoreTool(
     ],
     decisionOptions: ['allow_once', 'allow_persistent_rule', 'cancel'],
   };
-  const coordinatedDecision = await coordinatePermissionDecision({
+  const coordinatedDecision = await coordinateCoreToolPermission({
     request,
     hardDenyReason: precheck?.reason,
-    accessPreset: deps.context.accessPreset,
-    fixedImageRestricted: deps.context.fixedImageRestricted,
     reviewedRuleDecision: decision,
-    tail: async () => {
-      const interaction = await runDurablePermissionInteraction({
-        request,
-        sourceAgentFolder: deps.context.sourceAgentFolder,
-        operations: deps.durability,
-        beforePrompt: async () => {
-          await deps.onPermissionPromptStarted?.(request);
-          await publishPermissionEvent(
-            deps,
-            request,
-            RUNTIME_EVENT_TYPES.PERMISSION_REQUESTED,
-            permissionTelemetryContext(request, {
-              sourceAgentFolder: deps.context.sourceAgentFolder,
-              decision: 'requested',
-            }),
-          );
-        },
-        prompt: async () =>
-          deps.requestPermissionApproval?.(request) ?? {
-            approved: false,
-            mode: 'cancel',
-            reason: 'approval surface unavailable',
-          },
-        afterDecision: async (permissionDecision) => {
-          await deps.onPermissionDecision?.(request, permissionDecision);
-          await publishPermissionEvent(
-            deps,
-            request,
-            permissionDecisionEventType(permissionDecision),
-            permissionTelemetryContext(request, {
-              sourceAgentFolder: deps.context.sourceAgentFolder,
-              decision: permissionDecisionName(permissionDecision),
-              decisionMode: permissionDecision.mode,
-              decidedBy: permissionDecision.decidedBy,
-            }),
-          );
-          if (permissionDecision.approved) {
-            await publishPermissionEvent(
-              deps,
-              request,
-              RUNTIME_EVENT_TYPES.PERMISSION_RESUMED,
-              permissionTelemetryContext(request, {
-                sourceAgentFolder: deps.context.sourceAgentFolder,
-                decision: 'resumed',
-                decisionMode: permissionDecision.mode,
-              }),
-            );
-          }
-          await publishPermissionEvent(
-            deps,
-            request,
-            RUNTIME_EVENT_TYPES.PERMISSION_FINAL_OUTCOME,
-            permissionTelemetryContext(request, {
-              sourceAgentFolder: deps.context.sourceAgentFolder,
-              decision: permissionDecisionName(permissionDecision),
-              approved: permissionDecision.approved,
-              decisionMode: permissionDecision.mode,
-            }),
-          );
-          await deps.onPermissionPromptFinished?.(request);
-        },
-      });
-      return interaction.resolved
-        ? interaction.decision
-        : {
-            approved: false,
-            mode: 'cancel' as const,
-            reason: 'durable permission resolution failed',
-          };
-    },
+    deps,
   });
   if (!coordinatedDecision.approved && precheck?.error) {
     return errorResult(
@@ -634,29 +557,6 @@ async function memoryResult(
       ? deps.formatMemorySearchResponse(response)
       : deps.formatMemoryWriteResponse(action, response),
   );
-}
-
-async function publishPermissionEvent(
-  deps: CoreToolRegistryDeps,
-  request: PermissionApprovalRequest,
-  eventType: (typeof RUNTIME_EVENT_TYPES)[keyof typeof RUNTIME_EVENT_TYPES],
-  payload: Record<string, unknown>,
-): Promise<void> {
-  if (!deps.publishRuntimeEvent || !request.appId) return;
-  await deps
-    .publishRuntimeEvent({
-      appId: request.appId as never,
-      agentId: request.agentId as never,
-      runId: request.runId as never,
-      jobId: request.jobId as never,
-      conversationId: request.targetJid as never,
-      threadId: request.threadId as never,
-      eventType,
-      actor: 'permission',
-      correlationId: request.requestId,
-      payload,
-    })
-    .catch(() => undefined);
 }
 
 function formatQuestionAnswers(
