@@ -13,11 +13,15 @@ import {
   applySettingsRevisionWithMcpFenceRecovery,
 } from '../config/settings/settings-import-service.js';
 import type { SettingsRevisionMirror } from '../config/settings/settings-import-service.js';
-import type { SettingsRevisionWakeupSource } from '../config/settings/settings-revision-notify.js';
 import {
   markSettingsLoaded,
   markSettingsNotLoaded,
 } from './settings-load-state.js';
+
+export interface SettingsRevisionWakeupSource {
+  subscribe(listener: () => void): () => void;
+  close(): Promise<void>;
+}
 
 export interface SettingsRevisionSkewAlert {
   appId: string;
@@ -205,7 +209,7 @@ export class SettingsRevisionListener {
     if (previousRevision === 0) {
       markSettingsLoaded();
       try {
-        await this.deps.onFirstRevisionApplied?.(settings);
+        await this.deps.onFirstRevisionApplied?.(applied.settings);
       } catch (err) {
         this.deps.logWarn?.(
           { err, revision: applied.revision },

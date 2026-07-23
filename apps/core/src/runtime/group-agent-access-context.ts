@@ -14,6 +14,7 @@ export async function resolveGroupAgentAccessContext(input: {
   turnContext?: { appId: string; agentId: string } | null;
   catalogScope: { appId: string; agentId: string };
   agentFolder: string;
+  routeScope?: { conversationId?: string; threadId?: string };
 }) {
   // Preserve the original resolution order exactly: the initial three resolve
   // together, then MCP server ids after (this extraction must be
@@ -27,6 +28,7 @@ export async function resolveGroupAgentAccessContext(input: {
   const attachedMcpSourceIds = await resolveTurnSelectedMcpServerIds(
     input.deps,
     input.turnContext,
+    input.routeScope,
   );
   const capabilityCatalog = await resolveTurnPromptCapabilityCatalog(
     input.deps,

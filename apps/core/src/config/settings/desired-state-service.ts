@@ -1,17 +1,7 @@
 import type { Agent, AgentId } from '../../domain/agent/agent.js';
 import type { AppId } from '../../domain/app/app.js';
 import type { McpBindingAuthorityPrecondition } from '../../domain/mcp/mcp-servers.js';
-import type { ConversationRepository } from '../../domain/ports/repositories.js';
 import type {
-  Conversation,
-  ConversationId,
-} from '../../domain/conversation/conversation.js';
-import {
-  canonicalConversationThreadId,
-  type ConversationThread,
-} from '../../domain/conversation/conversation.js';
-import type {
-  ConversationInstall,
   ProviderAccount,
   ProviderAccountId,
   ProviderId,
@@ -32,25 +22,16 @@ import {
   skillActionDefinitionsForSkills,
 } from './configured-capability-normalization.js';
 import {
-  configuredConversationKind,
-  jidForConfiguredConversation,
-  stripProviderPrefix,
-} from './desired-state-provider-conversations.js';
-import {
   agentIdForFolder,
   configuredAgentConfig,
   configuredRoutingBindings,
   configuredRoutingBindingsByAgent,
-  errorMessage,
   folderForAgentId,
   hasAnyCapability,
   isInternalProviderAccount,
-  isValidExternalUserId,
   listDbOnlyGroupJids,
   loadMcpServersById,
-  memorySubjectForConfiguredBinding,
   normalizeRuntimeSecretRefs,
-  normalizeUserIds,
 } from './desired-state-service-helpers.js';
 import {
   resolveConfiguredSkillReferences,
@@ -80,7 +61,6 @@ import type {
 } from './desired-state-service-types.js';
 import type {
   RuntimeConfiguredAgent,
-  RuntimeConfiguredConversation,
   RuntimeProviderAccountSettings,
   RuntimeSettings,
 } from './runtime-settings-types.js';
@@ -88,6 +68,7 @@ import { resolveAgentToolReference } from '../../domain/tools/agent-tool-catalog
 import { nowIso } from '../../shared/time/datetime.js';
 import { makeAgentThreadQueueKey } from '../../shared/thread-queue-key.js';
 import { validateDesiredStateCapabilityReferences } from './desired-state-capability-validation.js';
+import { reconcileDesiredConversations } from './desired-state-conversation-reconcile.js';
 
 export class SettingsDesiredStateService {
   private readonly appId: AppId;
@@ -387,45 +368,14 @@ export class SettingsDesiredStateService {
       }
     }
 
-    if (
-      this.deps.repositories.conversations &&
-      this.deps.repositories.providerAccounts
-    ) {
-      for (const [conversationKey, conversation] of Object.entries(
-        settings.conversations,
-      )) {
-        const storedConversation = await this.ensureDesiredConversation({
-          key: conversationKey,
-          conversation,
-          providerAccounts: settings.providerAccounts,
-          now: this.clock.now(),
-          skipped,
-        });
-        if (!storedConversation) continue;
-        await this.rebindConfiguredConversationBindings({
-          settings,
-          conversationKey,
-          conversation,
-          storedConversation,
-          now: this.clock.now(),
-          skipped,
-        });
-        try {
-          await this.replaceStoredConversationApprovers({
-            conversation: storedConversation,
-            userIds: conversation.controlApprovers,
-            updatedAt: this.clock.now(),
-          });
-          applied.push(`conversation_approvers:${conversationKey}`);
-        } catch (err) {
-          skipped.push(
-            `conversation_approvers:${conversationKey}:${errorMessage(err)}`,
-          );
-        }
-      }
-    } else if (Object.keys(settings.conversations).length > 0) {
-      skipped.push('conversation_approvers:missing-repositories');
-    }
+    await reconcileDesiredConversations({
+      appId: this.appId,
+      repositories: this.deps.repositories,
+      settings,
+      now: () => this.clock.now(),
+      applied,
+      skipped,
+    });
 
     if (
       settings.desiredState.authoritative &&
@@ -534,316 +484,6 @@ export class SettingsDesiredStateService {
       createdAt: existingForApp?.createdAt ?? input.now,
       updatedAt: input.now,
     } satisfies ProviderAccount);
-  }
-
-  private async ensureDesiredConversation(input: {
-    key: string;
-    conversation: RuntimeConfiguredConversation;
-    providerAccounts: Record<string, RuntimeProviderAccountSettings>;
-    now: string;
-    skipped: string[];
-  }): Promise<Conversation | null> {
-    const conversations = this.deps.repositories.conversations;
-    if (!conversations) return null;
-    const configuredProviderAccount =
-      input.conversation.providerAccount ??
-      input.conversation.providerConnection;
-    const connectionSettings =
-      input.providerAccounts[configuredProviderAccount];
-    if (!connectionSettings) {
-      input.skipped.push(
-        `conversation:${input.key}:missing-provider-connection`,
-      );
-      return null;
-    }
-    const jid = jidForConfiguredConversation(
-      input.conversation,
-      input.providerAccounts,
-    );
-    const externalConversationId = stripProviderPrefix(jid);
-
-    const providerId = connectionSettings.provider as ProviderId;
-    const providerAccountId = configuredProviderAccount as ProviderAccountId;
-    const existing = await this.findConfiguredConversation({
-      conversations,
-      providerId,
-      providerAccountId,
-      externalConversationId,
-    });
-    const kind = configuredConversationKind(input.conversation.kind);
-    if (existing) {
-      if (
-        existing.providerAccountId === providerAccountId &&
-        existing.externalRef?.value === externalConversationId &&
-        existing.kind === kind &&
-        existing.title === input.conversation.displayName &&
-        existing.status === 'active'
-      ) {
-        return existing;
-      }
-      const reconciled: Conversation = {
-        ...existing,
-        providerAccountId,
-        externalRef: {
-          kind: 'conversation',
-          value: externalConversationId,
-        },
-        kind,
-        title: input.conversation.displayName,
-        status: 'active',
-        updatedAt: input.now,
-      };
-      await conversations.saveConversation(reconciled);
-      return reconciled;
-    }
-
-    const conversation: Conversation = {
-      id: `conversation:${providerAccountId}:${jid}` as ConversationId,
-      appId: this.appId,
-      providerAccountId,
-      externalRef: {
-        kind: 'conversation',
-        value: externalConversationId,
-      },
-      kind,
-      title: input.conversation.displayName,
-      status: 'active',
-      createdAt: input.now,
-      updatedAt: input.now,
-    };
-    await conversations.saveConversation(conversation);
-    return conversation;
-  }
-
-  private async rebindConfiguredConversationBindings(input: {
-    settings: RuntimeSettings;
-    conversationKey: string;
-    conversation: RuntimeConfiguredConversation;
-    storedConversation: Conversation;
-    now: string;
-    skipped: string[];
-  }): Promise<void> {
-    const providerAccounts = this.deps.repositories.providerAccounts;
-    if (!providerAccounts) return;
-    const desiredInstallIds = new Set<ConversationInstall['id']>();
-    const installConversationIds = new Set<Conversation['id']>([
-      input.storedConversation.id,
-    ]);
-    for (const [bindingKey, binding] of Object.entries(
-      input.settings.bindings,
-    )) {
-      if (binding.conversation !== input.conversationKey) continue;
-      const agent = input.settings.agents[binding.agent];
-      if (!agent) continue;
-      const agentId = agentIdForFolder(binding.agent);
-      const install =
-        input.conversation.installedAgents?.[binding.installKey ?? ''];
-      const installProviderAccountId =
-        install?.providerAccountId ??
-        input.storedConversation.providerAccountId;
-      const installConversation =
-        installProviderAccountId === input.storedConversation.providerAccountId
-          ? input.storedConversation
-          : await this.ensureDesiredConversation({
-              key: `${input.conversationKey}:${installProviderAccountId}`,
-              conversation: {
-                ...input.conversation,
-                providerAccount: installProviderAccountId,
-                providerConnection: installProviderAccountId,
-              },
-              providerAccounts: input.settings.providerAccounts,
-              now: input.now,
-              skipped: input.skipped,
-            });
-      if (!installConversation) continue;
-      if (installConversation.id !== input.storedConversation.id) {
-        await this.replaceStoredConversationApprovers({
-          conversation: installConversation,
-          participantSourceConversation: input.storedConversation,
-          userIds: input.conversation.controlApprovers,
-          updatedAt: input.now,
-        });
-      }
-      const threadId = binding.threadId
-        ? await this.ensureDesiredConversationThread({
-            conversation: installConversation,
-            publicThreadId: binding.threadId,
-            now: input.now,
-          })
-        : undefined;
-      const installId = `agent-conversation-binding:${encodeURIComponent(
-        binding.agent,
-      )}:${encodeURIComponent(bindingKey)}` as ConversationInstall['id'];
-      desiredInstallIds.add(installId);
-      installConversationIds.add(installConversation.id);
-      await providerAccounts.saveConversationInstall({
-        id: installId,
-        appId: this.appId,
-        agentId,
-        providerAccountId: installProviderAccountId as ProviderAccountId,
-        conversationId: installConversation.id,
-        ...(threadId ? { threadId } : {}),
-        displayName: input.conversation.displayName || agent.name,
-        status: 'active',
-        senderPolicy: 'provider_native',
-        controlPolicy: 'conversation_approvers',
-        memoryScope: binding.memoryScope,
-        memorySubject: {
-          ...memorySubjectForConfiguredBinding({
-            appId: this.appId,
-            agentId,
-            memoryScope: binding.memoryScope,
-            conversation: input.conversation,
-            conversationId: installConversation.id,
-          }),
-          route: {
-            configuredConversationId: input.conversationKey,
-            trigger: binding.trigger,
-            requiresTrigger: binding.requiresTrigger,
-            agentConfig: configuredAgentConfig(binding),
-          },
-        },
-        permissionPolicyIds: [],
-        createdAt: binding.addedAt || input.now,
-        updatedAt: input.now,
-      } satisfies ConversationInstall);
-    }
-    for (const install of Object.values(
-      input.conversation.installedAgents ?? {},
-    )) {
-      if (install.status !== 'disabled') continue;
-      const installProviderAccountId =
-        install.providerAccountId ?? input.storedConversation.providerAccountId;
-      const installConversation =
-        installProviderAccountId === input.storedConversation.providerAccountId
-          ? input.storedConversation
-          : await this.ensureDesiredConversation({
-              key: `${input.conversationKey}:${installProviderAccountId}`,
-              conversation: {
-                ...input.conversation,
-                providerAccount: installProviderAccountId,
-                providerConnection: installProviderAccountId,
-              },
-              providerAccounts: input.settings.providerAccounts,
-              now: input.now,
-              skipped: input.skipped,
-            });
-      if (!installConversation) continue;
-      installConversationIds.add(installConversation.id);
-      const threadId = canonicalConversationThreadId({
-        conversation: installConversation,
-        threadId: install.threadId,
-      });
-      await providerAccounts.disableConversationInstall({
-        appId: this.appId,
-        agentId: agentIdForFolder(install.agentId),
-        conversationId: installConversation.id,
-        ...(threadId ? { threadId } : {}),
-        updatedAt: input.now,
-      });
-    }
-    if (!input.settings.desiredState.authoritative) return;
-    for (const conversationId of installConversationIds) {
-      const storedInstalls =
-        await providerAccounts.listConversationInstallsByConversation({
-          appId: this.appId,
-          conversationId,
-        });
-      for (const install of storedInstalls) {
-        if (install.status !== 'active') continue;
-        if (desiredInstallIds.has(install.id)) continue;
-        await providerAccounts.disableConversationInstall({
-          appId: this.appId,
-          agentId: install.agentId,
-          conversationId: install.conversationId,
-          ...(install.threadId ? { threadId: install.threadId } : {}),
-          updatedAt: input.now,
-        });
-      }
-    }
-  }
-
-  private async ensureDesiredConversationThread(input: {
-    conversation: Conversation;
-    publicThreadId: string;
-    now: string;
-  }): Promise<ConversationThread['id'] | undefined> {
-    const threadId = canonicalConversationThreadId({
-      conversation: input.conversation,
-      threadId: input.publicThreadId,
-    });
-    if (!threadId) return undefined;
-    await this.deps.repositories.conversations?.saveThread({
-      id: threadId,
-      appId: this.appId,
-      conversationId: input.conversation.id,
-      externalRef: {
-        kind: 'conversation_thread',
-        value: input.publicThreadId,
-      },
-      status: 'active',
-      createdAt: input.now,
-      updatedAt: input.now,
-    });
-    return threadId;
-  }
-
-  private async replaceStoredConversationApprovers(input: {
-    conversation: Conversation;
-    participantSourceConversation?: Conversation;
-    userIds: string[];
-    updatedAt: string;
-  }): Promise<void> {
-    const conversations = this.deps.repositories.conversations;
-    if (!conversations) return;
-    const userIds = normalizeUserIds(input.userIds);
-    const invalidShape = userIds.filter((id) => !isValidExternalUserId(id));
-    if (invalidShape.length > 0) {
-      throw new Error(
-        `Invalid control approver user ids: ${invalidShape.join(', ')}`,
-      );
-    }
-    if (userIds.length > 0) {
-      const knownMembers = new Set(
-        await conversations.listParticipantExternalUserIds(
-          input.participantSourceConversation?.id ?? input.conversation.id,
-        ),
-      );
-      const invalidUserIds = userIds.filter((id) => !knownMembers.has(id));
-      if (invalidUserIds.length > 0) {
-        throw new Error(
-          [
-            'Control approvers must be members of the conversation.',
-            `Invalid: ${invalidUserIds.join(', ')}`,
-            knownMembers.size === 0
-              ? 'No conversation participant records are available.'
-              : undefined,
-          ]
-            .filter(Boolean)
-            .join(' '),
-        );
-      }
-    }
-    await conversations.replaceConversationApprovers({
-      appId: this.appId,
-      conversationId: input.conversation.id,
-      externalUserIds: userIds,
-      updatedAt: input.updatedAt,
-    });
-  }
-
-  private async findConfiguredConversation(input: {
-    conversations: ConversationRepository;
-    providerId: ProviderId;
-    providerAccountId: ProviderAccountId;
-    externalConversationId: string;
-  }): Promise<Conversation | null> {
-    return input.conversations.getConversationByExternalRef({
-      appId: this.appId,
-      providerId: input.providerId,
-      providerAccountId: input.providerAccountId,
-      externalConversationId: input.externalConversationId,
-    });
   }
 
   async validateCapabilityReferences(

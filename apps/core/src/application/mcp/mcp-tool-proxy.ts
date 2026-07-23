@@ -4,35 +4,21 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 
 import type { AgentId } from '../../domain/agent/agent.js';
 import type { AppId } from '../../domain/app/app.js';
-import type {
-  AgentRunId,
-  RuntimeEventPublishInput,
-} from '../../domain/events/events.js';
-import { RUNTIME_EVENT_TYPES } from '../../domain/events/runtime-event-types.js';
+import type { RuntimeEventPublishInput } from '../../domain/events/events.js';
 import type {
   McpServerRepository,
   SkillCatalogRepository,
   ToolCatalogRepository,
 } from '../../domain/ports/repositories.js';
 import type { HostnameLookup } from '../../domain/network/public-address-policy.js';
-import { nowIso } from '../../shared/time/datetime.js';
 import { ApplicationError } from '../common/application-error.js';
-import {
-  RemoteMcpDnsValidationCache,
-  assertRemoteMcpDestinationPublic,
-} from './mcp-server-policy.js';
-import {
-  assertMcpNetworkHostAllowed,
-  createGuardedMcpFetch,
-  isLocalLoopbackHttpMcpUrl,
-} from './mcp-tool-proxy-network.js';
+import { RemoteMcpDnsValidationCache } from './mcp-server-policy.js';
 import {
   isReviewedMcpToolAllowed,
   isSourceInventoryToolAllowed,
   type ReviewedMaterializedMcpCapability,
 } from './mcp-tool-authorization.js';
 import { resolveReviewedMcpTool } from './mcp-reviewed-tool-resolution.js';
-import type { MaterializedMcpCapability } from './mcp-server-service.js';
 import {
   materializeReviewedMcpCapabilities,
   materializeSourceMcpCapabilities,
@@ -42,7 +28,6 @@ import {
   compareMcpToolSearchResults,
   type CachedMcpInventory,
   type DetailedMcpTool,
-  invalidateMcpToolProxyInventoryCacheForCapability,
   listedMcpTool,
   type ListedMcpTool,
   type McpToolListDiagnostics,
@@ -66,13 +51,16 @@ import {
 } from './mcp-tool-detail-fetch.js';
 import { boundMcpToolResultForReturn } from './mcp-tool-output-bounds.js';
 import {
-  cacheMcpClient,
   closeCachedMcpClient,
   releaseMcpClient,
-  readCachedMcpClient,
   retainMcpClient,
   scheduleMcpClientIdleClose,
 } from './mcp-tool-proxy-client-cache.js';
+import { publishMcpToolActivity } from './mcp-tool-proxy-audit.js';
+import {
+  connectMcpToolProxyClient,
+  type McpToolProxyClientAdapters,
+} from './mcp-tool-proxy-connection.js';
 
 export { clearMcpToolProxyInventoryCache } from './mcp-tool-inventory.js';
 export {
@@ -82,7 +70,21 @@ export {
 
 const MCP_PROXY_TIMEOUT_MS = 60_000;
 const MCP_INVENTORY_SEARCH_CONCURRENCY = 4;
-
+type McpClientTransport = Parameters<Client['connect']>[0];
+const MCP_TOOL_PROXY_CLIENT_ADAPTERS: McpToolProxyClientAdapters<McpClientTransport, Client> = {
+  createClient: (onToolsChanged) =>
+    new Client(
+      { name: 'gantry-mcp-proxy', version: '1.0.0' },
+      {
+        capabilities: {},
+        listChanged: {
+          tools: { autoRefresh: false, debounceMs: 250, onChanged: onToolsChanged },
+        },
+      },
+    ),
+  createHttpTransport: (url, options) => new StreamableHTTPClientTransport(url, options),
+  createSseTransport: (url, options) => new SSEClientTransport(url, options),
+};
 interface McpToolCallInput {
   appId: AppId;
   agentId: AgentId;
@@ -406,7 +408,11 @@ export class McpToolProxy {
         },
       };
     }
-    const client = await this.connect(capability);
+    const client = await connectMcpToolProxyClient(
+      capability,
+      this.options,
+      MCP_TOOL_PROXY_CLIENT_ADAPTERS,
+    );
     const detailStartedAt = Date.now();
     try {
       const detail = await fetchAndCacheMcpToolDetail({
@@ -469,7 +475,11 @@ export class McpToolProxy {
       const { capability } = reviewed;
       selectedToolRule = reviewed.selectedToolRule;
       selectedCapability = reviewed.selectedCapability;
-      const client = await this.connect(capability);
+      const client = await connectMcpToolProxyClient(
+        capability,
+        this.options,
+        MCP_TOOL_PROXY_CLIENT_ADAPTERS,
+      );
       retainMcpClient(capability);
       try {
         const outputSchema = await resolveMcpToolOutputSchema({
@@ -556,7 +566,11 @@ export class McpToolProxy {
     capability: ReviewedMaterializedMcpCapability,
     signal?: AbortSignal,
   ): Promise<CachedMcpInventory> {
-    const client = await this.connect(capability);
+    const client = await connectMcpToolProxyClient(
+      capability,
+      this.options,
+      MCP_TOOL_PROXY_CLIENT_ADAPTERS,
+    );
     try {
       signal?.throwIfAborted();
       const tools = await fetchMcpToolListPages({
@@ -606,69 +620,11 @@ export class McpToolProxy {
     structuredResultValidated?: boolean;
     toolResultError?: boolean;
   }): Promise<void> {
-    const payload = {
-      serverName: input.input.serverName,
-      toolName: input.input.toolName,
-      requestedToolRule: `mcp__${input.input.serverName}__${input.input.toolName}`,
-      ...(input.selectedToolRule
-        ? { selectedToolRule: input.selectedToolRule }
-        : {}),
-      ...(input.selectedCapability
-        ? {
-            selectedCapability: {
-              sourceId: `mcp:${input.selectedCapability.name}`,
-              serverId: input.selectedCapability.serverId,
-              bindingId: input.selectedCapability.bindingId,
-              ...(input.selectedCapability.sourceRevision
-                ? { sourceRevision: input.selectedCapability.sourceRevision }
-                : {}),
-            },
-          }
-        : {}),
-      resultClass: input.resultClass,
-      latencyMs: input.latencyMs,
-      argumentSummary: input.argumentSummary,
-      ...(input.reason ? { reason: input.reason } : {}),
-      ...(input.error ? { error: input.error } : {}),
-      ...(typeof input.outputSchemaPresent === 'boolean'
-        ? { outputSchemaPresent: input.outputSchemaPresent }
-        : {}),
-      ...(typeof input.structuredResultValidated === 'boolean'
-        ? { structuredResultValidated: input.structuredResultValidated }
-        : {}),
-      ...(typeof input.toolResultError === 'boolean'
-        ? { toolResultError: input.toolResultError }
-        : {}),
-      ...(this.options.runHandle ? { runHandle: this.options.runHandle } : {}),
-    };
-    await this.mcpServers.appendAuditEvent({
-      id: `mcp-audit:${globalThis.crypto.randomUUID()}` as never,
-      appId: input.input.appId,
-      agentId: input.input.agentId,
-      eventType: 'tool_activity',
-      actorId: 'mcp-tool-proxy',
-      ...(input.reason ? { reason: input.reason } : {}),
-      metadata: payload,
-      createdAt: nowIso() as never,
+    await publishMcpToolActivity({
+      mcpServers: this.mcpServers,
+      options: this.options,
+      activity: input,
     });
-    if (!this.options.publishRuntimeEvent) return;
-    try {
-      await this.options.publishRuntimeEvent({
-        appId: input.input.appId,
-        agentId: input.input.agentId,
-        ...(this.options.runId
-          ? { runId: this.options.runId as AgentRunId }
-          : {}),
-        eventType: RUNTIME_EVENT_TYPES.MCP_TOOL_ACTIVITY,
-        actor: 'mcp-tool-proxy',
-        responseMode: 'none',
-        payload,
-      });
-    } catch {
-      // The MCP audit table is the durable authority for tool-call evidence.
-      // Runtime events are an observable projection and must not make a
-      // completed external side effect look retryable to the model.
-    }
   }
 
   private async materializeSourceCapabilities(input: {
@@ -740,81 +696,4 @@ export class McpToolProxy {
     });
   }
 
-  private async connect(
-    capability: MaterializedMcpCapability,
-  ): Promise<Client> {
-    this.assertNetworkAllowedForCapability(capability);
-    const cached = readCachedMcpClient(capability) as Client | null;
-    if (cached) return cached;
-    const client = new Client(
-      { name: 'gantry-mcp-proxy', version: '1.0.0' },
-      {
-        capabilities: {},
-        listChanged: {
-          tools: {
-            autoRefresh: false,
-            debounceMs: 250,
-            onChanged: () => {
-              invalidateMcpToolProxyInventoryCacheForCapability(capability);
-            },
-          },
-        },
-      },
-    );
-    const transport = await this.createTransport(capability);
-    await client.connect(transport, { timeout: MCP_PROXY_TIMEOUT_MS });
-    const existing = readCachedMcpClient(capability) as Client | null;
-    if (existing) {
-      await client.close();
-      return existing;
-    }
-    cacheMcpClient(capability, client);
-    return client;
-  }
-
-  private async createTransport(capability: MaterializedMcpCapability) {
-    const config = capability.config;
-    if (config.type === 'http' || config.type === 'sse') {
-      if (!isLocalLoopbackHttpMcpUrl(new URL(config.url))) {
-        await assertRemoteMcpDestinationPublic(
-          { transport: config.type, url: config.url, headers: config.headers },
-          this.options.lookupHostname,
-          { cache: this.options.dnsValidationCache },
-        );
-      }
-      const allowLoopbackHttp = isLocalLoopbackHttpMcpUrl(new URL(config.url));
-      const fetch = createGuardedMcpFetch({
-        allowLoopbackHttp,
-        lookupHostname: this.options.lookupHostname,
-      });
-      const requestInit: RequestInit = {
-        redirect: 'error',
-        ...(config.headers ? { headers: config.headers } : {}),
-      };
-      return config.type === 'http'
-        ? new StreamableHTTPClientTransport(new URL(config.url), {
-            requestInit,
-            fetch,
-          })
-        : new SSEClientTransport(new URL(config.url), {
-            requestInit,
-            fetch,
-          });
-    }
-    throw new ApplicationError(
-      'FORBIDDEN',
-      'stdio_template MCP servers are approved durable capabilities, but current-session proxy execution is disabled until sandboxed stdio execution is implemented.',
-    );
-  }
-  private assertNetworkAllowedForCapability(
-    capability: MaterializedMcpCapability,
-  ): void {
-    const config = capability.config;
-    if (config.type !== 'http' && config.type !== 'sse') return;
-    assertMcpNetworkHostAllowed({
-      serverName: capability.name,
-      url: config.url,
-      denylist: this.options.egressDenylist ?? [],
-    });
-  }
 }
