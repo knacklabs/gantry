@@ -35,6 +35,7 @@ export function SetupAgentDetails({
         label="Agent name"
         placeholder="e.g. Operations Assistant"
         value={name}
+        disabled={Boolean(createAgent.data)}
         invalid={showValidation && !name.trim()}
         onChange={(value) => onChange('name', value)}
       />
@@ -42,6 +43,7 @@ export function SetupAgentDetails({
         label="Purpose"
         placeholder="What should this agent help with?"
         value={purpose}
+        disabled={Boolean(createAgent.data)}
         invalid={showValidation && !purpose.trim()}
         onChange={(value) => onChange('purpose', value)}
       />
@@ -87,6 +89,7 @@ export function SetupAgentDetails({
       {createAgent.data ? (
         <p className="m-0 text-sm text-status-ready">
           {createAgent.data.name} is created and ready for the remaining setup.
+          Refine its purpose in the Profile stage.
         </p>
       ) : null}
     </div>
@@ -101,12 +104,14 @@ function SetupTextField({
   label,
   placeholder,
   value,
+  disabled,
   invalid,
   onChange,
 }: {
   label: string;
   placeholder: string;
   value: string;
+  disabled: boolean;
   invalid: boolean;
   onChange: (value: string) => void;
 }) {
@@ -116,6 +121,7 @@ function SetupTextField({
       <input
         className="h-9 rounded-md border border-border-strong bg-surface px-3 text-[13px] font-normal text-text placeholder:text-text-muted"
         aria-invalid={invalid || undefined}
+        disabled={disabled}
         placeholder={placeholder}
         value={value}
         onChange={(event) => onChange(event.target.value)}
