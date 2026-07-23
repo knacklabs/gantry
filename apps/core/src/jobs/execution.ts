@@ -373,6 +373,10 @@ async function runActiveJob(
               appId: executionAppId,
               agentId: executionAgentId,
             },
+            {
+              conversationId: execution.group.conversationId,
+              threadId: execution.threadId ?? undefined,
+            },
           );
           const toolAccessRequirementPreflight =
             await assertToolAccessRequirementsReadyForRun({

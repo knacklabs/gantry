@@ -1,13 +1,25 @@
 import type { Pool } from 'pg';
 
 import type { AppId } from '../../domain/app/app.js';
-import type { SettingsRevisionRepository } from '../../domain/ports/fleet-capability-state.js';
+import type { AgentId } from '../../domain/agent/agent.js';
+import {
+  McpBindingAuthorityChangedError,
+  type McpBindingAuthorityPrecondition,
+} from '../../domain/mcp/mcp-servers.js';
+import type {
+  SettingsRevision,
+  SettingsRevisionRepository,
+} from '../../domain/ports/fleet-capability-state.js';
 import { SettingsDesiredStateService } from './desired-state-service.js';
 import type {
   SettingsDesiredStateOps,
   SettingsDesiredStateRepositories,
 } from './desired-state-service.js';
-import { applyRuntimeSettingsDesiredState } from './restart-sync.js';
+import {
+  addAllMcpSourcesToRuntimeSettings,
+  applyRuntimeSettingsDesiredState,
+  snapshotConfiguredMcpBindingAuthority,
+} from './restart-sync.js';
 import {
   activateRuntimeModelAliases,
   parseRuntimeSettings,
@@ -27,6 +39,14 @@ import type {
   ProviderId,
 } from '../../domain/provider/provider.js';
 import { migrateLegacyAgentBindings } from './settings-revision-legacy-bindings.js';
+import {
+  mcpCapabilityGrantTokenKey,
+  nextMcpCapabilityGrantTokens,
+} from './mcp-capability-grant-provenance.js';
+import {
+  capturePendingMcpSourceEdits,
+  restorePendingMcpSourceEdits,
+} from './mcp-source-projection-preservation.js';
 
 /**
  * Reader version of the settings-revision contract this build understands. A
@@ -92,6 +112,99 @@ export class SettingsRevisionConflictError extends Error {
   }
 }
 
+export async function applySettingsRevisionWithMcpFenceRecovery(input: {
+  runtimeHome: string;
+  ops: SettingsDesiredStateOps;
+  repositories: SettingsDesiredStateRepositories;
+  appId: AppId;
+  revision: SettingsRevision;
+  reloadRuntimeState?: () => Promise<void>;
+  revisionMirror: SettingsRevisionMirror;
+  applySettings?: typeof importWorkstationSettings;
+}): Promise<{ settings: RuntimeSettings; revision: number }> {
+  let revision = input.revision;
+  const applySettings = input.applySettings ?? importWorkstationSettings;
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const current =
+      await input.revisionMirror.settingsRevisions.getLatestSettingsRevision(
+        input.appId,
+      );
+    if (current && current.revision > revision.revision) revision = current;
+    if (revision.minReaderVersion > CURRENT_SETTINGS_READER_VERSION) {
+      throw new Error(
+        `Settings revision ${revision.revision} requires settings reader version ` +
+          `${revision.minReaderVersion}; this runtime supports ${CURRENT_SETTINGS_READER_VERSION}. ` +
+          'Upgrade Gantry before applying this revision.',
+      );
+    }
+    const settings = settingsFromRevisionDocument(revision.settingsDocument);
+    try {
+      await applySettings(
+        {
+          runtimeHome: input.runtimeHome,
+          ops: input.ops,
+          repositories: input.repositories,
+          appId: input.appId,
+          reloadRuntimeState: input.reloadRuntimeState,
+          expectedMcpBindingAgentIds: revision.mcpBindingPreconditionAgentIds,
+          expectedMcpBindings: revision.mcpBindingPreconditions,
+        },
+        settings,
+      );
+      return { settings, revision: revision.revision };
+    } catch (err) {
+      if (
+        !(err instanceof McpBindingAuthorityChangedError) ||
+        (revision.mcpBindingPreconditionAgentIds?.length ?? 0) === 0
+      ) {
+        throw err;
+      }
+      const predecessor =
+        revision.revision > 1
+          ? await input.revisionMirror.settingsRevisions.getSettingsRevision({
+              appId: input.appId,
+              revision: revision.revision - 1,
+            })
+          : null;
+      await appendRejectedMcpApprovalRecoveryRevision({
+        deps: {
+          runtimeHome: input.runtimeHome,
+          ops: input.ops,
+          repositories: input.repositories,
+          appId: input.appId,
+          reloadRuntimeState: input.reloadRuntimeState,
+          revisionMirror: input.revisionMirror,
+          expectedMcpBindingAgentIds: revision.mcpBindingPreconditionAgentIds,
+          expectedMcpBindings: revision.mcpBindingPreconditions,
+        },
+        appId: input.appId,
+        failedRevision: revision.revision,
+        previousSettings: predecessor
+          ? settingsFromRevisionDocument(predecessor.settingsDocument)
+          : settingsWithoutMcpCapabilityGrantTokens(
+              settings,
+              revision.mcpCapabilityGrantTokens,
+            ),
+        rejectedSettings: settings,
+        rejectedMcpCapabilityGrantTokens: revision.mcpCapabilityGrantTokens,
+      });
+      const latest =
+        await input.revisionMirror.settingsRevisions.getLatestSettingsRevision(
+          input.appId,
+        );
+      if (!latest || latest.revision <= revision.revision) {
+        throw new Error(
+          'MCP fence recovery did not publish a successor settings revision.',
+        );
+      }
+      revision = latest;
+    }
+  }
+  throw new Error(
+    'MCP binding authority changed repeatedly during settings revision recovery.',
+  );
+}
+
 /**
  * The single validation path shared by every settings mutation surface (YAML
  * watcher auto-import, CLI `settings import`, and the control-API desired-state
@@ -137,6 +250,9 @@ export async function importWorkstationSettings(
     revisionMirror?: SettingsRevisionMirror;
     revisionMirrorRequired?: boolean;
     expectedRevision?: number | null;
+    expectedMcpBindingAgentIds?: AgentId[];
+    expectedMcpBindings?: McpBindingAuthorityPrecondition[];
+    mcpCapabilityGrantTokens?: Record<string, string>;
   },
   settings: RuntimeSettings,
 ): Promise<WorkstationSettingsImportOutcome> {
@@ -194,9 +310,54 @@ export async function importWorkstationSettings(
     ) {
       throw new SettingsStaleMutationError();
     }
+    let expectedMcpBindingAgentIds =
+      deps.expectedMcpBindingAgentIds ??
+      agentIdsFromMcpBindingPreconditions(deps.expectedMcpBindings);
+    let expectedMcpBindings = deps.expectedMcpBindings;
+    if (
+      expectedMcpBindingAgentIds === undefined &&
+      expectedMcpBindings === undefined &&
+      (latest?.mcpBindingPreconditionAgentIds?.length ?? 0) > 0
+    ) {
+      const pendingMcpSourceEdits = capturePendingMcpSourceEdits({
+        settings: revisionSettings,
+        agentIds: latest?.mcpBindingPreconditionAgentIds,
+        bindings: latest?.mcpBindingPreconditions,
+      });
+      await addAllMcpSourcesToRuntimeSettings({
+        settings: revisionSettings,
+        repositories: deps.repositories,
+        appId,
+      });
+      restorePendingMcpSourceEdits(revisionSettings, pendingMcpSourceEdits);
+      const snapshot = await snapshotConfiguredMcpBindingAuthority({
+        settings: revisionSettings,
+        repositories: deps.repositories,
+        appId,
+        additionalAgentIds: latest?.mcpBindingPreconditionAgentIds,
+      });
+      expectedMcpBindingAgentIds = snapshot.agentIds;
+      expectedMcpBindings = snapshot.bindings;
+    }
+    const prospectiveMcpCapabilityGrantTokens = nextMcpCapabilityGrantTokens({
+      settings: revisionSettings,
+      previous: latest?.mcpCapabilityGrantTokens,
+      overrides: deps.mcpCapabilityGrantTokens,
+    });
     if (
       latest &&
-      revisionDocumentMatchesSettings(latest.settingsDocument, revisionSettings)
+      revisionDocumentMatchesSettings(
+        latest.settingsDocument,
+        revisionSettings,
+      ) &&
+      revisionMcpBindingPreconditionsMatch(
+        latest.mcpBindingPreconditionAgentIds,
+        latest.mcpBindingPreconditions,
+        expectedMcpBindingAgentIds,
+        expectedMcpBindings,
+      ) &&
+      stableJson(latest.mcpCapabilityGrantTokens ?? {}) ===
+        stableJson(prospectiveMcpCapabilityGrantTokens)
     ) {
       await applyRuntimeSettingsDesiredState({
         runtimeHome: deps.runtimeHome,
@@ -206,6 +367,8 @@ export async function importWorkstationSettings(
         appId: deps.appId,
         previousSettings: deps.previousSettings,
         reloadRuntimeState: deps.reloadRuntimeState,
+        expectedMcpBindingAgentIds,
+        expectedMcpBindings,
       });
       activateRuntimeModelAliases(revisionSettings);
       return { status: 'no_op' };
@@ -229,6 +392,9 @@ export async function importWorkstationSettings(
       revisionSettings,
       {
         expectedRevision: deps.expectedRevision ?? actualRevision,
+        expectedMcpBindingAgentIds,
+        expectedMcpBindings,
+        mcpCapabilityGrantTokens: deps.mcpCapabilityGrantTokens,
         note: deps.revisionMirror.note ?? null,
       },
     );
@@ -240,15 +406,43 @@ export async function importWorkstationSettings(
     if (outcome.status === 'conflict') {
       throw new SettingsRevisionConflictError(outcome);
     }
-    const appliedSettings = await applyRuntimeSettingsDesiredState({
-      runtimeHome: deps.runtimeHome,
-      settings: revisionSettings,
-      ops: deps.ops,
-      repositories: deps.repositories,
-      appId: deps.appId,
-      previousSettings: deps.previousSettings,
-      reloadRuntimeState: deps.reloadRuntimeState,
-    });
+    let appliedSettings: RuntimeSettings;
+    try {
+      appliedSettings = await applyRuntimeSettingsDesiredState({
+        runtimeHome: deps.runtimeHome,
+        settings: revisionSettings,
+        ops: deps.ops,
+        repositories: deps.repositories,
+        appId: deps.appId,
+        previousSettings: deps.previousSettings,
+        reloadRuntimeState: deps.reloadRuntimeState,
+        expectedMcpBindingAgentIds,
+        expectedMcpBindings,
+      });
+    } catch (err) {
+      const hasRejectedMcpCapabilityGrant =
+        Object.keys(deps.mcpCapabilityGrantTokens ?? {}).length > 0;
+      if (
+        hasRejectedMcpCapabilityGrant ||
+        (err instanceof McpBindingAuthorityChangedError &&
+          (expectedMcpBindingAgentIds?.length ?? 0) > 0)
+      ) {
+        await appendRejectedMcpApprovalRecoveryRevision({
+          deps: {
+            ...deps,
+            revisionMirror: deps.revisionMirror,
+            expectedMcpBindingAgentIds,
+            expectedMcpBindings,
+          },
+          appId,
+          failedRevision: outcome.revision,
+          previousSettings: previousRevisionSettings,
+          rejectedSettings: revisionSettings,
+          rejectedMcpCapabilityGrantTokens: deps.mcpCapabilityGrantTokens,
+        });
+      }
+      throw err;
+    }
     activateRuntimeModelAliases(appliedSettings);
     return { status: 'revision_created', revision: outcome.revision };
   }
@@ -260,6 +454,8 @@ export async function importWorkstationSettings(
     appId: deps.appId,
     previousSettings: deps.previousSettings,
     reloadRuntimeState: deps.reloadRuntimeState,
+    expectedMcpBindingAgentIds: deps.expectedMcpBindingAgentIds,
+    expectedMcpBindings: deps.expectedMcpBindings,
   });
   activateRuntimeModelAliases(appliedSettings);
   if (!deps.revisionMirror) return { status: 'applied_no_revision' };
@@ -268,9 +464,36 @@ export async function importWorkstationSettings(
       await deps.revisionMirror.settingsRevisions.getLatestSettingsRevision(
         appId,
       );
+    let mirrorMcpBindingAgentIds =
+      deps.expectedMcpBindingAgentIds ??
+      agentIdsFromMcpBindingPreconditions(deps.expectedMcpBindings);
+    let mirrorMcpBindings = deps.expectedMcpBindings;
+    if (
+      mirrorMcpBindingAgentIds === undefined &&
+      mirrorMcpBindings === undefined &&
+      (latest?.mcpBindingPreconditionAgentIds?.length ?? 0) > 0
+    ) {
+      const snapshot = await snapshotConfiguredMcpBindingAuthority({
+        settings: appliedSettings,
+        repositories: deps.repositories,
+        appId,
+        additionalAgentIds: latest?.mcpBindingPreconditionAgentIds,
+      });
+      mirrorMcpBindingAgentIds = snapshot.agentIds;
+      mirrorMcpBindings = snapshot.bindings;
+    }
     if (
       latest &&
-      revisionDocumentMatchesSettings(latest.settingsDocument, appliedSettings)
+      revisionDocumentMatchesSettings(
+        latest.settingsDocument,
+        appliedSettings,
+      ) &&
+      revisionMcpBindingPreconditionsMatch(
+        latest.mcpBindingPreconditionAgentIds,
+        latest.mcpBindingPreconditions,
+        mirrorMcpBindingAgentIds,
+        mirrorMcpBindings,
+      )
     ) {
       return { status: 'applied_no_revision' };
     }
@@ -287,6 +510,14 @@ export async function importWorkstationSettings(
       },
       appliedSettings,
       {
+        expectedRevision:
+          mirrorMcpBindingAgentIds !== undefined ||
+          mirrorMcpBindings !== undefined
+            ? (latest?.revision ?? 0)
+            : undefined,
+        expectedMcpBindingAgentIds: mirrorMcpBindingAgentIds,
+        expectedMcpBindings: mirrorMcpBindings,
+        mcpCapabilityGrantTokens: deps.mcpCapabilityGrantTokens,
         note: deps.revisionMirror.note ?? null,
       },
     );
@@ -325,6 +556,182 @@ export async function importWorkstationSettings(
   }
 }
 
+async function appendRejectedMcpApprovalRecoveryRevision(input: {
+  deps: SettingsImportServiceDeps & {
+    revisionMirror: SettingsRevisionMirror;
+    expectedMcpBindingAgentIds?: AgentId[];
+    expectedMcpBindings?: McpBindingAuthorityPrecondition[];
+    reloadRuntimeState?: () => Promise<void>;
+  };
+  appId: AppId;
+  failedRevision: number;
+  previousSettings: RuntimeSettings;
+  rejectedSettings: RuntimeSettings;
+  rejectedMcpCapabilityGrantTokens?: Record<string, string>;
+}): Promise<void> {
+  const rejectedCapabilityKeysByFolder = new Map<string, Set<string>>();
+  for (const [folder, rejectedAgent] of Object.entries(
+    input.rejectedSettings.agents,
+  )) {
+    const previousCapabilityKeys = new Set(
+      (input.previousSettings.agents[folder]?.capabilities ?? []).map(
+        capabilitySelectionKey,
+      ),
+    );
+    const rejectedCapabilityKeys = new Set(
+      rejectedAgent.capabilities
+        .filter((capability) => {
+          if (previousCapabilityKeys.has(capabilitySelectionKey(capability))) {
+            return false;
+          }
+          return Boolean(
+            input.rejectedMcpCapabilityGrantTokens?.[
+              mcpCapabilityGrantTokenKey(folder, capability)
+            ],
+          );
+        })
+        .map(capabilitySelectionKey),
+    );
+    if (rejectedCapabilityKeys.size > 0) {
+      rejectedCapabilityKeysByFolder.set(folder, rejectedCapabilityKeys);
+    }
+  }
+
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const latest =
+      await input.deps.revisionMirror.settingsRevisions.getLatestSettingsRevision(
+        input.appId,
+      );
+    if (!latest || latest.revision < input.failedRevision) {
+      throw new Error(
+        'MCP approval recovery could not load the rejected settings revision.',
+      );
+    }
+    const recoverySettings = settingsFromRevisionDocument(
+      latest.settingsDocument,
+    );
+    for (const [
+      folder,
+      rejectedCapabilityKeys,
+    ] of rejectedCapabilityKeysByFolder) {
+      const recoveryAgent = recoverySettings.agents[folder];
+      if (!recoveryAgent) continue;
+      recoveryAgent.capabilities = recoveryAgent.capabilities.filter(
+        (capability) => {
+          const selectionKey = capabilitySelectionKey(capability);
+          if (!rejectedCapabilityKeys.has(selectionKey)) return true;
+          const tokenKey = mcpCapabilityGrantTokenKey(folder, capability);
+          const rejectedToken =
+            input.rejectedMcpCapabilityGrantTokens?.[tokenKey];
+          return latest.mcpCapabilityGrantTokens?.[tokenKey] !== rejectedToken;
+        },
+      );
+    }
+    const pendingMcpSourceEdits = capturePendingMcpSourceEdits({
+      settings: recoverySettings,
+      agentIds: latest.mcpBindingPreconditionAgentIds,
+      bindings: latest.mcpBindingPreconditions,
+    });
+    const projectedBindings = await addAllMcpSourcesToRuntimeSettings({
+      settings: recoverySettings,
+      repositories: input.deps.repositories,
+      appId: input.appId,
+    });
+    restorePendingMcpSourceEdits(recoverySettings, pendingMcpSourceEdits);
+    const configuredAgentIds = Object.keys(recoverySettings.agents)
+      .sort()
+      .map((folder) => `agent:${folder}` as AgentId);
+    const hasAdditionalFencedAgents = (
+      latest.mcpBindingPreconditionAgentIds ?? []
+    ).some((agentId) => !configuredAgentIds.includes(agentId));
+    const currentSnapshot = hasAdditionalFencedAgents
+      ? await snapshotConfiguredMcpBindingAuthority({
+          settings: recoverySettings,
+          repositories: input.deps.repositories,
+          appId: input.appId,
+          additionalAgentIds: latest.mcpBindingPreconditionAgentIds,
+        })
+      : { agentIds: configuredAgentIds, bindings: projectedBindings };
+    const currentAgentIds = currentSnapshot.agentIds;
+    const currentBindings = currentSnapshot.bindings;
+    if (
+      revisionDocumentMatchesSettings(
+        latest.settingsDocument,
+        recoverySettings,
+      ) &&
+      revisionMcpBindingPreconditionsMatch(
+        latest.mcpBindingPreconditionAgentIds,
+        latest.mcpBindingPreconditions,
+        currentAgentIds,
+        currentBindings,
+      )
+    ) {
+      return;
+    }
+    try {
+      const outcome = await importFleetSettingsRevision(
+        {
+          runtimeHome: input.deps.runtimeHome,
+          ops: input.deps.ops,
+          repositories: input.deps.repositories,
+          appId: input.appId,
+          settingsRevisions: input.deps.revisionMirror.settingsRevisions,
+          pool: input.deps.revisionMirror.pool,
+          createdBy: input.deps.revisionMirror.createdBy,
+          logWarn: input.deps.revisionMirror.logWarn,
+        },
+        recoverySettings,
+        {
+          expectedRevision: latest.revision,
+          expectedMcpBindingAgentIds: currentAgentIds,
+          expectedMcpBindings: currentBindings,
+          note: 'Compensate rejected MCP capability approval.',
+        },
+      );
+      if (outcome.status === 'invalid') {
+        throw new Error(
+          [
+            'MCP approval recovery settings validation failed.',
+            ...outcome.errors,
+          ].join('\n'),
+        );
+      }
+      if (outcome.status === 'applied') return;
+      if (attempt === 3) {
+        throw new SettingsRevisionConflictError(outcome);
+      }
+    } catch (err) {
+      if (err instanceof McpBindingAuthorityChangedError && attempt < 3) {
+        continue;
+      }
+      throw err;
+    }
+  }
+}
+
+function capabilitySelectionKey(input: {
+  id: string;
+  version: string;
+}): string {
+  return `${input.id}\0${input.version}`;
+}
+
+function settingsWithoutMcpCapabilityGrantTokens(
+  settings: RuntimeSettings,
+  grantTokens: Record<string, string> | undefined,
+): RuntimeSettings {
+  if (!grantTokens || Object.keys(grantTokens).length === 0) return settings;
+  const previous = structuredClone(settings);
+  for (const [folder, agent] of Object.entries(previous.agents)) {
+    agent.capabilities = agent.capabilities.filter(
+      (capability) =>
+        grantTokens[mcpCapabilityGrantTokenKey(folder, capability)] ===
+        undefined,
+    );
+  }
+  return previous;
+}
+
 export type FleetImportOutcome =
   | { status: 'applied'; revision: number }
   | { status: 'invalid'; errors: string[] }
@@ -348,24 +755,72 @@ export interface FleetImportDeps extends SettingsImportServiceDeps {
 export async function importFleetSettingsRevision(
   deps: FleetImportDeps,
   settings: RuntimeSettings,
-  options: { expectedRevision?: number | null; note?: string | null } = {},
+  options: {
+    expectedRevision?: number | null;
+    expectedMcpBindingAgentIds?: AgentId[];
+    expectedMcpBindings?: McpBindingAuthorityPrecondition[];
+    mcpCapabilityGrantTokens?: Record<string, string>;
+    note?: string | null;
+  } = {},
 ): Promise<FleetImportOutcome> {
   const validation = await validateSettingsForImport(deps, settings);
   if (!validation.ok) {
     return { status: 'invalid', errors: validation.errors };
   }
   const appId = deps.appId ?? ('default' as AppId);
+  let expectedRevision = options.expectedRevision;
+  let expectedMcpBindingAgentIds =
+    options.expectedMcpBindingAgentIds ??
+    agentIdsFromMcpBindingPreconditions(options.expectedMcpBindings);
+  let expectedMcpBindings = options.expectedMcpBindings;
+  const latest = await deps.settingsRevisions.getLatestSettingsRevision(appId);
+  let revisionSettings = settings;
+  if (
+    expectedMcpBindingAgentIds === undefined &&
+    expectedMcpBindings === undefined
+  ) {
+    if ((latest?.mcpBindingPreconditionAgentIds?.length ?? 0) > 0) {
+      revisionSettings = structuredClone(settings);
+      const pendingMcpSourceEdits = capturePendingMcpSourceEdits({
+        settings: revisionSettings,
+        agentIds: latest?.mcpBindingPreconditionAgentIds,
+        bindings: latest?.mcpBindingPreconditions,
+      });
+      await addAllMcpSourcesToRuntimeSettings({
+        settings: revisionSettings,
+        repositories: deps.repositories,
+        appId,
+      });
+      restorePendingMcpSourceEdits(revisionSettings, pendingMcpSourceEdits);
+      const snapshot = await snapshotConfiguredMcpBindingAuthority({
+        settings: revisionSettings,
+        repositories: deps.repositories,
+        appId,
+        additionalAgentIds: latest?.mcpBindingPreconditionAgentIds,
+      });
+      expectedRevision ??= latest!.revision;
+      expectedMcpBindingAgentIds = snapshot.agentIds;
+      expectedMcpBindings = snapshot.bindings;
+    }
+  }
   // Optimistic concurrency lives in the repository: with expectedRevision the
   // append is a conditional insert at exactly expectedRevision + 1 — no
   // check-then-act window, no retry past a conflict. The loser of a concurrent
   // same-expectation race gets the contracted conflict, never a silent append.
   const appended = await deps.settingsRevisions.appendSettingsRevision({
     appId,
-    settingsDocument: settingsToRevisionDocument(settings),
+    settingsDocument: settingsToRevisionDocument(revisionSettings),
     minReaderVersion: CURRENT_SETTINGS_READER_VERSION,
     createdBy: deps.createdBy,
     note: options.note ?? null,
-    expectedRevision: options.expectedRevision ?? null,
+    expectedRevision: expectedRevision ?? null,
+    expectedMcpBindingAgentIds,
+    expectedMcpBindings,
+    mcpCapabilityGrantTokens: nextMcpCapabilityGrantTokens({
+      settings: revisionSettings,
+      previous: latest?.mcpCapabilityGrantTokens,
+      overrides: options.mcpCapabilityGrantTokens,
+    }),
   });
   if (appended.status === 'conflict') {
     return {
@@ -572,6 +1027,42 @@ function revisionDocumentMatchesSettings(
       canonicalizeRevisionDocument(settingsToRevisionDocument(settings)),
     )
   );
+}
+
+function revisionMcpBindingPreconditionsMatch(
+  storedAgentIds: readonly AgentId[] | undefined,
+  stored: readonly McpBindingAuthorityPrecondition[] | undefined,
+  expectedAgentIds: readonly AgentId[] | undefined,
+  expected: readonly McpBindingAuthorityPrecondition[] | undefined,
+): boolean {
+  if (expectedAgentIds === undefined && expected === undefined) {
+    return (storedAgentIds?.length ?? 0) === 0;
+  }
+  return (
+    stableJson([...(storedAgentIds ?? [])].sort()) ===
+      stableJson([...(expectedAgentIds ?? [])].sort()) &&
+    stableJson(canonicalMcpBindingPreconditions(stored ?? [])) ===
+      stableJson(canonicalMcpBindingPreconditions(expected ?? []))
+  );
+}
+
+function canonicalMcpBindingPreconditions(
+  bindings: readonly McpBindingAuthorityPrecondition[],
+): McpBindingAuthorityPrecondition[] {
+  return bindings
+    .map((binding) => ({
+      ...binding,
+      permissionPolicyIds: [...new Set(binding.permissionPolicyIds)].sort(),
+      allowedToolPatterns: [...new Set(binding.allowedToolPatterns)].sort(),
+    }))
+    .sort((left, right) => String(left.id).localeCompare(String(right.id)));
+}
+
+function agentIdsFromMcpBindingPreconditions(
+  bindings: readonly McpBindingAuthorityPrecondition[] | undefined,
+): AgentId[] | undefined {
+  if (bindings === undefined) return undefined;
+  return [...new Set(bindings.map((binding) => binding.agentId))].sort();
 }
 
 function canonicalizeRevisionDocument(

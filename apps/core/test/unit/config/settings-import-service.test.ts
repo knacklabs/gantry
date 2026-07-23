@@ -7,24 +7,39 @@ import type {
   SettingsRevision,
   SettingsRevisionRepository,
 } from '@core/domain/ports/fleet-capability-state.js';
+import type { McpBindingAuthorityPrecondition } from '@core/domain/mcp/mcp-servers.js';
 import type { ProviderAccountRepository } from '@core/domain/ports/repositories.js';
 import type { ProviderAccount } from '@core/domain/provider/provider.js';
+import { McpBindingAuthorityChangedError } from '@core/domain/mcp/mcp-servers.js';
 import { createDefaultRuntimeSettings } from '@core/config/settings/runtime-settings-defaults.js';
 import { parseRuntimeSettings } from '@core/config/settings/runtime-settings.js';
 import { renderRuntimeSettingsYaml } from '@core/config/settings/runtime-settings-renderer.js';
 import {
   CURRENT_SETTINGS_READER_VERSION,
+  applySettingsRevisionWithMcpFenceRecovery,
   importFleetSettingsRevision,
   importWorkstationSettings,
   SettingsRevisionConflictError,
   settingsFromRevisionDocument,
   settingsToRevisionDocument,
 } from '@core/config/settings/settings-import-service.js';
+import { mcpCapabilityGrantTokenKey } from '@core/config/settings/mcp-capability-grant-provenance.js';
 
-const applyRuntimeSettingsDesiredState = vi.hoisted(() => vi.fn());
+const {
+  addActiveMcpSourcesToRuntimeSettings,
+  applyRuntimeSettingsDesiredState,
+  snapshotConfiguredMcpBindingAuthority,
+} = vi.hoisted(() => ({
+  addActiveMcpSourcesToRuntimeSettings: vi.fn(),
+  applyRuntimeSettingsDesiredState: vi.fn(),
+  snapshotConfiguredMcpBindingAuthority: vi.fn(),
+}));
 
 vi.mock('@core/config/settings/restart-sync.js', () => ({
+  addAllMcpSourcesToRuntimeSettings: addActiveMcpSourcesToRuntimeSettings,
+  addActiveMcpSourcesToRuntimeSettings,
   applyRuntimeSettingsDesiredState,
+  snapshotConfiguredMcpBindingAuthority,
 }));
 
 vi.mock('@core/config/settings/runtime-settings-validation.js', () => ({
@@ -46,6 +61,8 @@ class FakeRevisionRepo implements SettingsRevisionRepository {
   appendError: Error | null = null;
   appendConflictRevision: SettingsRevision | null = null;
   lastAppendExpectedRevision: number | null | undefined;
+  lastAppendExpectedMcpBindingAgentIds: string[] | undefined;
+  lastAppendExpectedMcpBindings: McpBindingAuthorityPrecondition[] | undefined;
 
   async appendSettingsRevision(input: {
     appId: string;
@@ -54,15 +71,23 @@ class FakeRevisionRepo implements SettingsRevisionRepository {
     createdBy: string;
     note?: string | null;
     expectedRevision?: number | null;
+    expectedMcpBindingAgentIds?: string[];
+    expectedMcpBindings?: McpBindingAuthorityPrecondition[];
+    mcpCapabilityGrantTokens?: Record<string, string>;
   }): Promise<AppendSettingsRevisionResult> {
     this.lastAppendExpectedRevision = input.expectedRevision;
+    this.lastAppendExpectedMcpBindingAgentIds =
+      input.expectedMcpBindingAgentIds;
+    this.lastAppendExpectedMcpBindings = input.expectedMcpBindings;
     if (this.appendError) throw this.appendError;
     if (this.appendConflictRevision) {
-      this.rows.push(this.appendConflictRevision);
+      const conflictingRevision = this.appendConflictRevision;
+      this.appendConflictRevision = null;
+      this.rows.push(conflictingRevision);
       return {
         status: 'conflict',
         expectedRevision: input.expectedRevision ?? 0,
-        actualRevision: this.appendConflictRevision.revision,
+        actualRevision: conflictingRevision.revision,
       };
     }
     const currentRevision = this.rows.at(-1)?.revision ?? 0;
@@ -84,6 +109,16 @@ class FakeRevisionRepo implements SettingsRevisionRepository {
       minReaderVersion: input.minReaderVersion,
       createdBy: input.createdBy,
       note: input.note ?? null,
+      mcpBindingPreconditionAgentIds: (input.expectedMcpBindingAgentIds ??
+        (input.expectedMcpBindings === undefined
+          ? undefined
+          : [
+              ...new Set(
+                input.expectedMcpBindings.map((binding) => binding.agentId),
+              ),
+            ])) as never,
+      mcpBindingPreconditions: input.expectedMcpBindings,
+      mcpCapabilityGrantTokens: input.mcpCapabilityGrantTokens,
       createdAt: new Date().toISOString(),
     };
     this.rows.push(row);
@@ -94,8 +129,15 @@ class FakeRevisionRepo implements SettingsRevisionRepository {
     return this.rows.at(-1) ?? null;
   }
 
-  async getSettingsRevision(): Promise<SettingsRevision | null> {
-    return null;
+  async getSettingsRevision(input: {
+    appId: string;
+    revision: number;
+  }): Promise<SettingsRevision | null> {
+    return (
+      this.rows.find(
+        (row) => row.appId === input.appId && row.revision === input.revision,
+      ) ?? null
+    );
   }
 
   async listRecentSettingsRevisions(): Promise<SettingsRevision[]> {
@@ -132,6 +174,51 @@ function settingsWithDuplicateCapability(agentName: string) {
 }
 
 describe('importFleetSettingsRevision', () => {
+  it('carries MCP grant provenance through unrelated successors and replaces it on reapproval', async () => {
+    capabilityErrors = [];
+    const settings = createDefaultRuntimeSettings();
+    settings.agents.main_agent = {
+      name: 'Main',
+      folder: 'main_agent',
+      delegates: [],
+      bindings: {},
+      sources: { skills: [], mcpServers: [{ id: 'mcp:sum' }], tools: [] },
+      capabilities: [{ id: 'mcp.sum.read.reviewed', version: 'catalog' }],
+      accessPreset: 'full',
+    };
+    const tokenKey = mcpCapabilityGrantTokenKey(
+      'main_agent',
+      settings.agents.main_agent.capabilities[0]!,
+    );
+    const repo = new FakeRevisionRepo();
+    await repo.appendSettingsRevision({
+      appId: 'default',
+      settingsDocument: settingsToRevisionDocument(settings),
+      minReaderVersion: CURRENT_SETTINGS_READER_VERSION,
+      createdBy: 'seed',
+      mcpCapabilityGrantTokens: { [tokenKey]: 'grant:first' },
+    });
+
+    const unrelatedSuccessor = structuredClone(settings);
+    unrelatedSuccessor.agents.main_agent.name = 'Renamed';
+    await importFleetSettingsRevision(baseDeps(repo), unrelatedSuccessor, {
+      expectedRevision: 1,
+    });
+    expect(repo.rows[1]?.mcpCapabilityGrantTokens).toEqual({
+      [tokenKey]: 'grant:first',
+    });
+
+    const reapprovedSuccessor = structuredClone(unrelatedSuccessor);
+    reapprovedSuccessor.agents.main_agent.name = 'Renamed again';
+    await importFleetSettingsRevision(baseDeps(repo), reapprovedSuccessor, {
+      expectedRevision: 2,
+      mcpCapabilityGrantTokens: { [tokenKey]: 'grant:second' },
+    });
+    expect(repo.rows[2]?.mcpCapabilityGrantTokens).toEqual({
+      [tokenKey]: 'grant:second',
+    });
+  });
+
   it('returns revision_created when workstation import appends a revision', async () => {
     capabilityErrors = [];
     const inputSettings = createDefaultRuntimeSettings();
@@ -284,6 +371,327 @@ describe('importFleetSettingsRevision', () => {
     expect(repo.rows).toHaveLength(1);
   });
 
+  it('appends a successor when reapproval changes only MCP grant provenance', async () => {
+    capabilityErrors = [];
+    const settings = createDefaultRuntimeSettings();
+    settings.agents.main_agent = {
+      name: 'Main',
+      folder: 'main_agent',
+      delegates: [],
+      bindings: {},
+      sources: { skills: [], mcpServers: [], tools: [] },
+      capabilities: [{ id: 'mcp.sum.read.reviewed', version: 'catalog' }],
+      accessPreset: 'full',
+    };
+    applyRuntimeSettingsDesiredState.mockImplementation(
+      async (input: { settings: unknown }) => input.settings,
+    );
+    const tokenKey = mcpCapabilityGrantTokenKey(
+      'main_agent',
+      settings.agents.main_agent.capabilities[0]!,
+    );
+    const repo = new FakeRevisionRepo();
+    await repo.appendSettingsRevision({
+      appId: 'default',
+      settingsDocument: settingsToRevisionDocument(settings),
+      minReaderVersion: CURRENT_SETTINGS_READER_VERSION,
+      createdBy: 'seed',
+      mcpCapabilityGrantTokens: { [tokenKey]: 'grant:first' },
+    });
+
+    const outcome = await importWorkstationSettings(
+      {
+        runtimeHome: '/tmp/gantry-import-test',
+        ops: {} as never,
+        repositories: {} as never,
+        appId: 'default' as never,
+        previousSettings: settings,
+        revisionMirror: {
+          settingsRevisions: repo,
+          createdBy: 'permission:mcp-capability',
+        },
+        revisionMirrorRequired: true,
+        mcpCapabilityGrantTokens: { [tokenKey]: 'grant:second' },
+      },
+      settings,
+    );
+
+    expect(outcome).toEqual({ status: 'revision_created', revision: 2 });
+    expect(repo.rows[1]?.mcpCapabilityGrantTokens).toEqual({
+      [tokenKey]: 'grant:second',
+    });
+  });
+
+  it('appends a successor revision when only the persisted MCP fence changed', async () => {
+    capabilityErrors = [];
+    const settings = createDefaultRuntimeSettings();
+    applyRuntimeSettingsDesiredState.mockResolvedValue(settings);
+    const repo = new FakeRevisionRepo();
+    const oldFence = {
+      id: 'agent-mcp-binding:agent:test:mcp:sum',
+      appId: 'default',
+      agentId: 'agent:test',
+      serverId: 'mcp:sum',
+      status: 'active',
+      required: false,
+      permissionPolicyIds: [],
+      allowedToolPatterns: ['get-sum'],
+    } as McpBindingAuthorityPrecondition;
+    const currentFence = {
+      ...oldFence,
+      required: true,
+      permissionPolicyIds: ['permission-policy:mcp:sum'],
+      conversationId: 'conversation:review',
+      threadId: 'thread:review:topic',
+    } as McpBindingAuthorityPrecondition;
+    await repo.appendSettingsRevision({
+      appId: 'default',
+      settingsDocument: settingsToRevisionDocument(settings),
+      minReaderVersion: CURRENT_SETTINGS_READER_VERSION,
+      createdBy: 'seed',
+      expectedMcpBindings: [oldFence],
+    });
+
+    const outcome = await importWorkstationSettings(
+      {
+        runtimeHome: '/tmp/gantry-import-test',
+        ops: {} as never,
+        repositories: {} as never,
+        appId: 'default' as never,
+        previousSettings: settings,
+        revisionMirror: {
+          settingsRevisions: repo,
+          createdBy: 'test:fleet',
+        },
+        revisionMirrorRequired: true,
+        expectedMcpBindings: [currentFence],
+      },
+      settings,
+    );
+
+    expect(outcome).toEqual({ status: 'revision_created', revision: 2 });
+    expect(repo.rows).toHaveLength(2);
+    expect(repo.rows[1]?.settingsDocument).toEqual(
+      repo.rows[0]?.settingsDocument,
+    );
+    expect(repo.rows[1]?.mcpBindingPreconditions).toEqual([currentFence]);
+    expect(repo.lastAppendExpectedRevision).toBe(1);
+  });
+
+  it('refreshes rather than clears a persisted MCP fence on a successor revision', async () => {
+    capabilityErrors = [];
+    const settings = createDefaultRuntimeSettings();
+    applyRuntimeSettingsDesiredState.mockResolvedValue(settings);
+    const repo = new FakeRevisionRepo();
+    const oldFence = {
+      id: 'agent-mcp-binding:agent:test:mcp:sum',
+      appId: 'default',
+      agentId: 'agent:test',
+      serverId: 'mcp:sum',
+      status: 'active',
+      required: false,
+      permissionPolicyIds: [],
+      allowedToolPatterns: ['get-sum'],
+    } as McpBindingAuthorityPrecondition;
+    const currentFence = {
+      ...oldFence,
+      required: true,
+      permissionPolicyIds: ['permission-policy:mcp:sum'],
+    } as McpBindingAuthorityPrecondition;
+    await repo.appendSettingsRevision({
+      appId: 'default',
+      settingsDocument: settingsToRevisionDocument(settings),
+      minReaderVersion: CURRENT_SETTINGS_READER_VERSION,
+      createdBy: 'seed',
+      expectedMcpBindingAgentIds: ['agent:test' as never],
+      expectedMcpBindings: [oldFence],
+    });
+    snapshotConfiguredMcpBindingAuthority.mockResolvedValueOnce({
+      agentIds: ['agent:test'],
+      bindings: [currentFence],
+    });
+
+    const outcome = await importWorkstationSettings(
+      {
+        runtimeHome: '/tmp/gantry-import-test',
+        ops: {} as never,
+        repositories: {} as never,
+        appId: 'default' as never,
+        previousSettings: settings,
+        revisionMirror: {
+          settingsRevisions: repo,
+          createdBy: 'projection-sync',
+        },
+        revisionMirrorRequired: true,
+      },
+      settings,
+    );
+
+    expect(outcome).toEqual({ status: 'revision_created', revision: 2 });
+    expect(repo.rows[1]?.settingsDocument).toEqual(
+      repo.rows[0]?.settingsDocument,
+    );
+    expect(repo.rows[1]?.mcpBindingPreconditionAgentIds).toEqual([
+      'agent:test',
+    ]);
+    expect(repo.rows[1]?.mcpBindingPreconditions).toEqual([currentFence]);
+    expect(repo.lastAppendExpectedRevision).toBe(1);
+  });
+
+  it('projects current MCP authority into a required workstation successor', async () => {
+    capabilityErrors = [];
+    addActiveMcpSourcesToRuntimeSettings.mockReset();
+    snapshotConfiguredMcpBindingAuthority.mockReset();
+    applyRuntimeSettingsDesiredState.mockImplementation(
+      async (input: { settings: unknown }) => input.settings,
+    );
+    const previous = createDefaultRuntimeSettings();
+    previous.agents.main_agent = {
+      name: 'Main',
+      folder: 'main_agent',
+      delegates: [],
+      bindings: {},
+      sources: {
+        skills: [],
+        mcpServers: [{ id: 'mcp:sum', status: 'active', tools: ['get-sum'] }],
+        tools: [],
+      },
+      capabilities: [],
+      accessPreset: 'full',
+    };
+    const oldFence = {
+      id: 'agent-mcp-binding:agent:main_agent:mcp:sum',
+      appId: 'default',
+      agentId: 'agent:main_agent',
+      serverId: 'mcp:sum',
+      status: 'active',
+      required: false,
+      permissionPolicyIds: [],
+      allowedToolPatterns: ['get-sum'],
+    } as McpBindingAuthorityPrecondition;
+    const currentFence = {
+      ...oldFence,
+      allowedToolPatterns: ['echo'],
+    } as McpBindingAuthorityPrecondition;
+    const repo = new FakeRevisionRepo();
+    await repo.appendSettingsRevision({
+      appId: 'default',
+      settingsDocument: settingsToRevisionDocument(previous),
+      minReaderVersion: CURRENT_SETTINGS_READER_VERSION,
+      createdBy: 'seed',
+      expectedMcpBindingAgentIds: ['agent:main_agent' as never],
+      expectedMcpBindings: [oldFence],
+    });
+    addActiveMcpSourcesToRuntimeSettings.mockImplementationOnce(
+      async (input: { settings: typeof previous }) => {
+        input.settings.agents.main_agent.sources.mcpServers[0]!.tools = [
+          'echo',
+        ];
+        return [currentFence];
+      },
+    );
+    snapshotConfiguredMcpBindingAuthority.mockResolvedValueOnce({
+      agentIds: ['agent:main_agent'],
+      bindings: [currentFence],
+    });
+    const next = structuredClone(previous);
+    next.agent.defaultModel = 'sonnet';
+
+    const outcome = await importWorkstationSettings(
+      {
+        runtimeHome: '/tmp/gantry-import-test',
+        ops: {} as never,
+        repositories: {} as never,
+        appId: 'default' as never,
+        previousSettings: previous,
+        revisionMirror: {
+          settingsRevisions: repo,
+          createdBy: 'test:fleet',
+        },
+        revisionMirrorRequired: true,
+      },
+      next,
+    );
+
+    expect(outcome).toEqual({ status: 'revision_created', revision: 2 });
+    const successor = settingsFromRevisionDocument(
+      repo.rows[1]!.settingsDocument,
+    );
+    expect(successor.agent.defaultModel).toBe('sonnet');
+    expect(successor.agents.main_agent.sources.mcpServers).toEqual([
+      { id: 'mcp:sum', status: 'active', tools: ['echo'] },
+    ]);
+    expect(repo.rows[1]?.mcpBindingPreconditions).toEqual([currentFence]);
+  });
+
+  it('projects current MCP authority into a direct fleet successor before appending', async () => {
+    capabilityErrors = [];
+    addActiveMcpSourcesToRuntimeSettings.mockReset();
+    snapshotConfiguredMcpBindingAuthority.mockReset();
+    const settings = createDefaultRuntimeSettings();
+    settings.agents.main_agent = {
+      name: 'Main',
+      folder: 'main_agent',
+      delegates: [],
+      bindings: {},
+      sources: {
+        skills: [],
+        mcpServers: [{ id: 'mcp:sum', status: 'active', tools: ['get-sum'] }],
+        tools: [],
+      },
+      capabilities: [],
+      accessPreset: 'full',
+    };
+    const repo = new FakeRevisionRepo();
+    const fence = {
+      id: 'agent-mcp-binding:agent:main_agent:mcp:sum',
+      appId: 'default',
+      agentId: 'agent:main_agent',
+      serverId: 'mcp:sum',
+      status: 'active',
+      required: false,
+      permissionPolicyIds: [],
+      allowedToolPatterns: ['get-sum'],
+    } as McpBindingAuthorityPrecondition;
+    const currentFence = {
+      ...fence,
+      allowedToolPatterns: ['echo'],
+    } as McpBindingAuthorityPrecondition;
+    await repo.appendSettingsRevision({
+      appId: 'default',
+      settingsDocument: settingsToRevisionDocument(settings),
+      minReaderVersion: CURRENT_SETTINGS_READER_VERSION,
+      createdBy: 'seed',
+      expectedMcpBindingAgentIds: ['agent:main_agent' as never],
+      expectedMcpBindings: [fence],
+    });
+    addActiveMcpSourcesToRuntimeSettings.mockImplementationOnce(
+      async (input: { settings: typeof settings }) => {
+        input.settings.agents.main_agent!.sources.mcpServers[0]!.tools = [
+          'echo',
+        ];
+        return [currentFence];
+      },
+    );
+    snapshotConfiguredMcpBindingAuthority.mockResolvedValueOnce({
+      agentIds: ['agent:main_agent'],
+      bindings: [currentFence],
+    });
+
+    const outcome = await importFleetSettingsRevision(baseDeps(repo), settings);
+
+    expect(outcome).toEqual({ status: 'applied', revision: 2 });
+    expect(repo.lastAppendExpectedRevision).toBe(1);
+    expect(repo.lastAppendExpectedMcpBindingAgentIds).toEqual([
+      'agent:main_agent',
+    ]);
+    expect(repo.lastAppendExpectedMcpBindings).toEqual([currentFence]);
+    expect(
+      settingsFromRevisionDocument(repo.rows[1]!.settingsDocument).agents
+        .main_agent!.sources.mcpServers,
+    ).toEqual([{ id: 'mcp:sum', status: 'active', tools: ['echo'] }]);
+  });
+
   it('returns applied_no_revision when the optional mirror already matches after apply', async () => {
     capabilityErrors = [];
     const appliedSettings = createDefaultRuntimeSettings();
@@ -323,6 +731,18 @@ describe('importFleetSettingsRevision', () => {
       async () => appliedSettings,
     );
     const repo = new FakeRevisionRepo();
+    const expectedBinding = {
+      id: 'agent-mcp-binding:agent:test:mcp:sum',
+      appId: 'default',
+      agentId: 'agent:test',
+      serverId: 'mcp:sum',
+      status: 'active',
+      required: false,
+      permissionPolicyIds: [],
+      allowedToolPatterns: ['get-sum'],
+      createdAt: '2026-07-21T12:00:00.000Z',
+      updatedAt: '2026-07-21T12:00:00.000Z',
+    } as McpBindingAuthorityPrecondition;
     await repo.appendSettingsRevision({
       appId: 'default',
       settingsDocument: settingsToRevisionDocument(previousSettings),
@@ -342,11 +762,13 @@ describe('importFleetSettingsRevision', () => {
           createdBy: 'test:fleet',
         },
         revisionMirrorRequired: true,
+        expectedMcpBindings: [expectedBinding],
       },
       appliedSettings,
     );
 
     expect(repo.lastAppendExpectedRevision).toBe(1);
+    expect(repo.lastAppendExpectedMcpBindings).toEqual([expectedBinding]);
     expect(repo.rows).toHaveLength(2);
   });
 
@@ -543,6 +965,582 @@ describe('importFleetSettingsRevision', () => {
     expect(
       (repo.rows[0]?.settingsDocument.agent as { name?: string }).name,
     ).toBe('committed');
+  });
+
+  it('preserves a tokenless selection when a fenced revision loses the source race', async () => {
+    capabilityErrors = [];
+    applyRuntimeSettingsDesiredState.mockReset();
+    addActiveMcpSourcesToRuntimeSettings.mockReset();
+    const previousSettings = createDefaultRuntimeSettings();
+    previousSettings.agents.main_agent = {
+      name: 'Main',
+      folder: 'main_agent',
+      delegates: [],
+      bindings: {},
+      sources: { skills: [], mcpServers: [{ id: 'mcp:sum' }], tools: [] },
+      capabilities: [],
+      accessPreset: 'full',
+    };
+    const nextSettings = structuredClone(previousSettings);
+    nextSettings.agents.main_agent.capabilities.push({
+      id: 'mcp.sum.read.reviewed',
+      version: 'catalog',
+    });
+    const reviewedFence = {
+      id: 'agent-mcp-binding:agent:main_agent:mcp:sum',
+      appId: 'default',
+      agentId: 'agent:main_agent',
+      serverId: 'mcp:sum',
+      status: 'active',
+      required: false,
+      permissionPolicyIds: [],
+      allowedToolPatterns: ['get-sum'],
+    } as McpBindingAuthorityPrecondition;
+    const currentFence = {
+      ...reviewedFence,
+      status: 'disabled',
+    } as McpBindingAuthorityPrecondition;
+    applyRuntimeSettingsDesiredState.mockRejectedValueOnce(
+      new McpBindingAuthorityChangedError('mcp:sum'),
+    );
+    addActiveMcpSourcesToRuntimeSettings.mockImplementationOnce(
+      async (input: { settings: typeof previousSettings }) => {
+        input.settings.agents.main_agent.sources.mcpServers[0]!.status =
+          'disabled';
+        return [currentFence];
+      },
+    );
+    const repo = new FakeRevisionRepo();
+    await repo.appendSettingsRevision({
+      appId: 'default',
+      settingsDocument: settingsToRevisionDocument(previousSettings),
+      minReaderVersion: CURRENT_SETTINGS_READER_VERSION,
+      createdBy: 'seed',
+    });
+
+    await expect(
+      importWorkstationSettings(
+        {
+          runtimeHome: '/tmp/gantry-import-test',
+          ops: {} as never,
+          repositories: {} as never,
+          appId: 'default' as never,
+          previousSettings,
+          expectedRevision: 1,
+          expectedMcpBindings: [reviewedFence],
+          revisionMirror: {
+            settingsRevisions: repo,
+            createdBy: 'test:fleet',
+          },
+          revisionMirrorRequired: true,
+        },
+        nextSettings,
+      ),
+    ).rejects.toThrow('changed during capability approval');
+
+    expect(repo.rows).toHaveLength(3);
+    expect(repo.rows[1]?.settingsDocument).toEqual(
+      settingsToRevisionDocument(nextSettings),
+    );
+    const recoveredSettings = structuredClone(nextSettings);
+    recoveredSettings.agents.main_agent.sources.mcpServers[0]!.status =
+      'disabled';
+    expect(repo.rows[2]?.settingsDocument).toEqual(
+      settingsToRevisionDocument(recoveredSettings),
+    );
+    expect(repo.rows[2]?.mcpBindingPreconditions).toEqual([currentFence]);
+    expect(repo.rows[2]?.note).toBe(
+      'Compensate rejected MCP capability approval.',
+    );
+    expect(repo.lastAppendExpectedRevision).toBe(2);
+  });
+
+  it('supersedes a tokened MCP approval after reload failure so restart cannot replay the grant', async () => {
+    capabilityErrors = [];
+    applyRuntimeSettingsDesiredState.mockReset();
+    addActiveMcpSourcesToRuntimeSettings.mockReset();
+    const previousSettings = createDefaultRuntimeSettings();
+    previousSettings.agents.main_agent = {
+      name: 'Main',
+      folder: 'main_agent',
+      delegates: [],
+      bindings: {},
+      sources: { skills: [], mcpServers: [{ id: 'mcp:sum' }], tools: [] },
+      capabilities: [],
+      accessPreset: 'full',
+    };
+    const rejectedSettings = structuredClone(previousSettings);
+    const rejectedCapability = {
+      id: 'mcp.sum.read.reviewed',
+      version: 'catalog',
+    } as const;
+    rejectedSettings.agents.main_agent.capabilities.push(rejectedCapability);
+    const grantTokenKey = mcpCapabilityGrantTokenKey(
+      'main_agent',
+      rejectedCapability,
+    );
+    const reviewedFence = {
+      id: 'agent-mcp-binding:agent:main_agent:mcp:sum',
+      appId: 'default',
+      agentId: 'agent:main_agent',
+      serverId: 'mcp:sum',
+      status: 'active',
+      required: false,
+      permissionPolicyIds: [],
+      allowedToolPatterns: ['get-sum'],
+    } as McpBindingAuthorityPrecondition;
+    applyRuntimeSettingsDesiredState.mockRejectedValueOnce(
+      new Error('reload failed'),
+    );
+    addActiveMcpSourcesToRuntimeSettings.mockResolvedValue([reviewedFence]);
+    const repo = new FakeRevisionRepo();
+    await repo.appendSettingsRevision({
+      appId: 'default',
+      settingsDocument: settingsToRevisionDocument(previousSettings),
+      minReaderVersion: CURRENT_SETTINGS_READER_VERSION,
+      createdBy: 'seed',
+    });
+
+    await expect(
+      importWorkstationSettings(
+        {
+          runtimeHome: '/tmp/gantry-import-test',
+          ops: {} as never,
+          repositories: {} as never,
+          appId: 'default' as never,
+          previousSettings,
+          expectedRevision: 1,
+          expectedMcpBindings: [reviewedFence],
+          mcpCapabilityGrantTokens: {
+            [grantTokenKey]: 'grant:reload-failure',
+          },
+          revisionMirror: {
+            settingsRevisions: repo,
+            createdBy: 'test:fleet',
+          },
+          revisionMirrorRequired: true,
+        },
+        rejectedSettings,
+      ),
+    ).rejects.toThrow('reload failed');
+
+    expect(repo.rows).toHaveLength(3);
+    expect(repo.rows[1]?.mcpCapabilityGrantTokens).toEqual({
+      [grantTokenKey]: 'grant:reload-failure',
+    });
+    const recoveryRevision = repo.rows[2]!;
+    expect(
+      settingsFromRevisionDocument(recoveryRevision.settingsDocument).agents
+        .main_agent.capabilities,
+    ).toEqual([]);
+    expect(recoveryRevision.mcpCapabilityGrantTokens).toEqual({});
+    expect(recoveryRevision.note).toBe(
+      'Compensate rejected MCP capability approval.',
+    );
+
+    const applySettings = vi.fn(async () => ({
+      status: 'applied_no_revision' as const,
+    }));
+    const replay = await applySettingsRevisionWithMcpFenceRecovery({
+      runtimeHome: '/tmp/gantry-import-test',
+      ops: {} as never,
+      repositories: {} as never,
+      appId: 'default' as never,
+      revision: recoveryRevision,
+      revisionMirror: {
+        settingsRevisions: repo,
+        createdBy: 'startup:mcp-approval-recovery',
+      },
+      applySettings,
+    });
+    expect(replay.settings.agents.main_agent.capabilities).toEqual([]);
+    expect(applySettings.mock.calls[0]?.[1]).toEqual(
+      expect.objectContaining({
+        agents: expect.objectContaining({
+          main_agent: expect.objectContaining({ capabilities: [] }),
+        }),
+      }),
+    );
+  });
+
+  it.each([
+    {
+      name: 'removes the inherited failed grant',
+      successorGrantToken: 'grant:first',
+      preservesGrant: false,
+    },
+    {
+      name: 'preserves a later grant of the same capability',
+      successorGrantToken: 'grant:second',
+      preservesGrant: true,
+    },
+  ])('$name while rebasing a concurrent successor', async (scenario) => {
+    capabilityErrors = [];
+    applyRuntimeSettingsDesiredState.mockReset();
+    addActiveMcpSourcesToRuntimeSettings.mockReset();
+    const previousSettings = createDefaultRuntimeSettings();
+    previousSettings.agents.main_agent = {
+      name: 'Main',
+      folder: 'main_agent',
+      delegates: [],
+      bindings: {},
+      sources: {
+        skills: [],
+        mcpServers: [{ id: 'mcp:sum', tools: ['echo', 'get-sum'] }],
+        tools: [],
+      },
+      capabilities: [],
+      accessPreset: 'full',
+    };
+    const rejectedSettings = structuredClone(previousSettings);
+    rejectedSettings.agents.main_agent.capabilities.push({
+      id: 'mcp.sum.read.reviewed',
+      version: 'catalog',
+    });
+    const grantTokenKey = mcpCapabilityGrantTokenKey(
+      'main_agent',
+      rejectedSettings.agents.main_agent.capabilities[0]!,
+    );
+    const rejectedGrantTokens = { [grantTokenKey]: 'grant:first' };
+    const reviewedFence = {
+      id: 'agent-mcp-binding:agent:main_agent:mcp:sum',
+      appId: 'default',
+      agentId: 'agent:main_agent',
+      serverId: 'mcp:sum',
+      status: 'active',
+      required: false,
+      permissionPolicyIds: [],
+      allowedToolPatterns: ['echo', 'get-sum'],
+    } as McpBindingAuthorityPrecondition;
+    const currentFence = {
+      ...reviewedFence,
+      status: 'disabled',
+    } as McpBindingAuthorityPrecondition;
+    const repo = new FakeRevisionRepo();
+    await repo.appendSettingsRevision({
+      appId: 'default',
+      settingsDocument: settingsToRevisionDocument(previousSettings),
+      minReaderVersion: CURRENT_SETTINGS_READER_VERSION,
+      createdBy: 'seed',
+    });
+    const concurrentSuccessor = structuredClone(rejectedSettings);
+    concurrentSuccessor.agents.main_agent.name = 'Newer unrelated name';
+    concurrentSuccessor.agents.main_agent.sources.mcpServers[0]!.tools = [
+      'get-sum',
+    ];
+    applyRuntimeSettingsDesiredState.mockImplementationOnce(async () => {
+      repo.appendConflictRevision = {
+        appId: 'default',
+        revision: 3,
+        settingsDocument: settingsToRevisionDocument(concurrentSuccessor),
+        minReaderVersion: CURRENT_SETTINGS_READER_VERSION,
+        createdBy: 'test:concurrent-writer',
+        note: null,
+        mcpBindingPreconditionAgentIds: ['agent:main_agent' as never],
+        mcpBindingPreconditions: [reviewedFence],
+        mcpCapabilityGrantTokens: {
+          [grantTokenKey]: scenario.successorGrantToken,
+        },
+        createdAt: new Date().toISOString(),
+      };
+      throw new McpBindingAuthorityChangedError('mcp:sum');
+    });
+    addActiveMcpSourcesToRuntimeSettings.mockImplementation(
+      async (input: { settings: typeof previousSettings }) => {
+        input.settings.agents.main_agent.sources.mcpServers[0]!.status =
+          'disabled';
+        input.settings.agents.main_agent.sources.mcpServers[0]!.tools = [
+          'echo',
+          'get-sum',
+        ];
+        return [currentFence];
+      },
+    );
+
+    await expect(
+      importWorkstationSettings(
+        {
+          runtimeHome: '/tmp/gantry-import-test',
+          ops: {} as never,
+          repositories: {} as never,
+          appId: 'default' as never,
+          previousSettings,
+          expectedRevision: 1,
+          expectedMcpBindings: [reviewedFence],
+          mcpCapabilityGrantTokens: rejectedGrantTokens,
+          revisionMirror: {
+            settingsRevisions: repo,
+            createdBy: 'test:fleet',
+          },
+          revisionMirrorRequired: true,
+        },
+        rejectedSettings,
+      ),
+    ).rejects.toThrow('changed during capability approval');
+
+    expect(repo.rows).toHaveLength(4);
+    expect(repo.rows[3]?.revision).toBe(4);
+    const recovered = settingsFromRevisionDocument(
+      repo.rows[3]!.settingsDocument,
+    );
+    expect(recovered.agents.main_agent.name).toBe('Newer unrelated name');
+    expect(recovered.agents.main_agent.capabilities).toEqual(
+      scenario.preservesGrant
+        ? [{ id: 'mcp.sum.read.reviewed', version: 'catalog' }]
+        : [],
+    );
+    expect(recovered.agents.main_agent.sources.mcpServers).toEqual([
+      expect.objectContaining({
+        id: 'mcp:sum',
+        status: 'disabled',
+        tools: ['get-sum'],
+      }),
+    ]);
+    expect(repo.rows[3]?.mcpBindingPreconditions).toEqual([currentFence]);
+    expect(repo.rows[3]?.mcpCapabilityGrantTokens).toEqual(
+      scenario.preservesGrant
+        ? { [grantTokenKey]: scenario.successorGrantToken }
+        : {},
+    );
+    expect(repo.lastAppendExpectedRevision).toBe(3);
+    expect(addActiveMcpSourcesToRuntimeSettings).toHaveBeenCalledTimes(2);
+  });
+
+  it('publishes and applies a current-authority successor for a stale boot fence', async () => {
+    capabilityErrors = [];
+    addActiveMcpSourcesToRuntimeSettings.mockReset();
+    const settings = createDefaultRuntimeSettings();
+    settings.agents.main_agent = {
+      name: 'Main',
+      folder: 'main_agent',
+      delegates: [],
+      bindings: {},
+      sources: { skills: [], mcpServers: [{ id: 'mcp:sum' }], tools: [] },
+      capabilities: [{ id: 'mcp.sum.read.reviewed', version: 'catalog' }],
+      accessPreset: 'full',
+    };
+    const staleFence = {
+      id: 'agent-mcp-binding:agent:main_agent:mcp:sum',
+      appId: 'default',
+      agentId: 'agent:main_agent',
+      serverId: 'mcp:sum',
+      status: 'active',
+      required: false,
+      permissionPolicyIds: [],
+      allowedToolPatterns: ['get-sum'],
+    } as McpBindingAuthorityPrecondition;
+    const currentFence = {
+      ...staleFence,
+      status: 'disabled',
+    } as McpBindingAuthorityPrecondition;
+    const repo = new FakeRevisionRepo();
+    await repo.appendSettingsRevision({
+      appId: 'default',
+      settingsDocument: settingsToRevisionDocument(settings),
+      minReaderVersion: CURRENT_SETTINGS_READER_VERSION,
+      createdBy: 'seed',
+      expectedMcpBindings: [staleFence],
+    });
+    addActiveMcpSourcesToRuntimeSettings.mockImplementationOnce(
+      async (input: { settings: typeof settings }) => {
+        input.settings.agents.main_agent.sources.mcpServers[0]!.status =
+          'disabled';
+        return [currentFence];
+      },
+    );
+    const applySettings = vi
+      .fn()
+      .mockRejectedValueOnce(new McpBindingAuthorityChangedError('mcp:sum'))
+      .mockResolvedValueOnce({ status: 'applied_no_revision' });
+
+    const outcome = await applySettingsRevisionWithMcpFenceRecovery({
+      runtimeHome: '/tmp/gantry-import-test',
+      ops: {} as never,
+      repositories: {} as never,
+      appId: 'default' as never,
+      revision: repo.rows[0]!,
+      revisionMirror: {
+        settingsRevisions: repo,
+        createdBy: 'startup:mcp-fence-recovery',
+      },
+      applySettings,
+    });
+
+    expect(outcome.revision).toBe(2);
+    expect(outcome.settings.agents.main_agent.capabilities).toEqual([
+      { id: 'mcp.sum.read.reviewed', version: 'catalog' },
+    ]);
+    expect(outcome.settings.agents.main_agent.sources.mcpServers).toEqual([
+      expect.objectContaining({ id: 'mcp:sum', status: 'disabled' }),
+    ]);
+    expect(repo.rows[1]?.mcpBindingPreconditions).toEqual([currentFence]);
+    expect(applySettings).toHaveBeenCalledTimes(2);
+    expect(applySettings.mock.calls[1]?.[0]).toEqual(
+      expect.objectContaining({ expectedMcpBindings: [currentFence] }),
+    );
+  });
+
+  it('removes an in-flight MCP grant when crash replay rejects its fence', async () => {
+    capabilityErrors = [];
+    addActiveMcpSourcesToRuntimeSettings.mockReset();
+    const previous = createDefaultRuntimeSettings();
+    previous.agents.main_agent = {
+      name: 'Main',
+      folder: 'main_agent',
+      delegates: [],
+      bindings: {},
+      sources: { skills: [], mcpServers: [{ id: 'mcp:sum' }], tools: [] },
+      capabilities: [],
+      accessPreset: 'full',
+    };
+    const rejected = structuredClone(previous);
+    rejected.agents.main_agent.capabilities = [
+      { id: 'mcp.sum.read.reviewed', version: 'catalog' },
+      { id: 'browser.use', version: 'builtin' },
+    ];
+    const grantTokenKey = mcpCapabilityGrantTokenKey(
+      'main_agent',
+      rejected.agents.main_agent.capabilities[0]!,
+    );
+    const staleFence = {
+      id: 'agent-mcp-binding:agent:main_agent:mcp:sum',
+      appId: 'default',
+      agentId: 'agent:main_agent',
+      serverId: 'mcp:sum',
+      status: 'active',
+      required: false,
+      permissionPolicyIds: [],
+      allowedToolPatterns: ['get-sum'],
+    } as McpBindingAuthorityPrecondition;
+    const currentFence = {
+      ...staleFence,
+      status: 'disabled',
+    } as McpBindingAuthorityPrecondition;
+    const repo = new FakeRevisionRepo();
+    await repo.appendSettingsRevision({
+      appId: 'default',
+      settingsDocument: settingsToRevisionDocument(previous),
+      minReaderVersion: CURRENT_SETTINGS_READER_VERSION,
+      createdBy: 'seed',
+    });
+    await repo.appendSettingsRevision({
+      appId: 'default',
+      settingsDocument: settingsToRevisionDocument(rejected),
+      minReaderVersion: CURRENT_SETTINGS_READER_VERSION,
+      createdBy: 'permission:mcp-capability',
+      expectedRevision: 1,
+      expectedMcpBindings: [staleFence],
+      mcpCapabilityGrantTokens: { [grantTokenKey]: 'grant:crashed' },
+    });
+    addActiveMcpSourcesToRuntimeSettings.mockImplementationOnce(
+      async (input: { settings: typeof rejected }) => {
+        input.settings.agents.main_agent.sources.mcpServers[0]!.status =
+          'disabled';
+        return [currentFence];
+      },
+    );
+    const applySettings = vi
+      .fn()
+      .mockRejectedValueOnce(new McpBindingAuthorityChangedError('mcp:sum'))
+      .mockResolvedValueOnce({ status: 'applied_no_revision' });
+
+    const outcome = await applySettingsRevisionWithMcpFenceRecovery({
+      runtimeHome: '/tmp/gantry-import-test',
+      ops: {} as never,
+      repositories: {} as never,
+      appId: 'default' as never,
+      revision: repo.rows[1]!,
+      revisionMirror: {
+        settingsRevisions: repo,
+        createdBy: 'startup:mcp-fence-recovery',
+      },
+      applySettings,
+    });
+
+    expect(outcome.revision).toBe(3);
+    expect(outcome.settings.agents.main_agent.capabilities).toEqual([
+      { id: 'browser.use', version: 'builtin' },
+    ]);
+    expect(repo.rows[2]?.mcpCapabilityGrantTokens).toEqual({});
+    expect(repo.rows[2]?.mcpBindingPreconditions).toEqual([currentFence]);
+  });
+
+  it('consumes an equivalent recovery successor published by another worker', async () => {
+    capabilityErrors = [];
+    addActiveMcpSourcesToRuntimeSettings.mockReset();
+    const settings = createDefaultRuntimeSettings();
+    settings.agents.main_agent = {
+      name: 'Main',
+      folder: 'main_agent',
+      delegates: [],
+      bindings: {},
+      sources: { skills: [], mcpServers: [{ id: 'mcp:sum' }], tools: [] },
+      capabilities: [{ id: 'mcp.sum.read.reviewed', version: 'catalog' }],
+      accessPreset: 'full',
+    };
+    const staleFence = {
+      id: 'agent-mcp-binding:agent:main_agent:mcp:sum',
+      appId: 'default',
+      agentId: 'agent:main_agent',
+      serverId: 'mcp:sum',
+      status: 'active',
+      required: false,
+      permissionPolicyIds: [],
+      allowedToolPatterns: ['get-sum'],
+    } as McpBindingAuthorityPrecondition;
+    const currentFence = {
+      ...staleFence,
+      status: 'disabled',
+    } as McpBindingAuthorityPrecondition;
+    const recoveredSettings = structuredClone(settings);
+    recoveredSettings.agents.main_agent.sources.mcpServers[0]!.status =
+      'disabled';
+    const repo = new FakeRevisionRepo();
+    await repo.appendSettingsRevision({
+      appId: 'default',
+      settingsDocument: settingsToRevisionDocument(settings),
+      minReaderVersion: CURRENT_SETTINGS_READER_VERSION,
+      createdBy: 'seed',
+      expectedMcpBindings: [staleFence],
+    });
+    addActiveMcpSourcesToRuntimeSettings.mockImplementation(
+      async (input: { settings: typeof settings }) => {
+        input.settings.agents.main_agent.sources.mcpServers[0]!.status =
+          'disabled';
+        return [currentFence];
+      },
+    );
+    const applySettings = vi
+      .fn()
+      .mockImplementationOnce(async () => {
+        await repo.appendSettingsRevision({
+          appId: 'default',
+          settingsDocument: settingsToRevisionDocument(recoveredSettings),
+          minReaderVersion: CURRENT_SETTINGS_READER_VERSION,
+          createdBy: 'other-worker:mcp-fence-recovery',
+          expectedRevision: 1,
+          expectedMcpBindings: [currentFence],
+        });
+        throw new McpBindingAuthorityChangedError('mcp:sum');
+      })
+      .mockResolvedValueOnce({ status: 'applied_no_revision' });
+
+    const outcome = await applySettingsRevisionWithMcpFenceRecovery({
+      runtimeHome: '/tmp/gantry-import-test',
+      ops: {} as never,
+      repositories: {} as never,
+      appId: 'default' as never,
+      revision: repo.rows[0]!,
+      revisionMirror: {
+        settingsRevisions: repo,
+        createdBy: 'startup:mcp-fence-recovery',
+      },
+      applySettings,
+    });
+
+    expect(outcome.revision).toBe(2);
+    expect(repo.rows).toHaveLength(2);
+    expect(applySettings).toHaveBeenCalledTimes(2);
   });
 
   it('does not apply local projection when required mirror append fails', async () => {
@@ -778,6 +1776,32 @@ describe('importFleetSettingsRevision', () => {
     );
 
     expect(outcome).toEqual({ status: 'applied', revision: 2 });
+  });
+
+  it('forwards the reviewed MCP source snapshot to the revision append', async () => {
+    capabilityErrors = [];
+    const repo = new FakeRevisionRepo();
+    const expectedBinding = {
+      id: 'agent-mcp-binding:agent:test:mcp:sum',
+      appId: 'default',
+      agentId: 'agent:test',
+      serverId: 'mcp:sum',
+      status: 'active',
+      required: false,
+      permissionPolicyIds: [],
+      allowedToolPatterns: ['get-sum'],
+      createdAt: '2026-07-21T12:00:00.000Z',
+      updatedAt: '2026-07-21T12:00:00.000Z',
+    } as McpBindingAuthorityPrecondition;
+
+    const outcome = await importFleetSettingsRevision(
+      baseDeps(repo),
+      createDefaultRuntimeSettings(),
+      { expectedRevision: 0, expectedMcpBindings: [expectedBinding] },
+    );
+
+    expect(outcome).toEqual({ status: 'applied', revision: 1 });
+    expect(repo.lastAppendExpectedMcpBindings).toEqual([expectedBinding]);
   });
 
   it('round-trips through the typed JSON document (no YAML wrapper on the wire)', () => {

@@ -1,5 +1,6 @@
-import type { AgentId } from '../../domain/agent/agent.js';
+import type { Agent, AgentId } from '../../domain/agent/agent.js';
 import type { AppId } from '../../domain/app/app.js';
+import type { McpBindingAuthorityPrecondition } from '../../domain/mcp/mcp-servers.js';
 import type { ConversationRepository } from '../../domain/ports/repositories.js';
 import type {
   Conversation,
@@ -16,8 +17,10 @@ import type {
   ProviderId,
 } from '../../domain/provider/provider.js';
 import {
+  buildDesiredStateCapabilityReplacement,
   inlineAgentRuntimeCapabilityErrors,
   replaceDesiredStateCapabilities,
+  replaceDesiredStateToolSources,
   settingsCapabilityToToolReference,
 } from './desired-state-capability-reconcile.js';
 import { exportCurrentDesiredState } from './desired-state-current-export.js';
@@ -149,7 +152,13 @@ export class SettingsDesiredStateService {
     };
   }
 
-  async reconcile(settings: RuntimeSettings): Promise<SettingsReconcileResult> {
+  async reconcile(
+    settings: RuntimeSettings,
+    options: {
+      expectedMcpBindingAgentIds?: AgentId[];
+      expectedMcpBindings?: McpBindingAuthorityPrecondition[];
+    } = {},
+  ): Promise<SettingsReconcileResult> {
     const normalization = await normalizeConfiguredCapabilitiesInSettings({
       settings,
       repositories: this.deps.repositories,
@@ -166,8 +175,107 @@ export class SettingsDesiredStateService {
 
     const applied: string[] = [];
     const skipped: string[] = [];
-    const existingGroups = await this.deps.ops.getAllConversationRoutes();
     const configuredFolders = new Set(Object.keys(settings.agents));
+    const storedAgentsForAuthoritativeReconcile = settings.desiredState
+      .authoritative
+      ? await this.deps.repositories.agents.listAgents(this.appId)
+      : [];
+    const fencedCapabilityAgentIds = fencedCapabilityAgentIdsForBindings(
+      options.expectedMcpBindingAgentIds,
+      options.expectedMcpBindings,
+    );
+    const batchSavedAgentIds = new Set<AgentId>();
+    const batchRemovedAgentIds = new Set<AgentId>();
+    if (fencedCapabilityAgentIds.size > 0) {
+      const replaceBatch =
+        this.deps.repositories.agents.replaceAgentCapabilityBindingsBatch;
+      if (!replaceBatch) {
+        throw new Error(
+          'Agent repository atomic MCP authority reconciliation is required for fenced settings revisions.',
+        );
+      }
+      const fencedAgents = Object.entries(settings.agents).filter(
+        ([folder, agent]) =>
+          fencedCapabilityAgentIds.has(agentIdForFolder(folder)) &&
+          (settings.desiredState.authoritative ||
+            hasAnyCapability(agent) ||
+            normalizedCapabilityFolders.has(folder)),
+      );
+      const replacements = [];
+      const agents: Agent[] = [];
+      for (const [folder, agent] of fencedAgents) {
+        const agentId = agentIdForFolder(folder);
+        const now = this.clock.now();
+        agents.push({
+          id: agentId,
+          appId: this.appId,
+          name: agent.name,
+          status: 'active',
+          createdAt: now,
+          updatedAt: now,
+        });
+        batchSavedAgentIds.add(agentId);
+        replacements.push(
+          await buildDesiredStateCapabilityReplacement({
+            appId: this.appId,
+            agentId,
+            agent,
+            repositories: this.deps.repositories,
+            now,
+            authoritative: settings.desiredState.authoritative,
+            expectedMcpBindings: (options.expectedMcpBindings ?? []).filter(
+              (binding) => binding.agentId === agentId,
+            ),
+          }),
+        );
+      }
+      if (settings.desiredState.authoritative) {
+        for (const storedAgent of storedAgentsForAuthoritativeReconcile) {
+          const folder = folderForAgentId(storedAgent.id);
+          if (
+            !folder ||
+            configuredFolders.has(folder) ||
+            !fencedCapabilityAgentIds.has(storedAgent.id)
+          ) {
+            continue;
+          }
+          const now = this.clock.now();
+          agents.push({
+            ...storedAgent,
+            status: 'disabled',
+            updatedAt: now,
+          });
+          replacements.push({
+            appId: this.appId,
+            agentId: storedAgent.id,
+            toolBindings: [],
+            skillBindings: [],
+            mcpBindings: [],
+            updatedAt: now,
+          });
+          batchSavedAgentIds.add(storedAgent.id);
+          batchRemovedAgentIds.add(storedAgent.id);
+        }
+      }
+      await replaceBatch.call(this.deps.repositories.agents, {
+        appId: this.appId,
+        agents,
+        replacements,
+        expectedMcpBindingAgentIds: [...fencedCapabilityAgentIds],
+        expectedMcpBindings: options.expectedMcpBindings ?? [],
+      });
+      for (const [folder, agent] of fencedAgents) {
+        await replaceDesiredStateToolSources({
+          appId: this.appId,
+          agentId: agentIdForFolder(folder),
+          agent,
+          repositories: this.deps.repositories,
+          now: this.clock.now(),
+        });
+        applied.push(`capabilities:${folder}`);
+      }
+    }
+    const existingGroups = await this.deps.ops.getAllConversationRoutes();
     const configuredJids = new Set<string>();
     const bindingsByAgent = configuredRoutingBindingsByAgent(
       settings,
@@ -178,14 +286,16 @@ export class SettingsDesiredStateService {
     for (const [folder, agent] of Object.entries(settings.agents)) {
       const agentId = agentIdForFolder(folder);
       const now = this.clock.now();
-      await this.deps.repositories.agents.saveAgent({
-        id: agentId,
-        appId: this.appId,
-        name: agent.name,
-        status: 'active',
-        createdAt: now,
-        updatedAt: now,
-      });
+      if (!batchSavedAgentIds.has(agentId)) {
+        await this.deps.repositories.agents.saveAgent({
+          id: agentId,
+          appId: this.appId,
+          name: agent.name,
+          status: 'active',
+          createdAt: now,
+          updatedAt: now,
+        });
+      }
       applied.push(`agent:${folder}`);
 
       if (
@@ -193,13 +303,15 @@ export class SettingsDesiredStateService {
         hasAnyCapability(agent) ||
         normalizedCapabilityFolders.has(folder)
       ) {
-        await this.replaceCapabilities(
-          agentId,
-          agent,
-          now,
-          settings.desiredState.authoritative,
-        );
-        applied.push(`capabilities:${folder}`);
+        if (!fencedCapabilityAgentIds.has(agentId)) {
+          await this.replaceCapabilities(
+            agentId,
+            agent,
+            now,
+            settings.desiredState.authoritative,
+          );
+          applied.push(`capabilities:${folder}`);
+        }
       } else {
         skipped.push(`capabilities:${folder}:not-authoritative-empty`);
       }
@@ -328,11 +440,29 @@ export class SettingsDesiredStateService {
     }
 
     if (settings.desiredState.authoritative) {
-      const agents = await this.deps.repositories.agents.listAgents(this.appId);
-      for (const agent of agents) {
+      for (const agent of storedAgentsForAuthoritativeReconcile) {
         const folder = folderForAgentId(agent.id);
         if (!folder || configuredFolders.has(folder)) continue;
         const now = this.clock.now();
+        if (batchRemovedAgentIds.has(agent.id)) {
+          await replaceDesiredStateToolSources({
+            appId: this.appId,
+            agentId: agent.id,
+            agent: {
+              name: agent.name,
+              folder,
+              delegates: [],
+              bindings: {},
+              sources: { skills: [], mcpServers: [], tools: [] },
+              capabilities: [],
+              accessPreset: 'full',
+            },
+            repositories: this.deps.repositories,
+            now,
+          });
+          applied.push(`authoritative:disabled_absent_agent:${folder}`);
+          continue;
+        }
         await this.deps.repositories.agents.disableAgent({
           appId: this.appId,
           agentId: agent.id,
@@ -731,6 +861,8 @@ export class SettingsDesiredStateService {
     agent: RuntimeConfiguredAgent,
     now: string,
     authoritative: boolean,
+    expectedMcpBindingAgentIds?: AgentId[],
+    expectedMcpBindings?: McpBindingAuthorityPrecondition[],
   ): Promise<void> {
     await replaceDesiredStateCapabilities({
       appId: this.appId,
@@ -739,6 +871,18 @@ export class SettingsDesiredStateService {
       repositories: this.deps.repositories,
       now,
       authoritative,
+      expectedMcpBindingAgentIds,
+      expectedMcpBindings,
     });
   }
+}
+
+function fencedCapabilityAgentIdsForBindings(
+  expectedMcpBindingAgentIds: readonly AgentId[] | undefined,
+  expectedMcpBindings: readonly McpBindingAuthorityPrecondition[] | undefined,
+): Set<AgentId> {
+  return new Set(
+    expectedMcpBindingAgentIds ??
+      (expectedMcpBindings ?? []).map((binding) => binding.agentId),
+  );
 }

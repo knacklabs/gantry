@@ -497,7 +497,7 @@ describe('McpToolProxy', () => {
       ],
     });
     await expect(
-      proxy.callTool({
+      proxy.assertToolAllowed({
         appId: 'app-one' as never,
         agentId: 'agent-one' as never,
         serverName: 'github',
@@ -593,7 +593,7 @@ describe('McpToolProxy', () => {
       ],
     });
     await expect(
-      proxy.callTool({
+      proxy.assertToolAllowed({
         appId: 'app-one' as never,
         agentId: 'agent-one' as never,
         serverName: 'github',
@@ -882,7 +882,7 @@ describe('McpToolProxy', () => {
       },
     });
     await expect(
-      proxy.callTool({
+      proxy.assertToolAllowed({
         appId: 'app-one' as never,
         agentId: 'agent-one' as never,
         serverName: 'github',
@@ -1240,6 +1240,99 @@ describe('McpToolProxy', () => {
     ).rejects.toThrow(
       'MCP tool is not approved for this agent: mcp__github__delete_repository',
     );
+  });
+
+  it('authorizes a routed MCP binding only in its conversation and thread', async () => {
+    const proxy = new McpToolProxy(
+      mcpRepository({
+        bindingConversationId: 'conversation:approved',
+        bindingThreadId: 'thread:approved',
+      }),
+      { tools: toolRepository() },
+    );
+
+    await expect(
+      proxy.assertToolAllowed({
+        appId: 'app-one' as never,
+        agentId: 'agent-one' as never,
+        conversationId: 'conversation:other',
+        threadId: 'thread:approved',
+        serverName: 'github',
+        toolName: 'create_issue',
+      }),
+    ).rejects.toThrow(/not approved for this agent/);
+    await expect(
+      proxy.assertToolAllowed({
+        appId: 'app-one' as never,
+        agentId: 'agent-one' as never,
+        conversationId: 'conversation:approved',
+        threadId: 'thread:other',
+        serverName: 'github',
+        toolName: 'create_issue',
+      }),
+    ).rejects.toThrow(/not approved for this agent/);
+    await expect(
+      proxy.assertToolAllowed({
+        appId: 'app-one' as never,
+        agentId: 'agent-one' as never,
+        conversationId: 'conversation:approved',
+        threadId: 'thread:approved',
+        serverName: 'github',
+        toolName: 'create_issue',
+      }),
+    ).resolves.toBeUndefined();
+  });
+
+  it('waits for a failing persistent capability publication before authorizing the call', async () => {
+    const repository = mcpRepository() as any;
+    const authorityLock = serializedMcpCapabilityAuthorityLock();
+    repository.withMcpCapabilityApprovalLock = authorityLock;
+    repository.withMcpCapabilityAuthorizationLock = authorityLock;
+    const tools = toolRepository() as any;
+    const listBindings = tools.listAgentToolBindings.bind(tools);
+    let bindingStatus: 'active' | 'disabled' = 'disabled';
+    tools.listAgentToolBindings = vi.fn(async () =>
+      (await listBindings()).map((binding: Record<string, unknown>) => ({
+        ...binding,
+        status: bindingStatus,
+      })),
+    );
+    let releaseMirror!: () => void;
+    const mirrorGate = new Promise<void>((resolve) => {
+      releaseMirror = resolve;
+    });
+    let publicationStarted!: () => void;
+    const started = new Promise<void>((resolve) => {
+      publicationStarted = resolve;
+    });
+    const publication = repository.withMcpCapabilityApprovalLock({
+      appId: 'app-one',
+      serverNames: ['github'],
+      operation: async () => {
+        bindingStatus = 'active';
+        publicationStarted();
+        await mirrorGate;
+        bindingStatus = 'disabled';
+        throw new Error('settings mirror failed');
+      },
+    });
+    await started;
+    const proxy = new McpToolProxy(repository, { tools });
+    const call = proxy.callTool({
+      appId: 'app-one' as never,
+      agentId: 'agent-one' as never,
+      serverName: 'github',
+      toolName: 'create_issue',
+    });
+
+    await Promise.resolve();
+    expect(tools.listAgentToolBindings).not.toHaveBeenCalled();
+    expect(mcpSdkMocks.client.callTool).not.toHaveBeenCalled();
+    releaseMirror();
+
+    await expect(publication).rejects.toThrow('settings mirror failed');
+    await expect(call).rejects.toThrow(/not approved for this agent/);
+    expect(mcpSdkMocks.client.callTool).not.toHaveBeenCalled();
   });
 
   it('authorizes newly discovered tools matching a reviewed capability pattern without an exact-list refresh', async () => {
@@ -2250,6 +2343,8 @@ function mcpRepository(input?: {
   remote?: boolean;
   remoteUrl?: string;
   appendAuditEvent?: (event: unknown) => Promise<void>;
+  bindingConversationId?: string;
+  bindingThreadId?: string;
 }) {
   const updatedAt = new Date(0).toISOString();
   const value = (entry: string | (() => string) | undefined): string =>
@@ -2288,10 +2383,15 @@ function mcpRepository(input?: {
     required: false,
     permissionPolicyIds: [],
     allowedToolPatterns: input?.bindingAllowedToolPatterns ?? [],
+    conversationId: input?.bindingConversationId,
+    threadId: input?.bindingThreadId,
     createdAt: updatedAt,
     updatedAt: value(input?.bindingUpdatedAt),
   });
   return {
+    withMcpCapabilityAuthorizationLock: async <T>(input: {
+      operation: () => Promise<T>;
+    }) => input.operation(),
     listAgentBindings: async () => [binding()],
     getServer: async (id: string) =>
       id === 'mcp:github' ? definition() : null,
@@ -2338,12 +2438,32 @@ function multiMcpRepository(names: string[]) {
     return { definition, binding };
   });
   return {
+    withMcpCapabilityAuthorizationLock: async <T>(input: {
+      operation: () => Promise<T>;
+    }) => input.operation(),
     listAgentBindings: async () => records.map((record) => record.binding),
     getServer: async (id: string) =>
       records.find((record) => record.definition.id === id)?.definition ?? null,
     listMaterializedServersForAgent: async () => records,
     appendAuditEvent: async () => {},
   } as never;
+}
+
+function serializedMcpCapabilityAuthorityLock() {
+  let tail = Promise.resolve();
+  return async <T>(input: { operation: () => Promise<T> }): Promise<T> => {
+    let release!: () => void;
+    const previous = tail;
+    tail = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await previous;
+    try {
+      return await input.operation();
+    } finally {
+      release();
+    }
+  };
 }
 
 function emptyToolRepository() {

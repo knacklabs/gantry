@@ -359,9 +359,20 @@ describe('runStartup', () => {
     revisionSettings.agent.name = 'Revision Agent';
     const fileSettings = structuredClone(revisionSettings) as RuntimeSettings;
     fileSettings.agent.name = 'File Agent';
+    const mcpBindingPrecondition = {
+      id: 'agent-mcp-binding:agent:main_agent:mcp:sum',
+      appId: 'default',
+      agentId: 'agent:main_agent',
+      serverId: 'mcp:sum',
+      status: 'active',
+      required: false,
+      permissionPolicyIds: [],
+      allowedToolPatterns: ['get-sum'],
+    };
     const latestRevision = {
       revision: 1,
       settingsDocument: settingsToRevisionDocument(revisionSettings),
+      mcpBindingPreconditions: [mcpBindingPrecondition],
     };
     const settingsRevisions = {
       getLatestSettingsRevision: vi.fn(async () => latestRevision),
@@ -395,7 +406,9 @@ describe('runStartup', () => {
     });
 
     expect(importWorkstationSettings).toHaveBeenCalledWith(
-      expect.any(Object),
+      expect.objectContaining({
+        expectedMcpBindings: [mcpBindingPrecondition],
+      }),
       expect.objectContaining({
         agent: expect.objectContaining({ name: 'Revision Agent' }),
       }),

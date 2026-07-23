@@ -375,6 +375,10 @@ export function createGroupAgentRunner(input: {
           turnContext?.agentId ?? memoryAgentIdForWorkspaceFolder(group.folder),
       },
       agentFolder: group.folder,
+      routeScope: {
+        conversationId: group.conversationId,
+        threadId: sessionThreadId ?? undefined,
+      },
     });
     if (
       turnContext?.providerSessionId &&

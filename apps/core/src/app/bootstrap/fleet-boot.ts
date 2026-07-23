@@ -17,6 +17,7 @@ import {
 } from '../../config/index.js';
 import {
   CURRENT_SETTINGS_READER_VERSION,
+  applySettingsRevisionWithMcpFenceRecovery,
   importFleetSettingsRevision,
   importWorkstationSettings,
   SettingsRevisionConflictError,
@@ -172,28 +173,31 @@ export async function prepareFleetSettings(input: {
     );
     return { loaded: false, revision: latest.revision };
   }
-  const settings = settingsFromRevisionDocument(latest.settingsDocument);
   // Apply through the single shared import path (validate → write settings.yaml
   // → reconcile → reload runtime state), the same path the watcher and CLI use.
   // Writing settings.yaml here is an internal loader reuse so the existing
   // `loadRuntimeSettings` path can read fleet desired state; the file is NOT the
   // fleet wire contract (the typed document in `settings_revisions` is).
-  await importWorkstationSettings(
-    {
-      runtimeHome: input.runtimeHome,
-      ops: storage.ops,
-      repositories: storage.repositories,
-      appId: input.appId,
-      reloadRuntimeState: () => input.app.loadState(),
+  const applied = await applySettingsRevisionWithMcpFenceRecovery({
+    runtimeHome: input.runtimeHome,
+    ops: storage.ops,
+    repositories: storage.repositories,
+    appId: input.appId,
+    revision: latest,
+    reloadRuntimeState: () => input.app.loadState(),
+    revisionMirror: {
+      settingsRevisions: storage.repositories.settingsRevisions,
+      pool: storage.service.pool,
+      createdBy: 'fleet-boot:mcp-fence-recovery',
+      logWarn: (context, message) => logger.warn(context, message),
     },
-    settings,
-  );
+  });
   markSettingsLoaded();
   logger.info(
-    { appId: input.appId, revision: latest.revision },
+    { appId: input.appId, revision: applied.revision },
     'Loaded fleet settings from revision',
   );
-  return { loaded: true, revision: latest.revision };
+  return { loaded: true, revision: applied.revision };
 }
 
 export interface FleetSubsystems {
@@ -305,6 +309,7 @@ export async function startFleetSubsystems(input: {
     appId: input.appId,
     runtimeHome: input.runtimeHome,
     settingsRevisions: storage.repositories.settingsRevisions,
+    revisionPool: input.pool,
     ops: storage.ops,
     repositories: storage.repositories,
     wakeupSource: new PostgresSettingsRevisionWakeupSource(

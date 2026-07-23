@@ -537,6 +537,10 @@ class SpawnMcpRepository implements McpServerRepository {
 
   async saveAgentBinding() {}
 
+  async getAgentBinding() {
+    return null;
+  }
+
   async disableAgentBinding() {
     return null;
   }

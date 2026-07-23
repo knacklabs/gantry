@@ -67,6 +67,7 @@ export async function resolveTurnSelectedSkillContext(
 export async function resolveTurnSelectedMcpServerIds(
   deps: Pick<GroupProcessingDeps, 'getMcpServerRepository'>,
   turnContext?: { appId: string; agentId: string } | null,
+  routeScope?: { conversationId?: string; threadId?: string },
 ): Promise<string[] | undefined> {
   const mcpServers = deps.getMcpServerRepository?.();
   if (!turnContext || !mcpServers) return undefined;
@@ -74,6 +75,8 @@ export async function resolveTurnSelectedMcpServerIds(
     mcpServers,
     appId: turnContext.appId,
     agentId: turnContext.agentId,
+    conversationId: routeScope?.conversationId,
+    threadId: routeScope?.threadId,
   });
 }
 

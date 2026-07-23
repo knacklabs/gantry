@@ -1,3 +1,6 @@
+import type { McpBindingAuthorityPrecondition } from '../mcp/mcp-servers.js';
+import type { AgentId } from '../agent/agent.js';
+
 export type RuntimeDependencyStatus =
   | 'queued'
   | 'baking'
@@ -100,6 +103,11 @@ export interface SettingsRevision {
   minReaderVersion: number;
   createdBy: string;
   note: string | null;
+  /** Internal replay fence; never part of the public settings document. */
+  mcpBindingPreconditionAgentIds?: AgentId[];
+  mcpBindingPreconditions?: McpBindingAuthorityPrecondition[];
+  /** Internal provenance for in-flight MCP capability grant compensation. */
+  mcpCapabilityGrantTokens?: Record<string, string>;
   createdAt: string;
 }
 
@@ -128,6 +136,8 @@ export interface SettingsRevisionRepository {
    * inserted as exactly `expectedRevision + 1` with NO retry past a conflict —
    * a stale head or a lost insert race returns `status: 'conflict'` so callers
    * surface the contracted 409 instead of silently appending the next revision.
+   * When `expectedMcpBindings` is present, their source-scope versions are
+   * locked and checked in the same transaction before that revision is visible.
    */
   appendSettingsRevision(input: {
     appId: string;
@@ -136,6 +146,9 @@ export interface SettingsRevisionRepository {
     createdBy: string;
     note?: string | null;
     expectedRevision?: number | null;
+    expectedMcpBindingAgentIds?: AgentId[];
+    expectedMcpBindings?: McpBindingAuthorityPrecondition[];
+    mcpCapabilityGrantTokens?: Record<string, string>;
     now?: string;
   }): Promise<AppendSettingsRevisionResult>;
   getLatestSettingsRevision(appId: string): Promise<SettingsRevision | null>;

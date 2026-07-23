@@ -191,6 +191,10 @@ describe('syncRuntimeSettingsFromProjection fleet mode', () => {
           sources: { mcpServers: [] },
           capabilities: [],
         },
+        other: {
+          sources: { mcpServers: [] },
+          capabilities: [],
+        },
       },
     };
     const importWorkstationSettings = vi
@@ -234,13 +238,14 @@ describe('syncRuntimeSettingsFromProjection fleet mode', () => {
     const settingsRevisions = {
       getLatestSettingsRevision: vi.fn(async () => null),
     } as never;
+    const listAgentBindings = vi.fn(async () => []);
     await addAgentToolRulesToSyncedRuntimeSettings({
       runtimeHome: '/tmp/gantry-test',
       agentFolder: 'main',
       rules: ['Browser'],
       ops: {} as never,
       repositories: {
-        mcpServers: { listAgentBindings: vi.fn(async () => []) },
+        mcpServers: { listAgentBindings },
       } as never,
       appId: 'app:test' as never,
       settingsRevisions,
@@ -248,6 +253,14 @@ describe('syncRuntimeSettingsFromProjection fleet mode', () => {
 
     expect(loadRuntimeSettings).toHaveBeenCalledTimes(2);
     expect(addAgentToolRulesToRuntimeSettings).toHaveBeenCalledTimes(2);
+    expect(listAgentBindings).toHaveBeenCalledWith({
+      appId: 'app:test',
+      agentId: 'agent:main',
+    });
+    expect(listAgentBindings).toHaveBeenCalledWith({
+      appId: 'app:test',
+      agentId: 'agent:other',
+    });
     expect(importWorkstationSettings).toHaveBeenCalledWith(
       expect.objectContaining({
         appId: 'app:test',
@@ -269,7 +282,134 @@ describe('syncRuntimeSettingsFromProjection fleet mode', () => {
     );
   });
 
-  it('bases persistent tool-rule grants on the latest settings revision when the file is stale', async () => {
+  it('fences every active MCP binding projected by a persistent grant', async () => {
+    const previousSettings = {
+      runtime: { deploymentMode: 'fleet' },
+      agents: {
+        main: {
+          sources: { mcpServers: [] },
+          capabilities: [],
+        },
+        empty: {
+          sources: { mcpServers: [] },
+          capabilities: [],
+        },
+      },
+    };
+    const importWorkstationSettings = vi.fn(async () => ({ revision: 4 }));
+    vi.doMock('@core/config/settings/runtime-settings.js', () => ({
+      loadRuntimeSettings: vi.fn(() => previousSettings),
+      saveRuntimeSettings: vi.fn(),
+      activateRuntimeModelAliases: vi.fn(),
+      addAgentToolRulesToRuntimeSettings: vi.fn(
+        (settings, agentFolder, rules) => {
+          settings.agents[agentFolder].capabilities.push(
+            ...rules.map((rule) => ({
+              id: rule.replace(/^capability:/, ''),
+              version: 'builtin',
+            })),
+          );
+        },
+      ),
+      removeAgentToolRulesFromRuntimeSettings: vi.fn(),
+      withRuntimeModelAliases: vi.fn((_settings, fn) => fn()),
+    }));
+    vi.doMock('@core/config/settings/settings-import-service.js', () => ({
+      importWorkstationSettings,
+      SettingsStaleMutationError: MockSettingsStaleMutationError,
+      SettingsRevisionConflictError: MockSettingsRevisionConflictError,
+    }));
+    vi.doMock('@core/config/settings/desired-state-service.js', () => ({
+      SettingsDesiredStateService: class {},
+    }));
+    vi.doMock(
+      '@core/config/settings/configured-capability-normalization.js',
+      () => ({ normalizeConfiguredCapabilitiesInSettings: vi.fn() }),
+    );
+    vi.doMock('@core/config/settings/runtime-settings-validation.js', () => ({
+      validateLoadedRuntimeSettings: vi.fn(),
+    }));
+
+    const { addAgentToolRulesToSyncedRuntimeSettings } =
+      await import('@core/config/settings/restart-sync.js');
+    const reviewed = mcpBinding('mcp:reviewed', {
+      allowedToolPatterns: ['get-sum'],
+    });
+    const unrelated = mcpBinding('mcp:unrelated', {
+      required: true,
+      permissionPolicyIds: ['policy:z', 'policy:a'],
+      allowedToolPatterns: ['write_*', 'read_*'],
+      conversationId: 'conversation:reviewed',
+      threadId: 'thread:reviewed',
+    });
+    const settingsRevisions = {
+      getLatestSettingsRevision: vi.fn(async () => null),
+    } as never;
+    const listAgentBindings = vi.fn(async ({ agentId }) =>
+      agentId === 'agent:main' ? [reviewed, unrelated] : [],
+    );
+
+    await addAgentToolRulesToSyncedRuntimeSettings({
+      runtimeHome: '/tmp/gantry-test',
+      agentFolder: 'main',
+      rules: ['capability:mcp.reviewed.read'],
+      ops: {} as never,
+      repositories: {
+        mcpServers: {
+          listAgentBindings,
+        },
+      } as never,
+      appId: 'app:test' as never,
+      settingsRevisions,
+      expectedMcpBindings: [reviewed as never],
+      mcpCapabilityGrantToken: 'permission-request:reviewed',
+    });
+
+    expect(listAgentBindings).toHaveBeenCalledWith({
+      appId: 'app:test',
+      agentId: 'agent:main',
+    });
+    expect(importWorkstationSettings).toHaveBeenCalledWith(
+      expect.objectContaining({
+        expectedMcpBindingAgentIds: ['agent:empty', 'agent:main'],
+        expectedMcpBindings: [
+          expect.objectContaining({
+            id: reviewed.id,
+            allowedToolPatterns: ['get-sum'],
+          }),
+          expect.objectContaining({
+            id: unrelated.id,
+            required: true,
+            permissionPolicyIds: ['policy:a', 'policy:z'],
+            allowedToolPatterns: ['read_*', 'write_*'],
+            conversationId: 'conversation:reviewed',
+            threadId: 'thread:reviewed',
+          }),
+        ],
+        mcpCapabilityGrantTokens: {
+          '["main","mcp.reviewed.read","builtin"]':
+            'permission-request:reviewed',
+        },
+      }),
+      expect.objectContaining({
+        agents: expect.objectContaining({
+          main: expect.objectContaining({
+            sources: {
+              mcpServers: [
+                { id: 'mcp:reviewed', tools: ['get-sum'] },
+                {
+                  id: 'mcp:unrelated',
+                  tools: ['write_*', 'read_*'],
+                },
+              ],
+            },
+          }),
+        }),
+      }),
+    );
+  });
+
+  it('bases grants on the latest revision without overwriting its pending MCP narrowing', async () => {
     const fileSettings = {
       runtime: { deploymentMode: 'workstation' },
       agents: {
@@ -283,7 +423,9 @@ describe('syncRuntimeSettingsFromProjection fleet mode', () => {
       runtime: { deploymentMode: 'workstation' },
       agents: {
         main: {
-          sources: { mcpServers: [] },
+          sources: {
+            mcpServers: [{ id: 'mcp:sum', tools: ['get-sum'] }],
+          },
           capabilities: ['latest-rule'],
         },
       },
@@ -323,19 +465,36 @@ describe('syncRuntimeSettingsFromProjection fleet mode', () => {
 
     const { addAgentToolRulesToSyncedRuntimeSettings } =
       await import('@core/config/settings/restart-sync.js');
+    const liveBinding = mcpBinding('mcp:sum', {
+      allowedToolPatterns: ['echo', 'get-sum'],
+    });
+    const removedAgentBinding = mcpBinding('mcp:removed', {
+      id: 'agent-mcp-binding:agent:removed:mcp:removed',
+      agentId: 'agent:removed',
+      allowedToolPatterns: ['read_*'],
+    });
     const settingsRevisions = {
       getLatestSettingsRevision: vi.fn(async () => ({
         revision: 11,
         settingsDocument: { latest: true },
+        mcpBindingPreconditionAgentIds: ['agent:main', 'agent:removed'],
+        mcpBindingPreconditions: [liveBinding, removedAgentBinding],
       })),
     } as never;
+    const listAgentBindings = vi.fn(async ({ agentId }) =>
+      agentId === 'agent:main'
+        ? [liveBinding]
+        : agentId === 'agent:removed'
+          ? [removedAgentBinding]
+          : [],
+    );
     await addAgentToolRulesToSyncedRuntimeSettings({
       runtimeHome: '/tmp/gantry-test',
       agentFolder: 'main',
       rules: ['mcp__gantry__admin_permission_list'],
       ops: {} as never,
       repositories: {
-        mcpServers: { listAgentBindings: vi.fn(async () => []) },
+        mcpServers: { listAgentBindings },
       } as never,
       appId: 'app:test' as never,
       settingsRevisions,
@@ -350,12 +509,129 @@ describe('syncRuntimeSettingsFromProjection fleet mode', () => {
         previousSettings: latestSettings,
         expectedRevision: 11,
         revisionMirrorRequired: true,
+        expectedMcpBindingAgentIds: ['agent:main', 'agent:removed'],
+        expectedMcpBindings: [
+          expect.objectContaining({
+            id: liveBinding.id,
+            agentId: 'agent:main',
+            allowedToolPatterns: ['echo', 'get-sum'],
+          }),
+          expect.objectContaining({
+            id: removedAgentBinding.id,
+            agentId: 'agent:removed',
+            allowedToolPatterns: ['read_*'],
+          }),
+        ],
       }),
       expect.objectContaining({
         agents: expect.objectContaining({
           main: expect.objectContaining({
             capabilities: ['latest-rule', 'mcp__gantry__admin_permission_list'],
+            sources: {
+              mcpServers: [
+                expect.objectContaining({
+                  id: 'mcp:sum',
+                  tools: ['get-sum'],
+                }),
+              ],
+            },
           }),
+        }),
+      }),
+    );
+    expect(listAgentBindings).toHaveBeenCalledWith({
+      appId: 'app:test',
+      agentId: 'agent:removed',
+    });
+  });
+
+  it('fences MCP bindings while mirroring a persistent permission revoke', async () => {
+    const previousSettings = {
+      runtime: { deploymentMode: 'workstation' },
+      agents: {
+        main: {
+          sources: {
+            mcpServers: [{ id: 'mcp:sum', tools: ['get-sum'] }],
+          },
+          capabilities: ['capability:mcp.sum.read'],
+        },
+        empty: {
+          sources: { mcpServers: [] },
+          capabilities: [],
+        },
+      },
+    };
+    const importWorkstationSettings = vi.fn(async () => ({ revision: 12 }));
+    vi.doMock('@core/config/settings/runtime-settings.js', () => ({
+      loadRuntimeSettings: vi.fn(() => previousSettings),
+      saveRuntimeSettings: vi.fn(),
+      activateRuntimeModelAliases: vi.fn(),
+      addAgentToolRulesToRuntimeSettings: vi.fn(),
+      removeAgentToolRulesFromRuntimeSettings: vi.fn(
+        (settings, agentFolder, rules) => {
+          settings.agents[agentFolder].capabilities = settings.agents[
+            agentFolder
+          ].capabilities.filter((rule) => !rules.includes(rule));
+        },
+      ),
+      withRuntimeModelAliases: vi.fn((_settings, fn) => fn()),
+    }));
+    vi.doMock('@core/config/settings/settings-import-service.js', () => ({
+      SettingsRevisionConflictError: MockSettingsRevisionConflictError,
+      SettingsStaleMutationError: MockSettingsStaleMutationError,
+      importWorkstationSettings,
+    }));
+    vi.doMock('@core/config/settings/desired-state-service.js', () => ({
+      SettingsDesiredStateService: class {},
+    }));
+    vi.doMock(
+      '@core/config/settings/configured-capability-normalization.js',
+      () => ({ normalizeConfiguredCapabilitiesInSettings: vi.fn() }),
+    );
+    vi.doMock('@core/config/settings/runtime-settings-validation.js', () => ({
+      validateLoadedRuntimeSettings: vi.fn(),
+    }));
+
+    const { removeAgentToolRulesFromSyncedRuntimeSettings } =
+      await import('@core/config/settings/restart-sync.js');
+    const binding = mcpBinding('mcp:sum', {
+      required: true,
+      allowedToolPatterns: ['get-sum'],
+    });
+    const settingsRevisions = {
+      getLatestSettingsRevision: vi.fn(async () => null),
+    } as never;
+
+    await removeAgentToolRulesFromSyncedRuntimeSettings({
+      runtimeHome: '/tmp/gantry-test',
+      agentFolder: 'main',
+      rules: ['capability:mcp.sum.read'],
+      ops: {} as never,
+      repositories: {
+        mcpServers: {
+          listAgentBindings: vi.fn(async ({ agentId }) =>
+            agentId === 'agent:main' ? [binding] : [],
+          ),
+        },
+      } as never,
+      appId: 'app:test' as never,
+      settingsRevisions,
+    });
+
+    expect(importWorkstationSettings).toHaveBeenCalledWith(
+      expect.objectContaining({
+        expectedMcpBindingAgentIds: ['agent:empty', 'agent:main'],
+        expectedMcpBindings: [
+          expect.objectContaining({
+            id: binding.id,
+            required: true,
+            allowedToolPatterns: ['get-sum'],
+          }),
+        ],
+      }),
+      expect.objectContaining({
+        agents: expect.objectContaining({
+          main: expect.objectContaining({ capabilities: [] }),
         }),
       }),
     );
@@ -394,3 +670,19 @@ describe('syncRuntimeSettingsFromProjection fleet mode', () => {
     );
   });
 });
+
+function mcpBinding(serverId: string, overrides: Record<string, unknown> = {}) {
+  return {
+    id: `agent-mcp-binding:agent:main:${serverId}`,
+    appId: 'app:test',
+    agentId: 'agent:main',
+    serverId,
+    status: 'active',
+    required: false,
+    permissionPolicyIds: [],
+    allowedToolPatterns: [],
+    createdAt: '2026-07-21T11:00:00.000Z',
+    updatedAt: '2026-07-21T11:00:00.000Z',
+    ...overrides,
+  };
+}

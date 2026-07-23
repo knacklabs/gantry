@@ -1394,7 +1394,6 @@ describe('jobs/execution', () => {
     expect(mcpServerRepository.listAgentBindings).toHaveBeenCalledWith({
       appId: 'default',
       agentId: 'agent:scheduler_agent',
-      limit: 500,
     });
     expect(runAgent).toHaveBeenCalledWith(
       expect.anything(),

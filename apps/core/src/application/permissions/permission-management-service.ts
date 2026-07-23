@@ -1,5 +1,6 @@
 import type { AgentId } from '../../domain/agent/agent.js';
 import type { AppId } from '../../domain/app/app.js';
+import type { McpBindingAuthorityPrecondition } from '../../domain/mcp/mcp-servers.js';
 import type {
   McpServerRepository,
   PermissionRepository,
@@ -18,6 +19,7 @@ import { ensureAgentToolCatalogItem } from '../../domain/tools/agent-tool-catalo
 import { skillActionSource } from '../../domain/skills/skill-action-permissions.js';
 import {
   expandSemanticCapabilityPermissionRules,
+  sameMcpCapabilityProposalAuthority,
   semanticCapabilityRuntimeRules,
   semanticCapabilityFromToolCatalogItem,
   type SemanticCapabilityDefinition,
@@ -31,6 +33,7 @@ import {
   ensureMcpSourceBindingsForRules,
   rollbackAppliedMcpSourceBindings,
   type AppliedMcpSourceBinding,
+  withMcpCapabilityProposalSourceLocks,
 } from './mcp-capability-source-bindings.js';
 import { permissionDecisionExpiresAt } from './permission-decision-expiry.js';
 import {
@@ -60,7 +63,12 @@ import { nowIso } from '../../shared/time/datetime.js';
 type MirrorAgentToolRulesToSettings = (
   sourceAgentFolder: string,
   rules: string[],
-  options?: { appId?: string; mode?: 'add' | 'remove' },
+  options?: {
+    appId?: string;
+    mode?: 'add' | 'remove';
+    expectedMcpBindings?: McpBindingAuthorityPrecondition[];
+    mcpCapabilityGrantToken?: string;
+  },
 ) => Promise<void> | void;
 
 export interface PersistentPermissionGrantInput {
@@ -153,6 +161,31 @@ export class PermissionManagementService {
       });
     }
 
+    return withMcpCapabilityProposalSourceLocks({
+      appId: input.appId,
+      agentId: input.agentId,
+      mcpServerRepository: input.mcpServerRepository,
+      rules: allowedRules,
+      semanticCapabilityDefinitions: trustedSemanticCapabilityDefinitions,
+      operation: () =>
+        this.applyPersistentToolRuleGrantUnderSourceLock(input, {
+          allowedRules,
+          trustedSemanticCapabilityDefinitions,
+        }),
+    });
+  }
+
+  private async applyPersistentToolRuleGrantUnderSourceLock(
+    input: PersistentPermissionGrantInput,
+    plan: {
+      allowedRules: string[];
+      trustedSemanticCapabilityDefinitions?: Record<
+        string,
+        SemanticCapabilityDefinition
+      >;
+    },
+  ): Promise<string[]> {
+    const { allowedRules, trustedSemanticCapabilityDefinitions } = plan;
     const timestamp = this.clock.now();
     const savedBindings: AgentToolBinding[] = [];
     const activatedMcpBindings: AppliedMcpSourceBinding[] = [];
@@ -169,6 +202,15 @@ export class PermissionManagementService {
         .map((binding) => binding.toolId),
     );
     try {
+      const ensuredMcpSources = await ensureMcpSourceBindingsForRules({
+        appId: input.appId,
+        agentId: input.agentId,
+        mcpServerRepository: input.mcpServerRepository,
+        rules: allowedRules,
+        semanticCapabilityDefinitions: trustedSemanticCapabilityDefinitions,
+        timestamp,
+      });
+      activatedMcpBindings.push(...ensuredMcpSources.applied);
       for (const allowedRule of allowedRules) {
         const adminMcpTool = adminMcpToolFullNameFromRule(allowedRule);
         let toolId = (
@@ -227,20 +269,19 @@ export class PermissionManagementService {
           savedBindings.push(binding);
         }
       }
-      activatedMcpBindings.push(
-        ...(await ensureMcpSourceBindingsForRules({
-          appId: input.appId,
-          agentId: input.agentId,
-          mcpServerRepository: input.mcpServerRepository,
-          rules: allowedRules,
-          semanticCapabilityDefinitions: trustedSemanticCapabilityDefinitions,
-          timestamp,
-        })),
-      );
       await input.mirrorAgentToolRulesToSettings(
         input.sourceAgentFolder,
         allowedRules,
-        { appId: input.appId },
+        {
+          appId: input.appId,
+          ...(ensuredMcpSources.proposalBindingSnapshots.length > 0
+            ? {
+                expectedMcpBindings: ensuredMcpSources.proposalBindingSnapshots,
+                mcpCapabilityGrantToken:
+                  input.requestId ?? globalThis.crypto.randomUUID(),
+              }
+            : {}),
+        },
       );
     } catch (err) {
       await Promise.allSettled(
@@ -531,6 +572,11 @@ function assertNoRequestCapabilityDefinitionConflicts(input: {
     if (
       stableSha256Json(catalogDefinition) ===
       stableSha256Json(requestDefinition)
+    ) {
+      continue;
+    }
+    if (
+      sameMcpCapabilityProposalAuthority(catalogDefinition, requestDefinition)
     ) {
       continue;
     }

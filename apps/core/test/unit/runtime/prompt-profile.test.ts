@@ -261,6 +261,7 @@ describe('PromptProfileService', () => {
     expect(prompt).toContain('scheduler_upsert_job');
     expect(prompt).toContain('request_skill_proposal');
     expect(prompt).toContain('request_access target.kind=capability');
+    expect(prompt).toContain('target.kind=mcp_capability');
     expect(prompt).toContain('render_status, render_facts');
     expect(prompt).toContain(
       'Use only the Gantry tools mounted in the current run',
@@ -840,8 +841,9 @@ describe('PromptProfileService', () => {
       'Never expose secrets, tokens, credentials, or unrelated local paths.',
     );
     expect(prompt).toContain(
-      'Use request_access target.kind=capability for durable reviewed access',
+      'Use request_access target.kind=capability for an existing reviewed capability id',
     );
+    expect(prompt).toContain('target.kind=mcp_capability');
     expect(prompt).toContain(
       'Use available actions first. If the action is missing, request the reviewed capability',
     );

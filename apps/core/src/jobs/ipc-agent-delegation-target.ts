@@ -153,6 +153,10 @@ export async function resolveDelegatedAgentTarget(input: {
   const attachedMcpSourceIds = await resolveTurnSelectedMcpServerIds(
     input.deps,
     targetOwner,
+    {
+      conversationId: group.conversationId,
+      threadId: input.owner.threadId ?? undefined,
+    },
   );
   return {
     ok: true as const,

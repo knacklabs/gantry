@@ -86,6 +86,8 @@ const MCP_INVENTORY_SEARCH_CONCURRENCY = 4;
 interface McpToolCallInput {
   appId: AppId;
   agentId: AgentId;
+  conversationId?: string;
+  threadId?: string;
   serverName: string;
   toolName: string;
   arguments?: Record<string, unknown>;
@@ -129,6 +131,8 @@ export class McpToolProxy {
   async listTools(input: {
     appId: AppId;
     agentId: AgentId;
+    conversationId?: string;
+    threadId?: string;
     serverName?: string;
     query?: string;
     limit?: number;
@@ -312,6 +316,8 @@ export class McpToolProxy {
   async searchTools(input: {
     appId: AppId;
     agentId: AgentId;
+    conversationId?: string;
+    threadId?: string;
     query: string;
     limit?: number;
   }): Promise<McpToolSearchResult> {
@@ -319,6 +325,8 @@ export class McpToolProxy {
       this.listTools({
         appId: input.appId,
         agentId: input.agentId,
+        conversationId: input.conversationId,
+        threadId: input.threadId,
         query: input.query,
         limit: input.limit,
       }),
@@ -364,6 +372,8 @@ export class McpToolProxy {
   async describeTool(input: {
     appId: AppId;
     agentId: AgentId;
+    conversationId?: string;
+    threadId?: string;
     serverName: string;
     toolName: string;
   }): Promise<DetailedMcpTool> {
@@ -577,6 +587,8 @@ export class McpToolProxy {
     input: {
       appId: AppId;
       agentId: AgentId;
+      conversationId?: string;
+      threadId?: string;
       serverName: string;
       toolName: string;
     };
@@ -662,6 +674,8 @@ export class McpToolProxy {
   private async materializeSourceCapabilities(input: {
     appId: AppId;
     agentId: AgentId;
+    conversationId?: string;
+    threadId?: string;
   }): Promise<ReviewedMaterializedMcpCapability[]> {
     return materializeSourceMcpCapabilities({
       mcpServers: this.mcpServers,
@@ -673,12 +687,16 @@ export class McpToolProxy {
       dnsValidationCache: this.options.dnsValidationCache,
       appId: input.appId,
       agentId: input.agentId,
+      conversationId: input.conversationId,
+      threadId: input.threadId,
     });
   }
 
   private async materializeReviewedCapabilities(input: {
     appId: AppId;
     agentId: AgentId;
+    conversationId?: string;
+    threadId?: string;
   }): Promise<ReviewedMaterializedMcpCapability[]> {
     return materializeReviewedMcpCapabilities({
       mcpServers: this.mcpServers,
@@ -690,6 +708,8 @@ export class McpToolProxy {
       dnsValidationCache: this.options.dnsValidationCache,
       appId: input.appId,
       agentId: input.agentId,
+      conversationId: input.conversationId,
+      threadId: input.threadId,
     });
   }
 

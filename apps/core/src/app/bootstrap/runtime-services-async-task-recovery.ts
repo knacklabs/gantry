@@ -311,6 +311,10 @@ function createRecoveredDelegatedAgentRun(
     const attachedMcpSourceIds = await resolveTurnSelectedMcpServerIds(
       deps,
       scopedTaskOwner,
+      {
+        conversationId: group.conversationId,
+        threadId: runInput.task.threadId ?? undefined,
+      },
     );
     const runAgent = deps.runAgent ?? spawnAgent;
     let latestResult: string | null = null;

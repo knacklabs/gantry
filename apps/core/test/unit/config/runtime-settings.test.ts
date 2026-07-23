@@ -78,6 +78,114 @@ describe('runtime settings', () => {
     ]);
   });
 
+  it('exports the exact live MCP source scope without unioning stale settings authority', async () => {
+    const settings = createDefaultRuntimeSettings();
+    settings.agents.main_agent = {
+      name: 'ReAgent',
+      folder: 'main_agent',
+      delegates: [],
+      bindings: {},
+      sources: {
+        ...emptySources(),
+        mcpServers: [
+          {
+            id: 'mcp:caw-ats',
+            status: 'disabled',
+            tools: ['ats_list_positions', 'ats_delete_candidate'],
+          },
+        ],
+      },
+      capabilities: [],
+    };
+
+    await addActiveMcpSourcesToRuntimeSettings({
+      settings,
+      agentFolder: 'main_agent',
+      appId: 'default' as never,
+      repositories: {
+        mcpServers: {
+          listAgentBindings: vi.fn(async () => [
+            {
+              appId: 'default',
+              agentId: 'agent:main_agent',
+              id: 'agent-mcp-binding:agent:main_agent:mcp:caw-ats',
+              serverId: 'mcp:caw-ats',
+              status: 'active',
+              required: false,
+              permissionPolicyIds: [],
+              allowedToolPatterns: ['ats_list_positions'],
+              createdAt: '2026-06-01T00:00:00.000Z',
+              updatedAt: '2026-07-21T12:00:00.000Z',
+            },
+          ]),
+        } as never,
+      },
+    });
+
+    expect(settings.agents.main_agent.sources.mcpServers).toEqual([
+      {
+        id: 'mcp:caw-ats',
+        status: 'active',
+        tools: ['ats_list_positions'],
+      },
+    ]);
+  });
+
+  it('projects and fences a disabled MCP binding instead of reviving stale settings state', async () => {
+    const settings = createDefaultRuntimeSettings();
+    settings.agents.main_agent = {
+      name: 'ReAgent',
+      folder: 'main_agent',
+      delegates: [],
+      bindings: {},
+      sources: {
+        ...emptySources(),
+        mcpServers: [{ id: 'mcp:caw-ats', tools: ['ats_list_positions'] }],
+      },
+      capabilities: [],
+    };
+
+    const snapshots = await addActiveMcpSourcesToRuntimeSettings({
+      settings,
+      agentFolder: 'main_agent',
+      appId: 'default' as never,
+      repositories: {
+        mcpServers: {
+          listAgentBindings: vi.fn(async () => [
+            {
+              appId: 'default',
+              agentId: 'agent:main_agent',
+              id: 'agent-mcp-binding:agent:main_agent:mcp:caw-ats',
+              serverId: 'mcp:caw-ats',
+              status: 'disabled',
+              required: true,
+              permissionPolicyIds: ['policy:mcp:caw-ats'],
+              allowedToolPatterns: ['ats_list_positions'],
+              createdAt: '2026-06-01T00:00:00.000Z',
+              updatedAt: '2026-07-21T12:00:00.000Z',
+            },
+          ]),
+        } as never,
+      },
+    });
+
+    expect(settings.agents.main_agent.sources.mcpServers).toEqual([
+      {
+        id: 'mcp:caw-ats',
+        status: 'disabled',
+        tools: ['ats_list_positions'],
+      },
+    ]);
+    expect(snapshots).toEqual([
+      expect.objectContaining({
+        serverId: 'mcp:caw-ats',
+        status: 'disabled',
+        required: true,
+        permissionPolicyIds: ['policy:mcp:caw-ats'],
+      }),
+    ]);
+  });
+
   it('defaults, renders, and parses agent.name', () => {
     const settings = createDefaultRuntimeSettings();
     expect(settings.agent.name).toBe('Default Agent');

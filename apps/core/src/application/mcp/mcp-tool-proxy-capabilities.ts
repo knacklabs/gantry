@@ -25,11 +25,22 @@ interface MaterializeMcpProxyCapabilitiesInput {
   dnsValidationCache?: RemoteMcpDnsValidationCache;
   appId: AppId;
   agentId: AgentId;
+  conversationId?: string;
+  threadId?: string;
 }
 
 export async function materializeSourceMcpCapabilities(
   input: MaterializeMcpProxyCapabilitiesInput,
 ): Promise<ReviewedMaterializedMcpCapability[]> {
+  const serverIds =
+    input.sourceServerIds ??
+    (await authorizedMcpServerIdsForAgent({
+      mcpServers: input.mcpServers,
+      appId: input.appId,
+      agentId: input.agentId,
+      conversationId: input.conversationId,
+      threadId: input.threadId,
+    }));
   const capabilities = await new McpServerService(input.mcpServers, undefined, {
     lookupHostname: input.lookupHostname,
     dnsValidationCache: input.dnsValidationCache,
@@ -37,7 +48,7 @@ export async function materializeSourceMcpCapabilities(
   }).materializeForAgent({
     appId: input.appId,
     agentId: input.agentId,
-    serverIds: input.sourceServerIds as never,
+    serverIds: serverIds as never,
     credentialEnv: input.credentialEnv ?? {},
   });
   return capabilities.map((capability) => ({
@@ -47,6 +58,20 @@ export async function materializeSourceMcpCapabilities(
 }
 
 export async function materializeReviewedMcpCapabilities(
+  input: MaterializeMcpProxyCapabilitiesInput,
+): Promise<ReviewedMaterializedMcpCapability[]> {
+  if (!input.mcpServers.withMcpCapabilityAuthorizationLock) {
+    throw new Error(
+      'MCP source repository with authorization locking is required for reviewed MCP tool calls.',
+    );
+  }
+  return input.mcpServers.withMcpCapabilityAuthorizationLock({
+    appId: input.appId,
+    operation: () => materializeReviewedMcpCapabilitiesLocked(input),
+  });
+}
+
+async function materializeReviewedMcpCapabilitiesLocked(
   input: MaterializeMcpProxyCapabilitiesInput,
 ): Promise<ReviewedMaterializedMcpCapability[]> {
   const policy = await resolveAgentToolRuntimePolicy({
@@ -65,6 +90,8 @@ export async function materializeReviewedMcpCapabilities(
     mcpServers: input.mcpServers,
     appId: input.appId,
     agentId: input.agentId,
+    conversationId: input.conversationId,
+    threadId: input.threadId,
   });
   const capabilities = await new McpServerService(input.mcpServers, undefined, {
     lookupHostname: input.lookupHostname,
