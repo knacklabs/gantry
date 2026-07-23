@@ -612,9 +612,7 @@ async function approveNextShellRequestViaHostCoordinator(input: {
   let rawRequest: Record<string, unknown> | undefined;
   while (Date.now() - startedAt < 5_000) {
     const requestFile = fs.existsSync(requestDir)
-      ? fs
-          .readdirSync(requestDir)
-          .find((entry) => entry.endsWith('.json'))
+      ? fs.readdirSync(requestDir).find((entry) => entry.endsWith('.json'))
       : undefined;
     if (requestFile) {
       rawRequest = JSON.parse(
