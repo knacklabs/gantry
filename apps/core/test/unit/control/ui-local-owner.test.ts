@@ -129,6 +129,26 @@ describe('local-owner UI request guard', () => {
     ).toContain('not available');
   });
 
+  it('allows only the named profile files needed by agent setup', () => {
+    const mutation = request({
+      method: 'PUT',
+      headers: { ...browserHeaders, 'content-type': 'application/json' },
+    });
+
+    expect(
+      validateLocalOwnerUiRequest(
+        mutation,
+        '/v1/agents/agent-1/profile-files/soul',
+      ),
+    ).toBeUndefined();
+    expect(
+      validateLocalOwnerUiRequest(
+        request({ headers: browserHeaders }),
+        '/v1/agents/agent-1/profile-files/secret',
+      ),
+    ).toContain('not available');
+  });
+
   it('rejects unlisted routes and cross-origin requests', () => {
     expect(
       validateLocalOwnerUiRequest(
