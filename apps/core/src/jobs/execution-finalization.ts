@@ -81,7 +81,9 @@ export async function finalizeSchedulerJobRun(input: {
   // the loop, so the run cannot resume and must FAIL. Only an attended,
   // resumable denial pauses the run (Task E). The job still pauses for setup in
   // both cases so an admin can grant access and the job re-runs.
-  const autonomousToolDenial = parseAutonomousToolDenial(safePrimaryErrorSummary);
+  const autonomousToolDenial = parseAutonomousToolDenial(
+    safePrimaryErrorSummary,
+  );
   const toolDenial = autonomousToolDenial ?? diagnosticToolDenial;
   const transientPermissionApproval =
     diagnostics.transientPermissionApprovals[0] ?? null;
