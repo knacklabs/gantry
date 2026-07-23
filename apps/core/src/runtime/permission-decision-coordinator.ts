@@ -77,7 +77,8 @@ export async function coordinatePermissionDecision(
     input.request.decisionReason = reviewedRuleDecision.reason;
     input.request.closestRule = reviewedRuleDecision.closestRule;
   }
-  const railFn = input.deterministicRails ?? evaluatePermissionDeterministicRails;
+  const railFn =
+    input.deterministicRails ?? evaluatePermissionDeterministicRails;
   const railsInput: PermissionDeterministicRailsInput = {
     request: input.request,
     ...input.deterministicRailsInput,
@@ -91,7 +92,11 @@ export async function coordinatePermissionDecision(
       // Trusted-root stage (Task G): an out-of-root ask can be covered by a
       // learned grant, or offered as an ask-once "remember this folder". Rails
       // still ran first, so a destructive/secret/escape ask is never learnable.
-      const trustedRoot = await resolveTrustedRootStage(input, railFn, railsInput);
+      const trustedRoot = await resolveTrustedRootStage(
+        input,
+        railFn,
+        railsInput,
+      );
       if (trustedRoot) return trustedRoot;
       input.request.decisionReason = railDecision.reason;
       return input.tail();

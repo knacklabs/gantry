@@ -129,7 +129,11 @@ export async function resolvePermissionIpcDecision(input: {
       });
     },
     tail: () =>
-      resolvePermissionIpcDecisionTail({ ...input, effectHash, decisionMemory }),
+      resolvePermissionIpcDecisionTail({
+        ...input,
+        effectHash,
+        decisionMemory,
+      }),
   });
 }
 

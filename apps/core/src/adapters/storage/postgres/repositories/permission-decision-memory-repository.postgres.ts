@@ -27,9 +27,7 @@ function assertPersistable(input: {
   }
 }
 
-export class PostgresPermissionDecisionMemoryRepository
-  implements PermissionDecisionMemoryRepository
-{
+export class PostgresPermissionDecisionMemoryRepository implements PermissionDecisionMemoryRepository {
   constructor(private readonly db: CanonicalDb) {}
 
   async put(input: PermissionDecisionMemoryPutInput): Promise<void> {
@@ -92,7 +90,9 @@ export class PostgresPermissionDecisionMemoryRepository
     sourceMode?: string;
   }): Promise<void> {
     await this.put({
-      id: input.id ?? `pdm:${input.appId}:${input.agentFolder}:classifier_verdict:${input.effectHash}`,
+      id:
+        input.id ??
+        `pdm:${input.appId}:${input.agentFolder}:classifier_verdict:${input.effectHash}`,
       appId: input.appId,
       agentFolder: input.agentFolder,
       kind: 'classifier_verdict',
@@ -107,7 +107,8 @@ export class PostgresPermissionDecisionMemoryRepository
       provenance: input.provenance,
       nowIso: input.nowIso,
       expiresAt: input.expiresAt,
-      sourceMode: input.sourceMode as PermissionDecisionMemoryPutInput['sourceMode'],
+      sourceMode:
+        input.sourceMode as PermissionDecisionMemoryPutInput['sourceMode'],
     });
   }
 

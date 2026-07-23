@@ -361,8 +361,7 @@ describe('coordinatePermissionDecision', () => {
     workspaceRoot: root,
     trustedRoots: [] as string[],
   });
-  const grantRow = (canonicalRoot: string) =>
-    ({ canonicalRoot }) as never;
+  const grantRow = (canonicalRoot: string) => ({ canonicalRoot }) as never;
 
   it('offers ask-once "this folder" on the first command in a new root and persists the grant', async () => {
     const list = vi.fn(async () => []);

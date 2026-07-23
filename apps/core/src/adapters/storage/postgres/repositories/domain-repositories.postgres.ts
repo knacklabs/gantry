@@ -1782,7 +1782,9 @@ export function createPostgresDomainRepositories(
     observerInsights: new PostgresObserverInsightRepository(db),
     chatBatches: new PostgresChatBatchRepository(db),
     permissionPromotions: new PostgresPermissionPromotionRepository(db),
-    permissionDecisionMemory: new PostgresPermissionDecisionMemoryRepository(db),
+    permissionDecisionMemory: new PostgresPermissionDecisionMemoryRepository(
+      db,
+    ),
     groupJoinOnboarding: new PostgresGroupJoinOnboardingRepository(db),
   };
 }
