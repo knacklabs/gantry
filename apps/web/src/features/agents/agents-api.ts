@@ -15,6 +15,15 @@ const agentSchema = z.object({
 
 const agentsSchema = z.object({ agents: z.array(agentSchema) });
 
+const profileFileSchema = z.object({
+  agentId: z.string(),
+  kind: z.literal('soul'),
+  path: z.string(),
+  version: z.number().int(),
+  contentHash: z.string(),
+  content: z.string(),
+});
+
 export type LiveAgent = z.infer<typeof agentSchema> & {
   setupState?: 'draft';
 };
@@ -46,6 +55,7 @@ export function updateAgent(
     name?: string;
     description?: string | null;
     status?: 'active' | 'disabled';
+    agentHarness?: 'auto' | 'anthropic_sdk' | 'deepagents';
   },
 ) {
   return transport.request({
@@ -53,5 +63,28 @@ export function updateAgent(
     method: 'PATCH',
     body: patch,
     schema: agentSchema,
+  });
+}
+
+export function loadAgentSoul(
+  transport: RuntimeApiTransport,
+  agentId: string,
+) {
+  return transport.request({
+    path: `/agents/${encodeURIComponent(agentId)}/profile-files/soul`,
+    schema: profileFileSchema,
+  });
+}
+
+export function updateAgentSoul(
+  transport: RuntimeApiTransport,
+  agentId: string,
+  input: { content: string; expectedVersion: number },
+) {
+  return transport.request({
+    path: `/agents/${encodeURIComponent(agentId)}/profile-files/soul`,
+    method: 'PUT',
+    body: input,
+    schema: profileFileSchema,
   });
 }
