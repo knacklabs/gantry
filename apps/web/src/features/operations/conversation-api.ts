@@ -4,6 +4,7 @@ import type { RuntimeApiTransport } from '../../lib/api/runtime-transport';
 
 const providerAccountSchema = z.object({
   id: z.string(),
+  agentId: z.string(),
   providerId: z.string(),
   label: z.string(),
   status: z.enum(['active', 'inactive', 'disabled', 'archived']),
@@ -82,6 +83,7 @@ const approversResponseSchema = z.object({
 
 export type AgentOption = z.infer<typeof agentSchema>;
 export type ConversationInstall = z.infer<typeof installSchema>;
+export type ProviderAccountOption = z.infer<typeof providerAccountSchema>;
 
 export type ConversationView = {
   id: string;
@@ -105,7 +107,7 @@ export type ConversationMessageView = {
 
 export type ConversationDashboard = {
   conversations: ConversationView[];
-  providerAccounts: z.infer<typeof providerAccountSchema>[];
+  providerAccounts: ProviderAccountOption[];
   agents: AgentOption[];
   installs: ConversationInstall[];
 };

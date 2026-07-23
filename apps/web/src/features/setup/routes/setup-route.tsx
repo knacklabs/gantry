@@ -175,6 +175,7 @@ export function SetupRoute() {
             </div>
           ) : stage.id === 'connection' ? (
             <SetupConnectionDetails
+              agentId={createdAgentId}
               selectedAccountId={draft['Provider connection'] ?? ''}
               onSelect={(value) =>
                 setDraft((current) => ({
