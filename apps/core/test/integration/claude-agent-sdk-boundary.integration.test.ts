@@ -732,26 +732,33 @@ describe('Claude Agent SDK boundary integration', () => {
     expect(call?.options.env.ENABLE_TOOL_SEARCH).toBe('auto:10');
     expect(call?.options.env.CLAUDE_CODE_DISABLE_AUTO_MEMORY).toBe('1');
     expect(call?.options.env.ENABLE_CLAUDEAI_MCP_SERVERS).toBe('false');
-    expect(call?.options.allowedTools).toEqual(
+    expect(call?.options.tools).toEqual(
       expect.arrayContaining([
         'Read',
         'Glob',
         'Grep',
-        'mcp__gantry__send_message',
-        'mcp__gantry__ask_user_question',
-        'mcp__gantry__todo_update',
-        'mcp__gantry__request_skill_install',
-        'mcp__gantry__request_skill_proposal',
-        'mcp__gantry__request_skill_dependency_install',
-        'mcp__gantry__request_mcp_server',
-        'mcp__gantry__request_access',
-        'mcp__gantry__mcp_list_tools',
-        'mcp__gantry__mcp_describe_tool',
-        'mcp__gantry__mcp_call_tool',
         'Skill',
       ]),
     );
-    expect(call?.options.allowedTools).not.toEqual(
+    const projectedGantryToolNames = JSON.parse(
+      call?.options.mcpServers.gantry?.env?.GANTRY_MCP_TOOL_NAMES_JSON ?? '[]',
+    );
+    expect(projectedGantryToolNames).toEqual(
+      expect.arrayContaining([
+        'send_message',
+        'ask_user_question',
+        'todo_update',
+        'request_skill_install',
+        'request_skill_proposal',
+        'request_skill_dependency_install',
+        'request_mcp_server',
+        'request_access',
+        'mcp_list_tools',
+        'mcp_describe_tool',
+        'mcp_call_tool',
+      ]),
+    );
+    expect(call?.options.tools).not.toEqual(
       expect.arrayContaining([
         'Agent',
         'Task',
@@ -760,13 +767,17 @@ describe('Claude Agent SDK boundary integration', () => {
         'TaskList',
         'TaskUpdate',
         'TodoWrite',
-        'mcp__gantry__async_run_command',
-        'mcp__gantry__async_mcp_call',
-        'mcp__gantry__task_get',
-        'mcp__gantry__task_list',
-        'mcp__gantry__task_cancel',
-        'mcp__gantry__delegate_task',
-        'mcp__gantry__task_message',
+      ]),
+    );
+    expect(projectedGantryToolNames).not.toEqual(
+      expect.arrayContaining([
+        'async_run_command',
+        'async_mcp_call',
+        'task_get',
+        'task_list',
+        'task_cancel',
+        'delegate_task',
+        'task_message',
       ]),
     );
     expect(call?.options.tools).toEqual(
@@ -822,18 +833,7 @@ describe('Claude Agent SDK boundary integration', () => {
         'ExitWorktree',
       ]),
     );
-    expect(call?.options.allowedTools).not.toEqual(
-      expect.arrayContaining([
-        'Bash',
-        'Write',
-        'Edit',
-        'Config',
-        'mcp__gantry__list_models',
-        'mcp__gantry__*',
-        'Monitor',
-        'AskUserQuestion',
-      ]),
-    );
+    expect(call?.options.allowedTools).toBeUndefined();
     expect(call?.options.agents).toBeUndefined();
     expect(call?.options.settings.skillOverrides).toEqual(
       SDK_NATIVE_SKILL_OVERRIDES,
@@ -1120,10 +1120,15 @@ describe('Claude Agent SDK boundary integration', () => {
         }),
       ),
     );
-    expect(sdkState.calls[0]?.options.allowedTools).toEqual(
+    expect(
+      JSON.parse(
+        sdkState.calls[0]?.options.mcpServers.gantry?.env
+          ?.GANTRY_MCP_TOOL_NAMES_JSON ?? '[]',
+      ),
+    ).toEqual(
       expect.arrayContaining([
-        'mcp__gantry__memory_review_pending',
-        'mcp__gantry__memory_review_decision',
+        'memory_review_pending',
+        'memory_review_decision',
       ]),
     );
   });
@@ -1149,15 +1154,15 @@ describe('Claude Agent SDK boundary integration', () => {
       undefined,
     );
 
-    expect(sdkState.calls[0]?.options.allowedTools).toContain(
-      'mcp__gantry__send_message',
+    const projectedGantryToolNames = JSON.parse(
+      sdkState.calls[0]?.options.mcpServers.gantry?.env
+        ?.GANTRY_MCP_TOOL_NAMES_JSON ?? '[]',
     );
-    expect(sdkState.calls[0]?.options.allowedTools).not.toEqual(
-      expect.arrayContaining(['mcp__gantry__request_access']),
+    expect(projectedGantryToolNames).toContain('send_message');
+    expect(projectedGantryToolNames).not.toEqual(
+      expect.arrayContaining(['request_access']),
     );
-    expect(sdkState.calls[0]?.options.allowedTools).not.toContain(
-      'mcp__gantry__settings_desired_state',
-    );
+    expect(projectedGantryToolNames).not.toContain('settings_desired_state');
     expect(
       sdkState.calls[0]?.options.mcpServers.gantry?.env
         ?.GANTRY_MCP_TOOL_NAMES_JSON,
