@@ -7,6 +7,7 @@ import type {
   ToolCatalogItem,
 } from '../../../../domain/tools/tools.js';
 import * as pgSchema from '../schema/schema.js';
+import { retryPostgresRead } from '../postgres-read-retry.js';
 import type { CanonicalDb } from './canonical-graph-repository.postgres.js';
 
 function encodeJson(value: unknown): string {
@@ -27,11 +28,13 @@ export class PostgresToolCatalogRepository implements ToolCatalogRepository {
   constructor(private readonly db: CanonicalDb) {}
 
   async getTool(id: ToolCatalogItem['id']): Promise<ToolCatalogItem | null> {
-    const rows = await this.db
-      .select()
-      .from(pgSchema.toolCatalogPostgres)
-      .where(eq(pgSchema.toolCatalogPostgres.id, id))
-      .limit(1);
+    const rows = await retryPostgresRead('tool_catalog.getTool', () =>
+      this.db
+        .select()
+        .from(pgSchema.toolCatalogPostgres)
+        .where(eq(pgSchema.toolCatalogPostgres.id, id))
+        .limit(1),
+    );
     return rows[0] ? this.mapTool(rows[0]) : null;
   }
 
@@ -47,11 +50,13 @@ export class PostgresToolCatalogRepository implements ToolCatalogRepository {
         inArray(pgSchema.toolCatalogPostgres.status, input.statuses),
       );
     }
-    const rows = await this.db
-      .select()
-      .from(pgSchema.toolCatalogPostgres)
-      .where(and(...filters))
-      .orderBy(asc(pgSchema.toolCatalogPostgres.displayName));
+    const rows = await retryPostgresRead('tool_catalog.listTools', () =>
+      this.db
+        .select()
+        .from(pgSchema.toolCatalogPostgres)
+        .where(and(...filters))
+        .orderBy(asc(pgSchema.toolCatalogPostgres.displayName)),
+    );
     return rows.map((row) => this.mapTool(row));
   }
 
@@ -201,26 +206,28 @@ export class PostgresToolCatalogRepository implements ToolCatalogRepository {
     agentIds?: readonly AgentToolBinding['agentId'][];
   }): Promise<AgentToolBinding[]> {
     if (input.agentIds?.length === 0) return [];
-    const rows = await this.db
-      .select()
-      .from(pgSchema.agentToolBindingsPostgres)
-      .where(
-        and(
-          eq(pgSchema.agentToolBindingsPostgres.appId, input.appId),
-          input.agentId
-            ? eq(pgSchema.agentToolBindingsPostgres.agentId, input.agentId)
-            : undefined,
-          input.agentIds?.length
-            ? inArray(pgSchema.agentToolBindingsPostgres.agentId, [
-                ...input.agentIds,
-              ])
-            : undefined,
+    const rows = await retryPostgresRead('agent_tool_bindings.list', () =>
+      this.db
+        .select()
+        .from(pgSchema.agentToolBindingsPostgres)
+        .where(
+          and(
+            eq(pgSchema.agentToolBindingsPostgres.appId, input.appId),
+            input.agentId
+              ? eq(pgSchema.agentToolBindingsPostgres.agentId, input.agentId)
+              : undefined,
+            input.agentIds?.length
+              ? inArray(pgSchema.agentToolBindingsPostgres.agentId, [
+                  ...input.agentIds,
+                ])
+              : undefined,
+          ),
+        )
+        .orderBy(
+          asc(pgSchema.agentToolBindingsPostgres.agentId),
+          asc(pgSchema.agentToolBindingsPostgres.createdAt),
         ),
-      )
-      .orderBy(
-        asc(pgSchema.agentToolBindingsPostgres.agentId),
-        asc(pgSchema.agentToolBindingsPostgres.createdAt),
-      );
+    );
     return rows.map((row) => this.mapBinding(row));
   }
 
@@ -230,26 +237,28 @@ export class PostgresToolCatalogRepository implements ToolCatalogRepository {
     agentIds?: readonly AgentToolSource['agentId'][];
   }): Promise<AgentToolSource[]> {
     if (input.agentIds?.length === 0) return [];
-    const rows = await this.db
-      .select()
-      .from(pgSchema.agentToolSourcesPostgres)
-      .where(
-        and(
-          eq(pgSchema.agentToolSourcesPostgres.appId, input.appId),
-          input.agentId
-            ? eq(pgSchema.agentToolSourcesPostgres.agentId, input.agentId)
-            : undefined,
-          input.agentIds?.length
-            ? inArray(pgSchema.agentToolSourcesPostgres.agentId, [
-                ...input.agentIds,
-              ])
-            : undefined,
+    const rows = await retryPostgresRead('agent_tool_sources.list', () =>
+      this.db
+        .select()
+        .from(pgSchema.agentToolSourcesPostgres)
+        .where(
+          and(
+            eq(pgSchema.agentToolSourcesPostgres.appId, input.appId),
+            input.agentId
+              ? eq(pgSchema.agentToolSourcesPostgres.agentId, input.agentId)
+              : undefined,
+            input.agentIds?.length
+              ? inArray(pgSchema.agentToolSourcesPostgres.agentId, [
+                  ...input.agentIds,
+                ])
+              : undefined,
+          ),
+        )
+        .orderBy(
+          asc(pgSchema.agentToolSourcesPostgres.agentId),
+          asc(pgSchema.agentToolSourcesPostgres.sourceId),
         ),
-      )
-      .orderBy(
-        asc(pgSchema.agentToolSourcesPostgres.agentId),
-        asc(pgSchema.agentToolSourcesPostgres.sourceId),
-      );
+    );
     return rows.map((row) => this.mapSource(row));
   }
 
