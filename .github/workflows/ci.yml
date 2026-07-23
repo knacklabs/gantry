@@ -144,8 +144,11 @@ jobs:
           E2E_MODEL_API_KEY: ${{ secrets.E2E_ANTHROPIC_API_KEY }}
         run: |
           set -o pipefail
-          if ! command -v bwrap >/dev/null; then
-            echo "bwrap unavailable on this runner; skipping the real-model turn."
+          # The SDK filesystem sandbox needs BOTH bwrap and socat; if either is
+          # missing the runner can't sandbox the SDK child (failIfUnavailable),
+          # so skip this supplementary turn (hermetic agent-e2e ran in Tests).
+          if ! command -v bwrap >/dev/null || ! command -v socat >/dev/null; then
+            echo "bwrap/socat unavailable on this runner; skipping the real-model turn."
             exit 0
           fi
           export GANTRY_TEST_DATABASE_URL=postgres://postgres:postgres@localhost:${{ job.services.postgres.ports[5432] }}/gantry_test
