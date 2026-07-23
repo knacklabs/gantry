@@ -83,6 +83,7 @@ maybeDescribe('MCP capability authoring (Postgres)', () => {
       risk: 'write',
       displayName: 'Delete search records',
       mode: 'cancel',
+      expectPrompt: false,
     });
     expect(outsideScope.requestPermissionApproval).not.toHaveBeenCalled();
 
@@ -223,6 +224,7 @@ maybeDescribe('MCP capability authoring (Postgres)', () => {
     risk: 'read' | 'write';
     displayName: string;
     mode: 'allow_once' | 'allow_persistent_rule' | 'cancel';
+    expectPrompt?: boolean;
   }) {
     let request: Record<string, any> | undefined;
     const sendMessage = vi.fn(async () => undefined);
@@ -276,7 +278,15 @@ maybeDescribe('MCP capability authoring (Postgres)', () => {
       conversationBindings: {},
       sourceAgentFolderJids: ['tg:mcp-capability-authoring'],
     });
-    if (requestPermissionApproval.mock.calls.length > 0) {
+    // The capability review is fire-and-forget: it awaits a Postgres
+    // insertPending before it builds semanticCapabilityDefinitions and invokes
+    // the approval mock. In-scope proposals must therefore WAIT for the mock
+    // rather than read it eagerly (the old conditional guard returned before the
+    // review had run against real Postgres, leaving `request` undefined).
+    if (input.expectPrompt ?? true) {
+      await vi.waitFor(() =>
+        expect(requestPermissionApproval).toHaveBeenCalledTimes(1),
+      );
       await vi.waitFor(() => expect(sendMessage).toHaveBeenCalledTimes(1));
     }
     return { request, requestPermissionApproval, sendMessage };

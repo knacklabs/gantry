@@ -517,9 +517,14 @@ export class PostgresMcpServerRepository implements McpServerRepository {
         row.permissionPolicyIdsJson,
       ) as AgentMcpServerBinding['permissionPolicyIds'],
       allowedToolPatterns: parseJsonArray(row.allowedToolPatternsJson),
-      conversationId:
-        row.conversationId as AgentMcpServerBinding['conversationId'],
-      threadId: row.threadId as AgentMcpServerBinding['threadId'],
+      // Postgres stores an unscoped binding as NULL, but the domain type is
+      // `conversationId?`/`threadId?` (undefined = unscoped). Coerce NULL to
+      // undefined so scope checks that test `=== undefined` treat an
+      // agent-global binding correctly.
+      conversationId: (row.conversationId ??
+        undefined) as AgentMcpServerBinding['conversationId'],
+      threadId: (row.threadId ??
+        undefined) as AgentMcpServerBinding['threadId'],
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
     };
