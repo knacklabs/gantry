@@ -15,6 +15,7 @@ import { Panel } from '../../../ui/compositions/panel';
 import { Button } from '../../../ui/primitives/button';
 import { useConversationDashboard } from '../../operations/use-conversations';
 import { useModelDashboard } from '../../runtime/use-model-dashboard';
+import { SetupAgentDetails } from '../components/setup-agent-details';
 
 const stages = [
   {
@@ -131,7 +132,19 @@ export function SetupRoute() {
 
       <Panel title={stage.title} description={stage.description}>
         <div className="grid gap-5 p-5">
-          {stage.id === 'model' ? (
+          {stage.id === 'agent' ? (
+            <SetupAgentDetails
+              connected={Boolean(connection.transport)}
+              name={draft['Agent name'] ?? ''}
+              purpose={draft.Purpose ?? ''}
+              onChange={(field, value) =>
+                setDraft((current) => ({
+                  ...current,
+                  [field === 'name' ? 'Agent name' : 'Purpose']: value,
+                }))
+              }
+            />
+          ) : stage.id === 'model' ? (
             <LiveSelect
               label="Model"
               value={draft.Model ?? ''}
