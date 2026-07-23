@@ -137,6 +137,7 @@ export function validateLocalOwnerUiRequest(
 
 function isAllowedUiApiRoute(method: string, pathname: string): boolean {
   const routeRules: Array<[RegExp, readonly string[]]> = [
+    [/^\/v1\/health$/, ['GET']],
     [/^\/v1\/models$/, ['GET']],
     [/^\/v1\/models\/defaults$/, ['GET', 'PATCH']],
     [/^\/v1\/credentials\/models$/, ['GET']],

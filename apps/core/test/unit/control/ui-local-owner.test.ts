@@ -102,6 +102,15 @@ describe('local-owner UI request guard', () => {
     ).toBeUndefined();
   });
 
+  it('allows the local runtime health read used by setup review', () => {
+    expect(
+      validateLocalOwnerUiRequest(
+        request({ headers: browserHeaders }),
+        '/v1/health',
+      ),
+    ).toBeUndefined();
+  });
+
   it('allows the scoped provider discovery action', () => {
     const mutation = request({
       method: 'POST',

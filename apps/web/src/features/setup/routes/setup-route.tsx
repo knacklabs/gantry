@@ -20,6 +20,7 @@ import { SetupConnectionDetails } from '../components/setup-connection-details';
 import { SetupConversationDetails } from '../components/setup-conversation-details';
 import { SetupModelSave } from '../components/setup-model-save';
 import { SetupProfileDetails } from '../components/setup-profile-details';
+import { SetupReviewDetails } from '../components/setup-review-details';
 
 const stages = [
   {
@@ -208,7 +209,12 @@ export function SetupRoute() {
             <SetupProfileDetails agentId={createdAgentId} />
           ) : null}
           {isFinalStage ? (
-            <ReviewSummary connected={Boolean(connection.transport)} />
+            <SetupReviewDetails
+              agentCreated={Boolean(createdAgentId)}
+              modelAlias={draft.Model ?? ''}
+              providerAccountId={draft['Provider connection'] ?? ''}
+              conversationId={draft.Conversation ?? ''}
+            />
           ) : null}
           <div className="flex flex-wrap justify-between gap-3 border-t border-border pt-4">
             <Button
@@ -323,18 +329,5 @@ function ModelReadiness({ readiness }: { readiness?: 'ready' | 'attention' }) {
         ? 'Model access is ready for this runtime.'
         : 'This model needs attention before the agent can use it.'}
     </p>
-  );
-}
-
-function ReviewSummary({ connected }: { connected: boolean }) {
-  return (
-    <div className="rounded-md border border-border bg-surface-muted p-4 text-sm text-text-secondary">
-      <p className="m-0 font-semibold text-text">Review setup</p>
-      <p className="mt-1 mb-0 leading-5">
-        {connected
-          ? 'Creation, connection discovery, conversation access, and profile edits are saved in their respective steps. This review does not send additional changes.'
-          : 'Connect Gantry to view runtime-backed setup options. This local draft has not sent any changes.'}
-      </p>
-    </div>
   );
 }
