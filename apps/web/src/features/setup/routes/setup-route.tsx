@@ -18,6 +18,7 @@ import { useModelDashboard } from '../../runtime/use-model-dashboard';
 import { SetupAgentDetails } from '../components/setup-agent-details';
 import { SetupConnectionDetails } from '../components/setup-connection-details';
 import { SetupConversationDetails } from '../components/setup-conversation-details';
+import { SetupModelSave } from '../components/setup-model-save';
 import { SetupProfileDetails } from '../components/setup-profile-details';
 
 const stages = [
@@ -171,6 +172,10 @@ export function SetupRoute() {
                     (model) => model.alias === draft.Model,
                   )?.readiness
                 }
+              />
+              <SetupModelSave
+                agentId={createdAgentId}
+                modelAlias={draft.Model ?? ''}
               />
             </div>
           ) : stage.id === 'connection' ? (
