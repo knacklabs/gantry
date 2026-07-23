@@ -39,7 +39,7 @@
       "history": ".factory/history/PERM-1/"
     },
     {
-      "status": "pending",
+      "status": "active",
       "key": "PERM-2",
       "title": "Permission engine: decision coordinator build (remainder)",
       "epic": "permission-engine",
@@ -423,5 +423,5 @@
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-07-23T07:39:30+00:00"
+  "updated_at": "2026-07-23T09:07:50+00:00"
 }
