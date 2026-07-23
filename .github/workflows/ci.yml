@@ -60,14 +60,12 @@ jobs:
           path: gantry-runtime-sbom.cdx.json
 
       - name: Build runtime image
-        run: |
-          # Self-hosted runner may ship compose v1 (docker-compose) rather than
-          # the v2 plugin (docker compose); use whichever is present.
-          if docker compose version >/dev/null 2>&1; then
-            docker compose -f ops/docker/docker-compose.fleet.yml build --pull
-          else
-            docker-compose -f ops/docker/docker-compose.fleet.yml build --pull
-          fi
+        # The self-hosted runner has docker + buildx but no compose plugin
+        # (neither v2 `docker compose` nor v1 `docker-compose`). Build the same
+        # runtime image the fleet compose file defines directly — identical
+        # Dockerfile, context, and tag (gantry-runtime:fleet-rehearsal) — so the
+        # `security:images --inspect-compose-images` step below still finds it.
+        run: docker build --pull -f ops/docker/Dockerfile -t gantry-runtime:fleet-rehearsal .
 
       - name: Check runtime images
         run: npm run security:images -- --inspect-compose-images --require-content-inspection
