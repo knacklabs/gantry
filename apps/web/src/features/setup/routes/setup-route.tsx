@@ -5,7 +5,7 @@ import {
   Circle,
   WifiOff,
 } from 'lucide-react';
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 
 import { useRuntimeConnection } from '../../../lib/api/runtime-connection';
 import { useConnectionGate } from '../../../ui/compositions/connection-gate';
@@ -101,6 +101,11 @@ export function SetupRoute() {
   const [activeStage, setActiveStage] = useState(0);
   const [draft, setDraft] = useState<Record<string, string>>({});
   const [createdAgentId, setCreatedAgentId] = useState<string>();
+  const [savedModelAlias, setSavedModelAlias] = useState('');
+  const [savedConversationId, setSavedConversationId] = useState('');
+  const [profileSaved, setProfileSaved] = useState(false);
+  const markProfileSaved = useCallback(() => setProfileSaved(true), []);
+  const markProfileDirty = useCallback(() => setProfileSaved(false), []);
   const [showValidation, setShowValidation] = useState(false);
   const connection = useRuntimeConnection();
   const { requestConnection } = useConnectionGate();
@@ -163,9 +168,10 @@ export function SetupRoute() {
                 }))}
                 loading={modelQuery.isPending}
                 emptyMessage="No models are available for this runtime."
-                onChange={(value) =>
-                  setDraft((current) => ({ ...current, Model: value }))
-                }
+                onChange={(value) => {
+                  setSavedModelAlias('');
+                  setDraft((current) => ({ ...current, Model: value }));
+                }}
               />
               <ModelReadiness
                 readiness={
@@ -177,6 +183,7 @@ export function SetupRoute() {
               <SetupModelSave
                 agentId={createdAgentId}
                 modelAlias={draft.Model ?? ''}
+                onSaved={setSavedModelAlias}
               />
             </div>
           ) : stage.id === 'connection' ? (
@@ -200,20 +207,27 @@ export function SetupRoute() {
                 agentId={createdAgentId}
                 conversations={conversationQuery.data?.conversations ?? []}
                 selectedConversationId={draft.Conversation ?? ''}
-                onSelect={(value) =>
-                  setDraft((current) => ({ ...current, Conversation: value }))
-                }
+                onSelect={(value) => {
+                  setSavedConversationId('');
+                  setDraft((current) => ({ ...current, Conversation: value }));
+                }}
+                onSaved={setSavedConversationId}
               />
             )
           ) : stage.id === 'profile' ? (
-            <SetupProfileDetails agentId={createdAgentId} />
+            <SetupProfileDetails
+              agentId={createdAgentId}
+              onDirty={markProfileDirty}
+              onSaved={markProfileSaved}
+            />
           ) : null}
           {isFinalStage ? (
             <SetupReviewDetails
               agentCreated={Boolean(createdAgentId)}
-              modelAlias={draft.Model ?? ''}
+              modelAlias={savedModelAlias}
               providerAccountId={draft['Provider connection'] ?? ''}
-              conversationId={draft.Conversation ?? ''}
+              conversationId={savedConversationId}
+              profileSaved={profileSaved}
             />
           ) : null}
           <div className="flex flex-wrap justify-between gap-3 border-t border-border pt-4">

@@ -4,7 +4,15 @@ import { RuntimeApiError } from '../../../lib/api/runtime-transport';
 import { Button } from '../../../ui/primitives/button';
 import { useSaveSetupProfile, useSetupProfile } from '../use-setup-profile';
 
-export function SetupProfileDetails({ agentId }: { agentId?: string }) {
+export function SetupProfileDetails({
+  agentId,
+  onDirty,
+  onSaved,
+}: {
+  agentId?: string;
+  onDirty: () => void;
+  onSaved: () => void;
+}) {
   const profile = useSetupProfile(agentId);
   const saveProfile = useSaveSetupProfile();
   const [content, setContent] = useState('');
@@ -12,8 +20,10 @@ export function SetupProfileDetails({ agentId }: { agentId?: string }) {
     profile.error instanceof RuntimeApiError && profile.error.status === 404;
 
   useEffect(() => {
-    if (profile.data) setContent(profile.data.content);
-  }, [profile.data]);
+    if (!profile.data) return;
+    setContent(profile.data.content);
+    onSaved();
+  }, [onSaved, profile.data]);
 
   if (!agentId) {
     return (
@@ -35,18 +45,24 @@ export function SetupProfileDetails({ agentId }: { agentId?: string }) {
           className="min-h-56 rounded-md border border-border-strong bg-surface px-3 py-2 text-[13px] font-normal text-text placeholder:text-text-muted"
           placeholder="Describe the agent's role, priorities, tone, and boundaries."
           value={content}
-          onChange={(event) => setContent(event.target.value)}
+          onChange={(event) => {
+            onDirty();
+            setContent(event.target.value);
+          }}
         />
       </label>
       <div className="flex flex-wrap items-center gap-3">
         <Button
           disabled={saveProfile.isPending}
           onClick={() =>
-            saveProfile.mutate({
-              agentId,
-              content,
-              expectedVersion: profile.data?.version,
-            })
+            saveProfile.mutate(
+              {
+                agentId,
+                content,
+                expectedVersion: profile.data?.version,
+              },
+              { onSuccess: onSaved },
+            )
           }
         >
           {saveProfile.isPending ? 'Saving profile…' : 'Save profile'}

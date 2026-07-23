@@ -9,11 +9,13 @@ export function SetupConversationDetails({
   conversations,
   selectedConversationId,
   onSelect,
+  onSaved,
 }: {
   agentId?: string;
   conversations: ConversationView[];
   selectedConversationId: string;
   onSelect: (conversationId: string) => void;
+  onSaved: (conversationId: string) => void;
 }) {
   const replaceInstall = useReplaceConversationInstall();
   const [requiresTrigger, setRequiresTrigger] = useState(true);
@@ -112,21 +114,24 @@ export function SetupConversationDetails({
           }
           onClick={() => {
             if (!agentId || !selectedConversation) return;
-            replaceInstall.mutate({
-              conversation: selectedConversation,
-              currentAgentId: selectedConversation.agentId,
-              nextAgentId: agentId,
-              trigger,
-              requiresTrigger,
-              ...(replaceApprovers
-                ? {
-                    approverUserIds: approverIds
-                      .split(',')
-                      .map((value) => value.trim())
-                      .filter(Boolean),
-                  }
-                : {}),
-            });
+            replaceInstall.mutate(
+              {
+                conversation: selectedConversation,
+                currentAgentId: selectedConversation.agentId,
+                nextAgentId: agentId,
+                trigger,
+                requiresTrigger,
+                ...(replaceApprovers
+                  ? {
+                      approverUserIds: approverIds
+                        .split(',')
+                        .map((value) => value.trim())
+                        .filter(Boolean),
+                    }
+                  : {}),
+              },
+              { onSuccess: () => onSaved(selectedConversation.id) },
+            );
           }}
         >
           {replaceInstall.isPending

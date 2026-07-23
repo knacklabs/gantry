@@ -6,11 +6,13 @@ export function SetupReviewDetails({
   modelAlias,
   providerAccountId,
   conversationId,
+  profileSaved,
 }: {
   agentCreated: boolean;
   modelAlias: string;
   providerAccountId: string;
   conversationId: string;
+  profileSaved: boolean;
 }) {
   const check = useSetupReadinessCheck();
   const checks: Array<[string, boolean]> = [
@@ -18,6 +20,7 @@ export function SetupReviewDetails({
     ['Model', Boolean(modelAlias)],
     ['Provider connection', Boolean(providerAccountId)],
     ['Conversation', Boolean(conversationId)],
+    ['Profile', profileSaved],
   ];
 
   return (

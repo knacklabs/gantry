@@ -4,9 +4,11 @@ import { useSetSetupAgentModel } from '../use-set-setup-agent-model';
 export function SetupModelSave({
   agentId,
   modelAlias,
+  onSaved,
 }: {
   agentId?: string;
   modelAlias: string;
+  onSaved: (modelAlias: string) => void;
 }) {
   const saveModel = useSetSetupAgentModel();
 
@@ -16,7 +18,10 @@ export function SetupModelSave({
         disabled={!agentId || !modelAlias || saveModel.isPending}
         onClick={() => {
           if (!agentId || !modelAlias) return;
-          saveModel.mutate({ agentId, modelAlias });
+          saveModel.mutate(
+            { agentId, modelAlias },
+            { onSuccess: () => onSaved(modelAlias) },
+          );
         }}
       >
         {saveModel.isPending ? 'Saving model…' : 'Save model'}
