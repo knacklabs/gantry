@@ -27,3 +27,23 @@ PERM-2's exact-target (symlink/cwd-resolved) resolution. So: sandbox fully off;
 rails carry authoritative GANTRY_PROTECTED_FILESYSTEM_* + local_cli paths and
 precede every allow for escape-eligible commands; empowered classifier for the
 rest. Depends on PERM-2 effect-key work. -->
+
+<!-- D-0005 deployment-reality refinement (client 2026-07-23): production runs
+on STATELESS ECS with NO credentials on disk. There a filesystem sandbox guards
+files that do not exist (no ~/.ssh, no ~/.aws, no local_cli credentialDir), so
+the OS sandbox can come FULLY OFF now — the ECS task IS the isolation boundary
+(vendor-recommended), delivering the authorization-sole-control endpoint for
+production immediately, WITHOUT the hard exact-filesystem-target rails work.
+The real credential surface in ECS is the NETWORK: the container-credentials
+endpoint 169.254.170.2 (+AWS_CONTAINER_CREDENTIALS_RELATIVE_URI) and IMDS
+169.254.169.254. Guard = the EGRESS rail denies/asks tool-subprocess connections
+to those link-local metadata endpoints; plus IMDSv2 + hop-limit and broker-only
+credential delivery (tools never hit the metadata endpoint directly). This is a
+network control, exact and cheap — no exact-effect filesystem machinery needed.
+Make sandbox posture DEPLOYMENT-AWARE: (a) stateless/containerized (ECS,
+default prod) => OS sandbox OFF + egress-guarded metadata endpoints; (b)
+workstation dev (macOS, operator's real ~/.ssh/.aws present) => keep the
+filesystem credential-deny interim, and the exact-target rails work is scoped to
+THIS case only (dev-mode, lower priority). NB the Chrome/Mach-registration block
+is macOS-Seatbelt-specific; Linux/ECS (bubblewrap, no Mach) likely renders fine
+already, so the video-render motivation is a workstation-only concern. -->
