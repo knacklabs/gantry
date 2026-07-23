@@ -23,3 +23,20 @@ When removing debt, delete the matching exception in the same change. If the che
   coverage for it; matrix rows in `docs/architecture/agent-e2e-test-matrix.md`
   flip with test-file citations. A PR with no e2e delta states why in its
   body. The agent-e2e gate is the merge bar.
+
+## PR description clarity (client directive 2026-07-23)
+
+A PR is read by people who weren't in the build. Every PR body opens with a
+plain-language section, BEFORE any technical detail, so a reader understands
+the total goal — not just the diff. Required structure:
+
+1. **What & why** — the feature/program in 2-3 sentences a non-builder
+   understands (name the program, not just the story key); what it does for
+   users and why it exists.
+2. **What this PR delivers** — this slice in the arc, plainly.
+3. **Technical detail** — stages, key changes.
+4. **Evidence** — verify/review/test results.
+5. **E2E delta** — the agent-e2e change, or why none is needed.
+
+Never open a PR with stage jargon (e.g. "land S2 emission + S3a batch-core")
+that assumes context the reader lacks.

@@ -106,4 +106,4 @@ A task is not PR-ready until all of these exist:
 - Review runs as ONE autoreview pass in Codex — never inline, never nested reviewers.
 - Keep the template repo independent of any client-specific source repo.
 - Do not keep long policy blocks in `AGENTS.md`; move them into docs.
-- PRs: orchestrator may push story branches + raise PRs once `pr_ready` (one per story); merging stays human-gated; runtime-behavior PRs carry their agent-e2e delta (or state why not). Policy: `docs/review-instructions.md`.
+- PRs: orchestrator may push story branches + raise PRs once `pr_ready` (one per story); merging stays human-gated; every PR body opens with the plain-language goal/why before the technical delta; runtime-behavior PRs carry their agent-e2e delta (or state why not). Policy: `docs/review-instructions.md`.
