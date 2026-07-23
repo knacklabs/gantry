@@ -2,12 +2,11 @@ import { z } from 'zod';
 
 export const agentListSearchSchema = z.object({
   q: z.string().catch(''),
-  status: z
-    .enum(['all', 'deployed', 'draft', 'paused', 'blocked'])
-    .catch('all'),
-  model: z.enum(['all', 'sonnet', 'opus', 'gpt-5']).catch('all'),
+  status: z.enum(['all', 'active', 'disabled', 'draft']).catch('all'),
+  model: z.enum(['all']).catch('all'),
   page: z.coerce.number().int().min(1).catch(1),
-  sort: z.enum(['name', 'status', 'modelAlias', 'lastRun']).catch('name'),
+  sort: z.enum(['name', 'status', 'updatedAt']).catch('name'),
+  setup: z.string().optional().catch(undefined),
   desc: z.coerce.boolean().catch(false),
 });
 

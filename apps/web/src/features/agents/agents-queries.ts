@@ -8,14 +8,15 @@ export const agentQueryKeys = {
   sources: () => [...agentQueryKeys.all, 'sources'] as const,
 };
 
-export const agentPreviewQuery = queryOptions({
-  queryKey: agentQueryKeys.list(),
-  queryFn: () => agents,
-  initialData: agents,
-});
-
 export const sourcePreviewQuery = queryOptions({
   queryKey: agentQueryKeys.sources(),
   queryFn: () => sources,
   initialData: sources,
+});
+
+// Temporary consumer for routes which have not yet moved to the live Agent API.
+export const agentPreviewQuery = queryOptions({
+  queryKey: [...agentQueryKeys.list(), 'legacy-preview'] as const,
+  queryFn: () => agents,
+  initialData: agents,
 });

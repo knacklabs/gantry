@@ -4,6 +4,7 @@ import type { ColumnDef } from '@tanstack/react-table';
 import { Bot, Plus } from 'lucide-react';
 import { type FormEvent, useMemo } from 'react';
 
+import { useRuntimeConnection } from '../../../lib/api/runtime-connection';
 import { useConnectionGate } from '../../../ui/compositions/connection-gate';
 import { DataTable } from '../../../ui/compositions/data-table';
 import { PageHeader } from '../../../ui/compositions/page-header';
@@ -11,19 +12,28 @@ import { Panel } from '../../../ui/compositions/panel';
 import { StatusBadge } from '../../../ui/compositions/status-badge';
 import { TextField } from '../../../ui/compositions/text-field';
 import { Button } from '../../../ui/primitives/button';
-import type { AgentPreview } from '../agents-preview';
-import { agentPreviewQuery } from '../agents-queries';
+import { loadAgents, type LiveAgent } from '../agents-api';
+import { agentQueryKeys } from '../agents-queries';
 
 export function AgentsRoute() {
   const search = useSearch({ from: '/agents' });
   const navigate = useNavigate({ from: '/agents' });
-  const { data } = useQuery(agentPreviewQuery);
+  const connection = useRuntimeConnection();
+  const {
+    data = [],
+    isPending,
+    isError,
+  } = useQuery({
+    queryKey: agentQueryKeys.list(),
+    enabled: Boolean(connection.transport),
+    queryFn: () => loadAgents(connection.transport!),
+  });
   const { requestConnection } = useConnectionGate();
   const query = search.q.toLowerCase();
   const visible = data.filter(
     (agent) =>
-      (search.status === 'all' || agent.status === search.status) &&
-      (search.model === 'all' || agent.modelAlias === search.model) &&
+      (search.status === 'all' || statusFor(agent) === search.status) &&
+      search.model === 'all' &&
       (!query ||
         `${agent.name} ${agent.description}`.toLowerCase().includes(query)),
   );
@@ -36,38 +46,50 @@ export function AgentsRoute() {
     });
   }
 
-  const columns = useMemo<ColumnDef<AgentPreview>[]>(
+  const columns = useMemo<ColumnDef<LiveAgent>[]>(
     () => [
       {
         accessorKey: 'name',
         header: 'Agent',
-        cell: ({ row }) => (
-          <Link
-            className="grid min-h-9 content-center text-text no-underline hover:underline"
-            params={{ agentId: row.original.id }}
-            search={{ tab: 'identity' }}
-            to="/agents/$agentId"
-          >
-            <span className="font-semibold">{row.original.name}</span>
-            <span className="max-w-[280px] truncate text-xs font-normal text-text-muted">
-              {row.original.description}
-            </span>
-          </Link>
-        ),
+        cell: ({ row }) =>
+          row.original.setupState === 'draft' ? (
+            <button
+              className="grid min-h-9 content-center text-left text-text hover:underline"
+              onClick={() =>
+                void navigate({ search: { ...search, setup: row.original.id } })
+              }
+              type="button"
+            >
+              <span className="font-semibold">{row.original.name}</span>
+              <span className="max-w-[280px] truncate text-xs font-normal text-text-muted">
+                {row.original.description ?? row.original.id}
+              </span>
+            </button>
+          ) : (
+            <Link
+              className="grid min-h-9 content-center text-text no-underline hover:underline"
+              params={{ agentId: row.original.id }}
+              search={{ tab: 'identity' }}
+              to="/agents/$agentId"
+            >
+              <span className="font-semibold">{row.original.name}</span>
+              <span className="max-w-[280px] truncate text-xs font-normal text-text-muted">
+                {row.original.description ?? row.original.id}
+              </span>
+            </Link>
+          ),
       },
       {
         accessorKey: 'status',
         header: 'Status',
-        cell: ({ getValue }) => <StatusBadge status={String(getValue())} />,
+        cell: ({ row }) => <StatusBadge status={statusFor(row.original)} />,
       },
       {
         accessorKey: 'modelAlias',
         header: 'Model',
         cell: ({ row }) => (
           <span>
-            <span className="block font-medium text-text">
-              {row.original.modelAlias}
-            </span>
+            <span className="block font-medium text-text">Default</span>
             <span className="font-mono text-[10px] text-text-muted">
               {row.original.agentHarness}
             </span>
@@ -75,14 +97,17 @@ export function AgentsRoute() {
         ),
       },
       {
-        accessorKey: 'conversations',
-        header: 'Assignments',
-        enableSorting: false,
-        cell: ({ row }) => `${row.original.conversations.length} conversations`,
+        id: 'conversations',
+        header: 'Conversations',
+        cell: () => '—',
       },
-      { accessorKey: 'lastRun', header: 'Last run' },
+      {
+        accessorKey: 'updatedAt',
+        header: 'Updated',
+        cell: ({ getValue }) => new Date(String(getValue())).toLocaleString(),
+      },
     ],
-    [],
+    [navigate, search],
   );
 
   return (
@@ -92,7 +117,13 @@ export function AgentsRoute() {
         title="Agents"
         description="Identity, model defaults, attached sources, and conversation installations."
         action={
-          <Button onClick={() => requestConnection('Create agent')}>
+          <Button
+            onClick={() => {
+              if (!connection.transport)
+                return requestConnection('Create agent');
+              void navigate({ search: { ...search, setup: 'new' } });
+            }}
+          >
             <Plus size={16} aria-hidden="true" />
             Create agent
           </Button>
@@ -113,7 +144,7 @@ export function AgentsRoute() {
         <FilterSelect
           label="Status"
           value={search.status}
-          options={['all', 'deployed', 'draft', 'paused', 'blocked']}
+          options={['all', 'active', 'disabled', 'draft']}
           onChange={(status) =>
             void navigate({ search: { ...search, status, page: 1 } })
           }
@@ -121,7 +152,7 @@ export function AgentsRoute() {
         <FilterSelect
           label="Model"
           value={search.model}
-          options={['all', 'sonnet', 'opus', 'gpt-5']}
+          options={['all']}
           onChange={(model) =>
             void navigate({ search: { ...search, model, page: 1 } })
           }
@@ -138,8 +169,16 @@ export function AgentsRoute() {
       >
         <DataTable
           columns={columns}
-          data={visible}
-          emptyMessage="No agents match these filters."
+          data={isPending ? [] : visible}
+          emptyMessage={
+            isError
+              ? 'Agents could not be loaded. Check the Gantry connection and try again.'
+              : isPending
+                ? 'Loading agents…'
+                : data.length === 0
+                  ? 'No agents yet. Create your first agent to get started.'
+                  : 'No agents match these filters.'
+          }
           page={search.page}
           sort={search.sort}
           descending={search.desc}
@@ -160,6 +199,10 @@ export function AgentsRoute() {
       </Panel>
     </div>
   );
+}
+
+function statusFor(agent: LiveAgent): 'active' | 'disabled' | 'draft' {
+  return agent.setupState === 'draft' ? 'draft' : agent.status;
 }
 
 function FilterSelect<T extends string>({

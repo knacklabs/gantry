@@ -134,8 +134,18 @@ export async function handleAgentRoutes(
     const agents = await getRuntimeStorage().repositories.agents.listAgents(
       auth.appId as AppId,
     );
+    const drafts =
+      await getRuntimeStorage().repositories.agentSetupDrafts.listDrafts(
+        auth.appId as AppId,
+      );
+    const draftAgentIds = new Set(drafts.map((draft) => draft.agentId));
     sendJson(res, 200, {
-      agents: agents.map((agent) => agentToResponse(ctx, agent)),
+      agents: agents.map((agent) => ({
+        ...agentToResponse(ctx, agent),
+        ...(draftAgentIds.has(agent.id)
+          ? { metadata: { setupState: 'draft' } }
+          : {}),
+      })),
     });
     return true;
   }
