@@ -31,3 +31,27 @@ export async function loadAgents(
     setupState: agent.metadata?.setupState === 'draft' ? 'draft' : undefined,
   }));
 }
+
+export function loadAgent(transport: RuntimeApiTransport, agentId: string) {
+  return transport.request({
+    path: `/agents/${encodeURIComponent(agentId)}`,
+    schema: agentSchema,
+  });
+}
+
+export function updateAgent(
+  transport: RuntimeApiTransport,
+  agentId: string,
+  patch: {
+    name?: string;
+    description?: string | null;
+    status?: 'active' | 'disabled';
+  },
+) {
+  return transport.request({
+    path: `/agents/${encodeURIComponent(agentId)}`,
+    method: 'PATCH',
+    body: patch,
+    schema: agentSchema,
+  });
+}

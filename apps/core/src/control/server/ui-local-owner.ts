@@ -161,6 +161,7 @@ function isAllowedUiApiRoute(method: string, pathname: string): boolean {
     [/^\/v1\/conversations\/[^/]+\/(?:threads|messages)$/, ['GET']],
     [/^\/v1\/conversations\/[^/]+\/approvers$/, ['GET', 'PUT']],
     [/^\/v1\/agents$/, ['GET', 'POST']],
+    [/^\/v1\/agents\/[^/]+$/, ['GET', 'PATCH']],
     [/^\/v1\/agent-setups$/, ['POST']],
     [/^\/v1\/agent-setups\/[^/]+$/, ['GET', 'PATCH', 'DELETE']],
     [/^\/v1\/agents\/[^/]+\/model$/, ['PATCH']],
