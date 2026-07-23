@@ -114,28 +114,61 @@ describe('computePermissionEffectHash', () => {
     expect(computePermissionEffectHash({ request: req })).toBeUndefined();
   });
 
-  it('returns undefined for sanitized input (no caching)', () => {
-    const req = shellRequest('ls', { toolInputSanitized: true });
-    expect(computePermissionEffectHash({ request: req })).toBeUndefined();
-  });
+  it('still caches sanitized/redacted input (values redacted, verbs intact)', () => {
+    // Sensitive-VALUE redaction and 500-char display alteration do not change
+    // the risk-relevant command, so the key still builds.
+    expect(
+      computePermissionEffectHash({
+        request: shellRequest('ls', { toolInputSanitized: true }),
+      }),
+    ).toBeDefined();
+    expect(
+      computePermissionEffectHash({
+        request: shellRequest('ls', { toolInputSanitizedPaths: ['command'] }),
+      }),
+    ).toBeDefined();
 
-  it('returns undefined when sanitized paths are present', () => {
-    const req = shellRequest('ls', { toolInputSanitizedPaths: ['command'] });
-    expect(computePermissionEffectHash({ request: req })).toBeUndefined();
-  });
-
-  it('returns undefined for redacted/truncated classifier input', () => {
     const redacted = shellRequest('ls') as PermissionApprovalRequest & {
       toolInputRedactedPaths?: string[];
     };
     redacted.toolInputRedactedPaths = ['command'];
-    expect(computePermissionEffectHash({ request: redacted })).toBeUndefined();
+    expect(computePermissionEffectHash({ request: redacted })).toBeDefined();
+  });
 
+  it('returns undefined only when the shell command was truncated', () => {
     const truncated = shellRequest('ls') as PermissionApprovalRequest & {
       toolInputTruncatedPaths?: string[];
     };
     truncated.toolInputTruncatedPaths = ['command'];
     expect(computePermissionEffectHash({ request: truncated })).toBeUndefined();
+  });
+
+  it('builds a key for a benign host-env-prefixed (already-stripped) command', () => {
+    // After ipc-parsing strips the host env prefix, the effect key sees the
+    // real command and caches it.
+    expect(
+      computePermissionEffectHash({
+        request: shellRequest('head -30 file'),
+      }),
+    ).toBeDefined();
+  });
+
+  it('hashes the full 16K classifier command, not the truncated display copy', () => {
+    const full = `echo ${'a'.repeat(520)}`;
+    const key = computePermissionEffectHash({
+      request: shellRequest(`${full.slice(0, 500)}...[truncated]`, {
+        classifierToolInput: { command: full },
+      }),
+    });
+    expect(key).toBeDefined();
+    // Same full command, different truncated display ⇒ same hash: the display
+    // copy is ignored, the 16K command is what's hashed.
+    const other = computePermissionEffectHash({
+      request: shellRequest('a completely different display string', {
+        classifierToolInput: { command: full },
+      }),
+    });
+    expect(other).toBe(key);
   });
 
   it('returns undefined for a shell request with no command', () => {

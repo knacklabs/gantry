@@ -157,6 +157,10 @@ export interface PermissionApprovalRequest {
   };
   blockedPath?: string;
   toolInput?: Record<string, unknown>;
+  /** 16K-limit sanitize of the same input; the permission DECISION layers
+   *  (rails + effect-key) evaluate this fuller view, not the 500-char display
+   *  `toolInput`. Set alongside `toolInput` in ipc-parsing. */
+  classifierToolInput?: Record<string, unknown>;
   toolInputSanitized?: boolean;
   toolInputSanitizedPaths?: string[];
   semanticCapabilityDefinitions?: Record<string, SemanticCapabilityDefinition>;

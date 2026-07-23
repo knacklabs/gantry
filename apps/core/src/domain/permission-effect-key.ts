@@ -15,9 +15,11 @@ import type { PermissionApprovalRequest } from './types.js';
  *    commands would collide.
  *  - Every field is length-prefixed so `a|b` can never equal `ab`.
  *
- * Returns `undefined` (⇒ NO caching) whenever the exact input is unavailable:
- * missing, sanitized, redacted, or truncated (including the 500-char cap that
- * `sanitizeIpcToolInput` applies to `toolInput`). Never hash incomplete input.
+ * Returns `undefined` (⇒ NO caching) whenever the risk-relevant input is
+ * unavailable: the toolInput is missing, or a shell command field was actually
+ * truncated. Sensitive-value redaction and 500-char display alteration do not
+ * change the risk-relevant command, so those alone still cache. Never hash a
+ * truncated command.
  */
 
 // Bump on ANY change to the canonicalizer below (field set, order, framing,
@@ -49,7 +51,9 @@ export function computePermissionEffectHash(
 ): string | undefined {
   const { request } = input;
   if (inputIsIncomplete(request)) return undefined;
-  const toolInput = request.toolInput;
+  // Hash the 16K classifier view (not the 500-char display copy) so the cached
+  // command matches what the rails evaluated and what the truncation guard covers.
+  const toolInput = request.classifierToolInput ?? request.toolInput;
   if (!toolInput) return undefined;
 
   const cwd = input.workspaceRoot ?? request.sourceAgentFolder;
@@ -102,19 +106,16 @@ function commandText(input: Record<string, unknown>): string | undefined {
 }
 
 /**
- * Mirrors `inputIsIncomplete` in permission-deterministic-rails.ts (100-112):
- * any sanitize/redact/truncate marker ⇒ the exact input is unavailable.
+ * Mirrors `inputIsIncomplete` in permission-deterministic-rails.ts: incomplete
+ * ONLY when the toolInput is missing or a shell command field was actually
+ * TRUNCATED. Redaction (secret VALUES) and 500-char display alteration are not
+ * risk gaps, so a benign redacted-but-not-truncated input still caches.
  */
 function inputIsIncomplete(request: PermissionApprovalRequest): boolean {
   const ipc = request as PermissionApprovalRequest & {
-    toolInputRedactedPaths?: string[];
     toolInputTruncatedPaths?: string[];
   };
-  return (
-    !request.toolInput ||
-    request.toolInputSanitized === true ||
-    Boolean(request.toolInputSanitizedPaths?.length) ||
-    Boolean(ipc.toolInputRedactedPaths?.length) ||
-    Boolean(ipc.toolInputTruncatedPaths?.length)
-  );
+  if (!request.toolInput) return true;
+  const truncated = ipc.toolInputTruncatedPaths ?? [];
+  return truncated.includes('command') || truncated.includes('cmd');
 }

@@ -48,9 +48,11 @@ export function evaluatePermissionDeterministicRails(
 ): PermissionDeterministicRailDecision | undefined {
   const { request } = input;
   if (inputIsIncomplete(request)) {
-    return ask('Exact tool input is missing, sanitized, or altered.');
+    return ask('Exact tool input is missing or the command was truncated.');
   }
-  const toolInput = request.toolInput;
+  // Evaluate the 16K classifier view, not the 500-char display copy, so the
+  // command we inspect matches the truncation signal inputIsIncomplete guards.
+  const toolInput = request.classifierToolInput ?? request.toolInput;
   if (!toolInput) return ask('Exact tool input is missing.');
 
   const readOnly = evaluateAutoPermissionReadOnlyGate({
@@ -97,18 +99,21 @@ export function evaluatePermissionDeterministicRails(
   return readOnly.allowed ? allow(request, readOnly.reason) : undefined;
 }
 
+/**
+ * Incomplete ⇒ the risk-relevant input is genuinely unavailable, so we must
+ * ask. That is ONLY when the toolInput is missing, or a shell command field was
+ * actually TRUNCATED (`toolInputTruncatedPaths` contains `command`/`cmd`).
+ * Sensitive-key redaction replaces secret VALUES — not the risk-relevant
+ * verbs/paths — and 500-char display alteration is not a risk gap now that the
+ * host env-prefix is stripped, so neither alone marks the input incomplete.
+ */
 function inputIsIncomplete(request: PermissionApprovalRequest): boolean {
   const ipc = request as PermissionApprovalRequest & {
-    toolInputRedactedPaths?: string[];
     toolInputTruncatedPaths?: string[];
   };
-  return (
-    !request.toolInput ||
-    request.toolInputSanitized === true ||
-    Boolean(request.toolInputSanitizedPaths?.length) ||
-    Boolean(ipc.toolInputRedactedPaths?.length) ||
-    Boolean(ipc.toolInputTruncatedPaths?.length)
-  );
+  if (!request.toolInput) return true;
+  const truncated = ipc.toolInputTruncatedPaths ?? [];
+  return truncated.includes('command') || truncated.includes('cmd');
 }
 
 function isInterpreterString(leaf: BashCommandLeaf): boolean {

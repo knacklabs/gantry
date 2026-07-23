@@ -35,7 +35,7 @@ afterEach(() => {
 });
 
 describe('permission deterministic rails', () => {
-  it('asks when exact input is missing or altered', () => {
+  it('asks when exact input is missing or the command was truncated', () => {
     expect(
       evaluatePermissionDeterministicRails({
         request: request('git status', { toolInput: undefined }),
@@ -48,14 +48,80 @@ describe('permission deterministic rails', () => {
       evaluatePermissionDeterministicRails({
         request: {
           ...request('git status'),
-          toolInputSanitized: true,
-          toolInputSanitizedPaths: ['command'],
-        },
+          toolInputTruncatedPaths: ['command'],
+        } as PermissionApprovalRequest,
       }),
     ).toMatchObject({
       railOutcome: 'ask',
-      reason: expect.stringContaining('sanitized'),
+      reason: expect.stringContaining('truncated'),
     });
+  });
+
+  it('does not treat sensitive-key redaction or display sanitization as incomplete', () => {
+    const workspaceRoot = makeRoot();
+    fs.writeFileSync(path.join(workspaceRoot, 'README.md'), 'Gantry');
+    // Redaction replaces secret VALUES, not the risk-relevant command verbs, so
+    // a redacted-but-not-truncated shell command still evaluates on the rails.
+    expect(
+      evaluatePermissionDeterministicRails({
+        request: {
+          ...request('cat README.md'),
+          toolInputSanitized: true,
+          toolInputSanitizedPaths: ['command'],
+          toolInputRedactedPaths: ['command'],
+        } as PermissionApprovalRequest,
+        approvedCapabilityIds: ['filesystem.read'],
+        workspaceRoot,
+      }),
+    ).toMatchObject({ railOutcome: 'allow' });
+  });
+
+  it('evaluates the full 16K command, not the 500-char display copy', () => {
+    const benignPrefix = `echo ${'a'.repeat(520)}`;
+    const truncatedDisplay = `${benignPrefix.slice(0, 500)}...[truncated]`;
+    // A destructive verb hidden past char 500 must be caught: the rails read the
+    // 16K classifier view, so `rm -rf` is visible even though the display copy
+    // was truncated before it.
+    expect(
+      evaluatePermissionDeterministicRails({
+        request: {
+          ...request(truncatedDisplay),
+          classifierToolInput: { command: `${benignPrefix}; rm -rf /tmp/x` },
+        } as PermissionApprovalRequest,
+      }),
+    ).toMatchObject({
+      railOutcome: 'ask',
+      reason: expect.stringContaining('Destructive'),
+    });
+    // A benign >500-char command is evaluated on its full text, never treated
+    // as incomplete-but-truncated.
+    expect(
+      evaluatePermissionDeterministicRails({
+        request: {
+          ...request(truncatedDisplay),
+          classifierToolInput: { command: benignPrefix },
+        } as PermissionApprovalRequest,
+      }),
+    ).not.toMatchObject({
+      reason: 'Exact tool input is missing or the command was truncated.',
+    });
+  });
+
+  it('does not short-circuit a non-shell tool whose display field was altered', () => {
+    // A redacted/altered display field on a non-shell tool must not force an
+    // incomplete ask; the rails fall through to read-only evaluation (undefined
+    // here, since the Read tool is not a deterministic read-only match).
+    expect(
+      evaluatePermissionDeterministicRails({
+        request: {
+          ...request('unused'),
+          toolName: 'Read',
+          toolInput: { file_path: '/x' },
+          toolInputSanitized: true,
+          toolInputSanitizedPaths: ['file_path'],
+        } as PermissionApprovalRequest,
+      }),
+    ).toBeUndefined();
   });
 
   it.each([

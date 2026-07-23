@@ -15,6 +15,7 @@ import {
 import { parseIpcMessageFiles } from './ipc-message-files.js';
 import { parseSemanticCapabilityDefinitionsRecord } from '../shared/semantic-capabilities.js';
 import { isPlainObject, toTrimmedString } from '../shared/object.js';
+import { stripHostInjectedEnvPrefix } from '../shared/runtime-env-command.js';
 import {
   validateBrowserIpcAuthRequest,
   validateIpcAuthRequest,
@@ -304,6 +305,33 @@ export function parseMemoryIpcRequest(
       : {}),
   };
 }
+const SHELL_TOOL_NAMES = new Set(['Bash', 'RunCommand']);
+
+/**
+ * For shell tools, return a shallow-copied toolInput with the host-injected env
+ * prefix stripped from the `command`/`cmd` field. Non-shell tools and inputs
+ * without a string command field pass through unchanged.
+ */
+function stripShellCommandEnvPrefix(
+  toolName: string,
+  toolInput: unknown,
+): unknown {
+  if (!SHELL_TOOL_NAMES.has(toolName) || !isPlainObject(toolInput)) {
+    return toolInput;
+  }
+  const field =
+    typeof toolInput.command === 'string'
+      ? 'command'
+      : typeof toolInput.cmd === 'string'
+        ? 'cmd'
+        : undefined;
+  if (!field) return toolInput;
+  return {
+    ...toolInput,
+    [field]: stripHostInjectedEnvPrefix(toolInput[field] as string).command,
+  };
+}
+
 export function parsePermissionIpcRequest(
   raw: unknown,
   sourceAgentFolder: string,
@@ -400,17 +428,23 @@ export function parsePermissionIpcRequest(
   }
   const targetJid = payloadTargetJid ?? contextTargetJid;
   const subagentType = toTrimmedString(raw.subagentType, { maxLen: 200 });
+  // Strip the host-injected env prefix (proxy/GODEBUG assignments the runner
+  // prepends) from the shell command BEFORE sanitizing, so the permission
+  // decision/display/cache see the REAL command. Execution is unaffected: the
+  // runner still runs the real prefixed command; this only normalizes what the
+  // rails + effect-key classify.
+  const decisionToolInput = stripShellCommandEnvPrefix(toolName, raw.toolInput);
   const {
     toolInput,
     altered: toolInputSanitized,
     alteredPaths: toolInputSanitizedPaths,
-  } = sanitizeIpcToolInput(raw.toolInput);
+  } = sanitizeIpcToolInput(decisionToolInput);
   const {
     toolInput: classifierToolInput,
     redactedPaths: toolInputRedactedPaths,
     truncatedPaths: toolInputTruncatedPaths,
   } = sanitizeIpcToolInput(
-    raw.toolInput,
+    decisionToolInput,
     PERMISSION_CLASSIFIER_MAX_STRING_LENGTH,
   );
   const suggestions = parsePermissionApprovalUpdates(raw.suggestions);
