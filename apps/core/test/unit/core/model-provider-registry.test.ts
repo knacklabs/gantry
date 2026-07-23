@@ -102,6 +102,22 @@ describe('model provider registry', () => {
     });
   });
 
+  it('declares chat batch capability only for Anthropic and OpenAI', () => {
+    expect(
+      listExecutableModelProviders()
+        .filter((provider) => Boolean(provider.batch))
+        .map((provider) => provider.id),
+    ).toEqual(['anthropic', 'openai']);
+    expect(getModelProviderDefinition('anthropic')?.batch).toEqual({
+      supportedCredentialModes: ['api_key'],
+    });
+    expect(getModelProviderDefinition('openai')?.batch).toEqual({
+      supportedCredentialModes: ['api_key'],
+    });
+    expect(getModelProviderDefinition('openrouter')?.batch).toBeUndefined();
+    expect(getModelProviderDefinition('xai')?.batch).toBeUndefined();
+  });
+
   it('makes OpenAI an executable chat and memory model route', () => {
     const openai = getModelProviderDefinition('openai');
     expect(openai?.executable).toBe(true);

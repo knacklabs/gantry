@@ -36,6 +36,8 @@ vi.mock('@core/platform/workspace-folder.js', () => ({
 
 vi.mock('@core/application/agents/prompt-profile-service.js', () => ({
   PromptProfileService: vi.fn(),
+  registerChannelPromptPresentationRenderer: vi.fn(),
+  renderChannelPromptPresentationLine: vi.fn(() => undefined),
 }));
 
 vi.mock('@core/adapters/storage/postgres/runtime-store.js', () => ({

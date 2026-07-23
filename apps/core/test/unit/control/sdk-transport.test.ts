@@ -243,6 +243,7 @@ describe('@gantry/sdk transport', () => {
     await client.observer.insights({
       appId: 'app/one',
       subject: 'msu_44444444444444444444444444444444',
+      type: 'commitment',
       state: 'pending',
       limit: 10,
       cursor: 'cursor/one',
@@ -254,7 +255,7 @@ describe('@gantry/sdk transport', () => {
     });
     expect(request).toHaveBeenNthCalledWith(2, {
       method: 'GET',
-      path: '/v1/observer/insights?appId=app%2Fone&subject=msu_44444444444444444444444444444444&state=pending&limit=10&cursor=cursor%2Fone',
+      path: '/v1/observer/insights?appId=app%2Fone&subject=msu_44444444444444444444444444444444&type=commitment&state=pending&limit=10&cursor=cursor%2Fone',
     });
   });
 

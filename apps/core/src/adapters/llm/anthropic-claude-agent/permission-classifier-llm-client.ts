@@ -15,6 +15,7 @@ import {
   hasGatewayMemoryAccess,
   resolveGatewayMemoryInjection,
 } from '../openai-memory/memory-gateway-injection.js';
+import { createAnthropicChatBatchCapability } from './anthropic-chat-batch.js';
 
 const ANTHROPIC_VERSION = '2023-06-01';
 const CLASSIFIER_MAX_TOKENS = 256;
@@ -32,6 +33,7 @@ export function createDirectAnthropicClassifierLlmClient(): MemoryLlmClient {
   return {
     isConfigured: hasGatewayMemoryAccess,
     query: runDirectAnthropicClassifierQuery,
+    batch: createAnthropicChatBatchCapability(),
   };
 }
 

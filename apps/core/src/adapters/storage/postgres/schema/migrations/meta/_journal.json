@@ -722,6 +722,13 @@
       "when": 1784661847706,
       "tag": "0105_observer_foundations",
       "breakpoints": true
+    },
+    {
+      "idx": 106,
+      "version": "7",
+      "when": 1784689256869,
+      "tag": "0106_observer_chat_batches",
+      "breakpoints": true
     }
   ]
 }

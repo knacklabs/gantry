@@ -118,6 +118,7 @@ async function writeDetectedCandidate(input: {
 }
 
 const EMPTY_DM_APP_ID = 'pattern_keying_app_empty_dm';
+const OBSERVER_APP_ID = 'pattern_keying_observer_app';
 
 maybeDescribe('pattern candidate subject keying', () => {
   let runtime: PostgresIntegrationRuntime;
@@ -131,6 +132,7 @@ maybeDescribe('pattern candidate subject keying', () => {
     const appIds = new Set([
       ...CASES.map((testCase) => testCase.scope.appId),
       EMPTY_DM_APP_ID,
+      OBSERVER_APP_ID,
     ]);
     for (const appId of appIds) {
       await runtime.repositories.apps.saveApp({
@@ -209,6 +211,73 @@ maybeDescribe('pattern candidate subject keying', () => {
     ).resolves.toEqual({
       block: '',
       surfacedCandidateIds: [],
+    });
+  });
+
+  it('lists only source-conversation repetition candidates for observer emission', async () => {
+    const first = patternSubjectForScope({
+      appId: OBSERVER_APP_ID,
+      agentId: 'observer-agent-1',
+      folder: 'observer-folder-1',
+      conversationKind: 'dm',
+      conversationId: 'tg:observer-user-1',
+      userId: 'observer-user-1',
+    });
+    const second = patternSubjectForScope({
+      appId: OBSERVER_APP_ID,
+      agentId: 'observer-agent-2',
+      folder: 'observer-folder-2',
+      conversationKind: 'channel',
+      conversationId: 'sl:COBSERVER',
+    });
+    const third = patternSubjectForScope({
+      appId: OBSERVER_APP_ID,
+      agentId: 'observer-agent-3',
+      folder: 'observer-folder-3',
+      conversationKind: 'channel',
+    });
+    expect(first).toMatchObject({ subjectType: 'user' });
+    expect(second).toMatchObject({
+      subjectType: 'channel',
+      subjectId: 'conversation:sl:COBSERVER',
+    });
+    expect(third).toMatchObject({ subjectType: 'group' });
+    await writeDetectedCandidate({
+      runtime,
+      subject: first as PatternSubjectTuple,
+      label: 'observer-first',
+      outcomeLabel: 'prepare the observer weekly report',
+    });
+    await writeDetectedCandidate({
+      runtime,
+      subject: second as PatternSubjectTuple,
+      label: 'observer-second',
+      outcomeLabel: 'prepare the observer incident report',
+    });
+    await writeDetectedCandidate({
+      runtime,
+      subject: third as PatternSubjectTuple,
+      label: 'observer-third',
+      outcomeLabel: 'prepare the observer capacity report',
+    });
+
+    const listEligibleForApp =
+      runtime.repositories.patternCandidates.listEligibleForApp;
+    if (!listEligibleForApp) {
+      throw new Error('Postgres pattern repository lacks app-wide eligibility');
+    }
+    const rows = await listEligibleForApp.call(
+      runtime.repositories.patternCandidates,
+      {
+        appId: OBSERVER_APP_ID,
+        limit: 1000,
+      },
+    );
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      subjectType: 'channel',
+      subjectId: 'conversation:sl:COBSERVER',
     });
   });
 });

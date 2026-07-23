@@ -14,6 +14,7 @@ import {
   OPENAI_DAILY_EMBED_LIMIT,
   RUNTIME_MEMORY_DREAMING_ALERTS_ENABLED,
   RUNTIME_MEMORY_DREAMING_ENABLED,
+  getRuntimeSettingsForConfig,
 } from '../config/index.js';
 import type { AppId } from '../domain/app/app.js';
 import type { Job } from '../domain/types.js';
@@ -515,11 +516,20 @@ async function runScheduledBrainDreaming(
   if (!RUNTIME_MEMORY_DREAMING_ENABLED) {
     return 'Brain dreaming is disabled.';
   }
+  const observer = getRuntimeSettingsForConfig().observer;
+  const observerOwnerRecipient = observer.owner?.recipient ?? null;
+  const observerEmissionEnabled =
+    observer.enabled && observerOwnerRecipient !== null;
   const result = await runRuntimeBrainDreamBatch({
     appId: DEFAULT_MEMORY_APP_ID,
     signal,
+    observerEnabled: observerEmissionEnabled,
+    observerOwnerRecipient,
   });
-  return `Brain dreaming complete: ${result.pages} page(s), ${result.applied} applied, ${result.noop} no-op, ${result.rejected} rejected, ${result.proposed} proposed.`;
+  const receipt = `Brain dreaming complete: ${result.pages} page(s), ${result.applied} applied, ${result.noop} no-op, ${result.rejected} rejected, ${result.proposed} proposed.`;
+  return observerEmissionEnabled
+    ? `${receipt} ${result.observer!.message}`
+    : receipt;
 }
 
 async function runScheduledBrainEmbeddingBackfill(

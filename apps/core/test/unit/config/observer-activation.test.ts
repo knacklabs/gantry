@@ -125,6 +125,15 @@ describe('observer activation', () => {
 
     settings.memory.enabled = true;
     expect(resolveObserverActivationStatus(settings)).toMatchObject({
+      state: 'evidence_accumulating',
+      active: false,
+      reason: 'embeddings_unavailable',
+      message: 'Insight emission paused: embeddings unavailable.',
+    });
+
+    settings.memory.embeddings.enabled = true;
+    settings.memory.embeddings.provider = 'openai';
+    expect(resolveObserverActivationStatus(settings)).toMatchObject({
       state: 'active',
       active: true,
       message: 'Observer is active.',

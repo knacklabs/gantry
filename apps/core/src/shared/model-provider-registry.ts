@@ -135,6 +135,9 @@ export interface ModelProviderDefinition {
   executable: boolean;
   modelRoute: boolean;
   embeddingProvider: boolean;
+  batch?: {
+    supportedCredentialModes: readonly string[];
+  };
   responseFamily: ModelResponseFamily;
   supportedWorkloads: readonly ModelWorkload[];
   credentialModes: readonly ModelCredentialModeDefinition[];
@@ -152,6 +155,7 @@ export const MODEL_PROVIDER_DEFINITIONS = [
     executable: true,
     modelRoute: true,
     embeddingProvider: false,
+    batch: { supportedCredentialModes: ['api_key'] },
     responseFamily: 'anthropic',
     supportedWorkloads: [
       'chat',
@@ -346,6 +350,7 @@ export const MODEL_PROVIDER_DEFINITIONS = [
     executable: true,
     modelRoute: true,
     embeddingProvider: true,
+    batch: { supportedCredentialModes: ['api_key'] },
     responseFamily: 'openai',
     supportedWorkloads: [
       'chat',

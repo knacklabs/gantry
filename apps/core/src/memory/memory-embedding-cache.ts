@@ -80,7 +80,7 @@ export class CachedEmbeddingProvider implements EmbeddingProvider {
     text: string,
     options?: { signal?: AbortSignal },
   ): Promise<number[]> {
-    const hash = hashText(text);
+    const hash = embeddingCacheTextHash(text);
     const cached = await this.store.getCachedEmbedding(
       hash,
       this.model,
@@ -113,7 +113,7 @@ export class CachedEmbeddingProvider implements EmbeddingProvider {
 
     await Promise.all(
       texts.map(async (text, index) => {
-        const hash = hashText(text);
+        const hash = embeddingCacheTextHash(text);
         const cached = await this.store.getCachedEmbedding(
           hash,
           this.model,
@@ -174,6 +174,6 @@ export class CachedEmbeddingProvider implements EmbeddingProvider {
   }
 }
 
-function hashText(text: string): string {
+export function embeddingCacheTextHash(text: string): string {
   return crypto.createHash('sha256').update(text).digest('hex');
 }

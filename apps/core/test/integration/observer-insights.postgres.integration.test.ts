@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { PostgresBrainRepository } from '@core/adapters/storage/postgres/repositories/brain-repository.postgres.js';
+import { PostgresEmbeddingCacheStore } from '@core/memory/memory-embedding-cache-store.js';
 import type { ObserverInsightCreate } from '@core/domain/ports/observer-insights.js';
 
 import {
@@ -12,8 +13,8 @@ import {
 const maybeDescribe = hasPostgresIntegrationDatabase ? describe : describe.skip;
 
 const APP_ID = 'observer-persistence-app';
-const SUBJECT = 'msu_11111111111111111111111111111111' as const;
-const OTHER_SUBJECT = 'msu_22222222222222222222222222222222' as const;
+const SUBJECT = 'conversation:sl:C111' as const;
+const OTHER_SUBJECT = 'conversation:sl:C222' as const;
 const NOW = '2026-07-22T08:00:00.000Z';
 
 function insight(
@@ -28,7 +29,11 @@ function insight(
     title: `Insight ${id}`,
     summary: `Summary ${id}`,
     evidenceRefs: [
-      { permalink: `https://example.test/messages/${id}`, messageId: id },
+      {
+        conversationId: SUBJECT,
+        messageId: id,
+        ts: '2026-07-22T07:54:00.000Z',
+      },
     ],
     batchSnapshotAt: '2026-07-22T07:55:00.000Z',
     evidenceVersion: 1,
@@ -187,6 +192,13 @@ maybeDescribe('observer insight Postgres persistence', () => {
     expect(low).toMatchObject({
       id: 'low',
       state: 'pending',
+      evidenceRefs: [
+        {
+          conversationId: SUBJECT,
+          messageId: 'low',
+          ts: '2026-07-22T07:54:00.000Z',
+        },
+      ],
       signatureEmbeddingRef: null,
       deliveryId: null,
     });
@@ -204,6 +216,7 @@ maybeDescribe('observer insight Postgres persistence', () => {
     expect(
       await repo.findBySignature({
         appId: APP_ID,
+        subject: SUBJECT,
         canonicalSignature: high.canonicalSignature,
       }),
     ).toMatchObject({ id: 'high' });
@@ -224,7 +237,7 @@ maybeDescribe('observer insight Postgres persistence', () => {
     await expect(
       repo.create(insight('invalid-subject', { subject: 'owner-1' as never })),
     ).rejects.toThrow(
-      'Observer insight subject must be a canonical memory subject key',
+      'Observer insight subject must be a valid observer subject key',
     );
 
     await expect(
@@ -481,7 +494,11 @@ maybeDescribe('observer insight Postgres persistence', () => {
       results.filter((result) => result.status === 'rejected'),
     ).toHaveLength(1);
     expect(
-      await repo.findBySignature({ appId: APP_ID, canonicalSignature }),
+      await repo.findBySignature({
+        appId: APP_ID,
+        subject: SUBJECT,
+        canonicalSignature,
+      }),
     ).toMatchObject({ canonicalSignature, state: 'pending' });
   });
 
@@ -508,11 +525,106 @@ maybeDescribe('observer insight Postgres persistence', () => {
     );
 
     await expect(
-      repo.findBySignature({ appId: APP_ID, canonicalSignature }),
+      repo.findBySignature({
+        appId: APP_ID,
+        subject: SUBJECT,
+        canonicalSignature,
+      }),
     ).resolves.toMatchObject({
       id: activeBackfill.id,
       state: 'pending',
     });
+  });
+
+  it('filters by type and scopes exact signatures to the source conversation', async () => {
+    const repo = runtime.repositories.observerInsights;
+    const created = await repo.create(
+      insight('typed-contradiction', {
+        insightType: 'contradiction',
+        canonicalSignature: 'signature:typed-contradiction',
+      }),
+    );
+
+    await expect(
+      repo.list({
+        appId: APP_ID,
+        insightType: 'contradiction',
+        limit: 10,
+      }),
+    ).resolves.toEqual([expect.objectContaining({ id: created.id })]);
+    await expect(
+      repo.count({ appId: APP_ID, insightType: 'contradiction' }),
+    ).resolves.toBe(1);
+    await expect(
+      repo.findBySignature({
+        appId: APP_ID,
+        subject: OTHER_SUBJECT,
+        canonicalSignature: created.canonicalSignature,
+      }),
+    ).resolves.toBeNull();
+  });
+
+  it('finds active semantic duplicates at the 0.86 same-subject boundary', async () => {
+    const repo = runtime.repositories.observerInsights;
+    const cache = new PostgresEmbeddingCacheStore(runtime.service.db);
+    const model = 'observer-semantic-test';
+    const dimensions = 1536;
+    const embeddingRef = 'observer-semantic-existing';
+    const existingEmbedding = Array<number>(dimensions).fill(0);
+    existingEmbedding[0] = 1;
+    await cache.putCachedEmbedding(
+      embeddingRef,
+      model,
+      dimensions,
+      existingEmbedding,
+    );
+    const existing = await repo.create(
+      insight('semantic-existing', {
+        canonicalSignature: 'signature:semantic-existing',
+        signatureEmbeddingRef: embeddingRef,
+      }),
+    );
+
+    const atBoundary = Array<number>(dimensions).fill(0);
+    atBoundary[0] = 0.86;
+    atBoundary[1] = Math.sqrt(1 - 0.86 ** 2);
+    await expect(
+      repo.findSemanticDuplicate({
+        appId: APP_ID,
+        subject: SUBJECT,
+        model,
+        dimensions,
+        embedding: atBoundary,
+        minSimilarity: 0.86,
+      }),
+    ).resolves.toEqual({
+      insight: expect.objectContaining({ id: existing.id }),
+      similarity: expect.closeTo(0.86, 5),
+    });
+
+    const belowBoundary = Array<number>(dimensions).fill(0);
+    belowBoundary[0] = 0.859;
+    belowBoundary[1] = Math.sqrt(1 - 0.859 ** 2);
+    await expect(
+      repo.findSemanticDuplicate({
+        appId: APP_ID,
+        subject: SUBJECT,
+        model,
+        dimensions,
+        embedding: belowBoundary,
+        minSimilarity: 0.86,
+      }),
+    ).resolves.toBeNull();
+    await expect(
+      repo.findSemanticDuplicate({
+        appId: APP_ID,
+        subject: OTHER_SUBJECT,
+        model,
+        dimensions,
+        embedding: existingEmbedding,
+        minSimilarity: 0.86,
+      }),
+    ).resolves.toBeNull();
   });
 
   it('rejects a second delivery for the same app, recipient, and local day', async () => {

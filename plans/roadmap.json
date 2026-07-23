@@ -55,7 +55,7 @@
       ]
     },
     {
-      "status": "pending",
+      "status": "done",
       "key": "OBS-1",
       "title": "Observer: land staged S2 emission + S3a batch-core",
       "epic": "observer",
@@ -70,7 +70,9 @@
         "S3a gateway batch endpoints + prefer-orphan state machine merged with its 7 autoreview fixes",
         "API/SDK/E2E coverage per stage as in the goal-prompt",
         "goals-index rows recomputed on close"
-      ]
+      ],
+      "completed_at": "2026-07-23T03:18:19+00:00",
+      "history": ".factory/history/OBS-1/"
     },
     {
       "status": "pending",
@@ -419,5 +421,5 @@
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-07-22T17:34:07+00:00"
+  "updated_at": "2026-07-23T03:18:19+00:00"
 }

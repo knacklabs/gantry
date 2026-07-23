@@ -34,6 +34,12 @@ export interface PatternCandidateRepository {
     limit: number;
   }): Promise<PatternCandidate[]>;
 
+  /** Read-only (the observer): top eligible candidates across an app. */
+  listEligibleForApp?(input: {
+    appId: string;
+    limit: number;
+  }): Promise<PatternCandidate[]>;
+
   getById(id: string): Promise<PatternCandidate | null>;
 
   /**

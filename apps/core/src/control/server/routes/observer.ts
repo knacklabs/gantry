@@ -3,9 +3,11 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { getRuntimeStorage } from '../../../adapters/storage/postgres/runtime-store.js';
 import { createRuntimeBrainService } from '../../../brain/brain-runtime.js';
 import {
+  OBSERVER_INSIGHT_TYPES,
   OBSERVER_INSIGHT_STATES,
   isObserverSubjectKey,
   type ObserverInsightState,
+  type ObserverInsightType,
   type ObserverSubjectKey,
 } from '../../../domain/ports/observer-insights.js';
 import { canAccessApp } from '../app-identity.js';
@@ -62,6 +64,19 @@ function readState(
     return null;
   }
   return raw as ObserverInsightState;
+}
+
+function readType(
+  res: ServerResponse,
+  url: URL,
+): ObserverInsightType | null | undefined {
+  const raw = url.searchParams.get('type');
+  if (raw === null) return undefined;
+  if (!OBSERVER_INSIGHT_TYPES.includes(raw as ObserverInsightType)) {
+    sendError(res, 400, 'INVALID_REQUEST', 'type is invalid');
+    return null;
+  }
+  return raw as ObserverInsightType;
 }
 
 interface ObserverListCursor {
@@ -140,6 +155,8 @@ export async function handleObserverRoutes(
   if (pathname === '/v1/observer/insights') {
     const limit = readLimit(res, url);
     if (limit === null) return true;
+    const insightType = readType(res, url);
+    if (insightType === null) return true;
     const state = readState(res, url);
     if (state === null) return true;
     const before = decodeCursor(res, url.searchParams.get('cursor'));
@@ -153,6 +170,7 @@ export async function handleObserverRoutes(
     const rows = await repository.list({
       appId,
       subject,
+      insightType,
       state,
       limit: limit + 1,
       before,

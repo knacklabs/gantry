@@ -94,15 +94,17 @@ function request(input: {
   url: string;
   token: string;
   body: Buffer;
+  method?: 'GET' | 'POST';
 }): Promise<{ status: number; body: Buffer }> {
   return new Promise((resolve, reject) => {
+    const method = input.method ?? 'POST';
     const req = http.request(
       input.url,
       {
-        method: 'POST',
+        method,
         headers: {
           'x-api-key': input.token,
-          'content-type': 'application/json',
+          ...(method === 'POST' ? { 'content-type': 'application/json' } : {}),
         },
       },
       (res) => {
@@ -117,13 +119,15 @@ function request(input: {
       },
     );
     req.on('error', reject);
-    req.end(input.body);
+    req.end(method === 'POST' ? input.body : undefined);
   });
 }
 
 async function gateway(input: {
   providerId: 'anthropic' | 'openai';
   runId?: string;
+  purpose?: 'model_runtime' | 'model_batch';
+  modelBatchRequestCount?: number;
   audit?: (event: RuntimeEventPublishInput) => Promise<unknown> | unknown;
 }): Promise<{ url: string; token: string }> {
   const broker = new GantryModelGatewayBroker(
@@ -134,9 +138,12 @@ async function gateway(input: {
   const injection = await broker.getInjection({
     binding: {
       profile: 'gantry',
-      purpose: 'model_runtime',
+      purpose: input.purpose ?? 'model_runtime',
       appId,
       modelCredentialProviderId: input.providerId,
+      ...(input.modelBatchRequestCount
+        ? { modelBatchRequestCount: input.modelBatchRequestCount }
+        : {}),
       ...(input.runId ? { runId: input.runId as never } : {}),
     },
   });
@@ -723,6 +730,43 @@ describe('Gantry Model Gateway tracing', () => {
     });
   });
 
+  it.each([
+    ['anthropic', '/v1/messages/batches', 'POST'],
+    ['openai', '/v1/files', 'POST'],
+    ['openai', '/v1/batches', 'GET'],
+  ] as const)(
+    'does not trace %s%s transport requests as chat generations',
+    async (providerId, path, method) => {
+      const exporter = new InMemorySpanExporter();
+      tracing(exporter);
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(
+          async () =>
+            new Response('{"object":"batch"}', {
+              headers: { 'content-type': 'application/json' },
+            }),
+        ),
+      );
+      const endpoint = await gateway({
+        providerId,
+        purpose: 'model_batch',
+        modelBatchRequestCount: 1,
+      });
+      const url = new URL(endpoint.url);
+      url.pathname = `/${providerId}${path}`;
+
+      const result = await request({
+        ...endpoint,
+        url: url.href,
+        body: Buffer.from('{}'),
+        method,
+      });
+
+      expect(result.status).toBe(200);
+      expect(exporter.getFinishedSpans()).toEqual([]);
+    },
+  );
   it('is byte-identical and emits no spans when tracing is disabled', async () => {
     const exporter = new InMemorySpanExporter();
     initTracing(

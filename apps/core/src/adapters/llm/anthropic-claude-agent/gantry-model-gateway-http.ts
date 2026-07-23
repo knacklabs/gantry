@@ -26,12 +26,22 @@ export async function readGatewayResponsePayload(
   if (contentType?.includes('text/event-stream')) {
     return undefined;
   }
+  let requestModel: string | undefined;
+  /* eslint-disable no-catch-all/no-catch-all -- multipart requests are expected to be non-JSON */
   try {
     const request = JSON.parse(requestBody.toString('utf8')) as Record<
       string,
       unknown
     >;
     if (request.stream === true) return undefined;
+    requestModel =
+      typeof request.model === 'string' ? request.model : undefined;
+  } catch {
+    // Multipart uploads have no JSON request model, but their successful JSON
+    // response still carries authorization-relevant file metadata.
+  }
+  /* eslint-enable no-catch-all/no-catch-all */
+  try {
     const payload: unknown = await response.clone().json();
     if (
       payload === null ||
@@ -42,8 +52,7 @@ export async function readGatewayResponsePayload(
     }
     return {
       payload: payload as Record<string, unknown>,
-      requestModel:
-        typeof request.model === 'string' ? request.model : undefined,
+      requestModel,
     };
   } catch {
     return undefined;
@@ -69,8 +78,6 @@ export function usageFromGatewayPayload(
 }
 
 export const DEFAULT_LOOPBACK_HOST = '127.0.0.1';
-export const ALLOWED_GATEWAY_METHODS = new Set(['POST']);
-
 const ALLOWED_REQUEST_HEADERS = new Set([
   'accept',
   'anthropic-beta',

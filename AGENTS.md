@@ -102,9 +102,8 @@ A task is not PR-ready until all of these exist:
 - Keep tasks bounded and capability-driven.
 - Do not decompose by document file or arbitrary file count.
 - Do not bypass `verify.py` with ad hoc validation commands.
-- Evidence enters `.factory/` only via `record_*` scripts validating
-  `.agents/schemas/` (incl. a pinned `generated_by`) — never hand-written.
-- Review runs as ONE autoreview pass in Codex — never inline in the
-  coordinating session, never nested reviewers.
+- Evidence enters `.factory/` only via `record_*` scripts validating `.agents/schemas/` (pinned `generated_by`) — never hand-written.
+- Review runs as ONE autoreview pass in Codex — never inline, never nested reviewers.
 - Keep the template repo independent of any client-specific source repo.
 - Do not keep long policy blocks in `AGENTS.md`; move them into docs.
+- PRs: orchestrator may push story branches + raise PRs once `pr_ready` (one per story); merging stays human-gated; every PR body opens with the plain-language goal/why before the technical delta; runtime-behavior PRs carry their agent-e2e delta (or state why not). Policy: `docs/review-instructions.md`.
