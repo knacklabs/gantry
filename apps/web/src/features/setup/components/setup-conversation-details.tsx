@@ -23,6 +23,7 @@ export function SetupConversationDetails({
   const selectedConversation = conversations.find(
     (conversation) => conversation.id === selectedConversationId,
   );
+  const missingRequiredTrigger = requiresTrigger && !trigger.trim();
 
   useEffect(() => {
     setRequiresTrigger(selectedConversation?.kind !== 'Direct message');
@@ -68,6 +69,11 @@ export function SetupConversationDetails({
             value={trigger}
             onChange={(event) => setTrigger(event.target.value)}
           />
+          {missingRequiredTrigger ? (
+            <span className="font-normal text-status-idle">
+              Add the trigger text required for this conversation.
+            </span>
+          ) : null}
         </label>
       ) : null}
       <p className="m-0 text-sm text-text-secondary">
@@ -99,7 +105,10 @@ export function SetupConversationDetails({
       <div className="flex flex-wrap items-center gap-3">
         <Button
           disabled={
-            !agentId || !selectedConversation || replaceInstall.isPending
+            !agentId ||
+            !selectedConversation ||
+            replaceInstall.isPending ||
+            missingRequiredTrigger
           }
           onClick={() => {
             if (!agentId || !selectedConversation) return;
