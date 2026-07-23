@@ -6,11 +6,15 @@ export function SetupAgentDetails({
   name,
   purpose,
   onChange,
+  onCreated,
+  showValidation,
 }: {
   connected: boolean;
   name: string;
   purpose: string;
   onChange: (field: 'name' | 'purpose', value: string) => void;
+  onCreated: (agentId: string) => void;
+  showValidation: boolean;
 }) {
   const createAgent = useCreateSetupAgent();
   const disabled =
@@ -26,18 +30,24 @@ export function SetupAgentDetails({
         label="Agent name"
         placeholder="e.g. Operations Assistant"
         value={name}
+        invalid={showValidation && !name.trim()}
         onChange={(value) => onChange('name', value)}
       />
       <SetupTextField
         label="Purpose"
         placeholder="What should this agent help with?"
         value={purpose}
+        invalid={showValidation && !purpose.trim()}
         onChange={(value) => onChange('purpose', value)}
       />
       <div className="flex flex-wrap items-center gap-3">
         <Button
           disabled={disabled}
-          onClick={() => createAgent.mutate(name.trim())}
+          onClick={() =>
+            createAgent.mutate(name.trim(), {
+              onSuccess: (agent) => onCreated(agent.id),
+            })
+          }
         >
           {createAgent.data
             ? 'Agent created'
@@ -67,11 +77,13 @@ function SetupTextField({
   label,
   placeholder,
   value,
+  invalid,
   onChange,
 }: {
   label: string;
   placeholder: string;
   value: string;
+  invalid: boolean;
   onChange: (value: string) => void;
 }) {
   return (
@@ -79,10 +91,16 @@ function SetupTextField({
       {label}
       <input
         className="h-9 rounded-md border border-border-strong bg-surface px-3 text-[13px] font-normal text-text placeholder:text-text-muted"
+        aria-invalid={invalid || undefined}
         placeholder={placeholder}
         value={value}
         onChange={(event) => onChange(event.target.value)}
       />
+      {invalid ? (
+        <span className="font-normal text-danger">
+          Enter a {label.toLowerCase()} to continue.
+        </span>
+      ) : null}
     </label>
   );
 }

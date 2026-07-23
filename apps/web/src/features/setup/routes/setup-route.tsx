@@ -16,6 +16,7 @@ import { Button } from '../../../ui/primitives/button';
 import { useConversationDashboard } from '../../operations/use-conversations';
 import { useModelDashboard } from '../../runtime/use-model-dashboard';
 import { SetupAgentDetails } from '../components/setup-agent-details';
+import { SetupProfileDetails } from '../components/setup-profile-details';
 
 const stages = [
   {
@@ -95,6 +96,7 @@ const stages = [
 export function SetupRoute() {
   const [activeStage, setActiveStage] = useState(0);
   const [draft, setDraft] = useState<Record<string, string>>({});
+  const [createdAgentId, setCreatedAgentId] = useState<string>();
   const [showValidation, setShowValidation] = useState(false);
   const connection = useRuntimeConnection();
   const { requestConnection } = useConnectionGate();
@@ -143,6 +145,8 @@ export function SetupRoute() {
                   [field === 'name' ? 'Agent name' : 'Purpose']: value,
                 }))
               }
+              onCreated={setCreatedAgentId}
+              showValidation={showValidation}
             />
           ) : stage.id === 'model' ? (
             <LiveSelect
@@ -190,36 +194,10 @@ export function SetupRoute() {
                 setDraft((current) => ({ ...current, Conversation: value }))
               }
             />
+          ) : stage.id === 'profile' ? (
+            <SetupProfileDetails agentId={createdAgentId} />
           ) : (
-            stage.fields.map((field) => {
-              const invalid = showValidation && invalidFields.includes(field);
-
-              return (
-                <label
-                  className="grid gap-1.5 text-xs font-semibold text-text"
-                  key={field.label}
-                >
-                  {field.label}
-                  <input
-                    aria-invalid={invalid || undefined}
-                    className="h-9 rounded-md border border-border-strong bg-surface px-3 text-[13px] font-normal text-text placeholder:text-text-muted aria-invalid:border-danger"
-                    placeholder={field.placeholder}
-                    value={draft[field.label] ?? ''}
-                    onChange={(event) =>
-                      setDraft((current) => ({
-                        ...current,
-                        [field.label]: event.target.value,
-                      }))
-                    }
-                  />
-                  {invalid ? (
-                    <span className="font-normal text-danger">
-                      Enter a {field.label.toLowerCase()} to continue.
-                    </span>
-                  ) : null}
-                </label>
-              );
-            })
+            null
           )}
           {isFinalStage ? (
             <ReviewSummary connected={Boolean(connection.transport)} />
