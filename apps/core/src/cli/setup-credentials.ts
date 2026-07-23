@@ -168,8 +168,7 @@ export async function runCredentialsStep(
       return { type: captureChoice };
     }
     let credentialInput:
-      | Awaited<ReturnType<typeof promptModelCredentialPayload>>
-      | undefined;
+      Awaited<ReturnType<typeof promptModelCredentialPayload>> | undefined;
     let verification:
       | Awaited<ReturnType<typeof verifyModelCredentialInputWithPrompt>>
       | undefined;

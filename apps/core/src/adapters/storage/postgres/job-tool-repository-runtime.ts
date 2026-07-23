@@ -2,8 +2,7 @@ import type { ToolCatalogRepository } from '../../../domain/ports/repositories.j
 import { getRuntimeStorage } from './runtime-store.js';
 
 export function getRuntimeToolRepositoryIfReady():
-  | ToolCatalogRepository
-  | undefined {
+  ToolCatalogRepository | undefined {
   try {
     return getRuntimeStorage().repositories.tools;
   } catch {

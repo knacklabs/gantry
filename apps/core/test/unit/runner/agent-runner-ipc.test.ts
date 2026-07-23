@@ -156,6 +156,10 @@ function createRunnerFixture(): {
     path.join(runnerDir, 'gantry-mcp-tool-surface.ts'),
   );
   fs.copyFileSync(
+    path.resolve('apps/core/src/runner/itops-native-tool-surface.ts'),
+    path.join(runnerDir, 'itops-native-tool-surface.ts'),
+  );
+  fs.copyFileSync(
     path.resolve('apps/core/src/runner/gantry-agent-system-prompt.ts'),
     path.join(runnerDir, 'gantry-agent-system-prompt.ts'),
   );
@@ -1173,8 +1177,7 @@ describe('agent-runner IPC lifecycle', () => {
         'runner-session-1',
       );
       const gantryMcpServer = call?.mcpServers?.gantry as
-        | { args?: string[] }
-        | undefined;
+        { args?: string[] } | undefined;
       const gantryMcpServerPath = path.normalize(
         gantryMcpServer?.args?.[0] ?? '',
       );
@@ -1501,8 +1504,7 @@ describe('agent-runner IPC lifecycle', () => {
       expect(result.exitCode, result.stderr).toBe(0);
       const call = readRecord(fixture.recordPath).calls[0];
       const sandboxFilesystem = call?.sandbox?.filesystem as
-        | { denyRead?: string[]; denyWrite?: string[] }
-        | undefined;
+        { denyRead?: string[]; denyWrite?: string[] } | undefined;
 
       expect(sandboxFilesystem?.denyRead).toEqual(
         expect.arrayContaining([
@@ -1674,8 +1676,7 @@ describe('agent-runner IPC lifecycle', () => {
       expect(result.exitCode).toBe(0);
       const call = readRecord(fixture.recordPath).calls[0];
       const githubMcp = call?.mcpServers?.github as
-        | { env?: Record<string, string> }
-        | undefined;
+        { env?: Record<string, string> } | undefined;
       expect(githubMcp?.env).toMatchObject({
         GITHUB_TOKEN: 'token',
         HTTP_PROXY: 'http://127.0.0.1:28080/',

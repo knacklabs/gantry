@@ -40,8 +40,7 @@ export interface ThinkingOverride {
 }
 
 export type AgentControlThinking =
-  | { mode: 'off'; budgetTokens?: never }
-  | { mode: 'on'; budgetTokens?: number };
+  { mode: 'off'; budgetTokens?: never } | { mode: 'on'; budgetTokens?: number };
 export type AgentControlEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 
 export interface AgentControlOverrides {
@@ -171,9 +170,7 @@ export interface PermissionApprovalRequest {
 }
 
 export type PermissionApprovalDecisionMode =
-  | 'allow_once'
-  | 'allow_persistent_rule'
-  | 'cancel';
+  'allow_once' | 'allow_persistent_rule' | 'cancel';
 
 export interface PermissionRecoveryEnvelope {
   version: 1;
@@ -227,11 +224,7 @@ export interface PermissionApprovalUpdate {
   rules?: PermissionApprovalRuleValue[];
   behavior?: 'allow' | 'deny' | 'ask';
   destination?:
-    | 'userSettings'
-    | 'projectSettings'
-    | 'localSettings'
-    | 'session'
-    | 'cliArg';
+    'userSettings' | 'projectSettings' | 'localSettings' | 'session' | 'cliArg';
   mode?: string;
   directories?: string[];
 }
@@ -293,11 +286,7 @@ export interface UserQuestionResponse {
 }
 
 export type InteractionSeverity =
-  | 'info'
-  | 'success'
-  | 'warning'
-  | 'error'
-  | 'critical';
+  'info' | 'success' | 'warning' | 'error' | 'critical';
 
 export type InteractionSelectionMode = 'none' | 'single' | 'multi';
 
@@ -350,25 +339,14 @@ export interface InteractionAuditSummary {
 
 export interface InteractionResult {
   status:
-    | 'pending'
-    | 'approved'
-    | 'denied'
-    | 'expired'
-    | 'failed'
-    | 'completed';
+    'pending' | 'approved' | 'denied' | 'expired' | 'failed' | 'completed';
   message?: string;
   decidedBy?: string;
   decidedAt?: string;
 }
 
 export type RichInteractionKind =
-  | 'status'
-  | 'facts'
-  | 'list'
-  | 'table'
-  | 'form'
-  | 'media'
-  | 'progress';
+  'status' | 'facts' | 'list' | 'table' | 'form' | 'media' | 'progress';
 
 export const RICH_INTERACTION_NATIVE_FALLBACK_TEXT =
   'Rich view unavailable in this conversation. Showing text version.';
@@ -437,9 +415,7 @@ export interface ProgressUpdateOptions {
 }
 
 export type MessageActionAffordanceKind =
-  | 'scheduler_run_now'
-  | 'scheduler_pause_job'
-  | 'live_turn_stop';
+  'scheduler_run_now' | 'scheduler_pause_job' | 'live_turn_stop';
 
 export type MessageActionAffordance =
   | {
@@ -493,10 +469,7 @@ export interface MessageFileAttachment {
 }
 
 export type MessageDeliveryStatus =
-  | 'pending'
-  | 'sent'
-  | 'failed'
-  | 'partially_sent';
+  'pending' | 'sent' | 'failed' | 'partially_sent';
 
 export interface MessageDeliveryResult {
   externalMessageId?: string;

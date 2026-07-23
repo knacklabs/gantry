@@ -56,11 +56,7 @@ export async function handleUsageRoutes(
     return true;
   }
   const groupBy = requestedGroup as
-    | 'agent'
-    | 'api_key'
-    | 'model'
-    | 'day'
-    | null;
+    'agent' | 'api_key' | 'model' | 'day' | null;
   const repository = getRuntimeStorage().repositories.runtimeEvents;
   const query = {
     appId: auth.appId,

@@ -21,11 +21,7 @@ export interface ClaudeSdkToolSearchDecision {
   mcpServerCount: number;
   serializedToolConfigBytes: number;
   anthropicBaseUrlKind:
-    | 'unset'
-    | 'first_party'
-    | 'gantry_loopback'
-    | 'non_first_party'
-    | 'invalid';
+    'unset' | 'first_party' | 'gantry_loopback' | 'non_first_party' | 'invalid';
 }
 
 export function decideClaudeSdkToolSearch(input: {

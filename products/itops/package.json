@@ -1,0 +1,33 @@
+{
+  "name": "@gantry/itops-product",
+  "private": true,
+  "version": "0.1.0",
+  "packageManager": "pnpm@10.0.0",
+  "dependencies": {
+    "@itops/config": "workspace:*",
+    "@itops/db": "workspace:*"
+  },
+  "scripts": {
+    "dev": "pnpm --parallel --filter @itops/itops-api --filter @itops/itops-worker dev",
+    "build": "pnpm -r build",
+    "lint": "pnpm -r lint",
+    "test": "pnpm -r test",
+    "typecheck": "pnpm -r typecheck",
+    "db:generate": "pnpm --filter @itops/db db:generate",
+    "db:migrate": "pnpm --filter @itops/db db:migrate",
+    "db:studio": "pnpm --filter @itops/db db:studio",
+    "seed:google-workspace": "pnpm --filter @itops/db build && tsx scripts/seed-google-workspace-catalog.ts",
+    "seed:slack": "tsx scripts/seed-slack-catalog.ts",
+    "seed:designations": "tsx scripts/seed-designation-catalog.ts",
+    "seed:demo-employees": "tsx scripts/seed-demo-employees.ts",
+    "slack:browser-login": "tsx scripts/slack-browser-login.ts",
+    "doctor:playwright": "tsx scripts/doctor-playwright.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "playwright": "^1.61.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}

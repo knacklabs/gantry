@@ -273,9 +273,7 @@ function invalidWorkspaceConfigBlocker(
     );
   }
   const executionContext = job.execution_context as
-    | { workspaceKey?: unknown; conversationJid?: unknown }
-    | null
-    | undefined;
+    { workspaceKey?: unknown; conversationJid?: unknown } | null | undefined;
   if (executionContext) {
     const ctxWorkspaceKey =
       typeof executionContext.workspaceKey === 'string'

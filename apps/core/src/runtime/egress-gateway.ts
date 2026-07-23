@@ -57,8 +57,7 @@ type ResolvedEgressTarget = {
   connectHost?: string;
 };
 type EgressTargetResolution =
-  | { target: ResolvedEgressTarget }
-  | { deny: EgressPolicyMatch };
+  { target: ResolvedEgressTarget } | { deny: EgressPolicyMatch };
 interface EgressGatewayState {
   key: string;
   port: number;

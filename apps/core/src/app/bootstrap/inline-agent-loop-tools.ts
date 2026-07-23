@@ -586,8 +586,7 @@ export function wireInlineAgentLoopTools(input: {
   getFileArtifactStore?: CoreSendMessageDeps['getFileArtifactStore'];
   getMcpServerRepository?: () => McpServerRepository | undefined;
   getPermissionPromotionRepository?: () =>
-    | PermissionPromotionRepository
-    | undefined;
+    PermissionPromotionRepository | undefined;
   getAsyncTaskRepository?: () => AsyncTaskRepository | undefined;
   opsRepository?: Pick<
     RuntimeAgentSessionRepository,
@@ -596,11 +595,9 @@ export function wireInlineAgentLoopTools(input: {
   getSkillRepository?: () => RunAgentOptions['skillRepository'];
   getSkillArtifactStore?: () => RunAgentOptions['skillArtifactStore'];
   getCapabilitySecretRepository?: () =>
-    | RunAgentOptions['capabilitySecretRepository']
-    | undefined;
+    RunAgentOptions['capabilitySecretRepository'] | undefined;
   getMcpDnsValidationCache?: () =>
-    | RunAgentOptions['mcpDnsValidationCache']
-    | undefined;
+    RunAgentOptions['mcpDnsValidationCache'] | undefined;
   mcpHostnameLookup?: RunAgentOptions['mcpHostnameLookup'];
   executionAdapter?: RunAgentOptions['executionAdapter'];
   executionAdapters?: RunAgentOptions['executionAdapters'];

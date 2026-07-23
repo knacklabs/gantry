@@ -4,6 +4,7 @@ import {
   selectedMemoryIpcActions,
 } from '../../../../runner/gantry-mcp-tool-surface.js';
 import { isCanonicalBrowserCapabilityRule } from '../../../../shared/agent-tool-references.js';
+import { hasSelectedItOpsSkill } from '../../../../runner/itops-native-tool-surface.js';
 import {
   callableAgentToolName,
   type CallableAgentToolManifestEntry,
@@ -52,6 +53,10 @@ export function buildGantryMcpProjection(
     Boolean(env.GANTRY_BROWSER_IPC_AUTH_TOKEN?.trim()) &&
     input.configuredAllowedTools.some(isCanonicalBrowserCapabilityRule);
   const asyncTaskToolsEnabled = env.GANTRY_ASYNC_TASK_TOOLS_ENABLED === '1';
+  const selectedSkillDisplays = parseStringArray(
+    env.GANTRY_SELECTED_SKILL_DISPLAYS_JSON,
+  );
+  const itOpsSkillSelected = hasSelectedItOpsSkill(selectedSkillDisplays);
   const callableAgentManifest =
     asyncTaskToolsEnabled &&
     !input.hideAuthorityTools &&
@@ -67,6 +72,7 @@ export function buildGantryMcpProjection(
       excludeAuthorityTools: input.hideAuthorityTools,
       memoryReviewerIsControlApprover,
       asyncTaskToolsEnabled,
+      selectedSkillDisplays,
     },
   );
   // Browser gateway tools (browser_*) are reachable only when the host enabled
@@ -124,6 +130,7 @@ export function buildGantryMcpProjection(
     ...passthrough(env, 'GANTRY_TURN_INTENT_SUMMARY'),
     ...passthrough(env, 'GANTRY_INTERACTIVE_PERMISSION_TIMEOUT_MS'),
     ...passthrough(env, 'GANTRY_PERMISSION_TIMEOUT_MS'),
+    ...(itOpsSkillSelected ? itOpsApiEnv(env) : {}),
     ...passthrough(env, 'GANTRY_ASYNC_TASK_TOOLS_ENABLED'),
     GANTRY_CONFIGURED_ALLOWED_TOOLS_JSON: JSON.stringify(
       input.configuredAllowedTools,
@@ -155,6 +162,32 @@ export function buildGantryMcpProjection(
     browserIpcEnabled,
     asyncTaskToolsEnabled,
   };
+}
+
+function parseStringArray(raw: string | undefined): string[] {
+  if (!raw?.trim()) return [];
+  try {
+    const value = JSON.parse(raw) as unknown;
+    return Array.isArray(value)
+      ? value.filter((item): item is string => typeof item === 'string')
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function itOpsApiEnv(env: NodeJS.ProcessEnv): Record<string, string> {
+  return Object.fromEntries(
+    [
+      'ITOPS_API_BASE_URL',
+      'ITOPS_API_TIMEOUT_MS',
+      'ITOPS_API_RETRY_ATTEMPTS',
+      'ITOPS_API_RETRY_DELAY_MS',
+      'ITOPS_API_KEY',
+    ].flatMap((key) =>
+      typeof env[key] === 'string' ? [[key, env[key] as string]] : [],
+    ),
+  );
 }
 
 function passthrough(

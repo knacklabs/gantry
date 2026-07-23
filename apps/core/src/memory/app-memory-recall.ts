@@ -20,8 +20,7 @@ import { runHybridRecall } from './app-memory-recall-hybrid.js';
 const QUERY_EMBEDDING_TIMEOUT_MS = 1500;
 
 export type AppMemorySearchEmptyReason =
-  | 'no_visible_subject_filters'
-  | 'no_matching_memory';
+  'no_visible_subject_filters' | 'no_matching_memory';
 
 export interface AppMemorySearchOutcome {
   resolvedSubject: NormalizedMemorySubject;

@@ -330,11 +330,7 @@ function configureSlackPermissionRequest(request: PermissionApprovalRequest) {
       providerAliases: string[];
       claim: PermissionCallbackClaim | null;
       settlementState:
-        | 'open'
-        | 'claimed'
-        | 'settled'
-        | 'review_each_expired'
-        | 'superseded';
+        'open' | 'claimed' | 'settled' | 'review_each_expired' | 'superseded';
       settledAt: string | null;
       createdAt: string;
       updatedAt: string;

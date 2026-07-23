@@ -1,5 +1,7 @@
 import { materializedSkillDirectoryNameFor } from '../domain/skills/skills.js';
 import {
+  rollbackInstalledSkillReplacement,
+  type InstalledSkillSnapshot,
   skillNameForReceipt,
   withSkillMaterializationLock,
 } from './skill-install-assets.js';
@@ -7,6 +9,8 @@ import { SkillService } from '../application/skills/skill-service.js';
 import type { AgentId } from '../domain/agent/agent.js';
 import type { AppId } from '../domain/app/app.js';
 import type { SkillCatalogItem } from '../domain/skills/skills.js';
+import type { SkillArtifactStore } from '../domain/ports/skill-artifact-store.js';
+import type { SkillCatalogRepository } from '../domain/ports/repositories.js';
 import type { TaskHandler } from './ipc-types.js';
 import { createTaskResponder } from './ipc-shared.js';
 import {
@@ -34,6 +38,14 @@ export function startSkillPermissionReview(input: {
     name: string;
     description?: string;
     requiredEnvVars?: string[];
+  };
+  operation?: 'install' | 'update';
+  expectedContentHash?: string;
+  replacement?: {
+    currentSkill: SkillCatalogItem;
+    snapshot: InstalledSkillSnapshot;
+    skills: SkillCatalogRepository;
+    artifacts: SkillArtifactStore;
   };
   assets: Array<{ path: string; contentType?: string; content: Uint8Array }>;
   fileSummaries: Array<{
@@ -81,6 +93,7 @@ export function startSkillPermissionReview(input: {
 async function completeSkillPermissionReview(
   input: Parameters<typeof startSkillPermissionReview>[0],
 ): Promise<void> {
+  const isUpdate = input.operation === 'update';
   // Install-time collision validation (trace defect 3): fail the install with
   // an honest receipt now instead of blowing up the agent's next spawn.
   const collision = await input.service.installMaterializationCollisionForAgent(
@@ -109,18 +122,23 @@ async function completeSkillPermissionReview(
     decisionOptions: ['allow_once', 'cancel'],
     toolName: input.requestToolName,
     displayName: `Skill: ${input.skill.name}`,
-    title:
-      input.requestToolName === 'request_skill_install'
+    title: isUpdate
+      ? 'Update skill for this agent'
+      : input.requestToolName === 'request_skill_install'
         ? 'Install skill for this agent'
         : 'Install proposed skill for this agent',
-    description:
-      input.requestToolName === 'request_skill_install'
+    description: isUpdate
+      ? 'Only configured approvers can decide this request. Approval replaces the installed skill package for this agent.'
+      : input.requestToolName === 'request_skill_install'
         ? 'Only configured approvers can decide this request. Approval installs the skill and makes it available to this agent.'
         : 'Only configured approvers can decide this request. Approval makes the skill available to this agent.',
     decisionReason: input.reason,
     interaction: skillReviewInteraction(input),
     toolInput: {
       skillId: input.skill.id,
+      operation: isUpdate ? 'update' : 'install',
+      currentContentHash: input.replacement?.currentSkill.storage?.contentHash,
+      expectedContentHash: input.expectedContentHash,
       name: input.skill.name,
       description: input.skill.description,
       requiredEnvVars: input.skill.requiredEnvVars ?? [],
@@ -169,6 +187,20 @@ async function completeSkillPermissionReview(
           });
         if (collision)
           throw new InstallMaterializationCollisionError(collision);
+        if (input.replacement) {
+          const current = await input.service.requireSkill(
+            input.appId,
+            input.replacement.currentSkill.id,
+          );
+          if (
+            current.storage?.contentHash !==
+            input.replacement.currentSkill.storage?.contentHash
+          ) {
+            throw new SkillUpdateConflictError(
+              'The installed skill changed while this update was awaiting approval. Refresh the skill and submit the update again.',
+            );
+          }
+        }
         let installedSkillId: string | undefined;
         try {
           const installed = await input.service.installSkill({
@@ -188,7 +220,20 @@ async function completeSkillPermissionReview(
           await input.syncApprovedCapabilitySettings(input.appId);
           return installed;
         } catch (err) {
-          if (installedSkillId) {
+          if (input.replacement) {
+            const rollback = await rollbackInstalledSkillReplacement({
+              reason: err instanceof Error ? err.message : String(err),
+              snapshot: input.replacement.snapshot,
+              attemptedAssets: input.assets,
+              skills: input.replacement.skills,
+              artifacts: input.replacement.artifacts,
+              syncAfterRestore: () =>
+                input.syncApprovedCapabilitySettings(input.appId),
+            });
+            if (rollback.stopAfterFailure) {
+              throw new Error(rollback.reason, { cause: err });
+            }
+          } else if (installedSkillId) {
             await input.service.rollbackInstalledSkillBinding({
               appId: input.appId,
               agentId: input.agentId,
@@ -205,6 +250,10 @@ async function completeSkillPermissionReview(
       input.responder.reject(err.message, 'skill_materialization_collision');
       return;
     }
+    if (err instanceof SkillUpdateConflictError) {
+      input.responder.reject(err.message, 'skill_update_conflict');
+      return;
+    }
     throw err;
   }
   const sameSessionContext = buildInstalledSkillSameSessionContext(
@@ -212,7 +261,7 @@ async function completeSkillPermissionReview(
     installedSkill,
   );
   await notifyLifecycle(input.onApproved);
-  const action = 'Installed';
+  const action = isUpdate ? 'Updated' : 'Installed';
   await input.deps.sendMessage(
     input.targetJid,
     skillApprovalMessage(
@@ -229,11 +278,12 @@ async function completeSkillPermissionReview(
       installedSkill.requiredEnvVars,
     ),
     sameSessionContext,
-    'skill_installed',
+    isUpdate ? 'skill_updated' : 'skill_installed',
   );
 }
 
 class InstallMaterializationCollisionError extends Error {}
+class SkillUpdateConflictError extends Error {}
 
 function skillReviewMessageOptions(
   input: Parameters<typeof startSkillPermissionReview>[0],
@@ -264,7 +314,7 @@ async function rejectSkillRequestFromPermission(
   reason?: string,
 ): Promise<void> {
   const message = formatNotApprovedMessage({
-    action: 'install',
+    action: input.operation === 'update' ? 'update' : 'install',
     noun: 'skill',
     name: input.skill.name,
     reason,
@@ -286,7 +336,7 @@ function skillReviewInteraction(
   );
   return {
     id: `skill-review-${globalThis.crypto.randomUUID()}`,
-    title: `Install skill ${input.skill.name}`,
+    title: `${input.operation === 'update' ? 'Update' : 'Install'} skill ${input.skill.name}`,
     body: input.reason,
     severity: 'warning' as const,
     requestContext: {
@@ -301,6 +351,17 @@ function skillReviewInteraction(
     },
     details: [
       { label: 'Skill', value: input.skill.name },
+      ...(input.operation === 'update'
+        ? [
+            { label: 'Operation', value: 'Replace installed skill package' },
+            {
+              label: 'Current version',
+              value:
+                input.replacement?.currentSkill.storage?.contentHash ??
+                'unknown',
+            },
+          ]
+        : []),
       { label: 'Activation', value: 'current and future sessions' },
       { label: 'Package size', value: `${input.totalSizeBytes} bytes` },
       ...(input.skill.requiredEnvVars?.length

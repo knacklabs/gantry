@@ -3,11 +3,7 @@ import type { ExecutionProviderId } from './sessions/sessions.js';
 export type JobScheduleType = 'manual' | 'cron' | 'interval' | 'once';
 
 export type JobStatus =
-  | 'active'
-  | 'paused'
-  | 'running'
-  | 'completed'
-  | 'dead_lettered';
+  'active' | 'paused' | 'running' | 'completed' | 'dead_lettered';
 
 export interface JobExecutionContext {
   conversationJid: string;
@@ -24,10 +20,7 @@ export interface JobNotificationRoute {
 }
 
 export type JobCapabilityRequirementImplementationKind =
-  | 'configured_access'
-  | 'local_cli'
-  | 'mcp_server'
-  | 'builtin_tool';
+  'configured_access' | 'local_cli' | 'mcp_server' | 'builtin_tool';
 
 export interface JobCapabilityRequirementImplementation {
   kind: JobCapabilityRequirementImplementationKind;
@@ -98,11 +91,7 @@ export type JobRecoveryIntentKind =
   | 'permission_timeout';
 
 export type JobRecoveryIntentState =
-  | 'pending'
-  | 'running'
-  | 'completed'
-  | 'failed'
-  | 'suppressed';
+  'pending' | 'running' | 'completed' | 'failed' | 'suppressed';
 
 export interface JobRecoveryIntent {
   kind: JobRecoveryIntentKind;
@@ -154,11 +143,7 @@ export interface Job {
 }
 
 export type JobRunStatus =
-  | 'running'
-  | 'completed'
-  | 'failed'
-  | 'timeout'
-  | 'dead_lettered';
+  'running' | 'completed' | 'failed' | 'timeout' | 'dead_lettered';
 
 export interface JobRun {
   run_id: string;

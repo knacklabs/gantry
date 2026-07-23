@@ -40,8 +40,7 @@ export interface IpcRequestWakeupHint {
 export class IpcRequestWakeupRegistry {
   private readonly lanes: readonly RunnerControlRequestLane[];
   private readonly onWatchError:
-    | IpcRequestWakeupRegistryDeps['onWatchError']
-    | undefined;
+    IpcRequestWakeupRegistryDeps['onWatchError'] | undefined;
   private readonly watch: WatchFactory;
   private readonly watchers = new Map<string, FSWatcher>();
   private readonly failedWatchKeys = new Set<string>();

@@ -20,6 +20,7 @@ import {
   projectCallableAgentTools,
 } from '@core/application/core-tools/callable-agent-tools.js';
 import { CALLABLE_AGENT_RESPONSE_TIMEOUT_MS } from '@core/shared/callable-agent-manifest.js';
+import { ITOPS_NATIVE_TOOL_NAMES } from '@core/runner/itops-native-tool-surface.js';
 
 const SAFE_DEFAULT_ALLOWED_TOOLS = [
   'WebSearch',
@@ -143,6 +144,30 @@ describe('agent capability composition', () => {
   const callableAgentTool = gantryMcpFullToolName(
     callableAgentToolName(callableAgentManifest[0]!),
   );
+
+  it('mounts native IT Ops tools only for the exact itops skill', () => {
+    const itops = composeAgentCapabilities({
+      mcpServerPath: '/tmp/ipc-mcp-stdio.js',
+      chatJid: 'sl:itops',
+      workspaceFolder: 'itops',
+      selectedSkillDisplays: ['itops (skill:itops-id)'],
+    });
+    const ats = composeAgentCapabilities({
+      mcpServerPath: '/tmp/ipc-mcp-stdio.js',
+      chatJid: 'sl:ats',
+      workspaceFolder: 'main_agent',
+      selectedSkillDisplays: ['ats-skills (skill:ats-id)'],
+    });
+
+    expect(itops.allowedTools).toEqual(
+      expect.arrayContaining(
+        ITOPS_NATIVE_TOOL_NAMES.map(gantryMcpFullToolName),
+      ),
+    );
+    expect(ats.allowedTools).not.toContain(
+      gantryMcpFullToolName('itops_list_employees'),
+    );
+  });
 
   it('projects callable-agent tools into the Anthropic lane', () => {
     const profile = composeAgentCapabilities({

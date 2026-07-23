@@ -14,9 +14,7 @@ const Items = pgSchema.memoryItemsPostgres;
 const Embeddings = pgSchema.memoryItemEmbeddingsPostgres;
 
 export type EmbeddingSearchMode =
-  | 'lexical_keyword'
-  | 'hybrid_semantic_partial'
-  | 'hybrid_semantic_ready';
+  'lexical_keyword' | 'hybrid_semantic_partial' | 'hybrid_semantic_ready';
 export type EmbeddingVectorSearch = 'inactive' | 'partial' | 'active';
 export type EmbeddingPauseStatus =
   | 'paused_budget'

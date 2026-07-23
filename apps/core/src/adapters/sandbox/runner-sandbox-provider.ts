@@ -56,8 +56,7 @@ const HOME_SECRET_DENY_SUFFIXES = [
 const MACOS_FSEVENTS_MACH_SERVICE = 'com.apple.FSEvents';
 
 let cachedSandboxRuntimeWarmTemplate:
-  | Readonly<SandboxRuntimeWarmTemplate>
-  | undefined;
+  Readonly<SandboxRuntimeWarmTemplate> | undefined;
 
 export function createRunnerSandboxProvider(
   settings: RunnerSandboxProviderSelection,

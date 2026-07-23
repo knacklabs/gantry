@@ -49,10 +49,7 @@ export interface ConversationApprover {
 
 export type ConversationInstallStatus = 'active' | 'disabled';
 export type ConversationInstallMemoryScope =
-  | 'user'
-  | 'conversation'
-  | 'agent'
-  | 'app';
+  'user' | 'conversation' | 'agent' | 'app';
 export type ConversationInstallSenderPolicy = 'provider_native';
 export type ConversationInstallControlPolicy = 'conversation_approvers';
 

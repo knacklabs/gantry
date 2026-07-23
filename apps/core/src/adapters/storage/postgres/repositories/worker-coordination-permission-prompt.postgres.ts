@@ -79,8 +79,7 @@ function toPermissionPrompt(row: PermissionPromptRow): PermissionPrompt {
       approvalContextJid: row.approvalContextJid,
       threadId: row.threadId,
       decisionPolicy: row.decisionPolicy as
-        | PermissionApprovalRequest['decisionPolicy']
-        | null,
+        PermissionApprovalRequest['decisionPolicy'] | null,
       renderedRequest:
         row.renderedRequestJson as PermissionRecoveryEnvelope['renderedRequest'],
     },

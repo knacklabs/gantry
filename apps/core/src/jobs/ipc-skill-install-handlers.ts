@@ -426,6 +426,72 @@ const requestSkillPackageHandler = async (
       storage.repositories.skills,
       storage.skillArtifacts,
     );
+    const agentId = memoryAgentIdForWorkspaceFolder(
+      sourceAgentFolder,
+    ) as AgentId;
+    const proposedName =
+      parsed.metadata.name ?? input.fallbackName ?? 'requested-skill';
+    const targetSkillId = toTrimmedString(payload.targetSkillId, {
+      maxLen: 512,
+    });
+    const expectedContentHash = toTrimmedString(payload.expectedContentHash, {
+      maxLen: 512,
+    });
+    const enabledSkills =
+      await storage.repositories.skills.listEnabledSkillsForAgent({
+        appId: data.appId as AppId,
+        agentId,
+      });
+    const proposedKey =
+      materializedSkillDirectoryNameFor(proposedName).toLowerCase();
+    const replacement = targetSkillId
+      ? enabledSkills.find((skill) => skill.id === targetSkillId)
+      : enabledSkills.find(
+          (skill) =>
+            materializedSkillDirectoryNameFor(skill.name).toLowerCase() ===
+            proposedKey,
+        );
+    if (targetSkillId && !replacement) {
+      pendingSkillPackageReviews.delete(pendingKey);
+      reject(
+        'The requested skill update target is not currently attached to this agent.',
+        'skill_update_target_not_selected',
+      );
+      return;
+    }
+    if (
+      replacement &&
+      materializedSkillDirectoryNameFor(replacement.name).toLowerCase() !==
+        proposedKey
+    ) {
+      pendingSkillPackageReviews.delete(pendingKey);
+      reject(
+        'The replacement package name must match the installed skill being updated.',
+        'skill_update_name_mismatch',
+      );
+      return;
+    }
+    if (
+      replacement &&
+      expectedContentHash &&
+      replacement.storage?.contentHash !== expectedContentHash
+    ) {
+      pendingSkillPackageReviews.delete(pendingKey);
+      reject(
+        'The installed skill changed after this update was prepared. Refresh the selected skill context and submit the update again.',
+        'skill_update_conflict',
+      );
+      return;
+    }
+    const replacementSnapshot = replacement
+      ? await snapshotInstalledSkill({
+          appId: data.appId as AppId,
+          agentId,
+          name: replacement.name,
+          skills: storage.repositories.skills,
+          artifacts: storage.skillArtifacts,
+        })
+      : undefined;
     const requiredEnvVars = sanitizedStringList([
       ...parsed.metadata.requiredEnvVars,
       ...(Array.isArray(payload.requiredEnvVars)
@@ -446,10 +512,22 @@ const requestSkillPackageHandler = async (
       threadId: data.authThreadId,
       providerAccountId: data.providerAccountId,
       skill: {
-        name: parsed.metadata.name ?? input.fallbackName ?? 'requested-skill',
+        ...(replacement ? { id: replacement.id } : {}),
+        name: proposedName,
         description: parsed.metadata.description,
         requiredEnvVars,
       },
+      operation: replacement ? 'update' : 'install',
+      expectedContentHash,
+      replacement:
+        replacement && replacementSnapshot
+          ? {
+              currentSkill: replacement,
+              snapshot: replacementSnapshot,
+              skills: storage.repositories.skills,
+              artifacts: storage.skillArtifacts,
+            }
+          : undefined,
       assets: parsed.assets,
       fileSummaries: parsed.fileSummaries.map(
         ({ path, sizeBytes, fingerprint }) => ({

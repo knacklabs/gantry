@@ -86,10 +86,7 @@ export interface JobNotificationRoute {
 }
 
 export type JobCapabilityRequirementImplementationKind =
-  | 'configured_access'
-  | 'local_cli'
-  | 'mcp_server'
-  | 'builtin_tool';
+  'configured_access' | 'local_cli' | 'mcp_server' | 'builtin_tool';
 
 export interface JobCapabilityRequirementImplementation {
   kind: JobCapabilityRequirementImplementationKind;

@@ -520,8 +520,7 @@ function latestTelegramUserQuestionCallbackData(
 ): string {
   const keyboard = currentBot().api.sendMessage.mock.calls.at(-1)?.[2]
     ?.reply_markup?.inline_keyboard as
-    | Array<Array<{ callback_data?: string }>>
-    | undefined;
+    Array<Array<{ callback_data?: string }>> | undefined;
   const callbackData = keyboard
     ?.flat()
     .map((button) => button.callback_data)
@@ -546,8 +545,7 @@ function latestGroupJoinCallback(action: 'yes' | 'no'): string {
   const buttons = currentBot()
     .api.sendMessage.mock.calls.at(-1)?.[2]
     ?.reply_markup?.inline_keyboard.flat() as
-    | Array<{ callback_data?: string }>
-    | undefined;
+    Array<{ callback_data?: string }> | undefined;
   const callback = buttons?.find((button) =>
     button.callback_data?.startsWith(`gjoin:${action}:`),
   )?.callback_data;

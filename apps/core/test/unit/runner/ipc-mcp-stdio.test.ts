@@ -10,8 +10,10 @@ import { buildSync } from 'esbuild';
 
 import { schedulerJobConfirmationToken } from '@core/shared/scheduler-job-plan.js';
 import { ALL_GANTRY_MCP_TOOL_NAMES } from '@agent-runner-src/gantry-mcp-tool-surface.js';
+import { ITOPS_NATIVE_TOOL_NAMES } from '@agent-runner-src/itops-native-tool-surface.js';
 
 const MCP_FIXTURE_TIMEOUT_MS = 60_000;
+const ITOPS_NATIVE_TOOL_NAME_SET = new Set<string>(ITOPS_NATIVE_TOOL_NAMES);
 const tempRoots: string[] = [];
 const repoRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -92,6 +94,7 @@ function createMcpFixture(): {
     .toString();
   const runnerDir = path.join(root, 'runner');
   const runnerMcpDir = path.join(runnerDir, 'mcp');
+  const integrationsDir = path.join(root, 'integrations');
   const channelsDir = path.join(root, 'channels');
   const applicationMcpDir = path.join(root, 'application', 'mcp');
   const sharedDir = path.join(root, 'shared');
@@ -110,6 +113,7 @@ function createMcpFixture(): {
 
   fs.mkdirSync(runnerDir, { recursive: true });
   fs.mkdirSync(runnerMcpDir, { recursive: true });
+  fs.mkdirSync(integrationsDir, { recursive: true });
   fs.mkdirSync(channelsDir, { recursive: true });
   fs.mkdirSync(applicationMcpDir, { recursive: true });
   fs.mkdirSync(guidedActionsDir, { recursive: true });
@@ -121,6 +125,10 @@ function createMcpFixture(): {
     JSON.stringify({ type: 'module' }),
   );
   copyDirectory(path.resolve('apps/core/src/runner/mcp'), runnerMcpDir);
+  copyDirectory(
+    path.resolve('apps/core/src/integrations/itops'),
+    path.join(integrationsDir, 'itops'),
+  );
   fs.copyFileSync(
     path.resolve('apps/core/src/shared/callable-agent-manifest.ts'),
     path.join(sharedDir, 'callable-agent-manifest.ts'),
@@ -290,6 +298,10 @@ function createMcpFixture(): {
   fs.copyFileSync(
     path.resolve('apps/core/src/runner/gantry-mcp-tool-surface.ts'),
     path.join(runnerDir, 'gantry-mcp-tool-surface.ts'),
+  );
+  fs.copyFileSync(
+    path.resolve('apps/core/src/runner/itops-native-tool-surface.ts'),
+    path.join(runnerDir, 'itops-native-tool-surface.ts'),
   );
   fs.copyFileSync(
     path.resolve('apps/core/src/shared/private-fs.ts'),
@@ -471,8 +483,15 @@ export class McpServer {
         fs.mkdirSync(responseDir, { recursive: true });
         const responsePayload = {
           taskId,
-          ok: true,
-          message: 'Scheduler task confirmed.',
+          ok: process.env.TEST_MCP_TASK_RESPONSE_OK !== '0',
+          ...(process.env.TEST_MCP_TASK_RESPONSE_OK === '0'
+            ? {
+                code: process.env.TEST_MCP_TASK_RESPONSE_CODE || 'unavailable',
+                error:
+                  process.env.TEST_MCP_TASK_RESPONSE_ERROR ||
+                  'Task is unavailable.',
+              }
+            : { message: 'Scheduler task confirmed.' }),
           ...(process.env.TEST_MCP_TASK_RESPONSE_DATA
             ? { data: JSON.parse(process.env.TEST_MCP_TASK_RESPONSE_DATA) }
             : {}),
@@ -561,7 +580,11 @@ async function runMcpFixture(
       GANTRY_AGENT_RUN_HANDLE: 'mcp-test-run',
       GANTRY_NO_PERMISSION_TOOLS: '',
       GANTRY_ADMIN_MCP_TOOLS_JSON: '[]',
-      GANTRY_MCP_TOOL_NAMES_JSON: JSON.stringify(ALL_GANTRY_MCP_TOOL_NAMES),
+      GANTRY_MCP_TOOL_NAMES_JSON: JSON.stringify(
+        ALL_GANTRY_MCP_TOOL_NAMES.filter(
+          (name) => !ITOPS_NATIVE_TOOL_NAME_SET.has(name),
+        ),
+      ),
       ...envOverrides,
       TEST_MCP_TOOL_NAME: toolName,
       TEST_MCP_TOOL_ARGS: JSON.stringify(args),
@@ -894,8 +917,36 @@ describe('agent-runner MCP stdio tools', { timeout: 70_000 }, () => {
     expect(result.exitCode, result.stderr).toBe(0);
     const record = JSON.parse(fs.readFileSync(fixture.resultPath, 'utf-8'));
     expect(record.result).toMatchObject({
-      ...remoteResult,
+      content: remoteResult.content,
+      structuredContent: remoteResult.structuredContent,
+      error: remoteResult.error,
     });
+    expect(record.result.isError).toBeUndefined();
+  });
+
+  it('returns host MCP rejections as recoverable model-visible results', async () => {
+    const fixture = createMcpFixture();
+
+    const result = await runMcpFixture(
+      fixture,
+      'mcp_call_tool',
+      { serverName: 'ats', toolName: 'ats_list_client_projects' },
+      {
+        TEST_MCP_TASK_RESPONSE_OK: '0',
+        TEST_MCP_TASK_RESPONSE_CODE: 'invalid_request',
+        TEST_MCP_TASK_RESPONSE_ERROR: 'The client field is required.',
+      },
+    );
+
+    expect(result.exitCode, result.stderr).toBe(0);
+    const record = JSON.parse(fs.readFileSync(fixture.resultPath, 'utf-8'));
+    expect(record.result.isError).toBeUndefined();
+    expect(record.result.content[0].text).toContain(
+      'The client field is required.',
+    );
+    expect(record.result.content[0].text).toContain(
+      'ask the user for missing information',
+    );
   });
 
   it('writes MCP tool detail requests through IPC without execution arguments', async () => {

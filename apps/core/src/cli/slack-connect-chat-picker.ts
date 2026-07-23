@@ -15,9 +15,7 @@ function normalizeSlackChatJid(raw: string): string | null {
 }
 
 export type SlackChatChoice =
-  | { type: 'selected'; chatJid: string }
-  | { type: 'skip' }
-  | { type: 'cancel' };
+  { type: 'selected'; chatJid: string } | { type: 'skip' } | { type: 'cancel' };
 
 async function promptManualSlackChatId(
   defaultChatJid = '',

@@ -5,6 +5,7 @@ import {
   callableAgentToolName,
   projectCallableAgentTools,
 } from '@core/application/core-tools/callable-agent-tools.js';
+import { ITOPS_NATIVE_TOOL_NAMES } from '@core/runner/itops-native-tool-surface.js';
 
 const BASE_ENV: NodeJS.ProcessEnv = {
   GANTRY_IPC_DIR: '/ipc',
@@ -126,6 +127,40 @@ describe('buildGantryMcpProjection', () => {
     );
     // Browser IPC token never leaks when browser is not enabled.
     expect(projection.env.GANTRY_BROWSER_IPC_AUTH_TOKEN).toBeUndefined();
+  });
+
+  it('projects native IT Ops tools and API settings only for the selected itops skill', () => {
+    const itops = buildGantryMcpProjection({
+      configuredAllowedTools: [],
+      hideAuthorityTools: false,
+      processEnv: {
+        ...BASE_ENV,
+        GANTRY_SELECTED_SKILL_DISPLAYS_JSON:
+          '["itops (skill:00000000-0000-0000-0000-000000000001)"]',
+        ITOPS_API_BASE_URL: 'http://itops-api:4000',
+        ITOPS_API_KEY: 'host-only-key',
+      },
+    });
+    const ats = buildGantryMcpProjection({
+      configuredAllowedTools: [],
+      hideAuthorityTools: false,
+      processEnv: {
+        ...BASE_ENV,
+        GANTRY_SELECTED_SKILL_DISPLAYS_JSON:
+          '["ats-skills (skill:00000000-0000-0000-0000-000000000002)"]',
+        ITOPS_API_BASE_URL: 'http://itops-api:4000',
+        ITOPS_API_KEY: 'host-only-key',
+      },
+    });
+
+    expect(itops.selectedToolNames).toEqual(
+      expect.arrayContaining([...ITOPS_NATIVE_TOOL_NAMES]),
+    );
+    expect(itops.env.ITOPS_API_BASE_URL).toBe('http://itops-api:4000');
+    expect(itops.env.ITOPS_API_KEY).toBe('host-only-key');
+    expect(ats.selectedToolNames).not.toContain('itops_list_employees');
+    expect(ats.env.ITOPS_API_BASE_URL).toBeUndefined();
+    expect(ats.env.ITOPS_API_KEY).toBeUndefined();
   });
 
   it('mounts browser gateway tools only when browser IPC is enabled AND Browser is selected', () => {

@@ -53,11 +53,7 @@ export interface EmbeddingBatchRequest {
 }
 
 export type EmbeddingBatchState =
-  | 'pending'
-  | 'completed'
-  | 'failed'
-  | 'expired'
-  | 'cancelled';
+  'pending' | 'completed' | 'failed' | 'expired' | 'cancelled';
 
 export interface EmbeddingBatchPoll {
   batchId: string;
@@ -109,8 +105,7 @@ const embeddingProviderFactories = new Map<
 const DEFAULT_EMBEDDING_BASE_URL = ['https://api.', 'open', 'ai.com'].join('');
 const OPEN_AI_PROVIDER_ALIAS = ['open', 'ai'].join('');
 let embeddingCredentialBrokerPromise:
-  | ReturnType<typeof createAgentCredentialBroker>
-  | undefined;
+  ReturnType<typeof createAgentCredentialBroker> | undefined;
 let embeddingCredentialBrokerConfigKey = '';
 
 export class OpenAIEmbeddingClient implements EmbeddingProvider {

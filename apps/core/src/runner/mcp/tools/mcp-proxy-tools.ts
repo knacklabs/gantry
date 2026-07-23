@@ -74,15 +74,7 @@ export function registerMcpProxyTools(server: McpServer): void {
       });
       const response = await waitForTaskResponse(taskId, MCP_PROXY_WAIT_MS);
       if (!response?.ok) {
-        return {
-          content: [
-            {
-              type: 'text' as const,
-              text: response?.error || 'MCP tool listing failed.',
-            },
-          ],
-          isError: true,
-        };
+        return recoverableTaskFailure(response, 'MCP tool listing failed.');
       }
       return {
         content: [
@@ -142,15 +134,7 @@ export function registerMcpProxyTools(server: McpServer): void {
       });
       const response = await waitForTaskResponse(taskId, MCP_PROXY_WAIT_MS);
       if (!response?.ok) {
-        return {
-          content: [
-            {
-              type: 'text' as const,
-              text: response?.error || 'MCP tool search failed.',
-            },
-          ],
-          isError: true,
-        };
+        return recoverableTaskFailure(response, 'MCP tool search failed.');
       }
       return {
         content: [
@@ -202,15 +186,7 @@ export function registerMcpProxyTools(server: McpServer): void {
       });
       const response = await waitForTaskResponse(taskId, MCP_PROXY_WAIT_MS);
       if (!response?.ok) {
-        return {
-          content: [
-            {
-              type: 'text' as const,
-              text: response?.error || 'MCP tool detail failed.',
-            },
-          ],
-          isError: true,
-        };
+        return recoverableTaskFailure(response, 'MCP tool detail failed.');
       }
       return {
         content: [
@@ -272,15 +248,7 @@ export function registerMcpProxyTools(server: McpServer): void {
       });
       const response = await waitForTaskResponse(taskId, MCP_PROXY_WAIT_MS);
       if (!response?.ok) {
-        return {
-          content: [
-            {
-              type: 'text' as const,
-              text: response?.error || 'MCP tool call failed.',
-            },
-          ],
-          isError: true,
-        };
+        return recoverableTaskFailure(response, 'MCP tool call failed.');
       }
       return modelVisibleMcpCallResult(response.data);
     },
@@ -329,15 +297,7 @@ export function registerMcpProxyTools(server: McpServer): void {
       });
       const response = await waitForTaskResponse(taskId, MCP_PROXY_WAIT_MS);
       if (!response?.ok) {
-        return {
-          content: [
-            {
-              type: 'text' as const,
-              text: response?.error || 'Async MCP tool call failed.',
-            },
-          ],
-          isError: true,
-        };
+        return recoverableTaskFailure(response, 'Async MCP tool call failed.');
       }
       return {
         content: [
@@ -367,5 +327,33 @@ function modelVisibleMcpCallResult(data: unknown): CallToolResult {
       ],
     };
   }
-  return data as CallToolResult;
+  const result = data as CallToolResult;
+  if (result.isError !== true) return result;
+
+  // MCP business and validation failures are input for the model to recover
+  // from, not runner failures that should abort and replay the whole turn.
+  const { isError: _isError, ...recoverableResult } = result;
+  return recoverableResult as CallToolResult;
+}
+
+function recoverableTaskFailure(
+  response: { code?: string; error?: string } | null | undefined,
+  fallback: string,
+): CallToolResult {
+  const message = response?.error?.trim() || fallback;
+  const code = response?.code?.trim();
+  return {
+    content: [
+      {
+        type: 'text',
+        text: [
+          `The MCP operation did not execute: ${message}`,
+          code ? `Failure code: ${code}` : undefined,
+          'Correct the arguments, inspect the tool schema, choose another available tool, or ask the user for missing information, then continue the turn.',
+        ]
+          .filter(Boolean)
+          .join('\n'),
+      },
+    ],
+  };
 }

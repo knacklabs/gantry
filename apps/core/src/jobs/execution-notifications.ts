@@ -24,9 +24,7 @@ type TerminalRunStatus = Extract<
 >;
 
 export type JobNotificationLifecycleUpdateResult =
-  | 'updated'
-  | 'unsupported'
-  | 'failed';
+  'updated' | 'unsupported' | 'failed';
 
 function recoveryActionAffordances(input: {
   job: Job;

@@ -457,8 +457,7 @@ describe('jobs/execution', () => {
       }),
     );
     const options = handleSystemJobMock.mock.calls[0]?.[2] as
-      | { deadlineAtMs?: number }
-      | undefined;
+      { deadlineAtMs?: number } | undefined;
     expect(options?.deadlineAtMs).toBeGreaterThan(Date.now() + 1_100_000);
     expect(options?.deadlineAtMs).toBeLessThanOrEqual(Date.now() + 1_260_000);
     expect(opsRepository.completeJobRun).toHaveBeenCalledWith(

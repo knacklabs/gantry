@@ -1,9 +1,6 @@
 export type ControlPlaneRuntimeStatus = 'Ready' | 'Needs setup' | 'Blocked';
 export type ControlPlaneMemoryStatus =
-  | 'Ready'
-  | 'Needs setup'
-  | 'Needs review'
-  | 'Disabled';
+  'Ready' | 'Needs setup' | 'Needs review' | 'Disabled';
 
 export interface ControlPlaneProviderInput {
   id: string;

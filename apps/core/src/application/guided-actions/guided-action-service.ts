@@ -20,10 +20,7 @@ export interface GuidedActionPreview {
 }
 
 export type GuidedActionSavedTo =
-  | 'settings.yaml'
-  | 'runtime state'
-  | 'access policy'
-  | 'none';
+  'settings.yaml' | 'runtime state' | 'access policy' | 'none';
 
 /** A guided action that ran and changed something (or confirmed nothing to do). */
 export interface GuidedActionDone {
@@ -53,9 +50,7 @@ export interface GuidedActionManual {
 }
 
 export type GuidedActionResult =
-  | GuidedActionDone
-  | GuidedActionFailed
-  | GuidedActionManual;
+  GuidedActionDone | GuidedActionFailed | GuidedActionManual;
 
 export type GuidedActionExecutor = (
   ref: GuidedActionRef,

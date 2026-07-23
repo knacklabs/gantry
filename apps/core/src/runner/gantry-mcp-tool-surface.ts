@@ -9,6 +9,10 @@ import {
   type MemoryIpcActionSelectionOptions,
 } from '../shared/memory-ipc-actions.js';
 import { isCanonicalBrowserCapabilityRule } from '../shared/agent-tool-references.js';
+import {
+  hasSelectedItOpsSkill,
+  ITOPS_NATIVE_TOOL_NAMES,
+} from './itops-native-tool-surface.js';
 
 export const BASELINE_GANTRY_MCP_TOOL_NAMES = [
   'send_message',
@@ -91,6 +95,10 @@ export const NO_PERMISSION_HIDDEN_GANTRY_MCP_TOOL_NAMES = [
   ...DELEGATED_TASK_GANTRY_MCP_TOOL_NAMES,
   ...OPTIONAL_GANTRY_MCP_TOOL_NAMES,
   ...REVIEWED_GANTRY_MCP_TOOL_NAMES,
+  'mcp_list_tools',
+  'mcp_search_tools',
+  'mcp_describe_tool',
+  'mcp_call_tool',
 ] as const;
 
 const AUTHORITY_CHANGING_GANTRY_MCP_TOOL_NAME_SET = new Set<string>(
@@ -130,6 +138,7 @@ export const ALL_GANTRY_MCP_TOOL_NAMES = [
   ...GATED_GANTRY_MCP_TOOL_NAMES,
   ...REVIEWED_GANTRY_MCP_TOOL_NAMES,
   ...ADMIN_MCP_TOOL_NAMES,
+  ...ITOPS_NATIVE_TOOL_NAMES,
 ] as const;
 
 const ALL_GANTRY_MCP_TOOL_NAME_SET = new Set<string>(ALL_GANTRY_MCP_TOOL_NAMES);
@@ -142,6 +151,7 @@ export interface GantryMcpToolSelectionOptions extends MemoryIpcActionSelectionO
   // runner sandbox. They are projected only when the host says that executor is
   // available for this run.
   asyncTaskToolsEnabled?: boolean;
+  selectedSkillDisplays?: readonly string[];
 }
 
 export function gantryMcpFullToolName(toolName: string): string {
@@ -150,8 +160,9 @@ export function gantryMcpFullToolName(toolName: string): string {
 
 export function gantryMcpToolNameFromFullName(value: string): string | null {
   const trimmed = value.trim();
-  if (!trimmed.startsWith('mcp__gantry__')) return null;
-  const toolName = trimmed.slice('mcp__gantry__'.length);
+  const toolName = trimmed.startsWith('mcp__gantry__')
+    ? trimmed.slice('mcp__gantry__'.length)
+    : trimmed;
   return ALL_GANTRY_MCP_TOOL_NAME_SET.has(toolName) ? toolName : null;
 }
 
@@ -160,6 +171,9 @@ export function selectedGantryMcpToolNames(
   options: GantryMcpToolSelectionOptions = {},
 ): string[] {
   const names = new Set<string>(DEFAULT_GANTRY_MCP_TOOL_NAMES);
+  if (hasSelectedItOpsSkill(options.selectedSkillDisplays ?? [])) {
+    for (const toolName of ITOPS_NATIVE_TOOL_NAMES) names.add(toolName);
+  }
   if (options.asyncTaskToolsEnabled && !options.excludeAuthorityTools) {
     for (const toolName of ASYNC_TASK_GANTRY_MCP_TOOL_NAMES)
       names.add(toolName);

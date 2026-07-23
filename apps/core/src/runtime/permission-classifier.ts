@@ -116,9 +116,7 @@ export interface PublishPermissionClassifierDecisionInput {
 }
 
 export type PermissionClassifierIntentSource =
-  | 'operator_message'
-  | 'runner_summary'
-  | 'none';
+  'operator_message' | 'runner_summary' | 'none';
 export interface PermissionClassifierPromptConsultInput {
   permissionMode: PermissionMode;
   requestFamily: PermissionClassifierRequestFamily;

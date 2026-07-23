@@ -28,8 +28,7 @@ export type PendingAsyncCommandExecution = {
 };
 
 export type PendingAsyncTaskExecution =
-  | PendingAsyncCommandExecution
-  | PendingDelegatedAgentExecution;
+  PendingAsyncCommandExecution | PendingDelegatedAgentExecution;
 
 export interface AsyncCommandTaskServiceOptions {
   completionMessageRepository?: CallableAgentFollowUpMessageRepository;

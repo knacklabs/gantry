@@ -94,25 +94,20 @@ export class RuntimeSecretConversationDiscovery implements ProviderConversationD
         throw new ApplicationError('UNAVAILABLE', result.message);
       }
       return filterDiscoveredConversations(
-        result.chats.map(
-          (chat): DiscoveredConversation => ({
-            externalId: canonicalConversationExternalId(
-              providerId,
-              chat.chatJid,
-            ),
-            title: chat.chatTitle,
-            kind:
-              chat.chatType === 'private'
-                ? 'direct'
-                : chat.chatType === 'channel'
-                  ? 'channel'
-                  : 'group',
-            externalRef: {
-              kind: 'conversation',
-              value: canonicalConversationExternalId(providerId, chat.chatJid),
-            },
-          }),
-        ),
+        result.chats.map((chat): DiscoveredConversation => ({
+          externalId: canonicalConversationExternalId(providerId, chat.chatJid),
+          title: chat.chatTitle,
+          kind:
+            chat.chatType === 'private'
+              ? 'direct'
+              : chat.chatType === 'channel'
+                ? 'channel'
+                : 'group',
+          externalRef: {
+            kind: 'conversation',
+            value: canonicalConversationExternalId(providerId, chat.chatJid),
+          },
+        })),
         input,
       );
     }
@@ -130,21 +125,16 @@ export class RuntimeSecretConversationDiscovery implements ProviderConversationD
         throw new ApplicationError('UNAVAILABLE', result.message);
       }
       return filterDiscoveredConversations(
-        result.chats.map(
-          (chat): DiscoveredConversation => ({
-            externalId: canonicalConversationExternalId(
-              providerId,
-              chat.chatJid,
-            ),
-            title: chat.chatTitle,
-            kind: chat.chatType === 'im' ? 'direct' : 'channel',
-            ...(chat.isArchived === true ? { status: 'archived' } : {}),
-            externalRef: {
-              kind: 'conversation',
-              value: canonicalConversationExternalId(providerId, chat.chatJid),
-            },
-          }),
-        ),
+        result.chats.map((chat): DiscoveredConversation => ({
+          externalId: canonicalConversationExternalId(providerId, chat.chatJid),
+          title: chat.chatTitle,
+          kind: chat.chatType === 'im' ? 'direct' : 'channel',
+          ...(chat.isArchived === true ? { status: 'archived' } : {}),
+          externalRef: {
+            kind: 'conversation',
+            value: canonicalConversationExternalId(providerId, chat.chatJid),
+          },
+        })),
         input,
       );
     }
@@ -171,24 +161,19 @@ export class RuntimeSecretConversationDiscovery implements ProviderConversationD
         throw new ApplicationError('UNAVAILABLE', result.message);
       }
       return filterDiscoveredConversations(
-        result.channels.map(
-          (channel): DiscoveredConversation => ({
-            externalId: canonicalConversationExternalId(
-              providerId,
-              channel.chatJid,
-            ),
-            title: channel.chatTitle,
-            kind: 'channel',
-            ...(channel.isArchived === true ? { status: 'archived' } : {}),
-            externalRef: {
-              kind: 'conversation',
-              value: canonicalConversationExternalId(
-                providerId,
-                channel.chatJid,
-              ),
-            },
-          }),
-        ),
+        result.channels.map((channel): DiscoveredConversation => ({
+          externalId: canonicalConversationExternalId(
+            providerId,
+            channel.chatJid,
+          ),
+          title: channel.chatTitle,
+          kind: 'channel',
+          ...(channel.isArchived === true ? { status: 'archived' } : {}),
+          externalRef: {
+            kind: 'conversation',
+            value: canonicalConversationExternalId(providerId, channel.chatJid),
+          },
+        })),
         input,
       );
     }
@@ -210,23 +195,18 @@ export class RuntimeSecretConversationDiscovery implements ProviderConversationD
         throw new ApplicationError('UNAVAILABLE', result.message);
       }
       return filterDiscoveredConversations(
-        result.channels.map(
-          (channel): DiscoveredConversation => ({
-            externalId: canonicalConversationExternalId(
-              providerId,
-              channel.chatJid,
-            ),
-            title: channel.chatTitle,
-            kind: 'channel',
-            externalRef: {
-              kind: 'conversation',
-              value: canonicalConversationExternalId(
-                providerId,
-                channel.chatJid,
-              ),
-            },
-          }),
-        ),
+        result.channels.map((channel): DiscoveredConversation => ({
+          externalId: canonicalConversationExternalId(
+            providerId,
+            channel.chatJid,
+          ),
+          title: channel.chatTitle,
+          kind: 'channel',
+          externalRef: {
+            kind: 'conversation',
+            value: canonicalConversationExternalId(providerId, channel.chatJid),
+          },
+        })),
         input,
       );
     }

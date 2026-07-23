@@ -23,11 +23,7 @@ export function isDirectSaveMemoryKind(
 export type MemorySubjectType = 'user' | 'group' | 'channel' | 'common';
 export type MemoryVisibility = MemorySubjectType;
 export type MemoryEvidenceSource =
-  | 'session'
-  | 'message'
-  | 'tool'
-  | 'manual'
-  | 'knowledge_source';
+  'session' | 'message' | 'tool' | 'manual' | 'knowledge_source';
 export type DreamPhase = 'light' | 'rem' | 'deep' | 'all';
 export type DreamDecisionAction =
   | 'stage_candidate'

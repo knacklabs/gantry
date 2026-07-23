@@ -37,7 +37,7 @@ beforeEach(() => {
 function asyncRuntimeDeps(repository: AsyncTaskRepository) {
   return {
     getAsyncTaskRepository: () => repository,
-    runnerSandboxProvider: { enforcing: true },
+    runnerSandboxProvider: { id: 'direct', enforcing: false },
   } as never;
 }
 
@@ -569,7 +569,7 @@ describe('MCP IPC tool handlers', () => {
     });
   });
 
-  it('rejects async MCP calls when async task tools were not mounted', async () => {
+  it('rejects async MCP calls when durable task storage is unavailable', async () => {
     const repository = new MemoryAsyncTaskRepository();
     const createProxy = vi.fn(async () => ({
       assertToolAllowed: vi.fn(async () => undefined),
@@ -609,7 +609,7 @@ describe('MCP IPC tool handlers', () => {
         },
       },
       sourceAgentFolder: 'main_agent',
-      deps: { getAsyncTaskRepository: () => repository } as never,
+      deps: {} as never,
       conversationBindings: {},
       sourceAgentFolderJids: ['sl:C123'],
     });

@@ -60,8 +60,7 @@ export function createArchiveCurrentSessionHandler(input: {
   collectMemory?: SessionMemoryCollector;
   executionAdapter?: Pick<AgentExecutionAdapter, 'id'>;
   resolveExecutionProviderId?: () =>
-    | ExecutionProviderId
-    | Promise<ExecutionProviderId>;
+    ExecutionProviderId | Promise<ExecutionProviderId>;
 }) {
   return async (cause: ArchiveSessionInput['cause'] = 'new-session') => {
     const executionProviderId =
@@ -94,8 +93,7 @@ export function createPrepareSessionArchiveHandler(input: {
   collectMemory?: SessionMemoryCollector;
   executionAdapter?: Pick<AgentExecutionAdapter, 'id'>;
   resolveExecutionProviderId?: () =>
-    | ExecutionProviderId
-    | Promise<ExecutionProviderId>;
+    ExecutionProviderId | Promise<ExecutionProviderId>;
 }) {
   return async (_cause: 'new-session') => {
     const ops = input.ops();
@@ -359,8 +357,7 @@ export function createSessionCompactionHandlers(
     },
     finishSessionCompaction: async (
       locked:
-        | { providerSessionId: string; externalSessionId: string }
-        | undefined,
+        { providerSessionId: string; externalSessionId: string } | undefined,
       status: 'active' | 'expired' | 'ready',
     ) => {
       if (!locked) return;
@@ -381,8 +378,7 @@ export function createSessionCompactionHandlers(
 async function resolveSessionCommandExecutionProviderId(input: {
   executionAdapter?: Pick<AgentExecutionAdapter, 'id'>;
   resolveExecutionProviderId?: () =>
-    | ExecutionProviderId
-    | Promise<ExecutionProviderId>;
+    ExecutionProviderId | Promise<ExecutionProviderId>;
 }): Promise<ExecutionProviderId> {
   return (
     (await input.resolveExecutionProviderId?.()) ??

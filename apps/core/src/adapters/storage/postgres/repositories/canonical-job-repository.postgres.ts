@@ -819,8 +819,7 @@ export class PostgresCanonicalJobRepository {
   private async ensureJobRunGraph(
     jobId: string,
     executor:
-      | CanonicalDb
-      | Parameters<Parameters<CanonicalDb['transaction']>[0]>[0],
+      CanonicalDb | Parameters<Parameters<CanonicalDb['transaction']>[0]>[0],
   ): Promise<{ agentId: string; configVersionId: string }> {
     const rows = await executor
       .select()
@@ -852,8 +851,7 @@ export class PostgresCanonicalJobRepository {
   private async nextRunShortId(
     jobId: string,
     executor:
-      | CanonicalDb
-      | Parameters<Parameters<CanonicalDb['transaction']>[0]>[0],
+      CanonicalDb | Parameters<Parameters<CanonicalDb['transaction']>[0]>[0],
   ): Promise<number> {
     const rows = await executor
       .select({

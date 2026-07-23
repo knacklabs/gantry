@@ -1,10 +1,7 @@
 import type { ProgressUpdateOptions } from '../domain/types.js';
 
 export type FinalProgressState =
-  | 'completed'
-  | 'failed'
-  | 'delivery_incomplete'
-  | 'stopped';
+  'completed' | 'failed' | 'delivery_incomplete' | 'stopped';
 
 export function buildReplaceOnlyProgressOptions(
   threadId?: string,

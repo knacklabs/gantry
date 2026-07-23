@@ -115,8 +115,7 @@ export interface FailoverAdvanceDetails {
 // publish failures are swallowed (observability must never break failover).
 export function publishRunFailoverEvent(input: {
   publish:
-    | ((event: RuntimeEventPublishInput) => Promise<unknown> | void)
-    | undefined;
+    ((event: RuntimeEventPublishInput) => Promise<unknown> | void) | undefined;
   appId: string | undefined;
   agentId?: string;
   runId?: string;

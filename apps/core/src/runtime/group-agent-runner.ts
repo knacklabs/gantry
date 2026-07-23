@@ -265,8 +265,7 @@ export function createGroupAgentRunner(input: {
     const wrappedOnOutput = async (output: AgentOutput) => {
       await persistProviderSessionFromOutput(output);
       let normalizedUsageRuntimeEvent:
-        | NonNullable<AgentOutput['runtimeEvents']>[number]
-        | undefined;
+        NonNullable<AgentOutput['runtimeEvents']>[number] | undefined;
       if (output.usage) {
         try {
           recordRuntimeModelUsage({

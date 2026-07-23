@@ -895,8 +895,7 @@ describe('admin IPC handlers', () => {
     const { adminTaskHandlers, pendingAccessRequests, taskData } =
       await loadAdminHandlers(runtimeHome);
     let resolveApproval:
-      | ((value: { approved: false; reason: string }) => void)
-      | undefined;
+      ((value: { approved: false; reason: string }) => void) | undefined;
     const requestPermissionApproval = vi.fn(
       () =>
         new Promise<{ approved: false; reason: string }>((resolve) => {
@@ -1275,8 +1274,7 @@ describe('admin IPC handlers', () => {
     const { adminTaskHandlers, taskData } =
       await loadAdminHandlers(runtimeHome);
     let resolveApproval:
-      | ((value: { approved: false; reason: string }) => void)
-      | undefined;
+      ((value: { approved: false; reason: string }) => void) | undefined;
     const requestPermissionApproval = vi.fn(
       () =>
         new Promise<{ approved: false; reason: string }>((resolve) => {

@@ -34,7 +34,7 @@ export function registerServiceTools(server: McpServer): void {
   registerSkillProposalTool(
     server,
     'request_skill_proposal',
-    'Request skill source setup for an agent-created or modified skill bundle. Approval makes the skill available as inventory; risky actions still require reviewed capability access.',
+    'Request installation or an approved update of an agent-created skill bundle. For a selected skill update, submit the complete replacement package with targetSkillId and expectedContentHash instead of editing managed skill files. Only a configured conversation approver can authorize the change; risky actions still require reviewed capability access.',
   );
   server.tool(
     'pattern_candidate_decision',
@@ -752,9 +752,21 @@ function registerSkillProposalTool(
         .min(1)
         .max(50)
         .describe(
-          'Skill files. Must include SKILL.md with name and description frontmatter.',
+          'Complete skill package. Must include SKILL.md with name and description frontmatter. For an update, include every file that should remain after replacement.',
         ),
       reason: z.string().describe('Why this skill is needed'),
+      targetSkillId: z
+        .string()
+        .optional()
+        .describe(
+          'Installed skill ID to replace. Use this when updating a selected skill; the declared SKILL.md name must still match it.',
+        ),
+      expectedContentHash: z
+        .string()
+        .optional()
+        .describe(
+          'Current installed content hash shown in selected-skill context. Prevents overwriting a newer update while approval is pending.',
+        ),
       patternCandidateId: z
         .string()
         .optional()
@@ -773,6 +785,8 @@ function registerSkillProposalTool(
         payload: {
           files: args.files,
           reason: args.reason,
+          targetSkillId: args.targetSkillId,
+          expectedContentHash: args.expectedContentHash,
           patternCandidateId: args.patternCandidateId,
         },
         timestamp: nowIso(),

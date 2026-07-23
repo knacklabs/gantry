@@ -180,10 +180,19 @@ Gantry's built-in tools return a structured error envelope alongside the MCP
 `isRetryable`, and a human-readable message. Agents use it to decide between
 retry, alternative approaches, and escalation instead of guessing from prose.
 
-Remote MCP tools called through `mcp_call_tool` keep their nested `isError` and
-`structuredContent` — a failing remote tool is visible to the agent as a
-failure, so remote MCP servers should return accurate `isError` flags and
-structured error detail rather than encoding failures as plain success text.
+Remote MCP tools called through `mcp_call_tool` keep their structured error
+detail and `structuredContent`. Gantry removes the outer `isError` marker at the
+runner boundary so validation, business, permission, and transient tool
+failures remain model-readable recovery input instead of aborting and replaying
+the whole conversation turn. Remote MCP servers should still return accurate
+error categories and structured detail rather than encoding failures as plain
+success text.
+
+`async_mcp_call` is mounted whenever durable async-task storage is available.
+It works with both the enforcing `sandbox_runtime` provider and the workstation
+`direct` provider; direct background execution has the same isolation posture
+as direct foreground execution. If durable task storage is unavailable, the
+tool is not mounted.
 
 Delegated subagent tasks that fail carry typed failure metadata (failure type,
 what was attempted, partial results when available) through `task_get` and the

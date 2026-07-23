@@ -314,8 +314,7 @@ export async function processPermissionInteractionIpc(input: {
       }),
     });
     const responsePermissionUpdates = persistentPermissionUpdates(decision) as
-      | PermissionApprovalDecision['updatedPermissions']
-      | undefined;
+      PermissionApprovalDecision['updatedPermissions'] | undefined;
     await assertActiveScheduledPermissionLease(input);
     const resolveInput = {
       request: input.request,

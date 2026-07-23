@@ -166,8 +166,7 @@ export async function updateManagedJob(
 
   const mergedForReadiness = { ...job, ...updates };
   let readinessForSetupEvent:
-    | Awaited<ReturnType<typeof evaluateManagedJobReadiness>>
-    | undefined;
+    Awaited<ReturnType<typeof evaluateManagedJobReadiness>> | undefined;
   if (
     mergedForReadiness.status === 'active' ||
     normalizedAccessRequirements !== undefined

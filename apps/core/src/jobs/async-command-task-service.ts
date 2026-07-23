@@ -139,8 +139,7 @@ export interface StartAsyncCommandTaskInput {
 }
 
 export type StartAsyncCommandTaskResult =
-  | { ok: true; task: PublicAsyncTaskDto }
-  | { ok: false; message: string };
+  { ok: true; task: PublicAsyncTaskDto } | { ok: false; message: string };
 
 export class AsyncCommandTaskService {
   static delegatedAgentFailureResult(
@@ -178,8 +177,7 @@ export class AsyncCommandTaskService {
     | AsyncCommandTaskServiceOptions['createRecoveredDelegatedAgentRun']
     | undefined;
   private readonly completionMessageRepository:
-    | AsyncCommandTaskServiceOptions['completionMessageRepository']
-    | undefined;
+    AsyncCommandTaskServiceOptions['completionMessageRepository'] | undefined;
 
   constructor(
     private readonly repository: AsyncTaskRepository,

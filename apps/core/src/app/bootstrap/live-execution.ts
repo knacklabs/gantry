@@ -452,8 +452,7 @@ export function startLiveExecutionServices(input: {
   recoveryCoordinator: RecoveryCoordinatorPort | undefined;
   isEligibleToRecoverLiveTurn: (turn: LiveTurn) => boolean | Promise<boolean>;
   alertNoEligibleLiveTurnRecoverer:
-    | ((turn: LiveTurn) => Promise<void> | void)
-    | undefined;
+    ((turn: LiveTurn) => Promise<void> | void) | undefined;
   recoverPendingMessages?: typeof defaultRecoverPendingMessages;
   startLiveAdmissionWorkLoop?: typeof defaultStartLiveAdmissionWorkLoop;
   liveAdmissionWakeupSource?: LiveAdmissionWakeupSource;

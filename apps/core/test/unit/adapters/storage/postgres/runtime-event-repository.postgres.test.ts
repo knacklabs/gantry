@@ -10,6 +10,8 @@ class FakeDrizzleDb {
   insertedOutboxEvent: Record<string, unknown> | null = null;
   failOutboxInsert = false;
   failDeliveryInsert = false;
+  conversationRows: Array<{ id: string }> = [];
+  threadRows: Array<{ id: string }> = [];
 
   async transaction<T>(fn: (tx: this) => Promise<T>): Promise<T> {
     this.operations.push('transaction:begin');
@@ -87,6 +89,30 @@ class FakeDrizzleDb {
     const db = this;
     return {
       from(table: unknown) {
+        if (table === pgSchema.conversationsPostgres) {
+          db.operations.push('select:conversation');
+          return {
+            where() {
+              return {
+                async limit() {
+                  return db.conversationRows;
+                },
+              };
+            },
+          };
+        }
+        if (table === pgSchema.conversationThreadsPostgres) {
+          db.operations.push('select:thread');
+          return {
+            where() {
+              return {
+                async limit() {
+                  return db.threadRows;
+                },
+              };
+            },
+          };
+        }
         if (table !== pgSchema.controlHttpWebhooksPostgres) {
           throw new Error('Unexpected select table');
         }
@@ -263,5 +289,56 @@ describe('PostgresRuntimeEventRepository', () => {
       'insert:event_bus_outbox',
       'transaction:commit',
     ]);
+  });
+
+  it('omits unresolved optional conversation scope without dropping run attribution', async () => {
+    const db = new FakeDrizzleDb();
+    const repository = createRepository(db);
+
+    await repository.appendRuntimeEvent({
+      appId: 'app:test' as never,
+      agentId: 'agent:test' as never,
+      runId: 'run:test' as never,
+      conversationId: 'conversation:sl:test' as never,
+      threadId: 'thread:sl:test:reply' as never,
+      eventType: RUNTIME_EVENT_TYPES.RUN_STARTUP_DIAGNOSTIC,
+      actor: 'runtime',
+      payload: { diagnostic: 'runner_startup' },
+    });
+
+    expect(db.insertedRuntimeEvent).toEqual(
+      expect.objectContaining({
+        appId: 'app:test',
+        agentId: 'agent:test',
+        runId: 'run:test',
+        conversationId: null,
+        threadId: null,
+      }),
+    );
+    expect(db.operations).toContain('select:conversation');
+    expect(db.operations).toContain('select:thread');
+  });
+
+  it('retains canonical conversation and thread references that exist', async () => {
+    const db = new FakeDrizzleDb();
+    db.conversationRows = [{ id: 'conversation:slack_default:sl:test' }];
+    db.threadRows = [{ id: 'thread:slack_default:sl:test:reply' }];
+    const repository = createRepository(db);
+
+    await repository.appendRuntimeEvent({
+      appId: 'app:test' as never,
+      conversationId: 'conversation:slack_default:sl:test' as never,
+      threadId: 'thread:slack_default:sl:test:reply' as never,
+      eventType: RUNTIME_EVENT_TYPES.RUN_STARTUP_DIAGNOSTIC,
+      actor: 'runtime',
+      payload: {},
+    });
+
+    expect(db.insertedRuntimeEvent).toEqual(
+      expect.objectContaining({
+        conversationId: 'conversation:slack_default:sl:test',
+        threadId: 'thread:slack_default:sl:test:reply',
+      }),
+    );
   });
 });

@@ -400,8 +400,7 @@ async function mcpCapabilityDriftDiagnostics(input: {
 function doctorMessage(
   message: string,
   diagnostics:
-    | Awaited<ReturnType<typeof mcpCapabilityDriftDiagnostics>>
-    | undefined,
+    Awaited<ReturnType<typeof mcpCapabilityDriftDiagnostics>> | undefined,
 ): string {
   const count = diagnostics?.blockedByCapabilityReview.length ?? 0;
   if (count === 0) return message;

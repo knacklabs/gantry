@@ -89,6 +89,55 @@ function optionalId(value: unknown): string | null {
 const RUNTIME_EVENT_BUS_SOURCE = 'gantry.runtime_events';
 const RUNTIME_EVENT_BUS_VERSION = 1;
 
+async function resolveOptionalRuntimeEventScope(
+  db: CanonicalExecutor,
+  input: {
+    appId: string;
+    conversationId: string | null;
+    threadId: string | null;
+  },
+): Promise<{ conversationId: string | null; threadId: string | null }> {
+  let conversationId: string | null = null;
+  if (input.conversationId) {
+    const rows = await db
+      .select({ id: pgSchema.conversationsPostgres.id })
+      .from(pgSchema.conversationsPostgres)
+      .where(
+        and(
+          eq(pgSchema.conversationsPostgres.appId, input.appId),
+          eq(pgSchema.conversationsPostgres.id, input.conversationId),
+        ),
+      )
+      .limit(1);
+    conversationId = rows[0]?.id ?? null;
+  }
+
+  let threadId: string | null = null;
+  if (input.threadId) {
+    const rows = await db
+      .select({ id: pgSchema.conversationThreadsPostgres.id })
+      .from(pgSchema.conversationThreadsPostgres)
+      .where(
+        and(
+          eq(pgSchema.conversationThreadsPostgres.appId, input.appId),
+          eq(pgSchema.conversationThreadsPostgres.id, input.threadId),
+          ...(conversationId
+            ? [
+                eq(
+                  pgSchema.conversationThreadsPostgres.conversationId,
+                  conversationId,
+                ),
+              ]
+            : []),
+        ),
+      )
+      .limit(1);
+    threadId = rows[0]?.id ?? null;
+  }
+
+  return { conversationId, threadId };
+}
+
 export class PostgresRuntimeEventRepository implements RuntimeEventRepository {
   constructor(
     private readonly db: CanonicalDb,
@@ -136,17 +185,23 @@ export class PostgresRuntimeEventRepository implements RuntimeEventRepository {
     db: CanonicalExecutor,
     input: RuntimeEventPublishInput,
   ): Promise<RuntimeEvent> {
+    const appId = requiredId(input.appId, 'appId');
+    const scope = await resolveOptionalRuntimeEventScope(db, {
+      appId,
+      conversationId: optionalId(input.conversationId),
+      threadId: optionalId(input.threadId),
+    });
     const rows = await db
       .insert(pgSchema.runtimeEventsPostgres)
       .values({
-        appId: requiredId(input.appId, 'appId'),
+        appId,
         agentId: optionalId(input.agentId),
         sessionId: optionalId(input.sessionId),
         runId: optionalId(input.runId),
         jobId: optionalId(input.jobId),
         triggerId: optionalId(input.triggerId),
-        conversationId: optionalId(input.conversationId),
-        threadId: optionalId(input.threadId),
+        conversationId: scope.conversationId,
+        threadId: scope.threadId,
         eventType: requireRuntimeEventType(input.eventType),
         actor: input.actor,
         correlationId: input.correlationId ?? null,

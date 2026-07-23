@@ -33,9 +33,7 @@ export interface MemoryStatusSnapshot {
   disk_kb?: Record<string, number>;
   retrieval?: {
     searchMode?:
-      | 'lexical_keyword'
-      | 'hybrid_semantic_partial'
-      | 'hybrid_semantic_ready';
+      'lexical_keyword' | 'hybrid_semantic_partial' | 'hybrid_semantic_ready';
     embeddings?: 'disabled' | 'configured';
     vectorSearch?: 'inactive' | 'partial' | 'active';
     pauseReason?:
@@ -64,13 +62,7 @@ export interface BrowserStatusSnapshot {
 
 export interface CompactionStatusSnapshot {
   state:
-    | 'idle'
-    | 'queued'
-    | 'running'
-    | 'ready'
-    | 'degraded'
-    | 'failed'
-    | 'timeout';
+    'idle' | 'queued' | 'running' | 'ready' | 'degraded' | 'failed' | 'timeout';
 }
 
 export function formatCompactionStatus(

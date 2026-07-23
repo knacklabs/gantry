@@ -73,8 +73,7 @@ export function updateLogContext(context: LogCorrelationContext): void {
 }
 
 export function currentLogContext():
-  | Readonly<LogCorrelationContext>
-  | undefined {
+  Readonly<LogCorrelationContext> | undefined {
   return logContextStorage.getStore();
 }
 
@@ -334,13 +333,11 @@ export function createLogger(options: CreateLoggerOptions = {}): Logger {
       ...(() => {
         if (typeof dataOrMsg === 'string') {
           const context = redact(inheritedContext) as
-            | Record<string, unknown>
-            | undefined;
+            Record<string, unknown> | undefined;
           return context ? { context } : {};
         }
         const context = redact(mergeContexts(inheritedContext, dataOrMsg)) as
-          | Record<string, unknown>
-          | undefined;
+          Record<string, unknown> | undefined;
         return context ? { context } : {};
       })(),
     };

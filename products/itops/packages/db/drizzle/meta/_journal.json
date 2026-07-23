@@ -1,0 +1,48 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1780047409863,
+      "tag": "0000_slim_fallen_one",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1781508300953,
+      "tag": "0001_overjoyed_mercury",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1781523850832,
+      "tag": "0002_daily_triton",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1781654400000,
+      "tag": "0003_access_task_pending_dependency",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1782216722172,
+      "tag": "0004_military_moira_mactaggert",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1782284827846,
+      "tag": "0005_hesitant_loners",
+      "breakpoints": true
+    }
+  ]
+}

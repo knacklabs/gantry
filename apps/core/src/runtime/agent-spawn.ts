@@ -269,16 +269,14 @@ async function spawnAgentWithContext(
   let runnerTempDir: string | undefined;
   let providerToolTempDir: string | undefined;
   let egressGateway:
-    | Awaited<ReturnType<typeof ensureEgressGateway>>
-    | undefined;
+    Awaited<ReturnType<typeof ensureEgressGateway>> | undefined;
   const ipcAuth = createIpcAuthEnvelope(group.folder, input.threadId, {
     appId: input.appId || 'default',
     agentId: input.agentId,
   });
   let hostCredentials: Awaited<ReturnType<typeof credentials>> | undefined;
   let preparedExecution:
-    | Awaited<ReturnType<typeof executionAdapter.prepare>>
-    | undefined;
+    Awaited<ReturnType<typeof executionAdapter.prepare>> | undefined;
   let output: AgentOutput | undefined;
   try {
     const projectedCredentials = await hostStartup.measureAsync(

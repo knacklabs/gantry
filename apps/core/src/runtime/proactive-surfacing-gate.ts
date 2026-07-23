@@ -61,8 +61,7 @@ export async function proactiveSurfacingAllowed(
 
 export function publishProactiveSurfacingOutcomeEvent(input: {
   publish:
-    | ((event: RuntimeEventPublishInput) => Promise<void> | void)
-    | undefined;
+    ((event: RuntimeEventPublishInput) => Promise<void> | void) | undefined;
   appId: string | undefined;
   agentId?: string;
   runId?: string;

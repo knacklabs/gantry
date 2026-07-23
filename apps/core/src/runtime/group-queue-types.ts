@@ -7,10 +7,7 @@ import type { RunnerControlPort } from './runner-control-port.js';
 
 export type QueueKind = 'message' | 'task';
 export type RuntimeAdmissionClass =
-  | 'interactive'
-  | 'interactive_child'
-  | 'background'
-  | 'maintenance';
+  'interactive' | 'interactive_child' | 'background' | 'maintenance';
 export type TaskAdmissionClass = Exclude<RuntimeAdmissionClass, 'interactive'>;
 
 export type ContinuationOptions = {

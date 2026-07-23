@@ -230,10 +230,7 @@ async function dispatchBrowserToolInner(input: {
     case 'click':
       return await runWithTarget(input, async (locator) => {
         const button = stringValue(input.args.button) as
-          | 'left'
-          | 'right'
-          | 'middle'
-          | undefined;
+          'left' | 'right' | 'middle' | undefined;
         const modifiers = browserClickModifiers(input.args.modifiers);
         await locator.click({
           button: button ?? 'left',

@@ -153,9 +153,7 @@ export function buildPermissionBatchPromptParts(
 }
 
 export type PermissionBatchFlushReason =
-  | 'window_elapsed'
-  | 'manual'
-  | 'deny_or_cancel';
+  'window_elapsed' | 'manual' | 'deny_or_cancel';
 
 export interface PermissionBatch {
   key: string;

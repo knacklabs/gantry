@@ -186,13 +186,13 @@ function makeModule(overrides?: {
     ...overrides?.conversationMessages,
   };
   const conversationProviderMessages:
-    | ExternalIngressConversationProviderMessages
-    | undefined = overrides?.conversationProviderMessages
-    ? ({
-        send: vi.fn(async () => undefined),
-        ...overrides.conversationProviderMessages,
-      } as ExternalIngressConversationProviderMessages)
-    : undefined;
+    ExternalIngressConversationProviderMessages | undefined =
+    overrides?.conversationProviderMessages
+      ? ({
+          send: vi.fn(async () => undefined),
+          ...overrides.conversationProviderMessages,
+        } as ExternalIngressConversationProviderMessages)
+      : undefined;
   const registerSessionGroup = vi.fn(async () => undefined);
 
   const module = new ExternalIngressModule({

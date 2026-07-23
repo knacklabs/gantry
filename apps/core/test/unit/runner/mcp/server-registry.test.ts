@@ -19,6 +19,8 @@ const previousParentTaskId = process.env.GANTRY_PARENT_TASK_ID;
 const previousAsyncTaskTools = process.env.GANTRY_ASYNC_TASK_TOOLS_ENABLED;
 const previousConfiguredTools =
   process.env.GANTRY_CONFIGURED_ALLOWED_TOOLS_JSON;
+const previousSelectedSkillDisplays =
+  process.env.GANTRY_SELECTED_SKILL_DISPLAYS_JSON;
 const tempRoots: string[] = [];
 
 afterEach(() => {
@@ -49,6 +51,7 @@ afterEach(() => {
     ['GANTRY_PARENT_TASK_ID', previousParentTaskId],
     ['GANTRY_ASYNC_TASK_TOOLS_ENABLED', previousAsyncTaskTools],
     ['GANTRY_CONFIGURED_ALLOWED_TOOLS_JSON', previousConfiguredTools],
+    ['GANTRY_SELECTED_SKILL_DISPLAYS_JSON', previousSelectedSkillDisplays],
   ] as const) {
     if (value === undefined) delete process.env[key];
     else process.env[key] = value;
@@ -107,6 +110,42 @@ describe('MCP server registry handler parity', () => {
       _registeredTools: Record<string, unknown>;
     };
     expect(Object.keys(server._registeredTools)).toContain(callableAgentTool);
+  });
+
+  it('registers every native IT Ops handler only when the itops skill is selected', async () => {
+    setIpcDir();
+    const { ITOPS_NATIVE_TOOL_NAMES } =
+      await import('@core/runner/itops-native-tool-surface.js');
+    process.env.GANTRY_SELECTED_SKILL_DISPLAYS_JSON =
+      '["itops (skill:itops-id)"]';
+    process.env.GANTRY_MCP_TOOL_NAMES_JSON = JSON.stringify(
+      ITOPS_NATIVE_TOOL_NAMES,
+    );
+    const { createGantryMcpServer } =
+      await import('@core/runner/mcp/server.js');
+
+    const server = createGantryMcpServer() as unknown as {
+      _registeredTools: Record<string, unknown>;
+    };
+    expect(Object.keys(server._registeredTools)).toEqual(
+      expect.arrayContaining([...ITOPS_NATIVE_TOOL_NAMES]),
+    );
+  });
+
+  it('does not register native IT Ops handlers for a different selected skill', async () => {
+    setIpcDir();
+    process.env.GANTRY_SELECTED_SKILL_DISPLAYS_JSON =
+      '["ats-skills (skill:ats-id)"]';
+    delete process.env.GANTRY_MCP_TOOL_NAMES_JSON;
+    const { createGantryMcpServer } =
+      await import('@core/runner/mcp/server.js');
+
+    const server = createGantryMcpServer() as unknown as {
+      _registeredTools: Record<string, unknown>;
+    };
+    expect(Object.keys(server._registeredTools)).not.toContain(
+      'itops_list_employees',
+    );
   });
 
   it.each([

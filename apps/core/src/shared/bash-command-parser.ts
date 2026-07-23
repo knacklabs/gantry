@@ -11,8 +11,7 @@ export interface BashCommandLeaf {
 }
 
 export type BashCommandParseResult =
-  | { ok: true; leaves: BashCommandLeaf[] }
-  | { ok: false; reason: string };
+  { ok: true; leaves: BashCommandLeaf[] } | { ok: false; reason: string };
 
 const UNSAFE_COMMANDS = new Set([
   '.',

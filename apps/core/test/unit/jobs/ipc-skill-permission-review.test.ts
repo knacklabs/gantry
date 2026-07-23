@@ -6,6 +6,157 @@ import { withSkillMaterializationLock } from '@core/shared/skill-install-lock.js
 import { materializedSkillDirectoryNameFor } from '@core/domain/skills/skills.js';
 
 describe('skill permission review install sequence', () => {
+  it('shows an update approval and replaces a skill only after approval', async () => {
+    const requestPermissionApproval = vi.fn(async () => ({
+      approved: true,
+      decidedBy: 'user:admin',
+    }));
+    const sendMessage = vi.fn(async () => undefined);
+    const acceptData = vi.fn();
+    const currentSkill = {
+      id: 'skill:1',
+      appId: 'app:test',
+      name: 'demo-skill',
+      status: 'installed',
+      storage: { contentHash: 'sha256:old' },
+    };
+    const updatedSkill = {
+      ...currentSkill,
+      storage: { contentHash: 'sha256:new' },
+    };
+    const service = {
+      installMaterializationCollisionForAgent: vi.fn(async () => null),
+      requireSkill: vi.fn(async () => currentSkill),
+      installSkill: vi.fn(async () => updatedSkill),
+      bindSkillToAgent: vi.fn(async () => undefined),
+    };
+
+    await new Promise<void>((resolve) => {
+      startSkillPermissionReview({
+        deps: { requestPermissionApproval, sendMessage },
+        responder: { acceptData, reject: vi.fn() },
+        service,
+        syncApprovedCapabilitySettings: vi.fn(async () => undefined),
+        appId: 'app:test',
+        agentId: 'agent:test',
+        sourceAgentFolder: 'main_agent',
+        targetJid: 'sl:C123',
+        skill: { id: 'skill:1', name: 'demo-skill' },
+        operation: 'update',
+        expectedContentHash: 'sha256:old',
+        replacement: {
+          currentSkill,
+          snapshot: { skill: currentSkill, agentId: 'agent:test', bundle: {} },
+          skills: {},
+          artifacts: {},
+        },
+        assets: [],
+        fileSummaries: [],
+        skillMarkdownPreview: {
+          path: 'SKILL.md',
+          content: '',
+          truncated: false,
+        },
+        totalSizeBytes: 0,
+        reason: 'improve the workflow',
+        requestToolName: 'request_skill_proposal',
+        onSettled: resolve,
+      } as never);
+    });
+
+    expect(requestPermissionApproval).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: 'Update skill for this agent',
+        toolInput: expect.objectContaining({
+          operation: 'update',
+          skillId: 'skill:1',
+          currentContentHash: 'sha256:old',
+          expectedContentHash: 'sha256:old',
+        }),
+        interaction: expect.objectContaining({
+          title: 'Update skill demo-skill',
+        }),
+      }),
+    );
+    expect(service.installSkill).toHaveBeenCalledOnce();
+    expect(sendMessage).toHaveBeenCalledWith(
+      'sl:C123',
+      expect.stringContaining('Updated'),
+      undefined,
+    );
+    expect(acceptData).toHaveBeenCalledWith(
+      expect.stringContaining('Updated'),
+      expect.anything(),
+      'skill_updated',
+    );
+  });
+
+  it('rejects an approved update if its installed base changed while waiting', async () => {
+    const currentSkill = {
+      id: 'skill:1',
+      appId: 'app:test',
+      name: 'demo-skill',
+      status: 'installed',
+      storage: { contentHash: 'sha256:old' },
+    };
+    const service = {
+      installMaterializationCollisionForAgent: vi.fn(async () => null),
+      requireSkill: vi.fn(async () => ({
+        ...currentSkill,
+        storage: { contentHash: 'sha256:newer' },
+      })),
+      installSkill: vi.fn(),
+      bindSkillToAgent: vi.fn(),
+    };
+    const reject = vi.fn();
+
+    await new Promise<void>((resolve) => {
+      startSkillPermissionReview({
+        deps: {
+          requestPermissionApproval: vi.fn(async () => ({
+            approved: true,
+            decidedBy: 'user:admin',
+          })),
+          sendMessage: vi.fn(async () => undefined),
+        },
+        responder: { acceptData: vi.fn(), reject },
+        service,
+        syncApprovedCapabilitySettings: vi.fn(async () => undefined),
+        appId: 'app:test',
+        agentId: 'agent:test',
+        sourceAgentFolder: 'main_agent',
+        targetJid: 'sl:C123',
+        skill: { id: 'skill:1', name: 'demo-skill' },
+        operation: 'update',
+        replacement: {
+          currentSkill,
+          snapshot: { skill: currentSkill, agentId: 'agent:test', bundle: {} },
+          skills: {},
+          artifacts: {},
+        },
+        assets: [],
+        fileSummaries: [],
+        skillMarkdownPreview: {
+          path: 'SKILL.md',
+          content: '',
+          truncated: false,
+        },
+        totalSizeBytes: 0,
+        reason: 'improve the workflow',
+        requestToolName: 'request_skill_proposal',
+        onSettled: resolve,
+      } as never);
+    });
+
+    expect(service.installSkill).not.toHaveBeenCalled();
+    expect(reject).toHaveBeenCalledWith(
+      expect.stringContaining(
+        'changed while this update was awaiting approval',
+      ),
+      'skill_update_conflict',
+    );
+  });
+
   it('holds the materialization lock across install, bind failure, and rollback', async () => {
     const rawReason = 'RAW_SKILL_REVIEW_SENTINEL: bind failed';
     const order: string[] = [];

@@ -69,8 +69,7 @@ function resolveMaxInputTokens(): number | undefined {
 }
 
 function resolveOpenRouterProviderRouting():
-  | OpenRouterProviderPreferences
-  | undefined {
+  OpenRouterProviderPreferences | undefined {
   const raw = process.env.GANTRY_DEEPAGENTS_OPENROUTER_PROVIDER_ROUTING?.trim();
   if (!raw) return undefined;
   const parsed = JSON.parse(raw);

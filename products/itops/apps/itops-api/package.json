@@ -1,0 +1,30 @@
+{
+  "name": "@itops/itops-api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "pnpm build && node dist/main.js",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/main.js",
+    "lint": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run --passWithNoTests",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@itops/config": "workspace:*",
+    "@itops/connectors": "workspace:*",
+    "@itops/db": "workspace:*",
+    "@itops/logger": "workspace:*",
+    "@nestjs/common": "^11.1.24",
+    "@nestjs/core": "^11.1.24",
+    "@nestjs/platform-express": "^11.1.24",
+    "@nestjs/swagger": "^11.4.4",
+    "drizzle-orm": "^0.38.3",
+    "googleapis": "^173.0.0",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.1",
+    "swagger-ui-express": "^5.0.1",
+    "zod": "^3.24.1"
+  }
+}

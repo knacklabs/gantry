@@ -1,5 +1,9 @@
 # Gantry Documentation
 
+Deployment runbooks include the [native IT Ops skill](./deployment/itops-native-skill.md),
+which documents the MCP-free tool path, agent isolation, deployment order, and
+browser parity boundary.
+
 Public docs for Gantry's product intent, runtime behavior, architecture
 boundaries, decisions, security model, and operations.
 

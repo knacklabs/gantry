@@ -1,8 +1,5 @@
 export type AsyncTaskKind =
-  | 'async_command'
-  | 'delegated_agent'
-  | 'mcp_tool_call'
-  | 'session_compaction';
+  'async_command' | 'delegated_agent' | 'mcp_tool_call' | 'session_compaction';
 
 export type AsyncTaskStatus =
   | 'queued'
@@ -24,10 +21,7 @@ export interface AsyncTaskReceipt {
 }
 
 export type AgentFailureType =
-  | 'execution'
-  | 'timeout'
-  | 'cancelled'
-  | 'child_task';
+  'execution' | 'timeout' | 'cancelled' | 'child_task';
 
 export interface AgentFailureMetadata {
   type: AgentFailureType;

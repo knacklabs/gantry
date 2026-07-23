@@ -1040,8 +1040,7 @@ describe('durable session resume use cases', () => {
       listAgentSessionDigests: async ({ sessionScope, limit }) => {
         const matchesScope = (digest: AgentSessionDigest) => {
           const scope = digest.metadata?.sessionScope as
-            | Record<string, unknown>
-            | undefined;
+            Record<string, unknown> | undefined;
           if (!sessionScope || !scope) return true;
           return (
             scope.appId === sessionScope.appId &&

@@ -52,6 +52,8 @@ x-worker-base: &worker-base
   depends_on:
     postgres:
       condition: service_healthy
+    itops-api:
+      condition: service_healthy
     minio-bootstrap:
       condition: service_completed_successfully
     # All roles only boot after desired state is seeded: the seed service writes
@@ -87,6 +89,13 @@ x-worker-base: &worker-base
     SECRET_ENCRYPTION_KEY: ${SECRET_ENCRYPTION_KEY:-}
     GANTRY_IPC_AUTH_SECRET: ${GANTRY_IPC_AUTH_SECRET:-}
     GANTRY_CONTROL_API_KEYS_JSON: ${GANTRY_CONTROL_API_KEYS_JSON:-}
+    # Projected only into runs selecting the exact `itops` skill. ATS and other
+    # agents neither receive the native tools nor these API settings.
+    ITOPS_API_BASE_URL: http://itops-api:4000
+    ITOPS_API_TIMEOUT_MS: ${ITOPS_API_TIMEOUT_MS:-15000}
+    ITOPS_API_RETRY_ATTEMPTS: ${ITOPS_API_RETRY_ATTEMPTS:-2}
+    ITOPS_API_RETRY_DELAY_MS: ${ITOPS_API_RETRY_DELAY_MS:-3000}
+    ITOPS_API_KEY: ${ITOPS_API_KEY:-}
     # Artifact store credentials are NOT settings: they resolve through the AWS
     # SDK default credential chain. For local fleet rehearsal these point at
     # MinIO. The driver itself (runtime.artifact_store.driver=s3, bucket,
@@ -136,6 +145,88 @@ services:
       interval: 2s
       timeout: 3s
       retries: 30
+
+  itops-postgres:
+    image: postgres:16-alpine
+    container_name: gantry-itops-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: itops
+      POSTGRES_USER: itops_app
+      POSTGRES_PASSWORD: ${ITOPS_DB_PASSWORD:-itops_app_password}
+    volumes:
+      - gantry-itops-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U itops_app -d itops']
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  itops-api:
+    build:
+      context: ../..
+      dockerfile: ops/docker/itops-api.Dockerfile
+    image: gantry-itops-api:fleet-rehearsal
+    container_name: gantry-itops-api
+    restart: unless-stopped
+    ports:
+      - '127.0.0.1:4000:4000'
+    depends_on:
+      itops-postgres:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      ITOPS_API_HOST: 0.0.0.0
+      ITOPS_API_PORT: '4000'
+      ITOPS_DATABASE_URL: >-
+        postgres://itops_app:${ITOPS_DB_PASSWORD:-itops_app_password}@itops-postgres:5432/itops
+      ITOPS_MIGRATION_DATABASE_URL: >-
+        postgres://itops_app:${ITOPS_DB_PASSWORD:-itops_app_password}@itops-postgres:5432/itops
+      ITOPS_API_KEY: ${ITOPS_API_KEY:-}
+      ITOPS_APPROVAL_POLICY_ENABLED: ${ITOPS_APPROVAL_POLICY_ENABLED:-false}
+      ITOPS_APPROVER_EXTERNAL_USER_IDS: ${ITOPS_APPROVER_EXTERNAL_USER_IDS:-}
+      ITOPS_ALLOW_SELF_APPROVAL: ${ITOPS_ALLOW_SELF_APPROVAL:-false}
+      GOOGLE_WORKSPACE_ENABLED: ${GOOGLE_WORKSPACE_ENABLED:-false}
+      GOOGLE_WORKSPACE_DOMAIN: ${GOOGLE_WORKSPACE_DOMAIN:-}
+      GOOGLE_WORKSPACE_ADMIN_EMAIL: ${GOOGLE_WORKSPACE_ADMIN_EMAIL:-}
+      GOOGLE_WORKSPACE_CLIENT_EMAIL: ${GOOGLE_WORKSPACE_CLIENT_EMAIL:-}
+      GOOGLE_WORKSPACE_PRIVATE_KEY: ${GOOGLE_WORKSPACE_PRIVATE_KEY:-}
+      EMAIL_ITOPS_FROM: ${EMAIL_ITOPS_FROM:-}
+      GMAIL_CLIENT_EMAIL: ${GMAIL_CLIENT_EMAIL:-}
+      GMAIL_PRIVATE_KEY: ${GMAIL_PRIVATE_KEY:-}
+      GMAIL_IMPERSONATED_ITOPS_EMAIL: ${GMAIL_IMPERSONATED_ITOPS_EMAIL:-}
+      SLACK_CHANNEL_CONNECTOR_MODE: ${SLACK_CHANNEL_CONNECTOR_MODE:-mock}
+      SLACK_BOT_TOKEN: ${ITOPS_SLACK_BOT_TOKEN:-}
+      SLACK_WORKSPACE_INVITE_MODE: ${SLACK_WORKSPACE_INVITE_MODE:-manual}
+      SLACK_ADMIN_TOKEN: ${SLACK_ADMIN_TOKEN:-}
+      SLACK_TEAM_ID: ${SLACK_TEAM_ID:-}
+      SLACK_DEFAULT_INVITE_CHANNEL_IDS: ${SLACK_DEFAULT_INVITE_CHANNEL_IDS:-}
+      SLACK_BROWSER_WORKSPACE_URL: ${SLACK_BROWSER_WORKSPACE_URL:-}
+      SLACK_BROWSER_PROFILE_DIR: ${SLACK_BROWSER_PROFILE_DIR:-}
+      SLACK_BROWSER_HEADLESS: ${SLACK_BROWSER_HEADLESS:-true}
+      SLACK_BROWSER_DRY_RUN: ${SLACK_BROWSER_DRY_RUN:-true}
+      SLACK_BROWSER_INVITE_TIMEOUT_MS: ${SLACK_BROWSER_INVITE_TIMEOUT_MS:-30000}
+      SLACK_BROWSER_LOGIN_MODE: ${SLACK_BROWSER_LOGIN_MODE:-manual}
+      SLACK_BROWSER_LOGIN_EMAIL: ${SLACK_BROWSER_LOGIN_EMAIL:-}
+      SLACK_BROWSER_LOGIN_PASSWORD: ${SLACK_BROWSER_LOGIN_PASSWORD:-}
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      JIRA_BASE_URL: ${JIRA_BASE_URL:-}
+      JIRA_EMAIL: ${JIRA_EMAIL:-}
+      JIRA_API_TOKEN: ${JIRA_API_TOKEN:-}
+      AWS_REGION: ${AWS_REGION:-}
+      CODEX_ADMIN_API_KEY: ${CODEX_ADMIN_API_KEY:-}
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://127.0.0.1:4000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 30s
 
   # S3-compatible artifact store for local fleet rehearsal. Production uses real
   # S3 with split IAM (bake:rw, worker:ro); here one root credential is enough.
@@ -259,5 +350,6 @@ services:
 
 volumes:
   gantry-fleet-pgdata:
+  gantry-itops-pgdata:
   gantry-fleet-minio-data:
   gantry-fleet-home:

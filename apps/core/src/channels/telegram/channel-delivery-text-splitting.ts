@@ -58,7 +58,7 @@ function nextCodePointEnd(
 ): number {
   let endExclusive = startInclusive;
   let used = 0;
-  for (let cursor = startInclusive; cursor < text.length; ) {
+  for (let cursor = startInclusive; cursor < text.length;) {
     const value = text.codePointAt(cursor);
     if (value === undefined) break;
     const codePointLength = value > 0xffff ? 2 : 1;
@@ -87,7 +87,7 @@ function splitTelegramTextByCodeUnitsEscapeAware(
   if (text.length <= maxCodeUnits) return [text];
 
   const parts: string[] = [];
-  for (let start = 0; start < text.length; ) {
+  for (let start = 0; start < text.length;) {
     const candidateEnd = nextCodePointEnd(text, start, maxCodeUnits);
     if (candidateEnd <= start) {
       parts.push(text.slice(start));

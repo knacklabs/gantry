@@ -45,9 +45,7 @@ export async function resolvePermissionIpcDecision(input: {
   const approvedCapabilityIds =
     (
       settings?.agents[input.sourceAgentFolder] as
-        | { capabilities?: Array<{ id: string }> }
-        | null
-        | undefined
+        { capabilities?: Array<{ id: string }> } | null | undefined
     )?.capabilities?.map(({ id }) => id) ?? [];
   const autoModeModel = settings?.permissions.autoMode.model;
   const yoloMode = (

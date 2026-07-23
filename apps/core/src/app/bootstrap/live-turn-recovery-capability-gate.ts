@@ -28,8 +28,7 @@ export function buildLiveTurnRecoveryCapabilityGate(input: {
   getDeploymentMode: () => string;
   getSkillRepository?: () => SkillCatalogRepository | undefined;
   getRuntimeDependencyRepository?: () =>
-    | RuntimeDependencyRepository
-    | undefined;
+    RuntimeDependencyRepository | undefined;
   agentIdForFolder: (folder: string) => string;
   publishRuntimeEvent?: IpcDeps['publishRuntimeEvent'];
   nowMs: () => number;
@@ -37,8 +36,7 @@ export function buildLiveTurnRecoveryCapabilityGate(input: {
 }): {
   isEligibleToRecoverLiveTurn: (turn: LiveTurn) => Promise<boolean>;
   alertNoEligibleLiveTurnRecoverer:
-    | ((turn: LiveTurn) => Promise<void>)
-    | undefined;
+    ((turn: LiveTurn) => Promise<void>) | undefined;
 } {
   const starvationAlerter = input.publishRuntimeEvent
     ? new CapabilityStarvationAlerter({

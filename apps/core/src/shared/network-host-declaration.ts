@@ -1,6 +1,5 @@
 export type DeclaredNetworkHostResult =
-  | { ok: true; host: string }
-  | { ok: false; reason: string };
+  { ok: true; host: string } | { ok: false; reason: string };
 
 /**
  * Validate and normalize a single declared outbound network target.

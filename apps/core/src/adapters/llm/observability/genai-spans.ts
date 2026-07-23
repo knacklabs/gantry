@@ -200,8 +200,7 @@ function setUsageAttributes(span: Span, usage: Record<string, unknown>): void {
     span.setAttribute('gen_ai.usage.cache_creation_input_tokens', cacheWrite);
   }
   const details = usage.prompt_tokens_details as
-    | Record<string, unknown>
-    | undefined;
+    Record<string, unknown> | undefined;
   const cached = numeric(details?.cached_tokens);
   if (cached !== undefined) {
     span.setAttribute('gen_ai.usage.cached_tokens', cached);
@@ -232,8 +231,7 @@ function injectIncludeUsage(
   request: Record<string, unknown>,
 ): Buffer | undefined {
   const streamOptions = request.stream_options as
-    | Record<string, unknown>
-    | undefined;
+    Record<string, unknown> | undefined;
   if (streamOptions && Object.hasOwn(streamOptions, 'include_usage')) {
     return undefined;
   }

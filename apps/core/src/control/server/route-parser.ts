@@ -99,9 +99,7 @@ export function parseWebhookRoute(pathname: string): WebhookRoute | null {
     return {
       webhookId: decodeURIComponent(actionMatch[1]!),
       action: actionMatch[2] as
-        | 'test'
-        | 'replay-dead-letter'
-        | 'purge-dead-letter',
+        'test' | 'replay-dead-letter' | 'purge-dead-letter',
     };
   }
   const baseMatch = /^\/v1\/webhooks\/([^/]+)$/.exec(pathname);

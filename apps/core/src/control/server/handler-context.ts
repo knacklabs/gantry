@@ -62,8 +62,7 @@ export type ControlModelDefaults = {
 };
 
 export type ControlModelDefaultsPatchResult =
-  | { ok: true }
-  | { ok: false; message: string };
+  { ok: true } | { ok: false; message: string };
 
 export type ControlModelProviderPreflightResult = {
   ok: boolean;

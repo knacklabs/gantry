@@ -235,7 +235,7 @@ Agent-facing tools:
 - `continuity_summary`: inspect current durable continuity, staged memory candidates, reviewed memory state, and last injected context for the trusted subject.
 - `file`: list, read, write, or promote Gantry FileArtifacts by virtual scope/path; host filesystem paths and storage refs stay hidden.
 - `request_skill_install`: reviewed skill install requests with staged package files or an installer command that produces a `SKILL.md` package in host-controlled staging.
-- `request_skill_proposal`: agent-created or modified skill file bundles for review.
+- `request_skill_proposal`: agent-created or modified skill file bundles for review. To update a selected skill, submit the complete replacement bundle with its `targetSkillId` and current `expectedContentHash`; Gantry shows the configured conversation approver an update popup and rechecks the installed hash before applying the approved replacement.
 - `request_skill_dependency_install`: dependency requests for npm, brew, go, uv, or downloads required by a skill.
 - `request_mcp_server`: third-party MCP server requests with a reviewed `stdio_template`, sandbox profile, tool patterns, credential needs, and reason.
 - `request_access`: request an approved reviewed semantic capability by id.
@@ -1117,7 +1117,7 @@ const openai = new OpenAI({
   parameters pass through to the provider unchanged. Provider-hosted execution
   surfaces (Anthropic server tools, remote MCP, containers; OpenAI hosted
   tools, attachments, file references) are rejected with `400
-  UNSUPPORTED_FIELD` naming the field.
+UNSUPPORTED_FIELD` naming the field.
 - Usage is attributed to the API key in the request log; the gateway credential
   is request-scoped and revoked when delivery ends.
 

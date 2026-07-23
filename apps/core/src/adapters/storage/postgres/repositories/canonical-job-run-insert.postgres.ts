@@ -10,8 +10,7 @@ const JOB_RUN_SHORT_ID_UNIQUE_CONSTRAINT = 'idx_agent_runs_job_short_id_unique';
 const JOB_RUN_INSERT_MAX_ATTEMPTS = 5;
 
 type CanonicalExecutor =
-  | CanonicalDb
-  | Parameters<Parameters<CanonicalDb['transaction']>[0]>[0];
+  CanonicalDb | Parameters<Parameters<CanonicalDb['transaction']>[0]>[0];
 
 export async function insertCanonicalJobRun(input: {
   run: JobRun;

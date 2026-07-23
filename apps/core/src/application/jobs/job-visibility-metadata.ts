@@ -298,12 +298,10 @@ async function loadLatestRunsByJobId(
   if (!ops || jobs.length === 0) return new Map();
   return new Map(
     await Promise.all(
-      jobs.map(
-        async (job): Promise<[string, JobRun[]]> => [
-          job.id,
-          await ops.listJobRuns(job.id, 1),
-        ],
-      ),
+      jobs.map(async (job): Promise<[string, JobRun[]]> => [
+        job.id,
+        await ops.listJobRuns(job.id, 1),
+      ]),
     ),
   );
 }

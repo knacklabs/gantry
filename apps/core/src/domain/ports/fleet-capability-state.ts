@@ -1,9 +1,5 @@
 export type RuntimeDependencyStatus =
-  | 'queued'
-  | 'baking'
-  | 'uploaded'
-  | 'activated'
-  | 'failed';
+  'queued' | 'baking' | 'uploaded' | 'activated' | 'failed';
 
 export interface RuntimeDependencyArtifact {
   storageType: 'local-filesystem' | 'object-store';

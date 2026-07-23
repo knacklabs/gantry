@@ -384,8 +384,7 @@ export function createChannelWiring(
     } = projection;
 
     let durableAttempt:
-      | Awaited<ReturnType<DurableOutboundAttemptFactory>>
-      | undefined;
+      Awaited<ReturnType<DurableOutboundAttemptFactory>> | undefined;
     if (options.durability === 'required') {
       if (!durableOutboundAttemptFactory) {
         throw new Error(

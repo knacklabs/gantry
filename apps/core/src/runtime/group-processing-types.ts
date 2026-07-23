@@ -199,8 +199,7 @@ export interface GroupProcessingDeps {
   getAsyncTaskRepository?: () => AsyncTaskRepository | undefined;
   getPatternCandidateRepository?: () => PatternCandidateRepository | undefined;
   getProactiveSurfacingRepository?: () =>
-    | ProactiveSurfacingConsentReader
-    | undefined;
+    ProactiveSurfacingConsentReader | undefined;
   getAgentLockStatus?: (sourceAgentFolder: string) => AgentLockStatus;
   getSkillRepository?: () => SkillCatalogRepository | undefined;
   getMcpServerRepository?: () => McpServerRepository | undefined;

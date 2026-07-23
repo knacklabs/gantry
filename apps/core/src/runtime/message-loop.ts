@@ -92,9 +92,7 @@ export interface MessageLoopDeps {
 }
 
 export type MessageAdmissionProcessingResult =
-  | 'completed'
-  | 'queued_capacity'
-  | 'listener_degraded';
+  'completed' | 'queued_capacity' | 'listener_degraded';
 
 function resolveMessageRepository(
   deps: MessageLoopDeps,

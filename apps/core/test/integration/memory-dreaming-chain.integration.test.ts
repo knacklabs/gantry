@@ -187,8 +187,7 @@ function memorySearch(
 
 function searchResultKeys(response: MemoryIpcResponse): string[] {
   const data = response.data as
-    | { results?: Array<{ item?: { key?: string } }> }
-    | undefined;
+    { results?: Array<{ item?: { key?: string } }> } | undefined;
   return (data?.results ?? [])
     .map((result) => result.item?.key)
     .filter((key): key is string => Boolean(key));

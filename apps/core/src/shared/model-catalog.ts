@@ -21,9 +21,7 @@ export type ModelResponseFamily = string;
 export type ModelRouteId = ModelRouteProviderId;
 export type ModelEffortLevel = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 export type ModelExecutionProviderId =
-  | 'anthropic:claude-agent-sdk'
-  | 'deepagents:langchain'
-  | (string & {});
+  'anthropic:claude-agent-sdk' | 'deepagents:langchain' | (string & {});
 
 export type ModelWorkload =
   | 'chat'
@@ -49,11 +47,7 @@ export type NormalizedCacheProvider =
   | 'none';
 
 export type NormalizedCacheStatus =
-  | 'hit'
-  | 'miss'
-  | 'partial'
-  | 'unsupported'
-  | 'unknown';
+  'hit' | 'miss' | 'partial' | 'unsupported' | 'unknown';
 
 const DIRECT_PROMPT_CACHE_MODE: ModelCacheMode = 'anthropic-prompt';
 const DIRECT_PROMPT_CACHE_TOKEN_FIELDS = [

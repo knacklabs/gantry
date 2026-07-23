@@ -19,8 +19,7 @@ import { logger } from '../../../infrastructure/logging/logger.js';
  * authority as the Anthropic Agent SDK memory path.
  */
 let memoryCredentialBrokerPromise:
-  | Promise<AgentCredentialBroker | undefined>
-  | undefined;
+  Promise<AgentCredentialBroker | undefined> | undefined;
 let memoryCredentialBrokerConfigKey = '';
 
 export function hasGatewayMemoryAccess(): boolean {

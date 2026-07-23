@@ -64,8 +64,7 @@ export function reconcileDeepAgentSkillFiles(input: {
   currentFiles?: DeepAgentSkillProjection['files'];
   checkpointTuple?: unknown;
 }):
-  | Record<string, DeepAgentSkillProjection['files'][string] | null>
-  | undefined {
+  Record<string, DeepAgentSkillProjection['files'][string] | null> | undefined {
   const update: Record<
     string,
     DeepAgentSkillProjection['files'][string] | null

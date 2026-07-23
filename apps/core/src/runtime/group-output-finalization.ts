@@ -18,9 +18,7 @@ export async function finalizeGroupAgentUserVisibleOutput(input: {
   warn: (metadata: Record<string, unknown>, message: string) => void;
   storeMessage: (message: NewMessage) => Promise<unknown>;
   buildMessageOptions: () =>
-    | MessageSendOptions
-    | undefined
-    | Promise<MessageSendOptions | undefined>;
+    MessageSendOptions | undefined | Promise<MessageSendOptions | undefined>;
   sendMessageToChannel: (
     text: string,
     options?: MessageSendOptions,

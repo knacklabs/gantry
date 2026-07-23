@@ -11,12 +11,7 @@ import { nowIso } from '../../shared/time/datetime.js';
 import { ApplicationError } from '../common/application-error.js';
 
 export type McpToolAuditResultClass =
-  | 'attempt'
-  | 'invalid_request'
-  | 'denied'
-  | 'success'
-  | 'timeout'
-  | 'failure';
+  'attempt' | 'invalid_request' | 'denied' | 'success' | 'timeout' | 'failure';
 
 export function summarizeMcpToolArguments(
   args: Record<string, unknown>,

@@ -17,10 +17,7 @@ import { NEUTRAL_CA_TRUST_ENV_KEYS } from './neutral-ca-trust-env.js';
 
 export type SemanticCapabilityRisk = 'read' | 'write' | 'admin';
 export type SemanticCapabilityCredentialSource =
-  | 'configured_access'
-  | 'skill_secret'
-  | 'local_cli'
-  | 'none';
+  'configured_access' | 'skill_secret' | 'local_cli' | 'none';
 export type SemanticCapabilityImplementationKind =
   | 'tool_rule'
   // Retained only so stored legacy definitions fail validation with a clear

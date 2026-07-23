@@ -12,10 +12,7 @@ export type MessageId = BrandedId<'MessageId'>;
 export type MessageDirection = 'inbound' | 'outbound' | 'system' | 'tool';
 export type MessageTrust = 'trusted' | 'untrusted' | 'system';
 export type MessageDeliveryStatus =
-  | 'pending'
-  | 'sent'
-  | 'failed'
-  | 'partially_sent';
+  'pending' | 'sent' | 'failed' | 'partially_sent';
 
 export interface Message {
   id: MessageId;

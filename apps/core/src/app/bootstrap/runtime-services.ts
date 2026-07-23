@@ -105,11 +105,9 @@ import { wireInlineAgentLoopTools } from './inline-agent-loop-tools.js';
 export { stopAsyncTaskRecoveryLoop } from './runtime-services-async-task-recovery.js';
 type RuntimeBootstrapRepository = RuntimeAppRepository & RuntimeJobRepository;
 type LiveTurnCommandWakeupSourceFactory = () =>
-  | LiveTurnCommandWakeupSource
-  | undefined;
+  LiveTurnCommandWakeupSource | undefined;
 type RuntimeDependencyRepositoryFactory = () =>
-  | RuntimeDependencyRepository
-  | undefined;
+  RuntimeDependencyRepository | undefined;
 type RuntimeStorageDep =
   | 'getAsyncTaskRepository'
   | 'getFileArtifactStore'
@@ -136,8 +134,7 @@ interface Deps extends Pick<IpcDeps, RuntimeStorageDep> {
   settingsRepositories?: AgentToolRuleSettingsRepositories;
   getOutboundDeliveryRepository?: () => OutboundDeliveryRepository | undefined;
   getWorkerCoordinationRepository?: () =>
-    | WorkerCoordinationRepository
-    | undefined;
+    WorkerCoordinationRepository | undefined;
   getLiveTurnRepository?: () => LiveTurnCoordinationRepository | undefined;
   getLiveAdmissionWakeupSource?: () => LiveAdmissionWakeupSource | undefined;
   getLiveTurnCommandWakeupSource?: LiveTurnCommandWakeupSourceFactory;
@@ -230,8 +227,7 @@ let activeLiveTurnRecoveryLoop: LiveTurnRecoveryLoop | undefined;
 let activeLiveTurnAuthority: LiveTurnAuthority | undefined;
 let activeLiveAdmissionLoop: LiveExecutionServicesHandle['admissionLoop'];
 let activeWaitingStatusMonitor:
-  | { oldestWaitingSeconds: () => number }
-  | undefined;
+  { oldestWaitingSeconds: () => number } | undefined;
 let activeLiveExecutionServices: LiveExecutionServicesHandle | undefined;
 export function getOldestWaitingLiveAdmissionSeconds(): number {
   return activeWaitingStatusMonitor?.oldestWaitingSeconds() ?? 0;

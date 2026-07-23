@@ -834,8 +834,7 @@ describe('scheduler IPC adapter contracts', () => {
       }),
     );
     const targets = mocks.responder.acceptData.mock.calls[0]?.[1]?.targets as
-      | Array<Record<string, unknown>>
-      | undefined;
+      Array<Record<string, unknown>> | undefined;
     expect(targets?.some((target) => target.shortcut === 'me_dm')).toBe(false);
     expect(
       targets?.some((target) => target.kind === 'bound_conversation'),
@@ -866,8 +865,7 @@ describe('scheduler IPC adapter contracts', () => {
     );
 
     const targets = mocks.responder.acceptData.mock.calls[0]?.[1]?.targets as
-      | Array<Record<string, unknown>>
-      | undefined;
+      Array<Record<string, unknown>> | undefined;
     expect(targets).toEqual(
       expect.arrayContaining([expect.objectContaining({ shortcut: 'me_dm' })]),
     );

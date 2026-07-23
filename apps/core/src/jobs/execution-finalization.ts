@@ -20,10 +20,7 @@ import type { SchedulerDependencies } from './types.js';
 const MAX_RETRY_BACKOFF_MS = 30 * 24 * 60 * 60 * 1000;
 
 export type SchedulerRunStatus =
-  | 'completed'
-  | 'failed'
-  | 'timeout'
-  | 'dead_lettered';
+  'completed' | 'failed' | 'timeout' | 'dead_lettered';
 
 export interface FinalizedJobRunState {
   runStatus: SchedulerRunStatus;

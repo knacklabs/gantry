@@ -6,10 +6,7 @@ export type ContinuitySectionName =
   | 'recent_decisions'
   | 'active_paused_jobs';
 export type ContinuitySectionStatus =
-  | 'populated'
-  | 'empty'
-  | 'unavailable'
-  | 'deferred';
+  'populated' | 'empty' | 'unavailable' | 'deferred';
 export interface SessionContinuityInjectionSubject {
   appId: string;
   agentId: string;

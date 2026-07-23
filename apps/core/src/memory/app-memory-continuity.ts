@@ -344,5 +344,4 @@ async function settleContinuitySection<T>(
 const MEMORY_CONTINUITY_DEADLINE_SAFETY_MS = 1_000;
 
 type ContinuitySectionResult<T> =
-  | { status: 'fulfilled'; value: T }
-  | { status: 'unavailable'; reason: string };
+  { status: 'fulfilled'; value: T } | { status: 'unavailable'; reason: string };

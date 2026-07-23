@@ -7,11 +7,7 @@ import type {
 import type { LiveTurnCommandAppendInput } from './live-turns.js';
 
 export type WorkerInstanceStatus =
-  | 'starting'
-  | 'healthy'
-  | 'unhealthy'
-  | 'draining'
-  | 'stopped';
+  'starting' | 'healthy' | 'unhealthy' | 'draining' | 'stopped';
 
 export interface WorkerInstance {
   id: string;
@@ -32,11 +28,7 @@ export interface WorkerInstance {
 }
 
 export type RunLeaseStatus =
-  | 'active'
-  | 'expired'
-  | 'released'
-  | 'completed'
-  | 'failed';
+  'active' | 'expired' | 'released' | 'completed' | 'failed';
 
 export interface RunLease {
   runId: string;
@@ -73,9 +65,7 @@ export type RunnerControlEventType =
   | 'failed';
 
 export type RunnerControlEventAppendResult =
-  | 'persisted'
-  | 'replayed'
-  | 'fenced';
+  'persisted' | 'replayed' | 'fenced';
 
 export interface RunnerControlEvent {
   id: string;
@@ -93,10 +83,7 @@ export interface RunnerControlEvent {
 export type PendingInteractionKind = 'permission' | 'question';
 
 export type PendingInteractionStatus =
-  | 'pending'
-  | 'resolved'
-  | 'expired'
-  | 'cancelled';
+  'pending' | 'resolved' | 'expired' | 'cancelled';
 
 export interface PendingInteraction {
   id: string;
@@ -121,11 +108,7 @@ export interface PendingInteraction {
 }
 
 export type PermissionPromptSettlementState =
-  | 'open'
-  | 'claimed'
-  | 'settled'
-  | 'review_each_expired'
-  | 'superseded';
+  'open' | 'claimed' | 'settled' | 'review_each_expired' | 'superseded';
 
 export interface PermissionPrompt {
   id: string;

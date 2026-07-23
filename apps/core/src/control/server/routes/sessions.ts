@@ -292,8 +292,7 @@ export async function handleSessionRoutes(
         responseMode: body.responseMode,
         webhookId: typeof body.webhookId === 'string' ? body.webhookId : null,
         responseSchema: body.response_schema as
-          | Record<string, unknown>
-          | undefined,
+          Record<string, unknown> | undefined,
         agentControls:
           Object.keys(agentControls).length > 0 ? agentControls : undefined,
       });

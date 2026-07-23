@@ -7,8 +7,7 @@ import { publicGantryToolNameForSdkTool } from '../shared/gantry-tool-facades.js
 
 export type GantryAgentPromptMode = 'full' | 'minimal' | 'none';
 export type GantryAgentRuntimeProjection =
-  | 'native-tool-projection'
-  | 'wrapped-tool-projection';
+  'native-tool-projection' | 'wrapped-tool-projection';
 
 export interface GantryAgentSystemPromptInput {
   promptMode?: GantryAgentPromptMode;

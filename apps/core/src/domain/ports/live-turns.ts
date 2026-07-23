@@ -109,12 +109,7 @@ export interface LiveTurnCommand {
 }
 
 export type LiveAdmissionWorkItemState =
-  | 'queued'
-  | 'claimed'
-  | 'deferred'
-  | 'completed'
-  | 'failed'
-  | 'canceled';
+  'queued' | 'claimed' | 'deferred' | 'completed' | 'failed' | 'canceled';
 
 export const LIVE_ADMISSION_TERMINAL_STATES = [
   'completed',

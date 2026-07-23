@@ -115,8 +115,7 @@ export const runClaudeInlineAgentLoopLane: ProviderInlineAgentLoopLane = async (
   const toolActivity = createInlineToolActivity(input);
 
   let remoteMcp:
-    | Awaited<ReturnType<typeof createPinnedClaudeMcpProxies>>
-    | undefined;
+    Awaited<ReturnType<typeof createPinnedClaudeMcpProxies>> | undefined;
   try {
     if (!toolsDisabled) {
       remoteMcp = await createPinnedClaudeMcpProxies({
@@ -400,12 +399,10 @@ function remoteSdkMcpConfig(input: {
 }): McpServerConfig {
   const tools = input.allowedToolPatterns
     .filter((name) => name !== '*' && !name.endsWith('*'))
-    .map(
-      (name): McpServerToolPolicy => ({
-        name,
-        permission_policy: 'always_ask',
-      }),
-    );
+    .map((name): McpServerToolPolicy => ({
+      name,
+      permission_policy: 'always_ask',
+    }));
   return {
     type: input.type,
     url: input.url,

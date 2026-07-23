@@ -1,8 +1,5 @@
 export type PermissionClassifierRequestFamily =
-  | 'tool'
-  | 'admin'
-  | 'review'
-  | 'promotion';
+  'tool' | 'admin' | 'review' | 'promotion';
 
 const THIRD_PARTY_MCP_TOOL_NAME = /^mcp__([A-Za-z0-9_-]+)__[A-Za-z0-9_.-]+$/;
 

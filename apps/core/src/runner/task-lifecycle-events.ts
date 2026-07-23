@@ -2,10 +2,7 @@ import { RUNTIME_EVENT_TYPES } from '../domain/events/runtime-event-types.js';
 import type { RunnerRuntimeEventFrame } from './runner-frame.js';
 
 export type TaskLifecycleEventKind =
-  | 'started'
-  | 'progress'
-  | 'updated'
-  | 'notification';
+  'started' | 'progress' | 'updated' | 'notification';
 
 export type GantryTaskKind = 'async_command' | 'delegated_agent';
 

@@ -1,7 +1,5 @@
 export type LlmPassthroughEndpoint =
-  | 'messages'
-  | 'count_tokens'
-  | 'chat_completions';
+  'messages' | 'count_tokens' | 'chat_completions';
 
 export type UnsupportedLlmRequestField = {
   field: string;

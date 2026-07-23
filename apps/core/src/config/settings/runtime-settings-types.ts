@@ -28,13 +28,7 @@ export interface RuntimeProviderAccountSettings {
 }
 
 export type RuntimeConversationKind =
-  | 'dm'
-  | 'direct'
-  | 'group'
-  | 'channel'
-  | 'chat'
-  | 'service'
-  | 'web';
+  'dm' | 'direct' | 'group' | 'channel' | 'chat' | 'service' | 'web';
 
 export interface RuntimeConfiguredConversation {
   providerConnection?: string;
@@ -181,8 +175,7 @@ export interface RuntimeConfiguredAgentCapability {
 export type AgentAccessPreset = 'full' | 'locked';
 export type AgentEffort = ModelEffortLevel;
 export type RuntimeAgentThinking =
-  | { mode: 'off'; budgetTokens?: never }
-  | { mode: 'on'; budgetTokens?: number };
+  { mode: 'off'; budgetTokens?: never } | { mode: 'on'; budgetTokens?: number };
 export type RuntimeConfiguredToolRule =
   | {
       tool: string;

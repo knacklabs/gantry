@@ -14,18 +14,10 @@ export type OutboundDeliveryItemId = BrandedId<'OutboundDeliveryItemId'>;
 export type OutboundDeliveryReceiptId = BrandedId<'OutboundDeliveryReceiptId'>;
 
 export type OutboundDeliveryStatus =
-  | 'pending'
-  | 'claimed'
-  | 'sent'
-  | 'partially_delivered'
-  | 'failed';
+  'pending' | 'claimed' | 'sent' | 'partially_delivered' | 'failed';
 
 export type OutboundDeliveryItemStatus =
-  | 'pending'
-  | 'claimed'
-  | 'sent'
-  | 'failed'
-  | 'partially_delivered';
+  'pending' | 'claimed' | 'sent' | 'failed' | 'partially_delivered';
 
 export interface OutboundDelivery {
   id: OutboundDeliveryId;

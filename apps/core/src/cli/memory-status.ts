@@ -7,10 +7,7 @@ import { envFilePath } from '../config/settings/runtime-home.js';
 import { loadRuntimeSettings } from '../config/settings/runtime-settings.js';
 
 export type MemoryMode =
-  | 'keyword-mode'
-  | 'continuity-mode'
-  | 'semantic-mode'
-  | 'full-mode';
+  'keyword-mode' | 'continuity-mode' | 'semantic-mode' | 'full-mode';
 
 export interface MemoryStatusSnapshot {
   runtimeHome: string;

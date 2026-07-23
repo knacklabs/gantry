@@ -6,11 +6,7 @@ import type {
 import { boundDelegatedTaskContextResult } from '../../shared/delegated-task-result-policy.js';
 
 export type CoreTaskLifecycleName =
-  | 'delegate_task'
-  | 'task_get'
-  | 'task_list'
-  | 'task_cancel'
-  | 'task_message';
+  'delegate_task' | 'task_get' | 'task_list' | 'task_cancel' | 'task_message';
 
 export type CoreTaskLifecycleErrorCode =
   | 'invalid_request'

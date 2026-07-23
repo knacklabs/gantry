@@ -3529,8 +3529,7 @@ describe('createGroupProcessor', () => {
       const deliveredMessage = (
         channel.sendMessage as ReturnType<typeof vi.fn>
       ).mock.calls.find((call) => call[0] === 'group1@g.us')?.[1] as
-        | string
-        | undefined;
+        string | undefined;
       expect(deliveredMessage).toContain('[REDACTED]');
       expect(deliveredMessage).not.toContain(
         'provider-session:fallback-handle',
@@ -6107,8 +6106,7 @@ describe('createGroupProcessor', () => {
     it('getDefaultModel returns model from config', async () => {
       const { capturedDeps } = await captureSessionDeps();
       const getDefaultModel = capturedDeps.getDefaultModel as () =>
-        | string
-        | undefined;
+        string | undefined;
 
       expect(getDefaultModel()).toBeUndefined();
     });
@@ -6117,8 +6115,7 @@ describe('createGroupProcessor', () => {
       const group = makeGroup({ agentConfig: { model: 'opus' } });
       const { capturedDeps } = await captureSessionDeps({ group });
       const getGroupModelOverride = capturedDeps.getGroupModelOverride as () =>
-        | string
-        | undefined;
+        string | undefined;
 
       expect(getGroupModelOverride()).toBe('opus');
     });

@@ -83,8 +83,7 @@ export type ModelProviderPromptCacheMode =
   | 'openrouter_automatic_prefix';
 
 export type ModelProviderResponseCacheMode =
-  | 'none'
-  | 'openrouter_response_cache';
+  'none' | 'openrouter_response_cache';
 
 export interface ModelProviderCacheUsageFields {
   readTokens?: string;
@@ -450,8 +449,7 @@ export function listModelRouteProviders(): readonly ModelProviderDefinition[] {
 }
 
 export function getDefaultModelRouteProvider():
-  | ModelProviderDefinition
-  | undefined {
+  ModelProviderDefinition | undefined {
   return MODEL_ROUTE_PROVIDERS[0];
 }
 
@@ -460,8 +458,7 @@ export function listEmbeddingModelProviders(): readonly ModelProviderDefinition[
 }
 
 export function getDefaultEmbeddingModelProvider():
-  | ModelProviderDefinition
-  | undefined {
+  ModelProviderDefinition | undefined {
   return EMBEDDING_MODEL_PROVIDERS[0];
 }
 

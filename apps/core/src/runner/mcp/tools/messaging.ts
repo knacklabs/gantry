@@ -91,13 +91,7 @@ const richMediaItemSchema = z
   .strict();
 
 type RichInteractionKind =
-  | 'status'
-  | 'facts'
-  | 'list'
-  | 'table'
-  | 'form'
-  | 'media'
-  | 'progress';
+  'status' | 'facts' | 'list' | 'table' | 'form' | 'media' | 'progress';
 
 async function sleepWithAbort(
   ms: number,

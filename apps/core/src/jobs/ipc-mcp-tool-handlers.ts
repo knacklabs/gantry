@@ -405,7 +405,7 @@ function asyncMcpCallToolHandler(
         return;
       }
       const repository = deps.getAsyncTaskRepository?.();
-      if (!repository || deps.runnerSandboxProvider?.enforcing !== true) {
+      if (!repository) {
         reject('Async task runtime is unavailable.', 'unavailable');
         return;
       }

@@ -33,9 +33,7 @@ export interface PendingInteractionResolutionInput {
 }
 
 export type PendingInteractionResolutionOutcome =
-  | 'resolved'
-  | 'rejected'
-  | 'retryable_error';
+  'resolved' | 'rejected' | 'retryable_error';
 
 export async function persistPendingInteractionResolution(
   active: PendingInteractionResolutionBackend,

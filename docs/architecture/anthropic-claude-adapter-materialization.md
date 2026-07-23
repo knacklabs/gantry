@@ -124,6 +124,15 @@ Agents must use
 also use the skill install API or CLI. All paths persist the installed package
 outside temporary Claude config before next-run activation.
 
+An agent can also use `request_skill_proposal` to update a skill currently
+selected for that agent. The proposal must contain the complete replacement
+package and should identify the selected skill id and current content hash from
+the projected skill context. Gantry renders an update-specific approval in the
+originating channel, accepts a decision only from a configured conversation
+approver, rechecks the installed hash under the materialization lock, and then
+replaces the package. A denied or stale request leaves the installed skill
+unchanged; a failed replacement restores the prior package and binding.
+
 Installation plus selected agent capability makes the artifact eligible for
 per-run materialization. Gantry does not keep catalog, URL, GitHub, or
 hosted-provider refs as skill authority; every install path converges into the

@@ -80,8 +80,7 @@ describe('memory MCP tool schema', () => {
       const memorySaveSchema = schemas.get('memory_save');
       expect(memorySaveSchema).toBeDefined();
       const kindSchema = memorySaveSchema?.kind as
-        | { unwrap: () => { options: string[] } }
-        | undefined;
+        { unwrap: () => { options: string[] } } | undefined;
       expect(kindSchema?.unwrap().options).toEqual([
         'preference',
         'decision',

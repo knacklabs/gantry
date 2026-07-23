@@ -185,8 +185,7 @@ export function createRuntimeApp(options: RuntimeAppOptions = {}): RuntimeApp {
   registerMemoryLlmClient(memoryLlmClient);
   const mcpDnsValidationCache = new RemoteMcpDnsValidationCache();
   let credentialBrokerPromise:
-    | Promise<AgentCredentialBroker | undefined>
-    | undefined;
+    Promise<AgentCredentialBroker | undefined> | undefined;
   let credentialBrokerConfigKey = '';
   const credentialBindingPromises = new Map<string, Promise<void>>();
   const ops = () => options.opsRepository ?? getRuntimeRepositories();

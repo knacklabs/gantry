@@ -9,10 +9,7 @@ export type PermissionRuleId = BrandedId<'PermissionRuleId'>;
 export type PermissionDecisionId = BrandedId<'PermissionDecisionId'>;
 
 export type PermissionEffect =
-  | 'allow'
-  | 'deny'
-  | 'require_approval'
-  | 'require_sandbox';
+  'allow' | 'deny' | 'require_approval' | 'require_sandbox';
 
 export interface PermissionPolicy {
   id: PermissionPolicyId;

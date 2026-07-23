@@ -549,10 +549,7 @@ export class GantryModelGatewayBroker implements AgentCredentialBroker {
     tokenRecord: GatewayTokenRecord,
     input: {
       outcome:
-        | 'forwarded'
-        | 'upstream_error'
-        | 'credential_missing'
-        | 'rate_limited';
+        'forwarded' | 'upstream_error' | 'credential_missing' | 'rate_limited';
       method: string;
       status: number;
       upstreamHost?: string;

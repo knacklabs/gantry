@@ -130,8 +130,7 @@ export function createDeepAgentsInlineAgentLoopLane(input: {
     });
     let saver: PostgresSaver | undefined;
     let remoteMcp:
-      | Awaited<ReturnType<typeof connectRemoteMcpTools>>
-      | undefined;
+      Awaited<ReturnType<typeof connectRemoteMcpTools>> | undefined;
     let lastTerminal: RunnerOutputFrame | undefined;
     try {
       if (!laneInput.input.isScheduledJob) {

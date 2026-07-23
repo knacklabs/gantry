@@ -1,8 +1,5 @@
 export type AgentTodoStatus =
-  | 'pending'
-  | 'inProgress'
-  | 'completed'
-  | 'blocked';
+  'pending' | 'inProgress' | 'completed' | 'blocked';
 
 export interface AgentTodoItem {
   id: string;
@@ -12,11 +9,7 @@ export interface AgentTodoItem {
 }
 
 export type AgentTodoCardStatus =
-  | 'running'
-  | 'waiting'
-  | 'done'
-  | 'failed'
-  | 'stopped';
+  'running' | 'waiting' | 'done' | 'failed' | 'stopped';
 
 /** Channel-agnostic payload for rendering an agent's live todo/plan. */
 export interface AgentTodoRender {

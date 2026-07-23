@@ -19,11 +19,7 @@ type BrowserMcpToolResult = {
 };
 type BrowserProfile = 'basic' | 'full' | undefined;
 type BrowserInspectMode =
-  | 'snapshot'
-  | 'tabs'
-  | 'screenshot'
-  | 'console_messages'
-  | 'network_requests';
+  'snapshot' | 'tabs' | 'screenshot' | 'console_messages' | 'network_requests';
 type BrowserActAction =
   | 'navigate'
   | 'back'

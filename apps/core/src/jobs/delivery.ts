@@ -22,9 +22,7 @@ export type SchedulerSendMessage = (
 ) => Promise<void>;
 
 export type DeliverySettlement =
-  | 'sent'
-  | 'delivery_incomplete'
-  | 'not_delivered';
+  'sent' | 'delivery_incomplete' | 'not_delivered';
 const NOTIFICATION_DELIVERY_TIMEOUT_MS = 5_000;
 
 export function isDeliverySent(settlement: DeliverySettlement): boolean {

@@ -23,9 +23,7 @@ export type RuntimeModelDefaultConfig = {
 };
 
 export type RuntimeModelDefaultKind =
-  | 'interactive'
-  | 'oneTimeJob'
-  | 'recurringJob';
+  'interactive' | 'oneTimeJob' | 'recurringJob';
 
 export type RuntimeModelDefaultResolver = (
   kind?: RuntimeModelDefaultKind,
@@ -52,8 +50,7 @@ export type RuntimeModelDefaults = {
 };
 
 export type RuntimeModelDefaultsPatchResult =
-  | { ok: true }
-  | { ok: false; message: string };
+  { ok: true } | { ok: false; message: string };
 
 function providerFromSettings(settings: RuntimeSettings): string {
   // Family-aware: a stored family chat alias derives its provider from the

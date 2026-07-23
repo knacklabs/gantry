@@ -5,10 +5,7 @@
  * fix; the candidate's literal text is never executed.
  */
 export type PatternActionKind =
-  | 'scheduler_job'
-  | 'durable_capability'
-  | 'skill'
-  | 'memory_update';
+  'scheduler_job' | 'durable_capability' | 'skill' | 'memory_update';
 
 export const PATTERN_ACTION_KIND_TOOL: Record<PatternActionKind, string> = {
   scheduler_job: 'scheduler_upsert_job',

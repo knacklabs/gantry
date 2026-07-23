@@ -8,6 +8,7 @@ import { registerProfileTools } from './tools/profile.js';
 import { registerSchedulerTools } from './tools/scheduler.js';
 import { registerServiceTools } from './tools/service.js';
 import { registerTaskLifecycleTools } from './tools/task-lifecycle.js';
+import { registerNativeItOpsTools } from '../../integrations/itops/itops-native-tools.js';
 import {
   ASYNC_TASK_GANTRY_MCP_TOOL_NAMES,
   DELEGATED_TASK_GANTRY_MCP_TOOL_NAMES,
@@ -120,6 +121,7 @@ export function createGantryMcpServer(): McpServer {
   registerFileTools(filteredServer);
   registerProfileTools(filteredServer);
   registerServiceTools(filteredServer);
+  registerNativeItOpsTools(filteredServer);
 
   assertRegisteredMcpToolHandlers({ enabledTools, registeredHandlers });
 

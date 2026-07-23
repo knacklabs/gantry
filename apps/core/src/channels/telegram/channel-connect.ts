@@ -143,8 +143,7 @@ export abstract class TelegramChannelConnect extends TelegramChannelPrompts {
         if (action === 'other') {
           const threadId = (
             ctx.callbackQuery?.message as
-              | { message_thread_id?: number }
-              | undefined
+              { message_thread_id?: number } | undefined
           )?.message_thread_id;
           let promptMessageId: number | undefined;
           try {

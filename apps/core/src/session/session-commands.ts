@@ -121,8 +121,7 @@ export interface SessionCommandDeps {
   setGroupModelOverride: (value: string | undefined) => Promise<void> | void;
   getModelStatus?: () => RuntimeModelStatusSnapshot | undefined;
   getBrowserStatus?: () =>
-    | Promise<BrowserStatusSnapshot>
-    | BrowserStatusSnapshot;
+    Promise<BrowserStatusSnapshot> | BrowserStatusSnapshot;
   updateModelStatusSelection?: (input: ModelStatusSelectionUpdate) => void;
   getGroupThinkingOverride: () => ThinkingOverride | undefined;
   setGroupThinkingOverride: (
@@ -174,8 +173,7 @@ export interface SessionCommandDeps {
   runMemoryDreaming?: () => Promise<unknown>;
   getMemoryStatus?: () => Promise<MemoryStatusSnapshot>;
   getSessionCompactionStatus?: () =>
-    | Promise<CompactionStatusSnapshot>
-    | CompactionStatusSnapshot;
+    Promise<CompactionStatusSnapshot> | CompactionStatusSnapshot;
   saveProcedure?: (input: {
     title: string;
     body: string;

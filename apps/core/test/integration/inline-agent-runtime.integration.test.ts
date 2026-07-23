@@ -1009,8 +1009,7 @@ maybeDescribe('inline session turns through the control API', () => {
   let mcpServer: http.Server | undefined;
   let gatewayServer: http.Server | undefined;
   let controlServer:
-    | Awaited<ReturnType<typeof startTestControlServer>>
-    | undefined;
+    Awaited<ReturnType<typeof startTestControlServer>> | undefined;
   const mcpCalls: Array<Record<string, unknown>> = [];
   const gatewayCalls: string[] = [];
   const liveTurnIds: string[] = [];

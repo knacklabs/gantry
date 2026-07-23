@@ -2062,8 +2062,7 @@ describe('startRuntimeServices', () => {
 
   it('wires durable scheduler sends', async () => {
     let schedulerDeps:
-      | import('@core/jobs/scheduler.js').SchedulerDependencies
-      | undefined;
+      import('@core/jobs/scheduler.js').SchedulerDependencies | undefined;
     const app = makeApp();
     const channelWiring = makeChannelWiring();
 
@@ -2107,8 +2106,7 @@ describe('startRuntimeServices', () => {
 
   it('scopes scheduler sends to the resolved provider account', async () => {
     let schedulerDeps:
-      | import('@core/jobs/scheduler.js').SchedulerDependencies
-      | undefined;
+      import('@core/jobs/scheduler.js').SchedulerDependencies | undefined;
     const app = makeApp();
     app.getConversationRoutes = vi.fn(() => ({
       [makeAgentThreadQueueKey(
@@ -2365,8 +2363,7 @@ describe('startRuntimeServices', () => {
 
   it('does not refresh job snapshots on scheduler changes', async () => {
     let schedulerDeps:
-      | import('@core/jobs/scheduler.js').SchedulerDependencies
-      | undefined;
+      import('@core/jobs/scheduler.js').SchedulerDependencies | undefined;
     const app = makeApp();
     const channelWiring = makeChannelWiring();
     const writeGroupsSnapshot = vi.fn();

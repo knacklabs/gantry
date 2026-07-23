@@ -205,8 +205,7 @@ export function createSseAccumulator(
     }
     if (event.type === 'message_start') {
       const message = event.message as
-        | { model?: string; usage?: unknown }
-        | undefined;
+        { model?: string; usage?: unknown } | undefined;
       if (typeof message?.model === 'string') model = message.model;
       mergeUsage(message?.usage);
       return;

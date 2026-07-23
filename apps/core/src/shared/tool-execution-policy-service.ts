@@ -42,11 +42,7 @@ import {
 } from './generated-runtime-paths.js';
 
 export type ToolExecutionOrigin =
-  | 'sdk'
-  | 'mcp'
-  | 'browser'
-  | 'scheduler_script'
-  | 'host';
+  'sdk' | 'mcp' | 'browser' | 'scheduler_script' | 'host';
 
 export type ToolExecutionKind =
   | 'bash'
@@ -60,17 +56,9 @@ export type ToolExecutionKind =
 
 export type ToolExecutionMode = 'interactive' | 'autonomous' | 'host_direct';
 export type ToolMutationIntent =
-  | 'read'
-  | 'write'
-  | 'delete'
-  | 'execute'
-  | 'configure'
-  | 'unknown';
+  'read' | 'write' | 'delete' | 'execute' | 'configure' | 'unknown';
 export type ToolPolicyDecisionStatus =
-  | 'allow'
-  | 'deny'
-  | 'needs_approval'
-  | 'not_applicable';
+  'allow' | 'deny' | 'needs_approval' | 'not_applicable';
 
 export interface ToolExecutionRequest {
   origin: ToolExecutionOrigin;

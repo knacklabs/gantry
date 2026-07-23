@@ -113,8 +113,7 @@ export interface IpcDeps {
   }) => Promise<{ stdout?: string; stderr?: string } | void>;
   getPermissionRepository?: () => PermissionRepository | undefined;
   getPermissionPromotionRepository?: () =>
-    | PermissionPromotionRepository
-    | undefined;
+    PermissionPromotionRepository | undefined;
   getFileArtifactStore?: () => FileArtifactStore | undefined;
   publishRuntimeEvent?: (event: RuntimeEventPublishInput) => Promise<void>;
   classifierConsult?: PermissionClassifierPromptConsultInput['classifierConsult'];

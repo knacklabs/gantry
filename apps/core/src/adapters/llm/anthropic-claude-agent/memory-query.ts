@@ -76,8 +76,7 @@ export interface ClaudeAuthAvailability {
 }
 
 let memoryCredentialBrokerPromise:
-  | Promise<AgentCredentialBroker | undefined>
-  | undefined;
+  Promise<AgentCredentialBroker | undefined> | undefined;
 let memoryCredentialBrokerConfigKey = '';
 
 export function getClaudeAuthAvailability(): ClaudeAuthAvailability {

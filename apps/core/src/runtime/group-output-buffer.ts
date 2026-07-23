@@ -26,9 +26,7 @@ export function createGroupOutputBuffer(input: {
   supportsStreamingChunks: boolean;
   buildStreamingOptions: (args: { done?: boolean }) => StreamingChunkOptions;
   buildMessageOptions: () =>
-    | MessageSendOptions
-    | undefined
-    | Promise<MessageSendOptions | undefined>;
+    MessageSendOptions | undefined | Promise<MessageSendOptions | undefined>;
   sendMessageToChannel: (
     text: string,
     options?: MessageSendOptions,
