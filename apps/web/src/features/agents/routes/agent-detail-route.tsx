@@ -116,7 +116,8 @@ export function AgentDetailRoute() {
   };
   const saveAll = async () => {
     await saveAgent.mutateAsync();
-    if (soul.data && soulContent !== soul.data.content) await saveSoul.mutateAsync();
+    if (soul.data && soulContent !== soul.data.content)
+      await saveSoul.mutateAsync();
     setIsEditing(false);
   };
   const pause = agent.status === 'active';
@@ -128,7 +129,13 @@ export function AgentDetailRoute() {
         className="inline-flex min-h-8 w-fit items-center gap-2 text-xs font-semibold text-text-secondary no-underline hover:text-text"
         to="/agents"
         search={{
-          q: '', status: 'all', model: 'all', page: 1, sort: 'name', desc: false, setup: undefined,
+          q: '',
+          status: 'all',
+          model: 'all',
+          page: 1,
+          sort: 'name',
+          desc: false,
+          setup: undefined,
         }}
       >
         <ArrowLeft size={15} />
@@ -147,12 +154,16 @@ export function AgentDetailRoute() {
                   <X size={15} /> Cancel
                 </Button>
                 <Button
-                  disabled={!name.trim() || saveAgent.isPending || saveSoul.isPending}
+                  disabled={
+                    !name.trim() || saveAgent.isPending || saveSoul.isPending
+                  }
                   variant="primary"
                   onClick={() => void saveAll()}
                 >
                   <Save size={15} />
-                  {saveAgent.isPending || saveSoul.isPending ? 'Saving…' : 'Save changes'}
+                  {saveAgent.isPending || saveSoul.isPending
+                    ? 'Saving…'
+                    : 'Save changes'}
                 </Button>
               </>
             ) : (
@@ -169,7 +180,11 @@ export function AgentDetailRoute() {
           </div>
         }
       />
-      {error ? <p className="m-0 rounded-md border border-danger bg-danger-soft px-4 py-3 text-sm text-danger">{error}</p> : null}
+      {error ? (
+        <p className="m-0 rounded-md border border-danger bg-danger-soft px-4 py-3 text-sm text-danger">
+          {error}
+        </p>
+      ) : null}
       <IdentityPanel
         editing={isEditing}
         name={name}
@@ -204,59 +219,281 @@ export function AgentDetailRoute() {
 }
 
 function IdentityPanel(props: {
-  editing: boolean; name: string; description: string;
-  onNameChange: (value: string) => void; onDescriptionChange: (value: string) => void;
+  editing: boolean;
+  name: string;
+  description: string;
+  onNameChange: (value: string) => void;
+  onDescriptionChange: (value: string) => void;
 }) {
   return (
-    <Panel title="Identity" description="Name and purpose shown to people using this agent.">
-      {props.editing ? <div className="grid gap-4 p-5"><TextField id="agent-name" label="Agent name" required value={props.name} onChange={(event) => props.onNameChange(event.target.value)} /><TextArea label="Purpose" value={props.description} onChange={props.onDescriptionChange} /></div> : <ReadOnlyGrid values={[['Agent name', props.name], ['Purpose', props.description || 'Not set']]} />}
+    <Panel
+      title="Identity"
+      description="Name and purpose shown to people using this agent."
+    >
+      {props.editing ? (
+        <div className="grid gap-4 p-5">
+          <TextField
+            id="agent-name"
+            label="Agent name"
+            required
+            value={props.name}
+            onChange={(event) => props.onNameChange(event.target.value)}
+          />
+          <TextArea
+            label="Purpose"
+            value={props.description}
+            onChange={props.onDescriptionChange}
+          />
+        </div>
+      ) : (
+        <ReadOnlyGrid
+          values={[
+            ['Agent name', props.name],
+            ['Purpose', props.description || 'Not set'],
+          ]}
+        />
+      )}
     </Panel>
   );
 }
 
 function RuntimePanel(props: {
-  editing: boolean; status: 'active' | 'disabled'; harness: AgentHarness; createdAt: string; updatedAt: string;
-  onStatusChange: (value: 'active' | 'disabled') => void; onHarnessChange: (value: AgentHarness) => void;
+  editing: boolean;
+  status: 'active' | 'disabled';
+  harness: AgentHarness;
+  createdAt: string;
+  updatedAt: string;
+  onStatusChange: (value: 'active' | 'disabled') => void;
+  onHarnessChange: (value: AgentHarness) => void;
 }) {
   return (
-    <Panel title="Runtime" description="How this agent runs. Changes take effect after saving.">
-      {props.editing ? <div className="grid gap-4 p-5 sm:grid-cols-2"><SelectField label="Status" value={props.status} onChange={(value) => props.onStatusChange(value as 'active' | 'disabled')} options={[['active', 'Active'], ['disabled', 'Paused']]} /><SelectField label="Agent harness" value={props.harness} onChange={(value) => props.onHarnessChange(value as AgentHarness)} options={[['auto', 'Auto'], ['anthropic_sdk', 'Anthropic SDK'], ['deepagents', 'DeepAgents']]} /></div> : <ReadOnlyGrid values={[['Status', props.status === 'active' ? 'Active' : 'Paused'], ['Agent harness', harnessLabel(props.harness)], ['Created', dateLabel(props.createdAt)], ['Last updated', dateLabel(props.updatedAt)]]} />}
+    <Panel
+      title="Runtime"
+      description="How this agent runs. Changes take effect after saving."
+    >
+      {props.editing ? (
+        <div className="grid gap-4 p-5 sm:grid-cols-2">
+          <SelectField
+            label="Status"
+            value={props.status}
+            onChange={(value) =>
+              props.onStatusChange(value as 'active' | 'disabled')
+            }
+            options={[
+              ['active', 'Active'],
+              ['disabled', 'Paused'],
+            ]}
+          />
+          <SelectField
+            label="Agent harness"
+            value={props.harness}
+            onChange={(value) => props.onHarnessChange(value as AgentHarness)}
+            options={[
+              ['auto', 'Auto'],
+              ['anthropic_sdk', 'Anthropic SDK'],
+              ['deepagents', 'DeepAgents'],
+            ]}
+          />
+        </div>
+      ) : (
+        <ReadOnlyGrid
+          values={[
+            ['Status', props.status === 'active' ? 'Active' : 'Paused'],
+            ['Agent harness', harnessLabel(props.harness)],
+            ['Created', dateLabel(props.createdAt)],
+            ['Last updated', dateLabel(props.updatedAt)],
+          ]}
+        />
+      )}
     </Panel>
   );
 }
 
-function ProfilePanel(props: { editing: boolean; content: string; isLoading: boolean; error?: string; onChange: (value: string) => void }) {
+function ProfilePanel(props: {
+  editing: boolean;
+  content: string;
+  isLoading: boolean;
+  error?: string;
+  onChange: (value: string) => void;
+}) {
   return (
-    <Panel title="SOUL.md" description="This agent’s persona, voice, boundaries, and working style.">
-      {props.isLoading ? <p className="m-0 p-5 text-sm text-text-secondary">Loading profile…</p> : props.error ? <p className="m-0 p-5 text-sm text-danger">{props.error}</p> : props.editing ? <div className="p-5"><TextArea label="SOUL.md" rows={18} value={props.content} onChange={props.onChange} hint="This changes only this agent’s profile." /></div> : <pre className="m-0 max-h-[420px] overflow-auto whitespace-pre-wrap p-5 font-mono text-xs leading-6 text-text">{props.content || 'No SOUL.md content has been set.'}</pre>}
+    <Panel
+      title="SOUL.md"
+      description="This agent’s persona, voice, boundaries, and working style."
+    >
+      {props.isLoading ? (
+        <p className="m-0 p-5 text-sm text-text-secondary">Loading profile…</p>
+      ) : props.error ? (
+        <p className="m-0 p-5 text-sm text-danger">{props.error}</p>
+      ) : props.editing ? (
+        <div className="p-5">
+          <TextArea
+            label="SOUL.md"
+            rows={18}
+            value={props.content}
+            onChange={props.onChange}
+            hint="This changes only this agent’s profile."
+          />
+        </div>
+      ) : (
+        <pre className="m-0 max-h-[420px] overflow-auto whitespace-pre-wrap p-5 font-mono text-xs leading-6 text-text">
+          {props.content || 'No SOUL.md content has been set.'}
+        </pre>
+      )}
     </Panel>
   );
 }
 
-function ProtectedPanel(props: { agentId: string; profilePath: string; revealed: boolean; onRevealToggle: () => void }) {
+function ProtectedPanel(props: {
+  agentId: string;
+  profilePath: string;
+  revealed: boolean;
+  onRevealToggle: () => void;
+}) {
   const value = (source: string) => (props.revealed ? source : '*****');
   return (
-    <Panel title="Protected details" description="Identifiers are hidden by default. Credential values are never sent to the browser.">
-      <div className="grid gap-4 p-5 sm:grid-cols-[1fr_auto] sm:items-end"><ReadOnlyGrid values={[["Agent ID", value(props.agentId)], ['Profile file', value(props.profilePath)], ['Credentials', props.revealed ? 'Stored securely (not revealable)' : '*****']]} /><IconButton aria-label={props.revealed ? 'Hide protected details' : 'Show protected details'} title={props.revealed ? 'Hide protected details' : 'Show protected details'} onClick={props.onRevealToggle}>{props.revealed ? <EyeOff size={16} /> : <Eye size={16} />}</IconButton></div>
+    <Panel
+      title="Protected details"
+      description="Identifiers are hidden by default. Credential values are never sent to the browser."
+    >
+      <div className="grid gap-4 p-5 sm:grid-cols-[1fr_auto] sm:items-end">
+        <ReadOnlyGrid
+          values={[
+            ['Agent ID', value(props.agentId)],
+            ['Profile file', value(props.profilePath)],
+            [
+              'Credentials',
+              props.revealed ? 'Stored securely (not revealable)' : '*****',
+            ],
+          ]}
+        />
+        <IconButton
+          aria-label={
+            props.revealed ? 'Hide protected details' : 'Show protected details'
+          }
+          title={
+            props.revealed ? 'Hide protected details' : 'Show protected details'
+          }
+          onClick={props.onRevealToggle}
+        >
+          {props.revealed ? <EyeOff size={16} /> : <Eye size={16} />}
+        </IconButton>
+      </div>
     </Panel>
   );
 }
 
 function ReadOnlyGrid({ values }: { values: Array<[string, string]> }) {
-  return <dl className="grid gap-x-8 gap-y-4 sm:grid-cols-2">{values.map(([label, value]) => <div key={label} className="min-w-0"><dt className="text-xs font-semibold text-text-secondary">{label}</dt><dd className="mt-1 break-words text-sm text-text">{value}</dd></div>)}</dl>;
+  return (
+    <dl className="grid gap-x-8 gap-y-4 sm:grid-cols-2">
+      {values.map(([label, value]) => (
+        <div key={label} className="min-w-0">
+          <dt className="text-xs font-semibold text-text-secondary">{label}</dt>
+          <dd className="mt-1 break-words text-sm text-text">{value}</dd>
+        </div>
+      ))}
+    </dl>
+  );
 }
 
-function TextArea({ label, value, onChange, rows = 5, hint }: { label: string; value: string; onChange: (value: string) => void; rows?: number; hint?: string }) {
-  return <label className="grid gap-1.5"><span className="text-xs font-semibold text-text">{label}</span><textarea className="w-full resize-y rounded-md border border-border-strong bg-surface px-3 py-2 text-[13px] leading-5 text-text" rows={rows} value={value} onChange={(event) => onChange(event.target.value)} />{hint ? <span className="text-xs text-text-muted">{hint}</span> : null}</label>;
+function TextArea({
+  label,
+  value,
+  onChange,
+  rows = 5,
+  hint,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  rows?: number;
+  hint?: string;
+}) {
+  return (
+    <label className="grid gap-1.5">
+      <span className="text-xs font-semibold text-text">{label}</span>
+      <textarea
+        className="w-full resize-y rounded-md border border-border-strong bg-surface px-3 py-2 text-[13px] leading-5 text-text"
+        rows={rows}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+      />
+      {hint ? <span className="text-xs text-text-muted">{hint}</span> : null}
+    </label>
+  );
 }
 
-function SelectField({ label, value, options, onChange }: { label: string; value: string; options: Array<[string, string]>; onChange: (value: string) => void }) {
-  return <label className="grid gap-1.5"><span className="text-xs font-semibold text-text">{label}</span><select className="h-9 rounded-md border border-border-strong bg-surface px-3 text-[13px] text-text" value={value} onChange={(event) => onChange(event.target.value)}>{options.map(([optionValue, optionLabel]) => <option key={optionValue} value={optionValue}>{optionLabel}</option>)}</select></label>;
+function SelectField({
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  options: Array<[string, string]>;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <label className="grid gap-1.5">
+      <span className="text-xs font-semibold text-text">{label}</span>
+      <select
+        className="h-9 rounded-md border border-border-strong bg-surface px-3 text-[13px] text-text"
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+      >
+        {options.map(([optionValue, optionLabel]) => (
+          <option key={optionValue} value={optionValue}>
+            {optionLabel}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
 }
 
-function LoadingState() { return <PageState kind="loading" icon={<SearchX size={18} />} title="Loading agent…" description="Fetching the current agent configuration." />; }
-function NotFoundState() { return <PageState kind="empty" icon={<SearchX size={18} />} title="Agent not found" description="This agent may have been removed or is unavailable." />; }
-function harnessLabel(value: AgentHarness) { return value === 'anthropic_sdk' ? 'Anthropic SDK' : value === 'deepagents' ? 'DeepAgents' : 'Auto'; }
-function dateLabel(value: string) { return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value)); }
-function mutationError(error: unknown) { return error instanceof RuntimeApiError ? error.message : undefined; }
-async function invalidateAgent(queryClient: ReturnType<typeof useQueryClient>, agentId: string) { await queryClient.invalidateQueries({ queryKey: agentQueryKeys.list() }); await queryClient.invalidateQueries({ queryKey: [...agentQueryKeys.list(), agentId] }); }
+function LoadingState() {
+  return (
+    <PageState
+      kind="loading"
+      icon={<SearchX size={18} />}
+      title="Loading agent…"
+      description="Fetching the current agent configuration."
+    />
+  );
+}
+function NotFoundState() {
+  return (
+    <PageState
+      kind="empty"
+      icon={<SearchX size={18} />}
+      title="Agent not found"
+      description="This agent may have been removed or is unavailable."
+    />
+  );
+}
+function harnessLabel(value: AgentHarness) {
+  return value === 'anthropic_sdk'
+    ? 'Anthropic SDK'
+    : value === 'deepagents'
+      ? 'DeepAgents'
+      : 'Auto';
+}
+function dateLabel(value: string) {
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  }).format(new Date(value));
+}
+function mutationError(error: unknown) {
+  return error instanceof RuntimeApiError ? error.message : undefined;
+}
+async function invalidateAgent(
+  queryClient: ReturnType<typeof useQueryClient>,
+  agentId: string,
+) {
+  await queryClient.invalidateQueries({ queryKey: agentQueryKeys.list() });
+  await queryClient.invalidateQueries({
+    queryKey: [...agentQueryKeys.list(), agentId],
+  });
+}
