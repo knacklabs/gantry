@@ -55,3 +55,4 @@
 - [Chat confirmation suffices](chat-confirmation-suffices.md) — human gates satisfied by explicit in-chat "accepted"; run the recording command with --by their name; never require hand-typed commands
 - [PR descriptions reader-first](pr-descriptions-reader-first.md) — lead every PR body with the plain-language goal/why before the technical delta
 - [PERM-1 shipped PR #271](perm-1-shipped-pr271.md) — permission deterministic-gate slice; 3-pass review caught mach-wildcard + trusted-root symlink escapes (real bugs); PERM-2 carve-outs = git-allow + cache
+- [Memory lives in the repo](memory-lives-in-repo.md) — STANDING: shared dev memory goes in .claude/memory/, not personal ~/.claude
