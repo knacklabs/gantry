@@ -155,6 +155,7 @@ export function SetupRoute() {
                 }))
               }
               onCreated={setCreatedAgentId}
+              onProfileSaved={markProfileSaved}
               showValidation={showValidation}
             />
           ) : stage.id === 'model' ? (

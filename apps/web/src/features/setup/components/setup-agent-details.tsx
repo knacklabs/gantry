@@ -1,5 +1,6 @@
 import { Button } from '../../../ui/primitives/button';
 import { useCreateSetupAgent } from '../use-create-setup-agent';
+import { useSaveSetupProfile } from '../use-setup-profile';
 
 export function SetupAgentDetails({
   connected,
@@ -7,6 +8,7 @@ export function SetupAgentDetails({
   purpose,
   onChange,
   onCreated,
+  onProfileSaved,
   showValidation,
 }: {
   connected: boolean;
@@ -14,14 +16,17 @@ export function SetupAgentDetails({
   purpose: string;
   onChange: (field: 'name' | 'purpose', value: string) => void;
   onCreated: (agentId: string) => void;
+  onProfileSaved: () => void;
   showValidation: boolean;
 }) {
   const createAgent = useCreateSetupAgent();
+  const saveProfile = useSaveSetupProfile();
   const disabled =
     !connected ||
     !name.trim() ||
     !purpose.trim() ||
     createAgent.isPending ||
+    saveProfile.isPending ||
     Boolean(createAgent.data);
 
   return (
@@ -45,7 +50,16 @@ export function SetupAgentDetails({
           disabled={disabled}
           onClick={() =>
             createAgent.mutate(name.trim(), {
-              onSuccess: (agent) => onCreated(agent.id),
+              onSuccess: (agent) => {
+                onCreated(agent.id);
+                saveProfile.mutate(
+                  {
+                    agentId: agent.id,
+                    content: profileFromPurpose(purpose),
+                  },
+                  { onSuccess: onProfileSaved },
+                );
+              },
             })
           }
         >
@@ -64,6 +78,12 @@ export function SetupAgentDetails({
       {createAgent.isError ? (
         <p className="m-0 text-sm text-danger">{createAgent.error.message}</p>
       ) : null}
+      {saveProfile.isError ? (
+        <p className="m-0 text-sm text-danger">
+          The agent was created, but its purpose could not be saved. Add it in
+          the Profile stage before finishing setup.
+        </p>
+      ) : null}
       {createAgent.data ? (
         <p className="m-0 text-sm text-status-ready">
           {createAgent.data.name} is created and ready for the remaining setup.
@@ -71,6 +91,10 @@ export function SetupAgentDetails({
       ) : null}
     </div>
   );
+}
+
+function profileFromPurpose(purpose: string): string {
+  return `# Operating instructions\n\n## Purpose\n\n${purpose.trim()}\n`;
 }
 
 function SetupTextField({
