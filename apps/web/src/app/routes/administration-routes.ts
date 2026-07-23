@@ -21,15 +21,6 @@ const agentsRoute = createRoute({
   ),
 });
 
-const setupRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: 'agents/setup',
-  component: lazyRouteComponent(
-    () => import('../../features/setup/routes/setup-route'),
-    'SetupRoute',
-  ),
-});
-
 const agentDetailRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: 'agents/$agentId',
@@ -80,7 +71,6 @@ const personDetailRoute = createRoute({
 });
 
 export const administrationRoutes = [
-  setupRoute,
   agentsRoute,
   agentDetailRoute,
   sourcesRoute,

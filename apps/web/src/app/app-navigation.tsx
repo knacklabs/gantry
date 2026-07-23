@@ -35,7 +35,6 @@ const navigation = [
     label: 'Administration',
     items: [
       { to: '/agents', label: 'Agents', icon: Bot },
-      { to: '/agents/setup', label: 'Set up agent', icon: Bot },
       { to: '/people', label: 'People', icon: Users },
       { to: '/sources', label: 'Sources & access', icon: Library },
       { to: '/pause', label: 'Pause everywhere', icon: PauseCircle },
