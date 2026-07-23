@@ -94,6 +94,7 @@ export type CreateAgentRequest = z.infer<typeof CreateAgentRequestSchema>;
 export const UpdateAgentRequestSchema = z
   .object({
     name: z.string().min(1).optional(),
+    description: z.string().trim().max(2_000).nullable().optional(),
     status: AgentStatusSchema.optional(),
     agentHarness: AgentHarnessSchema.optional(),
   })

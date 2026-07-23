@@ -533,6 +533,9 @@ export async function handleAgentRoutes(
     const updated: Agent = {
       ...agent,
       name: parsed.data.name?.trim() ?? agent.name,
+      ...(parsed.data.description !== undefined
+        ? { description: parsed.data.description ?? undefined }
+        : {}),
       status: parsed.data.status ?? agent.status,
       updatedAt: nowIso(),
     };
