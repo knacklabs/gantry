@@ -13,6 +13,7 @@ import { StatusBadge } from '../../../ui/compositions/status-badge';
 import { TextField } from '../../../ui/compositions/text-field';
 import { Button } from '../../../ui/primitives/button';
 import { loadAgents, type LiveAgent } from '../agents-api';
+import { AgentSetupDialog } from '../components/agent-setup-dialog';
 import { agentQueryKeys } from '../agents-queries';
 
 export function AgentsRoute() {
@@ -127,6 +128,14 @@ export function AgentsRoute() {
             <Plus size={16} aria-hidden="true" />
             Create agent
           </Button>
+        }
+      />
+      <AgentSetupDialog
+        open={search.setup === 'new'}
+        onOpenChange={(open) =>
+          void navigate({
+            search: { ...search, setup: open ? 'new' : undefined },
+          })
         }
       />
 
