@@ -13,6 +13,9 @@ const ALLOWED_RAW_SQL_FILES = new Set([
   'apps/core/src/adapters/storage/postgres/repositories/worker-coordination-lease.postgres.ts',
   // pg_advisory_xact_lock makes async task admission atomic across workers.
   'apps/core/src/adapters/storage/postgres/repositories/async-task-repository.postgres.ts',
+  // pg_advisory_xact_lock makes Observer batch claiming atomic across workers
+  // (prefer-orphan state machine); same operational primitive as above.
+  'apps/core/src/adapters/storage/postgres/repositories/chat-batch-repository.postgres.ts',
   // LISTEN/NOTIFY is wakeup-only; durable rows remain authoritative.
   'apps/core/src/adapters/storage/postgres/live-admission-notify.postgres.ts',
   'apps/core/src/adapters/storage/postgres/runtime-event-notifier.postgres.ts',

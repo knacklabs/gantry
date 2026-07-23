@@ -194,10 +194,11 @@ export const extensionOpenApiSchemas: Record<string, JsonSchema> = {
         type: 'array',
         items: {
           type: 'object',
-          required: ['permalink'],
+          required: ['conversationId', 'messageId', 'ts'],
           properties: {
-            permalink: { type: 'string' },
+            conversationId: { type: 'string' },
             messageId: { type: 'string' },
+            ts: { type: 'string' },
           },
         },
       },

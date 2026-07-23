@@ -16,6 +16,9 @@ export function beginGatewayObservation(input: {
   upstreamUrl: URL;
   body: Buffer;
 }): { observation: GatewayCallObservation | undefined; requestBody: Buffer } {
+  if (isBatchTransportPath(input.providerId, input.upstreamUrl.pathname)) {
+    return { observation: undefined, requestBody: input.body };
+  }
   const observation = observeGatewayCall({
     token: input.token,
     providerId: input.providerId,
@@ -23,6 +26,16 @@ export function beginGatewayObservation(input: {
     requestBody: input.body,
   });
   return { observation, requestBody: observation?.requestBody ?? input.body };
+}
+
+function isBatchTransportPath(providerId: string, pathname: string): boolean {
+  if (providerId === 'openai') {
+    return /^\/v1\/(?:batches|files)(?:\/|$)/.test(pathname);
+  }
+  return (
+    providerId === 'anthropic' &&
+    /^\/v1\/messages\/batches(?:\/|$)/.test(pathname)
+  );
 }
 
 // Upstream call never produced a response (auth injection or fetch threw):

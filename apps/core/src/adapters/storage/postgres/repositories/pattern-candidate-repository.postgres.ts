@@ -62,6 +62,36 @@ export class PostgresPatternCandidateRepository implements PatternCandidateRepos
     return rows.map(mapRow);
   }
 
+  async listEligibleForApp(input: {
+    appId: string;
+    limit: number;
+  }): Promise<PatternCandidate[]> {
+    const suggestedSince = new Date(
+      Date.now() - PATTERN_SUGGESTED_FOLLOWUP_HOURS * 60 * 60 * 1000,
+    ).toISOString();
+    const rows = await this.db
+      .select()
+      .from(table)
+      .where(
+        and(
+          eq(table.appId, input.appId),
+          eq(table.subjectType, 'channel'),
+          gte(table.occurrences, PATTERN_VALUE_FLOOR_MIN_OCCURRENCES),
+          sql`${table.windowEnd}::timestamptz - ${table.windowStart}::timestamptz >= make_interval(days => ${PATTERN_VALUE_FLOOR_MIN_SPAN_DAYS})`,
+          or(
+            eq(table.candidateStatus, 'detected'),
+            and(
+              eq(table.candidateStatus, 'suggested'),
+              gte(table.updatedAt, suggestedSince),
+            ),
+          ),
+        ),
+      )
+      .orderBy(desc(table.occurrences), desc(table.lastDetectedAt))
+      .limit(Math.min(Math.max(input.limit, 1), 100));
+    return rows.map(mapRow);
+  }
+
   async getById(id: string): Promise<PatternCandidate | null> {
     const [row] = await this.db
       .select()

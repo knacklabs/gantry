@@ -1,6 +1,7 @@
 import net from 'node:net';
 
 import { startControlServer } from '@core/control/server/index.js';
+import type { ControlRouteContext } from '@core/control/server/handler-context.js';
 
 export async function reserveControlPort(): Promise<number> {
   return await new Promise<number>((resolve, reject) => {
@@ -35,6 +36,7 @@ export async function startTestControlServer(input: {
   processRole?: 'all' | 'control' | 'live-worker' | 'job-worker';
   liveExecution?: boolean;
   liveTurnsEnabled?: boolean;
+  resolveObserverStatus?: ControlRouteContext['resolveObserverStatus'];
 }) {
   const port = await reserveControlPort();
   process.env.GANTRY_CONTROL_PORT = String(port);
@@ -58,6 +60,9 @@ export async function startTestControlServer(input: {
       : {}),
     ...(input.liveTurnsEnabled !== undefined
       ? { liveTurnsEnabled: input.liveTurnsEnabled }
+      : {}),
+    ...(input.resolveObserverStatus
+      ? { resolveObserverStatus: input.resolveObserverStatus }
       : {}),
   });
   await waitForControlPort(port);

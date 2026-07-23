@@ -506,12 +506,24 @@ export const extendedOpenApiRouteDocs: RouteDoc[] = [
     'listObserverInsights',
     'Observer',
     'List observer insights',
-    'Lists app-scoped persisted observer insights with optional subject and state filters.',
+    'Lists app-scoped persisted observer insights with optional subject, type, and state filters.',
     ['memory:read'],
     {
       parameters: [
         query('appId', 'App id. Defaults to API key app.'),
         query('subject', 'Canonical memory subject filter.'),
+        query('type', 'Insight type filter.', {
+          type: 'string',
+          enum: [
+            'commitment',
+            'contradiction',
+            'open_question',
+            'stale_fact',
+            'decision_without_owner',
+            'duplicated_work',
+            'repetition',
+          ],
+        }),
         query('state', 'Insight state filter.', {
           type: 'string',
           enum: [

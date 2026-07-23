@@ -4,6 +4,7 @@ export * from './async-tasks.js';
 export * from './brain.js';
 export * from './browser.js';
 export * from './capability-secrets.js';
+export * from './chat-batches.js';
 export * from './providers.js';
 export * from './conversations.js';
 export * from './control-http.js';

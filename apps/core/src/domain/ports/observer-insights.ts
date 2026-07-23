@@ -21,17 +21,32 @@ export const OBSERVER_INSIGHT_STATES = [
 
 export type ObserverInsightState = (typeof OBSERVER_INSIGHT_STATES)[number];
 
-export type ObserverSubjectKey = `msu_${string}`;
+export type ObserverSubjectKey =
+  | `msu_${string}`
+  | `conversation:${string}`
+  | 'observer:app';
 
 export function isObserverSubjectKey(
   value: string,
 ): value is ObserverSubjectKey {
-  return /^msu_[a-f0-9]{32}$/.test(value);
+  if (/^msu_[a-f0-9]{32}$/.test(value) || value === 'observer:app') {
+    return true;
+  }
+  if (!value.startsWith('conversation:')) return false;
+  const conversationId = value.slice('conversation:'.length);
+  return (
+    conversationId.trim().length > 0 &&
+    [...conversationId].every((character) => {
+      const code = character.charCodeAt(0);
+      return code > 0x1f && (code < 0x7f || code > 0x9f);
+    })
+  );
 }
 
 export interface ObserverInsightEvidenceRef {
-  permalink: string;
-  messageId?: string;
+  conversationId: string;
+  messageId: string;
+  ts: string;
 }
 
 export interface ProactiveInsight {
@@ -100,6 +115,7 @@ export interface ObserverInsightRepository {
     appId: string;
     subject?: ObserverSubjectKey;
     state?: ObserverInsightState;
+    insightType?: ObserverInsightType;
     limit: number;
     before?: { createdAt: string; id: string };
   }): Promise<ProactiveInsight[]>;
@@ -107,11 +123,26 @@ export interface ObserverInsightRepository {
     appId: string;
     subject?: ObserverSubjectKey;
     state?: ObserverInsightState;
+    insightType?: ObserverInsightType;
   }): Promise<number>;
   findBySignature(input: {
     appId: string;
+    subject: ObserverSubjectKey;
     canonicalSignature: string;
   }): Promise<ProactiveInsight | null>;
+  findHistoricalBySignature(input: {
+    appId: string;
+    subject: ObserverSubjectKey;
+    canonicalSignature: string;
+  }): Promise<ProactiveInsight | null>;
+  findSemanticDuplicate(input: {
+    appId: string;
+    subject: ObserverSubjectKey;
+    model: string;
+    dimensions: number;
+    embedding: number[];
+    minSimilarity: number;
+  }): Promise<{ insight: ProactiveInsight; similarity: number } | null>;
   transitionState(input: {
     id: string;
     from: ObserverInsightState;

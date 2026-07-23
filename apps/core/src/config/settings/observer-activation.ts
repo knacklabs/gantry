@@ -52,7 +52,10 @@ export type ObserverActivationStatus =
       state: 'evidence_accumulating';
       enabled: true;
       active: false;
-      reason: 'dreaming_disabled' | 'memory_disabled';
+      reason:
+        | 'dreaming_disabled'
+        | 'memory_disabled'
+        | 'embeddings_unavailable';
       message: string;
       owner: ObserverOwnerRoute;
     }
@@ -148,6 +151,19 @@ export function resolveObserverActivationStatus(
       reason: 'dreaming_disabled',
       message:
         'Dreaming is off; evidence is accumulating, but promotion is disabled.',
+      owner: resolved.owner,
+    };
+  }
+  if (
+    !settings.memory.embeddings.enabled ||
+    settings.memory.embeddings.provider === 'disabled'
+  ) {
+    return {
+      state: 'evidence_accumulating',
+      enabled: true,
+      active: false,
+      reason: 'embeddings_unavailable',
+      message: 'Insight emission paused: embeddings unavailable.',
       owner: resolved.owner,
     };
   }

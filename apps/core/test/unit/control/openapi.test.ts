@@ -309,6 +309,42 @@ describe('control OpenAPI documentation', () => {
     expect(documentedRoutes()).toEqual(expectedControlRoutes);
   });
 
+  it('documents observer insight type filtering and structured evidence', () => {
+    const spec = getGantryOpenApiDocument();
+
+    expect(spec.paths['/v1/observer/insights']?.get.parameters).toContainEqual(
+      expect.objectContaining({
+        name: 'type',
+        schema: {
+          type: 'string',
+          enum: [
+            'commitment',
+            'contradiction',
+            'open_question',
+            'stale_fact',
+            'decision_without_owner',
+            'duplicated_work',
+            'repetition',
+          ],
+        },
+      }),
+    );
+    expect(
+      spec.components.schemas.ProactiveInsight.properties.evidenceRefs,
+    ).toEqual({
+      type: 'array',
+      items: {
+        type: 'object',
+        required: ['conversationId', 'messageId', 'ts'],
+        properties: {
+          conversationId: { type: 'string' },
+          messageId: { type: 'string' },
+          ts: { type: 'string' },
+        },
+      },
+    });
+  });
+
   it('accepts MCP source operation scopes in agent access documents', () => {
     expect(
       AgentAccessRequestSchema.safeParse({

@@ -1512,7 +1512,7 @@ export interface paths {
         };
         /**
          * List observer insights
-         * @description Lists app-scoped persisted observer insights with optional subject and state filters.
+         * @description Lists app-scoped persisted observer insights with optional subject, type, and state filters.
          */
         get: operations["listObserverInsights"];
         put?: never;
@@ -3019,8 +3019,9 @@ export interface components {
             title: string;
             summary: string;
             evidenceRefs: {
-                permalink: string;
-                messageId?: string;
+                conversationId: string;
+                messageId: string;
+                ts: string;
             }[];
             /** Format: date-time */
             batchSnapshotAt: string;
@@ -6672,6 +6673,8 @@ export interface operations {
                 appId?: string;
                 /** @description Canonical memory subject filter. */
                 subject?: string;
+                /** @description Insight type filter. */
+                type?: "commitment" | "contradiction" | "open_question" | "stale_fact" | "decision_without_owner" | "duplicated_work" | "repetition";
                 /** @description Insight state filter. */
                 state?: "pending" | "claimed" | "sent" | "cooldown" | "resolved" | "dropped";
                 /** @description Maximum number of insights. */

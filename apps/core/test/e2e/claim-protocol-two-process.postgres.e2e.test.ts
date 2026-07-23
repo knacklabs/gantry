@@ -500,6 +500,8 @@ maybeDescribe('live turn real runner (Postgres)', () => {
         PromptProfileService: MockPromptProfileService,
         promptProfileAgentIdForFolder: (agentFolder: string) =>
           `agent:${agentFolder}`,
+        registerChannelPromptPresentationRenderer: vi.fn(),
+        renderChannelPromptPresentationLine: vi.fn(() => undefined),
       };
     });
 

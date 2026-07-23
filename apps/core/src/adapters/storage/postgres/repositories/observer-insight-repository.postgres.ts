@@ -16,6 +16,7 @@ import type {
   ObserverInsightCreate,
   ObserverInsightCursor,
   ObserverInsightRepository,
+  ObserverInsightType,
   ObserverInsightState,
   ObserverSubjectKey,
   ProactiveInsight,
@@ -25,6 +26,7 @@ import * as pgSchema from '../schema/schema.js';
 import type { CanonicalDb } from './canonical-graph-repository.postgres.js';
 
 const Insights = pgSchema.proactiveInsightsPostgres;
+const Embeddings = pgSchema.embeddingCachePostgres;
 const Deliveries = pgSchema.observerDeliveriesPostgres;
 const Cursors = pgSchema.observerInsightCursorsPostgres;
 const ACTIVE_INSIGHT_STATES: ObserverInsightState[] = [
@@ -109,6 +111,7 @@ export class PostgresObserverInsightRepository implements ObserverInsightReposit
     appId: string;
     subject?: ObserverSubjectKey;
     state?: ObserverInsightState;
+    insightType?: ObserverInsightType;
     limit: number;
     before?: { createdAt: string; id: string };
   }): Promise<ProactiveInsight[]> {
@@ -126,6 +129,7 @@ export class PostgresObserverInsightRepository implements ObserverInsightReposit
     appId: string;
     subject?: ObserverSubjectKey;
     state?: ObserverInsightState;
+    insightType?: ObserverInsightType;
   }): Promise<number> {
     if (input.subject) assertCanonicalSubject(input.subject);
     const [row] = await this.db
@@ -138,12 +142,15 @@ export class PostgresObserverInsightRepository implements ObserverInsightReposit
   async findBySignature(input: {
     appId: string;
     canonicalSignature: string;
+    subject: ObserverSubjectKey;
   }): Promise<ProactiveInsight | null> {
+    assertCanonicalSubject(input.subject);
     const [row] = await this.db
       .select()
       .from(Insights)
       .where(
         and(
+          eq(Insights.subject, input.subject),
           eq(Insights.appId, input.appId),
           eq(Insights.canonicalSignature, input.canonicalSignature),
           inArray(Insights.state, ACTIVE_INSIGHT_STATES),
@@ -152,6 +159,65 @@ export class PostgresObserverInsightRepository implements ObserverInsightReposit
       .orderBy(desc(Insights.createdAt), desc(Insights.id))
       .limit(1);
     return row ? mapInsight(row) : null;
+  }
+
+  async findHistoricalBySignature(input: {
+    appId: string;
+    canonicalSignature: string;
+    subject: ObserverSubjectKey;
+  }): Promise<ProactiveInsight | null> {
+    assertCanonicalSubject(input.subject);
+    const [row] = await this.db
+      .select()
+      .from(Insights)
+      .where(
+        and(
+          eq(Insights.subject, input.subject),
+          eq(Insights.appId, input.appId),
+          eq(Insights.canonicalSignature, input.canonicalSignature),
+        ),
+      )
+      .orderBy(desc(Insights.createdAt), desc(Insights.id))
+      .limit(1);
+    return row ? mapInsight(row) : null;
+  }
+
+  async findSemanticDuplicate(input: {
+    appId: string;
+    subject: ObserverSubjectKey;
+    model: string;
+    dimensions: number;
+    embedding: number[];
+    minSimilarity: number;
+  }): Promise<{ insight: ProactiveInsight; similarity: number } | null> {
+    assertCanonicalSubject(input.subject);
+    const vectorLiteral = `[${input.embedding.join(',')}]`;
+    const similarity = sql<number>`1 - (${Embeddings.embedding} <=> ${vectorLiteral}::vector)`;
+    const [row] = await this.db
+      .select({ insight: Insights, similarity })
+      .from(Insights)
+      .innerJoin(
+        Embeddings,
+        and(
+          eq(Embeddings.textHash, Insights.signatureEmbeddingRef),
+          eq(Embeddings.model, input.model),
+          eq(Embeddings.dimensions, input.dimensions),
+          sql`${Embeddings.embedding} is not null`,
+        ),
+      )
+      .where(
+        and(
+          eq(Insights.appId, input.appId),
+          eq(Insights.subject, input.subject),
+          inArray(Insights.state, ACTIVE_INSIGHT_STATES),
+          sql`${similarity} >= ${input.minSimilarity}`,
+        ),
+      )
+      .orderBy(desc(similarity), desc(Insights.createdAt), desc(Insights.id))
+      .limit(1);
+    return row
+      ? { insight: mapInsight(row.insight), similarity: Number(row.similarity) }
+      : null;
   }
 
   async transitionState(input: {
@@ -397,6 +463,7 @@ function insightFilters(input: {
   appId: string;
   subject?: ObserverSubjectKey;
   state?: ObserverInsightState;
+  insightType?: ObserverInsightType;
 }): SQL[] {
   const filters = [eq(Insights.appId, input.appId)];
   if (input.subject !== undefined) {
@@ -404,6 +471,9 @@ function insightFilters(input: {
   }
   if (input.state !== undefined) {
     filters.push(eq(Insights.state, input.state));
+  }
+  if (input.insightType !== undefined) {
+    filters.push(eq(Insights.insightType, input.insightType));
   }
   return filters;
 }
@@ -431,7 +501,7 @@ function assertCanonicalSubject(
 ): asserts subject is ObserverSubjectKey {
   if (!isObserverSubjectKey(subject)) {
     throw new Error(
-      'Observer insight subject must be a canonical memory subject key',
+      'Observer insight subject must be a valid observer subject key',
     );
   }
 }
