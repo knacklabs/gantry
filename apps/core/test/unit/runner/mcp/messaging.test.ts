@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const contextState = vi.hoisted(() => ({
   ipcDir: '',
   jobId: undefined as string | undefined,
+  permissionLane: 'autonomous' as 'autonomous' | 'interactive',
 }));
 
 vi.mock('@core/runner/mcp/context.js', () => ({
@@ -25,6 +26,9 @@ vi.mock('@core/runner/mcp/context.js', () => ({
   threadId: undefined,
   get jobId() {
     return contextState.jobId;
+  },
+  get permissionLane() {
+    return contextState.permissionLane;
   },
   jobRunId: undefined,
   jobRunLeaseToken: undefined,
@@ -113,7 +117,7 @@ const questionArgs = {
   ],
 };
 
-describe('ask_user_question no-timeout wait', () => {
+describe('ask_user_question lane deadlines', () => {
   let tempDir: string;
 
   beforeEach(() => {
@@ -121,6 +125,7 @@ describe('ask_user_question no-timeout wait', () => {
     tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gantry-messaging-'));
     contextState.ipcDir = path.join(tempDir, 'ipc');
     contextState.jobId = undefined;
+    contextState.permissionLane = 'autonomous';
   });
 
   afterEach(() => {
@@ -130,6 +135,7 @@ describe('ask_user_question no-timeout wait', () => {
   });
 
   it('has no deadline and waits beyond the former expiry until answered', async () => {
+    contextState.permissionLane = 'interactive';
     const handler = await askUserQuestionHandler();
     let settled = false;
     const result = handler(questionArgs);
@@ -174,55 +180,62 @@ describe('ask_user_question no-timeout wait', () => {
     });
   });
 
-  it('bounds job questions and cleans them up after the finite deadline', async () => {
-    contextState.jobId = 'job-1';
-    const handler = await askUserQuestionHandler();
-    vi.useFakeTimers();
-    const result = handler(questionArgs);
+  it.each([
+    { description: 'without a job id', jobId: undefined },
+    { description: 'with a job id', jobId: 'job-1' },
+  ])(
+    'bounds autonomous questions $description and cleans them up after the finite deadline',
+    async ({ jobId }) => {
+      contextState.permissionLane = 'autonomous';
+      contextState.jobId = jobId;
+      const handler = await askUserQuestionHandler();
+      vi.useFakeTimers();
+      const result = handler(questionArgs);
 
-    const boundaryDir = path.join(
-      contextState.ipcDir,
-      'interaction-boundaries',
-    );
-    const boundaryFile = fs
-      .readdirSync(boundaryDir)
-      .find((entry) => entry.endsWith('.json'));
-    expect(boundaryFile).toBeDefined();
-    fs.unlinkSync(path.join(boundaryDir, boundaryFile!));
-    await vi.advanceTimersByTimeAsync(100);
+      const boundaryDir = path.join(
+        contextState.ipcDir,
+        'interaction-boundaries',
+      );
+      const boundaryFile = fs
+        .readdirSync(boundaryDir)
+        .find((entry) => entry.endsWith('.json'));
+      expect(boundaryFile).toBeDefined();
+      fs.unlinkSync(path.join(boundaryDir, boundaryFile!));
+      await vi.advanceTimersByTimeAsync(100);
 
-    const requestDir = path.join(contextState.ipcDir, 'user-questions');
-    const requestFile = fs
-      .readdirSync(requestDir)
-      .find((entry) => entry.endsWith('.json'));
-    expect(requestFile).toBeDefined();
-    const requestPath = path.join(requestDir, requestFile!);
-    const request = JSON.parse(fs.readFileSync(requestPath, 'utf8')) as {
-      expiresAt?: string;
-    };
-    expect(request.expiresAt).toBeDefined();
+      const requestDir = path.join(contextState.ipcDir, 'user-questions');
+      const requestFile = fs
+        .readdirSync(requestDir)
+        .find((entry) => entry.endsWith('.json'));
+      expect(requestFile).toBeDefined();
+      const requestPath = path.join(requestDir, requestFile!);
+      const request = JSON.parse(fs.readFileSync(requestPath, 'utf8')) as {
+        expiresAt?: string;
+      };
+      expect(request.expiresAt).toBeDefined();
 
-    vi.setSystemTime(Date.now() + 10 * 60_000);
-    await vi.advanceTimersByTimeAsync(100);
+      vi.setSystemTime(Date.now() + 10 * 60_000);
+      await vi.advanceTimersByTimeAsync(100);
 
-    await expect(result).resolves.toEqual({
-      content: [
-        {
-          type: 'text',
-          text: 'Question expired. Please ask again if this is still needed.',
-        },
-      ],
-    });
-    expect(fs.existsSync(requestPath)).toBe(false);
-  });
+      await expect(result).resolves.toEqual({
+        content: [
+          {
+            type: 'text',
+            text: 'Question expired. Please ask again if this is still needed.',
+          },
+        ],
+      });
+      expect(fs.existsSync(requestPath)).toBe(false);
+    },
+  );
 
   it.each([
-    { lane: 'interactive', jobId: undefined },
-    { lane: 'job', jobId: 'job-1' },
+    { permissionLane: 'interactive' as const },
+    { permissionLane: 'autonomous' as const },
   ])(
-    'returns the cancellation result when the $lane lane is aborted',
-    async ({ jobId }) => {
-      contextState.jobId = jobId;
+    'returns the cancellation result when the $permissionLane lane is aborted',
+    async ({ permissionLane }) => {
+      contextState.permissionLane = permissionLane;
       const handler = await askUserQuestionHandler();
       const controller = new AbortController();
       const result = handler(questionArgs, { signal: controller.signal });

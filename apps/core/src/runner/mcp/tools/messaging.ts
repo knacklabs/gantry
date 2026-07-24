@@ -25,6 +25,7 @@ import {
   MESSAGES_DIR,
   threadId,
   jobId,
+  permissionLane,
   jobRunId,
   jobRunLeaseToken,
   jobRunLeaseFencingVersion,
@@ -556,7 +557,7 @@ export function registerMessagingTools(server: McpServer): void {
             : {}),
         },
         timestamp: nowIso(),
-        ...(jobId
+        ...(permissionLane === 'autonomous'
           ? {
               expiresAt: new Date(
                 currentTimeMs() + USER_QUESTION_TIMEOUT_MS,
@@ -569,7 +570,10 @@ export function registerMessagingTools(server: McpServer): void {
       writePrivateFileSync(tmpPath, JSON.stringify(envelope, null, 2));
       fs.renameSync(tmpPath, requestPath);
 
-      const deadline = jobId ? nowMs() + USER_QUESTION_TIMEOUT_MS : undefined;
+      const deadline =
+        permissionLane === 'autonomous'
+          ? nowMs() + USER_QUESTION_TIMEOUT_MS
+          : undefined;
       while (deadline === undefined || nowMs() < deadline) {
         if (context?.signal?.aborted) {
           fs.rmSync(requestPath, { force: true });

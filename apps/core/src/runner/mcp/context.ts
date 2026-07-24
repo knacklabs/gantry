@@ -63,6 +63,10 @@ export const workspaceFolder = process.env.GANTRY_WORKSPACE_KEY!;
 export const appId = process.env.GANTRY_APP_ID?.trim() || undefined;
 export const agentId = process.env.GANTRY_AGENT_ID?.trim() || undefined;
 export const jobId = process.env.GANTRY_JOB_ID?.trim() || undefined;
+export const permissionLane =
+  process.env.GANTRY_PERMISSION_LANE?.trim() === 'interactive'
+    ? 'interactive'
+    : 'autonomous';
 export const jobRunId = process.env.GANTRY_JOB_RUN_ID?.trim() || undefined;
 export const jobRunLeaseToken =
   process.env.GANTRY_JOB_RUN_LEASE_TOKEN?.trim() || undefined;
