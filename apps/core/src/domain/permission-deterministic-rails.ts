@@ -109,7 +109,7 @@ export function evaluatePermissionDeterministicRails(
     return allow(request, 'Agent self-surface birthright.', 'birthright');
   }
   if (inputIsIncomplete(request)) {
-    return ask(
+    return hardFloorAsk(
       'Exact tool input is missing, redacted, or truncated.',
       'privileged',
     );
@@ -143,8 +143,15 @@ export function evaluatePermissionDeterministicRails(
   if (!command)
     return ask('Exact shell command input is missing.', 'privileged');
   const parsed = parseBashCommand(command);
-  if (!parsed.ok)
-    return ask(`Shell input is unsupported: ${parsed.reason}`, 'privileged');
+  if (!parsed.ok) {
+    // If the deterministic parser cannot model the command, no downstream
+    // layer can bound its effect. It must escalate to a human and can never be
+    // deterministically or classifier-auto-allowed.
+    return hardFloorAsk(
+      `Shell input is unsupported: ${parsed.reason}`,
+      'privileged',
+    );
+  }
   if (parsed.leaves.some(isInterpreterString)) {
     return ask('An interpreter string requires approval.', 'privileged');
   }
