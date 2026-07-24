@@ -291,7 +291,10 @@ export function resolveRoutelessAgentFolder(input: {
   const folder = selector.startsWith('agent:')
     ? selector.slice('agent:'.length)
     : selector;
-  if (!folder || !input.settings.agents[folder]) return null;
+  // Own-property check: a plain settings object inherits `constructor`,
+  // `toString`, `__proto__` etc., which would otherwise resolve as configured
+  // agents and send a phantom name into destructive pruning.
+  if (!folder || !Object.hasOwn(input.settings.agents, folder)) return null;
   const hasRoutes = Object.values(input.groups).some(
     (group) => group.folder === folder,
   );

@@ -1371,6 +1371,18 @@ describe('cli slack helpers', () => {
         selector: 'agent:nope',
       }),
     ).toBeNull();
+
+    // Inherited Object properties are not configured agents.
+    for (const reserved of ['constructor', 'toString', '__proto__']) {
+      expect(
+        resolveRoutelessAgentFolder({
+          settings: reloaded,
+          groups,
+          selector: reserved,
+        }),
+        `${reserved} must not resolve as an agent`,
+      ).toBeNull();
+    }
   });
 
   it('removes a route-less agent from desired state so a reload cannot restore it', async () => {
