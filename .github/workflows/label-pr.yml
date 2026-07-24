@@ -4,9 +4,12 @@ on:
   pull_request:
     types: [opened, edited]
 
+permissions:
+  contents: read
+
 jobs:
   label:
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     permissions:
       pull-requests: write
     steps:

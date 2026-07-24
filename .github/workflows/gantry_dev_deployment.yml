@@ -6,6 +6,9 @@ on:
     branches:
       - develop
 
+permissions:
+  contents: read
+
 env:
   AWS_REGION: ap-south-1
   ECS_CLUSTER: caw-aws-aps1-dev-ecs-ats-cluster
@@ -18,7 +21,7 @@ env:
 jobs:
   deploy:
     name: Deploy to gantry-reagent Dev
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     environment: ATS Dev
 
     steps:

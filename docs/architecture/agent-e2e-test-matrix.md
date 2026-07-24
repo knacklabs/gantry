@@ -213,7 +213,8 @@ Legend: ✅ covered (cite) · 🔨 to build · 🏷 label-gated (live lane) · �
 | ---------------------------------------------------------------- | --------- | ------ |
 | Skill+MCP selections survive restart; allow_once does NOT        | e2e       | 🔨     |
 | Logs + evidence credential-scrubbed (whole run grep)             | e2e       | 🔨     |
-| Fork PRs never see secrets (workflow config review)              | CI review | 🔨     |
+| PR jobs use GitHub-hosted ephemeral runners, never self-hosted   | CI review | ✅ `scripts/check_ci_runner_isolation.py` |
+| Fork PRs skip the real-model step when its secret is absent      | CI review | ✅ `scripts/check_ci_runner_isolation.py` |
 | i-have-adhd zero references (scoped guard, fragment-built token) | unit      | 🔨     |
 
 ## 17. Orphan suites (never ran in CI — adopt deliberately)
