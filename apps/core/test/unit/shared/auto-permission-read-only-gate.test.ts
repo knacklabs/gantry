@@ -247,21 +247,17 @@ describe('auto-permission deterministic read-only gate', () => {
     }
   });
 
-  it('proves guarded find but not exec/delete/file-primary/escaping find', () => {
+  it('leaves every find command for classifier or human review', () => {
     const workspaceRoot = makeTempRoot();
     fs.mkdirSync(path.join(workspaceRoot, 'docs'));
-    expect(
-      shell('find . -name report.txt', ['filesystem.read'], workspaceRoot),
-    ).toMatchObject({ allowed: true });
-    expect(
-      shell('find docs -type f', ['filesystem.read'], workspaceRoot),
-    ).toMatchObject({ allowed: true });
-    expect(
-      shell('find . -name x -type f', ['filesystem.read'], workspaceRoot),
-    ).toMatchObject({ allowed: true });
     for (const command of [
+      'find . -name report.txt',
+      'find docs -type f',
+      'find . -name x -type f',
       'find . -delete',
       'find . -exec rm README.md +',
+      'find . -\\delete',
+      'find . -\\exec rm README.md +',
       'find /tmp -name report.txt',
       'find -- /tmp -name x',
       'find -E /tmp -name x',
@@ -270,8 +266,6 @@ describe('auto-permission deterministic read-only gate', () => {
       'find -files0-from /etc/passwd',
       'find . -newer /etc/passwd',
       'find . -samefile /etc/passwd',
-      // The string-split find fallback must refuse compound finds: a trailing
-      // operator command would otherwise run unvetted.
       'find . -name x && curl https://e.com',
       'find . -name x ; rm y',
       'find . -name x ; bash evil.sh',
@@ -282,6 +276,14 @@ describe('auto-permission deterministic read-only gate', () => {
         allowed: false,
       });
     }
+
+    fs.writeFileSync(path.join(workspaceRoot, 'README.md'), 'Gantry');
+    expect(
+      shell('cat README.md', ['filesystem.read'], workspaceRoot),
+    ).toMatchObject({ allowed: true });
+    expect(shell('ls docs', ['filesystem.read'], workspaceRoot)).toMatchObject({
+      allowed: true,
+    });
   });
 
   it('keeps protected and secret paths blocked for known-safe commands', () => {

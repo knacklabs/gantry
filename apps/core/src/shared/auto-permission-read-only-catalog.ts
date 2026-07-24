@@ -28,11 +28,6 @@ export const GENERIC_READ_EXECUTABLES = new Set([
   'uniq',
 ]);
 
-// -exec/-delete/etc. run or mutate; -follow/-L/-H escape workspace confinement.
-export const FIND_UNSAFE_PRIMARY =
-  /^-(?:exec|execdir|okdir|ok|delete|fprintf|fprint0|fprint|fls|follow|L|H|files0-from|anewer|cnewer|newer(?:[A-Za-z]{2})?|samefile)$/;
-export const FIND_GLOBAL_OPTION = /^-(?:O\d*|P|D|f)$/;
-
 // Only `sed -n <script> [file...]` (print-only). Any other flag (`-i`, `-e`,
 // `-f`, `--in-place`) blocks, as does a script naming a read/write/exec command.
 export function sedReadFileArgs(args: readonly string[]): string[] | undefined {

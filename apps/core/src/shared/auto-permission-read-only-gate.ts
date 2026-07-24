@@ -10,7 +10,6 @@ import {
 import {
   BARE_SAFE_EXECUTABLES,
   capabilityTokens,
-  FIND_UNSAFE_PRIMARY,
   GENERIC_READ_EXECUTABLES,
   genericReadFileArgs,
   hasHiddenPathSegment,
@@ -76,10 +75,6 @@ const SECRET_PATH =
   /(?:^|[/\\])(?:\.env(?:\.[^/\\]+)?|\.ssh|environ(?:ment)?|id_(?:dsa|ecdsa|ed25519|rsa)(?:\.pub)?|[^/\\]*(?:api[_-]?key|credential|private[_-]?key|secret|token)[^/\\]*|(?:[^/\\]*[_.-])?key(?:s)?(?:[_.-][^/\\]*)?|[^/\\]+\.(?:key|pem|p12|pfx))(?:$|[/\\])/i;
 const SECRET_VALUE =
   /-----BEGIN [^-]*PRIVATE KEY-----|(?:^|\s)Bearer\s+\S+|\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/i;
-const FIND_PRE_PATH_FLAG = /^-[EdPsxX]+$/;
-const FIND_OPTIMIZATION_OPTION = /^-O\d+$/;
-const FIND_EXPRESSION_PRIMARY =
-  /^-(?:amin|atime|cmin|ctime|empty|false|fstype|gid|group|ilname|iname|inum|ipath|iregex|links|lname|maxdepth|mindepth|mmin|mount|mtime|name|nogroup|nouser|path|perm|print|print0|printf|prune|quit|readable|regex|size|true|type|uid|used|user|wholename|writable|xdev|xtype)$/;
 
 export function evaluateAutoPermissionReadOnlyGate(
   input: AutoPermissionReadOnlyGateInput,
@@ -128,12 +123,7 @@ function evaluateShellRead(
 
   const parsed = parseGateCommand(command);
   if (!parsed.ok) {
-    // parseBashCommand refuses `find` (a meta-executor); vet it directly so a
-    // guarded `find` read is still provable.
-    return (
-      evaluateFindCommand(command, capabilityIds, workspaceRoot) ??
-      blocked(`Shell command is not provably simple: ${parsed.reason}`)
-    );
+    return blocked(`Shell command is not provably simple: ${parsed.reason}`);
   }
 
   const compound = parsed.leaves.length > 1;
@@ -252,89 +242,6 @@ function evaluateLeaf(
   }
   return blocked(
     `Executable ${executable || '(missing)'} is not a reviewed read command.`,
-  );
-}
-
-// parseBashCommand rejects `find` outright, so vet a single (non-compound)
-// `find` read here. Compound `find` is unsupported (parse fails → blocked).
-function evaluateFindCommand(
-  command: string,
-  capabilityIds: readonly string[],
-  workspaceRoot: string | undefined,
-): AutoPermissionReadOnlyGateResult | undefined {
-  if (/['"]/.test(command)) return undefined;
-  // This fallback whitespace-splits the raw command, so it cannot see shell
-  // operators the way the real parser can. A `find` joined to anything by
-  // `;`/`|`/`&` (`&&`, `||`, `|&`, background `&`) would leave the trailing
-  // command unvetted yet still run — refuse it outright.
-  if (/[;|&]/.test(command)) return undefined;
-  const tokens = command.trim().split(/\s+/);
-  if (bashExecutableName(tokens[0] ?? '') !== 'find') return undefined;
-  if (tokens[0] !== 'find') {
-    return blocked('Executable path is not an exact reviewed read command.');
-  }
-  const args = tokens.slice(1);
-  if (args.some((arg) => FIND_UNSAFE_PRIMARY.test(arg))) {
-    return blocked('find command uses an unsafe primary.');
-  }
-  if (args.some(isSecretLikeValue)) {
-    return blocked('Secret or redirected reads require approval.');
-  }
-  // Path operands precede the first expression primary. Parse pre-path options
-  // explicitly so none can make us silently discard a later starting path.
-  const operands: string[] = [];
-  let sawPrimary = false;
-  let optionsEnded = false;
-  for (let index = 0; index < args.length; index += 1) {
-    const arg = args[index]!;
-    if (sawPrimary) continue;
-    if (arg === '!' || arg === '(') {
-      sawPrimary = true;
-      continue;
-    }
-    if (!optionsEnded && operands.length === 0 && arg === '--') {
-      optionsEnded = true;
-      continue;
-    }
-    if (
-      !optionsEnded &&
-      operands.length === 0 &&
-      (FIND_PRE_PATH_FLAG.test(arg) || FIND_OPTIMIZATION_OPTION.test(arg))
-    ) {
-      continue;
-    }
-    if (!optionsEnded && operands.length === 0 && arg === '-D') {
-      const debugOptions = args[index + 1];
-      if (!debugOptions || debugOptions.startsWith('-')) {
-        return blocked('find command has an invalid pre-path option.');
-      }
-      index += 1;
-      continue;
-    }
-    if (!optionsEnded && operands.length === 0 && arg === '-f') {
-      const pathOperand = args[index + 1];
-      if (!pathOperand || pathOperand.startsWith('-')) {
-        return blocked('find command has an invalid pre-path option.');
-      }
-      operands.push(pathOperand);
-      index += 1;
-      continue;
-    }
-    if (arg.startsWith('-')) {
-      if (operands.length > 0 || FIND_EXPRESSION_PRIMARY.test(arg)) {
-        sawPrimary = true;
-        continue;
-      }
-      return blocked('find command uses an unsupported pre-path option.');
-    }
-    operands.push(arg);
-  }
-  return evaluateFileRead(
-    'list',
-    operands,
-    capabilityIds,
-    false,
-    workspaceRoot,
   );
 }
 
