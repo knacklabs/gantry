@@ -53,6 +53,7 @@ vi.mock('@core/infrastructure/logging/logger.js', () => ({
 
 afterEach(() => {
   configurePendingInteractionDurability(null);
+  vi.unstubAllEnvs();
   vi.useRealTimers();
 });
 
@@ -2515,6 +2516,7 @@ describe('TeamsChannel adapter scaffold', () => {
 
   it('does not schedule settlement for an interactive no-timeout Teams permission', async () => {
     vi.useFakeTimers();
+    vi.stubEnv('GANTRY_INTERACTIVE_PERMISSION_TIMEOUT_MS', '0');
     const sdkClient: TeamsSdkClient = {
       start: vi.fn(async () => {}),
       stop: vi.fn(async () => {}),
@@ -2565,6 +2567,78 @@ describe('TeamsChannel adapter scaffold', () => {
     expect(repository.claimPendingPermissionCallback).toHaveBeenCalledTimes(1);
     expect((channel as any).pendingPermissionPrompts.size).toBe(0);
   });
+
+  it.each([
+    [
+      'interactive',
+      'GANTRY_INTERACTIVE_PERMISSION_TIMEOUT_MS',
+      {} as Partial<PermissionApprovalRequest>,
+    ],
+    [
+      'autonomous',
+      'GANTRY_AUTONOMOUS_PERMISSION_TIMEOUT_MS',
+      { jobId: 'job-1' } as Partial<PermissionApprovalRequest>,
+    ],
+  ])(
+    'settles a %s Teams permission using the configured finite timeout when expiresAt is absent',
+    async (lane, timeoutEnv, requestContext) => {
+      vi.useFakeTimers();
+      vi.stubEnv(timeoutEnv, '10000');
+      const sdkClient: TeamsSdkClient = {
+        start: vi.fn(async () => {}),
+        stop: vi.fn(async () => {}),
+        sendMessage: vi.fn(async () => ({})),
+        sendAdaptiveCard: vi.fn(async () => ({
+          externalMessageId: `teams-${lane}-finite-permission-card`,
+        })),
+        updateAdaptiveCard: vi.fn(async () => ({})),
+      };
+      const channel = new TeamsChannel(
+        {
+          clientId: 'client-id',
+          clientSecret: 'client-secret',
+          tenantId: 'tenant-id',
+        },
+        makeOpts(),
+        sdkClient,
+      );
+      await channel.connect();
+      const request: PermissionApprovalRequest = {
+        requestId: `perm-teams-${lane}-configured-timeout`,
+        sourceAgentFolder: 'teams_engineering',
+        toolName: 'Bash',
+        ...requestContext,
+      };
+      configureTeamsPermissionRequest(request);
+
+      const approval = channel.requestPermissionApproval(
+        'teams:19:abc@thread.v2',
+        request,
+      );
+      await vi.advanceTimersByTimeAsync(0);
+
+      const pending = [...(channel as any).pendingPermissionPrompts.values()][0];
+      expect(pending.timer).toBeDefined();
+      await vi.advanceTimersByTimeAsync(9_999);
+      expect((channel as any).pendingPermissionPrompts.size).toBe(1);
+      await vi.advanceTimersByTimeAsync(1);
+
+      await expect(approval).resolves.toMatchObject({
+        approved: false,
+        mode: 'cancel',
+        decidedBy: 'system',
+        reason: 'timed out',
+      });
+      expect((channel as any).pendingPermissionPrompts.size).toBe(0);
+      expect(sdkClient.updateAdaptiveCard).toHaveBeenCalledWith(
+        expect.objectContaining({
+          messageId: `teams-${lane}-finite-permission-card`,
+          card: expect.objectContaining({ actions: [] }),
+        }),
+      );
+      await channel.disconnect();
+    },
+  );
 
   it('settles a scheduled Teams permission at its finite deadline', async () => {
     vi.useFakeTimers();

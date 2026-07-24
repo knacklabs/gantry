@@ -121,7 +121,10 @@ export function evaluatePermissionDeterministicRails(
     return allow(request, 'Agent self-surface birthright.', 'birthright');
   }
   if (isInputGatedBirthrightTool) {
-    return ask('Displayed tool input is sanitized or redacted.', 'secret_path');
+    return hardFloorAsk(
+      'Displayed tool input is sanitized or redacted.',
+      'secret_path',
+    );
   }
   // Evaluate the 16K classifier view, not the 500-char display copy, so the
   // command we inspect matches the truncation signal inputIsIncomplete guards.
@@ -199,7 +202,7 @@ export function permissionRiskForDeterministicRailDecision(
     case 'destructive':
       return decision.hardFloor
         ? { level: 'high', category: 'destructive' }
-        : undefined;
+        : { level: 'medium', category: 'destructive' };
     case 'egress':
       return { level: 'medium', category: 'network' };
     case 'privileged':

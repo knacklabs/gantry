@@ -943,14 +943,14 @@ describe('ipc-interaction-handler', () => {
       expectedRiskCategory: 'destructive' as const,
     },
     {
-      label: 'without deriving a category from negated prose',
+      label: 'with the advisory destructive rail category despite negated prose',
       classifierDecision: {
         risk_level: 'high' as const,
         reason:
           'This non-destructive check is outside the trusted root and does not delete data.',
         latencyMs: 1,
       },
-      expectedRiskCategory: undefined,
+      expectedRiskCategory: 'destructive' as const,
     },
   ])(
     'routes an unattended mutation ASK rail through the classifier tail $label',

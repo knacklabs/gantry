@@ -15,6 +15,9 @@ async function resolveWithClassifierRisk(input: {
   riskLevel: PermissionRiskLevel;
   riskCategory: PermissionRiskCategory;
   classifierToolInput?: Record<string, unknown>;
+  toolInputSanitized?: boolean;
+  toolInputSanitizedPaths?: string[];
+  toolInputRedactedPaths?: string[];
   toolInputTruncatedPaths?: string[];
   decisionMemory?: PermissionDecisionMemoryRepository;
   unattended?: boolean;
@@ -39,6 +42,13 @@ async function resolveWithClassifierRisk(input: {
       toolInput: input.toolInput,
       ...(input.classifierToolInput
         ? { classifierToolInput: input.classifierToolInput }
+        : {}),
+      ...(input.toolInputSanitized ? { toolInputSanitized: true } : {}),
+      ...(input.toolInputSanitizedPaths
+        ? { toolInputSanitizedPaths: input.toolInputSanitizedPaths }
+        : {}),
+      ...(input.toolInputRedactedPaths
+        ? { toolInputRedactedPaths: input.toolInputRedactedPaths }
         : {}),
       ...(input.toolInputTruncatedPaths
         ? { toolInputTruncatedPaths: input.toolInputTruncatedPaths }
@@ -169,6 +179,24 @@ describe('IPC permission classifier decision', () => {
     });
   });
 
+  it('labels a classifier-allowed single-file delete as destructive without vetoing it', async () => {
+    const { decision, requestPermissionApproval } =
+      await resolveWithClassifierRisk({
+        toolName: 'RunCommand',
+        toolInput: { command: 'rm report.txt' },
+        riskLevel: 'low',
+        riskCategory: 'benign',
+      });
+
+    expect(requestPermissionApproval).not.toHaveBeenCalled();
+    expect(decision).toMatchObject({
+      approved: true,
+      decidedBy: 'auto_classifier',
+      risk_level: 'medium',
+      risk_category: 'destructive',
+    });
+  });
+
   it.each([
     ['recursive force-delete', 'rm -rf ./build'],
     ['ssh private key read', 'cat ~/.ssh/id_rsa'],
@@ -197,6 +225,53 @@ describe('IPC permission classifier decision', () => {
 
       expect(decision).toMatchObject({ approved: false, decidedBy: 'owner' });
       expect(requestPermissionApproval).toHaveBeenCalledOnce();
+      expect(getClassifierVerdict).not.toHaveBeenCalled();
+      expect(putClassifierVerdict).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    [
+      'send_message',
+      {
+        toolInput: { text: 'visible summary' },
+        classifierToolInput: { text: 'full message' },
+        toolInputSanitized: true,
+      },
+    ],
+    [
+      'memory_save',
+      {
+        toolInput: { content: '[REDACTED]' },
+        classifierToolInput: { content: 'full memory' },
+        toolInputSanitizedPaths: ['content'],
+      },
+    ],
+  ])(
+    'escalates concealed input-gated birthright %s despite a classifier allow and does not cache it',
+    async (toolName, concealedInput) => {
+      const getClassifierVerdict = vi.fn(async () => null);
+      const putClassifierVerdict = vi.fn(async () => undefined);
+
+      const { decision, requestPermissionApproval } =
+        await resolveWithClassifierRisk({
+          toolName: `mcp__gantry__${toolName}`,
+          ...concealedInput,
+          riskLevel: 'low',
+          riskCategory: 'benign',
+          decisionMemory: {
+            getClassifierVerdict,
+            putClassifierVerdict,
+          } as never,
+        });
+
+      expect(requestPermissionApproval).toHaveBeenCalledOnce();
+      expect(decision).toMatchObject({
+        approved: false,
+        decidedBy: 'owner',
+        risk_level: 'high',
+        risk_category: 'secret',
+      });
       expect(getClassifierVerdict).not.toHaveBeenCalled();
       expect(putClassifierVerdict).not.toHaveBeenCalled();
     },

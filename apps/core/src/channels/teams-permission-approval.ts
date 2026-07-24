@@ -8,6 +8,10 @@ import type {
 } from '../domain/types.js';
 import { logger } from '../infrastructure/logging/logger.js';
 import { incrementOperationalError } from '../shared/operational-error-counters.js';
+import {
+  getPermissionTimeoutMs,
+  NO_PERMISSION_TIMEOUT_MS,
+} from '../shared/permission-timeout.js';
 import { buildTeamsApprovalAdaptiveCard } from './teams-cards.js';
 import { permissionDecisionOptions } from './permission-interaction.js';
 import { bindTeamsPermissionPromptMessage } from './teams-prompt-binding.js';
@@ -19,9 +23,15 @@ import {
 
 export function teamsInteractionSettlementDelayMs(
   request: object,
+  fallbackTimeoutMs?: number,
 ): number | undefined {
   const { expiresAt } = request as { expiresAt?: unknown };
-  if (expiresAt === undefined) return undefined;
+  if (expiresAt === undefined) {
+    return fallbackTimeoutMs !== undefined &&
+      fallbackTimeoutMs > NO_PERMISSION_TIMEOUT_MS
+      ? fallbackTimeoutMs
+      : undefined;
+  }
   const expiresAtMs =
     typeof expiresAt === 'string' ? Date.parse(expiresAt) : Number.NaN;
   return Number.isFinite(expiresAtMs)
@@ -136,7 +146,10 @@ export async function requestTeamsPermissionApproval(input: {
       ...(input.request.threadId ? { threadId: input.request.threadId } : {}),
     });
     const messageId = sent.externalMessageId;
-    settlementDelayMs = teamsInteractionSettlementDelayMs(input.request);
+    settlementDelayMs = teamsInteractionSettlementDelayMs(
+      input.request,
+      getPermissionTimeoutMs(input.request.jobId ? 'autonomous' : 'interactive'),
+    );
     const decision = new Promise<PermissionApprovalDecision>((resolve) => {
       let timer!: ReturnType<typeof setTimeout>;
       if (settlementDelayMs !== undefined) {

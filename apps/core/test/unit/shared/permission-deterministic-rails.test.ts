@@ -312,7 +312,10 @@ describe('permission deterministic rails', () => {
     expect(decision).not.toHaveProperty('hardFloor');
     expect(
       permissionRiskForDeterministicRailDecision(decision),
-    ).toBeUndefined();
+    ).toEqual({
+      level: 'medium',
+      category: 'destructive',
+    });
   });
 
   it('asks when curl uploads a local file', () => {
@@ -654,7 +657,7 @@ describe('permission deterministic rails', () => {
         classifierToolInput: { payload: 'secret' },
         toolInputSanitized: true,
       },
-      false,
+      true,
     ],
     [
       'sanitized paths',
@@ -663,7 +666,7 @@ describe('permission deterministic rails', () => {
         classifierToolInput: { payload: 'secret' },
         toolInputSanitizedPaths: ['payload'],
       },
-      false,
+      true,
     ],
     [
       'redacted paths',
