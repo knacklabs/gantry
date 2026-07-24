@@ -923,7 +923,7 @@ describe('Claude Agent SDK boundary integration', () => {
     expect(systemPromptText).not.toContain('prior user preference');
   });
 
-  it('keeps require_prior enforcement conditional while always registering the provenance PostToolUse hook', async () => {
+  it('keeps require_prior conditional while registering provenance for successful and failed tools', async () => {
     const env = prepareRuntimeEnv();
     const { runQuery } = await importRunQuery();
 
@@ -1008,6 +1008,9 @@ describe('Claude Agent SDK boundary integration', () => {
     });
 
     const postToolUse = guardedCall?.options.hooks.PostToolUse[0].hooks[0];
+    const postToolUseFailure =
+      guardedCall?.options.hooks.PostToolUseFailure[0].hooks[0];
+    expect(postToolUseFailure).toBe(postToolUse);
     await postToolUse({
       hook_event_name: 'PostToolUse',
       tool_name: 'mcp__gantry__delegate_task',
@@ -1034,11 +1037,26 @@ describe('Claude Agent SDK boundary integration', () => {
     const ordinaryPostToolUseHooks =
       ordinaryCall?.options.hooks.PostToolUse[0].hooks;
     expect(ordinaryPostToolUseHooks).toHaveLength(1);
+    const ordinaryPostToolUseFailureHooks =
+      ordinaryCall?.options.hooks.PostToolUseFailure[0].hooks;
+    expect(ordinaryPostToolUseFailureHooks).toHaveLength(1);
+    expect(ordinaryPostToolUseFailureHooks[0]).toBe(
+      ordinaryPostToolUseHooks[0],
+    );
     await expect(
       ordinaryPostToolUseHooks[0]({
         hook_event_name: 'PostToolUse',
         tool_name: 'Read',
         tool_use_id: 'ordinary-tool-use',
+      }),
+    ).resolves.toEqual({ continue: true });
+    await expect(
+      ordinaryPostToolUseFailureHooks[0]({
+        hook_event_name: 'PostToolUseFailure',
+        tool_name: 'Read',
+        tool_use_id: 'ordinary-tool-use-failed',
+        tool_input: {},
+        error: 'read failed',
       }),
     ).resolves.toEqual({ continue: true });
   });

@@ -9,8 +9,7 @@ import type {
   UserQuestionResponse,
 } from '../domain/types.js';
 import { questionComponents } from './discord-components.js';
-
-const DISCORD_INTERACTION_TIMEOUT_MS = 10 * 60 * 1000;
+import { resolveInteractionSettlementDelayMs } from './interaction-settlement.js';
 
 export interface PendingDiscordQuestion {
   callbacks: DurableQuestionCallback[];
@@ -18,7 +17,7 @@ export interface PendingDiscordQuestion {
   answers: Record<string, string | string[]>;
   finalizedQuestions: Set<number>;
   resolve: (response: UserQuestionResponse) => void;
-  timeout: ReturnType<typeof setTimeout>;
+  timeout?: ReturnType<typeof setTimeout>;
 }
 
 export function dropPendingDiscordQuestions(
@@ -65,6 +64,7 @@ export async function requestDiscordUserAnswer(input: {
     text: string,
     options: { threadId?: string; components?: unknown[] },
   ) => Promise<MessageDeliveryResult>;
+  timeoutMs: number;
   onPromptDelivered?: (messageId: string, questionIndex?: number) => void;
 }): Promise<UserQuestionResponse> {
   const { request } = input;
@@ -79,60 +79,12 @@ export async function requestDiscordUserAnswer(input: {
   });
   const callbacks: DurableQuestionCallback[] = [];
   const deliveredQuestionIndexes = new Set<number>();
-  const timeout = setTimeout(() => {
-    void (async () => {
-      const remainingQuestionIndexes = [...deliveredQuestionIndexes].filter(
-        (questionIndex) => !pending.finalizedQuestions.has(questionIndex),
-      );
-      const timeoutAnswers = Object.fromEntries(
-        remainingQuestionIndexes.map((questionIndex) => {
-          const question = request.questions[questionIndex]!;
-          return [
-            question.question,
-            question.multiSelect ? ([] as string[]) : '',
-          ];
-        }),
-      );
-      if (remainingQuestionIndexes.length > 0) {
-        const recorded = await recordDurableQuestionAnswerProgress({
-          requestId: request.requestId,
-          appId: request.appId,
-          sourceAgentFolder: request.sourceAgentFolder,
-          answers: timeoutAnswers,
-          completedQuestionIndexes: remainingQuestionIndexes,
-        });
-        if (!recorded) {
-          throw new DurableInteractionPersistenceError(
-            'Discord user question timeout was not persisted',
-          );
-        }
-      }
-      for (const callback of callbacks) {
-        input.pendingQuestions.delete(callback.providerAlias);
-      }
-      resolveResponse({
-        requestId: request.requestId,
-        answers: { ...pending.answers, ...timeoutAnswers },
-      });
-    })().catch((err) => {
-      rejectResponse(
-        err instanceof DurableInteractionPersistenceError
-          ? err
-          : new DurableInteractionPersistenceError(
-              'Discord user question timeout could not be persisted',
-              err,
-            ),
-      );
-    });
-  }, DISCORD_INTERACTION_TIMEOUT_MS);
-  timeout.unref?.();
   const pending: PendingDiscordQuestion = {
     callbacks,
     request,
     answers: {},
     finalizedQuestions: new Set<number>(),
     resolve: resolveResponse,
-    timeout,
   };
   try {
     for (
@@ -172,8 +124,66 @@ export async function requestDiscordUserAnswer(input: {
         input.onPromptDelivered?.(sent.externalMessageId, questionIndex);
       }
     }
+    const { expiresAt, permissionLane } = request as UserQuestionRequest & {
+      expiresAt?: unknown;
+      permissionLane?: 'interactive' | 'autonomous';
+    };
+    const settlementDelayMs = resolveInteractionSettlementDelayMs({
+      expiresAt,
+      permissionLane,
+      fallbackTimeoutMs: input.timeoutMs,
+    });
+    if (settlementDelayMs !== undefined) {
+      pending.timeout = setTimeout(() => {
+        void (async () => {
+          const remainingQuestionIndexes = [...deliveredQuestionIndexes].filter(
+            (questionIndex) => !pending.finalizedQuestions.has(questionIndex),
+          );
+          const timeoutAnswers = Object.fromEntries(
+            remainingQuestionIndexes.map((questionIndex) => {
+              const question = request.questions[questionIndex]!;
+              return [
+                question.question,
+                question.multiSelect ? ([] as string[]) : '',
+              ];
+            }),
+          );
+          if (remainingQuestionIndexes.length > 0) {
+            const recorded = await recordDurableQuestionAnswerProgress({
+              requestId: request.requestId,
+              appId: request.appId,
+              sourceAgentFolder: request.sourceAgentFolder,
+              answers: timeoutAnswers,
+              completedQuestionIndexes: remainingQuestionIndexes,
+            });
+            if (!recorded) {
+              throw new DurableInteractionPersistenceError(
+                'Discord user question timeout was not persisted',
+              );
+            }
+          }
+          for (const callback of callbacks) {
+            input.pendingQuestions.delete(callback.providerAlias);
+          }
+          resolveResponse({
+            requestId: request.requestId,
+            answers: { ...pending.answers, ...timeoutAnswers },
+          });
+        })().catch((err) => {
+          rejectResponse(
+            err instanceof DurableInteractionPersistenceError
+              ? err
+              : new DurableInteractionPersistenceError(
+                  'Discord user question timeout could not be persisted',
+                  err,
+                ),
+          );
+        });
+      }, settlementDelayMs);
+      pending.timeout.unref?.();
+    }
   } catch (err) {
-    clearTimeout(timeout);
+    clearTimeout(pending.timeout);
     for (const callback of callbacks) {
       input.pendingQuestions.delete(callback.providerAlias);
     }

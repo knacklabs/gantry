@@ -5,10 +5,7 @@ import type {
 } from '../../domain/types.js';
 import { logger } from '../../infrastructure/logging/logger.js';
 import { incrementOperationalError } from '../../shared/operational-error-counters.js';
-import {
-  getPermissionTimeoutMs,
-  NO_PERMISSION_TIMEOUT_MS,
-} from '../../shared/permission-timeout.js';
+import { resolveInteractionSettlementDelayMs } from '../interaction-settlement.js';
 import {
   buildPermissionPromptParts,
   formatPermissionPromptPartsText,
@@ -48,24 +45,6 @@ export function slackPermissionApproverIds(
   } catch {
     return [];
   }
-}
-
-function slackPermissionSettlementDelayMs(
-  request: object,
-  fallbackTimeoutMs?: number,
-): number | undefined {
-  const { expiresAt } = request as { expiresAt?: unknown };
-  if (expiresAt === undefined) {
-    return fallbackTimeoutMs !== undefined &&
-      fallbackTimeoutMs > NO_PERMISSION_TIMEOUT_MS
-      ? fallbackTimeoutMs
-      : undefined;
-  }
-  const expiresAtMs =
-    typeof expiresAt === 'string' ? Date.parse(expiresAt) : Number.NaN;
-  return Number.isFinite(expiresAtMs)
-    ? Math.max(0, expiresAtMs - Date.now())
-    : 0;
 }
 
 export async function requestSlackPermissionApproval(input: {
@@ -236,12 +215,14 @@ export async function requestSlackPermissionApproval(input: {
     const decision = new Promise<PermissionApprovalDecision>((resolve) => {
       resolveDecision = resolve;
     });
-    const settlementDelayMs = slackPermissionSettlementDelayMs(
-      input.request,
-      input.request.permissionLane
-        ? getPermissionTimeoutMs(input.request.permissionLane)
-        : undefined,
-    );
+    const { expiresAt } = input.request as PermissionApprovalRequest & {
+      expiresAt?: unknown;
+    };
+    const settlementDelayMs = resolveInteractionSettlementDelayMs({
+      expiresAt,
+      permissionLane: input.request.permissionLane,
+      fallbackTimeoutMs: input.timeoutMs,
+    });
     const timer =
       settlementDelayMs !== undefined
         ? setTimeout(() => {

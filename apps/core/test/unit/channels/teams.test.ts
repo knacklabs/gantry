@@ -3110,7 +3110,7 @@ describe('TeamsChannel adapter scaffold', () => {
 
   it('settles and cleans up an autonomous Teams question without a job id at its finite deadline', async () => {
     vi.useFakeTimers();
-    vi.setSystemTime(new Date('2026-07-17T00:00:00.000Z'));
+    vi.stubEnv('GANTRY_AUTONOMOUS_PERMISSION_TIMEOUT_MS', '60000');
     const lifecycleEvents: string[] = [];
     const sdkClient: TeamsSdkClient = {
       start: vi.fn(async () => {}),
@@ -3121,11 +3121,13 @@ describe('TeamsChannel adapter scaffold', () => {
       })),
       updateAdaptiveCard: vi.fn(async () => ({})),
     };
-    const request: UserQuestionRequest & { expiresAt: string } = {
+    const request: UserQuestionRequest & {
+      permissionLane: 'autonomous';
+    } = {
       requestId: 'q-teams-autonomous-timeout',
       sourceAgentFolder: 'teams_engineering',
       targetJid: 'teams:19:abc@thread.v2',
-      expiresAt: '2026-07-17T00:01:00.000Z',
+      permissionLane: 'autonomous',
       questions: [
         {
           question: 'Continue?',

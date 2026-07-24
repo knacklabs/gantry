@@ -2490,8 +2490,52 @@ describe('DiscordChannel', () => {
     expect((channel as any).interactions.pendingPermissions.size).toBe(0);
   });
 
+  it('does not schedule an interactive sentinel Discord question timer', async () => {
+    vi.useFakeTimers();
+    vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(
+        jsonResponse({ url: 'wss://gateway.discord.test' }),
+      )
+      .mockImplementation(async () => jsonResponse({ id: 'message-1' }));
+    const channel = new DiscordChannel(
+      'bot-token',
+      'app-id',
+      opts(),
+      (url) => new FakeWebSocket(url),
+    );
+
+    await channel.connect();
+    const answer = channel.requestUserAnswer('dc:channel-1', {
+      requestId: 'question-interactive-no-timeout',
+      sourceAgentFolder: 'main_agent',
+      questions: [
+        {
+          question: 'Continue?',
+          header: 'Continue',
+          options: [{ label: 'Yes', description: 'Proceed' }],
+          multiSelect: false,
+        },
+      ],
+    });
+    await vi.advanceTimersByTimeAsync(0);
+
+    const pending = [
+      ...(channel as any).interactions.pendingQuestions.values(),
+    ][0];
+    expect(pending.timeout).toBeUndefined();
+    await vi.advanceTimersByTimeAsync(24 * 60 * 60_000);
+    expect((channel as any).interactions.pendingQuestions.size).toBe(1);
+
+    await channel.disconnect();
+    await expect(answer).resolves.toEqual({
+      requestId: 'question-interactive-no-timeout',
+      answers: {},
+    });
+  });
+
   it('preserves earlier Discord answers when a later question times out', async () => {
     vi.useFakeTimers();
+    vi.stubEnv('GANTRY_AUTONOMOUS_PERMISSION_TIMEOUT_MS', '600000');
     vi.spyOn(globalThis, 'fetch')
       .mockResolvedValueOnce(
         jsonResponse({ url: 'wss://gateway.discord.test' }),
@@ -2508,6 +2552,7 @@ describe('DiscordChannel', () => {
     const answer = channel.requestUserAnswer('dc:channel-1', {
       requestId: 'question-unrelated-timeout',
       sourceAgentFolder: 'main_agent',
+      permissionLane: 'autonomous',
       questions: [
         {
           question: 'First?',
@@ -2522,6 +2567,8 @@ describe('DiscordChannel', () => {
           multiSelect: false,
         },
       ],
+    } as import('@core/domain/types.js').UserQuestionRequest & {
+      permissionLane: 'autonomous';
     });
     let settled = false;
     void answer.then(() => {
@@ -2562,6 +2609,7 @@ describe('DiscordChannel', () => {
 
   it('rejects a Discord timeout when completion cannot be persisted', async () => {
     vi.useFakeTimers();
+    vi.stubEnv('GANTRY_AUTONOMOUS_PERMISSION_TIMEOUT_MS', '600000');
     vi.spyOn(globalThis, 'fetch')
       .mockResolvedValueOnce(
         jsonResponse({ url: 'wss://gateway.discord.test' }),
@@ -2581,6 +2629,7 @@ describe('DiscordChannel', () => {
     const answer = channel.requestUserAnswer('dc:channel-1', {
       requestId: 'question-timeout-persistence-failure',
       sourceAgentFolder: 'main_agent',
+      permissionLane: 'autonomous',
       questions: [
         {
           question: 'Continue?',
@@ -2588,6 +2637,8 @@ describe('DiscordChannel', () => {
           options: [{ label: 'Yes', description: 'Continue' }],
         },
       ],
+    } as import('@core/domain/types.js').UserQuestionRequest & {
+      permissionLane: 'autonomous';
     });
     const rejection = answer.catch((err) => err);
     await vi.advanceTimersByTimeAsync(0);

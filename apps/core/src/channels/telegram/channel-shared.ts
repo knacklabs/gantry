@@ -3,9 +3,9 @@ import type { StreamFlavor } from '@grammyjs/stream';
 import { streamApi } from '@grammyjs/stream';
 
 import { PERMISSION_APPROVAL_TIMEOUT_MS } from '../../config/index.js';
-import { NO_PERMISSION_TIMEOUT_MS } from '../../shared/permission-timeout.js';
 import { logger } from '../../infrastructure/logging/logger.js';
 import type { ChannelOpts } from '../channel-provider.js';
+import { resolveInteractionSettlementDelayMs } from '../interaction-settlement.js';
 import { parseTextStyles } from '../../messaging/text-styles.js';
 import { splitTelegramDeliveryTextWithLimits } from './channel-delivery-text-splitting.js';
 import { escapeTelegramMarkdownV2 } from './telegram-markdown-v2-escape.js';
@@ -137,8 +137,18 @@ export function createPendingTelegramUserQuestion(input: {
   ) => Promise<void>;
 }): Promise<{ selected: string | string[]; answeredBy?: string }> {
   return new Promise((resolve) => {
+    const { expiresAt, permissionLane } =
+      input.request as UserQuestionRequest & {
+        expiresAt?: unknown;
+        permissionLane?: 'interactive' | 'autonomous';
+      };
+    const settlementDelayMs = resolveInteractionSettlementDelayMs({
+      expiresAt,
+      permissionLane,
+      fallbackTimeoutMs: input.timeoutMs,
+    });
     const timer =
-      input.timeoutMs > NO_PERMISSION_TIMEOUT_MS
+      settlementDelayMs !== undefined
         ? setTimeout(() => {
             const timedOut = input.pendingQuestions.get(input.pendingKey);
             if (!timedOut) return;
@@ -149,7 +159,7 @@ export function createPendingTelegramUserQuestion(input: {
               'system',
               'timed out',
             );
-          }, input.timeoutMs)
+          }, settlementDelayMs)
         : undefined;
     input.pendingQuestions.set(input.pendingKey, {
       callbackId: input.callbackId,

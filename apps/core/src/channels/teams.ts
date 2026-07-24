@@ -28,10 +28,9 @@ import {
   sendTeamsTextOrActionMessage,
   type TeamsProgressMessages,
 } from './teams-progress.js';
-import {
-  requestTeamsPermissionApproval,
-  teamsInteractionSettlementDelayMs,
-} from './teams-permission-approval.js';
+import { requestTeamsPermissionApproval } from './teams-permission-approval.js';
+import { PERMISSION_APPROVAL_TIMEOUT_MS } from '../shared/permission-timeout.js';
+import { resolveInteractionSettlementDelayMs } from './interaction-settlement.js';
 import { renderTeamsAgentTodo, type TeamsTodoMessages } from './teams-todos.js';
 import {
   isTeamsJid,
@@ -451,6 +450,7 @@ export class TeamsChannel implements ChannelAdapter {
       connected: this.connected,
       jid,
       request,
+      timeoutMs: PERMISSION_APPROVAL_TIMEOUT_MS,
       onPromptDelivered,
       sdkClient: this.sdkClient,
       pendingPermissionPrompts: this.pendingPermissionPrompts,
@@ -500,8 +500,16 @@ export class TeamsChannel implements ChannelAdapter {
         ...(request.threadId ? { threadId: request.threadId } : {}),
       });
       const response = new Promise<UserQuestionResponse>((resolve, reject) => {
-        const settlementDelayMs =
-          teamsInteractionSettlementDelayMs(questionRequest);
+        const { expiresAt, permissionLane } =
+          questionRequest as UserQuestionRequest & {
+            expiresAt?: unknown;
+            permissionLane?: 'interactive' | 'autonomous';
+          };
+        const settlementDelayMs = resolveInteractionSettlementDelayMs({
+          expiresAt,
+          permissionLane,
+          fallbackTimeoutMs: PERMISSION_APPROVAL_TIMEOUT_MS,
+        });
         let timer!: ReturnType<typeof setTimeout>;
         if (settlementDelayMs !== undefined) {
           timer = setTimeout(() => {

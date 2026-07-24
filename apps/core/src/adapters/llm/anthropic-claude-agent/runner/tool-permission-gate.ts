@@ -70,7 +70,10 @@ interface CreateCanUseToolCallbackInput {
 export function createPermissionApprovalContextChannel() {
   const pending = new Map<string, string>();
   const postToolUse: HookCallback = async (hookInput, toolUseID) => {
-    if (hookInput.hook_event_name !== 'PostToolUse') {
+    if (
+      hookInput.hook_event_name !== 'PostToolUse' &&
+      hookInput.hook_event_name !== 'PostToolUseFailure'
+    ) {
       return { continue: true };
     }
     const key = hookInput.tool_use_id || toolUseID;
@@ -80,7 +83,7 @@ export function createPermissionApprovalContextChannel() {
       ? {
           continue: true,
           hookSpecificOutput: {
-            hookEventName: 'PostToolUse',
+            hookEventName: hookInput.hook_event_name,
             additionalContext,
           },
         }

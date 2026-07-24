@@ -201,4 +201,35 @@ describe('Claude query loop permission approval context', () => {
       }),
     ).resolves.toEqual({ continue: true });
   });
+
+  it('surfaces and consumes approval context when an allowed tool fails', async () => {
+    const channel = createPermissionApprovalContextChannel();
+    const provenance = 'Permission allowed (decided by: owner)';
+    channel.record('tool-use-failed', provenance);
+    const hookInput = {
+      hook_event_name: 'PostToolUseFailure',
+      tool_name: 'Bash',
+      tool_input: { command: 'npm test' },
+      tool_use_id: 'tool-use-failed',
+      error: 'command failed',
+    } as const;
+
+    await expect(
+      channel.postToolUse(hookInput as never, 'tool-use-failed', {
+        signal: new AbortController().signal,
+      }),
+    ).resolves.toEqual({
+      continue: true,
+      hookSpecificOutput: {
+        hookEventName: 'PostToolUseFailure',
+        additionalContext: provenance,
+      },
+    });
+
+    await expect(
+      channel.postToolUse(hookInput as never, 'tool-use-failed', {
+        signal: new AbortController().signal,
+      }),
+    ).resolves.toEqual({ continue: true });
+  });
 });

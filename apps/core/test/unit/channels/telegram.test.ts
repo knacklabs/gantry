@@ -6065,6 +6065,61 @@ describe('TelegramChannel', () => {
       }
     });
 
+    it('does not schedule an interactive sentinel permission timer', async () => {
+      vi.useFakeTimers();
+      vi.stubEnv('GANTRY_INTERACTIVE_PERMISSION_TIMEOUT_MS', '0');
+      const channel = new TelegramChannel('test-token', createTestOpts());
+      await channel.connect();
+
+      const approval = channel.requestPermissionApproval('tg:100200300', {
+        requestId: 'perm-interactive-no-timeout',
+        sourceAgentFolder: 'whatsapp_main',
+        toolName: 'Edit',
+        permissionLane: 'interactive',
+      });
+      await vi.advanceTimersByTimeAsync(0);
+
+      const prompts = (channel as any).pendingPermissionPrompts as Map<
+        string,
+        any
+      >;
+      const pending = [...prompts.values()][0];
+      expect(pending.timer).toBeUndefined();
+      await vi.advanceTimersByTimeAsync(24 * 60 * 60_000);
+      expect(prompts.size).toBe(1);
+
+      prompts.clear();
+      pending.resolve({ approved: false, mode: 'cancel', decidedBy: 'system' });
+      await approval;
+      await channel.disconnect();
+    });
+
+    it('uses the supplied finite timeout for a lane-less permission', async () => {
+      vi.useFakeTimers();
+      const channel = new TelegramChannel('test-token', createTestOpts());
+      await channel.connect();
+
+      const approval = channel.requestPermissionApproval('tg:100200300', {
+        requestId: 'perm-lane-less-fallback',
+        sourceAgentFolder: 'whatsapp_main',
+        toolName: 'Edit',
+      });
+      await vi.advanceTimersByTimeAsync(0);
+
+      const prompts = (channel as any).pendingPermissionPrompts as Map<
+        string,
+        any
+      >;
+      const pending = [...prompts.values()][0];
+      expect(pending.timer).toBeDefined();
+
+      clearTimeout(pending.timer);
+      prompts.clear();
+      pending.resolve({ approved: false, mode: 'cancel', decidedBy: 'system' });
+      await approval;
+      await channel.disconnect();
+    });
+
     it('resolves the Telegram waiter after retryable timeout claims exhaust bounded retries', async () => {
       vi.useFakeTimers();
       vi.stubEnv('GANTRY_AUTONOMOUS_PERMISSION_TIMEOUT_MS', '300000');

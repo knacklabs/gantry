@@ -330,6 +330,20 @@ export async function runQuery(
       `(reason=${toolSearchDecision.reason} tools=${toolSearchDecision.availableToolCount} ` +
       `mcpServers=${toolSearchDecision.mcpServerCount} bytes=${toolSearchDecision.serializedToolConfigBytes})`,
   );
+  const postToolUseHook = async (
+    hookInput: HookInput,
+    toolUseID: string | undefined,
+    hookOptions: { signal: AbortSignal },
+  ) => {
+    if (hookInput.hook_event_name === 'PostToolUse' && toolSuccessLedger) {
+      recordSuccessfulToolUse(hookInput, toolSuccessLedger);
+    }
+    return permissionApprovalContext.postToolUse(
+      hookInput,
+      toolUseID,
+      hookOptions,
+    );
+  };
   const sdkQuery = query({
     prompt: stream,
     options: {
@@ -382,25 +396,12 @@ export async function runQuery(
         ],
         PostToolUse: [
           {
-            hooks: [
-              async (
-                hookInput: HookInput,
-                toolUseID: string | undefined,
-                hookOptions: { signal: AbortSignal },
-              ) => {
-                if (
-                  hookInput.hook_event_name === 'PostToolUse' &&
-                  toolSuccessLedger
-                ) {
-                  recordSuccessfulToolUse(hookInput, toolSuccessLedger);
-                }
-                return permissionApprovalContext.postToolUse(
-                  hookInput,
-                  toolUseID,
-                  hookOptions,
-                );
-              },
-            ],
+            hooks: [postToolUseHook],
+          },
+        ],
+        PostToolUseFailure: [
+          {
+            hooks: [postToolUseHook],
           },
         ],
       },

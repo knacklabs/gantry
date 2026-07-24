@@ -15,11 +15,8 @@ import {
   releasePermissionInteractionCallback,
   resolveDurableQuestionInteractionByRequestId,
 } from '../application/interactions/pending-interaction-durability.js';
-import {
-  getPermissionTimeoutMs,
-  NO_PERMISSION_TIMEOUT_MS,
-  PERMISSION_APPROVAL_TIMEOUT_MS,
-} from '../shared/permission-timeout.js';
+import { PERMISSION_APPROVAL_TIMEOUT_MS } from '../shared/permission-timeout.js';
+import { resolveInteractionSettlementDelayMs } from './interaction-settlement.js';
 import {
   buildPermissionPromptParts,
   decisionForMode,
@@ -78,19 +75,6 @@ type DiscordConversationContext = {
   threadId?: string;
 };
 type PendingPermission = ReturnType<typeof permissionPrompt.pending>;
-function permissionDelayMs(request: object, fallbackTimeoutMs?: number) {
-  const expiresAt = (request as { expiresAt?: unknown }).expiresAt;
-  if (expiresAt !== undefined) {
-    const expiresAtMs =
-      typeof expiresAt === 'string' ? Date.parse(expiresAt) : Number.NaN;
-    return Number.isFinite(expiresAtMs)
-      ? Math.max(0, expiresAtMs - Date.now())
-      : 0;
-  }
-  if (fallbackTimeoutMs && fallbackTimeoutMs > NO_PERMISSION_TIMEOUT_MS)
-    return fallbackTimeoutMs;
-  return undefined;
-}
 export class DiscordInteractionHandler {
   private pendingPermissions = new Map<string, PendingPermission>();
   private pendingQuestions = new Map<string, PendingDiscordQuestion>();
@@ -202,10 +186,14 @@ export class DiscordInteractionHandler {
     const decision = new Promise<PermissionApprovalDecision>((resolve) => {
       resolveDecision = resolve;
     });
-    const laneTimeoutMs = request.permissionLane
-      ? getPermissionTimeoutMs(request.permissionLane)
-      : undefined;
-    const settlementDelayMs = permissionDelayMs(request, laneTimeoutMs);
+    const { expiresAt } = request as PermissionApprovalRequest & {
+      expiresAt?: unknown;
+    };
+    const settlementDelayMs = resolveInteractionSettlementDelayMs({
+      expiresAt,
+      permissionLane: request.permissionLane,
+      fallbackTimeoutMs: PERMISSION_APPROVAL_TIMEOUT_MS,
+    });
     let timeout!: ReturnType<typeof setTimeout>;
     if (settlementDelayMs !== undefined) {
       timeout = setTimeout(() => {
@@ -273,6 +261,7 @@ export class DiscordInteractionHandler {
       pendingQuestions: this.pendingQuestions,
       sendPrompt: (targetJid, text, options) =>
         this.sendDiscordPrompt(targetJid, text, options),
+      timeoutMs: PERMISSION_APPROVAL_TIMEOUT_MS,
       onPromptDelivered,
     });
   }
