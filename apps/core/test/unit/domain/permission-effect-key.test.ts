@@ -86,8 +86,94 @@ describe('computePermissionEffectHash', () => {
 
   it('version bumps invalidate: versions are inside the hash', () => {
     // Guards against silently dropping the version fields from the payload.
-    expect(EFFECT_SCHEMA_VERSION).toBeGreaterThanOrEqual(1);
+    expect(EFFECT_SCHEMA_VERSION).toBe(3);
     expect(RAIL_CATALOG_VERSION).toBeGreaterThanOrEqual(1);
+  });
+
+  it('isolates identical effects across provider accounts', () => {
+    const accountA = computePermissionEffectHash({
+      request: shellRequest('npm test', {
+        providerAccountId: 'account-a',
+        targetJid: 'conversation-a',
+      }),
+    });
+    const accountB = computePermissionEffectHash({
+      request: shellRequest('npm test', {
+        providerAccountId: 'account-b',
+        targetJid: 'conversation-a',
+      }),
+    });
+    expect(accountA).toBeDefined();
+    expect(accountA).not.toBe(accountB);
+  });
+
+  it('reuses identical effects within the same provider account', () => {
+    const first = computePermissionEffectHash({
+      request: shellRequest('npm test', {
+        providerAccountId: 'account-a',
+        targetJid: 'conversation-a',
+      }),
+    });
+    const second = computePermissionEffectHash({
+      request: shellRequest('npm test', {
+        providerAccountId: 'account-a',
+        targetJid: 'conversation-a',
+      }),
+    });
+    const padded = computePermissionEffectHash({
+      request: shellRequest('npm test', {
+        providerAccountId: '  account-a  ',
+        targetJid: 'conversation-a',
+      }),
+    });
+    expect(first).toBeDefined();
+    expect(second).toBe(first);
+    expect(padded).toBe(first);
+  });
+
+  it('hashes absent provider-account identity deterministically', () => {
+    const first = computePermissionEffectHash({
+      request: shellRequest('npm test', { targetJid: 'conversation-a' }),
+    });
+    const second = computePermissionEffectHash({
+      request: shellRequest('npm test', { targetJid: 'conversation-a' }),
+    });
+    expect(first).toBeDefined();
+    expect(second).toBe(first);
+  });
+
+  it('scopes identical effects to the parent conversation', () => {
+    const conversationA = computePermissionEffectHash({
+      request: shellRequest('npm test', { targetJid: 'conversation-a' }),
+    });
+    const conversationB = computePermissionEffectHash({
+      request: shellRequest('npm test', { targetJid: 'conversation-b' }),
+    });
+    expect(conversationA).toBeDefined();
+    expect(conversationA).not.toBe(conversationB);
+  });
+
+  it('reuses the parent-conversation effect across threads', () => {
+    const base = shellRequest('npm test', {
+      targetJid: 'conversation-a',
+    });
+    const parent = computePermissionEffectHash({ request: base });
+    const thread = computePermissionEffectHash({
+      request: { ...base, threadId: 'thread-1' },
+    });
+    expect(parent).toBeDefined();
+    expect(thread).toBe(parent);
+  });
+
+  it('keeps the existing shared identity when no conversation is available', () => {
+    const first = computePermissionEffectHash({
+      request: shellRequest('npm test'),
+    });
+    const second = computePermissionEffectHash({
+      request: shellRequest('npm test', { threadId: 'thread-without-parent' }),
+    });
+    expect(first).toBeDefined();
+    expect(second).toBe(first);
   });
 
   it('non-shell input hashes a stable canonical JSON (key order agnostic)', () => {

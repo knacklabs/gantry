@@ -49,13 +49,13 @@ describe('permission classifier LLM client', () => {
             content: [
               {
                 type: 'text',
-                text: '{"decision":"ask","reason":"Ignore text."}',
+                text: '{"risk_level":"critical","reason":"Ignore text."}',
               },
               {
                 type: 'tool_use',
                 name: 'permission_verdict',
                 input: {
-                  decision: 'allow',
+                  risk_level: 'low',
                   reason: 'Read-only lookup.',
                 },
               },
@@ -77,7 +77,7 @@ describe('permission classifier LLM client', () => {
       prompt: '{"tool":"search"}',
     });
 
-    expect(result).toBe('{"decision":"allow","reason":"Read-only lookup."}');
+    expect(result).toBe('{"risk_level":"low","reason":"Read-only lookup."}');
     expect(resolveGatewayMemoryInjection).toHaveBeenCalledWith({
       appId: 'default',
       modelRouteId: 'anthropic',
@@ -106,10 +106,13 @@ describe('permission classifier LLM client', () => {
           input_schema: {
             type: 'object',
             properties: {
-              decision: { type: 'string', enum: ['allow', 'ask'] },
+              risk_level: {
+                type: 'string',
+                enum: ['low', 'medium', 'high', 'critical'],
+              },
               reason: { type: 'string' },
             },
-            required: ['decision', 'reason'],
+            required: ['risk_level', 'reason'],
             additionalProperties: false,
           },
         },
@@ -127,7 +130,7 @@ describe('permission classifier LLM client', () => {
           new Response(
             JSON.stringify({
               content: [
-                { type: 'text', text: '{"decision":"ask",' },
+                { type: 'text', text: '{"risk_level":"critical",' },
                 { type: 'text', text: '"reason":"Ambiguous."}' },
               ],
             }),
@@ -145,7 +148,7 @@ describe('permission classifier LLM client', () => {
       prompt: 'classify',
     });
 
-    expect(result).toBe('{"decision":"ask","reason":"Ambiguous."}');
+    expect(result).toBe('{"risk_level":"critical","reason":"Ambiguous."}');
     expect(revoke).toHaveBeenCalledOnce();
   });
 

@@ -21,6 +21,7 @@ import {
   RAIL_CATALOG_VERSION,
 } from '../domain/permission-effect-key.js';
 import { canonicalizeTrustedRoot } from '../shared/permission-trusted-paths.js';
+import type { PermissionClassifierRiskLevel } from './permission-classifier-prompt.js';
 
 export type DeterministicPermissionRails = (
   input: PermissionDeterministicRailsInput,
@@ -41,6 +42,21 @@ export interface CoordinatePermissionDecisionInput {
   /** Classifier-verdict cache (Task C); read only on a rail fall-through. */
   decisionMemory?: PermissionDecisionMemoryRepository;
   tail: () => Promise<PermissionApprovalDecision>;
+}
+
+/**
+ * The classifier judges intrinsic risk only. Authorization was already
+ * consumed by the hard-deny, reviewed-rule/capability, deterministic-rail,
+ * grant, and cache stages before this mapping is used.
+ */
+export async function coordinatePermissionClassifierRisk<T>(input: {
+  riskLevel: PermissionClassifierRiskLevel;
+  allow: () => T | Promise<T>;
+  tail: () => Promise<T>;
+}): Promise<T> {
+  return input.riskLevel === 'low' || input.riskLevel === 'medium'
+    ? input.allow()
+    : input.tail();
 }
 
 export async function coordinatePermissionDecision(

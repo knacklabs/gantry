@@ -4,6 +4,7 @@ import type { PermissionApprovalRequest } from '@core/domain/types.js';
 import type { ToolPolicyDecision } from '@core/shared/tool-execution-policy-service.js';
 import { decisionForMode } from '@core/domain/permission-decision.js';
 import {
+  coordinatePermissionClassifierRisk,
   coordinatePermissionDecision,
   permissionRunRestriction,
   unregisterPermissionRunRestriction,
@@ -11,6 +12,7 @@ import {
 import * as permissionCoordinator from '@core/runtime/permission-decision-coordinator.js';
 import { registerWorkerPermissionRunRestriction } from '@core/runtime/agent-spawn-permission-run-restriction.js';
 import { resolvePermissionIpcDecision } from '@core/runtime/ipc-permission-classifier-decision.js';
+import { computePermissionEffectHash } from '@core/domain/permission-effect-key.js';
 
 const GATES = [
   'SDK worker',
@@ -41,6 +43,46 @@ const reviewedAllow: ToolPolicyDecision = {
 };
 
 describe('coordinatePermissionDecision', () => {
+  it.each(['low', 'medium'] as const)(
+    'maps %s classifier risk to auto_classifier allow_once',
+    async (riskLevel) => {
+      const tail = vi.fn();
+      const allow = vi.fn(() => ({
+        ...decisionForMode(request, 'allow_once', 'auto_classifier'),
+        reason: `${riskLevel} intrinsic risk.`,
+      }));
+
+      await expect(
+        coordinatePermissionClassifierRisk({ riskLevel, allow, tail }),
+      ).resolves.toMatchObject({
+        approved: true,
+        mode: 'allow_once',
+        decidedBy: 'auto_classifier',
+      });
+      expect(allow).toHaveBeenCalledOnce();
+      expect(tail).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(['high', 'critical'] as const)(
+    'routes %s classifier risk to the human tail',
+    async (riskLevel) => {
+      const humanDecision = {
+        approved: false,
+        mode: 'cancel' as const,
+        decidedBy: 'human',
+      };
+      const tail = vi.fn(async () => humanDecision);
+      const allow = vi.fn();
+
+      await expect(
+        coordinatePermissionClassifierRisk({ riskLevel, allow, tail }),
+      ).resolves.toEqual(humanDecision);
+      expect(allow).not.toHaveBeenCalled();
+      expect(tail).toHaveBeenCalledOnce();
+    },
+  );
+
   it.each(
     GATES.flatMap((gate) => [
       {
@@ -278,6 +320,70 @@ describe('coordinatePermissionDecision', () => {
       effectHash: 'effect-hash-1',
     });
     expect(tail).not.toHaveBeenCalled();
+  });
+
+  it('reuses a cached verdict only within the same parent conversation, including its threads', async () => {
+    const base = {
+      ...request,
+      toolName: 'RunCommand',
+      toolInput: { command: 'npm test' },
+      targetJid: 'conversation-a',
+    };
+    const conversationAHash = computePermissionEffectHash({ request: base })!;
+    const cached = new Map([
+      [
+        conversationAHash,
+        { decision: 'allow' as const, reason: 'cached low risk' },
+      ],
+    ]);
+    const getClassifierVerdict = vi.fn(
+      async ({ effectHash }: { effectHash: string }) =>
+        cached.get(effectHash) ?? null,
+    );
+    const decisionMemory = { getClassifierVerdict } as never;
+    const tail = vi.fn(async () => ({
+      approved: false,
+      mode: 'cancel' as const,
+      decidedBy: 'human',
+    }));
+
+    for (const sameConversationRequest of [
+      base,
+      { ...base, threadId: 'thread-1' },
+    ]) {
+      const effectHash = computePermissionEffectHash({
+        request: sameConversationRequest,
+      });
+      await expect(
+        coordinatePermissionDecision({
+          request: sameConversationRequest,
+          effectHash,
+          decisionMemory,
+          deterministicRails: () => undefined,
+          tail,
+        }),
+      ).resolves.toMatchObject({
+        approved: true,
+        decidedBy: 'cached_classifier_verdict',
+      });
+    }
+
+    const otherConversationRequest = {
+      ...base,
+      targetJid: 'conversation-b',
+    };
+    await expect(
+      coordinatePermissionDecision({
+        request: otherConversationRequest,
+        effectHash: computePermissionEffectHash({
+          request: otherConversationRequest,
+        }),
+        decisionMemory,
+        deterministicRails: () => undefined,
+        tail,
+      }),
+    ).resolves.toMatchObject({ approved: false, decidedBy: 'human' });
+    expect(tail).toHaveBeenCalledOnce();
   });
 
   it('lets an ASK rail override a cached allow WITHOUT reading the cache', async () => {

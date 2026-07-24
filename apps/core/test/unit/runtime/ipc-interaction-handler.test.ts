@@ -686,7 +686,7 @@ describe('ipc-interaction-handler', () => {
     const claimedPath = path.join(tempDir, 'claimed-auto-allow.json');
     fs.writeFileSync(claimedPath, '{}');
     const classifierConsult = vi.fn(async () => ({
-      decision: 'allow' as const,
+      risk_level: 'low' as const,
       reason: 'The read-only tool matches the turn intent.',
       latencyMs: 6,
     }));
@@ -774,7 +774,7 @@ describe('ipc-interaction-handler', () => {
 
   it('honors a conversation override on the live agent-qualified route key', async () => {
     const classifierConsult = vi.fn(async () => ({
-      decision: 'allow' as const,
+      risk_level: 'low' as const,
       reason: 'The tool matches the turn intent.',
       latencyMs: 5,
     }));
@@ -842,7 +842,7 @@ describe('ipc-interaction-handler', () => {
 
   it('consults for a deterministic-safe unattended job without requester gating', async () => {
     const classifierConsult = vi.fn(async () => ({
-      decision: 'allow' as const,
+      risk_level: 'low' as const,
       reason: 'Approved capability read.',
       latencyMs: 1,
     }));
@@ -923,7 +923,7 @@ describe('ipc-interaction-handler', () => {
 
   it('routes an unattended mutation ASK rail through the classifier tail', async () => {
     const classifierConsult = vi.fn(async () => ({
-      decision: 'ask' as const,
+      risk_level: 'high' as const,
       reason: 'Destructive filesystem mutation.',
       latencyMs: 1,
     }));
@@ -981,7 +981,7 @@ describe('ipc-interaction-handler', () => {
 
   it('writes the classifier verdict back on a cache miss (attended auto allow)', async () => {
     const classifierConsult = vi.fn(async () => ({
-      decision: 'allow' as const,
+      risk_level: 'low' as const,
       reason: 'Reversible workspace mutation.',
       latencyMs: 1,
     }));
@@ -1078,9 +1078,9 @@ describe('ipc-interaction-handler', () => {
     expect(putClassifierVerdict).not.toHaveBeenCalled();
   });
 
-  it('does not read or write the cache when the input is sanitized (no effect hash)', async () => {
+  it('writes the classifier verdict when display sanitization leaves the full command intact', async () => {
     const classifierConsult = vi.fn(async () => ({
-      decision: 'allow' as const,
+      risk_level: 'low' as const,
       reason: 'Reversible workspace mutation.',
       latencyMs: 1,
     }));
@@ -1123,13 +1123,15 @@ describe('ipc-interaction-handler', () => {
     });
 
     expect(decision).toMatchObject({ decidedBy: 'auto_classifier' });
+    // The destructive ASK rail bypasses cache reads, but the intact command is
+    // still cacheable for the classifier writeback path.
     expect(getClassifierVerdict).not.toHaveBeenCalled();
-    expect(putClassifierVerdict).not.toHaveBeenCalled();
+    expect(putClassifierVerdict).toHaveBeenCalledOnce();
   });
 
   it('denies an unattended read-only command matched by the YOLO denylist backstop', async () => {
     const classifierConsult = vi.fn(async () => ({
-      decision: 'allow' as const,
+      risk_level: 'low' as const,
       reason: 'Read-only workspace file.',
       latencyMs: 1,
     }));
@@ -1253,7 +1255,7 @@ describe('ipc-interaction-handler', () => {
     fs.writeFileSync(claimedPath, '{}');
     const fullCommand = `printf '%s' '${'x'.repeat(600)}'`;
     const classifierConsult = vi.fn(async () => ({
-      decision: 'allow' as const,
+      risk_level: 'low' as const,
       reason: 'Benign command.',
       latencyMs: 1,
     }));
@@ -1345,7 +1347,7 @@ describe('ipc-interaction-handler', () => {
     const claimedPath = path.join(tempDir, 'claimed-unattended-ask.json');
     fs.writeFileSync(claimedPath, '{}');
     const classifierConsult = vi.fn(async () => ({
-      decision: 'allow' as const,
+      risk_level: 'low' as const,
       reason: 'Would allow if consulted.',
       latencyMs: 1,
     }));

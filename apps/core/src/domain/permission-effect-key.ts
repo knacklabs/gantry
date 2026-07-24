@@ -25,7 +25,7 @@ import type { PermissionApprovalRequest } from './types.js';
 // Bump on ANY change to the canonicalizer below (field set, order, framing,
 // or effect JSON shape). The int lives INSIDE the hash, so a bump invalidates
 // every cached row.
-export const EFFECT_SCHEMA_VERSION = 1;
+export const EFFECT_SCHEMA_VERSION = 3;
 
 // ponytail: no rails/catalog version constant exists in the repo today, so this
 // is a standalone int. Bump it whenever the deterministic rails' allow/ask
@@ -57,6 +57,11 @@ export function computePermissionEffectHash(
   if (!toolInput) return undefined;
 
   const cwd = input.workspaceRoot ?? request.sourceAgentFolder;
+  // `targetJid` is the parent conversation/channel identity. `threadId` is
+  // intentionally excluded so threads inherit their conversation's verdict.
+  // Missing targetJid keeps the scope app/provider-account/agent/effect-wide.
+  const providerAccountId = request.providerAccountId?.trim() ?? '';
+  const conversationId = request.targetJid?.trim() ?? '';
   const canonicalEffect = canonicalEffectJson(request, toolInput, cwd);
   if (canonicalEffect === undefined) return undefined;
 
@@ -64,6 +69,8 @@ export function computePermissionEffectHash(
     String(EFFECT_SCHEMA_VERSION),
     String(RAIL_CATALOG_VERSION),
     request.appId ?? '',
+    providerAccountId,
+    conversationId,
     request.sourceAgentFolder,
     request.toolName,
     canonicalEffect,

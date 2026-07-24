@@ -675,7 +675,7 @@ describe('inline core tool bootstrap', () => {
 
   it('auto-allows a deterministic-safe remote MCP tool after classifier consultation', async () => {
     const classifierConsult = vi.fn(async () => ({
-      decision: 'allow' as const,
+      risk_level: 'low' as const,
       reason: 'Read-only lookup matches the turn intent.',
       latencyMs: 4,
     }));
@@ -729,7 +729,7 @@ describe('inline core tool bootstrap', () => {
 
   it('audits an auto-classifier ask verdict before preserving the existing prompt flow', async () => {
     const classifierConsult = vi.fn(async () => ({
-      decision: 'ask' as const,
+      risk_level: 'high' as const,
       reason: 'The requested scope is ambiguous.',
       latencyMs: 5,
       failureCode: 'parse_failure' as const,
@@ -827,7 +827,7 @@ describe('inline core tool bootstrap', () => {
 
   it('routes display-sanitized inline input through the classifier tail', async () => {
     const classifierConsult = vi.fn(async () => ({
-      decision: 'allow' as const,
+      risk_level: 'low' as const,
       reason: 'Benign lookup.',
       latencyMs: 1,
     }));
@@ -866,7 +866,7 @@ describe('inline core tool bootstrap', () => {
 
   it('routes classifier-truncated inline input to human approval', async () => {
     const classifierConsult = vi.fn(async () => ({
-      decision: 'allow' as const,
+      risk_level: 'low' as const,
       reason: 'Only the prefix was visible.',
       latencyMs: 1,
     }));
@@ -906,7 +906,7 @@ describe('inline core tool bootstrap', () => {
 
   it('denies an unattended classifier ask without prompting', async () => {
     const classifierConsult = vi.fn(async () => ({
-      decision: 'ask' as const,
+      risk_level: 'high' as const,
       reason: 'The requested scope needs human approval.',
       latencyMs: 2,
     }));
@@ -959,7 +959,7 @@ describe('inline core tool bootstrap', () => {
     'consults for %s without requester gating',
     async (_label, conversationKind, senderId, isApprover, isScheduledJob) => {
       const classifierConsult = vi.fn(async () => ({
-        decision: 'allow' as const,
+        risk_level: 'low' as const,
         reason: 'Read-only lookup.',
         latencyMs: 1,
       }));
