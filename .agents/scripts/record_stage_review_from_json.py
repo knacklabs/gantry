@@ -53,24 +53,19 @@ def main() -> None:
     if verdict not in ("clean", "blocked"):
         raise SystemExit("stage-review verdict must be 'clean' or 'blocked'.")
 
-    # A clean verdict may carry ZERO blocking findings. Reviewers use either a
-    # `severity` (blocker/major) or a `priority` (P0/P1) field; both are treated
-    # as blocking so a clean verdict cannot smuggle an unaddressed P0/P1.
+    # A clean verdict must carry ZERO findings, of ANY severity. The autoreview
+    # helper's definition of clean is "no accepted/actionable findings", so a
+    # `clean` payload that still lists findings (incl. P2/P3) is a deferral, not
+    # a clean review — and `forge stage done` only checks the stored verdict, so
+    # accepting it would let unresolved findings pass the "autoreview until
+    # clean" gate. Resolve them and re-review, or record verdict `blocked`.
     findings = payload.get("findings") or []
-
-    def _is_blocking(f: object) -> bool:
-        if not isinstance(f, dict):
-            return False
-        sev = str(f.get("severity", "")).strip().lower()
-        pri = str(f.get("priority", "")).strip().upper()
-        return sev in ("blocker", "major") or pri in ("P0", "P1")
-
-    if verdict == "clean" and any(_is_blocking(f) for f in findings):
+    if verdict == "clean" and findings:
         raise SystemExit(
-            "verdict 'clean' contradicts a blocking finding (severity "
-            "blocker/major or priority P0/P1) — a clean review has zero "
-            "unresolved blocking findings. Fix them and re-review, or record "
-            "verdict 'blocked'.")
+            f"verdict 'clean' requires an EMPTY findings list — {len(findings)} "
+            "finding(s) recorded. A clean autoreview has no accepted/actionable "
+            "findings of ANY severity (including P2/P3). Fix them and re-review, "
+            "or record verdict 'blocked'.")
 
     sha = head_sha(root)
     if not sha:
