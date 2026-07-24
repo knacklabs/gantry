@@ -150,6 +150,7 @@ export interface PermissionApprovalRequest {
   responseKeyId?: string;
   decisionPolicy?: 'control_allowlist' | 'same_channel';
   unattended?: boolean;
+  permissionLane?: 'interactive' | 'autonomous';
   senderId?: string;
   turnIntentSummary?: string;
   toolName: string;

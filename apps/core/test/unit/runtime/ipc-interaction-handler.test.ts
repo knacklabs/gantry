@@ -943,7 +943,8 @@ describe('ipc-interaction-handler', () => {
       expectedRiskCategory: 'destructive' as const,
     },
     {
-      label: 'with the advisory destructive rail category despite negated prose',
+      label:
+        'with the advisory destructive rail category despite negated prose',
       classifierDecision: {
         risk_level: 'high' as const,
         reason:

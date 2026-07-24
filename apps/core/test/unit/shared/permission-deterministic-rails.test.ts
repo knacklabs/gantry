@@ -310,9 +310,7 @@ describe('permission deterministic rails', () => {
       reason: expect.stringContaining('Destructive'),
     });
     expect(decision).not.toHaveProperty('hardFloor');
-    expect(
-      permissionRiskForDeterministicRailDecision(decision),
-    ).toEqual({
+    expect(permissionRiskForDeterministicRailDecision(decision)).toEqual({
       level: 'medium',
       category: 'destructive',
     });

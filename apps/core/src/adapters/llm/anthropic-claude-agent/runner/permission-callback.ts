@@ -169,6 +169,7 @@ async function requestPermissionApprovalInner(options: {
           }
         : {}),
       ...(options.threadId ? { threadId: options.threadId } : {}),
+      permissionLane: PERMISSION_LANE,
       ...(SENDER_ID && SENDER_IS_CONTROL_APPROVER && !JOB_ID
         ? { senderId: SENDER_ID }
         : {}),

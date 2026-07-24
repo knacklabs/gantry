@@ -225,8 +225,11 @@ describe('requestPermissionApproval', () => {
     const [requestFile] = await waitForFiles(requestDir, 1);
     const request = JSON.parse(
       fs.readFileSync(path.join(requestDir, requestFile), 'utf-8'),
-    ) as { unattended?: boolean };
-    expect(request.unattended).toBe(true);
+    ) as { unattended?: boolean; permissionLane?: string };
+    expect(request).toMatchObject({
+      unattended: true,
+      permissionLane: 'autonomous',
+    });
   });
 
   it('returns timeout guidance when a finite autonomous timeout elapses', async () => {
@@ -257,8 +260,11 @@ describe('requestPermissionApproval', () => {
     const [requestFile] = await waitForFiles(requestDir, 1);
     const request = JSON.parse(
       fs.readFileSync(path.join(requestDir, requestFile), 'utf-8'),
-    ) as { unattended?: boolean };
-    expect(request.unattended).toBe(false);
+    ) as { unattended?: boolean; permissionLane?: string };
+    expect(request).toMatchObject({
+      unattended: false,
+      permissionLane: 'autonomous',
+    });
 
     const dateNow = vi
       .spyOn(Date, 'now')
@@ -302,7 +308,11 @@ describe('requestPermissionApproval', () => {
       'main_agent',
       'permission-requests',
     );
-    await waitForFiles(requestDir, 1);
+    const [requestFile] = await waitForFiles(requestDir, 1);
+    const request = JSON.parse(
+      fs.readFileSync(path.join(requestDir, requestFile), 'utf-8'),
+    ) as { permissionLane?: string };
+    expect(request.permissionLane).toBe('interactive');
     const dateNow = vi
       .spyOn(Date, 'now')
       .mockReturnValue(Date.now() + 10 * 60_000);
@@ -354,8 +364,12 @@ describe('requestPermissionApproval', () => {
       requestId: string;
       responseNonce: string;
       unattended?: boolean;
+      permissionLane?: string;
     };
-    expect(request.unattended).toBe(false);
+    expect(request).toMatchObject({
+      unattended: false,
+      permissionLane: 'interactive',
+    });
 
     const dateNow = vi
       .spyOn(Date, 'now')

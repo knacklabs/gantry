@@ -148,7 +148,9 @@ export async function requestTeamsPermissionApproval(input: {
     const messageId = sent.externalMessageId;
     settlementDelayMs = teamsInteractionSettlementDelayMs(
       input.request,
-      getPermissionTimeoutMs(input.request.jobId ? 'autonomous' : 'interactive'),
+      input.request.permissionLane
+        ? getPermissionTimeoutMs(input.request.permissionLane)
+        : undefined,
     );
     const decision = new Promise<PermissionApprovalDecision>((resolve) => {
       let timer!: ReturnType<typeof setTimeout>;

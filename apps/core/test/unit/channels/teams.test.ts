@@ -2540,6 +2540,7 @@ describe('TeamsChannel adapter scaffold', () => {
       requestId: 'perm-teams-timeout-retryable',
       sourceAgentFolder: 'teams_engineering',
       toolName: 'Bash',
+      permissionLane: 'interactive' as const,
     };
     const repository = configureTeamsPermissionRequest(request);
     repository.claimPendingPermissionCallback.mockResolvedValue(null);
@@ -2572,15 +2573,19 @@ describe('TeamsChannel adapter scaffold', () => {
     [
       'interactive',
       'GANTRY_INTERACTIVE_PERMISSION_TIMEOUT_MS',
-      {} as Partial<PermissionApprovalRequest>,
+      {
+        permissionLane: 'interactive',
+      } as Partial<PermissionApprovalRequest>,
     ],
     [
       'autonomous',
       'GANTRY_AUTONOMOUS_PERMISSION_TIMEOUT_MS',
-      { jobId: 'job-1' } as Partial<PermissionApprovalRequest>,
+      {
+        permissionLane: 'autonomous',
+      } as Partial<PermissionApprovalRequest>,
     ],
   ])(
-    'settles a %s Teams permission using the configured finite timeout when expiresAt is absent',
+    'settles a %s Teams permission using its explicit lane when expiresAt is absent',
     async (lane, timeoutEnv, requestContext) => {
       vi.useFakeTimers();
       vi.stubEnv(timeoutEnv, '10000');
@@ -2617,7 +2622,9 @@ describe('TeamsChannel adapter scaffold', () => {
       );
       await vi.advanceTimersByTimeAsync(0);
 
-      const pending = [...(channel as any).pendingPermissionPrompts.values()][0];
+      const pending = [
+        ...(channel as any).pendingPermissionPrompts.values(),
+      ][0];
       expect(pending.timer).toBeDefined();
       await vi.advanceTimersByTimeAsync(9_999);
       expect((channel as any).pendingPermissionPrompts.size).toBe(1);

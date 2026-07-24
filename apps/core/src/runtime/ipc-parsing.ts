@@ -432,6 +432,18 @@ export function parsePermissionIpcRequest(
   const decisionOptions = parsePermissionDecisionOptions(raw.decisionOptions);
   const closestRule = parseClosestPermissionRule(raw.closestRule);
   const interaction = parseInteractionDescriptor(raw.interaction);
+  const rawPermissionLane = toTrimmedString(raw.permissionLane, { maxLen: 16 });
+  if (
+    rawPermissionLane &&
+    rawPermissionLane !== 'interactive' &&
+    rawPermissionLane !== 'autonomous'
+  ) {
+    throw new Error('Invalid permission IPC permissionLane');
+  }
+  const permissionLane =
+    rawPermissionLane === 'interactive' || rawPermissionLane === 'autonomous'
+      ? rawPermissionLane
+      : undefined;
   return {
     requestId,
     appId,
@@ -448,6 +460,7 @@ export function parsePermissionIpcRequest(
     ...(binding.authThreadId ? { threadId: binding.authThreadId } : {}),
     ...(binding.responseKeyId ? { responseKeyId: binding.responseKeyId } : {}),
     ...(raw.unattended === true ? { unattended: true } : {}),
+    ...(permissionLane ? { permissionLane } : {}),
     ...(senderId ? { senderId } : {}),
     ...(intent ? { turnIntentSummary: intent } : {}),
     toolName,
