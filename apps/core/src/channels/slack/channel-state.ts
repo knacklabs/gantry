@@ -3,6 +3,7 @@ import path from 'path';
 import { App } from '@slack/bolt';
 
 import { logger } from '../../infrastructure/logging/logger.js';
+import { createInboundAttachmentStorageRef } from '../../shared/inbound-attachment-writer.js';
 import { ensurePrivateDirSync } from '../../shared/private-fs.js';
 import { findConversationRoutesForChat } from '../../shared/thread-queue-key.js';
 import {
@@ -553,7 +554,7 @@ export abstract class SlackChannelState {
     const filename = this.sanitizeFilename(
       file.name || file.title || 'attachment.bin',
     );
-    const storageRef = path.posix.join('attachments', filename);
+    const storageRef = createInboundAttachmentStorageRef(filename);
     const folders = targetFolder
       ? [targetFolder]
       : Array.from(new Set(groups.map(([, group]) => group.folder)));
@@ -563,7 +564,7 @@ export abstract class SlackChannelState {
       const groupDir = resolveWorkspaceFolderPath(folders[0]);
       const attachDir = path.join(groupDir, 'attachments');
       ensurePrivateDirSync(attachDir);
-      const destPath = path.join(attachDir, filename);
+      const destPath = path.join(groupDir, ...storageRef.split('/'));
       const resp = await fetch(url, {
         headers: {
           authorization: `Bearer ${this.botToken}`,
@@ -577,10 +578,15 @@ export abstract class SlackChannelState {
         return null;
       }
 
-      const wrote = await writeSlackAttachmentResponse(resp, destPath);
+      const wrote = await writeSlackAttachmentResponse(
+        resp,
+        groupDir,
+        storageRef,
+      );
       if (!wrote) return null;
       return { filePath: destPath, storageRef };
     } catch (err) {
+      if (isFileExistsError(err)) throw err;
       logger.warn({ jid, err, filename }, 'Slack attachment download failed');
       return null;
     }
@@ -653,4 +659,13 @@ export abstract class SlackChannelState {
   ): Promise<boolean> {
     return tryNativeStreamStop({ app: this.app, channelId, streamTs });
   }
+}
+
+function isFileExistsError(error: unknown): boolean {
+  let current = error;
+  while (typeof current === 'object' && current !== null) {
+    if ('code' in current && current.code === 'EEXIST') return true;
+    current = 'cause' in current ? current.cause : null;
+  }
+  return false;
 }

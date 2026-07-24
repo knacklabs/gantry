@@ -616,8 +616,6 @@ export abstract class TelegramChannelPrompts extends TelegramChannelPolling {
       const localExt = path.extname(filename);
       const safeName = filename.replace(/[^a-zA-Z0-9._-]/g, '_');
       const finalName = localExt ? safeName : `${safeName}${tgExt}`;
-      const destPath = path.join(attachDir, finalName);
-      const storageRef = path.posix.join('attachments', finalName);
       const encodedPath = safeFilePath
         .split('/')
         .map((segment) => encodeURIComponent(segment))
@@ -631,11 +629,17 @@ export abstract class TelegramChannelPrompts extends TelegramChannelPolling {
         );
         return null;
       }
-      const wrote = await writeTelegramFetchResponseToFile(resp, destPath);
-      if (!wrote) return null;
+      const storageRef = await writeTelegramFetchResponseToFile(
+        resp,
+        groupDir,
+        finalName,
+      );
+      if (!storageRef) return null;
+      const destPath = path.join(groupDir, ...storageRef.split('/'));
       logger.info({ fileId, storageRef }, 'Telegram file downloaded');
       return { filePath: destPath, storageRef };
     } catch (err) {
+      if (isFileExistsError(err)) throw err;
       logger.error(
         { fileId, error: this.sanitizeErrorMessage(err) },
         'Failed to download Telegram file',
@@ -643,6 +647,15 @@ export abstract class TelegramChannelPrompts extends TelegramChannelPolling {
       return null;
     }
   }
+}
+
+function isFileExistsError(error: unknown): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    error.code === 'EEXIST'
+  );
 }
 
 function formatTelegramUserQuestionPlainText(
