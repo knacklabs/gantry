@@ -70,7 +70,10 @@ export async function removeRoutelessAgent(input: {
     p.log.info(
       'Next action: remove those delegate references first if you want the agent fully deleted.',
     );
-    return 0;
+    // Nothing was removed here -- unlike the route-scoped path there is no
+    // route deletion to count as partial success -- so automation must not be
+    // told this succeeded.
+    return 1;
   }
   if (!pruned.pruned) {
     p.log.error(`Agent ${folder} was not removed from desired state.`);
