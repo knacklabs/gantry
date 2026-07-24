@@ -39,6 +39,20 @@ def _is_worktree_noise(path: str) -> bool:
     return bool(_WORKTREE_NOISE_RE.match(path))
 
 
+def _resolve_sha(base: Path, ref: str) -> str:
+    """Full 40-char commit SHA for `ref`, or "" if it doesn't resolve. Lets the
+    range gate accept an abbreviated reviewed_scope.base (the guidance prints a
+    short SHA) as equal to the full stored start_sha — both sides canonicalize
+    to the same commit rather than being compared as raw strings."""
+    if not ref:
+        return ""
+    proc = subprocess.run(
+        ["git", "rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}"],
+        cwd=base, capture_output=True, text=True,
+    )
+    return proc.stdout.strip() if proc.returncode == 0 else ""
+
+
 def _worktree_dirty(base: Path) -> list[str]:
     """Uncommitted work — TRACKED changes AND UNTRACKED files — excluding known
     build/backup noise.
@@ -68,11 +82,15 @@ def _worktree_dirty(base: Path) -> list[str]:
             i += 1
             if i < len(tokens):
                 paths.append(tokens[i])
-        # No .strip(): porcelain -z is unquoted and delimiter-safe, so a path
-        # like " dist/x.ts" (leading space) is a real, distinct filename —
+        # The build/backup exclusion applies ONLY to untracked output (status
+        # `??`). A TRACKED change under dist/coverage/etc. is real work that can
+        # go stale after a clean review without moving HEAD, so it must always
+        # count. No .strip(): porcelain -z is unquoted and delimiter-safe, so a
+        # path like " dist/x.ts" (leading space) is a real, distinct filename —
         # trimming it would let it masquerade as excluded build noise.
+        untracked = status == "??"
         for p in paths:
-            if p and not _is_worktree_noise(p):
+            if p and not (untracked and _is_worktree_noise(p)):
                 dirty.append(p)
         i += 1
     return dirty
@@ -124,7 +142,10 @@ def _require_clean_stage_review(base: Path, stage_id: str) -> None:
         scope = review.get("reviewed_scope")
         scope_base = str(
             (scope.get("base") if isinstance(scope, dict) else "") or "").strip()
-        if scope_base != start_sha:
+        # Canonicalize both sides: the recorded base may be abbreviated (the
+        # start guidance prints a short SHA), so compare resolved commits, not
+        # raw strings. An unresolved/absent base canonicalizes to "" and fails.
+        if _resolve_sha(base, scope_base) != start_sha:
             fail(f"{stage_id} stage review does not attest the full stage range "
                  f"(reviewed_scope.base {scope_base[:12] or 'missing'} != stage "
                  f"start {start_sha[:12]}) — a latest-commit review can pass the "
