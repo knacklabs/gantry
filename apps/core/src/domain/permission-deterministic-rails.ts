@@ -35,19 +35,39 @@ export type PermissionDeterministicRailDecision =
     });
 
 const SHELL_TOOLS = new Set(['Bash', 'RunCommand']);
-// First-party gantry control-plane tools that are low-risk by construction:
-// the agent's own messaging/progress surface plus scheduler READS. Scheduler
-// mutations (run_now, create/update/pause/resume/delete_job, …) are absent by
-// design and fall through to the normal rails.
-const BENIGN_GANTRY_MCP_TOOLS = new Set([
-  'send_message',
-  'todo_update',
+const GANTRY_INPUT_INDEPENDENT_BIRTHRIGHT_TOOLS = new Set([
+  'ask_user_question',
+  'render_status',
+  'render_facts',
+  'render_list',
+  'render_table',
+  'render_form',
+  'render_media',
   'render_progress',
+  'task_get',
+  'task_list',
   'scheduler_list_jobs',
   'scheduler_list_runs',
   'scheduler_list_events',
   'scheduler_list_models',
   'scheduler_get_job',
+  'memory_search',
+  'brain_search',
+  'brain_query',
+  'continuity_summary',
+  'mcp_list_tools',
+  'mcp_search_tools',
+  'mcp_describe_tool',
+  'agent_profile_read',
+]);
+const GANTRY_INPUT_GATED_BIRTHRIGHT_TOOLS = new Set([
+  'send_message',
+  'todo_update',
+  'memory_save',
+  'brain_write',
+  'procedure_save',
+  'task_cancel',
+  'task_message',
 ]);
 const DESTRUCTIVE_EXECUTABLE =
   /^(?:dd|mkfs(?:\..+)?|rm|rmdir|shred|truncate|unlink)$/;
@@ -61,17 +81,28 @@ export function evaluatePermissionDeterministicRails(
   input: PermissionDeterministicRailsInput,
 ): PermissionDeterministicRailDecision | undefined {
   const { request } = input;
+  const gantryTool = /^mcp__gantry__(.+)$/.exec(request.toolName);
+  // INVARIANT (decision 0045): A/B tools are intentionally payload-independent.
+  // They only display to, or read state for, the trusted user, who sees the real
+  // execution input; engine redaction/truncation conceals nothing from that
+  // audience. Gating them would reintroduce the ask_user_question deadlock.
+  if (
+    gantryTool !== null &&
+    GANTRY_INPUT_INDEPENDENT_BIRTHRIGHT_TOOLS.has(gantryTool[1]!)
+  ) {
+    return allow(request, 'Agent self-surface birthright.', 'birthright');
+  }
   if (inputIsIncomplete(request)) {
     return ask('Exact tool input is missing, redacted, or truncated.');
   }
-  if (
-    isBenignGantryTool(request.toolName) &&
-    !hasRiskRelevantSanitization(request)
-  ) {
-    return allow(
-      request,
-      `Benign first-party gantry control-plane tool ${request.toolName}.`,
-    );
+  const isInputGatedBirthrightTool =
+    gantryTool !== null &&
+    GANTRY_INPUT_GATED_BIRTHRIGHT_TOOLS.has(gantryTool[1]!);
+  if (isInputGatedBirthrightTool && !hasRiskRelevantSanitization(request)) {
+    return allow(request, 'Agent self-surface birthright.', 'birthright');
+  }
+  if (isInputGatedBirthrightTool) {
+    return ask('Displayed tool input is sanitized or redacted.');
   }
   // Evaluate the 16K classifier view, not the 500-char display copy, so the
   // command we inspect matches the truncation signal inputIsIncomplete guards.
@@ -129,9 +160,6 @@ export function evaluatePermissionDeterministicRails(
  * tools, or any field for non-shell tools. With a classifier view, its existing
  * redaction/truncation metadata remains authoritative.
  *
- * SECURITY COUPLING: benign first-party MCP tools are a separate auto-allow
- * shortcut. That shortcut is gated on zero redaction/sanitization metadata, so
- * the classifier sees any request whose displayed input differs from execution.
  */
 function inputIsIncomplete(request: PermissionApprovalRequest): boolean {
   const ipc = request as PermissionApprovalRequest & {
@@ -168,11 +196,6 @@ function hasRiskRelevantSanitization(
     (request.toolInputSanitizedPaths?.length ?? 0) > 0 ||
     (ipc.toolInputRedactedPaths?.length ?? 0) > 0
   );
-}
-
-function isBenignGantryTool(toolName: string): boolean {
-  const match = /^mcp__gantry__(.+)$/.exec(toolName);
-  return match !== null && BENIGN_GANTRY_MCP_TOOLS.has(match[1]!);
 }
 
 function isInterpreterString(leaf: BashCommandLeaf): boolean {
@@ -251,9 +274,10 @@ function ask(reason: string): PermissionDeterministicRailDecision {
 function allow(
   request: PermissionApprovalRequest,
   reason: string,
+  decidedBy = 'deterministic_read_only',
 ): PermissionDeterministicRailDecision {
   return {
-    ...decisionForMode(request, 'allow_once', 'deterministic_read_only'),
+    ...decisionForMode(request, 'allow_once', decidedBy),
     railOutcome: 'allow',
     reason,
   };
