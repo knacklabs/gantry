@@ -53,21 +53,33 @@ async function resolveWithClassifierRisk(input: {
 }
 
 describe('IPC permission classifier decision', () => {
-  it('keeps a destructive rail category and high severity over a low benign classifier verdict', async () => {
-    const { decision, requestPermissionApproval } =
-      await resolveWithClassifierRisk({
-        toolName: 'RunCommand',
-        toolInput: { command: 'rm -rf ./build' },
-        riskLevel: 'low',
-        riskCategory: 'benign',
-      });
+  it.each([
+    ['destructive', 'rm -rf ./build', 'destructive'],
+    ['credential', 'cat ~/.ssh/id_rsa', 'secret'],
+  ] as const)(
+    'escalates a deterministic %s rail ASK despite a low benign classifier verdict',
+    async (_label, command, riskCategory) => {
+      const { decision, requestPermissionApproval } =
+        await resolveWithClassifierRisk({
+          toolName: 'RunCommand',
+          toolInput: { command },
+          riskLevel: 'low',
+          riskCategory: 'benign',
+        });
 
-    expect(requestPermissionApproval).not.toHaveBeenCalled();
-    expect(decision).toMatchObject({
-      risk_level: 'high',
-      risk_category: 'destructive',
-    });
-  });
+      expect(requestPermissionApproval).toHaveBeenCalledOnce();
+      expect(requestPermissionApproval.mock.calls[0]![0]).toMatchObject({
+        risk_level: 'high',
+        risk_category: riskCategory,
+      });
+      expect(decision).toMatchObject({
+        approved: false,
+        decidedBy: 'owner',
+        risk_level: 'high',
+        risk_category: riskCategory,
+      });
+    },
+  );
 
   it('keeps a destructive rail category while accepting higher classifier severity', async () => {
     const { decision } = await resolveWithClassifierRisk({
@@ -132,6 +144,8 @@ describe('IPC permission classifier decision', () => {
 
     expect(requestPermissionApproval).not.toHaveBeenCalled();
     expect(decision).toMatchObject({
+      approved: true,
+      decidedBy: 'auto_classifier',
       risk_level: 'medium',
       risk_category: 'network',
     });

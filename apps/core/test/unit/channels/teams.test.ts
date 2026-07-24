@@ -2573,9 +2573,12 @@ describe('TeamsChannel adapter scaffold', () => {
       start: vi.fn(async () => {}),
       stop: vi.fn(async () => {}),
       sendMessage: vi.fn(async () => ({})),
-      sendAdaptiveCard: vi.fn(async () => ({
-        externalMessageId: 'teams-job-permission-card',
-      })),
+      sendAdaptiveCard: vi.fn(async () => {
+        await new Promise<void>((resolve) => {
+          setTimeout(resolve, 30_000);
+        });
+        return { externalMessageId: 'teams-job-permission-card' };
+      }),
       updateAdaptiveCard: vi.fn(async () => ({})),
     };
     const channel = new TeamsChannel(
@@ -2602,10 +2605,14 @@ describe('TeamsChannel adapter scaffold', () => {
       request,
     );
     await vi.advanceTimersByTimeAsync(0);
+    expect(sdkClient.sendAdaptiveCard).toHaveBeenCalledOnce();
+    await vi.advanceTimersByTimeAsync(30_000);
 
     const pending = [...(channel as any).pendingPermissionPrompts.values()][0];
     expect(pending.timer).toBeDefined();
-    await vi.advanceTimersByTimeAsync(60_000);
+    await vi.advanceTimersByTimeAsync(29_999);
+    expect((channel as any).pendingPermissionPrompts.size).toBe(1);
+    await vi.advanceTimersByTimeAsync(1);
 
     await expect(approval).resolves.toMatchObject({
       approved: false,

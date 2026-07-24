@@ -90,6 +90,7 @@ export async function resolvePermissionIpcDecision(input: {
   });
   const decisionMemory = input.deps.getPermissionDecisionMemoryRepository?.();
   let railRisk: PermissionDeterministicRailRisk | undefined;
+  let railRequiresApproval = false;
   return coordinatePermissionDecision({
     request: input.request,
     effectHash,
@@ -108,6 +109,7 @@ export async function resolvePermissionIpcDecision(input: {
     },
     deterministicRails: (railsInput) => {
       const decision = evaluatePermissionDeterministicRails(railsInput);
+      railRequiresApproval ||= decision?.railOutcome === 'ask';
       railRisk =
         permissionRiskForDeterministicRailDecision(decision) ?? railRisk;
       return decision;
@@ -156,6 +158,7 @@ export async function resolvePermissionIpcDecision(input: {
         effectHash,
         decisionMemory,
         railRisk,
+        railRequiresApproval,
       }),
   });
 }
@@ -167,6 +170,7 @@ async function resolvePermissionIpcDecisionTail(input: {
   effectHash?: string;
   decisionMemory?: PermissionDecisionMemoryRepository;
   railRisk?: PermissionDeterministicRailRisk;
+  railRequiresApproval?: boolean;
 }): Promise<PermissionApprovalDecision> {
   const route = input.request.targetJid
     ? findConversationRouteForQueue(
@@ -328,7 +332,10 @@ async function resolvePermissionIpcDecisionTail(input: {
       .catch(() => undefined);
   }
 
-  if (classifierDecision?.decision === 'allow') {
+  // Deterministic rails are authoritative: once they require approval, the
+  // fallible classifier cannot downgrade that ASK. Classifier auto-allow is
+  // available only when the rails abstain.
+  if (classifierDecision?.decision === 'allow' && !input.railRequiresApproval) {
     return withRequestRisk(
       input.request,
       decisionForMode(input.request, 'allow_once', 'auto_classifier'),

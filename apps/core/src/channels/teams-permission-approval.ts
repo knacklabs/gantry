@@ -148,12 +148,15 @@ export async function requestTeamsPermissionApproval(input: {
       ...(input.request.threadId ? { threadId: input.request.threadId } : {}),
     });
     const messageId = sent.externalMessageId;
+    const settlementDelayMs = input.request.jobId
+      ? teamsInteractionSettlementDelayMs(input.request)
+      : input.settlementDelayMs;
     const decision = new Promise<PermissionApprovalDecision>((resolve) => {
       let timer!: ReturnType<typeof setTimeout>;
-      if (input.settlementDelayMs !== undefined) {
+      if (settlementDelayMs !== undefined) {
         timer = setTimeout(() => {
           void timeoutPermissionPrompt();
-        }, input.settlementDelayMs);
+        }, settlementDelayMs);
         timer.unref?.();
       }
       input.pendingPermissionPrompts.set(callback.providerAlias, {
