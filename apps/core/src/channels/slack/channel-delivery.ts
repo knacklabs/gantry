@@ -558,8 +558,8 @@ export abstract class SlackChannelDelivery extends SlackChannelInteractions {
         parsed.channelId,
       ),
       pendingPermissionPrompts: this.pendingPermissionPrompts,
-      timeoutPermissionPrompt: (providerAlias) =>
-        this.timeoutPermissionPrompt(providerAlias),
+      timeoutPermissionPrompt: (providerAlias, retryWindowMs) =>
+        this.timeoutPermissionPrompt(providerAlias, retryWindowMs),
       onPromptDelivered,
     });
   }

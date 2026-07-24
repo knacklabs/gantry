@@ -6,6 +6,10 @@ import type {
 import { logger } from '../../infrastructure/logging/logger.js';
 import { DurableInteractionPersistenceError } from '../../application/interactions/pending-interaction-durability.js';
 import {
+  getPermissionTimeoutMs,
+  NO_PERMISSION_TIMEOUT_MS,
+} from '../../shared/permission-timeout.js';
+import {
   TELEGRAM_USER_QUESTION_TIMEOUT_MS,
   telegramThreadOptionsFromString,
 } from './channel-shared.js';
@@ -29,6 +33,24 @@ type PendingTelegramPermission = {
   timer?: ReturnType<typeof setTimeout>;
   resolve: (decision: PermissionApprovalDecision) => void;
 };
+
+function telegramPermissionSettlementDelayMs(
+  request: object,
+  fallbackTimeoutMs?: number,
+): number | undefined {
+  const { expiresAt } = request as { expiresAt?: unknown };
+  if (expiresAt === undefined) {
+    return fallbackTimeoutMs !== undefined &&
+      fallbackTimeoutMs > NO_PERMISSION_TIMEOUT_MS
+      ? fallbackTimeoutMs
+      : undefined;
+  }
+  const expiresAtMs =
+    typeof expiresAt === 'string' ? Date.parse(expiresAt) : Number.NaN;
+  return Number.isFinite(expiresAtMs)
+    ? Math.max(0, expiresAtMs - Date.now())
+    : 0;
+}
 
 export async function requestTelegramPermissionApproval(input: {
   interactionCallbacksEnabled: boolean;
@@ -93,7 +115,7 @@ export async function requestTelegramPermissionApproval(input: {
       ? ('batch' as const)
       : ('individual' as const),
   };
-  const timeoutMs = TELEGRAM_USER_QUESTION_TIMEOUT_MS;
+  let settlementDelayMs: number | undefined;
   const timeoutPermissionPrompt = async (): Promise<void> => {
     let result = await input.settlePrompt(
       callback.providerAlias,
@@ -104,8 +126,9 @@ export async function requestTelegramPermissionApproval(input: {
     if (result === 'settled') return;
     if (result === 'already_decided') return;
     if (result === 'retryable') {
-      const firstDelay = Math.floor(timeoutMs / 3);
-      for (const delayMs of [firstDelay, timeoutMs - firstDelay]) {
+      const retryWindowMs = settlementDelayMs ?? 0;
+      const firstDelay = Math.floor(retryWindowMs / 3);
+      for (const delayMs of [firstDelay, retryWindowMs - firstDelay]) {
         await new Promise<void>((resolve) => {
           const timer = setTimeout(resolve, delayMs);
           timer.unref?.();
@@ -147,16 +170,22 @@ export async function requestTelegramPermissionApproval(input: {
       chatId,
       request: input.request,
       callbackId: callback.providerAlias,
-      timeoutMs,
+      timeoutMs: TELEGRAM_USER_QUESTION_TIMEOUT_MS,
       threadOpts: telegramThreadOptionsFromString(input.request.threadId),
     });
+    settlementDelayMs = telegramPermissionSettlementDelayMs(
+      input.request,
+      input.request.permissionLane
+        ? getPermissionTimeoutMs(input.request.permissionLane)
+        : undefined,
+    );
     const { decision } = await registerAndBindTelegramPermissionPrompt({
       jid: input.jid,
       request: input.request,
       chatId,
       messageId: sent.message_id,
       callback,
-      timeoutMs,
+      timeoutMs: settlementDelayMs ?? NO_PERMISSION_TIMEOUT_MS,
       pendingPrompts: input.pendingPrompts,
       onTimeout: () => void timeoutPermissionPrompt(),
       onPromptDelivered: input.onPromptDelivered,

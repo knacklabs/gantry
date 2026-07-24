@@ -1028,6 +1028,7 @@ describe('TelegramChannel', () => {
     else process.env.GANTRY_HOME = savedGantryHome;
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
     fs.rmSync(telegramWorkspace.root, { recursive: true, force: true });
   });
 
@@ -6035,6 +6036,7 @@ describe('TelegramChannel', () => {
 
     it('auto-denies approval request after timeout', async () => {
       vi.useFakeTimers();
+      vi.stubEnv('GANTRY_AUTONOMOUS_PERMISSION_TIMEOUT_MS', '300000');
       try {
         const opts = createTestOpts();
         const channel = new TelegramChannel('test-token', opts);
@@ -6046,6 +6048,7 @@ describe('TelegramChannel', () => {
             requestId: 'perm-timeout',
             sourceAgentFolder: 'whatsapp_main',
             toolName: 'Edit',
+            permissionLane: 'autonomous',
           },
         );
         await Promise.resolve();
@@ -6064,6 +6067,7 @@ describe('TelegramChannel', () => {
 
     it('resolves the Telegram waiter after retryable timeout claims exhaust bounded retries', async () => {
       vi.useFakeTimers();
+      vi.stubEnv('GANTRY_AUTONOMOUS_PERMISSION_TIMEOUT_MS', '300000');
       try {
         const channel = new TelegramChannel('test-token', createTestOpts());
         await channel.connect();
@@ -6073,6 +6077,7 @@ describe('TelegramChannel', () => {
             requestId: 'perm-timeout-retryable',
             sourceAgentFolder: 'whatsapp_main',
             toolName: 'Edit',
+            permissionLane: 'autonomous',
           },
         );
         await vi.advanceTimersByTimeAsync(0);

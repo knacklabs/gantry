@@ -107,6 +107,7 @@ describe('DiscordChannel', () => {
   afterEach(() => {
     vi.useRealTimers();
     vi.restoreAllMocks();
+    vi.unstubAllEnvs();
     durabilityMocks.findDurablePermissionInteractionByRequestId.mockReset();
     durabilityMocks.bindPendingPermissionInteractionMessage.mockReset();
     durabilityMocks.bindPendingPermissionInteractionMessage.mockResolvedValue(
@@ -2309,6 +2310,7 @@ describe('DiscordChannel', () => {
 
   it('keeps approvals pending at the shared no-timeout boundary', async () => {
     vi.useFakeTimers();
+    vi.stubEnv('GANTRY_INTERACTIVE_PERMISSION_TIMEOUT_MS', '0');
     vi.spyOn(globalThis, 'fetch')
       .mockResolvedValueOnce(
         jsonResponse({ url: 'wss://gateway.discord.test' }),
@@ -2327,6 +2329,7 @@ describe('DiscordChannel', () => {
       sourceAgentFolder: 'main_agent',
       toolName: 'RunCommand',
       targetJid: 'dc:channel-1',
+      permissionLane: 'interactive',
     });
     let settled = false;
     void approval.then(() => {
@@ -2337,6 +2340,10 @@ describe('DiscordChannel', () => {
     await vi.advanceTimersByTimeAsync(24 * 60 * 60_000);
     expect(settled).toBe(false);
     expect((channel as any).interactions.pendingPermissions.size).toBe(1);
+    const pending = [
+      ...(channel as any).interactions.pendingPermissions.values(),
+    ][0];
+    expect(pending.timeout).toBeUndefined();
 
     await channel.disconnect();
     await expect(approval).resolves.toMatchObject({
@@ -2346,8 +2353,103 @@ describe('DiscordChannel', () => {
     });
   });
 
+  it('settles an autonomous Discord permission using its lane timeout without a job id', async () => {
+    vi.useFakeTimers();
+    vi.stubEnv('GANTRY_AUTONOMOUS_PERMISSION_TIMEOUT_MS', '10000');
+    vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(
+        jsonResponse({ url: 'wss://gateway.discord.test' }),
+      )
+      .mockImplementation(async () => jsonResponse({ id: 'message-1' }));
+    const channel = new DiscordChannel(
+      'bot-token',
+      'app-id',
+      opts(),
+      (url) => new FakeWebSocket(url),
+    );
+
+    await channel.connect();
+    const approval = channel.requestPermissionApproval('dc:channel-1', {
+      requestId: 'permission-autonomous-lane-timeout',
+      sourceAgentFolder: 'main_agent',
+      toolName: 'RunCommand',
+      targetJid: 'dc:channel-1',
+      permissionLane: 'autonomous',
+    });
+    await vi.advanceTimersByTimeAsync(0);
+
+    const pending = [
+      ...(channel as any).interactions.pendingPermissions.values(),
+    ][0];
+    expect(pending.timeout).toBeDefined();
+    await vi.advanceTimersByTimeAsync(9_999);
+    expect((channel as any).interactions.pendingPermissions.size).toBe(1);
+    await vi.advanceTimersByTimeAsync(1);
+
+    await expect(approval).resolves.toMatchObject({
+      approved: false,
+      mode: 'cancel',
+      decidedBy: 'system',
+      reason: 'timed out',
+    });
+    expect((channel as any).interactions.pendingPermissions.size).toBe(0);
+    await channel.disconnect();
+  });
+
+  it('prefers a Discord permission expiry and recomputes its remaining delay after delivery', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-17T00:00:00.000Z'));
+    vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(
+        jsonResponse({ url: 'wss://gateway.discord.test' }),
+      )
+      .mockImplementation(async (_input, init) => {
+        if (init?.method === 'POST') {
+          await new Promise<void>((resolve) => {
+            setTimeout(resolve, 30_000);
+          });
+        }
+        return jsonResponse({ id: 'message-expiring' });
+      });
+    const channel = new DiscordChannel(
+      'bot-token',
+      'app-id',
+      opts(),
+      (url) => new FakeWebSocket(url),
+    );
+
+    await channel.connect();
+    const request = {
+      requestId: 'permission-explicit-expiry',
+      sourceAgentFolder: 'main_agent',
+      toolName: 'RunCommand',
+      targetJid: 'dc:channel-1',
+      expiresAt: '2026-07-17T00:01:00.000Z',
+    };
+    const approval = channel.requestPermissionApproval(
+      'dc:channel-1',
+      request,
+    );
+    await vi.advanceTimersByTimeAsync(30_000);
+
+    expect((channel as any).interactions.pendingPermissions.size).toBe(1);
+    await vi.advanceTimersByTimeAsync(29_999);
+    expect((channel as any).interactions.pendingPermissions.size).toBe(1);
+    await vi.advanceTimersByTimeAsync(1);
+
+    await expect(approval).resolves.toMatchObject({
+      approved: false,
+      mode: 'cancel',
+      decidedBy: 'system',
+      reason: 'timed out',
+    });
+    expect((channel as any).interactions.pendingPermissions.size).toBe(0);
+    await channel.disconnect();
+  });
+
   it('does not start timeout claim retries for a no-timeout Discord waiter', async () => {
     vi.useFakeTimers();
+    vi.stubEnv('GANTRY_INTERACTIVE_PERMISSION_TIMEOUT_MS', '0');
     vi.spyOn(globalThis, 'fetch')
       .mockResolvedValueOnce(
         jsonResponse({ url: 'wss://gateway.discord.test' }),
@@ -2369,6 +2471,7 @@ describe('DiscordChannel', () => {
       sourceAgentFolder: 'main_agent',
       toolName: 'RunCommand',
       targetJid: 'dc:channel-1',
+      permissionLane: 'interactive',
     });
     await vi.advanceTimersByTimeAsync(600_000);
 

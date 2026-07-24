@@ -1,5 +1,4 @@
 import { logger } from '../../infrastructure/logging/logger.js';
-import { PERMISSION_APPROVAL_TIMEOUT_MS } from '../../shared/permission-timeout.js';
 import {
   PermissionApprovalDecision,
   PermissionApprovalRequest,
@@ -123,6 +122,7 @@ export abstract class SlackChannelInteractions extends SlackChannelState {
   }
   protected async timeoutPermissionPrompt(
     providerAlias: string,
+    retryWindowMs: number,
   ): Promise<void> {
     let result = await this.claimAndResolvePermissionPrompt(
       providerAlias,
@@ -135,10 +135,10 @@ export abstract class SlackChannelInteractions extends SlackChannelState {
     if (result === 'settled') return;
     if (result === 'already_decided') return;
     if (result === 'retryable') {
-      const firstDelay = Math.floor(PERMISSION_APPROVAL_TIMEOUT_MS / 3);
+      const firstDelay = Math.floor(retryWindowMs / 3);
       for (const delayMs of [
         firstDelay,
-        PERMISSION_APPROVAL_TIMEOUT_MS - firstDelay,
+        retryWindowMs - firstDelay,
       ]) {
         await new Promise<void>((resolve) => {
           const timer = setTimeout(resolve, delayMs);

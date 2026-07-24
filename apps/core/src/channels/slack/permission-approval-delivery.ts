@@ -5,7 +5,10 @@ import type {
 } from '../../domain/types.js';
 import { logger } from '../../infrastructure/logging/logger.js';
 import { incrementOperationalError } from '../../shared/operational-error-counters.js';
-import { NO_PERMISSION_TIMEOUT_MS } from '../../shared/permission-timeout.js';
+import {
+  getPermissionTimeoutMs,
+  NO_PERMISSION_TIMEOUT_MS,
+} from '../../shared/permission-timeout.js';
 import {
   buildPermissionPromptParts,
   formatPermissionPromptPartsText,
@@ -47,6 +50,24 @@ export function slackPermissionApproverIds(
   }
 }
 
+function slackPermissionSettlementDelayMs(
+  request: object,
+  fallbackTimeoutMs?: number,
+): number | undefined {
+  const { expiresAt } = request as { expiresAt?: unknown };
+  if (expiresAt === undefined) {
+    return fallbackTimeoutMs !== undefined &&
+      fallbackTimeoutMs > NO_PERMISSION_TIMEOUT_MS
+      ? fallbackTimeoutMs
+      : undefined;
+  }
+  const expiresAtMs =
+    typeof expiresAt === 'string' ? Date.parse(expiresAt) : Number.NaN;
+  return Number.isFinite(expiresAtMs)
+    ? Math.max(0, expiresAtMs - Date.now())
+    : 0;
+}
+
 export async function requestSlackPermissionApproval(input: {
   app: App;
   jid: string;
@@ -55,7 +76,10 @@ export async function requestSlackPermissionApproval(input: {
   timeoutMs: number;
   approverUserIds?: readonly string[];
   pendingPermissionPrompts: Map<string, PendingPermissionPrompt>;
-  timeoutPermissionPrompt: (providerAlias: string) => Promise<void>;
+  timeoutPermissionPrompt: (
+    providerAlias: string,
+    retryWindowMs: number,
+  ) => Promise<void>;
   onPromptDelivered?: (messageId: string) => void;
 }): Promise<PermissionApprovalDecision> {
   const parts = buildPermissionPromptParts(input.request, input.timeoutMs);
@@ -212,11 +236,20 @@ export async function requestSlackPermissionApproval(input: {
     const decision = new Promise<PermissionApprovalDecision>((resolve) => {
       resolveDecision = resolve;
     });
+    const settlementDelayMs = slackPermissionSettlementDelayMs(
+      input.request,
+      input.request.permissionLane
+        ? getPermissionTimeoutMs(input.request.permissionLane)
+        : undefined,
+    );
     const timer =
-      input.timeoutMs > NO_PERMISSION_TIMEOUT_MS
+      settlementDelayMs !== undefined
         ? setTimeout(() => {
-            void input.timeoutPermissionPrompt(callback.providerAlias);
-          }, input.timeoutMs)
+            void input.timeoutPermissionPrompt(
+              callback.providerAlias,
+              settlementDelayMs,
+            );
+          }, settlementDelayMs)
         : undefined;
     const livePending: PendingPermissionPrompt = {
       callback,

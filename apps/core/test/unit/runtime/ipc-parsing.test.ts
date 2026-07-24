@@ -45,9 +45,8 @@ describe('parsePermissionIpcRequest', () => {
   );
 
   it('rejects an unknown permission lane', () => {
-    expect(
-      () =>
-        parsePermissionIpcRequest(permissionEnvelope('scheduled'), 'team'),
+    expect(() =>
+      parsePermissionIpcRequest(permissionEnvelope('scheduled'), 'team'),
     ).toThrow('Invalid permission IPC permissionLane');
   });
 });

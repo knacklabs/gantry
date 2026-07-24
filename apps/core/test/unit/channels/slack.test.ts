@@ -699,6 +699,7 @@ describe('Slack channel', () => {
     configurePendingInteractionDurability(null);
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
     fs.rmSync(slackWorkspace.root, { recursive: true, force: true });
   });
 
@@ -4783,6 +4784,7 @@ describe('Slack channel', () => {
 
   it('preserves the winner when timeout fires after another callback claimed', async () => {
     vi.useFakeTimers();
+    vi.stubEnv('GANTRY_AUTONOMOUS_PERMISSION_TIMEOUT_MS', '300000');
     const channel = new SlackChannel(
       'xoxb-token',
       'xapp-token',
@@ -4793,6 +4795,7 @@ describe('Slack channel', () => {
       requestId: 'perm-timeout-claim-race',
       sourceAgentFolder: 'slack_main',
       toolName: 'Bash',
+      permissionLane: 'autonomous' as const,
     };
     const raceRepository = configureSlackPermissionRequest(request);
     const approvalPromise = channel.requestPermissionApproval(
@@ -7153,6 +7156,7 @@ describe('Slack channel', () => {
 
   it('resolves an ephemeral Slack permission prompt on timeout without message mutation', async () => {
     vi.useFakeTimers();
+    vi.stubEnv('GANTRY_AUTONOMOUS_PERMISSION_TIMEOUT_MS', '300000');
     const channel = new SlackChannel(
       'xoxb-token',
       'xapp-token',
@@ -7167,6 +7171,7 @@ describe('Slack channel', () => {
         requestId: 'req-timeout',
         sourceAgentFolder: 'test',
         toolName: 'shell',
+        permissionLane: 'autonomous',
       },
     );
     await flushSlackPromptRegistration();
@@ -7185,6 +7190,7 @@ describe('Slack channel', () => {
 
   it('resolves the Slack waiter after retryable timeout claims exhaust bounded retries', async () => {
     vi.useFakeTimers();
+    vi.stubEnv('GANTRY_AUTONOMOUS_PERMISSION_TIMEOUT_MS', '300000');
     const channel = new SlackChannel(
       'xoxb-token',
       'xapp-token',
@@ -7195,6 +7201,7 @@ describe('Slack channel', () => {
       requestId: 'req-timeout-retryable',
       sourceAgentFolder: 'test',
       toolName: 'shell',
+      permissionLane: 'autonomous' as const,
     };
     const repository = configureSlackPermissionRequest(request);
     repository.claimPendingPermissionCallback.mockRejectedValue(
@@ -7221,6 +7228,7 @@ describe('Slack channel', () => {
 
   it('resolves permission prompt once even if timeout is reached later', async () => {
     vi.useFakeTimers();
+    vi.stubEnv('GANTRY_AUTONOMOUS_PERMISSION_TIMEOUT_MS', '300000');
     defaultSlackPermissionApproverIds.add('U_APPROVER');
     const channel = new SlackChannel(
       'xoxb-token',
@@ -7236,6 +7244,7 @@ describe('Slack channel', () => {
         requestId: 'req-1',
         sourceAgentFolder: 'test',
         toolName: 'shell',
+        permissionLane: 'autonomous',
       },
     );
     await flushSlackPromptRegistration();
