@@ -923,7 +923,7 @@ describe('Claude Agent SDK boundary integration', () => {
     expect(systemPromptText).not.toContain('prior user preference');
   });
 
-  it('enforces require_prior through SDK Pre/PostToolUse hooks only when rules exist', async () => {
+  it('keeps require_prior enforcement conditional while always registering the provenance PostToolUse hook', async () => {
     const env = prepareRuntimeEnv();
     const { runQuery } = await importRunQuery();
 
@@ -1031,7 +1031,16 @@ describe('Claude Agent SDK boundary integration', () => {
     );
     const ordinaryCall = sdkState.calls[1];
     expect(ordinaryCall?.options.hooks.PreToolUse[0].hooks).toHaveLength(1);
-    expect(ordinaryCall?.options.hooks.PostToolUse).toBeUndefined();
+    const ordinaryPostToolUseHooks =
+      ordinaryCall?.options.hooks.PostToolUse[0].hooks;
+    expect(ordinaryPostToolUseHooks).toHaveLength(1);
+    await expect(
+      ordinaryPostToolUseHooks[0]({
+        hook_event_name: 'PostToolUse',
+        tool_name: 'Read',
+        tool_use_id: 'ordinary-tool-use',
+      }),
+    ).resolves.toEqual({ continue: true });
   });
 
   it('passes an explicit empty SDK skills list when Gantry selected no skills', async () => {
