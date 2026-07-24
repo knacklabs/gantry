@@ -221,6 +221,52 @@ describe('requestPermissionApproval', () => {
     expect(request.unattended).toBe(true);
   });
 
+  it('returns timeout guidance when a finite autonomous timeout elapses', async () => {
+    process.env.GANTRY_PERMISSION_LANE = 'autonomous';
+    process.env.GANTRY_AUTONOMOUS_PERMISSION_TIMEOUT_MS = '10000';
+    process.env.GANTRY_PERMISSION_MODE = 'ask';
+    delete process.env.GANTRY_JOB_ID;
+    delete process.env.GANTRY_JOB_RUN_ID;
+    vi.resetModules();
+    const { requestPermissionApproval } =
+      await import('@core/adapters/llm/anthropic-claude-agent/runner/permission-callback.js');
+
+    const decision = requestPermissionApproval({
+      appId: 'default',
+      agentId: 'agent:main_agent',
+      workspaceFolder: 'main_agent',
+      targetJid: 'tg:test',
+      toolName: 'Bash',
+      toolInput: { command: 'git status --short' },
+    });
+
+    const requestDir = path.join(
+      tempDir,
+      'ipc',
+      'main_agent',
+      'permission-requests',
+    );
+    const [requestFile] = await waitForFiles(requestDir, 1);
+    const request = JSON.parse(
+      fs.readFileSync(path.join(requestDir, requestFile), 'utf-8'),
+    ) as { unattended?: boolean };
+    expect(request.unattended).toBe(false);
+
+    const dateNow = vi
+      .spyOn(Date, 'now')
+      .mockReturnValue(Date.now() + 10 * 60_000);
+    const result = await decision;
+
+    expect(result).toMatchObject({
+      approved: false,
+      reason:
+        'Timed out waiting for approval. Retry the autonomous run when an approver is available.',
+      decisionClassification: 'user_reject',
+    });
+    expect(result.reason).not.toContain('do not wait for approval');
+    dateNow.mockRestore();
+  });
+
   it('returns interactive guidance when a finite interactive timeout elapses', async () => {
     process.env.GANTRY_INTERACTIVE_PERMISSION_TIMEOUT_MS = '10000';
     delete process.env.GANTRY_JOB_ID;

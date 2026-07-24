@@ -15,6 +15,7 @@ async function resolveWithClassifierRisk(input: {
   riskLevel: PermissionRiskLevel;
   riskCategory: PermissionRiskCategory;
   decisionMemory?: PermissionDecisionMemoryRepository;
+  unattended?: boolean;
 }) {
   const requestPermissionApproval = vi.fn(async () => ({
     approved: false,
@@ -34,6 +35,7 @@ async function resolveWithClassifierRisk(input: {
       sourceAgentFolder: 'main_agent',
       toolName: input.toolName,
       toolInput: input.toolInput,
+      ...(input.unattended ? { unattended: true } : {}),
     },
     sourceAgentFolder: 'main_agent',
     deps: {
@@ -179,6 +181,50 @@ describe('IPC permission classifier decision', () => {
     expect(requestPermissionApproval).toHaveBeenCalledOnce();
     expect(getClassifierVerdict).not.toHaveBeenCalled();
     expect(putClassifierVerdict).not.toHaveBeenCalled();
+  });
+
+  it('attributes an unattended classifier allow veto to the deterministic rail', async () => {
+    const { decision, requestPermissionApproval } =
+      await resolveWithClassifierRisk({
+        toolName: 'RunCommand',
+        toolInput: { command: 'rm -rf ./build' },
+        riskLevel: 'low',
+        riskCategory: 'benign',
+        unattended: true,
+      });
+
+    expect(requestPermissionApproval).not.toHaveBeenCalled();
+    expect(decision).toMatchObject({
+      approved: false,
+      decidedBy: 'deterministic_rails',
+      reason: 'Destructive command requires approval.',
+      risk_level: 'high',
+      risk_category: 'destructive',
+    });
+    expect(decision.reason).not.toContain(
+      'Classifier requested human approval',
+    );
+  });
+
+  it('keeps the classifier reason for a genuine unattended classifier ASK', async () => {
+    const { decision, requestPermissionApproval } =
+      await resolveWithClassifierRisk({
+        toolName: 'mcp__crm__update_record',
+        toolInput: { id: 'customer-1' },
+        riskLevel: 'high',
+        riskCategory: 'network',
+        unattended: true,
+      });
+
+    expect(requestPermissionApproval).not.toHaveBeenCalled();
+    expect(decision).toMatchObject({
+      approved: false,
+      decidedBy: 'runtime',
+      reason:
+        'Classifier requested human approval: Classifier risk assessment.',
+      risk_level: 'high',
+      risk_category: 'network',
+    });
   });
 
   it('escalates a rail ASK to human approval despite a pre-existing cached allow', async () => {

@@ -91,6 +91,7 @@ export async function resolvePermissionIpcDecision(input: {
   const decisionMemory = input.deps.getPermissionDecisionMemoryRepository?.();
   let railRisk: PermissionDeterministicRailRisk | undefined;
   let railRequiresApproval = false;
+  let railApprovalReason: string | undefined;
   return coordinatePermissionDecision({
     request: input.request,
     effectHash,
@@ -109,7 +110,10 @@ export async function resolvePermissionIpcDecision(input: {
     },
     deterministicRails: (railsInput) => {
       const decision = evaluatePermissionDeterministicRails(railsInput);
-      railRequiresApproval ||= decision?.railOutcome === 'ask';
+      if (decision?.railOutcome === 'ask') {
+        railRequiresApproval = true;
+        railApprovalReason = decision.reason;
+      }
       railRisk =
         permissionRiskForDeterministicRailDecision(decision) ?? railRisk;
       return decision;
@@ -159,6 +163,7 @@ export async function resolvePermissionIpcDecision(input: {
         decisionMemory,
         railRisk,
         railRequiresApproval,
+        railApprovalReason,
       }),
   });
 }
@@ -171,6 +176,7 @@ async function resolvePermissionIpcDecisionTail(input: {
   decisionMemory?: PermissionDecisionMemoryRepository;
   railRisk?: PermissionDeterministicRailRisk;
   railRequiresApproval?: boolean;
+  railApprovalReason?: string;
 }): Promise<PermissionApprovalDecision> {
   const route = input.request.targetJid
     ? findConversationRouteForQueue(
@@ -288,6 +294,8 @@ async function resolvePermissionIpcDecisionTail(input: {
         classifierConsult: input.deps.classifierConsult,
       })
     : undefined;
+  const railVetoedClassifierAllow =
+    classifierDecision?.decision === 'allow' && input.railRequiresApproval;
   const primaryRisk = selectPrimaryPermissionRisk(
     input.railRisk,
     classifierDecision
@@ -306,15 +314,16 @@ async function resolvePermissionIpcDecisionTail(input: {
     }
   }
   if (classifierDecision) {
-    input.request.decisionReason = classifierDecision.reason;
+    input.request.decisionReason = railVetoedClassifierAllow
+      ? (input.railApprovalReason ??
+        'Deterministic permission rail requires human approval.')
+      : classifierDecision.reason;
   }
 
   // Cache-miss writeback: the tail is reached only on a miss, so a verdict the
   // classifier actually produced is cached here (never a human allow_once —
   // those flow through requestPermissionApproval below and never reach this).
   // Skipped when effectHash is undefined (sanitized/truncated input).
-  const railVetoedClassifierAllow =
-    classifierDecision?.decision === 'allow' && input.railRequiresApproval;
   if (
     classifierDecision &&
     !railVetoedClassifierAllow &&
@@ -353,10 +362,17 @@ async function resolvePermissionIpcDecisionTail(input: {
     input.request.unattended
   ) {
     return withRequestRisk(input.request, {
-      ...decisionForMode(input.request, 'cancel', 'runtime'),
-      reason: classifierDecision
-        ? `Classifier requested human approval: ${classifierDecision.reason}`
-        : 'This tool is not eligible for unattended auto-permission.',
+      ...decisionForMode(
+        input.request,
+        'cancel',
+        railVetoedClassifierAllow ? 'deterministic_rails' : 'runtime',
+      ),
+      reason: railVetoedClassifierAllow
+        ? (input.railApprovalReason ??
+          'Deterministic permission rail requires human approval.')
+        : classifierDecision
+          ? `Classifier requested human approval: ${classifierDecision.reason}`
+          : 'This tool is not eligible for unattended auto-permission.',
     });
   }
   if (classifierDecision?.denylistHit) {

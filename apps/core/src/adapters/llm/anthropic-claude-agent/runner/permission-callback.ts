@@ -41,6 +41,8 @@ const UNATTENDED_JOB_PERMISSION_REASON =
   'Permission request was sent to the host. Unattended jobs do not wait for approval during the active tool call; approve the requested capability before retrying the scheduled run.';
 const UNATTENDED_RUN_PERMISSION_REASON =
   'Permission request was sent to the host. Autonomous runs do not wait for approval during the active tool call; approve the requested capability before retrying the run.';
+const AUTONOMOUS_PERMISSION_TIMEOUT_REASON =
+  'Timed out waiting for approval. Retry the autonomous run when an approver is available.';
 const INTERACTIVE_PERMISSION_TIMEOUT_REASON =
   'Timed out waiting for interactive approval. Retry the live request when an approver is available.';
 
@@ -376,7 +378,9 @@ async function requestPermissionApprovalInner(options: {
       reason:
         PERMISSION_LANE === 'interactive'
           ? INTERACTIVE_PERMISSION_TIMEOUT_REASON
-          : unattendedPermissionReason(),
+          : PERMISSION_REQUEST_TIMEOUT_MS <= NO_PERMISSION_TIMEOUT_MS
+            ? unattendedPermissionReason()
+            : AUTONOMOUS_PERMISSION_TIMEOUT_REASON,
       decisionClassification: 'user_reject',
     };
   } catch (err) {
