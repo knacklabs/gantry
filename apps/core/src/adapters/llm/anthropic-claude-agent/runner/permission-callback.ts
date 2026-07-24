@@ -212,6 +212,7 @@ async function requestPermissionApprovalInner(options: {
     ) {
       return {
         approved: false,
+        decidedBy: 'runtime',
         reason: unattendedPermissionReason(),
         decisionClassification: 'user_reject',
       };
@@ -375,6 +376,7 @@ async function requestPermissionApprovalInner(options: {
     }
     return {
       approved: false,
+      decidedBy: 'runtime',
       reason:
         PERMISSION_LANE === 'interactive'
           ? INTERACTIVE_PERMISSION_TIMEOUT_REASON

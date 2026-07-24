@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { verifyIpcResponsePayload } from '@core/infrastructure/ipc/response-signing.js';
 import { createIpcAuthEnvelope } from '@core/runtime/ipc-auth.js';
 import { processPermissionInteractionIpc } from '@core/runtime/ipc-interaction-processing.js';
+import { formatPermissionDeniedMessage } from '@core/shared/permission-decision-message.js';
 
 vi.mock('@core/shared/ipc-signing.js', async () => {
   const actual = await vi.importActual<
@@ -110,7 +111,10 @@ describe('requestPermissionApproval', () => {
     );
 
     const firstDecision = await first;
-    expect(firstDecision.approved).toBe(false);
+    expect(firstDecision).toMatchObject({
+      approved: false,
+      decidedBy: 'Ravi',
+    });
 
     const second = requestPermissionApproval({
       appId: 'default',
@@ -165,21 +169,25 @@ describe('requestPermissionApproval', () => {
     const { requestPermissionApproval } =
       await import('@core/adapters/llm/anthropic-claude-agent/runner/permission-callback.js');
 
-    await expect(
-      requestPermissionApproval({
-        appId: 'default',
-        agentId: 'agent:main_agent',
-        workspaceFolder: 'main_agent',
-        targetJid: 'tg:test',
-        toolName: 'Bash',
-        toolInput: { command: 'git status --short' },
-      }),
-    ).resolves.toMatchObject({
+    const result = await requestPermissionApproval({
+      appId: 'default',
+      agentId: 'agent:main_agent',
+      workspaceFolder: 'main_agent',
+      targetJid: 'tg:test',
+      toolName: 'Bash',
+      toolInput: { command: 'git status --short' },
+    });
+
+    expect(result).toMatchObject({
       approved: false,
+      decidedBy: 'runtime',
       reason:
         'Permission request was sent to the host. Unattended jobs do not wait for approval during the active tool call; approve the requested capability before retrying the scheduled run.',
       decisionClassification: 'user_reject',
     });
+    expect(formatPermissionDeniedMessage(result, result.reason!)).toBe(
+      'Permission denied (decided by: runtime): Permission request was sent to the host. Unattended jobs do not wait for approval during the active tool call; approve the requested capability before retrying the scheduled run.',
+    );
   });
 
   it('immediately denies a zero-timeout autonomous run without a job id', async () => {
@@ -259,10 +267,14 @@ describe('requestPermissionApproval', () => {
 
     expect(result).toMatchObject({
       approved: false,
+      decidedBy: 'runtime',
       reason:
         'Timed out waiting for approval. Retry the autonomous run when an approver is available.',
       decisionClassification: 'user_reject',
     });
+    expect(formatPermissionDeniedMessage(result, result.reason!)).toBe(
+      'Permission denied (decided by: runtime): Timed out waiting for approval. Retry the autonomous run when an approver is available.',
+    );
     expect(result.reason).not.toContain('do not wait for approval');
     dateNow.mockRestore();
   });
@@ -298,6 +310,7 @@ describe('requestPermissionApproval', () => {
     const result = await decision;
     expect(result).toMatchObject({
       approved: false,
+      decidedBy: 'runtime',
       reason:
         'Timed out waiting for interactive approval. Retry the live request when an approver is available.',
       decisionClassification: 'user_reject',
