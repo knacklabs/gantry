@@ -57,7 +57,7 @@ describe('permission deterministic rails', () => {
     });
   });
 
-  it('asks when redaction or sanitization can hide shell syntax', () => {
+  it('asks when classifier redaction can hide shell syntax', () => {
     // The command text is incidental — the redaction is signalled via the
     // toolInput*Paths metadata below; a neutral word avoids the autoreview
     // bundle's secret-like-content scanner tripping on a sensitive key name.
@@ -66,14 +66,6 @@ describe('permission deterministic rails', () => {
       {
         ...request(redactedCommand),
         toolInputRedactedPaths: ['command'],
-      },
-      {
-        ...request(redactedCommand),
-        toolInputSanitizedPaths: ['command'],
-      },
-      {
-        ...request(redactedCommand),
-        toolInputSanitized: true,
       },
       {
         ...request(redactedCommand),
@@ -90,12 +82,13 @@ describe('permission deterministic rails', () => {
         }),
       ).toMatchObject({
         railOutcome: 'ask',
-        reason: expect.stringContaining('sanitized'),
+        reason: expect.stringContaining('redacted'),
       });
     }
   });
 
   it('evaluates the full 16K command, not the 500-char display copy', () => {
+    const workspaceRoot = makeRoot();
     const benignPrefix = `echo ${'a'.repeat(520)}`;
     const truncatedDisplay = `${benignPrefix.slice(0, 500)}...[truncated]`;
     // A destructive verb hidden past char 500 must be caught: the rails read the
@@ -106,6 +99,8 @@ describe('permission deterministic rails', () => {
         request: {
           ...request(truncatedDisplay),
           classifierToolInput: { command: `${benignPrefix}; rm -rf /tmp/x` },
+          toolInputSanitized: true,
+          toolInputSanitizedPaths: ['command'],
         } as PermissionApprovalRequest,
       }),
     ).toMatchObject({
@@ -119,11 +114,36 @@ describe('permission deterministic rails', () => {
         request: {
           ...request(truncatedDisplay),
           classifierToolInput: { command: benignPrefix },
+          toolInputSanitized: true,
+          toolInputSanitizedPaths: ['command'],
         } as PermissionApprovalRequest,
+        workspaceRoot,
+        trustedRoots: [workspaceRoot],
       }),
-    ).not.toMatchObject({
-      reason:
-        'Exact tool input is missing, or the command was sanitized or truncated.',
+    ).toBeUndefined();
+  });
+
+  it('asks when the classifier view truncates a non-shell effect field', () => {
+    expect(
+      evaluatePermissionDeterministicRails({
+        request: {
+          ...request('unused'),
+          toolName: 'mcp__google_drive__files_list',
+          toolInput: { paths: ['docs'] },
+          classifierToolInput: { paths: ['docs'] },
+          toolInputTruncatedPaths: ['paths'],
+        } as PermissionApprovalRequest,
+        approvedCapabilityIds: ['mcp.google-drive.files.access'],
+        reviewedMcpReadBindings: [
+          {
+            capabilityId: 'mcp.google-drive.files.access',
+            toolPattern: 'mcp__google_drive__files_list',
+          },
+        ],
+      }),
+    ).toMatchObject({
+      railOutcome: 'ask',
+      reason: expect.stringContaining('truncated'),
     });
   });
 

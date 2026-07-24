@@ -62,9 +62,7 @@ export function evaluatePermissionDeterministicRails(
 ): PermissionDeterministicRailDecision | undefined {
   const { request } = input;
   if (inputIsIncomplete(request)) {
-    return ask(
-      'Exact tool input is missing, or the command was sanitized or truncated.',
-    );
+    return ask('Exact tool input is missing, redacted, or truncated.');
   }
   if (
     isBenignGantryTool(request.toolName) &&
@@ -126,10 +124,9 @@ export function evaluatePermissionDeterministicRails(
 
 /**
  * Incomplete ⇒ the risk-relevant input is genuinely unavailable, so we must
- * ask. Shell commands are executable strings, so redaction or sanitization can
- * hide syntax inside a value (for example, command substitution). A shell
- * command is therefore incomplete whenever its command/cmd field was altered,
- * redacted, or truncated. Non-shell tools keep their existing behavior.
+ * ask. Classifier-view truncation can hide an effect-bearing value for every
+ * tool family. Shell commands are executable strings, so classifier redaction
+ * of command/cmd can also hide syntax inside the value.
  *
  * SECURITY COUPLING: benign first-party MCP tools are a separate auto-allow
  * shortcut. That shortcut is gated on zero redaction/sanitization metadata, so
@@ -141,13 +138,9 @@ function inputIsIncomplete(request: PermissionApprovalRequest): boolean {
     toolInputTruncatedPaths?: string[];
   };
   if (!request.toolInput) return true;
+  if ((ipc.toolInputTruncatedPaths?.length ?? 0) > 0) return true;
   if (!SHELL_TOOLS.has(request.toolName)) return false;
-  return (
-    request.toolInputSanitized === true ||
-    hasCommandPath(request.toolInputSanitizedPaths) ||
-    hasCommandPath(ipc.toolInputRedactedPaths) ||
-    hasCommandPath(ipc.toolInputTruncatedPaths)
-  );
+  return hasCommandPath(ipc.toolInputRedactedPaths);
 }
 
 function hasCommandPath(paths: readonly string[] | undefined): boolean {

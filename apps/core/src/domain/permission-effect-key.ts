@@ -15,9 +15,10 @@ import type { PermissionApprovalRequest } from './types.js';
  *    commands would collide.
  *  - Every field is length-prefixed so `a|b` can never equal `ab`.
  *
- * Returns `undefined` (⇒ NO caching) whenever the risk-relevant input is
- * unavailable: the toolInput is missing or any input field was sanitized,
- * redacted, or truncated. Never hash a sanitized input.
+ * Returns `undefined` (⇒ NO caching) whenever the risk-relevant classifier
+ * input is unavailable: the toolInput is missing or any classifier-view field
+ * was redacted or truncated. Display-only sanitization does not alter the
+ * classifier input being hashed.
  */
 
 // Bump on ANY change to the canonicalizer below (field set, order, framing,
@@ -111,9 +112,9 @@ function commandText(input: Record<string, unknown>): string | undefined {
 }
 
 /**
- * Cache reuse requires a complete, byte-representative decision input. Any
- * sanitization marker makes the effect uncacheable, regardless of tool family
- * or altered field, because hidden content could change the effect.
+ * Cache reuse requires a complete, byte-representative classifier input. Any
+ * classifier redaction or truncation makes the effect uncacheable, regardless
+ * of tool family or altered field, because hidden content could change it.
  */
 function inputIsIncomplete(request: PermissionApprovalRequest): boolean {
   const ipc = request as PermissionApprovalRequest & {
@@ -122,8 +123,6 @@ function inputIsIncomplete(request: PermissionApprovalRequest): boolean {
   };
   return (
     !request.toolInput ||
-    request.toolInputSanitized === true ||
-    (request.toolInputSanitizedPaths?.length ?? 0) > 0 ||
     (ipc.toolInputRedactedPaths?.length ?? 0) > 0 ||
     (ipc.toolInputTruncatedPaths?.length ?? 0) > 0
   );

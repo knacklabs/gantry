@@ -10,7 +10,6 @@ import {
 import {
   BARE_SAFE_EXECUTABLES,
   capabilityTokens,
-  FIND_GLOBAL_OPTION,
   FIND_UNSAFE_PRIMARY,
   GENERIC_READ_EXECUTABLES,
   genericReadFileArgs,
@@ -77,6 +76,10 @@ const SECRET_PATH =
   /(?:^|[/\\])(?:\.env(?:\.[^/\\]+)?|\.ssh|environ(?:ment)?|id_(?:dsa|ecdsa|ed25519|rsa)(?:\.pub)?|[^/\\]*(?:api[_-]?key|credential|private[_-]?key|secret|token)[^/\\]*|(?:[^/\\]*[_.-])?key(?:s)?(?:[_.-][^/\\]*)?|[^/\\]+\.(?:key|pem|p12|pfx))(?:$|[/\\])/i;
 const SECRET_VALUE =
   /-----BEGIN [^-]*PRIVATE KEY-----|(?:^|\s)Bearer\s+\S+|\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/i;
+const FIND_PRE_PATH_FLAG = /^-[EdPsxX]+$/;
+const FIND_OPTIMIZATION_OPTION = /^-O\d+$/;
+const FIND_EXPRESSION_PRIMARY =
+  /^-(?:amin|atime|cmin|ctime|empty|false|fstype|gid|group|ilname|iname|inum|ipath|iregex|links|lname|maxdepth|mindepth|mmin|mount|mtime|name|nogroup|nouser|path|perm|print|print0|printf|prune|quit|readable|regex|size|true|type|uid|used|user|wholename|writable|xdev|xtype)$/;
 
 export function evaluateAutoPermissionReadOnlyGate(
   input: AutoPermissionReadOnlyGateInput,
@@ -277,16 +280,52 @@ function evaluateFindCommand(
   if (args.some(isSecretLikeValue)) {
     return blocked('Secret or redirected reads require approval.');
   }
-  // Path operands precede the first expression primary; skip leading global
-  // options so their operand still gets confined.
+  // Path operands precede the first expression primary. Parse pre-path options
+  // explicitly so none can make us silently discard a later starting path.
   const operands: string[] = [];
   let sawPrimary = false;
-  for (const arg of args) {
+  let optionsEnded = false;
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index]!;
     if (sawPrimary) continue;
-    if (FIND_GLOBAL_OPTION.test(arg)) continue;
-    if (arg.startsWith('-') || arg === '!' || arg === '(') {
+    if (arg === '!' || arg === '(') {
       sawPrimary = true;
       continue;
+    }
+    if (!optionsEnded && operands.length === 0 && arg === '--') {
+      optionsEnded = true;
+      continue;
+    }
+    if (
+      !optionsEnded &&
+      operands.length === 0 &&
+      (FIND_PRE_PATH_FLAG.test(arg) || FIND_OPTIMIZATION_OPTION.test(arg))
+    ) {
+      continue;
+    }
+    if (!optionsEnded && operands.length === 0 && arg === '-D') {
+      const debugOptions = args[index + 1];
+      if (!debugOptions || debugOptions.startsWith('-')) {
+        return blocked('find command has an invalid pre-path option.');
+      }
+      index += 1;
+      continue;
+    }
+    if (!optionsEnded && operands.length === 0 && arg === '-f') {
+      const pathOperand = args[index + 1];
+      if (!pathOperand || pathOperand.startsWith('-')) {
+        return blocked('find command has an invalid pre-path option.');
+      }
+      operands.push(pathOperand);
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith('-')) {
+      if (operands.length > 0 || FIND_EXPRESSION_PRIMARY.test(arg)) {
+        sawPrimary = true;
+        continue;
+      }
+      return blocked('find command uses an unsupported pre-path option.');
     }
     operands.push(arg);
   }

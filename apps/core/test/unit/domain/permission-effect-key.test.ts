@@ -200,10 +200,8 @@ describe('computePermissionEffectHash', () => {
     expect(computePermissionEffectHash({ request: req })).toBeUndefined();
   });
 
-  it('returns undefined for every sanitized or redacted input', () => {
+  it('returns undefined for every classifier-redacted input', () => {
     const requests = [
-      shellRequest('ls', { toolInputSanitized: true }),
-      shellRequest('ls', { toolInputSanitizedPaths: ['command'] }),
       {
         ...shellRequest('ls'),
         toolInputRedactedPaths: ['command'],
@@ -274,6 +272,8 @@ describe('computePermissionEffectHash', () => {
     const key = computePermissionEffectHash({
       request: shellRequest(`${full.slice(0, 500)}...[truncated]`, {
         classifierToolInput: { command: full },
+        toolInputSanitized: true,
+        toolInputSanitizedPaths: ['command'],
       }),
     });
     expect(key).toBeDefined();
@@ -282,6 +282,8 @@ describe('computePermissionEffectHash', () => {
     const other = computePermissionEffectHash({
       request: shellRequest('a completely different display string', {
         classifierToolInput: { command: full },
+        toolInputSanitized: true,
+        toolInputSanitizedPaths: ['command'],
       }),
     });
     expect(other).toBe(key);
