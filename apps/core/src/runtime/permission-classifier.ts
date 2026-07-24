@@ -237,9 +237,7 @@ export async function consultPermissionClassifier(
 
   return {
     risk_level: verdict.risk_level,
-    ...(verdict.risk_category
-      ? { risk_category: verdict.risk_category }
-      : {}),
+    ...(verdict.risk_category ? { risk_category: verdict.risk_category } : {}),
     reason: verdict.reason,
     latencyMs: Date.now() - startedAt,
     model: modelSelection.model,

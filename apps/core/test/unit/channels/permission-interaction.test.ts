@@ -43,9 +43,7 @@ describe('permission interaction', () => {
     ];
 
     for (const prompt of prompts) {
-      expect(prompt.match(/^Risk:.*$/gm)).toEqual([
-        'Risk: high — destructive',
-      ]);
+      expect(prompt.match(/^Risk:.*$/gm)).toEqual(['Risk: high — destructive']);
     }
   });
 

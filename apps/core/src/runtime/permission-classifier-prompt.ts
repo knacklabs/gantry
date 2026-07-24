@@ -211,8 +211,7 @@ export function parsePermissionClassifierResponse(value: string):
     risk_level: verdict.data.risk_level as PermissionClassifierRiskLevel,
     ...(verdict.data.risk_category
       ? {
-          risk_category: verdict.data
-            .risk_category as PermissionRiskCategory,
+          risk_category: verdict.data.risk_category as PermissionRiskCategory,
         }
       : {}),
     reason: (verdict.data.reason as string).trim(),
