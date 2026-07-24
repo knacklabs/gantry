@@ -47,6 +47,7 @@ import {
   loadDatabase,
   normalizeGroupAddSelector,
   pruneAgentSenderPolicyOverride,
+  pruneDesiredStateAgent,
   resolveGroupSelector,
   seedTelegramControlApproverForAgent,
   usage,
@@ -425,17 +426,12 @@ async function runRemove(runtimeHome: string, args: string[]): Promise<number> {
         p.log.error(
           'Refusing destructive removal in non-interactive mode without --yes.',
         );
-        p.log.info(
-          'Next action: rerun with `--yes` (and `--delete-folder` if you want to remove files too).',
-        );
+        p.log.info('Next action: rerun with `--yes`.');
         return 1;
       }
 
-      const folderPath = path.join(runtimeHome, 'agents', found.group.folder);
       const decision = await p.select({
-        message: parsed.deleteFolder
-          ? `Remove ${found.group.name} (${found.jid}) and delete folder ${folderPath}?`
-          : `Remove ${found.group.name} (${found.jid}) from the database?`,
+        message: `Remove ${found.group.name} (${found.jid})?`,
         options: [
           { label: 'Yes, remove it', value: 'yes' },
           { label: 'No, cancel', value: 'no' },
@@ -470,26 +466,57 @@ async function runRemove(runtimeHome: string, args: string[]): Promise<number> {
       );
     }
 
-    if (parsed.deleteFolder) {
-      const folderPath = path.join(runtimeHome, 'agents', found.group.folder);
-      try {
-        if (fs.existsSync(folderPath)) {
-          fs.rmSync(folderPath, { recursive: true, force: false });
-        }
-      } catch (err) {
-        p.log.warn(
-          `Agent removed from database, but folder cleanup failed: ${folderPath}. Details: ${errorMessage(err)}`,
-        );
-        return 1;
-      }
+    // Deleting the route is not durable on its own: desired-state
+    // reconciliation re-imports every settings.agents entry on reload/restart,
+    // so an agent whose definition survives comes back with its routes and
+    // system jobs. Drop the definition once its last route is gone.
+    const remainingRoutes = Object.entries(
+      await db.getAllConversationRoutes(),
+    ).filter(([, group]) => group.folder === found.group.folder).length;
+    const desiredPrune = await pruneDesiredStateAgent({
+      runtimeHome,
+      folder: found.group.folder,
+      remainingRoutes,
+    });
+    if (desiredPrune.error) {
+      // Stop before any further destructive step: the agent WILL be recreated
+      // on the next reload, so deleting its folder would leave a resurrected
+      // agent pointing at missing files, and reporting success would tell
+      // automation the removal persisted when it did not.
+      p.log.error(
+        `Removal did not persist: the agent definition still exists in desired state for ${found.group.folder} (${desiredPrune.error}). It will be recreated on the next reload.`,
+      );
+      p.log.info(
+        'Next action: fix the settings write, then rerun the removal. The agent folder was left untouched.',
+      );
+      return 1;
+    }
+    if (desiredPrune.keptForDelegates?.length) {
+      // The agent stays in desired state because other agents delegate to it,
+      // so its files must stay too: deleting them would leave delegation and
+      // reconciliation pointing at a missing folder.
+      p.log.warn(
+        `Route removed, but agent ${found.group.folder} is retained in desired state: still referenced as a delegate by ${desiredPrune.keptForDelegates.join(', ')}.`,
+      );
+      p.log.info(
+        'Next action: remove those delegate references first if you want the agent fully deleted. The agent folder was left untouched.',
+      );
+      return 0;
+    }
+    if (desiredPrune.pruned) {
+      const accounts = desiredPrune.providerAccountsPruned;
+      p.log.info(
+        `Removed agent ${found.group.folder} from desired state${
+          accounts > 0 ? ` (and ${accounts} orphaned provider account(s))` : ''
+        }.`,
+      );
+    } else if (remainingRoutes > 0) {
+      p.log.info(
+        `Agent ${found.group.folder} kept in desired state: ${remainingRoutes} route(s) still bound.`,
+      );
     }
 
     p.log.success(`Removed agent ${found.group.name} (${found.jid}).`);
-    if (!parsed.deleteFolder) {
-      p.log.info(
-        `Agent folder preserved at ${path.join(runtimeHome, 'agents', found.group.folder)}. Use --delete-folder to remove it.`,
-      );
-    }
     return 0;
   } finally {
     await db?.close();

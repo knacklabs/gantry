@@ -21,6 +21,7 @@ import { listSlackRecentChats } from '@core/cli/slack-chat-discovery.js';
 import { makeAgentThreadQueueKey } from '@core/shared/thread-queue-key.js';
 import {
   pruneAgentSenderPolicyOverride,
+  pruneDesiredStateAgent,
   resolveGroupSelector,
 } from '@core/cli/group-helpers.js';
 
@@ -1182,5 +1183,190 @@ describe('cli slack helpers', () => {
       expect.objectContaining({ agent: 'researcher' }),
     ]);
     expect(updated.agents.main_agent.bindings).toEqual({});
+  });
+
+  it('removes the agent from desired state once its last route is gone', async () => {
+    const runtimeHome = makeRuntimeHome();
+    const settings = loadRuntimeSettings(runtimeHome);
+    settings.agents.doomed = {
+      name: 'Doomed',
+      folder: 'doomed',
+      bindings: {},
+      capabilities: [],
+      delegates: [],
+      sources: { skills: [], mcpServers: [], tools: [] },
+      accessPreset: 'full',
+    } as (typeof settings.agents)['doomed'];
+    settings.agents.keeper = {
+      ...settings.agents.doomed,
+      name: 'Keeper',
+      folder: 'keeper',
+    };
+    saveRuntimeSettings(runtimeHome, settings);
+
+    // Still bound elsewhere -> the definition must survive.
+    await expect(
+      pruneDesiredStateAgent({
+        runtimeHome,
+        folder: 'doomed',
+        remainingRoutes: 1,
+      }),
+    ).resolves.toEqual({ pruned: false, providerAccountsPruned: 0 });
+    expect(loadRuntimeSettings(runtimeHome).agents.doomed).toBeDefined();
+
+    // Last route gone -> definition removed, so reconcile cannot resurrect it.
+    await expect(
+      pruneDesiredStateAgent({
+        runtimeHome,
+        folder: 'doomed',
+        remainingRoutes: 0,
+      }),
+    ).resolves.toEqual({ pruned: true, providerAccountsPruned: 0 });
+    expect(loadRuntimeSettings(runtimeHome).agents.doomed).toBeUndefined();
+
+    // Other agents are untouched.
+    expect(loadRuntimeSettings(runtimeHome).agents.keeper).toBeDefined();
+  });
+
+  it('prunes the removed route from desired state while retaining a multi-route agent', async () => {
+    // Mirrors runRemove's order: the route/binding prune runs first, then the
+    // agent prune declines because another route remains. The removed route
+    // must not survive in desired state, or reconciliation recreates it.
+    const runtimeHome = makeRuntimeHome();
+    const settings = loadRuntimeSettings(runtimeHome);
+    settings.providerAccounts.slack_default = {
+      provider: 'slack',
+      agentId: 'multi',
+      label: 'slack',
+      runtimeSecretRefs: {},
+    } as (typeof settings.providerAccounts)['slack_default'];
+    settings.agents.multi = {
+      name: 'Multi',
+      folder: 'multi',
+      bindings: {
+        multi_first: {
+          jid: 'sl:C0000000001',
+          provider: 'slack',
+          providerAccountId: 'slack_default',
+          name: 'First',
+          trigger: '',
+          addedAt: '2026-01-01T00:00:00.000Z',
+          requiresTrigger: false,
+        },
+      },
+      sources: { skills: [], mcpServers: [], tools: [] },
+      capabilities: [],
+      delegates: [],
+      accessPreset: 'full',
+    } as (typeof settings.agents)['multi'];
+    settings.bindings.multi_first = {
+      agent: 'multi',
+      conversation: 'slack_default_c0000000001',
+      installKey: 'multi',
+      trigger: '',
+      addedAt: '2026-01-01T00:00:00.000Z',
+      requiresTrigger: false,
+      memoryScope: 'conversation',
+    } as (typeof settings.bindings)['multi_first'];
+    settings.conversations.slack_default_c0000000001 = {
+      providerAccount: 'slack_default',
+      externalId: 'C0000000001',
+      kind: 'channel',
+      displayName: 'First',
+      senderPolicy: { allow: '*', mode: 'trigger' },
+      controlApprovers: [],
+      installedAgents: {
+        multi: {
+          agentId: 'multi',
+          providerAccountId: 'slack_default',
+          status: 'active',
+          addedAt: '2026-01-01T00:00:00.000Z',
+          memoryScope: 'conversation',
+        },
+      },
+    } as (typeof settings.conversations)['slack_default_c0000000001'];
+    saveRuntimeSettings(runtimeHome, settings);
+
+    await pruneAgentSenderPolicyOverride(
+      runtimeHome,
+      'sl:C0000000001',
+      'multi',
+    );
+    const agentPrune = await pruneDesiredStateAgent({
+      runtimeHome,
+      folder: 'multi',
+      remainingRoutes: 1,
+    });
+
+    const updated = loadRuntimeSettings(runtimeHome);
+    // Agent retained (another route remains) ...
+    expect(agentPrune.pruned).toBe(false);
+    expect(updated.agents.multi).toBeDefined();
+    // ... but the removed route leaves no desired-state trace to resurrect it.
+    expect(updated.bindings.multi_first).toBeUndefined();
+    expect(updated.agents.multi.bindings.multi_first).toBeUndefined();
+    expect(updated.conversations.slack_default_c0000000001).toBeUndefined();
+  });
+
+  it('never leaves a provider account pointing at the removed agent', () => {
+    const runtimeHome = makeRuntimeHome();
+    const settings = loadRuntimeSettings(runtimeHome);
+    settings.agents.doomed = {
+      name: 'Doomed',
+      folder: 'doomed',
+      bindings: {},
+      capabilities: [],
+      delegates: [],
+      sources: { skills: [], mcpServers: [], tools: [] },
+      accessPreset: 'full',
+    } as (typeof settings.agents)['doomed'];
+    settings.providerAccounts.doomed_account = {
+      provider: 'slack',
+      agentId: 'doomed',
+      label: 'doomed',
+      runtimeSecretRefs: {},
+    } as (typeof settings.providerAccounts)['doomed_account'];
+    settings.conversations.doomed_conversation = {
+      providerAccount: 'doomed_account',
+      externalId: 'C999',
+      kind: 'channel',
+      displayName: 'doomed',
+      senderPolicy: { allow: '*', mode: 'trigger' },
+      controlApprovers: [],
+      installedAgents: {
+        doomed: {
+          agentId: 'doomed',
+          providerAccountId: 'doomed_account',
+          status: 'active',
+          addedAt: '2026-01-01T00:00:00.000Z',
+          memoryScope: 'conversation',
+        },
+      },
+    } as (typeof settings.conversations)['doomed_conversation'];
+    saveRuntimeSettings(runtimeHome, settings);
+
+    return expect(
+      (async () => {
+        await pruneDesiredStateAgent({
+          runtimeHome,
+          folder: 'doomed',
+          remainingRoutes: 0,
+        });
+        const updated = loadRuntimeSettings(runtimeHome);
+        return {
+          agent: updated.agents.doomed,
+          account: updated.providerAccounts.doomed_account,
+          conversation: updated.conversations.doomed_conversation,
+          danglingAccounts: Object.values(updated.providerAccounts).filter(
+            (account) => account.agentId === 'doomed',
+          ).length,
+        };
+      })(),
+    ).resolves.toEqual({
+      agent: undefined,
+      account: undefined,
+      conversation: undefined,
+      danglingAccounts: 0,
+    });
   });
 });

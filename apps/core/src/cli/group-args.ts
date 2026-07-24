@@ -13,7 +13,6 @@ export interface GroupAddOptions {
 
 export interface GroupRemoveOptions {
   selector?: string;
-  deleteFolder: boolean;
   assumeYes: boolean;
 }
 
@@ -169,16 +168,11 @@ export function parseGroupRemoveArgs(
   args: string[],
 ): GroupRemoveOptions | { error: string } {
   const options: GroupRemoveOptions = {
-    deleteFolder: false,
     assumeYes: false,
   };
 
   for (let i = 0; i < args.length; i += 1) {
     const arg = args[i];
-    if (arg === '--delete-folder') {
-      options.deleteFolder = true;
-      continue;
-    }
     if (arg === '--yes' || arg === '-y') {
       options.assumeYes = true;
       continue;
@@ -196,8 +190,7 @@ export function parseGroupRemoveArgs(
 
   if (!options.selector) {
     return {
-      error:
-        'Missing agent selector. Usage: gantry agent remove <jid|folder> [--delete-folder]',
+      error: 'Missing agent selector. Usage: gantry agent remove <jid|folder>',
     };
   }
 

@@ -32,7 +32,7 @@ export function usage(): string {
     '  gantry agent info <jid|folder>',
     '  gantry agent name <name>',
     '  gantry agent add <jid|chat-id> [--name <name>] [--folder <folder>] [--trigger <word>] [--requires-trigger true|false] [--test-message|--no-test-message]',
-    '  gantry agent remove <jid|folder> [--delete-folder] [--yes]',
+    '  gantry agent remove <jid|folder> [--yes]',
     '  gantry agent trigger <jid|folder> <word>',
     '  gantry agent trigger <jid|folder> --off',
     '  gantry conversation approvers <conversation-id> [--allow <userId,userId>]',
@@ -135,6 +135,128 @@ export async function pruneAgentSenderPolicyOverride(
   } catch (err) {
     return {
       pruned: false,
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+}
+
+/**
+ * Remove an agent's definition from desired state once its LAST route is gone.
+ *
+ * Route deletion alone is not durable: desired-state reconciliation re-imports
+ * every `settings.agents` entry at startup and on each settings change, so an
+ * agent whose definition survives is recreated -- along with its routes and
+ * system jobs -- on the next reload. Callers must invoke this after removing a
+ * route so removal actually persists.
+ *
+ * No-ops while the agent still owns other routes: removing one route of a
+ * multi-route agent must not delete the agent.
+ */
+export async function pruneDesiredStateAgent(input: {
+  runtimeHome: string;
+  folder: string;
+  remainingRoutes: number;
+}): Promise<{
+  pruned: boolean;
+  providerAccountsPruned: number;
+  keptForDelegates?: string[];
+  error?: string;
+}> {
+  if (input.remainingRoutes > 0) {
+    return { pruned: false, providerAccountsPruned: 0 };
+  }
+  try {
+    const settings = loadRuntimeSettings(input.runtimeHome);
+    const previousSettings = structuredClone(settings);
+    if (!settings.agents[input.folder]) {
+      return { pruned: false, providerAccountsPruned: 0 };
+    }
+    // Routes are not the only liveness signal: another agent may still list
+    // this one as a delegate. Deleting it would break delegation (or leave an
+    // invalid inbound reference), so keep the definition and say why.
+    const delegateReferences = Object.entries(settings.agents)
+      .filter(
+        ([folder, agent]) =>
+          folder !== input.folder &&
+          (agent.delegates ?? []).some(
+            (delegate) =>
+              delegate === input.folder ||
+              (delegate as { agent?: string })?.agent === input.folder,
+          ),
+      )
+      .map(([folder]) => folder);
+    if (delegateReferences.length > 0) {
+      return {
+        pruned: false,
+        providerAccountsPruned: 0,
+        keptForDelegates: delegateReferences,
+      };
+    }
+    delete settings.agents[input.folder];
+
+    // A provider account still pointing at the removed agent is a dangling
+    // "references unknown agent" reference that makes the settings write fail,
+    // so none may survive. Settings validation already guarantees a
+    // conversation's installed agent owns its provider account, so an account
+    // belonging to this agent can only serve this agent's conversations --
+    // both go together.
+    let providerAccountsPruned = 0;
+    for (const [accountId, account] of Object.entries(
+      settings.providerAccounts,
+    )) {
+      if (account.agentId !== input.folder) continue;
+      for (const [conversationId, conversation] of Object.entries(
+        settings.conversations,
+      )) {
+        // Drop only the installs backed by this account -- a conversation can
+        // host other agents, and deleting it wholesale would silently discard
+        // their configuration.
+        for (const [installKey, install] of Object.entries(
+          conversation.installedAgents,
+        )) {
+          if (
+            install.providerAccountId !== accountId &&
+            install.agentId !== input.folder
+          ) {
+            continue;
+          }
+          delete conversation.installedAgents[installKey];
+        }
+        const survivingInstalls = Object.values(conversation.installedAgents);
+        if (survivingInstalls.length === 0) {
+          delete settings.conversations[conversationId];
+          continue;
+        }
+        // Others remain: hand the conversation to a surviving install's
+        // account so its primary reference never points at a deleted account.
+        if (conversation.providerAccount === accountId) {
+          const replacement = survivingInstalls.find(
+            (install) =>
+              install.providerAccountId &&
+              install.providerAccountId !== accountId,
+          )?.providerAccountId;
+          if (!replacement) {
+            throw new Error(
+              `cannot remove ${input.folder}: conversation ${conversationId} still hosts ${survivingInstalls.length} agent(s) but has no other provider account to own it`,
+            );
+          }
+          conversation.providerAccount = replacement;
+        }
+      }
+      delete settings.providerAccounts[accountId];
+      providerAccountsPruned += 1;
+    }
+
+    await writeDesiredRuntimeSettings({
+      runtimeHome: input.runtimeHome,
+      settings,
+      previousSettings,
+    });
+    return { pruned: true, providerAccountsPruned };
+  } catch (err) {
+    return {
+      pruned: false,
+      providerAccountsPruned: 0,
       error: err instanceof Error ? err.message : String(err),
     };
   }

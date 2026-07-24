@@ -34,7 +34,7 @@
     "apps/core/src/channels/slack/channel-interactions.ts": 712,
     "apps/core/src/channels/telegram/channel-connect.ts": 708,
     "apps/core/src/channels/telegram/channel-delivery.ts": 766,
-    "apps/core/src/cli/group.ts": 824,
+    "apps/core/src/cli/group.ts": 845,
     "apps/core/src/cli/model.ts": 723,
     "apps/core/src/config/settings/desired-state-service.ts": 830,
     "apps/core/src/config/settings/runtime-settings-parser.ts": 1145,
