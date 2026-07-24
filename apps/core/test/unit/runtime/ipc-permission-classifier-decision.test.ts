@@ -161,26 +161,50 @@ describe('IPC permission classifier decision', () => {
     });
   });
 
-  it('does not cache a classifier allow vetoed by an ASK rail', async () => {
-    const getClassifierVerdict = vi.fn(async () => null);
-    const putClassifierVerdict = vi.fn(async () => undefined);
+  it.each([
+    ['recursive force-delete', 'rm -rf ./build'],
+    ['ssh private key read', 'cat ~/.ssh/id_rsa'],
+  ])(
+    'does not cache a classifier allow vetoed by the %s hard-floor rail',
+    async (_label, command) => {
+      const getClassifierVerdict = vi.fn(async () => null);
+      const putClassifierVerdict = vi.fn(async () => undefined);
 
+      const { decision, requestPermissionApproval } =
+        await resolveWithClassifierRisk({
+          toolName: 'RunCommand',
+          toolInput: { command },
+          riskLevel: 'low',
+          riskCategory: 'benign',
+          decisionMemory: {
+            getClassifierVerdict,
+            putClassifierVerdict,
+          } as never,
+        });
+
+      expect(decision).toMatchObject({ approved: false, decidedBy: 'owner' });
+      expect(requestPermissionApproval).toHaveBeenCalledOnce();
+      expect(getClassifierVerdict).not.toHaveBeenCalled();
+      expect(putClassifierVerdict).not.toHaveBeenCalled();
+    },
+  );
+
+  it('allows the classifier tail to auto-allow a missing-input advisory ASK', async () => {
     const { decision, requestPermissionApproval } =
       await resolveWithClassifierRisk({
-        toolName: 'RunCommand',
-        toolInput: { command: 'rm -rf ./build' },
+        toolName: 'mcp__crm__update_record',
+        toolInput: undefined,
         riskLevel: 'low',
         riskCategory: 'benign',
-        decisionMemory: {
-          getClassifierVerdict,
-          putClassifierVerdict,
-        } as never,
       });
 
-    expect(decision).toMatchObject({ approved: false, decidedBy: 'owner' });
-    expect(requestPermissionApproval).toHaveBeenCalledOnce();
-    expect(getClassifierVerdict).not.toHaveBeenCalled();
-    expect(putClassifierVerdict).not.toHaveBeenCalled();
+    expect(requestPermissionApproval).not.toHaveBeenCalled();
+    expect(decision).toMatchObject({
+      approved: true,
+      decidedBy: 'auto_classifier',
+      risk_level: 'high',
+      risk_category: 'privileged',
+    });
   });
 
   it('attributes an unattended classifier allow veto to the deterministic rail', async () => {

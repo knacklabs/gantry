@@ -32,6 +32,7 @@ export type PermissionDeterministicRailDecision =
       railOutcome: 'ask';
       reason: string;
       railSignal: PermissionDeterministicRailSignal;
+      hardFloor?: true;
     }
   | (PermissionApprovalDecision & {
       railOutcome: 'allow' | 'deny';
@@ -147,23 +148,26 @@ export function evaluatePermissionDeterministicRails(
   if (parsed.leaves.some(isInterpreterString)) {
     return ask('An interpreter string requires approval.', 'privileged');
   }
-  if (
-    destructiveBashCommandHint(command) ||
-    parsed.leaves.some(isDestructiveLeaf)
-  ) {
-    return ask('Destructive command requires approval.', 'destructive');
+  const destructiveHint = destructiveBashCommandHint(command);
+  if (destructiveHint || parsed.leaves.some(isDestructiveLeaf)) {
+    return destructiveHint || parsed.leaves.some(isHardFloorDestructiveLeaf)
+      ? hardFloorAsk('Destructive command requires approval.', 'destructive')
+      : ask('Destructive command requires approval.', 'destructive');
   }
   if (containsProtectedPath(toolInput, command, parsed.leaves)) {
-    return ask(
+    return hardFloorAsk(
       'Command references a credential, secret, or protected path.',
       'secret_path',
     );
   }
   if (parsed.leaves.some(isPrivilegedLeaf)) {
-    return ask('Privileged command requires approval.', 'privileged');
+    return hardFloorAsk('Privileged command requires approval.', 'privileged');
   }
   if (uploadsLocalFile(command)) {
-    return ask('Network command uploads local file content.', 'egress');
+    return hardFloorAsk(
+      'Network command uploads local file content.',
+      'egress',
+    );
   }
   if (!readOnly.allowed) {
     const outside = outOfTrustedRootReason(
@@ -171,7 +175,11 @@ export function evaluatePermissionDeterministicRails(
       input.workspaceRoot,
       input.trustedRoots ?? [],
     );
-    if (outside) return ask(outside, 'out_of_trusted_root');
+    if (outside) {
+      return (input.trustedRoots?.length ?? 0) > 0
+        ? hardFloorAsk(outside, 'out_of_trusted_root')
+        : ask(outside, 'out_of_trusted_root');
+    }
   }
   return readOnly.allowed ? allow(request, readOnly.reason) : undefined;
 }
@@ -182,7 +190,9 @@ export function permissionRiskForDeterministicRailDecision(
   if (decision?.railOutcome !== 'ask') return undefined;
   switch (decision.railSignal) {
     case 'destructive':
-      return { level: 'high', category: 'destructive' };
+      return decision.hardFloor
+        ? { level: 'high', category: 'destructive' }
+        : undefined;
     case 'egress':
       return { level: 'medium', category: 'network' };
     case 'privileged':
@@ -269,6 +279,12 @@ function isDestructiveLeaf(leaf: BashCommandLeaf): boolean {
   );
 }
 
+function isHardFloorDestructiveLeaf(leaf: BashCommandLeaf): boolean {
+  return (
+    bashExecutableName(leaf.argv[0] ?? '') !== 'rm' && isDestructiveLeaf(leaf)
+  );
+}
+
 function uploadsLocalFile(command: string): boolean {
   return (
     /\bcurl\b[\s\S]*(?:(?:-d|--data(?:-binary|-urlencode)?|--form)(?:=|\s)+@|(?:-F)[^\s]*=@|(?:-T|--upload-file)(?:=|\s)+\S+)/i.test(
@@ -313,6 +329,13 @@ function ask(
   railSignal: PermissionDeterministicRailSignal,
 ): PermissionDeterministicRailDecision {
   return { railOutcome: 'ask', reason, railSignal };
+}
+
+function hardFloorAsk(
+  reason: string,
+  railSignal: PermissionDeterministicRailSignal,
+): PermissionDeterministicRailDecision {
+  return { railOutcome: 'ask', reason, railSignal, hardFloor: true };
 }
 
 function allow(

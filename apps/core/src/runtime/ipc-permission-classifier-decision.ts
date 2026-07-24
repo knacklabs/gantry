@@ -110,7 +110,7 @@ export async function resolvePermissionIpcDecision(input: {
     },
     deterministicRails: (railsInput) => {
       const decision = evaluatePermissionDeterministicRails(railsInput);
-      if (decision?.railOutcome === 'ask') {
+      if (decision?.railOutcome === 'ask' && decision.hardFloor === true) {
         railRequiresApproval = true;
         railApprovalReason = decision.reason;
       }
