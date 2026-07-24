@@ -23,6 +23,7 @@ import {
   JOB_RUN_LEASE_TOKEN,
   IPC_RESPONSE_KEY_ID,
   IPC_RESPONSE_VERIFY_KEY,
+  PERMISSION_LANE,
   PERMISSION_MODE,
   PERMISSION_REQUEST_TIMEOUT_MS,
   PROVIDER_ACCOUNT_ID,
@@ -38,6 +39,8 @@ const DEFAULT_RUNNER_APP_ID = 'default';
 const AGENT_FOLDER_OPTION_KEY = WORKSPACE_FOLDER_OPTION_KEY;
 const UNATTENDED_JOB_PERMISSION_REASON =
   'Permission request was sent to the host. Unattended jobs do not wait for approval during the active tool call; approve the requested capability before retrying the scheduled run.';
+const UNATTENDED_RUN_PERMISSION_REASON =
+  'Permission request was sent to the host. Autonomous runs do not wait for approval during the active tool call; approve the requested capability before retrying the run.';
 const INTERACTIVE_PERMISSION_TIMEOUT_REASON =
   'Timed out waiting for interactive approval. Retry the live request when an approver is available.';
 
@@ -171,7 +174,7 @@ async function requestPermissionApprovalInner(options: {
         ? { turnIntentSummary: TURN_INTENT_SUMMARY.slice(0, 1_500) }
         : {}),
       unattended:
-        Boolean(JOB_ID) &&
+        PERMISSION_LANE === 'autonomous' &&
         PERMISSION_REQUEST_TIMEOUT_MS <= NO_PERMISSION_TIMEOUT_MS,
       context: {
         appId,
@@ -197,17 +200,17 @@ async function requestPermissionApprovalInner(options: {
     fs.renameSync(requestTmpPath, requestPath);
 
     const autoClassifierWait =
-      Boolean(JOB_ID) &&
+      PERMISSION_LANE === 'autonomous' &&
       PERMISSION_REQUEST_TIMEOUT_MS <= NO_PERMISSION_TIMEOUT_MS &&
       PERMISSION_MODE === 'auto';
     if (
-      JOB_ID &&
+      PERMISSION_LANE === 'autonomous' &&
       PERMISSION_REQUEST_TIMEOUT_MS <= NO_PERMISSION_TIMEOUT_MS &&
       !autoClassifierWait
     ) {
       return {
         approved: false,
-        reason: UNATTENDED_JOB_PERMISSION_REASON,
+        reason: unattendedPermissionReason(),
         decisionClassification: 'user_reject',
       };
     }
@@ -217,7 +220,7 @@ async function requestPermissionApprovalInner(options: {
       ? AUTO_PERMISSION_CLASSIFIER_WAIT_MS
       : PERMISSION_REQUEST_TIMEOUT_MS;
     const deadline =
-      !JOB_ID && waitMs === NO_PERMISSION_TIMEOUT_MS
+      PERMISSION_LANE === 'interactive' && waitMs === NO_PERMISSION_TIMEOUT_MS
         ? undefined
         : nowMs() + waitMs;
     while (deadline === undefined || nowMs() < deadline) {
@@ -370,9 +373,10 @@ async function requestPermissionApprovalInner(options: {
     }
     return {
       approved: false,
-      reason: JOB_ID
-        ? UNATTENDED_JOB_PERMISSION_REASON
-        : INTERACTIVE_PERMISSION_TIMEOUT_REASON,
+      reason:
+        PERMISSION_LANE === 'interactive'
+          ? INTERACTIVE_PERMISSION_TIMEOUT_REASON
+          : unattendedPermissionReason(),
       decisionClassification: 'user_reject',
     };
   } catch (err) {
@@ -384,6 +388,12 @@ async function requestPermissionApprovalInner(options: {
           : 'Permission request failed',
     };
   }
+}
+
+function unattendedPermissionReason(): string {
+  return JOB_ID
+    ? UNATTENDED_JOB_PERMISSION_REASON
+    : UNATTENDED_RUN_PERMISSION_REASON;
 }
 
 function isPermissionRiskLevel(

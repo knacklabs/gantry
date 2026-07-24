@@ -313,7 +313,14 @@ async function resolvePermissionIpcDecisionTail(input: {
   // classifier actually produced is cached here (never a human allow_once —
   // those flow through requestPermissionApproval below and never reach this).
   // Skipped when effectHash is undefined (sanitized/truncated input).
-  if (classifierDecision && input.effectHash && input.decisionMemory) {
+  const railVetoedClassifierAllow =
+    classifierDecision?.decision === 'allow' && input.railRequiresApproval;
+  if (
+    classifierDecision &&
+    !railVetoedClassifierAllow &&
+    input.effectHash &&
+    input.decisionMemory
+  ) {
     await input.decisionMemory
       .putClassifierVerdict({
         appId: input.request.appId ?? 'default',

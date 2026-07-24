@@ -5,6 +5,7 @@ import type {
   PermissionRiskCategory,
   PermissionRiskLevel,
 } from '@core/domain/types.js';
+import type { PermissionDecisionMemoryRepository } from '@core/domain/ports/permission-decision-memory.js';
 import { resolveWorkspaceFolderPath } from '@core/platform/workspace-folder.js';
 import { resolvePermissionIpcDecision } from '@core/runtime/ipc-permission-classifier-decision.js';
 
@@ -13,11 +14,18 @@ async function resolveWithClassifierRisk(input: {
   toolInput: unknown;
   riskLevel: PermissionRiskLevel;
   riskCategory: PermissionRiskCategory;
+  decisionMemory?: PermissionDecisionMemoryRepository;
 }) {
   const requestPermissionApproval = vi.fn(async () => ({
     approved: false,
     mode: 'cancel' as const,
     decidedBy: 'owner',
+  }));
+  const classifierConsult = vi.fn(async () => ({
+    risk_level: input.riskLevel,
+    risk_category: input.riskCategory,
+    reason: 'Classifier risk assessment.',
+    latencyMs: 1,
   }));
 
   const decision = await resolvePermissionIpcDecision({
@@ -31,13 +39,13 @@ async function resolveWithClassifierRisk(input: {
     deps: {
       conversationRoutes: () => ({}),
       requestPermissionApproval,
-      classifierConsult: vi.fn(async () => ({
-        risk_level: input.riskLevel,
-        risk_category: input.riskCategory,
-        reason: 'Classifier risk assessment.',
-        latencyMs: 1,
-      })),
+      classifierConsult,
       publishRuntimeEvent: vi.fn(async () => undefined),
+      ...(input.decisionMemory
+        ? {
+            getPermissionDecisionMemoryRepository: () => input.decisionMemory,
+          }
+        : {}),
       getPermissionRuntimeSettings: () => ({
         agents: { main_agent: { permissionMode: 'auto' as const } },
         permissions: {
@@ -49,7 +57,7 @@ async function resolveWithClassifierRisk(input: {
     } as never,
   });
 
-  return { decision, requestPermissionApproval };
+  return { classifierConsult, decision, requestPermissionApproval };
 }
 
 describe('IPC permission classifier decision', () => {
@@ -149,6 +157,100 @@ describe('IPC permission classifier decision', () => {
       risk_level: 'medium',
       risk_category: 'network',
     });
+  });
+
+  it('does not cache a classifier allow vetoed by an ASK rail', async () => {
+    const getClassifierVerdict = vi.fn(async () => null);
+    const putClassifierVerdict = vi.fn(async () => undefined);
+
+    const { decision, requestPermissionApproval } =
+      await resolveWithClassifierRisk({
+        toolName: 'RunCommand',
+        toolInput: { command: 'rm -rf ./build' },
+        riskLevel: 'low',
+        riskCategory: 'benign',
+        decisionMemory: {
+          getClassifierVerdict,
+          putClassifierVerdict,
+        } as never,
+      });
+
+    expect(decision).toMatchObject({ approved: false, decidedBy: 'owner' });
+    expect(requestPermissionApproval).toHaveBeenCalledOnce();
+    expect(getClassifierVerdict).not.toHaveBeenCalled();
+    expect(putClassifierVerdict).not.toHaveBeenCalled();
+  });
+
+  it('escalates a rail ASK to human approval despite a pre-existing cached allow', async () => {
+    const getClassifierVerdict = vi.fn(async () => ({
+      decision: 'allow' as const,
+      reason: 'stale cached allow',
+      risk_level: 'low' as const,
+      risk_category: 'benign' as const,
+    }));
+
+    const { decision, requestPermissionApproval } =
+      await resolveWithClassifierRisk({
+        toolName: 'RunCommand',
+        toolInput: { command: 'rm -rf ./build' },
+        riskLevel: 'low',
+        riskCategory: 'benign',
+        decisionMemory: {
+          getClassifierVerdict,
+          putClassifierVerdict: vi.fn(async () => undefined),
+        } as never,
+      });
+
+    expect(getClassifierVerdict).not.toHaveBeenCalled();
+    expect(requestPermissionApproval).toHaveBeenCalledOnce();
+    expect(decision).toMatchObject({ approved: false, decidedBy: 'owner' });
+  });
+
+  it('caches and reuses a classifier allow when deterministic rails abstain', async () => {
+    let cached:
+      | {
+          decision: 'allow';
+          reason: string;
+          risk_level: 'medium';
+          risk_category: 'network';
+        }
+      | undefined;
+    const getClassifierVerdict = vi.fn(async () => cached ?? null);
+    const putClassifierVerdict = vi.fn(
+      async (row: NonNullable<typeof cached>) => {
+        cached = row;
+      },
+    );
+    const decisionMemory = {
+      getClassifierVerdict,
+      putClassifierVerdict,
+    } as never;
+    const input = {
+      toolName: 'mcp__crm__update_record',
+      toolInput: { id: 'customer-1' },
+      riskLevel: 'medium' as const,
+      riskCategory: 'network' as const,
+      decisionMemory,
+    };
+
+    const first = await resolveWithClassifierRisk(input);
+    expect(first.classifierConsult).toHaveBeenCalledOnce();
+    expect(putClassifierVerdict).toHaveBeenCalledOnce();
+    expect(first.decision).toMatchObject({
+      approved: true,
+      decidedBy: 'auto_classifier',
+    });
+
+    const second = await resolveWithClassifierRisk(input);
+    expect(second.classifierConsult).not.toHaveBeenCalled();
+    expect(second.requestPermissionApproval).not.toHaveBeenCalled();
+    expect(second.decision).toMatchObject({
+      approved: true,
+      decidedBy: 'cached_classifier_verdict',
+      risk_level: 'medium',
+      risk_category: 'network',
+    });
+    expect(putClassifierVerdict).toHaveBeenCalledOnce();
   });
 
   it.each([

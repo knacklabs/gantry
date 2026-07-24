@@ -1457,6 +1457,9 @@ describe('agent-spawn timeout behavior', () => {
       'oneTimeJob',
       'test-group',
     );
+    const env = vi.mocked(spawn).mock.calls.at(-1)?.[2]?.env;
+    expect(env?.GANTRY_JOB_ID).toBeUndefined();
+    expect(env?.GANTRY_PERMISSION_LANE).toBe('autonomous');
   });
 
   it('projects provider models through Gantry gateway env only when broker supplies a run token', async () => {
@@ -1707,6 +1710,7 @@ describe('agent-spawn timeout behavior', () => {
     });
     const env = vi.mocked(spawn).mock.calls.at(-1)?.[2]?.env;
     expect(env?.GANTRY_PERMISSION_MODE).toBe('auto');
+    expect(env?.GANTRY_PERMISSION_LANE).toBe('interactive');
     expect(env?.GANTRY_TURN_INTENT_SUMMARY).toBe('Hello');
   });
 

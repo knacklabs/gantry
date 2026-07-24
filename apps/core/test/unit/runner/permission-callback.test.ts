@@ -50,6 +50,7 @@ describe('requestPermissionApproval', () => {
     process.env.GANTRY_AGENT_RUN_HANDLE = 'run-handle-1';
     process.env.GANTRY_MEMORY_USER_ID = 'operator-1';
     process.env.GANTRY_MEMORY_REVIEWER_IS_CONTROL_APPROVER = '1';
+    process.env.GANTRY_PERMISSION_LANE = 'interactive';
   });
 
   afterEach(() => {
@@ -155,6 +156,7 @@ describe('requestPermissionApproval', () => {
   });
 
   it('still immediately denies zero-timeout ask mode', async () => {
+    process.env.GANTRY_PERMISSION_LANE = 'autonomous';
     process.env.GANTRY_JOB_ID = 'job-ask';
     process.env.GANTRY_JOB_RUN_ID = 'run-ask';
     process.env.GANTRY_AUTONOMOUS_PERMISSION_TIMEOUT_MS = '0';
@@ -178,6 +180,45 @@ describe('requestPermissionApproval', () => {
         'Permission request was sent to the host. Unattended jobs do not wait for approval during the active tool call; approve the requested capability before retrying the scheduled run.',
       decisionClassification: 'user_reject',
     });
+  });
+
+  it('immediately denies a zero-timeout autonomous run without a job id', async () => {
+    process.env.GANTRY_PERMISSION_LANE = 'autonomous';
+    process.env.GANTRY_AUTONOMOUS_PERMISSION_TIMEOUT_MS = '0';
+    process.env.GANTRY_PERMISSION_MODE = 'ask';
+    delete process.env.GANTRY_JOB_ID;
+    delete process.env.GANTRY_JOB_RUN_ID;
+    vi.resetModules();
+    const { requestPermissionApproval } =
+      await import('@core/adapters/llm/anthropic-claude-agent/runner/permission-callback.js');
+
+    await expect(
+      requestPermissionApproval({
+        appId: 'default',
+        agentId: 'agent:main_agent',
+        workspaceFolder: 'main_agent',
+        targetJid: 'tg:test',
+        toolName: 'Bash',
+        toolInput: { command: 'git status --short' },
+      }),
+    ).resolves.toMatchObject({
+      approved: false,
+      reason:
+        'Permission request was sent to the host. Autonomous runs do not wait for approval during the active tool call; approve the requested capability before retrying the run.',
+      decisionClassification: 'user_reject',
+    });
+
+    const requestDir = path.join(
+      tempDir,
+      'ipc',
+      'main_agent',
+      'permission-requests',
+    );
+    const [requestFile] = await waitForFiles(requestDir, 1);
+    const request = JSON.parse(
+      fs.readFileSync(path.join(requestDir, requestFile), 'utf-8'),
+    ) as { unattended?: boolean };
+    expect(request.unattended).toBe(true);
   });
 
   it('returns interactive guidance when a finite interactive timeout elapses', async () => {
@@ -220,6 +261,7 @@ describe('requestPermissionApproval', () => {
   });
 
   it('waits indefinitely for an interactive response at the no-timeout sentinel', async () => {
+    process.env.GANTRY_PERMISSION_LANE = 'interactive';
     process.env.GANTRY_INTERACTIVE_PERMISSION_TIMEOUT_MS = '0';
     delete process.env.GANTRY_JOB_ID;
     delete process.env.GANTRY_JOB_RUN_ID;
@@ -291,6 +333,7 @@ describe('requestPermissionApproval', () => {
   });
 
   it('serializes the authenticated host-injected command prefix', async () => {
+    process.env.GANTRY_PERMISSION_LANE = 'autonomous';
     process.env.GANTRY_JOB_ID = 'job-prefix';
     process.env.GANTRY_JOB_RUN_ID = 'run-prefix';
     process.env.GANTRY_AUTONOMOUS_PERMISSION_TIMEOUT_MS = '0';
@@ -332,6 +375,7 @@ describe('requestPermissionApproval', () => {
   });
 
   it('waits for and honors a late host allow response for zero-timeout auto mode', async () => {
+    process.env.GANTRY_PERMISSION_LANE = 'autonomous';
     process.env.GANTRY_JOB_ID = 'job-auto';
     process.env.GANTRY_JOB_RUN_ID = 'run-auto';
     process.env.GANTRY_AUTONOMOUS_PERMISSION_TIMEOUT_MS = '0';
