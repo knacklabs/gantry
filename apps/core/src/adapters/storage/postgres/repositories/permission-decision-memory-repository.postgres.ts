@@ -43,6 +43,8 @@ export class PostgresPermissionDecisionMemoryRepository implements PermissionDec
         effectHash: input.effectHash ?? null,
         decision: input.decision ?? null,
         reason: input.reason,
+        riskLevel: input.risk_level ?? null,
+        riskCategory: input.risk_category ?? null,
         canonicalRoot: input.canonicalRoot ?? null,
         principal: input.principal ?? null,
         effectSchemaVersion: input.effectSchemaVersion,
@@ -63,6 +65,8 @@ export class PostgresPermissionDecisionMemoryRepository implements PermissionDec
           effectHash: input.effectHash ?? null,
           decision: input.decision ?? null,
           reason: input.reason,
+          riskLevel: input.risk_level ?? null,
+          riskCategory: input.risk_category ?? null,
           canonicalRoot: input.canonicalRoot ?? null,
           principal: input.principal ?? null,
           effectSchemaVersion: input.effectSchemaVersion,
@@ -81,6 +85,8 @@ export class PostgresPermissionDecisionMemoryRepository implements PermissionDec
     effectHash: string;
     decision: 'allow' | 'ask';
     reason: string;
+    risk_level: NonNullable<PermissionDecisionMemoryPutInput['risk_level']>;
+    risk_category?: PermissionDecisionMemoryPutInput['risk_category'];
     effectSchemaVersion: number;
     railVersion: number;
     provenance: string;
@@ -100,6 +106,8 @@ export class PostgresPermissionDecisionMemoryRepository implements PermissionDec
       effectHash: input.effectHash,
       decision: input.decision,
       reason: input.reason,
+      risk_level: input.risk_level,
+      risk_category: input.risk_category,
       canonicalRoot: undefined,
       principal: undefined,
       effectSchemaVersion: input.effectSchemaVersion,
@@ -123,10 +131,19 @@ export class PostgresPermissionDecisionMemoryRepository implements PermissionDec
       kind: 'classifier_verdict',
       lookupIdentity: input.effectHash,
     });
-    if (!row || (row.decision !== 'allow' && row.decision !== 'ask')) {
+    if (
+      !row ||
+      (row.decision !== 'allow' && row.decision !== 'ask') ||
+      !row.risk_level
+    ) {
       return null;
     }
-    return { decision: row.decision, reason: row.reason };
+    return {
+      decision: row.decision,
+      reason: row.reason,
+      risk_level: row.risk_level,
+      ...(row.risk_category ? { risk_category: row.risk_category } : {}),
+    };
   }
 
   async get(input: {
@@ -210,6 +227,12 @@ function mapRow(row: typeof table.$inferSelect): PermissionDecisionMemoryRow {
       | PermissionDecisionMemoryEffect
       | undefined,
     reason: row.reason,
+    risk_level: (row.riskLevel ?? undefined) as
+      | PermissionDecisionMemoryRow['risk_level']
+      | undefined,
+    risk_category: (row.riskCategory ?? undefined) as
+      | PermissionDecisionMemoryRow['risk_category']
+      | undefined,
     canonicalRoot: row.canonicalRoot ?? undefined,
     principal: row.principal ?? undefined,
     effectSchemaVersion: row.effectSchemaVersion,

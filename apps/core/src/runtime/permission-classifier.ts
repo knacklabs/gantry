@@ -33,6 +33,7 @@ import type {
   PermissionApprovalDecision,
   PermissionApprovalRequest,
   PermissionApprovalUpdate,
+  PermissionRiskCategory,
 } from '../domain/types.js';
 import {
   classifierUserPayload,
@@ -89,6 +90,7 @@ export interface PermissionClassifierInput {
 
 export interface PermissionClassifierResult {
   risk_level: PermissionClassifierRiskLevel;
+  risk_category?: PermissionRiskCategory;
   reason: string;
   latencyMs: number;
   model?: string;
@@ -235,6 +237,9 @@ export async function consultPermissionClassifier(
 
   return {
     risk_level: verdict.risk_level,
+    ...(verdict.risk_category
+      ? { risk_category: verdict.risk_category }
+      : {}),
     reason: verdict.reason,
     latencyMs: Date.now() - startedAt,
     model: modelSelection.model,

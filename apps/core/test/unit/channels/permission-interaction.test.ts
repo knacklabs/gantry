@@ -4,6 +4,7 @@ import {
   buildPermissionPromptParts,
   decisionForMode,
   firstPersistentRule,
+  formatPermissionPromptPartsText,
   formatPermissionPromptText,
   formatPermissionReceiptText,
   normalizePermissionAction,
@@ -26,6 +27,47 @@ function requestWithSuggestions(
 }
 
 describe('permission interaction', () => {
+  it('renders request risk exactly once in plain-text and structured prompt paths', () => {
+    const request: PermissionApprovalRequest = {
+      ...requestWithSuggestions([]),
+      toolInput: { command: 'rm -rf ./generated' },
+      risk_level: 'high',
+      risk_category: 'destructive',
+    };
+
+    const prompts = [
+      formatPermissionPromptText(request, 60_000),
+      formatPermissionPromptPartsText(
+        buildPermissionPromptParts(request, 60_000),
+      ),
+    ];
+
+    for (const prompt of prompts) {
+      expect(prompt.match(/^Risk:.*$/gm)).toEqual([
+        'Risk: high — destructive',
+      ]);
+    }
+  });
+
+  it('renders only the risk level when no category was derived', () => {
+    const request: PermissionApprovalRequest = {
+      ...requestWithSuggestions([]),
+      risk_level: 'high',
+    };
+
+    const prompts = [
+      formatPermissionPromptText(request, 60_000),
+      formatPermissionPromptPartsText(
+        buildPermissionPromptParts(request, 60_000),
+      ),
+    ];
+
+    for (const prompt of prompts) {
+      expect(prompt.match(/^Risk:.*$/gm)).toEqual(['Risk: high']);
+      expect(prompt).not.toContain('benign');
+    }
+  });
+
   it('renders a compact permission batch with batch actions', () => {
     const batch = createPermissionBatchRequest(
       [

@@ -269,6 +269,13 @@ async function resolvePermissionIpcDecisionTail(input: {
         classifierConsult: input.deps.classifierConsult,
       })
     : undefined;
+  if (classifierDecision) {
+    input.request.risk_level = classifierDecision.risk_level;
+    if (classifierDecision.risk_category) {
+      input.request.risk_category = classifierDecision.risk_category;
+    }
+    input.request.decisionReason = classifierDecision.reason;
+  }
 
   // Cache-miss writeback: the tail is reached only on a miss, so a verdict the
   // classifier actually produced is cached here (never a human allow_once —
@@ -282,6 +289,8 @@ async function resolvePermissionIpcDecisionTail(input: {
         effectHash: input.effectHash,
         decision: classifierDecision.decision,
         reason: classifierDecision.reason,
+        risk_level: classifierDecision.risk_level,
+        risk_category: classifierDecision.risk_category,
         effectSchemaVersion: EFFECT_SCHEMA_VERSION,
         railVersion: RAIL_CATALOG_VERSION,
         provenance: 'classifier',
@@ -292,25 +301,31 @@ async function resolvePermissionIpcDecisionTail(input: {
   }
 
   if (classifierDecision?.decision === 'allow') {
-    return decisionForMode(input.request, 'allow_once', 'auto_classifier');
+    return withRequestRisk(
+      input.request,
+      decisionForMode(input.request, 'allow_once', 'auto_classifier'),
+    );
   }
   if (
     (permissionMode === 'auto' || permissionMode === 'auto_strict') &&
     input.request.unattended
   ) {
-    return {
+    return withRequestRisk(input.request, {
       ...decisionForMode(input.request, 'cancel', 'runtime'),
       reason: classifierDecision
         ? `Classifier requested human approval: ${classifierDecision.reason}`
         : 'This tool is not eligible for unattended auto-permission.',
-    };
+    });
   }
   if (classifierDecision?.denylistHit) {
     // Denylist-forced prompts are allow-once/cancel only: a persisted rule
     // would never be honored while the denylist blocks rule-based auto-allows.
     input.request.suggestions = undefined;
     input.request.decisionOptions = ['allow_once', 'cancel'];
-    return input.deps.requestPermissionApproval(input.request);
+    return withRequestRisk(
+      input.request,
+      await input.deps.requestPermissionApproval(input.request),
+    );
   }
   input.request.promotionHintCount =
     classifierDecision?.promotionHintCount ??
@@ -337,5 +352,19 @@ async function resolvePermissionIpcDecisionTail(input: {
       'cancel',
     ];
   }
-  return input.deps.requestPermissionApproval(input.request);
+  return withRequestRisk(
+    input.request,
+    await input.deps.requestPermissionApproval(input.request),
+  );
+}
+
+function withRequestRisk(
+  request: PermissionApprovalRequest,
+  decision: PermissionApprovalDecision,
+): PermissionApprovalDecision {
+  return {
+    ...decision,
+    ...(request.risk_level ? { risk_level: request.risk_level } : {}),
+    ...(request.risk_category ? { risk_category: request.risk_category } : {}),
+  };
 }

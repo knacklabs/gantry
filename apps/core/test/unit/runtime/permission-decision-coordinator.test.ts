@@ -299,10 +299,13 @@ describe('coordinatePermissionDecision', () => {
     const getClassifierVerdict = vi.fn(async () => ({
       decision: 'allow' as const,
       reason: 'cached allow',
+      risk_level: 'low' as const,
+      risk_category: 'filesystem' as const,
     }));
+    const cachedRequest = { ...request };
     await expect(
       coordinatePermissionDecision({
-        request: { ...request },
+        request: cachedRequest,
         effectHash: 'effect-hash-1',
         decisionMemory: { getClassifierVerdict } as never,
         deterministicRails: () => undefined,
@@ -313,6 +316,12 @@ describe('coordinatePermissionDecision', () => {
       mode: 'allow_once',
       decidedBy: 'cached_classifier_verdict',
       reason: 'cached allow',
+      risk_level: 'low',
+      risk_category: 'filesystem',
+    });
+    expect(cachedRequest).toMatchObject({
+      risk_level: 'low',
+      risk_category: 'filesystem',
     });
     expect(getClassifierVerdict).toHaveBeenCalledWith({
       appId: 'default',

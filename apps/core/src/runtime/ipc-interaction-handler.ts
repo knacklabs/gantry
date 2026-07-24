@@ -84,6 +84,10 @@ export function writePermissionIpcResponse(
     ...(decision.mode ? { mode: decision.mode } : {}),
     ...(decision.decidedBy ? { decidedBy: decision.decidedBy } : {}),
     ...(decision.reason ? { reason: decision.reason } : {}),
+    ...(decision.risk_level ? { risk_level: decision.risk_level } : {}),
+    ...(decision.risk_category
+      ? { risk_category: decision.risk_category }
+      : {}),
     ...(decision.updatedPermissions
       ? { updatedPermissions: decision.updatedPermissions }
       : {}),

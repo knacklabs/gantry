@@ -445,7 +445,10 @@ describe('core tool registry', () => {
       requestPermissionApproval: vi.fn(async () => ({
         approved: false,
         mode: 'cancel',
+        decidedBy: 'human',
         reason: 'No delegation',
+        risk_level: 'high',
+        risk_category: 'privileged',
       })),
     });
 
@@ -454,12 +457,18 @@ describe('core tool registry', () => {
     });
 
     expect(result).toEqual({
-      content: [{ type: 'text', text: 'Permission denied: No delegation' }],
+      content: [
+        {
+          type: 'text',
+          text: 'Permission denied (decided by: human; risk: high/privileged): No delegation',
+        },
+      ],
       isError: true,
       error: {
         category: 'permission',
         isRetryable: false,
-        message: 'Permission denied: No delegation',
+        message:
+          'Permission denied (decided by: human; risk: high/privileged): No delegation',
       },
     });
     expect(backend.delegate_task).not.toHaveBeenCalled();

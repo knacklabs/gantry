@@ -121,6 +121,15 @@ export interface NewMessageAttachment {
 }
 
 // --- Channel capability ports ---
+export type PermissionRiskLevel = 'low' | 'medium' | 'high' | 'critical';
+export type PermissionRiskCategory =
+  | 'destructive'
+  | 'privileged'
+  | 'secret'
+  | 'network'
+  | 'filesystem'
+  | 'benign';
+
 export interface PermissionApprovalRequest {
   requestId: string;
   appId?: string;
@@ -151,6 +160,8 @@ export interface PermissionApprovalRequest {
   displayName?: string;
   description?: string;
   decisionReason?: string;
+  risk_level?: PermissionRiskLevel;
+  risk_category?: PermissionRiskCategory;
   closestRule?: {
     rule: string;
     reason: string;
@@ -249,6 +260,8 @@ export interface PermissionApprovalDecision {
   mode?: PermissionApprovalDecisionMode;
   decidedBy?: string;
   reason?: string;
+  risk_level?: PermissionRiskLevel;
+  risk_category?: PermissionRiskCategory;
   updatedPermissions?: PermissionApprovalUpdate[];
   decisionClassification?: 'user_temporary' | 'user_permanent' | 'user_reject';
   batchDecision?: 'review_each';

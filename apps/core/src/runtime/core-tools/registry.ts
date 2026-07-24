@@ -515,7 +515,7 @@ async function gateCoreTool(
   }
   return coordinatedDecision.approved
     ? null
-    : permissionDenied(coordinatedDecision.reason ?? 'request cancelled');
+    : permissionDenied(coordinatedDecision);
 }
 
 function coreToolGateName(name: string): 'AgentDelegation' | null {
@@ -602,6 +602,16 @@ function errorResult(
   };
 }
 
-function permissionDenied(reason: string): McpCompatibleToolResult {
-  return errorResult(`Permission denied: ${reason}`, 'permission', false);
+function permissionDenied(
+  decision: PermissionApprovalDecision,
+): McpCompatibleToolResult {
+  const reason = decision.reason ?? 'request cancelled';
+  const provenance = decision.decidedBy ?? 'unknown';
+  const riskLevel = decision.risk_level ?? 'unknown';
+  const riskCategory = decision.risk_category ?? 'unknown';
+  return errorResult(
+    `Permission denied (decided by: ${provenance}; risk: ${riskLevel}/${riskCategory}): ${reason}`,
+    'permission',
+    false,
+  );
 }

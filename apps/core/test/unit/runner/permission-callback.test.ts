@@ -2,6 +2,9 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { verifyIpcResponsePayload } from '@core/infrastructure/ipc/response-signing.js';
+import { createIpcAuthEnvelope } from '@core/runtime/ipc-auth.js';
+import { processPermissionInteractionIpc } from '@core/runtime/ipc-interaction-processing.js';
 
 vi.mock('@core/shared/ipc-signing.js', async () => {
   const actual = await vi.importActual<
@@ -391,5 +394,119 @@ describe('requestPermissionApproval', () => {
       decidedBy: 'auto_classifier',
       decisionClassification: 'user_temporary',
     });
+  });
+
+  it('preserves host risk through the signed IPC response to the runner decision', async () => {
+    const envelope = createIpcAuthEnvelope('main_agent', null);
+    process.env.GANTRY_IPC_AUTH_TOKEN = envelope.authToken;
+    process.env.GANTRY_IPC_RESPONSE_VERIFY_KEY = envelope.responseVerifyKey;
+    process.env.GANTRY_IPC_RESPONSE_KEY_ID = envelope.responseKeyId;
+    process.env.GANTRY_INTERACTIVE_PERMISSION_TIMEOUT_MS = '0';
+    delete process.env.GANTRY_JOB_ID;
+    delete process.env.GANTRY_JOB_RUN_ID;
+    vi.resetModules();
+    const { hasValidIpcResponseSignature } =
+      await import('@core/shared/ipc-signing.js');
+    vi.mocked(hasValidIpcResponseSignature).mockClear();
+    vi.mocked(hasValidIpcResponseSignature).mockImplementationOnce(
+      (publicKey, raw, payload) =>
+        verifyIpcResponsePayload(
+          publicKey,
+          payload,
+          typeof raw.signature === 'string' ? raw.signature : undefined,
+        ),
+    );
+    const { requestPermissionApproval } =
+      await import('@core/adapters/llm/anthropic-claude-agent/runner/permission-callback.js');
+
+    const runnerDecision = requestPermissionApproval({
+      appId: 'default',
+      agentId: 'agent:main_agent',
+      workspaceFolder: 'main_agent',
+      targetJid: 'tg:test',
+      toolName: 'Bash',
+      toolInput: { command: 'rm -rf ./generated' },
+    });
+    const ipcBaseDir = path.join(tempDir, 'ipc');
+    const requestDir = path.join(
+      ipcBaseDir,
+      'main_agent',
+      'permission-requests',
+    );
+    const [requestFile] = await waitForFiles(requestDir, 1);
+    const rawRequest = JSON.parse(
+      fs.readFileSync(path.join(requestDir, requestFile), 'utf-8'),
+    ) as Record<string, unknown>;
+    const context = rawRequest.context as Record<string, unknown>;
+    const claimedPath = path.join(tempDir, 'claimed-risk-response.json');
+    fs.writeFileSync(claimedPath, '{}');
+    const classifierConsult = vi.fn(async () => ({
+      risk_level: 'critical' as const,
+      risk_category: 'destructive' as const,
+      reason: 'Deleting generated files has irreversible effects.',
+      latencyMs: 1,
+    }));
+    const requestPermissionApprovalOnHost = vi.fn(async () => ({
+      approved: false,
+      mode: 'cancel' as const,
+      decidedBy: 'human',
+      reason: 'operator denied',
+      decisionClassification: 'user_reject' as const,
+    }));
+
+    await processPermissionInteractionIpc({
+      request: {
+        requestId: rawRequest.requestId,
+        appId: rawRequest.appId,
+        agentId: rawRequest.agentId,
+        responseNonce: rawRequest.responseNonce,
+        responseKeyId: context.responseKeyId,
+        sourceAgentFolder: rawRequest.sourceAgentFolder,
+        targetJid: rawRequest.targetJid,
+        toolName: rawRequest.toolName,
+        toolInput: rawRequest.toolInput,
+        classifierToolInput: rawRequest.toolInput,
+      } as never,
+      sourceAgentFolder: 'main_agent',
+      deps: {
+        conversationRoutes: () => ({
+          'tg:test': {
+            folder: 'main_agent',
+            agentConfig: { permissionMode: 'auto' },
+            conversationKind: 'dm',
+          },
+        }),
+        requestPermissionApproval: requestPermissionApprovalOnHost,
+        classifierConsult,
+        publishRuntimeEvent: vi.fn(async () => undefined),
+        getPermissionRuntimeSettings: () => ({
+          agents: {},
+          permissions: { autoMode: {}, trustedRoots: [] },
+          memory: { llm: { models: { extractor: 'sonnet' } } },
+        }),
+      } as never,
+      ipcBaseDir,
+      file: requestFile,
+      claimedPath,
+      logger: { warn: vi.fn(), error: vi.fn(), info: vi.fn() },
+    });
+
+    await expect(runnerDecision).resolves.toMatchObject({
+      approved: false,
+      mode: 'cancel',
+      decidedBy: 'human',
+      reason: 'operator denied',
+      risk_level: 'critical',
+      risk_category: 'destructive',
+    });
+    expect(classifierConsult).toHaveBeenCalledOnce();
+    expect(requestPermissionApprovalOnHost).toHaveBeenCalledWith(
+      expect.objectContaining({
+        decisionReason: 'Deleting generated files has irreversible effects.',
+        risk_level: 'critical',
+        risk_category: 'destructive',
+      }),
+    );
+    expect(hasValidIpcResponseSignature).toHaveBeenCalledOnce();
   });
 });

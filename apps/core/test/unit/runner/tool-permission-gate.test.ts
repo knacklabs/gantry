@@ -333,6 +333,31 @@ describe('createCanUseToolCallback', () => {
     );
   });
 
+  it('surfaces decision provenance and risk in a denied tool result', async () => {
+    permissionMock.requestPermissionApproval.mockResolvedValueOnce({
+      approved: false,
+      mode: 'cancel',
+      decidedBy: 'human',
+      reason: 'operator denied',
+      risk_level: 'critical',
+      risk_category: 'secret',
+    });
+
+    const result = await makeCallback()(
+      'Bash',
+      { command: 'npm test' },
+      makePermissionOptions() as never,
+    );
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        behavior: 'deny',
+        message:
+          'Permission denied (decided by: human; risk: critical/secret): operator denied',
+      }),
+    );
+  });
+
   it('prompts when a yolo denylist command matches an existing allow rule', async () => {
     permissionMock.requestPermissionApproval.mockResolvedValueOnce({
       approved: false,

@@ -598,7 +598,11 @@ export function createCanUseToolCallback(
     );
     return {
       behavior: 'deny' as const,
-      message: `Permission denied: ${reason}`,
+      message: `Permission denied (decided by: ${
+        decision.decidedBy ?? 'unknown'
+      }; risk: ${decision.risk_level ?? 'unknown'}/${
+        decision.risk_category ?? 'unknown'
+      }): ${reason}`,
       interrupt: false,
       ...(decision.decisionClassification
         ? { decisionClassification: decision.decisionClassification as never }

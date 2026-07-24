@@ -56,6 +56,7 @@ describe('permission classifier LLM client', () => {
                 name: 'permission_verdict',
                 input: {
                   risk_level: 'low',
+                  risk_category: 'filesystem',
                   reason: 'Read-only lookup.',
                 },
               },
@@ -77,7 +78,9 @@ describe('permission classifier LLM client', () => {
       prompt: '{"tool":"search"}',
     });
 
-    expect(result).toBe('{"risk_level":"low","reason":"Read-only lookup."}');
+    expect(result).toBe(
+      '{"risk_level":"low","risk_category":"filesystem","reason":"Read-only lookup."}',
+    );
     expect(resolveGatewayMemoryInjection).toHaveBeenCalledWith({
       appId: 'default',
       modelRouteId: 'anthropic',
@@ -110,9 +113,20 @@ describe('permission classifier LLM client', () => {
                 type: 'string',
                 enum: ['low', 'medium', 'high', 'critical'],
               },
+              risk_category: {
+                type: 'string',
+                enum: [
+                  'destructive',
+                  'privileged',
+                  'secret',
+                  'network',
+                  'filesystem',
+                  'benign',
+                ],
+              },
               reason: { type: 'string' },
             },
-            required: ['risk_level', 'reason'],
+            required: ['risk_level', 'risk_category', 'reason'],
             additionalProperties: false,
           },
         },

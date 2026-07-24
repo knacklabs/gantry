@@ -243,6 +243,26 @@ async function requestPermissionApprovalInner(options: {
               ...(typeof (raw as { reason?: unknown }).reason === 'string'
                 ? { reason: (raw as { reason: string }).reason }
                 : {}),
+              ...(isPermissionRiskLevel(
+                (raw as { risk_level?: unknown }).risk_level,
+              )
+                ? {
+                    risk_level: (
+                      raw as { risk_level: PermissionDecision['risk_level'] }
+                    ).risk_level,
+                  }
+                : {}),
+              ...(isPermissionRiskCategory(
+                (raw as { risk_category?: unknown }).risk_category,
+              )
+                ? {
+                    risk_category: (
+                      raw as {
+                        risk_category: PermissionDecision['risk_category'];
+                      }
+                    ).risk_category,
+                  }
+                : {}),
               ...(Array.isArray(
                 (raw as { updatedPermissions?: unknown }).updatedPermissions,
               )
@@ -320,6 +340,14 @@ async function requestPermissionApprovalInner(options: {
                 typeof responsePayload.reason === 'string'
                   ? responsePayload.reason
                   : undefined,
+              risk_level: isPermissionRiskLevel(responsePayload.risk_level)
+                ? responsePayload.risk_level
+                : undefined,
+              risk_category: isPermissionRiskCategory(
+                responsePayload.risk_category,
+              )
+                ? responsePayload.risk_category
+                : undefined,
               mode,
               updatedPermissions: persistentPermissionUpdates(
                 sanitizedDecision,
@@ -356,4 +384,28 @@ async function requestPermissionApprovalInner(options: {
           : 'Permission request failed',
     };
   }
+}
+
+function isPermissionRiskLevel(
+  value: unknown,
+): value is NonNullable<PermissionDecision['risk_level']> {
+  return (
+    value === 'low' ||
+    value === 'medium' ||
+    value === 'high' ||
+    value === 'critical'
+  );
+}
+
+function isPermissionRiskCategory(
+  value: unknown,
+): value is NonNullable<PermissionDecision['risk_category']> {
+  return (
+    value === 'destructive' ||
+    value === 'privileged' ||
+    value === 'secret' ||
+    value === 'network' ||
+    value === 'filesystem' ||
+    value === 'benign'
+  );
 }
