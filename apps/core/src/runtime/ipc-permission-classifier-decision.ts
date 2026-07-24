@@ -10,6 +10,7 @@ import {
 import type {
   PermissionApprovalDecision,
   PermissionApprovalRequest,
+  PermissionRiskLevel,
 } from '../domain/types.js';
 import { resolveEffectivePermissionMode } from '../shared/permission-mode.js';
 import {
@@ -283,16 +284,21 @@ async function resolvePermissionIpcDecisionTail(input: {
         classifierConsult: input.deps.classifierConsult,
       })
     : undefined;
-  if (classifierDecision) {
-    input.request.risk_level = classifierDecision.risk_level;
-    if (classifierDecision.risk_category) {
-      input.request.risk_category = classifierDecision.risk_category;
-    }
-    input.request.decisionReason = classifierDecision.reason;
-  }
-  if (!input.request.risk_level && input.railRisk) {
-    input.request.risk_level = input.railRisk.level;
+  if (input.railRisk) {
+    input.request.risk_level = classifierDecision
+      ? maxPermissionRiskLevel(
+          input.railRisk.level,
+          classifierDecision.risk_level,
+        )
+      : input.railRisk.level;
     input.request.risk_category = input.railRisk.category;
+  } else if (classifierDecision) {
+    input.request.risk_level = classifierDecision.risk_level;
+    if (classifierDecision.risk_category)
+      input.request.risk_category = classifierDecision.risk_category;
+  }
+  if (classifierDecision) {
+    input.request.decisionReason = classifierDecision.reason;
   }
 
   // Cache-miss writeback: the tail is reached only on a miss, so a verdict the
@@ -385,4 +391,21 @@ function withRequestRisk(
     ...(request.risk_level ? { risk_level: request.risk_level } : {}),
     ...(request.risk_category ? { risk_category: request.risk_category } : {}),
   };
+}
+
+const PERMISSION_RISK_SEVERITY_RANK: Record<PermissionRiskLevel, number> = {
+  low: 0,
+  medium: 1,
+  high: 2,
+  critical: 3,
+};
+
+function maxPermissionRiskLevel(
+  left: PermissionRiskLevel,
+  right: PermissionRiskLevel,
+): PermissionRiskLevel {
+  return PERMISSION_RISK_SEVERITY_RANK[left] >=
+    PERMISSION_RISK_SEVERITY_RANK[right]
+    ? left
+    : right;
 }
