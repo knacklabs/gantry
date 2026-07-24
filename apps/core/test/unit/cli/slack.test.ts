@@ -22,6 +22,7 @@ import { makeAgentThreadQueueKey } from '@core/shared/thread-queue-key.js';
 import {
   pruneAgentSenderPolicyOverride,
   pruneDesiredStateAgent,
+  resolveRoutelessAgentFolder,
   resolveGroupSelector,
 } from '@core/cli/group-helpers.js';
 
@@ -1306,6 +1307,137 @@ describe('cli slack helpers', () => {
     expect(updated.bindings.multi_first).toBeUndefined();
     expect(updated.agents.multi.bindings.multi_first).toBeUndefined();
     expect(updated.conversations.slack_default_c0000000001).toBeUndefined();
+  });
+
+  it('resolves a route-less agent so it can be addressed for removal', () => {
+    const runtimeHome = makeRuntimeHome();
+    const settings = loadRuntimeSettings(runtimeHome);
+    settings.agents.orphan = {
+      name: 'Orphan',
+      folder: 'orphan',
+      bindings: {},
+      capabilities: [],
+      delegates: [],
+      sources: { skills: [], mcpServers: [], tools: [] },
+      accessPreset: 'full',
+    } as (typeof settings.agents)['orphan'];
+    settings.agents.routed = {
+      ...settings.agents.orphan,
+      name: 'Routed',
+      folder: 'routed',
+    };
+    saveRuntimeSettings(runtimeHome, settings);
+    const reloaded = loadRuntimeSettings(runtimeHome);
+    const routedKey = makeAgentThreadQueueKey('sl:C1', 'agent:routed');
+    const groups = {
+      [routedKey]: {
+        name: 'Routed',
+        folder: 'routed',
+        trigger: '',
+        added_at: '2026-04-24T00:00:00.000Z',
+      },
+    };
+
+    // Route-less agent resolves by both surfaced forms.
+    expect(
+      resolveRoutelessAgentFolder({
+        settings: reloaded,
+        groups,
+        selector: 'agent:orphan',
+      }),
+    ).toBe('orphan');
+    expect(
+      resolveRoutelessAgentFolder({
+        settings: reloaded,
+        groups,
+        selector: 'orphan',
+      }),
+    ).toBe('orphan');
+
+    // An agent that still owns routes belongs to the route-scoped path.
+    expect(
+      resolveRoutelessAgentFolder({
+        settings: reloaded,
+        groups,
+        selector: 'agent:routed',
+      }),
+    ).toBeNull();
+
+    // Unknown selectors stay unknown.
+    expect(
+      resolveRoutelessAgentFolder({
+        settings: reloaded,
+        groups,
+        selector: 'agent:nope',
+      }),
+    ).toBeNull();
+  });
+
+  it('removes a route-less agent from desired state so a reload cannot restore it', async () => {
+    const runtimeHome = makeRuntimeHome();
+    const settings = loadRuntimeSettings(runtimeHome);
+    settings.agents.orphan = {
+      name: 'Orphan',
+      folder: 'orphan',
+      bindings: {},
+      capabilities: [],
+      delegates: [],
+      sources: { skills: [], mcpServers: [], tools: [] },
+      accessPreset: 'full',
+    } as (typeof settings.agents)['orphan'];
+    settings.providerAccounts.orphan_account = {
+      provider: 'slack',
+      agentId: 'orphan',
+      label: 'orphan',
+      runtimeSecretRefs: {},
+    } as (typeof settings.providerAccounts)['orphan_account'];
+    saveRuntimeSettings(runtimeHome, settings);
+
+    const result = await pruneDesiredStateAgent({
+      runtimeHome,
+      folder: 'orphan',
+      remainingRoutes: 0,
+    });
+
+    expect(result.error).toBeUndefined();
+    expect(result.pruned).toBe(true);
+    expect(result.providerAccountsPruned).toBe(1);
+
+    // Re-reading is what a reload/reconcile does: the agent must be gone.
+    const updated = loadRuntimeSettings(runtimeHome);
+    expect(updated.agents.orphan).toBeUndefined();
+    expect(updated.providerAccounts.orphan_account).toBeUndefined();
+  });
+
+  it('retains a route-less agent that others still delegate to', async () => {
+    const runtimeHome = makeRuntimeHome();
+    const settings = loadRuntimeSettings(runtimeHome);
+    settings.agents.helper = {
+      name: 'Helper',
+      folder: 'helper',
+      bindings: {},
+      capabilities: [],
+      delegates: [],
+      sources: { skills: [], mcpServers: [], tools: [] },
+      accessPreset: 'full',
+    } as (typeof settings.agents)['helper'];
+    settings.agents.boss = {
+      ...settings.agents.helper,
+      name: 'Boss',
+      folder: 'boss',
+      delegates: ['helper'],
+    };
+    saveRuntimeSettings(runtimeHome, settings);
+
+    const result = await pruneDesiredStateAgent({
+      runtimeHome,
+      folder: 'helper',
+      remainingRoutes: 0,
+    });
+
+    expect(result.pruned).toBe(false);
+    expect(result.keptForDelegates).toEqual(['boss']);
+    expect(loadRuntimeSettings(runtimeHome).agents.helper).toBeDefined();
   });
 
   it('never leaves a provider account pointing at the removed agent', () => {

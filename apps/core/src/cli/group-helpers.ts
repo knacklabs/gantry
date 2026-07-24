@@ -247,6 +247,13 @@ export async function pruneDesiredStateAgent(input: {
       providerAccountsPruned += 1;
     }
 
+    // Persistence note: when a storage provider is configured (the CLI and the
+    // runtime both do, cli/index.ts:34) this appends a settings revision -- the
+    // boot authority -- and throws if storage is unavailable, so a silent
+    // mirror-only write cannot happen here. Without a provider the file IS the
+    // store, and a file write is correct. `reconciled: false` is therefore not
+    // an error condition; a genuine failure surfaces as a throw and is caught
+    // below.
     await writeDesiredRuntimeSettings({
       runtimeHome: input.runtimeHome,
       settings,
@@ -260,6 +267,35 @@ export async function pruneDesiredStateAgent(input: {
       error: err instanceof Error ? err.message : String(err),
     };
   }
+}
+
+/**
+ * Resolve a selector that names an agent with NO conversation routes.
+ *
+ * `resolveGroupSelector` matches only against existing route keys, so an agent
+ * whose last route is already gone is unaddressable by every agent subcommand
+ * -- while its definition lives on in the settings-revision authority and is
+ * re-imported on each boot. Fall back to the desired-state agent set so such an
+ * agent can still be named (and therefore removed).
+ *
+ * Returns null when the selector matches nothing, or when the agent still owns
+ * routes (that case belongs to the normal route-scoped path).
+ */
+export function resolveRoutelessAgentFolder(input: {
+  settings: ReturnType<typeof loadRuntimeSettings>;
+  groups: Record<string, ConversationRoute>;
+  selector: string;
+}): string | null {
+  const selector = input.selector.trim();
+  if (!selector) return null;
+  const folder = selector.startsWith('agent:')
+    ? selector.slice('agent:'.length)
+    : selector;
+  if (!folder || !input.settings.agents[folder]) return null;
+  const hasRoutes = Object.values(input.groups).some(
+    (group) => group.folder === folder,
+  );
+  return hasRoutes ? null : folder;
 }
 
 export async function syncConfiguredConversationBinding(input: {
