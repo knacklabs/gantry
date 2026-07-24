@@ -75,7 +75,7 @@ export interface PendingPermissionPrompt {
   approvalContextJid?: string;
   request: PermissionApprovalRequest;
   messageTs: string;
-  timer: ReturnType<typeof setTimeout>;
+  timer?: ReturnType<typeof setTimeout>;
   resolve: (decision: PermissionApprovalDecision) => void;
   settled: boolean;
 }

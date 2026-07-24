@@ -6,6 +6,7 @@ import {
   PermissionBatchCoalescer,
   createPermissionBatchRequest,
   decisionForPermissionInteraction,
+  formatPermissionBatchPromptText,
   isDenyOrCancelDecision,
   permissionBatchButtonLabel,
   permissionBatchRows,
@@ -69,6 +70,17 @@ describe('PermissionBatchCoalescer', () => {
       mode: 'allow_persistent_rule',
       batchDecision: 'review_each',
     });
+  });
+
+  it('does not advertise a reply deadline when the timeout is disabled', () => {
+    const batch = createPermissionBatchRequest(
+      [request('permission-1'), request('permission-2')],
+      ['1. Read file', '2. Run command'],
+    );
+
+    expect(formatPermissionBatchPromptText(batch, 0)).toBe(
+      '🔐 Review 2 permission requests\n\n1. Read file\n2. Run command',
+    );
   });
 
   it('includes the exact member request set in the canonical batch id', () => {

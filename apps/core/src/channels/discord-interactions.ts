@@ -15,7 +15,10 @@ import {
   releasePermissionInteractionCallback,
   resolveDurableQuestionInteractionByRequestId,
 } from '../application/interactions/pending-interaction-durability.js';
-import { PERMISSION_APPROVAL_TIMEOUT_MS } from '../shared/permission-timeout.js';
+import {
+  NO_PERMISSION_TIMEOUT_MS,
+  PERMISSION_APPROVAL_TIMEOUT_MS,
+} from '../shared/permission-timeout.js';
 import {
   buildPermissionPromptParts,
   decisionForMode,
@@ -185,10 +188,13 @@ export class DiscordInteractionHandler {
     const decision = new Promise<PermissionApprovalDecision>((resolve) => {
       resolveDecision = resolve;
     });
-    const timeout = setTimeout(() => {
-      void this.timeoutPermissionPrompt(callback.providerAlias);
-    }, PERMISSION_APPROVAL_TIMEOUT_MS);
-    timeout.unref?.();
+    let timeout!: ReturnType<typeof setTimeout>;
+    if (PERMISSION_APPROVAL_TIMEOUT_MS > NO_PERMISSION_TIMEOUT_MS) {
+      timeout = setTimeout(() => {
+        void this.timeoutPermissionPrompt(callback.providerAlias);
+      }, PERMISSION_APPROVAL_TIMEOUT_MS);
+      timeout.unref?.();
+    }
     const livePending = permissionPrompt.pending(
       callback,
       request,

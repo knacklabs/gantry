@@ -5,6 +5,7 @@ import type {
 } from '../../domain/types.js';
 import { logger } from '../../infrastructure/logging/logger.js';
 import { incrementOperationalError } from '../../shared/operational-error-counters.js';
+import { NO_PERMISSION_TIMEOUT_MS } from '../../shared/permission-timeout.js';
 import {
   buildPermissionPromptParts,
   formatPermissionPromptPartsText,
@@ -211,9 +212,12 @@ export async function requestSlackPermissionApproval(input: {
     const decision = new Promise<PermissionApprovalDecision>((resolve) => {
       resolveDecision = resolve;
     });
-    const timer = setTimeout(() => {
-      void input.timeoutPermissionPrompt(callback.providerAlias);
-    }, input.timeoutMs);
+    const timer =
+      input.timeoutMs > NO_PERMISSION_TIMEOUT_MS
+        ? setTimeout(() => {
+            void input.timeoutPermissionPrompt(callback.providerAlias);
+          }, input.timeoutMs)
+        : undefined;
     const livePending: PendingPermissionPrompt = {
       callback,
       channelId: input.channelId,

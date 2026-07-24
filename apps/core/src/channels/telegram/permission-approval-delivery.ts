@@ -26,7 +26,7 @@ type PendingTelegramPermission = {
   request: PermissionApprovalRequest;
   chatId: string;
   messageId: number;
-  timer: ReturnType<typeof setTimeout>;
+  timer?: ReturnType<typeof setTimeout>;
   resolve: (decision: PermissionApprovalDecision) => void;
 };
 

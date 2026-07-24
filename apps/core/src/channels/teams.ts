@@ -18,6 +18,7 @@ import type {
 import type { AgentTodoRender } from '../domain/ports/task-lifecycle.js';
 import { logger } from '../infrastructure/logging/logger.js';
 import { PERMISSION_APPROVAL_TIMEOUT_MS } from '../shared/permission-timeout.js';
+import { NO_PERMISSION_TIMEOUT_MS } from '../shared/permission-timeout.js';
 import { nowIso } from '../shared/time/datetime.js';
 import {
   buildTeamsUserQuestionCard,
@@ -498,48 +499,51 @@ export class TeamsChannel implements ChannelAdapter {
         ...(request.threadId ? { threadId: request.threadId } : {}),
       });
       const response = new Promise<UserQuestionResponse>((resolve, reject) => {
-        const timer = setTimeout(() => {
-          void (async () => {
-            const remainingQuestionIndexes = request.questions.flatMap(
-              (_, index) => (index >= startIndex ? [index] : []),
-            );
-            const timeoutAnswers = Object.fromEntries(
-              remainingQuestionIndexes.map((questionIndex) => {
-                const question = request.questions[questionIndex]!;
-                return [
-                  question.question,
-                  question.multiSelect ? ([] as string[]) : '',
-                ];
-              }),
-            );
-            const recorded = await recordDurableQuestionAnswerProgress({
-              requestId: request.requestId,
-              appId: request.appId,
-              sourceAgentFolder: request.sourceAgentFolder,
-              answers: timeoutAnswers,
-              completedQuestionIndexes: remainingQuestionIndexes,
-            });
-            if (!recorded) {
-              throw new DurableInteractionPersistenceError(
-                'Teams user question timeout was not persisted',
+        let timer!: ReturnType<typeof setTimeout>;
+        if (PERMISSION_APPROVAL_TIMEOUT_MS > NO_PERMISSION_TIMEOUT_MS) {
+          timer = setTimeout(() => {
+            void (async () => {
+              const remainingQuestionIndexes = request.questions.flatMap(
+                (_, index) => (index >= startIndex ? [index] : []),
               );
-            }
-            await this.resolvePendingUserQuestion(callback.providerAlias, {
-              requestId: request.requestId,
-              answers: timeoutAnswers,
-              answeredBy: 'system',
+              const timeoutAnswers = Object.fromEntries(
+                remainingQuestionIndexes.map((questionIndex) => {
+                  const question = request.questions[questionIndex]!;
+                  return [
+                    question.question,
+                    question.multiSelect ? ([] as string[]) : '',
+                  ];
+                }),
+              );
+              const recorded = await recordDurableQuestionAnswerProgress({
+                requestId: request.requestId,
+                appId: request.appId,
+                sourceAgentFolder: request.sourceAgentFolder,
+                answers: timeoutAnswers,
+                completedQuestionIndexes: remainingQuestionIndexes,
+              });
+              if (!recorded) {
+                throw new DurableInteractionPersistenceError(
+                  'Teams user question timeout was not persisted',
+                );
+              }
+              await this.resolvePendingUserQuestion(callback.providerAlias, {
+                requestId: request.requestId,
+                answers: timeoutAnswers,
+                answeredBy: 'system',
+              });
+            })().catch((err) => {
+              reject(
+                err instanceof DurableInteractionPersistenceError
+                  ? err
+                  : new DurableInteractionPersistenceError(
+                      'Teams user question timeout could not be persisted',
+                      err,
+                    ),
+              );
             });
-          })().catch((err) => {
-            reject(
-              err instanceof DurableInteractionPersistenceError
-                ? err
-                : new DurableInteractionPersistenceError(
-                    'Teams user question timeout could not be persisted',
-                    err,
-                  ),
-            );
-          });
-        }, PERMISSION_APPROVAL_TIMEOUT_MS);
+          }, PERMISSION_APPROVAL_TIMEOUT_MS);
+        }
         this.pendingUserQuestions.set(callback.providerAlias, {
           callback,
           conversationId,

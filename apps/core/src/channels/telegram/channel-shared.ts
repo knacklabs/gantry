@@ -3,6 +3,7 @@ import type { StreamFlavor } from '@grammyjs/stream';
 import { streamApi } from '@grammyjs/stream';
 
 import { PERMISSION_APPROVAL_TIMEOUT_MS } from '../../config/index.js';
+import { NO_PERMISSION_TIMEOUT_MS } from '../../shared/permission-timeout.js';
 import { logger } from '../../infrastructure/logging/logger.js';
 import type { ChannelOpts } from '../channel-provider.js';
 import { parseTextStyles } from '../../messaging/text-styles.js';
@@ -100,7 +101,7 @@ export type PendingUserQuestionState = {
   selectedOptionIndexes: Set<number>;
   chatId: string;
   messageId: number;
-  timer: ReturnType<typeof setTimeout>;
+  timer?: ReturnType<typeof setTimeout>;
   resolve: (selection: {
     selected: string | string[];
     answeredBy?: string;
@@ -136,17 +137,20 @@ export function createPendingTelegramUserQuestion(input: {
   ) => Promise<void>;
 }): Promise<{ selected: string | string[]; answeredBy?: string }> {
   return new Promise((resolve) => {
-    const timer = setTimeout(() => {
-      const timedOut = input.pendingQuestions.get(input.pendingKey);
-      if (!timedOut) return;
-      // Fire-and-forget is intentional: timer callbacks must not block cleanup.
-      void input.finalize(
-        timedOut,
-        timedOut.multiSelect ? [] : '',
-        'system',
-        'timed out',
-      );
-    }, input.timeoutMs);
+    const timer =
+      input.timeoutMs > NO_PERMISSION_TIMEOUT_MS
+        ? setTimeout(() => {
+            const timedOut = input.pendingQuestions.get(input.pendingKey);
+            if (!timedOut) return;
+            // Fire-and-forget is intentional: timer callbacks must not block cleanup.
+            void input.finalize(
+              timedOut,
+              timedOut.multiSelect ? [] : '',
+              'system',
+              'timed out',
+            );
+          }, input.timeoutMs)
+        : undefined;
     input.pendingQuestions.set(input.pendingKey, {
       callbackId: input.callbackId,
       appId: input.request.appId || 'default',

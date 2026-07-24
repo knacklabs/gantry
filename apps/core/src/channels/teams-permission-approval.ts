@@ -8,7 +8,10 @@ import type {
 } from '../domain/types.js';
 import { logger } from '../infrastructure/logging/logger.js';
 import { incrementOperationalError } from '../shared/operational-error-counters.js';
-import { PERMISSION_APPROVAL_TIMEOUT_MS } from '../shared/permission-timeout.js';
+import {
+  NO_PERMISSION_TIMEOUT_MS,
+  PERMISSION_APPROVAL_TIMEOUT_MS,
+} from '../shared/permission-timeout.js';
 import { buildTeamsApprovalAdaptiveCard } from './teams-cards.js';
 import { permissionDecisionOptions } from './permission-interaction.js';
 import { bindTeamsPermissionPromptMessage } from './teams-prompt-binding.js';
@@ -127,9 +130,12 @@ export async function requestTeamsPermissionApproval(input: {
     });
     const messageId = sent.externalMessageId;
     const decision = new Promise<PermissionApprovalDecision>((resolve) => {
-      const timer = setTimeout(() => {
-        void timeoutPermissionPrompt();
-      }, PERMISSION_APPROVAL_TIMEOUT_MS);
+      let timer!: ReturnType<typeof setTimeout>;
+      if (PERMISSION_APPROVAL_TIMEOUT_MS > NO_PERMISSION_TIMEOUT_MS) {
+        timer = setTimeout(() => {
+          void timeoutPermissionPrompt();
+        }, PERMISSION_APPROVAL_TIMEOUT_MS);
+      }
       input.pendingPermissionPrompts.set(callback.providerAlias, {
         callback,
         conversationId,

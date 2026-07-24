@@ -2,10 +2,10 @@ import fs from 'fs';
 import path from 'path';
 import { randomUUID } from 'crypto';
 import { nowIso, nowMs, sleep } from '../../../../shared/time/datetime.js';
-import { formatDuration } from '../../../../shared/human-format.js';
 import { isPlainObject } from '../../../../shared/object.js';
 import { persistentPermissionUpdates } from '../../../../shared/permission-tool-rules.js';
 import { AUTO_PERMISSION_CLASSIFIER_WAIT_MS } from '../../../../shared/permission-mode.js';
+import { NO_PERMISSION_TIMEOUT_MS } from '../../../../shared/permission-timeout.js';
 import {
   createSignedIpcRequestEnvelope,
   hasValidIpcResponseSignature,
@@ -36,6 +36,10 @@ import { WORKSPACE_FOLDER_OPTION_KEY } from './types.js';
 
 const DEFAULT_RUNNER_APP_ID = 'default';
 const AGENT_FOLDER_OPTION_KEY = WORKSPACE_FOLDER_OPTION_KEY;
+const UNATTENDED_JOB_PERMISSION_REASON =
+  'Permission request was sent to the host. Unattended jobs do not wait for approval during the active tool call; approve the requested capability before retrying the scheduled run.';
+const INTERACTIVE_PERMISSION_TIMEOUT_REASON =
+  'Timed out waiting for interactive approval. Retry the live request when an approver is available.';
 
 export async function requestPermissionApproval(options: {
   appId?: string;
@@ -166,7 +170,9 @@ async function requestPermissionApprovalInner(options: {
       ...(TURN_INTENT_SUMMARY
         ? { turnIntentSummary: TURN_INTENT_SUMMARY.slice(0, 1_500) }
         : {}),
-      unattended: PERMISSION_REQUEST_TIMEOUT_MS <= 0,
+      unattended:
+        Boolean(JOB_ID) &&
+        PERMISSION_REQUEST_TIMEOUT_MS <= NO_PERMISSION_TIMEOUT_MS,
       context: {
         appId,
         ...(agentId ? { agentId } : {}),
@@ -191,12 +197,17 @@ async function requestPermissionApprovalInner(options: {
     fs.renameSync(requestTmpPath, requestPath);
 
     const autoClassifierWait =
-      PERMISSION_REQUEST_TIMEOUT_MS <= 0 && PERMISSION_MODE === 'auto';
-    if (PERMISSION_REQUEST_TIMEOUT_MS <= 0 && !autoClassifierWait) {
+      Boolean(JOB_ID) &&
+      PERMISSION_REQUEST_TIMEOUT_MS <= NO_PERMISSION_TIMEOUT_MS &&
+      PERMISSION_MODE === 'auto';
+    if (
+      JOB_ID &&
+      PERMISSION_REQUEST_TIMEOUT_MS <= NO_PERMISSION_TIMEOUT_MS &&
+      !autoClassifierWait
+    ) {
       return {
         approved: false,
-        reason:
-          'Permission request was sent to the host. Unattended jobs do not wait for approval during the active tool call; approve the requested capability before retrying the scheduled run.',
+        reason: UNATTENDED_JOB_PERMISSION_REASON,
         decisionClassification: 'user_reject',
       };
     }
@@ -205,8 +216,11 @@ async function requestPermissionApprovalInner(options: {
     const waitMs = autoClassifierWait
       ? AUTO_PERMISSION_CLASSIFIER_WAIT_MS
       : PERMISSION_REQUEST_TIMEOUT_MS;
-    const deadline = nowMs() + waitMs;
-    while (nowMs() < deadline) {
+    const deadline =
+      !JOB_ID && waitMs === NO_PERMISSION_TIMEOUT_MS
+        ? undefined
+        : nowMs() + waitMs;
+    while (deadline === undefined || nowMs() < deadline) {
       if (fs.existsSync(responsePath)) {
         try {
           const raw = JSON.parse(fs.readFileSync(responsePath, 'utf-8'));
@@ -328,7 +342,9 @@ async function requestPermissionApprovalInner(options: {
     }
     return {
       approved: false,
-      reason: `Timed out waiting ${formatDuration(waitMs)} for host permission approval. The host watchdog denied this tool call; retry only if the channel is healthy or request a persistent capability rule.`,
+      reason: JOB_ID
+        ? UNATTENDED_JOB_PERMISSION_REASON
+        : INTERACTIVE_PERMISSION_TIMEOUT_REASON,
       decisionClassification: 'user_reject',
     };
   } catch (err) {

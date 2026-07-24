@@ -556,17 +556,21 @@ export function registerMessagingTools(server: McpServer): void {
             : {}),
         },
         timestamp: nowIso(),
-        expiresAt: new Date(
-          currentTimeMs() + USER_QUESTION_TIMEOUT_MS,
-        ).toISOString(),
+        ...(jobId
+          ? {
+              expiresAt: new Date(
+                currentTimeMs() + USER_QUESTION_TIMEOUT_MS,
+              ).toISOString(),
+            }
+          : {}),
       };
       const envelope = createSignedIpcRequestEnvelope(IPC_AUTH_TOKEN, payload);
 
       writePrivateFileSync(tmpPath, JSON.stringify(envelope, null, 2));
       fs.renameSync(tmpPath, requestPath);
 
-      const deadline = nowMs() + USER_QUESTION_TIMEOUT_MS;
-      while (nowMs() < deadline) {
+      const deadline = jobId ? nowMs() + USER_QUESTION_TIMEOUT_MS : undefined;
+      while (deadline === undefined || nowMs() < deadline) {
         if (context?.signal?.aborted) {
           fs.rmSync(requestPath, { force: true });
           return {

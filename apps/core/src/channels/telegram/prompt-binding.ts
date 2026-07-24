@@ -8,6 +8,7 @@ import type {
   PermissionCallbackScope,
 } from '../../domain/types.js';
 import { logger } from '../../infrastructure/logging/logger.js';
+import { NO_PERMISSION_TIMEOUT_MS } from '../../shared/permission-timeout.js';
 import { permissionDecisionOptions } from '../permission-interaction.js';
 
 type PendingTelegramPermission = {
@@ -22,7 +23,7 @@ type PendingTelegramPermission = {
   request: PermissionApprovalRequest;
   chatId: string;
   messageId: number;
-  timer: ReturnType<typeof setTimeout>;
+  timer?: ReturnType<typeof setTimeout>;
   resolve: (decision: PermissionApprovalDecision) => void;
 };
 
@@ -61,7 +62,10 @@ export async function registerAndBindTelegramPermissionPrompt(input: {
   const decision = new Promise<PermissionApprovalDecision>((resolve) => {
     resolveDecision = resolve;
   });
-  const timer = setTimeout(input.onTimeout, input.timeoutMs);
+  const timer =
+    input.timeoutMs > NO_PERMISSION_TIMEOUT_MS
+      ? setTimeout(input.onTimeout, input.timeoutMs)
+      : undefined;
   const livePending = {
     callback: input.callback,
     sourceAgentFolder: input.request.sourceAgentFolder,

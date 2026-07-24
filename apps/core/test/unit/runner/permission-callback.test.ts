@@ -171,7 +171,119 @@ describe('requestPermissionApproval', () => {
       }),
     ).resolves.toMatchObject({
       approved: false,
+      reason:
+        'Permission request was sent to the host. Unattended jobs do not wait for approval during the active tool call; approve the requested capability before retrying the scheduled run.',
       decisionClassification: 'user_reject',
+    });
+  });
+
+  it('returns interactive guidance when a finite interactive timeout elapses', async () => {
+    process.env.GANTRY_INTERACTIVE_PERMISSION_TIMEOUT_MS = '10000';
+    delete process.env.GANTRY_JOB_ID;
+    delete process.env.GANTRY_JOB_RUN_ID;
+    vi.resetModules();
+    const { requestPermissionApproval } =
+      await import('@core/adapters/llm/anthropic-claude-agent/runner/permission-callback.js');
+
+    const decision = requestPermissionApproval({
+      appId: 'default',
+      agentId: 'agent:main_agent',
+      workspaceFolder: 'main_agent',
+      targetJid: 'tg:test',
+      toolName: 'Bash',
+      toolInput: { command: 'git status --short' },
+    });
+
+    const requestDir = path.join(
+      tempDir,
+      'ipc',
+      'main_agent',
+      'permission-requests',
+    );
+    await waitForFiles(requestDir, 1);
+    const dateNow = vi
+      .spyOn(Date, 'now')
+      .mockReturnValue(Date.now() + 10 * 60_000);
+
+    const result = await decision;
+    expect(result).toMatchObject({
+      approved: false,
+      reason:
+        'Timed out waiting for interactive approval. Retry the live request when an approver is available.',
+      decisionClassification: 'user_reject',
+    });
+    expect(result.reason).not.toContain('scheduled run');
+    dateNow.mockRestore();
+  });
+
+  it('waits indefinitely for an interactive response at the no-timeout sentinel', async () => {
+    process.env.GANTRY_INTERACTIVE_PERMISSION_TIMEOUT_MS = '0';
+    delete process.env.GANTRY_JOB_ID;
+    delete process.env.GANTRY_JOB_RUN_ID;
+    vi.resetModules();
+    const { requestPermissionApproval } =
+      await import('@core/adapters/llm/anthropic-claude-agent/runner/permission-callback.js');
+
+    let settled = false;
+    const decision = requestPermissionApproval({
+      appId: 'default',
+      agentId: 'agent:main_agent',
+      workspaceFolder: 'main_agent',
+      targetJid: 'tg:test',
+      toolName: 'Bash',
+      toolInput: { command: 'git status --short' },
+    });
+    void decision.then(() => {
+      settled = true;
+    });
+
+    const requestDir = path.join(
+      tempDir,
+      'ipc',
+      'main_agent',
+      'permission-requests',
+    );
+    const [requestFile] = await waitForFiles(requestDir, 1);
+    const request = JSON.parse(
+      fs.readFileSync(path.join(requestDir, requestFile), 'utf-8'),
+    ) as {
+      requestId: string;
+      responseNonce: string;
+      unattended?: boolean;
+    };
+    expect(request.unattended).toBe(false);
+
+    const dateNow = vi
+      .spyOn(Date, 'now')
+      .mockReturnValue(Date.now() + 10 * 60_000);
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    expect(settled).toBe(false);
+    dateNow.mockRestore();
+
+    const responseDir = path.join(
+      tempDir,
+      'ipc',
+      'main_agent',
+      'permission-responses',
+    );
+    fs.mkdirSync(responseDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(responseDir, `${request.requestId}.json`),
+      JSON.stringify({
+        requestId: request.requestId,
+        responseNonce: request.responseNonce,
+        approved: true,
+        mode: 'allow_once',
+        decidedBy: 'Ravi',
+        reason: 'approved',
+        signature: 'test-signature',
+      }),
+    );
+
+    await expect(decision).resolves.toMatchObject({
+      approved: true,
+      mode: 'allow_once',
+      decidedBy: 'Ravi',
     });
   });
 

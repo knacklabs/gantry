@@ -635,7 +635,6 @@ export async function sendSlackProgressUpdate(input: {
     'Progress lifecycle slack edited existing message',
   );
 }
-
 export async function waitForSlackUserQuestionSelection(input: {
   pendingKey: string;
   pendingState: PendingUserQuestionState;
@@ -644,12 +643,14 @@ export async function waitForSlackUserQuestionSelection(input: {
   finalizeTimedOut: (pending: PendingUserQuestionState) => Promise<void>;
 }): Promise<{ selected: string | string[]; answeredBy?: string }> {
   return new Promise((resolve) => {
-    const timer = setTimeout(() => {
-      const timedOut = input.pendingUserQuestions.get(input.pendingKey);
-      if (!timedOut) return;
-      void input.finalizeTimedOut(timedOut);
-    }, input.timeoutMs);
-
+    const timer =
+      input.timeoutMs > 0
+        ? setTimeout(() => {
+            const timedOut = input.pendingUserQuestions.get(input.pendingKey);
+            if (!timedOut) return;
+            void input.finalizeTimedOut(timedOut);
+          }, input.timeoutMs)
+        : undefined;
     input.pendingUserQuestions.set(input.pendingKey, {
       ...input.pendingState,
       timer,

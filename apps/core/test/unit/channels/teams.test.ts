@@ -38,7 +38,6 @@ import type {
   PermissionCallbackClaimReference,
   PermissionCallbackScope,
 } from '@core/domain/types.js';
-import { PERMISSION_APPROVAL_TIMEOUT_MS } from '@core/shared/permission-timeout.js';
 
 vi.mock('@core/infrastructure/logging/logger.js', () => ({
   logger: {
@@ -2513,7 +2512,7 @@ describe('TeamsChannel adapter scaffold', () => {
     await approval;
   });
 
-  it('resolves the Teams waiter after a no-holder claim exhausts bounded retries', async () => {
+  it('does not start timeout claim retries for a no-timeout Teams waiter', async () => {
     vi.useFakeTimers();
     const sdkClient: TeamsSdkClient = {
       start: vi.fn(async () => {}),
@@ -2546,17 +2545,20 @@ describe('TeamsChannel adapter scaffold', () => {
       'teams:19:abc@thread.v2',
       request,
     );
-    await vi.advanceTimersByTimeAsync(PERMISSION_APPROVAL_TIMEOUT_MS * 2);
+    await vi.advanceTimersByTimeAsync(24 * 60 * 60_000);
 
+    expect(repository.claimPendingPermissionCallback).not.toHaveBeenCalled();
+    expect((channel as any).pendingPermissionPrompts.size).toBe(1);
+
+    await channel.disconnect();
     await expect(approval).resolves.toMatchObject({
       approved: false,
       mode: 'cancel',
       decidedBy: 'system',
-      reason: 'timed out',
+      reason: 'Teams channel disconnected',
     });
-    expect(repository.claimPendingPermissionCallback).toHaveBeenCalledTimes(3);
+    expect(repository.claimPendingPermissionCallback).toHaveBeenCalledTimes(1);
     expect((channel as any).pendingPermissionPrompts.size).toBe(0);
-    await channel.disconnect();
   });
 
   it('releases and retries a Teams permission when card terminalization fails', async () => {
@@ -2860,7 +2862,7 @@ describe('TeamsChannel adapter scaffold', () => {
     });
   });
 
-  it('persists empty Teams answers and completed indexes before timeout resolution', async () => {
+  it('does not persist synthetic Teams answers without a deadline', async () => {
     vi.useFakeTimers();
     const lifecycleEvents: string[] = [];
     const sdkClient: TeamsSdkClient = {
@@ -2937,18 +2939,20 @@ describe('TeamsChannel adapter scaffold', () => {
     const answer = channel.requestUserAnswer('teams:19:abc@thread.v2', request);
     void answer.then(() => lifecycleEvents.push('resolve'));
     await vi.advanceTimersByTimeAsync(0);
-    await vi.advanceTimersByTimeAsync(PERMISSION_APPROVAL_TIMEOUT_MS);
+    await vi.advanceTimersByTimeAsync(24 * 60 * 60_000);
 
+    expect(lifecycleEvents).toEqual([]);
+    expect(pendingQuestion.payload.questionRecoveryEnvelope).toMatchObject({
+      completedQuestionIndexes: [],
+    });
+
+    await channel.disconnect();
     await expect(answer).resolves.toEqual({
       requestId: request.requestId,
-      answers: { 'Continue?': '', 'Which checks?': [] },
+      answers: {},
       answeredBy: 'system',
     });
-    expect(lifecycleEvents).toEqual(['persist', 'resolve']);
-    expect(pendingQuestion.payload.questionRecoveryEnvelope).toMatchObject({
-      completedQuestionIndexes: [0, 1],
-    });
-    await channel.disconnect();
+    expect(lifecycleEvents).toEqual(['resolve']);
   });
 
   it('keeps pending Teams permission prompts unresolved when decision user is unauthorized', async () => {

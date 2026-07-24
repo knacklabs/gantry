@@ -42,7 +42,6 @@ import {
   settle as settleDiscordPermissionPrompt,
 } from '@core/channels/discord-permission-prompt-settlement.js';
 import type { ChannelOpts } from '@core/channels/channel-provider.js';
-import { PERMISSION_APPROVAL_TIMEOUT_MS } from '@core/shared/permission-timeout.js';
 
 class FakeWebSocket {
   onopen: (() => void) | null = null;
@@ -2059,15 +2058,6 @@ describe('DiscordChannel', () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(onPromptDelivered).toHaveBeenCalledOnce();
     expect(onPromptDelivered).toHaveBeenCalledWith('message-1');
-    expect(
-      vi
-        .mocked(globalThis.fetch)
-        .mock.calls.some(([, init]) =>
-          String(init?.body).includes(
-            `Reply in ${Math.round(PERMISSION_APPROVAL_TIMEOUT_MS / 60_000)}m`,
-          ),
-        ),
-    ).toBe(true);
     socket.receive({
       op: 0,
       t: 'INTERACTION_CREATE',
@@ -2317,7 +2307,7 @@ describe('DiscordChannel', () => {
     });
   });
 
-  it('times out approvals at the shared permission boundary', async () => {
+  it('keeps approvals pending at the shared no-timeout boundary', async () => {
     vi.useFakeTimers();
     vi.spyOn(globalThis, 'fetch')
       .mockResolvedValueOnce(
@@ -2344,19 +2334,19 @@ describe('DiscordChannel', () => {
     });
     await vi.advanceTimersByTimeAsync(0);
 
-    await vi.advanceTimersByTimeAsync(PERMISSION_APPROVAL_TIMEOUT_MS - 1);
+    await vi.advanceTimersByTimeAsync(24 * 60 * 60_000);
     expect(settled).toBe(false);
-    await vi.advanceTimersByTimeAsync(1);
+    expect((channel as any).interactions.pendingPermissions.size).toBe(1);
 
+    await channel.disconnect();
     await expect(approval).resolves.toMatchObject({
       approved: false,
       mode: 'cancel',
-      reason: 'timed out',
+      reason: 'channel disconnected',
     });
-    await channel.disconnect();
   });
 
-  it('resolves the Discord waiter after a no-holder claim exhausts bounded retries', async () => {
+  it('does not start timeout claim retries for a no-timeout Discord waiter', async () => {
     vi.useFakeTimers();
     vi.spyOn(globalThis, 'fetch')
       .mockResolvedValueOnce(
@@ -2382,17 +2372,22 @@ describe('DiscordChannel', () => {
     });
     await vi.advanceTimersByTimeAsync(600_000);
 
+    expect(
+      durabilityMocks.claimPermissionInteractionCallback,
+    ).not.toHaveBeenCalled();
+    expect((channel as any).interactions.pendingPermissions.size).toBe(1);
+
+    await channel.disconnect();
     await expect(approval).resolves.toMatchObject({
       approved: false,
       mode: 'cancel',
       decidedBy: 'system',
-      reason: 'timed out',
+      reason: 'channel disconnected',
     });
     expect(
       durabilityMocks.claimPermissionInteractionCallback,
-    ).toHaveBeenCalledTimes(3);
+    ).toHaveBeenCalledTimes(1);
     expect((channel as any).interactions.pendingPermissions.size).toBe(0);
-    await channel.disconnect();
   });
 
   it('preserves earlier Discord answers when a later question times out', async () => {
