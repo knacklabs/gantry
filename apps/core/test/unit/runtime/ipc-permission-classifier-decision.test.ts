@@ -69,6 +69,20 @@ describe('IPC permission classifier decision', () => {
     });
   });
 
+  it('keeps a destructive rail category while accepting higher classifier severity', async () => {
+    const { decision } = await resolveWithClassifierRisk({
+      toolName: 'RunCommand',
+      toolInput: { command: 'rm -rf ./build' },
+      riskLevel: 'critical',
+      riskCategory: 'benign',
+    });
+
+    expect(decision).toMatchObject({
+      risk_level: 'critical',
+      risk_category: 'destructive',
+    });
+  });
+
   it('takes the critical classifier pair over a medium network rail', async () => {
     const { decision, requestPermissionApproval } =
       await resolveWithClassifierRisk({

@@ -107,10 +107,7 @@ export async function requestTeamsPermissionApproval(input: {
     if (result === 'retryable') {
       const retryWindowMs = input.settlementDelayMs ?? 0;
       const firstDelay = Math.floor(retryWindowMs / 3);
-      for (const delayMs of [
-        firstDelay,
-        retryWindowMs - firstDelay,
-      ]) {
+      for (const delayMs of [firstDelay, retryWindowMs - firstDelay]) {
         await new Promise<void>((resolve) => {
           const timer = setTimeout(resolve, delayMs);
           timer.unref?.();

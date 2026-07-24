@@ -415,8 +415,13 @@ function selectPrimaryPermissionRisk(
 ): PermissionRiskSignal | undefined {
   if (!railRisk) return classifierRisk;
   if (!classifierRisk) return railRisk;
-  return PERMISSION_RISK_SEVERITY_RANK[classifierRisk.level] >
+  if (
+    PERMISSION_RISK_SEVERITY_RANK[classifierRisk.level] <=
     PERMISSION_RISK_SEVERITY_RANK[railRisk.level]
+  ) {
+    return railRisk;
+  }
+  return classifierRisk.category && classifierRisk.category !== 'benign'
     ? classifierRisk
-    : railRisk;
+    : { ...railRisk, level: classifierRisk.level };
 }

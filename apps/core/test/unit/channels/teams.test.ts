@@ -2548,9 +2548,7 @@ describe('TeamsChannel adapter scaffold', () => {
     );
     await vi.advanceTimersByTimeAsync(0);
 
-    const pending = [
-      ...(channel as any).pendingPermissionPrompts.values(),
-    ][0];
+    const pending = [...(channel as any).pendingPermissionPrompts.values()][0];
     expect(pending.timer).toBeUndefined();
     await vi.advanceTimersByTimeAsync(24 * 60 * 60_000);
 
@@ -2605,9 +2603,7 @@ describe('TeamsChannel adapter scaffold', () => {
     );
     await vi.advanceTimersByTimeAsync(0);
 
-    const pending = [
-      ...(channel as any).pendingPermissionPrompts.values(),
-    ][0];
+    const pending = [...(channel as any).pendingPermissionPrompts.values()][0];
     expect(pending.timer).toBeDefined();
     await vi.advanceTimersByTimeAsync(60_000);
 
@@ -3006,9 +3002,7 @@ describe('TeamsChannel adapter scaffold', () => {
     void answer.then(() => lifecycleEvents.push('resolve'));
     await vi.advanceTimersByTimeAsync(0);
 
-    const pending = [
-      ...(channel as any).pendingUserQuestions.values(),
-    ][0];
+    const pending = [...(channel as any).pendingUserQuestions.values()][0];
     expect(pending.timer).toBeUndefined();
     await vi.advanceTimersByTimeAsync(24 * 60 * 60_000);
 
@@ -3095,17 +3089,12 @@ describe('TeamsChannel adapter scaffold', () => {
     );
     await channel.connect();
 
-    const answer = channel.requestUserAnswer(
-      'teams:19:abc@thread.v2',
-      request,
-    );
+    const answer = channel.requestUserAnswer('teams:19:abc@thread.v2', request);
     void answer.then(() => lifecycleEvents.push('resolve'));
     await vi.advanceTimersByTimeAsync(0);
 
     expect((channel as any).pendingUserQuestions.size).toBe(1);
-    const pending = [
-      ...(channel as any).pendingUserQuestions.values(),
-    ][0];
+    const pending = [...(channel as any).pendingUserQuestions.values()][0];
     expect(pending.timer).toBeDefined();
     await vi.advanceTimersByTimeAsync(60_000);
 

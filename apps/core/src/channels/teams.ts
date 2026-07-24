@@ -543,7 +543,7 @@ export class TeamsChannel implements ChannelAdapter {
                   : new DurableInteractionPersistenceError(
                       'Teams user question timeout could not be persisted',
                       err,
-                  ),
+                    ),
               );
             });
           }, settlementDelayMs);
