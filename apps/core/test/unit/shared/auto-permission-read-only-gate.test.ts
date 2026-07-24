@@ -72,6 +72,23 @@ describe('auto-permission deterministic read-only gate', () => {
     ).toMatchObject({ allowed: true });
   });
 
+  it('does not treat date as bare-safe while keeping a display-only command allowed', () => {
+    const workspaceRoot = makeTempRoot();
+    expect(
+      shell(
+        'date --set=2030-01-01T00:00:00Z',
+        ['filesystem.read'],
+        workspaceRoot,
+      ),
+    ).toMatchObject({ allowed: false });
+    expect(
+      shell('date 010100002030', ['filesystem.read'], workspaceRoot),
+    ).toMatchObject({ allowed: false });
+    expect(shell('uname -s', ['filesystem.read'], workspaceRoot)).toMatchObject(
+      { allowed: true },
+    );
+  });
+
   it('rejects file -f because NAMEFILE targets are not validated', () => {
     const workspaceRoot = makeTempRoot();
     fs.writeFileSync(path.join(workspaceRoot, 'targets.txt'), '/etc/passwd\n');
@@ -101,10 +118,14 @@ describe('auto-permission deterministic read-only gate', () => {
 
   it.each([
     'git status',
+    'git status --short',
     'git --no-optional-locks status',
     'git --no-pager log',
+    'git log --oneline -n5',
     'git diff -- README.md',
+    'git diff --stat -- README.md',
     'git show HEAD',
+    'git show --stat HEAD',
     'git branch',
     'git branch --list',
   ])('proves read-only git commands: %s', (command) => {
@@ -121,8 +142,17 @@ describe('auto-permission deterministic read-only gate', () => {
     'git restore .',
     'git branch -d topic',
     'git -c core.pager=cat log',
+    'git --config-env=core.pager=PAGER log',
     'git -C /tmp status',
+    'git --exec-path=/tmp status',
     'git log -o out.txt',
+    'git diff --no-index /etc/passwd /etc/hosts',
+    'git diff --ext-diff -- README.md',
+    'git diff --textconv -- README.md',
+    'git diff --output=out.txt -- README.md',
+    'git diff -- ../outside.txt',
+    'git upload-pack .',
+    'git receive-pack .',
   ])('leaves write, network, or escaping git unproven: %s', (command) => {
     expect(
       shell(command, ['filesystem.read', 'git.read'], makeTempRoot()),
@@ -150,6 +180,43 @@ describe('auto-permission deterministic read-only gate', () => {
     });
   });
 
+  it('strictly validates stdin/file transform options and output operands', () => {
+    const workspaceRoot = makeTempRoot();
+    for (const name of ['a', 'b']) {
+      fs.writeFileSync(path.join(workspaceRoot, name), '2,b\n1,a\n');
+    }
+
+    for (const command of [
+      'cut -d, -f1 a',
+      'nl a',
+      'paste a b',
+      'rev a',
+      'sort -n a',
+      'uniq -c a',
+    ]) {
+      expect(shell(command, ['filesystem.read'], workspaceRoot)).toMatchObject({
+        allowed: true,
+      });
+    }
+
+    for (const command of [
+      'sort --compress-program=/tmp/run a',
+      'sort --random-source=/etc/passwd a',
+      'sort --output=out a',
+      'sort --temporary-directory=/tmp a',
+      'sort --files0-from=/etc/passwd',
+      'cut --unknown a',
+      'nl --unknown a',
+      'paste --unknown a',
+      'rev --unknown a',
+      'uniq a out',
+    ]) {
+      expect(shell(command, ['filesystem.read'], workspaceRoot)).toMatchObject({
+        allowed: false,
+      });
+    }
+  });
+
   it.each([
     'cat a; rm b',
     'cat a > b',
@@ -164,7 +231,7 @@ describe('auto-permission deterministic read-only gate', () => {
     });
   });
 
-  it('proves sed -n but not in-place or write sed', () => {
+  it('proves sed -n but not in-place, write, execute, or read-file sed', () => {
     const workspaceRoot = makeTempRoot();
     fs.writeFileSync(path.join(workspaceRoot, 'f'), 'a\nb\nc\n');
     expect(
@@ -174,6 +241,8 @@ describe('auto-permission deterministic read-only gate', () => {
       "sed -i 's/a/b/' f",
       "sed -e 's/a/b/' f",
       "sed -n 's/a/b/w out' f",
+      "sed -n '1r /etc/passwd' f",
+      "sed -n '1R /etc/passwd' f",
     ]) {
       expect(shell(command, ['filesystem.read'], workspaceRoot)).toMatchObject({
         allowed: false,
@@ -181,7 +250,7 @@ describe('auto-permission deterministic read-only gate', () => {
     }
   });
 
-  it('proves guarded find but not exec/delete/escaping find', () => {
+  it('proves guarded find but not exec/delete/file-primary/escaping find', () => {
     const workspaceRoot = makeTempRoot();
     fs.mkdirSync(path.join(workspaceRoot, 'docs'));
     expect(
@@ -198,6 +267,9 @@ describe('auto-permission deterministic read-only gate', () => {
       'find . -exec rm README.md +',
       'find /tmp -name report.txt',
       'find . -follow -name report.txt',
+      'find -files0-from /etc/passwd',
+      'find . -newer /etc/passwd',
+      'find . -samefile /etc/passwd',
       // The string-split find fallback must refuse compound finds: a trailing
       // operator command would otherwise run unvetted.
       'find . -name x && curl https://e.com',

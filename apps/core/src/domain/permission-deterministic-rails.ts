@@ -64,7 +64,10 @@ export function evaluatePermissionDeterministicRails(
   if (inputIsIncomplete(request)) {
     return ask('Exact tool input is missing or the command was truncated.');
   }
-  if (isBenignGantryTool(request.toolName)) {
+  if (
+    isBenignGantryTool(request.toolName) &&
+    !hasRiskRelevantSanitization(request)
+  ) {
     return allow(
       request,
       `Benign first-party gantry control-plane tool ${request.toolName}.`,
@@ -127,13 +130,9 @@ export function evaluatePermissionDeterministicRails(
  * verbs/paths — and 500-char display alteration is not a risk gap now that the
  * host env-prefix is stripped, so neither alone marks the input incomplete.
  *
- * SECURITY COUPLING: this command/cmd-only narrowing is safe ONLY because the
- * rails cannot auto-allow a non-shell tool in the current wiring (the IPC path
- * omits reviewedMcpReadBindings, so evaluateMcpRead is always blocked → the
- * non-shell path falls to the classifier). If a future change EVER passes
- * reviewedMcpReadBindings into the rails input, revisit this: a redacted (not
- * command/cmd) field on an auto-allowable non-shell tool would then pass the
- * gate without the classifier's any-path completeness check.
+ * SECURITY COUPLING: benign first-party MCP tools are a separate auto-allow
+ * shortcut. That shortcut is gated on zero redaction/sanitization metadata, so
+ * the classifier sees any request whose displayed input differs from execution.
  */
 function inputIsIncomplete(request: PermissionApprovalRequest): boolean {
   const ipc = request as PermissionApprovalRequest & {
@@ -142,6 +141,19 @@ function inputIsIncomplete(request: PermissionApprovalRequest): boolean {
   if (!request.toolInput) return true;
   const truncated = ipc.toolInputTruncatedPaths ?? [];
   return truncated.includes('command') || truncated.includes('cmd');
+}
+
+function hasRiskRelevantSanitization(
+  request: PermissionApprovalRequest,
+): boolean {
+  const ipc = request as PermissionApprovalRequest & {
+    toolInputRedactedPaths?: string[];
+  };
+  return (
+    request.toolInputSanitized === true ||
+    (request.toolInputSanitizedPaths?.length ?? 0) > 0 ||
+    (ipc.toolInputRedactedPaths?.length ?? 0) > 0
+  );
 }
 
 // Accepts both the mcp-prefixed canonical form (`mcp__gantry__send_message`)

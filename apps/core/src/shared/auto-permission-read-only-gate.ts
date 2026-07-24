@@ -233,7 +233,7 @@ function evaluateLeaf(
     );
   }
   if (GENERIC_READ_EXECUTABLES.has(executable)) {
-    const fileArgs = genericReadFileArgs(args);
+    const fileArgs = genericReadFileArgs(executable, args);
     if (!fileArgs) return blockedReadShape('read');
     return evaluateFileRead(
       'read',

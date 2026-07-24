@@ -389,6 +389,32 @@ describe('permission deterministic rails', () => {
     ).toMatchObject({ railOutcome: 'allow' });
   });
 
+  it('does not auto-allow a benign gantry MCP tool when input was redacted or sanitized', () => {
+    for (const metadata of [
+      { toolInputRedactedPaths: ['text'] },
+      { toolInputSanitizedPaths: ['text'] },
+      { toolInputSanitized: true },
+    ]) {
+      expect(
+        evaluatePermissionDeterministicRails({
+          request: request('unused', {
+            toolName: 'mcp__gantry__send_message',
+            toolInput: { text: '[REDACTED]' },
+            ...metadata,
+          } as Partial<PermissionApprovalRequest>),
+        }),
+      ).not.toMatchObject({ railOutcome: 'allow' });
+    }
+    expect(
+      evaluatePermissionDeterministicRails({
+        request: request('unused', {
+          toolName: 'mcp__gantry__send_message',
+          toolInput: { text: 'ordinary progress update' },
+        }),
+      }),
+    ).toMatchObject({ railOutcome: 'allow' });
+  });
+
   it.each([
     'mcp__gantry__scheduler_run_now',
     'mcp__gantry__scheduler_update_job',
