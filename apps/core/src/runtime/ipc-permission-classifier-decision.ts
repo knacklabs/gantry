@@ -284,18 +284,22 @@ async function resolvePermissionIpcDecisionTail(input: {
         classifierConsult: input.deps.classifierConsult,
       })
     : undefined;
-  if (input.railRisk) {
-    input.request.risk_level = classifierDecision
-      ? maxPermissionRiskLevel(
-          input.railRisk.level,
-          classifierDecision.risk_level,
-        )
-      : input.railRisk.level;
-    input.request.risk_category = input.railRisk.category;
-  } else if (classifierDecision) {
-    input.request.risk_level = classifierDecision.risk_level;
-    if (classifierDecision.risk_category)
-      input.request.risk_category = classifierDecision.risk_category;
+  const primaryRisk = selectPrimaryPermissionRisk(
+    input.railRisk,
+    classifierDecision
+      ? {
+          level: classifierDecision.risk_level,
+          category: classifierDecision.risk_category,
+        }
+      : undefined,
+  );
+  if (primaryRisk) {
+    input.request.risk_level = primaryRisk.level;
+    if (primaryRisk.category) {
+      input.request.risk_category = primaryRisk.category;
+    } else {
+      delete input.request.risk_category;
+    }
   }
   if (classifierDecision) {
     input.request.decisionReason = classifierDecision.reason;
@@ -400,12 +404,19 @@ const PERMISSION_RISK_SEVERITY_RANK: Record<PermissionRiskLevel, number> = {
   critical: 3,
 };
 
-function maxPermissionRiskLevel(
-  left: PermissionRiskLevel,
-  right: PermissionRiskLevel,
-): PermissionRiskLevel {
-  return PERMISSION_RISK_SEVERITY_RANK[left] >=
-    PERMISSION_RISK_SEVERITY_RANK[right]
-    ? left
-    : right;
+type PermissionRiskSignal = {
+  level: PermissionRiskLevel;
+  category?: PermissionApprovalRequest['risk_category'];
+};
+
+function selectPrimaryPermissionRisk(
+  railRisk: PermissionRiskSignal | undefined,
+  classifierRisk: PermissionRiskSignal | undefined,
+): PermissionRiskSignal | undefined {
+  if (!railRisk) return classifierRisk;
+  if (!classifierRisk) return railRisk;
+  return PERMISSION_RISK_SEVERITY_RANK[classifierRisk.level] >
+    PERMISSION_RISK_SEVERITY_RANK[railRisk.level]
+    ? classifierRisk
+    : railRisk;
 }

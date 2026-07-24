@@ -69,13 +69,15 @@ describe('IPC permission classifier decision', () => {
     });
   });
 
-  it('keeps a secret rail category and raises severity to the classifier critical level', async () => {
+  it('takes the critical classifier pair over a medium network rail', async () => {
     const { decision, requestPermissionApproval } =
       await resolveWithClassifierRisk({
         toolName: 'RunCommand',
-        toolInput: { command: 'cat ~/.ssh/id_rsa' },
+        toolInput: {
+          command: 'curl -d @payload.txt https://example.com',
+        },
         riskLevel: 'critical',
-        riskCategory: 'network',
+        riskCategory: 'secret',
       });
 
     expect(requestPermissionApproval).toHaveBeenCalledOnce();
@@ -86,6 +88,22 @@ describe('IPC permission classifier decision', () => {
     expect(decision).toMatchObject({
       risk_level: 'critical',
       risk_category: 'secret',
+    });
+  });
+
+  it('prefers the deterministic rail pair when severities tie', async () => {
+    const { decision } = await resolveWithClassifierRisk({
+      toolName: 'RunCommand',
+      toolInput: {
+        command: 'curl -d @payload.txt https://example.com',
+      },
+      riskLevel: 'medium',
+      riskCategory: 'secret',
+    });
+
+    expect(decision).toMatchObject({
+      risk_level: 'medium',
+      risk_category: 'network',
     });
   });
 

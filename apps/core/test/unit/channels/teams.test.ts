@@ -37,6 +37,7 @@ import type {
   PermissionCallbackClaim,
   PermissionCallbackClaimReference,
   PermissionCallbackScope,
+  UserQuestionRequest,
 } from '@core/domain/types.js';
 
 vi.mock('@core/infrastructure/logging/logger.js', () => ({
@@ -2512,7 +2513,7 @@ describe('TeamsChannel adapter scaffold', () => {
     await approval;
   });
 
-  it('does not start timeout claim retries for a no-timeout Teams waiter', async () => {
+  it('does not schedule settlement for an interactive no-timeout Teams permission', async () => {
     vi.useFakeTimers();
     const sdkClient: TeamsSdkClient = {
       start: vi.fn(async () => {}),
@@ -2545,6 +2546,12 @@ describe('TeamsChannel adapter scaffold', () => {
       'teams:19:abc@thread.v2',
       request,
     );
+    await vi.advanceTimersByTimeAsync(0);
+
+    const pending = [
+      ...(channel as any).pendingPermissionPrompts.values(),
+    ][0];
+    expect(pending.timer).toBeUndefined();
     await vi.advanceTimersByTimeAsync(24 * 60 * 60_000);
 
     expect(repository.claimPendingPermissionCallback).not.toHaveBeenCalled();
@@ -2559,6 +2566,65 @@ describe('TeamsChannel adapter scaffold', () => {
     });
     expect(repository.claimPendingPermissionCallback).toHaveBeenCalledTimes(1);
     expect((channel as any).pendingPermissionPrompts.size).toBe(0);
+  });
+
+  it('settles a scheduled Teams permission at its finite deadline', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-17T00:00:00.000Z'));
+    const sdkClient: TeamsSdkClient = {
+      start: vi.fn(async () => {}),
+      stop: vi.fn(async () => {}),
+      sendMessage: vi.fn(async () => ({})),
+      sendAdaptiveCard: vi.fn(async () => ({
+        externalMessageId: 'teams-job-permission-card',
+      })),
+      updateAdaptiveCard: vi.fn(async () => ({})),
+    };
+    const channel = new TeamsChannel(
+      {
+        clientId: 'client-id',
+        clientSecret: 'client-secret',
+        tenantId: 'tenant-id',
+      },
+      makeOpts(),
+      sdkClient,
+    );
+    await channel.connect();
+    const request: PermissionApprovalRequest & { expiresAt: string } = {
+      requestId: 'perm-teams-job-timeout',
+      sourceAgentFolder: 'teams_engineering',
+      toolName: 'Bash',
+      jobId: 'job-1',
+      expiresAt: '2026-07-17T00:01:00.000Z',
+    };
+    configureTeamsPermissionRequest(request);
+
+    const approval = channel.requestPermissionApproval(
+      'teams:19:abc@thread.v2',
+      request,
+    );
+    await vi.advanceTimersByTimeAsync(0);
+
+    const pending = [
+      ...(channel as any).pendingPermissionPrompts.values(),
+    ][0];
+    expect(pending.timer).toBeDefined();
+    await vi.advanceTimersByTimeAsync(60_000);
+
+    await expect(approval).resolves.toMatchObject({
+      approved: false,
+      mode: 'cancel',
+      decidedBy: 'system',
+      reason: 'timed out',
+    });
+    expect((channel as any).pendingPermissionPrompts.size).toBe(0);
+    expect(sdkClient.updateAdaptiveCard).toHaveBeenCalledWith(
+      expect.objectContaining({
+        messageId: 'teams-job-permission-card',
+        card: expect.objectContaining({ actions: [] }),
+      }),
+    );
+    await channel.disconnect();
   });
 
   it('releases and retries a Teams permission when card terminalization fails', async () => {
@@ -2862,7 +2928,7 @@ describe('TeamsChannel adapter scaffold', () => {
     });
   });
 
-  it('does not persist synthetic Teams answers without a deadline', async () => {
+  it('does not schedule settlement for an interactive Teams question', async () => {
     vi.useFakeTimers();
     const lifecycleEvents: string[] = [];
     const sdkClient: TeamsSdkClient = {
@@ -2939,6 +3005,11 @@ describe('TeamsChannel adapter scaffold', () => {
     const answer = channel.requestUserAnswer('teams:19:abc@thread.v2', request);
     void answer.then(() => lifecycleEvents.push('resolve'));
     await vi.advanceTimersByTimeAsync(0);
+
+    const pending = [
+      ...(channel as any).pendingUserQuestions.values(),
+    ][0];
+    expect(pending.timer).toBeUndefined();
     await vi.advanceTimersByTimeAsync(24 * 60 * 60_000);
 
     expect(lifecycleEvents).toEqual([]);
@@ -2953,6 +3024,105 @@ describe('TeamsChannel adapter scaffold', () => {
       answeredBy: 'system',
     });
     expect(lifecycleEvents).toEqual(['resolve']);
+  });
+
+  it('settles and cleans up a scheduled Teams question at its finite deadline', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-17T00:00:00.000Z'));
+    const lifecycleEvents: string[] = [];
+    const sdkClient: TeamsSdkClient = {
+      start: vi.fn(async () => {}),
+      stop: vi.fn(async () => {}),
+      sendMessage: vi.fn(async () => ({})),
+      sendAdaptiveCard: vi.fn(async () => ({
+        externalMessageId: 'teams-job-question-card',
+      })),
+      updateAdaptiveCard: vi.fn(async () => ({})),
+    };
+    const request: UserQuestionRequest & { expiresAt: string } = {
+      requestId: 'q-teams-job-timeout',
+      sourceAgentFolder: 'teams_engineering',
+      targetJid: 'teams:19:abc@thread.v2',
+      jobId: 'job-1',
+      expiresAt: '2026-07-17T00:01:00.000Z',
+      questions: [
+        {
+          question: 'Continue?',
+          header: 'Next step',
+          multiSelect: false,
+          options: [{ label: 'Yes', description: 'Continue' }],
+        },
+      ],
+    };
+    const pendingQuestion = {
+      appId: 'default',
+      kind: 'question' as const,
+      status: 'pending' as const,
+      idempotencyKey: 'default:question:teams_engineering:q-teams-job-timeout',
+      payload: {
+        requestId: request.requestId,
+        sourceAgentFolder: request.sourceAgentFolder,
+        questionRecoveryEnvelope: {
+          version: 1,
+          targetJid: request.targetJid,
+          threadId: null,
+          request,
+          selections: [],
+          completedQuestionIndexes: [],
+        },
+      } as Record<string, unknown>,
+    };
+    configurePendingInteractionDurability({
+      repository: {
+        findPendingInteractionByRequest: vi.fn(async () => pendingQuestion),
+        updatePendingInteractionPayload: vi.fn(async ({ update }) => {
+          const payload = update(pendingQuestion.payload);
+          if (!payload) return false;
+          pendingQuestion.payload = payload;
+          lifecycleEvents.push('persist');
+          return true;
+        }),
+      } as never,
+    });
+    const channel = new TeamsChannel(
+      {
+        clientId: 'client-id',
+        clientSecret: 'client-secret',
+        tenantId: 'tenant-id',
+      },
+      makeOpts(),
+      sdkClient,
+    );
+    await channel.connect();
+
+    const answer = channel.requestUserAnswer(
+      'teams:19:abc@thread.v2',
+      request,
+    );
+    void answer.then(() => lifecycleEvents.push('resolve'));
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect((channel as any).pendingUserQuestions.size).toBe(1);
+    const pending = [
+      ...(channel as any).pendingUserQuestions.values(),
+    ][0];
+    expect(pending.timer).toBeDefined();
+    await vi.advanceTimersByTimeAsync(60_000);
+
+    await expect(answer).resolves.toEqual({
+      requestId: request.requestId,
+      answers: { 'Continue?': '' },
+      answeredBy: 'system',
+    });
+    expect((channel as any).pendingUserQuestions.size).toBe(0);
+    expect(lifecycleEvents).toEqual(['persist', 'resolve']);
+    expect(sdkClient.updateAdaptiveCard).toHaveBeenCalledWith(
+      expect.objectContaining({
+        messageId: 'teams-job-question-card',
+        card: expect.objectContaining({ actions: [] }),
+      }),
+    );
+    await channel.disconnect();
   });
 
   it('keeps pending Teams permission prompts unresolved when decision user is unauthorized', async () => {

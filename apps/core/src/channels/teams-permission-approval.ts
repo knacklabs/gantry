@@ -21,6 +21,26 @@ import {
   type TeamsSdkClient,
 } from './teams-types.js';
 
+const TEAMS_JOB_INTERACTION_TIMEOUT_MS = 5 * 60_000;
+
+export function teamsInteractionSettlementDelayMs(request: {
+  jobId?: string;
+  expiresAt?: unknown;
+}): number | undefined {
+  if (!request.jobId) {
+    return PERMISSION_APPROVAL_TIMEOUT_MS > NO_PERMISSION_TIMEOUT_MS
+      ? PERMISSION_APPROVAL_TIMEOUT_MS
+      : undefined;
+  }
+  const expiresAtMs =
+    typeof request.expiresAt === 'string'
+      ? Date.parse(request.expiresAt)
+      : Number.NaN;
+  return Number.isFinite(expiresAtMs)
+    ? Math.max(0, expiresAtMs - Date.now())
+    : TEAMS_JOB_INTERACTION_TIMEOUT_MS;
+}
+
 export async function requestTeamsPermissionApproval(input: {
   connected: boolean;
   jid: string;
@@ -28,6 +48,7 @@ export async function requestTeamsPermissionApproval(input: {
   onPromptDelivered?: (messageId: string) => void;
   sdkClient: TeamsSdkClient;
   pendingPermissionPrompts: Map<string, PendingTeamsPermissionPrompt>;
+  settlementDelayMs: number | undefined;
   settleTimeout: (
     providerAlias: string,
   ) => Promise<'settled' | 'already_decided' | 'ownerless' | 'retryable'>;
@@ -84,10 +105,11 @@ export async function requestTeamsPermissionApproval(input: {
     if (result === 'settled') return;
     if (result === 'already_decided') return;
     if (result === 'retryable') {
-      const firstDelay = Math.floor(PERMISSION_APPROVAL_TIMEOUT_MS / 3);
+      const retryWindowMs = input.settlementDelayMs ?? 0;
+      const firstDelay = Math.floor(retryWindowMs / 3);
       for (const delayMs of [
         firstDelay,
-        PERMISSION_APPROVAL_TIMEOUT_MS - firstDelay,
+        retryWindowMs - firstDelay,
       ]) {
         await new Promise<void>((resolve) => {
           const timer = setTimeout(resolve, delayMs);
@@ -131,10 +153,11 @@ export async function requestTeamsPermissionApproval(input: {
     const messageId = sent.externalMessageId;
     const decision = new Promise<PermissionApprovalDecision>((resolve) => {
       let timer!: ReturnType<typeof setTimeout>;
-      if (PERMISSION_APPROVAL_TIMEOUT_MS > NO_PERMISSION_TIMEOUT_MS) {
+      if (input.settlementDelayMs !== undefined) {
         timer = setTimeout(() => {
           void timeoutPermissionPrompt();
-        }, PERMISSION_APPROVAL_TIMEOUT_MS);
+        }, input.settlementDelayMs);
+        timer.unref?.();
       }
       input.pendingPermissionPrompts.set(callback.providerAlias, {
         callback,

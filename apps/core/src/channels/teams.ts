@@ -17,8 +17,6 @@ import type {
 } from '../domain/types.js';
 import type { AgentTodoRender } from '../domain/ports/task-lifecycle.js';
 import { logger } from '../infrastructure/logging/logger.js';
-import { PERMISSION_APPROVAL_TIMEOUT_MS } from '../shared/permission-timeout.js';
-import { NO_PERMISSION_TIMEOUT_MS } from '../shared/permission-timeout.js';
 import { nowIso } from '../shared/time/datetime.js';
 import {
   buildTeamsUserQuestionCard,
@@ -30,7 +28,10 @@ import {
   sendTeamsTextOrActionMessage,
   type TeamsProgressMessages,
 } from './teams-progress.js';
-import { requestTeamsPermissionApproval } from './teams-permission-approval.js';
+import {
+  requestTeamsPermissionApproval,
+  teamsInteractionSettlementDelayMs,
+} from './teams-permission-approval.js';
 import { renderTeamsAgentTodo, type TeamsTodoMessages } from './teams-todos.js';
 import {
   isTeamsJid,
@@ -453,6 +454,7 @@ export class TeamsChannel implements ChannelAdapter {
       onPromptDelivered,
       sdkClient: this.sdkClient,
       pendingPermissionPrompts: this.pendingPermissionPrompts,
+      settlementDelayMs: teamsInteractionSettlementDelayMs(request),
       settleTimeout: (providerAlias) =>
         settlePendingTeamsPermission(
           this.interactionContext(),
@@ -499,8 +501,10 @@ export class TeamsChannel implements ChannelAdapter {
         ...(request.threadId ? { threadId: request.threadId } : {}),
       });
       const response = new Promise<UserQuestionResponse>((resolve, reject) => {
+        const settlementDelayMs =
+          teamsInteractionSettlementDelayMs(questionRequest);
         let timer!: ReturnType<typeof setTimeout>;
-        if (PERMISSION_APPROVAL_TIMEOUT_MS > NO_PERMISSION_TIMEOUT_MS) {
+        if (settlementDelayMs !== undefined) {
           timer = setTimeout(() => {
             void (async () => {
               const remainingQuestionIndexes = request.questions.flatMap(
@@ -539,10 +543,11 @@ export class TeamsChannel implements ChannelAdapter {
                   : new DurableInteractionPersistenceError(
                       'Teams user question timeout could not be persisted',
                       err,
-                    ),
+                  ),
               );
             });
-          }, PERMISSION_APPROVAL_TIMEOUT_MS);
+          }, settlementDelayMs);
+          timer.unref?.();
         }
         this.pendingUserQuestions.set(callback.providerAlias, {
           callback,
