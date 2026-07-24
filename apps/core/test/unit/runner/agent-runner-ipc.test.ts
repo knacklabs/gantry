@@ -1099,7 +1099,7 @@ describe('agent-runner IPC lifecycle', () => {
       });
       expect(call?.permissionDecision).toEqual({
         behavior: 'deny',
-        message: 'Permission denied: deny',
+        message: 'Permission denied (decided by: runner-test-admin): deny',
         interrupt: false,
       });
     },
@@ -3027,7 +3027,7 @@ describe('agent-runner IPC lifecycle', () => {
       expect(call?.permissionDecision).toEqual(
         expect.objectContaining({
           behavior: 'deny',
-          message: 'Permission denied: deny',
+          message: 'Permission denied (decided by: runner-test-admin): deny',
           interrupt: false,
           decisionClassification: 'user_reject',
         }),

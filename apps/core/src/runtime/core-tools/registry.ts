@@ -46,6 +46,7 @@ import type {
   McpCompatibleToolResult,
 } from './contracts.js';
 import { coordinateCoreToolPermission } from './core-tool-permission-coordinator.js';
+import { formatPermissionDeniedMessage } from '../../shared/permission-decision-message.js';
 
 export type {
   CoreToolDefinition,
@@ -606,11 +607,8 @@ function permissionDenied(
   decision: PermissionApprovalDecision,
 ): McpCompatibleToolResult {
   const reason = decision.reason ?? 'request cancelled';
-  const provenance = decision.decidedBy ?? 'unknown';
-  const riskLevel = decision.risk_level ?? 'unknown';
-  const riskCategory = decision.risk_category ?? 'unknown';
   return errorResult(
-    `Permission denied (decided by: ${provenance}; risk: ${riskLevel}/${riskCategory}): ${reason}`,
+    formatPermissionDeniedMessage(decision, reason),
     'permission',
     false,
   );

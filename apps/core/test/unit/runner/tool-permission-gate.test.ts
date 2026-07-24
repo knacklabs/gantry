@@ -333,30 +333,53 @@ describe('createCanUseToolCallback', () => {
     );
   });
 
-  it('surfaces decision provenance and risk in a denied tool result', async () => {
-    permissionMock.requestPermissionApproval.mockResolvedValueOnce({
-      approved: false,
-      mode: 'cancel',
-      decidedBy: 'human',
-      reason: 'operator denied',
-      risk_level: 'critical',
-      risk_category: 'secret',
-    });
+  it.each([
+    {
+      provenance: {},
+      message: 'Permission denied: operator denied',
+    },
+    {
+      provenance: { decidedBy: 'human' },
+      message: 'Permission denied (decided by: human): operator denied',
+    },
+    {
+      provenance: { decidedBy: 'human', risk_level: 'high' },
+      message:
+        'Permission denied (decided by: human; risk: high): operator denied',
+    },
+    {
+      provenance: {
+        decidedBy: 'human',
+        risk_level: 'high',
+        risk_category: 'secret',
+      },
+      message:
+        'Permission denied (decided by: human; risk: high/secret): operator denied',
+    },
+  ])(
+    'omits absent provenance from a denied tool result: $message',
+    async ({ provenance, message }) => {
+      permissionMock.requestPermissionApproval.mockResolvedValueOnce({
+        approved: false,
+        mode: 'cancel',
+        reason: 'operator denied',
+        ...provenance,
+      });
 
-    const result = await makeCallback()(
-      'Bash',
-      { command: 'npm test' },
-      makePermissionOptions() as never,
-    );
+      const result = await makeCallback()(
+        'Bash',
+        { command: 'npm test' },
+        makePermissionOptions() as never,
+      );
 
-    expect(result).toEqual(
-      expect.objectContaining({
-        behavior: 'deny',
-        message:
-          'Permission denied (decided by: human; risk: critical/secret): operator denied',
-      }),
-    );
-  });
+      expect(result).toEqual(
+        expect.objectContaining({
+          behavior: 'deny',
+          message,
+        }),
+      );
+    },
+  );
 
   it('prompts when a yolo denylist command matches an existing allow rule', async () => {
     permissionMock.requestPermissionApproval.mockResolvedValueOnce({

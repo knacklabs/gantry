@@ -42,6 +42,7 @@ import { waitOnlyBashMonitoringDenial } from './wait-only-bash-guard.js';
 import { forceBackgroundNativeAgentInput } from './native-agent-tool-input.js';
 import { denyNonPromptableAutonomousRecovery } from './autonomous-permission-recovery.js';
 import { evaluateYoloModeDenylist } from '../../../../shared/yolo-mode-policy.js';
+import { formatPermissionDeniedMessage } from '../../../../shared/permission-decision-message.js';
 type ApprovalInput = Parameters<typeof requestPermissionApproval>[0];
 const WORKSPACE_FOLDER_KEY = WORKSPACE_FOLDER_OPTION_KEY as keyof ApprovalInput;
 const RAW_REQ = /^(Agent|AskUserQuestion|TodoWrite)$/;
@@ -598,11 +599,7 @@ export function createCanUseToolCallback(
     );
     return {
       behavior: 'deny' as const,
-      message: `Permission denied (decided by: ${
-        decision.decidedBy ?? 'unknown'
-      }; risk: ${decision.risk_level ?? 'unknown'}/${
-        decision.risk_category ?? 'unknown'
-      }): ${reason}`,
+      message: formatPermissionDeniedMessage(decision, reason),
       interrupt: false,
       ...(decision.decisionClassification
         ? { decisionClassification: decision.decisionClassification as never }
