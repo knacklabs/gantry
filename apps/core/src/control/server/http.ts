@@ -52,17 +52,32 @@ export function readRawBody(
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
     let totalBytes = 0;
-    const contentLength = parseContentLength(req.headers['content-length']);
-    if (Number.isFinite(contentLength) && contentLength > maxBytes) {
-      const error = Object.assign(new Error('Payload too large'), {
-        code: 'PAYLOAD_TOO_LARGE',
-        statusCode: 413,
-      });
+    let settled = false;
+    const cleanup = () => {
+      req.off('data', onData);
+      req.off('end', onEnd);
+      req.off('error', onError);
+      req.off('aborted', onAborted);
+      req.off('close', onClose);
+    };
+    const resolveOnce = (body: Buffer) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve(body);
+    };
+    const rejectOnce = (error: unknown) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
       reject(error);
-      req.destroy();
-      return;
-    }
-    req.on('data', (chunk) => {
+    };
+    const requestAbortedError = () =>
+      Object.assign(new Error('Request body stream aborted'), {
+        code: 'REQUEST_ABORTED',
+        statusCode: 400,
+      });
+    const onData = (chunk: Buffer | string) => {
       const buffer = Buffer.from(chunk);
       totalBytes += buffer.length;
       if (totalBytes > maxBytes) {
@@ -70,14 +85,36 @@ export function readRawBody(
           code: 'PAYLOAD_TOO_LARGE',
           statusCode: 413,
         });
-        reject(error);
-        req.destroy(error);
+        rejectOnce(error);
+        // destroy() with no arg: rejectOnce already ran cleanup(), removing the
+        // 'error' listener, so passing the error here would re-emit it on a
+        // listenerless stream as an uncaught exception.
+        req.destroy();
         return;
       }
       chunks.push(buffer);
-    });
-    req.on('end', () => resolve(Buffer.concat(chunks)));
-    req.on('error', reject);
+    };
+    const onEnd = () => resolveOnce(Buffer.concat(chunks));
+    const onError = (error: Error) => rejectOnce(error);
+    const onAborted = () => rejectOnce(requestAbortedError());
+    const onClose = () => {
+      if (req.complete !== true) rejectOnce(requestAbortedError());
+    };
+    const contentLength = parseContentLength(req.headers['content-length']);
+    if (Number.isFinite(contentLength) && contentLength > maxBytes) {
+      const error = Object.assign(new Error('Payload too large'), {
+        code: 'PAYLOAD_TOO_LARGE',
+        statusCode: 413,
+      });
+      rejectOnce(error);
+      req.destroy();
+      return;
+    }
+    req.on('data', onData);
+    req.on('end', onEnd);
+    req.on('error', onError);
+    req.on('aborted', onAborted);
+    req.on('close', onClose);
   });
 }
 

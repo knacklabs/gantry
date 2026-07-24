@@ -11,13 +11,16 @@ on:
         default: false
         type: boolean
 
+permissions:
+  contents: read
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   ci:
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     timeout-minutes: 30
     services:
       postgres:
@@ -143,6 +146,10 @@ jobs:
         env:
           E2E_MODEL_API_KEY: ${{ secrets.E2E_ANTHROPIC_API_KEY }}
         run: |
+          if [ -z "$E2E_MODEL_API_KEY" ]; then
+            echo "::notice::E2E_MODEL_API_KEY is unavailable; skipping the real-model turn."
+            exit 0
+          fi
           set -o pipefail
           # The SDK filesystem sandbox needs BOTH bwrap and socat; if either is
           # missing the runner can't sandbox the SDK child (failIfUnavailable),

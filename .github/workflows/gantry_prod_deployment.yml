@@ -1,5 +1,8 @@
 name: Gantry Prod Deployment
 
+permissions:
+  contents: read
+
 on:
   workflow_dispatch:
   push:

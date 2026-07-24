@@ -53,6 +53,16 @@ model:
 - NO runtime/image surface change from a test provider (that idea is dropped).
   Surface matrix Runtime row reverts to Read-only/observable.
 
+## Current CI runner boundary (decision 0044)
+
+All current workflow jobs run on GitHub-hosted ephemeral `ubuntu-latest`
+runners, including the pull-request agent E2E lane. The real-model step keeps
+its `E2E_MODEL_API_KEY` mapping step-local and exits successfully before model
+invocation when that secret is absent, which is the expected fork-PR path.
+Workflow-level token permissions default to `contents: read`; jobs that publish
+branches, packages, issues, or labels add only their required write scopes.
+`scripts/check_ci_runner_isolation.py` enforces these invariants.
+
 ## What already exists (dedup — do NOT rebuild)
 Deep unit + integration coverage exists for permission/capability LOGIC. THE GAP:
 (a) `test:integration:postgres` is NOT in CI (gates nothing today), and (b)
@@ -355,8 +365,9 @@ production.
 Add the planned agent E2E workflow, triggered on PR open/synchronize/reopen/label/unlabel.
 - The required gate (real `haiku` agent turn + all-tools exercise, API-driven) +
   (extended) test:integration:postgres run for every non-docs PR. It needs the
-  protected-environment model credential (so it runs on same-repo PRs; fork PRs
-  route through the trusted-artifact path, never seeing secrets).
+  model credential on same-repo PRs. Fork PRs receive no model secret, so the
+  real-model step exits successfully without model invocation while the
+  credential-free checks still run.
 - Path-map (checked-in globs → risk area) classifies changed paths. UNKNOWN stays
   RISKY for live-gate purposes until the path-map is updated; `e2e-reviewed` may
   ACKNOWLEDGE a mapping miss but MUST NOT silently downgrade unknown code to
@@ -364,10 +375,10 @@ Add the planned agent E2E workflow, triggered on PR open/synchronize/reopen/labe
 - Risky PRs fail until `live-agent-e2e`; the label starts the protected-environment
   extended-model job (gpt-mini/deepagents + catalog diff) against the immutable
   prebuilt image artifact (same digest, never a rebuild).
-- **Fork-secret safety:** protected model secrets never exposed to untrusted fork
-  PR code. Trust boundary = same-repository PRs + protected-environment approval,
-  or a trusted workflow executing an already-built reviewed artifact. NO
-  `pull_request_target` checkout of PR code.
+- **Fork-secret safety:** model secrets are absent from untrusted fork PRs and
+  the real-model step carries an explicit absent-secret skip guard. Same-repository
+  PRs keep the full real-model merge check. NO `pull_request_target` checkout of
+  PR code.
 - `agent-e2e-gate` aggregates all results. Branch-protection/ruleset activation +
   verification of the exact required check name is IN SCOPE (a workflow check is
   not a required gate by itself).

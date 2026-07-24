@@ -19,6 +19,7 @@ import {
   type ControlRouteContext,
 } from '../handler-context.js';
 import { readRawBody, recordControlRequestLog, sendError } from '../http.js';
+import type { ApiKeyRecord } from '../auth.js';
 import {
   findUnsupportedLlmRequestField,
   type LlmPassthroughEndpoint,
@@ -45,6 +46,18 @@ const BLOCKED_LOOPBACK_RESPONSE_HEADERS = new Set([
   'set-cookie',
   'transfer-encoding',
 ]);
+
+// Local structural shape mirrors RuntimeLlmAdmissionSettings; declared here so
+// the control layer does not import the config-settings module (layer rule).
+type LlmAdmissionLimits = {
+  globalMaxInFlight: number;
+  perAppKeyMaxInFlight: number;
+};
+
+const llmAdmissionState = {
+  globalInFlight: 0,
+  perAppKeyInFlight: new Map<string, number>(),
+};
 
 type ResolvedLlmRequest = {
   endpoint: LlmPassthroughEndpoint;
@@ -79,6 +92,46 @@ export async function handleLlmRoutes(
     return true;
   }
 
+  const limits = (
+    ctx.getEffectiveRuntimeSettings() as unknown as {
+      runtime: { llmAdmission: LlmAdmissionLimits };
+    }
+  ).runtime.llmAdmission;
+  const admissionKey = `${auth.appId}:${auth.kid}`;
+  // Deliberately process-local per decision 0046. SPS-4 owns any future
+  // cluster-wide admission authority.
+  const releaseAdmission = tryAcquireLlmAdmission(admissionKey, limits);
+  if (!releaseAdmission) {
+    sendError(
+      res,
+      429,
+      'TOO_MANY_CONCURRENT_LLM_REQUESTS',
+      'Too many concurrent LLM requests',
+    );
+    return true;
+  }
+  try {
+    return await handleAdmittedLlmRequest(
+      req,
+      res,
+      ctx,
+      pathname,
+      endpoint,
+      auth,
+    );
+  } finally {
+    releaseAdmission();
+  }
+}
+
+async function handleAdmittedLlmRequest(
+  req: IncomingMessage,
+  res: ServerResponse,
+  ctx: ControlRouteContext,
+  pathname: string,
+  endpoint: LlmPassthroughEndpoint,
+  auth: ApiKeyRecord,
+): Promise<boolean> {
   const rawBody = await readRawBody(req, MAX_LLM_BODY_BYTES);
   const resolved = resolveLlmRequest(endpoint, rawBody, res, auth.maxTokens);
   if (!resolved) return true;
@@ -191,6 +244,45 @@ export async function handleLlmRoutes(
     }
   }
   return true;
+}
+
+function tryAcquireLlmAdmission(
+  key: string,
+  limits: LlmAdmissionLimits,
+): (() => void) | undefined {
+  const keyInFlight = llmAdmissionState.perAppKeyInFlight.get(key) ?? 0;
+  if (
+    llmAdmissionState.globalInFlight >= limits.globalMaxInFlight ||
+    keyInFlight >= limits.perAppKeyMaxInFlight
+  ) {
+    return undefined;
+  }
+
+  // No await may appear between the checks above and these increments. The
+  // JavaScript turn is the synchronization boundary for this process-local gate.
+  llmAdmissionState.globalInFlight += 1;
+  llmAdmissionState.perAppKeyInFlight.set(key, keyInFlight + 1);
+
+  return () => {
+    llmAdmissionState.globalInFlight -= 1;
+    const nextKeyInFlight =
+      (llmAdmissionState.perAppKeyInFlight.get(key) ?? 1) - 1;
+    if (nextKeyInFlight === 0) {
+      llmAdmissionState.perAppKeyInFlight.delete(key);
+    } else {
+      llmAdmissionState.perAppKeyInFlight.set(key, nextKeyInFlight);
+    }
+  };
+}
+
+export function getLlmConcurrencyAdmissionSnapshotForTest(): {
+  globalInFlight: number;
+  perAppKeyInFlight: Record<string, number>;
+} {
+  return {
+    globalInFlight: llmAdmissionState.globalInFlight,
+    perAppKeyInFlight: Object.fromEntries(llmAdmissionState.perAppKeyInFlight),
+  };
 }
 
 function llmEndpointFor(pathname: string): LlmPassthroughEndpoint | undefined {

@@ -8,6 +8,22 @@ Use Node `>=24 <26` for local development, CI, and runtime deployments. The pack
 npm install
 ```
 
+## CI Runner Topology
+
+Every workflow defaults `GITHUB_TOKEN` contents access to read-only, with
+job-local write permissions only where an existing publishing action requires
+them. All jobs run on GitHub-hosted `ubuntu-latest` runners; no pull-request
+job uses a persistent self-hosted runner.
+
+The main CI workflow remains a `pull_request` check and includes the agent E2E
+real-model turn. `E2E_MODEL_API_KEY` is mapped only into that step, which exits
+successfully before invoking the model when the secret is unavailable, as on a
+fork pull request. The repository guard for these invariants is:
+
+```bash
+python3 scripts/check_ci_runner_isolation.py
+```
+
 ## Small Checks
 
 ```bash

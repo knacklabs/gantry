@@ -57,7 +57,7 @@
     "apps/core/src/adapters/storage/postgres/repositories/worker-coordination-repository.postgres.ts": 721,
     "apps/core/src/application/agents/prompt-profile-service.ts": 783,
     "apps/core/src/application/mcp/mcp-tool-proxy.ts": 800,
-    "apps/core/src/config/settings/runtime-settings-renderer.ts": 721,
+    "apps/core/src/config/settings/runtime-settings-renderer.ts": 725,
     "apps/core/src/control/server/routes/models.ts": 714,
     "apps/core/src/shared/model-catalog.ts": 800,
     "apps/core/src/adapters/llm/anthropic-claude-agent/gantry-model-gateway.ts": 720

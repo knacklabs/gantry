@@ -23,6 +23,8 @@ import {
   DEFAULT_AGENT_NAME,
   DEFAULT_AGENT_SESSION_MAX_MEMORY_CONTEXT_CHARS,
   DEFAULT_AGENT_SESSION_MEMORY_ITEM_LIMIT,
+  DEFAULT_LLM_GLOBAL_MAX_IN_FLIGHT,
+  DEFAULT_LLM_PER_APP_KEY_MAX_IN_FLIGHT,
   DEFAULT_MODEL_GATEWAY_BIND_HOST,
   DEFAULT_STORAGE_POSTGRES_SCHEMA,
   DEFAULT_STORAGE_POSTGRES_URL_ENV,
@@ -607,6 +609,10 @@ function parseRuntimeProcessSettings(raw: unknown): RuntimeProcessSettings {
     liveTurns: {
       enabled: true,
     },
+    llmAdmission: {
+      globalMaxInFlight: DEFAULT_LLM_GLOBAL_MAX_IN_FLIGHT,
+      perAppKeyMaxInFlight: DEFAULT_LLM_PER_APP_KEY_MAX_IN_FLIGHT,
+    },
     sandbox: getDefaultRuntimeSandboxSettings(),
     artifactStore: {
       driver: 'local',
@@ -622,12 +628,13 @@ function parseRuntimeProcessSettings(raw: unknown): RuntimeProcessSettings {
     if (
       key !== 'queue' &&
       key !== 'live_turns' &&
+      key !== 'llm_admission' &&
       key !== 'sandbox' &&
       key !== 'artifact_store' &&
       key !== 'deployment_mode'
     ) {
       throw new Error(
-        `runtime.${key} is not supported. Configure runtime.queue.*, runtime.live_turns.*, runtime.sandbox.*, runtime.artifact_store.*, or runtime.deployment_mode.`,
+        `runtime.${key} is not supported. Configure runtime.queue.*, runtime.live_turns.*, runtime.llm_admission.*, runtime.sandbox.*, runtime.artifact_store.*, or runtime.deployment_mode.`,
       );
     }
   }
@@ -670,6 +677,23 @@ function parseRuntimeProcessSettings(raw: unknown): RuntimeProcessSettings {
     if (key !== 'enabled') {
       throw new Error(
         `runtime.live_turns.${key} is not supported. Configure enabled.`,
+      );
+    }
+  }
+  const llmAdmissionRaw = map.llm_admission;
+  if (
+    llmAdmissionRaw !== undefined &&
+    (typeof llmAdmissionRaw !== 'object' ||
+      llmAdmissionRaw === null ||
+      Array.isArray(llmAdmissionRaw))
+  ) {
+    throw new Error('runtime.llm_admission must be a mapping');
+  }
+  const llmAdmission = (llmAdmissionRaw || {}) as Record<string, unknown>;
+  for (const key of Object.keys(llmAdmission)) {
+    if (key !== 'global_max_in_flight' && key !== 'per_app_key_max_in_flight') {
+      throw new Error(
+        `runtime.llm_admission.${key} is not supported. Configure global_max_in_flight or per_app_key_max_in_flight.`,
       );
     }
   }
@@ -771,6 +795,18 @@ function parseRuntimeProcessSettings(raw: unknown): RuntimeProcessSettings {
         liveTurns.enabled,
         'runtime.live_turns.enabled',
         defaults.liveTurns.enabled,
+      ),
+    },
+    llmAdmission: {
+      globalMaxInFlight: parsePositiveIntegerValue(
+        llmAdmission.global_max_in_flight,
+        'runtime.llm_admission.global_max_in_flight',
+        defaults.llmAdmission.globalMaxInFlight,
+      ),
+      perAppKeyMaxInFlight: parsePositiveIntegerValue(
+        llmAdmission.per_app_key_max_in_flight,
+        'runtime.llm_admission.per_app_key_max_in_flight',
+        defaults.llmAdmission.perAppKeyMaxInFlight,
       ),
     },
     sandbox: {

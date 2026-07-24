@@ -1,4 +1,7 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
+import fs from 'fs';
+import os from 'node:os';
+import path from 'node:path';
 
 // --- Mocks ---
 
@@ -21,10 +24,12 @@ vi.mock('@core/infrastructure/logging/logger.js', () => ({
   updateLogContext: vi.fn(),
 }));
 
-// Mock workspace-folder (used by downloadFile)
+const telegramWorkspace = vi.hoisted(() => ({ root: '' }));
+
+// Resolve channel workspaces inside a fresh real-filesystem root per test.
 vi.mock('@core/platform/workspace-folder.js', () => ({
   resolveWorkspaceFolderPath: vi.fn(
-    (folder: string) => `/tmp/test-groups/${folder}`,
+    (folder: string) => `${telegramWorkspace.root}/${folder}`,
   ),
 }));
 
@@ -156,7 +161,6 @@ vi.mock('grammy', () => ({
   },
 }));
 
-import fs from 'fs';
 import { EnvRuntimeSecretProvider } from '@core/adapters/credentials/env-runtime-secret-provider.js';
 import {
   createTelegramChannel,
@@ -599,7 +603,11 @@ async function triggerCallbackQuery(ctx: {
 // --- Tests ---
 
 // Helper: flush pending microtasks (for async downloadFile().then() chains)
-const flushPromises = () => new Promise((resolve) => setTimeout(resolve, 0));
+const flushPromises = async () => {
+  for (let index = 0; index < 10; index += 1) {
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+};
 
 function permissionClaimRepository(
   interactions: Array<{
@@ -984,10 +992,9 @@ describe('TelegramChannel', () => {
     telegramPromptBindingBehavior.interactions.length = 0;
     savedGantryHome = process.env.GANTRY_HOME;
     delete process.env.GANTRY_HOME;
-
-    // Mock fs operations used by downloadFile
-    vi.spyOn(fs.promises, 'mkdir').mockResolvedValue(undefined as any);
-    vi.spyOn(fs.promises, 'writeFile').mockResolvedValue(undefined);
+    telegramWorkspace.root = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'telegram-channel-'),
+    );
 
     // Mock global fetch for file downloads
     vi.stubGlobal(
@@ -1021,6 +1028,7 @@ describe('TelegramChannel', () => {
     else process.env.GANTRY_HOME = savedGantryHome;
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+    fs.rmSync(telegramWorkspace.root, { recursive: true, force: true });
   });
 
   it('does not expose a conversation context hydration hook', () => {
@@ -2015,14 +2023,21 @@ describe('TelegramChannel', () => {
       });
       await triggerMediaMessage('message:photo', ctx);
       await flushPromises();
+      await vi.waitFor(() => expect(opts.onMessage).toHaveBeenCalled());
 
       expect(currentBot().api.getFile).toHaveBeenCalledWith('large_id');
       expect(opts.onMessage).toHaveBeenCalledWith(
         'tg:100200300',
         expect.objectContaining({
-          content: '[Photo] (attachments/photo_1.jpg)',
+          content: expect.stringMatching(
+            /^\[Photo\] \(attachments\/[a-f0-9]{16}-photo_1\.jpg\)$/,
+          ),
           attachments: [
-            expect.objectContaining({ storageRef: 'attachments/photo_1.jpg' }),
+            expect.objectContaining({
+              storageRef: expect.stringMatching(
+                /^attachments\/[a-f0-9]{16}-photo_1\.jpg$/,
+              ),
+            }),
           ],
         }),
       );
@@ -2050,11 +2065,14 @@ describe('TelegramChannel', () => {
         }),
       );
       await flushPromises();
+      await vi.waitFor(() => expect(opts.onMessage).toHaveBeenCalled());
 
       expect(opts.onMessage).toHaveBeenCalledWith(
         'tg:100200300',
         expect.objectContaining({
-          content: '[Photo] (attachments/photo_1.jpg)',
+          content: expect.stringMatching(
+            /^\[Photo\] \(attachments\/[a-f0-9]{16}-photo_1\.jpg\)$/,
+          ),
         }),
       );
     });
@@ -2118,7 +2136,6 @@ describe('TelegramChannel', () => {
 
       expect(currentBot().api.getFile).not.toHaveBeenCalled();
       expect(globalThis.fetch).not.toHaveBeenCalled();
-      expect(fs.promises.writeFile).not.toHaveBeenCalled();
       expect(opts.onMessage).toHaveBeenCalledWith(
         'tg:100200300',
         expect.objectContaining({
@@ -2165,22 +2182,30 @@ describe('TelegramChannel', () => {
         }),
       );
       await flushPromises();
+      await vi.waitFor(() => expect(opts.onMessage).toHaveBeenCalled());
 
       expect(currentBot().api.getFile).toHaveBeenCalledWith('photo_id');
-      expect(fs.promises.writeFile).toHaveBeenCalledWith(
-        '/tmp/test-groups/test-triage/attachments/photo_1.jpg',
-        expect.any(Buffer),
-        { mode: 0o600 },
-      );
+      const storageRef =
+        opts.onMessage.mock.calls[0][1].attachments?.[0]?.storageRef;
+      expect(storageRef).toMatch(/^attachments\/[a-f0-9]{16}-photo_1\.jpg$/);
+      await expect(
+        fs.promises.readFile(
+          path.join(
+            telegramWorkspace.root,
+            'test-triage',
+            ...storageRef.split('/'),
+          ),
+        ),
+      ).resolves.toEqual(Buffer.alloc(8));
       expect(opts.onMessage).toHaveBeenCalledWith(
         'tg:100200300',
         expect.objectContaining({
-          content: '[Photo] (attachments/photo_1.jpg) @Andy see file',
+          content: `[Photo] (${storageRef}) @Andy see file`,
           attachments: [
             expect.objectContaining({
               externalId: 'photo_id',
               kind: 'image',
-              storageRef: 'attachments/photo_1.jpg',
+              storageRef,
             }),
           ],
         }),
@@ -2222,7 +2247,6 @@ describe('TelegramChannel', () => {
 
       expect(currentBot().api.getFile).not.toHaveBeenCalled();
       expect(globalThis.fetch).not.toHaveBeenCalled();
-      expect(fs.promises.writeFile).not.toHaveBeenCalled();
       expect(opts.onMessage).toHaveBeenCalledWith(
         'tg:100200300',
         expect.objectContaining({
@@ -2292,12 +2316,15 @@ describe('TelegramChannel', () => {
         }),
       );
       await flushPromises();
+      await vi.waitFor(() => expect(opts.onMessage).toHaveBeenCalled());
 
       expect(currentBot().api.getFile).toHaveBeenCalledWith('photo_id');
       expect(opts.onMessage).toHaveBeenCalledWith(
         'tg:100200300',
         expect.objectContaining({
-          content: '[Photo] (attachments/photo_1.jpg)',
+          content: expect.stringMatching(
+            /^\[Photo\] \(attachments\/[a-f0-9]{16}-photo_1\.jpg\)$/,
+          ),
           thread_id: '77',
         }),
       );
@@ -2314,11 +2341,14 @@ describe('TelegramChannel', () => {
       });
       await triggerMediaMessage('message:photo', ctx);
       await flushPromises();
+      await vi.waitFor(() => expect(opts.onMessage).toHaveBeenCalled());
 
       expect(opts.onMessage).toHaveBeenCalledWith(
         'tg:100200300',
         expect.objectContaining({
-          content: '[Photo] (attachments/photo_1.jpg) Look at this',
+          content: expect.stringMatching(
+            /^\[Photo\] \(attachments\/[a-f0-9]{16}-photo_1\.jpg\) Look at this$/,
+          ),
         }),
       );
     });
@@ -2508,12 +2538,15 @@ describe('TelegramChannel', () => {
       });
       await triggerMediaMessage('message:document', ctx);
       await flushPromises();
+      await vi.waitFor(() => expect(opts.onMessage).toHaveBeenCalled());
 
       expect(currentBot().api.getFile).toHaveBeenCalledWith('doc_id');
       expect(opts.onMessage).toHaveBeenCalledWith(
         'tg:100200300',
         expect.objectContaining({
-          content: '[Document: report.pdf] (attachments/report.pdf)',
+          content: expect.stringMatching(
+            /^\[Document: report\.pdf\] \(attachments\/[a-f0-9]{16}-report\.pdf\)$/,
+          ),
         }),
       );
     });
@@ -2532,12 +2565,15 @@ describe('TelegramChannel', () => {
       });
       await triggerMediaMessage('message:video', ctx);
       await flushPromises();
+      await vi.waitFor(() => expect(opts.onMessage).toHaveBeenCalled());
 
       expect(currentBot().api.getFile).toHaveBeenCalledWith('vid_id');
       expect(opts.onMessage).toHaveBeenCalledWith(
         'tg:100200300',
         expect.objectContaining({
-          content: '[Video] (attachments/video_1.mp4)',
+          content: expect.stringMatching(
+            /^\[Video\] \(attachments\/[a-f0-9]{16}-video_1\.mp4\)$/,
+          ),
         }),
       );
     });
@@ -2556,12 +2592,15 @@ describe('TelegramChannel', () => {
       });
       await triggerMediaMessage('message:voice', ctx);
       await flushPromises();
+      await vi.waitFor(() => expect(opts.onMessage).toHaveBeenCalled());
 
       expect(currentBot().api.getFile).toHaveBeenCalledWith('voice_id');
       expect(opts.onMessage).toHaveBeenCalledWith(
         'tg:100200300',
         expect.objectContaining({
-          content: '[Voice message] (attachments/voice_1.oga)',
+          content: expect.stringMatching(
+            /^\[Voice message\] \(attachments\/[a-f0-9]{16}-voice_1\.oga\)$/,
+          ),
         }),
       );
     });
@@ -2580,11 +2619,14 @@ describe('TelegramChannel', () => {
       });
       await triggerMediaMessage('message:audio', ctx);
       await flushPromises();
+      await vi.waitFor(() => expect(opts.onMessage).toHaveBeenCalled());
 
       expect(opts.onMessage).toHaveBeenCalledWith(
         'tg:100200300',
         expect.objectContaining({
-          content: '[Audio] (attachments/song.mp3)',
+          content: expect.stringMatching(
+            /^\[Audio\] \(attachments\/[a-f0-9]{16}-song\.mp3\)$/,
+          ),
         }),
       );
     });
@@ -2698,11 +2740,14 @@ describe('TelegramChannel', () => {
       });
       await triggerMediaMessage('message:document', ctx);
       await flushPromises();
+      await vi.waitFor(() => expect(opts.onMessage).toHaveBeenCalled());
 
       expect(opts.onMessage).toHaveBeenCalledWith(
         'tg:100200300',
         expect.objectContaining({
-          content: '[Document: file] (attachments/file.bin)',
+          content: expect.stringMatching(
+            /^\[Document: file\] \(attachments\/[a-f0-9]{16}-file\.bin\)$/,
+          ),
         }),
       );
     });
@@ -2715,12 +2760,13 @@ describe('TelegramChannel', () => {
       await expect(
         writeTelegramFetchResponseToFile(
           { body: null, headers: { get: () => null } },
-          '/tmp/missing-body.bin',
+          telegramWorkspace.root,
+          'missing-body.bin',
         ),
       ).rejects.toThrow('Telegram download response body is missing');
     });
 
-    it('returns false when arrayBuffer response exceeds max size', async () => {
+    it('returns null when arrayBuffer response exceeds max size', async () => {
       const large = new Uint8Array(51 * 1024 * 1024).buffer;
       const wrote = await writeTelegramFetchResponseToFile(
         {
@@ -2728,10 +2774,11 @@ describe('TelegramChannel', () => {
           headers: { get: () => null },
           arrayBuffer: vi.fn().mockResolvedValue(large),
         },
-        '/tmp/too-large.bin',
+        telegramWorkspace.root,
+        'too-large.bin',
       );
 
-      expect(wrote).toBe(false);
+      expect(wrote).toBeNull();
       expect(logger.warn).toHaveBeenCalledWith(
         expect.objectContaining({ bytes: 51 * 1024 * 1024 }),
         'Telegram file exceeds max allowed size',
@@ -2739,15 +2786,7 @@ describe('TelegramChannel', () => {
     });
 
     it('streams chunks to disk when reader is available', async () => {
-      const write = vi.fn().mockResolvedValue(undefined);
-      const close = vi.fn().mockResolvedValue(undefined);
-      const openSpy = vi.spyOn(fs.promises, 'open').mockResolvedValue({
-        write,
-        close,
-      } as any);
-      const unlinkSpy = vi
-        .spyOn(fs.promises, 'unlink')
-        .mockResolvedValue(undefined);
+      await fs.promises.mkdir(path.join(telegramWorkspace.root, 'attachments'));
       const reader = {
         read: vi
           .fn()
@@ -2762,29 +2801,67 @@ describe('TelegramChannel', () => {
           .mockResolvedValueOnce({ done: true }),
       };
 
-      const wrote = await writeTelegramFetchResponseToFile(
+      const storageRef = await writeTelegramFetchResponseToFile(
         {
           body: { getReader: () => reader },
           headers: { get: () => null },
         },
-        '/tmp/stream-success.bin',
+        telegramWorkspace.root,
+        'stream-success.bin',
       );
 
-      expect(wrote).toBe(true);
-      expect(openSpy).toHaveBeenCalled();
-      expect(write).toHaveBeenCalledTimes(2);
-      expect(close).toHaveBeenCalled();
-      expect(unlinkSpy).not.toHaveBeenCalled();
+      expect(storageRef).toMatch(
+        /^attachments\/[a-f0-9]{16}-stream-success\.bin$/,
+      );
+      await expect(
+        fs.promises.readFile(
+          path.join(telegramWorkspace.root, ...storageRef.split('/')),
+        ),
+      ).resolves.toEqual(Buffer.from([1, 2, 3, 4]));
     });
 
-    it('cleans up partial file when streamed download exceeds max size', async () => {
-      vi.spyOn(fs.promises, 'open').mockResolvedValue({
-        write: vi.fn().mockResolvedValue(undefined),
-        close: vi.fn().mockResolvedValue(undefined),
-      } as any);
-      const unlinkSpy = vi
-        .spyOn(fs.promises, 'unlink')
-        .mockResolvedValue(undefined);
+    it('keeps two same-named downloads under distinct storage refs', async () => {
+      await fs.promises.mkdir(path.join(telegramWorkspace.root, 'attachments'));
+
+      const firstRef = await writeTelegramFetchResponseToFile(
+        {
+          body: null,
+          headers: { get: () => null },
+          arrayBuffer: async () => Buffer.from('first'),
+        },
+        telegramWorkspace.root,
+        'report.pdf',
+      );
+      const secondRef = await writeTelegramFetchResponseToFile(
+        {
+          body: null,
+          headers: { get: () => null },
+          arrayBuffer: async () => Buffer.from('second'),
+        },
+        telegramWorkspace.root,
+        'report.pdf',
+      );
+
+      expect(firstRef).toMatch(/^attachments\/[a-f0-9]{16}-report\.pdf$/);
+      expect(secondRef).toMatch(/^attachments\/[a-f0-9]{16}-report\.pdf$/);
+      expect(secondRef).not.toBe(firstRef);
+      await expect(
+        fs.promises.readFile(
+          path.join(telegramWorkspace.root, ...firstRef!.split('/')),
+          'utf8',
+        ),
+      ).resolves.toBe('first');
+      await expect(
+        fs.promises.readFile(
+          path.join(telegramWorkspace.root, ...secondRef!.split('/')),
+          'utf8',
+        ),
+      ).resolves.toBe('second');
+    });
+
+    it('does not publish when a streamed download exceeds max size', async () => {
+      const attachments = path.join(telegramWorkspace.root, 'attachments');
+      await fs.promises.mkdir(attachments);
       const reader = {
         read: vi.fn().mockResolvedValueOnce({
           done: false,
@@ -2797,21 +2874,17 @@ describe('TelegramChannel', () => {
           body: { getReader: () => reader },
           headers: { get: () => null },
         },
-        '/tmp/stream-too-large.bin',
+        telegramWorkspace.root,
+        'stream-too-large.bin',
       );
 
-      expect(wrote).toBe(false);
-      expect(unlinkSpy).toHaveBeenCalledWith('/tmp/stream-too-large.bin');
+      expect(wrote).toBeNull();
+      await expect(fs.promises.readdir(attachments)).resolves.toEqual([]);
     });
 
-    it('rethrows stream read errors and marks partial file for cleanup', async () => {
-      vi.spyOn(fs.promises, 'open').mockResolvedValue({
-        write: vi.fn().mockResolvedValue(undefined),
-        close: vi.fn().mockResolvedValue(undefined),
-      } as any);
-      const unlinkSpy = vi
-        .spyOn(fs.promises, 'unlink')
-        .mockResolvedValue(undefined);
+    it('rethrows stream read errors without publishing', async () => {
+      const attachments = path.join(telegramWorkspace.root, 'attachments');
+      await fs.promises.mkdir(attachments);
       const reader = {
         read: vi.fn().mockRejectedValue(new Error('stream read failed')),
       };
@@ -2822,10 +2895,11 @@ describe('TelegramChannel', () => {
             body: { getReader: () => reader },
             headers: { get: () => null },
           },
-          '/tmp/stream-throw.bin',
+          telegramWorkspace.root,
+          'stream-throw.bin',
         ),
       ).rejects.toThrow('stream read failed');
-      expect(unlinkSpy).toHaveBeenCalledWith('/tmp/stream-throw.bin');
+      await expect(fs.promises.readdir(attachments)).resolves.toEqual([]);
     });
 
     it('retries polling after failure and executes retry callback', async () => {
