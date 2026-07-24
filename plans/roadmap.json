@@ -336,9 +336,11 @@
       "key": "SEC-1",
       "title": "Audit paydown: security blockers (CI runner isolation, inbound attachment writers, LLM concurrency admission)",
       "order": 21,
-      "status": "active",
+      "status": "done",
       "epic": "Audit paydown 2026-07",
-      "skill": "backend"
+      "skill": "backend",
+      "completed_at": "2026-07-24T11:42:10+00:00",
+      "history": ".factory/history/SEC-1/"
     },
     {
       "key": "PERF-1",
@@ -451,5 +453,5 @@
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-07-24T08:34:33+00:00"
+  "updated_at": "2026-07-24T11:42:10+00:00"
 }
