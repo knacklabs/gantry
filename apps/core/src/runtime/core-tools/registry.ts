@@ -402,7 +402,7 @@ export function createCoreToolRegistry(deps: CoreToolRegistryDeps): {
         }
       }
       const gate = await gateCoreTool(name, parsed.data, deps, id);
-      if (gate) return gate;
+      if (gate?.denied) return gate.denied;
       try {
         const result = await tool.handler(parsed.data, context);
         if (!result.isError) {
@@ -412,7 +412,9 @@ export function createCoreToolRegistry(deps: CoreToolRegistryDeps): {
           }
           if (gateName) deps.context.toolSuccessLedger?.recordSuccess(gateName);
         }
-        return result;
+        return gate?.approvalContext
+          ? withPermissionApprovalContext(result, gate.approvalContext)
+          : result;
       } catch (error) {
         return errorResult(
           error instanceof Error ? error.message : String(error),
@@ -447,7 +449,10 @@ async function gateCoreTool(
   args: unknown,
   deps: CoreToolRegistryDeps,
   id: (prefix: string) => string,
-): Promise<McpCompatibleToolResult | null> {
+): Promise<{
+  denied?: McpCompatibleToolResult;
+  approvalContext?: string;
+} | null> {
   const gateName = coreToolGateName(name);
   if (!gateName) return null;
   const precheck = deps.evaluateToolPreChecks({
@@ -508,15 +513,19 @@ async function gateCoreTool(
     deps,
   });
   if (!coordinatedDecision.approved && precheck?.error) {
-    return errorResult(
-      precheck.error.message,
-      precheck.error.category,
-      precheck.error.isRetryable,
-    );
+    return {
+      denied: errorResult(
+        precheck.error.message,
+        precheck.error.category,
+        precheck.error.isRetryable,
+      ),
+    };
   }
   return coordinatedDecision.approved
-    ? null
-    : permissionDenied(coordinatedDecision);
+    ? {
+        approvalContext: formatPermissionAllowedMessage(coordinatedDecision),
+      }
+    : { denied: permissionDenied(coordinatedDecision) };
 }
 
 function coreToolGateName(name: string): 'AgentDelegation' | null {
@@ -612,4 +621,29 @@ function permissionDenied(
     'permission',
     false,
   );
+}
+
+function formatPermissionAllowedMessage(
+  decision: PermissionApprovalDecision,
+): string | undefined {
+  if (
+    decision.decidedBy === 'birthright' ||
+    decision.decidedBy === 'deterministic_read_only'
+  ) {
+    return undefined;
+  }
+  if (!decision.decidedBy && !decision.risk_level) return undefined;
+  return formatPermissionDeniedMessage(decision, '')
+    .replace(/^Permission denied/, 'Permission allowed')
+    .replace(/: $/, '');
+}
+
+function withPermissionApprovalContext(
+  result: McpCompatibleToolResult,
+  approvalContext: string,
+): McpCompatibleToolResult {
+  return {
+    ...result,
+    content: [{ type: 'text', text: approvalContext }, ...result.content],
+  };
 }

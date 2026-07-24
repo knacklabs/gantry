@@ -211,13 +211,29 @@ describe('core tool registry', () => {
     ).resolves.toMatchObject({ isError: true });
     await expect(
       registry.execute('delegate_task', { objective: 'Investigate' }),
-    ).resolves.toEqual({ content: [{ type: 'text', text: 'delegated' }] });
+    ).resolves.toEqual({
+      content: [
+        {
+          type: 'text',
+          text: 'Permission allowed (decided by: reviewed_rule)',
+        },
+        { type: 'text', text: 'delegated' },
+      ],
+    });
     await expect(
       registry.execute('task_message', {
         taskId: 'task-1',
         message: 'Continue',
       }),
-    ).resolves.toEqual({ content: [{ type: 'text', text: 'sent' }] });
+    ).resolves.toEqual({
+      content: [
+        {
+          type: 'text',
+          text: 'Permission allowed (decided by: reviewed_rule)',
+        },
+        { type: 'text', text: 'sent' },
+      ],
+    });
   });
 
   it('projects a pinned callable-agent tool with a strict target-free schema', async () => {
@@ -253,7 +269,15 @@ describe('core tool registry', () => {
       registry.execute('delegate_to_reviewer_hash', {
         objective: 'Review this',
       }),
-    ).resolves.toEqual({ content: [{ type: 'text', text: 'queued' }] });
+    ).resolves.toEqual({
+      content: [
+        {
+          type: 'text',
+          text: 'Permission allowed (decided by: reviewed_rule)',
+        },
+        { type: 'text', text: 'queued' },
+      ],
+    });
     expect(dispatchCallableAgent).toHaveBeenCalledWith(entry, {
       objective: 'Review this',
     });
@@ -472,6 +496,36 @@ describe('core tool registry', () => {
       },
     });
     expect(backend.delegate_task).not.toHaveBeenCalled();
+  });
+
+  it('prepends human approval provenance to the model-visible tool result', async () => {
+    const deps = registryDeps({
+      durability: {
+        record: vi.fn(async () => true),
+        resolve: vi.fn(async () => true),
+      },
+      requestPermissionApproval: vi.fn(async () => ({
+        approved: true,
+        mode: 'allow_once',
+        decidedBy: 'owner',
+        risk_level: 'high',
+        risk_category: 'privileged',
+      })),
+    });
+
+    await expect(
+      createCoreToolRegistry(deps).execute('delegate_task', {
+        objective: 'Investigate the failure',
+      }),
+    ).resolves.toEqual({
+      content: [
+        {
+          type: 'text',
+          text: 'Permission allowed (decided by: owner; risk: high/privileged)',
+        },
+        { type: 'text', text: 'delegated' },
+      ],
+    });
   });
 
   it('keeps AgentDelegation on the human prompt path in auto mode', async () => {

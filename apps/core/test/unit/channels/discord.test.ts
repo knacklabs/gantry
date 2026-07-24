@@ -2426,10 +2426,7 @@ describe('DiscordChannel', () => {
       targetJid: 'dc:channel-1',
       expiresAt: '2026-07-17T00:01:00.000Z',
     };
-    const approval = channel.requestPermissionApproval(
-      'dc:channel-1',
-      request,
-    );
+    const approval = channel.requestPermissionApproval('dc:channel-1', request);
     await vi.advanceTimersByTimeAsync(30_000);
 
     expect((channel as any).interactions.pendingPermissions.size).toBe(1);

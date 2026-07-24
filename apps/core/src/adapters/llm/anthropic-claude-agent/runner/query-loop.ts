@@ -62,7 +62,10 @@ import {
   shouldPrefixVisibleBoundary,
   topLevelAssistantText,
 } from './sdk-message-output.js';
-import { createCanUseToolCallback } from './tool-permission-gate.js';
+import {
+  createCanUseToolCallback,
+  createPermissionApprovalContextChannel,
+} from './tool-permission-gate.js';
 import {
   decideClaudeSdkToolSearch,
   toolSearchStartupRuntimeEvent,
@@ -119,6 +122,7 @@ export async function runQuery(
   const toolSuccessLedger = agentInput.toolRules?.length
     ? new RunScopedToolSuccessLedger()
     : undefined;
+  const permissionApprovalContext = createPermissionApprovalContextChannel();
   const declarativePreToolUse = toolSuccessLedger
     ? async (hookInput: {
         hook_event_name: string;
@@ -376,22 +380,29 @@ export async function runQuery(
             timeout: 5,
           },
         ],
-        ...(toolSuccessLedger
-          ? {
-              PostToolUse: [
-                {
-                  hooks: [
-                    async (hookInput: HookInput) => {
-                      if (hookInput.hook_event_name === 'PostToolUse') {
-                        recordSuccessfulToolUse(hookInput, toolSuccessLedger);
-                      }
-                      return { continue: true as const };
-                    },
-                  ],
-                },
-              ],
-            }
-          : {}),
+        PostToolUse: [
+          {
+            hooks: [
+              async (
+                hookInput: HookInput,
+                toolUseID: string | undefined,
+                hookOptions: { signal: AbortSignal },
+              ) => {
+                if (
+                  hookInput.hook_event_name === 'PostToolUse' &&
+                  toolSuccessLedger
+                ) {
+                  recordSuccessfulToolUse(hookInput, toolSuccessLedger);
+                }
+                return permissionApprovalContext.postToolUse(
+                  hookInput,
+                  toolUseID,
+                  hookOptions,
+                );
+              },
+            ],
+          },
+        ],
       },
       canUseTool: createCanUseToolCallback({
         agentInput,
@@ -405,6 +416,7 @@ export async function runQuery(
         emitInteractionBoundary,
         recordToolActivity: (toolName) =>
           heartbeat.recordToolActivity(toolName),
+        recordPermissionApprovalContext: permissionApprovalContext.record,
       }),
       settingSources: [],
       mcpServers: capabilities.mcpServers,

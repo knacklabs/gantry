@@ -62,6 +62,7 @@ function makeCallback(
     getNewSessionId: () => undefined,
     emitInteractionBoundary: vi.fn(),
     recordToolActivity: vi.fn(),
+    recordPermissionApprovalContext: vi.fn(),
     ...overrides,
   });
 }
@@ -734,13 +735,14 @@ describe('createCanUseToolCallback', () => {
     ],
     ['human', { decidedBy: 'owner' }, 'decided by: owner'],
   ] as const)(
-    'emits %s approval provenance on the observable allow activity',
+    'records %s approval provenance for model-visible post-tool context',
     async (_label, approval, expectedProvenance) => {
       permissionMock.requestPermissionApproval.mockResolvedValueOnce({
         approved: true,
         mode: 'allow_once',
         ...approval,
       });
+      const recordPermissionApprovalContext = vi.fn();
       const canUseTool = makeCallback({
         agentInput: {
           runMode: 'normal',
@@ -753,6 +755,7 @@ describe('createCanUseToolCallback', () => {
           threadId: undefined,
           allowedTools: [],
         } as never,
+        recordPermissionApprovalContext,
       });
 
       await expect(
@@ -763,13 +766,36 @@ describe('createCanUseToolCallback', () => {
         ),
       ).resolves.toEqual(expect.objectContaining({ behavior: 'allow' }));
 
-      const output = combinedConsoleOutput();
-      expect(output).toContain('"phase":"permission_allowed"');
-      expect(output).toContain(
-        `"reason":"Permission allowed (${expectedProvenance})`,
+      expect(recordPermissionApprovalContext).toHaveBeenCalledWith(
+        'tool-use-1',
+        `Permission allowed (${expectedProvenance})`,
       );
-      expect(output).toContain(expectedProvenance);
-      expect(output).not.toContain('unknown/unknown');
+      expect(recordPermissionApprovalContext.mock.calls[0]?.[1]).not.toContain(
+        'unknown',
+      );
+    },
+  );
+
+  it.each(['birthright', 'deterministic_read_only'])(
+    'keeps %s approvals silent in model-visible post-tool context',
+    async (decidedBy) => {
+      permissionMock.requestPermissionApproval.mockResolvedValueOnce({
+        approved: true,
+        mode: 'allow_once',
+        decidedBy,
+      });
+      const recordPermissionApprovalContext = vi.fn();
+      const canUseTool = makeCallback({ recordPermissionApprovalContext });
+
+      await expect(
+        canUseTool(
+          'Bash',
+          { command: 'npm test' },
+          makePermissionOptions() as never,
+        ),
+      ).resolves.toEqual(expect.objectContaining({ behavior: 'allow' }));
+
+      expect(recordPermissionApprovalContext).not.toHaveBeenCalled();
     },
   );
 

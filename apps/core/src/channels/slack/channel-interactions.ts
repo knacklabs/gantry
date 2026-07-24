@@ -136,10 +136,7 @@ export abstract class SlackChannelInteractions extends SlackChannelState {
     if (result === 'already_decided') return;
     if (result === 'retryable') {
       const firstDelay = Math.floor(retryWindowMs / 3);
-      for (const delayMs of [
-        firstDelay,
-        retryWindowMs - firstDelay,
-      ]) {
+      for (const delayMs of [firstDelay, retryWindowMs - firstDelay]) {
         await new Promise<void>((resolve) => {
           const timer = setTimeout(resolve, delayMs);
           timer.unref?.();
