@@ -3027,7 +3027,7 @@ describe('TeamsChannel adapter scaffold', () => {
     expect(lifecycleEvents).toEqual(['resolve']);
   });
 
-  it('settles and cleans up a scheduled Teams question at its finite deadline', async () => {
+  it('settles and cleans up an autonomous Teams question without a job id at its finite deadline', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-07-17T00:00:00.000Z'));
     const lifecycleEvents: string[] = [];
@@ -3036,15 +3036,14 @@ describe('TeamsChannel adapter scaffold', () => {
       stop: vi.fn(async () => {}),
       sendMessage: vi.fn(async () => ({})),
       sendAdaptiveCard: vi.fn(async () => ({
-        externalMessageId: 'teams-job-question-card',
+        externalMessageId: 'teams-autonomous-question-card',
       })),
       updateAdaptiveCard: vi.fn(async () => ({})),
     };
     const request: UserQuestionRequest & { expiresAt: string } = {
-      requestId: 'q-teams-job-timeout',
+      requestId: 'q-teams-autonomous-timeout',
       sourceAgentFolder: 'teams_engineering',
       targetJid: 'teams:19:abc@thread.v2',
-      jobId: 'job-1',
       expiresAt: '2026-07-17T00:01:00.000Z',
       questions: [
         {
@@ -3059,7 +3058,8 @@ describe('TeamsChannel adapter scaffold', () => {
       appId: 'default',
       kind: 'question' as const,
       status: 'pending' as const,
-      idempotencyKey: 'default:question:teams_engineering:q-teams-job-timeout',
+      idempotencyKey:
+        'default:question:teams_engineering:q-teams-autonomous-timeout',
       payload: {
         requestId: request.requestId,
         sourceAgentFolder: request.sourceAgentFolder,
@@ -3114,7 +3114,7 @@ describe('TeamsChannel adapter scaffold', () => {
     expect(lifecycleEvents).toEqual(['persist', 'resolve']);
     expect(sdkClient.updateAdaptiveCard).toHaveBeenCalledWith(
       expect.objectContaining({
-        messageId: 'teams-job-question-card',
+        messageId: 'teams-autonomous-question-card',
         card: expect.objectContaining({ actions: [] }),
       }),
     );

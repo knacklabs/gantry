@@ -454,7 +454,6 @@ export class TeamsChannel implements ChannelAdapter {
       onPromptDelivered,
       sdkClient: this.sdkClient,
       pendingPermissionPrompts: this.pendingPermissionPrompts,
-      settlementDelayMs: teamsInteractionSettlementDelayMs(request),
       settleTimeout: (providerAlias) =>
         settlePendingTeamsPermission(
           this.interactionContext(),

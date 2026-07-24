@@ -8,10 +8,6 @@ import type {
 } from '../domain/types.js';
 import { logger } from '../infrastructure/logging/logger.js';
 import { incrementOperationalError } from '../shared/operational-error-counters.js';
-import {
-  NO_PERMISSION_TIMEOUT_MS,
-  PERMISSION_APPROVAL_TIMEOUT_MS,
-} from '../shared/permission-timeout.js';
 import { buildTeamsApprovalAdaptiveCard } from './teams-cards.js';
 import { permissionDecisionOptions } from './permission-interaction.js';
 import { bindTeamsPermissionPromptMessage } from './teams-prompt-binding.js';
@@ -21,24 +17,16 @@ import {
   type TeamsSdkClient,
 } from './teams-types.js';
 
-const TEAMS_JOB_INTERACTION_TIMEOUT_MS = 5 * 60_000;
-
-export function teamsInteractionSettlementDelayMs(request: {
-  jobId?: string;
-  expiresAt?: unknown;
-}): number | undefined {
-  if (!request.jobId) {
-    return PERMISSION_APPROVAL_TIMEOUT_MS > NO_PERMISSION_TIMEOUT_MS
-      ? PERMISSION_APPROVAL_TIMEOUT_MS
-      : undefined;
-  }
+export function teamsInteractionSettlementDelayMs(
+  request: object,
+): number | undefined {
+  const { expiresAt } = request as { expiresAt?: unknown };
+  if (expiresAt === undefined) return undefined;
   const expiresAtMs =
-    typeof request.expiresAt === 'string'
-      ? Date.parse(request.expiresAt)
-      : Number.NaN;
+    typeof expiresAt === 'string' ? Date.parse(expiresAt) : Number.NaN;
   return Number.isFinite(expiresAtMs)
     ? Math.max(0, expiresAtMs - Date.now())
-    : TEAMS_JOB_INTERACTION_TIMEOUT_MS;
+    : 0;
 }
 
 export async function requestTeamsPermissionApproval(input: {
@@ -48,7 +36,6 @@ export async function requestTeamsPermissionApproval(input: {
   onPromptDelivered?: (messageId: string) => void;
   sdkClient: TeamsSdkClient;
   pendingPermissionPrompts: Map<string, PendingTeamsPermissionPrompt>;
-  settlementDelayMs: number | undefined;
   settleTimeout: (
     providerAlias: string,
   ) => Promise<'settled' | 'already_decided' | 'ownerless' | 'retryable'>;
@@ -100,12 +87,13 @@ export async function requestTeamsPermissionApproval(input: {
       ? ('batch' as const)
       : ('individual' as const),
   };
+  let settlementDelayMs: number | undefined;
   const timeoutPermissionPrompt = async (): Promise<void> => {
     let result = await input.settleTimeout(callback.providerAlias);
     if (result === 'settled') return;
     if (result === 'already_decided') return;
     if (result === 'retryable') {
-      const retryWindowMs = input.settlementDelayMs ?? 0;
+      const retryWindowMs = settlementDelayMs ?? 0;
       const firstDelay = Math.floor(retryWindowMs / 3);
       for (const delayMs of [firstDelay, retryWindowMs - firstDelay]) {
         await new Promise<void>((resolve) => {
@@ -148,9 +136,7 @@ export async function requestTeamsPermissionApproval(input: {
       ...(input.request.threadId ? { threadId: input.request.threadId } : {}),
     });
     const messageId = sent.externalMessageId;
-    const settlementDelayMs = input.request.jobId
-      ? teamsInteractionSettlementDelayMs(input.request)
-      : input.settlementDelayMs;
+    settlementDelayMs = teamsInteractionSettlementDelayMs(input.request);
     const decision = new Promise<PermissionApprovalDecision>((resolve) => {
       let timer!: ReturnType<typeof setTimeout>;
       if (settlementDelayMs !== undefined) {

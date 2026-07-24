@@ -153,14 +153,17 @@ export function evaluatePermissionDeterministicRails(
   ) {
     return ask('Destructive command requires approval.', 'destructive');
   }
-  if (uploadsLocalFile(command)) {
-    return ask('Network command uploads local file content.', 'egress');
-  }
   if (containsProtectedPath(toolInput, command, parsed.leaves)) {
     return ask(
       'Command references a credential, secret, or protected path.',
       'secret_path',
     );
+  }
+  if (parsed.leaves.some(isPrivilegedLeaf)) {
+    return ask('Privileged command requires approval.', 'privileged');
+  }
+  if (uploadsLocalFile(command)) {
+    return ask('Network command uploads local file content.', 'egress');
   }
   if (!readOnly.allowed) {
     const outside = outOfTrustedRootReason(
@@ -169,9 +172,6 @@ export function evaluatePermissionDeterministicRails(
       input.trustedRoots ?? [],
     );
     if (outside) return ask(outside, 'out_of_trusted_root');
-  }
-  if (parsed.leaves.some(isPrivilegedLeaf)) {
-    return ask('Privileged command requires approval.', 'privileged');
   }
   return readOnly.allowed ? allow(request, readOnly.reason) : undefined;
 }
