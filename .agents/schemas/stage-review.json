@@ -12,7 +12,7 @@
   "optional": {
     "summary": "str",
     "passes": "int",
-    "reviewed_scope": "list"
+    "reviewed_scope": "dict"
   },
   "verdict_note": "verdict: clean | blocked. `forge stage done` refuses unless the LATEST recorded stage review is `clean` AND its reviewed_sha equals current HEAD — so any fix after a clean review (which moves HEAD) staleness-fails the gate until the final commit is re-reviewed clean. This makes 'LOCAL autoreview until clean before done' an enforced gate, not advice."
 }

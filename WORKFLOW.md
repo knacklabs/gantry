@@ -280,14 +280,18 @@ through the loop:
 6. **commit** the stage
 7. **autoreview the CUMULATIVE stage until clean** — invoke the autoreview SKILL
    HELPER DIRECTLY on the whole stage range, `"$AUTOREVIEW" --mode branch --base
-   origin/main` (NOT `--mode commit`, which reviews only the latest commit's diff
-   and would miss earlier commits in a multi-commit stage). The helper spawns the
-   Codex engine in an isolated sandbox and returns a definitive exit code. NEVER a
-   `/codex:rescue`/companion `review` job — it hangs at finalization. A finding
-   means fix, commit, and autoreview the range AGAIN; the recorded review binds to
-   the resulting HEAD, so the whole stage must be clean at that HEAD.
+   <START_SHA>` where `<START_SHA>` is the stage start commit that `forge stage
+   start` recorded and printed (NOT `origin/main`, which for any stage after the
+   first spans earlier stages and is rejected by the range gate; and NOT `--mode
+   commit`, which reviews only the latest commit and misses earlier commits in a
+   multi-commit stage). The helper spawns the Codex engine in an isolated sandbox
+   and returns a definitive exit code. NEVER a `/codex:rescue`/companion `review`
+   job — it hangs at finalization. A finding means fix, commit, and autoreview the
+   range AGAIN; the recorded review binds to the resulting HEAD, so the whole
+   stage must be clean at that HEAD.
 8. **record the clean review** — `record_stage_review_from_json.py --stage <id>`
-   with the reviewed HEAD SHA (verdict `clean`), then `forge stage done <id>`.
+   with the reviewed HEAD SHA and `reviewed_scope.base` == the stage `start_sha`
+   (verdict `clean`), then `forge stage done <id>`.
 
 The `stage done` gate is enforced: it refuses unless the stage's recorded review
 is `clean`, its `reviewed_sha` equals current HEAD, and the tracked worktree is

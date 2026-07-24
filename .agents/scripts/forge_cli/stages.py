@@ -11,6 +11,7 @@ scoped: archived to .factory/history/<issue>/ and cleaned at ship.
 from __future__ import annotations
 
 import argparse
+import re
 import subprocess
 from pathlib import Path
 
@@ -24,7 +25,18 @@ from .common import fail
 # Build/backup artifacts that legitimately live in the worktree and are not
 # stage implementation. Everything else — tracked changes AND untracked source —
 # counts as unreviewed work the stage gate must reject.
-_WORKTREE_NOISE_PREFIXES = ("dist/", "dist.bak", "node_modules/", "coverage/")
+#
+# Matched as DIRECTORY CONTENTS only (a path component followed by "/"), so a
+# crafted root source file like `dist.bakdoor.ts` is NOT mistaken for the
+# `dist.bak-*/` backup dirs — it has no trailing slash and stays counted as
+# unreviewed work. `dist.bak(-<tag>)?/` covers the backup dirs the ship flow
+# creates (e.g. `dist.bak-perm2test/`).
+_WORKTREE_NOISE_RE = re.compile(
+    r"^(?:dist|node_modules|coverage|dist\.bak(?:-[\w.]+)?)/")
+
+
+def _is_worktree_noise(path: str) -> bool:
+    return bool(_WORKTREE_NOISE_RE.match(path))
 
 
 def _worktree_dirty(base: Path) -> list[str]:
@@ -56,8 +68,11 @@ def _worktree_dirty(base: Path) -> list[str]:
             i += 1
             if i < len(tokens):
                 paths.append(tokens[i])
-        for p in (p.strip() for p in paths):
-            if p and not p.startswith(_WORKTREE_NOISE_PREFIXES):
+        # No .strip(): porcelain -z is unquoted and delimiter-safe, so a path
+        # like " dist/x.ts" (leading space) is a real, distinct filename —
+        # trimming it would let it masquerade as excluded build noise.
+        for p in paths:
+            if p and not _is_worktree_noise(p):
                 dirty.append(p)
         i += 1
     return dirty
