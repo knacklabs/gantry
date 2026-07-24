@@ -76,6 +76,11 @@ export async function removeRoutelessAgent(input: {
     p.log.error(`Agent ${folder} was not removed from desired state.`);
     return 1;
   }
+  // Deliberately no filesystem cleanup: Postgres is the source of truth, and
+  // `agent remove` stopped touching agent folders when --delete-folder was
+  // removed. The route-scoped path does not delete folders either, so this
+  // path must not either -- the only fs.rmSync left in this command family is
+  // runAdd's rollback of a folder it had just created.
   const accounts = pruned.providerAccountsPruned;
   p.log.success(
     `Removed agent ${folder} from desired state${
