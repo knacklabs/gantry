@@ -3,6 +3,8 @@ import { decisionForMode } from './permission-decision.js';
 import type {
   PermissionApprovalDecision,
   PermissionApprovalRequest,
+  PermissionRiskCategory,
+  PermissionRiskLevel,
 } from './types.js';
 import {
   evaluateAutoPermissionReadOnlyGate,
@@ -29,10 +31,23 @@ export type PermissionDeterministicRailDecision =
   | {
       railOutcome: 'ask';
       reason: string;
+      railSignal: PermissionDeterministicRailSignal;
     }
   | (PermissionApprovalDecision & {
       railOutcome: 'allow' | 'deny';
     });
+
+export type PermissionDeterministicRailSignal =
+  | 'destructive'
+  | 'egress'
+  | 'privileged'
+  | 'secret_path'
+  | 'out_of_trusted_root';
+
+export interface PermissionDeterministicRailRisk {
+  level: PermissionRiskLevel;
+  category: PermissionRiskCategory;
+}
 
 const SHELL_TOOLS = new Set(['Bash', 'RunCommand']);
 const GANTRY_INPUT_INDEPENDENT_BIRTHRIGHT_TOOLS = new Set([
@@ -93,7 +108,10 @@ export function evaluatePermissionDeterministicRails(
     return allow(request, 'Agent self-surface birthright.', 'birthright');
   }
   if (inputIsIncomplete(request)) {
-    return ask('Exact tool input is missing, redacted, or truncated.');
+    return ask(
+      'Exact tool input is missing, redacted, or truncated.',
+      'privileged',
+    );
   }
   const isInputGatedBirthrightTool =
     gantryTool !== null &&
@@ -102,12 +120,12 @@ export function evaluatePermissionDeterministicRails(
     return allow(request, 'Agent self-surface birthright.', 'birthright');
   }
   if (isInputGatedBirthrightTool) {
-    return ask('Displayed tool input is sanitized or redacted.');
+    return ask('Displayed tool input is sanitized or redacted.', 'secret_path');
   }
   // Evaluate the 16K classifier view, not the 500-char display copy, so the
   // command we inspect matches the truncation signal inputIsIncomplete guards.
   const toolInput = request.classifierToolInput ?? request.toolInput;
-  if (!toolInput) return ask('Exact tool input is missing.');
+  if (!toolInput) return ask('Exact tool input is missing.', 'privileged');
 
   const readOnly = evaluateAutoPermissionReadOnlyGate({
     canonicalToolName: request.toolName,
@@ -121,23 +139,28 @@ export function evaluatePermissionDeterministicRails(
   }
 
   const command = commandText(toolInput);
-  if (!command) return ask('Exact shell command input is missing.');
+  if (!command)
+    return ask('Exact shell command input is missing.', 'privileged');
   const parsed = parseBashCommand(command);
-  if (!parsed.ok) return ask(`Shell input is unsupported: ${parsed.reason}`);
+  if (!parsed.ok)
+    return ask(`Shell input is unsupported: ${parsed.reason}`, 'privileged');
   if (parsed.leaves.some(isInterpreterString)) {
-    return ask('An interpreter string requires approval.');
+    return ask('An interpreter string requires approval.', 'privileged');
   }
   if (
     destructiveBashCommandHint(command) ||
     parsed.leaves.some(isDestructiveLeaf)
   ) {
-    return ask('Destructive command requires approval.');
+    return ask('Destructive command requires approval.', 'destructive');
   }
   if (uploadsLocalFile(command)) {
-    return ask('Network command uploads local file content.');
+    return ask('Network command uploads local file content.', 'egress');
   }
   if (containsProtectedPath(toolInput, command, parsed.leaves)) {
-    return ask('Command references a credential, secret, or protected path.');
+    return ask(
+      'Command references a credential, secret, or protected path.',
+      'secret_path',
+    );
   }
   if (!readOnly.allowed) {
     const outside = outOfTrustedRootReason(
@@ -145,12 +168,30 @@ export function evaluatePermissionDeterministicRails(
       input.workspaceRoot,
       input.trustedRoots ?? [],
     );
-    if (outside) return ask(outside);
+    if (outside) return ask(outside, 'out_of_trusted_root');
   }
   if (parsed.leaves.some(isPrivilegedLeaf)) {
-    return ask('Privileged command requires approval.');
+    return ask('Privileged command requires approval.', 'privileged');
   }
   return readOnly.allowed ? allow(request, readOnly.reason) : undefined;
+}
+
+export function permissionRiskForDeterministicRailDecision(
+  decision: PermissionDeterministicRailDecision | undefined,
+): PermissionDeterministicRailRisk | undefined {
+  if (decision?.railOutcome !== 'ask') return undefined;
+  switch (decision.railSignal) {
+    case 'destructive':
+      return { level: 'high', category: 'destructive' };
+    case 'egress':
+      return { level: 'medium', category: 'network' };
+    case 'privileged':
+      return { level: 'high', category: 'privileged' };
+    case 'secret_path':
+      return { level: 'high', category: 'secret' };
+    case 'out_of_trusted_root':
+      return { level: 'medium', category: 'filesystem' };
+  }
 }
 
 /**
@@ -267,8 +308,11 @@ function stringValues(value: unknown): string[] {
   return Object.values(value).flatMap(stringValues);
 }
 
-function ask(reason: string): PermissionDeterministicRailDecision {
-  return { railOutcome: 'ask', reason };
+function ask(
+  reason: string,
+  railSignal: PermissionDeterministicRailSignal,
+): PermissionDeterministicRailDecision {
+  return { railOutcome: 'ask', reason, railSignal };
 }
 
 function allow(

@@ -2,6 +2,11 @@ import {
   decisionForMode,
   firstPersistentRule,
 } from '../domain/permission-decision.js';
+import {
+  evaluatePermissionDeterministicRails,
+  permissionRiskForDeterministicRailDecision,
+  type PermissionDeterministicRailRisk,
+} from '../domain/permission-deterministic-rails.js';
 import type {
   PermissionApprovalDecision,
   PermissionApprovalRequest,
@@ -83,6 +88,7 @@ export async function resolvePermissionIpcDecision(input: {
     workspaceRoot,
   });
   const decisionMemory = input.deps.getPermissionDecisionMemoryRepository?.();
+  let railRisk: PermissionDeterministicRailRisk | undefined;
   return coordinatePermissionDecision({
     request: input.request,
     effectHash,
@@ -98,6 +104,12 @@ export async function resolvePermissionIpcDecision(input: {
       approvedCapabilityIds,
       workspaceRoot,
       trustedRoots: settings?.permissions.trustedRoots ?? [],
+    },
+    deterministicRails: (railsInput) => {
+      const decision = evaluatePermissionDeterministicRails(railsInput);
+      railRisk =
+        permissionRiskForDeterministicRailDecision(decision) ?? railRisk;
+      return decision;
     },
     reviewedRuleDecision: async () => {
       const repository = input.deps.getToolRepository?.();
@@ -142,6 +154,7 @@ export async function resolvePermissionIpcDecision(input: {
         ...input,
         effectHash,
         decisionMemory,
+        railRisk,
       }),
   });
 }
@@ -152,6 +165,7 @@ async function resolvePermissionIpcDecisionTail(input: {
   deps: IpcDeps;
   effectHash?: string;
   decisionMemory?: PermissionDecisionMemoryRepository;
+  railRisk?: PermissionDeterministicRailRisk;
 }): Promise<PermissionApprovalDecision> {
   const route = input.request.targetJid
     ? findConversationRouteForQueue(
@@ -275,6 +289,10 @@ async function resolvePermissionIpcDecisionTail(input: {
       input.request.risk_category = classifierDecision.risk_category;
     }
     input.request.decisionReason = classifierDecision.reason;
+  }
+  if (!input.request.risk_level && input.railRisk) {
+    input.request.risk_level = input.railRisk.level;
+    input.request.risk_category = input.railRisk.category;
   }
 
   // Cache-miss writeback: the tail is reached only on a miss, so a verdict the

@@ -222,17 +222,10 @@ export function formatPermissionReceiptText(
 
 export const PERMISSION_GLYPH = '🔐';
 
-/**
- * Structured view of a permission prompt for provider-native renderers
- * (Slack blocks, Telegram HTML). The plain-text `formatPermissionPromptText`
- * above remains the canonical fallback; keep both in sync when fields change.
- */
+/** Provider-native prompt view; keep in sync with the plain-text formatter. */
 export interface PermissionPromptParts {
-  /** Title without the glyph, e.g. "Allow exact command access?" */
   title: string;
-  /** Tool-input / field lines. May contain ``` fenced code regions. */
   bodyLines: string[];
-  /** Dim metadata lines (agent · source, routing note). */
   contextLines: string[];
   replyInMinutes: number;
   fullView?: PermissionPromptFullView;
@@ -305,8 +298,11 @@ export function buildPermissionPromptParts(
         `Account: ${sanitizePermissionText(accountLabel.trim(), 100, 40)}`,
       );
     }
-    if (!request.risk_level && !request.risk_category && definition?.risk)
-      bodyLines.push(`Risk: ${humanizeIdentifier(definition.risk)}`);
+    if (!request.risk_category && definition?.risk) {
+      if (request.risk_level)
+        bodyLines[0] = `${bodyLines[0]} — ${humanizeIdentifier(definition.risk)}`;
+      else bodyLines.push(`Risk: ${humanizeIdentifier(definition.risk)}`);
+    }
     const networkLine = semanticCapabilityNetworkLine(definition);
     if (networkLine) bodyLines.push(networkLine);
     return {
@@ -471,8 +467,11 @@ function formatSemanticPermissionPrompt(
       `Account: ${sanitizePermissionText(accountLabel.trim(), 100, 40)}`,
     );
   }
-  if (!request.risk_level && !request.risk_category && definition?.risk)
-    lines.push(`Risk: ${humanizeIdentifier(definition.risk)}`);
+  if (!request.risk_category && definition?.risk) {
+    if (request.risk_level)
+      lines[1] = `${lines[1]} — ${humanizeIdentifier(definition.risk)}`;
+    else lines.push(`Risk: ${humanizeIdentifier(definition.risk)}`);
+  }
   const networkLine = semanticCapabilityNetworkLine(definition);
   if (networkLine) lines.push(networkLine);
   lines.push('', ...formatPermissionContextLines(request));

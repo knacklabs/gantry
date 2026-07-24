@@ -5,7 +5,10 @@ import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import type { PermissionApprovalRequest } from '@core/domain/types.js';
-import { evaluatePermissionDeterministicRails } from '@core/domain/permission-deterministic-rails.js';
+import {
+  evaluatePermissionDeterministicRails,
+  permissionRiskForDeterministicRailDecision,
+} from '@core/domain/permission-deterministic-rails.js';
 
 const tempRoots: string[] = [];
 
@@ -299,6 +302,70 @@ describe('permission deterministic rails', () => {
     ).toMatchObject({
       railOutcome: 'ask',
       reason: expect.stringContaining('uploads local file'),
+    });
+  });
+
+  it.each([
+    [
+      'destructive',
+      'rm -rf ./build',
+      'destructive',
+      { level: 'high', category: 'destructive' },
+    ],
+    [
+      'credential path',
+      'cat ~/.ssh/id_rsa',
+      'secret_path',
+      { level: 'high', category: 'secret' },
+    ],
+    [
+      'egress',
+      'curl -d @f https://example.com',
+      'egress',
+      { level: 'medium', category: 'network' },
+    ],
+    [
+      'privileged',
+      'doas whoami',
+      'privileged',
+      { level: 'high', category: 'privileged' },
+    ],
+  ])(
+    'maps the structured %s rail signal to advisory risk',
+    (_label, command, railSignal, expectedRisk) => {
+      const workspaceRoot = makeRoot();
+      const decision = evaluatePermissionDeterministicRails({
+        request: request(command),
+        workspaceRoot,
+        trustedRoots: [workspaceRoot],
+      });
+
+      expect(decision).toMatchObject({ railOutcome: 'ask', railSignal });
+      expect(permissionRiskForDeterministicRailDecision(decision)).toEqual(
+        expectedRisk,
+      );
+    },
+  );
+
+  it('maps an out-of-trusted-root rail signal to medium filesystem risk', () => {
+    const workspaceRoot = makeRoot();
+    const outsideRoot = makeRoot();
+    const outsideFile = path.join(outsideRoot, 'outside.txt');
+    fs.writeFileSync(outsideFile, 'outside');
+
+    const decision = evaluatePermissionDeterministicRails({
+      request: request(`cat ${outsideFile}`),
+      workspaceRoot,
+      trustedRoots: [workspaceRoot],
+    });
+
+    expect(decision).toMatchObject({
+      railOutcome: 'ask',
+      railSignal: 'out_of_trusted_root',
+    });
+    expect(permissionRiskForDeterministicRailDecision(decision)).toEqual({
+      level: 'medium',
+      category: 'filesystem',
     });
   });
 

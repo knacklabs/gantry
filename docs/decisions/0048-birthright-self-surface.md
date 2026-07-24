@@ -24,9 +24,18 @@ Ravi 2026-07-24 as classes A+B+C+D: (A) display/interaction (`ask_user_question`
 `continuity_summary`, `mcp_list/search/describe_tool`, `agent_profile_read`);
 (C) messaging (`send_message`, `todo_update`); (D) internal state writes
 (`memory_save`, `brain_write`, `procedure_save`, `task_cancel`, `task_message`).
-Birthright is INPUT-INDEPENDENT — allowed even under redaction/truncation,
-checked before the incompleteness rail — because these tools only display to,
-read for, or write the agent's own state on behalf of, the trusted user.
+Birthright resolves in TWO tiers by payload-dependence, so it never trades safety
+for convenience: (A+B) display + read-only are INPUT-INDEPENDENT — allowed even
+under redaction/truncation, checked before the incompleteness rail — because they
+only display to, or read state for, the trusted user, who sees the real execution
+input (this is what unblocks the `ask_user_question` deadlock). (C+D) messaging +
+internal writes are birthright when the payload is INSPECTABLE (complete and not
+display-sanitized); if the recipient/content/mutation-target is redacted,
+truncated, or concealed, they fall through to the ladder (ask) rather than
+auto-approving a hidden effect. In normal operation C+D never prompt; the carve-out
+fires only when the payload cannot be seen — exactly when human review is
+warranted. Net: "never prompt" holds in practice for all of A–D, with C+D degrading
+safely to an ask only on concealed input.
 
 ## Consequences
 - External/side-effecting tools (`mcp_call_tool`, `async_run_command`,

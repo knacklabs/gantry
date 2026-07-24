@@ -5,6 +5,7 @@ import { requestPermissionApproval } from './permission-callback.js';
 import type {
   AgentRunnerInput,
   AgentRunnerToolAttemptOutput,
+  PermissionDecision,
   RunnerCapabilitiesForPermission,
 } from './types.js';
 import { WORKSPACE_FOLDER_OPTION_KEY } from './types.js';
@@ -440,15 +441,9 @@ export function createCanUseToolCallback(
           input.getNewSessionId,
           'permission_allowed',
           toolName,
-          {
-            ok: true,
-            mode: decision.mode,
-            decided_by: decision.decidedBy ?? null,
-          },
+          permissionAllowedActivityPayload(decision),
         );
-        log(
-          `Autonomous run permission approved for tool ${toolName} by ${decision.decidedBy || 'unknown'}`,
-        );
+        logPermissionApproval(toolName, decision, 'Autonomous run permission');
         return {
           behavior: 'allow' as const,
           updatedInput: trustInput(),
@@ -563,15 +558,9 @@ export function createCanUseToolCallback(
         input.getNewSessionId,
         'permission_allowed',
         toolName,
-        {
-          ok: true,
-          mode: decision.mode,
-          decided_by: decision.decidedBy ?? null,
-        },
+        permissionAllowedActivityPayload(decision),
       );
-      log(
-        `Permission approved for tool ${toolName} by ${decision.decidedBy || 'unknown'}`,
-      );
+      logPermissionApproval(toolName, decision, 'Permission');
       return {
         behavior: 'allow' as const,
         updatedInput: trustInput(),
@@ -606,4 +595,55 @@ export function createCanUseToolCallback(
         : {}),
     };
   };
+}
+
+const SILENT_ALLOW_DECIDERS = new Set([
+  'birthright',
+  'deterministic_read_only',
+]);
+
+function permissionAllowedActivityPayload(
+  decision: PermissionDecision,
+): Record<string, unknown> {
+  const provenanceMessage = formatPermissionAllowedMessage(decision);
+  return {
+    ok: true,
+    mode: decision.mode,
+    ...(decision.decidedBy ? { decided_by: decision.decidedBy } : {}),
+    ...(decision.risk_level ? { risk_level: decision.risk_level } : {}),
+    ...(decision.risk_category
+      ? { risk_category: decision.risk_category }
+      : {}),
+    ...(provenanceMessage
+      ? { reason: provenanceMessage }
+      : decision.reason
+        ? { reason: decision.reason }
+        : {}),
+  };
+}
+
+function formatPermissionAllowedMessage(
+  decision: PermissionDecision,
+): string | undefined {
+  if (decision.decidedBy && SILENT_ALLOW_DECIDERS.has(decision.decidedBy)) {
+    return undefined;
+  }
+  if (!decision.decidedBy && !decision.risk_level) return undefined;
+  return formatPermissionDeniedMessage(
+    decision,
+    decision.reason || 'Approved.',
+  ).replace(/^Permission denied/, 'Permission allowed');
+}
+
+function logPermissionApproval(
+  toolName: string,
+  decision: PermissionDecision,
+  prefix: string,
+): void {
+  const provenanceMessage = formatPermissionAllowedMessage(decision);
+  log(
+    provenanceMessage
+      ? `${prefix} for tool ${toolName}: ${provenanceMessage}`
+      : `${prefix} approved for tool ${toolName}`,
+  );
 }

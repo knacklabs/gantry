@@ -66,6 +66,45 @@ describe('permission interaction', () => {
     }
   });
 
+  it('uses the semantic risk as the category when classifier risk has only a level', () => {
+    const request: PermissionApprovalRequest = {
+      ...requestWithSuggestions([
+        {
+          type: 'addRules',
+          behavior: 'allow',
+          rules: [{ toolName: 'capability:acme.records.append' }],
+        },
+      ]),
+      risk_level: 'high',
+      semanticCapabilityDefinitions: {
+        'acme.records.append': {
+          capabilityId: 'acme.records.append',
+          displayName: 'Acme records append',
+          category: 'acme',
+          risk: 'write',
+          can: 'Append records through reviewed Acme access.',
+          cannot: 'Delete records or change account settings.',
+          credentialSource: 'configured_access',
+          implementationBindings: [
+            { kind: 'tool_rule', rule: 'RunCommand(acme records append *)' },
+          ],
+          preflight: { kind: 'none' },
+        },
+      },
+    };
+
+    const prompts = [
+      formatPermissionPromptText(request, 60_000),
+      formatPermissionPromptPartsText(
+        buildPermissionPromptParts(request, 60_000),
+      ),
+    ];
+
+    for (const prompt of prompts) {
+      expect(prompt.match(/^Risk:.*$/gm)).toEqual(['Risk: high — Write']);
+    }
+  });
+
   it('renders a compact permission batch with batch actions', () => {
     const batch = createPermissionBatchRequest(
       [

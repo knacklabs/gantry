@@ -722,6 +722,57 @@ describe('createCanUseToolCallback', () => {
     );
   });
 
+  it.each([
+    [
+      'classifier',
+      {
+        decidedBy: 'auto_classifier',
+        risk_level: 'medium',
+        risk_category: 'network',
+      },
+      'decided by: auto_classifier; risk: medium/network',
+    ],
+    ['human', { decidedBy: 'owner' }, 'decided by: owner'],
+  ] as const)(
+    'emits %s approval provenance on the observable allow activity',
+    async (_label, approval, expectedProvenance) => {
+      permissionMock.requestPermissionApproval.mockResolvedValueOnce({
+        approved: true,
+        mode: 'allow_once',
+        ...approval,
+      });
+      const canUseTool = makeCallback({
+        agentInput: {
+          runMode: 'normal',
+          isScheduledJob: true,
+          appId: 'default',
+          agentId: 'agent:test',
+          runId: 'run-1',
+          jobId: 'job-1',
+          chatJid: 'tg:test',
+          threadId: undefined,
+          allowedTools: [],
+        } as never,
+      });
+
+      await expect(
+        canUseTool(
+          'Bash',
+          { command: 'npm test' },
+          makePermissionOptions() as never,
+        ),
+      ).resolves.toEqual(expect.objectContaining({ behavior: 'allow' }));
+
+      const output = combinedConsoleOutput();
+      expect(output).toContain('"phase":"permission_allowed"');
+      expect(output).toContain(
+        `"reason":"Permission allowed (${expectedProvenance})`,
+      );
+      expect(output).toContain(expectedProvenance);
+      expect(output).not.toContain('unknown/unknown');
+    },
+  );
+
   it('denies exact facade access in autonomous jobs without permission prompts', async () => {
     const canUseTool = makeCallback({
       agentInput: {
