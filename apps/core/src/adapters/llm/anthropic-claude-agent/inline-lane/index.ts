@@ -156,10 +156,7 @@ export const runClaudeInlineAgentLoopLane: ProviderInlineAgentLoopLane = async (
           : {}),
         persistSession: persistSdkSession,
         systemPrompt: inlineSystemPrompt(input),
-        env: isolatedSdkEnv(
-          input.modelCredentialEnv,
-          configDir,
-        ),
+        env: isolatedSdkEnv(input.modelCredentialEnv, configDir),
         settings: {
           autoMemoryEnabled: false,
           includeGitInstructions: false,
