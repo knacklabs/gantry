@@ -1,7 +1,6 @@
 import { MEMORY_IPC_ACTIONS, MemoryIpcAction } from '@gantry/contracts';
 
 import {
-  PermissionApprovalCancellation,
   PermissionApprovalDecisionMode,
   PermissionApprovalRequest,
   PermissionApprovalUpdate,
@@ -22,6 +21,11 @@ import {
   validateMemoryIpcAuthRequest,
 } from './ipc-auth-validation.js';
 import { parseInteractionDescriptor } from './ipc-interaction-descriptor-parsing.js';
+import {
+  parsePermissionCancellationIpcRequest,
+  parsePermissionLifecycle,
+} from './ipc-parsing-permission-lifecycle.js';
+export { parsePermissionCancellationIpcRequest };
 import { stripShellCommandEnvPrefix } from './ipc-shell-command-prefix.js';
 import { sanitizeIpcToolInput } from './ipc-tool-input-sanitization.js';
 import { PERMISSION_CLASSIFIER_MAX_STRING_LENGTH } from './permission-classifier-prompt.js';
@@ -433,22 +437,7 @@ export function parsePermissionIpcRequest(
   const decisionOptions = parsePermissionDecisionOptions(raw.decisionOptions);
   const closestRule = parseClosestPermissionRule(raw.closestRule);
   const interaction = parseInteractionDescriptor(raw.interaction);
-  const rawPermissionLane = toTrimmedString(raw.permissionLane, { maxLen: 16 });
-  if (
-    rawPermissionLane &&
-    rawPermissionLane !== 'interactive' &&
-    rawPermissionLane !== 'autonomous'
-  ) {
-    throw new Error('Invalid permission IPC permissionLane');
-  }
-  const permissionLane =
-    rawPermissionLane === 'interactive' || rawPermissionLane === 'autonomous'
-      ? rawPermissionLane
-      : undefined;
-  const rawExpiresAt = toTrimmedString(raw.expiresAt, { maxLen: 128 });
-  if (rawExpiresAt && !Number.isFinite(Date.parse(rawExpiresAt))) {
-    throw new Error('Invalid permission IPC expiresAt');
-  }
+  const permissionLifecycle = parsePermissionLifecycle(raw);
   return {
     requestId,
     appId,
@@ -465,8 +454,7 @@ export function parsePermissionIpcRequest(
     ...(binding.authThreadId ? { threadId: binding.authThreadId } : {}),
     ...(binding.responseKeyId ? { responseKeyId: binding.responseKeyId } : {}),
     ...(raw.unattended === true ? { unattended: true } : {}),
-    ...(permissionLane ? { permissionLane } : {}),
-    ...(rawExpiresAt ? { expiresAt: rawExpiresAt } : {}),
+    ...permissionLifecycle,
     ...(senderId ? { senderId } : {}),
     ...(intent ? { turnIntentSummary: intent } : {}),
     toolName,
@@ -490,35 +478,6 @@ export function parsePermissionIpcRequest(
     ...(suggestions ? { suggestions } : {}),
     ...(decisionOptions ? { decisionOptions } : {}),
     ...(interaction ? { interaction } : {}),
-  };
-}
-
-export function parsePermissionCancellationIpcRequest(
-  raw: unknown,
-  sourceAgentFolder: string,
-): PermissionApprovalCancellation {
-  if (!isPlainObject(raw)) {
-    throw new Error('Invalid permission cancellation IPC payload');
-  }
-  const binding = validateIpcAuthRequest(
-    raw,
-    sourceAgentFolder,
-    'permission cancellation IPC',
-  );
-  if (!binding.appId) {
-    throw new Error('permission cancellation IPC context.appId is required');
-  }
-  const requestId = toTrimmedString(raw.permissionRequestId, { maxLen: 128 });
-  if (!requestId || !IPC_REQUEST_ID_PATTERN.test(requestId)) {
-    throw new Error('Invalid permission cancellation IPC requestId');
-  }
-  const reason = toTrimmedString(raw.reason, { maxLen: 2000 });
-  return {
-    requestId,
-    appId: binding.appId,
-    sourceAgentFolder,
-    ...(binding.authThreadId ? { threadId: binding.authThreadId } : {}),
-    ...(reason ? { reason } : {}),
   };
 }
 

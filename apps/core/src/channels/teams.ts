@@ -31,11 +31,8 @@ import {
 } from './teams-progress.js';
 import { requestTeamsPermissionApproval } from './teams-permission-approval.js';
 import { PERMISSION_APPROVAL_TIMEOUT_MS } from '../shared/permission-timeout.js';
-import {
-  pendingPermissionAliasesForCancellation,
-  resolveInteractionSettlementDelayMs,
-  RUNNER_CANCELLED_PERMISSION_REASON,
-} from './interaction-settlement.js';
+import { resolveInteractionSettlementDelayMs } from './interaction-settlement.js';
+import { cancelPendingTeamsPermission } from './teams-permission-cancellation.js';
 import { renderTeamsAgentTodo, type TeamsTodoMessages } from './teams-todos.js';
 import {
   isTeamsJid,
@@ -56,6 +53,7 @@ import {
 } from './teams-conversation-context.js';
 import { renderTeamsRichInteraction } from './teams-rich-interaction.js';
 import { teamsDeliveredQuestionIndexes } from './teams-user-question.js';
+import { buildTeamsQuestionTimeoutAnswers } from './teams-user-question-timeout.js';
 import { createMicrosoftTeamsSdkClient } from './teams-sdk-client.js';
 import {
   applyTeamsStreamingChunk,
@@ -132,23 +130,18 @@ export class TeamsChannel implements ChannelAdapter {
   async cancelPendingPermission(
     cancellation: PermissionApprovalCancellation,
   ): Promise<'settled' | 'already_decided' | 'retryable' | 'not_found'> {
-    const aliases = pendingPermissionAliasesForCancellation(
+    return cancelPendingTeamsPermission(
       this.pendingPermissionPrompts,
       cancellation,
+      (providerAlias, reason) =>
+        settlePendingTeamsPermission(
+          this.interactionContext(),
+          providerAlias,
+          'cancel',
+          'runtime',
+          reason,
+        ),
     );
-    if (aliases.length === 0) return 'not_found';
-    for (const providerAlias of aliases) {
-      const result = await settlePendingTeamsPermission(
-        this.interactionContext(),
-        providerAlias,
-        'cancel',
-        'runtime',
-        cancellation.reason ?? RUNNER_CANCELLED_PERMISSION_REASON,
-      );
-      if (result === 'settled') return 'settled';
-      if (result === 'retryable') return 'retryable';
-    }
-    return 'already_decided';
   }
 
   async connect(
@@ -540,18 +533,8 @@ export class TeamsChannel implements ChannelAdapter {
         if (settlementDelayMs !== undefined) {
           timer = setTimeout(() => {
             void (async () => {
-              const remainingQuestionIndexes = request.questions.flatMap(
-                (_, index) => (index >= startIndex ? [index] : []),
-              );
-              const timeoutAnswers = Object.fromEntries(
-                remainingQuestionIndexes.map((questionIndex) => {
-                  const question = request.questions[questionIndex]!;
-                  return [
-                    question.question,
-                    question.multiSelect ? ([] as string[]) : '',
-                  ];
-                }),
-              );
+              const { remainingQuestionIndexes, timeoutAnswers } =
+                buildTeamsQuestionTimeoutAnswers(request, startIndex);
               const recorded = await recordDurableQuestionAnswerProgress({
                 requestId: request.requestId,
                 appId: request.appId,

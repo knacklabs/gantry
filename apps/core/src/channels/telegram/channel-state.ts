@@ -6,7 +6,6 @@ import {
   PermissionApprovalCancellation,
   PermissionApprovalDecision,
   PermissionApprovalRequest,
-  PermissionCallbackScope,
   ProgressUpdateOptions,
   StreamingChunkOptions,
   UserQuestionRequest,
@@ -42,9 +41,10 @@ import { nowMs as currentTimeMs } from '../../shared/time/datetime.js';
 import { StreamResetEpochs } from '../stream-reset-epochs.js';
 import { dropPendingTelegramInteraction } from './disconnect.js';
 import {
-  pendingPermissionAliasesForCancellation,
-  RUNNER_CANCELLED_PERMISSION_REASON,
-} from '../interaction-settlement.js';
+  cancelPendingTelegramPermission,
+  type PendingPermission,
+} from './channel-permission-cancellation.js';
+import { sanitizeTelegramFilePath } from './channel-file-path.js';
 export abstract class TelegramChannelState implements ChannelAdapter {
   name = 'telegram';
   protected bot: Bot<TelegramContext> | null = null;
@@ -56,24 +56,7 @@ export abstract class TelegramChannelState implements ChannelAdapter {
   protected interactionCallbacksEnabled = true;
   protected opts: ChannelOpts;
   protected botToken: string;
-  protected pendingPermissionPrompts = new Map<
-    string,
-    {
-      callback: {
-        providerAlias: string;
-        scope: PermissionCallbackScope;
-        matchKind: 'individual' | 'batch';
-      };
-      sourceAgentFolder: string;
-      decisionPolicy?: PermissionApprovalRequest['decisionPolicy'];
-      approvalContextJid?: string;
-      request: PermissionApprovalRequest;
-      chatId: string;
-      messageId: number;
-      timer: ReturnType<typeof setTimeout>;
-      resolve: (decision: PermissionApprovalDecision) => void;
-    }
-  >();
+  protected pendingPermissionPrompts = new Map<string, PendingPermission>();
   protected pendingUserQuestionCallbackIds = new Map<
     string,
     TelegramUserQuestionCallbackTarget
@@ -117,22 +100,17 @@ export abstract class TelegramChannelState implements ChannelAdapter {
   async cancelPendingPermission(
     cancellation: PermissionApprovalCancellation,
   ): Promise<'settled' | 'already_decided' | 'retryable' | 'not_found'> {
-    const aliases = pendingPermissionAliasesForCancellation(
+    return cancelPendingTelegramPermission(
       this.pendingPermissionPrompts,
       cancellation,
+      (providerAlias, reason) =>
+        this.claimAndResolvePermissionPrompt(
+          providerAlias,
+          'cancel',
+          'runtime',
+          reason,
+        ),
     );
-    if (aliases.length === 0) return 'not_found';
-    for (const providerAlias of aliases) {
-      const result = await this.claimAndResolvePermissionPrompt(
-        providerAlias,
-        'cancel',
-        'runtime',
-        cancellation.reason ?? RUNNER_CANCELLED_PERMISSION_REASON,
-      );
-      if (result === 'settled') return 'settled';
-      if (result === 'retryable') return 'retryable';
-    }
-    return 'already_decided';
   }
   protected abstract claimAndResolvePermissionPrompt(
     providerAlias: string,
@@ -151,11 +129,7 @@ export abstract class TelegramChannelState implements ChannelAdapter {
     return sanitizeTelegramErrorMessage(err, this.botToken);
   }
   protected sanitizeTelegramFilePath(rawPath: string): string | null {
-    const normalized = rawPath.replace(/\\/g, '/').trim();
-    if (!normalized) return null;
-    if (normalized.startsWith('/') || normalized.includes('..')) return null;
-    if (!/^[a-zA-Z0-9._/-]+$/.test(normalized)) return null;
-    return normalized;
+    return sanitizeTelegramFilePath(rawPath);
   }
   protected clearPollingRetryTimer(): void {
     if (!this.pollingRetryTimer) return;
