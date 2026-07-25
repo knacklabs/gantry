@@ -45,6 +45,30 @@ const AUTONOMOUS_PERMISSION_TIMEOUT_REASON =
   'Timed out waiting for approval. Retry the autonomous run when an approver is available.';
 const INTERACTIVE_PERMISSION_TIMEOUT_REASON =
   'Timed out waiting for interactive approval. Retry the live request when an approver is available.';
+const CANCELLED_PERMISSION_REASON = 'Permission request cancelled.';
+
+async function sleepWithAbort(
+  ms: number,
+  signal?: AbortSignal,
+): Promise<boolean> {
+  if (!signal) {
+    await sleep(ms);
+    return false;
+  }
+  if (signal.aborted) return true;
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      signal.removeEventListener('abort', onAbort);
+      resolve(false);
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(timer);
+      signal.removeEventListener('abort', onAbort);
+      resolve(true);
+    };
+    signal.addEventListener('abort', onAbort, { once: true });
+  });
+}
 
 export async function requestPermissionApproval(options: {
   appId?: string;
@@ -69,6 +93,7 @@ export async function requestPermissionApproval(options: {
   semanticCapabilityDefinitions?: Record<string, SemanticCapabilityDefinition>;
   targetJid?: string;
   threadId?: string;
+  signal?: AbortSignal;
 }): Promise<PermissionDecision> {
   return requestPermissionApprovalInner({
     ...options,
@@ -101,6 +126,7 @@ async function requestPermissionApprovalInner(options: {
   semanticCapabilityDefinitions?: Record<string, SemanticCapabilityDefinition>;
   targetJid?: string;
   threadId?: string;
+  signal?: AbortSignal;
 }): Promise<PermissionDecision> {
   try {
     const appId = options.appId;
@@ -228,6 +254,15 @@ async function requestPermissionApprovalInner(options: {
         ? undefined
         : nowMs() + waitMs;
     while (deadline === undefined || nowMs() < deadline) {
+      if (options.signal?.aborted) {
+        fs.rmSync(requestPath, { force: true });
+        return {
+          approved: false,
+          decidedBy: 'runtime',
+          reason: CANCELLED_PERMISSION_REASON,
+          decisionClassification: 'user_reject',
+        };
+      }
       if (fs.existsSync(responsePath)) {
         try {
           const raw = JSON.parse(fs.readFileSync(responsePath, 'utf-8'));
@@ -373,7 +408,16 @@ async function requestPermissionApprovalInner(options: {
           };
         }
       }
-      await sleep(100);
+      const aborted = await sleepWithAbort(100, options.signal);
+      if (aborted) {
+        fs.rmSync(requestPath, { force: true });
+        return {
+          approved: false,
+          decidedBy: 'runtime',
+          reason: CANCELLED_PERMISSION_REASON,
+          decisionClassification: 'user_reject',
+        };
+      }
     }
     return {
       approved: false,

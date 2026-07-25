@@ -460,6 +460,7 @@ export function createCanUseToolCallback(
           ? ['allow_once', 'allow_persistent_rule', 'cancel']
           : ['allow_once', 'cancel'],
         threadId: input.agentInput.threadId,
+        signal: permissionOpts.signal,
         [WORKSPACE_FOLDER_KEY]: input.workspaceFolder,
       } as unknown as ApprovalInput);
       if (decision.approved) {
@@ -582,6 +583,7 @@ export function createCanUseToolCallback(
       semanticCapabilityDefinitions:
         permissionPlan.semanticCapabilityDefinitions,
       threadId: input.agentInput.threadId,
+      signal: permissionOpts.signal,
       [WORKSPACE_FOLDER_KEY]: input.workspaceFolder,
     } as unknown as ApprovalInput);
     if (decision.approved) {

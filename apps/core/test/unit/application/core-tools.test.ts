@@ -528,6 +528,47 @@ describe('core tool registry', () => {
     });
   });
 
+  it('preserves approval provenance when the approved handler throws', async () => {
+    const backend = taskBackend();
+    vi.mocked(backend.delegate_task).mockRejectedValueOnce(
+      new Error('Delegation handler failed'),
+    );
+    const deps = registryDeps({
+      taskLifecycleBackend: backend,
+      durability: {
+        record: vi.fn(async () => true),
+        resolve: vi.fn(async () => true),
+      },
+      requestPermissionApproval: vi.fn(async () => ({
+        approved: true,
+        mode: 'allow_once',
+        decidedBy: 'owner',
+        risk_level: 'high',
+        risk_category: 'privileged',
+      })),
+    });
+
+    await expect(
+      createCoreToolRegistry(deps).execute('delegate_task', {
+        objective: 'Investigate the failure',
+      }),
+    ).resolves.toEqual({
+      content: [
+        {
+          type: 'text',
+          text: 'Permission allowed (decided by: owner; risk: high/privileged)',
+        },
+        { type: 'text', text: 'Delegation handler failed' },
+      ],
+      isError: true,
+      error: {
+        category: 'transient',
+        isRetryable: true,
+        message: 'Delegation handler failed',
+      },
+    });
+  });
+
   it('keeps AgentDelegation on the human prompt path in auto mode', async () => {
     const requestPermissionApproval = vi.fn(async () => ({
       approved: true,

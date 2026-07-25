@@ -416,11 +416,14 @@ export function createCoreToolRegistry(deps: CoreToolRegistryDeps): {
           ? withPermissionApprovalContext(result, gate.approvalContext)
           : result;
       } catch (error) {
-        return errorResult(
+        const result = errorResult(
           error instanceof Error ? error.message : String(error),
           'transient',
           true,
         );
+        return gate?.approvalContext
+          ? withPermissionApprovalContext(result, gate.approvalContext)
+          : result;
       }
     },
   };

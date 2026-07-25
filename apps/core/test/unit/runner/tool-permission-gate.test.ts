@@ -314,6 +314,20 @@ describe('createCanUseToolCallback', () => {
     );
   });
 
+  it('passes the SDK tool-use abort signal into the permission wait', async () => {
+    const controller = new AbortController();
+
+    await makeCallback()(
+      'Bash',
+      { command: 'npm test' },
+      makePermissionOptions({ signal: controller.signal }) as never,
+    );
+
+    expect(permissionMock.requestPermissionApproval).toHaveBeenCalledWith(
+      expect.objectContaining({ signal: controller.signal }),
+    );
+  });
+
   it('passes the workspace folder under the shared permission-IPC key', async () => {
     permissionMock.requestPermissionApproval.mockResolvedValueOnce({
       approved: true,

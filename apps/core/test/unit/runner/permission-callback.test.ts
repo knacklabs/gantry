@@ -329,6 +329,84 @@ describe('requestPermissionApproval', () => {
     dateNow.mockRestore();
   });
 
+  it('cancels an unbounded interactive wait without leaving a pending request or polling', async () => {
+    process.env.GANTRY_PERMISSION_LANE = 'interactive';
+    process.env.GANTRY_INTERACTIVE_PERMISSION_TIMEOUT_MS = '0';
+    delete process.env.GANTRY_JOB_ID;
+    delete process.env.GANTRY_JOB_RUN_ID;
+    vi.resetModules();
+    const { requestPermissionApproval } =
+      await import('@core/adapters/llm/anthropic-claude-agent/runner/permission-callback.js');
+    const controller = new AbortController();
+
+    const decision = requestPermissionApproval({
+      appId: 'default',
+      agentId: 'agent:main_agent',
+      workspaceFolder: 'main_agent',
+      targetJid: 'tg:test',
+      toolName: 'Bash',
+      toolInput: { command: 'git status --short' },
+      signal: controller.signal,
+    });
+    const requestDir = path.join(
+      tempDir,
+      'ipc',
+      'main_agent',
+      'permission-requests',
+    );
+    const [requestFile] = await waitForFiles(requestDir, 1);
+    const requestPath = path.join(requestDir, requestFile);
+    const request = JSON.parse(fs.readFileSync(requestPath, 'utf-8')) as {
+      requestId: string;
+    };
+    const responsePath = path.join(
+      tempDir,
+      'ipc',
+      'main_agent',
+      'permission-responses',
+      `${request.requestId}.json`,
+    );
+    const originalExistsSync = fs.existsSync.bind(fs);
+    const existsSync = vi
+      .spyOn(fs, 'existsSync')
+      .mockImplementation(originalExistsSync);
+
+    controller.abort();
+    const result = await new Promise<Awaited<typeof decision>>(
+      (resolve, reject) => {
+        const timeout = setTimeout(
+          () => reject(new Error('Permission cancellation did not settle')),
+          500,
+        );
+        void decision.then(
+          (value) => {
+            clearTimeout(timeout);
+            resolve(value);
+          },
+          (error) => {
+            clearTimeout(timeout);
+            reject(error);
+          },
+        );
+      },
+    );
+
+    expect(result).toEqual({
+      approved: false,
+      decidedBy: 'runtime',
+      reason: 'Permission request cancelled.',
+      decisionClassification: 'user_reject',
+    });
+    expect(fs.existsSync(requestPath)).toBe(false);
+    const responsePollsAfterCancellation = existsSync.mock.calls.filter(
+      ([candidate]) => candidate === responsePath,
+    ).length;
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    expect(
+      existsSync.mock.calls.filter(([candidate]) => candidate === responsePath),
+    ).toHaveLength(responsePollsAfterCancellation);
+  });
+
   it('waits indefinitely for an interactive response at the no-timeout sentinel', async () => {
     process.env.GANTRY_PERMISSION_LANE = 'interactive';
     process.env.GANTRY_INTERACTIVE_PERMISSION_TIMEOUT_MS = '0';
