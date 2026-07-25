@@ -2,6 +2,7 @@ import * as p from '@clack/prompts';
 
 import type { ConversationRoute } from '../domain/types.js';
 import {
+  disableRemovedAgentProjection,
   isInteractiveTerminal,
   pruneDesiredStateAgent,
   resolveRoutelessAgentFolder,
@@ -90,6 +91,11 @@ export async function removeRoutelessAgent(input: {
   // removed. The route-scoped path does not delete folders either, so this
   // path must not either -- the only fs.rmSync left in this command family is
   // runAdd's rollback of a folder it had just created.
+  // Best-effort: only when the revision durably persisted (reconciled) do we
+  // disable the projected agents row so it stops reading active. The desired-
+  // state prune above is the durable removal; the helper warns (and this path
+  // still succeeds) if the mirror write fails.
+  if (pruned.reconciled) await disableRemovedAgentProjection(folder);
   const accounts = pruned.providerAccountsPruned;
   p.log.success(
     `Removed agent ${folder} from desired state${

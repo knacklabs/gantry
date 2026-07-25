@@ -42,6 +42,7 @@ import {
 import {
   allocateGroupFolder,
   conversationIdsForProvider,
+  disableRemovedAgentProjection,
   ensureGroupFiles,
   findConversationIdForAgent,
   formatAgentHarnessLine,
@@ -435,9 +436,6 @@ async function runRemove(runtimeHome: string, args: string[]): Promise<number> {
       );
       return 1;
     }
-    const routeKey = found.jid;
-    const { chatJid } = parseAgentThreadQueueKey(routeKey);
-
     if (!parsed.assumeYes) {
       if (!isInteractiveTerminal()) {
         p.log.error(
@@ -461,7 +459,7 @@ async function runRemove(runtimeHome: string, args: string[]): Promise<number> {
     }
 
     try {
-      await db.deleteConversationRoute(routeKey);
+      await db.deleteConversationRoute(found.jid);
       await db.deleteSession(found.group.folder);
     } catch (err) {
       p.log.error(`Could not remove agent from database: ${errorMessage(err)}`);
@@ -470,7 +468,7 @@ async function runRemove(runtimeHome: string, args: string[]): Promise<number> {
 
     const policyPrune = await pruneAgentSenderPolicyOverride(
       runtimeHome,
-      chatJid,
+      parseAgentThreadQueueKey(found.jid).chatJid,
       found.group.folder,
     );
     if (policyPrune.error) {
@@ -512,6 +510,8 @@ async function runRemove(runtimeHome: string, args: string[]): Promise<number> {
       return 0;
     }
     if (desiredPrune.pruned) {
+      if (desiredPrune.reconciled)
+        await disableRemovedAgentProjection(found.group.folder);
       const accounts = desiredPrune.providerAccountsPruned;
       p.log.info(
         `Removed agent ${found.group.folder} from desired state${
