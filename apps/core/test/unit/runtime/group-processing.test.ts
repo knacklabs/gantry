@@ -1488,6 +1488,60 @@ describe('createGroupProcessor', () => {
       );
     });
 
+    it('rolls back for retry when the failover-exhausted notice fails to deliver', async () => {
+      const group = makeGroup({ requiresTrigger: false });
+      const messages = [makeMessage({ timestamp: '1700000001' })];
+      const { deps, channel } = setupHappyPath({ group, messages });
+
+      const errorOutput: AgentOutput = {
+        status: 'error',
+        result: null,
+        error: 'API Error: 502 Bad Gateway',
+      };
+      mockSpawnAgent.mockImplementation(
+        async (
+          _group: ConversationRoute,
+          _input: unknown,
+          _onProc: unknown,
+          onOutput?: (output: AgentOutput) => Promise<void>,
+        ) => {
+          if (onOutput) await onOutput(errorOutput);
+          return errorOutput;
+        },
+      );
+
+      // Channel is down: the notice send throws -> settles not_delivered.
+      (channel.sendMessage as ReturnType<typeof vi.fn>).mockImplementation(
+        async (_jid: string, text: string) => {
+          if (typeof text === 'string' && text.includes('provider is unavailable')) {
+            throw new Error('channel down');
+          }
+          return undefined;
+        },
+      );
+
+      (deps.getCursor as ReturnType<typeof vi.fn>).mockReturnValue(
+        'prev-cursor',
+      );
+
+      const { processGroupMessages } = createGroupProcessor(deps);
+      const result = await processGroupMessages('group1@g.us', {
+        finalRetry: true,
+      });
+
+      // User was NOT informed -> turn is not consumed: roll back and retry.
+      expect(result).toBe(false);
+      const setCursorCalls = (deps.setCursor as ReturnType<typeof vi.fn>).mock
+        .calls;
+      const lastSetCursor = setCursorCalls[setCursorCalls.length - 1];
+      expect(lastSetCursor).toEqual(['group1@g.us', 'prev-cursor']);
+      // The undeliverable notice is logged at error level for observability.
+      expect(mockLogger.error).toHaveBeenCalledWith(
+        expect.objectContaining({ group: group.name }),
+        'Failed to send provider failover exhausted notice',
+      );
+    });
+
     it('delivers the last response_schema candidate from structured failure metadata', async () => {
       const candidate = '{"wrong":"last"}';
       const { deps, channel } = setupHappyPath({

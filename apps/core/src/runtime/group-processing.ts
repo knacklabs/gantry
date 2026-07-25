@@ -753,35 +753,42 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
       // ponytail: interim guard against silent turn loss. The durable fix is a
       // dead-letter re-drive of the dropped turn (issue #285). Until then, when
       // failover is exhausted we stop the replay storm by preserving the cursor
-      // (below) AND surface an error + user-visible notice so the turn is never
-      // silently dropped.
+      // (below) AND surface an error + user-visible notice. We only CONSUME the
+      // turn once the user was actually informed; if the notice fails to deliver
+      // (channel down), we fall through to rollback->retry so the turn isn't
+      // silently dropped. The remaining edge (channel still down after the queue
+      // retry cap is exhausted) is covered by the durable dead-letter re-drive (#285).
+      let failureNoticeDelivered = false;
       if (failoverExhausted && !outputSentToUser) {
         logger.error(
           { group: group.name, error: lastAgentError },
           'Provider failover exhausted after retries; dropping turn to stop replay storm, notifying user',
         );
         const noticeOptions = buildMessageOptions();
-        applyDeliverySettlement(
-          await settleDeliveryAttempt(
-            () =>
-              sendMessageToChannel(
-                PROVIDER_FAILOVER_EXHAUSTED_MESSAGE,
-                noticeOptions,
-              ),
-            {
-              scope: 'runtime-provider-failover-exhausted',
-              target: chatJid,
-            },
-          ).catch((err) => {
-            logger.warn(
-              { err, group: group.name },
-              'Failed to send provider failover exhausted notice',
-            );
-            return 'not_delivered' as const;
-          }),
-          { streamed: false, terminal: true },
-        );
+        const noticeSettlement = await settleDeliveryAttempt(
+          () =>
+            sendMessageToChannel(
+              PROVIDER_FAILOVER_EXHAUSTED_MESSAGE,
+              noticeOptions,
+            ),
+          {
+            scope: 'runtime-provider-failover-exhausted',
+            target: chatJid,
+          },
+        ).catch((err) => {
+          logger.error(
+            { err, group: group.name },
+            'Failed to send provider failover exhausted notice',
+          );
+          return 'not_delivered' as const;
+        });
+        failureNoticeDelivered = noticeSettlement !== 'not_delivered';
+        applyDeliverySettlement(noticeSettlement, {
+          streamed: false,
+          terminal: true,
+        });
       }
+      const userInformed = outputSentToUser || failureNoticeDelivered;
       resultOk = await handleFailure({
         outputSentToUser,
         groupName: group.name,
@@ -789,8 +796,10 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
         previousCursor,
         deps,
         acknowledgeFailedTurn:
-          options.finalRetry === true && !deps.queue.isShuttingDown?.(),
-        preserveCursor: failoverExhausted,
+          options.finalRetry === true &&
+          !deps.queue.isShuttingDown?.() &&
+          (!failoverExhausted || userInformed),
+        preserveCursor: failoverExhausted && userInformed,
         logger,
       });
     } else {
