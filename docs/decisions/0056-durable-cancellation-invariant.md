@@ -74,4 +74,14 @@ Corollaries that follow, and that implementations must satisfy:
   retention leaves a stale prompt approvable. That case becomes auditable rather than
   invisible. Defensive withdrawal of the prompt itself was considered and deliberately not
   adopted (2026-07-25), to avoid acting on a cancellation the host never managed to deliver.
+- Accepted upgrade risk, recorded because review raised it four times: a cancellation already
+  retained in the previous envelope-plus-`.retry` format at the moment of upgrade has had its
+  replay id reserved, so the new code re-parses it, replay validation rejects it, and it is
+  archived instead of delivered. No migration is provided — this repo does not carry
+  backward-compatibility burden during active development, the predecessor format shipped only
+  in PERM-4 (#292), and retained cancellations are a transient state. The failure is bounded and
+  auditable, not silent: the catch path logs the error and archives the envelope under the
+  lane-qualified name, so the outcome collapses into the residual risk above — one stale prompt,
+  discoverable. Writing a migration would mean parsing a runner-writable sidecar to reconstruct
+  authenticated state, which is the trust boundary this decision exists to protect.
 - See [[permission-holistic-redesign]] for the ladder this protects.
