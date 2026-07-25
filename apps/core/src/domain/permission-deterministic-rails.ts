@@ -155,16 +155,34 @@ export function evaluatePermissionDeterministicRails(
       'privileged',
     );
   }
+  // GOVERNING PRINCIPLE: A rail ASK is a HARD FLOOR whenever the command's
+  // effect cannot be DETERMINISTICALLY BOUNDED. Only bounded, inspectable
+  // effects may remain classifier-eligible.
   if (parsed.leaves.some(isInterpreterString)) {
-    return ask('An interpreter string requires approval.', 'privileged');
+    return hardFloorAsk(
+      'An interpreter string requires approval.',
+      'privileged',
+    );
   }
+  const protectedPath = containsProtectedPath(
+    toolInput,
+    command,
+    parsed.leaves,
+  );
   const destructiveHint = destructiveBashCommandHint(command);
   if (destructiveHint || parsed.leaves.some(isDestructiveLeaf)) {
-    return destructiveHint || parsed.leaves.some(isHardFloorDestructiveLeaf)
-      ? hardFloorAsk('Destructive command requires approval.', 'destructive')
+    const hardFloor =
+      Boolean(destructiveHint) ||
+      parsed.leaves.some(isHardFloorDestructiveLeaf) ||
+      protectedPath;
+    return hardFloor
+      ? hardFloorAsk(
+          'Destructive command requires approval.',
+          protectedPath ? 'secret_path' : 'destructive',
+        )
       : ask('Destructive command requires approval.', 'destructive');
   }
-  if (containsProtectedPath(toolInput, command, parsed.leaves)) {
+  if (protectedPath) {
     return hardFloorAsk(
       'Command references a credential, secret, or protected path.',
       'secret_path',

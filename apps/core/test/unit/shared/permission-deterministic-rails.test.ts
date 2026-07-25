@@ -2,13 +2,15 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { PermissionApprovalRequest } from '@core/domain/types.js';
 import {
   evaluatePermissionDeterministicRails,
   permissionRiskForDeterministicRailDecision,
 } from '@core/domain/permission-deterministic-rails.js';
+import { resolveWorkspaceFolderPath } from '@core/platform/workspace-folder.js';
+import { resolvePermissionIpcDecision } from '@core/runtime/ipc-permission-classifier-decision.js';
 
 const tempRoots: string[] = [];
 
@@ -28,6 +30,54 @@ function request(
     toolName: 'RunCommand',
     toolInput: { command },
     ...overrides,
+  };
+}
+
+async function resolveWithLowBenignClassifier(command: string) {
+  const getClassifierVerdict = vi.fn(async () => null);
+  const putClassifierVerdict = vi.fn(async () => undefined);
+  const requestPermissionApproval = vi.fn(async () => ({
+    approved: false,
+    mode: 'cancel' as const,
+    decidedBy: 'owner',
+  }));
+  const classifierConsult = vi.fn(async () => ({
+    risk_level: 'low' as const,
+    risk_category: 'benign' as const,
+    reason: 'Classifier assessed the command as benign.',
+    latencyMs: 1,
+  }));
+
+  const decision = await resolvePermissionIpcDecision({
+    request: request(command),
+    sourceAgentFolder: 'main_agent',
+    deps: {
+      conversationRoutes: () => ({}),
+      requestPermissionApproval,
+      classifierConsult,
+      publishRuntimeEvent: vi.fn(async () => undefined),
+      getPermissionDecisionMemoryRepository: () =>
+        ({
+          getClassifierVerdict,
+          putClassifierVerdict,
+        }) as never,
+      getPermissionRuntimeSettings: () => ({
+        agents: { main_agent: { permissionMode: 'auto' as const } },
+        permissions: {
+          autoMode: {},
+          trustedRoots: [resolveWorkspaceFolderPath('main_agent')],
+        },
+        memory: { llm: { models: { extractor: 'sonnet' } } },
+      }),
+    } as never,
+  });
+
+  return {
+    classifierConsult,
+    decision,
+    getClassifierVerdict,
+    putClassifierVerdict,
+    requestPermissionApproval,
   };
 }
 
@@ -277,14 +327,24 @@ describe('permission deterministic rails', () => {
     });
   });
 
-  it.each(['node -e "process.exit()"', 'python3 -c "print(1)"'])(
-    'asks for interpreter-with-string input: %s',
-    (command) => {
-      expect(
-        evaluatePermissionDeterministicRails({ request: request(command) }),
-      ).toMatchObject({
-        railOutcome: 'ask',
-        reason: expect.stringContaining('interpreter string'),
+  it.each([
+    ['node interpreter string', 'node -e "process.exit()"'],
+    ['python interpreter string', 'python -c "print(1)"'],
+    ['shell interpreter string', 'sh -c "echo hidden"'],
+  ])(
+    'escalates %s despite a low benign classifier verdict and does not cache the allow',
+    async (_label, command) => {
+      const result = await resolveWithLowBenignClassifier(command);
+
+      expect(result.classifierConsult).toHaveBeenCalledOnce();
+      expect(result.requestPermissionApproval).toHaveBeenCalledOnce();
+      expect(result.getClassifierVerdict).not.toHaveBeenCalled();
+      expect(result.putClassifierVerdict).not.toHaveBeenCalled();
+      expect(result.decision).toMatchObject({
+        approved: false,
+        decidedBy: 'owner',
+        risk_level: 'high',
+        risk_category: 'privileged',
       });
     },
   );
@@ -313,6 +373,47 @@ describe('permission deterministic rails', () => {
     expect(permissionRiskForDeterministicRailDecision(decision)).toEqual({
       level: 'medium',
       category: 'destructive',
+    });
+  });
+
+  it.each([
+    ['an SSH private key', 'rm ~/.ssh/id_rsa'],
+    ['settings', 'rm settings.yaml'],
+  ])(
+    'hard-floors deleting protected %s despite a low benign classifier verdict',
+    async (_label, command) => {
+      const result = await resolveWithLowBenignClassifier(command);
+
+      expect(result.classifierConsult).toHaveBeenCalledOnce();
+      expect(result.requestPermissionApproval).toHaveBeenCalledOnce();
+      expect(result.getClassifierVerdict).not.toHaveBeenCalled();
+      expect(result.putClassifierVerdict).not.toHaveBeenCalled();
+      expect(result.requestPermissionApproval.mock.calls[0]![0]).toMatchObject({
+        decisionReason: 'Destructive command requires approval.',
+        risk_level: 'high',
+        risk_category: 'secret',
+      });
+      expect(result.decision).toMatchObject({
+        approved: false,
+        decidedBy: 'owner',
+        risk_level: 'high',
+        risk_category: 'secret',
+      });
+    },
+  );
+
+  it('keeps an ordinary single-file delete eligible for classifier allow and caching', async () => {
+    const result = await resolveWithLowBenignClassifier('rm report.txt');
+
+    expect(result.classifierConsult).toHaveBeenCalledOnce();
+    expect(result.requestPermissionApproval).not.toHaveBeenCalled();
+    expect(result.getClassifierVerdict).not.toHaveBeenCalled();
+    expect(result.putClassifierVerdict).toHaveBeenCalledOnce();
+    expect(result.decision).toMatchObject({
+      approved: true,
+      decidedBy: 'auto_classifier',
+      risk_level: 'medium',
+      risk_category: 'destructive',
     });
   });
 
@@ -777,7 +878,7 @@ describe('permission deterministic rails', () => {
       'node interpreter string',
       'node -e "process.exit()"',
       'interpreter',
-      undefined,
+      true,
     ],
     ['ssh private key read', 'cat ~/.ssh/id_rsa', 'credential', true],
     ['protected settings read', 'cat settings.yaml', 'protected', true],
