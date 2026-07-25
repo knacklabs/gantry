@@ -1,6 +1,7 @@
 import { MEMORY_IPC_ACTIONS, MemoryIpcAction } from '@gantry/contracts';
 
 import {
+  PermissionApprovalCancellation,
   PermissionApprovalDecisionMode,
   PermissionApprovalRequest,
   PermissionApprovalUpdate,
@@ -444,6 +445,10 @@ export function parsePermissionIpcRequest(
     rawPermissionLane === 'interactive' || rawPermissionLane === 'autonomous'
       ? rawPermissionLane
       : undefined;
+  const rawExpiresAt = toTrimmedString(raw.expiresAt, { maxLen: 128 });
+  if (rawExpiresAt && !Number.isFinite(Date.parse(rawExpiresAt))) {
+    throw new Error('Invalid permission IPC expiresAt');
+  }
   return {
     requestId,
     appId,
@@ -461,6 +466,7 @@ export function parsePermissionIpcRequest(
     ...(binding.responseKeyId ? { responseKeyId: binding.responseKeyId } : {}),
     ...(raw.unattended === true ? { unattended: true } : {}),
     ...(permissionLane ? { permissionLane } : {}),
+    ...(rawExpiresAt ? { expiresAt: rawExpiresAt } : {}),
     ...(senderId ? { senderId } : {}),
     ...(intent ? { turnIntentSummary: intent } : {}),
     toolName,
@@ -486,6 +492,36 @@ export function parsePermissionIpcRequest(
     ...(interaction ? { interaction } : {}),
   };
 }
+
+export function parsePermissionCancellationIpcRequest(
+  raw: unknown,
+  sourceAgentFolder: string,
+): PermissionApprovalCancellation {
+  if (!isPlainObject(raw)) {
+    throw new Error('Invalid permission cancellation IPC payload');
+  }
+  const binding = validateIpcAuthRequest(
+    raw,
+    sourceAgentFolder,
+    'permission cancellation IPC',
+  );
+  if (!binding.appId) {
+    throw new Error('permission cancellation IPC context.appId is required');
+  }
+  const requestId = toTrimmedString(raw.permissionRequestId, { maxLen: 128 });
+  if (!requestId || !IPC_REQUEST_ID_PATTERN.test(requestId)) {
+    throw new Error('Invalid permission cancellation IPC requestId');
+  }
+  const reason = toTrimmedString(raw.reason, { maxLen: 2000 });
+  return {
+    requestId,
+    appId: binding.appId,
+    sourceAgentFolder,
+    ...(binding.authThreadId ? { threadId: binding.authThreadId } : {}),
+    ...(reason ? { reason } : {}),
+  };
+}
+
 export function parseUserQuestionIpcRequest(
   raw: unknown,
   sourceAgentFolder: string,

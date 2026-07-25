@@ -2,6 +2,35 @@ import {
   getPermissionTimeoutMs,
   NO_PERMISSION_TIMEOUT_MS,
 } from '../shared/permission-timeout.js';
+import type {
+  PermissionApprovalCancellation,
+  PermissionApprovalRequest,
+} from '../domain/types.js';
+
+export const RUNNER_CANCELLED_PERMISSION_REASON =
+  'Permission request cancelled by its runner.';
+
+export function pendingPermissionAliasesForCancellation<
+  Pending extends {
+    request: Pick<
+      PermissionApprovalRequest,
+      'requestId' | 'appId' | 'sourceAgentFolder'
+    >;
+  },
+>(
+  pendingByAlias: ReadonlyMap<string, Pending>,
+  cancellation: PermissionApprovalCancellation,
+): string[] {
+  const appId = cancellation.appId || 'default';
+  return [...pendingByAlias]
+    .filter(
+      ([, pending]) =>
+        pending.request.requestId === cancellation.requestId &&
+        pending.request.sourceAgentFolder === cancellation.sourceAgentFolder &&
+        (pending.request.appId || 'default') === appId,
+    )
+    .map(([providerAlias]) => providerAlias);
+}
 
 export function resolveInteractionSettlementDelayMs(input: {
   expiresAt?: unknown;

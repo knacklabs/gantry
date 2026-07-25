@@ -151,6 +151,7 @@ export interface PermissionApprovalRequest {
   decisionPolicy?: 'control_allowlist' | 'same_channel';
   unattended?: boolean;
   permissionLane?: 'interactive' | 'autonomous';
+  expiresAt?: string;
   senderId?: string;
   turnIntentSummary?: string;
   toolName: string;
@@ -188,6 +189,14 @@ export interface PermissionApprovalRequest {
     requestIds: string[];
     rows: string[];
   };
+}
+
+export interface PermissionApprovalCancellation {
+  requestId: string;
+  appId?: string;
+  sourceAgentFolder: string;
+  threadId?: string;
+  reason?: string;
 }
 
 export type PermissionApprovalDecisionMode =
@@ -622,6 +631,9 @@ export interface InteractionSurface {
     kind: 'permission' | 'question',
     request: PermissionApprovalRequest | UserQuestionRequest,
   ): void;
+  cancelPendingPermission?(
+    request: PermissionApprovalCancellation,
+  ): Promise<'settled' | 'already_decided' | 'retryable' | 'not_found'>;
 }
 
 export interface RichInteractionSurface {

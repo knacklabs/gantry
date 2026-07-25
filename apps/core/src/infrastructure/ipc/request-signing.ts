@@ -46,7 +46,11 @@ export function validateIpcRequestFreshness(
   }
 
   const expiresAtRaw =
-    typeof payload.expiresAt === 'string' ? payload.expiresAt.trim() : '';
+    typeof payload.authExpiresAt === 'string'
+      ? payload.authExpiresAt.trim()
+      : typeof payload.expiresAt === 'string'
+        ? payload.expiresAt.trim()
+        : '';
   const expiresAtMs = Date.parse(expiresAtRaw);
   if (!Number.isFinite(expiresAtMs)) {
     return { ok: false, reason: 'missing or invalid expiresAt' };

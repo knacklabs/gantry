@@ -491,6 +491,7 @@ export async function startRuntimeServices(
       getBrowserUsageSettings: () =>
         getRuntimeSettingsForConfig().browser.usage,
       requestPermissionApproval: inlineInteractions.requestPermissionApproval,
+      cancelPermissionApproval: channelWiring.cancelPermissionApproval,
       isControlApproverAllowed: channelWiring.isControlApproverAllowed,
       requestUserAnswer: inlineInteractions.requestUserAnswer,
       renderAgentTodo: (jid, render, options) =>

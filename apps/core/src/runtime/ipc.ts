@@ -13,7 +13,7 @@ import type { IpcDeps } from './ipc-domain-types.js';
 import { interactionInFlightKey, processPermissionInteractionIpc, processUserQuestionInteractionIpc, writePermissionInteractionFailure, writeUserQuestionInteractionFailure } from './ipc-interaction-processing.js';
 import { processTaskIpc } from '../jobs/ipc-handler.js';
 // prettier-ignore
-import { parseIpcMessage, parseMemoryIpcRequest, parsePermissionIpcRequest, parseUserQuestionIpcRequest } from './ipc-parsing.js';
+import { parseIpcMessage, parseMemoryIpcRequest, parsePermissionCancellationIpcRequest, parsePermissionIpcRequest, parseUserQuestionIpcRequest } from './ipc-parsing.js';
 import { parseTaskIpcData } from './ipc-task-parsing.js';
 import {
   isLongRunningTask,
@@ -248,6 +248,10 @@ export function startIpcWatcher(deps: IpcDeps): void {
         const permissionRequestsDir = runnerControlPort.requestDir(
           sourceAgentFolder,
           'permission-requests',
+        );
+        const permissionCancellationsDir = runnerControlPort.requestDir(
+          sourceAgentFolder,
+          'permission-cancellations',
         );
         const userQuestionRequestsDir = runnerControlPort.requestDir(
           sourceAgentFolder,
@@ -636,6 +640,71 @@ export function startIpcWatcher(deps: IpcDeps): void {
           logger.error(
             { err, sourceAgentFolder },
             'Error reading permission IPC requests directory',
+          );
+        }
+
+        try {
+          if (
+            shouldProcessRequestLane(
+              sourceAgentFolder,
+              'permission-cancellations',
+            ) &&
+            runnerControlPort.isTrustedRequestDir(
+              sourceAgentFolder,
+              'permission-cancellations',
+            )
+          ) {
+            const cancellationFiles = runnerControlPort.listPendingRequests(
+              sourceAgentFolder,
+              'permission-cancellations',
+            );
+            for (const file of cancellationFiles) {
+              let claimedPath = path.join(permissionCancellationsDir, file);
+              try {
+                const claimed = runnerControlPort.claimRequest(
+                  sourceAgentFolder,
+                  'permission-cancellations',
+                  file,
+                );
+                claimedPath = claimed.claimedPath;
+                const cancellation = parsePermissionCancellationIpcRequest(
+                  claimed.raw,
+                  sourceAgentFolder,
+                );
+                const inFlightKey = interactionInFlightKey({
+                  sourceAgentFolder,
+                  kind: 'permission',
+                  threadId: cancellation.threadId,
+                  requestId: cancellation.requestId,
+                });
+                if (!inFlightInteractionIpc.has(inFlightKey)) {
+                  runnerControlPort.removeClaimedRequest(claimedPath);
+                  continue;
+                }
+                if (!deps.cancelPermissionApproval) {
+                  throw new Error(
+                    'Permission cancellation handler is unavailable',
+                  );
+                }
+                await deps.cancelPermissionApproval(cancellation);
+                runnerControlPort.removeClaimedRequest(claimedPath);
+              } catch (err) {
+                logger.error(
+                  { file, sourceAgentFolder, err },
+                  'Error processing permission cancellation IPC request',
+                );
+                runnerControlPort.archiveFailedRequest(
+                  sourceAgentFolder,
+                  file,
+                  claimedPath,
+                );
+              }
+            }
+          }
+        } catch (err) {
+          logger.error(
+            { err, sourceAgentFolder },
+            'Error reading permission cancellation IPC requests directory',
           );
         }
 

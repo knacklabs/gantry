@@ -3,6 +3,7 @@ import { ChannelAdapter, ChannelOpts } from '../channel-provider.js';
 import type { RuntimeLease } from '../../domain/ports/runtime-lease.js';
 import {
   MessageDeliveryResult,
+  PermissionApprovalCancellation,
   PermissionApprovalDecision,
   PermissionApprovalRequest,
   PermissionCallbackScope,
@@ -40,6 +41,10 @@ import {
 import { nowMs as currentTimeMs } from '../../shared/time/datetime.js';
 import { StreamResetEpochs } from '../stream-reset-epochs.js';
 import { dropPendingTelegramInteraction } from './disconnect.js';
+import {
+  pendingPermissionAliasesForCancellation,
+  RUNNER_CANCELLED_PERMISSION_REASON,
+} from '../interaction-settlement.js';
 export abstract class TelegramChannelState implements ChannelAdapter {
   name = 'telegram';
   protected bot: Bot<TelegramContext> | null = null;
@@ -109,6 +114,32 @@ export abstract class TelegramChannelState implements ChannelAdapter {
       this.pendingUserQuestionOtherPrompts,
     );
   }
+  async cancelPendingPermission(
+    cancellation: PermissionApprovalCancellation,
+  ): Promise<'settled' | 'already_decided' | 'retryable' | 'not_found'> {
+    const aliases = pendingPermissionAliasesForCancellation(
+      this.pendingPermissionPrompts,
+      cancellation,
+    );
+    if (aliases.length === 0) return 'not_found';
+    for (const providerAlias of aliases) {
+      const result = await this.claimAndResolvePermissionPrompt(
+        providerAlias,
+        'cancel',
+        'runtime',
+        cancellation.reason ?? RUNNER_CANCELLED_PERMISSION_REASON,
+      );
+      if (result === 'settled') return 'settled';
+      if (result === 'retryable') return 'retryable';
+    }
+    return 'already_decided';
+  }
+  protected abstract claimAndResolvePermissionPrompt(
+    providerAlias: string,
+    mode: NonNullable<PermissionApprovalDecision['mode']>,
+    approverRef: string,
+    reason: string,
+  ): Promise<'settled' | 'already_decided' | 'ownerless' | 'retryable'>;
   constructor(botToken: string, opts: ChannelOpts) {
     this.botToken = botToken;
     this.opts = opts;

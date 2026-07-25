@@ -15,6 +15,7 @@ export const IPC_WORKSPACE_SUBDIRS = [
   'browser-requests',
   'browser-responses',
   'permission-requests',
+  'permission-cancellations',
   'permission-responses',
   'rich-interactions',
   'interaction-boundaries',

@@ -7,6 +7,7 @@ import type {
   MessageDeliveryResult,
   MessageSendOptions,
   NewMessage,
+  PermissionApprovalCancellation,
   PermissionApprovalDecision,
   PermissionApprovalRequest,
   ProgressUpdateOptions,
@@ -30,7 +31,11 @@ import {
 } from './teams-progress.js';
 import { requestTeamsPermissionApproval } from './teams-permission-approval.js';
 import { PERMISSION_APPROVAL_TIMEOUT_MS } from '../shared/permission-timeout.js';
-import { resolveInteractionSettlementDelayMs } from './interaction-settlement.js';
+import {
+  pendingPermissionAliasesForCancellation,
+  resolveInteractionSettlementDelayMs,
+  RUNNER_CANCELLED_PERMISSION_REASON,
+} from './interaction-settlement.js';
 import { renderTeamsAgentTodo, type TeamsTodoMessages } from './teams-todos.js';
 import {
   isTeamsJid,
@@ -123,6 +128,27 @@ export class TeamsChannel implements ChannelAdapter {
     request: PermissionApprovalRequest | UserQuestionRequest,
   ): void {
     dropPendingTeamsInteraction(this.interactionContext(), kind, request);
+  }
+  async cancelPendingPermission(
+    cancellation: PermissionApprovalCancellation,
+  ): Promise<'settled' | 'already_decided' | 'retryable' | 'not_found'> {
+    const aliases = pendingPermissionAliasesForCancellation(
+      this.pendingPermissionPrompts,
+      cancellation,
+    );
+    if (aliases.length === 0) return 'not_found';
+    for (const providerAlias of aliases) {
+      const result = await settlePendingTeamsPermission(
+        this.interactionContext(),
+        providerAlias,
+        'cancel',
+        'runtime',
+        cancellation.reason ?? RUNNER_CANCELLED_PERMISSION_REASON,
+      );
+      if (result === 'settled') return 'settled';
+      if (result === 'retryable') return 'retryable';
+    }
+    return 'already_decided';
   }
 
   async connect(

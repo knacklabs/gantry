@@ -148,6 +148,15 @@ async function requestPermissionApprovalInner(options: {
     const responseNonce = randomUUID();
     const requestPath = path.join(permissionRequestsDir, `${requestId}.json`);
     const requestTmpPath = `${requestPath}.tmp`;
+    const autoClassifierWait =
+      PERMISSION_LANE === 'autonomous' &&
+      PERMISSION_REQUEST_TIMEOUT_MS <= NO_PERMISSION_TIMEOUT_MS &&
+      PERMISSION_MODE === 'auto';
+    const waitMs = autoClassifierWait
+      ? AUTO_PERMISSION_CLASSIFIER_WAIT_MS
+      : PERMISSION_REQUEST_TIMEOUT_MS;
+    const deadline =
+      waitMs > NO_PERMISSION_TIMEOUT_MS ? nowMs() + waitMs : undefined;
     const payload = {
       requestId,
       appId,
@@ -196,6 +205,11 @@ async function requestPermissionApprovalInner(options: {
         : {}),
       ...(options.threadId ? { threadId: options.threadId } : {}),
       permissionLane: PERMISSION_LANE,
+      ...(deadline !== undefined
+        ? {
+            expiresAt: new Date(deadline).toISOString(),
+          }
+        : {}),
       ...(SENDER_ID && SENDER_IS_CONTROL_APPROVER && !JOB_ID
         ? { senderId: SENDER_ID }
         : {}),
@@ -224,14 +238,12 @@ async function requestPermissionApprovalInner(options: {
       },
       timestamp: nowIso(),
     };
-    const envelope = createSignedIpcRequestEnvelope(IPC_AUTH_TOKEN, payload);
+    const envelope = createSignedIpcRequestEnvelope(IPC_AUTH_TOKEN, payload, {
+      separateAuthExpiry: true,
+    });
     fs.writeFileSync(requestTmpPath, JSON.stringify(envelope, null, 2));
     fs.renameSync(requestTmpPath, requestPath);
 
-    const autoClassifierWait =
-      PERMISSION_LANE === 'autonomous' &&
-      PERMISSION_REQUEST_TIMEOUT_MS <= NO_PERMISSION_TIMEOUT_MS &&
-      PERMISSION_MODE === 'auto';
     if (
       PERMISSION_LANE === 'autonomous' &&
       PERMISSION_REQUEST_TIMEOUT_MS <= NO_PERMISSION_TIMEOUT_MS &&
@@ -246,16 +258,17 @@ async function requestPermissionApprovalInner(options: {
     }
 
     const responsePath = path.join(permissionResponsesDir, `${requestId}.json`);
-    const waitMs = autoClassifierWait
-      ? AUTO_PERMISSION_CLASSIFIER_WAIT_MS
-      : PERMISSION_REQUEST_TIMEOUT_MS;
-    const deadline =
-      PERMISSION_LANE === 'interactive' && waitMs === NO_PERMISSION_TIMEOUT_MS
-        ? undefined
-        : nowMs() + waitMs;
     while (deadline === undefined || nowMs() < deadline) {
       if (options.signal?.aborted) {
-        fs.rmSync(requestPath, { force: true });
+        cancelPermissionRequest({
+          workspaceIpcDir,
+          requestPath,
+          requestId,
+          appId,
+          agentId,
+          agentFolder,
+          threadId: options.threadId,
+        });
         return {
           approved: false,
           decidedBy: 'runtime',
@@ -410,7 +423,15 @@ async function requestPermissionApprovalInner(options: {
       }
       const aborted = await sleepWithAbort(100, options.signal);
       if (aborted) {
-        fs.rmSync(requestPath, { force: true });
+        cancelPermissionRequest({
+          workspaceIpcDir,
+          requestPath,
+          requestId,
+          appId,
+          agentId,
+          agentFolder,
+          threadId: options.threadId,
+        });
         return {
           approved: false,
           decidedBy: 'runtime',
@@ -439,6 +460,56 @@ async function requestPermissionApprovalInner(options: {
           : 'Permission request failed',
     };
   }
+}
+
+function cancelPermissionRequest(input: {
+  workspaceIpcDir: string;
+  requestPath: string;
+  requestId: string;
+  appId: string;
+  agentId?: string;
+  agentFolder: string;
+  threadId?: string;
+}): void {
+  try {
+    fs.unlinkSync(input.requestPath);
+    return;
+  } catch (err) {
+    const code =
+      err && typeof err === 'object' && 'code' in err
+        ? String((err as { code?: unknown }).code)
+        : '';
+    if (code !== 'ENOENT') throw err;
+  }
+
+  const cancellationsDir = path.join(
+    input.workspaceIpcDir,
+    'permission-cancellations',
+  );
+  fs.mkdirSync(cancellationsDir, { recursive: true });
+  const cancellationPath = path.join(
+    cancellationsDir,
+    `${input.requestId}.json`,
+  );
+  if (fs.existsSync(cancellationPath)) return;
+  const cancellationTmpPath = `${cancellationPath}.tmp`;
+  const payload = {
+    requestId: `perm-cancel-${randomUUID()}`,
+    permissionRequestId: input.requestId,
+    appId: input.appId,
+    ...(input.agentId ? { agentId: input.agentId } : {}),
+    sourceAgentFolder: input.agentFolder,
+    reason: CANCELLED_PERMISSION_REASON,
+    context: {
+      appId: input.appId,
+      ...(input.agentId ? { agentId: input.agentId } : {}),
+      ...(input.threadId ? { threadId: input.threadId } : {}),
+    },
+    timestamp: nowIso(),
+  };
+  const envelope = createSignedIpcRequestEnvelope(IPC_AUTH_TOKEN, payload);
+  fs.writeFileSync(cancellationTmpPath, JSON.stringify(envelope, null, 2));
+  fs.renameSync(cancellationTmpPath, cancellationPath);
 }
 
 function unattendedPermissionReason(): string {

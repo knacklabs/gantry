@@ -1,6 +1,7 @@
 import {
   MessageDeliveryResult,
   MessageSendOptions,
+  PermissionApprovalCancellation,
   PermissionApprovalDecision,
   PermissionApprovalDecisionMode,
   PermissionApprovalRequest,
@@ -16,7 +17,11 @@ import {
   resolveDurableQuestionInteractionByRequestId,
 } from '../application/interactions/pending-interaction-durability.js';
 import { PERMISSION_APPROVAL_TIMEOUT_MS } from '../shared/permission-timeout.js';
-import { resolveInteractionSettlementDelayMs } from './interaction-settlement.js';
+import {
+  pendingPermissionAliasesForCancellation,
+  resolveInteractionSettlementDelayMs,
+  RUNNER_CANCELLED_PERMISSION_REASON,
+} from './interaction-settlement.js';
 import {
   buildPermissionPromptParts,
   decisionForMode,
@@ -106,6 +111,26 @@ export class DiscordInteractionHandler {
     if (kind === 'permission')
       permissionPrompt.drop(this.pendingPermissions, request);
     else dropPendingDiscordQuestions(this.pendingQuestions, request);
+  }
+  async cancelPendingPermission(
+    cancellation: PermissionApprovalCancellation,
+  ): Promise<'settled' | 'already_decided' | 'retryable' | 'not_found'> {
+    const aliases = pendingPermissionAliasesForCancellation(
+      this.pendingPermissions,
+      cancellation,
+    );
+    if (aliases.length === 0) return 'not_found';
+    for (const providerAlias of aliases) {
+      const result = await this.settlePermissionPrompt(
+        providerAlias,
+        'cancel',
+        'runtime',
+        cancellation.reason ?? RUNNER_CANCELLED_PERMISSION_REASON,
+      );
+      if (result === 'settled') return 'settled';
+      if (result === 'retryable') return 'retryable';
+    }
+    return 'already_decided';
   }
   async renderRichInteraction(
     jid: string,

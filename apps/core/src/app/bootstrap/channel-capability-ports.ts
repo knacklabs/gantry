@@ -62,13 +62,17 @@ export function asPermissionApprovalSurface(
 ):
   | Pick<
       InteractionSurface,
-      'requestPermissionApproval' | 'dropPendingInteraction'
+      | 'requestPermissionApproval'
+      | 'dropPendingInteraction'
+      | 'cancelPendingPermission'
     >
   | undefined {
   return typeof channel.requestPermissionApproval === 'function'
     ? (channel as unknown as Pick<
         InteractionSurface,
-        'requestPermissionApproval' | 'dropPendingInteraction'
+        | 'requestPermissionApproval'
+        | 'dropPendingInteraction'
+        | 'cancelPendingPermission'
       >)
     : undefined;
 }

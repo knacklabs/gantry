@@ -8,7 +8,9 @@ import type { ChannelStreamResetOptions } from './channel-wiring-types.js';
 
 type PermissionApprovalSurface = Pick<
   InteractionSurface,
-  'requestPermissionApproval' | 'dropPendingInteraction'
+  | 'requestPermissionApproval'
+  | 'dropPendingInteraction'
+  | 'cancelPendingPermission'
 >;
 type UserQuestionSurface = Pick<
   InteractionSurface,
@@ -54,6 +56,12 @@ export function createChannelWiringStreamReset<Channel extends object>(input: {
               ? {
                   dropPendingInteraction:
                     surface.dropPendingInteraction.bind(surface),
+                }
+              : {}),
+            ...(surface.cancelPendingPermission
+              ? {
+                  cancelPendingPermission:
+                    surface.cancelPendingPermission.bind(surface),
                 }
               : {}),
             requestPermissionApproval: (

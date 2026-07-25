@@ -242,6 +242,7 @@ describe('requestPermissionApproval', () => {
     const { requestPermissionApproval } =
       await import('@core/adapters/llm/anthropic-claude-agent/runner/permission-callback.js');
 
+    const requestedAt = Date.now();
     const decision = requestPermissionApproval({
       appId: 'default',
       agentId: 'agent:main_agent',
@@ -260,11 +261,23 @@ describe('requestPermissionApproval', () => {
     const [requestFile] = await waitForFiles(requestDir, 1);
     const request = JSON.parse(
       fs.readFileSync(path.join(requestDir, requestFile), 'utf-8'),
-    ) as { unattended?: boolean; permissionLane?: string };
+    ) as {
+      unattended?: boolean;
+      permissionLane?: string;
+      expiresAt?: string;
+      authExpiresAt?: string;
+    };
     expect(request).toMatchObject({
       unattended: false,
       permissionLane: 'autonomous',
     });
+    expect(Date.parse(request.expiresAt!)).toBeGreaterThanOrEqual(
+      requestedAt + 10_000,
+    );
+    expect(Date.parse(request.expiresAt!)).toBeLessThanOrEqual(
+      Date.now() + 10_000,
+    );
+    expect(request.authExpiresAt).toEqual(expect.any(String));
 
     const dateNow = vi
       .spyOn(Date, 'now')
@@ -398,6 +411,11 @@ describe('requestPermissionApproval', () => {
       decisionClassification: 'user_reject',
     });
     expect(fs.existsSync(requestPath)).toBe(false);
+    expect(
+      fs.existsSync(
+        path.join(tempDir, 'ipc', 'main_agent', 'permission-cancellations'),
+      ),
+    ).toBe(false);
     const responsePollsAfterCancellation = existsSync.mock.calls.filter(
       ([candidate]) => candidate === responsePath,
     ).length;
@@ -405,6 +423,72 @@ describe('requestPermissionApproval', () => {
     expect(
       existsSync.mock.calls.filter(([candidate]) => candidate === responsePath),
     ).toHaveLength(responsePollsAfterCancellation);
+  });
+
+  it('signals the host when an interactive request was claimed before cancellation', async () => {
+    process.env.GANTRY_PERMISSION_LANE = 'interactive';
+    process.env.GANTRY_INTERACTIVE_PERMISSION_TIMEOUT_MS = '0';
+    delete process.env.GANTRY_JOB_ID;
+    delete process.env.GANTRY_JOB_RUN_ID;
+    vi.resetModules();
+    const { requestPermissionApproval } =
+      await import('@core/adapters/llm/anthropic-claude-agent/runner/permission-callback.js');
+    const controller = new AbortController();
+
+    const decision = requestPermissionApproval({
+      appId: 'default',
+      agentId: 'agent:main_agent',
+      workspaceFolder: 'main_agent',
+      targetJid: 'tg:test',
+      toolName: 'Bash',
+      toolInput: { command: 'git status --short' },
+      signal: controller.signal,
+    });
+    const requestDir = path.join(
+      tempDir,
+      'ipc',
+      'main_agent',
+      'permission-requests',
+    );
+    const [requestFile] = await waitForFiles(requestDir, 1);
+    const requestPath = path.join(requestDir, requestFile);
+    const request = JSON.parse(fs.readFileSync(requestPath, 'utf-8')) as {
+      requestId: string;
+    };
+    const claimedPath = path.join(
+      requestDir,
+      `.processing-host-${requestFile}`,
+    );
+    fs.renameSync(requestPath, claimedPath);
+
+    controller.abort();
+
+    await expect(decision).resolves.toMatchObject({
+      approved: false,
+      decidedBy: 'runtime',
+      reason: 'Permission request cancelled.',
+    });
+    const cancellationDir = path.join(
+      tempDir,
+      'ipc',
+      'main_agent',
+      'permission-cancellations',
+    );
+    const [cancellationFile] = await waitForFiles(cancellationDir, 1);
+    const cancellation = JSON.parse(
+      fs.readFileSync(path.join(cancellationDir, cancellationFile), 'utf-8'),
+    ) as {
+      requestId?: string;
+      permissionRequestId?: string;
+      sourceAgentFolder?: string;
+      reason?: string;
+    };
+    expect(cancellation).toMatchObject({
+      permissionRequestId: request.requestId,
+      sourceAgentFolder: 'main_agent',
+      reason: 'Permission request cancelled.',
+    });
+    expect(cancellation.requestId).toMatch(/^perm-cancel-/);
   });
 
   it('waits indefinitely for an interactive response at the no-timeout sentinel', async () => {
@@ -443,11 +527,15 @@ describe('requestPermissionApproval', () => {
       responseNonce: string;
       unattended?: boolean;
       permissionLane?: string;
+      expiresAt?: string;
+      authExpiresAt?: string;
     };
     expect(request).toMatchObject({
       unattended: false,
       permissionLane: 'interactive',
     });
+    expect(request.expiresAt).toBeUndefined();
+    expect(request.authExpiresAt).toEqual(expect.any(String));
 
     const dateNow = vi
       .spyOn(Date, 'now')

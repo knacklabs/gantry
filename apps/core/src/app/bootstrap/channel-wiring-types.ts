@@ -2,6 +2,7 @@ import type {
   MessageDeliveryResult,
   MessageActionCallbackInput,
   MessageSendOptions,
+  PermissionApprovalCancellation,
   PermissionApprovalDecision,
   PermissionApprovalRequest,
   ProgressUpdateOptions,
@@ -206,6 +207,9 @@ export interface ChannelWiring {
   requestPermissionApproval: (
     request: PermissionApprovalRequest,
   ) => Promise<PermissionApprovalDecision>;
+  cancelPermissionApproval: (
+    cancellation: PermissionApprovalCancellation,
+  ) => Promise<'settled' | 'queued' | 'not_found'>;
   requestUserAnswer: (
     request: UserQuestionRequest,
   ) => Promise<UserQuestionResponse>;

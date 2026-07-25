@@ -4782,6 +4782,76 @@ describe('Slack channel', () => {
     );
   });
 
+  it('settles a runner-cancelled Slack prompt and rejects a later persistent approval', async () => {
+    const channel = new SlackChannel(
+      'xoxb-token',
+      'xapp-token',
+      createOptsWithApproverHook(['U_APPROVER']) as any,
+    );
+    await channel.connect();
+    const request = {
+      requestId: 'perm-runner-cancelled',
+      appId: 'default',
+      sourceAgentFolder: 'slack_main',
+      targetJid: 'sl:C123',
+      toolName: 'Bash',
+      decisionOptions: ['allow_persistent_rule', 'cancel'] as const,
+    };
+    const repository = configureSlackPermissionRequest(request);
+    const approvalPromise = channel.requestPermissionApproval(
+      'sl:C123',
+      request,
+    );
+    await vi.waitFor(() =>
+      expect(repository.bindPendingPermissionPrompt).toHaveBeenCalledTimes(2),
+    );
+    const persistentAction = latestSlackPermissionActionValue(
+      'gantry_perm_decision_allow_persistent_rule',
+    );
+
+    await expect(
+      channel.cancelPendingPermission({
+        requestId: request.requestId,
+        appId: request.appId,
+        sourceAgentFolder: request.sourceAgentFolder,
+        reason: 'Permission request cancelled.',
+      }),
+    ).resolves.toBe('settled');
+    await expect(approvalPromise).resolves.toMatchObject({
+      approved: false,
+      mode: 'cancel',
+      decidedBy: 'runtime',
+      reason: 'Permission request cancelled.',
+    });
+
+    const respond = vi.fn().mockResolvedValue({});
+    await appRef.current.actionHandlers.get(
+      'gantry_perm_decision_allow_persistent_rule',
+    )?.({
+      ack: vi.fn().mockResolvedValue(undefined),
+      respond,
+      body: {
+        channel: { id: 'C123' },
+        response_url: 'https://hooks.slack.test/actions/late-persistent',
+        user: { id: 'U_APPROVER', name: 'Approver' },
+      },
+      action: { value: JSON.stringify(persistentAction) },
+    });
+
+    expect(respond).toHaveBeenCalledWith(
+      expect.objectContaining({
+        replace_original: true,
+        text: expect.stringMatching(/^Canceled:/),
+      }),
+    );
+    expect(repository.claimPendingPermissionCallback).toHaveBeenCalledOnce();
+    expect(repository.claimPendingPermissionCallback).toHaveBeenCalledWith({
+      claim: expect.objectContaining({
+        intent: expect.objectContaining({ mode: 'cancel' }),
+      }),
+    });
+  });
+
   it('preserves the winner when timeout fires after another callback claimed', async () => {
     vi.useFakeTimers();
     vi.stubEnv('GANTRY_AUTONOMOUS_PERMISSION_TIMEOUT_MS', '300000');

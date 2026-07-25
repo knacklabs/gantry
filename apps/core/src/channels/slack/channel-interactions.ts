@@ -1,5 +1,6 @@
 import { logger } from '../../infrastructure/logging/logger.js';
 import {
+  PermissionApprovalCancellation,
   PermissionApprovalDecision,
   PermissionApprovalRequest,
   PermissionCallbackScope,
@@ -25,6 +26,10 @@ import {
 } from './permission-blocks.js';
 import { registerSlackRichFormHandlers } from './rich-interaction.js';
 import { SLACK_PERMISSION_DECISION_ACTION_IDS } from './permission-action-id.js';
+import {
+  pendingPermissionAliasesForCancellation,
+  RUNNER_CANCELLED_PERMISSION_REASON,
+} from '../interaction-settlement.js';
 import { registerSlackMessageActionHandler } from './channel-message-action-handler.js';
 import { registerSlackUtilityHandlers } from './channel-utility-handlers.js';
 import {
@@ -33,6 +38,29 @@ import {
 } from './channel-message-ingest.js';
 import { registerSlackUserQuestionHandlers } from './user-question-interactions.js';
 export abstract class SlackChannelInteractions extends SlackChannelState {
+  async cancelPendingPermission(
+    cancellation: PermissionApprovalCancellation,
+  ): Promise<'settled' | 'already_decided' | 'retryable' | 'not_found'> {
+    const aliases = pendingPermissionAliasesForCancellation(
+      this.pendingPermissionPrompts,
+      cancellation,
+    );
+    if (aliases.length === 0) return 'not_found';
+    for (const providerAlias of aliases) {
+      const result = await this.claimAndResolvePermissionPrompt(
+        providerAlias,
+        'cancel',
+        'runtime',
+        undefined,
+        cancellation.reason ?? RUNNER_CANCELLED_PERMISSION_REASON,
+        true,
+      );
+      if (result === 'settled') return 'settled';
+      if (result === 'retryable') return 'retryable';
+    }
+    return 'already_decided';
+  }
+
   protected async ingestSlackSlashCommand(command: {
     channel_id?: string;
     user_id?: string;
@@ -302,7 +330,7 @@ export abstract class SlackChannelInteractions extends SlackChannelState {
           body.container?.channel_id ||
           body.message?.channel ||
           '';
-        await recoverDurablePermissionDecision({
+        const recovery = await recoverDurablePermissionDecision({
           locator: {
             kind: 'scope',
             scope: callback.scope,
@@ -353,6 +381,15 @@ export abstract class SlackChannelInteractions extends SlackChannelState {
             });
           },
         });
+        if (
+          (recovery === 'already_decided' || recovery === 'inactive') &&
+          respond
+        ) {
+          await respond({
+            replace_original: true,
+            text: 'This permission request was already decided.',
+          });
+        }
         return;
       }
       if (!samePermissionCallbackLocator(pending.callback, callback)) return;
