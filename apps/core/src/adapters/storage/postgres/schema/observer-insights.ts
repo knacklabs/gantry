@@ -30,11 +30,61 @@ export const observerDeliveriesPostgres = pgTable(
     })
       .notNull()
       .defaultNow(),
+    conversationJid: text('conversation_jid'),
+    providerAccountId: text('provider_account_id'),
+    threadId: text('thread_id'),
+    timezone: text('timezone'),
+    renderedDigest: text('rendered_digest'),
+    contentHash: text('content_hash'),
+    outboundDeliveryId: text('outbound_delivery_id'),
+    state: text('state').notNull().default('reserved'),
+    reservedAt: timestamp('reserved_at', {
+      withTimezone: true,
+      mode: 'string',
+    }),
+    sentAt: timestamp('sent_at', {
+      withTimezone: true,
+      mode: 'string',
+    }),
+    settledAt: timestamp('settled_at', {
+      withTimezone: true,
+      mode: 'string',
+    }),
   },
   (table) => ({
     recipientDayUnique: uniqueIndex(
       'observer_deliveries_app_recipient_day_unique',
     ).on(table.appId, table.recipient, table.localDay),
+    stateCheck: check(
+      'observer_deliveries_state_check',
+      sql`${table.state} IN ('reserved', 'sent', 'settled', 'failed')`,
+    ),
+  }),
+);
+
+export const observerDeliveryInsightsPostgres = pgTable(
+  'observer_delivery_insights',
+  {
+    deliveryId: text('delivery_id')
+      .notNull()
+      .references(() => observerDeliveriesPostgres.id, { onDelete: 'cascade' }),
+    insightId: text('insight_id')
+      .notNull()
+      .references(() => proactiveInsightsPostgres.id, { onDelete: 'cascade' }),
+    claimedAt: timestamp('claimed_at', {
+      withTimezone: true,
+      mode: 'string',
+    }).notNull(),
+    position: integer('position').notNull(),
+  },
+  (table) => ({
+    pk: primaryKey({
+      columns: [table.deliveryId, table.insightId],
+      name: 'observer_delivery_insights_pk',
+    }),
+    insightIdx: index('idx_observer_delivery_insights_insight').on(
+      table.insightId,
+    ),
   }),
 );
 

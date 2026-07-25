@@ -13,6 +13,10 @@ import {
 
 import type {
   ObserverDelivery,
+  ObserverDeliveryState,
+  ObserverDigestClaimMembership,
+  ObserverDigestReservation,
+  ObserverDigestReserveResult,
   ObserverInsightCreate,
   ObserverInsightCursor,
   ObserverInsightRepository,
@@ -28,6 +32,7 @@ import type { CanonicalDb } from './canonical-graph-repository.postgres.js';
 const Insights = pgSchema.proactiveInsightsPostgres;
 const Embeddings = pgSchema.embeddingCachePostgres;
 const Deliveries = pgSchema.observerDeliveriesPostgres;
+const DeliveryInsights = pgSchema.observerDeliveryInsightsPostgres;
 const Cursors = pgSchema.observerInsightCursorsPostgres;
 const ACTIVE_INSIGHT_STATES: ObserverInsightState[] = [
   'pending',
@@ -383,6 +388,221 @@ export class PostgresObserverInsightRepository implements ObserverInsightReposit
     return mapDelivery(row);
   }
 
+  async claimPendingForDigest(input: {
+    appId: string;
+    recipient: string;
+    limit: number;
+    nowIso: string;
+  }): Promise<ProactiveInsight[]> {
+    return this.db.transaction(async (tx) => {
+      const locked = await tx
+        .select({ id: Insights.id })
+        .from(Insights)
+        .where(
+          and(
+            eq(Insights.appId, input.appId),
+            eq(Insights.recipient, input.recipient),
+            eq(Insights.state, 'pending'),
+          ),
+        )
+        .orderBy(
+          desc(Insights.priorityScore),
+          asc(Insights.createdAt),
+          asc(Insights.id),
+        )
+        .limit(clampLimit(input.limit))
+        .for('update', { skipLocked: true });
+      if (locked.length === 0) return [];
+      const rows = await tx
+        .update(Insights)
+        .set({ state: 'claimed', updatedAt: input.nowIso })
+        .where(
+          inArray(
+            Insights.id,
+            locked.map((row) => row.id),
+          ),
+        )
+        .returning();
+      return rows.map(mapInsight);
+    });
+  }
+
+  async reserveDigest(input: {
+    id: string;
+    appId: string;
+    recipient: string;
+    localDay: string;
+    timezone: string;
+    conversationJid: string;
+    providerAccountId: string;
+    threadId?: string | null;
+    renderedDigest: string;
+    contentHash: string;
+    memberships: ObserverDigestClaimMembership[];
+    nowIso: string;
+  }): Promise<ObserverDigestReserveResult> {
+    return this.db.transaction(async (tx) => {
+      const [inserted] = await tx
+        .insert(Deliveries)
+        .values({
+          id: input.id,
+          appId: input.appId,
+          recipient: input.recipient,
+          localDay: input.localDay,
+          state: 'reserved',
+          timezone: input.timezone,
+          conversationJid: input.conversationJid,
+          providerAccountId: input.providerAccountId,
+          threadId: input.threadId ?? null,
+          renderedDigest: input.renderedDigest,
+          contentHash: input.contentHash,
+          reservedAt: input.nowIso,
+          createdAt: input.nowIso,
+        })
+        .onConflictDoNothing({
+          target: [Deliveries.appId, Deliveries.recipient, Deliveries.localDay],
+        })
+        .returning();
+
+      if (inserted) {
+        if (input.memberships.length > 0) {
+          await tx.insert(DeliveryInsights).values(
+            input.memberships.map((membership) => ({
+              deliveryId: inserted.id,
+              insightId: membership.insightId,
+              claimedAt: membership.claimedAt,
+              position: membership.position,
+            })),
+          );
+        }
+        return { reservation: mapReservation(inserted), created: true };
+      }
+
+      // Unique key already claimed this (app, recipient, day): the reservation
+      // is at-most-once, so return the existing one and add no membership.
+      const [existing] = await tx
+        .select()
+        .from(Deliveries)
+        .where(
+          and(
+            eq(Deliveries.appId, input.appId),
+            eq(Deliveries.recipient, input.recipient),
+            eq(Deliveries.localDay, input.localDay),
+          ),
+        )
+        .limit(1);
+      if (!existing) {
+        throw new Error('Observer digest reservation conflict without a row');
+      }
+      return { reservation: mapReservation(existing), created: false };
+    });
+  }
+
+  async settleDigest(input: {
+    deliveryId: string;
+    outboundDeliveryId: string;
+    cooldownUntil: string;
+    nowIso: string;
+  }): Promise<ObserverDigestReservation | null> {
+    return this.db.transaction(async (tx) => {
+      const [delivery] = await tx
+        .select()
+        .from(Deliveries)
+        .where(eq(Deliveries.id, input.deliveryId))
+        .limit(1);
+      if (!delivery) return null;
+
+      const memberships = await tx
+        .select()
+        .from(DeliveryInsights)
+        .where(eq(DeliveryInsights.deliveryId, input.deliveryId));
+
+      for (const membership of memberships) {
+        const [sent] = await tx
+          .update(Insights)
+          .set({
+            state: 'sent',
+            deliveryId: input.deliveryId,
+            surfacedAt: input.nowIso,
+            updatedAt: input.nowIso,
+          })
+          .where(
+            and(
+              eq(Insights.id, membership.insightId),
+              eq(Insights.state, 'claimed'),
+              eq(Insights.updatedAt, membership.claimedAt),
+            ),
+          )
+          .returning({ id: Insights.id });
+        if (!sent) continue;
+        // The row is locked by the update above for the rest of this txn, so
+        // the state='sent' guard alone is a sound fence for the cooldown step.
+        await tx
+          .update(Insights)
+          .set({
+            state: 'cooldown',
+            cooldownUntil: input.cooldownUntil,
+            updatedAt: input.nowIso,
+          })
+          .where(
+            and(
+              eq(Insights.id, membership.insightId),
+              eq(Insights.state, 'sent'),
+            ),
+          );
+      }
+
+      const [settled] = await tx
+        .update(Deliveries)
+        .set({
+          state: 'settled',
+          outboundDeliveryId: input.outboundDeliveryId,
+          sentAt: delivery.sentAt ?? input.nowIso,
+          settledAt: input.nowIso,
+        })
+        .where(eq(Deliveries.id, input.deliveryId))
+        .returning();
+      return settled ? mapReservation(settled) : null;
+    });
+  }
+
+  async recoverStaleDigestClaims(input: {
+    appId: string;
+    staleBeforeIso: string;
+    nowIso: string;
+  }): Promise<ProactiveInsight[]> {
+    const staleBefore = Date.parse(input.staleBeforeIso);
+    const recoveryTime = Date.parse(input.nowIso);
+    if (
+      !Number.isFinite(staleBefore) ||
+      !Number.isFinite(recoveryTime) ||
+      recoveryTime <= staleBefore
+    ) {
+      throw new Error(
+        'Observer claim recovery time must follow the stale cutoff',
+      );
+    }
+    const rows = await this.db
+      .update(Insights)
+      .set({ state: 'pending', updatedAt: input.nowIso })
+      .where(
+        and(
+          eq(Insights.appId, input.appId),
+          eq(Insights.state, 'claimed'),
+          lte(Insights.updatedAt, input.staleBeforeIso),
+          sql`${Insights.id} NOT IN (
+            SELECT ${DeliveryInsights.insightId}
+            FROM ${DeliveryInsights}
+            INNER JOIN ${Deliveries}
+              ON ${Deliveries.id} = ${DeliveryInsights.deliveryId}
+            WHERE ${Deliveries.state} IN ('reserved', 'sent', 'settled')
+          )`,
+        ),
+      )
+      .returning();
+    return rows.map(mapInsight);
+  }
+
   async getInsightCursor(
     appId: string,
     subject: ObserverSubjectKey,
@@ -540,6 +760,29 @@ function mapDelivery(row: typeof Deliveries.$inferSelect): ObserverDelivery {
     appId: row.appId,
     recipient: row.recipient,
     localDay: row.localDay,
+    createdAt: toIso(row.createdAt),
+  };
+}
+
+function mapReservation(
+  row: typeof Deliveries.$inferSelect,
+): ObserverDigestReservation {
+  return {
+    id: row.id,
+    appId: row.appId,
+    recipient: row.recipient,
+    localDay: row.localDay,
+    state: row.state as ObserverDeliveryState,
+    timezone: row.timezone ?? null,
+    conversationJid: row.conversationJid ?? null,
+    providerAccountId: row.providerAccountId ?? null,
+    threadId: row.threadId ?? null,
+    renderedDigest: row.renderedDigest ?? null,
+    contentHash: row.contentHash ?? null,
+    outboundDeliveryId: row.outboundDeliveryId ?? null,
+    reservedAt: nullableIso(row.reservedAt),
+    sentAt: nullableIso(row.sentAt),
+    settledAt: nullableIso(row.settledAt),
     createdAt: toIso(row.createdAt),
   };
 }

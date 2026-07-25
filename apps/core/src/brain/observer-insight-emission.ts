@@ -4,6 +4,7 @@ import type { PatternCandidate } from '@gantry/contracts';
 
 import type {
   ObserverInsightCursor,
+  ObserverInsightEvidenceRef,
   ObserverInsightRepository,
   ObserverInsightType,
   ObserverSubjectKey,
@@ -72,11 +73,7 @@ interface NormalizedCandidate {
   content: string;
   signatureIdentity: string;
   confidence: number;
-  evidenceRefs: Array<{
-    conversationId: string;
-    messageId: string;
-    ts: string;
-  }>;
+  evidenceRefs: ObserverInsightEvidenceRef[];
   batchSnapshotAt: string;
 }
 
@@ -122,16 +119,42 @@ export function normalizeSurfaceableInsightDraft(
   };
 }
 
+interface ChannelSourceRef {
+  providerAccountId: string;
+  conversationJid: string;
+  discriminator: string;
+}
+
+/**
+ * Channel pages encode `${providerAccountId}:${chat_jid}#${discriminator}`
+ * (see brain-channel-harvest.ts). The provider account is the first segment;
+ * the chat_jid can itself contain colons (e.g. `slack:C123`). The account is
+ * load-bearing: conversation ids are only unique per provider account.
+ */
+export function parseChannelSourceRef(
+  sourceRef: string | null,
+): ChannelSourceRef | null {
+  if (!sourceRef) return null;
+  const hashIndex = sourceRef.indexOf('#');
+  const base = hashIndex >= 0 ? sourceRef.slice(0, hashIndex) : sourceRef;
+  const discriminator = hashIndex >= 0 ? sourceRef.slice(hashIndex + 1) : '';
+  const separator = base.indexOf(':');
+  if (separator < 0) return null;
+  const providerAccountId = base.slice(0, separator).trim();
+  const conversationJid = base.slice(separator + 1).trim();
+  if (!providerAccountId || !conversationJid) return null;
+  return {
+    providerAccountId,
+    conversationJid,
+    discriminator: discriminator.trim(),
+  };
+}
+
 export function observerSubjectForPage(page: BrainPage): ObserverSubjectKey {
-  if (page.sourceKind !== 'channel' || !page.sourceRef) {
-    return OBSERVER_APP_SUBJECT;
-  }
-  const withoutFragment = page.sourceRef.split('#', 1)[0]?.trim() ?? '';
-  const separator = withoutFragment.indexOf(':');
-  const conversationId =
-    separator >= 0 ? withoutFragment.slice(separator + 1).trim() : '';
-  return conversationId
-    ? (`conversation:${conversationId}` as ObserverSubjectKey)
+  if (page.sourceKind !== 'channel') return OBSERVER_APP_SUBJECT;
+  const parsed = parseChannelSourceRef(page.sourceRef);
+  return parsed
+    ? (`conversation:${parsed.conversationJid}` as ObserverSubjectKey)
     : OBSERVER_APP_SUBJECT;
 }
 
@@ -357,12 +380,18 @@ export async function emitObserverInsights(input: {
   };
 }
 
-function normalizePageCandidate(input: PageDraft): NormalizedCandidate | null {
+export function normalizePageCandidate(
+  input: PageDraft,
+): NormalizedCandidate | null {
   const content = canonicalizeObserverInsightText(
     input.draft.canonicalSignature,
   );
   if (!content) return null;
   const subject = observerSubjectForPage(input.page);
+  // Persist account-qualified provenance so digest freshness/permalinks can
+  // tell the same jid on different provider accounts apart. Legacy rows lack
+  // it and are handled fail-closed downstream.
+  const parsed = parseChannelSourceRef(input.page.sourceRef);
   return {
     subject,
     insightType: input.draft.insightType,
@@ -375,6 +404,12 @@ function normalizePageCandidate(input: PageDraft): NormalizedCandidate | null {
       conversationId: subject,
       messageId,
       ts: input.page.updatedAt,
+      ...(parsed
+        ? {
+            providerAccountId: parsed.providerAccountId,
+            conversationJid: parsed.conversationJid,
+          }
+        : {}),
     })),
     batchSnapshotAt: input.page.updatedAt,
   };
