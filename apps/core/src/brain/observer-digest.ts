@@ -131,6 +131,7 @@ export type RunObserverDigestSkipReason =
   | 'quiet_hours'
   | 'already_delivered'
   | 'already_reserved'
+  | 'deferred_quiet_hours'
   | 'no_qualifying_insights';
 
 export type RunObserverDigestResult =
@@ -158,30 +159,46 @@ export async function runObserverDigest(input: {
 
   const clock = ownerLocalClock(nowIso, schedule.timezone);
 
-  // Reservation short-circuit BEFORE claiming (and before the window gate, so a
-  // transient delivery failure is retried whenever the job next ticks):
-  //   settled  -> already delivered today, nothing to do.
-  //   unsettled -> re-drive delivery for the SAME reservation, idempotently.
-  const existing = await repository.findDigestReservation({
+  // Retry backlog FIRST, across ALL days (not just today): a reservation left
+  // unsettled just before local midnight must still be found and re-driven on
+  // the next day's tick, or its claimed members are orphaned forever. A retry
+  // was already due when created, so it is gated ONLY by quiet hours (never
+  // re-blocked by sendAt).
+  const unsettled = await repository.findUnsettledDigestReservations({
     appId,
     recipient: owner.recipient,
-    localDay: clock.localDay,
   });
-  if (existing) {
-    if (existing.state === 'settled') {
-      return { status: 'skipped', reason: 'already_delivered' };
+  if (unsettled.length > 0) {
+    if (withinQuietHours(clock.minutes, schedule.quietHours)) {
+      // Do NOT send during quiet hours (the reservation may have no outbound
+      // record yet); leave it reserved and retry after quiet-end.
+      return { status: 'skipped', reason: 'deferred_quiet_hours' };
     }
-    await deps.deliveryPort.deliver(existing);
+    for (const reservation of unsettled) {
+      await deps.deliveryPort.deliver(reservation);
+    }
+    // Don't claim new insights while a backlog reservation is outstanding.
     return {
       status: 'retried',
-      reservationId: existing.id,
+      reservationId: unsettled[0]!.id,
       localDay: clock.localDay,
     };
   }
 
-  // Cross-midnight-safe send window: if the configured send time falls inside
-  // the quiet window, defer to quiet-end (morning-after) so a quiet window can
-  // never permanently block delivery.
+  // No unsettled backlog. If today's reservation exists it must be settled
+  // (unsettled ones were handled above) -> already delivered, nothing to do.
+  const today = await repository.findDigestReservation({
+    appId,
+    recipient: owner.recipient,
+    localDay: clock.localDay,
+  });
+  if (today) {
+    return { status: 'skipped', reason: 'already_delivered' };
+  }
+
+  // Creating a NEW digest: apply the send-window gate. Cross-midnight-safe — if
+  // the configured send time falls inside the quiet window, defer to quiet-end
+  // (morning-after) so a quiet window can never permanently block delivery.
   const effectiveEarliest = effectiveEarliestSendMinutes(schedule);
   if (clock.minutes < effectiveEarliest) {
     return { status: 'skipped', reason: 'before_send_window' };

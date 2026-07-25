@@ -229,6 +229,13 @@ export interface ObserverInsightRepository {
     recipient: string;
     localDay: string;
   }): Promise<ObserverDigestReservation | null>;
+  // All not-yet-settled reservations (reserved/sent) for a recipient across ANY
+  // localDay, oldest-first, so a delivery stranded before local midnight is
+  // still found and re-driven on the next day's tick.
+  findUnsettledDigestReservations(input: {
+    appId: string;
+    recipient: string;
+  }): Promise<ObserverDigestReservation[]>;
   reserveDigest(input: {
     id: string;
     appId: string;

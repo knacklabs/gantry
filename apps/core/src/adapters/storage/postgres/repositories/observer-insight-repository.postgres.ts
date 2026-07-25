@@ -451,6 +451,24 @@ export class PostgresObserverInsightRepository implements ObserverInsightReposit
     return row ? mapReservation(row) : null;
   }
 
+  async findUnsettledDigestReservations(input: {
+    appId: string;
+    recipient: string;
+  }): Promise<ObserverDigestReservation[]> {
+    const rows = await this.db
+      .select()
+      .from(Deliveries)
+      .where(
+        and(
+          eq(Deliveries.appId, input.appId),
+          eq(Deliveries.recipient, input.recipient),
+          inArray(Deliveries.state, ['reserved', 'sent']),
+        ),
+      )
+      .orderBy(asc(Deliveries.createdAt), asc(Deliveries.id));
+    return rows.map(mapReservation);
+  }
+
   async reserveDigest(input: {
     id: string;
     appId: string;

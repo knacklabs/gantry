@@ -123,6 +123,9 @@ function makeRepo(
 ): ObserverInsightRepository {
   const repo = {
     findDigestReservation: vi.fn(async () => null),
+    findUnsettledDigestReservations: vi.fn(
+      async () => [] as ObserverDigestReservation[],
+    ),
     recoverStaleDigestClaims: vi.fn(async () => []),
     claimPendingForDigest: vi.fn(async () => [] as ProactiveInsight[]),
     transitionState: vi.fn(async () => null),
@@ -345,7 +348,7 @@ describe('runObserverDigest existing-reservation short-circuit', () => {
   it('retries delivery of an existing unsettled reservation without re-claiming', async () => {
     const existing = reservationFrom({ id: 'res-existing', state: 'reserved' });
     const repo = makeRepo({
-      findDigestReservation: vi.fn(async () => existing),
+      findUnsettledDigestReservations: vi.fn(async () => [existing]),
     });
     const port = { deliver: vi.fn(async () => {}) };
     const deps = makeDeps(
@@ -369,6 +372,89 @@ describe('runObserverDigest existing-reservation short-circuit', () => {
     expect(port.deliver).toHaveBeenCalledWith(existing);
     expect(repo.claimPendingForDigest).not.toHaveBeenCalled();
     expect(repo.reserveDigest).not.toHaveBeenCalled();
+    // Today's dedicated read isn't needed once a backlog reservation is found.
+    expect(repo.findDigestReservation).not.toHaveBeenCalled();
+  });
+
+  it('re-drives a reservation from a PRIOR local_day (cross-midnight orphan)', async () => {
+    // Reservation created yesterday, still reserved; clock is now the next day.
+    const yesterday = reservationFrom({
+      id: 'res-yesterday',
+      state: 'reserved',
+      localDay: '2026-07-24',
+    });
+    const repo = makeRepo({
+      findUnsettledDigestReservations: vi.fn(async () => [yesterday]),
+    });
+    const port = { deliver: vi.fn(async () => {}) };
+    const deps = makeDeps(
+      eligible(),
+      repo,
+      makeProbe(() => false),
+      port,
+    );
+
+    const result = await runObserverDigest({
+      appId: 'default',
+      nowIso: NOW, // 2026-07-25
+      deps,
+    });
+
+    expect(result).toEqual({
+      status: 'retried',
+      reservationId: 'res-yesterday',
+      localDay: '2026-07-25',
+    });
+    expect(port.deliver).toHaveBeenCalledWith(yesterday);
+    expect(repo.claimPendingForDigest).not.toHaveBeenCalled();
+  });
+
+  it('defers a redrive during quiet hours (no send), then delivers after quiet-end', async () => {
+    const existing = reservationFrom({ id: 'res-defer', state: 'reserved' });
+    const schedule = eligible({
+      sendAt: '09:00',
+      quietHours: { start: '22:00', end: '07:00' },
+    });
+
+    // 23:00 UTC is inside quiet hours -> defer, no deliver.
+    let repo = makeRepo({
+      findUnsettledDigestReservations: vi.fn(async () => [existing]),
+    });
+    let port = { deliver: vi.fn(async () => {}) };
+    let result = await runObserverDigest({
+      appId: 'default',
+      nowIso: '2026-07-25T23:00:00.000Z',
+      deps: makeDeps(
+        schedule,
+        repo,
+        makeProbe(() => false),
+        port,
+      ),
+    });
+    expect(result).toEqual({
+      status: 'skipped',
+      reason: 'deferred_quiet_hours',
+    });
+    expect(port.deliver).not.toHaveBeenCalled();
+    expect(repo.claimPendingForDigest).not.toHaveBeenCalled();
+
+    // 07:30 UTC is past quiet-end -> redrive delivers.
+    repo = makeRepo({
+      findUnsettledDigestReservations: vi.fn(async () => [existing]),
+    });
+    port = { deliver: vi.fn(async () => {}) };
+    result = await runObserverDigest({
+      appId: 'default',
+      nowIso: '2026-07-25T07:30:00.000Z',
+      deps: makeDeps(
+        schedule,
+        repo,
+        makeProbe(() => false),
+        port,
+      ),
+    });
+    expect(result.status).toBe('retried');
+    expect(port.deliver).toHaveBeenCalledWith(existing);
   });
 });
 

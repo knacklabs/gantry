@@ -240,4 +240,151 @@ maybeDescribe('observer digest orchestration (Postgres)', () => {
       }),
     ]);
   });
+
+  it('finds and settles a reservation stranded on a PRIOR local_day (cross-midnight orphan)', async () => {
+    const repo = runtime.repositories.observerInsights;
+    const recipient = 'owner:orphan';
+    const claimedAt = '2026-07-24T23:59:00.000Z';
+    await repo.create(insight('orph-1', recipient));
+    const [claimed] = await repo.claimPendingForDigest({
+      appId: APP_ID,
+      recipient,
+      limit: 10,
+      nowIso: claimedAt,
+    });
+    // A reservation dated YESTERDAY, left unsettled (enqueue never confirmed).
+    await repo.reserveDigest({
+      id: 'delivery-orphan',
+      appId: APP_ID,
+      recipient,
+      localDay: '2026-07-24',
+      timezone: 'UTC',
+      conversationJid: 'sl:D999',
+      providerAccountId: 'slack_default',
+      renderedDigest: 'Yesterday digest',
+      contentHash: 'hash-orphan',
+      memberships: [
+        { insightId: 'orph-1', claimedAt: claimed!.updatedAt, position: 0 },
+      ],
+      nowIso: '2026-07-24T23:59:30.000Z',
+    });
+
+    hoisted.status = eligibleStatus(recipient);
+    const gateway: DigestSendGateway = {
+      enqueue: vi.fn(async () => ({
+        outboundDeliveryId: 'outbound-orphan',
+        durablySent: true,
+      })),
+    };
+    const deliveryPort = createOutboundDigestDeliveryPort({
+      gateway,
+      repository: repo,
+      now: () => NOW,
+    });
+
+    // Clock is now the NEXT day; today has no reservation, but the orphan must
+    // still be found + settled.
+    const result = await runObserverDigest({
+      appId: APP_ID,
+      nowIso: NOW, // 2026-07-25
+      deps: {
+        settings: {} as never,
+        repository: repo,
+        freshnessProbe: alwaysFresh,
+        deliveryPort,
+        idFactory: () => 'unused',
+      },
+    });
+
+    expect(result).toMatchObject({
+      status: 'retried',
+      reservationId: 'delivery-orphan',
+    });
+    const reservation = await repo.findDigestReservation({
+      appId: APP_ID,
+      recipient,
+      localDay: '2026-07-24',
+    });
+    expect(reservation).toMatchObject({
+      state: 'settled',
+      outboundDeliveryId: 'outbound-orphan',
+    });
+    const member = (
+      await repo.list({ appId: APP_ID, subject: 'observer:app', limit: 50 })
+    ).find((m) => m.id === 'orph-1');
+    expect(member?.state).toBe('cooldown');
+  });
+
+  it('defers a redrive during quiet hours: performs NO enqueue', async () => {
+    const repo = runtime.repositories.observerInsights;
+    const recipient = 'owner:quiet-redrive';
+    await repo.create(insight('qr-1', recipient));
+    const [claimed] = await repo.claimPendingForDigest({
+      appId: APP_ID,
+      recipient,
+      limit: 10,
+      nowIso: '2026-07-25T00:00:00.000Z',
+    });
+    await repo.reserveDigest({
+      id: 'delivery-quiet',
+      appId: APP_ID,
+      recipient,
+      localDay: '2026-07-25',
+      timezone: 'UTC',
+      conversationJid: 'sl:D999',
+      providerAccountId: 'slack_default',
+      renderedDigest: 'Quiet digest',
+      contentHash: 'hash-quiet',
+      memberships: [
+        { insightId: 'qr-1', claimedAt: claimed!.updatedAt, position: 0 },
+      ],
+      nowIso: '2026-07-25T00:01:00.000Z',
+    });
+
+    hoisted.status = {
+      ...eligibleStatus(recipient),
+      schedule: {
+        timezone: 'UTC',
+        sendAt: '09:00',
+        maxInsights: 5,
+        quietHours: { start: '22:00', end: '07:00' },
+      },
+    };
+    const gateway: DigestSendGateway = {
+      enqueue: vi.fn(async () => ({
+        outboundDeliveryId: 'x',
+        durablySent: true,
+      })),
+    };
+    const deliveryPort = createOutboundDigestDeliveryPort({
+      gateway,
+      repository: repo,
+      now: () => NOW,
+    });
+
+    // 23:00 UTC is inside quiet hours -> defer, no enqueue, still reserved.
+    const result = await runObserverDigest({
+      appId: APP_ID,
+      nowIso: '2026-07-25T23:00:00.000Z',
+      deps: {
+        settings: {} as never,
+        repository: repo,
+        freshnessProbe: alwaysFresh,
+        deliveryPort,
+        idFactory: () => 'unused',
+      },
+    });
+
+    expect(result).toEqual({
+      status: 'skipped',
+      reason: 'deferred_quiet_hours',
+    });
+    expect(gateway.enqueue).not.toHaveBeenCalled();
+    const reservation = await repo.findDigestReservation({
+      appId: APP_ID,
+      recipient,
+      localDay: '2026-07-25',
+    });
+    expect(reservation?.state).toBe('reserved');
+  });
 });
