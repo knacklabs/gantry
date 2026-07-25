@@ -117,7 +117,8 @@ function buildSystemJobTargetFromRouteKey(input: {
 }): ReturnType<typeof buildCanonicalJobLifecycleTarget> | null {
   const parsed = parseAgentThreadQueueKey(input.routeKey);
   const expectedAgentId = agentIdForJobWorkspaceKey(input.group.folder);
-  const routeProviderAccountId = input.group.providerAccountId?.trim() || undefined;
+  const routeProviderAccountId =
+    input.group.providerAccountId?.trim() || undefined;
   const providerAccountId = parsed.providerAccountId ?? routeProviderAccountId;
   // Guard against a stale key whose agent/provider no longer match the current
   // registry route; the resolver would never find such a route.
