@@ -60,7 +60,16 @@ import {
   BRAIN_EMBEDDING_BACKFILL_SYSTEM_PROMPT,
   BRAIN_DREAMING_JOB_ID,
   BRAIN_DREAM_SYSTEM_PROMPT,
+  OBSERVER_DIGEST_JOB_ID_PREFIX,
+  OBSERVER_DIGEST_SYSTEM_PROMPT,
 } from '../shared/system-job-identity.js';
+import { resolveObserverDeliveryStatus } from '../config/settings/observer-activation.js';
+import {
+  runObserverDigest,
+  noopDigestDeliveryPort,
+} from '../brain/observer-digest.js';
+import { MessageInsightFreshnessProbe } from '../brain/observer-evidence-freshness.js';
+import { getRuntimeStorage } from '../adapters/storage/postgres/runtime-store.js';
 import { computeNextJobRun } from './schedule-math.js';
 import { buildCanonicalJobLifecycleTarget } from './job-notification-routes.js';
 import { parseAgentThreadQueueKey } from '../shared/thread-queue-key.js';
@@ -77,6 +86,11 @@ export {
 } from '../shared/system-job-identity.js';
 const MEMORY_EMBEDDING_BACKFILL_TIMEOUT_MS = 10 * 60 * 1000;
 const BRAIN_DREAMING_TIMEOUT_MS = 10 * 60 * 1000;
+const OBSERVER_DIGEST_TIMEOUT_MS = 5 * 60 * 1000;
+// A frequent tick that self-gates on owner-local send time + the daily
+// reservation, so no DST-aware exact-time cron is needed.
+const OBSERVER_DIGEST_CRON = '*/30 * * * *';
+const OBSERVER_DIGEST_JOB_ID = `${OBSERVER_DIGEST_JOB_ID_PREFIX}${DEFAULT_MEMORY_APP_ID}`;
 const MEMORY_REVIEW_NOTIFICATION_LOOKUP_TIMEOUT_MS = 2_000;
 
 function embeddingBackfillEnabled(): boolean {
@@ -214,6 +228,9 @@ export async function registerSystemJobs(
   // return so a job kept alive by an unsettled lease is still removed on a
   // later pass once the lease clears.
   const brainSingletonPrimary = registrations[0];
+  const observerDeliveryStatus = resolveObserverDeliveryStatus(
+    getRuntimeSettingsForConfig(),
+  );
   const brainSingletons: Array<{ id: string; keep: boolean }> = [
     {
       id: BRAIN_DREAMING_JOB_ID,
@@ -222,6 +239,10 @@ export async function registerSystemJobs(
     {
       id: BRAIN_EMBEDDING_BACKFILL_JOB_ID,
       keep: Boolean(embeddingBackfillEnabled() && brainSingletonPrimary),
+    },
+    {
+      id: OBSERVER_DIGEST_JOB_ID,
+      keep: Boolean(observerDeliveryStatus.eligible && brainSingletonPrimary),
     },
   ];
   for (const { id, keep } of brainSingletons) {
@@ -242,6 +263,11 @@ export async function registerSystemJobs(
     backfillEnabled: embeddingBackfillEnabled(),
     brainBackfillEnabled: embeddingBackfillEnabled(),
     backfillCron: MEMORY_BACKFILL_CRON,
+    observerDigestEligible: observerDeliveryStatus.eligible,
+    observerDigestCron: OBSERVER_DIGEST_CRON,
+    observerDigestOwner: observerDeliveryStatus.eligible
+      ? `${observerDeliveryStatus.owner.conversationJid}|${observerDeliveryStatus.owner.providerAccountId}|${observerDeliveryStatus.owner.recipient}`
+      : null,
     routes: registrations
       .map(({ jid, group }) => [
         group.folder,
@@ -365,6 +391,52 @@ export async function registerSystemJobs(
         SchedulerDependencies['opsRepository']['upsertJob']
       >[0]);
     }
+  }
+
+  // One app-wide observer digest job, targeted at the resolved OWNER route
+  // (bare conversationJid + providerAccountId), NOT a route-registry key. The
+  // handler self-gates on owner-local send time + the daily reservation, so a
+  // frequent tick is correct; silent because generic lifecycle receipts are
+  // suppressed (the digest itself is the only user-facing message, sent in T4).
+  if (observerDeliveryStatus.eligible && primary) {
+    const existing = await deps.opsRepository.getJobById(
+      OBSERVER_DIGEST_JOB_ID,
+    );
+    const target = buildCanonicalJobLifecycleTarget({
+      conversationJid: observerDeliveryStatus.owner.conversationJid,
+      workspaceKey: primary.group.folder,
+      threadId: null,
+      providerAccountId: observerDeliveryStatus.owner.providerAccountId,
+      label: 'Observer digest',
+    });
+    const computedNextRun = computeNextJobRun(
+      { schedule_type: 'cron', schedule_value: OBSERVER_DIGEST_CRON },
+      nowIso,
+    );
+    const observerDigestJob = {
+      id: OBSERVER_DIGEST_JOB_ID,
+      name: 'Observer Digest',
+      prompt: OBSERVER_DIGEST_SYSTEM_PROMPT,
+      schedule_type: 'cron',
+      schedule_value: OBSERVER_DIGEST_CRON,
+      session_id: null,
+      workspace_key: primary.group.folder,
+      created_by: 'agent',
+      status: existing?.status === 'paused' ? 'paused' : 'active',
+      next_run: existing?.next_run || computedNextRun,
+      silent: true,
+      timeout_ms: OBSERVER_DIGEST_TIMEOUT_MS,
+      max_retries: 1,
+      retry_backoff_ms: 30_000,
+      max_consecutive_failures: 3,
+      execution_context: target.executionContext,
+      notification_routes: target.notificationRoutes,
+    };
+    await deps.opsRepository.upsertJob(
+      observerDigestJob as unknown as Parameters<
+        SchedulerDependencies['opsRepository']['upsertJob']
+      >[0],
+    );
   }
 
   if (embeddingBackfillEnabled() && primary) {
@@ -518,6 +590,9 @@ export async function handleSystemJob(
   if (job.prompt === BRAIN_DREAM_SYSTEM_PROMPT) {
     return runScheduledBrainDreaming(options.signal);
   }
+  if (job.prompt === OBSERVER_DIGEST_SYSTEM_PROMPT) {
+    return runScheduledObserverDigest(options.signal);
+  }
   if (job.prompt === MEMORY_DREAM_SYSTEM_PROMPT) {
     options.signal?.throwIfAborted();
     const defaultScope = context.conversationKind === 'dm' ? 'user' : 'group';
@@ -605,6 +680,27 @@ async function runScheduledBrainDreaming(
   return observerEmissionEnabled
     ? `${receipt} ${result.observer!.message}`
     : receipt;
+}
+
+async function runScheduledObserverDigest(
+  signal?: AbortSignal,
+): Promise<string> {
+  signal?.throwIfAborted();
+  const storage = getRuntimeStorage();
+  const result = await runObserverDigest({
+    appId: DEFAULT_MEMORY_APP_ID,
+    nowIso: currentIso(),
+    deps: {
+      settings: getRuntimeSettingsForConfig(),
+      repository: storage.repositories.observerInsights,
+      freshnessProbe: new MessageInsightFreshnessProbe(storage.ops),
+      // T4 supplies the real outbound + settle port; T3 hands off to a no-op.
+      deliveryPort: noopDigestDeliveryPort,
+    },
+  });
+  return result.status === 'reserved'
+    ? `Observer digest reserved for ${result.localDay}: ${result.selected} insight(s).`
+    : `Observer digest skipped: ${result.reason}.`;
 }
 
 async function runScheduledBrainEmbeddingBackfill(
