@@ -15,21 +15,23 @@ import { logger } from '../../../infrastructure/logging/logger.js';
 // If these reads ever move inside a transaction/checked-out client, this
 // eviction guarantee no longer holds and the retry must force a fresh client.
 
+// These wrapped reads are non-transactional autocommit SELECTs that take no
+// locks, so transaction-only conflicts (40001 serialization_failure, 40P01
+// deadlock_detected) cannot arise here and are deliberately omitted. What
+// remains is transient pool/connection loss and server (pooler) unavailability.
 const RETRYABLE_POSTGRES_CODES = new Set([
-  '40001',
-  '40P01',
-  '53300',
-  '53400',
-  '57P01',
-  '57P02',
-  '57P03',
-  '08000',
-  '08001',
-  '08003',
-  '08004',
-  '08006',
-  '08007',
-  '08P01',
+  '53300', // too_many_connections (pool exhaustion)
+  '53400', // configuration_limit_exceeded
+  '57P01', // admin_shutdown
+  '57P02', // crash_shutdown
+  '57P03', // cannot_connect_now
+  '08000', // connection_exception
+  '08001', // sqlclient_unable_to_establish_sqlconnection
+  '08003', // connection_does_not_exist
+  '08004', // sqlserver_rejected_establishment_of_sqlconnection
+  '08006', // connection_failure
+  '08007', // transaction_resolution_unknown
+  '08P01', // protocol_violation
 ]);
 
 const RETRYABLE_POSTGRES_MESSAGE_PATTERNS = [
