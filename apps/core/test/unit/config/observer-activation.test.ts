@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   resolveObserverActivationStatus,
+  resolveObserverDeliveryStatus,
   resolveObserverOwnerRoute,
   resolveVerifiedObserverActivationStatus,
 } from '@core/config/settings/observer-activation.js';
@@ -137,6 +138,70 @@ describe('observer activation', () => {
       state: 'active',
       active: true,
       message: 'Observer is active.',
+    });
+  });
+
+  it('reports delivery ineligible until observer + delivery + owner route line up', () => {
+    expect(
+      resolveObserverDeliveryStatus(createDefaultRuntimeSettings()),
+    ).toEqual({
+      eligible: false,
+      reason: 'observer_disabled',
+      message: 'Observer is disabled.',
+    });
+
+    const noDelivery = configuredObserverSettings();
+    expect(resolveObserverDeliveryStatus(noDelivery)).toMatchObject({
+      eligible: false,
+      reason: 'delivery_not_configured',
+    });
+
+    const optedOut = configuredObserverSettings();
+    optedOut.observer.delivery = { enabled: false, maxInsights: 3 };
+    expect(resolveObserverDeliveryStatus(optedOut)).toMatchObject({
+      eligible: false,
+      reason: 'delivery_disabled',
+    });
+
+    const badOwner = configuredObserverSettings();
+    badOwner.observer.owner = undefined;
+    badOwner.observer.delivery = {
+      enabled: true,
+      timezone: 'Asia/Kolkata',
+      sendAt: '09:00',
+      maxInsights: 3,
+    };
+    expect(resolveObserverDeliveryStatus(badOwner)).toMatchObject({
+      eligible: false,
+      reason: 'owner_not_configured',
+    });
+  });
+
+  it('reports delivery eligible when fully configured with a valid owner route', () => {
+    const settings = configuredObserverSettings();
+    settings.observer.delivery = {
+      enabled: true,
+      timezone: 'Asia/Kolkata',
+      sendAt: '09:00',
+      quietHours: { start: '21:00', end: '08:00' },
+      maxInsights: 2,
+    };
+    expect(resolveObserverDeliveryStatus(settings)).toEqual({
+      eligible: true,
+      owner: {
+        recipient: 'U123',
+        conversation: 'owner_dm',
+        conversationJid: 'sl:D123',
+        providerAccountId: 'slack_owner',
+        providerId: 'slack',
+        externalConversationId: 'D123',
+      },
+      schedule: {
+        timezone: 'Asia/Kolkata',
+        sendAt: '09:00',
+        quietHours: { start: '21:00', end: '08:00' },
+        maxInsights: 2,
+      },
     });
   });
 

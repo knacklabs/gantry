@@ -341,12 +341,27 @@ export interface RuntimeObservabilitySettings {
   };
 }
 
+export interface RuntimeObserverDeliverySettings {
+  enabled: boolean;
+  // Required (validated) when enabled; otherwise the process TIMEZONE is inherited.
+  timezone?: string;
+  // "HH:mm" 24-hour; required (validated) when enabled.
+  sendAt?: string;
+  // Optional "HH:mm" window; may cross midnight.
+  quietHours?: {
+    start: string;
+    end: string;
+  };
+  maxInsights: number;
+}
+
 export interface RuntimeObserverSettings {
   enabled: boolean;
   owner?: {
     recipient: string;
     conversation: string;
   };
+  delivery?: RuntimeObserverDeliverySettings;
 }
 
 export interface RuntimeCustomModelAliasSource {

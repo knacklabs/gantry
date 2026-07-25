@@ -898,6 +898,92 @@ quoted_decimal: "0.5"
     }
   });
 
+  it('defaults observer delivery off and absent', () => {
+    const settings = createDefaultRuntimeSettings();
+    expect(settings.observer.delivery).toBeUndefined();
+    expect(renderRuntimeSettingsYaml(settings)).not.toContain('delivery:');
+  });
+
+  it('parses and round-trips observer delivery settings', () => {
+    const yaml = [
+      'observer:',
+      '  enabled: true',
+      '  owner:',
+      '    recipient: U123',
+      '    conversation: owner_dm',
+      '  delivery:',
+      '    enabled: true',
+      '    timezone: "Asia/Kolkata"',
+      '    send_at: "09:00"',
+      '    quiet_hours:',
+      '      start: "21:00"',
+      '      end: "08:00"',
+      '    max_insights: 2',
+      '',
+    ].join('\n');
+    const parsed = parseRuntimeSettings(yaml).observer;
+    expect(parsed.delivery).toEqual({
+      enabled: true,
+      timezone: 'Asia/Kolkata',
+      sendAt: '09:00',
+      quietHours: { start: '21:00', end: '08:00' },
+      maxInsights: 2,
+    });
+
+    const settings = createDefaultRuntimeSettings();
+    settings.observer = parsed;
+    const rendered = renderRuntimeSettingsYaml(settings);
+    expect(rendered).toContain('  delivery:');
+    expect(rendered).toContain('    send_at: "09:00"');
+    expect(parseRuntimeSettings(rendered).observer).toEqual(parsed);
+  });
+
+  it('defaults delivery.enabled false and max_insights 3 when the block is present', () => {
+    const parsed = parseRuntimeSettings(
+      'observer:\n  enabled: true\n  delivery:\n    timezone: "UTC"\n',
+    ).observer;
+    expect(parsed.delivery).toEqual({
+      enabled: false,
+      timezone: 'UTC',
+      maxInsights: 3,
+    });
+  });
+
+  it('rejects malformed observer delivery settings', () => {
+    for (const [yaml, error] of [
+      [
+        'observer:\n  enabled: true\n  delivery:\n    enabled: true\n    timezone: "Not/AZone"\n    send_at: "09:00"\n',
+        /observer\.delivery\.timezone must be a valid IANA time zone/,
+      ],
+      [
+        'observer:\n  enabled: true\n  delivery:\n    enabled: true\n    timezone: "UTC"\n    send_at: "9:00"\n',
+        /observer\.delivery\.send_at must be a 24-hour HH:mm time/,
+      ],
+      [
+        'observer:\n  enabled: true\n  delivery:\n    timezone: "UTC"\n    quiet_hours:\n      start: "25:00"\n      end: "08:00"\n',
+        /observer\.delivery\.quiet_hours\.start must be a 24-hour HH:mm time/,
+      ],
+      [
+        'observer:\n  enabled: true\n  delivery:\n    timezone: "UTC"\n    max_insights: 4\n',
+        /observer\.delivery\.max_insights must be an integer between 1 and 3/,
+      ],
+      [
+        'observer:\n  enabled: true\n  delivery:\n    enabled: true\n    send_at: "09:00"\n',
+        /observer\.delivery\.timezone is required when observer\.delivery\.enabled is true/,
+      ],
+      [
+        'observer:\n  enabled: true\n  delivery:\n    enabled: true\n    timezone: "UTC"\n',
+        /observer\.delivery\.send_at is required when observer\.delivery\.enabled is true/,
+      ],
+      [
+        'observer:\n  enabled: true\n  delivery:\n    timezone: "UTC"\n    role: admin\n',
+        /observer\.delivery\.role is not supported/,
+      ],
+    ] as const) {
+      expect(() => parseRuntimeSettings(yaml)).toThrow(error);
+    }
+  });
+
   it('defaults observability tracing and omits the default block', () => {
     const settings = createDefaultRuntimeSettings();
     expect(settings.observability).toEqual({
