@@ -1,3 +1,6 @@
+import fs from 'node:fs';
+import path from 'node:path';
+
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 
@@ -146,6 +149,77 @@ describe('Claude inline lane', () => {
     const systemPrompt = sdk.query.mock.calls[0]?.[0].options.systemPrompt;
     expect(systemPrompt[0]).toContain('# Capability catalog');
     expect(systemPrompt[0]).toContain('Incident triage');
+  });
+
+  it('makes an ATS_Skills artifact discoverable by the inline Claude session', async () => {
+    sdk.query.mockImplementation(() => ({
+      async *[Symbol.asyncIterator]() {
+        yield resultMessage('skill-result', 'done');
+      },
+    }));
+    const base = laneInput();
+
+    await runClaudeInlineAgentLoopLane(
+      laneInput({
+        input: {
+          ...base.input,
+          attachedSkillSourceIds: ['skill:ats'] as never,
+        },
+        skillContext: { appId: 'app:default', agentId: 'agent:main' },
+        skillRepository: {
+          listEnabledSkillsForAgent: vi.fn(async () => [
+            {
+              id: 'skill:ats',
+              appId: 'app:default',
+              name: 'ATS_Skills',
+              source: 'admin_uploaded',
+              status: 'installed',
+              promptRefs: [],
+              toolIds: [],
+              workflowRefs: [],
+              storage: {
+                storageType: 'local-filesystem',
+                storageRef: 'skills/ATS_Skills',
+                contentHash: 'sha256:test',
+                sizeBytes: 128,
+              },
+              createdAt: new Date(0).toISOString(),
+              updatedAt: new Date(0).toISOString(),
+            },
+          ]),
+        },
+        skillArtifactStore: {
+          getSkillArtifact: vi.fn(async () => ({
+            assets: [
+              {
+                path: 'SKILL.md',
+                contentType: 'text/markdown',
+                content: Buffer.from(
+                  '---\\nname: ATS_Skills\\ndescription: ATS workflow\\n---\\n# ATS',
+                ),
+              },
+            ],
+          })),
+        },
+      }),
+    );
+
+    const options = sdk.query.mock.calls[0]?.[0].options;
+    // The SDK's Skill(name) must exactly match the per-run skills/<name>
+    // directory and the SKILL.md frontmatter name.
+    expect(options.skills).toEqual(['ATS_Skills']);
+    expect(options.settingSources).toEqual(['user']);
+    expect(options.env.CLAUDE_CONFIG_DIR).toContain('inline-claude');
+    expect(
+      fs.existsSync(
+        path.join(
+          options.env.CLAUDE_CONFIG_DIR,
+          'skills',
+          'ATS_Skills',
+          'SKILL.md',
+        ),
+      ),
+    ).toBe(true);
   });
 
   it('canonicalizes manifest-projected callable-agent activity to AgentDelegation', async () => {
