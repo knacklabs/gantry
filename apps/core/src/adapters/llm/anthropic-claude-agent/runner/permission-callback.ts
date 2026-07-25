@@ -16,6 +16,7 @@ import {
   hasIpcRequestClaimMarker,
   ipcInteractionAuthEnvelopeOptions,
   ipcInteractionUnclaimableReason,
+  type IpcRequestClaimProbe,
 } from '../../../../shared/ipc-interaction-lifetime.js';
 import type { SemanticCapabilityDefinition } from '../../../../shared/semantic-capabilities.js';
 import {
@@ -101,6 +102,7 @@ export async function requestPermissionApproval(options: {
   targetJid?: string;
   threadId?: string;
   signal?: AbortSignal;
+  claimProbe?: IpcRequestClaimProbe;
 }): Promise<PermissionDecision> {
   return requestPermissionApprovalInner({
     ...options,
@@ -134,6 +136,7 @@ async function requestPermissionApprovalInner(options: {
   targetJid?: string;
   threadId?: string;
   signal?: AbortSignal;
+  claimProbe?: IpcRequestClaimProbe;
 }): Promise<PermissionDecision> {
   try {
     const appId = options.appId;
@@ -393,7 +396,10 @@ async function requestPermissionApprovalInner(options: {
         }
       }
       if (authDeadline !== undefined && !requestClaimed) {
-        requestClaimed = hasIpcRequestClaimMarker(requestPath);
+        requestClaimed = hasIpcRequestClaimMarker(
+          requestPath,
+          options.claimProbe,
+        );
         if (!requestClaimed && nowMs() >= authDeadline) break;
       }
       const aborted = await sleepWithAbort(100, options.signal);

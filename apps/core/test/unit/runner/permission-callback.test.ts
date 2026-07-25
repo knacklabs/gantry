@@ -65,6 +65,7 @@ describe('requestPermissionApproval', () => {
   afterEach(() => {
     process.env = oldEnv;
     fs.rmSync(tempDir, { recursive: true, force: true });
+    vi.useRealTimers();
     vi.restoreAllMocks();
   });
 
@@ -529,10 +530,15 @@ describe('requestPermissionApproval', () => {
     process.env.GANTRY_IPC_AUTH_TOKEN = 'interactive-permission-test-token';
     delete process.env.GANTRY_JOB_ID;
     delete process.env.GANTRY_JOB_RUN_ID;
+    vi.useFakeTimers();
     vi.resetModules();
     const { requestPermissionApproval } =
       await import('@core/adapters/llm/anthropic-claude-agent/runner/permission-callback.js');
 
+    const claimProbe = vi
+      .fn<(requestPath: string) => boolean>()
+      .mockReturnValueOnce(true)
+      .mockReturnValue(false);
     let settled = false;
     const decision = requestPermissionApproval({
       appId: 'default',
@@ -541,6 +547,7 @@ describe('requestPermissionApproval', () => {
       targetJid: 'tg:test',
       toolName: 'Bash',
       toolInput: { command: 'git status --short' },
+      claimProbe,
     });
     void decision.then(() => {
       settled = true;
@@ -574,19 +581,12 @@ describe('requestPermissionApproval', () => {
     expect(
       Date.parse(request.authExpiresAt!) - Date.now(),
     ).toBeGreaterThanOrEqual(IPC_INTERACTION_RETENTION_TTL_MS - 100);
-    const claimMarkerPath = path.join(
-      requestDir,
-      `.processing-host-${requestFile}`,
-    );
-    fs.renameSync(requestPath, claimMarkerPath);
-    await new Promise((resolve) => setTimeout(resolve, 150));
-    fs.unlinkSync(claimMarkerPath);
+    expect(claimProbe).toHaveBeenCalledWith(requestPath);
 
-    const dateNow = vi
-      .spyOn(Date, 'now')
-      .mockReturnValue(Date.parse(request.authExpiresAt!) + 60_000);
-    await new Promise((resolve) => setTimeout(resolve, 150));
+    vi.setSystemTime(Date.parse(request.authExpiresAt!) + 60_000);
+    await vi.advanceTimersByTimeAsync(100);
     expect(settled).toBe(false);
+    expect(claimProbe).toHaveBeenCalledOnce();
 
     const responseDir = path.join(
       tempDir,
@@ -607,13 +607,13 @@ describe('requestPermissionApproval', () => {
         signature: 'test-signature',
       }),
     );
+    await vi.advanceTimersByTimeAsync(100);
 
     await expect(decision).resolves.toMatchObject({
       approved: true,
       mode: 'allow_once',
       decidedBy: 'Ravi',
     });
-    dateNow.mockRestore();
   });
 
   it('returns a clear failure when an unclaimed interactive request reaches its ingestion bound', async () => {
