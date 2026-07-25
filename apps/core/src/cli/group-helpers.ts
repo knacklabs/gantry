@@ -173,9 +173,11 @@ export async function pruneDesiredStateAgent(input: {
     if (!settings.agents[input.folder]) {
       return { pruned: false, providerAccountsPruned: 0 };
     }
-    // The default agent underpins runtime startup and reconciliation. Deleting
-    // its definition would leave the default-agent setting dangling, so removal
-    // is refused here for BOTH the route-scoped and route-less callers.
+    // The default agent's folder is the fixed DEFAULT_AGENT_FOLDER ('main_agent')
+    // -- it is hard-coded across startup/slack/telegram and is never re-pointed
+    // (`gantry agent name` only changes its display name). Deleting its
+    // definition would leave the runtime's default-agent wiring dangling, so
+    // removal is refused for BOTH the route-scoped and route-less callers.
     if (input.folder === DEFAULT_AGENT_FOLDER) {
       return { pruned: false, providerAccountsPruned: 0, keptAsDefault: true };
     }

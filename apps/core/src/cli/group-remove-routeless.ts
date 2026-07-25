@@ -65,7 +65,7 @@ export async function removeRoutelessAgent(input: {
   }
   if (pruned.keptAsDefault) {
     p.log.error(
-      `Agent ${folder} is the default agent and cannot be removed. Point the default elsewhere first (gantry agent name ...).`,
+      `Agent ${folder} is the default agent (main_agent) and cannot be removed; it underpins runtime startup. Use \`gantry agent name\` to rename it instead.`,
     );
     return 1;
   }
