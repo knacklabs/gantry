@@ -99,6 +99,7 @@ export function createPermissionApprovalRequester(input: {
       cancellation: PermissionApprovalCancellation,
     ) => Promise<'settled' | 'already_decided' | 'retryable' | 'not_found'>
   >();
+  const activeCancellationTargets = new Map<string, string>();
   const cancellationRetryTimers = new Map<string, NodeJS.Timeout>();
   const pendingResolvers = new Map<
     string,
@@ -203,6 +204,7 @@ export function createPermissionApprovalRequester(input: {
         activeCancellationHandlers.set(key, (cancellation) =>
           cancelPending({ ...cancellation, requestId: request.requestId }),
         );
+        activeCancellationTargets.set(key, routed.targetJid);
       }
       let decision: PermissionApprovalDecision;
       try {
@@ -217,13 +219,14 @@ export function createPermissionApprovalRequester(input: {
             });
             for (const key of cancellationKeys) {
               const cancellation = queuedCancellations.get(key);
-              if (cancellation) void settleQueuedCancellation(cancellation);
+              if (cancellation) settleQueuedCancellationSafely(cancellation);
             }
           },
         );
       } finally {
         for (const key of cancellationKeys) {
           activeCancellationHandlers.delete(key);
+          activeCancellationTargets.delete(key);
           queuedCancellations.delete(key);
           const retryTimer = cancellationRetryTimers.get(key);
           if (retryTimer) clearTimeout(retryTimer);
@@ -266,6 +269,22 @@ export function createPermissionApprovalRequester(input: {
     if (result === 'retryable') scheduleCancellationRetry(cancellation);
   }
 
+  function settleQueuedCancellationSafely(
+    cancellation: PermissionApprovalCancellation,
+  ): void {
+    const key = permissionRequestScopeKey(cancellation);
+    const targetJid = activeCancellationTargets.get(key);
+    void settleQueuedCancellation(cancellation).catch((err) => {
+      input.interactionLifecycle.logger.error({
+        err,
+        targetJid,
+        requestId: cancellation.requestId,
+        message: 'Target channel permission cancellation failed',
+      });
+      scheduleCancellationRetry(cancellation);
+    });
+  }
+
   function scheduleCancellationRetry(
     cancellation: PermissionApprovalCancellation,
   ): void {
@@ -273,7 +292,7 @@ export function createPermissionApprovalRequester(input: {
     if (cancellationRetryTimers.has(key)) return;
     const timer = setTimeout(() => {
       cancellationRetryTimers.delete(key);
-      void settleQueuedCancellation(cancellation);
+      settleQueuedCancellationSafely(cancellation);
     }, 250);
     timer.unref?.();
     cancellationRetryTimers.set(key, timer);

@@ -101,6 +101,7 @@ export function createUserQuestionResponder(input: {
     string,
     NonNullable<UserQuestionSurfaceLike['cancelPendingQuestion']>
   >();
+  const activeCancellationTargets = new Map<string, string>();
   const cancellationRetryTimers = new Map<string, NodeJS.Timeout>();
 
   const questionScopeKey = (
@@ -129,6 +130,22 @@ export function createUserQuestionResponder(input: {
     scheduleCancellationRetry(cancellation);
   }
 
+  function settleQueuedCancellationSafely(
+    cancellation: UserQuestionCancellation,
+  ): void {
+    const key = questionScopeKey(cancellation);
+    const targetJid = activeCancellationTargets.get(key);
+    void settleQueuedCancellation(cancellation).catch((err) => {
+      input.interactionLifecycle.logger.error({
+        err,
+        targetJid,
+        requestId: cancellation.requestId,
+        message: 'Target channel user question cancellation failed',
+      });
+      scheduleCancellationRetry(cancellation);
+    });
+  }
+
   function scheduleCancellationRetry(
     cancellation: UserQuestionCancellation,
   ): void {
@@ -136,7 +153,7 @@ export function createUserQuestionResponder(input: {
     if (cancellationRetryTimers.has(key)) return;
     const timer = setTimeout(() => {
       cancellationRetryTimers.delete(key);
-      void settleQueuedCancellation(cancellation);
+      settleQueuedCancellationSafely(cancellation);
     }, 250);
     timer.unref?.();
     cancellationRetryTimers.set(key, timer);
@@ -163,6 +180,7 @@ export function createUserQuestionResponder(input: {
         questionSurface.cancelPendingQuestion?.(cancellation) ??
         Promise.resolve('not_found' as const);
       activeCancellationHandlers.set(key, cancelPendingQuestion);
+      activeCancellationTargets.set(key, request.targetJid);
       try {
         return await questionSurface.requestUserAnswer(
           request.targetJid,
@@ -173,7 +191,7 @@ export function createUserQuestionResponder(input: {
               threadId: request.threadId,
             });
             const cancellation = queuedCancellations.get(key);
-            if (cancellation) void settleQueuedCancellation(cancellation);
+            if (cancellation) settleQueuedCancellationSafely(cancellation);
             if (questionIndex === undefined) {
               onPromptDelivered?.(messageId);
               return;
@@ -190,6 +208,7 @@ export function createUserQuestionResponder(input: {
         );
       } finally {
         activeCancellationHandlers.delete(key);
+        activeCancellationTargets.delete(key);
         queuedCancellations.delete(key);
         const retryTimer = cancellationRetryTimers.get(key);
         if (retryTimer) clearTimeout(retryTimer);
@@ -251,6 +270,7 @@ export function createUserQuestionResponder(input: {
       cancelledQuestionKeys.clear();
       queuedCancellations.clear();
       activeCancellationHandlers.clear();
+      activeCancellationTargets.clear();
       for (const timer of cancellationRetryTimers.values()) {
         clearTimeout(timer);
       }

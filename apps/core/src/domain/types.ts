@@ -297,6 +297,8 @@ export interface UserQuestionRequest {
   appId?: string;
   agentId?: string;
   providerAccountId?: string;
+  permissionLane?: 'interactive' | 'autonomous';
+  expiresAt?: string;
   jobId?: string;
   runId?: string;
   runLeaseToken?: string;

@@ -631,6 +631,7 @@ export function parseUserQuestionIpcRequest(
     ...(appId ? { appId } : {}),
     ...(agentId ? { agentId } : {}),
     ...(providerAccountId ? { providerAccountId } : {}),
+    ...parsePermissionLifecycle(raw),
     ...(jobId ? { jobId } : {}),
     ...(runId ? { runId } : {}),
     ...(runLeaseToken ? { runLeaseToken } : {}),

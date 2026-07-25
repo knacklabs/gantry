@@ -55,7 +55,9 @@ import {
   parsePermissionCancellationIpcRequest,
   parsePermissionIpcRequest,
   parseQuestionCancellationIpcRequest,
+  parseUserQuestionIpcRequest,
 } from '@core/runtime/ipc-parsing.js';
+import { resolveInteractionSettlementDelayMs } from '@core/channels/interaction-settlement.js';
 import { startIpcWatcher, stopIpcWatcher } from '@core/runtime/ipc.js';
 
 function permissionEnvelope(
@@ -74,6 +76,42 @@ function permissionEnvelope(
       toolName: 'Bash',
       permissionLane,
       ...(expiresAt ? { expiresAt } : {}),
+      context: {
+        appId: 'default',
+        agentId: 'agent:team',
+        responseKeyId: auth.responseKeyId,
+      },
+    },
+    { separateAuthExpiry: true },
+  );
+}
+
+function questionEnvelope(
+  permissionLane: unknown,
+  expiresAt?: string,
+): Record<string, unknown> {
+  const auth = createIpcAuthEnvelope('team', undefined, {
+    appId: 'default',
+    agentId: 'agent:team',
+  });
+  return createSignedIpcRequestEnvelope(
+    auth.authToken,
+    {
+      requestId: `question-lane-${randomUUID()}`,
+      sourceAgentFolder: 'team',
+      permissionLane,
+      ...(expiresAt ? { expiresAt } : {}),
+      questions: [
+        {
+          question: 'Continue?',
+          header: 'Next step',
+          options: [
+            { label: 'Continue', description: 'Keep going.' },
+            { label: 'Stop', description: 'Stop here.' },
+          ],
+          multiSelect: false,
+        },
+      ],
       context: {
         appId: 'default',
         agentId: 'agent:team',
@@ -128,6 +166,47 @@ describe('parsePermissionIpcRequest', () => {
     expect(
       parsePermissionIpcRequest(permissionEnvelope('interactive'), 'team'),
     ).not.toHaveProperty('expiresAt');
+  });
+
+  it('preserves authenticated question lifecycle fields and drives lane-aware settlement', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-25T00:00:00.000Z'));
+    vi.stubEnv('GANTRY_INTERACTIVE_PERMISSION_TIMEOUT_MS', '0');
+    try {
+      const expiresAt = '2026-07-25T00:01:00.000Z';
+      const autonomous = parseUserQuestionIpcRequest(
+        questionEnvelope(' autonomous ', expiresAt),
+        'team',
+      );
+      expect(autonomous).toMatchObject({
+        permissionLane: 'autonomous',
+        expiresAt,
+      });
+      expect(
+        resolveInteractionSettlementDelayMs({
+          expiresAt: autonomous.expiresAt,
+          permissionLane: autonomous.permissionLane,
+          fallbackTimeoutMs: 0,
+        }),
+      ).toBe(60_000);
+
+      const interactive = parseUserQuestionIpcRequest(
+        questionEnvelope('interactive'),
+        'team',
+      );
+      expect(interactive).toMatchObject({ permissionLane: 'interactive' });
+      expect(interactive).not.toHaveProperty('expiresAt');
+      expect(
+        resolveInteractionSettlementDelayMs({
+          expiresAt: interactive.expiresAt,
+          permissionLane: interactive.permissionLane,
+          fallbackTimeoutMs: 0,
+        }),
+      ).toBeUndefined();
+    } finally {
+      vi.unstubAllEnvs();
+      vi.useRealTimers();
+    }
   });
 
   it('parses a signed cancellation against the original permission request id', () => {
