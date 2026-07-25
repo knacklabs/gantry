@@ -63,6 +63,10 @@ import {
 } from '../shared/system-job-identity.js';
 import { computeNextJobRun } from './schedule-math.js';
 import { buildCanonicalJobLifecycleTarget } from './job-notification-routes.js';
+import { parseAgentThreadQueueKey } from '../shared/thread-queue-key.js';
+import { agentIdForJobWorkspaceKey } from '../application/jobs/job-tool-policy.js';
+import { logger } from '../infrastructure/logging/logger.js';
+import type { ConversationRoute } from '../domain/types.js';
 import type { SchedulerDependencies } from './types.js';
 
 export {
@@ -98,6 +102,41 @@ function routeDigest(value: string): string {
 
 function systemDreamingJobId(input: { folder: string; jid: string }): string {
   return `${MEMORY_DREAMING_JOB_ID_PREFIX}${input.folder}:${routeDigest(input.jid)}`;
+}
+
+// A conversationRoutes() key is a fully-qualified route-registry key
+// (chatJid + agent + provider_account), not a bare conversation JID. The
+// execution resolver expects the BARE chatJid in execution_context and takes
+// the agent from workspace_key + the providerAccountId from the notification
+// route, re-appending the qualifiers itself. Parse the key once here so the
+// stored target honors that contract instead of double-qualifying it.
+function buildSystemJobTargetFromRouteKey(input: {
+  routeKey: string;
+  group: ConversationRoute;
+  label: string;
+}): ReturnType<typeof buildCanonicalJobLifecycleTarget> | null {
+  const parsed = parseAgentThreadQueueKey(input.routeKey);
+  const expectedAgentId = agentIdForJobWorkspaceKey(input.group.folder);
+  const routeProviderAccountId =
+    input.group.providerAccountId?.trim() || undefined;
+  const providerAccountId = parsed.providerAccountId ?? routeProviderAccountId;
+  // Guard against a stale key whose agent/provider no longer match the current
+  // registry route; the resolver would never find such a route.
+  if (parsed.agentId && parsed.agentId !== expectedAgentId) return null;
+  if (
+    parsed.providerAccountId &&
+    routeProviderAccountId &&
+    parsed.providerAccountId !== routeProviderAccountId
+  ) {
+    return null;
+  }
+  return buildCanonicalJobLifecycleTarget({
+    conversationJid: parsed.chatJid,
+    workspaceKey: input.group.folder,
+    threadId: parsed.threadId ?? null,
+    providerAccountId,
+    label: input.label,
+  });
 }
 
 export function memoryDreamingTimeoutForJob(
@@ -221,18 +260,25 @@ export async function registerSystemJobs(
   }
 
   const nowIso = currentIso();
+  let unresolvedTrustedJobs = 0;
   if (RUNTIME_MEMORY_DREAMING_ENABLED) {
     for (const { jid, group } of registrations) {
       const jobId = systemDreamingJobId({ folder: group.folder, jid });
+      // Re-stamp the corrected target even on dead-lettered jobs: the repo
+      // upsert preserves the dead_lettered status (no auto-resume), but a later
+      // operator resume needs the fixed bare-jid target already persisted.
       const existing = await deps.opsRepository.getJobById(jobId);
-      if (existing?.status === 'dead_lettered') {
-        // Dead-lettered jobs are not revived here, but silent must still track
-        // the current alerts setting so a later resume reactivates the job
-        // with the correct value (the resume path itself never re-stamps it).
-        const desiredSilent = !RUNTIME_MEMORY_DREAMING_ALERTS_ENABLED;
-        if (existing.silent !== desiredSilent) {
-          await deps.opsRepository.updateJob(jobId, { silent: desiredSilent });
-        }
+      const target = buildSystemJobTargetFromRouteKey({
+        routeKey: jid,
+        group,
+        label: 'primary',
+      });
+      if (!target) {
+        unresolvedTrustedJobs += 1;
+        logger.warn(
+          { jobId, routeKey: jid, folder: group.folder },
+          'system dreaming job route no longer matches a current registry route; skipping registration',
+        );
         continue;
       }
       const computedNextRun = computeNextJobRun(
@@ -244,12 +290,6 @@ export async function registerSystemJobs(
       );
       const nextRun = existing?.next_run || computedNextRun;
       const desiredStatus = existing?.status === 'paused' ? 'paused' : 'active';
-      const target = buildCanonicalJobLifecycleTarget({
-        conversationJid: jid,
-        workspaceKey: group.folder,
-        threadId: null,
-        label: 'primary',
-      });
 
       const systemJob = {
         id: jobId,
@@ -283,17 +323,26 @@ export async function registerSystemJobs(
   const primary = registrations[0];
   if (RUNTIME_MEMORY_DREAMING_ENABLED && primary) {
     const existing = await deps.opsRepository.getJobById(BRAIN_DREAMING_JOB_ID);
-    if (existing?.status !== 'dead_lettered') {
+    const target = buildSystemJobTargetFromRouteKey({
+      routeKey: primary.jid,
+      group: primary.group,
+      label: 'primary',
+    });
+    if (!target) {
+      unresolvedTrustedJobs += 1;
+      logger.warn(
+        {
+          jobId: BRAIN_DREAMING_JOB_ID,
+          routeKey: primary.jid,
+          folder: primary.group.folder,
+        },
+        'brain dreaming job route no longer matches a current registry route; skipping registration',
+      );
+    } else {
       const computedNextRun = computeNextJobRun(
         { schedule_type: 'cron', schedule_value: MEMORY_DREAMING_CRON },
         nowIso,
       );
-      const target = buildCanonicalJobLifecycleTarget({
-        conversationJid: primary.jid,
-        workspaceKey: primary.group.folder,
-        threadId: null,
-        label: 'primary',
-      });
       await deps.opsRepository.upsertJob({
         id: BRAIN_DREAMING_JOB_ID,
         name: 'Brain Dreaming',
@@ -322,17 +371,26 @@ export async function registerSystemJobs(
     const existing = await deps.opsRepository.getJobById(
       MEMORY_EMBEDDING_BACKFILL_JOB_ID,
     );
-    if (existing?.status !== 'dead_lettered') {
+    const target = buildSystemJobTargetFromRouteKey({
+      routeKey: primary.jid,
+      group: primary.group,
+      label: 'primary',
+    });
+    if (!target) {
+      unresolvedTrustedJobs += 1;
+      logger.warn(
+        {
+          jobId: MEMORY_EMBEDDING_BACKFILL_JOB_ID,
+          routeKey: primary.jid,
+          folder: primary.group.folder,
+        },
+        'memory embedding backfill job route no longer matches a current registry route; skipping registration',
+      );
+    } else {
       const computedNextRun = computeNextJobRun(
         { schedule_type: 'cron', schedule_value: MEMORY_BACKFILL_CRON },
         nowIso,
       );
-      const target = buildCanonicalJobLifecycleTarget({
-        conversationJid: primary.jid,
-        workspaceKey: primary.group.folder,
-        threadId: null,
-        label: 'primary',
-      });
       const backfillJob = {
         id: MEMORY_EMBEDDING_BACKFILL_JOB_ID,
         name: 'Memory Embedding Backfill',
@@ -362,17 +420,27 @@ export async function registerSystemJobs(
     const existingBrain = await deps.opsRepository.getJobById(
       BRAIN_EMBEDDING_BACKFILL_JOB_ID,
     );
-    if (existingBrain?.status !== 'dead_lettered') {
+    const brainTarget = buildSystemJobTargetFromRouteKey({
+      routeKey: primary.jid,
+      group: primary.group,
+      label: 'primary',
+    });
+    if (!brainTarget) {
+      unresolvedTrustedJobs += 1;
+      logger.warn(
+        {
+          jobId: BRAIN_EMBEDDING_BACKFILL_JOB_ID,
+          routeKey: primary.jid,
+          folder: primary.group.folder,
+        },
+        'brain embedding backfill job route no longer matches a current registry route; skipping registration',
+      );
+    } else {
       const computedNextRun = computeNextJobRun(
         { schedule_type: 'cron', schedule_value: MEMORY_BACKFILL_CRON },
         nowIso,
       );
-      const target = buildCanonicalJobLifecycleTarget({
-        conversationJid: primary.jid,
-        workspaceKey: primary.group.folder,
-        threadId: null,
-        label: 'primary',
-      });
+      const target = brainTarget;
       const brainBackfillJob = {
         id: BRAIN_EMBEDDING_BACKFILL_JOB_ID,
         name: 'Brain Embedding Backfill',
@@ -398,6 +466,13 @@ export async function registerSystemJobs(
         >[0],
       );
     }
+  }
+
+  if (unresolvedTrustedJobs > 0) {
+    logger.warn(
+      { unresolvedTrustedJobs },
+      'one or more trusted system jobs could not be registered against a current registry route',
+    );
   }
 
   setSystemJobRegistrationSignature(deps.opsRepository, registrationSignature);
