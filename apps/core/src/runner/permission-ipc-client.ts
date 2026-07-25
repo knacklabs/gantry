@@ -5,14 +5,19 @@ import { randomUUID } from 'node:crypto';
 import { nowIso, nowMs } from '../shared/time/datetime.js';
 import { formatDuration } from '../shared/human-format.js';
 import {
+  buildPermissionResponseSignaturePayload,
   createSignedIpcRequestEnvelope,
   hasValidIpcResponseSignature,
 } from '../shared/ipc-signing.js';
 import { isPlainObject } from '../shared/object.js';
 import { persistentPermissionUpdates } from '../shared/permission-tool-rules.js';
 import { AUTO_PERMISSION_CLASSIFIER_WAIT_MS } from '../shared/permission-mode.js';
+import { NO_PERMISSION_TIMEOUT_MS } from '../shared/permission-timeout.js';
 import type { SemanticCapabilityDefinition } from '../shared/semantic-capabilities.js';
-import { waitForIpcResponseFile } from './ipc-response-wait.js';
+import {
+  DEFAULT_IPC_RESPONSE_POLL_MS,
+  waitForIpcResponseFile,
+} from './ipc-response-wait.js';
 
 // Provider-neutral file-IPC permission-approval client. Writes a signed
 // permission-request JSON under <workspaceIpcDir>/permission-requests/<id>.json
@@ -42,6 +47,7 @@ export interface PermissionIpcRuntimeEnv {
   ipcResponseKeyId: string;
   agentRunHandle?: string;
   permissionRequestTimeoutMs: number;
+  permissionLane?: 'interactive' | 'autonomous';
   permissionMode?: 'ask' | 'auto' | 'auto_strict';
   senderId?: string;
   senderIsControlApprover?: boolean;
@@ -54,6 +60,14 @@ export interface PermissionDecisionResult {
   mode?: 'allow_once' | 'allow_persistent_rule' | 'cancel';
   decidedBy?: string;
   reason?: string;
+  risk_level?: 'low' | 'medium' | 'high' | 'critical';
+  risk_category?:
+    | 'destructive'
+    | 'privileged'
+    | 'secret'
+    | 'network'
+    | 'filesystem'
+    | 'benign';
   updatedPermissions?: unknown[];
   decisionClassification?: 'user_temporary' | 'user_permanent' | 'user_reject';
 }
@@ -81,6 +95,7 @@ export interface PermissionApprovalRequestOptions {
   semanticCapabilityDefinitions?: Record<string, SemanticCapabilityDefinition>;
   targetJid?: string;
   threadId?: string;
+  signal?: AbortSignal;
 }
 
 export async function requestPermissionApprovalViaIpc(
@@ -92,6 +107,8 @@ export async function requestPermissionApprovalViaIpc(
     const agentId = options.agentId?.trim() || env.agentId;
     const targetJid = options.targetJid?.trim() || env.chatJid;
     const agentFolder = options.agentFolder;
+    const permissionLane =
+      env.permissionLane === 'interactive' ? 'interactive' : 'autonomous';
     const workspaceIpcDir = env.resolveWorkspaceIpcDir(agentFolder);
     const permissionRequestsDir = path.join(
       workspaceIpcDir,
@@ -107,6 +124,15 @@ export async function requestPermissionApprovalViaIpc(
     const responseNonce = randomUUID();
     const requestPath = path.join(permissionRequestsDir, `${requestId}.json`);
     const requestTmpPath = `${requestPath}.tmp`;
+    const autoClassifierWait =
+      permissionLane === 'autonomous' &&
+      env.permissionRequestTimeoutMs <= NO_PERMISSION_TIMEOUT_MS &&
+      (env.permissionMode === 'auto' || env.permissionMode === 'auto_strict');
+    const waitMs = autoClassifierWait
+      ? AUTO_PERMISSION_CLASSIFIER_WAIT_MS
+      : env.permissionRequestTimeoutMs;
+    const deadline =
+      waitMs > NO_PERMISSION_TIMEOUT_MS ? nowMs() + waitMs : undefined;
     const payload = {
       requestId,
       appId,
@@ -158,7 +184,8 @@ export async function requestPermissionApprovalViaIpc(
       ...(env.turnIntentSummary
         ? { turnIntentSummary: env.turnIntentSummary.slice(0, 1_500) }
         : {}),
-      unattended: env.permissionRequestTimeoutMs <= 0,
+      permissionLane,
+      unattended: permissionLane === 'autonomous',
       context: {
         appId,
         ...(agentId ? { agentId } : {}),
@@ -182,14 +209,17 @@ export async function requestPermissionApprovalViaIpc(
       },
       timestamp: nowIso(),
     };
-    const envelope = createSignedIpcRequestEnvelope(env.ipcAuthToken, payload);
+    const envelope = createSignedIpcRequestEnvelope(env.ipcAuthToken, payload, {
+      separateAuthExpiry: true,
+    });
     fs.writeFileSync(requestTmpPath, JSON.stringify(envelope, null, 2));
     fs.renameSync(requestTmpPath, requestPath);
 
-    const autoClassifierWait =
-      env.permissionRequestTimeoutMs <= 0 &&
-      (env.permissionMode === 'auto' || env.permissionMode === 'auto_strict');
-    if (env.permissionRequestTimeoutMs <= 0 && !autoClassifierWait) {
+    if (
+      permissionLane === 'autonomous' &&
+      env.permissionRequestTimeoutMs <= NO_PERMISSION_TIMEOUT_MS &&
+      !autoClassifierWait
+    ) {
       return {
         approved: false,
         reason:
@@ -199,17 +229,26 @@ export async function requestPermissionApprovalViaIpc(
     }
 
     const responsePath = path.join(permissionResponsesDir, `${requestId}.json`);
-    const waitMs = autoClassifierWait
-      ? AUTO_PERMISSION_CLASSIFIER_WAIT_MS
-      : env.permissionRequestTimeoutMs;
-    const deadline = nowMs() + waitMs;
-    if (await waitForIpcResponseFile({ responsePath, deadlineMs: deadline })) {
+    if (
+      await waitForPermissionResponse({
+        responsePath,
+        deadlineMs: deadline,
+        ...(options.signal ? { signal: options.signal } : {}),
+      })
+    ) {
       return readPermissionResponse({
         responsePath,
         requestId,
         responseNonce,
         verifyKey: env.ipcResponseVerifyKey,
       });
+    }
+    if (options.signal?.aborted) {
+      return {
+        approved: false,
+        reason: 'Permission request cancelled.',
+        decisionClassification: 'user_reject',
+      };
     }
     return {
       approved: false,
@@ -225,6 +264,38 @@ export async function requestPermissionApprovalViaIpc(
           : 'Permission request failed',
     };
   }
+}
+
+async function waitForPermissionResponse(input: {
+  responsePath: string;
+  deadlineMs?: number;
+  signal?: AbortSignal;
+}): Promise<boolean> {
+  if (!input.signal) {
+    return waitForIpcResponseFile({
+      responsePath: input.responsePath,
+      deadlineMs: input.deadlineMs ?? Number.POSITIVE_INFINITY,
+    });
+  }
+  while (!input.signal.aborted) {
+    const startedAt = nowMs();
+    if (input.deadlineMs !== undefined && startedAt >= input.deadlineMs) {
+      return false;
+    }
+    const pollDeadline = Math.min(
+      input.deadlineMs ?? Number.POSITIVE_INFINITY,
+      startedAt + DEFAULT_IPC_RESPONSE_POLL_MS,
+    );
+    if (
+      await waitForIpcResponseFile({
+        responsePath: input.responsePath,
+        deadlineMs: pollDeadline,
+      })
+    ) {
+      return true;
+    }
+  }
+  return false;
 }
 
 function readPermissionResponse(input: {
@@ -243,45 +314,19 @@ function readPermissionResponse(input: {
     ) {
       return { approved: false, reason: 'Malformed permission response' };
     }
-    const responsePayload: Record<string, unknown> = {
-      requestId: input.requestId,
-      responseNonce: input.responseNonce,
-      approved: Boolean((raw as { approved?: unknown }).approved),
-      ...(typeof (raw as { mode?: unknown }).mode === 'string'
-        ? { mode: (raw as { mode: string }).mode }
-        : {}),
-      ...(typeof (raw as { decidedBy?: unknown }).decidedBy === 'string'
-        ? { decidedBy: (raw as { decidedBy: string }).decidedBy }
-        : {}),
-      ...(typeof (raw as { reason?: unknown }).reason === 'string'
-        ? { reason: (raw as { reason: string }).reason }
-        : {}),
-      ...(Array.isArray(
-        (raw as { updatedPermissions?: unknown }).updatedPermissions,
-      )
-        ? {
-            updatedPermissions: (raw as { updatedPermissions: unknown[] })
-              .updatedPermissions,
-          }
-        : {}),
-      ...(typeof (raw as { decisionClassification?: unknown })
-        .decisionClassification === 'string'
-        ? {
-            decisionClassification: (raw as { decisionClassification: string })
-              .decisionClassification,
-          }
-        : {}),
-    };
+    const responsePayload = buildPermissionResponseSignaturePayload(raw);
     if (
       (raw as { responseNonce?: unknown }).responseNonce !== input.responseNonce
     ) {
+      return { approved: false, reason: 'Malformed permission response' };
+    }
+    if (typeof responsePayload.approved !== 'boolean') {
       return { approved: false, reason: 'Malformed permission response' };
     }
     if (
       !hasValidIpcResponseSignature(
         input.verifyKey,
         raw as Record<string, unknown>,
-        responsePayload,
       )
     ) {
       return {
@@ -322,6 +367,12 @@ function readPermissionResponse(input: {
         typeof responsePayload.reason === 'string'
           ? responsePayload.reason
           : undefined,
+      risk_level: isPermissionRiskLevel(responsePayload.risk_level)
+        ? responsePayload.risk_level
+        : undefined,
+      risk_category: isPermissionRiskCategory(responsePayload.risk_category)
+        ? responsePayload.risk_category
+        : undefined,
       mode,
       updatedPermissions: persistentPermissionUpdates(
         sanitizedDecision,
@@ -337,4 +388,28 @@ function readPermissionResponse(input: {
           : 'Failed to read permission response',
     };
   }
+}
+
+function isPermissionRiskLevel(
+  value: unknown,
+): value is NonNullable<PermissionDecisionResult['risk_level']> {
+  return (
+    value === 'low' ||
+    value === 'medium' ||
+    value === 'high' ||
+    value === 'critical'
+  );
+}
+
+function isPermissionRiskCategory(
+  value: unknown,
+): value is NonNullable<PermissionDecisionResult['risk_category']> {
+  return (
+    value === 'destructive' ||
+    value === 'privileged' ||
+    value === 'secret' ||
+    value === 'network' ||
+    value === 'filesystem' ||
+    value === 'benign'
+  );
 }

@@ -8,6 +8,7 @@ import {
   validateIpcRequestFreshness,
   verifyIpcRequestPayload,
 } from '../infrastructure/ipc/request-signing.js';
+import { ipcInteractionAuthValidationOptions } from '../shared/ipc-interaction-lifetime.js';
 import { nowMs } from '../shared/time/datetime.js';
 import { isPlainObject, toTrimmedString } from '../shared/object.js';
 import {
@@ -499,6 +500,10 @@ export function validateIpcAuthRequest(
   raw: Record<string, unknown>,
   sourceAgentFolder: string,
   label: string,
+  options?: {
+    extendedAuthPurpose: 'unbounded-interaction' | 'cancellation-retention';
+    extendedMaxAgeMs: number;
+  },
 ): IpcThreadBinding {
   const binding = readTrustedThreadBinding(raw, label);
   const signature = toTrimmedString(raw.signature, { maxLen: 512 }) || '';
@@ -513,20 +518,55 @@ export function validateIpcAuthRequest(
   if (!verifyIpcRequestPayload(requestSigningKey, payload, signature)) {
     throw new Error(`Invalid ${label} signature`);
   }
-  const freshness = validateIpcRequestFreshness(payload);
+  const maxAgeMs =
+    options && payload.authPurpose === options.extendedAuthPurpose
+      ? options.extendedMaxAgeMs
+      : IPC_REQUEST_MAX_AGE_MS;
+  const validationNowMs = nowMs();
+  if (typeof payload.authExpiresAt === 'string') {
+    const authIssuedAtMs =
+      typeof payload.authIssuedAt === 'string'
+        ? Date.parse(payload.authIssuedAt)
+        : Number.NaN;
+    const authExpiresAtMs = Date.parse(payload.authExpiresAt);
+    if (
+      !Number.isFinite(authIssuedAtMs) ||
+      !Number.isFinite(authExpiresAtMs) ||
+      authIssuedAtMs > validationNowMs ||
+      authExpiresAtMs - authIssuedAtMs > maxAgeMs
+    ) {
+      throw new Error(`Invalid ${label} freshness: expiresAt exceeds max age`);
+    }
+  }
+  const freshness = validateIpcRequestFreshness(
+    payload,
+    validationNowMs,
+    maxAgeMs,
+  );
   if (!freshness.ok) {
     throw new Error(`Invalid ${label} freshness: ${freshness.reason}`);
   }
   const requestId = toTrimmedString(payload.requestId, { maxLen: 128 });
   if (requestId) {
     const replayKey = `${sourceAgentFolder}:${binding.authThreadId || ''}:${requestId}`;
-    reserveFreshIpcRequestId(
-      replayKey,
-      nowMs() + IPC_REQUEST_MAX_AGE_MS,
-      label,
-    );
+    reserveFreshIpcRequestId(replayKey, nowMs() + maxAgeMs, label);
   }
   return binding;
+}
+
+export function validateInteractionIpcAuthRequest(
+  raw: Record<string, unknown>,
+  sourceAgentFolder: string,
+  label: string,
+): IpcThreadBinding {
+  // Only signed interactive permission/question requests may outlive the
+  // ordinary five-minute bound; cancellations use their own explicit purpose.
+  return validateIpcAuthRequest(
+    raw,
+    sourceAgentFolder,
+    label,
+    ipcInteractionAuthValidationOptions(raw.permissionLane),
+  );
 }
 
 export function validateBrowserIpcAuthRequest(

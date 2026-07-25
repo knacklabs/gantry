@@ -12,6 +12,7 @@ import {
   PermissionApprovalRequest,
   PermissionCallbackScope,
   RichInteractionRequest,
+  UserQuestionCancellation,
   UserQuestionRequest,
 } from '../../domain/types.js';
 import { resolveWorkspaceFolderPath } from '../../platform/workspace-folder.js';
@@ -33,6 +34,10 @@ import {
 } from './native-stream.js';
 import { writeSlackAttachmentResponse } from './attachment-download.js';
 import type { DurableQuestionCallback } from '../../application/interactions/pending-interaction-durability.js';
+import {
+  cancelMatchingPendingQuestions,
+  type InteractionCancellationResult,
+} from '../interaction-settlement.js';
 
 interface SlackAttachmentDownload {
   filePath: string;
@@ -76,7 +81,7 @@ export interface PendingPermissionPrompt {
   approvalContextJid?: string;
   request: PermissionApprovalRequest;
   messageTs: string;
-  timer: ReturnType<typeof setTimeout>;
+  timer?: ReturnType<typeof setTimeout>;
   resolve: (decision: PermissionApprovalDecision) => void;
   settled: boolean;
 }
@@ -179,6 +184,27 @@ export abstract class SlackChannelState {
       if (pending.timer) clearTimeout(pending.timer);
       this.pendingUserQuestions.delete(key);
     }
+  }
+
+  async cancelPendingQuestion(
+    cancellation: UserQuestionCancellation,
+  ): Promise<InteractionCancellationResult> {
+    return cancelMatchingPendingQuestions({
+      cancellation,
+      pending: this.pendingUserQuestions.values(),
+      request: (pending) => ({
+        requestId: pending.requestId,
+        sourceAgentFolder: pending.sourceAgentFolder,
+        appId: pending.callback.scope.appId,
+      }),
+      settle: (pending, reason) =>
+        this.finalizeUserQuestionPrompt(
+          pending,
+          pending.question.multiSelect ? [] : '',
+          undefined,
+          reason,
+        ),
+    });
   }
 
   constructor(botToken: string, appToken: string, opts: ChannelOpts) {

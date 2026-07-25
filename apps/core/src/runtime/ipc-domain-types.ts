@@ -1,9 +1,11 @@
 import { AvailableGroup, spawnAgent } from './agent-spawn.js';
 import {
   PermissionApprovalDecision,
+  PermissionApprovalCancellation,
   PermissionApprovalRequest,
   RichInteractionRequest,
   ConversationRoute,
+  UserQuestionCancellation,
   UserQuestionRequest,
   UserQuestionResponse,
 } from '../domain/types.js';
@@ -68,6 +70,12 @@ export interface IpcDeps {
   requestPermissionApproval: (
     request: PermissionApprovalRequest,
   ) => Promise<PermissionApprovalDecision>;
+  cancelPermissionApproval?: (
+    cancellation: PermissionApprovalCancellation,
+  ) => Promise<'settled' | 'queued' | 'not_found'>;
+  cancelUserQuestion?: (
+    cancellation: UserQuestionCancellation,
+  ) => Promise<'settled' | 'queued' | 'not_found'>;
   isControlApproverAllowed?: (input: {
     conversationJid: string;
     providerAccountId?: string;

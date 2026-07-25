@@ -46,6 +46,7 @@ import type {
   McpCompatibleToolResult,
 } from './contracts.js';
 import { coordinateCoreToolPermission } from './core-tool-permission-coordinator.js';
+import { formatPermissionDeniedMessage } from '../../shared/permission-decision-message.js';
 
 export type {
   CoreToolDefinition,
@@ -401,7 +402,7 @@ export function createCoreToolRegistry(deps: CoreToolRegistryDeps): {
         }
       }
       const gate = await gateCoreTool(name, parsed.data, deps, id);
-      if (gate) return gate;
+      if (gate?.denied) return gate.denied;
       try {
         const result = await tool.handler(parsed.data, context);
         if (!result.isError) {
@@ -411,13 +412,18 @@ export function createCoreToolRegistry(deps: CoreToolRegistryDeps): {
           }
           if (gateName) deps.context.toolSuccessLedger?.recordSuccess(gateName);
         }
-        return result;
+        return gate?.approvalContext
+          ? withPermissionApprovalContext(result, gate.approvalContext)
+          : result;
       } catch (error) {
-        return errorResult(
+        const result = errorResult(
           error instanceof Error ? error.message : String(error),
           'transient',
           true,
         );
+        return gate?.approvalContext
+          ? withPermissionApprovalContext(result, gate.approvalContext)
+          : result;
       }
     },
   };
@@ -446,7 +452,10 @@ async function gateCoreTool(
   args: unknown,
   deps: CoreToolRegistryDeps,
   id: (prefix: string) => string,
-): Promise<McpCompatibleToolResult | null> {
+): Promise<{
+  denied?: McpCompatibleToolResult;
+  approvalContext?: string;
+} | null> {
   const gateName = coreToolGateName(name);
   if (!gateName) return null;
   const precheck = deps.evaluateToolPreChecks({
@@ -507,15 +516,19 @@ async function gateCoreTool(
     deps,
   });
   if (!coordinatedDecision.approved && precheck?.error) {
-    return errorResult(
-      precheck.error.message,
-      precheck.error.category,
-      precheck.error.isRetryable,
-    );
+    return {
+      denied: errorResult(
+        precheck.error.message,
+        precheck.error.category,
+        precheck.error.isRetryable,
+      ),
+    };
   }
   return coordinatedDecision.approved
-    ? null
-    : permissionDenied(coordinatedDecision.reason ?? 'request cancelled');
+    ? {
+        approvalContext: formatPermissionAllowedMessage(coordinatedDecision),
+      }
+    : { denied: permissionDenied(coordinatedDecision) };
 }
 
 function coreToolGateName(name: string): 'AgentDelegation' | null {
@@ -602,6 +615,38 @@ function errorResult(
   };
 }
 
-function permissionDenied(reason: string): McpCompatibleToolResult {
-  return errorResult(`Permission denied: ${reason}`, 'permission', false);
+function permissionDenied(
+  decision: PermissionApprovalDecision,
+): McpCompatibleToolResult {
+  const reason = decision.reason ?? 'request cancelled';
+  return errorResult(
+    formatPermissionDeniedMessage(decision, reason),
+    'permission',
+    false,
+  );
+}
+
+function formatPermissionAllowedMessage(
+  decision: PermissionApprovalDecision,
+): string | undefined {
+  if (
+    decision.decidedBy === 'birthright' ||
+    decision.decidedBy === 'deterministic_read_only'
+  ) {
+    return undefined;
+  }
+  if (!decision.decidedBy && !decision.risk_level) return undefined;
+  return formatPermissionDeniedMessage(decision, '')
+    .replace(/^Permission denied/, 'Permission allowed')
+    .replace(/: $/, '');
+}
+
+function withPermissionApprovalContext(
+  result: McpCompatibleToolResult,
+  approvalContext: string,
+): McpCompatibleToolResult {
+  return {
+    ...result,
+    content: [{ type: 'text', text: approvalContext }, ...result.content],
+  };
 }

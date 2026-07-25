@@ -121,6 +121,15 @@ export interface NewMessageAttachment {
 }
 
 // --- Channel capability ports ---
+export type PermissionRiskLevel = 'low' | 'medium' | 'high' | 'critical';
+export type PermissionRiskCategory =
+  | 'destructive'
+  | 'privileged'
+  | 'secret'
+  | 'network'
+  | 'filesystem'
+  | 'benign';
+
 export interface PermissionApprovalRequest {
   requestId: string;
   appId?: string;
@@ -141,6 +150,8 @@ export interface PermissionApprovalRequest {
   responseKeyId?: string;
   decisionPolicy?: 'control_allowlist' | 'same_channel';
   unattended?: boolean;
+  permissionLane?: 'interactive' | 'autonomous';
+  expiresAt?: string;
   senderId?: string;
   turnIntentSummary?: string;
   toolName: string;
@@ -151,6 +162,8 @@ export interface PermissionApprovalRequest {
   displayName?: string;
   description?: string;
   decisionReason?: string;
+  risk_level?: PermissionRiskLevel;
+  risk_category?: PermissionRiskCategory;
   closestRule?: {
     rule: string;
     reason: string;
@@ -176,6 +189,14 @@ export interface PermissionApprovalRequest {
     requestIds: string[];
     rows: string[];
   };
+}
+
+export interface PermissionApprovalCancellation {
+  requestId: string;
+  appId?: string;
+  sourceAgentFolder: string;
+  threadId?: string;
+  reason?: string;
 }
 
 export type PermissionApprovalDecisionMode =
@@ -249,6 +270,8 @@ export interface PermissionApprovalDecision {
   mode?: PermissionApprovalDecisionMode;
   decidedBy?: string;
   reason?: string;
+  risk_level?: PermissionRiskLevel;
+  risk_category?: PermissionRiskCategory;
   updatedPermissions?: PermissionApprovalUpdate[];
   decisionClassification?: 'user_temporary' | 'user_permanent' | 'user_reject';
   batchDecision?: 'review_each';
@@ -274,6 +297,8 @@ export interface UserQuestionRequest {
   appId?: string;
   agentId?: string;
   providerAccountId?: string;
+  permissionLane?: 'interactive' | 'autonomous';
+  expiresAt?: string;
   jobId?: string;
   runId?: string;
   runLeaseToken?: string;
@@ -298,6 +323,14 @@ export interface UserQuestionResponse {
   requestId: string;
   answers: Record<string, string | string[]>;
   answeredBy?: string;
+}
+
+export interface UserQuestionCancellation {
+  requestId: string;
+  appId?: string;
+  sourceAgentFolder: string;
+  threadId?: string;
+  reason?: string;
 }
 
 export type InteractionSeverity =
@@ -608,6 +641,12 @@ export interface InteractionSurface {
     kind: 'permission' | 'question',
     request: PermissionApprovalRequest | UserQuestionRequest,
   ): void;
+  cancelPendingPermission?(
+    request: PermissionApprovalCancellation,
+  ): Promise<'settled' | 'already_decided' | 'retryable' | 'not_found'>;
+  cancelPendingQuestion?(
+    request: UserQuestionCancellation,
+  ): Promise<'settled' | 'already_decided' | 'retryable' | 'not_found'>;
 }
 
 export interface RichInteractionSurface {

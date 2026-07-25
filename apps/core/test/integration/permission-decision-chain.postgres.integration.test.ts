@@ -205,7 +205,8 @@ maybeDescribe('permission decision durable IPC chain (Postgres)', () => {
       ipcAuthToken: ipcAuth.authToken,
       ipcResponseVerifyKey: ipcAuth.responseVerifyKey,
       ipcResponseKeyId: ipcAuth.responseKeyId,
-      permissionRequestTimeoutMs: 10_000,
+      permissionRequestTimeoutMs: 0,
+      permissionLane: 'interactive',
       resolveWorkspaceIpcDir: (folder) => path.join(ipcBaseDir, folder),
       ...overrides,
     };
@@ -518,6 +519,7 @@ maybeDescribe('permission decision durable IPC chain (Postgres)', () => {
     }));
     const classifierConsult = vi.fn();
     const permissionEnv = clientEnv({
+      permissionLane: 'autonomous',
       permissionRequestTimeoutMs: 0,
       permissionMode: 'auto',
     });

@@ -56,6 +56,7 @@ export interface GantryFacadeToolsConfig {
   asyncTaskToolsEnabled?: boolean;
   delegateTaskTool?: StructuredToolInterface;
   cwd?: string;
+  signal?: AbortSignal;
 }
 
 const MAX_TEXT_OUTPUT_CHARS = 80_000;
@@ -106,6 +107,7 @@ function createOneFacadeTool(
           toolName,
           toolInput: input,
           threadId: config.gateContext.threadId,
+          ...(config.signal ? { signal: config.signal } : {}),
         },
       );
       if (!approval.approved) {

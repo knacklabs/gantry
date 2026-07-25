@@ -366,6 +366,8 @@ export async function processPermissionInteractionIpc(input: {
         mode: decision.mode,
         decidedBy: decision.decidedBy,
         reason: decision.reason,
+        risk_level: decision.risk_level,
+        risk_category: decision.risk_category,
         updatedPermissions: responsePermissionUpdates,
         decisionClassification: decision.decisionClassification,
       },

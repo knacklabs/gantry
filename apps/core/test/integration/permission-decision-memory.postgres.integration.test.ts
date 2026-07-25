@@ -36,6 +36,8 @@ maybeDescribe('Postgres permission decision memory', () => {
       effectHash: 'effect-abc',
       decision: 'allow',
       reason: 'routine read',
+      risk_level: 'low',
+      risk_category: 'filesystem',
       effectSchemaVersion: 1,
       railVersion: 3,
       provenance: 'classifier',
@@ -48,7 +50,12 @@ maybeDescribe('Postgres permission decision memory', () => {
         agentFolder: FOLDER,
         effectHash: 'effect-abc',
       }),
-    ).resolves.toEqual({ decision: 'allow', reason: 'routine read' });
+    ).resolves.toEqual({
+      decision: 'allow',
+      reason: 'routine read',
+      risk_level: 'low',
+      risk_category: 'filesystem',
+    });
 
     // A different hash is a genuine cache miss.
     await expect(
@@ -68,6 +75,7 @@ maybeDescribe('Postgres permission decision memory', () => {
       effectHash: 'effect-hydrate',
       decision: 'ask',
       reason: 'needs review',
+      risk_level: 'high',
       effectSchemaVersion: 1,
       railVersion: 3,
       provenance: 'classifier',
@@ -183,6 +191,7 @@ maybeDescribe('Postgres permission decision memory', () => {
         effectHash: 'effect-never',
         decision: 'allow',
         reason: 'human clicked allow once',
+        risk_level: 'low',
         effectSchemaVersion: 1,
         railVersion: 3,
         provenance: 'human',

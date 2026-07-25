@@ -62,6 +62,7 @@ function makeCallback(
     getNewSessionId: () => undefined,
     emitInteractionBoundary: vi.fn(),
     recordToolActivity: vi.fn(),
+    recordPermissionApprovalContext: vi.fn(),
     ...overrides,
   });
 }
@@ -313,6 +314,20 @@ describe('createCanUseToolCallback', () => {
     );
   });
 
+  it('passes the SDK tool-use abort signal into the permission wait', async () => {
+    const controller = new AbortController();
+
+    await makeCallback()(
+      'Bash',
+      { command: 'npm test' },
+      makePermissionOptions({ signal: controller.signal }) as never,
+    );
+
+    expect(permissionMock.requestPermissionApproval).toHaveBeenCalledWith(
+      expect.objectContaining({ signal: controller.signal }),
+    );
+  });
+
   it('passes the workspace folder under the shared permission-IPC key', async () => {
     permissionMock.requestPermissionApproval.mockResolvedValueOnce({
       approved: true,
@@ -332,6 +347,54 @@ describe('createCanUseToolCallback', () => {
       expect.objectContaining({ [WORKSPACE_FOLDER_OPTION_KEY]: '/repo' }),
     );
   });
+
+  it.each([
+    {
+      provenance: {},
+      message: 'Permission denied: operator denied',
+    },
+    {
+      provenance: { decidedBy: 'human' },
+      message: 'Permission denied (decided by: human): operator denied',
+    },
+    {
+      provenance: { decidedBy: 'human', risk_level: 'high' },
+      message:
+        'Permission denied (decided by: human; risk: high): operator denied',
+    },
+    {
+      provenance: {
+        decidedBy: 'human',
+        risk_level: 'high',
+        risk_category: 'secret',
+      },
+      message:
+        'Permission denied (decided by: human; risk: high/secret): operator denied',
+    },
+  ])(
+    'omits absent provenance from a denied tool result: $message',
+    async ({ provenance, message }) => {
+      permissionMock.requestPermissionApproval.mockResolvedValueOnce({
+        approved: false,
+        mode: 'cancel',
+        reason: 'operator denied',
+        ...provenance,
+      });
+
+      const result = await makeCallback()(
+        'Bash',
+        { command: 'npm test' },
+        makePermissionOptions() as never,
+      );
+
+      expect(result).toEqual(
+        expect.objectContaining({
+          behavior: 'deny',
+          message,
+        }),
+      );
+    },
+  );
 
   it('prompts when a yolo denylist command matches an existing allow rule', async () => {
     permissionMock.requestPermissionApproval.mockResolvedValueOnce({
@@ -673,6 +736,82 @@ describe('createCanUseToolCallback', () => {
       }),
     );
   });
+
+  it.each([
+    [
+      'classifier',
+      {
+        decidedBy: 'auto_classifier',
+        risk_level: 'medium',
+        risk_category: 'network',
+      },
+      'decided by: auto_classifier; risk: medium/network',
+    ],
+    ['human', { decidedBy: 'owner' }, 'decided by: owner'],
+  ] as const)(
+    'records %s approval provenance for model-visible post-tool context',
+    async (_label, approval, expectedProvenance) => {
+      permissionMock.requestPermissionApproval.mockResolvedValueOnce({
+        approved: true,
+        mode: 'allow_once',
+        ...approval,
+      });
+      const recordPermissionApprovalContext = vi.fn();
+      const canUseTool = makeCallback({
+        agentInput: {
+          runMode: 'normal',
+          isScheduledJob: true,
+          appId: 'default',
+          agentId: 'agent:test',
+          runId: 'run-1',
+          jobId: 'job-1',
+          chatJid: 'tg:test',
+          threadId: undefined,
+          allowedTools: [],
+        } as never,
+        recordPermissionApprovalContext,
+      });
+
+      await expect(
+        canUseTool(
+          'Bash',
+          { command: 'npm test' },
+          makePermissionOptions() as never,
+        ),
+      ).resolves.toEqual(expect.objectContaining({ behavior: 'allow' }));
+
+      expect(recordPermissionApprovalContext).toHaveBeenCalledWith(
+        'tool-use-1',
+        `Permission allowed (${expectedProvenance})`,
+      );
+      expect(recordPermissionApprovalContext.mock.calls[0]?.[1]).not.toContain(
+        'unknown',
+      );
+    },
+  );
+
+  it.each(['birthright', 'deterministic_read_only'])(
+    'keeps %s approvals silent in model-visible post-tool context',
+    async (decidedBy) => {
+      permissionMock.requestPermissionApproval.mockResolvedValueOnce({
+        approved: true,
+        mode: 'allow_once',
+        decidedBy,
+      });
+      const recordPermissionApprovalContext = vi.fn();
+      const canUseTool = makeCallback({ recordPermissionApprovalContext });
+
+      await expect(
+        canUseTool(
+          'Bash',
+          { command: 'npm test' },
+          makePermissionOptions() as never,
+        ),
+      ).resolves.toEqual(expect.objectContaining({ behavior: 'allow' }));
+
+      expect(recordPermissionApprovalContext).not.toHaveBeenCalled();
+    },
+  );
 
   it('denies exact facade access in autonomous jobs without permission prompts', async () => {
     const canUseTool = makeCallback({

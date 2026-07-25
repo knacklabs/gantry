@@ -1,4 +1,8 @@
-import type { PermissionApprovalDecisionMode } from '../types.js';
+import type {
+  PermissionApprovalDecisionMode,
+  PermissionRiskCategory,
+  PermissionRiskLevel,
+} from '../types.js';
 
 export type PermissionDecisionMemoryKind =
   | 'classifier_verdict'
@@ -18,6 +22,8 @@ export interface PermissionDecisionMemoryRow {
   effectHash?: string;
   decision?: PermissionDecisionMemoryEffect;
   reason: string;
+  risk_level?: PermissionRiskLevel;
+  risk_category?: PermissionRiskCategory;
   canonicalRoot?: string;
   principal?: string;
   effectSchemaVersion: number;
@@ -36,6 +42,8 @@ export interface PermissionDecisionMemoryPutInput {
   kind: PermissionDecisionMemoryKind;
   lookupIdentity: string;
   reason: string;
+  risk_level?: PermissionRiskLevel;
+  risk_category?: PermissionRiskCategory;
   effectSchemaVersion: number;
   railVersion: number;
   provenance: string;
@@ -53,6 +61,8 @@ export interface PermissionDecisionMemoryPutInput {
 export interface ClassifierVerdict {
   decision: 'allow' | 'ask';
   reason: string;
+  risk_level: PermissionRiskLevel;
+  risk_category?: PermissionRiskCategory;
 }
 
 /**
@@ -81,6 +91,8 @@ export interface PermissionDecisionMemoryRepository {
     effectHash: string;
     decision: 'allow' | 'ask';
     reason: string;
+    risk_level: PermissionRiskLevel;
+    risk_category?: PermissionRiskCategory;
     effectSchemaVersion: number;
     railVersion: number;
     provenance: string;

@@ -5,6 +5,7 @@ import {
   validateIpcRequestFreshness,
   verifyIpcRequestPayload,
 } from '@core/infrastructure/ipc/request-signing.js';
+import { createSignedIpcRequestEnvelope } from '@core/shared/ipc-signing.js';
 
 describe('ipc request signing', () => {
   it('verifies signed payloads and rejects tampering', () => {
@@ -87,5 +88,37 @@ describe('ipc request signing', () => {
         now,
       ),
     ).toEqual({ ok: false, reason: 'missing or invalid nonce' });
+  });
+
+  it('requires an explicit purpose before signing an extended auth lifetime', () => {
+    expect(() =>
+      createSignedIpcRequestEnvelope(
+        'key',
+        { requestId: 'req-extended' },
+        { separateAuthExpiry: true, authLifetimeMs: 24 * 60 * 60_000 },
+      ),
+    ).toThrow('Extended IPC auth lifetime requires an explicit purpose');
+  });
+
+  it('signs the explicit auth purpose and issuance time into the envelope', () => {
+    const envelope = createSignedIpcRequestEnvelope(
+      'key',
+      { requestId: 'req-interaction' },
+      {
+        separateAuthExpiry: true,
+        authLifetimeMs: 24 * 60 * 60_000,
+        authPurpose: 'unbounded-interaction',
+      },
+    );
+    const { signature, ...payload } = envelope;
+
+    expect(payload).toMatchObject({
+      authIssuedAt: expect.any(String),
+      authExpiresAt: expect.any(String),
+      authPurpose: 'unbounded-interaction',
+    });
+    expect(verifyIpcRequestPayload('key', payload, String(signature))).toBe(
+      true,
+    );
   });
 });

@@ -6,6 +6,7 @@ import {
   PermissionBatchCoalescer,
   createPermissionBatchRequest,
   decisionForPermissionInteraction,
+  formatPermissionBatchPromptText,
   isDenyOrCancelDecision,
   permissionBatchButtonLabel,
   permissionBatchRows,
@@ -69,6 +70,17 @@ describe('PermissionBatchCoalescer', () => {
       mode: 'allow_persistent_rule',
       batchDecision: 'review_each',
     });
+  });
+
+  it('does not advertise a reply deadline when the timeout is disabled', () => {
+    const batch = createPermissionBatchRequest(
+      [request('permission-1'), request('permission-2')],
+      ['1. Read file', '2. Run command'],
+    );
+
+    expect(formatPermissionBatchPromptText(batch, 0)).toBe(
+      '🔐 Review 2 permission requests\n\n1. Read file\n2. Run command',
+    );
   });
 
   it('includes the exact member request set in the canonical batch id', () => {
@@ -421,6 +433,121 @@ describe('PermissionBatchCoalescer', () => {
       expect.objectContaining({ decidedBy: 'owner' }),
     ]);
     expect(requestPermissionApproval).toHaveBeenCalledOnce();
+  });
+
+  it('routes a member cancellation to the active synthetic batch and rejects a later persistent approval', async () => {
+    vi.useFakeTimers();
+    let resolveBatchDecision!: (decision: PermissionApprovalDecision) => void;
+    let activeBatchRequest: PermissionApprovalRequest | undefined;
+    const requestPermissionApproval = vi.fn(
+      async (_jid, approvalRequest, onPromptDelivered) => {
+        activeBatchRequest = approvalRequest;
+        onPromptDelivered?.('batch-prompt');
+        return new Promise<PermissionApprovalDecision>((resolve) => {
+          resolveBatchDecision = resolve;
+        });
+      },
+    );
+    const cancelPendingPermission = vi.fn(async (cancellation) => {
+      resolveBatchDecision({
+        approved: false,
+        mode: 'cancel',
+        decidedBy: 'runtime',
+        reason: cancellation.reason,
+      });
+      return 'settled' as const;
+    });
+    const requester = createPermissionApprovalRequester({
+      findBoundChannel: () => ({}),
+      asPermissionApprovalSurface: () => ({
+        requestPermissionApproval,
+        cancelPendingPermission,
+      }),
+      interactionLifecycle: { logger: { error: vi.fn() } },
+    });
+    const first = request('permission-member-1');
+    const second = request('permission-member-2');
+    const decisions = [requester(first), requester(second)];
+
+    await vi.advanceTimersByTimeAsync(DEFAULT_PERMISSION_BATCH_WINDOW_MS);
+    expect(activeBatchRequest?.permissionBatch?.requestIds).toEqual([
+      first.requestId,
+      second.requestId,
+    ]);
+
+    await expect(
+      requester.cancel({
+        requestId: second.requestId,
+        appId: second.appId,
+        sourceAgentFolder: second.sourceAgentFolder,
+        reason: 'Permission request cancelled.',
+      }),
+    ).resolves.toBe('settled');
+
+    expect(cancelPendingPermission).toHaveBeenCalledWith(
+      expect.objectContaining({
+        requestId: activeBatchRequest?.requestId,
+        reason: 'Permission request cancelled.',
+      }),
+    );
+    await expect(Promise.all(decisions)).resolves.toEqual([
+      expect.objectContaining({ approved: false, mode: 'cancel' }),
+      expect.objectContaining({ approved: false, mode: 'cancel' }),
+    ]);
+
+    resolveBatchDecision({
+      approved: true,
+      mode: 'allow_persistent_rule',
+      decisionClassification: 'user_permanent',
+      updatedPermissions: [
+        {
+          type: 'add_permission',
+          rule: 'RunCommand(git status:*)',
+          behavior: 'allow',
+          destination: 'agent',
+        },
+      ],
+    });
+    await Promise.resolve();
+    await expect(decisions[1]).resolves.toMatchObject({
+      approved: false,
+      mode: 'cancel',
+    });
+  });
+
+  it('rejects a queued member cancellation before the coalesced batch prompt is delivered', async () => {
+    vi.useFakeTimers();
+    const requestPermissionApproval =
+      vi.fn<
+        (
+          jid: string,
+          request: PermissionApprovalRequest,
+        ) => Promise<PermissionApprovalDecision>
+      >();
+    const requester = createPermissionApprovalRequester({
+      findBoundChannel: () => ({}),
+      asPermissionApprovalSurface: () => ({ requestPermissionApproval }),
+      interactionLifecycle: { logger: { error: vi.fn() } },
+    });
+    const first = request('permission-queued-1');
+    const second = request('permission-queued-2');
+    const decisions = [requester(first), requester(second)];
+
+    await expect(
+      requester.cancel({
+        requestId: second.requestId,
+        appId: second.appId,
+        sourceAgentFolder: second.sourceAgentFolder,
+        reason: 'Permission request cancelled.',
+      }),
+    ).resolves.toBe('queued');
+    await vi.advanceTimersByTimeAsync(DEFAULT_PERMISSION_BATCH_WINDOW_MS);
+
+    await expect(Promise.all(decisions)).resolves.toEqual([
+      expect.objectContaining({ approved: false, mode: 'cancel' }),
+      expect.objectContaining({ approved: false, mode: 'cancel' }),
+    ]);
+    expect(requestPermissionApproval).not.toHaveBeenCalled();
   });
 
   it.each([

@@ -552,6 +552,7 @@ export abstract class TelegramChannelDelivery extends TelegramChannelConnect {
       botConnected: this.bot !== null,
       jid,
       request,
+      timeoutMs: PERMISSION_APPROVAL_TIMEOUT_MS,
       pendingPrompts: this.pendingPermissionPrompts,
       sendPrompt: (input) => this.sendPermissionPromptMessage(input),
       settlePrompt: (providerAlias, mode, approverRef, reason) =>

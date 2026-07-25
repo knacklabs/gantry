@@ -699,6 +699,7 @@ describe('Slack channel', () => {
     configurePendingInteractionDurability(null);
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
     fs.rmSync(slackWorkspace.root, { recursive: true, force: true });
   });
 
@@ -4781,8 +4782,79 @@ describe('Slack channel', () => {
     );
   });
 
+  it('settles a runner-cancelled Slack prompt and rejects a later persistent approval', async () => {
+    const channel = new SlackChannel(
+      'xoxb-token',
+      'xapp-token',
+      createOptsWithApproverHook(['U_APPROVER']) as any,
+    );
+    await channel.connect();
+    const request = {
+      requestId: 'perm-runner-cancelled',
+      appId: 'default',
+      sourceAgentFolder: 'slack_main',
+      targetJid: 'sl:C123',
+      toolName: 'Bash',
+      decisionOptions: ['allow_persistent_rule', 'cancel'] as const,
+    };
+    const repository = configureSlackPermissionRequest(request);
+    const approvalPromise = channel.requestPermissionApproval(
+      'sl:C123',
+      request,
+    );
+    await vi.waitFor(() =>
+      expect(repository.bindPendingPermissionPrompt).toHaveBeenCalledTimes(2),
+    );
+    const persistentAction = latestSlackPermissionActionValue(
+      'gantry_perm_decision_allow_persistent_rule',
+    );
+
+    await expect(
+      channel.cancelPendingPermission({
+        requestId: request.requestId,
+        appId: request.appId,
+        sourceAgentFolder: request.sourceAgentFolder,
+        reason: 'Permission request cancelled.',
+      }),
+    ).resolves.toBe('settled');
+    await expect(approvalPromise).resolves.toMatchObject({
+      approved: false,
+      mode: 'cancel',
+      decidedBy: 'runtime',
+      reason: 'Permission request cancelled.',
+    });
+
+    const respond = vi.fn().mockResolvedValue({});
+    await appRef.current.actionHandlers.get(
+      'gantry_perm_decision_allow_persistent_rule',
+    )?.({
+      ack: vi.fn().mockResolvedValue(undefined),
+      respond,
+      body: {
+        channel: { id: 'C123' },
+        response_url: 'https://hooks.slack.test/actions/late-persistent',
+        user: { id: 'U_APPROVER', name: 'Approver' },
+      },
+      action: { value: JSON.stringify(persistentAction) },
+    });
+
+    expect(respond).toHaveBeenCalledWith(
+      expect.objectContaining({
+        replace_original: true,
+        text: expect.stringMatching(/^Canceled:/),
+      }),
+    );
+    expect(repository.claimPendingPermissionCallback).toHaveBeenCalledOnce();
+    expect(repository.claimPendingPermissionCallback).toHaveBeenCalledWith({
+      claim: expect.objectContaining({
+        intent: expect.objectContaining({ mode: 'cancel' }),
+      }),
+    });
+  });
+
   it('preserves the winner when timeout fires after another callback claimed', async () => {
     vi.useFakeTimers();
+    vi.stubEnv('GANTRY_AUTONOMOUS_PERMISSION_TIMEOUT_MS', '300000');
     const channel = new SlackChannel(
       'xoxb-token',
       'xapp-token',
@@ -4793,6 +4865,7 @@ describe('Slack channel', () => {
       requestId: 'perm-timeout-claim-race',
       sourceAgentFolder: 'slack_main',
       toolName: 'Bash',
+      permissionLane: 'autonomous' as const,
     };
     const raceRepository = configureSlackPermissionRequest(request);
     const approvalPromise = channel.requestPermissionApproval(
@@ -5778,6 +5851,83 @@ describe('Slack channel', () => {
     expect(answer.answeredBy).toBe('Alice');
   });
 
+  it('settles a runner-cancelled Slack question and rejects a late answer', async () => {
+    defaultSlackPermissionApproverIds.add('U123');
+    const channel = new SlackChannel(
+      'xoxb-token',
+      'xapp-token',
+      createOptsWithApproverHook(['U123']) as any,
+    );
+    await channel.connect();
+    const request = {
+      requestId: 'userq-runner-cancelled',
+      sourceAgentFolder: 'slack_main',
+      targetJid: 'sl:C1234567890',
+      questions: [
+        {
+          header: 'Continue',
+          question: 'Continue?',
+          options: [
+            { label: 'Yes', description: 'Proceed' },
+            { label: 'No', description: 'Wait' },
+          ],
+          multiSelect: false,
+        },
+      ],
+    };
+    const answerPromise = requestSlackUserAnswer(
+      channel,
+      'sl:C1234567890',
+      request,
+    );
+    await flushSlackPromptRegistration();
+    const lateAction = latestSlackUserQuestionActionValue(
+      'gantry_userq_select',
+      0,
+    );
+
+    await expect(
+      channel.cancelPendingQuestion({
+        requestId: request.requestId,
+        sourceAgentFolder: request.sourceAgentFolder,
+        reason: 'Question cancelled. Nothing changed.',
+      }),
+    ).resolves.toBe('settled');
+    await expect(answerPromise).resolves.toEqual({
+      requestId: request.requestId,
+      answers: {},
+    });
+    expect(
+      answerPromise.repository.resolvePendingInteraction,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: 'cancelled',
+        resolution: {
+          answers: {},
+          reason: 'Question cancelled. Nothing changed.',
+        },
+      }),
+    );
+    expect(appRef.current.client.chat.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: expect.stringContaining('Question cancelled'),
+      }),
+    );
+
+    const actionHandler = slackActionHandler('gantry_userq_select_0');
+    await actionHandler?.({
+      ack: vi.fn().mockResolvedValue(undefined),
+      body: {
+        channel: { id: 'C1234567890' },
+        user: { id: 'U123', name: 'Alice' },
+      },
+      action: { value: JSON.stringify(lateAction) },
+    });
+    expect(
+      answerPromise.repository.resolvePendingInteraction,
+    ).toHaveBeenCalledTimes(1);
+  });
+
   it('resolves Slack user question from the Other free-text modal', async () => {
     defaultSlackPermissionApproverIds.add('U123');
     const channel = new SlackChannel(
@@ -6064,6 +6214,48 @@ describe('Slack channel', () => {
       completedQuestionIndexes: [0],
     });
     vi.useRealTimers();
+  });
+
+  it('does not schedule an interactive sentinel Slack question timer', async () => {
+    vi.useFakeTimers();
+    vi.stubEnv('GANTRY_INTERACTIVE_PERMISSION_TIMEOUT_MS', '0');
+    const channel = new SlackChannel(
+      'xoxb-token',
+      'xapp-token',
+      createOptsWithApproverHook(['U_APPROVER']) as any,
+    );
+    await channel.connect();
+
+    const answer = requestSlackUserAnswer(channel, 'sl:C1234567890', {
+      requestId: 'userq-interactive-no-timeout',
+      sourceAgentFolder: 'slack_main',
+      permissionLane: 'interactive',
+      questions: [
+        {
+          header: 'Continue',
+          question: 'Continue?',
+          options: [{ label: 'Yes', description: 'Proceed' }],
+          multiSelect: false,
+        },
+      ],
+    } as import('@core/domain/types.js').UserQuestionRequest & {
+      permissionLane: 'interactive';
+    });
+    await flushSlackPromptRegistration();
+
+    const questions = (channel as any).pendingUserQuestions as Map<string, any>;
+    const pending = [...questions.values()][0];
+    expect(pending.timer).toBeUndefined();
+    await vi.advanceTimersByTimeAsync(24 * 60 * 60_000);
+    expect(questions.size).toBe(1);
+
+    questions.clear();
+    pending.resolve({ selected: 'Yes', answeredBy: 'Alice' });
+    await expect(answer).resolves.toMatchObject({
+      answers: { 'Continue?': 'Yes' },
+      answeredBy: 'Alice',
+    });
+    await channel.disconnect();
   });
 
   it('cleans up pending Slack user-question prompts on disconnect', async () => {
@@ -7153,6 +7345,7 @@ describe('Slack channel', () => {
 
   it('resolves an ephemeral Slack permission prompt on timeout without message mutation', async () => {
     vi.useFakeTimers();
+    vi.stubEnv('GANTRY_AUTONOMOUS_PERMISSION_TIMEOUT_MS', '300000');
     const channel = new SlackChannel(
       'xoxb-token',
       'xapp-token',
@@ -7167,6 +7360,7 @@ describe('Slack channel', () => {
         requestId: 'req-timeout',
         sourceAgentFolder: 'test',
         toolName: 'shell',
+        permissionLane: 'autonomous',
       },
     );
     await flushSlackPromptRegistration();
@@ -7183,8 +7377,72 @@ describe('Slack channel', () => {
     vi.useRealTimers();
   });
 
+  it('does not schedule an interactive sentinel Slack permission timer', async () => {
+    vi.useFakeTimers();
+    vi.stubEnv('GANTRY_INTERACTIVE_PERMISSION_TIMEOUT_MS', '0');
+    const channel = new SlackChannel(
+      'xoxb-token',
+      'xapp-token',
+      createOptsWithApproverHook(['U_APPROVER']) as any,
+    );
+    await channel.connect();
+
+    const approval = requestSlackPermissionApproval(channel, 'sl:C1234567890', {
+      requestId: 'req-interactive-no-timeout',
+      sourceAgentFolder: 'test',
+      toolName: 'shell',
+      permissionLane: 'interactive',
+    });
+    await flushSlackPromptRegistration();
+
+    const prompts = (channel as any).pendingPermissionPrompts as Map<
+      string,
+      any
+    >;
+    const pending = [...prompts.values()][0];
+    expect(pending.timer).toBeUndefined();
+    await vi.advanceTimersByTimeAsync(24 * 60 * 60_000);
+    expect(prompts.size).toBe(1);
+
+    prompts.clear();
+    pending.resolve({ approved: false, mode: 'cancel', decidedBy: 'system' });
+    await approval;
+    await channel.disconnect();
+  });
+
+  it('uses the supplied finite timeout for a lane-less Slack permission', async () => {
+    vi.useFakeTimers();
+    const channel = new SlackChannel(
+      'xoxb-token',
+      'xapp-token',
+      createOptsWithApproverHook(['U_APPROVER']) as any,
+    );
+    await channel.connect();
+
+    const approval = requestSlackPermissionApproval(channel, 'sl:C1234567890', {
+      requestId: 'req-lane-less-fallback',
+      sourceAgentFolder: 'test',
+      toolName: 'shell',
+    });
+    await flushSlackPromptRegistration();
+
+    const prompts = (channel as any).pendingPermissionPrompts as Map<
+      string,
+      any
+    >;
+    const pending = [...prompts.values()][0];
+    expect(pending.timer).toBeDefined();
+
+    clearTimeout(pending.timer);
+    prompts.clear();
+    pending.resolve({ approved: false, mode: 'cancel', decidedBy: 'system' });
+    await approval;
+    await channel.disconnect();
+  });
+
   it('resolves the Slack waiter after retryable timeout claims exhaust bounded retries', async () => {
     vi.useFakeTimers();
+    vi.stubEnv('GANTRY_AUTONOMOUS_PERMISSION_TIMEOUT_MS', '300000');
     const channel = new SlackChannel(
       'xoxb-token',
       'xapp-token',
@@ -7195,6 +7453,7 @@ describe('Slack channel', () => {
       requestId: 'req-timeout-retryable',
       sourceAgentFolder: 'test',
       toolName: 'shell',
+      permissionLane: 'autonomous' as const,
     };
     const repository = configureSlackPermissionRequest(request);
     repository.claimPendingPermissionCallback.mockRejectedValue(
@@ -7221,6 +7480,7 @@ describe('Slack channel', () => {
 
   it('resolves permission prompt once even if timeout is reached later', async () => {
     vi.useFakeTimers();
+    vi.stubEnv('GANTRY_AUTONOMOUS_PERMISSION_TIMEOUT_MS', '300000');
     defaultSlackPermissionApproverIds.add('U_APPROVER');
     const channel = new SlackChannel(
       'xoxb-token',
@@ -7236,6 +7496,7 @@ describe('Slack channel', () => {
         requestId: 'req-1',
         sourceAgentFolder: 'test',
         toolName: 'shell',
+        permissionLane: 'autonomous',
       },
     );
     await flushSlackPromptRegistration();

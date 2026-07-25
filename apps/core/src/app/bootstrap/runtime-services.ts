@@ -102,6 +102,7 @@ import {
   startAsyncTaskRecoveryLoop,
 } from './runtime-services-async-task-recovery.js';
 import { wireInlineAgentLoopTools } from './inline-agent-loop-tools.js';
+import { createGroupSnapshotSync } from './runtime-services-group-snapshot-sync.js';
 export { stopAsyncTaskRecoveryLoop } from './runtime-services-async-task-recovery.js';
 type RuntimeBootstrapRepository = RuntimeAppRepository & RuntimeJobRepository;
 type LiveTurnCommandWakeupSourceFactory = () =>
@@ -189,42 +190,6 @@ function makeDefaultDeps(): RuntimeServicesDefaults {
     publishBrowserJobActivity: undefined,
     closeBrowserToolBackends: undefined,
     exit: (code: number) => process.exit(code),
-  };
-}
-function createGroupSnapshotSync(app: RuntimeApp, deps: Deps): () => void {
-  let syncInFlight: Promise<void> | undefined;
-  let syncDirty = false;
-  const runSync = async () => {
-    do {
-      syncDirty = false;
-      const [conversationRoutes, availableGroups] = [
-        app.getConversationRoutes(),
-        await app.getAvailableGroups(),
-      ];
-      const registeredJids = new Set(Object.keys(conversationRoutes));
-      await Promise.all(
-        Object.values(conversationRoutes).map((group) =>
-          deps.writeGroupsSnapshot(
-            group.folder,
-            availableGroups,
-            registeredJids,
-          ),
-        ),
-      );
-    } while (syncDirty);
-  };
-  return () => {
-    if (syncInFlight) {
-      syncDirty = true;
-      return;
-    }
-    syncInFlight = runSync()
-      .catch((err) =>
-        deps.logger.warn({ err }, 'Failed to write group snapshots'),
-      )
-      .finally(() => {
-        syncInFlight = undefined;
-      });
   };
 }
 let activeLiveTurnRecoveryLoop: LiveTurnRecoveryLoop | undefined;
@@ -491,6 +456,8 @@ export async function startRuntimeServices(
       getBrowserUsageSettings: () =>
         getRuntimeSettingsForConfig().browser.usage,
       requestPermissionApproval: inlineInteractions.requestPermissionApproval,
+      cancelPermissionApproval: channelWiring.cancelPermissionApproval,
+      cancelUserQuestion: channelWiring.cancelUserQuestion,
       isControlApproverAllowed: channelWiring.isControlApproverAllowed,
       requestUserAnswer: inlineInteractions.requestUserAnswer,
       renderAgentTodo: (jid, render, options) =>

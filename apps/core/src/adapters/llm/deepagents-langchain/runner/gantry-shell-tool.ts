@@ -181,6 +181,7 @@ export function createGantryShellTool(
         toolName: GANTRY_SHELL_TOOL_NAME,
         toolInput: policyInput,
         threadId: config.gateContext.threadId,
+        ...(config.signal ? { signal: config.signal } : {}),
       },
     );
     if (approval.approved) {

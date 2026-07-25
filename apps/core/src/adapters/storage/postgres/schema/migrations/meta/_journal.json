@@ -750,6 +750,13 @@
       "when": 1784900763000,
       "tag": "0109_live_admission_active_by_app",
       "breakpoints": true
+    },
+    {
+      "idx": 110,
+      "version": "7",
+      "when": 1784907743000,
+      "tag": "0110_permission_decision_memory_risk",
+      "breakpoints": true
     }
   ]
 }

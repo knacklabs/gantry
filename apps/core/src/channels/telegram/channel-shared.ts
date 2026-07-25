@@ -5,6 +5,7 @@ import { streamApi } from '@grammyjs/stream';
 import { PERMISSION_APPROVAL_TIMEOUT_MS } from '../../config/index.js';
 import { logger } from '../../infrastructure/logging/logger.js';
 import type { ChannelOpts } from '../channel-provider.js';
+import { resolveInteractionSettlementDelayMs } from '../interaction-settlement.js';
 import { parseTextStyles } from '../../messaging/text-styles.js';
 import { splitTelegramDeliveryTextWithLimits } from './channel-delivery-text-splitting.js';
 import { escapeTelegramMarkdownV2 } from './telegram-markdown-v2-escape.js';
@@ -100,7 +101,7 @@ export type PendingUserQuestionState = {
   selectedOptionIndexes: Set<number>;
   chatId: string;
   messageId: number;
-  timer: ReturnType<typeof setTimeout>;
+  timer?: ReturnType<typeof setTimeout>;
   resolve: (selection: {
     selected: string | string[];
     answeredBy?: string;
@@ -136,17 +137,30 @@ export function createPendingTelegramUserQuestion(input: {
   ) => Promise<void>;
 }): Promise<{ selected: string | string[]; answeredBy?: string }> {
   return new Promise((resolve) => {
-    const timer = setTimeout(() => {
-      const timedOut = input.pendingQuestions.get(input.pendingKey);
-      if (!timedOut) return;
-      // Fire-and-forget is intentional: timer callbacks must not block cleanup.
-      void input.finalize(
-        timedOut,
-        timedOut.multiSelect ? [] : '',
-        'system',
-        'timed out',
-      );
-    }, input.timeoutMs);
+    const { expiresAt, permissionLane } =
+      input.request as UserQuestionRequest & {
+        expiresAt?: unknown;
+        permissionLane?: 'interactive' | 'autonomous';
+      };
+    const settlementDelayMs = resolveInteractionSettlementDelayMs({
+      expiresAt,
+      permissionLane,
+      fallbackTimeoutMs: input.timeoutMs,
+    });
+    const timer =
+      settlementDelayMs !== undefined
+        ? setTimeout(() => {
+            const timedOut = input.pendingQuestions.get(input.pendingKey);
+            if (!timedOut) return;
+            // Fire-and-forget is intentional: timer callbacks must not block cleanup.
+            void input.finalize(
+              timedOut,
+              timedOut.multiSelect ? [] : '',
+              'system',
+              'timed out',
+            );
+          }, settlementDelayMs)
+        : undefined;
     input.pendingQuestions.set(input.pendingKey, {
       callbackId: input.callbackId,
       appId: input.request.appId || 'default',

@@ -525,6 +525,9 @@ async function runRunner(input: {
         GANTRY_APP_ID: 'default',
         GANTRY_AGENT_ID: 'agent:main_agent',
         GANTRY_CHAT_JID: String(input.stdin.chatJid ?? 'tg:group'),
+        GANTRY_PERMISSION_LANE: input.stdin.isScheduledJob
+          ? 'autonomous'
+          : 'interactive',
         GANTRY_WORKSPACE_KEY: String(input.stdin.workspaceFolder ?? 'group'),
         GANTRY_MEMORY_DEFAULT_SCOPE: 'group',
         GANTRY_INTERACTIVE_PERMISSION_TIMEOUT_MS: '1500',

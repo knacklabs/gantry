@@ -1,0 +1,65 @@
+import fs from 'fs';
+import path from 'path';
+
+// Interactive request authentication must remain valid for the entire durable
+// pending-interaction retention window. One bound drives both so they cannot
+// drift apart.
+export const IPC_INTERACTION_RETENTION_TTL_MS = 24 * 60 * 60_000;
+
+export function hasIpcRequestClaimMarker(requestPath: string): boolean {
+  const requestFile = path.basename(requestPath);
+  try {
+    return fs
+      .readdirSync(path.dirname(requestPath))
+      .some(
+        (file) =>
+          file.startsWith('.processing-') && file.endsWith(`-${requestFile}`),
+      );
+  } catch {
+    return false;
+  }
+}
+
+export function ipcInteractionAuthEnvelopeOptions(unbounded: boolean): {
+  separateAuthExpiry: true;
+  authLifetimeMs?: number;
+  authPurpose?: 'unbounded-interaction';
+} {
+  return {
+    separateAuthExpiry: true,
+    ...(unbounded
+      ? {
+          authLifetimeMs: IPC_INTERACTION_RETENTION_TTL_MS,
+          authPurpose: 'unbounded-interaction' as const,
+        }
+      : {}),
+  };
+}
+
+export function ipcInteractionAuthValidationOptions(permissionLane: unknown):
+  | {
+      extendedAuthPurpose: 'unbounded-interaction';
+      extendedMaxAgeMs: number;
+    }
+  | undefined {
+  return permissionLane === 'interactive'
+    ? {
+        extendedAuthPurpose: 'unbounded-interaction',
+        extendedMaxAgeMs: IPC_INTERACTION_RETENTION_TTL_MS,
+      }
+    : undefined;
+}
+
+export function ipcInteractionUnclaimableReason(
+  kind: 'permission' | 'question',
+): string {
+  return kind === 'permission'
+    ? 'Permission request could not be claimed before its authenticated ingestion window expired. Retry the live request.'
+    : 'Question could not be claimed before its authenticated ingestion window expired. Please ask again.';
+}
+
+export function ipcQuestionWaitExpiredReason(permissionLane: unknown): string {
+  return permissionLane === 'interactive'
+    ? ipcInteractionUnclaimableReason('question')
+    : 'Question expired. Please ask again if this is still needed.';
+}

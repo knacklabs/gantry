@@ -1,10 +1,11 @@
-import type { CanUseTool } from '@anthropic-ai/claude-agent-sdk';
+import type { CanUseTool, HookCallback } from '@anthropic-ai/claude-agent-sdk';
 import { denyMemoryBoundaryToolUse } from '../../../../shared/memory-boundary.js';
 import { denyProtectedCapabilityToolUse } from './protected-capability-guard.js';
 import { requestPermissionApproval } from './permission-callback.js';
 import type {
   AgentRunnerInput,
   AgentRunnerToolAttemptOutput,
+  PermissionDecision,
   RunnerCapabilitiesForPermission,
 } from './types.js';
 import { WORKSPACE_FOLDER_OPTION_KEY } from './types.js';
@@ -42,6 +43,7 @@ import { waitOnlyBashMonitoringDenial } from './wait-only-bash-guard.js';
 import { forceBackgroundNativeAgentInput } from './native-agent-tool-input.js';
 import { denyNonPromptableAutonomousRecovery } from './autonomous-permission-recovery.js';
 import { evaluateYoloModeDenylist } from '../../../../shared/yolo-mode-policy.js';
+import { formatPermissionDeniedMessage } from '../../../../shared/permission-decision-message.js';
 type ApprovalInput = Parameters<typeof requestPermissionApproval>[0];
 const WORKSPACE_FOLDER_KEY = WORKSPACE_FOLDER_OPTION_KEY as keyof ApprovalInput;
 const RAW_REQ = /^(Agent|AskUserQuestion|TodoWrite)$/;
@@ -59,7 +61,41 @@ interface CreateCanUseToolCallbackInput {
   getNewSessionId: () => string | undefined;
   emitInteractionBoundary: () => void;
   recordToolActivity: (toolName: string) => void;
+  recordPermissionApprovalContext?: (
+    toolUseID: string,
+    additionalContext: string,
+  ) => void;
 }
+
+export function createPermissionApprovalContextChannel() {
+  const pending = new Map<string, string>();
+  const postToolUse: HookCallback = async (hookInput, toolUseID) => {
+    if (
+      hookInput.hook_event_name !== 'PostToolUse' &&
+      hookInput.hook_event_name !== 'PostToolUseFailure'
+    ) {
+      return { continue: true };
+    }
+    const key = hookInput.tool_use_id || toolUseID;
+    const additionalContext = key ? pending.get(key) : undefined;
+    if (key) pending.delete(key);
+    return additionalContext
+      ? {
+          continue: true,
+          hookSpecificOutput: {
+            hookEventName: hookInput.hook_event_name,
+            additionalContext,
+          },
+        }
+      : { continue: true };
+  };
+  return {
+    record: (toolUseID: string, context: string) =>
+      pending.set(toolUseID, context),
+    postToolUse,
+  };
+}
+
 export function createCanUseToolCallback(
   input: CreateCanUseToolCallbackInput,
 ): CanUseTool {
@@ -424,6 +460,7 @@ export function createCanUseToolCallback(
           ? ['allow_once', 'allow_persistent_rule', 'cancel']
           : ['allow_once', 'cancel'],
         threadId: input.agentInput.threadId,
+        signal: permissionOpts.signal,
         [WORKSPACE_FOLDER_KEY]: input.workspaceFolder,
       } as unknown as ApprovalInput);
       if (decision.approved) {
@@ -439,14 +476,13 @@ export function createCanUseToolCallback(
           input.getNewSessionId,
           'permission_allowed',
           toolName,
-          {
-            ok: true,
-            mode: decision.mode,
-            decided_by: decision.decidedBy ?? null,
-          },
+          permissionAllowedActivityPayload(decision),
         );
-        log(
-          `Autonomous run permission approved for tool ${toolName} by ${decision.decidedBy || 'unknown'}`,
+        logPermissionApproval(toolName, decision, 'Autonomous run permission');
+        recordPermissionApprovalContext(
+          input,
+          permissionOpts.toolUseID,
+          decision,
         );
         return {
           behavior: 'allow' as const,
@@ -547,6 +583,7 @@ export function createCanUseToolCallback(
       semanticCapabilityDefinitions:
         permissionPlan.semanticCapabilityDefinitions,
       threadId: input.agentInput.threadId,
+      signal: permissionOpts.signal,
       [WORKSPACE_FOLDER_KEY]: input.workspaceFolder,
     } as unknown as ApprovalInput);
     if (decision.approved) {
@@ -562,14 +599,13 @@ export function createCanUseToolCallback(
         input.getNewSessionId,
         'permission_allowed',
         toolName,
-        {
-          ok: true,
-          mode: decision.mode,
-          decided_by: decision.decidedBy ?? null,
-        },
+        permissionAllowedActivityPayload(decision),
       );
-      log(
-        `Permission approved for tool ${toolName} by ${decision.decidedBy || 'unknown'}`,
+      logPermissionApproval(toolName, decision, 'Permission');
+      recordPermissionApprovalContext(
+        input,
+        permissionOpts.toolUseID,
+        decision,
       );
       return {
         behavior: 'allow' as const,
@@ -598,11 +634,71 @@ export function createCanUseToolCallback(
     );
     return {
       behavior: 'deny' as const,
-      message: `Permission denied: ${reason}`,
+      message: formatPermissionDeniedMessage(decision, reason),
       interrupt: false,
       ...(decision.decisionClassification
         ? { decisionClassification: decision.decisionClassification as never }
         : {}),
     };
   };
+}
+
+const SILENT_ALLOW_DECIDERS = new Set([
+  'birthright',
+  'deterministic_read_only',
+]);
+
+function permissionAllowedActivityPayload(
+  decision: PermissionDecision,
+): Record<string, unknown> {
+  const provenanceMessage = formatPermissionAllowedMessage(decision);
+  return {
+    ok: true,
+    mode: decision.mode,
+    ...(decision.decidedBy ? { decided_by: decision.decidedBy } : {}),
+    ...(decision.risk_level ? { risk_level: decision.risk_level } : {}),
+    ...(decision.risk_category
+      ? { risk_category: decision.risk_category }
+      : {}),
+    ...(provenanceMessage
+      ? { reason: provenanceMessage }
+      : decision.reason
+        ? { reason: decision.reason }
+        : {}),
+  };
+}
+
+function formatPermissionAllowedMessage(
+  decision: PermissionDecision,
+): string | undefined {
+  if (decision.decidedBy && SILENT_ALLOW_DECIDERS.has(decision.decidedBy)) {
+    return undefined;
+  }
+  if (!decision.decidedBy && !decision.risk_level) return undefined;
+  return formatPermissionDeniedMessage(decision, '')
+    .replace(/^Permission denied/, 'Permission allowed')
+    .replace(/: $/, '');
+}
+
+function logPermissionApproval(
+  toolName: string,
+  decision: PermissionDecision,
+  prefix: string,
+): void {
+  const provenanceMessage = formatPermissionAllowedMessage(decision);
+  log(
+    provenanceMessage
+      ? `${prefix} for tool ${toolName}: ${provenanceMessage}`
+      : `${prefix} approved for tool ${toolName}`,
+  );
+}
+
+function recordPermissionApprovalContext(
+  input: CreateCanUseToolCallbackInput,
+  toolUseID: string | undefined,
+  decision: PermissionDecision,
+): void {
+  const additionalContext = formatPermissionAllowedMessage(decision);
+  if (!toolUseID || !additionalContext) return;
+  input.recordPermissionApprovalContext?.(toolUseID, additionalContext);
 }

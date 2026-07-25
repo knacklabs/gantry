@@ -24,7 +24,10 @@ import type {
 } from './settings/runtime-settings-types.js';
 import { resolveConfiguredAgentRuntime } from './settings/runtime-settings-agent-runtime.js';
 import { isValidTimezone } from '../shared/timezone.js';
-import { resolvePermissionApprovalTimeoutMs } from '../shared/permission-timeout.js';
+import {
+  NO_PERMISSION_TIMEOUT_MS,
+  resolvePermissionApprovalTimeoutMs,
+} from '../shared/permission-timeout.js';
 import { effectiveYoloModeSettings } from '../shared/yolo-mode-policy.js';
 import { resolveEffectivePermissionMode } from '../shared/permission-mode.js';
 import {
@@ -245,6 +248,7 @@ export const STORAGE_POSTGRES_PLAINTEXT_HOST_ALLOWLIST =
   runtimeStorageConfig.postgresPlaintextHostAllowlist;
 export const PERMISSION_APPROVAL_TIMEOUT_MS =
   resolvePermissionApprovalTimeoutMs(process.env, envConfig);
+export { NO_PERMISSION_TIMEOUT_MS };
 export const AGENT_TIMEOUT = parseInt(
   process.env.AGENT_TIMEOUT || '1800000',
   10,

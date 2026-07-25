@@ -2,6 +2,7 @@ import type {
   MessageDeliveryResult,
   MessageActionCallbackInput,
   MessageSendOptions,
+  PermissionApprovalCancellation,
   PermissionApprovalDecision,
   PermissionApprovalRequest,
   ProgressUpdateOptions,
@@ -9,6 +10,7 @@ import type {
   StreamingChunkOptions,
   UserQuestionRequest,
   UserQuestionResponse,
+  UserQuestionCancellation,
 } from '../../domain/types.js';
 import type { RuntimeSettings } from '../../config/settings/runtime-settings.js';
 import type {
@@ -206,9 +208,15 @@ export interface ChannelWiring {
   requestPermissionApproval: (
     request: PermissionApprovalRequest,
   ) => Promise<PermissionApprovalDecision>;
+  cancelPermissionApproval: (
+    cancellation: PermissionApprovalCancellation,
+  ) => Promise<'settled' | 'queued' | 'not_found'>;
   requestUserAnswer: (
     request: UserQuestionRequest,
   ) => Promise<UserQuestionResponse>;
+  cancelUserQuestion: (
+    cancellation: UserQuestionCancellation,
+  ) => Promise<'settled' | 'queued' | 'not_found'>;
   renderAgentTodo: (
     jid: string,
     render: AgentTodoRender,

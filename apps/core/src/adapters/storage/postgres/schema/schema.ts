@@ -78,6 +78,8 @@ export const permissionDecisionMemoryPostgres = pgTable(
     effectHash: text('effect_hash'),
     decision: text('decision'),
     reason: text('reason').notNull(),
+    riskLevel: text('risk_level'),
+    riskCategory: text('risk_category'),
     canonicalRoot: text('canonical_root'),
     principal: text('principal'),
     effectSchemaVersion: integer('effect_schema_version').notNull(),

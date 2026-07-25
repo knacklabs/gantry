@@ -829,6 +829,9 @@ async function runRunner(
         GANTRY_WORKSPACE_GROUP_DIR: path.join(fixture.root, 'group'),
         GANTRY_WORKSPACE_EXTRA_DIR: path.join(fixture.root, 'extra'),
         GANTRY_EGRESS_PROXY_URL: 'http://127.0.0.1:18080/',
+        GANTRY_PERMISSION_LANE: input.isScheduledJob
+          ? 'autonomous'
+          : 'interactive',
         TEST_SDK_RECORD_PATH: fixture.recordPath,
         ...(typeof input.jobId === 'string'
           ? { GANTRY_JOB_ID: input.jobId }
@@ -1099,7 +1102,7 @@ describe('agent-runner IPC lifecycle', () => {
       });
       expect(call?.permissionDecision).toEqual({
         behavior: 'deny',
-        message: 'Permission denied: deny',
+        message: 'Permission denied (decided by: runner-test-admin): deny',
         interrupt: false,
       });
     },
@@ -3027,7 +3030,7 @@ describe('agent-runner IPC lifecycle', () => {
       expect(call?.permissionDecision).toEqual(
         expect.objectContaining({
           behavior: 'deny',
-          message: 'Permission denied: deny',
+          message: 'Permission denied (decided by: runner-test-admin): deny',
           interrupt: false,
           decisionClassification: 'user_reject',
         }),

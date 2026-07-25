@@ -5,6 +5,7 @@ import type {
 } from '../../domain/types.js';
 import { logger } from '../../infrastructure/logging/logger.js';
 import { incrementOperationalError } from '../../shared/operational-error-counters.js';
+import { resolveInteractionSettlementDelayMs } from '../interaction-settlement.js';
 import {
   buildPermissionPromptParts,
   formatPermissionPromptPartsText,
@@ -54,7 +55,10 @@ export async function requestSlackPermissionApproval(input: {
   timeoutMs: number;
   approverUserIds?: readonly string[];
   pendingPermissionPrompts: Map<string, PendingPermissionPrompt>;
-  timeoutPermissionPrompt: (providerAlias: string) => Promise<void>;
+  timeoutPermissionPrompt: (
+    providerAlias: string,
+    retryWindowMs: number,
+  ) => Promise<void>;
   onPromptDelivered?: (messageId: string) => void;
 }): Promise<PermissionApprovalDecision> {
   const parts = buildPermissionPromptParts(input.request, input.timeoutMs);
@@ -211,9 +215,23 @@ export async function requestSlackPermissionApproval(input: {
     const decision = new Promise<PermissionApprovalDecision>((resolve) => {
       resolveDecision = resolve;
     });
-    const timer = setTimeout(() => {
-      void input.timeoutPermissionPrompt(callback.providerAlias);
-    }, input.timeoutMs);
+    const { expiresAt } = input.request as PermissionApprovalRequest & {
+      expiresAt?: unknown;
+    };
+    const settlementDelayMs = resolveInteractionSettlementDelayMs({
+      expiresAt,
+      permissionLane: input.request.permissionLane,
+      fallbackTimeoutMs: input.timeoutMs,
+    });
+    const timer =
+      settlementDelayMs !== undefined
+        ? setTimeout(() => {
+            void input.timeoutPermissionPrompt(
+              callback.providerAlias,
+              settlementDelayMs,
+            );
+          }, settlementDelayMs)
+        : undefined;
     const livePending: PendingPermissionPrompt = {
       callback,
       channelId: input.channelId,

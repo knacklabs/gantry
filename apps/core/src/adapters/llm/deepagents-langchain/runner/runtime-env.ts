@@ -23,6 +23,10 @@ export function resolveWorkspaceIpcDir(agentFolder: string): string {
 
 export function buildPermissionIpcRuntimeEnv(): PermissionIpcRuntimeEnv {
   const jobId = readEnv('GANTRY_JOB_ID');
+  const permissionLane =
+    readEnv('GANTRY_PERMISSION_LANE') === 'interactive'
+      ? 'interactive'
+      : 'autonomous';
   return {
     appId: readEnv('GANTRY_APP_ID') || 'default',
     agentId: readEnv('GANTRY_AGENT_ID'),
@@ -37,9 +41,8 @@ export function buildPermissionIpcRuntimeEnv(): PermissionIpcRuntimeEnv {
     ipcResponseVerifyKey: readEnv('GANTRY_IPC_RESPONSE_VERIFY_KEY'),
     ipcResponseKeyId: readEnv('GANTRY_IPC_RESPONSE_KEY_ID'),
     agentRunHandle: readEnv('GANTRY_AGENT_RUN_HANDLE') || undefined,
-    permissionRequestTimeoutMs: getPermissionTimeoutMs(
-      jobId ? 'autonomous' : 'interactive',
-    ),
+    permissionRequestTimeoutMs: getPermissionTimeoutMs(permissionLane),
+    permissionLane,
     permissionMode:
       readEnv('GANTRY_PERMISSION_MODE') === 'auto' ? 'auto' : 'ask',
     senderId: jobId ? undefined : readEnv('GANTRY_MEMORY_USER_ID') || undefined,

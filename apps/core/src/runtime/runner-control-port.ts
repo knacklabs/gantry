@@ -4,6 +4,8 @@ export type RunnerControlRequestLane =
   | 'memory-requests'
   | 'browser-requests'
   | 'permission-requests'
+  | 'permission-cancellations'
+  | 'question-cancellations'
   | 'rich-interactions'
   | 'user-questions';
 

@@ -549,6 +549,7 @@ async function spawnAgentWithContext(
       agentAccessPreset: accessPreset,
       deploymentMode: getDeploymentMode(),
       permissionMode: input.permissionMode ?? 'ask',
+      permissionLane: input.isScheduledJob ? 'autonomous' : 'interactive',
       turnIntentSummary: input.prompt,
       permissionTimeoutMs: PERMISSION_APPROVAL_TIMEOUT_MS,
       egressProxyUrl: egressGateway.proxyUrl,

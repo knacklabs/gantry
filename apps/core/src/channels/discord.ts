@@ -1,11 +1,13 @@
 import {
   MessageDeliveryResult,
   MessageSendOptions,
+  PermissionApprovalCancellation,
   PermissionApprovalDecision,
   PermissionApprovalRequest,
   ProgressUpdateOptions,
   RichInteractionRequest,
   StreamingChunkOptions,
+  UserQuestionCancellation,
   UserQuestionRequest,
   UserQuestionResponse,
 } from '../domain/types.js';
@@ -441,6 +443,18 @@ export class DiscordChannel implements ChannelAdapter {
     onPromptDelivered?: (messageId: string) => void,
   ): Promise<UserQuestionResponse> {
     return this.interactions.requestUserAnswer(jid, request, onPromptDelivered);
+  }
+
+  async cancelPendingPermission(
+    cancellation: PermissionApprovalCancellation,
+  ): Promise<'settled' | 'already_decided' | 'retryable' | 'not_found'> {
+    return this.interactions.cancelPendingPermission(cancellation);
+  }
+
+  async cancelPendingQuestion(
+    cancellation: UserQuestionCancellation,
+  ): Promise<'settled' | 'already_decided' | 'retryable' | 'not_found'> {
+    return this.interactions.cancelPendingQuestion(cancellation);
   }
 
   dropPendingInteraction(

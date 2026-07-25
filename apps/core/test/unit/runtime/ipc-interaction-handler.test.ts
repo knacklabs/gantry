@@ -11,6 +11,7 @@ import { createIpcAuthEnvelope } from '@core/runtime/ipc-auth.js';
 import { agentIdForFolder } from '@core/domain/agent/agent-folder-id.js';
 import { resolveWorkspaceFolderPath } from '@core/platform/workspace-folder.js';
 import { semanticCapabilityInputSchema } from '@core/shared/semantic-capabilities.js';
+import { buildPermissionResponseSignaturePayload } from '@core/shared/ipc-signing.js';
 import { makeAgentThreadQueueKey } from '@core/shared/thread-queue-key.js';
 import type {
   PendingInteraction,
@@ -206,6 +207,8 @@ describe('ipc-interaction-handler', () => {
         requestId: 'perm-2',
         approved: false,
         reason: 'denied',
+        risk_level: 'critical',
+        risk_category: 'secret',
       },
       keys.privateKeyPem,
     );
@@ -221,11 +224,13 @@ describe('ipc-interaction-handler', () => {
       requestId: 'perm-2',
       approved: false,
       reason: 'denied',
+      risk_level: 'critical',
+      risk_category: 'secret',
     });
     expect(
       verifyIpcResponsePayload(
         keys.publicKeyPem,
-        { requestId: 'perm-2', approved: false, reason: 'denied' },
+        buildPermissionResponseSignaturePayload(payload),
         payload.signature,
       ),
     ).toBe(true);
@@ -921,63 +926,89 @@ describe('ipc-interaction-handler', () => {
     });
   });
 
-  it('routes an unattended mutation ASK rail through the classifier tail', async () => {
-    const classifierConsult = vi.fn(async () => ({
-      risk_level: 'high' as const,
-      reason: 'Destructive filesystem mutation.',
-      latencyMs: 1,
-    }));
-    const requestPermissionApproval = vi.fn();
-    const publishRuntimeEvent = vi.fn(async () => undefined);
-
-    const decision = await resolvePermissionIpcDecision({
-      request: {
-        requestId: 'perm-unattended-mutation',
-        sourceAgentFolder: 'main_agent',
-        targetJid: 'tg:unattended',
-        unattended: true,
-        jobId: 'job-1',
-        toolName: 'RunCommand',
-        toolInput: { command: 'rm report.txt' },
+  it.each([
+    {
+      label: 'with its structured category',
+      classifierDecision: {
+        risk_level: 'high' as const,
+        risk_category: 'destructive' as const,
+        reason: 'Destructive filesystem mutation.',
+        latencyMs: 1,
       },
-      sourceAgentFolder: 'main_agent',
-      deps: {
-        conversationRoutes: () => ({
-          'tg:unattended': {
-            folder: 'main_agent',
-            agentConfig: { permissionMode: 'auto' },
-            conversationKind: 'channel',
-          },
-        }),
-        requestPermissionApproval,
-        classifierConsult,
-        publishRuntimeEvent,
-        getPermissionRuntimeSettings: () => ({
-          agents: {
-            main_agent: {
-              capabilities: [{ id: 'shell.execute', version: '1' }],
-            },
-          },
-          permissions: { autoMode: {} },
-          memory: { llm: { models: { extractor: 'sonnet' } } },
-        }),
-      } as never,
-    });
+      expectedRiskCategory: 'destructive' as const,
+    },
+    {
+      label:
+        'with the advisory destructive rail category despite negated prose',
+      classifierDecision: {
+        risk_level: 'high' as const,
+        reason:
+          'This non-destructive check is outside the trusted root and does not delete data.',
+        latencyMs: 1,
+      },
+      expectedRiskCategory: 'destructive' as const,
+    },
+  ])(
+    'routes an unattended mutation ASK rail through the classifier tail $label',
+    async ({ classifierDecision, expectedRiskCategory }) => {
+      const classifierConsult = vi.fn(async () => classifierDecision);
+      const requestPermissionApproval = vi.fn();
+      const publishRuntimeEvent = vi.fn(async () => undefined);
 
-    expect(classifierConsult).toHaveBeenCalledOnce();
-    expect(requestPermissionApproval).not.toHaveBeenCalled();
-    expect(decision).toEqual({
-      approved: false,
-      mode: 'cancel',
-      decidedBy: 'runtime',
-      reason:
-        'Classifier requested human approval: Destructive filesystem mutation.',
-      decisionClassification: 'user_reject',
-    });
-    expect(publishRuntimeEvent).toHaveBeenCalledWith(
-      expect.objectContaining({ eventType: 'permission.classifier_decision' }),
-    );
-  });
+      const decision = await resolvePermissionIpcDecision({
+        request: {
+          requestId: 'perm-unattended-mutation',
+          sourceAgentFolder: 'main_agent',
+          targetJid: 'tg:unattended',
+          unattended: true,
+          jobId: 'job-1',
+          toolName: 'RunCommand',
+          toolInput: { command: 'rm report.txt' },
+        },
+        sourceAgentFolder: 'main_agent',
+        deps: {
+          conversationRoutes: () => ({
+            'tg:unattended': {
+              folder: 'main_agent',
+              agentConfig: { permissionMode: 'auto' },
+              conversationKind: 'channel',
+            },
+          }),
+          requestPermissionApproval,
+          classifierConsult,
+          publishRuntimeEvent,
+          getPermissionRuntimeSettings: () => ({
+            agents: {
+              main_agent: {
+                capabilities: [{ id: 'shell.execute', version: '1' }],
+              },
+            },
+            permissions: { autoMode: {} },
+            memory: { llm: { models: { extractor: 'sonnet' } } },
+          }),
+        } as never,
+      });
+
+      expect(classifierConsult).toHaveBeenCalledOnce();
+      expect(requestPermissionApproval).not.toHaveBeenCalled();
+      expect(decision).toEqual({
+        approved: false,
+        mode: 'cancel',
+        decidedBy: 'runtime',
+        reason: `Classifier requested human approval: ${classifierDecision.reason}`,
+        risk_level: 'high',
+        ...(expectedRiskCategory
+          ? { risk_category: expectedRiskCategory }
+          : {}),
+        decisionClassification: 'user_reject',
+      });
+      expect(publishRuntimeEvent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          eventType: 'permission.classifier_decision',
+        }),
+      );
+    },
+  );
 
   it('writes the classifier verdict back on a cache miss (attended auto allow)', async () => {
     const classifierConsult = vi.fn(async () => ({

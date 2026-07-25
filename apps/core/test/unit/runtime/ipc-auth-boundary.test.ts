@@ -1686,6 +1686,18 @@ describe('validateIpcAuthRequest', () => {
     ).toThrow(/replay/);
   });
 
+  it('keeps the five-minute freshness bound for ordinary IPC requests', () => {
+    const payload = {
+      requestId: 'ordinary-ipc-too-far',
+      nonce: randomUUID(),
+      authExpiresAt: new Date(Date.now() + 5 * 60_000 + 1).toISOString(),
+    };
+
+    expect(() =>
+      validateIpcAuthRequest(signedPayload(payload), 'team', 'permission IPC'),
+    ).toThrow(/expiresAt exceeds max age/);
+  });
+
   it('rejects a concurrent duplicate reservation for exactly one caller', () => {
     const duplicate = signedPayload({
       requestId: 'perm-concurrent',

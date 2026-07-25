@@ -3,6 +3,8 @@ import { decisionForMode } from './permission-decision.js';
 import type {
   PermissionApprovalDecision,
   PermissionApprovalRequest,
+  PermissionRiskCategory,
+  PermissionRiskLevel,
 } from './types.js';
 import {
   evaluateAutoPermissionReadOnlyGate,
@@ -29,25 +31,59 @@ export type PermissionDeterministicRailDecision =
   | {
       railOutcome: 'ask';
       reason: string;
+      railSignal: PermissionDeterministicRailSignal;
+      hardFloor?: true;
     }
   | (PermissionApprovalDecision & {
       railOutcome: 'allow' | 'deny';
     });
 
+export type PermissionDeterministicRailSignal =
+  | 'destructive'
+  | 'egress'
+  | 'privileged'
+  | 'secret_path'
+  | 'out_of_trusted_root';
+
+export interface PermissionDeterministicRailRisk {
+  level: PermissionRiskLevel;
+  category: PermissionRiskCategory;
+}
+
 const SHELL_TOOLS = new Set(['Bash', 'RunCommand']);
-// First-party gantry control-plane tools that are low-risk by construction:
-// the agent's own messaging/progress surface plus scheduler READS. Scheduler
-// mutations (run_now, create/update/pause/resume/delete_job, …) are absent by
-// design and fall through to the normal rails.
-const BENIGN_GANTRY_MCP_TOOLS = new Set([
-  'send_message',
-  'todo_update',
+const GANTRY_INPUT_INDEPENDENT_BIRTHRIGHT_TOOLS = new Set([
+  'ask_user_question',
+  'render_status',
+  'render_facts',
+  'render_list',
+  'render_table',
+  'render_form',
+  'render_media',
   'render_progress',
+  'task_get',
+  'task_list',
   'scheduler_list_jobs',
   'scheduler_list_runs',
   'scheduler_list_events',
   'scheduler_list_models',
   'scheduler_get_job',
+  'memory_search',
+  'brain_search',
+  'brain_query',
+  'continuity_summary',
+  'mcp_list_tools',
+  'mcp_search_tools',
+  'mcp_describe_tool',
+  'agent_profile_read',
+]);
+const GANTRY_INPUT_GATED_BIRTHRIGHT_TOOLS = new Set([
+  'send_message',
+  'todo_update',
+  'memory_save',
+  'brain_write',
+  'procedure_save',
+  'task_cancel',
+  'task_message',
 ]);
 const DESTRUCTIVE_EXECUTABLE =
   /^(?:dd|mkfs(?:\..+)?|rm|rmdir|shred|truncate|unlink)$/;
@@ -61,22 +97,39 @@ export function evaluatePermissionDeterministicRails(
   input: PermissionDeterministicRailsInput,
 ): PermissionDeterministicRailDecision | undefined {
   const { request } = input;
-  if (inputIsIncomplete(request)) {
-    return ask('Exact tool input is missing, redacted, or truncated.');
-  }
+  const gantryTool = /^mcp__gantry__(.+)$/.exec(request.toolName);
+  // INVARIANT (decision 0045): A/B tools are intentionally payload-independent.
+  // They only display to, or read state for, the trusted user, who sees the real
+  // execution input; engine redaction/truncation conceals nothing from that
+  // audience. Gating them would reintroduce the ask_user_question deadlock.
   if (
-    isBenignGantryTool(request.toolName) &&
-    !hasRiskRelevantSanitization(request)
+    gantryTool !== null &&
+    GANTRY_INPUT_INDEPENDENT_BIRTHRIGHT_TOOLS.has(gantryTool[1]!)
   ) {
-    return allow(
-      request,
-      `Benign first-party gantry control-plane tool ${request.toolName}.`,
+    return allow(request, 'Agent self-surface birthright.', 'birthright');
+  }
+  if (inputIsIncomplete(request)) {
+    return hardFloorAsk(
+      'Exact tool input is missing, redacted, or truncated.',
+      'privileged',
+    );
+  }
+  const isInputGatedBirthrightTool =
+    gantryTool !== null &&
+    GANTRY_INPUT_GATED_BIRTHRIGHT_TOOLS.has(gantryTool[1]!);
+  if (isInputGatedBirthrightTool && !hasRiskRelevantSanitization(request)) {
+    return allow(request, 'Agent self-surface birthright.', 'birthright');
+  }
+  if (isInputGatedBirthrightTool) {
+    return hardFloorAsk(
+      'Displayed tool input is sanitized or redacted.',
+      'secret_path',
     );
   }
   // Evaluate the 16K classifier view, not the 500-char display copy, so the
   // command we inspect matches the truncation signal inputIsIncomplete guards.
   const toolInput = request.classifierToolInput ?? request.toolInput;
-  if (!toolInput) return ask('Exact tool input is missing.');
+  if (!toolInput) return ask('Exact tool input is missing.', 'privileged');
 
   const readOnly = evaluateAutoPermissionReadOnlyGate({
     canonicalToolName: request.toolName,
@@ -90,23 +143,59 @@ export function evaluatePermissionDeterministicRails(
   }
 
   const command = commandText(toolInput);
-  if (!command) return ask('Exact shell command input is missing.');
+  if (!command)
+    return ask('Exact shell command input is missing.', 'privileged');
   const parsed = parseBashCommand(command);
-  if (!parsed.ok) return ask(`Shell input is unsupported: ${parsed.reason}`);
-  if (parsed.leaves.some(isInterpreterString)) {
-    return ask('An interpreter string requires approval.');
+  if (!parsed.ok) {
+    // If the deterministic parser cannot model the command, no downstream
+    // layer can bound its effect. It must escalate to a human and can never be
+    // deterministically or classifier-auto-allowed.
+    return hardFloorAsk(
+      `Shell input is unsupported: ${parsed.reason}`,
+      'privileged',
+    );
   }
-  if (
-    destructiveBashCommandHint(command) ||
-    parsed.leaves.some(isDestructiveLeaf)
-  ) {
-    return ask('Destructive command requires approval.');
+  // GOVERNING PRINCIPLE: A rail ASK is a HARD FLOOR whenever the command's
+  // effect cannot be DETERMINISTICALLY BOUNDED. Only bounded, inspectable
+  // effects may remain classifier-eligible.
+  if (parsed.leaves.some(isInterpreterString)) {
+    return hardFloorAsk(
+      'An interpreter string requires approval.',
+      'privileged',
+    );
+  }
+  const protectedPath = containsProtectedPath(
+    toolInput,
+    command,
+    parsed.leaves,
+  );
+  const destructiveHint = destructiveBashCommandHint(command);
+  if (destructiveHint || parsed.leaves.some(isDestructiveLeaf)) {
+    const hardFloor =
+      Boolean(destructiveHint) ||
+      parsed.leaves.some(isHardFloorDestructiveLeaf) ||
+      protectedPath;
+    return hardFloor
+      ? hardFloorAsk(
+          'Destructive command requires approval.',
+          protectedPath ? 'secret_path' : 'destructive',
+        )
+      : ask('Destructive command requires approval.', 'destructive');
+  }
+  if (protectedPath) {
+    return hardFloorAsk(
+      'Command references a credential, secret, or protected path.',
+      'secret_path',
+    );
+  }
+  if (parsed.leaves.some(isPrivilegedLeaf)) {
+    return hardFloorAsk('Privileged command requires approval.', 'privileged');
   }
   if (uploadsLocalFile(command)) {
-    return ask('Network command uploads local file content.');
-  }
-  if (containsProtectedPath(toolInput, command, parsed.leaves)) {
-    return ask('Command references a credential, secret, or protected path.');
+    return hardFloorAsk(
+      'Network command uploads local file content.',
+      'egress',
+    );
   }
   if (!readOnly.allowed) {
     const outside = outOfTrustedRootReason(
@@ -114,12 +203,33 @@ export function evaluatePermissionDeterministicRails(
       input.workspaceRoot,
       input.trustedRoots ?? [],
     );
-    if (outside) return ask(outside);
-  }
-  if (parsed.leaves.some(isPrivilegedLeaf)) {
-    return ask('Privileged command requires approval.');
+    if (outside) {
+      return (input.trustedRoots?.length ?? 0) > 0
+        ? hardFloorAsk(outside, 'out_of_trusted_root')
+        : ask(outside, 'out_of_trusted_root');
+    }
   }
   return readOnly.allowed ? allow(request, readOnly.reason) : undefined;
+}
+
+export function permissionRiskForDeterministicRailDecision(
+  decision: PermissionDeterministicRailDecision | undefined,
+): PermissionDeterministicRailRisk | undefined {
+  if (decision?.railOutcome !== 'ask') return undefined;
+  switch (decision.railSignal) {
+    case 'destructive':
+      return decision.hardFloor
+        ? { level: 'high', category: 'destructive' }
+        : { level: 'medium', category: 'destructive' };
+    case 'egress':
+      return { level: 'medium', category: 'network' };
+    case 'privileged':
+      return { level: 'high', category: 'privileged' };
+    case 'secret_path':
+      return { level: 'high', category: 'secret' };
+    case 'out_of_trusted_root':
+      return { level: 'medium', category: 'filesystem' };
+  }
 }
 
 /**
@@ -129,9 +239,6 @@ export function evaluatePermissionDeterministicRails(
  * tools, or any field for non-shell tools. With a classifier view, its existing
  * redaction/truncation metadata remains authoritative.
  *
- * SECURITY COUPLING: benign first-party MCP tools are a separate auto-allow
- * shortcut. That shortcut is gated on zero redaction/sanitization metadata, so
- * the classifier sees any request whose displayed input differs from execution.
  */
 function inputIsIncomplete(request: PermissionApprovalRequest): boolean {
   const ipc = request as PermissionApprovalRequest & {
@@ -170,11 +277,6 @@ function hasRiskRelevantSanitization(
   );
 }
 
-function isBenignGantryTool(toolName: string): boolean {
-  const match = /^mcp__gantry__(.+)$/.exec(toolName);
-  return match !== null && BENIGN_GANTRY_MCP_TOOLS.has(match[1]!);
-}
-
 function isInterpreterString(leaf: BashCommandLeaf): boolean {
   const executable = bashExecutableName(leaf.argv[0] ?? '');
   const args = leaf.argv.slice(1);
@@ -202,6 +304,12 @@ function isDestructiveLeaf(leaf: BashCommandLeaf): boolean {
     args.includes('-D') ||
     (args.includes('checkout') && args.includes('--')) ||
     args.some((arg) => /^(?:-f|--force(?:-with-lease)?)$/.test(arg))
+  );
+}
+
+function isHardFloorDestructiveLeaf(leaf: BashCommandLeaf): boolean {
+  return (
+    bashExecutableName(leaf.argv[0] ?? '') !== 'rm' && isDestructiveLeaf(leaf)
   );
 }
 
@@ -244,16 +352,27 @@ function stringValues(value: unknown): string[] {
   return Object.values(value).flatMap(stringValues);
 }
 
-function ask(reason: string): PermissionDeterministicRailDecision {
-  return { railOutcome: 'ask', reason };
+function ask(
+  reason: string,
+  railSignal: PermissionDeterministicRailSignal,
+): PermissionDeterministicRailDecision {
+  return { railOutcome: 'ask', reason, railSignal };
+}
+
+function hardFloorAsk(
+  reason: string,
+  railSignal: PermissionDeterministicRailSignal,
+): PermissionDeterministicRailDecision {
+  return { railOutcome: 'ask', reason, railSignal, hardFloor: true };
 }
 
 function allow(
   request: PermissionApprovalRequest,
   reason: string,
+  decidedBy = 'deterministic_read_only',
 ): PermissionDeterministicRailDecision {
   return {
-    ...decisionForMode(request, 'allow_once', 'deterministic_read_only'),
+    ...decisionForMode(request, 'allow_once', decidedBy),
     railOutcome: 'allow',
     reason,
   };

@@ -128,6 +128,10 @@ export async function coordinatePermissionDecision(
       effectHash: input.effectHash,
     });
     if (cached?.decision === 'allow') {
+      input.request.risk_level = cached.risk_level;
+      if (cached.risk_category) {
+        input.request.risk_category = cached.risk_category;
+      }
       return {
         ...decisionForMode(
           input.request,
@@ -135,6 +139,10 @@ export async function coordinatePermissionDecision(
           'cached_classifier_verdict',
         ),
         reason: cached.reason,
+        risk_level: cached.risk_level,
+        ...(cached.risk_category
+          ? { risk_category: cached.risk_category }
+          : {}),
       };
     }
   }
