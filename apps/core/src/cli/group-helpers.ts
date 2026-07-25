@@ -21,6 +21,7 @@ import { RuntimeGroupDb, openRuntimeGroupDb } from './runtime-group-db.js';
 import { normalizeTelegramChatJid } from './telegram.js';
 import { providerForJid } from '../channels/provider-registry.js';
 import { parseAgentThreadQueueKey } from '../shared/thread-queue-key.js';
+import { DEFAULT_AGENT_FOLDER } from './main-agent.js';
 
 export { formatAgentHarnessLine } from './group-engine.js';
 
@@ -160,6 +161,7 @@ export async function pruneDesiredStateAgent(input: {
   pruned: boolean;
   providerAccountsPruned: number;
   keptForDelegates?: string[];
+  keptAsDefault?: boolean;
   error?: string;
 }> {
   if (input.remainingRoutes > 0) {
@@ -170,6 +172,12 @@ export async function pruneDesiredStateAgent(input: {
     const previousSettings = structuredClone(settings);
     if (!settings.agents[input.folder]) {
       return { pruned: false, providerAccountsPruned: 0 };
+    }
+    // The default agent underpins runtime startup and reconciliation. Deleting
+    // its definition would leave the default-agent setting dangling, so removal
+    // is refused here for BOTH the route-scoped and route-less callers.
+    if (input.folder === DEFAULT_AGENT_FOLDER) {
+      return { pruned: false, providerAccountsPruned: 0, keptAsDefault: true };
     }
     // Routes are not the only liveness signal: another agent may still list
     // this one as a delegate. Deleting it would break delegation (or leave an

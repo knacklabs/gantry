@@ -63,6 +63,12 @@ export async function removeRoutelessAgent(input: {
     );
     return 1;
   }
+  if (pruned.keptAsDefault) {
+    p.log.error(
+      `Agent ${folder} is the default agent and cannot be removed. Point the default elsewhere first (gantry agent name ...).`,
+    );
+    return 1;
+  }
   if (pruned.keptForDelegates?.length) {
     p.log.warn(
       `Agent ${folder} is retained: still referenced as a delegate by ${pruned.keptForDelegates.join(', ')}.`,

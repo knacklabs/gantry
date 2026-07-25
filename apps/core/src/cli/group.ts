@@ -475,10 +475,8 @@ async function runRemove(runtimeHome: string, args: string[]): Promise<number> {
       );
     }
 
-    // Deleting the route is not durable on its own: desired-state
-    // reconciliation re-imports every settings.agents entry on reload/restart,
-    // so an agent whose definition survives comes back with its routes and
-    // system jobs. Drop the definition once its last route is gone.
+    // Route deletion alone is not durable -- reconciliation re-imports the
+    // agent from desired state. Drop the definition once its last route is gone.
     const remainingRoutes = Object.entries(
       await db.getAllConversationRoutes(),
     ).filter(([, group]) => group.folder === found.group.folder).length;
@@ -494,6 +492,12 @@ async function runRemove(runtimeHome: string, args: string[]): Promise<number> {
         `Removal did not persist: ${found.group.folder} still exists in desired state (${desiredPrune.error}). It will be recreated on the next reload.`,
       );
       return 1;
+    }
+    if (desiredPrune.keptAsDefault) {
+      p.log.warn(
+        `Route removed, but ${found.group.folder} is the default agent and is retained. Point the default elsewhere first (gantry agent name ...) to remove it.`,
+      );
+      return 0;
     }
     if (desiredPrune.keptForDelegates?.length) {
       // Retained because other agents delegate to it.

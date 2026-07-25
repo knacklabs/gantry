@@ -1421,6 +1421,31 @@ describe('cli slack helpers', () => {
     expect(updated.providerAccounts.orphan_account).toBeUndefined();
   });
 
+  it('refuses to remove the default agent (main_agent) from desired state', async () => {
+    const runtimeHome = makeRuntimeHome();
+    const settings = loadRuntimeSettings(runtimeHome);
+    settings.agents.main_agent = {
+      name: 'Main',
+      folder: 'main_agent',
+      bindings: {},
+      capabilities: [],
+      delegates: [],
+      sources: { skills: [], mcpServers: [], tools: [] },
+      accessPreset: 'full',
+    } as (typeof settings.agents)['main_agent'];
+    saveRuntimeSettings(runtimeHome, settings);
+
+    const result = await pruneDesiredStateAgent({
+      runtimeHome,
+      folder: 'main_agent',
+      remainingRoutes: 0,
+    });
+
+    expect(result.pruned).toBe(false);
+    expect(result.keptAsDefault).toBe(true);
+    expect(loadRuntimeSettings(runtimeHome).agents.main_agent).toBeDefined();
+  });
+
   it('retains a route-less agent that others still delegate to', async () => {
     const runtimeHome = makeRuntimeHome();
     const settings = loadRuntimeSettings(runtimeHome);
