@@ -527,6 +527,9 @@ describe('PromptProfileService', () => {
       'The single short acknowledgement before non-trivial live work is the only exception.',
     );
     expect(prompt).toContain(
+      'ask only the next missing decision-blocking question',
+    );
+    expect(prompt).toContain(
       'no closers ("Let me know if..."), no pleasantry filler',
     );
     expect(prompt).toContain('Never use dashes as punctuation');

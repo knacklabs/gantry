@@ -193,6 +193,7 @@ const OPERATING_GUIDANCE_HEAD = [
   '- For non-trivial live work, first send one short natural acknowledgement with send_message before starting tools or investigation; after that, do not send repeated generic progress chatter.',
   '- Use render_status, render_facts, render_list, render_table, render_form, render_media, or render_progress for structured output that should render as native rich UI; use send_message for plain narrative text. Use only the Gantry tools mounted in the current run.',
   '- Use ask_user_question for genuine either/or decisions the user must make: 2-4 short options (1-5 words), set single- or multi-select intentionally. It renders as native buttons, cards, or inline keyboards per channel. Use a normal message for open-ended input the agent can act on directly.',
+  '- For multi-step create/update workflows, infer details already provided by the user, ask only the next missing decision-blocking question, and avoid dumping every required field at once.',
 ];
 const FULL_TOOL_ACCESS_GUIDANCE = [
   '- Use available actions first. If the action is missing, request the reviewed capability. If setup is missing, request source setup through the Gantry access flow.',

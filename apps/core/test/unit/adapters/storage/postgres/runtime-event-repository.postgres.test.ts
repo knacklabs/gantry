@@ -8,6 +8,7 @@ class FakeDrizzleDb {
   readonly operations: string[] = [];
   insertedRuntimeEvent: Record<string, unknown> | null = null;
   insertedOutboxEvent: Record<string, unknown> | null = null;
+  insertedConversationThread: Record<string, unknown> | null = null;
   failOutboxInsert = false;
   failDeliveryInsert = false;
 
@@ -63,6 +64,15 @@ class FakeDrizzleDb {
               if (db.failOutboxInsert) {
                 throw new Error('outbox insert failed');
               }
+              return Promise.resolve();
+            },
+          };
+        }
+        if (table === pgSchema.conversationThreadsPostgres) {
+          db.operations.push('insert:conversation_threads');
+          db.insertedConversationThread = value;
+          return {
+            onConflictDoNothing() {
               return Promise.resolve();
             },
           };
@@ -263,5 +273,47 @@ describe('PostgresRuntimeEventRepository', () => {
       'insert:event_bus_outbox',
       'transaction:commit',
     ]);
+  });
+
+  it('materializes canonical conversation thread rows before appending threaded events', async () => {
+    const db = new FakeDrizzleDb();
+    const repository = createRepository(db);
+
+    await repository.appendRuntimeEvent({
+      appId: 'default' as never,
+      conversationId: 'conversation:sl:C0B3M99H1B6' as never,
+      threadId: 'thread:sl:C0B3M99H1B6:1784789975.807219' as never,
+      eventType: RUNTIME_EVENT_TYPES.SESSION_MESSAGE_OUTBOUND,
+      actor: 'agent',
+      payload: { text: 'done' },
+    });
+
+    expect(db.operations).toEqual([
+      'transaction:begin',
+      'insert:conversation_threads',
+      'insert:runtime_events',
+      'insert:event_bus_outbox',
+      'transaction:commit',
+    ]);
+    expect(db.insertedConversationThread).toMatchObject({
+      id: 'thread:sl:C0B3M99H1B6:1784789975.807219',
+      appId: 'default',
+      conversationId: 'conversation:sl:C0B3M99H1B6',
+    });
+    expect(db.insertedConversationThread?.externalRefJson).toBe(
+      JSON.stringify({
+        kind: 'conversation_thread',
+        value: '1784789975.807219',
+        jid: 'sl:C0B3M99H1B6',
+        threadId: '1784789975.807219',
+        externalThreadId: '1784789975.807219',
+      }),
+    );
+    expect(db.insertedRuntimeEvent).toEqual(
+      expect.objectContaining({
+        conversationId: 'conversation:sl:C0B3M99H1B6',
+        threadId: 'thread:sl:C0B3M99H1B6:1784789975.807219',
+      }),
+    );
   });
 });

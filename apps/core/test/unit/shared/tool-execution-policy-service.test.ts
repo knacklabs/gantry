@@ -418,6 +418,29 @@ describe('ToolExecutionPolicyService', () => {
     expect(result.recoveryAction).not.toContain('scheduler_grant_tool');
   });
 
+  it('points autonomous scheduler tool denials to exact persistent tool approval', () => {
+    const request = classifier.classify({
+      origin: 'mcp',
+      toolName: 'mcp__gantry__scheduler_run_now',
+      toolInput: { jobId: 'job-1' },
+      executionMode: 'autonomous',
+      runContext: { jobId: 'job-manager' },
+    });
+
+    const result = policy.evaluate({ request, autonomousAllowedToolRules: [] });
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        status: 'deny',
+        reason: expect.stringContaining(
+          'Tool not on autonomous run allowlist: mcp__gantry__scheduler_run_now.',
+        ),
+        recoveryAction:
+          'request_access { "target": { "kind": "tool", "name": "mcp__gantry__scheduler_run_now" }, "temporaryOnly": false, "reason": "This autonomous run needs scheduler access." }',
+      }),
+    );
+  });
+
   it('allows autonomous read-only inspection of generated runtime tool results without durable grants', () => {
     const resultPath =
       '/Users/example/gantry/agents/main_agent/.llm-runtime/claude/projects/-Users-example-gantry-agents-main-agent/run-1/tool-results/result.txt';

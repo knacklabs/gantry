@@ -31,7 +31,7 @@ export const postgresMigrationsFolder = path.join(
 );
 const PGCRYPTO_EXTENSION_LOCK_NAMESPACE = 1_340_193_180;
 const PGCRYPTO_EXTENSION_LOCK_KEY = 1;
-const RUNTIME_POSTGRES_POOL_MAX = 20;
+const DEFAULT_RUNTIME_POSTGRES_POOL_MAX = 20;
 // Cross-instance "run gantry migrations" lock. One identity serializes every
 // explicit migrator using PostgresStorageService.migrate().
 export const RUNTIME_MIGRATION_LOCK_NAMESPACE = 1_340_193_180;
@@ -88,6 +88,18 @@ export function quotePostgresIdentifier(identifier: string): string {
   return `"${identifier.replace(/"/g, '""')}"`;
 }
 
+export function resolveRuntimePostgresPoolMax(
+  env: NodeJS.ProcessEnv = process.env,
+): number {
+  const raw = env.GANTRY_POSTGRES_POOL_MAX?.trim();
+  if (!raw) return DEFAULT_RUNTIME_POSTGRES_POOL_MAX;
+  const parsed = Number(raw);
+  if (!Number.isInteger(parsed) || parsed < 1) {
+    throw new Error('GANTRY_POSTGRES_POOL_MAX must be a positive integer.');
+  }
+  return parsed;
+}
+
 function readLatestPostgresMigration(): LatestPostgresMigration {
   const latest = readMigrationFiles({
     migrationsFolder: postgresMigrationsFolder,
@@ -129,14 +141,14 @@ export function resolvePostgresPoolConfig(
     return {
       connectionString,
       options: searchPathOptions,
-      max: RUNTIME_POSTGRES_POOL_MAX,
+      max: resolveRuntimePostgresPoolMax(),
       ssl: { rejectUnauthorized: true },
     };
   }
   return {
     connectionString,
     options: searchPathOptions,
-    max: RUNTIME_POSTGRES_POOL_MAX,
+    max: resolveRuntimePostgresPoolMax(),
   };
 }
 

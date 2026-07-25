@@ -21,12 +21,13 @@ import {
 } from '../../../../domain/events/runtime-event-types.js';
 import type { RuntimeEventRepository } from '../../../../domain/ports/repositories.js';
 import { logger } from '../../../../infrastructure/logging/logger.js';
-import * as pgSchema from '../schema/schema.js';
-import type {
-  CanonicalDb,
-  CanonicalExecutor,
-} from './canonical-graph-repository.postgres.js';
 import { nowIso } from '../../../../shared/time/datetime.js';
+import * as pgSchema from '../schema/schema.js';
+import {
+  canonicalProviderThreadForIds,
+  type CanonicalDb,
+  type CanonicalExecutor,
+} from './canonical-graph-repository.postgres.js';
 import { PostgresEventBusPublisher } from './event-bus-outbox.postgres.js';
 import {
   type MessageLiveAdmissionInput,
@@ -140,17 +141,38 @@ export class PostgresRuntimeEventRepository implements RuntimeEventRepository {
     db: CanonicalExecutor,
     input: RuntimeEventPublishInput,
   ): Promise<RuntimeEvent> {
+    const appId = requiredId(input.appId, 'appId');
+    const conversationId = optionalId(input.conversationId);
+    const threadId = optionalId(input.threadId);
+    const providerThread = canonicalProviderThreadForIds({
+      appId,
+      conversationId,
+      threadId,
+    });
+    if (providerThread) {
+      await db
+        .insert(pgSchema.conversationThreadsPostgres)
+        .values({
+          id: providerThread.id,
+          appId: providerThread.appId,
+          conversationId: providerThread.conversationId,
+          externalRefJson: providerThread.externalRefJson,
+          updatedAt: currentIso(),
+        })
+        .onConflictDoNothing();
+    }
+
     const rows = await db
       .insert(pgSchema.runtimeEventsPostgres)
       .values({
-        appId: requiredId(input.appId, 'appId'),
+        appId,
         agentId: optionalId(input.agentId),
         sessionId: optionalId(input.sessionId),
         runId: optionalId(input.runId),
         jobId: optionalId(input.jobId),
         triggerId: optionalId(input.triggerId),
-        conversationId: optionalId(input.conversationId),
-        threadId: optionalId(input.threadId),
+        conversationId,
+        threadId,
         eventType: requireRuntimeEventType(input.eventType),
         actor: input.actor,
         correlationId: input.correlationId ?? null,

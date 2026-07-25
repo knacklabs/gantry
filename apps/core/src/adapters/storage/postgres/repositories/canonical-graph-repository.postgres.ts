@@ -68,6 +68,44 @@ export function threadIdFor(
     : `thread:${chatJid}:${normalized}`;
 }
 
+export function canonicalProviderThreadForIds<
+  AppId extends string,
+  ConversationId extends string,
+>(input: {
+  appId: AppId;
+  conversationId: ConversationId | null | undefined;
+  threadId: string | null | undefined;
+}): {
+  id: string;
+  appId: AppId;
+  conversationId: ConversationId;
+  externalRefJson: string;
+} | null {
+  if (!input.conversationId || !input.threadId) return null;
+  const conversationPrefix = 'conversation:';
+  if (!input.conversationId.startsWith(conversationPrefix)) return null;
+  const providerJid = input.conversationId
+    .slice(conversationPrefix.length)
+    .trim();
+  if (!providerJid) return null;
+  const threadPrefix = `thread:${providerJid}:`;
+  if (!input.threadId.startsWith(threadPrefix)) return null;
+  const externalThreadId = input.threadId.slice(threadPrefix.length).trim();
+  if (!externalThreadId) return null;
+  return {
+    id: input.threadId,
+    appId: input.appId,
+    conversationId: input.conversationId,
+    externalRefJson: json({
+      kind: 'conversation_thread',
+      value: externalThreadId,
+      jid: providerJid,
+      threadId: externalThreadId,
+      externalThreadId,
+    }),
+  };
+}
+
 export function json(value: unknown): string {
   return JSON.stringify(value ?? null);
 }

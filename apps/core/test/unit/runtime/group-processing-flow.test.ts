@@ -49,6 +49,21 @@ describe('handleFailure', () => {
     );
   });
 
+  it('preserves the cursor for infrastructure failures that should not replay the Slack message', async () => {
+    const input = makeInput({
+      preserveCursor: true,
+    });
+
+    await expect(handleFailure(input)).resolves.toBe(true);
+
+    expect(input.deps.setCursor).not.toHaveBeenCalled();
+    expect(input.deps.saveState).toHaveBeenCalledTimes(1);
+    expect(input.logger.warn).toHaveBeenCalledWith(
+      { group: 'Main Agent' },
+      'Agent infrastructure error, preserving message cursor to prevent stale replay',
+    );
+  });
+
   it('rolls back first thread failures to the empty cursor for retry', async () => {
     const input = makeInput({
       queueJid: 'sl:C1234567890::thread:1711111111.000200',

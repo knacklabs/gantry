@@ -533,6 +533,70 @@ permissions:
     ]);
   });
 
+  it('never exports route-derived canonical fallback channel accounts as desired conversations', async () => {
+    const settings = parseRuntimeSettings('agents: {}\n');
+    const deps = {
+      ops: {
+        getAllConversationRoutes: vi.fn(async () => ({
+          'sl:C0BH9KZSTM1': {
+            name: 'itops',
+            folder: 'itops',
+            conversationId: 'conversation:sl:C0BH9KZSTM1',
+            providerAccountId: 'channel-providerAccount:default:slack',
+            trigger: '@itops',
+            added_at: '2026-07-22T17:00:19.975Z',
+            requiresTrigger: true,
+            conversationKind: 'channel',
+          },
+        })),
+      },
+      repositories: {
+        agents: { listAgents: vi.fn(async () => []) },
+        tools: {
+          listAgentToolBindingsForAgents: vi.fn(async () => []),
+          listAgentToolSourcesForAgents: vi.fn(async () => []),
+          listTools: vi.fn(async () => []),
+        },
+        skills: {
+          listAgentSkillBindingsForAgents: vi.fn(async () => []),
+          listSkills: vi.fn(async () => []),
+        },
+        mcpServers: { listAgentBindingsForAgents: vi.fn(async () => []) },
+        providerAccounts: {
+          listProviderAccounts: vi.fn(async () => [
+            {
+              id: 'channel-providerAccount:default:slack',
+              agentId: 'agent:itops',
+              providerId: 'slack',
+              label: 'Slack fallback',
+              status: 'active',
+              config: {},
+              runtimeSecretRefs: {},
+            },
+          ]),
+          listConversationInstalls: vi.fn(async () => []),
+        },
+        conversations: {
+          listConversations: vi.fn(async () => []),
+          listThreads: vi.fn(async () => []),
+          listConversationApproversForConversations: vi.fn(async () => []),
+        },
+      },
+    };
+
+    const exported = await exportCurrentDesiredState({
+      deps: deps as any,
+      appId: 'app-one' as never,
+      settings: settings as any,
+    });
+
+    expect(exported.providers).toEqual({});
+    expect(exported.providerAccounts).toEqual({});
+    expect(exported.conversations).toEqual({});
+    expect(exported.bindings).toEqual({});
+    expect(exported.agents).toEqual({});
+  });
+
   it('skips bindings whose conversation lost its provider connection instead of crashing', async () => {
     const settings = parseRuntimeSettings('agents: {}\n');
     settings.conversations = {

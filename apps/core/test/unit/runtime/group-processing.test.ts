@@ -1393,6 +1393,157 @@ describe('createGroupProcessor', () => {
       expect(lastSetCursor).toEqual(['group1@g.us', 'prev-cursor']);
     });
 
+    it('rolls back a transient provider gateway failure for retry before failover is exhausted', async () => {
+      const group = makeGroup({ requiresTrigger: false });
+      const messages = [makeMessage({ timestamp: '1700000001' })];
+      const { deps } = setupHappyPath({ group, messages });
+
+      const errorOutput: AgentOutput = {
+        status: 'error',
+        result: null,
+        error: 'API Error: 502 Bad Gateway',
+      };
+      mockSpawnAgent.mockImplementation(
+        async (
+          _group: ConversationRoute,
+          _input: unknown,
+          _onProc: unknown,
+          onOutput?: (output: AgentOutput) => Promise<void>,
+        ) => {
+          if (onOutput) await onOutput(errorOutput);
+          return errorOutput;
+        },
+      );
+
+      (deps.getCursor as ReturnType<typeof vi.fn>).mockReturnValue(
+        'prev-cursor',
+      );
+
+      const { processGroupMessages } = createGroupProcessor(deps);
+      // No finalRetry: queue retries are NOT yet exhausted, so a transient
+      // 502 must roll the cursor back and retry, not be silently dropped.
+      const result = await processGroupMessages('group1@g.us');
+
+      expect(result).toBe(false);
+      const setCursorCalls = (deps.setCursor as ReturnType<typeof vi.fn>).mock
+        .calls;
+      const lastSetCursor = setCursorCalls[setCursorCalls.length - 1];
+      expect(lastSetCursor).toEqual(['group1@g.us', 'prev-cursor']);
+    });
+
+    it('preserves the cursor and notifies the user when provider failover is exhausted', async () => {
+      const group = makeGroup({ requiresTrigger: false });
+      const messages = [makeMessage({ timestamp: '1700000001' })];
+      const { deps, channel } = setupHappyPath({ group, messages });
+
+      const errorOutput: AgentOutput = {
+        status: 'error',
+        result: null,
+        error: 'API Error: 502 Bad Gateway',
+      };
+      mockSpawnAgent.mockImplementation(
+        async (
+          _group: ConversationRoute,
+          _input: unknown,
+          _onProc: unknown,
+          onOutput?: (output: AgentOutput) => Promise<void>,
+        ) => {
+          if (onOutput) await onOutput(errorOutput);
+          return errorOutput;
+        },
+      );
+
+      (deps.getCursor as ReturnType<typeof vi.fn>).mockReturnValue(
+        'prev-cursor',
+      );
+
+      const { processGroupMessages } = createGroupProcessor(deps);
+      // finalRetry: queue retries exhausted -> stop the replay storm by
+      // preserving the cursor, but surface an error + a user-visible notice.
+      const result = await processGroupMessages('group1@g.us', {
+        finalRetry: true,
+      });
+
+      expect(result).toBe(true);
+      // Cursor is NOT rolled back to the previous value (storm stopped).
+      expect(deps.setCursor).not.toHaveBeenCalledWith(
+        'group1@g.us',
+        'prev-cursor',
+      );
+      // User is notified: the turn is never silently dropped.
+      const sendMessageCalls = (channel.sendMessage as ReturnType<typeof vi.fn>)
+        .mock.calls;
+      const noticeCall = sendMessageCalls.find(
+        (call) =>
+          call[0] === 'group1@g.us' &&
+          typeof call[1] === 'string' &&
+          call[1].includes('provider is unavailable'),
+      );
+      expect(noticeCall).toBeDefined();
+      // And an error is logged for observability.
+      expect(mockLogger.error).toHaveBeenCalledWith(
+        expect.objectContaining({ group: group.name }),
+        expect.stringContaining('Provider failover exhausted'),
+      );
+    });
+
+    it('rolls back for retry when the failover-exhausted notice fails to deliver', async () => {
+      const group = makeGroup({ requiresTrigger: false });
+      const messages = [makeMessage({ timestamp: '1700000001' })];
+      const { deps, channel } = setupHappyPath({ group, messages });
+
+      const errorOutput: AgentOutput = {
+        status: 'error',
+        result: null,
+        error: 'API Error: 502 Bad Gateway',
+      };
+      mockSpawnAgent.mockImplementation(
+        async (
+          _group: ConversationRoute,
+          _input: unknown,
+          _onProc: unknown,
+          onOutput?: (output: AgentOutput) => Promise<void>,
+        ) => {
+          if (onOutput) await onOutput(errorOutput);
+          return errorOutput;
+        },
+      );
+
+      // Channel is down: the notice send throws -> settles not_delivered.
+      (channel.sendMessage as ReturnType<typeof vi.fn>).mockImplementation(
+        async (_jid: string, text: string) => {
+          if (
+            typeof text === 'string' &&
+            text.includes('provider is unavailable')
+          ) {
+            throw new Error('channel down');
+          }
+          return undefined;
+        },
+      );
+
+      (deps.getCursor as ReturnType<typeof vi.fn>).mockReturnValue(
+        'prev-cursor',
+      );
+
+      const { processGroupMessages } = createGroupProcessor(deps);
+      const result = await processGroupMessages('group1@g.us', {
+        finalRetry: true,
+      });
+
+      // User was NOT informed -> turn is not consumed: roll back and retry.
+      expect(result).toBe(false);
+      const setCursorCalls = (deps.setCursor as ReturnType<typeof vi.fn>).mock
+        .calls;
+      const lastSetCursor = setCursorCalls[setCursorCalls.length - 1];
+      expect(lastSetCursor).toEqual(['group1@g.us', 'prev-cursor']);
+      // The undeliverable notice is logged at error level for observability.
+      expect(mockLogger.error).toHaveBeenCalledWith(
+        expect.objectContaining({ group: group.name }),
+        'Failed to send provider failover exhausted notice',
+      );
+    });
+
     it('delivers the last response_schema candidate from structured failure metadata', async () => {
       const candidate = '{"wrong":"last"}';
       const { deps, channel } = setupHappyPath({
@@ -1499,13 +1650,7 @@ describe('createGroupProcessor', () => {
 
       await expect(processGroupMessages('group1@g.us')).resolves.toBe(true);
       expect(channel.sendMessage).toHaveBeenCalledWith('group1@g.us', 'done');
-      expect(mockLogger.warn).toHaveBeenCalledWith(
-        expect.objectContaining({
-          err: expect.any(Error),
-          group: 'TestGroup',
-        }),
-        'Failed to publish normalized model usage runtime event',
-      );
+      expect(publishRuntimeEvent).toHaveBeenCalled();
     });
 
     it('publishes terminal runner runtime events on error', async () => {

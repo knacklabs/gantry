@@ -1,6 +1,7 @@
 import {
   isAdminMcpToolFullName,
   isGantryMcpWildcardRule,
+  isDurableSchedulerMcpToolFullName,
 } from './admin-mcp-tools.js';
 import {
   type BashCommandLeaf,
@@ -43,12 +44,13 @@ import {
  *   - canonical Browser
  *   - exact Gantry facade file/web tools
  *   - exact Gantry admin MCP tools (the closed admin allowlist)
+ *   - exact Gantry scheduler MCP tools
  *   - scoped `RunCommand(...)` with the bash-parser durable safety rejections
  * Gantry MCP wildcards and generated runtime skill paths are rejected.
  */
 
 export const DURABLE_ACCESS_RULE_REJECTION_REASON =
-  'Persistent access approvals support only trusted projected semantic capabilities, canonical Browser, exact Gantry file/web tools, scoped RunCommand(...), or exact Gantry admin tools; use request_access with target.kind=capability for reviewed semantic app/tool access.';
+  'Persistent access approvals support only trusted projected semantic capabilities, canonical Browser, exact Gantry file/web tools, scoped RunCommand(...), or exact Gantry admin/scheduler tools; use request_access with target.kind=capability for reviewed semantic app/tool access.';
 
 export interface DurableAccessRuleOptions {
   semanticCapabilityDefinitions?: Record<string, SemanticCapabilityDefinition>;
@@ -165,6 +167,7 @@ export function validateDurableAccessRule(
 
   if (isCanonicalBrowserCapabilityRule(trimmed)) return { ok: true };
   if (isAdminMcpToolFullName(trimmed)) return { ok: true };
+  if (isDurableSchedulerMcpToolFullName(trimmed)) return { ok: true };
 
   return {
     ok: false,
@@ -225,6 +228,10 @@ function formatDurableAccessRuleForUser(
     ? trimmed.replace(/^mcp__gantry__/, '').replaceAll(/[._-]+/g, ' ')
     : undefined;
   if (adminName) return `Gantry ${titleCase(adminName)}`;
+  const schedulerName = isDurableSchedulerMcpToolFullName(trimmed)
+    ? trimmed.replace(/^mcp__gantry__scheduler_/, '').replaceAll(/[._-]+/g, ' ')
+    : undefined;
+  if (schedulerName) return `Scheduler ${titleCase(schedulerName)}`;
   return truncate(redactSensitiveText(trimmed), 160);
 }
 

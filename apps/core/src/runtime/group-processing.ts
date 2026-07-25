@@ -62,8 +62,14 @@ import { buildGroupProcessingConversationContext } from './group-processing-cont
 import { createGroupOutputBuffer } from './group-output-buffer.js';
 import { activeTurnUiCleanupByQueue } from './group-active-turn-cleanup.js';
 import { createGroupProcessingSessionCommandHandlers } from './group-processing-session-command-handlers.js';
+import {
+  isFailoverEligibleError,
+  isMissingProviderSessionError,
+} from './failover-eligibility.js';
 let streamingGenerationCounter = 0;
 const PERMISSION_BACKGROUND_DEMOTE_MS = 120_000;
+const PROVIDER_FAILOVER_EXHAUSTED_MESSAGE =
+  "The AI provider is unavailable and your message couldn't be processed after several retries. Please try again shortly.";
 type ProgressHeartbeat = ReturnType<typeof startGroupProgressHeartbeats>;
 export function createGroupProcessor(deps: GroupProcessingDeps) {
   const collectSessionMemory = deps.collectSessionMemory;
@@ -494,6 +500,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
       cancel: cancelTurnUiTimers,
     });
     let hadError = false;
+    let lastAgentError: string | undefined;
     let outputSentToUser = false;
     let streamedTranscriptDeliveryStatus: 'none' | 'sent' | 'partially_sent' =
       'none';
@@ -661,6 +668,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
       }
       if (result.status === 'error') {
         hadError = true;
+        lastAgentError = result.error;
         await resumeTurnProgress();
         await finalizeStreamingOutput('error-marker');
         if (!outputSentToUser && isModelAccessAuthFailure(result.error)) {
@@ -733,6 +741,54 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
     }
     let resultOk = true;
     if (output === 'error' || hadError) {
+      // A provider-infra failure (failover-eligible or missing-provider-session)
+      // is only "exhausted" once the queue has burned all its retries
+      // (options.finalRetry). Before that, a transient 429/502 must keep the
+      // normal rollback -> retry path so the provider gets time to recover;
+      // dropping it on the FIRST error silently loses the user's turn.
+      const failoverExhausted =
+        options.finalRetry === true &&
+        (isFailoverEligibleError(lastAgentError) ||
+          isMissingProviderSessionError(lastAgentError));
+      // ponytail: interim guard against silent turn loss. The durable fix is a
+      // dead-letter re-drive of the dropped turn (issue #285). Until then, when
+      // failover is exhausted we stop the replay storm by preserving the cursor
+      // (below) AND surface an error + user-visible notice. We only CONSUME the
+      // turn once the user was actually informed; if the notice fails to deliver
+      // (channel down), we fall through to rollback->retry so the turn isn't
+      // silently dropped. The remaining edge (channel still down after the queue
+      // retry cap is exhausted) is covered by the durable dead-letter re-drive (#285).
+      let failureNoticeDelivered = false;
+      if (failoverExhausted && !outputSentToUser) {
+        logger.error(
+          { group: group.name, error: lastAgentError },
+          'Provider failover exhausted after retries; dropping turn to stop replay storm, notifying user',
+        );
+        const noticeOptions = buildMessageOptions();
+        const noticeSettlement = await settleDeliveryAttempt(
+          () =>
+            sendMessageToChannel(
+              PROVIDER_FAILOVER_EXHAUSTED_MESSAGE,
+              noticeOptions,
+            ),
+          {
+            scope: 'runtime-provider-failover-exhausted',
+            target: chatJid,
+          },
+        ).catch((err) => {
+          logger.error(
+            { err, group: group.name },
+            'Failed to send provider failover exhausted notice',
+          );
+          return 'not_delivered' as const;
+        });
+        failureNoticeDelivered = noticeSettlement !== 'not_delivered';
+        applyDeliverySettlement(noticeSettlement, {
+          streamed: false,
+          terminal: true,
+        });
+      }
+      const userInformed = outputSentToUser || failureNoticeDelivered;
       resultOk = await handleFailure({
         outputSentToUser,
         groupName: group.name,
@@ -740,7 +796,10 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
         previousCursor,
         deps,
         acknowledgeFailedTurn:
-          options.finalRetry === true && !deps.queue.isShuttingDown?.(),
+          options.finalRetry === true &&
+          !deps.queue.isShuttingDown?.() &&
+          (!failoverExhausted || userInformed),
+        preserveCursor: failoverExhausted && userInformed,
         logger,
       });
     } else {

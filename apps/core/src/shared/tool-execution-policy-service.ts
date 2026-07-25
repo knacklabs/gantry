@@ -8,7 +8,10 @@ import {
   normalizeBashLeafRuleContent,
   parseBashCommand,
 } from './bash-command-parser.js';
-import { isAdminMcpToolFullName } from './admin-mcp-tools.js';
+import {
+  isAdminMcpToolFullName,
+  isDurableSchedulerMcpToolFullName,
+} from './admin-mcp-tools.js';
 import {
   isKnownProjectedBrowserMcpToolName,
   publicGantryToolNameForSdkTool,
@@ -609,6 +612,9 @@ function autonomousGrantRecovery(
   }
   if (isAdminMcpToolFullName(request.toolName)) {
     return `Use the Agent Access summary to find and request the reviewed admin capability for ${request.toolName}; exact tool grants are not accepted as durable authority.`;
+  }
+  if (isDurableSchedulerMcpToolFullName(request.toolName)) {
+    return `request_access { "target": { "kind": "tool", "name": "${escapeJson(request.toolName)}" }, "temporaryOnly": false, "reason": "This autonomous run needs scheduler access." }`;
   }
   const thirdPartyMcp = thirdPartyMcpToolServerName(request.toolName);
   if (thirdPartyMcp) {
