@@ -163,7 +163,7 @@ export function createPermissionApprovalRequester(input: {
       ? queuedCancellations.get(queuedCancellationKey)
       : undefined;
     if (queuedCancellation) {
-      queuedCancellations.delete(queuedCancellationKey!);
+      clearQueuedCancellation(queuedCancellationKey!);
       return {
         delivered: true,
         decision: {
@@ -227,11 +227,20 @@ export function createPermissionApprovalRequester(input: {
         for (const key of cancellationKeys) {
           activeCancellationHandlers.delete(key);
           activeCancellationTargets.delete(key);
-          queuedCancellations.delete(key);
-          const retryTimer = cancellationRetryTimers.get(key);
-          if (retryTimer) clearTimeout(retryTimer);
-          cancellationRetryTimers.delete(key);
         }
+      }
+      const cancellation = cancellationAliases.length
+        ? undefined
+        : queuedCancellations.get(requestKey);
+      if (cancellation) {
+        decision = {
+          approved: false,
+          mode: 'cancel',
+          decidedBy: 'runtime',
+          reason: cancellation.reason,
+          decisionClassification: 'user_reject',
+        };
+        clearQueuedCancellation(requestKey);
       }
       return promptDelivered
         ? { delivered: true, decision }
@@ -263,7 +272,7 @@ export function createPermissionApprovalRequester(input: {
     if (!cancel) return;
     const result = await cancel(cancellation);
     if (result === 'settled' || result === 'already_decided') {
-      queuedCancellations.delete(key);
+      clearQueuedCancellation(key);
       return;
     }
     if (result === 'retryable') scheduleCancellationRetry(cancellation);
@@ -296,6 +305,13 @@ export function createPermissionApprovalRequester(input: {
     }, 250);
     timer.unref?.();
     cancellationRetryTimers.set(key, timer);
+  }
+
+  function clearQueuedCancellation(key: string): void {
+    queuedCancellations.delete(key);
+    const retryTimer = cancellationRetryTimers.get(key);
+    if (retryTimer) clearTimeout(retryTimer);
+    cancellationRetryTimers.delete(key);
   }
 
   async function dispatchBatch(batch: PermissionBatch): Promise<void> {
@@ -353,9 +369,8 @@ export function createPermissionApprovalRequester(input: {
       }
       let fanOutComplete = true;
       for (const request of batch.requests) {
-        const cancellation = queuedCancellations.get(
-          permissionRequestScopeKey(request),
-        );
+        const key = permissionRequestScopeKey(request);
+        const cancellation = queuedCancellations.get(key);
         const derivedDecision = cancellation
           ? {
               approved: false,
@@ -369,17 +384,17 @@ export function createPermissionApprovalRequester(input: {
               batchDecision.approved ? 'allow_once' : 'cancel',
               batchDecision.decidedBy,
             );
-        fanOutComplete =
-          resolveBatchRequest(
-            request,
-            batchDecision.permissionCallbackClaim
-              ? {
-                  ...derivedDecision,
-                  permissionCallbackClaim:
-                    batchDecision.permissionCallbackClaim,
-                }
-              : derivedDecision,
-          ) && fanOutComplete;
+        const resolved = resolveBatchRequest(
+          request,
+          batchDecision.permissionCallbackClaim
+            ? {
+                ...derivedDecision,
+                permissionCallbackClaim: batchDecision.permissionCallbackClaim,
+              }
+            : derivedDecision,
+        );
+        if (resolved && cancellation) clearQueuedCancellation(key);
+        fanOutComplete = resolved && fanOutComplete;
       }
       if (!fanOutComplete) {
         await releaseDecisionClaim(batchDecision);
@@ -468,7 +483,7 @@ export function createPermissionApprovalRequester(input: {
     if (!cancel) return 'queued';
     const result = await cancel(cancellation);
     if (result === 'settled' || result === 'already_decided') {
-      queuedCancellations.delete(key);
+      clearQueuedCancellation(key);
       return 'settled';
     }
     if (result === 'retryable') scheduleCancellationRetry(cancellation);

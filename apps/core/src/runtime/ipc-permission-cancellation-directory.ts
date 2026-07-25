@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import { createHash } from 'crypto';
 
 import type { PermissionApprovalCancellation } from '../domain/types.js';
 import { IPC_CANCELLATION_RETENTION_TTL_MS } from '../shared/ipc-cancellation-lifetime.js';
@@ -15,6 +16,7 @@ const CANCELLATION_RETRY_MAX_MS = 30_000;
 interface CancellationRetryState {
   attempts: number;
   cancellation: PermissionApprovalCancellation;
+  envelopeDigest: string;
   expiresAt: number;
   nextAttemptAt: number;
 }
@@ -62,7 +64,10 @@ export async function processPermissionCancellationDirectory(input: {
     const now = Date.now();
     pruneExpiredRetryState(now);
     for (const file of files) {
-      const retry = cancellationRetries.get(path.join(cancellationsDir, file));
+      const pendingPath = path.join(cancellationsDir, file);
+      const retry =
+        cancellationRetries.get(pendingPath) ??
+        loadPendingCancellationRetryState(pendingPath);
       if (retry && retry.nextAttemptAt > now && retry.expiresAt > now) {
         continue;
       }
@@ -91,8 +96,10 @@ async function processPermissionCancellationFile(
     );
     claimedPath = claimed.claimedPath;
     const pendingPath = path.join(cancellationsDir, file);
+    const envelopeDigest = cancellationEnvelopeDigest(claimed.raw);
+    const retry = loadCancellationRetryState(pendingPath, envelopeDigest);
     const cancellation =
-      cancellationRetries.get(pendingPath)?.cancellation ??
+      retry?.cancellation ??
       parsePermissionCancellationIpcRequest(claimed.raw, sourceAgentFolder);
     if (!isPermissionInFlight(input.inFlightInteractionIpc, cancellation)) {
       if (
@@ -112,13 +119,34 @@ async function processPermissionCancellationFile(
         logger,
         sourceAgentFolder,
         cancellation,
+        envelopeDigest,
       });
       return;
     }
     if (!input.cancelPermissionApproval) {
       throw new Error('Permission cancellation handler is unavailable');
     }
-    const result = await input.cancelPermissionApproval(cancellation);
+    let result: Awaited<
+      ReturnType<NonNullable<IpcDeps['cancelPermissionApproval']>>
+    >;
+    try {
+      result = await input.cancelPermissionApproval(cancellation);
+    } catch (err) {
+      logger.error(
+        { file, sourceAgentFolder, err },
+        'Error processing permission cancellation IPC request',
+      );
+      retainCancellation({
+        claimedPath,
+        cancellationsDir,
+        file,
+        logger,
+        sourceAgentFolder,
+        cancellation,
+        envelopeDigest,
+      });
+      return;
+    }
     if (result === 'settled') {
       consumeCancellation(claimedPath, cancellationsDir, file);
       return;
@@ -130,13 +158,14 @@ async function processPermissionCancellationFile(
       logger,
       sourceAgentFolder,
       cancellation,
+      envelopeDigest,
     });
   } catch (err) {
     logger.error(
       { file, sourceAgentFolder, err },
       'Error processing permission cancellation IPC request',
     );
-    cancellationRetries.delete(path.join(cancellationsDir, file));
+    discardCancellationRetryState(path.join(cancellationsDir, file));
     runnerControlPort.archiveFailedRequest(
       sourceAgentFolder,
       file,
@@ -166,6 +195,7 @@ function retainCancellation(input: {
   logger: PermissionCancellationDirectoryLogger;
   sourceAgentFolder: string;
   cancellation: PermissionApprovalCancellation;
+  envelopeDigest: string;
 }): void {
   const pendingPath = path.join(input.cancellationsDir, input.file);
   const now = Date.now();
@@ -176,7 +206,7 @@ function retainCancellation(input: {
       IPC_CANCELLATION_RETENTION_TTL_MS;
   if (expiresAt <= now) {
     fs.unlinkSync(input.claimedPath);
-    cancellationRetries.delete(pendingPath);
+    discardCancellationRetryState(pendingPath);
     input.logger.warn(
       {
         file: input.file,
@@ -188,18 +218,21 @@ function retainCancellation(input: {
     return;
   }
 
-  fs.renameSync(input.claimedPath, pendingPath);
   const attempts = (previous?.attempts ?? 0) + 1;
   const retryDelayMs = Math.min(
     CANCELLATION_RETRY_MIN_MS * 2 ** (attempts - 1),
     CANCELLATION_RETRY_MAX_MS,
   );
-  cancellationRetries.set(pendingPath, {
+  const retry: CancellationRetryState = {
     attempts,
     cancellation: input.cancellation,
+    envelopeDigest: input.envelopeDigest,
     expiresAt,
     nextAttemptAt: now + retryDelayMs,
-  });
+  };
+  persistCancellationRetryState(pendingPath, retry);
+  fs.renameSync(input.claimedPath, pendingPath);
+  cancellationRetries.set(pendingPath, retry);
 }
 
 function consumeCancellation(
@@ -208,13 +241,85 @@ function consumeCancellation(
   file: string,
 ): void {
   fs.unlinkSync(claimedPath);
-  cancellationRetries.delete(path.join(cancellationsDir, file));
+  discardCancellationRetryState(path.join(cancellationsDir, file));
 }
 
 function pruneExpiredRetryState(now: number): void {
   for (const [pendingPath, retry] of cancellationRetries) {
     if (retry.expiresAt <= now && !fs.existsSync(pendingPath)) {
-      cancellationRetries.delete(pendingPath);
+      discardCancellationRetryState(pendingPath);
     }
   }
+}
+
+function cancellationEnvelopeDigest(raw: unknown): string {
+  return createHash('sha256').update(JSON.stringify(raw)).digest('hex');
+}
+
+function cancellationRetryStatePath(pendingPath: string): string {
+  return `${pendingPath}.retry`;
+}
+
+function loadCancellationRetryState(
+  pendingPath: string,
+  envelopeDigest: string,
+): CancellationRetryState | undefined {
+  const cached = cancellationRetries.get(pendingPath);
+  if (cached?.envelopeDigest === envelopeDigest) return cached;
+  cancellationRetries.delete(pendingPath);
+
+  try {
+    const parsed = JSON.parse(
+      fs.readFileSync(cancellationRetryStatePath(pendingPath), 'utf-8'),
+    ) as Partial<CancellationRetryState> & { version?: unknown };
+    if (
+      parsed.version !== 1 ||
+      parsed.envelopeDigest !== envelopeDigest ||
+      typeof parsed.attempts !== 'number' ||
+      typeof parsed.expiresAt !== 'number' ||
+      typeof parsed.nextAttemptAt !== 'number' ||
+      !parsed.cancellation ||
+      typeof parsed.cancellation.requestId !== 'string' ||
+      typeof parsed.cancellation.appId !== 'string' ||
+      typeof parsed.cancellation.sourceAgentFolder !== 'string'
+    ) {
+      return undefined;
+    }
+    const retry = parsed as CancellationRetryState;
+    cancellationRetries.set(pendingPath, retry);
+    return retry;
+  } catch {
+    return undefined;
+  }
+}
+
+function loadPendingCancellationRetryState(
+  pendingPath: string,
+): CancellationRetryState | undefined {
+  try {
+    const raw = JSON.parse(fs.readFileSync(pendingPath, 'utf-8'));
+    return loadCancellationRetryState(
+      pendingPath,
+      cancellationEnvelopeDigest(raw),
+    );
+  } catch {
+    return undefined;
+  }
+}
+
+function persistCancellationRetryState(
+  pendingPath: string,
+  retry: CancellationRetryState,
+): void {
+  const retryPath = cancellationRetryStatePath(pendingPath);
+  const tempPath = `${retryPath}.tmp`;
+  fs.writeFileSync(tempPath, JSON.stringify({ version: 1, ...retry }), {
+    mode: 0o600,
+  });
+  fs.renameSync(tempPath, retryPath);
+}
+
+function discardCancellationRetryState(pendingPath: string): void {
+  cancellationRetries.delete(pendingPath);
+  fs.rmSync(cancellationRetryStatePath(pendingPath), { force: true });
 }

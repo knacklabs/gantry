@@ -4,6 +4,16 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+const cancellationTestState = vi.hoisted(() => ({
+  dataDir: `/tmp/gantry-cancellation-directory-data-${process.pid}`,
+}));
+
+vi.mock('@core/config/index.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@core/config/index.js')>()),
+  DATA_DIR: cancellationTestState.dataDir,
+  GANTRY_IPC_AUTH_SECRET: 'cancellation-directory-test-secret',
+}));
+
 import { createSignedIpcRequestEnvelope } from '@core/shared/ipc-signing.js';
 import { createIpcAuthEnvelope } from '@core/runtime/ipc-auth.js';
 import { clearConsumedIpcRequestIds } from '@core/runtime/ipc-auth-validation.js';
@@ -24,7 +34,7 @@ const tempDirs: string[] = [];
 
 afterEach(() => {
   vi.useRealTimers();
-  clearConsumedIpcRequestIds({ durable: 'consumed' });
+  clearConsumedIpcRequestIds({ durable: true });
   for (const tempDir of tempDirs.splice(0)) {
     fs.rmSync(tempDir, { recursive: true, force: true });
   }
@@ -77,6 +87,37 @@ describe.each([
     },
   );
 
+  it('retains a cancellation when the handler throws and settles it on a later retry', async () => {
+    const fixture = createFixture(kind, lane);
+    fixture.inFlight.add(fixture.inFlightKey);
+    const cancellationFailure = new Error('cancellation persistence failed');
+    const cancel = vi
+      .fn<() => Promise<CancellationResult>>()
+      .mockRejectedValueOnce(cancellationFailure)
+      .mockResolvedValueOnce('settled');
+
+    await fixture.process(cancel);
+    await fixture.process(cancel);
+
+    expect(cancel).toHaveBeenCalledOnce();
+    expect(fixture.pendingFiles()).toEqual([fixture.file]);
+    expect(fixture.laneFiles()).toEqual([
+      fixture.file,
+      `${fixture.file}.retry`,
+    ]);
+    expect(fixture.logger.error).toHaveBeenCalledWith(
+      expect.objectContaining({ err: cancellationFailure }),
+      expect.stringContaining('Error processing'),
+    );
+
+    advancePastRetry();
+    await fixture.process(cancel);
+
+    expect(cancel).toHaveBeenCalledTimes(2);
+    expect(fixture.pendingFiles()).toEqual([]);
+    expect(fixture.laneFiles()).toEqual([]);
+  });
+
   it('consumes a settled cancellation exactly once', async () => {
     const fixture = createFixture(kind, lane);
     fixture.inFlight.add(fixture.inFlightKey);
@@ -87,6 +128,45 @@ describe.each([
 
     expect(cancel).toHaveBeenCalledOnce();
     expect(fixture.pendingFiles()).toEqual([]);
+    expect(fixture.laneFiles()).toEqual([]);
+  });
+
+  it('accepts a retained cancellation after restart and still rejects a duplicate replay', async () => {
+    const fixture = createFixture(kind, lane);
+    const cancel = vi.fn(async () => 'settled' as const);
+
+    await fixture.process(cancel);
+    expect(fixture.pendingFiles()).toEqual([fixture.file]);
+    expect(fixture.laneFiles()).toEqual([
+      fixture.file,
+      `${fixture.file}.retry`,
+    ]);
+
+    await fixture.restart();
+    fixture.inFlight.add(fixture.inFlightKey);
+    await fixture.process(cancel);
+    expect(cancel).not.toHaveBeenCalled();
+
+    advancePastRetry();
+    await fixture.process(cancel);
+
+    expect(cancel).toHaveBeenCalledOnce();
+    expect(fixture.pendingFiles()).toEqual([]);
+    expect(fixture.laneFiles()).toEqual([]);
+
+    fixture.writeEnvelope(fixture.envelope);
+    await fixture.process(cancel);
+
+    expect(cancel).toHaveBeenCalledOnce();
+    expect(fixture.pendingFiles()).toEqual([]);
+    expect(fixture.logger.error).toHaveBeenCalledWith(
+      expect.objectContaining({
+        err: expect.objectContaining({
+          message: expect.stringContaining('replay'),
+        }),
+      }),
+      expect.stringContaining('Error processing'),
+    );
   });
 
   it('accepts and settles a cancellation more than five minutes after it was written', async () => {
@@ -220,6 +300,8 @@ function createFixture(
     error: vi.fn(),
     warn: vi.fn(),
   };
+  let permissionProcessor = processPermissionCancellationDirectory;
+  let questionProcessor = processQuestionCancellationDirectory;
 
   return {
     file,
@@ -229,8 +311,24 @@ function createFixture(
     inFlightKey,
     logger,
     writeEnvelope,
+    laneFiles: () =>
+      fs
+        .readdirSync(runnerControlPort.requestDir(SOURCE_AGENT_FOLDER, lane))
+        .sort(),
     pendingFiles: () =>
       runnerControlPort.listPendingRequests(SOURCE_AGENT_FOLDER, lane),
+    restart: async () => {
+      vi.resetModules();
+      if (kind === 'permission') {
+        permissionProcessor = (
+          await import('@core/runtime/ipc-permission-cancellation-directory.js')
+        ).processPermissionCancellationDirectory;
+      } else {
+        questionProcessor = (
+          await import('@core/runtime/ipc-question-cancellation-directory.js')
+        ).processQuestionCancellationDirectory;
+      }
+    },
     process: async (
       cancel: ReturnType<typeof vi.fn<() => Promise<CancellationResult>>>,
     ) => {
@@ -242,12 +340,12 @@ function createFixture(
         logger,
       };
       if (kind === 'permission') {
-        await processPermissionCancellationDirectory({
+        await permissionProcessor({
           ...common,
           cancelPermissionApproval: cancel as never,
         });
       } else {
-        await processQuestionCancellationDirectory({
+        await questionProcessor({
           ...common,
           cancelUserQuestion: cancel as never,
         });
