@@ -4,6 +4,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { IPC_CANCELLATION_RETENTION_TTL_MS } from '@core/shared/ipc-cancellation-lifetime.js';
+
 const cancellationTestState = vi.hoisted(() => ({
   dataDir: `/tmp/gantry-cancellation-directory-data-${process.pid}`,
 }));
@@ -25,7 +27,7 @@ import { processQuestionCancellationDirectory } from '@core/runtime/ipc-question
 const SOURCE_AGENT_FOLDER = 'team';
 const THREAD_ID = 'thread-1';
 const RETRY_WAIT_MS = 1_500;
-const RETENTION_TTL_MS = 24 * 60 * 60_000;
+const RETENTION_TTL_MS = IPC_CANCELLATION_RETENTION_TTL_MS;
 
 type CancellationKind = 'permission' | 'user-question';
 type CancellationResult = 'settled' | 'queued' | 'not_found';
