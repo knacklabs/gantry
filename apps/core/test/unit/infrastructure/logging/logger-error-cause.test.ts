@@ -9,6 +9,7 @@ describe('logger error cause serialization', () => {
   it('includes redacted nested error causes and postgres fields', () => {
     const records: LogRecord[] = [];
     const logger = createLogger({
+      level: 'error',
       format: 'json',
       sink: { write: (record) => records.push(record) },
     });
@@ -44,6 +45,7 @@ describe('logger error cause serialization', () => {
   it('truncates recursive error causes', () => {
     const records: LogRecord[] = [];
     const logger = createLogger({
+      level: 'error',
       format: 'json',
       sink: { write: (record) => records.push(record) },
     });
