@@ -514,7 +514,12 @@ export class PostgresObserverInsightRepository implements ObserverInsightReposit
         .select()
         .from(Deliveries)
         .where(eq(Deliveries.id, input.deliveryId))
-        .limit(1);
+        .limit(1)
+        // Lock the delivery row so the state check below and the final
+        // transition are atomic. A concurrent settle blocks here, then reads
+        // the committed `settled` state and returns it idempotently instead of
+        // racing past the check and losing the compare-and-set (returning null).
+        .for('update');
       if (!delivery) return null;
       // Idempotent: an already-settled delivery is returned untouched (never
       // overwrite its outboundDeliveryId/timestamps). Never settle a `failed`

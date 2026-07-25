@@ -1022,6 +1022,72 @@ maybeDescribe('observer insight Postgres persistence', () => {
     expect(stateRow.rows[0]?.state).toBe('failed');
   });
 
+  it('keeps concurrent settles idempotent via the delivery row lock', async () => {
+    const repo = runtime.repositories.observerInsights;
+    const recipient = 'owner:digest-race';
+    await seedPending(recipient, [
+      { id: 'dz-a', subject: 'conversation:sl:ZA', priority: 0.9 },
+    ]);
+    const claimed = await repo.claimPendingForDigest({
+      appId: APP_ID,
+      recipient,
+      limit: 10,
+      nowIso: '2026-07-25T13:00:00.000Z',
+    });
+    await repo.reserveDigest({
+      id: 'delivery-race-1',
+      appId: APP_ID,
+      recipient,
+      localDay: '2026-07-25',
+      timezone: 'UTC',
+      conversationJid: 'slack:OWNER5',
+      providerAccountId: 'slack-one',
+      renderedDigest: 'Digest',
+      contentHash: 'hash-race',
+      memberships: [
+        { insightId: 'dz-a', claimedAt: claimed[0]!.updatedAt, position: 0 },
+      ],
+      nowIso: '2026-07-25T13:01:00.000Z',
+    });
+
+    // Two settles race on separate pool connections. FOR UPDATE serializes
+    // them: the loser blocks, then reads `settled` and returns the winner's
+    // reservation. Neither returns null; both agree on outboundDeliveryId.
+    const [left, right] = await Promise.all([
+      repo.settleDigest({
+        deliveryId: 'delivery-race-1',
+        outboundDeliveryId: 'outbound-left',
+        cooldownUntil: '2026-08-01T13:00:00.000Z',
+        nowIso: '2026-07-25T13:02:00.000Z',
+      }),
+      repo.settleDigest({
+        deliveryId: 'delivery-race-1',
+        outboundDeliveryId: 'outbound-right',
+        cooldownUntil: '2026-08-01T13:00:00.000Z',
+        nowIso: '2026-07-25T13:02:30.000Z',
+      }),
+    ]);
+    expect(left).not.toBeNull();
+    expect(right).not.toBeNull();
+    expect(left?.state).toBe('settled');
+    expect(left?.outboundDeliveryId).toBe(right?.outboundDeliveryId);
+    expect(['outbound-left', 'outbound-right']).toContain(
+      left?.outboundDeliveryId,
+    );
+
+    const persisted = await runtime.service.pool.query<{
+      state: string;
+      outbound_delivery_id: string;
+    }>(
+      `SELECT state, outbound_delivery_id FROM observer_deliveries WHERE id = $1`,
+      ['delivery-race-1'],
+    );
+    expect(persisted.rows[0]?.state).toBe('settled');
+    expect(persisted.rows[0]?.outbound_delivery_id).toBe(
+      left?.outboundDeliveryId,
+    );
+  });
+
   it('recovers unbound stale claims but never reserved-delivery claims', async () => {
     const repo = runtime.repositories.observerInsights;
     const recipient = 'owner:digest-recover';
