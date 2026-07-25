@@ -20,6 +20,7 @@ import { createSignedIpcRequestEnvelope } from '@core/shared/ipc-signing.js';
 import { createIpcAuthEnvelope } from '@core/runtime/ipc-auth.js';
 import { clearConsumedIpcRequestIds } from '@core/runtime/ipc-auth-validation.js';
 import { FilesystemRunnerControlPort } from '@core/runtime/filesystem-runner-control-port.js';
+import { claimDurableCancellationRecord } from '@core/runtime/ipc-cancellation-durable-record.js';
 import { interactionInFlightKey } from '@core/runtime/ipc-interaction-processing.js';
 import { processPermissionCancellationDirectory } from '@core/runtime/ipc-permission-cancellation-directory.js';
 import { processQuestionCancellationDirectory } from '@core/runtime/ipc-question-cancellation-directory.js';
@@ -53,7 +54,8 @@ describe.each([
     await fixture.process(cancel);
 
     expect(cancel).not.toHaveBeenCalled();
-    expect(fixture.pendingFiles()).toEqual([fixture.file]);
+    expect(fixture.pendingFiles()).toEqual([]);
+    expect(fixture.durableFiles()).toHaveLength(1);
 
     fixture.inFlight.add(fixture.inFlightKey);
     advancePastRetry();
@@ -62,6 +64,7 @@ describe.each([
     expect(fixture.logger.error.mock.calls).toEqual([]);
     expect(cancel).toHaveBeenCalledOnce();
     expect(fixture.pendingFiles()).toEqual([]);
+    expect(fixture.durableFiles()).toEqual([]);
   });
 
   it.each(['not_found', 'queued'] as const)(
@@ -78,7 +81,8 @@ describe.each([
       await fixture.process(cancel);
 
       expect(cancel).toHaveBeenCalledOnce();
-      expect(fixture.pendingFiles()).toEqual([fixture.file]);
+      expect(fixture.pendingFiles()).toEqual([]);
+      expect(fixture.durableFiles()).toHaveLength(1);
 
       advancePastRetry();
       await fixture.process(cancel);
@@ -86,6 +90,7 @@ describe.each([
       expect(fixture.logger.error.mock.calls).toEqual([]);
       expect(cancel).toHaveBeenCalledTimes(2);
       expect(fixture.pendingFiles()).toEqual([]);
+      expect(fixture.durableFiles()).toEqual([]);
     },
   );
 
@@ -102,11 +107,9 @@ describe.each([
     await fixture.process(cancel);
 
     expect(cancel).toHaveBeenCalledOnce();
-    expect(fixture.pendingFiles()).toEqual([fixture.file]);
-    expect(fixture.laneFiles()).toEqual([
-      fixture.file,
-      `${fixture.file}.retry`,
-    ]);
+    expect(fixture.pendingFiles()).toEqual([]);
+    expect(fixture.laneFiles()).toEqual([]);
+    expect(fixture.durableFiles()).toHaveLength(1);
     expect(fixture.logger.error).toHaveBeenCalledWith(
       expect.objectContaining({ err: cancellationFailure }),
       expect.stringContaining('Error processing'),
@@ -118,6 +121,7 @@ describe.each([
     expect(cancel).toHaveBeenCalledTimes(2);
     expect(fixture.pendingFiles()).toEqual([]);
     expect(fixture.laneFiles()).toEqual([]);
+    expect(fixture.durableFiles()).toEqual([]);
   });
 
   it('consumes a settled cancellation exactly once', async () => {
@@ -131,19 +135,20 @@ describe.each([
     expect(cancel).toHaveBeenCalledOnce();
     expect(fixture.pendingFiles()).toEqual([]);
     expect(fixture.laneFiles()).toEqual([]);
+    expect(fixture.durableFiles()).toEqual([]);
   });
 
-  it('accepts a retained cancellation after restart and still rejects a duplicate replay', async () => {
+  it('redrives a host-owned retained cancellation after restart and still rejects a duplicate replay', async () => {
     const fixture = createFixture(kind, lane);
     const cancel = vi.fn(async () => 'settled' as const);
 
     await fixture.process(cancel);
-    expect(fixture.pendingFiles()).toEqual([fixture.file]);
-    expect(fixture.laneFiles()).toEqual([
-      fixture.file,
-      `${fixture.file}.retry`,
-    ]);
+    expect(fixture.pendingFiles()).toEqual([]);
+    expect(fixture.laneFiles()).toEqual([]);
+    expect(fixture.durableFiles()).toHaveLength(1);
 
+    // The old implementation archived this replay after its sidecar was lost.
+    fs.rmSync(`${fixture.filePath}.retry`, { force: true });
     await fixture.restart();
     fixture.inFlight.add(fixture.inFlightKey);
     await fixture.process(cancel);
@@ -155,6 +160,7 @@ describe.each([
     expect(cancel).toHaveBeenCalledOnce();
     expect(fixture.pendingFiles()).toEqual([]);
     expect(fixture.laneFiles()).toEqual([]);
+    expect(fixture.durableFiles()).toEqual([]);
 
     fixture.writeEnvelope(fixture.envelope);
     await fixture.process(cancel);
@@ -169,6 +175,80 @@ describe.each([
       }),
       expect.stringContaining('Error processing'),
     );
+  });
+
+  it('redrives a host-owned cancellation abandoned after claim on restart', async () => {
+    const fixture = createFixture(kind, lane);
+    const cancel = vi.fn(async () => 'settled' as const);
+
+    await fixture.process(cancel);
+    fixture.claimAndAbandonDurableRecord();
+    expect(fixture.durableFiles()).toEqual([]);
+    expect(fixture.processingDurableFiles()).toHaveLength(1);
+
+    await fixture.restart();
+    fixture.inFlight.add(fixture.inFlightKey);
+    advancePastRetry();
+    await fixture.process(cancel);
+
+    expect(cancel).toHaveBeenCalledOnce();
+    expect(fixture.durableFiles()).toEqual([]);
+    expect(fixture.processingDurableFiles()).toEqual([]);
+  });
+
+  it('rejects a duplicate raw inbound envelope while retaining the authenticated record', async () => {
+    const fixture = createFixture(kind, lane);
+    const cancel = vi.fn(async () => 'settled' as const);
+
+    await fixture.process(cancel);
+    fixture.writeEnvelope(fixture.envelope);
+    await fixture.process(cancel);
+
+    expect(cancel).not.toHaveBeenCalled();
+    expect(fixture.pendingFiles()).toEqual([]);
+    expect(fixture.durableFiles()).toHaveLength(1);
+    expect(fixture.archivedFiles()).toEqual([
+      `${SOURCE_AGENT_FOLDER}-${fixture.file}`,
+    ]);
+    expect(fixture.logger.error).toHaveBeenCalledWith(
+      expect.objectContaining({
+        err: expect.objectContaining({
+          message: expect.stringContaining('replay'),
+        }),
+      }),
+      expect.stringContaining('Error processing'),
+    );
+
+    fixture.inFlight.add(fixture.inFlightKey);
+    advancePastRetry();
+    await fixture.process(cancel);
+
+    expect(cancel).toHaveBeenCalledOnce();
+    expect(fixture.durableFiles()).toEqual([]);
+  });
+
+  it('lets exactly one racing worker consume a raw inbound envelope', async () => {
+    const fixture = createFixture(kind, lane);
+    fixture.inFlight.add(fixture.inFlightKey);
+    let settle!: () => void;
+    const handlerGate = new Promise<void>((resolve) => {
+      settle = resolve;
+    });
+    const cancel = vi.fn(async () => {
+      await handlerGate;
+      return 'settled' as const;
+    });
+
+    const first = fixture.process(cancel);
+    await vi.waitFor(() => expect(cancel).toHaveBeenCalledOnce());
+    const second = fixture.process(cancel);
+    settle();
+    await Promise.all([first, second]);
+
+    expect(cancel).toHaveBeenCalledOnce();
+    expect(fixture.pendingFiles()).toEqual([]);
+    expect(fixture.durableFiles()).toEqual([]);
+    expect(fixture.logger.error.mock.calls).toEqual([]);
   });
 
   it('accepts and settles a cancellation more than five minutes after it was written', async () => {
@@ -287,6 +367,12 @@ function createFixture(
     runnerControlPort.requestDir(SOURCE_AGENT_FOLDER, lane),
     file,
   );
+  const durableRecordsDir = path.join(
+    runnerControlPort.baseDir,
+    '.cancellation-retries',
+    lane,
+    SOURCE_AGENT_FOLDER,
+  );
   const envelope = cancellationEnvelope(kind, requestId);
   const writeEnvelope = (value: Record<string, unknown>) =>
     fs.writeFileSync(filePath, JSON.stringify(value));
@@ -313,6 +399,36 @@ function createFixture(
     inFlightKey,
     logger,
     writeEnvelope,
+    archivedFiles: () => {
+      const errorsDir = path.join(runnerControlPort.baseDir, 'errors');
+      return fs.existsSync(errorsDir) ? fs.readdirSync(errorsDir).sort() : [];
+    },
+    durableFiles: () =>
+      fs.existsSync(durableRecordsDir)
+        ? fs
+            .readdirSync(durableRecordsDir)
+            .filter(
+              (entry) =>
+                entry.endsWith('.json') && !entry.startsWith('.processing-'),
+            )
+            .sort()
+        : [],
+    processingDurableFiles: () =>
+      fs.existsSync(durableRecordsDir)
+        ? fs
+            .readdirSync(durableRecordsDir)
+            .filter((entry) => entry.startsWith('.processing-'))
+            .sort()
+        : [],
+    claimAndAbandonDurableRecord: () => {
+      const [file] = fs.readdirSync(durableRecordsDir);
+      const claimedPath = claimDurableCancellationRecord(
+        durableRecordsDir,
+        file,
+      );
+      const staleAt = new Date(Date.now() - 1_000);
+      fs.utimesSync(claimedPath, staleAt, staleAt);
+    },
     laneFiles: () =>
       fs
         .readdirSync(runnerControlPort.requestDir(SOURCE_AGENT_FOLDER, lane))
