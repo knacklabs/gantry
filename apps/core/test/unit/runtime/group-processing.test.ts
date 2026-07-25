@@ -1471,9 +1471,8 @@ describe('createGroupProcessor', () => {
         'prev-cursor',
       );
       // User is notified: the turn is never silently dropped.
-      const sendMessageCalls = (
-        channel.sendMessage as ReturnType<typeof vi.fn>
-      ).mock.calls;
+      const sendMessageCalls = (channel.sendMessage as ReturnType<typeof vi.fn>)
+        .mock.calls;
       const noticeCall = sendMessageCalls.find(
         (call) =>
           call[0] === 'group1@g.us' &&
@@ -1513,7 +1512,10 @@ describe('createGroupProcessor', () => {
       // Channel is down: the notice send throws -> settles not_delivered.
       (channel.sendMessage as ReturnType<typeof vi.fn>).mockImplementation(
         async (_jid: string, text: string) => {
-          if (typeof text === 'string' && text.includes('provider is unavailable')) {
+          if (
+            typeof text === 'string' &&
+            text.includes('provider is unavailable')
+          ) {
             throw new Error('channel down');
           }
           return undefined;
