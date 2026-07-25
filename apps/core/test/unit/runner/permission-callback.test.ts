@@ -15,6 +15,10 @@ import { buildPermissionResponseSignaturePayload } from '@core/shared/ipc-signin
 
 const CANCELLATION_LIFETIME_MS = 24 * 60 * 60_000;
 
+function fileMode(filePath: string): number {
+  return fs.statSync(filePath).mode & 0o777;
+}
+
 vi.mock('@core/shared/ipc-signing.js', async () => {
   const actual = await vi.importActual<
     typeof import('@core/shared/ipc-signing.js')
@@ -232,9 +236,12 @@ describe('requestPermissionApproval', () => {
       'permission-requests',
     );
     const [requestFile] = await waitForFiles(requestDir, 1);
-    const request = JSON.parse(
-      fs.readFileSync(path.join(requestDir, requestFile), 'utf-8'),
-    ) as { unattended?: boolean; permissionLane?: string };
+    const requestPath = path.join(requestDir, requestFile);
+    const request = JSON.parse(fs.readFileSync(requestPath, 'utf-8')) as {
+      unattended?: boolean;
+      permissionLane?: string;
+    };
+    expect(fileMode(requestPath)).toBe(0o600);
     expect(request).toMatchObject({
       unattended: true,
       permissionLane: 'autonomous',
@@ -485,8 +492,9 @@ describe('requestPermissionApproval', () => {
       'permission-cancellations',
     );
     const [cancellationFile] = await waitForFiles(cancellationDir, 1);
+    const cancellationPath = path.join(cancellationDir, cancellationFile);
     const cancellation = JSON.parse(
-      fs.readFileSync(path.join(cancellationDir, cancellationFile), 'utf-8'),
+      fs.readFileSync(cancellationPath, 'utf-8'),
     ) as {
       authExpiresAt?: string;
       expiresAt?: string;
@@ -497,6 +505,7 @@ describe('requestPermissionApproval', () => {
       signature?: string;
       [key: string]: unknown;
     };
+    expect(fileMode(cancellationPath)).toBe(0o600);
     expect(cancellation).toMatchObject({
       permissionRequestId: request.requestId,
       sourceAgentFolder: 'main_agent',
