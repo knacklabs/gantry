@@ -1,6 +1,8 @@
 import fs from 'fs';
 import path from 'path';
 
+import * as p from '@clack/prompts';
+
 import type { ConversationRoute } from '../domain/types.js';
 import type { FileArtifactStore } from '../domain/ports/file-artifact-store.js';
 import { isValidWorkspaceFolder } from '../platform/workspace-folder.js';
@@ -21,6 +23,7 @@ import { RuntimeGroupDb, openRuntimeGroupDb } from './runtime-group-db.js';
 import { normalizeTelegramChatJid } from './telegram.js';
 import { providerForJid } from '../channels/provider-registry.js';
 import { parseAgentThreadQueueKey } from '../shared/thread-queue-key.js';
+import { agentIdForFolder } from '../domain/agent/agent-folder-id.js';
 import { DEFAULT_AGENT_FOLDER } from './main-agent.js';
 
 export { formatAgentHarnessLine } from './group-engine.js';
@@ -160,6 +163,7 @@ export async function pruneDesiredStateAgent(input: {
 }): Promise<{
   pruned: boolean;
   providerAccountsPruned: number;
+  reconciled?: boolean;
   keptForDelegates?: string[];
   keptAsDefault?: boolean;
   error?: string;
@@ -264,18 +268,71 @@ export async function pruneDesiredStateAgent(input: {
     // store, and a file write is correct. `reconciled: false` is therefore not
     // an error condition; a genuine failure surfaces as a throw and is caught
     // below.
-    await writeDesiredRuntimeSettings({
+    const writeResult = await writeDesiredRuntimeSettings({
       runtimeHome: input.runtimeHome,
       settings,
       previousSettings,
     });
-    return { pruned: true, providerAccountsPruned };
+    return {
+      pruned: true,
+      providerAccountsPruned,
+      reconciled: writeResult.reconciled,
+    };
   } catch (err) {
     return {
       pruned: false,
       providerAccountsPruned: 0,
       error: err instanceof Error ? err.message : String(err),
     };
+  }
+}
+
+/**
+ * Best-effort cleanup of a removed agent's projected `gantry.agents` row.
+ *
+ * Desired-state removal (`pruneDesiredStateAgent`) is the durable source of
+ * truth, but the projected row is a mirror that authoritative reconcile only
+ * disables when `desired_state.authoritative` is true -- which live config
+ * leaves false. So an explicit CLI removal must disable the mirror itself, the
+ * same primitive reconcile uses (`desired-state-service.ts` `disableAgent`).
+ *
+ * Never throws: the row is a mirror, not the authority, so a storage failure
+ * here must not fail a removal that already persisted. On failure it warns and
+ * reports the error to the caller (which still exits 0). `disableAgent` returns
+ * null when no row exists (already gone).
+ *
+ * ponytail: not revision-coupled. A concurrent re-add of the same folder
+ * (remover persists a drop; adder persists a newer revision restoring it) can
+ * race this disable and leave a declared agent's row disabled. That state is
+ * transient and self-healing -- the next desired-state reconcile re-imports
+ * every declared agent and upserts status:'active' (desired-state-service.ts
+ * :181). Closing the window fully needs a revision-coupled compare-and-set on
+ * the row (follow-up #290), out of scope for this projection-cleanup fix.
+ */
+export async function disableRemovedAgentProjection(
+  folder: string,
+): Promise<{ disabled: boolean; error?: string }> {
+  try {
+    const { closeRuntimeStorage, getRuntimeStorage, initializeRuntimeStorage } =
+      await import('../adapters/storage/postgres/runtime-store.js');
+    await initializeRuntimeStorage();
+    try {
+      const disabled =
+        await getRuntimeStorage().repositories.agents.disableAgent({
+          appId: 'default' as never,
+          agentId: agentIdForFolder(folder),
+          updatedAt: new Date().toISOString(),
+        });
+      return { disabled: disabled !== null };
+    } finally {
+      await closeRuntimeStorage();
+    }
+  } catch (err) {
+    const error = err instanceof Error ? err.message : String(err);
+    p.log.warn(
+      `Agent ${folder} removed from desired state, but its projected agents row could not be disabled (${error}); it stays removed and will not resurrect.`,
+    );
+    return { disabled: false, error };
   }
 }
 

@@ -26,6 +26,7 @@ import {
   resolveRoutelessAgentFolder,
   resolveGroupSelector,
 } from '@core/cli/group-helpers.js';
+import { agentIdForFolder } from '@core/domain/agent/agent-folder-id.js';
 
 const groupsStore = vi.hoisted(() => new Map<string, any>());
 const fileArtifacts = vi.hoisted(() => new Map<string, string>());
@@ -146,6 +147,56 @@ function mockRuntimeSecretStorage(runtimeHome: string) {
     storeRuntimeSecretInput,
   }));
   return storeRuntimeSecretInput;
+}
+
+// Mock the dynamic runtime-store import used by disableRemovedAgentProjection so
+// the projection-cleanup step is observable without a live Postgres.
+function mockRuntimeStoreDisableAgent(
+  impl: (input: any) => any = async () => ({ id: 'row' }),
+) {
+  const disableAgent = vi.fn(impl);
+  vi.doMock('@core/adapters/storage/postgres/runtime-store.js', () => ({
+    initializeRuntimeStorage: vi.fn(async () => undefined),
+    closeRuntimeStorage: vi.fn(async () => undefined),
+    getRuntimeStorage: () => ({ repositories: { agents: { disableAgent } } }),
+  }));
+  return disableAgent;
+}
+
+// Force the desired-state write to report a durable settings-revision append
+// (`reconciled: true`) while still persisting to the on-disk settings file, so
+// the projection-cleanup step runs. Without a storage provider the real writer
+// returns `reconciled: false`; tests that omit this helper exercise that path.
+function mockReconciledDesiredWrite() {
+  vi.doMock(
+    '@core/config/settings/runtime-settings.js',
+    async (importOriginal) => {
+      const actual =
+        await importOriginal<
+          typeof import('@core/config/settings/runtime-settings.js')
+        >();
+      return {
+        ...actual,
+        writeDesiredRuntimeSettings: vi.fn(async (input: any) => {
+          actual.saveRuntimeSettings(input.runtimeHome, input.settings);
+          return { reconciled: true, restartRequired: [] };
+        }),
+      };
+    },
+  );
+}
+
+function clackLogMock() {
+  const warn = vi.fn();
+  vi.doMock('@clack/prompts', () => ({
+    isCancel: () => false,
+    select: vi.fn(),
+    text: vi.fn(),
+    note: vi.fn(),
+    spinner: vi.fn(() => ({ start: vi.fn(), stop: vi.fn() })),
+    log: { info: vi.fn(), success: vi.fn(), error: vi.fn(), warn },
+  }));
+  return { warn };
 }
 
 describe('cli slack helpers', () => {
@@ -1223,7 +1274,11 @@ describe('cli slack helpers', () => {
         folder: 'doomed',
         remainingRoutes: 0,
       }),
-    ).resolves.toEqual({ pruned: true, providerAccountsPruned: 0 });
+    ).resolves.toEqual({
+      pruned: true,
+      providerAccountsPruned: 0,
+      reconciled: false,
+    });
     expect(loadRuntimeSettings(runtimeHome).agents.doomed).toBeUndefined();
 
     // Other agents are untouched.
@@ -1564,5 +1619,250 @@ describe('cli slack helpers', () => {
       conversation: undefined,
       danglingAccounts: 0,
     });
+  });
+
+  it('disables the projected agents row after a route-bearing last-route removal', async () => {
+    const runtimeHome = makeRuntimeHome();
+    const settings = loadRuntimeSettings(runtimeHome);
+    settings.providerAccounts.slack_doomed = {
+      provider: 'slack',
+      agentId: 'doomed',
+      label: 'slack',
+      runtimeSecretRefs: {},
+    } as (typeof settings.providerAccounts)['slack_doomed'];
+    settings.agents.doomed = {
+      name: 'Doomed',
+      folder: 'doomed',
+      bindings: {
+        doomed_b: {
+          jid: 'sl:C0000000009',
+          provider: 'slack',
+          providerAccountId: 'slack_doomed',
+          name: 'Doomed',
+          trigger: '',
+          addedAt: '2026-01-01T00:00:00.000Z',
+          requiresTrigger: false,
+        },
+      },
+      sources: { skills: [], mcpServers: [], tools: [] },
+      capabilities: [],
+      delegates: [],
+      accessPreset: 'full',
+    } as (typeof settings.agents)['doomed'];
+    settings.bindings.doomed_b = {
+      agent: 'doomed',
+      conversation: 'slack_doomed_c9',
+      installKey: 'doomed',
+      trigger: '',
+      addedAt: '2026-01-01T00:00:00.000Z',
+      requiresTrigger: false,
+      memoryScope: 'conversation',
+    } as (typeof settings.bindings)['doomed_b'];
+    settings.conversations.slack_doomed_c9 = {
+      providerAccount: 'slack_doomed',
+      externalId: 'C0000000009',
+      kind: 'channel',
+      displayName: 'Doomed',
+      senderPolicy: { allow: '*', mode: 'trigger' },
+      controlApprovers: [],
+      installedAgents: {
+        doomed: {
+          agentId: 'doomed',
+          providerAccountId: 'slack_doomed',
+          status: 'active',
+          addedAt: '2026-01-01T00:00:00.000Z',
+          memoryScope: 'conversation',
+        },
+      },
+    } as (typeof settings.conversations)['slack_doomed_c9'];
+    saveRuntimeSettings(runtimeHome, settings);
+    const routeKey = makeAgentThreadQueueKey('sl:C0000000009', 'agent:doomed');
+    groupsStore.set(routeKey, {
+      name: 'Doomed',
+      folder: 'doomed',
+      trigger: '',
+      added_at: '2026-04-24T00:00:00.000Z',
+    });
+
+    mockReconciledDesiredWrite();
+    clackLogMock();
+    const disableAgent = mockRuntimeStoreDisableAgent();
+    const { runAgentCommand } = await import('@core/cli/group.js');
+    const code = await runAgentCommand(runtimeHome, [
+      'remove',
+      routeKey,
+      '--yes',
+    ]);
+
+    expect(code).toBe(0);
+    expect(loadRuntimeSettings(runtimeHome).agents.doomed).toBeUndefined();
+    expect(disableAgent).toHaveBeenCalledTimes(1);
+    expect(disableAgent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        appId: 'default',
+        agentId: agentIdForFolder('doomed'),
+      }),
+    );
+  });
+
+  it('disables the projected agents row after a route-less removal', async () => {
+    const runtimeHome = makeRuntimeHome();
+    const settings = loadRuntimeSettings(runtimeHome);
+    settings.agents.orphan = {
+      name: 'Orphan',
+      folder: 'orphan',
+      bindings: {},
+      capabilities: [],
+      delegates: [],
+      sources: { skills: [], mcpServers: [], tools: [] },
+      accessPreset: 'full',
+    } as (typeof settings.agents)['orphan'];
+    saveRuntimeSettings(runtimeHome, settings);
+
+    mockReconciledDesiredWrite();
+    clackLogMock();
+    const disableAgent = mockRuntimeStoreDisableAgent();
+    const { runAgentCommand } = await import('@core/cli/group.js');
+    const code = await runAgentCommand(runtimeHome, [
+      'remove',
+      'orphan',
+      '--yes',
+    ]);
+
+    expect(code).toBe(0);
+    expect(loadRuntimeSettings(runtimeHome).agents.orphan).toBeUndefined();
+    expect(disableAgent).toHaveBeenCalledTimes(1);
+    expect(disableAgent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        appId: 'default',
+        agentId: agentIdForFolder('orphan'),
+      }),
+    );
+  });
+
+  it('does not disable a projected row when the desired-state write is file-only', async () => {
+    const runtimeHome = makeRuntimeHome();
+    const settings = loadRuntimeSettings(runtimeHome);
+    settings.agents.orphan = {
+      name: 'Orphan',
+      folder: 'orphan',
+      bindings: {},
+      capabilities: [],
+      delegates: [],
+      sources: { skills: [], mcpServers: [], tools: [] },
+      accessPreset: 'full',
+    } as (typeof settings.agents)['orphan'];
+    saveRuntimeSettings(runtimeHome, settings);
+
+    // Use the real writer (no mockReconciledDesiredWrite): with no storage
+    // provider it returns reconciled:false (file-only), so no DB projection
+    // exists to clean. doUnmock guards against a reconciled mock leaking in from
+    // an earlier test via the shared doMock registry.
+    vi.doUnmock('@core/config/settings/runtime-settings.js');
+    clackLogMock();
+    const disableAgent = mockRuntimeStoreDisableAgent();
+    const { runAgentCommand } = await import('@core/cli/group.js');
+    const code = await runAgentCommand(runtimeHome, [
+      'remove',
+      'orphan',
+      '--yes',
+    ]);
+
+    expect(code).toBe(0);
+    expect(loadRuntimeSettings(runtimeHome).agents.orphan).toBeUndefined();
+    expect(disableAgent).not.toHaveBeenCalled();
+  });
+
+  it('does not disable a projected row when the agent is retained for delegates', async () => {
+    const runtimeHome = makeRuntimeHome();
+    const settings = loadRuntimeSettings(runtimeHome);
+    settings.agents.helper = {
+      name: 'Helper',
+      folder: 'helper',
+      bindings: {},
+      capabilities: [],
+      delegates: [],
+      sources: { skills: [], mcpServers: [], tools: [] },
+      accessPreset: 'full',
+    } as (typeof settings.agents)['helper'];
+    settings.agents.boss = {
+      ...settings.agents.helper,
+      name: 'Boss',
+      folder: 'boss',
+      delegates: ['helper'],
+    };
+    saveRuntimeSettings(runtimeHome, settings);
+
+    clackLogMock();
+    const disableAgent = mockRuntimeStoreDisableAgent();
+    const { runAgentCommand } = await import('@core/cli/group.js');
+    const code = await runAgentCommand(runtimeHome, [
+      'remove',
+      'helper',
+      '--yes',
+    ]);
+
+    expect(code).toBe(1);
+    expect(disableAgent).not.toHaveBeenCalled();
+  });
+
+  it('does not disable a projected row when refusing the default agent', async () => {
+    const runtimeHome = makeRuntimeHome();
+    const settings = loadRuntimeSettings(runtimeHome);
+    settings.agents.main_agent = {
+      name: 'Main',
+      folder: 'main_agent',
+      bindings: {},
+      capabilities: [],
+      delegates: [],
+      sources: { skills: [], mcpServers: [], tools: [] },
+      accessPreset: 'full',
+    } as (typeof settings.agents)['main_agent'];
+    saveRuntimeSettings(runtimeHome, settings);
+
+    clackLogMock();
+    const disableAgent = mockRuntimeStoreDisableAgent();
+    const { runAgentCommand } = await import('@core/cli/group.js');
+    const code = await runAgentCommand(runtimeHome, [
+      'remove',
+      'main_agent',
+      '--yes',
+    ]);
+
+    expect(code).toBe(1);
+    expect(disableAgent).not.toHaveBeenCalled();
+  });
+
+  it('still succeeds and warns when the projection disable fails (best-effort)', async () => {
+    const runtimeHome = makeRuntimeHome();
+    const settings = loadRuntimeSettings(runtimeHome);
+    settings.agents.orphan = {
+      name: 'Orphan',
+      folder: 'orphan',
+      bindings: {},
+      capabilities: [],
+      delegates: [],
+      sources: { skills: [], mcpServers: [], tools: [] },
+      accessPreset: 'full',
+    } as (typeof settings.agents)['orphan'];
+    saveRuntimeSettings(runtimeHome, settings);
+
+    mockReconciledDesiredWrite();
+    const disableAgent = mockRuntimeStoreDisableAgent(async () => {
+      throw new Error('storage offline');
+    });
+    const { warn } = clackLogMock();
+    const { runAgentCommand } = await import('@core/cli/group.js');
+    const code = await runAgentCommand(runtimeHome, [
+      'remove',
+      'orphan',
+      '--yes',
+    ]);
+
+    expect(code).toBe(0);
+    expect(disableAgent).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalled();
+    // Desired-state removal is durable regardless of the mirror write.
+    expect(loadRuntimeSettings(runtimeHome).agents.orphan).toBeUndefined();
   });
 });
