@@ -1679,11 +1679,7 @@ describe('validateIpcAuthRequest', () => {
     };
 
     expect(() =>
-      validateIpcAuthRequest(
-        signedPayload(payload),
-        'team',
-        'permission IPC',
-      ),
+      validateIpcAuthRequest(signedPayload(payload), 'team', 'permission IPC'),
     ).toThrow(/expiresAt exceeds max age/);
   });
 });

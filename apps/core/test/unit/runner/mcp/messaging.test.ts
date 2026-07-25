@@ -8,6 +8,7 @@ import {
   validateIpcRequestFreshness,
   verifyIpcRequestPayload,
 } from '@core/infrastructure/ipc/request-signing.js';
+import { IPC_INTERACTION_RETENTION_TTL_MS } from '@core/shared/ipc-interaction-lifetime.js';
 
 const contextState = vi.hoisted(() => ({
   ipcDir: '',
@@ -124,9 +125,9 @@ function expectValidRequestAuth(
   expect(
     verifyIpcRequestPayload('messaging-test-token', payload, signature),
   ).toBe(true);
-  expect(
-    validateIpcRequestFreshness(payload, Date.now(), maxAgeMs),
-  ).toEqual({ ok: true });
+  expect(validateIpcRequestFreshness(payload, Date.now(), maxAgeMs)).toEqual({
+    ok: true,
+  });
 }
 
 describe('ask_user_question lane deadlines', () => {
@@ -165,7 +166,7 @@ describe('ask_user_question lane deadlines', () => {
     ) as SignedQuestionRequest;
     expect(request.expiresAt).toBeUndefined();
     expect(request.authExpiresAt).toEqual(expect.any(String));
-    expectValidRequestAuth(request);
+    expectValidRequestAuth(request, IPC_INTERACTION_RETENTION_TTL_MS);
     expect(
       resolveInteractionSettlementDelayMs({
         expiresAt: request.expiresAt,
@@ -174,9 +175,9 @@ describe('ask_user_question lane deadlines', () => {
       }),
     ).toBeUndefined();
 
-    const dateNow = vi
-      .spyOn(Date, 'now')
-      .mockReturnValue(Date.now() + 10 * 60_000);
+    const tenMinutesLater = Date.now() + 10 * 60_000;
+    const dateNow = vi.spyOn(Date, 'now').mockReturnValue(tenMinutesLater);
+    expectValidRequestAuth(request, IPC_INTERACTION_RETENTION_TTL_MS);
     await new Promise((resolve) => setTimeout(resolve, 150));
     expect(settled).toBe(false);
     dateNow.mockRestore();
@@ -201,6 +202,34 @@ describe('ask_user_question lane deadlines', () => {
         },
       ],
     });
+  });
+
+  it('returns a clear failure when an unclaimed interactive question reaches its ingestion bound', async () => {
+    contextState.permissionLane = 'interactive';
+    const handler = await askUserQuestionHandler();
+    const result = handler(questionArgs);
+    await passInteractionBoundary();
+
+    const requestDir = path.join(contextState.ipcDir, 'user-questions');
+    const requestFile = await waitForJsonFile(requestDir);
+    const requestPath = path.join(requestDir, requestFile);
+    const request = JSON.parse(
+      fs.readFileSync(requestPath, 'utf8'),
+    ) as SignedQuestionRequest;
+    const dateNow = vi
+      .spyOn(Date, 'now')
+      .mockReturnValue(Date.parse(request.authExpiresAt!) + 1);
+
+    await expect(result).resolves.toEqual({
+      content: [
+        {
+          type: 'text',
+          text: 'Question could not be claimed before its authenticated ingestion window expired. Please ask again.',
+        },
+      ],
+    });
+    expect(fs.existsSync(requestPath)).toBe(false);
+    dateNow.mockRestore();
   });
 
   it.each([

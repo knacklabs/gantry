@@ -48,6 +48,7 @@ vi.mock('@core/runtime/ipc-request-wakeup-registry.js', () => ({
 }));
 
 import { createSignedIpcRequestEnvelope } from '@core/shared/ipc-signing.js';
+import { IPC_INTERACTION_RETENTION_TTL_MS } from '@core/shared/ipc-interaction-lifetime.js';
 import { createIpcAuthEnvelope } from '@core/runtime/ipc-auth.js';
 import { clearConsumedIpcRequestIds } from '@core/runtime/ipc-auth-validation.js';
 import { FilesystemRunnerControlPort } from '@core/runtime/filesystem-runner-control-port.js';
@@ -82,7 +83,12 @@ function permissionEnvelope(
         responseKeyId: auth.responseKeyId,
       },
     },
-    { separateAuthExpiry: true },
+    {
+      separateAuthExpiry: true,
+      ...(permissionLane === 'interactive'
+        ? { authLifetimeMs: IPC_INTERACTION_RETENTION_TTL_MS }
+        : {}),
+    },
   );
 }
 
@@ -118,7 +124,12 @@ function questionEnvelope(
         responseKeyId: auth.responseKeyId,
       },
     },
-    { separateAuthExpiry: true },
+    {
+      separateAuthExpiry: true,
+      ...(permissionLane === 'interactive'
+        ? { authLifetimeMs: IPC_INTERACTION_RETENTION_TTL_MS }
+        : {}),
+    },
   );
 }
 
@@ -205,6 +216,47 @@ describe('parsePermissionIpcRequest', () => {
       ).toBeUndefined();
     } finally {
       vi.unstubAllEnvs();
+      vi.useRealTimers();
+    }
+  });
+
+  it('accepts signed interactive requests after five minutes while preserving signature and replay protection', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-25T00:00:00.000Z'));
+    try {
+      const permission = permissionEnvelope('interactive');
+      const question = questionEnvelope('interactive');
+      vi.setSystemTime(new Date('2026-07-25T00:10:00.000Z'));
+
+      expect(parsePermissionIpcRequest(permission, 'team')).toMatchObject({
+        permissionLane: 'interactive',
+      });
+      expect(parseUserQuestionIpcRequest(question, 'team')).toMatchObject({
+        permissionLane: 'interactive',
+      });
+      expect(() => parsePermissionIpcRequest(permission, 'team')).toThrow(
+        'Invalid permission IPC replay',
+      );
+      expect(() =>
+        parseUserQuestionIpcRequest(
+          {
+            ...question,
+            questions: [
+              {
+                question: 'Tampered?',
+                header: 'Tampered',
+                options: [
+                  { label: 'Yes', description: 'Changed after signing.' },
+                  { label: 'No', description: 'Original payload.' },
+                ],
+                multiSelect: false,
+              },
+            ],
+          },
+          'team',
+        ),
+      ).toThrow('Invalid user question IPC signature');
+    } finally {
       vi.useRealTimers();
     }
   });

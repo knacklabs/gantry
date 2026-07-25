@@ -11,6 +11,10 @@ import {
   hasValidIpcResponseSignature,
 } from '../../../../shared/ipc-signing.js';
 import { IPC_CANCELLATION_RETENTION_TTL_MS } from '../../../../shared/ipc-cancellation-lifetime.js';
+import {
+  ipcInteractionAuthEnvelopeOptions,
+  ipcInteractionUnclaimableReason,
+} from '../../../../shared/ipc-interaction-lifetime.js';
 import type { SemanticCapabilityDefinition } from '../../../../shared/semantic-capabilities.js';
 import {
   IPC_AUTH_TOKEN,
@@ -158,6 +162,8 @@ async function requestPermissionApprovalInner(options: {
       : PERMISSION_REQUEST_TIMEOUT_MS;
     const deadline =
       waitMs > NO_PERMISSION_TIMEOUT_MS ? nowMs() + waitMs : undefined;
+    const unboundedInteractive =
+      PERMISSION_LANE === 'interactive' && deadline === undefined;
     const payload = {
       requestId,
       appId,
@@ -239,9 +245,14 @@ async function requestPermissionApprovalInner(options: {
       },
       timestamp: nowIso(),
     };
-    const envelope = createSignedIpcRequestEnvelope(IPC_AUTH_TOKEN, payload, {
-      separateAuthExpiry: true,
-    });
+    const envelope = createSignedIpcRequestEnvelope(
+      IPC_AUTH_TOKEN,
+      payload,
+      ipcInteractionAuthEnvelopeOptions(unboundedInteractive),
+    );
+    const authDeadline = unboundedInteractive
+      ? Date.parse(String(envelope.authExpiresAt))
+      : undefined;
     fs.writeFileSync(requestTmpPath, JSON.stringify(envelope, null, 2));
     fs.renameSync(requestTmpPath, requestPath);
 
@@ -259,7 +270,10 @@ async function requestPermissionApprovalInner(options: {
     }
 
     const responsePath = path.join(permissionResponsesDir, `${requestId}.json`);
-    while (deadline === undefined || nowMs() < deadline) {
+    while (
+      (deadline === undefined || nowMs() < deadline) &&
+      (authDeadline === undefined || nowMs() < authDeadline)
+    ) {
       if (options.signal?.aborted) {
         cancelPermissionRequest({
           workspaceIpcDir,
@@ -440,6 +454,15 @@ async function requestPermissionApprovalInner(options: {
           decisionClassification: 'user_reject',
         };
       }
+    }
+    if (authDeadline !== undefined) {
+      fs.rmSync(requestPath, { force: true });
+      return {
+        approved: false,
+        decidedBy: 'runtime',
+        reason: ipcInteractionUnclaimableReason('permission'),
+        decisionClassification: 'user_reject',
+      };
     }
     return {
       approved: false,

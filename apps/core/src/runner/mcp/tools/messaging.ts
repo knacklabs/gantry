@@ -33,6 +33,10 @@ import {
 import { truncateText } from '../formatting.js';
 import { hasValidIpcResponseSignature, writeIpcFile } from '../ipc.js';
 import { createSignedIpcRequestEnvelope } from '../../../shared/ipc-signing.js';
+import {
+  ipcInteractionAuthEnvelopeOptions,
+  ipcQuestionWaitExpiredReason,
+} from '../../../shared/ipc-interaction-lifetime.js';
 import { makeIpcId } from '../ipc-ids.js';
 import {
   CANCELLED_QUESTION_REASON,
@@ -569,18 +573,15 @@ export function registerMessagingTools(server: McpServer): void {
             }
           : {}),
       };
-      const envelope = createSignedIpcRequestEnvelope(IPC_AUTH_TOKEN, payload, {
-        separateAuthExpiry: true,
-      });
+      // prettier-ignore
+      const envelope = createSignedIpcRequestEnvelope(IPC_AUTH_TOKEN, payload, ipcInteractionAuthEnvelopeOptions(permissionLane === 'interactive'));
 
       writePrivateFileSync(tmpPath, JSON.stringify(envelope, null, 2));
       fs.renameSync(tmpPath, requestPath);
 
-      const deadline =
-        permissionLane === 'autonomous'
-          ? nowMs() + USER_QUESTION_TIMEOUT_MS
-          : undefined;
-      while (deadline === undefined || nowMs() < deadline) {
+      // prettier-ignore
+      const deadline = permissionLane === 'autonomous' ? nowMs() + USER_QUESTION_TIMEOUT_MS : Date.parse(String(envelope.authExpiresAt));
+      while (nowMs() < deadline) {
         if (context?.signal?.aborted) {
           cancelUserQuestionRequest({ requestPath, requestId });
           return {
@@ -689,7 +690,7 @@ export function registerMessagingTools(server: McpServer): void {
         content: [
           {
             type: 'text' as const,
-            text: 'Question expired. Please ask again if this is still needed.',
+            text: ipcQuestionWaitExpiredReason(permissionLane),
           },
         ],
       };

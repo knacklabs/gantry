@@ -8,6 +8,7 @@ import {
   validateIpcRequestFreshness,
   verifyIpcRequestPayload,
 } from '../infrastructure/ipc/request-signing.js';
+import { ipcInteractionAuthValidationOptions } from '../shared/ipc-interaction-lifetime.js';
 import { nowMs } from '../shared/time/datetime.js';
 import { isPlainObject, toTrimmedString } from '../shared/object.js';
 import {
@@ -321,13 +322,22 @@ export function validateIpcAuthRequest(
   const requestId = toTrimmedString(payload.requestId, { maxLen: 128 });
   if (requestId) {
     const replayKey = `${sourceAgentFolder}:${binding.authThreadId || ''}:${requestId}`;
-    reserveFreshIpcRequestId(
-      replayKey,
-      nowMs() + maxAgeMs,
-      label,
-    );
+    reserveFreshIpcRequestId(replayKey, nowMs() + maxAgeMs, label);
   }
   return binding;
+}
+
+export function validateInteractionIpcAuthRequest(
+  raw: Record<string, unknown>,
+  sourceAgentFolder: string,
+  label: string,
+): IpcThreadBinding {
+  return validateIpcAuthRequest(
+    raw,
+    sourceAgentFolder,
+    label,
+    ipcInteractionAuthValidationOptions(raw.permissionLane),
+  );
 }
 
 export function validateBrowserIpcAuthRequest(

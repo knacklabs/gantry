@@ -17,6 +17,7 @@ type UserQuestionSurface = Pick<
   | 'requestUserAnswer'
   | 'questionIndexesForDeliveredPrompt'
   | 'dropPendingInteraction'
+  | 'cancelPendingQuestion'
 >;
 
 export function createChannelWiringStreamReset<Channel extends object>(input: {
@@ -92,6 +93,12 @@ export function createChannelWiringStreamReset<Channel extends object>(input: {
               ? {
                   questionIndexesForDeliveredPrompt:
                     surface.questionIndexesForDeliveredPrompt.bind(surface),
+                }
+              : {}),
+            ...(surface.cancelPendingQuestion
+              ? {
+                  cancelPendingQuestion:
+                    surface.cancelPendingQuestion.bind(surface),
                 }
               : {}),
             requestUserAnswer: (

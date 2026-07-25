@@ -10,6 +10,7 @@ import { verifyIpcResponsePayload } from '@core/infrastructure/ipc/response-sign
 import { createIpcAuthEnvelope } from '@core/runtime/ipc-auth.js';
 import { processPermissionInteractionIpc } from '@core/runtime/ipc-interaction-processing.js';
 import { formatPermissionDeniedMessage } from '@core/shared/permission-decision-message.js';
+import { IPC_INTERACTION_RETENTION_TTL_MS } from '@core/shared/ipc-interaction-lifetime.js';
 
 const CANCELLATION_LIFETIME_MS = 24 * 60 * 60_000;
 
@@ -521,9 +522,10 @@ describe('requestPermissionApproval', () => {
     ).toEqual({ ok: true });
   });
 
-  it('waits indefinitely for an interactive response at the no-timeout sentinel', async () => {
+  it('keeps an unbounded interactive request authenticated beyond five minutes while waiting', async () => {
     process.env.GANTRY_PERMISSION_LANE = 'interactive';
     process.env.GANTRY_INTERACTIVE_PERMISSION_TIMEOUT_MS = '0';
+    process.env.GANTRY_IPC_AUTH_TOKEN = 'interactive-permission-test-token';
     delete process.env.GANTRY_JOB_ID;
     delete process.env.GANTRY_JOB_RUN_ID;
     vi.resetModules();
@@ -559,6 +561,8 @@ describe('requestPermissionApproval', () => {
       permissionLane?: string;
       expiresAt?: string;
       authExpiresAt?: string;
+      signature?: string;
+      [key: string]: unknown;
     };
     expect(request).toMatchObject({
       unattended: false,
@@ -566,10 +570,27 @@ describe('requestPermissionApproval', () => {
     });
     expect(request.expiresAt).toBeUndefined();
     expect(request.authExpiresAt).toEqual(expect.any(String));
+    expect(
+      Date.parse(request.authExpiresAt!) - Date.now(),
+    ).toBeGreaterThanOrEqual(IPC_INTERACTION_RETENTION_TTL_MS - 100);
 
-    const dateNow = vi
-      .spyOn(Date, 'now')
-      .mockReturnValue(Date.now() + 10 * 60_000);
+    const tenMinutesLater = Date.now() + 10 * 60_000;
+    const dateNow = vi.spyOn(Date, 'now').mockReturnValue(tenMinutesLater);
+    const { signature, ...payload } = request;
+    expect(
+      verifyIpcRequestPayload(
+        'interactive-permission-test-token',
+        payload,
+        signature,
+      ),
+    ).toBe(true);
+    expect(
+      validateIpcRequestFreshness(
+        payload,
+        Date.now(),
+        IPC_INTERACTION_RETENTION_TTL_MS,
+      ),
+    ).toEqual({ ok: true });
     await new Promise((resolve) => setTimeout(resolve, 150));
     expect(settled).toBe(false);
     dateNow.mockRestore();
@@ -599,6 +620,49 @@ describe('requestPermissionApproval', () => {
       mode: 'allow_once',
       decidedBy: 'Ravi',
     });
+  });
+
+  it('returns a clear failure when an unclaimed interactive request reaches its ingestion bound', async () => {
+    process.env.GANTRY_PERMISSION_LANE = 'interactive';
+    process.env.GANTRY_INTERACTIVE_PERMISSION_TIMEOUT_MS = '0';
+    delete process.env.GANTRY_JOB_ID;
+    delete process.env.GANTRY_JOB_RUN_ID;
+    vi.resetModules();
+    const { requestPermissionApproval } =
+      await import('@core/adapters/llm/anthropic-claude-agent/runner/permission-callback.js');
+
+    const decision = requestPermissionApproval({
+      appId: 'default',
+      agentId: 'agent:main_agent',
+      workspaceFolder: 'main_agent',
+      targetJid: 'tg:test',
+      toolName: 'Bash',
+      toolInput: { command: 'git status --short' },
+    });
+    const requestDir = path.join(
+      tempDir,
+      'ipc',
+      'main_agent',
+      'permission-requests',
+    );
+    const [requestFile] = await waitForFiles(requestDir, 1);
+    const requestPath = path.join(requestDir, requestFile);
+    const request = JSON.parse(fs.readFileSync(requestPath, 'utf-8')) as {
+      authExpiresAt: string;
+    };
+    const dateNow = vi
+      .spyOn(Date, 'now')
+      .mockReturnValue(Date.parse(request.authExpiresAt) + 1);
+
+    await expect(decision).resolves.toEqual({
+      approved: false,
+      decidedBy: 'runtime',
+      reason:
+        'Permission request could not be claimed before its authenticated ingestion window expired. Retry the live request.',
+      decisionClassification: 'user_reject',
+    });
+    expect(fs.existsSync(requestPath)).toBe(false);
+    dateNow.mockRestore();
   });
 
   it('serializes the authenticated host-injected command prefix', async () => {

@@ -467,6 +467,80 @@ describe('createChannelWiring', () => {
     });
   });
 
+  it('settles an aborted question through the normal channel-wiring facade', async () => {
+    let resolveAnswer!: (response: {
+      requestId: string;
+      answers: Record<string, string | string[]>;
+    }) => void;
+    const cancelPendingQuestion = vi.fn(async (cancellation) => {
+      resolveAnswer({ requestId: cancellation.requestId, answers: {} });
+      return 'settled' as const;
+    });
+    const questionChannel = makeChannel({
+      ownsJid: vi.fn((jid: string) => jid === 'tg:group'),
+      requestUserAnswer: vi.fn(
+        async (
+          _jid: string,
+          _request: UserQuestionRequest,
+          onPromptDelivered?: (
+            messageId: string,
+            questionIndex?: number,
+          ) => void,
+        ) => {
+          onPromptDelivered?.('question-prompt-normal-wiring');
+          return new Promise<{
+            requestId: string;
+            answers: Record<string, string | string[]>;
+          }>((resolve) => {
+            resolveAnswer = resolve;
+          });
+        },
+      ),
+      cancelPendingQuestion,
+    });
+    const wiring = createChannelWiring(
+      makeApp({ 'tg:group': { name: 'Group', folder: 'group' } }),
+      {
+        providerIds: [
+          makeProvider(
+            'telegram',
+            vi.fn(() => questionChannel),
+          ),
+        ],
+      },
+    );
+    await wiring.connectEnabledChannels(
+      makeRuntimeSettings({ telegram: true, slack: false }),
+    );
+    const request: UserQuestionRequest = {
+      requestId: 'question-normal-wiring-cancel',
+      appId: 'default',
+      sourceAgentFolder: 'group',
+      targetJid: 'tg:group',
+      questions: [],
+    };
+    const answer = wiring.requestUserAnswer(request);
+
+    await expect(
+      wiring.cancelUserQuestion({
+        requestId: request.requestId,
+        appId: request.appId,
+        sourceAgentFolder: request.sourceAgentFolder,
+        reason: 'Question cancelled. Nothing changed.',
+      }),
+    ).resolves.toBe('settled');
+    await expect(answer).resolves.toEqual({
+      requestId: request.requestId,
+      answers: {},
+    });
+    expect(cancelPendingQuestion).toHaveBeenCalledWith({
+      requestId: request.requestId,
+      appId: request.appId,
+      sourceAgentFolder: request.sourceAgentFolder,
+      reason: 'Question cancelled. Nothing changed.',
+    });
+  });
+
   it('catches and reschedules a rejected question cancellation from prompt delivery', async () => {
     vi.useFakeTimers();
     const unhandledRejection = vi.fn();

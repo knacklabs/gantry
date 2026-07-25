@@ -17,6 +17,7 @@ import { parseSemanticCapabilityDefinitionsRecord } from '../shared/semantic-cap
 import { isPlainObject, toTrimmedString } from '../shared/object.js';
 import {
   validateBrowserIpcAuthRequest,
+  validateInteractionIpcAuthRequest,
   validateIpcAuthRequest,
   validateMemoryIpcAuthRequest,
 } from './ipc-auth-validation.js';
@@ -320,11 +321,8 @@ export function parsePermissionIpcRequest(
   sourceAgentFolder: string,
 ): ParsedPermissionIpcRequest {
   if (!isPlainObject(raw)) throw new Error('Invalid permission IPC payload');
-  const binding = validateIpcAuthRequest(
-    raw,
-    sourceAgentFolder,
-    'permission IPC',
-  );
+  // prettier-ignore
+  const binding = validateInteractionIpcAuthRequest(raw, sourceAgentFolder, 'permission IPC');
   const appId = binding.appId;
   if (!appId) {
     throw new Error('permission IPC context.appId is required');
@@ -490,7 +488,7 @@ export function parseUserQuestionIpcRequest(
   sourceAgentFolder: string,
 ): UserQuestionRequest {
   if (!isPlainObject(raw)) throw new Error('Invalid user question IPC payload');
-  const binding = validateIpcAuthRequest(
+  const binding = validateInteractionIpcAuthRequest(
     raw,
     sourceAgentFolder,
     'user question IPC',
