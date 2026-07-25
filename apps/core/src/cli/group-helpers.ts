@@ -1,6 +1,8 @@
 import fs from 'fs';
 import path from 'path';
 
+import * as p from '@clack/prompts';
+
 import type { ConversationRoute } from '../domain/types.js';
 import type { FileArtifactStore } from '../domain/ports/file-artifact-store.js';
 import { isValidWorkspaceFolder } from '../platform/workspace-folder.js';
@@ -21,6 +23,8 @@ import { RuntimeGroupDb, openRuntimeGroupDb } from './runtime-group-db.js';
 import { normalizeTelegramChatJid } from './telegram.js';
 import { providerForJid } from '../channels/provider-registry.js';
 import { parseAgentThreadQueueKey } from '../shared/thread-queue-key.js';
+import { agentIdForFolder } from '../domain/agent/agent-folder-id.js';
+import { DEFAULT_AGENT_FOLDER } from './main-agent.js';
 
 export { formatAgentHarnessLine } from './group-engine.js';
 
@@ -32,7 +36,7 @@ export function usage(): string {
     '  gantry agent info <jid|folder>',
     '  gantry agent name <name>',
     '  gantry agent add <jid|chat-id> [--name <name>] [--folder <folder>] [--trigger <word>] [--requires-trigger true|false] [--test-message|--no-test-message]',
-    '  gantry agent remove <jid|folder> [--delete-folder] [--yes]',
+    '  gantry agent remove <jid|folder> [--yes]',
     '  gantry agent trigger <jid|folder> <word>',
     '  gantry agent trigger <jid|folder> --off',
     '  gantry conversation approvers <conversation-id> [--allow <userId,userId>]',
@@ -138,6 +142,230 @@ export async function pruneAgentSenderPolicyOverride(
       error: err instanceof Error ? err.message : String(err),
     };
   }
+}
+
+/**
+ * Remove an agent's definition from desired state once its LAST route is gone.
+ *
+ * Route deletion alone is not durable: desired-state reconciliation re-imports
+ * every `settings.agents` entry at startup and on each settings change, so an
+ * agent whose definition survives is recreated -- along with its routes and
+ * system jobs -- on the next reload. Callers must invoke this after removing a
+ * route so removal actually persists.
+ *
+ * No-ops while the agent still owns other routes: removing one route of a
+ * multi-route agent must not delete the agent.
+ */
+export async function pruneDesiredStateAgent(input: {
+  runtimeHome: string;
+  folder: string;
+  remainingRoutes: number;
+}): Promise<{
+  pruned: boolean;
+  providerAccountsPruned: number;
+  reconciled?: boolean;
+  keptForDelegates?: string[];
+  keptAsDefault?: boolean;
+  error?: string;
+}> {
+  if (input.remainingRoutes > 0) {
+    return { pruned: false, providerAccountsPruned: 0 };
+  }
+  try {
+    const settings = loadRuntimeSettings(input.runtimeHome);
+    const previousSettings = structuredClone(settings);
+    if (!settings.agents[input.folder]) {
+      return { pruned: false, providerAccountsPruned: 0 };
+    }
+    // The default agent's folder is the fixed DEFAULT_AGENT_FOLDER ('main_agent')
+    // -- it is hard-coded across startup/slack/telegram and is never re-pointed
+    // (`gantry agent name` only changes its display name). Deleting its
+    // definition would leave the runtime's default-agent wiring dangling, so
+    // removal is refused for BOTH the route-scoped and route-less callers.
+    if (input.folder === DEFAULT_AGENT_FOLDER) {
+      return { pruned: false, providerAccountsPruned: 0, keptAsDefault: true };
+    }
+    // Routes are not the only liveness signal: another agent may still list
+    // this one as a delegate. Deleting it would break delegation (or leave an
+    // invalid inbound reference), so keep the definition and say why.
+    const delegateReferences = Object.entries(settings.agents)
+      .filter(
+        ([folder, agent]) =>
+          folder !== input.folder &&
+          (agent.delegates ?? []).some(
+            (delegate) =>
+              delegate === input.folder ||
+              (delegate as { agent?: string })?.agent === input.folder,
+          ),
+      )
+      .map(([folder]) => folder);
+    if (delegateReferences.length > 0) {
+      return {
+        pruned: false,
+        providerAccountsPruned: 0,
+        keptForDelegates: delegateReferences,
+      };
+    }
+    delete settings.agents[input.folder];
+
+    // A provider account still pointing at the removed agent is a dangling
+    // "references unknown agent" reference that makes the settings write fail,
+    // so none may survive. Settings validation already guarantees a
+    // conversation's installed agent owns its provider account, so an account
+    // belonging to this agent can only serve this agent's conversations --
+    // both go together.
+    let providerAccountsPruned = 0;
+    for (const [accountId, account] of Object.entries(
+      settings.providerAccounts,
+    )) {
+      if (account.agentId !== input.folder) continue;
+      for (const [conversationId, conversation] of Object.entries(
+        settings.conversations,
+      )) {
+        // Drop only the installs backed by this account -- a conversation can
+        // host other agents, and deleting it wholesale would silently discard
+        // their configuration.
+        for (const [installKey, install] of Object.entries(
+          conversation.installedAgents,
+        )) {
+          if (
+            install.providerAccountId !== accountId &&
+            install.agentId !== input.folder
+          ) {
+            continue;
+          }
+          delete conversation.installedAgents[installKey];
+        }
+        const survivingInstalls = Object.values(conversation.installedAgents);
+        if (survivingInstalls.length === 0) {
+          delete settings.conversations[conversationId];
+          continue;
+        }
+        // Others remain: hand the conversation to a surviving install's
+        // account so its primary reference never points at a deleted account.
+        if (conversation.providerAccount === accountId) {
+          const replacement = survivingInstalls.find(
+            (install) =>
+              install.providerAccountId &&
+              install.providerAccountId !== accountId,
+          )?.providerAccountId;
+          if (!replacement) {
+            throw new Error(
+              `cannot remove ${input.folder}: conversation ${conversationId} still hosts ${survivingInstalls.length} agent(s) but has no other provider account to own it`,
+            );
+          }
+          conversation.providerAccount = replacement;
+        }
+      }
+      delete settings.providerAccounts[accountId];
+      providerAccountsPruned += 1;
+    }
+
+    // Persistence note: when a storage provider is configured (the CLI and the
+    // runtime both do, cli/index.ts:34) this appends a settings revision -- the
+    // boot authority -- and throws if storage is unavailable, so a silent
+    // mirror-only write cannot happen here. Without a provider the file IS the
+    // store, and a file write is correct. `reconciled: false` is therefore not
+    // an error condition; a genuine failure surfaces as a throw and is caught
+    // below.
+    const writeResult = await writeDesiredRuntimeSettings({
+      runtimeHome: input.runtimeHome,
+      settings,
+      previousSettings,
+    });
+    return {
+      pruned: true,
+      providerAccountsPruned,
+      reconciled: writeResult.reconciled,
+    };
+  } catch (err) {
+    return {
+      pruned: false,
+      providerAccountsPruned: 0,
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+}
+
+/**
+ * Best-effort cleanup of a removed agent's projected `gantry.agents` row.
+ *
+ * Desired-state removal (`pruneDesiredStateAgent`) is the durable source of
+ * truth, but the projected row is a mirror that authoritative reconcile only
+ * disables when `desired_state.authoritative` is true -- which live config
+ * leaves false. So an explicit CLI removal must disable the mirror itself, the
+ * same primitive reconcile uses (`desired-state-service.ts` `disableAgent`).
+ *
+ * Never throws: the row is a mirror, not the authority, so a storage failure
+ * here must not fail a removal that already persisted. On failure it warns and
+ * reports the error to the caller (which still exits 0). `disableAgent` returns
+ * null when no row exists (already gone).
+ *
+ * ponytail: not revision-coupled. A concurrent re-add of the same folder
+ * (remover persists a drop; adder persists a newer revision restoring it) can
+ * race this disable and leave a declared agent's row disabled. That state is
+ * transient and self-healing -- the next desired-state reconcile re-imports
+ * every declared agent and upserts status:'active' (desired-state-service.ts
+ * :181). Closing the window fully needs a revision-coupled compare-and-set on
+ * the row (follow-up #290), out of scope for this projection-cleanup fix.
+ */
+export async function disableRemovedAgentProjection(
+  folder: string,
+): Promise<{ disabled: boolean; error?: string }> {
+  try {
+    const { closeRuntimeStorage, getRuntimeStorage, initializeRuntimeStorage } =
+      await import('../adapters/storage/postgres/runtime-store.js');
+    await initializeRuntimeStorage();
+    try {
+      const disabled =
+        await getRuntimeStorage().repositories.agents.disableAgent({
+          appId: 'default' as never,
+          agentId: agentIdForFolder(folder),
+          updatedAt: new Date().toISOString(),
+        });
+      return { disabled: disabled !== null };
+    } finally {
+      await closeRuntimeStorage();
+    }
+  } catch (err) {
+    const error = err instanceof Error ? err.message : String(err);
+    p.log.warn(
+      `Agent ${folder} removed from desired state, but its projected agents row could not be disabled (${error}); it stays removed and will not resurrect.`,
+    );
+    return { disabled: false, error };
+  }
+}
+
+/**
+ * Resolve a selector that names an agent with NO conversation routes.
+ *
+ * `resolveGroupSelector` matches only against existing route keys, so an agent
+ * whose last route is already gone is unaddressable by every agent subcommand
+ * -- while its definition lives on in the settings-revision authority and is
+ * re-imported on each boot. Fall back to the desired-state agent set so such an
+ * agent can still be named (and therefore removed).
+ *
+ * Returns null when the selector matches nothing, or when the agent still owns
+ * routes (that case belongs to the normal route-scoped path).
+ */
+export function resolveRoutelessAgentFolder(input: {
+  settings: ReturnType<typeof loadRuntimeSettings>;
+  groups: Record<string, ConversationRoute>;
+  selector: string;
+}): string | null {
+  const selector = input.selector.trim();
+  if (!selector) return null;
+  const folder = selector.startsWith('agent:')
+    ? selector.slice('agent:'.length)
+    : selector;
+  // Own-property check: a plain settings object inherits `constructor`,
+  // `toString`, `__proto__` etc., which would otherwise resolve as configured
+  // agents and send a phantom name into destructive pruning.
+  if (!folder || !Object.hasOwn(input.settings.agents, folder)) return null;
+  const hasRoutes = Object.values(input.groups).some(
+    (group) => group.folder === folder,
+  );
+  return hasRoutes ? null : folder;
 }
 
 export async function syncConfiguredConversationBinding(input: {
@@ -289,6 +517,39 @@ function resolveBareJidRoute(
   return { found: { jid, group } };
 }
 
+function resolveAgentIdRoute(
+  groups: Record<string, ConversationRoute>,
+  selector: string,
+): { found: { jid: string; group: ConversationRoute } | null; error?: string } {
+  const matches = Object.entries(groups).filter(
+    ([jid]) => parseAgentThreadQueueKey(jid).agentId === selector,
+  );
+  if (matches.length === 0) return { found: null };
+  const folders = new Set(matches.map(([, group]) => group.folder));
+  if (folders.size > 1) {
+    return {
+      found: null,
+      error: `Selector "${selector}" resolves to multiple agents (${[...folders].join(', ')}). Use the exact folder or route JID.`,
+    };
+  }
+  // This resolver's contract returns ONE {jid, group}, so it cannot faithfully
+  // represent an agent that owns several routes: silently picking one would let
+  // an agent-level command act on a single route and leave the rest live.
+  // Refuse instead of narrowing. The {agentId, folder, routeKeys[]} contract
+  // that makes multi-route agents addressable is tracked in issue #283.
+  if (matches.length > 1) {
+    const routes = matches
+      .map(([jid]) => jid)
+      .sort((a, b) => a.localeCompare(b));
+    return {
+      found: null,
+      error: `Selector "${selector}" matches an agent with ${routes.length} routes; this command targets a single route. Use an exact route JID: ${routes.join(', ')}.`,
+    };
+  }
+  const [jid, group] = matches[0]!;
+  return { found: { jid, group } };
+}
+
 export function resolveGroupSelector(
   groups: Record<string, ConversationRoute>,
   rawSelector: string,
@@ -296,6 +557,16 @@ export function resolveGroupSelector(
   const selector = rawSelector.trim();
   if (!selector) return { found: null };
 
+  // The canonical `agent:<folder>` id surfaced by `gantry status`, `gantry jobs
+  // list`, and system-job ids is embedded (url-encoded) in every route key.
+  // It is an agent-only form: never fall back to folder/JID matching for it.
+  if (selector.startsWith('agent:')) {
+    return resolveAgentIdRoute(groups, selector);
+  }
+
+  // An exact route key keeps precedence even when it also matches another
+  // agent's folder: `agent:<folder>` above now gives the folder side its own
+  // unambiguous namespace, so there is always a way to address either one.
   const directJid = groups[selector]
     ? { jid: selector, group: groups[selector] }
     : null;

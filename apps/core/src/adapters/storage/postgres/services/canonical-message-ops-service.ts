@@ -158,7 +158,7 @@ export class CanonicalMessageOpsService {
     const result = await this.repository.saveMessage(msg, {
       liveAdmission: admission,
     });
-    if (result) {
+    if (result && result.outcome !== 'overloaded') {
       await this.notifyLiveAdmissionWorkItem(result);
     }
     return result;
@@ -167,6 +167,7 @@ export class CanonicalMessageOpsService {
   async notifyLiveAdmissionWorkItem(
     result: LiveAdmissionWorkItemEnqueueResult,
   ): Promise<void> {
+    if (result.outcome === 'overloaded') return;
     await this.liveAdmissionNotifier?.notifyLiveAdmissionWorkItem({
       appId: result.item.appId,
       workItemId: result.item.id,

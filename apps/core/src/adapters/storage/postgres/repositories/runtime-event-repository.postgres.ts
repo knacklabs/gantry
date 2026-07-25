@@ -95,6 +95,7 @@ export class PostgresRuntimeEventRepository implements RuntimeEventRepository {
     private readonly eventBus: EventBusPublisherPort<CanonicalExecutor> = new PostgresEventBusPublisher(
       db,
     ),
+    private readonly maxLiveAdmissionBacklog = 100,
   ) {}
 
   async appendRuntimeEvent(
@@ -118,7 +119,10 @@ export class PostgresRuntimeEventRepository implements RuntimeEventRepository {
     event: RuntimeEvent;
     liveAdmissionResult: LiveAdmissionWorkItemEnqueueResult | undefined;
   }> {
-    const messages = new PostgresCanonicalMessageRepository(this.db);
+    const messages = new PostgresCanonicalMessageRepository(
+      this.db,
+      this.maxLiveAdmissionBacklog,
+    );
     return this.db.transaction(async (tx) => {
       const liveAdmissionResult = await messages.saveMessageWithExecutor(
         tx,

@@ -1,7 +1,13 @@
-import { randomUUID } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
+import fs from 'fs';
+import path from 'path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { signIpcRequestPayload } from '@core/infrastructure/ipc/request-signing.js';
+import { DATA_DIR } from '@core/config/index.js';
+import {
+  IPC_REQUEST_MAX_AGE_MS,
+  signIpcRequestPayload,
+} from '@core/infrastructure/ipc/request-signing.js';
 import {
   computeBrowserIpcAuthToken,
   computeIpcAuthToken,
@@ -41,6 +47,15 @@ import {
 } from '@core/runtime/ipc-message-files.js';
 
 const TEST_RESPONSE_KEY_ID = 'test-response-key';
+const REPLAY_MARKER_SWEEP_GRACE_MS = IPC_REQUEST_MAX_AGE_MS * 2;
+
+function replayMarkerPath(replayKey: string): string {
+  return path.join(
+    DATA_DIR,
+    'ipc-replay',
+    `${createHash('sha256').update(replayKey).digest('hex')}.json`,
+  );
+}
 
 function signedPayload(
   payload: Record<string, unknown>,
@@ -1681,6 +1696,481 @@ describe('validateIpcAuthRequest', () => {
     expect(() =>
       validateIpcAuthRequest(signedPayload(payload), 'team', 'permission IPC'),
     ).toThrow(/expiresAt exceeds max age/);
+  });
+
+  it('rejects a concurrent duplicate reservation for exactly one caller', () => {
+    const duplicate = signedPayload({
+      requestId: 'perm-concurrent',
+      nonce: randomUUID(),
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    });
+    const outcomes = [duplicate, duplicate].map((request) => {
+      try {
+        validateIpcAuthRequest(request, 'team', 'permission IPC');
+        return 'accepted';
+      } catch {
+        return 'rejected';
+      }
+    });
+
+    expect(outcomes.filter((outcome) => outcome === 'accepted')).toHaveLength(
+      1,
+    );
+    expect(outcomes.filter((outcome) => outcome === 'rejected')).toHaveLength(
+      1,
+    );
+  });
+
+  it('rejects a duplicate id when its marker expired inside sweep grace', () => {
+    const requestId = 'perm-expired-marker';
+    const replayKey = `team::${requestId}`;
+    const markerPath = replayMarkerPath(replayKey);
+    const first = signedPayload({
+      requestId,
+      nonce: randomUUID(),
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    });
+    expect(() =>
+      validateIpcAuthRequest(first, 'team', 'permission IPC'),
+    ).not.toThrow();
+    clearConsumedIpcRequestIds({ durable: false });
+    const expiredMarkerExpiry = Date.now() - 1;
+    fs.writeFileSync(
+      markerPath,
+      JSON.stringify({ expiresAtMs: expiredMarkerExpiry }),
+    );
+
+    const retry = signedPayload({
+      requestId,
+      nonce: randomUUID(),
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    });
+    expect(() =>
+      validateIpcAuthRequest(retry, 'team', 'permission IPC'),
+    ).toThrow(/replay/);
+    expect(
+      JSON.parse(fs.readFileSync(markerPath, 'utf-8')) as {
+        expiresAtMs: number;
+      },
+    ).toEqual({ expiresAtMs: expiredMarkerExpiry });
+  });
+
+  it('allows at most one reservation when two workers race the same id', () => {
+    const now = Date.now();
+    const requestId = 'perm-two-worker-race';
+    const markerPath = replayMarkerPath(`team::${requestId}`);
+    fs.mkdirSync(path.dirname(markerPath), { recursive: true });
+    fs.writeFileSync(markerPath, JSON.stringify({ expiresAtMs: now - 1 }));
+    const workerRequests = [
+      signedPayload({
+        requestId,
+        nonce: randomUUID(),
+        expiresAt: new Date(now + 60_000).toISOString(),
+      }),
+      signedPayload({
+        requestId,
+        nonce: randomUUID(),
+        expiresAt: new Date(now + 60_000).toISOString(),
+      }),
+    ];
+    const outcomes: string[] = [];
+    const attempt = (request: Record<string, unknown>) => {
+      clearConsumedIpcRequestIds({ durable: false });
+      try {
+        validateIpcAuthRequest(request, 'team', 'permission IPC');
+        outcomes.push('accepted');
+      } catch {
+        outcomes.push('rejected');
+      }
+    };
+    const originalRmSync = fs.rmSync;
+    let reentered = false;
+    const rmSpy = vi
+      .spyOn(fs, 'rmSync')
+      .mockImplementation((target, options) => {
+        if (String(target) === markerPath && !reentered) {
+          reentered = true;
+          attempt(workerRequests[1]);
+        }
+        originalRmSync(target, options);
+      });
+    try {
+      attempt(workerRequests[0]);
+      if (!reentered) attempt(workerRequests[1]);
+
+      expect(outcomes).toHaveLength(2);
+      expect(
+        outcomes.filter((outcome) => outcome === 'accepted').length,
+      ).toBeLessThanOrEqual(1);
+    } finally {
+      rmSpy.mockRestore();
+      fs.rmSync(markerPath, { force: true });
+    }
+  });
+
+  it('does not sweep an expired replay marker inside the freshness grace', async () => {
+    vi.useFakeTimers();
+    const now = Date.now();
+    vi.setSystemTime(now);
+    const replayDir = path.join(DATA_DIR, 'ipc-replay');
+    const markerPath = path.join(replayDir, 'inside-grace.json');
+    const sweepControlPath = path.join(replayDir, 'past-grace.json');
+    fs.mkdirSync(replayDir, { recursive: true });
+    fs.writeFileSync(
+      markerPath,
+      JSON.stringify({
+        expiresAtMs: now - REPLAY_MARKER_SWEEP_GRACE_MS + 60_000,
+      }),
+    );
+    fs.writeFileSync(
+      sweepControlPath,
+      JSON.stringify({
+        expiresAtMs: now - REPLAY_MARKER_SWEEP_GRACE_MS - 1,
+      }),
+    );
+    try {
+      validateIpcAuthRequest(
+        signedPayload({
+          requestId: 'perm-inside-sweep-grace',
+          nonce: randomUUID(),
+          expiresAt: new Date(now + 60_000).toISOString(),
+        }),
+        'team',
+        'permission IPC',
+      );
+
+      await vi.waitFor(
+        () => {
+          expect(fs.existsSync(sweepControlPath)).toBe(false);
+        },
+        { timeout: 2_000, interval: 50 },
+      );
+
+      expect(fs.existsSync(markerPath)).toBe(true);
+    } finally {
+      clearConsumedIpcRequestIds({ durable: 'consumed' });
+      fs.rmSync(markerPath, { force: true });
+      fs.rmSync(sweepControlPath, { force: true });
+      vi.useRealTimers();
+    }
+  });
+
+  it('rejects requests older than the freshness window before marker mutation', () => {
+    const now = Date.now();
+    const requestId = 'perm-stale-before-replay';
+    const markerPath = replayMarkerPath(`team::${requestId}`);
+    const markerStates = [
+      now + IPC_REQUEST_MAX_AGE_MS,
+      now - REPLAY_MARKER_SWEEP_GRACE_MS - 1,
+    ];
+    fs.mkdirSync(path.dirname(markerPath), { recursive: true });
+
+    for (const expiresAtMs of markerStates) {
+      fs.writeFileSync(markerPath, JSON.stringify({ expiresAtMs }));
+      expect(() =>
+        validateIpcAuthRequest(
+          signedPayload({
+            requestId,
+            nonce: randomUUID(),
+            expiresAt: new Date(now - IPC_REQUEST_MAX_AGE_MS - 1).toISOString(),
+          }),
+          'team',
+          'permission IPC',
+        ),
+      ).toThrow(/freshness: expired request/);
+      expect(
+        JSON.parse(fs.readFileSync(markerPath, 'utf-8')) as {
+          expiresAtMs: number;
+        },
+      ).toEqual({ expiresAtMs });
+    }
+
+    fs.rmSync(markerPath, { force: true });
+  });
+
+  it('reclaims a malformed replay marker whose mtime is past grace', async () => {
+    vi.useFakeTimers();
+    const now = Date.now();
+    vi.setSystemTime(now);
+    const replayDir = path.join(DATA_DIR, 'ipc-replay');
+    const markerPath = path.join(replayDir, 'malformed-past-grace.json');
+    fs.mkdirSync(replayDir, { recursive: true });
+    fs.writeFileSync(markerPath, '{"expiresAtMs":');
+    const pastGrace = new Date(now - REPLAY_MARKER_SWEEP_GRACE_MS - 60_000);
+    fs.utimesSync(markerPath, pastGrace, pastGrace);
+    try {
+      validateIpcAuthRequest(
+        signedPayload({
+          requestId: 'perm-sweep-malformed-old',
+          nonce: randomUUID(),
+          expiresAt: new Date(now + 60_000).toISOString(),
+        }),
+        'team',
+        'permission IPC',
+      );
+
+      await vi.waitFor(
+        () => {
+          expect(fs.existsSync(markerPath)).toBe(false);
+        },
+        { timeout: 2_000, interval: 50 },
+      );
+    } finally {
+      clearConsumedIpcRequestIds({ durable: 'consumed' });
+      fs.rmSync(markerPath, { force: true });
+      vi.useRealTimers();
+    }
+  });
+
+  it('retains a fresh malformed replay marker during a sweep', async () => {
+    vi.useFakeTimers();
+    const now = Date.now();
+    vi.setSystemTime(now);
+    const replayDir = path.join(DATA_DIR, 'ipc-replay');
+    const markerPath = path.join(replayDir, 'malformed-inside-grace.json');
+    const sweepControlPath = path.join(
+      replayDir,
+      'malformed-sweep-control.json',
+    );
+    fs.mkdirSync(replayDir, { recursive: true });
+    fs.writeFileSync(markerPath, '{"expiresAtMs":');
+    fs.writeFileSync(
+      sweepControlPath,
+      JSON.stringify({
+        expiresAtMs: now - REPLAY_MARKER_SWEEP_GRACE_MS - 1,
+      }),
+    );
+    try {
+      validateIpcAuthRequest(
+        signedPayload({
+          requestId: 'perm-sweep-malformed-fresh',
+          nonce: randomUUID(),
+          expiresAt: new Date(now + 60_000).toISOString(),
+        }),
+        'team',
+        'permission IPC',
+      );
+
+      await vi.waitFor(
+        () => {
+          expect(fs.existsSync(sweepControlPath)).toBe(false);
+        },
+        { timeout: 2_000, interval: 50 },
+      );
+      expect(fs.existsSync(markerPath)).toBe(true);
+    } finally {
+      clearConsumedIpcRequestIds({ durable: 'consumed' });
+      fs.rmSync(markerPath, { force: true });
+      fs.rmSync(sweepControlPath, { force: true });
+      vi.useRealTimers();
+    }
+  });
+
+  it('adaptively drains a large grace-expired replay backlog', async () => {
+    vi.useFakeTimers();
+    const now = Date.now();
+    vi.setSystemTime(now);
+    const replayDir = path.join(DATA_DIR, 'ipc-replay');
+    fs.mkdirSync(replayDir, { recursive: true });
+    const markerPrefix = `backlog-${randomUUID()}-`;
+    const markerPaths: string[] = [];
+    const marker = JSON.stringify({
+      expiresAtMs: now - REPLAY_MARKER_SWEEP_GRACE_MS - 1,
+    });
+    for (let index = 0; index < 2_000; index += 1) {
+      const markerPath = path.join(replayDir, `${markerPrefix}${index}.json`);
+      markerPaths.push(markerPath);
+      fs.writeFileSync(markerPath, marker);
+    }
+    try {
+      validateIpcAuthRequest(
+        signedPayload({
+          requestId: 'perm-adaptive-sweep',
+          nonce: randomUUID(),
+          expiresAt: new Date(now + 60_000).toISOString(),
+        }),
+        'team',
+        'permission IPC',
+      );
+
+      await vi.waitFor(
+        () => {
+          expect(
+            fs
+              .readdirSync(replayDir)
+              .filter((file) => file.startsWith(markerPrefix)),
+          ).toHaveLength(0);
+        },
+        { timeout: 8_000, interval: 50 },
+      );
+    } finally {
+      clearConsumedIpcRequestIds({ durable: 'consumed' });
+      for (const markerPath of markerPaths) {
+        fs.rmSync(markerPath, { force: true });
+      }
+      vi.useRealTimers();
+    }
+  });
+
+  it('continues sweeping after an unreadable replay marker', async () => {
+    vi.useFakeTimers();
+    const now = Date.now();
+    vi.setSystemTime(now);
+    const replayDir = path.join(DATA_DIR, 'ipc-replay');
+    const markerPrefix = `unreadable-${randomUUID()}-`;
+    const unreadablePath = path.join(replayDir, `${markerPrefix}0.json`);
+    const healthyPaths = [1, 2].map((index) =>
+      path.join(replayDir, `${markerPrefix}${index}.json`),
+    );
+    const expiredMarker = JSON.stringify({
+      expiresAtMs: now - REPLAY_MARKER_SWEEP_GRACE_MS - 1,
+    });
+    fs.mkdirSync(replayDir, { recursive: true });
+    fs.writeFileSync(unreadablePath, expiredMarker);
+    for (const markerPath of healthyPaths) {
+      fs.writeFileSync(markerPath, expiredMarker);
+    }
+    const unreadableError = Object.assign(new Error('unreadable marker'), {
+      code: 'EACCES',
+    });
+    const originalReadFile = fs.promises.readFile;
+    const originalStat = fs.promises.stat;
+    const readFileSpy = vi
+      .spyOn(fs.promises, 'readFile')
+      .mockImplementation(((...args) =>
+        String(args[0]) === unreadablePath
+          ? Promise.reject(unreadableError)
+          : Reflect.apply(
+              originalReadFile,
+              fs.promises,
+              args,
+            )) as typeof fs.promises.readFile);
+    const statSpy = vi
+      .spyOn(fs.promises, 'stat')
+      .mockImplementation(((...args) =>
+        String(args[0]) === unreadablePath
+          ? Promise.reject(unreadableError)
+          : Reflect.apply(
+              originalStat,
+              fs.promises,
+              args,
+            )) as typeof fs.promises.stat);
+    try {
+      validateIpcAuthRequest(
+        signedPayload({
+          requestId: `perm-sweep-${randomUUID()}`,
+          nonce: randomUUID(),
+          expiresAt: new Date(now + 60_000).toISOString(),
+        }),
+        'team',
+        'permission IPC',
+      );
+
+      await vi.waitFor(
+        () => {
+          expect(
+            healthyPaths.every((markerPath) => !fs.existsSync(markerPath)),
+          ).toBe(true);
+        },
+        { timeout: 2_000, interval: 50 },
+      );
+      expect(fs.existsSync(unreadablePath)).toBe(true);
+    } finally {
+      readFileSpy.mockRestore();
+      statSpy.mockRestore();
+      clearConsumedIpcRequestIds({ durable: 'consumed' });
+      fs.rmSync(unreadablePath, { force: true });
+      for (const markerPath of healthyPaths) {
+        fs.rmSync(markerPath, { force: true });
+      }
+      vi.useRealTimers();
+    }
+  });
+
+  it('stops the replay-marker sweep timer during watcher cleanup', () => {
+    vi.useFakeTimers();
+    try {
+      const request = signedPayload({
+        requestId: 'perm-sweeper-lifecycle',
+        nonce: randomUUID(),
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      });
+      validateIpcAuthRequest(request, 'team', 'permission IPC');
+      expect(vi.getTimerCount()).toBe(1);
+
+      stopIpcWatcher();
+
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('performs bounded filesystem work with 5,000 replay markers', () => {
+    const replayDir = path.join(DATA_DIR, 'ipc-replay');
+    fs.mkdirSync(replayDir, { recursive: true });
+    const markerPrefix = `padding-${randomUUID()}-`;
+    const markerPaths: string[] = [];
+    const marker = JSON.stringify({ expiresAtMs: Date.now() + 60_000 });
+    for (let index = 0; index < 5_000; index += 1) {
+      const markerPath = path.join(replayDir, `${markerPrefix}${index}.json`);
+      markerPaths.push(markerPath);
+      fs.writeFileSync(markerPath, marker);
+    }
+
+    const readdirSpy = vi.spyOn(fs, 'readdirSync');
+    const readSpy = vi.spyOn(fs, 'readFileSync');
+    const mkdirSpy = vi.spyOn(fs, 'mkdirSync');
+    const lstatSpy = vi.spyOn(fs, 'lstatSync');
+    const chmodSpy = vi.spyOn(fs, 'chmodSync');
+    const writeSpy = vi.spyOn(fs, 'writeFileSync');
+    const rmSpy = vi.spyOn(fs, 'rmSync');
+    try {
+      validateIpcAuthRequest(
+        signedPayload({
+          requestId: 'bounded-5000',
+          nonce: randomUUID(),
+          expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        }),
+        'team',
+        'permission IPC',
+      );
+
+      const targetsReplayStore = (call: unknown[]): boolean =>
+        typeof call[0] === 'string' && call[0].startsWith(replayDir);
+      expect(readdirSpy.mock.calls.filter(targetsReplayStore)).toHaveLength(0);
+      expect(readSpy.mock.calls.filter(targetsReplayStore)).toHaveLength(0);
+      expect(rmSpy.mock.calls.filter(targetsReplayStore)).toHaveLength(0);
+      expect(mkdirSpy.mock.calls.filter(targetsReplayStore)).toHaveLength(1);
+      expect(lstatSpy.mock.calls.filter(targetsReplayStore)).toHaveLength(1);
+      expect(chmodSpy.mock.calls.filter(targetsReplayStore)).toHaveLength(1);
+      expect(writeSpy.mock.calls.filter(targetsReplayStore)).toHaveLength(1);
+      const totalReplayStoreOperations = [
+        readdirSpy,
+        readSpy,
+        mkdirSpy,
+        lstatSpy,
+        chmodSpy,
+        writeSpy,
+        rmSpy,
+      ].reduce(
+        (total, spy) =>
+          total + spy.mock.calls.filter(targetsReplayStore).length,
+        0,
+      );
+      expect(totalReplayStoreOperations).toBe(4);
+    } finally {
+      readdirSpy.mockRestore();
+      readSpy.mockRestore();
+      mkdirSpy.mockRestore();
+      lstatSpy.mockRestore();
+      chmodSpy.mockRestore();
+      writeSpy.mockRestore();
+      rmSpy.mockRestore();
+      for (const markerPath of markerPaths) {
+        fs.rmSync(markerPath, { force: true });
+      }
+    }
   });
 });
 

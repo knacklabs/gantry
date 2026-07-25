@@ -298,6 +298,7 @@ export const RuntimeSettingsPublicSchema = z
             maxMessageRuns: z.number().int().positive(),
             maxJobRuns: z.number().int().positive(),
             maxMessageBacklog: z.number().int().nonnegative(),
+            maxLiveAdmissionBacklog: z.number().int().positive(),
             maxTaskBacklog: z.number().int().nonnegative(),
             maxRetries: z.number().int().nonnegative(),
             baseRetryMs: z.number().int().nonnegative(),

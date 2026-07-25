@@ -759,6 +759,7 @@ provider_accounts:
       maxMessageRuns: 3,
       maxJobRuns: 4,
       maxMessageBacklog: 0,
+      maxLiveAdmissionBacklog: 100,
       maxTaskBacklog: 0,
       maxRetries: 5,
       baseRetryMs: 5000,
@@ -769,6 +770,7 @@ provider_accounts:
       maxMessageRuns: 6,
       maxJobRuns: 2,
       maxMessageBacklog: 7,
+      maxLiveAdmissionBacklog: 11,
       maxTaskBacklog: 9,
       maxRetries: 1,
       baseRetryMs: 250,
@@ -780,6 +782,7 @@ provider_accounts:
     expect(yaml).toContain('max_message_runs: 6');
     expect(yaml).toContain('max_job_runs: 2');
     expect(yaml).toContain('max_message_backlog: 7');
+    expect(yaml).toContain('max_live_admission_backlog: 11');
     expect(yaml).toContain('max_task_backlog: 9');
     expect(yaml).toContain('max_retries: 1');
     expect(yaml).toContain('base_retry_ms: 250');
@@ -1400,6 +1403,15 @@ quoted_decimal: "0.5"
     max_task_backlog: -1
 `),
     ).toThrow('runtime.queue.max_task_backlog must be a non-negative integer');
+
+    expect(() =>
+      parseRuntimeSettings(`runtime:
+  queue:
+    max_live_admission_backlog: 0
+`),
+    ).toThrow(
+      'runtime.queue.max_live_admission_backlog must be a positive integer',
+    );
   });
 
   it('rejects unsupported runtime sandbox keys', () => {

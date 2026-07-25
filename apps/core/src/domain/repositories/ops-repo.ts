@@ -280,6 +280,9 @@ export interface RuntimeJobRepository {
     limit?: number,
     filters?: JobRunListFilters,
   ): Promise<JobRun[]>;
+  listLatestJobRunsByJobIds(
+    jobIds: readonly string[],
+  ): Promise<Map<string, JobRun>>;
   listDeadLetterRuns(limit?: number): Promise<JobRun[]>;
   listRecentJobEvents(
     limit?: number,

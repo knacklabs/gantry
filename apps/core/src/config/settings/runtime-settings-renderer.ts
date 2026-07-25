@@ -55,7 +55,7 @@ import {
 } from './runtime-settings-optional-blocks-renderer.js';
 import { resolveConfiguredAgentRuntime } from './runtime-settings-agent-runtime.js';
 import { renderProvidersYaml } from './runtime-settings-provider-renderer.js';
-const SYSTEM_DEFAULT_MODEL_ALIAS = 'opus';
+const MODEL = 'opus';
 
 function renderDefaultsYaml(
   lines: string[],
@@ -65,9 +65,7 @@ function renderDefaultsYaml(
   if (agent.name !== DEFAULT_AGENT_NAME) {
     lines.push(`  name: ${quoteYamlString(agent.name)}`);
   }
-  lines.push(
-    `  model: ${quoteYamlString(agent.defaultModel || SYSTEM_DEFAULT_MODEL_ALIAS)}`,
-  );
+  lines.push(`  model: ${quoteYamlString(agent.defaultModel || MODEL)}`);
   if (agent.agentHarness !== 'auto') {
     lines.push(`  agent_harness: ${quoteYamlString(agent.agentHarness)}`);
   }
@@ -567,6 +565,7 @@ function isDefaultRuntime(runtime: RuntimeSettings['runtime']): boolean {
     runtime.queue.maxMessageRuns === 3 &&
     runtime.queue.maxJobRuns === 4 &&
     runtime.queue.maxMessageBacklog === 0 &&
+    runtime.queue.maxLiveAdmissionBacklog === 100 &&
     runtime.queue.maxTaskBacklog === 0 &&
     runtime.queue.maxRetries === 5 &&
     runtime.queue.baseRetryMs === 5000 &&
@@ -664,6 +663,7 @@ function renderRuntimeProcessYaml(
     `    max_message_runs: ${runtime.queue.maxMessageRuns}`,
     `    max_job_runs: ${runtime.queue.maxJobRuns}`,
     `    max_message_backlog: ${runtime.queue.maxMessageBacklog}`,
+    `    max_live_admission_backlog: ${runtime.queue.maxLiveAdmissionBacklog}`,
     `    max_task_backlog: ${runtime.queue.maxTaskBacklog}`,
     `    max_retries: ${runtime.queue.maxRetries}`,
     `    base_retry_ms: ${runtime.queue.baseRetryMs}`,

@@ -350,9 +350,11 @@
       "key": "PERF-1",
       "title": "Audit paydown: performance fixes (IPC replay scan, jobs N+1, SSE permit race, live-admission caps)",
       "order": 22,
-      "status": "pending",
+      "status": "done",
       "epic": "Audit paydown 2026-07",
-      "skill": "backend"
+      "skill": "backend",
+      "completed_at": "2026-07-24T15:06:25+00:00",
+      "history": ".factory/history/PERF-1/"
     },
     {
       "key": "SIMP-1",
@@ -457,5 +459,5 @@
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-07-24T11:42:10+00:00"
+  "updated_at": "2026-07-24T15:06:25+00:00"
 }

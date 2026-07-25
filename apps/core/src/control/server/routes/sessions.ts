@@ -395,10 +395,11 @@ export async function handleSessionRoutes(
         );
         return true;
       }
+      ctx.state.activeStreams += 1;
       const initial = events.length > 0 ? events : [];
       let lastEventId = initial[initial.length - 1]?.eventId;
       let closed = req.destroyed || res.destroyed;
-      let streamActive = false;
+      let streamActive = true;
       let subscription: SessionEventSubscription | undefined;
       const cleanup = () => {
         if (closed && !streamActive && !subscription) return;
@@ -411,6 +412,10 @@ export async function handleSessionRoutes(
       };
       req.once('close', cleanup);
       res.once('close', cleanup);
+      if (closed) {
+        cleanup();
+        return true;
+      }
       try {
         subscription = await module.subscribeEvents({
           appId: auth.appId,
@@ -419,6 +424,7 @@ export async function handleSessionRoutes(
           limit: 100,
         });
       } catch (error) {
+        cleanup();
         if (sendApplicationError(res, error)) return true;
         throw error;
       }
@@ -426,8 +432,6 @@ export async function handleSessionRoutes(
         cleanup();
         return true;
       }
-      ctx.state.activeStreams += 1;
-      streamActive = true;
       res.statusCode = 200;
       res.setHeader('content-type', 'text/event-stream');
       res.setHeader('cache-control', 'no-cache');

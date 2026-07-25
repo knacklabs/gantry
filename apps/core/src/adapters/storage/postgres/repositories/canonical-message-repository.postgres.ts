@@ -25,7 +25,7 @@ import {
 } from '../../../../shared/message-cursor.js';
 import { makeAgentThreadQueueKey } from '../../../../shared/thread-queue-key.js';
 import * as pgSchema from '../schema/schema.js';
-import { enqueueLiveAdmissionWorkItem } from './live-admission-work-item-repository.postgres.js';
+import { enqueueLiveAdmissionWorkItemWithExecutor } from './live-admission-work-item-repository.postgres.js';
 import {
   CANONICAL_APP_ID,
   type CanonicalDb,
@@ -141,7 +141,10 @@ function messageThreadFilter(
 
 export class PostgresCanonicalMessageRepository {
   private readonly graph: PostgresCanonicalGraphRepository;
-  constructor(private readonly db: CanonicalDb) {
+  constructor(
+    private readonly db: CanonicalDb,
+    private readonly maxLiveAdmissionBacklog = 100,
+  ) {
     this.graph = new PostgresCanonicalGraphRepository(db);
   }
   async saveMessage(
@@ -348,38 +351,42 @@ export class PostgresCanonicalMessageRepository {
     const agentId = admission.agentId
       ? normalizeAgentIdForFolder(admission.agentId)
       : null;
-    return enqueueLiveAdmissionWorkItem(tx, {
-      id: liveAdmissionWorkItemId(
-        admission.appId,
-        canonicalMessageId,
-        providerAccountId,
+    return enqueueLiveAdmissionWorkItemWithExecutor(
+      tx,
+      {
+        id: liveAdmissionWorkItemId(
+          admission.appId,
+          canonicalMessageId,
+          providerAccountId,
+          agentId,
+        ),
+        appId: admission.appId,
         agentId,
-      ),
-      appId: admission.appId,
-      agentId,
-      agentSessionId: admission.agentSessionId,
-      conversationId: msg.chat_jid,
-      threadId: msg.thread_id ?? null,
-      queueJid: makeAgentThreadQueueKey(
-        msg.chat_jid,
-        agentId,
-        msg.thread_id,
-        providerAccountId,
-      ),
-      messageId: canonicalMessageId,
-      messageCursor: encodeGroupMessageCursor(toGroupMessageCursor(msg)),
-      senderUserId: msg.sender,
-      senderDisplayName: msg.sender_name,
-      idempotencyKey: liveAdmissionIdempotencyKey(
-        msg,
-        admission.appId,
-        providerId,
-        providerAccountId,
-        agentId,
-      ),
-      triggerDecision: admission.triggerDecision,
-      now: admission.now ?? msg.timestamp,
-    });
+        agentSessionId: admission.agentSessionId,
+        conversationId: msg.chat_jid,
+        threadId: msg.thread_id ?? null,
+        queueJid: makeAgentThreadQueueKey(
+          msg.chat_jid,
+          agentId,
+          msg.thread_id,
+          providerAccountId,
+        ),
+        messageId: canonicalMessageId,
+        messageCursor: encodeGroupMessageCursor(toGroupMessageCursor(msg)),
+        senderUserId: msg.sender,
+        senderDisplayName: msg.sender_name,
+        idempotencyKey: liveAdmissionIdempotencyKey(
+          msg,
+          admission.appId,
+          providerId,
+          providerAccountId,
+          agentId,
+        ),
+        triggerDecision: admission.triggerDecision,
+        now: admission.now ?? msg.timestamp,
+      },
+      this.maxLiveAdmissionBacklog,
+    );
   }
 
   async listInboundMessages(

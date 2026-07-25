@@ -225,6 +225,7 @@ export function getRuntimeQueueConfig() {
     maxMessageRuns: queue.maxMessageRuns,
     maxJobRuns: queue.maxJobRuns,
     maxMessageBacklog: queue.maxMessageBacklog,
+    maxLiveAdmissionBacklog: queue.maxLiveAdmissionBacklog,
     maxTaskBacklog: queue.maxTaskBacklog,
     maxRetries: queue.maxRetries,
     baseRetryMs: queue.baseRetryMs,

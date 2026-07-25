@@ -100,12 +100,18 @@ export class PostgresRuntimeRepositoryBundle
       runtimeEvents: RuntimeEventPublisher;
       sessions?: SessionRuntimeOptions;
       liveAdmissionNotifier?: LiveAdmissionWorkItemNotifier;
+      maxLiveAdmissionBacklog?: number;
     },
   ) {
-    const repositories = createPostgresDomainRepositories(this.db, this.pool);
+    const repositories = createPostgresDomainRepositories(this.db, this.pool, {
+      maxLiveAdmissionBacklog: this.options.maxLiveAdmissionBacklog,
+    });
     this.graph = new PostgresCanonicalGraphRepository(this.db);
     this.messages = new CanonicalMessageOpsService(
-      new PostgresCanonicalMessageRepository(this.db),
+      new PostgresCanonicalMessageRepository(
+        this.db,
+        this.options.maxLiveAdmissionBacklog,
+      ),
       this.options.liveAdmissionNotifier,
     );
     this.jobs = new CanonicalJobOpsService(
@@ -404,6 +410,12 @@ export class PostgresRuntimeRepositoryBundle
     filters?: JobRunListFilters,
   ): Promise<JobRun[]> {
     return this.jobs.listJobRuns(jobId, limit, filters);
+  }
+
+  async listLatestJobRunsByJobIds(
+    jobIds: readonly string[],
+  ): Promise<Map<string, JobRun>> {
+    return this.jobs.listLatestJobRunsByJobIds(jobIds);
   }
 
   async listDeadLetterRuns(limit = 50): Promise<JobRun[]> {

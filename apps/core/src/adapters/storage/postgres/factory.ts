@@ -124,6 +124,8 @@ export function createStorageRuntime(
   const runtimeSettings =
     options.runtimeSettings ?? getRuntimeSettingsForStorageRuntime();
   const sessionSettings = runtimeSettings.agent.sessions;
+  const maxLiveAdmissionBacklog =
+    runtimeSettings.runtime.queue.maxLiveAdmissionBacklog;
   const control = new PostgresControlPlaneRepository(service.db);
   const liveTurnCommandNotifier = new PostgresLiveTurnCommandNotifier(
     service.pool,
@@ -131,7 +133,7 @@ export function createStorageRuntime(
   const repositories = createPostgresDomainRepositories(
     service.db,
     service.pool,
-    { liveTurnCommandNotifier },
+    { liveTurnCommandNotifier, maxLiveAdmissionBacklog },
   );
   const runtimeEventNotifier = new PostgresRuntimeEventNotifier(service.pool);
   const liveAdmissionNotifier = new PostgresLiveAdmissionNotifier(service.pool);
@@ -151,6 +153,7 @@ export function createStorageRuntime(
     {
       runtimeEvents,
       liveAdmissionNotifier,
+      maxLiveAdmissionBacklog,
       sessions: {
         ...sessionSettings,
         loadAppMemoryItems: options.loadSessionAppMemoryItems,

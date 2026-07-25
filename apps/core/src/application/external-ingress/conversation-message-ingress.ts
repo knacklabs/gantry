@@ -248,12 +248,13 @@ export class ConversationMessageIngressModule {
         );
       accepted = result.event;
       admissionResult = result.liveAdmissionResult;
-      durableAdmissionCreated = !!admissionResult;
+      durableAdmissionCreated =
+        !!admissionResult && admissionResult.outcome !== 'overloaded';
     } else {
       await this.deps.ops.storeMessage(message);
       accepted = await this.deps.runtimeEvents.publish(acceptedEvent);
     }
-    if (admissionResult) {
+    if (admissionResult && admissionResult.outcome !== 'overloaded') {
       await this.deps.ops.notifyLiveAdmissionWorkItem?.(admissionResult);
     }
     const messageRef = input.messageRef?.trim();

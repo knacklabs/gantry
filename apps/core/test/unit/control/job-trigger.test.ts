@@ -134,6 +134,7 @@ const opsRepo = {
   upsertJob: vi.fn(async (job) => ({ job, created: true })),
   listJobs: vi.fn(async () => []),
   listJobRuns: vi.fn(async () => []),
+  listLatestJobRunsByJobIds: vi.fn(async () => new Map()),
   listRecentJobEvents: vi.fn(async () => []),
   updateJob: vi.fn(async () => undefined),
 };

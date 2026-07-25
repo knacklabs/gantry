@@ -1742,7 +1742,10 @@ export class PostgresSandboxRepository implements SandboxRepository {
 export function createPostgresDomainRepositories(
   db: CanonicalDb,
   _pool?: Pool,
-  options: { liveTurnCommandNotifier?: LiveTurnCommandNotifier } = {},
+  options: {
+    liveTurnCommandNotifier?: LiveTurnCommandNotifier;
+    maxLiveAdmissionBacklog?: number;
+  } = {},
 ): PostgresDomainRepositoryBundle {
   return {
     apps: new PostgresAppRepository(db),
@@ -1756,7 +1759,11 @@ export function createPostgresDomainRepositories(
     providerSessions: new PostgresProviderSessionRepository(db),
     agentSessionSummaries: new PostgresAgentSessionSummaryRepository(db),
     agentRuns: new PostgresAgentRunRepository(db),
-    runtimeEvents: new PostgresRuntimeEventRepository(db),
+    runtimeEvents: new PostgresRuntimeEventRepository(
+      db,
+      undefined,
+      options.maxLiveAdmissionBacklog,
+    ),
     tools: new PostgresToolCatalogRepository(db),
     skills: new PostgresSkillCatalogRepository(db),
     capabilitySecrets: new PostgresCapabilitySecretRepository(db),
@@ -1773,6 +1780,7 @@ export function createPostgresDomainRepositories(
     liveTurns: new PostgresLiveTurnRepository(
       db,
       options.liveTurnCommandNotifier,
+      options.maxLiveAdmissionBacklog,
     ),
     runtimeDependencies: new PostgresRuntimeDependencyRepository(db),
     settingsRevisions: new PostgresSettingsRevisionRepository(db),

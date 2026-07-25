@@ -391,7 +391,10 @@ import {
   _testControlServer,
   startControlServer,
 } from '@core/control/server/index.js';
-import { _testSessionRoutes } from '@core/control/server/routes/sessions.js';
+import {
+  _testSessionRoutes,
+  handleSessionRoutes,
+} from '@core/control/server/routes/sessions.js';
 
 async function reservePort(): Promise<number> {
   return await new Promise<number>((resolve, reject) => {
@@ -464,6 +467,70 @@ async function requestWithRetry(
   throw lastError instanceof Error
     ? lastError
     : new Error('Control server did not start in time');
+}
+
+function createSessionEventStreamRouteHarness() {
+  const token = 'token-events-sse-limit';
+  const state = {
+    activeStreams: 0,
+    activeWaits: 0,
+    activeTriggerWaits: 0,
+  };
+  const ctx = {
+    keys: [
+      {
+        kid: 'k',
+        tokenHash: createHash('sha256').update(token).digest(),
+        scopes: new Set(['sessions:read']),
+        appId: 'app-one',
+      },
+    ],
+    maxConcurrentStreams: 25,
+    state,
+  } as any;
+  const url = new URL(
+    'http://localhost/v1/sessions/session-1/events?afterEventId=0',
+  );
+
+  const request = () => {
+    const req = new EventEmitter() as EventEmitter & {
+      method: string;
+      headers: Record<string, string>;
+      destroyed: boolean;
+    };
+    req.method = 'GET';
+    req.headers = {
+      accept: 'text/event-stream',
+      authorization: `Bearer ${token}`,
+    };
+    req.destroyed = false;
+
+    const res = new EventEmitter() as EventEmitter & {
+      destroyed: boolean;
+      statusCode: number;
+      body: string;
+      setHeader: ReturnType<typeof vi.fn>;
+      write: ReturnType<typeof vi.fn>;
+      end: ReturnType<typeof vi.fn>;
+    };
+    res.destroyed = false;
+    res.statusCode = 0;
+    res.body = '';
+    res.setHeader = vi.fn();
+    res.write = vi.fn(() => true);
+    res.end = vi.fn((body = '') => {
+      res.body += String(body);
+    });
+
+    return {
+      req,
+      res,
+      run: () =>
+        handleSessionRoutes(req as never, res as never, ctx, url, url.pathname),
+    };
+  };
+
+  return { request, state };
 }
 
 function signIngressRequest(input: {
@@ -4296,6 +4363,134 @@ describe('control server runtime hardening', () => {
     } finally {
       await handle.close();
     }
+  });
+
+  it('reserves at most 25 SSE permits while subscription setup is blocked', async () => {
+    controlRepo.getAppSessionById.mockResolvedValue({
+      sessionId: 'session-1',
+      appId: 'app-one',
+      conversationId: 'conv-1',
+      chatJid: 'app:app-one:conv-1',
+      workspaceKey: 'app_app_one_conv_1',
+      title: 'Conversation',
+      defaultResponseMode: 'sse',
+      defaultWebhookId: null,
+    });
+    let releaseSetup!: () => void;
+    const setupBarrier = new Promise<void>((resolve) => {
+      releaseSetup = resolve;
+    });
+    runtimeEvents.subscribe.mockImplementation(async () => {
+      await setupBarrier;
+      return {
+        next: vi.fn(() => new Promise<never[]>(() => undefined)),
+        close: vi.fn(),
+      };
+    });
+    const harness = createSessionEventStreamRouteHarness();
+    const requests = Array.from({ length: 26 }, () => harness.request());
+    const pending = requests.map((request) => request.run());
+
+    await vi.waitFor(() => {
+      expect(runtimeEvents.subscribe).toHaveBeenCalledTimes(25);
+    });
+
+    expect(harness.state.activeStreams).toBe(25);
+    expect(requests.filter(({ res }) => res.statusCode === 429)).toHaveLength(
+      1,
+    );
+    expect(
+      JSON.parse(requests.find(({ res }) => res.statusCode === 429)!.res.body),
+    ).toMatchObject({ error: { code: 'TOO_MANY_STREAMS' } });
+
+    releaseSetup();
+    await Promise.all(pending);
+
+    expect(requests.filter(({ res }) => res.statusCode === 200)).toHaveLength(
+      25,
+    );
+    for (const { req, res } of requests) {
+      req.emit('close');
+      res.emit('close');
+    }
+    expect(harness.state.activeStreams).toBe(0);
+  });
+
+  it('releases the SSE permit when subscription setup rejects', async () => {
+    controlRepo.getAppSessionById.mockResolvedValue({
+      sessionId: 'session-1',
+      appId: 'app-one',
+      conversationId: 'conv-1',
+      chatJid: 'app:app-one:conv-1',
+      workspaceKey: 'app_app_one_conv_1',
+      title: 'Conversation',
+      defaultResponseMode: 'sse',
+      defaultWebhookId: null,
+    });
+    runtimeEvents.subscribe.mockRejectedValue(new Error('setup failed'));
+    const harness = createSessionEventStreamRouteHarness();
+    harness.state.activeStreams = 1;
+    const request = harness.request();
+
+    await expect(request.run()).rejects.toThrow('setup failed');
+
+    expect(harness.state.activeStreams).toBe(1);
+    request.req.emit('close');
+    request.res.emit('close');
+    expect(harness.state.activeStreams).toBe(1);
+  });
+
+  it('releases one SSE permit when the client disconnects during setup', async () => {
+    controlRepo.getAppSessionById.mockResolvedValue({
+      sessionId: 'session-1',
+      appId: 'app-one',
+      conversationId: 'conv-1',
+      chatJid: 'app:app-one:conv-1',
+      workspaceKey: 'app_app_one_conv_1',
+      title: 'Conversation',
+      defaultResponseMode: 'sse',
+      defaultWebhookId: null,
+    });
+    let releaseSetup!: () => void;
+    const setupBarrier = new Promise<void>((resolve) => {
+      releaseSetup = resolve;
+    });
+    const close = vi.fn();
+    runtimeEvents.subscribe.mockImplementation(async () => {
+      await setupBarrier;
+      return {
+        next: vi.fn(() => new Promise<never[]>(() => undefined)),
+        close,
+      };
+    });
+    const harness = createSessionEventStreamRouteHarness();
+    harness.state.activeStreams = 1;
+    const request = harness.request();
+    const pending = request.run();
+
+    await vi.waitFor(() => {
+      expect(runtimeEvents.subscribe).toHaveBeenCalledTimes(1);
+    });
+    expect(harness.state.activeStreams).toBe(2);
+
+    request.req.destroyed = true;
+    request.res.destroyed = true;
+    request.req.emit('close');
+    request.res.emit('close');
+    expect(harness.state.activeStreams).toBe(1);
+
+    releaseSetup();
+    await pending;
+
+    expect(close).toHaveBeenCalledTimes(1);
+    expect(harness.state.activeStreams).toBe(1);
+
+    const alreadyClosed = harness.request();
+    alreadyClosed.req.destroyed = true;
+    await alreadyClosed.run();
+
+    expect(runtimeEvents.subscribe).toHaveBeenCalledTimes(1);
+    expect(harness.state.activeStreams).toBe(1);
   });
 
   it('waits over the full session cursor while returning only visible events', async () => {

@@ -241,6 +241,7 @@ export interface RuntimeQueueSettings {
   maxMessageRuns: number;
   maxJobRuns: number;
   maxMessageBacklog: number;
+  maxLiveAdmissionBacklog: number;
   maxTaskBacklog: number;
   maxRetries: number;
   baseRetryMs: number;

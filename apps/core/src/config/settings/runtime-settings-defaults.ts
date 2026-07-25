@@ -59,6 +59,7 @@ export const DEFAULT_RUNTIME_DEPLOYMENT_MODE = 'workstation';
 // parallelism while bounding simultaneous body buffers and provider sockets.
 export const DEFAULT_LLM_GLOBAL_MAX_IN_FLIGHT = 32;
 export const DEFAULT_LLM_PER_APP_KEY_MAX_IN_FLIGHT = 8;
+export const DEFAULT_LIVE_ADMISSION_BACKLOG = 100;
 
 export function getDefaultRuntimeSandboxSettings(): RuntimeSandboxSettings {
   return {
@@ -170,6 +171,7 @@ export function createDefaultRuntimeSettings(): RuntimeSettings {
       maxMessageRuns: 3,
       maxJobRuns: 4,
       maxMessageBacklog: 0,
+      maxLiveAdmissionBacklog: DEFAULT_LIVE_ADMISSION_BACKLOG,
       maxTaskBacklog: 0,
       maxRetries: 5,
       baseRetryMs: 5000,

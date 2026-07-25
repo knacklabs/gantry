@@ -20,12 +20,12 @@
     "apps/core/src/adapters/storage/postgres/repositories/control-plane-repository.postgres.ts": 760,
     "apps/core/src/jobs/ipc-skill-install-handlers.ts": 760,
     "apps/core/src/app/bootstrap/channel-wiring.ts": 759,
-    "apps/core/src/adapters/storage/postgres/repositories/canonical-job-repository.postgres.ts": 875,
+    "apps/core/src/adapters/storage/postgres/repositories/canonical-job-repository.postgres.ts": 900,
     "apps/core/src/adapters/storage/postgres/repositories/live-turn-repository.postgres.ts": 770,
     "apps/core/src/adapters/storage/postgres/services/canonical-job-ops-service.ts": 807,
     "apps/core/src/adapters/storage/postgres/schema/canonical-ops-repo.postgres.ts": 950,
     "apps/core/src/adapters/storage/postgres/schema/schema.ts": 900,
-    
+
     "apps/core/src/app/bootstrap/inline-agent-loop-tools.ts": 745,
     "apps/core/src/app/bootstrap/runtime-app.ts": 725,
     "apps/core/src/app/bootstrap/runtime-services.ts": 1080,
@@ -34,7 +34,7 @@
     "apps/core/src/channels/slack/channel-interactions.ts": 712,
     "apps/core/src/channels/telegram/channel-connect.ts": 708,
     "apps/core/src/channels/telegram/channel-delivery.ts": 766,
-    "apps/core/src/cli/group.ts": 824,
+    "apps/core/src/cli/group.ts": 850,
     "apps/core/src/cli/model.ts": 723,
     "apps/core/src/config/settings/desired-state-service.ts": 830,
     "apps/core/src/config/settings/runtime-settings-parser.ts": 1145,
@@ -64,20 +64,12 @@
   },
   "layers": {
     "domain": {
-      "paths": [
-        "apps/core/src/domain"
-      ],
-      "allowedImportLayers": [
-        "domain",
-        "shared",
-        "packages/contracts"
-      ],
+      "paths": ["apps/core/src/domain"],
+      "allowedImportLayers": ["domain", "shared", "packages/contracts"],
       "allowedExternalImports": []
     },
     "application": {
-      "paths": [
-        "apps/core/src/application"
-      ],
+      "paths": ["apps/core/src/application"],
       "allowedImportLayers": [
         "domain",
         "application",
@@ -131,14 +123,10 @@
         "shared",
         "packages/contracts"
       ],
-      "allowedExternalImports": [
-        "*"
-      ]
+      "allowedExternalImports": ["*"]
     },
     "config": {
-      "paths": [
-        "apps/core/src/config"
-      ],
+      "paths": ["apps/core/src/config"],
       "allowedImportLayers": [
         "config",
         "domain",
@@ -156,49 +144,19 @@
       ]
     },
     "shared": {
-      "paths": [
-        "apps/core/src/shared",
-        "apps/core/src/infrastructure/logging"
-      ],
-      "allowedImportLayers": [
-        "shared",
-        "packages/contracts"
-      ],
-      "allowedExternalImports": [
-        "node:",
-        "crypto",
-        "fs",
-        "path",
-        "url",
-        "os"
-      ]
+      "paths": ["apps/core/src/shared", "apps/core/src/infrastructure/logging"],
+      "allowedImportLayers": ["shared", "packages/contracts"],
+      "allowedExternalImports": ["node:", "crypto", "fs", "path", "url", "os"]
     },
     "packages/contracts": {
-      "paths": [
-        "packages/contracts/src"
-      ],
-      "allowedImportLayers": [
-        "packages/contracts"
-      ],
-      "allowedExternalImports": [
-        "zod"
-      ]
+      "paths": ["packages/contracts/src"],
+      "allowedImportLayers": ["packages/contracts"],
+      "allowedExternalImports": ["zod"]
     },
     "packages/sdk": {
-      "paths": [
-        "packages/sdk/src"
-      ],
-      "allowedImportLayers": [
-        "packages/contracts",
-        "packages/sdk"
-      ],
-      "allowedExternalImports": [
-        "node:",
-        "http",
-        "https",
-        "url",
-        "crypto"
-      ]
+      "paths": ["packages/sdk/src"],
+      "allowedImportLayers": ["packages/contracts", "packages/sdk"],
+      "allowedExternalImports": ["node:", "http", "https", "url", "crypto"]
     }
   },
   "approvedProviderSpecificPaths": [
@@ -253,8 +211,5 @@
     "registeredGroup": "\\bregisteredGroups?\\b",
     "claude_only": "\\b(?:claude-only|Claude-only|claude only|Claude only|only Claude|only supports Claude)\\b"
   },
-  "emptyFolderScanRoots": [
-    "apps/core/src",
-    "packages"
-  ]
+  "emptyFolderScanRoots": ["apps/core/src", "packages"]
 }

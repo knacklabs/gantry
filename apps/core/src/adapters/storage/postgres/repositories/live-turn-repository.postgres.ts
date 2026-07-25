@@ -93,12 +93,17 @@ export class PostgresLiveTurnRepository implements LiveTurnCoordinationRepositor
   constructor(
     private readonly db: CanonicalDb,
     private readonly commandNotifier?: LiveTurnCommandNotifier,
+    private readonly maxLiveAdmissionBacklog = 100,
   ) {}
 
   async enqueueLiveAdmissionWorkItem(
     input: EnqueueLiveAdmissionWorkItemInput,
   ): Promise<LiveAdmissionWorkItemEnqueueResult> {
-    return enqueueLiveAdmissionWorkItem(this.db, input);
+    return enqueueLiveAdmissionWorkItem(
+      this.db,
+      input,
+      this.maxLiveAdmissionBacklog,
+    );
   }
 
   async claimLiveAdmissionWorkItems(

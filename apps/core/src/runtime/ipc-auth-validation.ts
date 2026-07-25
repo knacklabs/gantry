@@ -204,33 +204,228 @@ function readTrustedThreadBinding(
   };
 }
 
-function pruneConsumedIpcRequestIds(): void {
+const REPLAY_MARKER_SWEEP_INTERVAL_MS = 1_000;
+const REPLAY_MARKER_SWEEP_BATCH_SIZE = 128;
+const REPLAY_MARKER_SWEEP_TIME_BUDGET_MS = 100;
+const REPLAY_MARKER_SWEEP_GRACE_MS = IPC_REQUEST_MAX_AGE_MS * 2;
+let consumedIpcRequestIdSweep: IterableIterator<[string, number]> | undefined;
+let consumedIpcRequestIdSweepInProgress = false;
+let replayMarkerSweepDir: fs.Dir | undefined;
+let replayMarkerSweepGeneration = 0;
+let replayMarkerSweepInProgress = false;
+let replayMarkerSweepTimer: ReturnType<typeof setInterval> | undefined;
+
+function replayMarkerSweepWithinBudget(startedAt: bigint): boolean {
+  const elapsedMs = Number(process.hrtime.bigint() - startedAt) / 1_000_000;
+  return elapsedMs < REPLAY_MARKER_SWEEP_TIME_BUDGET_MS;
+}
+
+function yieldReplayMarkerSweep(): Promise<void> {
+  return new Promise((resolve) => setImmediate(resolve));
+}
+
+async function pruneConsumedIpcRequestIds(): Promise<void> {
+  if (consumedIpcRequestIdSweepInProgress) return;
+  consumedIpcRequestIdSweepInProgress = true;
+  const generation = replayMarkerSweepGeneration;
+  const startedAt = process.hrtime.bigint();
   const now = nowMs();
-  for (const [key, expiresAt] of consumedIpcRequestIds) {
-    if (expiresAt <= now) {
-      consumedIpcRequestIds.delete(key);
+  try {
+    while (generation === replayMarkerSweepGeneration) {
+      let foundExpired = false;
+      consumedIpcRequestIdSweep ??= consumedIpcRequestIds.entries();
+      for (
+        let inspected = 0;
+        inspected < REPLAY_MARKER_SWEEP_BATCH_SIZE;
+        inspected += 1
+      ) {
+        const entry = consumedIpcRequestIdSweep.next();
+        if (entry.done) {
+          consumedIpcRequestIdSweep = undefined;
+          return;
+        }
+        const [key, expiresAt] = entry.value;
+        if (expiresAt <= now) {
+          consumedIpcRequestIds.delete(key);
+          foundExpired = true;
+        }
+      }
+      if (!foundExpired || !replayMarkerSweepWithinBudget(startedAt)) return;
+      await yieldReplayMarkerSweep();
     }
+  } finally {
+    consumedIpcRequestIdSweepInProgress = false;
   }
-  const dir = replayStoreDir();
-  if (!fs.existsSync(dir)) return;
-  for (const file of fs.readdirSync(dir)) {
-    if (!file.endsWith('.json')) continue;
-    const markerPath = path.join(dir, file);
-    try {
-      const parsed = JSON.parse(fs.readFileSync(markerPath, 'utf-8')) as {
-        expiresAtMs?: unknown;
-      };
-      const expiresAtMs =
-        typeof parsed.expiresAtMs === 'number' ? parsed.expiresAtMs : 0;
-      if (expiresAtMs <= now) fs.rmSync(markerPath, { force: true });
-    } catch {
-      fs.rmSync(markerPath, { force: true });
+}
+
+async function closeReplayMarkerSweepDir(dir: fs.Dir): Promise<void> {
+  if (replayMarkerSweepDir === dir) replayMarkerSweepDir = undefined;
+  try {
+    await dir.close();
+  } catch {
+    // The lifecycle stop path may already have closed the cursor.
+  }
+}
+
+async function readReplayMarkerExpiry(
+  markerPath: string,
+): Promise<number | undefined> {
+  try {
+    const parsed = JSON.parse(
+      await fs.promises.readFile(markerPath, 'utf-8'),
+    ) as { expiresAtMs?: unknown };
+    return typeof parsed.expiresAtMs === 'number' &&
+      Number.isFinite(parsed.expiresAtMs)
+      ? parsed.expiresAtMs
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+async function reclaimMalformedReplayMarker(
+  markerPath: string,
+  graceExpiredBefore: number,
+): Promise<boolean> {
+  try {
+    const markerStat = await fs.promises.stat(markerPath);
+    if (markerStat.mtimeMs > graceExpiredBefore) return false;
+    const confirmedStat = await fs.promises.stat(markerPath);
+    if (confirmedStat.mtimeMs > graceExpiredBefore) return false;
+    await fs.promises.rm(markerPath, { force: true });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function reclaimGraceExpiredReplayMarker(
+  markerPath: string,
+  graceExpiredBefore: number,
+): Promise<boolean> {
+  const expiresAtMs = await readReplayMarkerExpiry(markerPath);
+  if (expiresAtMs === undefined) {
+    return reclaimMalformedReplayMarker(markerPath, graceExpiredBefore);
+  }
+  if (expiresAtMs > graceExpiredBefore) return false;
+
+  const confirmedExpiresAtMs = await readReplayMarkerExpiry(markerPath);
+  if (
+    confirmedExpiresAtMs === undefined ||
+    confirmedExpiresAtMs > graceExpiredBefore
+  ) {
+    return false;
+  }
+  try {
+    await fs.promises.rm(markerPath, { force: true });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function pruneReplayMarkersOnDisk(): Promise<void> {
+  if (replayMarkerSweepInProgress) return;
+  replayMarkerSweepInProgress = true;
+  const generation = replayMarkerSweepGeneration;
+  const startedAt = process.hrtime.bigint();
+  let dir = replayMarkerSweepDir;
+  try {
+    dir ??= await fs.promises.opendir(replayStoreDir(), {
+      bufferSize: REPLAY_MARKER_SWEEP_BATCH_SIZE,
+    });
+    if (generation !== replayMarkerSweepGeneration) {
+      await closeReplayMarkerSweepDir(dir);
+      return;
     }
+    replayMarkerSweepDir = dir;
+    const now = nowMs();
+    const graceExpiredBefore = now - REPLAY_MARKER_SWEEP_GRACE_MS;
+    // Decision 0027 permits multiple live workers to share DATA_DIR. Freshness
+    // validation runs before reservation, so markers remain sweep-untouchable
+    // for twice that same freshness window after expiry. Once past this derived
+    // grace, the represented request cannot legitimately reach reservation in
+    // any process, and deleting its hash-addressed marker cannot race a rewrite.
+    while (generation === replayMarkerSweepGeneration) {
+      const markerPaths: string[] = [];
+      let completedPass = false;
+      for (
+        let inspected = 0;
+        inspected < REPLAY_MARKER_SWEEP_BATCH_SIZE;
+        inspected += 1
+      ) {
+        const entry = await dir.read();
+        if (generation !== replayMarkerSweepGeneration) {
+          await closeReplayMarkerSweepDir(dir);
+          return;
+        }
+        if (!entry) {
+          completedPass = true;
+          break;
+        }
+        if (!entry.isFile() || !entry.name.endsWith('.json')) continue;
+        markerPaths.push(path.join(replayStoreDir(), entry.name));
+      }
+      const graceExpired = await Promise.allSettled(
+        markerPaths.map((markerPath) =>
+          reclaimGraceExpiredReplayMarker(markerPath, graceExpiredBefore),
+        ),
+      );
+      if (generation !== replayMarkerSweepGeneration) {
+        await closeReplayMarkerSweepDir(dir);
+        return;
+      }
+      if (completedPass) {
+        await closeReplayMarkerSweepDir(dir);
+        return;
+      }
+      if (
+        !graceExpired.some(
+          (result) => result.status === 'fulfilled' && result.value,
+        ) ||
+        !replayMarkerSweepWithinBudget(startedAt)
+      ) {
+        return;
+      }
+      await yieldReplayMarkerSweep();
+    }
+  } catch {
+    if (dir) await closeReplayMarkerSweepDir(dir);
+  } finally {
+    replayMarkerSweepInProgress = false;
+  }
+}
+
+function ensureReplayMarkerSweepTimer(): void {
+  if (replayMarkerSweepTimer) return;
+  replayMarkerSweepTimer = setInterval(() => {
+    void pruneConsumedIpcRequestIds();
+    void pruneReplayMarkersOnDisk();
+  }, REPLAY_MARKER_SWEEP_INTERVAL_MS);
+  replayMarkerSweepTimer.unref?.();
+}
+
+function stopReplayMarkerSweepTimer(): void {
+  replayMarkerSweepGeneration += 1;
+  if (replayMarkerSweepTimer) {
+    clearInterval(replayMarkerSweepTimer);
+    replayMarkerSweepTimer = undefined;
+  }
+  consumedIpcRequestIdSweep = undefined;
+  if (replayMarkerSweepDir) {
+    const dir = replayMarkerSweepDir;
+    replayMarkerSweepDir = undefined;
+    void closeReplayMarkerSweepDir(dir);
   }
 }
 
 function reserveIpcReplayMarker(key: string, expiresAtMs: number): boolean {
-  if (consumedIpcRequestIds.has(key)) return false;
+  const now = nowMs();
+  const consumedUntil = consumedIpcRequestIds.get(key);
+  if (consumedUntil !== undefined) {
+    if (consumedUntil > now) return false;
+    consumedIpcRequestIds.delete(key);
+  }
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
       ensurePrivateDirSync(replayStoreDir());
@@ -247,6 +442,11 @@ function reserveIpcReplayMarker(key: string, expiresAtMs: number): boolean {
         'code' in err &&
         (err as { code?: unknown }).code === 'EEXIST'
       ) {
+        // Legitimately fresh IPC requests use a unique UUID-backed request id;
+        // stale requests are rejected before reservation. Replacing an existing
+        // id therefore serves no valid traffic and only creates cross-worker
+        // delete/recreate races. The sweeper alone makes an id reservable after
+        // its derived grace, when any request bearing that id is already stale.
         consumedIpcRequestIds.set(key, expiresAtMs);
         return false;
       }
@@ -270,6 +470,7 @@ export function clearConsumedIpcRequestIds(input?: {
 }): void {
   const consumedKeys = [...consumedIpcRequestIds.keys()];
   consumedIpcRequestIds.clear();
+  stopReplayMarkerSweepTimer();
   if (input?.durable !== true && input?.durable !== 'consumed') return;
   const dir = replayStoreDir();
   if (!fs.existsSync(dir)) return;
@@ -289,7 +490,7 @@ function reserveFreshIpcRequestId(
   expiresAtMs: number,
   label: string,
 ): void {
-  pruneConsumedIpcRequestIds();
+  ensureReplayMarkerSweepTimer();
   if (!reserveIpcReplayMarker(replayKey, expiresAtMs)) {
     throw new Error(`Invalid ${label} replay`);
   }
