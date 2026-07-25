@@ -144,6 +144,19 @@ export interface ObserverDigestReserveResult {
   created: boolean;
 }
 
+// Read-only digest history row for the deliveries control surface: a reservation
+// plus the count of insights it carried, without exposing the members or route.
+export interface ObserverDigestDeliverySummary {
+  id: string;
+  localDay: string;
+  state: ObserverDeliveryState;
+  insightCount: number;
+  reservedAt: string | null;
+  sentAt: string | null;
+  settledAt: string | null;
+  createdAt: string;
+}
+
 export interface ObserverInsightCursor {
   updatedAt: string;
   pageId: string;
@@ -224,6 +237,19 @@ export interface ObserverInsightRepository {
     limit: number;
     nowIso: string;
   }): Promise<ProactiveInsight[]>;
+  // Read-only sibling of claimPendingForDigest: the same pending pool, same
+  // order, but claims nothing. Backs the dry-run digest preview.
+  listPendingForDigest(input: {
+    appId: string;
+    recipient: string;
+    limit: number;
+  }): Promise<ProactiveInsight[]>;
+  // Read-only digest history for a recipient, newest-first, with member counts.
+  listDigestDeliveries(input: {
+    appId: string;
+    recipient: string;
+    limit: number;
+  }): Promise<ObserverDigestDeliverySummary[]>;
   findDigestReservation(input: {
     appId: string;
     recipient: string;

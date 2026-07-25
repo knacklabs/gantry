@@ -3,6 +3,16 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { getRuntimeStorage } from '../../../adapters/storage/postgres/runtime-store.js';
 import { createRuntimeBrainService } from '../../../brain/brain-runtime.js';
 import {
+  buildDigestPreview,
+  digestPrefetchLimit,
+} from '../../../brain/observer-digest.js';
+import { MessageInsightFreshnessProbe } from '../../../brain/observer-evidence-freshness.js';
+import {
+  resolveObserverDeliveryStatus,
+  resolveObserverOwnerRoute,
+} from '../../../config/settings/observer-activation.js';
+import type { RuntimeSettings } from '../../../config/settings/runtime-settings-types.js';
+import {
   OBSERVER_INSIGHT_TYPES,
   OBSERVER_INSIGHT_STATES,
   isObserverSubjectKey,
@@ -124,7 +134,13 @@ export async function handleObserverRoutes(
 ): Promise<boolean> {
   if (!pathname.startsWith('/v1/observer')) return false;
 
-  if (req.method !== 'GET') return false;
+  // Preview is a POST dry-run; every other observer route is GET. All read-only,
+  // so all authorize with the same memory:read scope.
+  if (pathname === '/v1/observer/preview') {
+    if (req.method !== 'POST') return false;
+  } else if (req.method !== 'GET') {
+    return false;
+  }
   const auth = authorizeControlRequest(req, res, ctx.keys, ['memory:read']);
   if (!auth) return true;
   const appId = url.searchParams.get('appId') || auth.appId;
@@ -184,6 +200,76 @@ export async function handleObserverRoutes(
           ? encodeCursor({ createdAt: last.createdAt, id: last.id })
           : null,
     });
+    return true;
+  }
+
+  if (pathname === '/v1/observer/preview') {
+    // Dry-run: compute the would-be digest WITHOUT claiming, reserving, or
+    // sending. Reads the pending pool with listPendingForDigest (never the
+    // claiming variant) and buildDigestPreview, both write-free.
+    const settings = ctx.getInternalRuntimeSettings() as RuntimeSettings;
+    const status = resolveObserverDeliveryStatus(settings);
+    if (!status.eligible) {
+      sendJson(res, 200, {
+        eligible: false,
+        reason: status.reason,
+        message: status.message,
+      });
+      return true;
+    }
+    const candidates = await repository.listPendingForDigest({
+      appId,
+      recipient: status.owner.recipient,
+      limit: digestPrefetchLimit(status.schedule.maxInsights),
+    });
+    const freshnessProbe = new MessageInsightFreshnessProbe(
+      getRuntimeStorage().ops,
+    );
+    const preview = await buildDigestPreview({
+      nowIso: new Date().toISOString(),
+      timezone: status.schedule.timezone,
+      maxInsights: status.schedule.maxInsights,
+      candidates,
+      freshnessProbe,
+    });
+    sendJson(res, 200, {
+      eligible: true,
+      recipient: status.owner.recipient,
+      localDay: preview.localDay,
+      renderedDigest: preview.renderedDigest,
+      skippedReason: preview.skippedReason,
+      selected: preview.selected.map((insight) => ({
+        id: insight.id,
+        subject: insight.subject,
+        insightType: insight.insightType,
+        title: insight.title,
+        summary: insight.summary,
+        confidence: insight.confidence,
+        priorityScore: insight.priorityScore,
+      })),
+    });
+    return true;
+  }
+
+  if (pathname === '/v1/observer/deliveries') {
+    const limit = readLimit(res, url);
+    if (limit === null) return true;
+    // History is owner-scoped; if no owner is configured there is nothing to
+    // list. resolveObserverOwnerRoute needs only observer.owner + its DM, so
+    // history stays visible even when delivery is currently disabled.
+    const owner = resolveObserverOwnerRoute(
+      ctx.getInternalRuntimeSettings() as RuntimeSettings,
+    );
+    if (!owner.ok) {
+      sendJson(res, 200, { recipient: null, deliveries: [] });
+      return true;
+    }
+    const deliveries = await repository.listDigestDeliveries({
+      appId,
+      recipient: owner.owner.recipient,
+      limit,
+    });
+    sendJson(res, 200, { recipient: owner.owner.recipient, deliveries });
     return true;
   }
 

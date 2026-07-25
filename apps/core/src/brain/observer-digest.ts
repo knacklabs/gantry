@@ -298,6 +298,52 @@ export async function runObserverDigest(input: {
   };
 }
 
+export interface ObserverDigestPreview {
+  localDay: string;
+  selected: ProactiveInsight[];
+  renderedDigest: string | null;
+  skippedReason: 'no_qualifying_insights' | null;
+}
+
+/**
+ * Dry-run digest assembly: apply the SAME freshness + value floor + stable
+ * top-N selection + render that runObserverDigest uses, over a caller-supplied
+ * candidate pool. Claim-free, reserve-free, send-free — it reads freshness and
+ * returns what WOULD be sent, writing nothing. The candidate pool must be read
+ * with listPendingForDigest (not claimPendingForDigest) to keep it that way.
+ */
+export async function buildDigestPreview(input: {
+  nowIso: string;
+  timezone: string;
+  maxInsights: number;
+  candidates: ProactiveInsight[];
+  freshnessProbe: InsightFreshnessProbe;
+}): Promise<ObserverDigestPreview> {
+  const localDay = ownerLocalClock(input.nowIso, input.timezone).localDay;
+  const survivors: ProactiveInsight[] = [];
+  for (const insight of input.candidates) {
+    const stale = await input.freshnessProbe.isStale(insight);
+    if (!stale && clearsFloor(insight)) survivors.push(insight);
+  }
+  survivors.sort(compareForSelection);
+  const selected = survivors.slice(
+    0,
+    Math.min(input.maxInsights, survivors.length),
+  );
+  return {
+    localDay,
+    selected,
+    renderedDigest:
+      selected.length > 0 ? renderDigest(localDay, selected) : null,
+    skippedReason: selected.length === 0 ? 'no_qualifying_insights' : null,
+  };
+}
+
+/** Generous prefetch so freshness + floor drops still leave enough survivors. */
+export function digestPrefetchLimit(maxInsights: number): number {
+  return Math.max(maxInsights * 3, 30);
+}
+
 function clearsFloor(insight: ProactiveInsight): boolean {
   return (
     insight.confidence >= OBSERVER_MIN_CONFIDENCE &&
@@ -351,7 +397,7 @@ async function dropClaims(
 }
 
 function prefetchLimit(schedule: ObserverDeliverySchedule): number {
-  return Math.max(schedule.maxInsights * 3, 30);
+  return digestPrefetchLimit(schedule.maxInsights);
 }
 
 function renderDigest(localDay: string, insights: ProactiveInsight[]): string {

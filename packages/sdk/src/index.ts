@@ -427,6 +427,16 @@ export class GantryClient {
         method: 'GET',
         path: `/v1/observer/insights${querySuffix(input)}`,
       }),
+    preview: (input: OpenApi.PreviewObserverDigestQuery = {}) =>
+      this.transport.request<OpenApi.ObserverDigestPreviewResponse>({
+        method: 'POST',
+        path: `/v1/observer/preview${querySuffix(input)}`,
+      }),
+    deliveries: (input: OpenApi.ListObserverDeliveriesQuery = {}) =>
+      this.transport.request<OpenApi.ObserverDigestDeliveryListResponse>({
+        method: 'GET',
+        path: `/v1/observer/deliveries${querySuffix(input)}`,
+      }),
   };
 
   readonly skills = createSkillsClient({ request: this.request });

@@ -18,6 +18,8 @@ vi.mock('@core/config/settings/observer-activation.js', () => ({
 
 import {
   runObserverDigest,
+  buildDigestPreview,
+  digestPrefetchLimit,
   createOutboundDigestDeliveryPort,
   digestOutboundIdempotencyKey,
   OBSERVER_DIGEST_COOLDOWN_MS,
@@ -798,5 +800,68 @@ describe('createOutboundDigestDeliveryPort', () => {
         localDay: '2026-07-25',
       }),
     ).toBe('observer-digest:default:owner-1:2026-07-25');
+  });
+});
+
+describe('buildDigestPreview (pure, write-free)', () => {
+  const NOW = '2026-07-25T12:00:00.000Z';
+  const alwaysFresh: InsightFreshnessProbe = { isStale: async () => false };
+
+  it('applies freshness + floor + stable top-N and renders, without a repository', async () => {
+    const high = makeInsight({ id: 'hi', priorityScore: 3 });
+    const mid = makeInsight({ id: 'mid', priorityScore: 2 });
+    const low = makeInsight({ id: 'lo', priorityScore: 1 });
+    const probe = { isStale: vi.fn(async () => false) };
+
+    const preview = await buildDigestPreview({
+      nowIso: NOW,
+      timezone: 'UTC',
+      maxInsights: 2,
+      candidates: [mid, low, high],
+      freshnessProbe: probe,
+    });
+
+    expect(preview.localDay).toBe('2026-07-25');
+    expect(preview.selected.map((i) => i.id)).toEqual(['hi', 'mid']);
+    expect(preview.skippedReason).toBeNull();
+    expect(preview.renderedDigest).toContain('Insight');
+    // Only the freshness read happened; selection is otherwise pure.
+    expect(probe.isStale).toHaveBeenCalledTimes(3);
+  });
+
+  it('drops stale and below-floor candidates and reports no_qualifying_insights', async () => {
+    const stale = makeInsight({ id: 'stale' });
+    const lowConf = makeInsight({ id: 'low', confidence: 0.3 });
+    const probe = {
+      isStale: vi.fn(async (i: ProactiveInsight) => i.id === 'stale'),
+    };
+
+    const preview = await buildDigestPreview({
+      nowIso: NOW,
+      timezone: 'UTC',
+      maxInsights: 5,
+      candidates: [stale, lowConf],
+      freshnessProbe: probe,
+    });
+
+    expect(preview.selected).toEqual([]);
+    expect(preview.renderedDigest).toBeNull();
+    expect(preview.skippedReason).toBe('no_qualifying_insights');
+  });
+
+  it('an empty pool preview never sends and never throws', async () => {
+    const preview = await buildDigestPreview({
+      nowIso: NOW,
+      timezone: 'UTC',
+      maxInsights: 5,
+      candidates: [],
+      freshnessProbe: alwaysFresh,
+    });
+    expect(preview.skippedReason).toBe('no_qualifying_insights');
+  });
+
+  it('digestPrefetchLimit floors at 30 and scales with maxInsights', () => {
+    expect(digestPrefetchLimit(5)).toBe(30);
+    expect(digestPrefetchLimit(20)).toBe(60);
   });
 });

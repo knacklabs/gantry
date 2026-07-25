@@ -547,6 +547,36 @@ export const extendedOpenApiRouteDocs: RouteDoc[] = [
   ),
   doc(
     'post',
+    '/v1/observer/preview',
+    'previewObserverDigest',
+    'Observer',
+    'Preview the observer digest',
+    'Dry-run: computes the would-be owner digest (top-N selected and rendered) WITHOUT claiming insights, reserving a delivery, or sending. Creates no delivery row and no outbound record.',
+    ['memory:read'],
+    { parameters: [query('appId', 'App id. Defaults to API key app.')] },
+  ),
+  doc(
+    'get',
+    '/v1/observer/deliveries',
+    'listObserverDeliveries',
+    'Observer',
+    'List observer digest deliveries',
+    'Lists past digest reservations and deliveries for the app owner, newest first, with per-delivery state, local day, and insight count.',
+    ['memory:read'],
+    {
+      parameters: [
+        query('appId', 'App id. Defaults to API key app.'),
+        query('limit', 'Maximum number of deliveries.', {
+          type: 'integer',
+          minimum: 1,
+          maximum: 100,
+          default: 20,
+        }),
+      ],
+    },
+  ),
+  doc(
+    'post',
     '/v1/brain/import',
     'importBrainPages',
     'Memory',

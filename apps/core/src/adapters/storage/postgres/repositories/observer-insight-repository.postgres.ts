@@ -15,6 +15,7 @@ import type {
   ObserverDelivery,
   ObserverDeliveryState,
   ObserverDigestClaimMembership,
+  ObserverDigestDeliverySummary,
   ObserverDigestReservation,
   ObserverDigestReserveResult,
   ObserverInsightCreate,
@@ -430,6 +431,73 @@ export class PostgresObserverInsightRepository implements ObserverInsightReposit
         .map(mapInsight)
         .sort((left, right) => order.get(left.id)! - order.get(right.id)!);
     });
+  }
+
+  async listPendingForDigest(input: {
+    appId: string;
+    recipient: string;
+    limit: number;
+  }): Promise<ProactiveInsight[]> {
+    const rows = await this.db
+      .select()
+      .from(Insights)
+      .where(
+        and(
+          eq(Insights.appId, input.appId),
+          eq(Insights.recipient, input.recipient),
+          eq(Insights.state, 'pending'),
+        ),
+      )
+      .orderBy(
+        desc(Insights.priorityScore),
+        asc(Insights.createdAt),
+        asc(Insights.id),
+      )
+      .limit(clampLimit(input.limit));
+    return rows.map(mapInsight);
+  }
+
+  async listDigestDeliveries(input: {
+    appId: string;
+    recipient: string;
+    limit: number;
+  }): Promise<ObserverDigestDeliverySummary[]> {
+    const insightCount = sql<number>`count(${DeliveryInsights.insightId})::int`;
+    const rows = await this.db
+      .select({
+        id: Deliveries.id,
+        localDay: Deliveries.localDay,
+        state: Deliveries.state,
+        reservedAt: Deliveries.reservedAt,
+        sentAt: Deliveries.sentAt,
+        settledAt: Deliveries.settledAt,
+        createdAt: Deliveries.createdAt,
+        insightCount,
+      })
+      .from(Deliveries)
+      .leftJoin(
+        DeliveryInsights,
+        eq(DeliveryInsights.deliveryId, Deliveries.id),
+      )
+      .where(
+        and(
+          eq(Deliveries.appId, input.appId),
+          eq(Deliveries.recipient, input.recipient),
+        ),
+      )
+      .groupBy(Deliveries.id)
+      .orderBy(desc(Deliveries.createdAt), desc(Deliveries.id))
+      .limit(clampLimit(input.limit));
+    return rows.map((row) => ({
+      id: row.id,
+      localDay: row.localDay,
+      state: row.state as ObserverDeliveryState,
+      insightCount: Number(row.insightCount ?? 0),
+      reservedAt: nullableIso(row.reservedAt),
+      sentAt: nullableIso(row.sentAt),
+      settledAt: nullableIso(row.settledAt),
+      createdAt: toIso(row.createdAt),
+    }));
   }
 
   async findDigestReservation(input: {
