@@ -1,3 +1,4 @@
+import fs from 'fs';
 import path from 'path';
 
 import type { PermissionApprovalCancellation } from '../domain/types.js';
@@ -7,9 +8,22 @@ import { interactionInFlightKey } from './ipc-interaction-processing.js';
 import { parsePermissionCancellationIpcRequest } from './ipc-parsing-permission-lifecycle.js';
 
 const PERMISSION_CANCELLATION_LANE = 'permission-cancellations';
+const CANCELLATION_RETRY_MIN_MS = 1_000;
+const CANCELLATION_RETRY_MAX_MS = 30_000;
+const CANCELLATION_RETENTION_TTL_MS = 24 * 60 * 60_000;
+
+interface CancellationRetryState {
+  attempts: number;
+  cancellation: PermissionApprovalCancellation;
+  expiresAt: number;
+  nextAttemptAt: number;
+}
+
+const cancellationRetries = new Map<string, CancellationRetryState>();
 
 type PermissionCancellationDirectoryLogger = {
   error(context: Record<string, unknown>, message: string): void;
+  warn(context: Record<string, unknown>, message: string): void;
 };
 
 export async function processPermissionCancellationDirectory(input: {
@@ -45,7 +59,13 @@ export async function processPermissionCancellationDirectory(input: {
       sourceAgentFolder,
       PERMISSION_CANCELLATION_LANE,
     );
+    const now = Date.now();
+    pruneExpiredRetryState(now);
     for (const file of files) {
+      const retry = cancellationRetries.get(path.join(cancellationsDir, file));
+      if (retry && retry.nextAttemptAt > now && retry.expiresAt > now) {
+        continue;
+      }
       await processPermissionCancellationFile(input, cancellationsDir, file);
     }
   } catch (err) {
@@ -70,24 +90,53 @@ async function processPermissionCancellationFile(
       file,
     );
     claimedPath = claimed.claimedPath;
-    const cancellation = parsePermissionCancellationIpcRequest(
-      claimed.raw,
-      sourceAgentFolder,
-    );
+    const pendingPath = path.join(cancellationsDir, file);
+    const cancellation =
+      cancellationRetries.get(pendingPath)?.cancellation ??
+      parsePermissionCancellationIpcRequest(claimed.raw, sourceAgentFolder);
     if (!isPermissionInFlight(input.inFlightInteractionIpc, cancellation)) {
-      runnerControlPort.removeClaimedRequest(claimedPath);
+      if (
+        runnerControlPort.responseExists(
+          sourceAgentFolder,
+          'permission-responses',
+          cancellation.requestId,
+        )
+      ) {
+        consumeCancellation(claimedPath, cancellationsDir, file);
+        return;
+      }
+      retainCancellation({
+        claimedPath,
+        cancellationsDir,
+        file,
+        logger,
+        sourceAgentFolder,
+        cancellation,
+      });
       return;
     }
     if (!input.cancelPermissionApproval) {
       throw new Error('Permission cancellation handler is unavailable');
     }
-    await input.cancelPermissionApproval(cancellation);
-    runnerControlPort.removeClaimedRequest(claimedPath);
+    const result = await input.cancelPermissionApproval(cancellation);
+    if (result === 'settled') {
+      consumeCancellation(claimedPath, cancellationsDir, file);
+      return;
+    }
+    retainCancellation({
+      claimedPath,
+      cancellationsDir,
+      file,
+      logger,
+      sourceAgentFolder,
+      cancellation,
+    });
   } catch (err) {
     logger.error(
       { file, sourceAgentFolder, err },
       'Error processing permission cancellation IPC request',
     );
+    cancellationRetries.delete(path.join(cancellationsDir, file));
     runnerControlPort.archiveFailedRequest(
       sourceAgentFolder,
       file,
@@ -108,4 +157,64 @@ function isPermissionInFlight(
       requestId: cancellation.requestId,
     }),
   );
+}
+
+function retainCancellation(input: {
+  claimedPath: string;
+  cancellationsDir: string;
+  file: string;
+  logger: PermissionCancellationDirectoryLogger;
+  sourceAgentFolder: string;
+  cancellation: PermissionApprovalCancellation;
+}): void {
+  const pendingPath = path.join(input.cancellationsDir, input.file);
+  const now = Date.now();
+  const previous = cancellationRetries.get(pendingPath);
+  const expiresAt =
+    previous?.expiresAt ??
+    Math.min(now, fs.statSync(input.claimedPath).mtimeMs) +
+      CANCELLATION_RETENTION_TTL_MS;
+  if (expiresAt <= now) {
+    fs.unlinkSync(input.claimedPath);
+    cancellationRetries.delete(pendingPath);
+    input.logger.warn(
+      {
+        file: input.file,
+        sourceAgentFolder: input.sourceAgentFolder,
+        retentionMs: CANCELLATION_RETENTION_TTL_MS,
+      },
+      'Discarding expired permission cancellation IPC request',
+    );
+    return;
+  }
+
+  fs.renameSync(input.claimedPath, pendingPath);
+  const attempts = (previous?.attempts ?? 0) + 1;
+  const retryDelayMs = Math.min(
+    CANCELLATION_RETRY_MIN_MS * 2 ** (attempts - 1),
+    CANCELLATION_RETRY_MAX_MS,
+  );
+  cancellationRetries.set(pendingPath, {
+    attempts,
+    cancellation: input.cancellation,
+    expiresAt,
+    nextAttemptAt: now + retryDelayMs,
+  });
+}
+
+function consumeCancellation(
+  claimedPath: string,
+  cancellationsDir: string,
+  file: string,
+): void {
+  fs.unlinkSync(claimedPath);
+  cancellationRetries.delete(path.join(cancellationsDir, file));
+}
+
+function pruneExpiredRetryState(now: number): void {
+  for (const [pendingPath, retry] of cancellationRetries) {
+    if (retry.expiresAt <= now && !fs.existsSync(pendingPath)) {
+      cancellationRetries.delete(pendingPath);
+    }
+  }
 }

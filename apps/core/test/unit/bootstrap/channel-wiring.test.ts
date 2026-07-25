@@ -487,17 +487,15 @@ describe('createChannelWiring', () => {
     const responder = createUserQuestionResponder({
       findBoundChannel: () => ({}),
       asUserQuestionSurface: () => ({
-        requestUserAnswer: vi.fn(
-          async (_jid, request, onPromptDelivered) => {
-            onPromptDelivered?.('question-prompt-retry');
-            return new Promise<{
-              requestId: string;
-              answers: Record<string, string | string[]>;
-            }>((resolve) => {
-              resolveAnswer = resolve;
-            });
-          },
-        ),
+        requestUserAnswer: vi.fn(async (_jid, request, onPromptDelivered) => {
+          onPromptDelivered?.('question-prompt-retry');
+          return new Promise<{
+            requestId: string;
+            answers: Record<string, string | string[]>;
+          }>((resolve) => {
+            resolveAnswer = resolve;
+          });
+        }),
         cancelPendingQuestion,
       }),
       interactionLifecycle: { logger },

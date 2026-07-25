@@ -1,3 +1,4 @@
+import fs from 'fs';
 import path from 'path';
 
 import type { UserQuestionCancellation } from '../domain/types.js';
@@ -7,9 +8,22 @@ import { interactionInFlightKey } from './ipc-interaction-processing.js';
 import { parseQuestionCancellationIpcRequest } from './ipc-parsing.js';
 
 const QUESTION_CANCELLATION_LANE = 'question-cancellations';
+const CANCELLATION_RETRY_MIN_MS = 1_000;
+const CANCELLATION_RETRY_MAX_MS = 30_000;
+const CANCELLATION_RETENTION_TTL_MS = 24 * 60 * 60_000;
+
+interface CancellationRetryState {
+  attempts: number;
+  cancellation: UserQuestionCancellation;
+  expiresAt: number;
+  nextAttemptAt: number;
+}
+
+const cancellationRetries = new Map<string, CancellationRetryState>();
 
 type QuestionCancellationDirectoryLogger = {
   error(context: Record<string, unknown>, message: string): void;
+  warn(context: Record<string, unknown>, message: string): void;
 };
 
 export async function processQuestionCancellationDirectory(input: {
@@ -45,7 +59,13 @@ export async function processQuestionCancellationDirectory(input: {
       sourceAgentFolder,
       QUESTION_CANCELLATION_LANE,
     );
+    const now = Date.now();
+    pruneExpiredRetryState(now);
     for (const file of files) {
+      const retry = cancellationRetries.get(path.join(cancellationsDir, file));
+      if (retry && retry.nextAttemptAt > now && retry.expiresAt > now) {
+        continue;
+      }
       await processQuestionCancellationFile(input, cancellationsDir, file);
     }
   } catch (err) {
@@ -70,24 +90,53 @@ async function processQuestionCancellationFile(
       file,
     );
     claimedPath = claimed.claimedPath;
-    const cancellation = parseQuestionCancellationIpcRequest(
-      claimed.raw,
-      sourceAgentFolder,
-    );
+    const pendingPath = path.join(cancellationsDir, file);
+    const cancellation =
+      cancellationRetries.get(pendingPath)?.cancellation ??
+      parseQuestionCancellationIpcRequest(claimed.raw, sourceAgentFolder);
     if (!isQuestionInFlight(input.inFlightInteractionIpc, cancellation)) {
-      runnerControlPort.removeClaimedRequest(claimedPath);
+      if (
+        runnerControlPort.responseExists(
+          sourceAgentFolder,
+          'user-answers',
+          cancellation.requestId,
+        )
+      ) {
+        consumeCancellation(claimedPath, cancellationsDir, file);
+        return;
+      }
+      retainCancellation({
+        claimedPath,
+        cancellationsDir,
+        file,
+        logger,
+        sourceAgentFolder,
+        cancellation,
+      });
       return;
     }
     if (!input.cancelUserQuestion) {
       throw new Error('Question cancellation handler is unavailable');
     }
-    await input.cancelUserQuestion(cancellation);
-    runnerControlPort.removeClaimedRequest(claimedPath);
+    const result = await input.cancelUserQuestion(cancellation);
+    if (result === 'settled') {
+      consumeCancellation(claimedPath, cancellationsDir, file);
+      return;
+    }
+    retainCancellation({
+      claimedPath,
+      cancellationsDir,
+      file,
+      logger,
+      sourceAgentFolder,
+      cancellation,
+    });
   } catch (err) {
     logger.error(
       { file, sourceAgentFolder, err },
       'Error processing question cancellation IPC request',
     );
+    cancellationRetries.delete(path.join(cancellationsDir, file));
     runnerControlPort.archiveFailedRequest(
       sourceAgentFolder,
       file,
@@ -108,4 +157,64 @@ function isQuestionInFlight(
       requestId: cancellation.requestId,
     }),
   );
+}
+
+function retainCancellation(input: {
+  claimedPath: string;
+  cancellationsDir: string;
+  file: string;
+  logger: QuestionCancellationDirectoryLogger;
+  sourceAgentFolder: string;
+  cancellation: UserQuestionCancellation;
+}): void {
+  const pendingPath = path.join(input.cancellationsDir, input.file);
+  const now = Date.now();
+  const previous = cancellationRetries.get(pendingPath);
+  const expiresAt =
+    previous?.expiresAt ??
+    Math.min(now, fs.statSync(input.claimedPath).mtimeMs) +
+      CANCELLATION_RETENTION_TTL_MS;
+  if (expiresAt <= now) {
+    fs.unlinkSync(input.claimedPath);
+    cancellationRetries.delete(pendingPath);
+    input.logger.warn(
+      {
+        file: input.file,
+        sourceAgentFolder: input.sourceAgentFolder,
+        retentionMs: CANCELLATION_RETENTION_TTL_MS,
+      },
+      'Discarding expired question cancellation IPC request',
+    );
+    return;
+  }
+
+  fs.renameSync(input.claimedPath, pendingPath);
+  const attempts = (previous?.attempts ?? 0) + 1;
+  const retryDelayMs = Math.min(
+    CANCELLATION_RETRY_MIN_MS * 2 ** (attempts - 1),
+    CANCELLATION_RETRY_MAX_MS,
+  );
+  cancellationRetries.set(pendingPath, {
+    attempts,
+    cancellation: input.cancellation,
+    expiresAt,
+    nextAttemptAt: now + retryDelayMs,
+  });
+}
+
+function consumeCancellation(
+  claimedPath: string,
+  cancellationsDir: string,
+  file: string,
+): void {
+  fs.unlinkSync(claimedPath);
+  cancellationRetries.delete(path.join(cancellationsDir, file));
+}
+
+function pruneExpiredRetryState(now: number): void {
+  for (const [pendingPath, retry] of cancellationRetries) {
+    if (retry.expiresAt <= now && !fs.existsSync(pendingPath)) {
+      cancellationRetries.delete(pendingPath);
+    }
+  }
 }
