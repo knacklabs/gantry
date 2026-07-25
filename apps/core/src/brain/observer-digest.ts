@@ -23,10 +23,32 @@ import type { InsightFreshnessProbe } from './observer-evidence-freshness.js';
 // tied to a live reservation is safe to release before we claim afresh.
 const OBSERVER_DIGEST_CLAIM_STALE_MS = 30 * 60 * 1000;
 
+// Members of a sent digest cool down for a week before an equivalent insight can
+// surface again. ponytail: single constant; make it configurable if per-owner
+// tuning is ever needed.
+export const OBSERVER_DIGEST_COOLDOWN_MS = 7 * 24 * 60 * 60 * 1000;
+
 /**
- * The seam T4 replaces with the real outbound send + settleDigest. In T3 the
- * pipeline only builds and reserves the digest; the port receives the reserved
- * row and does nothing durable. NEVER call settleDigest from here.
+ * The seam that performs the durable outbound send. Kept narrow so the digest
+ * pipeline never touches provider transport directly and tests inject a fake.
+ * `durablySent` is true only once the outbound delivery is durably recorded as
+ * sent — that is the ONLY signal that permits settling the reservation.
+ */
+export interface DigestSendGateway {
+  enqueue(input: {
+    appId: string;
+    conversationJid: string;
+    providerAccountId: string;
+    threadId: string | null;
+    idempotencyKey: string;
+    text: string;
+  }): Promise<{ outboundDeliveryId: string; durablySent: boolean }>;
+}
+
+/**
+ * Hand-off seam for a reserved digest. The production implementation
+ * (createOutboundDigestDeliveryPort) enqueues the durable send and settles only
+ * after it is durably sent. The no-op stays for unit tests only.
  */
 export interface DigestDeliveryPort {
   deliver(reservation: ObserverDigestReservation): Promise<void>;
@@ -34,9 +56,66 @@ export interface DigestDeliveryPort {
 
 export const noopDigestDeliveryPort: DigestDeliveryPort = {
   async deliver() {
-    // ponytail: intentional no-op; the real send + settle land in T4.
+    // ponytail: test-only no-op; production uses createOutboundDigestDeliveryPort.
   },
 };
+
+/** Deterministic per-(app, recipient, day) outbound idempotency key. */
+export function digestOutboundIdempotencyKey(reservation: {
+  appId: string;
+  recipient: string;
+  localDay: string;
+}): string {
+  return `observer-digest:${reservation.appId}:${reservation.recipient}:${reservation.localDay}`;
+}
+
+/**
+ * Production delivery port: durable enqueue + settle-after-durable-sent.
+ * - Enqueue is idempotent on the deterministic key, so re-driving a reservation
+ *   never produces a duplicate outbound message.
+ * - settleDigest (members sent -> cooldown) runs ONLY once the outbound is
+ *   durably sent. A failed/pending send leaves the reservation UNSETTLED and its
+ *   members claimed, so the next tick retries the same reservation.
+ */
+export function createOutboundDigestDeliveryPort(deps: {
+  gateway: DigestSendGateway;
+  repository: Pick<ObserverInsightRepository, 'settleDigest'>;
+  now: () => string;
+  cooldownMs?: number;
+}): DigestDeliveryPort {
+  const cooldownMs = deps.cooldownMs ?? OBSERVER_DIGEST_COOLDOWN_MS;
+  return {
+    async deliver(reservation) {
+      if (reservation.state === 'settled') return;
+      if (
+        !reservation.conversationJid ||
+        !reservation.providerAccountId ||
+        !reservation.renderedDigest
+      ) {
+        throw new Error(
+          `Observer digest reservation ${reservation.id} is missing route or rendered digest`,
+        );
+      }
+      const { outboundDeliveryId, durablySent } = await deps.gateway.enqueue({
+        appId: reservation.appId,
+        conversationJid: reservation.conversationJid,
+        providerAccountId: reservation.providerAccountId,
+        threadId: reservation.threadId,
+        idempotencyKey: digestOutboundIdempotencyKey(reservation),
+        text: reservation.renderedDigest,
+      });
+      // Invariant: never settle before the outbound is durably sent.
+      if (!durablySent) return;
+      const now = deps.now();
+      await deps.repository.settleDigest({
+        deliveryId: reservation.id,
+        outboundDeliveryId,
+        cooldownUntil: new Date(Date.parse(now) + cooldownMs).toISOString(),
+        nowIso: now,
+      });
+    },
+  };
+}
 
 export interface RunObserverDigestDeps {
   settings: RuntimeSettings;
@@ -50,6 +129,7 @@ export type RunObserverDigestSkipReason =
   | ObserverDeliveryIneligibleReason
   | 'before_send_window'
   | 'quiet_hours'
+  | 'already_delivered'
   | 'already_reserved'
   | 'no_qualifying_insights';
 
@@ -60,6 +140,7 @@ export type RunObserverDigestResult =
       localDay: string;
       selected: number;
     }
+  | { status: 'retried'; reservationId: string; localDay: string }
   | { status: 'skipped'; reason: RunObserverDigestSkipReason };
 
 export async function runObserverDigest(input: {
@@ -73,16 +154,41 @@ export async function runObserverDigest(input: {
     return { status: 'skipped', reason: status.reason };
   }
   const { owner, schedule } = status;
+  const repository = deps.repository;
 
   const clock = ownerLocalClock(nowIso, schedule.timezone);
-  if (clock.minutes < parseHhMm(schedule.sendAt)) {
+
+  // Reservation short-circuit BEFORE claiming (and before the window gate, so a
+  // transient delivery failure is retried whenever the job next ticks):
+  //   settled  -> already delivered today, nothing to do.
+  //   unsettled -> re-drive delivery for the SAME reservation, idempotently.
+  const existing = await repository.findDigestReservation({
+    appId,
+    recipient: owner.recipient,
+    localDay: clock.localDay,
+  });
+  if (existing) {
+    if (existing.state === 'settled') {
+      return { status: 'skipped', reason: 'already_delivered' };
+    }
+    await deps.deliveryPort.deliver(existing);
+    return {
+      status: 'retried',
+      reservationId: existing.id,
+      localDay: clock.localDay,
+    };
+  }
+
+  // Cross-midnight-safe send window: if the configured send time falls inside
+  // the quiet window, defer to quiet-end (morning-after) so a quiet window can
+  // never permanently block delivery.
+  const effectiveEarliest = effectiveEarliestSendMinutes(schedule);
+  if (clock.minutes < effectiveEarliest) {
     return { status: 'skipped', reason: 'before_send_window' };
   }
   if (withinQuietHours(clock.minutes, schedule.quietHours)) {
     return { status: 'skipped', reason: 'quiet_hours' };
   }
-
-  const repository = deps.repository;
 
   // Release claims stranded by a crashed prior tick (recover excludes claims
   // held by a live reservation), then claim a generous prefetch so freshness
@@ -102,15 +208,15 @@ export async function runObserverDigest(input: {
     nowIso,
   });
 
-  // Freshness + value floor: drop (release) any claimed insight whose
-  // conversation moved on, or that no longer clears the confidence/evidence
-  // floor. Survivors stay claimed for now.
+  // Freshness + value floor. A stale or below-floor insight can never become
+  // eligible, so it goes to the TERMINAL 'dropped' state (NOT back to pending),
+  // otherwise it would be re-claimed every tick forever and starve the pool.
   const survivors: ProactiveInsight[] = [];
-  const toRelease: ProactiveInsight[] = [];
+  const toDrop: ProactiveInsight[] = [];
   for (const insight of claimed) {
     const stale = await deps.freshnessProbe.isStale(insight);
     if (stale || !clearsFloor(insight)) {
-      toRelease.push(insight);
+      toDrop.push(insight);
     } else {
       survivors.push(insight);
     }
@@ -121,20 +227,22 @@ export async function runObserverDigest(input: {
   survivors.sort(compareForSelection);
   const cap = Math.min(schedule.maxInsights, survivors.length);
   const selected = survivors.slice(0, cap);
-  toRelease.push(...survivors.slice(cap));
+  // Unselected survivors are still fresh + eligible (just not today's top-N):
+  // release them back to pending for a future day.
+  const toReleaseToPending = survivors.slice(cap);
 
-  await releaseClaims(repository, toRelease, nowIso);
+  await dropClaims(repository, toDrop, nowIso);
+  await releaseClaims(repository, toReleaseToPending, nowIso);
 
   if (selected.length === 0) {
-    // Below threshold => no send, no reservation (the "no qualifying insights"
-    // rule). All claims were already released above.
+    // Below threshold => no send, no reservation. All claims were resolved above.
     return { status: 'skipped', reason: 'no_qualifying_insights' };
   }
 
   const memberships: ObserverDigestClaimMembership[] = selected.map(
     (insight, position) => ({
       insightId: insight.id,
-      claimedAt: nowIso,
+      claimedAt: insight.updatedAt,
       position,
     }),
   );
@@ -157,15 +265,12 @@ export async function runObserverDigest(input: {
   });
 
   if (!reserve.created) {
-    // Today's digest was already reserved (a prior tick, or a concurrent run).
-    // The reservation is at-most-once, so release our just-claimed insights and
-    // do NOT hand off — the earlier reservation owns delivery.
+    // Lost a race: another run already reserved today. Release our claims and
+    // let that reservation own delivery.
     await releaseClaims(repository, selected, nowIso);
     return { status: 'skipped', reason: 'already_reserved' };
   }
 
-  // Hand the reserved digest to the delivery seam. In T3 this is a no-op; T4
-  // performs the real outbound send + settleDigest.
   await deps.deliveryPort.deliver(reserve.reservation);
 
   return {
@@ -206,6 +311,23 @@ async function releaseClaims(
       id: insight.id,
       from: 'claimed',
       to: 'pending',
+      claimedAt: insight.updatedAt,
+      nowIso,
+    });
+  }
+}
+
+async function dropClaims(
+  repository: ObserverInsightRepository,
+  insights: ProactiveInsight[],
+  nowIso: string,
+): Promise<void> {
+  for (const insight of insights) {
+    await repository.transitionState({
+      id: insight.id,
+      from: 'claimed',
+      to: 'dropped',
+      claimedAt: insight.updatedAt,
       nowIso,
     });
   }
@@ -261,6 +383,20 @@ function ownerLocalClock(
   const hour = Number(part('hour')) % 24;
   const minutes = hour * 60 + Number(part('minute'));
   return { localDay, minutes };
+}
+
+/**
+ * Earliest owner-local minute a digest may send: the configured send time, or —
+ * when that time falls inside the quiet window — the quiet-window end.
+ */
+function effectiveEarliestSendMinutes(
+  schedule: ObserverDeliverySchedule,
+): number {
+  const sendAt = parseHhMm(schedule.sendAt);
+  if (schedule.quietHours && withinQuietHours(sendAt, schedule.quietHours)) {
+    return parseHhMm(schedule.quietHours.end);
+  }
+  return sendAt;
 }
 
 function withinQuietHours(

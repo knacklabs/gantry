@@ -224,6 +224,11 @@ export interface ObserverInsightRepository {
     limit: number;
     nowIso: string;
   }): Promise<ProactiveInsight[]>;
+  findDigestReservation(input: {
+    appId: string;
+    recipient: string;
+    localDay: string;
+  }): Promise<ObserverDigestReservation | null>;
   reserveDigest(input: {
     id: string;
     appId: string;

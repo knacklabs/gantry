@@ -67,6 +67,8 @@ import { resolveObserverDeliveryStatus } from '../config/settings/observer-activ
 import {
   runObserverDigest,
   noopDigestDeliveryPort,
+  createOutboundDigestDeliveryPort,
+  type DigestSendGateway,
 } from '../brain/observer-digest.js';
 import { MessageInsightFreshnessProbe } from '../brain/observer-evidence-freshness.js';
 import { getRuntimeStorage } from '../adapters/storage/postgres/runtime-store.js';
@@ -109,6 +111,17 @@ type MemoryMaintenanceQueueLike = {
 
 let memoryMaintenanceQueue: MemoryMaintenanceQueueLike =
   getMemoryMaintenanceQueue();
+
+// Registered at bootstrap (runtime-services) where the OutboundDeliveryService
+// lives. Until then the digest handler falls back to the no-op port so a digest
+// is reserved but not sent (and retried once the gateway is wired).
+let observerDigestGateway: DigestSendGateway | null = null;
+
+export function setObserverDigestGateway(
+  gateway: DigestSendGateway | null,
+): void {
+  observerDigestGateway = gateway;
+}
 
 function routeDigest(value: string): string {
   return createHash('sha256').update(value).digest('hex').slice(0, 16);
@@ -687,20 +700,37 @@ async function runScheduledObserverDigest(
 ): Promise<string> {
   signal?.throwIfAborted();
   const storage = getRuntimeStorage();
+  const repository = storage.repositories.observerInsights;
+  if (!observerDigestGateway) {
+    logger.warn(
+      {},
+      'observer digest gateway is not registered; reserving without sending (will retry once wired)',
+    );
+  }
+  const deliveryPort = observerDigestGateway
+    ? createOutboundDigestDeliveryPort({
+        gateway: observerDigestGateway,
+        repository,
+        now: () => currentIso(),
+      })
+    : noopDigestDeliveryPort;
   const result = await runObserverDigest({
     appId: DEFAULT_MEMORY_APP_ID,
     nowIso: currentIso(),
     deps: {
       settings: getRuntimeSettingsForConfig(),
-      repository: storage.repositories.observerInsights,
+      repository,
       freshnessProbe: new MessageInsightFreshnessProbe(storage.ops),
-      // T4 supplies the real outbound + settle port; T3 hands off to a no-op.
-      deliveryPort: noopDigestDeliveryPort,
+      deliveryPort,
     },
   });
-  return result.status === 'reserved'
-    ? `Observer digest reserved for ${result.localDay}: ${result.selected} insight(s).`
-    : `Observer digest skipped: ${result.reason}.`;
+  if (result.status === 'reserved') {
+    return `Observer digest reserved for ${result.localDay}: ${result.selected} insight(s).`;
+  }
+  if (result.status === 'retried') {
+    return `Observer digest delivery retried for ${result.localDay}.`;
+  }
+  return `Observer digest skipped: ${result.reason}.`;
 }
 
 async function runScheduledBrainEmbeddingBackfill(

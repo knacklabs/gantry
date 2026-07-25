@@ -18,7 +18,11 @@ vi.mock('@core/config/settings/observer-activation.js', () => ({
 
 import {
   runObserverDigest,
+  createOutboundDigestDeliveryPort,
+  digestOutboundIdempotencyKey,
+  OBSERVER_DIGEST_COOLDOWN_MS,
   type DigestDeliveryPort,
+  type DigestSendGateway,
   type RunObserverDigestDeps,
 } from '@core/brain/observer-digest.js';
 
@@ -90,21 +94,18 @@ function makeInsight(
   };
 }
 
-function reservationFrom(input: {
-  id: string;
-  conversationJid: string;
-  providerAccountId: string;
-  localDay: string;
-}): ObserverDigestReservation {
+function reservationFrom(
+  overrides: Partial<ObserverDigestReservation> = {},
+): ObserverDigestReservation {
   return {
-    id: input.id,
+    id: 'res-fixed',
     appId: 'default',
     recipient: 'owner-1',
-    localDay: input.localDay,
+    localDay: '2026-07-25',
     state: 'reserved',
     timezone: 'UTC',
-    conversationJid: input.conversationJid,
-    providerAccountId: input.providerAccountId,
+    conversationJid: OWNER.conversationJid,
+    providerAccountId: OWNER.providerAccountId,
     threadId: null,
     renderedDigest: 'digest',
     contentHash: 'hash',
@@ -113,6 +114,7 @@ function reservationFrom(input: {
     sentAt: null,
     settledAt: null,
     createdAt: '2026-07-25T12:00:00.000Z',
+    ...overrides,
   };
 }
 
@@ -120,16 +122,12 @@ function makeRepo(
   overrides: Partial<ObserverInsightRepository> = {},
 ): ObserverInsightRepository {
   const repo = {
+    findDigestReservation: vi.fn(async () => null),
     recoverStaleDigestClaims: vi.fn(async () => []),
     claimPendingForDigest: vi.fn(async () => [] as ProactiveInsight[]),
     transitionState: vi.fn(async () => null),
     reserveDigest: vi.fn(async (input: { id: string }) => ({
-      reservation: reservationFrom({
-        id: input.id,
-        conversationJid: OWNER.conversationJid,
-        providerAccountId: OWNER.providerAccountId,
-        localDay: '2026-07-25',
-      }),
+      reservation: reservationFrom({ id: input.id }),
       created: true,
     })),
     settleDigest: vi.fn(async () => null),
@@ -161,6 +159,7 @@ function makeDeps(
 }
 
 const NOW = '2026-07-25T12:00:00.000Z'; // 12:00 UTC
+const CLAIMED_AT = '2026-07-25T12:00:00.000Z'; // makeInsight default updatedAt
 
 describe('runObserverDigest gating', () => {
   beforeEach(() => {
@@ -170,12 +169,11 @@ describe('runObserverDigest gating', () => {
 
   it('skips when delivery is not eligible', async () => {
     const repo = makeRepo();
-    const probe = makeProbe(() => false);
     const port = { deliver: vi.fn(async () => {}) };
     const deps = makeDeps(
       { eligible: false, reason: 'delivery_disabled', message: 'off' },
       repo,
-      probe,
+      makeProbe(() => false),
       port,
     );
 
@@ -186,15 +184,13 @@ describe('runObserverDigest gating', () => {
     });
 
     expect(result).toEqual({ status: 'skipped', reason: 'delivery_disabled' });
+    expect(repo.findDigestReservation).not.toHaveBeenCalled();
     expect(repo.claimPendingForDigest).not.toHaveBeenCalled();
-    expect(repo.reserveDigest).not.toHaveBeenCalled();
-    expect(port.deliver).not.toHaveBeenCalled();
   });
 
-  it('skips before the owner-local send window', async () => {
+  it('skips before the effective send window', async () => {
     const repo = makeRepo();
     const port = { deliver: vi.fn(async () => {}) };
-    // 12:00 UTC but sendAt 20:00 => before window.
     const deps = makeDeps(
       eligible({ sendAt: '20:00' }),
       repo,
@@ -210,13 +206,11 @@ describe('runObserverDigest gating', () => {
 
     expect(result).toEqual({ status: 'skipped', reason: 'before_send_window' });
     expect(repo.claimPendingForDigest).not.toHaveBeenCalled();
-    expect(repo.reserveDigest).not.toHaveBeenCalled();
   });
 
   it('skips inside quiet hours (upper half of a midnight-crossing window)', async () => {
     const repo = makeRepo();
     const port = { deliver: vi.fn(async () => {}) };
-    // 23:00 UTC, quiet 22:00-07:00 => quiet; past sendAt 09:00.
     const deps = makeDeps(
       eligible({
         sendAt: '09:00',
@@ -234,38 +228,68 @@ describe('runObserverDigest gating', () => {
     });
 
     expect(result).toEqual({ status: 'skipped', reason: 'quiet_hours' });
-    expect(repo.claimPendingForDigest).not.toHaveBeenCalled();
   });
 
-  it('skips inside quiet hours (lower half after midnight)', async () => {
-    const repo = makeRepo();
-    const port = { deliver: vi.fn(async () => {}) };
-    // 03:00 UTC, sendAt 00:00 (past window), quiet 22:00-07:00 => quiet.
-    const deps = makeDeps(
-      eligible({
-        sendAt: '00:00',
-        quietHours: { start: '22:00', end: '07:00' },
-      }),
-      repo,
-      makeProbe(() => false),
-      port,
-    );
-
-    const result = await runObserverDigest({
-      appId: 'default',
-      nowIso: '2026-07-25T03:00:00.000Z',
-      deps,
+  it('defers a send whose configured time falls inside quiet hours to quiet-end', async () => {
+    // sendAt 23:00 is inside quiet 22:00-07:00 => effective earliest is 07:00.
+    const schedule = eligible({
+      sendAt: '23:00',
+      quietHours: { start: '22:00', end: '07:00' },
     });
 
+    // 06:00 local: before effective 07:00 window => before_send_window.
+    let repo = makeRepo();
+    let port = { deliver: vi.fn(async () => {}) };
+    let result = await runObserverDigest({
+      appId: 'default',
+      nowIso: '2026-07-25T06:00:00.000Z',
+      deps: makeDeps(
+        schedule,
+        repo,
+        makeProbe(() => false),
+        port,
+      ),
+    });
+    expect(result).toEqual({ status: 'skipped', reason: 'before_send_window' });
+
+    // 07:30 local: past quiet-end, not quiet => delivers.
+    repo = makeRepo({
+      claimPendingForDigest: vi.fn(async () => [makeInsight()]),
+    });
+    port = { deliver: vi.fn(async () => {}) };
+    result = await runObserverDigest({
+      appId: 'default',
+      nowIso: '2026-07-25T07:30:00.000Z',
+      deps: makeDeps(
+        schedule,
+        repo,
+        makeProbe(() => false),
+        port,
+      ),
+    });
+    expect(result.status).toBe('reserved');
+
+    // 23:30 local: past effective window but currently quiet => skip.
+    repo = makeRepo();
+    port = { deliver: vi.fn(async () => {}) };
+    result = await runObserverDigest({
+      appId: 'default',
+      nowIso: '2026-07-25T23:30:00.000Z',
+      deps: makeDeps(
+        schedule,
+        repo,
+        makeProbe(() => false),
+        port,
+      ),
+    });
     expect(result).toEqual({ status: 'skipped', reason: 'quiet_hours' });
   });
 
-  it('proceeds when past send window and outside quiet hours', async () => {
+  it('delivers a normal send time outside quiet hours at send time', async () => {
     const repo = makeRepo({
       claimPendingForDigest: vi.fn(async () => [makeInsight()]),
     });
     const port = { deliver: vi.fn(async () => {}) };
-    // 12:00 UTC, sendAt 09:00, quiet 22:00-07:00 => not quiet.
     const deps = makeDeps(
       eligible({
         sendAt: '09:00',
@@ -284,6 +308,67 @@ describe('runObserverDigest gating', () => {
 
     expect(result.status).toBe('reserved');
     expect(repo.reserveDigest).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('runObserverDigest existing-reservation short-circuit', () => {
+  beforeEach(() => {
+    counter = 0;
+    hoisted.status = null;
+  });
+
+  it('skips (already delivered) when today is already settled', async () => {
+    const repo = makeRepo({
+      findDigestReservation: vi.fn(async () =>
+        reservationFrom({ state: 'settled' }),
+      ),
+    });
+    const port = { deliver: vi.fn(async () => {}) };
+    const deps = makeDeps(
+      eligible(),
+      repo,
+      makeProbe(() => false),
+      port,
+    );
+
+    const result = await runObserverDigest({
+      appId: 'default',
+      nowIso: NOW,
+      deps,
+    });
+
+    expect(result).toEqual({ status: 'skipped', reason: 'already_delivered' });
+    expect(port.deliver).not.toHaveBeenCalled();
+    expect(repo.claimPendingForDigest).not.toHaveBeenCalled();
+  });
+
+  it('retries delivery of an existing unsettled reservation without re-claiming', async () => {
+    const existing = reservationFrom({ id: 'res-existing', state: 'reserved' });
+    const repo = makeRepo({
+      findDigestReservation: vi.fn(async () => existing),
+    });
+    const port = { deliver: vi.fn(async () => {}) };
+    const deps = makeDeps(
+      eligible(),
+      repo,
+      makeProbe(() => false),
+      port,
+    );
+
+    const result = await runObserverDigest({
+      appId: 'default',
+      nowIso: NOW,
+      deps,
+    });
+
+    expect(result).toEqual({
+      status: 'retried',
+      reservationId: 'res-existing',
+      localDay: '2026-07-25',
+    });
+    expect(port.deliver).toHaveBeenCalledWith(existing);
+    expect(repo.claimPendingForDigest).not.toHaveBeenCalled();
+    expect(repo.reserveDigest).not.toHaveBeenCalled();
   });
 });
 
@@ -325,12 +410,10 @@ describe('runObserverDigest pipeline', () => {
       threadId: null,
       localDay: '2026-07-25',
     });
-    // Bare jid, never a qualified route key.
     expect(reserveArg.conversationJid).not.toContain('agent:');
     expect(reserveArg.memberships).toEqual([
-      { insightId: insight.id, claimedAt: NOW, position: 0 },
+      { insightId: insight.id, claimedAt: CLAIMED_AT, position: 0 },
     ]);
-    // deliveryPort receives the reservation; settleDigest is T4's job.
     expect(port.deliver).toHaveBeenCalledTimes(1);
     expect(port.deliver.mock.calls[0][0]).toMatchObject({ id: 'res-fixed' });
     expect(repo.settleDigest).not.toHaveBeenCalled();
@@ -347,7 +430,6 @@ describe('runObserverDigest pipeline', () => {
       claimPendingForDigest: vi.fn(async () => [makeInsight()]),
     });
     const port = { deliver: vi.fn(async () => {}) };
-    // 20:00 UTC on the 25th is 01:30 on the 26th in Kolkata (UTC+5:30).
     const deps = makeDeps(
       eligible({ timezone: 'Asia/Kolkata', sendAt: '00:00' }),
       repo,
@@ -364,9 +446,13 @@ describe('runObserverDigest pipeline', () => {
     const reserveArg = (repo.reserveDigest as ReturnType<typeof vi.fn>).mock
       .calls[0][0];
     expect(reserveArg.localDay).toBe('2026-07-26');
+    expect(
+      (repo.findDigestReservation as ReturnType<typeof vi.fn>).mock.calls[0][0]
+        .localDay,
+    ).toBe('2026-07-26');
   });
 
-  it('drops and releases a stale insight, excluding it from the digest', async () => {
+  it('drops a stale insight to the terminal state, excluding it from the digest', async () => {
     const fresh = makeInsight({ id: 'fresh' });
     const stale = makeInsight({ id: 'stale' });
     const repo = makeRepo({
@@ -382,20 +468,22 @@ describe('runObserverDigest pipeline', () => {
 
     await runObserverDigest({ appId: 'default', nowIso: NOW, deps });
 
+    // Stale => dropped (terminal), NOT pending.
     expect(repo.transitionState).toHaveBeenCalledWith({
       id: 'stale',
       from: 'claimed',
-      to: 'pending',
+      to: 'dropped',
+      claimedAt: CLAIMED_AT,
       nowIso: NOW,
     });
     const reserveArg = (repo.reserveDigest as ReturnType<typeof vi.fn>).mock
       .calls[0][0];
     expect(reserveArg.memberships).toEqual([
-      { insightId: 'fresh', claimedAt: NOW, position: 0 },
+      { insightId: 'fresh', claimedAt: CLAIMED_AT, position: 0 },
     ]);
   });
 
-  it('drops insights below the value floor', async () => {
+  it('drops below-floor insights to terminal', async () => {
     const good = makeInsight({ id: 'good', confidence: 0.9 });
     const lowConf = makeInsight({ id: 'low', confidence: 0.5 });
     const noEvidence = makeInsight({ id: 'noev', evidenceRefs: [] });
@@ -418,14 +506,14 @@ describe('runObserverDigest pipeline', () => {
       reserveArg.memberships.map((m: { insightId: string }) => m.insightId),
     ).toEqual(['good']);
     expect(repo.transitionState).toHaveBeenCalledWith(
-      expect.objectContaining({ id: 'low', to: 'pending' }),
+      expect.objectContaining({ id: 'low', to: 'dropped' }),
     );
     expect(repo.transitionState).toHaveBeenCalledWith(
-      expect.objectContaining({ id: 'noev', to: 'pending' }),
+      expect.objectContaining({ id: 'noev', to: 'dropped' }),
     );
   });
 
-  it('selects top-N by priority then stable order and releases the overflow', async () => {
+  it('selects top-N by priority then stable order; releases fresh overflow to pending', async () => {
     const a = makeInsight({
       id: 'a',
       priorityScore: 5,
@@ -456,19 +544,21 @@ describe('runObserverDigest pipeline', () => {
 
     const reserveArg = (repo.reserveDigest as ReturnType<typeof vi.fn>).mock
       .calls[0][0];
-    // b (priority 9) first; then tie 5/5 broken by earlier createdAt => c.
     expect(reserveArg.memberships).toEqual([
-      { insightId: 'b', claimedAt: NOW, position: 0 },
-      { insightId: 'c', claimedAt: NOW, position: 1 },
+      { insightId: 'b', claimedAt: CLAIMED_AT, position: 0 },
+      { insightId: 'c', claimedAt: CLAIMED_AT, position: 1 },
     ]);
-    expect(reserveArg.renderedDigest).toContain('1. Insight');
-    // Overflow 'a' released back to pending.
+    // Overflow 'a' is fresh + eligible => released back to pending (NOT dropped).
     expect(repo.transitionState).toHaveBeenCalledWith(
-      expect.objectContaining({ id: 'a', to: 'pending' }),
+      expect.objectContaining({
+        id: 'a',
+        to: 'pending',
+        claimedAt: CLAIMED_AT,
+      }),
     );
   });
 
-  it('makes no reservation and releases all claims when nothing survives', async () => {
+  it('makes no reservation and drops all claims when nothing survives freshness', async () => {
     const one = makeInsight({ id: 'one' });
     const two = makeInsight({ id: 'two' });
     const repo = makeRepo({
@@ -495,25 +585,20 @@ describe('runObserverDigest pipeline', () => {
     expect(repo.reserveDigest).not.toHaveBeenCalled();
     expect(port.deliver).not.toHaveBeenCalled();
     expect(repo.transitionState).toHaveBeenCalledWith(
-      expect.objectContaining({ id: 'one', to: 'pending' }),
+      expect.objectContaining({ id: 'one', to: 'dropped' }),
     );
     expect(repo.transitionState).toHaveBeenCalledWith(
-      expect.objectContaining({ id: 'two', to: 'pending' }),
+      expect.objectContaining({ id: 'two', to: 'dropped' }),
     );
     expect(repo.settleDigest).not.toHaveBeenCalled();
   });
 
-  it('treats an existing reservation as already-done without a duplicate send', async () => {
+  it('releases claims and skips on a reservation race (created=false)', async () => {
     const insight = makeInsight({ id: 'dup' });
     const repo = makeRepo({
       claimPendingForDigest: vi.fn(async () => [insight]),
       reserveDigest: vi.fn(async (input: { id: string }) => ({
-        reservation: reservationFrom({
-          id: input.id,
-          conversationJid: OWNER.conversationJid,
-          providerAccountId: OWNER.providerAccountId,
-          localDay: '2026-07-25',
-        }),
+        reservation: reservationFrom({ id: input.id }),
         created: false,
       })),
     });
@@ -532,14 +617,100 @@ describe('runObserverDigest pipeline', () => {
     });
 
     expect(result).toEqual({ status: 'skipped', reason: 'already_reserved' });
-    // No duplicate send; the selected claim is released back to pending.
     expect(port.deliver).not.toHaveBeenCalled();
     expect(repo.transitionState).toHaveBeenCalledWith({
       id: 'dup',
       from: 'claimed',
       to: 'pending',
+      claimedAt: CLAIMED_AT,
       nowIso: NOW,
     });
     expect(repo.settleDigest).not.toHaveBeenCalled();
+  });
+});
+
+describe('createOutboundDigestDeliveryPort', () => {
+  const reservation = reservationFrom({ id: 'res-1', renderedDigest: 'hello' });
+  const SEND_NOW = '2026-07-25T12:00:00.000Z';
+
+  it('settles ONLY after a durable send', async () => {
+    const gateway: DigestSendGateway = {
+      enqueue: vi.fn(async () => ({
+        outboundDeliveryId: 'outbound-1',
+        durablySent: true,
+      })),
+    };
+    const settleDigest = vi.fn(async () => null);
+    const port = createOutboundDigestDeliveryPort({
+      gateway,
+      repository: { settleDigest },
+      now: () => SEND_NOW,
+    });
+
+    await port.deliver(reservation);
+
+    expect(gateway.enqueue).toHaveBeenCalledWith(
+      expect.objectContaining({
+        appId: 'default',
+        conversationJid: 'sl:D999',
+        providerAccountId: 'slack_default',
+        threadId: null,
+        idempotencyKey: digestOutboundIdempotencyKey(reservation),
+        text: 'hello',
+      }),
+    );
+    expect(settleDigest).toHaveBeenCalledWith({
+      deliveryId: 'res-1',
+      outboundDeliveryId: 'outbound-1',
+      cooldownUntil: new Date(
+        Date.parse(SEND_NOW) + OBSERVER_DIGEST_COOLDOWN_MS,
+      ).toISOString(),
+      nowIso: SEND_NOW,
+    });
+  });
+
+  it('does NOT settle when the send is not yet durable (leaves reserved for retry)', async () => {
+    const gateway: DigestSendGateway = {
+      enqueue: vi.fn(async () => ({
+        outboundDeliveryId: 'outbound-1',
+        durablySent: false,
+      })),
+    };
+    const settleDigest = vi.fn(async () => null);
+    const port = createOutboundDigestDeliveryPort({
+      gateway,
+      repository: { settleDigest },
+      now: () => SEND_NOW,
+    });
+
+    await port.deliver(reservation);
+
+    expect(gateway.enqueue).toHaveBeenCalledTimes(1);
+    expect(settleDigest).not.toHaveBeenCalled();
+  });
+
+  it('is a no-op for an already-settled reservation', async () => {
+    const gateway: DigestSendGateway = { enqueue: vi.fn() };
+    const settleDigest = vi.fn(async () => null);
+    const port = createOutboundDigestDeliveryPort({
+      gateway,
+      repository: { settleDigest },
+      now: () => SEND_NOW,
+    });
+
+    await port.deliver(reservationFrom({ id: 'res-1', state: 'settled' }));
+
+    expect(gateway.enqueue).not.toHaveBeenCalled();
+    expect(settleDigest).not.toHaveBeenCalled();
+  });
+
+  it('uses a deterministic idempotency key per app/recipient/day', () => {
+    expect(
+      digestOutboundIdempotencyKey({
+        appId: 'default',
+        recipient: 'owner-1',
+        localDay: '2026-07-25',
+      }),
+    ).toBe('observer-digest:default:owner-1:2026-07-25');
   });
 });

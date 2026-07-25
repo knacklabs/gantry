@@ -432,6 +432,25 @@ export class PostgresObserverInsightRepository implements ObserverInsightReposit
     });
   }
 
+  async findDigestReservation(input: {
+    appId: string;
+    recipient: string;
+    localDay: string;
+  }): Promise<ObserverDigestReservation | null> {
+    const [row] = await this.db
+      .select()
+      .from(Deliveries)
+      .where(
+        and(
+          eq(Deliveries.appId, input.appId),
+          eq(Deliveries.recipient, input.recipient),
+          eq(Deliveries.localDay, input.localDay),
+        ),
+      )
+      .limit(1);
+    return row ? mapReservation(row) : null;
+  }
+
   async reserveDigest(input: {
     id: string;
     appId: string;

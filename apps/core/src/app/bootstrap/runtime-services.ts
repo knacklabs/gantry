@@ -60,6 +60,7 @@ import {
 } from '../../domain/messages/partial-delivery.js';
 import { isAmbiguousDurableDeliveryError } from '../../domain/messages/durable-delivery.js';
 import { startOutboundDeliveryRecoveryLoop } from '../../jobs/outbound-delivery-recovery.js';
+import { setObserverDigestGateway } from '../../jobs/system-jobs.js';
 // prettier-ignore
 import {
   closeBrowser,
@@ -715,6 +716,39 @@ export async function startRuntimeServices(
       createId: () => randomUUID(),
       hashSha256Hex: (value: string) =>
         createHash('sha256').update(value, 'utf8').digest('hex'),
+    });
+    // Observer digest durable send: enqueue under the shared live-send profile
+    // (idempotent on the digest's per-day key). The outbound recovery loop below
+    // performs the actual provider send; `durablySent` reflects its rolled-up
+    // status so the digest is settled only once durably sent.
+    setObserverDigestGateway({
+      enqueue: async (input) => {
+        const target = resolveDurableOutboundTarget({
+          defaultAppId: input.appId,
+          jid: input.conversationJid,
+          providerAccountId: input.providerAccountId,
+        });
+        const result = await outboundDeliveryService.enqueue({
+          appId: target.appId as never,
+          conversationId: target.conversationId as never,
+          threadId: canonicalThreadIdFor({
+            jid: input.conversationJid,
+            threadId: input.threadId ?? undefined,
+            providerAccountId: input.providerAccountId,
+          }) as never,
+          profileId: LIVE_SEND_PROFILE_ID,
+          idempotencyKey: input.idempotencyKey,
+          text: input.text,
+          metadata: {
+            destinationJid: input.conversationJid,
+            observerDigest: true,
+          },
+        });
+        return {
+          outboundDeliveryId: result.delivery.id,
+          durablySent: result.delivery.status === 'sent',
+        };
+      },
     });
     channelWiring.setDurableOutboundAttemptFactory(async (input) => {
       const target = resolveDurableOutboundTarget({
