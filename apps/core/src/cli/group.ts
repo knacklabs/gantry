@@ -19,9 +19,11 @@ import {
   defaultTriggerForAgentName,
   displayAgentName,
   defaultAgentNameFromSettings,
+  isDefaultAgentLastRoute,
   normalizeDefaultAgentName,
 } from './main-agent.js';
 import { RuntimeGroupDb } from './runtime-group-db.js';
+import { removeRoutelessAgent } from './group-remove-routeless.js';
 import { runAccess } from './group-access.js';
 import { runHarness } from './group-harness.js';
 import { runList } from './group-list.js';
@@ -414,10 +416,25 @@ async function runRemove(runtimeHome: string, args: string[]): Promise<number> {
       return 1;
     }
     if (!resolved.found) {
+      const routelessExit = await removeRoutelessAgent({
+        runtimeHome,
+        settings: loadRuntimeSettings(runtimeHome),
+        groups,
+        selector,
+        assumeYes: parsed.assumeYes,
+      });
+      if (routelessExit !== null) return routelessExit;
       p.log.error(`No agent found for selector "${selector.trim()}".`);
       return 1;
     }
     const found = resolved.found;
+    // Refuse the default agent's last route: the runtime re-seeds it otherwise.
+    if (isDefaultAgentLastRoute(groups, found.group.folder)) {
+      p.log.error(
+        `${found.group.folder} is the default agent and must keep at least one route; it cannot be removed.`,
+      );
+      return 1;
+    }
     const routeKey = found.jid;
     const { chatJid } = parseAgentThreadQueueKey(routeKey);
 
@@ -466,10 +483,8 @@ async function runRemove(runtimeHome: string, args: string[]): Promise<number> {
       );
     }
 
-    // Deleting the route is not durable on its own: desired-state
-    // reconciliation re-imports every settings.agents entry on reload/restart,
-    // so an agent whose definition survives comes back with its routes and
-    // system jobs. Drop the definition once its last route is gone.
+    // Route deletion alone is not durable -- reconciliation re-imports the
+    // agent from desired state. Drop the definition once its last route is gone.
     const remainingRoutes = Object.entries(
       await db.getAllConversationRoutes(),
     ).filter(([, group]) => group.folder === found.group.folder).length;
@@ -479,22 +494,15 @@ async function runRemove(runtimeHome: string, args: string[]): Promise<number> {
       remainingRoutes,
     });
     if (desiredPrune.error) {
-      // Stop before any further destructive step: the agent WILL be recreated
-      // on the next reload, so deleting its folder would leave a resurrected
-      // agent pointing at missing files, and reporting success would tell
-      // automation the removal persisted when it did not.
+      // Fail loudly: reporting success would tell automation the removal
+      // persisted when the next reload will bring the agent back.
       p.log.error(
-        `Removal did not persist: the agent definition still exists in desired state for ${found.group.folder} (${desiredPrune.error}). It will be recreated on the next reload.`,
-      );
-      p.log.info(
-        'Next action: fix the settings write, then rerun the removal. The agent folder was left untouched.',
+        `Removal did not persist: ${found.group.folder} still exists in desired state (${desiredPrune.error}). It will be recreated on the next reload.`,
       );
       return 1;
     }
     if (desiredPrune.keptForDelegates?.length) {
-      // The agent stays in desired state because other agents delegate to it,
-      // so its files must stay too: deleting them would leave delegation and
-      // reconciliation pointing at a missing folder.
+      // Retained because other agents delegate to it.
       p.log.warn(
         `Route removed, but agent ${found.group.folder} is retained in desired state: still referenced as a delegate by ${desiredPrune.keptForDelegates.join(', ')}.`,
       );

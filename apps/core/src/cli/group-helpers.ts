@@ -21,6 +21,7 @@ import { RuntimeGroupDb, openRuntimeGroupDb } from './runtime-group-db.js';
 import { normalizeTelegramChatJid } from './telegram.js';
 import { providerForJid } from '../channels/provider-registry.js';
 import { parseAgentThreadQueueKey } from '../shared/thread-queue-key.js';
+import { DEFAULT_AGENT_FOLDER } from './main-agent.js';
 
 export { formatAgentHarnessLine } from './group-engine.js';
 
@@ -160,6 +161,7 @@ export async function pruneDesiredStateAgent(input: {
   pruned: boolean;
   providerAccountsPruned: number;
   keptForDelegates?: string[];
+  keptAsDefault?: boolean;
   error?: string;
 }> {
   if (input.remainingRoutes > 0) {
@@ -170,6 +172,14 @@ export async function pruneDesiredStateAgent(input: {
     const previousSettings = structuredClone(settings);
     if (!settings.agents[input.folder]) {
       return { pruned: false, providerAccountsPruned: 0 };
+    }
+    // The default agent's folder is the fixed DEFAULT_AGENT_FOLDER ('main_agent')
+    // -- it is hard-coded across startup/slack/telegram and is never re-pointed
+    // (`gantry agent name` only changes its display name). Deleting its
+    // definition would leave the runtime's default-agent wiring dangling, so
+    // removal is refused for BOTH the route-scoped and route-less callers.
+    if (input.folder === DEFAULT_AGENT_FOLDER) {
+      return { pruned: false, providerAccountsPruned: 0, keptAsDefault: true };
     }
     // Routes are not the only liveness signal: another agent may still list
     // this one as a delegate. Deleting it would break delegation (or leave an
@@ -247,6 +257,13 @@ export async function pruneDesiredStateAgent(input: {
       providerAccountsPruned += 1;
     }
 
+    // Persistence note: when a storage provider is configured (the CLI and the
+    // runtime both do, cli/index.ts:34) this appends a settings revision -- the
+    // boot authority -- and throws if storage is unavailable, so a silent
+    // mirror-only write cannot happen here. Without a provider the file IS the
+    // store, and a file write is correct. `reconciled: false` is therefore not
+    // an error condition; a genuine failure surfaces as a throw and is caught
+    // below.
     await writeDesiredRuntimeSettings({
       runtimeHome: input.runtimeHome,
       settings,
@@ -260,6 +277,38 @@ export async function pruneDesiredStateAgent(input: {
       error: err instanceof Error ? err.message : String(err),
     };
   }
+}
+
+/**
+ * Resolve a selector that names an agent with NO conversation routes.
+ *
+ * `resolveGroupSelector` matches only against existing route keys, so an agent
+ * whose last route is already gone is unaddressable by every agent subcommand
+ * -- while its definition lives on in the settings-revision authority and is
+ * re-imported on each boot. Fall back to the desired-state agent set so such an
+ * agent can still be named (and therefore removed).
+ *
+ * Returns null when the selector matches nothing, or when the agent still owns
+ * routes (that case belongs to the normal route-scoped path).
+ */
+export function resolveRoutelessAgentFolder(input: {
+  settings: ReturnType<typeof loadRuntimeSettings>;
+  groups: Record<string, ConversationRoute>;
+  selector: string;
+}): string | null {
+  const selector = input.selector.trim();
+  if (!selector) return null;
+  const folder = selector.startsWith('agent:')
+    ? selector.slice('agent:'.length)
+    : selector;
+  // Own-property check: a plain settings object inherits `constructor`,
+  // `toString`, `__proto__` etc., which would otherwise resolve as configured
+  // agents and send a phantom name into destructive pruning.
+  if (!folder || !Object.hasOwn(input.settings.agents, folder)) return null;
+  const hasRoutes = Object.values(input.groups).some(
+    (group) => group.folder === folder,
+  );
+  return hasRoutes ? null : folder;
 }
 
 export async function syncConfiguredConversationBinding(input: {
