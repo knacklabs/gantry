@@ -48,6 +48,7 @@ describe('FilesystemRunnerControlPort', () => {
       'permission-cancellations',
       'permission-requests',
       'permission-responses',
+      'question-cancellations',
       'rich-interactions',
       'task-responses',
       'tasks',
