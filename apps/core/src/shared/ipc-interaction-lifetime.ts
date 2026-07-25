@@ -6,18 +6,30 @@ export const IPC_INTERACTION_RETENTION_TTL_MS = 24 * 60 * 60_000;
 export function ipcInteractionAuthEnvelopeOptions(unbounded: boolean): {
   separateAuthExpiry: true;
   authLifetimeMs?: number;
+  authPurpose?: 'unbounded-interaction';
 } {
   return {
     separateAuthExpiry: true,
-    ...(unbounded ? { authLifetimeMs: IPC_INTERACTION_RETENTION_TTL_MS } : {}),
+    ...(unbounded
+      ? {
+          authLifetimeMs: IPC_INTERACTION_RETENTION_TTL_MS,
+          authPurpose: 'unbounded-interaction' as const,
+        }
+      : {}),
   };
 }
 
-export function ipcInteractionAuthValidationOptions(
-  permissionLane: unknown,
-): { maxAgeMs: number } | undefined {
+export function ipcInteractionAuthValidationOptions(permissionLane: unknown):
+  | {
+      extendedAuthPurpose: 'unbounded-interaction';
+      extendedMaxAgeMs: number;
+    }
+  | undefined {
   return permissionLane === 'interactive'
-    ? { maxAgeMs: IPC_INTERACTION_RETENTION_TTL_MS }
+    ? {
+        extendedAuthPurpose: 'unbounded-interaction',
+        extendedMaxAgeMs: IPC_INTERACTION_RETENTION_TTL_MS,
+      }
     : undefined;
 }
 

@@ -112,6 +112,8 @@ const questionArgs = {
 type SignedQuestionRequest = Record<string, unknown> & {
   requestId: string;
   expiresAt?: string;
+  permissionLane?: string;
+  authPurpose?: string;
   authExpiresAt?: string;
   signature?: string;
 };
@@ -166,6 +168,10 @@ describe('ask_user_question lane deadlines', () => {
     ) as SignedQuestionRequest;
     expect(request.expiresAt).toBeUndefined();
     expect(request.authExpiresAt).toEqual(expect.any(String));
+    expect(request).toMatchObject({
+      permissionLane: 'interactive',
+      authPurpose: 'unbounded-interaction',
+    });
     expectValidRequestAuth(request, IPC_INTERACTION_RETENTION_TTL_MS);
     expect(
       resolveInteractionSettlementDelayMs({

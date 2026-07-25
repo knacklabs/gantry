@@ -49,6 +49,7 @@ vi.mock('@core/runtime/ipc-request-wakeup-registry.js', () => ({
 
 import { createSignedIpcRequestEnvelope } from '@core/shared/ipc-signing.js';
 import { IPC_INTERACTION_RETENTION_TTL_MS } from '@core/shared/ipc-interaction-lifetime.js';
+import { IPC_CANCELLATION_RETENTION_TTL_MS } from '@core/shared/ipc-cancellation-lifetime.js';
 import { createIpcAuthEnvelope } from '@core/runtime/ipc-auth.js';
 import { clearConsumedIpcRequestIds } from '@core/runtime/ipc-auth-validation.js';
 import { FilesystemRunnerControlPort } from '@core/runtime/filesystem-runner-control-port.js';
@@ -86,7 +87,10 @@ function permissionEnvelope(
     {
       separateAuthExpiry: true,
       ...(permissionLane === 'interactive'
-        ? { authLifetimeMs: IPC_INTERACTION_RETENTION_TTL_MS }
+        ? {
+            authLifetimeMs: IPC_INTERACTION_RETENTION_TTL_MS,
+            authPurpose: 'unbounded-interaction' as const,
+          }
         : {}),
     },
   );
@@ -127,7 +131,10 @@ function questionEnvelope(
     {
       separateAuthExpiry: true,
       ...(permissionLane === 'interactive'
-        ? { authLifetimeMs: IPC_INTERACTION_RETENTION_TTL_MS }
+        ? {
+            authLifetimeMs: IPC_INTERACTION_RETENTION_TTL_MS,
+            authPurpose: 'unbounded-interaction' as const,
+          }
         : {}),
     },
   );
@@ -226,6 +233,12 @@ describe('parsePermissionIpcRequest', () => {
     try {
       const permission = permissionEnvelope('interactive');
       const question = questionEnvelope('interactive');
+      expect(permission).toMatchObject({
+        authPurpose: 'unbounded-interaction',
+      });
+      expect(question).toMatchObject({
+        authPurpose: 'unbounded-interaction',
+      });
       vi.setSystemTime(new Date('2026-07-25T00:10:00.000Z'));
 
       expect(parsePermissionIpcRequest(permission, 'team')).toMatchObject({
@@ -287,6 +300,44 @@ describe('parsePermissionIpcRequest', () => {
       threadId: 'thread-1',
       reason: 'Permission request cancelled.',
     });
+  });
+
+  it('accepts an explicitly retained cancellation after five minutes', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-25T00:00:00.000Z'));
+    try {
+      const auth = createIpcAuthEnvelope('team', 'thread-1', {
+        appId: 'default',
+        agentId: 'agent:team',
+      });
+      const permissionRequestId = `perm-${randomUUID()}`;
+      const raw = createSignedIpcRequestEnvelope(
+        auth.authToken,
+        {
+          requestId: `perm-cancel-${randomUUID()}`,
+          permissionRequestId,
+          appId: 'default',
+          sourceAgentFolder: 'team',
+          context: {
+            appId: 'default',
+            agentId: 'agent:team',
+            threadId: 'thread-1',
+          },
+        },
+        {
+          separateAuthExpiry: true,
+          authLifetimeMs: IPC_CANCELLATION_RETENTION_TTL_MS,
+          authPurpose: 'cancellation-retention',
+        },
+      );
+      vi.setSystemTime(new Date('2026-07-25T00:10:00.000Z'));
+
+      expect(parsePermissionCancellationIpcRequest(raw, 'team')).toMatchObject({
+        requestId: permissionRequestId,
+      });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('routes a claimed request cancellation to the host permission waiter', async () => {

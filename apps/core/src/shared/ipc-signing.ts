@@ -3,6 +3,10 @@ import { createHmac, randomUUID, verify as cryptoVerify } from 'node:crypto';
 import { canonicalJson } from './canonical-json.js';
 import { nowMs, toIso } from './time/datetime.js';
 
+const ORDINARY_IPC_AUTH_LIFETIME_MS = 5 * 60_000;
+
+export type IpcAuthPurpose = 'unbounded-interaction' | 'cancellation-retention';
+
 export function signIpcRequestPayload(
   requestSigningKey: string | undefined,
   payload: Record<string, unknown>,
@@ -15,14 +19,30 @@ export function signIpcRequestPayload(
 export function createSignedIpcRequestEnvelope(
   requestSigningKey: string | undefined,
   payload: Record<string, unknown>,
-  options?: { separateAuthExpiry?: boolean; authLifetimeMs?: number },
+  options?: {
+    separateAuthExpiry?: boolean;
+    authLifetimeMs?: number;
+    authPurpose?: IpcAuthPurpose;
+  },
 ): Record<string, unknown> {
+  const {
+    authExpiresAt: _authExpiresAt,
+    authIssuedAt: _authIssuedAt,
+    authPurpose: _authPurpose,
+    ...requestPayload
+  } = payload;
+  const issuedAtMs = nowMs();
+  const authLifetimeMs =
+    options?.authLifetimeMs ?? ORDINARY_IPC_AUTH_LIFETIME_MS;
+  if (authLifetimeMs > ORDINARY_IPC_AUTH_LIFETIME_MS && !options?.authPurpose) {
+    throw new Error('Extended IPC auth lifetime requires an explicit purpose');
+  }
   const authExpiresAt =
     typeof payload.expiresAt === 'string' && payload.expiresAt.trim()
       ? payload.expiresAt
-      : toIso(nowMs() + 5 * 60_000);
+      : toIso(issuedAtMs + ORDINARY_IPC_AUTH_LIFETIME_MS);
   const signedPayload = {
-    ...payload,
+    ...requestPayload,
     requestId:
       typeof payload.requestId === 'string' && payload.requestId.trim()
         ? payload.requestId
@@ -30,9 +50,9 @@ export function createSignedIpcRequestEnvelope(
     nonce: randomUUID(),
     ...(options?.separateAuthExpiry
       ? {
-          authExpiresAt: toIso(
-            nowMs() + (options.authLifetimeMs ?? 5 * 60_000),
-          ),
+          authIssuedAt: toIso(issuedAtMs),
+          authExpiresAt: toIso(issuedAtMs + authLifetimeMs),
+          ...(options.authPurpose ? { authPurpose: options.authPurpose } : {}),
         }
       : { expiresAt: authExpiresAt }),
   };

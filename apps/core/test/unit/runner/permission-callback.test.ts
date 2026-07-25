@@ -567,6 +567,7 @@ describe('requestPermissionApproval', () => {
     expect(request).toMatchObject({
       unattended: false,
       permissionLane: 'interactive',
+      authPurpose: 'unbounded-interaction',
     });
     expect(request.expiresAt).toBeUndefined();
     expect(request.authExpiresAt).toEqual(expect.any(String));

@@ -565,6 +565,7 @@ export function registerMessagingTools(server: McpServer): void {
             : {}),
         },
         timestamp: nowIso(),
+        permissionLane,
         ...(permissionLane === 'autonomous'
           ? {
               expiresAt: new Date(

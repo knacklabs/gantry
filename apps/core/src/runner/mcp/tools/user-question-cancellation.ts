@@ -60,6 +60,7 @@ export function writeUserQuestionCancellation(input: {
   const envelope = createSignedIpcRequestEnvelope(IPC_AUTH_TOKEN, payload, {
     separateAuthExpiry: true,
     authLifetimeMs: IPC_CANCELLATION_RETENTION_TTL_MS,
+    authPurpose: 'cancellation-retention',
   });
   writePrivateFileSync(cancellationTmpPath, JSON.stringify(envelope, null, 2));
   fs.renameSync(cancellationTmpPath, cancellationPath);

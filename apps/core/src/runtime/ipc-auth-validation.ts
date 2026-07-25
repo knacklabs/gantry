@@ -299,7 +299,10 @@ export function validateIpcAuthRequest(
   raw: Record<string, unknown>,
   sourceAgentFolder: string,
   label: string,
-  options?: { maxAgeMs?: number },
+  options?: {
+    extendedAuthPurpose: 'unbounded-interaction' | 'cancellation-retention';
+    extendedMaxAgeMs: number;
+  },
 ): IpcThreadBinding {
   const binding = readTrustedThreadBinding(raw, label);
   const signature = toTrimmedString(raw.signature, { maxLen: 512 }) || '';
@@ -314,8 +317,31 @@ export function validateIpcAuthRequest(
   if (!verifyIpcRequestPayload(requestSigningKey, payload, signature)) {
     throw new Error(`Invalid ${label} signature`);
   }
-  const maxAgeMs = options?.maxAgeMs ?? IPC_REQUEST_MAX_AGE_MS;
-  const freshness = validateIpcRequestFreshness(payload, nowMs(), maxAgeMs);
+  const maxAgeMs =
+    options && payload.authPurpose === options.extendedAuthPurpose
+      ? options.extendedMaxAgeMs
+      : IPC_REQUEST_MAX_AGE_MS;
+  const validationNowMs = nowMs();
+  if (typeof payload.authExpiresAt === 'string') {
+    const authIssuedAtMs =
+      typeof payload.authIssuedAt === 'string'
+        ? Date.parse(payload.authIssuedAt)
+        : Number.NaN;
+    const authExpiresAtMs = Date.parse(payload.authExpiresAt);
+    if (
+      !Number.isFinite(authIssuedAtMs) ||
+      !Number.isFinite(authExpiresAtMs) ||
+      authIssuedAtMs > validationNowMs ||
+      authExpiresAtMs - authIssuedAtMs > maxAgeMs
+    ) {
+      throw new Error(`Invalid ${label} freshness: expiresAt exceeds max age`);
+    }
+  }
+  const freshness = validateIpcRequestFreshness(
+    payload,
+    validationNowMs,
+    maxAgeMs,
+  );
   if (!freshness.ok) {
     throw new Error(`Invalid ${label} freshness: ${freshness.reason}`);
   }
@@ -332,6 +358,8 @@ export function validateInteractionIpcAuthRequest(
   sourceAgentFolder: string,
   label: string,
 ): IpcThreadBinding {
+  // Only signed interactive permission/question requests may outlive the
+  // ordinary five-minute bound; cancellations use their own explicit purpose.
   return validateIpcAuthRequest(
     raw,
     sourceAgentFolder,

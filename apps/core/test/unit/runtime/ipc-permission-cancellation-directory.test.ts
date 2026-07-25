@@ -284,6 +284,7 @@ function cancellationEnvelope(kind: CancellationKind, requestId: string) {
     {
       separateAuthExpiry: true,
       authLifetimeMs: RETENTION_TTL_MS,
+      authPurpose: 'cancellation-retention',
     },
   );
 }

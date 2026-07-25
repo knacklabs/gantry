@@ -45,7 +45,10 @@ export function parsePermissionCancellationIpcRequest(
     raw,
     sourceAgentFolder,
     'permission cancellation IPC',
-    { maxAgeMs: IPC_CANCELLATION_RETENTION_TTL_MS },
+    {
+      extendedAuthPurpose: 'cancellation-retention',
+      extendedMaxAgeMs: IPC_CANCELLATION_RETENTION_TTL_MS,
+    },
   );
   if (!binding.appId) {
     throw new Error('permission cancellation IPC context.appId is required');
@@ -75,7 +78,10 @@ export function parseQuestionCancellationIpcRequest(
     raw,
     sourceAgentFolder,
     'question cancellation IPC',
-    { maxAgeMs: IPC_CANCELLATION_RETENTION_TTL_MS },
+    {
+      extendedAuthPurpose: 'cancellation-retention',
+      extendedMaxAgeMs: IPC_CANCELLATION_RETENTION_TTL_MS,
+    },
   );
   if (!binding.appId) {
     throw new Error('question cancellation IPC context.appId is required');
