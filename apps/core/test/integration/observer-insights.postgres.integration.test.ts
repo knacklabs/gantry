@@ -934,12 +934,92 @@ maybeDescribe('observer insight Postgres persistence', () => {
       deliveryId: 'delivery-settle-1',
       cooldownUntil: '2026-08-01T10:00:00.000Z',
     });
+    // The fenced-out member must NOT be stranded claimed under a settled
+    // delivery: settle releases it back to pending so it can be reclaimed.
     const stale = await repo.list({
       appId: APP_ID,
       subject: 'conversation:sl:SB' as never,
       limit: 1,
     });
-    expect(stale[0]).toMatchObject({ id: 'ds-stale', state: 'claimed' });
+    expect(stale[0]).toMatchObject({ id: 'ds-stale', state: 'pending' });
+    const reclaimed = await repo.claimPendingForDigest({
+      appId: APP_ID,
+      recipient,
+      limit: 10,
+      nowIso: '2026-07-25T10:03:00.000Z',
+    });
+    expect(reclaimed.map((row) => row.id)).toEqual(['ds-stale']);
+  });
+
+  it('settles idempotently and never resurrects a failed delivery', async () => {
+    const repo = runtime.repositories.observerInsights;
+    const recipient = 'owner:digest-idem';
+    await seedPending(recipient, [
+      { id: 'di-a', subject: 'conversation:sl:IA', priority: 0.9 },
+    ]);
+    const claimed = await repo.claimPendingForDigest({
+      appId: APP_ID,
+      recipient,
+      limit: 10,
+      nowIso: '2026-07-25T12:00:00.000Z',
+    });
+    await repo.reserveDigest({
+      id: 'delivery-idem-1',
+      appId: APP_ID,
+      recipient,
+      localDay: '2026-07-25',
+      timezone: 'UTC',
+      conversationJid: 'slack:OWNER4',
+      providerAccountId: 'slack-one',
+      renderedDigest: 'Digest',
+      contentHash: 'hash-idem',
+      memberships: [
+        { insightId: 'di-a', claimedAt: claimed[0]!.updatedAt, position: 0 },
+      ],
+      nowIso: '2026-07-25T12:01:00.000Z',
+    });
+
+    const first = await repo.settleDigest({
+      deliveryId: 'delivery-idem-1',
+      outboundDeliveryId: 'outbound-first',
+      cooldownUntil: '2026-08-01T12:00:00.000Z',
+      nowIso: '2026-07-25T12:02:00.000Z',
+    });
+    expect(first).toMatchObject({
+      state: 'settled',
+      outboundDeliveryId: 'outbound-first',
+    });
+
+    // Double settle must return the existing reservation untouched.
+    const second = await repo.settleDigest({
+      deliveryId: 'delivery-idem-1',
+      outboundDeliveryId: 'outbound-second',
+      cooldownUntil: '2026-08-02T12:00:00.000Z',
+      nowIso: '2026-07-25T12:03:00.000Z',
+    });
+    expect(second).toMatchObject({
+      state: 'settled',
+      outboundDeliveryId: 'outbound-first',
+      settledAt: first?.settledAt,
+    });
+
+    // A `failed` delivery is never flipped to settled.
+    await runtime.service.pool.query(
+      `UPDATE observer_deliveries SET state = 'failed' WHERE id = $1`,
+      ['delivery-idem-1'],
+    );
+    const afterFailed = await repo.settleDigest({
+      deliveryId: 'delivery-idem-1',
+      outboundDeliveryId: 'outbound-third',
+      cooldownUntil: '2026-08-03T12:00:00.000Z',
+      nowIso: '2026-07-25T12:04:00.000Z',
+    });
+    expect(afterFailed).toBeNull();
+    const stateRow = await runtime.service.pool.query<{ state: string }>(
+      `SELECT state FROM observer_deliveries WHERE id = $1`,
+      ['delivery-idem-1'],
+    );
+    expect(stateRow.rows[0]?.state).toBe('failed');
   });
 
   it('recovers unbound stale claims but never reserved-delivery claims', async () => {

@@ -72,4 +72,19 @@ describe('observer emission evidence provenance', () => {
     });
     expect(candidate?.evidenceRefs[0]?.providerAccountId).toBeUndefined();
   });
+
+  it('never parses provenance from a non-channel page even with a colon ref', () => {
+    const page: BrainPage = {
+      ...channelPage('https://example.com/thread/42'),
+      sourceKind: 'user',
+    };
+    const candidate = normalizePageCandidate({ draft, page });
+    expect(candidate?.evidenceRefs[0]).toEqual({
+      conversationId: 'observer:app',
+      messageId: 'msg-1',
+      ts: '2026-07-24T00:00:00.000Z',
+    });
+    expect(candidate?.evidenceRefs[0]?.providerAccountId).toBeUndefined();
+    expect(candidate?.evidenceRefs[0]?.conversationJid).toBeUndefined();
+  });
 });

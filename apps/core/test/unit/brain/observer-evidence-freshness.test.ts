@@ -77,4 +77,16 @@ describe('MessageInsightFreshnessProbe', () => {
       probe.isStale({ batchSnapshotAt: BATCH_AT, evidenceRefs: [evidence()] }),
     ).resolves.toBe(true);
   });
+
+  it('scopes the freshness query to the evidence thread when present', async () => {
+    const { probe, getMessagesSince } = probeWith([]);
+    await probe.isStale({
+      batchSnapshotAt: BATCH_AT,
+      evidenceRefs: [evidence({ threadId: 'T99' })],
+    });
+    expect(getMessagesSince).toHaveBeenCalledWith('slack:C1', BATCH_AT, 1, {
+      providerAccountId: 'slack-one',
+      threadId: 'T99',
+    });
+  });
 });

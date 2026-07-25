@@ -423,7 +423,12 @@ export class PostgresObserverInsightRepository implements ObserverInsightReposit
           ),
         )
         .returning();
-      return rows.map(mapInsight);
+      // UPDATE ... RETURNING has no defined order; membership positions depend
+      // on priority order, so re-sort by the ordered id sequence we locked.
+      const order = new Map(locked.map((row, index) => [row.id, index]));
+      return rows
+        .map(mapInsight)
+        .sort((left, right) => order.get(left.id)! - order.get(right.id)!);
     });
   }
 
@@ -511,6 +516,13 @@ export class PostgresObserverInsightRepository implements ObserverInsightReposit
         .where(eq(Deliveries.id, input.deliveryId))
         .limit(1);
       if (!delivery) return null;
+      // Idempotent: an already-settled delivery is returned untouched (never
+      // overwrite its outboundDeliveryId/timestamps). Never settle a `failed`
+      // delivery.
+      if (delivery.state === 'settled') return mapReservation(delivery);
+      if (delivery.state !== 'reserved' && delivery.state !== 'sent') {
+        return null;
+      }
 
       const memberships = await tx
         .select()
@@ -534,7 +546,22 @@ export class PostgresObserverInsightRepository implements ObserverInsightReposit
             ),
           )
           .returning({ id: Insights.id });
-        if (!sent) continue;
+        if (!sent) {
+          // Fence didn't match: this member was NOT sent. Leaving it `claimed`
+          // under a settled delivery strands it forever (recover excludes
+          // settled-delivery members). Release it so recovery/next digest can
+          // reclaim it.
+          await tx
+            .update(Insights)
+            .set({ state: 'pending', updatedAt: input.nowIso })
+            .where(
+              and(
+                eq(Insights.id, membership.insightId),
+                eq(Insights.state, 'claimed'),
+              ),
+            );
+          continue;
+        }
         // The row is locked by the update above for the rest of this txn, so
         // the state='sent' guard alone is a sound fence for the cooldown step.
         await tx
@@ -560,7 +587,12 @@ export class PostgresObserverInsightRepository implements ObserverInsightReposit
           sentAt: delivery.sentAt ?? input.nowIso,
           settledAt: input.nowIso,
         })
-        .where(eq(Deliveries.id, input.deliveryId))
+        .where(
+          and(
+            eq(Deliveries.id, input.deliveryId),
+            inArray(Deliveries.state, ['reserved', 'sent']),
+          ),
+        )
         .returning();
       return settled ? mapReservation(settled) : null;
     });

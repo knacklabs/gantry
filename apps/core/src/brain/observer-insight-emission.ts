@@ -389,9 +389,14 @@ export function normalizePageCandidate(
   if (!content) return null;
   const subject = observerSubjectForPage(input.page);
   // Persist account-qualified provenance so digest freshness/permalinks can
-  // tell the same jid on different provider accounts apart. Legacy rows lack
-  // it and are handled fail-closed downstream.
-  const parsed = parseChannelSourceRef(input.page.sourceRef);
+  // tell the same jid on different provider accounts apart. Only channel pages
+  // carry a messaging source ref; a non-channel ref that happens to contain a
+  // colon (e.g. a URL) must NOT be parsed into a bogus jid — omit it and let
+  // freshness fail closed. Legacy rows lack it and are handled the same way.
+  const parsed =
+    input.page.sourceKind === 'channel'
+      ? parseChannelSourceRef(input.page.sourceRef)
+      : null;
   return {
     subject,
     insightType: input.draft.insightType,

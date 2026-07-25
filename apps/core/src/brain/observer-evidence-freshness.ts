@@ -36,11 +36,19 @@ export class MessageInsightFreshnessProbe implements InsightFreshnessProbe {
       return true;
     }
     for (const ref of refs) {
+      // Only add a thread filter when the evidence is thread-scoped: passing
+      // threadId at all makes the reader filter (undefined -> top-level only),
+      // which would wrongly narrow conversation-level evidence.
+      const options: {
+        providerAccountId: string;
+        threadId?: string | null;
+      } = { providerAccountId: ref.providerAccountId! };
+      if (ref.threadId) options.threadId = ref.threadId;
       const later = await this.messages.getMessagesSince(
         ref.conversationJid!,
         insight.batchSnapshotAt,
         1,
-        { providerAccountId: ref.providerAccountId! },
+        options,
       );
       if (later.length > 0) return true;
     }
