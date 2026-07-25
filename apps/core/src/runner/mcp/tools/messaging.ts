@@ -565,7 +565,9 @@ export function registerMessagingTools(server: McpServer): void {
             }
           : {}),
       };
-      const envelope = createSignedIpcRequestEnvelope(IPC_AUTH_TOKEN, payload);
+      const envelope = createSignedIpcRequestEnvelope(IPC_AUTH_TOKEN, payload, {
+        separateAuthExpiry: true,
+      });
 
       writePrivateFileSync(tmpPath, JSON.stringify(envelope, null, 2));
       fs.renameSync(tmpPath, requestPath);

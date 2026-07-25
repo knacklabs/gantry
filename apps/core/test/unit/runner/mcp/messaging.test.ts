@@ -3,6 +3,12 @@ import os from 'os';
 import path from 'path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { resolveInteractionSettlementDelayMs } from '@core/channels/interaction-settlement.js';
+import {
+  validateIpcRequestFreshness,
+  verifyIpcRequestPayload,
+} from '@core/infrastructure/ipc/request-signing.js';
+
 const contextState = vi.hoisted(() => ({
   ipcDir: '',
   jobId: undefined as string | undefined,
@@ -42,22 +48,6 @@ vi.mock('@core/runner/mcp/ipc.js', async () => {
   return {
     ...actual,
     hasValidIpcResponseSignature: vi.fn(() => true),
-  };
-});
-
-vi.mock('@core/shared/ipc-signing.js', async () => {
-  const actual = await vi.importActual<
-    typeof import('@core/shared/ipc-signing.js')
-  >('@core/shared/ipc-signing.js');
-  return {
-    ...actual,
-    createSignedIpcRequestEnvelope: vi.fn(
-      (_key: string | undefined, payload: Record<string, unknown>) => ({
-        ...payload,
-        nonce: '00000000-0000-4000-8000-000000000000',
-        signature: 'test-signature',
-      }),
-    ),
   };
 });
 
@@ -117,6 +107,22 @@ const questionArgs = {
   ],
 };
 
+type SignedQuestionRequest = Record<string, unknown> & {
+  requestId: string;
+  expiresAt?: string;
+  authExpiresAt?: string;
+  signature?: string;
+};
+
+function expectValidRequestAuth(request: SignedQuestionRequest): void {
+  const { signature, ...payload } = request;
+  expect(signature).toEqual(expect.any(String));
+  expect(
+    verifyIpcRequestPayload('messaging-test-token', payload, signature),
+  ).toBe(true);
+  expect(validateIpcRequestFreshness(payload)).toEqual({ ok: true });
+}
+
 describe('ask_user_question lane deadlines', () => {
   let tempDir: string;
 
@@ -131,10 +137,12 @@ describe('ask_user_question lane deadlines', () => {
   afterEach(() => {
     fs.rmSync(tempDir, { recursive: true, force: true });
     vi.useRealTimers();
+    vi.unstubAllEnvs();
     vi.restoreAllMocks();
   });
 
   it('has no deadline and waits beyond the former expiry until answered', async () => {
+    vi.stubEnv('GANTRY_INTERACTIVE_PERMISSION_TIMEOUT_MS', '0');
     contextState.permissionLane = 'interactive';
     const handler = await askUserQuestionHandler();
     let settled = false;
@@ -148,8 +156,17 @@ describe('ask_user_question lane deadlines', () => {
     const requestFile = await waitForJsonFile(requestDir);
     const request = JSON.parse(
       fs.readFileSync(path.join(requestDir, requestFile), 'utf8'),
-    ) as { requestId: string; expiresAt?: string };
+    ) as SignedQuestionRequest;
     expect(request.expiresAt).toBeUndefined();
+    expect(request.authExpiresAt).toEqual(expect.any(String));
+    expectValidRequestAuth(request);
+    expect(
+      resolveInteractionSettlementDelayMs({
+        expiresAt: request.expiresAt,
+        permissionLane: 'interactive',
+        fallbackTimeoutMs: 5 * 60_000,
+      }),
+    ).toBeUndefined();
 
     const dateNow = vi
       .spyOn(Date, 'now')
@@ -209,10 +226,20 @@ describe('ask_user_question lane deadlines', () => {
         .find((entry) => entry.endsWith('.json'));
       expect(requestFile).toBeDefined();
       const requestPath = path.join(requestDir, requestFile!);
-      const request = JSON.parse(fs.readFileSync(requestPath, 'utf8')) as {
-        expiresAt?: string;
-      };
-      expect(request.expiresAt).toBeDefined();
+      const request = JSON.parse(
+        fs.readFileSync(requestPath, 'utf8'),
+      ) as SignedQuestionRequest;
+      expect(request.expiresAt).toEqual(expect.any(String));
+      expect(request.authExpiresAt).toEqual(expect.any(String));
+      expectValidRequestAuth(request);
+      const settlementDelayMs = resolveInteractionSettlementDelayMs({
+        expiresAt: request.expiresAt,
+        permissionLane: 'autonomous',
+        fallbackTimeoutMs: 0,
+      });
+      expect(settlementDelayMs).toEqual(expect.any(Number));
+      expect(settlementDelayMs).toBeGreaterThan(0);
+      expect(settlementDelayMs).toBeLessThanOrEqual(5 * 60_000);
 
       vi.setSystemTime(Date.now() + 10 * 60_000);
       await vi.advanceTimersByTimeAsync(100);

@@ -182,7 +182,9 @@ export async function requestPermissionApprovalViaIpc(
       },
       timestamp: nowIso(),
     };
-    const envelope = createSignedIpcRequestEnvelope(env.ipcAuthToken, payload);
+    const envelope = createSignedIpcRequestEnvelope(env.ipcAuthToken, payload, {
+      separateAuthExpiry: true,
+    });
     fs.writeFileSync(requestTmpPath, JSON.stringify(envelope, null, 2));
     fs.renameSync(requestTmpPath, requestPath);
 

@@ -82,6 +82,8 @@ describe('requestPermissionApprovalViaIpc', () => {
       sourceAgentFolder: string;
       senderId?: string;
       signature?: string;
+      expiresAt?: string;
+      authExpiresAt?: string;
       context?: { responseKeyId?: string };
       toolInput?: { query?: string };
     };
@@ -94,6 +96,8 @@ describe('requestPermissionApprovalViaIpc', () => {
     expect(request.context?.responseKeyId).toBe('key-id');
     // Signed so the host can verify it came from the trusted runner.
     expect(typeof request.signature).toBe('string');
+    expect(request.expiresAt).toBeUndefined();
+    expect(request.authExpiresAt).toEqual(expect.any(String));
 
     // Resolve the request so the in-flight poll terminates cleanly.
     const responseDir = path.join(
@@ -144,9 +148,16 @@ describe('requestPermissionApprovalViaIpc', () => {
     expect(files).toHaveLength(1);
     const request = JSON.parse(
       fs.readFileSync(path.join(requestDir, files[0]), 'utf-8'),
-    ) as { jobId?: string; runId?: string };
+    ) as {
+      jobId?: string;
+      runId?: string;
+      expiresAt?: string;
+      authExpiresAt?: string;
+    };
     expect(request.jobId).toBe('job-1');
     expect(request.runId).toBe('run-1');
+    expect(request.expiresAt).toBeUndefined();
+    expect(request.authExpiresAt).toEqual(expect.any(String));
   });
 
   it('waits for and honors a late host allow response for zero-timeout auto mode', async () => {
