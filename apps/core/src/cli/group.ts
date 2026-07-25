@@ -494,8 +494,8 @@ async function runRemove(runtimeHome: string, args: string[]): Promise<number> {
       return 1;
     }
     if (desiredPrune.keptAsDefault) {
-      p.log.warn(
-        `Route removed, but ${found.group.folder} is the default agent and is retained. Point the default elsewhere first (gantry agent name ...) to remove it.`,
+      p.log.info(
+        `Route removed. Agent ${found.group.folder} is the default agent, so its definition is retained; point the default elsewhere first (gantry agent name ...) to remove the agent itself.`,
       );
       return 0;
     }
