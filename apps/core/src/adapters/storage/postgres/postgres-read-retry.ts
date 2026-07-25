@@ -2,6 +2,19 @@ import { setTimeout as delay } from 'node:timers/promises';
 
 import { logger } from '../../../infrastructure/logging/logger.js';
 
+// Why retrying on the SAME `this.db` handle is sound (not a same-poisoned-
+// connection retry): the wrapped reads are plain drizzle `.select()` calls, not
+// transactions, so drizzle runs them via `Pool.query()` (the session only checks
+// out a dedicated client for `transaction()` — node-postgres session.js). In
+// pg-pool 8.x `Pool.query()` calls `client.release(err)` with the query error on
+// completion, and `_release` removes/destroys the client from the pool whenever
+// that error is truthy (pg-pool index.js). So ANY failing query — connection-
+// class (57P0x/08xxx/"connection terminated") OR query-level ("cached plan must
+// not change result type") — evicts the client. Each retry therefore acquires a
+// FRESH connection, which re-establishes the socket and re-plans the statement.
+// If these reads ever move inside a transaction/checked-out client, this
+// eviction guarantee no longer holds and the retry must force a fresh client.
+
 const RETRYABLE_POSTGRES_CODES = new Set([
   '40001',
   '40P01',
