@@ -40,6 +40,7 @@ import { releaseIpcRootLock } from './ipc-root-lock-release.js';
 import { acquireIpcRootLockForWatcher } from './ipc-root-lock-acquisition.js';
 import { buildIpcFolderTargets } from './ipc-folder-targets.js';
 import { processPermissionCancellationDirectory } from './ipc-permission-cancellation-directory.js';
+import { processQuestionCancellationDirectory } from './ipc-question-cancellation-directory.js';
 export type { IpcDeps } from './ipc-domain-types.js';
 export { processTaskIpc } from '../jobs/ipc-handler.js';
 export { validateIpcAuthRequest } from './ipc-auth-validation.js';
@@ -740,6 +741,15 @@ export function startIpcWatcher(deps: IpcDeps): void {
             'Error reading user question IPC requests directory',
           );
         }
+
+        await processQuestionCancellationDirectory({
+          sourceAgentFolder,
+          shouldProcessRequestLane,
+          inFlightInteractionIpc,
+          runnerControlPort,
+          cancelUserQuestion: deps.cancelUserQuestion,
+          logger,
+        });
       }
     } finally {
       processingIpcFiles = false;

@@ -1,6 +1,7 @@
 import type {
   PermissionApprovalCancellation,
   PermissionApprovalRequest,
+  UserQuestionCancellation,
 } from '../domain/types.js';
 import { isPlainObject, toTrimmedString } from '../shared/object.js';
 import { validateIpcAuthRequest } from './ipc-auth-validation.js';
@@ -50,6 +51,35 @@ export function parsePermissionCancellationIpcRequest(
   const requestId = toTrimmedString(raw.permissionRequestId, { maxLen: 128 });
   if (!requestId || !IPC_REQUEST_ID_PATTERN.test(requestId)) {
     throw new Error('Invalid permission cancellation IPC requestId');
+  }
+  const reason = toTrimmedString(raw.reason, { maxLen: 2000 });
+  return {
+    requestId,
+    appId: binding.appId,
+    sourceAgentFolder,
+    ...(binding.authThreadId ? { threadId: binding.authThreadId } : {}),
+    ...(reason ? { reason } : {}),
+  };
+}
+
+export function parseQuestionCancellationIpcRequest(
+  raw: unknown,
+  sourceAgentFolder: string,
+): UserQuestionCancellation {
+  if (!isPlainObject(raw)) {
+    throw new Error('Invalid question cancellation IPC payload');
+  }
+  const binding = validateIpcAuthRequest(
+    raw,
+    sourceAgentFolder,
+    'question cancellation IPC',
+  );
+  if (!binding.appId) {
+    throw new Error('question cancellation IPC context.appId is required');
+  }
+  const requestId = toTrimmedString(raw.questionRequestId, { maxLen: 128 });
+  if (!requestId || !IPC_REQUEST_ID_PATTERN.test(requestId)) {
+    throw new Error('Invalid question cancellation IPC requestId');
   }
   const reason = toTrimmedString(raw.reason, { maxLen: 2000 });
   return {

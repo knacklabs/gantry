@@ -13,6 +13,7 @@ import type {
   ProgressUpdateOptions,
   RichInteractionRequest,
   StreamingChunkOptions,
+  UserQuestionCancellation,
   UserQuestionRequest,
   UserQuestionResponse,
 } from '../domain/types.js';
@@ -60,6 +61,7 @@ import {
   type TeamsStreamingState,
 } from './teams-streaming.js';
 import {
+  cancelPendingTeamsQuestion,
   dropPendingTeamsInteraction,
   handleTeamsPermissionDecision,
   handleTeamsUserQuestionSubmit,
@@ -98,7 +100,6 @@ export {
 
 export class TeamsChannel implements ChannelAdapter {
   name = 'teams';
-
   private connected = false;
   private outboundReady = false;
   private readonly pendingPermissionPrompts = new Map<
@@ -115,7 +116,6 @@ export class TeamsChannel implements ChannelAdapter {
     string,
     PendingTeamsUserQuestion
   >();
-
   constructor(
     private readonly credentials: TeamsChannelCredentials,
     private readonly opts: TeamsChannelOpts,
@@ -143,7 +143,9 @@ export class TeamsChannel implements ChannelAdapter {
         ),
     );
   }
-
+  cancelPendingQuestion(cancellation: UserQuestionCancellation) {
+    return cancelPendingTeamsQuestion(this.interactionContext(), cancellation);
+  }
   async connect(
     options: { inbound?: boolean; interactionCallbacks?: boolean } = {},
   ): Promise<void> {
@@ -183,11 +185,9 @@ export class TeamsChannel implements ChannelAdapter {
       logger.info('Teams outbound delivery client initialized');
     }
   }
-
   isConnected(): boolean {
     return this.connected || this.outboundReady;
   }
-
   async disconnect(): Promise<void> {
     if (!this.connected && !this.outboundReady) return;
     for (const providerAlias of this.pendingPermissionPrompts.keys()) {

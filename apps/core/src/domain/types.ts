@@ -323,6 +323,14 @@ export interface UserQuestionResponse {
   answeredBy?: string;
 }
 
+export interface UserQuestionCancellation {
+  requestId: string;
+  appId?: string;
+  sourceAgentFolder: string;
+  threadId?: string;
+  reason?: string;
+}
+
 export type InteractionSeverity =
   | 'info'
   | 'success'
@@ -633,6 +641,9 @@ export interface InteractionSurface {
   ): void;
   cancelPendingPermission?(
     request: PermissionApprovalCancellation,
+  ): Promise<'settled' | 'already_decided' | 'retryable' | 'not_found'>;
+  cancelPendingQuestion?(
+    request: UserQuestionCancellation,
   ): Promise<'settled' | 'already_decided' | 'retryable' | 'not_found'>;
 }
 

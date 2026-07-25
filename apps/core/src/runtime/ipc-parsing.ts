@@ -24,8 +24,12 @@ import { parseInteractionDescriptor } from './ipc-interaction-descriptor-parsing
 import {
   parsePermissionCancellationIpcRequest,
   parsePermissionLifecycle,
+  parseQuestionCancellationIpcRequest,
 } from './ipc-parsing-permission-lifecycle.js';
-export { parsePermissionCancellationIpcRequest };
+export {
+  parsePermissionCancellationIpcRequest,
+  parseQuestionCancellationIpcRequest,
+};
 import { stripShellCommandEnvPrefix } from './ipc-shell-command-prefix.js';
 import { sanitizeIpcToolInput } from './ipc-tool-input-sanitization.js';
 import { PERMISSION_CLASSIFIER_MAX_STRING_LENGTH } from './permission-classifier-prompt.js';

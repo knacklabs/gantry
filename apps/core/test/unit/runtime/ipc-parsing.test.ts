@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 const ipcTestState = vi.hoisted(() => ({
   dataDir: `/tmp/gantry-ipc-cancellation-${process.pid}`,
   finishPermissionProcessing: undefined as (() => void) | undefined,
+  finishQuestionProcessing: undefined as (() => void) | undefined,
 }));
 
 vi.mock('@core/config/index.js', async (importOriginal) => ({
@@ -29,6 +30,12 @@ vi.mock(
             ipcTestState.finishPermissionProcessing = resolve;
           }),
       ),
+      processUserQuestionInteractionIpc: vi.fn(
+        () =>
+          new Promise<void>((resolve) => {
+            ipcTestState.finishQuestionProcessing = resolve;
+          }),
+      ),
     };
   },
 );
@@ -47,6 +54,7 @@ import { FilesystemRunnerControlPort } from '@core/runtime/filesystem-runner-con
 import {
   parsePermissionCancellationIpcRequest,
   parsePermissionIpcRequest,
+  parseQuestionCancellationIpcRequest,
 } from '@core/runtime/ipc-parsing.js';
 import { startIpcWatcher, stopIpcWatcher } from '@core/runtime/ipc.js';
 
@@ -80,6 +88,8 @@ describe('parsePermissionIpcRequest', () => {
   afterEach(() => {
     ipcTestState.finishPermissionProcessing?.();
     ipcTestState.finishPermissionProcessing = undefined;
+    ipcTestState.finishQuestionProcessing?.();
+    ipcTestState.finishQuestionProcessing = undefined;
     stopIpcWatcher();
     clearConsumedIpcRequestIds({ durable: 'consumed' });
     fs.rmSync(ipcTestState.dataDir, { recursive: true, force: true });
@@ -235,6 +245,111 @@ describe('parsePermissionIpcRequest', () => {
     expect(
       fs.readdirSync(
         controlPort.requestDir(sourceAgentFolder, 'permission-cancellations'),
+      ),
+    ).toEqual([]);
+  });
+
+  it('parses and routes a claimed question cancellation to the host question waiter', async () => {
+    const sourceAgentFolder = 'team';
+    const targetJid = 'tg:team';
+    const controlPort = new FilesystemRunnerControlPort(
+      path.join(ipcTestState.dataDir, 'ipc'),
+    );
+    controlPort.ensureRoot();
+    controlPort.ensureWorkspaceLayout(sourceAgentFolder);
+    const auth = createIpcAuthEnvelope(sourceAgentFolder, 'thread-1', {
+      appId: 'default',
+      agentId: 'agent:team',
+    });
+    const questionRequestId = `userq-${randomUUID()}`;
+    const question = createSignedIpcRequestEnvelope(
+      auth.authToken,
+      {
+        requestId: questionRequestId,
+        sourceAgentFolder,
+        questions: [
+          {
+            question: 'Continue?',
+            header: 'Continue',
+            options: [
+              { label: 'Yes', description: 'Proceed' },
+              { label: 'No', description: 'Wait' },
+            ],
+            multiSelect: false,
+          },
+        ],
+        context: {
+          appId: 'default',
+          agentId: 'agent:team',
+          chatJid: targetJid,
+          threadId: 'thread-1',
+          responseKeyId: auth.responseKeyId,
+        },
+      },
+      { separateAuthExpiry: true },
+    );
+    const cancellation = createSignedIpcRequestEnvelope(auth.authToken, {
+      requestId: `userq-cancel-${randomUUID()}`,
+      questionRequestId,
+      appId: 'default',
+      sourceAgentFolder,
+      reason: 'Question cancelled. Nothing changed.',
+      context: {
+        appId: 'default',
+        agentId: 'agent:team',
+        threadId: 'thread-1',
+      },
+    });
+
+    expect(parseQuestionCancellationIpcRequest(cancellation, 'team')).toEqual({
+      requestId: questionRequestId,
+      appId: 'default',
+      sourceAgentFolder: 'team',
+      threadId: 'thread-1',
+      reason: 'Question cancelled. Nothing changed.',
+    });
+    clearConsumedIpcRequestIds({ durable: 'consumed' });
+
+    fs.writeFileSync(
+      path.join(
+        controlPort.requestDir(sourceAgentFolder, 'user-questions'),
+        `${questionRequestId}.json`,
+      ),
+      JSON.stringify(question),
+    );
+    fs.writeFileSync(
+      path.join(
+        controlPort.requestDir(sourceAgentFolder, 'question-cancellations'),
+        `${questionRequestId}.json`,
+      ),
+      JSON.stringify(cancellation),
+    );
+    const cancelUserQuestion = vi.fn(async () => 'settled' as const);
+
+    startIpcWatcher({
+      conversationRoutes: () => ({
+        [targetJid]: {
+          name: 'Team',
+          folder: sourceAgentFolder,
+          trigger: '',
+          added_at: new Date(0).toISOString(),
+        },
+      }),
+      cancelUserQuestion,
+    } as never);
+
+    await vi.waitFor(() =>
+      expect(cancelUserQuestion).toHaveBeenCalledWith({
+        requestId: questionRequestId,
+        appId: 'default',
+        sourceAgentFolder,
+        threadId: 'thread-1',
+        reason: 'Question cancelled. Nothing changed.',
+      }),
+    );
+    expect(
+      fs.readdirSync(
+        controlPort.requestDir(sourceAgentFolder, 'question-cancellations'),
       ),
     ).toEqual([]);
   });

@@ -5851,6 +5851,83 @@ describe('Slack channel', () => {
     expect(answer.answeredBy).toBe('Alice');
   });
 
+  it('settles a runner-cancelled Slack question and rejects a late answer', async () => {
+    defaultSlackPermissionApproverIds.add('U123');
+    const channel = new SlackChannel(
+      'xoxb-token',
+      'xapp-token',
+      createOptsWithApproverHook(['U123']) as any,
+    );
+    await channel.connect();
+    const request = {
+      requestId: 'userq-runner-cancelled',
+      sourceAgentFolder: 'slack_main',
+      targetJid: 'sl:C1234567890',
+      questions: [
+        {
+          header: 'Continue',
+          question: 'Continue?',
+          options: [
+            { label: 'Yes', description: 'Proceed' },
+            { label: 'No', description: 'Wait' },
+          ],
+          multiSelect: false,
+        },
+      ],
+    };
+    const answerPromise = requestSlackUserAnswer(
+      channel,
+      'sl:C1234567890',
+      request,
+    );
+    await flushSlackPromptRegistration();
+    const lateAction = latestSlackUserQuestionActionValue(
+      'gantry_userq_select',
+      0,
+    );
+
+    await expect(
+      channel.cancelPendingQuestion({
+        requestId: request.requestId,
+        sourceAgentFolder: request.sourceAgentFolder,
+        reason: 'Question cancelled. Nothing changed.',
+      }),
+    ).resolves.toBe('settled');
+    await expect(answerPromise).resolves.toEqual({
+      requestId: request.requestId,
+      answers: {},
+    });
+    expect(
+      answerPromise.repository.resolvePendingInteraction,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: 'cancelled',
+        resolution: {
+          answers: {},
+          reason: 'Question cancelled. Nothing changed.',
+        },
+      }),
+    );
+    expect(appRef.current.client.chat.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: expect.stringContaining('Question cancelled'),
+      }),
+    );
+
+    const actionHandler = slackActionHandler('gantry_userq_select_0');
+    await actionHandler?.({
+      ack: vi.fn().mockResolvedValue(undefined),
+      body: {
+        channel: { id: 'C1234567890' },
+        user: { id: 'U123', name: 'Alice' },
+      },
+      action: { value: JSON.stringify(lateAction) },
+    });
+    expect(
+      answerPromise.repository.resolvePendingInteraction,
+    ).toHaveBeenCalledTimes(1);
+  });
+
   it('resolves Slack user question from the Other free-text modal', async () => {
     defaultSlackPermissionApproverIds.add('U123');
     const channel = new SlackChannel(

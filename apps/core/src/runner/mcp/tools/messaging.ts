@@ -34,6 +34,10 @@ import { truncateText } from '../formatting.js';
 import { hasValidIpcResponseSignature, writeIpcFile } from '../ipc.js';
 import { createSignedIpcRequestEnvelope } from '../../../shared/ipc-signing.js';
 import { makeIpcId } from '../ipc-ids.js';
+import {
+  CANCELLED_QUESTION_REASON,
+  writeUserQuestionCancellation as cancelUserQuestionRequest,
+} from './user-question-cancellation.js';
 
 const USER_QUESTION_TIMEOUT_MS = 5 * 60 * 1000;
 const USER_QUESTION_POLL_INTERVAL_MS = 100;
@@ -578,12 +582,12 @@ export function registerMessagingTools(server: McpServer): void {
           : undefined;
       while (deadline === undefined || nowMs() < deadline) {
         if (context?.signal?.aborted) {
-          fs.rmSync(requestPath, { force: true });
+          cancelUserQuestionRequest({ requestPath, requestId });
           return {
             content: [
               {
                 type: 'text' as const,
-                text: 'Question cancelled. Nothing changed.',
+                text: CANCELLED_QUESTION_REASON,
               },
             ],
           };
@@ -669,12 +673,12 @@ export function registerMessagingTools(server: McpServer): void {
           context?.signal,
         );
         if (aborted) {
-          fs.rmSync(requestPath, { force: true });
+          cancelUserQuestionRequest({ requestPath, requestId });
           return {
             content: [
               {
                 type: 'text' as const,
-                text: 'Question cancelled. Nothing changed.',
+                text: CANCELLED_QUESTION_REASON,
               },
             ],
           };

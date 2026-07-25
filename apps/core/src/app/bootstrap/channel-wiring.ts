@@ -732,6 +732,7 @@ export function createChannelWiring(
     requestPermissionApproval,
     cancelPermissionApproval: requestPermissionApproval.cancel,
     requestUserAnswer: userQuestionResponder.requestUserAnswer,
+    cancelUserQuestion: userQuestionResponder.cancelUserQuestion,
     renderAgentTodo: agentTodoRenderer,
     renderRichInteraction: richInteractionRenderer,
     hydrateConversationContext: (request) =>

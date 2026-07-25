@@ -6,6 +6,7 @@ import { ensurePrivateDirSync } from '../../shared/private-fs.js';
 import {
   PermissionApprovalDecision,
   PermissionApprovalRequest,
+  UserQuestionCancellation,
   UserQuestionRequest,
 } from '../../domain/types.js';
 import { writeTelegramFetchResponseToFile } from '../telegram-file-download.js';
@@ -30,6 +31,10 @@ import {
   truncateUtf8ToByteLimit,
 } from './channel-shared.js';
 import { claimAndSettleTelegramPermissionPrompt } from './permission-prompt-settlement.js';
+import {
+  cancelMatchingPendingQuestions,
+  type InteractionCancellationResult,
+} from '../interaction-settlement.js';
 const TELEGRAM_PERMISSION_FULL_VIEW_INLINE_MAX = 3200;
 export interface TelegramDownloadedFile {
   filePath: string;
@@ -43,6 +48,26 @@ export abstract class TelegramChannelPrompts extends TelegramChannelPolling {
     questionIndex: number,
   ): string {
     return JSON.stringify([appId, sourceAgentFolder, requestId, questionIndex]);
+  }
+  async cancelPendingQuestion(
+    cancellation: UserQuestionCancellation,
+  ): Promise<InteractionCancellationResult> {
+    return cancelMatchingPendingQuestions({
+      cancellation,
+      pending: this.pendingUserQuestions.values(),
+      request: (pending) => ({
+        requestId: pending.requestId,
+        appId: pending.appId,
+        sourceAgentFolder: pending.sourceAgentFolder,
+      }),
+      settle: (pending, reason) =>
+        this.finalizeUserQuestionPrompt(
+          pending,
+          pending.multiSelect ? [] : '',
+          undefined,
+          reason,
+        ),
+    });
   }
   protected formatUserQuestionButtonLabel(
     optionLabel: string,

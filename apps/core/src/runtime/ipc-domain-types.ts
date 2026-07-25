@@ -5,6 +5,7 @@ import {
   PermissionApprovalRequest,
   RichInteractionRequest,
   ConversationRoute,
+  UserQuestionCancellation,
   UserQuestionRequest,
   UserQuestionResponse,
 } from '../domain/types.js';
@@ -71,6 +72,9 @@ export interface IpcDeps {
   ) => Promise<PermissionApprovalDecision>;
   cancelPermissionApproval?: (
     cancellation: PermissionApprovalCancellation,
+  ) => Promise<'settled' | 'queued' | 'not_found'>;
+  cancelUserQuestion?: (
+    cancellation: UserQuestionCancellation,
   ) => Promise<'settled' | 'queued' | 'not_found'>;
   isControlApproverAllowed?: (input: {
     conversationJid: string;

@@ -284,4 +284,48 @@ describe('ask_user_question lane deadlines', () => {
       expect(fs.existsSync(requestPath)).toBe(false);
     },
   );
+
+  it('signals the host when an interactive question was claimed before cancellation', async () => {
+    contextState.permissionLane = 'interactive';
+    const handler = await askUserQuestionHandler();
+    const controller = new AbortController();
+    const result = handler(questionArgs, { signal: controller.signal });
+    await passInteractionBoundary();
+
+    const requestDir = path.join(contextState.ipcDir, 'user-questions');
+    const requestFile = await waitForJsonFile(requestDir);
+    const requestPath = path.join(requestDir, requestFile);
+    const request = JSON.parse(
+      fs.readFileSync(requestPath, 'utf8'),
+    ) as SignedQuestionRequest;
+    fs.renameSync(
+      requestPath,
+      path.join(requestDir, `.processing-host-${requestFile}`),
+    );
+
+    controller.abort();
+
+    await expect(result).resolves.toEqual({
+      content: [
+        {
+          type: 'text',
+          text: 'Question cancelled. Nothing changed.',
+        },
+      ],
+    });
+    const cancellationDir = path.join(
+      contextState.ipcDir,
+      'question-cancellations',
+    );
+    const cancellationFile = await waitForJsonFile(cancellationDir);
+    const cancellation = JSON.parse(
+      fs.readFileSync(path.join(cancellationDir, cancellationFile), 'utf8'),
+    ) as Record<string, unknown>;
+    expect(cancellation).toMatchObject({
+      questionRequestId: request.requestId,
+      sourceAgentFolder: 'main_agent',
+      reason: 'Question cancelled. Nothing changed.',
+    });
+    expectValidRequestAuth(cancellation as SignedQuestionRequest);
+  });
 });

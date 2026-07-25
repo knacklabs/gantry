@@ -404,6 +404,69 @@ describe('createChannelWiring', () => {
     expect(missingReset).not.toHaveBeenCalled();
   });
 
+  it('routes a claimed question cancellation to the active channel waiter', async () => {
+    let resolveAnswer!: (response: {
+      requestId: string;
+      answers: Record<string, string | string[]>;
+    }) => void;
+    const requestUserAnswer = vi.fn(
+      async (
+        _jid: string,
+        request: UserQuestionRequest,
+        onPromptDelivered?: (messageId: string, questionIndex?: number) => void,
+      ) => {
+        onPromptDelivered?.('question-prompt-1');
+        return new Promise<{
+          requestId: string;
+          answers: Record<string, string | string[]>;
+        }>((resolve) => {
+          resolveAnswer = resolve;
+        });
+      },
+    );
+    const cancelPendingQuestion = vi.fn(async (cancellation) => {
+      resolveAnswer({ requestId: cancellation.requestId, answers: {} });
+      return 'settled' as const;
+    });
+    const responder = createUserQuestionResponder({
+      findBoundChannel: () => ({}),
+      asUserQuestionSurface: () => ({
+        requestUserAnswer,
+        cancelPendingQuestion,
+      }),
+      interactionLifecycle: {
+        logger: { debug: vi.fn(), error: vi.fn() },
+      },
+    });
+    const request: UserQuestionRequest = {
+      requestId: 'question-cancel-active',
+      appId: 'default',
+      sourceAgentFolder: 'main_agent',
+      targetJid: 'tg:team',
+      questions: [],
+    };
+    const answer = responder.requestUserAnswer(request);
+
+    await expect(
+      responder.cancelUserQuestion({
+        requestId: request.requestId,
+        appId: request.appId,
+        sourceAgentFolder: request.sourceAgentFolder,
+        reason: 'Question cancelled. Nothing changed.',
+      }),
+    ).resolves.toBe('settled');
+    await expect(answer).resolves.toEqual({
+      requestId: request.requestId,
+      answers: {},
+    });
+    expect(cancelPendingQuestion).toHaveBeenCalledWith({
+      requestId: request.requestId,
+      appId: request.appId,
+      sourceAgentFolder: request.sourceAgentFolder,
+      reason: 'Question cancelled. Nothing changed.',
+    });
+  });
+
   it('drops a shadowing question waiter before rethrowing its persistence error', async () => {
     const events: string[] = [];
     const persistenceError = new DurableInteractionPersistenceError(

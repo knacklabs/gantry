@@ -6,8 +6,8 @@ import {
   PermissionApprovalDecisionMode,
   PermissionApprovalRequest,
   RichInteractionRequest,
+  UserQuestionCancellation,
   UserQuestionRequest,
-  UserQuestionResponse,
 } from '../domain/types.js';
 import {
   claimPermissionInteractionCallback,
@@ -19,6 +19,7 @@ import {
 import { PERMISSION_APPROVAL_TIMEOUT_MS } from '../shared/permission-timeout.js';
 import { resolveInteractionSettlementDelayMs } from './interaction-settlement.js';
 import { cancelPendingDiscordPermission } from './discord-permission-cancellation.js';
+import { cancelPendingDiscordQuestion } from './discord-question-cancellation.js';
 import {
   buildPermissionPromptParts,
   decisionForMode,
@@ -66,8 +67,8 @@ import {
   handleDiscordPermissionFullView,
 } from './discord-permission-full-view.js';
 import {
+  createDiscordUserQuestionRequester,
   dropPendingDiscordQuestions,
-  requestDiscordUserAnswer,
   resolvePendingDiscordQuestionsOnDisconnect,
   type PendingDiscordQuestion,
 } from './discord-user-question-delivery.js';
@@ -117,6 +118,13 @@ export class DiscordInteractionHandler {
       cancellation,
       (providerAlias, reason) =>
         this.settlePermissionPrompt(providerAlias, 'cancel', 'runtime', reason),
+    );
+  }
+  cancelPendingQuestion(cancellation: UserQuestionCancellation) {
+    return cancelPendingDiscordQuestion(
+      this.pendingQuestions,
+      this.input.botToken,
+      cancellation,
     );
   }
   async renderRichInteraction(
@@ -262,21 +270,12 @@ export class DiscordInteractionHandler {
     if (sent.externalMessageId) onPromptDelivered?.(sent.externalMessageId);
     return decision;
   }
-  async requestUserAnswer(
-    jid: string,
-    request: UserQuestionRequest,
-    onPromptDelivered?: (messageId: string, questionIndex?: number) => void,
-  ): Promise<UserQuestionResponse> {
-    return requestDiscordUserAnswer({
-      jid,
-      request,
-      pendingQuestions: this.pendingQuestions,
-      sendPrompt: (targetJid, text, options) =>
-        this.sendDiscordPrompt(targetJid, text, options),
-      timeoutMs: PERMISSION_APPROVAL_TIMEOUT_MS,
-      onPromptDelivered,
-    });
-  }
+  requestUserAnswer = createDiscordUserQuestionRequester({
+    pendingQuestions: this.pendingQuestions,
+    sendPrompt: (jid, text, options) =>
+      this.sendDiscordPrompt(jid, text, options),
+    timeoutMs: PERMISSION_APPROVAL_TIMEOUT_MS,
+  });
 
   async handleInteraction(interaction: DiscordInteraction): Promise<void> {
     if (!interaction.id || !interaction.token || !interaction.channel_id)

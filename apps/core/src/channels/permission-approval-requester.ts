@@ -135,8 +135,9 @@ export function createPermissionApprovalRequester(input: {
 
   async function dispatchSingle(
     request: PermissionApprovalRequest,
+    cancellationAliases: PermissionApprovalRequest[] = [],
   ): Promise<PermissionApprovalDecision> {
-    const result = await dispatchSingleResult(request);
+    const result = await dispatchSingleResult(request, cancellationAliases);
     return result.delivered
       ? result.decision
       : { approved: false, reason: result.reason };
@@ -144,14 +145,24 @@ export function createPermissionApprovalRequester(input: {
 
   async function dispatchSingleResult(
     request: PermissionApprovalRequest,
+    cancellationAliases: PermissionApprovalRequest[] = [],
   ): Promise<
     | { delivered: true; decision: PermissionApprovalDecision }
     | { delivered: false; reason: string }
   > {
     const requestKey = permissionRequestScopeKey(request);
-    const queuedCancellation = queuedCancellations.get(requestKey);
+    const cancellationKeys = [
+      requestKey,
+      ...cancellationAliases.map(permissionRequestScopeKey),
+    ].filter((key, index, keys) => keys.indexOf(key) === index);
+    const queuedCancellationKey = cancellationKeys.find((key) =>
+      queuedCancellations.has(key),
+    );
+    const queuedCancellation = queuedCancellationKey
+      ? queuedCancellations.get(queuedCancellationKey)
+      : undefined;
     if (queuedCancellation) {
-      queuedCancellations.delete(requestKey);
+      queuedCancellations.delete(queuedCancellationKey!);
       return {
         delivered: true,
         decision: {
@@ -188,7 +199,11 @@ export function createPermissionApprovalRequester(input: {
       ): Promise<'settled' | 'already_decided' | 'retryable' | 'not_found'> =>
         approvalSurface.cancelPendingPermission?.(cancellation) ??
         Promise.resolve('not_found');
-      activeCancellationHandlers.set(requestKey, cancelPending);
+      for (const key of cancellationKeys) {
+        activeCancellationHandlers.set(key, (cancellation) =>
+          cancelPending({ ...cancellation, requestId: request.requestId }),
+        );
+      }
       let decision: PermissionApprovalDecision;
       try {
         decision = await approvalSurface.requestPermissionApproval(
@@ -200,16 +215,20 @@ export function createPermissionApprovalRequester(input: {
               providerAccountId: routed.request.providerAccountId,
               threadId: routed.request.threadId,
             });
-            const cancellation = queuedCancellations.get(requestKey);
-            if (cancellation) void settleQueuedCancellation(cancellation);
+            for (const key of cancellationKeys) {
+              const cancellation = queuedCancellations.get(key);
+              if (cancellation) void settleQueuedCancellation(cancellation);
+            }
           },
         );
       } finally {
-        activeCancellationHandlers.delete(requestKey);
-        queuedCancellations.delete(requestKey);
-        const retryTimer = cancellationRetryTimers.get(requestKey);
-        if (retryTimer) clearTimeout(retryTimer);
-        cancellationRetryTimers.delete(requestKey);
+        for (const key of cancellationKeys) {
+          activeCancellationHandlers.delete(key);
+          queuedCancellations.delete(key);
+          const retryTimer = cancellationRetryTimers.get(key);
+          if (retryTimer) clearTimeout(retryTimer);
+          cancellationRetryTimers.delete(key);
+        }
       }
       return promptDelivered
         ? { delivered: true, decision }
@@ -283,7 +302,7 @@ export function createPermissionApprovalRequester(input: {
       if (!summaries.every((summary) => summary.bulkEligible)) {
         batchRequest.decisionOptions = ['allow_persistent_rule', 'cancel'];
       }
-      batchDecision = await dispatchSingle(batchRequest);
+      batchDecision = await dispatchSingle(batchRequest, batch.requests);
       if (!batch.requests.every(hasBatchResolver)) {
         await releaseDecisionClaim(batchDecision);
         resolveIncompleteBatch(batch.requests);
@@ -315,11 +334,22 @@ export function createPermissionApprovalRequester(input: {
       }
       let fanOutComplete = true;
       for (const request of batch.requests) {
-        const derivedDecision = decisionForMode(
-          request,
-          batchDecision.approved ? 'allow_once' : 'cancel',
-          batchDecision.decidedBy,
+        const cancellation = queuedCancellations.get(
+          permissionRequestScopeKey(request),
         );
+        const derivedDecision = cancellation
+          ? {
+              approved: false,
+              mode: 'cancel' as const,
+              decidedBy: 'runtime',
+              reason: cancellation.reason,
+              decisionClassification: 'user_reject' as const,
+            }
+          : decisionForMode(
+              request,
+              batchDecision.approved ? 'allow_once' : 'cancel',
+              batchDecision.decidedBy,
+            );
         fanOutComplete =
           resolveBatchRequest(
             request,

@@ -85,6 +85,7 @@ export function asUserQuestionSurface(
       | 'requestUserAnswer'
       | 'questionIndexesForDeliveredPrompt'
       | 'dropPendingInteraction'
+      | 'cancelPendingQuestion'
     >
   | undefined {
   return typeof channel.requestUserAnswer === 'function'
@@ -93,6 +94,7 @@ export function asUserQuestionSurface(
         | 'requestUserAnswer'
         | 'questionIndexesForDeliveredPrompt'
         | 'dropPendingInteraction'
+        | 'cancelPendingQuestion'
       >)
     : undefined;
 }

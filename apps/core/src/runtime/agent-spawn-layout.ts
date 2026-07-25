@@ -17,6 +17,7 @@ export const IPC_WORKSPACE_SUBDIRS = [
   'permission-requests',
   'permission-cancellations',
   'permission-responses',
+  'question-cancellations',
   'rich-interactions',
   'interaction-boundaries',
   'user-questions',
