@@ -34,6 +34,7 @@ import { truncateText } from '../formatting.js';
 import { hasValidIpcResponseSignature, writeIpcFile } from '../ipc.js';
 import { createSignedIpcRequestEnvelope } from '../../../shared/ipc-signing.js';
 import {
+  hasIpcRequestClaimMarker,
   ipcInteractionAuthEnvelopeOptions,
   ipcQuestionWaitExpiredReason,
 } from '../../../shared/ipc-interaction-lifetime.js';
@@ -541,7 +542,6 @@ export function registerMessagingTools(server: McpServer): void {
         `${requestId}.json`,
       );
       const tmpPath = `${requestPath}.tmp`;
-
       await requestUserInteractionBoundary(requestId, context?.signal);
 
       const payload = {
@@ -579,10 +579,10 @@ export function registerMessagingTools(server: McpServer): void {
 
       writePrivateFileSync(tmpPath, JSON.stringify(envelope, null, 2));
       fs.renameSync(tmpPath, requestPath);
-
       // prettier-ignore
-      const deadline = permissionLane === 'autonomous' ? nowMs() + USER_QUESTION_TIMEOUT_MS : Date.parse(String(envelope.authExpiresAt));
-      while (nowMs() < deadline) {
+      let deadline = permissionLane === 'autonomous' ? nowMs() + USER_QUESTION_TIMEOUT_MS : Date.parse(String(envelope.authExpiresAt));
+      // prettier-ignore
+      while ((permissionLane === 'interactive' && hasIpcRequestClaimMarker(requestPath) && (deadline = Infinity)) || nowMs() < deadline) {
         if (context?.signal?.aborted) {
           cancelUserQuestionRequest({ requestPath, requestId });
           return {

@@ -522,7 +522,7 @@ describe('requestPermissionApproval', () => {
     ).toEqual({ ok: true });
   });
 
-  it('keeps an unbounded interactive request authenticated beyond five minutes while waiting', async () => {
+  it('keeps a claimed interactive request waiting beyond the auth TTL until answered', async () => {
     process.env.GANTRY_PERMISSION_LANE = 'interactive';
     process.env.GANTRY_INTERACTIVE_PERMISSION_TIMEOUT_MS = '0';
     process.env.GANTRY_IPC_AUTH_TOKEN = 'interactive-permission-test-token';
@@ -552,9 +552,8 @@ describe('requestPermissionApproval', () => {
       'permission-requests',
     );
     const [requestFile] = await waitForFiles(requestDir, 1);
-    const request = JSON.parse(
-      fs.readFileSync(path.join(requestDir, requestFile), 'utf-8'),
-    ) as {
+    const requestPath = path.join(requestDir, requestFile);
+    const request = JSON.parse(fs.readFileSync(requestPath, 'utf-8')) as {
       requestId: string;
       responseNonce: string;
       unattended?: boolean;
@@ -574,27 +573,19 @@ describe('requestPermissionApproval', () => {
     expect(
       Date.parse(request.authExpiresAt!) - Date.now(),
     ).toBeGreaterThanOrEqual(IPC_INTERACTION_RETENTION_TTL_MS - 100);
+    const claimMarkerPath = path.join(
+      requestDir,
+      `.processing-host-${requestFile}`,
+    );
+    fs.renameSync(requestPath, claimMarkerPath);
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    fs.unlinkSync(claimMarkerPath);
 
-    const tenMinutesLater = Date.now() + 10 * 60_000;
-    const dateNow = vi.spyOn(Date, 'now').mockReturnValue(tenMinutesLater);
-    const { signature, ...payload } = request;
-    expect(
-      verifyIpcRequestPayload(
-        'interactive-permission-test-token',
-        payload,
-        signature,
-      ),
-    ).toBe(true);
-    expect(
-      validateIpcRequestFreshness(
-        payload,
-        Date.now(),
-        IPC_INTERACTION_RETENTION_TTL_MS,
-      ),
-    ).toEqual({ ok: true });
+    const dateNow = vi
+      .spyOn(Date, 'now')
+      .mockReturnValue(Date.parse(request.authExpiresAt!) + 60_000);
     await new Promise((resolve) => setTimeout(resolve, 150));
     expect(settled).toBe(false);
-    dateNow.mockRestore();
 
     const responseDir = path.join(
       tempDir,
@@ -621,6 +612,7 @@ describe('requestPermissionApproval', () => {
       mode: 'allow_once',
       decidedBy: 'Ravi',
     });
+    dateNow.mockRestore();
   });
 
   it('returns a clear failure when an unclaimed interactive request reaches its ingestion bound', async () => {

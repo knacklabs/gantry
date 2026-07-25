@@ -12,6 +12,7 @@ import {
 } from '../../../../shared/ipc-signing.js';
 import { IPC_CANCELLATION_RETENTION_TTL_MS } from '../../../../shared/ipc-cancellation-lifetime.js';
 import {
+  hasIpcRequestClaimMarker,
   ipcInteractionAuthEnvelopeOptions,
   ipcInteractionUnclaimableReason,
 } from '../../../../shared/ipc-interaction-lifetime.js';
@@ -270,10 +271,8 @@ async function requestPermissionApprovalInner(options: {
     }
 
     const responsePath = path.join(permissionResponsesDir, `${requestId}.json`);
-    while (
-      (deadline === undefined || nowMs() < deadline) &&
-      (authDeadline === undefined || nowMs() < authDeadline)
-    ) {
+    let requestClaimed = false;
+    while (deadline === undefined || nowMs() < deadline) {
       if (options.signal?.aborted) {
         cancelPermissionRequest({
           workspaceIpcDir,
@@ -436,6 +435,10 @@ async function requestPermissionApprovalInner(options: {
           };
         }
       }
+      if (authDeadline !== undefined && !requestClaimed) {
+        requestClaimed = hasIpcRequestClaimMarker(requestPath);
+        if (!requestClaimed && nowMs() >= authDeadline) break;
+      }
       const aborted = await sleepWithAbort(100, options.signal);
       if (aborted) {
         cancelPermissionRequest({
@@ -455,7 +458,7 @@ async function requestPermissionApprovalInner(options: {
         };
       }
     }
-    if (authDeadline !== undefined) {
+    if (authDeadline !== undefined && !requestClaimed) {
       fs.rmSync(requestPath, { force: true });
       return {
         approved: false,

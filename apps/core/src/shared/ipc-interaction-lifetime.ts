@@ -1,7 +1,24 @@
+import fs from 'fs';
+import path from 'path';
+
 // Interactive request authentication must remain valid for the entire durable
 // pending-interaction retention window. One bound drives both so they cannot
 // drift apart.
 export const IPC_INTERACTION_RETENTION_TTL_MS = 24 * 60 * 60_000;
+
+export function hasIpcRequestClaimMarker(requestPath: string): boolean {
+  const requestFile = path.basename(requestPath);
+  try {
+    return fs
+      .readdirSync(path.dirname(requestPath))
+      .some(
+        (file) =>
+          file.startsWith('.processing-') && file.endsWith(`-${requestFile}`),
+      );
+  } catch {
+    return false;
+  }
+}
 
 export function ipcInteractionAuthEnvelopeOptions(unbounded: boolean): {
   separateAuthExpiry: true;

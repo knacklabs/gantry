@@ -150,7 +150,7 @@ describe('ask_user_question lane deadlines', () => {
     vi.restoreAllMocks();
   });
 
-  it('has no deadline and waits beyond the former expiry until answered', async () => {
+  it('waits for a claimed interactive question beyond the auth TTL until answered', async () => {
     vi.stubEnv('GANTRY_INTERACTIVE_PERMISSION_TIMEOUT_MS', '0');
     contextState.permissionLane = 'interactive';
     const handler = await askUserQuestionHandler();
@@ -163,8 +163,9 @@ describe('ask_user_question lane deadlines', () => {
 
     const requestDir = path.join(contextState.ipcDir, 'user-questions');
     const requestFile = await waitForJsonFile(requestDir);
+    const requestPath = path.join(requestDir, requestFile);
     const request = JSON.parse(
-      fs.readFileSync(path.join(requestDir, requestFile), 'utf8'),
+      fs.readFileSync(requestPath, 'utf8'),
     ) as SignedQuestionRequest;
     expect(request.expiresAt).toBeUndefined();
     expect(request.authExpiresAt).toEqual(expect.any(String));
@@ -180,13 +181,19 @@ describe('ask_user_question lane deadlines', () => {
         fallbackTimeoutMs: 5 * 60_000,
       }),
     ).toBeUndefined();
+    const claimMarkerPath = path.join(
+      requestDir,
+      `.processing-host-${requestFile}`,
+    );
+    fs.renameSync(requestPath, claimMarkerPath);
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    fs.unlinkSync(claimMarkerPath);
 
-    const tenMinutesLater = Date.now() + 10 * 60_000;
-    const dateNow = vi.spyOn(Date, 'now').mockReturnValue(tenMinutesLater);
-    expectValidRequestAuth(request, IPC_INTERACTION_RETENTION_TTL_MS);
+    const dateNow = vi
+      .spyOn(Date, 'now')
+      .mockReturnValue(Date.parse(request.authExpiresAt!) + 60_000);
     await new Promise((resolve) => setTimeout(resolve, 150));
     expect(settled).toBe(false);
-    dateNow.mockRestore();
 
     const responseDir = path.join(contextState.ipcDir, 'user-answers');
     fs.mkdirSync(responseDir, { recursive: true });
@@ -208,6 +215,7 @@ describe('ask_user_question lane deadlines', () => {
         },
       ],
     });
+    dateNow.mockRestore();
   });
 
   it('returns a clear failure when an unclaimed interactive question reaches its ingestion bound', async () => {

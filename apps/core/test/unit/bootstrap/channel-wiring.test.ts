@@ -467,6 +467,43 @@ describe('createChannelWiring', () => {
     });
   });
 
+  it('does not dispatch a question that was cancelled before channel delivery', async () => {
+    const requestUserAnswer = vi.fn(
+      async (_jid: string, request: UserQuestionRequest) => ({
+        requestId: request.requestId,
+        answers: { Choice: 'A' },
+      }),
+    );
+    const responder = createUserQuestionResponder({
+      findBoundChannel: () => ({}),
+      asUserQuestionSurface: () => ({ requestUserAnswer }),
+      interactionLifecycle: {
+        logger: { debug: vi.fn(), error: vi.fn() },
+      },
+    });
+    const request: UserQuestionRequest = {
+      requestId: 'question-cancel-before-dispatch',
+      appId: 'default',
+      sourceAgentFolder: 'main_agent',
+      targetJid: 'tg:team',
+      questions: [],
+    };
+
+    await expect(
+      responder.cancelUserQuestion({
+        requestId: request.requestId,
+        appId: request.appId,
+        sourceAgentFolder: request.sourceAgentFolder,
+        reason: 'Question cancelled. Nothing changed.',
+      }),
+    ).resolves.toBe('queued');
+    await expect(responder.requestUserAnswer(request)).resolves.toEqual({
+      requestId: request.requestId,
+      answers: {},
+    });
+    expect(requestUserAnswer).not.toHaveBeenCalled();
+  });
+
   it('settles an aborted question through the normal channel-wiring facade', async () => {
     let resolveAnswer!: (response: {
       requestId: string;
@@ -552,17 +589,19 @@ describe('createChannelWiring', () => {
     const cancellationFailure = new Error('question cancellation unavailable');
     const cancelPendingQuestion = vi
       .fn()
+      .mockResolvedValueOnce('retryable')
       .mockRejectedValueOnce(cancellationFailure)
       .mockImplementationOnce(async (cancellation) => {
         resolveAnswer({ requestId: cancellation.requestId, answers: {} });
         return 'settled' as const;
       });
     const logger = { debug: vi.fn(), error: vi.fn() };
+    let deliverPrompt!: () => void;
     const responder = createUserQuestionResponder({
       findBoundChannel: () => ({}),
       asUserQuestionSurface: () => ({
         requestUserAnswer: vi.fn(async (_jid, request, onPromptDelivered) => {
-          onPromptDelivered?.('question-prompt-retry');
+          deliverPrompt = () => onPromptDelivered?.('question-prompt-retry');
           return new Promise<{
             requestId: string;
             answers: Record<string, string | string[]>;
@@ -583,6 +622,7 @@ describe('createChannelWiring', () => {
     };
 
     try {
+      const answer = responder.requestUserAnswer(request);
       await expect(
         responder.cancelUserQuestion({
           requestId: request.requestId,
@@ -592,7 +632,7 @@ describe('createChannelWiring', () => {
         }),
       ).resolves.toBe('queued');
 
-      const answer = responder.requestUserAnswer(request);
+      deliverPrompt();
       await vi.advanceTimersByTimeAsync(0);
 
       expect(logger.error).toHaveBeenCalledWith(
@@ -609,7 +649,7 @@ describe('createChannelWiring', () => {
         requestId: request.requestId,
         answers: {},
       });
-      expect(cancelPendingQuestion).toHaveBeenCalledTimes(2);
+      expect(cancelPendingQuestion).toHaveBeenCalledTimes(3);
       await Promise.resolve();
       expect(unhandledRejection).not.toHaveBeenCalled();
     } finally {

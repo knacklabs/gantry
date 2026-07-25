@@ -163,6 +163,10 @@ export function createUserQuestionResponder(input: {
     request: UserQuestionRequest,
     onPromptDelivered?: (messageId: string, questionIndex?: number) => void,
   ): Promise<UserQuestionResponse> {
+    const key = questionScopeKey(request);
+    if (queuedCancellations.delete(key)) {
+      return { requestId: request.requestId, answers: {} };
+    }
     if (!request.targetJid) {
       return { requestId: request.requestId, answers: {} };
     }
@@ -175,7 +179,6 @@ export function createUserQuestionResponder(input: {
       return { requestId: request.requestId, answers: {} };
     }
     try {
-      const key = questionScopeKey(request);
       const cancelPendingQuestion = (cancellation: UserQuestionCancellation) =>
         questionSurface.cancelPendingQuestion?.(cancellation) ??
         Promise.resolve('not_found' as const);
