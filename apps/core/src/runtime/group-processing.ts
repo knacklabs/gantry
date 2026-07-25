@@ -68,6 +68,8 @@ import {
 } from './failover-eligibility.js';
 let streamingGenerationCounter = 0;
 const PERMISSION_BACKGROUND_DEMOTE_MS = 120_000;
+const PROVIDER_FAILOVER_EXHAUSTED_MESSAGE =
+  "The AI provider is unavailable and your message couldn't be processed after several retries. Please try again shortly.";
 type ProgressHeartbeat = ReturnType<typeof startGroupProgressHeartbeats>;
 export function createGroupProcessor(deps: GroupProcessingDeps) {
   const collectSessionMemory = deps.collectSessionMemory;
@@ -739,6 +741,47 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
     }
     let resultOk = true;
     if (output === 'error' || hadError) {
+      // A provider-infra failure (failover-eligible or missing-provider-session)
+      // is only "exhausted" once the queue has burned all its retries
+      // (options.finalRetry). Before that, a transient 429/502 must keep the
+      // normal rollback -> retry path so the provider gets time to recover;
+      // dropping it on the FIRST error silently loses the user's turn.
+      const failoverExhausted =
+        options.finalRetry === true &&
+        (isFailoverEligibleError(lastAgentError) ||
+          isMissingProviderSessionError(lastAgentError));
+      // ponytail: interim guard against silent turn loss. The durable fix is a
+      // dead-letter re-drive of the dropped turn (issue #285). Until then, when
+      // failover is exhausted we stop the replay storm by preserving the cursor
+      // (below) AND surface an error + user-visible notice so the turn is never
+      // silently dropped.
+      if (failoverExhausted && !outputSentToUser) {
+        logger.error(
+          { group: group.name, error: lastAgentError },
+          'Provider failover exhausted after retries; dropping turn to stop replay storm, notifying user',
+        );
+        const noticeOptions = buildMessageOptions();
+        applyDeliverySettlement(
+          await settleDeliveryAttempt(
+            () =>
+              sendMessageToChannel(
+                PROVIDER_FAILOVER_EXHAUSTED_MESSAGE,
+                noticeOptions,
+              ),
+            {
+              scope: 'runtime-provider-failover-exhausted',
+              target: chatJid,
+            },
+          ).catch((err) => {
+            logger.warn(
+              { err, group: group.name },
+              'Failed to send provider failover exhausted notice',
+            );
+            return 'not_delivered' as const;
+          }),
+          { streamed: false, terminal: true },
+        );
+      }
       resultOk = await handleFailure({
         outputSentToUser,
         groupName: group.name,
@@ -747,9 +790,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
         deps,
         acknowledgeFailedTurn:
           options.finalRetry === true && !deps.queue.isShuttingDown?.(),
-        preserveCursor:
-          isFailoverEligibleError(lastAgentError) ||
-          isMissingProviderSessionError(lastAgentError),
+        preserveCursor: failoverExhausted,
         logger,
       });
     } else {

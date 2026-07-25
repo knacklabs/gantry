@@ -1393,8 +1393,8 @@ describe('createGroupProcessor', () => {
       expect(lastSetCursor).toEqual(['group1@g.us', 'prev-cursor']);
     });
 
-    it('preserves the cursor for provider gateway failures so Slack messages are not replayed', async () => {
-      const group = makeGroup();
+    it('rolls back a transient provider gateway failure for retry before failover is exhausted', async () => {
+      const group = makeGroup({ requiresTrigger: false });
       const messages = [makeMessage({ timestamp: '1700000001' })];
       const { deps } = setupHappyPath({ group, messages });
 
@@ -1420,12 +1420,71 @@ describe('createGroupProcessor', () => {
       );
 
       const { processGroupMessages } = createGroupProcessor(deps);
+      // No finalRetry: queue retries are NOT yet exhausted, so a transient
+      // 502 must roll the cursor back and retry, not be silently dropped.
       const result = await processGroupMessages('group1@g.us');
 
+      expect(result).toBe(false);
+      const setCursorCalls = (deps.setCursor as ReturnType<typeof vi.fn>).mock
+        .calls;
+      const lastSetCursor = setCursorCalls[setCursorCalls.length - 1];
+      expect(lastSetCursor).toEqual(['group1@g.us', 'prev-cursor']);
+    });
+
+    it('preserves the cursor and notifies the user when provider failover is exhausted', async () => {
+      const group = makeGroup({ requiresTrigger: false });
+      const messages = [makeMessage({ timestamp: '1700000001' })];
+      const { deps, channel } = setupHappyPath({ group, messages });
+
+      const errorOutput: AgentOutput = {
+        status: 'error',
+        result: null,
+        error: 'API Error: 502 Bad Gateway',
+      };
+      mockSpawnAgent.mockImplementation(
+        async (
+          _group: ConversationRoute,
+          _input: unknown,
+          _onProc: unknown,
+          onOutput?: (output: AgentOutput) => Promise<void>,
+        ) => {
+          if (onOutput) await onOutput(errorOutput);
+          return errorOutput;
+        },
+      );
+
+      (deps.getCursor as ReturnType<typeof vi.fn>).mockReturnValue(
+        'prev-cursor',
+      );
+
+      const { processGroupMessages } = createGroupProcessor(deps);
+      // finalRetry: queue retries exhausted -> stop the replay storm by
+      // preserving the cursor, but surface an error + a user-visible notice.
+      const result = await processGroupMessages('group1@g.us', {
+        finalRetry: true,
+      });
+
       expect(result).toBe(true);
+      // Cursor is NOT rolled back to the previous value (storm stopped).
       expect(deps.setCursor).not.toHaveBeenCalledWith(
         'group1@g.us',
         'prev-cursor',
+      );
+      // User is notified: the turn is never silently dropped.
+      const sendMessageCalls = (
+        channel.sendMessage as ReturnType<typeof vi.fn>
+      ).mock.calls;
+      const noticeCall = sendMessageCalls.find(
+        (call) =>
+          call[0] === 'group1@g.us' &&
+          typeof call[1] === 'string' &&
+          call[1].includes('provider is unavailable'),
+      );
+      expect(noticeCall).toBeDefined();
+      // And an error is logged for observability.
+      expect(mockLogger.error).toHaveBeenCalledWith(
+        expect.objectContaining({ group: group.name }),
+        expect.stringContaining('Provider failover exhausted'),
       );
     });
 
