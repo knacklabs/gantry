@@ -19,6 +19,7 @@ import {
 } from '@core/config/settings/runtime-settings.js';
 import { listSlackRecentChats } from '@core/cli/slack-chat-discovery.js';
 import { makeAgentThreadQueueKey } from '@core/shared/thread-queue-key.js';
+import { isDefaultAgentLastRoute } from '@core/cli/main-agent.js';
 import {
   pruneAgentSenderPolicyOverride,
   pruneDesiredStateAgent,
@@ -1419,6 +1420,32 @@ describe('cli slack helpers', () => {
     const updated = loadRuntimeSettings(runtimeHome);
     expect(updated.agents.orphan).toBeUndefined();
     expect(updated.providerAccounts.orphan_account).toBeUndefined();
+  });
+
+  it('flags the default agent last route but allows removing one of several', () => {
+    const one = {
+      [makeAgentThreadQueueKey('sl:C1', 'agent:main_agent')]: {
+        name: 'M',
+        folder: 'main_agent',
+        trigger: '',
+        added_at: '2026-04-24T00:00:00.000Z',
+      },
+    };
+    expect(isDefaultAgentLastRoute(one, 'main_agent')).toBe(true);
+
+    const two = {
+      ...one,
+      [makeAgentThreadQueueKey('sl:C2', 'agent:main_agent')]: {
+        name: 'M',
+        folder: 'main_agent',
+        trigger: '',
+        added_at: '2026-04-24T00:00:00.000Z',
+      },
+    };
+    expect(isDefaultAgentLastRoute(two, 'main_agent')).toBe(false);
+
+    // Non-default agents are never flagged.
+    expect(isDefaultAgentLastRoute(one, 'other')).toBe(false);
   });
 
   it('refuses to remove the default agent (main_agent) from desired state', async () => {

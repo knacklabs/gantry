@@ -8,6 +8,24 @@ export { defaultTriggerForAgentName } from '../shared/trigger-pattern.js';
 export const DEFAULT_AGENT_CLI_NAME = DEFAULT_AGENT_NAME;
 export const DEFAULT_AGENT_FOLDER = 'main_agent';
 
+/**
+ * True when `folder` is the default agent and the given routes contain only one
+ * route for it. The runtime re-seeds a default agent route whenever no routes
+ * remain (ensureFreshRuntimeHasDefaultAgent), so removing the default agent's
+ * last route can silently return on the next boot -- callers should refuse it.
+ */
+export function isDefaultAgentLastRoute(
+  groups: Record<string, { folder: string }>,
+  folder: string,
+): boolean {
+  if (folder !== DEFAULT_AGENT_FOLDER) return false;
+  return (
+    Object.values(groups).filter(
+      (group) => group.folder === DEFAULT_AGENT_FOLDER,
+    ).length <= 1
+  );
+}
+
 export function normalizeDefaultAgentName(raw: string | undefined): string {
   return raw?.trim() || DEFAULT_AGENT_CLI_NAME;
 }

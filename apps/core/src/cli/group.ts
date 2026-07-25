@@ -19,6 +19,7 @@ import {
   defaultTriggerForAgentName,
   displayAgentName,
   defaultAgentNameFromSettings,
+  isDefaultAgentLastRoute,
   normalizeDefaultAgentName,
 } from './main-agent.js';
 import { RuntimeGroupDb } from './runtime-group-db.js';
@@ -427,6 +428,13 @@ async function runRemove(runtimeHome: string, args: string[]): Promise<number> {
       return 1;
     }
     const found = resolved.found;
+    // Refuse the default agent's last route: the runtime re-seeds it otherwise.
+    if (isDefaultAgentLastRoute(groups, found.group.folder)) {
+      p.log.error(
+        `${found.group.folder} is the default agent and must keep at least one route; it cannot be removed.`,
+      );
+      return 1;
+    }
     const routeKey = found.jid;
     const { chatJid } = parseAgentThreadQueueKey(routeKey);
 
@@ -492,12 +500,6 @@ async function runRemove(runtimeHome: string, args: string[]): Promise<number> {
         `Removal did not persist: ${found.group.folder} still exists in desired state (${desiredPrune.error}). It will be recreated on the next reload.`,
       );
       return 1;
-    }
-    if (desiredPrune.keptAsDefault) {
-      p.log.info(
-        `Route removed. ${found.group.folder} is the default agent (main_agent), so its definition is retained -- the default agent underpins runtime startup and cannot be removed.`,
-      );
-      return 0;
     }
     if (desiredPrune.keptForDelegates?.length) {
       // Retained because other agents delegate to it.
