@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Job, ConversationRoute } from '@core/domain/types.js';
+import { resolveExecutionContext } from '@core/jobs/execution-context.js';
+import { makeAgentThreadQueueKey } from '@core/shared/thread-queue-key.js';
 
 function makeJob(overrides: Partial<Job> = {}): Job {
   return {
@@ -180,9 +182,9 @@ describe('system memory dreaming jobs', () => {
     expect(deleteJob).not.toHaveBeenCalled();
   });
 
-  it('re-stamps silent on dead-lettered dreaming jobs without reviving them', async () => {
+  it('re-stamps the corrected target on dead-lettered dreaming jobs (repo preserves the dead-letter status)', async () => {
     const { registerSystemJobs } = await loadSystemJobs();
-    const upsertJob = vi.fn().mockResolvedValue({ created: true });
+    const upsertJob = vi.fn().mockResolvedValue({ created: false });
     const updateJob = vi.fn(async () => undefined);
     const getJobById = vi.fn(async (id: string) =>
       id.startsWith('system:dreaming:')
@@ -205,16 +207,81 @@ describe('system memory dreaming jobs', () => {
       },
     } as never);
 
-    expect(updateJob).toHaveBeenCalledTimes(1);
-    expect(updateJob).toHaveBeenCalledWith(
-      expect.stringMatching(/^system:dreaming:/),
-      { silent: true },
+    // A dead-lettered job is no longer skipped: registration re-stamps the
+    // corrected bare-jid target (and silent) so a later operator resume works.
+    // The repo upsert preserves the dead_lettered status, so this is not a
+    // revival — no auto-resume happens here.
+    const dreamUpserts = upsertJob.mock.calls.filter(
+      (call) => call[0].prompt === '__system:memory_dream',
     );
-    expect(
-      upsertJob.mock.calls.filter(
-        (call) => call[0].prompt === '__system:memory_dream',
-      ),
-    ).toHaveLength(0);
+    expect(dreamUpserts).toHaveLength(1);
+    expect(dreamUpserts[0]?.[0].execution_context).toEqual({
+      conversationJid: 'sl:C123',
+      threadId: null,
+      workspaceKey: 'agent',
+      sessionId: null,
+    });
+    expect(dreamUpserts[0]?.[0].silent).toBe(true);
+    expect(updateJob).not.toHaveBeenCalled();
+  });
+
+  it('stores a bare execution jid + provider account for a fully-qualified route key and resolves without dead-lettering', async () => {
+    const { registerSystemJobs } = await loadSystemJobs();
+    // The binding loader collapses the bare, agent-qualified, and
+    // provider-qualified aliases down to this single fully-qualified route key
+    // (see canonical-binding-repository.test.ts). conversationRoutes() hands
+    // that key to the registrar verbatim.
+    const routeKey = makeAgentThreadQueueKey(
+      'tg:5759865942',
+      'agent:main_agent',
+      null,
+      'telegram_default',
+    );
+    const route = makeRoute({
+      folder: 'main_agent',
+      conversationKind: 'channel',
+      providerAccountId: 'telegram_default',
+    });
+    const routes = { [routeKey]: route };
+    const upsertJob = vi.fn().mockResolvedValue({ created: true });
+    const getJobById = vi.fn().mockResolvedValue(undefined);
+
+    await registerSystemJobs({
+      conversationRoutes: () => routes,
+      opsRepository: {
+        getJobById,
+        getAllJobs: vi.fn(async () => []),
+        deleteJob: vi.fn(async () => undefined),
+        upsertJob,
+      },
+    } as never);
+
+    const dreamUpsert = upsertJob.mock.calls.find(
+      (call) => call[0].prompt === '__system:memory_dream',
+    )?.[0];
+    expect(dreamUpsert).toBeDefined();
+    // Bare chatJid in execution_context, provider account carried on the route.
+    expect(dreamUpsert.execution_context).toEqual({
+      conversationJid: 'tg:5759865942',
+      threadId: null,
+      workspaceKey: 'main_agent',
+      sessionId: null,
+    });
+    expect(dreamUpsert.notification_routes).toEqual([
+      {
+        conversationJid: 'tg:5759865942',
+        threadId: null,
+        providerAccountId: 'telegram_default',
+        label: 'primary',
+      },
+    ]);
+
+    // The stored target resolves back to the kept fully-qualified route; a
+    // non-null result means the scheduler would run it, not dead-letter it.
+    const resolved = resolveExecutionContext(dreamUpsert as Job, routes);
+    expect(resolved).not.toBeNull();
+    expect(resolved?.executionJid).toBe('tg:5759865942');
+    expect(resolved?.group).toBe(route);
   });
 
   it('registers per-conversation dreaming jobs non-silent when dreaming alerts are enabled', async () => {
