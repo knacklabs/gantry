@@ -7,6 +7,35 @@ const ORDINARY_IPC_AUTH_LIFETIME_MS = 5 * 60_000;
 
 export type IpcAuthPurpose = 'unbounded-interaction' | 'cancellation-retention';
 
+const PERMISSION_RESPONSE_FIELDS_AFTER_APPROVED = [
+  'mode',
+  'decidedBy',
+  'reason',
+  'risk_level',
+  'risk_category',
+  'updatedPermissions',
+  'decisionClassification',
+] as const;
+
+export function buildPermissionResponseSignaturePayload(
+  raw: object,
+): Record<string, unknown> {
+  const response = raw as Record<string, unknown>;
+  const payload: Record<string, unknown> = {
+    requestId: response.requestId,
+  };
+  if (response.responseNonce) {
+    payload.responseNonce = response.responseNonce;
+  }
+  payload.approved = response.approved;
+  for (const field of PERMISSION_RESPONSE_FIELDS_AFTER_APPROVED) {
+    if (response[field]) {
+      payload[field] = response[field];
+    }
+  }
+  return payload;
+}
+
 export function signIpcRequestPayload(
   requestSigningKey: string | undefined,
   payload: Record<string, unknown>,
@@ -83,9 +112,12 @@ export function verifyIpcResponsePayload(
 export function hasValidIpcResponseSignature(
   publicKeyPem: string | undefined,
   raw: Record<string, unknown>,
-  payload: Record<string, unknown>,
 ): boolean {
   const signature =
     typeof raw.signature === 'string' ? raw.signature.trim() : '';
-  return verifyIpcResponsePayload(publicKeyPem, payload, signature);
+  return verifyIpcResponsePayload(
+    publicKeyPem,
+    buildPermissionResponseSignaturePayload(raw),
+    signature,
+  );
 }

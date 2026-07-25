@@ -11,6 +11,7 @@ import { createIpcAuthEnvelope } from '@core/runtime/ipc-auth.js';
 import { agentIdForFolder } from '@core/domain/agent/agent-folder-id.js';
 import { resolveWorkspaceFolderPath } from '@core/platform/workspace-folder.js';
 import { semanticCapabilityInputSchema } from '@core/shared/semantic-capabilities.js';
+import { buildPermissionResponseSignaturePayload } from '@core/shared/ipc-signing.js';
 import { makeAgentThreadQueueKey } from '@core/shared/thread-queue-key.js';
 import type {
   PendingInteraction,
@@ -229,13 +230,7 @@ describe('ipc-interaction-handler', () => {
     expect(
       verifyIpcResponsePayload(
         keys.publicKeyPem,
-        {
-          requestId: 'perm-2',
-          approved: false,
-          reason: 'denied',
-          risk_level: 'critical',
-          risk_category: 'secret',
-        },
+        buildPermissionResponseSignaturePayload(payload),
         payload.signature,
       ),
     ).toBe(true);

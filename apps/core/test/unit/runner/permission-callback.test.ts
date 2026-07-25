@@ -11,6 +11,7 @@ import { createIpcAuthEnvelope } from '@core/runtime/ipc-auth.js';
 import { processPermissionInteractionIpc } from '@core/runtime/ipc-interaction-processing.js';
 import { formatPermissionDeniedMessage } from '@core/shared/permission-decision-message.js';
 import { IPC_INTERACTION_RETENTION_TTL_MS } from '@core/shared/ipc-interaction-lifetime.js';
+import { buildPermissionResponseSignaturePayload } from '@core/shared/ipc-signing.js';
 
 const CANCELLATION_LIFETIME_MS = 24 * 60 * 60_000;
 
@@ -779,10 +780,10 @@ describe('requestPermissionApproval', () => {
       await import('@core/shared/ipc-signing.js');
     vi.mocked(hasValidIpcResponseSignature).mockClear();
     vi.mocked(hasValidIpcResponseSignature).mockImplementationOnce(
-      (publicKey, raw, payload) =>
+      (publicKey, raw) =>
         verifyIpcResponsePayload(
           publicKey,
-          payload,
+          buildPermissionResponseSignaturePayload(raw),
           typeof raw.signature === 'string' ? raw.signature : undefined,
         ),
     );

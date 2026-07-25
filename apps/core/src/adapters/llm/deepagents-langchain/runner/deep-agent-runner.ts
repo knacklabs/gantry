@@ -220,6 +220,7 @@ export async function runDeepAgentTurn(input: {
         },
         permissionEnv,
         lockedAccessPreset: process.env.GANTRY_AGENT_ACCESS_PRESET === 'locked',
+        ...(input.signal ? { signal: input.signal } : {}),
       },
     }),
   );

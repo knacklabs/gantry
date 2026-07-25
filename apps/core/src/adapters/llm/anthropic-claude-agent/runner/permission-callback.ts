@@ -7,6 +7,7 @@ import { persistentPermissionUpdates } from '../../../../shared/permission-tool-
 import { AUTO_PERMISSION_CLASSIFIER_WAIT_MS } from '../../../../shared/permission-mode.js';
 import { NO_PERMISSION_TIMEOUT_MS } from '../../../../shared/permission-timeout.js';
 import {
+  buildPermissionResponseSignaturePayload,
   createSignedIpcRequestEnvelope,
   hasValidIpcResponseSignature,
 } from '../../../../shared/ipc-signing.js';
@@ -299,57 +300,8 @@ async function requestPermissionApprovalInner(options: {
             typeof raw === 'object' &&
             (raw as { requestId?: string }).requestId === requestId
           ) {
-            const responsePayload: Record<string, unknown> = {
-              requestId,
-              responseNonce,
-              approved: Boolean((raw as { approved?: unknown }).approved),
-              ...(typeof (raw as { mode?: unknown }).mode === 'string'
-                ? { mode: (raw as { mode: string }).mode }
-                : {}),
-              ...(typeof (raw as { decidedBy?: unknown }).decidedBy === 'string'
-                ? { decidedBy: (raw as { decidedBy: string }).decidedBy }
-                : {}),
-              ...(typeof (raw as { reason?: unknown }).reason === 'string'
-                ? { reason: (raw as { reason: string }).reason }
-                : {}),
-              ...(isPermissionRiskLevel(
-                (raw as { risk_level?: unknown }).risk_level,
-              )
-                ? {
-                    risk_level: (
-                      raw as { risk_level: PermissionDecision['risk_level'] }
-                    ).risk_level,
-                  }
-                : {}),
-              ...(isPermissionRiskCategory(
-                (raw as { risk_category?: unknown }).risk_category,
-              )
-                ? {
-                    risk_category: (
-                      raw as {
-                        risk_category: PermissionDecision['risk_category'];
-                      }
-                    ).risk_category,
-                  }
-                : {}),
-              ...(Array.isArray(
-                (raw as { updatedPermissions?: unknown }).updatedPermissions,
-              )
-                ? {
-                    updatedPermissions: (
-                      raw as { updatedPermissions: unknown[] }
-                    ).updatedPermissions,
-                  }
-                : {}),
-              ...(typeof (raw as { decisionClassification?: unknown })
-                .decisionClassification === 'string'
-                ? {
-                    decisionClassification: (
-                      raw as { decisionClassification: string }
-                    ).decisionClassification,
-                  }
-                : {}),
-            };
+            const responsePayload =
+              buildPermissionResponseSignaturePayload(raw);
             if (
               (raw as { responseNonce?: unknown }).responseNonce !==
               responseNonce
@@ -359,11 +311,16 @@ async function requestPermissionApprovalInner(options: {
                 reason: 'Malformed permission response',
               };
             }
+            if (typeof responsePayload.approved !== 'boolean') {
+              return {
+                approved: false,
+                reason: 'Malformed permission response',
+              };
+            }
             if (
               !hasValidIpcResponseSignature(
                 IPC_RESPONSE_VERIFY_KEY,
                 raw as Record<string, unknown>,
-                responsePayload,
               )
             ) {
               return {

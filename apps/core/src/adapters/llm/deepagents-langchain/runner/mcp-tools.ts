@@ -175,6 +175,7 @@ export async function connectGantryAndThirdPartyMcpTools(
       filesystemEnabledEnv: process.env.GANTRY_DEEPAGENTS_FILESYSTEM_ENABLED,
     }),
     ...(input.shellCwd ? { cwd: input.shellCwd } : {}),
+    ...(input.gate.signal ? { signal: input.gate.signal } : {}),
   });
   const reservedToolNames = new Set<string>([
     ...selectedGantrySet,

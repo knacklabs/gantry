@@ -2,12 +2,13 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   requestPermissionApprovalViaIpc,
   type PermissionIpcRuntimeEnv,
 } from '@core/runner/permission-ipc-client.js';
+import { buildPermissionIpcRuntimeEnv } from '@core/adapters/llm/deepagents-langchain/runner/runtime-env.js';
 import {
   createIpcResponseSigningKeyPair,
   signIpcResponsePayload,
@@ -33,6 +34,7 @@ function runtimeEnv(
     senderId: 'operator-1',
     senderIsControlApprover: true,
     permissionRequestTimeoutMs: 1_000,
+    permissionLane: 'interactive',
     resolveWorkspaceIpcDir: (folder) => path.join(tempDir, 'ipc', folder),
     ...overrides,
   };
@@ -53,18 +55,26 @@ async function waitForFiles(dir: string, count: number): Promise<string[]> {
 describe('requestPermissionApprovalViaIpc', () => {
   beforeEach(() => {
     tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gantry-perm-ipc-'));
+    vi.spyOn(fs, 'watch').mockImplementation(() => {
+      throw new Error('exercise the production polling fallback');
+    });
   });
   afterEach(() => {
+    vi.restoreAllMocks();
     fs.rmSync(tempDir, { recursive: true, force: true });
   });
 
   it('writes a signed permission-request file the host can turn into a durable interaction', async () => {
-    const decision = requestPermissionApprovalViaIpc(runtimeEnv(), {
-      agentFolder: 'main_agent',
-      toolName: 'mcp__notion__search',
-      toolInput: { query: 'roadmap' },
-      decisionReason: 'no selected capability rule matched',
-    });
+    const keys = createIpcResponseSigningKeyPair();
+    const decision = requestPermissionApprovalViaIpc(
+      runtimeEnv({ ipcResponseVerifyKey: keys.publicKeyPem }),
+      {
+        agentFolder: 'main_agent',
+        toolName: 'mcp__notion__search',
+        toolInput: { query: 'roadmap' },
+        decisionReason: 'no selected capability rule matched',
+      },
+    );
 
     const requestDir = path.join(
       tempDir,
@@ -86,6 +96,8 @@ describe('requestPermissionApprovalViaIpc', () => {
       authExpiresAt?: string;
       context?: { responseKeyId?: string };
       toolInput?: { query?: string };
+      permissionLane?: string;
+      unattended?: boolean;
     };
     // Host-required fields for durable pending_interactions creation:
     expect(request.requestId).toMatch(/^perm-/);
@@ -94,6 +106,8 @@ describe('requestPermissionApprovalViaIpc', () => {
     expect(request.senderId).toBe('operator-1');
     expect(request.toolInput?.query).toBe('roadmap');
     expect(request.context?.responseKeyId).toBe('key-id');
+    expect(request.permissionLane).toBe('interactive');
+    expect(request.unattended).toBe(false);
     // Signed so the host can verify it came from the trusted runner.
     expect(typeof request.signature).toBe('string');
     expect(request.expiresAt).toBeUndefined();
@@ -107,25 +121,108 @@ describe('requestPermissionApprovalViaIpc', () => {
       'permission-responses',
     );
     fs.mkdirSync(responseDir, { recursive: true });
+    const replayedResponsePayload = {
+      requestId: request.requestId,
+      responseNonce: 'nonce-from-another-request',
+      approved: false,
+    };
     fs.writeFileSync(
       path.join(responseDir, `${request.requestId}.json`),
       JSON.stringify({
-        requestId: request.requestId,
-        responseNonce: 'mismatch',
-        approved: false,
-        signature: 'x',
+        ...replayedResponsePayload,
+        signature: signIpcResponsePayload(
+          keys.privateKeyPem,
+          replayedResponsePayload,
+        ),
       }),
     );
     const result = await decision;
-    // Nonce mismatch -> rejected response (the signature/nonce path is enforced).
-    expect(result.approved).toBe(false);
+    expect(result).toEqual({
+      approved: false,
+      reason: 'Malformed permission response',
+    });
   });
 
-  it('does not wait for approval for unattended jobs (zero/negative timeout)', async () => {
+  it('waits without a deadline for interactive approval at the no-timeout sentinel', async () => {
+    const keys = createIpcResponseSigningKeyPair();
+    const decision = requestPermissionApprovalViaIpc(
+      runtimeEnv({
+        permissionLane: 'interactive',
+        permissionRequestTimeoutMs: 0,
+        permissionMode: 'ask',
+        ipcResponseVerifyKey: keys.publicKeyPem,
+      }),
+      {
+        agentFolder: 'main_agent',
+        toolName: 'mcp__notion__search',
+      },
+    );
+    const requestDir = path.join(
+      tempDir,
+      'ipc',
+      'main_agent',
+      'permission-requests',
+    );
+    const [requestFile] = await waitForFiles(requestDir, 1);
+    const request = JSON.parse(
+      fs.readFileSync(path.join(requestDir, requestFile), 'utf-8'),
+    ) as {
+      requestId: string;
+      responseNonce: string;
+      permissionLane?: string;
+      unattended?: boolean;
+    };
+    expect(request).toMatchObject({
+      permissionLane: 'interactive',
+      unattended: false,
+    });
+    await expect(
+      Promise.race([
+        decision.then(() => 'settled'),
+        new Promise<string>((resolve) =>
+          setTimeout(() => resolve('waiting'), 50),
+        ),
+      ]),
+    ).resolves.toBe('waiting');
+
+    const responsePayload = {
+      requestId: request.requestId,
+      responseNonce: request.responseNonce,
+      approved: true,
+      mode: 'allow_once',
+      decidedBy: 'operator-1',
+      reason: 'approved by operator',
+      decisionClassification: 'user_temporary',
+    };
+    const responseDir = path.join(
+      tempDir,
+      'ipc',
+      'main_agent',
+      'permission-responses',
+    );
+    fs.mkdirSync(responseDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(responseDir, `${request.requestId}.json`),
+      JSON.stringify({
+        ...responsePayload,
+        signature: signIpcResponsePayload(keys.privateKeyPem, responsePayload),
+      }),
+    );
+
+    await expect(decision).resolves.toMatchObject({
+      approved: true,
+      mode: 'allow_once',
+      decidedBy: 'operator-1',
+      decisionClassification: 'user_temporary',
+    });
+  });
+
+  it('does not wait for approval in the autonomous lane at the no-timeout sentinel', async () => {
     const result = await requestPermissionApprovalViaIpc(
       runtimeEnv({
         jobId: 'job-1',
         jobRunId: 'run-1',
+        permissionLane: 'autonomous',
         permissionRequestTimeoutMs: 0,
         permissionMode: 'ask',
       }),
@@ -136,6 +233,7 @@ describe('requestPermissionApprovalViaIpc', () => {
     );
     expect(result.approved).toBe(false);
     expect(result.decisionClassification).toBe('user_reject');
+    expect(result.reason).toContain('Unattended jobs do not wait for approval');
     // The request file is still written so the host records the durable row and
     // surfaces the capability blocker.
     const requestDir = path.join(
@@ -153,11 +251,94 @@ describe('requestPermissionApprovalViaIpc', () => {
       runId?: string;
       expiresAt?: string;
       authExpiresAt?: string;
+      permissionLane?: string;
+      unattended?: boolean;
     };
     expect(request.jobId).toBe('job-1');
     expect(request.runId).toBe('run-1');
+    expect(request.permissionLane).toBe('autonomous');
+    expect(request.unattended).toBe(true);
     expect(request.expiresAt).toBeUndefined();
     expect(request.authExpiresAt).toEqual(expect.any(String));
+  });
+
+  it('marks a finite-timeout autonomous request unattended from its lane', async () => {
+    const decision = requestPermissionApprovalViaIpc(
+      runtimeEnv({
+        permissionLane: 'autonomous',
+        permissionRequestTimeoutMs: 1_000,
+      }),
+      {
+        agentFolder: 'main_agent',
+        toolName: 'mcp__notion__search',
+      },
+    );
+    const requestDir = path.join(
+      tempDir,
+      'ipc',
+      'main_agent',
+      'permission-requests',
+    );
+    const [requestFile] = await waitForFiles(requestDir, 1);
+    const request = JSON.parse(
+      fs.readFileSync(path.join(requestDir, requestFile), 'utf-8'),
+    ) as {
+      requestId: string;
+      permissionLane?: string;
+      unattended?: boolean;
+    };
+    expect(request).toMatchObject({
+      permissionLane: 'autonomous',
+      unattended: true,
+    });
+
+    const responseDir = path.join(
+      tempDir,
+      'ipc',
+      'main_agent',
+      'permission-responses',
+    );
+    fs.mkdirSync(responseDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(responseDir, `${request.requestId}.json`),
+      JSON.stringify({
+        requestId: request.requestId,
+        responseNonce: 'mismatch',
+        approved: false,
+        signature: 'x',
+      }),
+    );
+    await expect(decision).resolves.toMatchObject({ approved: false });
+  });
+
+  it('honors abort while an interactive no-timeout request is waiting', async () => {
+    const controller = new AbortController();
+    const decision = requestPermissionApprovalViaIpc(
+      runtimeEnv({
+        permissionLane: 'interactive',
+        permissionRequestTimeoutMs: 0,
+      }),
+      {
+        agentFolder: 'main_agent',
+        toolName: 'mcp__notion__search',
+        signal: controller.signal,
+      },
+    );
+    const requestDir = path.join(
+      tempDir,
+      'ipc',
+      'main_agent',
+      'permission-requests',
+    );
+    expect(await waitForFiles(requestDir, 1)).toHaveLength(1);
+
+    controller.abort();
+
+    await expect(decision).resolves.toMatchObject({
+      approved: false,
+      reason: 'Permission request cancelled.',
+      decisionClassification: 'user_reject',
+    });
   });
 
   it('waits for and honors a late host allow response for zero-timeout auto mode', async () => {
@@ -166,6 +347,7 @@ describe('requestPermissionApprovalViaIpc', () => {
       runtimeEnv({
         jobId: 'job-auto',
         jobRunId: 'run-auto',
+        permissionLane: 'autonomous',
         permissionRequestTimeoutMs: 0,
         permissionMode: 'auto',
         turnIntentSummary: 'Read the CRM record.',
@@ -202,6 +384,8 @@ describe('requestPermissionApprovalViaIpc', () => {
       mode: 'allow_once',
       decidedBy: 'auto_classifier',
       reason: 'allowed once',
+      risk_level: 'high',
+      risk_category: 'network',
       decisionClassification: 'user_temporary',
     };
     const responseDir = path.join(
@@ -223,7 +407,25 @@ describe('requestPermissionApprovalViaIpc', () => {
       approved: true,
       mode: 'allow_once',
       decidedBy: 'auto_classifier',
+      risk_level: 'high',
+      risk_category: 'network',
       decisionClassification: 'user_temporary',
     });
+  });
+});
+
+describe('buildPermissionIpcRuntimeEnv', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it('resolves the permission lane from GANTRY_PERMISSION_LANE instead of a job id', () => {
+    vi.stubEnv('GANTRY_JOB_ID', 'job-1');
+    vi.stubEnv('GANTRY_PERMISSION_LANE', 'interactive');
+    expect(buildPermissionIpcRuntimeEnv().permissionLane).toBe('interactive');
+
+    vi.stubEnv('GANTRY_JOB_ID', '');
+    vi.stubEnv('GANTRY_PERMISSION_LANE', '');
+    expect(buildPermissionIpcRuntimeEnv().permissionLane).toBe('autonomous');
   });
 });

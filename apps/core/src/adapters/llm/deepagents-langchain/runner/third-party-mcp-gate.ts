@@ -30,6 +30,7 @@ export interface ThirdPartyMcpGateConfig {
   gateContext: NeutralToolGateContext;
   permissionEnv: PermissionIpcRuntimeEnv;
   lockedAccessPreset: boolean;
+  signal?: AbortSignal;
 }
 
 export function wrapThirdPartyMcpToolsWithGate(
@@ -74,6 +75,7 @@ function wrapOne(
         toolName,
         toolInput: input,
         threadId: config.gateContext.threadId,
+        ...(config.signal ? { signal: config.signal } : {}),
       },
     );
     if (approval.approved) {
