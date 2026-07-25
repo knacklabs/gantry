@@ -1213,7 +1213,7 @@ describe('createGroupProcessor', () => {
       ]);
     });
 
-    it('notifies idle without closing stdin on final success marker from onOutput callback', async () => {
+    it('notifies idle and closes stdin on a final success marker from the onOutput callback', async () => {
       const { deps } = setupHappyPath();
       mockSpawnAgent.mockImplementation(
         async (
@@ -1232,10 +1232,10 @@ describe('createGroupProcessor', () => {
       await processGroupMessages('group1@g.us');
 
       expect(deps.queue.notifyIdle).toHaveBeenCalledWith('group1@g.us');
-      expect(deps.queue.closeStdin).not.toHaveBeenCalled();
+      expect(deps.queue.closeStdin).toHaveBeenCalledWith('group1@g.us');
     });
 
-    it('sends done progress at a terminal marker while keeping the runner active', async () => {
+    it('sends done progress at a terminal marker and releases the runner', async () => {
       const liveRun = deferred<AgentOutput>();
       const terminalMarkerHandled = deferred();
       const channel = makeChannel({
@@ -1262,7 +1262,7 @@ describe('createGroupProcessor', () => {
       await terminalMarkerHandled.promise;
 
       expect(deps.queue.notifyIdle).not.toHaveBeenCalled();
-      expect(deps.queue.closeStdin).not.toHaveBeenCalled();
+      expect(deps.queue.closeStdin).toHaveBeenCalledWith('group1@g.us');
       expect(channel.sendProgressUpdate).toHaveBeenCalledWith(
         'group1@g.us',
         'Done.',
@@ -1277,7 +1277,7 @@ describe('createGroupProcessor', () => {
       liveRun.resolve({ status: 'success', result: null });
       await processing;
       expect(deps.queue.notifyIdle).toHaveBeenCalledWith('group1@g.us');
-      expect(deps.queue.closeStdin).not.toHaveBeenCalled();
+      expect(deps.queue.closeStdin).toHaveBeenCalledWith('group1@g.us');
       expect(channel.setTyping).toHaveBeenLastCalledWith('group1@g.us', false);
       const doneCalls = (
         channel.sendProgressUpdate as ReturnType<typeof vi.fn>
@@ -2810,6 +2810,30 @@ describe('createGroupProcessor', () => {
           // Simulate agent waiting (idle timeout should fire during this)
           await vi.advanceTimersByTimeAsync(1_800_000);
           return { status: 'success', result: 'hello' } as AgentOutput;
+        },
+      );
+
+      const { processGroupMessages } = createGroupProcessor(deps);
+      await processGroupMessages('group1@g.us');
+
+      expect(deps.queue.closeStdin).toHaveBeenCalledWith('group1@g.us');
+    });
+
+    it('closes stdin immediately after a completed assistant turn', async () => {
+      const group = makeGroup({ requiresTrigger: false });
+      const messages = [makeMessage()];
+      const { deps } = setupHappyPath({ group, messages });
+
+      mockSpawnAgent.mockImplementation(
+        async (
+          _group: ConversationRoute,
+          _input: unknown,
+          _onProc: unknown,
+          onOutput?: (output: AgentOutput) => Promise<void>,
+        ) => {
+          await onOutput?.({ status: 'success', result: 'done' });
+          await onOutput?.({ status: 'success', result: null });
+          return { status: 'success', result: null } as AgentOutput;
         },
       );
 

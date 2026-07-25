@@ -1,5 +1,5 @@
 import { nowIso } from '../../../shared/time/datetime.js';
-import { chatJid, threadId, TASKS_DIR } from '../context.js';
+import { chatJid, providerAccountId, threadId, TASKS_DIR } from '../context.js';
 import { formatTaskFailureLines } from '../formatting.js';
 import {
   waitForTaskResponse,
@@ -233,6 +233,7 @@ export function canonicalTargetFromArgs(
   notificationRoutes: Array<{
     conversationJid: string;
     threadId: string | null;
+    providerAccountId?: string;
     label: string;
   }>;
   error?: string;
@@ -310,6 +311,7 @@ export function canonicalTargetFromArgs(
     {
       conversationJid: baseExecutionContext.conversationJid,
       threadId: baseExecutionContext.threadId,
+      ...(providerAccountId ? { providerAccountId } : {}),
       label: shortcut ? routeLabelForShortcut(shortcut) : 'primary',
     },
   ];

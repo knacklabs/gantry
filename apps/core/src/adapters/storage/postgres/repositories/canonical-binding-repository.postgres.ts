@@ -299,7 +299,11 @@ export function bindingRowToGroup(
     group: {
       name: row.displayName,
       folder,
-      conversationId: row.conversationId,
+      // Route keys are the delivery identity.  A legacy binding can retain a
+      // pre-canonical conversation id, but exposing that stale id makes an
+      // otherwise identical provider-account-qualified route look ambiguous
+      // to live turns, IPC, and scheduled jobs.
+      conversationId: expectedCanonicalConversationId,
       trigger: routeSubject.route?.trigger?.trim() || `@${folder || 'agent'}`,
       added_at: row.createdAt,
       requiresTrigger: routeSubject.route?.requiresTrigger ?? true,

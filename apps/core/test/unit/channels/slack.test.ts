@@ -1661,7 +1661,7 @@ describe('Slack channel', () => {
     );
   });
 
-  it('strips only the leading Slack bot invocation and preserves the rest of the message', async () => {
+  it('normalizes an authenticated Slack bot invocation anywhere in a single-route message', async () => {
     const opts = createOpts();
     opts.conversationRoutes.mockReturnValue({
       [makeAgentThreadQueueKey('sl:C123', null, null, 'slack_default')]: {
@@ -1696,7 +1696,7 @@ describe('Slack channel', () => {
       1,
       'sl:C123',
       expect.objectContaining({
-        content: 'yes <@U_BOT> you can request permission',
+        content: '@Gantry yes you can request permission',
         thread_id: '1710000000.000100',
       }),
     );

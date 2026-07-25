@@ -36,6 +36,30 @@ function escapeRegex(str: string): string {
 function leadingBotMentionPattern(botUserId: string): RegExp {
   return new RegExp(`^<@${escapeRegex(botUserId)}>[,:]?\\s*`);
 }
+
+function botMentionPattern(botUserId: string): RegExp {
+  return new RegExp(`<@${escapeRegex(botUserId)}>(?:[,:]?\\s*)?`, 'g');
+}
+
+/**
+ * A Slack app mention can appear anywhere in a message, while Gantry's
+ * configured trigger is intentionally anchored at the start of the text.
+ * Normalize an authenticated bot mention into that trigger so messages such
+ * as "hey <@U_BOT> what can you do?" are admitted just like a leading tag.
+ */
+function normalizeSingleRouteBotMention(
+  content: string,
+  botUserId: string,
+  route: ConversationRoute,
+): string {
+  const mention = botMentionPattern(botUserId);
+  if (!mention.test(content)) return content;
+  const remainder = content.replace(mention, '').trim();
+  return remainder
+    ? `${triggerForRoute(route)} ${remainder}`
+    : triggerForRoute(route);
+}
+
 function dedupeRouteAliases(matches: SlackRouteMatch[]): SlackRouteMatch[] {
   const byIdentity = new Map<
     string,
@@ -155,10 +179,7 @@ export async function ingestSlackMessage(input: {
   const rawContent = enriched.text;
   const content =
     input.botUserId && singleRoute
-      ? rawContent.replace(
-          leadingBotMentionPattern(input.botUserId),
-          `${triggerForRoute(singleRoute)} `,
-        )
+      ? normalizeSingleRouteBotMention(rawContent, input.botUserId, singleRoute)
       : input.botUserId && routeMatches.length > 1
         ? rawContent.replace(leadingBotMentionPattern(input.botUserId), '')
         : rawContent;

@@ -662,7 +662,11 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
           await setTypingState(false);
         }
         startNextStreamingMessage();
-        resetIdleTimer();
+        // A completed assistant turn used to keep the host runner alive until
+        // IDLE_TIMEOUT (30 minutes by default). That let inactive Slack
+        // threads consume every interactive slot. Session state is durable, so
+        // close the warm runner now; a later user message will resume it.
+        deps.queue.closeStdin(queueJid);
       }
       if (result.status === 'error') {
         hadError = true;

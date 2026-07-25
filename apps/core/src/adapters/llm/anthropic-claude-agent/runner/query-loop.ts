@@ -209,6 +209,11 @@ export async function runQuery(
       newSessionId,
       interactionBoundary: 'user_interaction',
     });
+    // A user-interaction boundary means the runner is safe to accept the next
+    // Slack reply. Without this, a reply arriving after the boundary is held
+    // in the steering buffer until another SDK result, but that result cannot
+    // arrive while the agent is waiting for the reply.
+    steeringGate.markTurnBoundary();
   };
   const processRuntimeSignalsDuringQuery = (): boolean => {
     if (!ipcPolling) return false;
