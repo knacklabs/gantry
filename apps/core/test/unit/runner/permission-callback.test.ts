@@ -2,10 +2,16 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  validateIpcRequestFreshness,
+  verifyIpcRequestPayload,
+} from '@core/infrastructure/ipc/request-signing.js';
 import { verifyIpcResponsePayload } from '@core/infrastructure/ipc/response-signing.js';
 import { createIpcAuthEnvelope } from '@core/runtime/ipc-auth.js';
 import { processPermissionInteractionIpc } from '@core/runtime/ipc-interaction-processing.js';
 import { formatPermissionDeniedMessage } from '@core/shared/permission-decision-message.js';
+
+const CANCELLATION_LIFETIME_MS = 24 * 60 * 60_000;
 
 vi.mock('@core/shared/ipc-signing.js', async () => {
   const actual = await vi.importActual<
@@ -428,6 +434,7 @@ describe('requestPermissionApproval', () => {
   it('signals the host when an interactive request was claimed before cancellation', async () => {
     process.env.GANTRY_PERMISSION_LANE = 'interactive';
     process.env.GANTRY_INTERACTIVE_PERMISSION_TIMEOUT_MS = '0';
+    process.env.GANTRY_IPC_AUTH_TOKEN = 'permission-cancellation-test-token';
     delete process.env.GANTRY_JOB_ID;
     delete process.env.GANTRY_JOB_RUN_ID;
     vi.resetModules();
@@ -478,10 +485,14 @@ describe('requestPermissionApproval', () => {
     const cancellation = JSON.parse(
       fs.readFileSync(path.join(cancellationDir, cancellationFile), 'utf-8'),
     ) as {
+      authExpiresAt?: string;
+      expiresAt?: string;
       requestId?: string;
       permissionRequestId?: string;
       sourceAgentFolder?: string;
       reason?: string;
+      signature?: string;
+      [key: string]: unknown;
     };
     expect(cancellation).toMatchObject({
       permissionRequestId: request.requestId,
@@ -489,6 +500,25 @@ describe('requestPermissionApproval', () => {
       reason: 'Permission request cancelled.',
     });
     expect(cancellation.requestId).toMatch(/^perm-cancel-/);
+    expect(cancellation).not.toHaveProperty('expiresAt');
+    expect(
+      Date.parse(String(cancellation.authExpiresAt)) - Date.now(),
+    ).toBeGreaterThanOrEqual(CANCELLATION_LIFETIME_MS - 100);
+    const { signature, ...payload } = cancellation;
+    expect(
+      verifyIpcRequestPayload(
+        'permission-cancellation-test-token',
+        payload,
+        signature,
+      ),
+    ).toBe(true);
+    expect(
+      validateIpcRequestFreshness(
+        payload,
+        Date.now(),
+        CANCELLATION_LIFETIME_MS,
+      ),
+    ).toEqual({ ok: true });
   });
 
   it('waits indefinitely for an interactive response at the no-timeout sentinel', async () => {

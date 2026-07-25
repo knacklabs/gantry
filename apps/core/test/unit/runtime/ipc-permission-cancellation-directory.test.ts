@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { createSignedIpcRequestEnvelope } from '@core/shared/ipc-signing.js';
 import { createIpcAuthEnvelope } from '@core/runtime/ipc-auth.js';
+import { clearConsumedIpcRequestIds } from '@core/runtime/ipc-auth-validation.js';
 import { FilesystemRunnerControlPort } from '@core/runtime/filesystem-runner-control-port.js';
 import { interactionInFlightKey } from '@core/runtime/ipc-interaction-processing.js';
 import { processPermissionCancellationDirectory } from '@core/runtime/ipc-permission-cancellation-directory.js';
@@ -23,6 +24,7 @@ const tempDirs: string[] = [];
 
 afterEach(() => {
   vi.useRealTimers();
+  clearConsumedIpcRequestIds({ durable: 'consumed' });
   for (const tempDir of tempDirs.splice(0)) {
     fs.rmSync(tempDir, { recursive: true, force: true });
   }
@@ -87,6 +89,89 @@ describe.each([
     expect(fixture.pendingFiles()).toEqual([]);
   });
 
+  it('accepts and settles a cancellation more than five minutes after it was written', async () => {
+    const writtenAt = Date.now();
+    vi.useFakeTimers();
+    vi.setSystemTime(writtenAt);
+    const fixture = createFixture(kind, lane);
+    fixture.inFlight.add(fixture.inFlightKey);
+    const cancel = vi.fn(async () => 'settled' as const);
+
+    vi.setSystemTime(writtenAt + 6 * 60_000);
+    await fixture.process(cancel);
+
+    expect(fixture.logger.error.mock.calls).toEqual([]);
+    expect(cancel).toHaveBeenCalledOnce();
+    expect(fixture.pendingFiles()).toEqual([]);
+  });
+
+  it('rejects a cancellation after the 24-hour authentication and retention bound', async () => {
+    const writtenAt = Date.now();
+    vi.useFakeTimers();
+    vi.setSystemTime(writtenAt);
+    const fixture = createFixture(kind, lane);
+    fixture.inFlight.add(fixture.inFlightKey);
+    const cancel = vi.fn(async () => 'settled' as const);
+
+    vi.setSystemTime(writtenAt + RETENTION_TTL_MS + 1);
+    await fixture.process(cancel);
+
+    expect(cancel).not.toHaveBeenCalled();
+    expect(fixture.pendingFiles()).toEqual([]);
+    expect(fixture.logger.error).toHaveBeenCalledWith(
+      expect.objectContaining({
+        err: expect.objectContaining({
+          message: expect.stringContaining('expired request'),
+        }),
+      }),
+      expect.stringContaining('Error processing'),
+    );
+  });
+
+  it('rejects a cancellation whose signed payload was tampered', async () => {
+    const fixture = createFixture(kind, lane);
+    fixture.inFlight.add(fixture.inFlightKey);
+    fixture.writeEnvelope({
+      ...fixture.envelope,
+      reason: 'Tampered cancellation reason.',
+    });
+    const cancel = vi.fn(async () => 'settled' as const);
+
+    await fixture.process(cancel);
+
+    expect(cancel).not.toHaveBeenCalled();
+    expect(fixture.pendingFiles()).toEqual([]);
+    expect(fixture.logger.error).toHaveBeenCalledWith(
+      expect.objectContaining({
+        err: expect.objectContaining({
+          message: expect.stringContaining('signature'),
+        }),
+      }),
+      expect.stringContaining('Error processing'),
+    );
+  });
+
+  it('rejects a duplicated cancellation envelope after settlement', async () => {
+    const fixture = createFixture(kind, lane);
+    fixture.inFlight.add(fixture.inFlightKey);
+    const cancel = vi.fn(async () => 'settled' as const);
+
+    await fixture.process(cancel);
+    fixture.writeEnvelope(fixture.envelope);
+    await fixture.process(cancel);
+
+    expect(cancel).toHaveBeenCalledOnce();
+    expect(fixture.pendingFiles()).toEqual([]);
+    expect(fixture.logger.error).toHaveBeenCalledWith(
+      expect.objectContaining({
+        err: expect.objectContaining({
+          message: expect.stringContaining('replay'),
+        }),
+      }),
+      expect.stringContaining('Error processing'),
+    );
+  });
+
   it('expires a retained cancellation at the 24-hour GC bound', async () => {
     const fixture = createFixture(kind, lane);
     const staleAt = new Date(Date.now() - RETENTION_TTL_MS - 1);
@@ -120,10 +205,10 @@ function createFixture(
     runnerControlPort.requestDir(SOURCE_AGENT_FOLDER, lane),
     file,
   );
-  fs.writeFileSync(
-    filePath,
-    JSON.stringify(cancellationEnvelope(kind, requestId)),
-  );
+  const envelope = cancellationEnvelope(kind, requestId);
+  const writeEnvelope = (value: Record<string, unknown>) =>
+    fs.writeFileSync(filePath, JSON.stringify(value));
+  writeEnvelope(envelope);
   const inFlight = new Set<string>();
   const inFlightKey = interactionInFlightKey({
     sourceAgentFolder: SOURCE_AGENT_FOLDER,
@@ -139,9 +224,11 @@ function createFixture(
   return {
     file,
     filePath,
+    envelope,
     inFlight,
     inFlightKey,
     logger,
+    writeEnvelope,
     pendingFiles: () =>
       runnerControlPort.listPendingRequests(SOURCE_AGENT_FOLDER, lane),
     process: async (
@@ -174,24 +261,31 @@ function cancellationEnvelope(kind: CancellationKind, requestId: string) {
     appId: 'default',
     agentId: `agent:${SOURCE_AGENT_FOLDER}`,
   });
-  return createSignedIpcRequestEnvelope(auth.authToken, {
-    requestId: `${kind}-cancel-${randomUUID()}`,
-    ...(kind === 'permission'
-      ? { permissionRequestId: requestId }
-      : { questionRequestId: requestId }),
-    appId: 'default',
-    sourceAgentFolder: SOURCE_AGENT_FOLDER,
-    reason:
-      kind === 'permission'
-        ? 'Permission request cancelled.'
-        : 'Question cancelled. Nothing changed.',
-    context: {
+  return createSignedIpcRequestEnvelope(
+    auth.authToken,
+    {
+      requestId: `${kind}-cancel-${randomUUID()}`,
+      ...(kind === 'permission'
+        ? { permissionRequestId: requestId }
+        : { questionRequestId: requestId }),
       appId: 'default',
-      agentId: `agent:${SOURCE_AGENT_FOLDER}`,
-      threadId: THREAD_ID,
+      sourceAgentFolder: SOURCE_AGENT_FOLDER,
+      reason:
+        kind === 'permission'
+          ? 'Permission request cancelled.'
+          : 'Question cancelled. Nothing changed.',
+      context: {
+        appId: 'default',
+        agentId: `agent:${SOURCE_AGENT_FOLDER}`,
+        threadId: THREAD_ID,
+      },
+      timestamp: new Date().toISOString(),
     },
-    timestamp: new Date().toISOString(),
-  });
+    {
+      separateAuthExpiry: true,
+      authLifetimeMs: RETENTION_TTL_MS,
+    },
+  );
 }
 
 function advancePastRetry(): void {

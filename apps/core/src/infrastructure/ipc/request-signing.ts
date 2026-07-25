@@ -29,6 +29,7 @@ export function verifyIpcRequestPayload(
 export function validateIpcRequestFreshness(
   payload: Record<string, unknown>,
   nowMs = currentTimeMs(),
+  maxAgeMs = IPC_REQUEST_MAX_AGE_MS,
 ): { ok: true } | { ok: false; reason: string } {
   const requestId =
     typeof payload.requestId === 'string' ? payload.requestId.trim() : '';
@@ -58,7 +59,7 @@ export function validateIpcRequestFreshness(
   if (expiresAtMs < nowMs) {
     return { ok: false, reason: 'expired request' };
   }
-  if (expiresAtMs - nowMs > IPC_REQUEST_MAX_AGE_MS) {
+  if (expiresAtMs - nowMs > maxAgeMs) {
     return { ok: false, reason: 'expiresAt exceeds max age' };
   }
   return { ok: true };

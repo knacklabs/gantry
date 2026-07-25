@@ -10,6 +10,7 @@ import {
   createSignedIpcRequestEnvelope,
   hasValidIpcResponseSignature,
 } from '../../../../shared/ipc-signing.js';
+import { IPC_CANCELLATION_RETENTION_TTL_MS } from '../../../../shared/ipc-cancellation-lifetime.js';
 import type { SemanticCapabilityDefinition } from '../../../../shared/semantic-capabilities.js';
 import {
   IPC_AUTH_TOKEN,
@@ -507,7 +508,10 @@ function cancelPermissionRequest(input: {
     },
     timestamp: nowIso(),
   };
-  const envelope = createSignedIpcRequestEnvelope(IPC_AUTH_TOKEN, payload);
+  const envelope = createSignedIpcRequestEnvelope(IPC_AUTH_TOKEN, payload, {
+    separateAuthExpiry: true,
+    authLifetimeMs: IPC_CANCELLATION_RETENTION_TTL_MS,
+  });
   fs.writeFileSync(cancellationTmpPath, JSON.stringify(envelope, null, 2));
   fs.renameSync(cancellationTmpPath, cancellationPath);
 }

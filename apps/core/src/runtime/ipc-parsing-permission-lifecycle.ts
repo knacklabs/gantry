@@ -3,6 +3,7 @@ import type {
   PermissionApprovalRequest,
   UserQuestionCancellation,
 } from '../domain/types.js';
+import { IPC_CANCELLATION_RETENTION_TTL_MS } from '../shared/ipc-cancellation-lifetime.js';
 import { isPlainObject, toTrimmedString } from '../shared/object.js';
 import { validateIpcAuthRequest } from './ipc-auth-validation.js';
 
@@ -44,6 +45,7 @@ export function parsePermissionCancellationIpcRequest(
     raw,
     sourceAgentFolder,
     'permission cancellation IPC',
+    { maxAgeMs: IPC_CANCELLATION_RETENTION_TTL_MS },
   );
   if (!binding.appId) {
     throw new Error('permission cancellation IPC context.appId is required');
@@ -73,6 +75,7 @@ export function parseQuestionCancellationIpcRequest(
     raw,
     sourceAgentFolder,
     'question cancellation IPC',
+    { maxAgeMs: IPC_CANCELLATION_RETENTION_TTL_MS },
   );
   if (!binding.appId) {
     throw new Error('question cancellation IPC context.appId is required');

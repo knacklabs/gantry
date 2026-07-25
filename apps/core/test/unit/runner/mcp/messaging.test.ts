@@ -14,6 +14,7 @@ const contextState = vi.hoisted(() => ({
   jobId: undefined as string | undefined,
   permissionLane: 'autonomous' as 'autonomous' | 'interactive',
 }));
+const CANCELLATION_LIFETIME_MS = 24 * 60 * 60_000;
 
 vi.mock('@core/runner/mcp/context.js', () => ({
   agentId: 'agent:main_agent',
@@ -114,13 +115,18 @@ type SignedQuestionRequest = Record<string, unknown> & {
   signature?: string;
 };
 
-function expectValidRequestAuth(request: SignedQuestionRequest): void {
+function expectValidRequestAuth(
+  request: SignedQuestionRequest,
+  maxAgeMs?: number,
+): void {
   const { signature, ...payload } = request;
   expect(signature).toEqual(expect.any(String));
   expect(
     verifyIpcRequestPayload('messaging-test-token', payload, signature),
   ).toBe(true);
-  expect(validateIpcRequestFreshness(payload)).toEqual({ ok: true });
+  expect(
+    validateIpcRequestFreshness(payload, Date.now(), maxAgeMs),
+  ).toEqual({ ok: true });
 }
 
 describe('ask_user_question lane deadlines', () => {
@@ -326,6 +332,13 @@ describe('ask_user_question lane deadlines', () => {
       sourceAgentFolder: 'main_agent',
       reason: 'Question cancelled. Nothing changed.',
     });
-    expectValidRequestAuth(cancellation as SignedQuestionRequest);
+    expect(cancellation).not.toHaveProperty('expiresAt');
+    expect(
+      Date.parse(String(cancellation.authExpiresAt)) - Date.now(),
+    ).toBeGreaterThanOrEqual(CANCELLATION_LIFETIME_MS - 100);
+    expectValidRequestAuth(
+      cancellation as SignedQuestionRequest,
+      CANCELLATION_LIFETIME_MS,
+    );
   });
 });

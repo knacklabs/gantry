@@ -298,6 +298,7 @@ export function validateIpcAuthRequest(
   raw: Record<string, unknown>,
   sourceAgentFolder: string,
   label: string,
+  options?: { maxAgeMs?: number },
 ): IpcThreadBinding {
   const binding = readTrustedThreadBinding(raw, label);
   const signature = toTrimmedString(raw.signature, { maxLen: 512 }) || '';
@@ -312,7 +313,8 @@ export function validateIpcAuthRequest(
   if (!verifyIpcRequestPayload(requestSigningKey, payload, signature)) {
     throw new Error(`Invalid ${label} signature`);
   }
-  const freshness = validateIpcRequestFreshness(payload);
+  const maxAgeMs = options?.maxAgeMs ?? IPC_REQUEST_MAX_AGE_MS;
+  const freshness = validateIpcRequestFreshness(payload, nowMs(), maxAgeMs);
   if (!freshness.ok) {
     throw new Error(`Invalid ${label} freshness: ${freshness.reason}`);
   }
@@ -321,7 +323,7 @@ export function validateIpcAuthRequest(
     const replayKey = `${sourceAgentFolder}:${binding.authThreadId || ''}:${requestId}`;
     reserveFreshIpcRequestId(
       replayKey,
-      nowMs() + IPC_REQUEST_MAX_AGE_MS,
+      nowMs() + maxAgeMs,
       label,
     );
   }

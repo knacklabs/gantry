@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 
 import type { PermissionApprovalCancellation } from '../domain/types.js';
+import { IPC_CANCELLATION_RETENTION_TTL_MS } from '../shared/ipc-cancellation-lifetime.js';
 import type { IpcDeps } from './ipc-domain-types.js';
 import type { FilesystemRunnerControlPort } from './filesystem-runner-control-port.js';
 import { interactionInFlightKey } from './ipc-interaction-processing.js';
@@ -10,7 +11,6 @@ import { parsePermissionCancellationIpcRequest } from './ipc-parsing-permission-
 const PERMISSION_CANCELLATION_LANE = 'permission-cancellations';
 const CANCELLATION_RETRY_MIN_MS = 1_000;
 const CANCELLATION_RETRY_MAX_MS = 30_000;
-const CANCELLATION_RETENTION_TTL_MS = 24 * 60 * 60_000;
 
 interface CancellationRetryState {
   attempts: number;
@@ -173,7 +173,7 @@ function retainCancellation(input: {
   const expiresAt =
     previous?.expiresAt ??
     Math.min(now, fs.statSync(input.claimedPath).mtimeMs) +
-      CANCELLATION_RETENTION_TTL_MS;
+      IPC_CANCELLATION_RETENTION_TTL_MS;
   if (expiresAt <= now) {
     fs.unlinkSync(input.claimedPath);
     cancellationRetries.delete(pendingPath);
@@ -181,7 +181,7 @@ function retainCancellation(input: {
       {
         file: input.file,
         sourceAgentFolder: input.sourceAgentFolder,
-        retentionMs: CANCELLATION_RETENTION_TTL_MS,
+        retentionMs: IPC_CANCELLATION_RETENTION_TTL_MS,
       },
       'Discarding expired permission cancellation IPC request',
     );

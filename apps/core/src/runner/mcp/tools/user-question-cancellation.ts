@@ -7,6 +7,7 @@ import {
   ensurePrivateDirSync,
   writePrivateFileSync,
 } from '../../../shared/private-fs.js';
+import { IPC_CANCELLATION_RETENTION_TTL_MS } from '../../../shared/ipc-cancellation-lifetime.js';
 import { nowIso } from '../../../shared/time/datetime.js';
 import {
   agentId,
@@ -56,7 +57,10 @@ export function writeUserQuestionCancellation(input: {
     },
     timestamp: nowIso(),
   };
-  const envelope = createSignedIpcRequestEnvelope(IPC_AUTH_TOKEN, payload);
+  const envelope = createSignedIpcRequestEnvelope(IPC_AUTH_TOKEN, payload, {
+    separateAuthExpiry: true,
+    authLifetimeMs: IPC_CANCELLATION_RETENTION_TTL_MS,
+  });
   writePrivateFileSync(cancellationTmpPath, JSON.stringify(envelope, null, 2));
   fs.renameSync(cancellationTmpPath, cancellationPath);
 }
