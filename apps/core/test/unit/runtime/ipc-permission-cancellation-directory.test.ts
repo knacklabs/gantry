@@ -17,6 +17,7 @@ vi.mock('@core/config/index.js', async (importOriginal) => ({
 }));
 
 import { createSignedIpcRequestEnvelope } from '@core/shared/ipc-signing.js';
+import { RUNTIME_EVENT_TYPES } from '@core/domain/events/runtime-event-types.js';
 import { createIpcAuthEnvelope } from '@core/runtime/ipc-auth.js';
 import { clearConsumedIpcRequestIds } from '@core/runtime/ipc-auth-validation.js';
 import { FilesystemRunnerControlPort } from '@core/runtime/filesystem-runner-control-port.js';
@@ -207,9 +208,12 @@ describe.each([
     expect(cancel).not.toHaveBeenCalled();
     expect(fixture.pendingFiles()).toEqual([]);
     expect(fixture.durableFiles()).toHaveLength(1);
-    expect(fixture.archivedFiles()).toEqual([
-      `${SOURCE_AGENT_FOLDER}-${fixture.file}`,
-    ]);
+    expect(fixture.archivedFiles()).toHaveLength(1);
+    expect(fixture.archivedFiles()[0]).toMatch(
+      new RegExp(
+        `^\\d+-[0-9a-f-]{36}-${SOURCE_AGENT_FOLDER}-${lane}-${fixture.file.replace('.', '\\.')}$`,
+      ),
+    );
     expect(fixture.logger.error).toHaveBeenCalledWith(
       expect.objectContaining({
         err: expect.objectContaining({
@@ -280,6 +284,20 @@ describe.each([
 
     expect(cancel).not.toHaveBeenCalled();
     expect(fixture.pendingFiles()).toEqual([]);
+    expect(fixture.archivedFiles()).toHaveLength(1);
+    expect(fixture.archivedFiles()[0]).toContain(`-${lane}-${fixture.file}`);
+    expect(fixture.publishRuntimeEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: RUNTIME_EVENT_TYPES.INTERACTION_CANCELLATION_DISCARDED,
+        actor: 'interaction',
+        correlationId: fixture.requestId,
+        payload: expect.objectContaining({
+          kind: kind === 'user-question' ? 'question' : 'permission',
+          requestId: fixture.requestId,
+          exhaustionReason: 'authentication_freshness_expired',
+        }),
+      }),
+    );
     expect(fixture.logger.error).toHaveBeenCalledWith(
       expect.objectContaining({
         err: expect.objectContaining({
@@ -344,7 +362,39 @@ describe.each([
 
     expect(cancel).not.toHaveBeenCalled();
     expect(fixture.pendingFiles()).toEqual([]);
+    expect(fixture.archivedFiles()).toHaveLength(1);
+    expect(fixture.archivedFiles()[0]).toContain(`-${lane}-`);
+    expect(fixture.publishRuntimeEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: RUNTIME_EVENT_TYPES.INTERACTION_CANCELLATION_DISCARDED,
+        actor: 'interaction',
+        correlationId: fixture.requestId,
+        payload: expect.objectContaining({
+          kind: kind === 'user-question' ? 'question' : 'permission',
+          requestId: fixture.requestId,
+          exhaustionReason: 'retention_expired',
+        }),
+      }),
+    );
     expect(fixture.logger.warn).toHaveBeenCalledOnce();
+  });
+
+  it('keeps the exhaustion archive when runtime-event publication fails', async () => {
+    const fixture = createFixture(kind, lane);
+    const staleAt = new Date(Date.now() - RETENTION_TTL_MS - 1);
+    fs.utimesSync(fixture.filePath, staleAt, staleAt);
+    fixture.publishRuntimeEvent.mockRejectedValue(
+      new Error('runtime event unavailable'),
+    );
+    const cancel = vi.fn(async () => 'settled' as const);
+
+    await expect(fixture.process(cancel)).resolves.toBeUndefined();
+
+    expect(cancel).not.toHaveBeenCalled();
+    expect(fixture.pendingFiles()).toEqual([]);
+    expect(fixture.archivedFiles()).toHaveLength(1);
+    expect(fixture.archivedFiles()[0]).toContain(`-${lane}-`);
+    expect(fixture.publishRuntimeEvent).toHaveBeenCalledOnce();
   });
 });
 
@@ -388,6 +438,7 @@ function createFixture(
     error: vi.fn(),
     warn: vi.fn(),
   };
+  const publishRuntimeEvent = vi.fn(async () => undefined);
   let permissionProcessor = processPermissionCancellationDirectory;
   let questionProcessor = processQuestionCancellationDirectory;
 
@@ -398,6 +449,8 @@ function createFixture(
     inFlight,
     inFlightKey,
     logger,
+    publishRuntimeEvent,
+    requestId,
     writeEnvelope,
     archivedFiles: () => {
       const errorsDir = path.join(runnerControlPort.baseDir, 'errors');
@@ -455,6 +508,7 @@ function createFixture(
         shouldProcessRequestLane: () => true,
         inFlightInteractionIpc: inFlight,
         runnerControlPort,
+        publishRuntimeEvent,
         logger,
       };
       if (kind === 'permission') {

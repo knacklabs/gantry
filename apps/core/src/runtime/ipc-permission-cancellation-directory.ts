@@ -17,12 +17,14 @@ export async function processPermissionCancellationDirectory(input: {
   inFlightInteractionIpc: ReadonlySet<string>;
   runnerControlPort: FilesystemRunnerControlPort;
   cancelPermissionApproval: IpcDeps['cancelPermissionApproval'];
+  publishRuntimeEvent?: IpcDeps['publishRuntimeEvent'];
   logger: CancellationDirectoryLogger;
 }): Promise<void> {
   return processCancellationDirectory(input, {
     requestLane: PERMISSION_CANCELLATION_LANE,
     responseLane: 'permission-responses',
     inFlightKind: 'permission',
+    requestIdField: 'permissionRequestId',
     parser: parsePermissionCancellationIpcRequest,
     handler: input.cancelPermissionApproval,
     missingHandlerErrorLabel: 'Permission cancellation',

@@ -17,12 +17,14 @@ export async function processQuestionCancellationDirectory(input: {
   inFlightInteractionIpc: ReadonlySet<string>;
   runnerControlPort: FilesystemRunnerControlPort;
   cancelUserQuestion: IpcDeps['cancelUserQuestion'];
+  publishRuntimeEvent?: IpcDeps['publishRuntimeEvent'];
   logger: CancellationDirectoryLogger;
 }): Promise<void> {
   return processCancellationDirectory(input, {
     requestLane: QUESTION_CANCELLATION_LANE,
     responseLane: 'user-answers',
     inFlightKind: 'user-question',
+    requestIdField: 'questionRequestId',
     parser: parseQuestionCancellationIpcRequest,
     handler: input.cancelUserQuestion,
     missingHandlerErrorLabel: 'Question cancellation',
