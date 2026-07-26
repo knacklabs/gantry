@@ -183,6 +183,18 @@ export interface ObserverOwnerActionInsight {
   threadId: string | null;
 }
 
+// The minimal owner-route identity the message-action handler authorizes a
+// callback against. A domain-side shape so the handler never imports config.
+export interface ObserverOwnerRoute {
+  recipient: string;
+  conversationJid: string;
+  providerAccountId: string;
+}
+
+// What the handler's injected owner resolver returns: the current verified owner
+// route, or nothing when the owner is unconfigured/unverified.
+export type ObserverVerifiedOwner = { owner?: ObserverOwnerRoute };
+
 export type ObserverOwnerActionOutcome = 'applied' | 'stale' | 'invalid';
 
 export interface ObserverOwnerActionResult {

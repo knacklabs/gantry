@@ -9,10 +9,10 @@ import type {
 
 /**
  * Provider-neutral view model for an observer digest message. Each channel
- * adapter (Task 4: Slack/Telegram/Teams) maps this to its own native
- * blocks/keyboard/card; nothing here is provider-specific. It lives in the
- * domain layer — beside review-message-view — so channel adapters can render it
- * without an adapters -> runtime import.
+ * adapter maps this to its own native representation (blocks/keyboard/card);
+ * nothing here is provider-specific. It lives in the domain layer — beside
+ * review-message-view — so channel adapters can render it without an
+ * adapters -> runtime import.
  *
  * It is an IMMUTABLE snapshot built at reserve time and persisted on the digest
  * reservation, so the affordances survive a recovery/resend (today the gateway

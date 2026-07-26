@@ -12,8 +12,7 @@ import {
   TELEGRAM_REVIEW_DECISION_BY_CODE,
 } from './message-action-affordances.js';
 import {
-  TELEGRAM_OBSERVER_CALLBACK_PATTERN,
-  OBSERVER_FEEDBACK_BY_CODE,
+  parseTelegramObserverCallback,
   telegramObserverDigestMessage,
   truncateTelegramCallbackAnswer,
 } from './observer-digest-message.js';
@@ -387,29 +386,21 @@ export abstract class TelegramChannelConnect extends TelegramChannelPrompts {
         return;
       }
 
-      const observerMatch = TELEGRAM_OBSERVER_CALLBACK_PATTERN.exec(data);
-      if (observerMatch) {
-        const action = OBSERVER_FEEDBACK_BY_CODE[observerMatch[1]];
-        const insightId = observerMatch[2];
-        const localDay = observerMatch[3];
-        const callbackMessage = ctx.callbackQuery?.message as
-          | { chat?: { id?: number | string }; message_thread_id?: number }
-          | undefined;
-        const chatId =
-          callbackMessage?.chat?.id?.toString() ||
-          ctx.chat?.id?.toString() ||
-          '';
-        if (!chatId || !action) return;
+      const observer = parseTelegramObserverCallback({
+        data,
+        callbackMessage: ctx.callbackQuery?.message,
+        fallbackChatId: ctx.chat?.id,
+      });
+      if (observer) {
+        const { action, insightId, localDay, chatId, threadId } = observer;
+        if (!chatId) return;
         const outcome = await this.opts.onMessageAction?.({
           kind: 'observer_feedback',
           conversationJid: `tg:${chatId}`,
           ...(this.opts.providerAccountId
             ? { providerAccountId: this.opts.providerAccountId }
             : {}),
-          threadId:
-            typeof callbackMessage?.message_thread_id === 'number'
-              ? String(callbackMessage.message_thread_id)
-              : undefined,
+          ...(threadId ? { threadId } : {}),
           userId: ctx.from?.id?.toString() ?? '',
           insightId,
           action,

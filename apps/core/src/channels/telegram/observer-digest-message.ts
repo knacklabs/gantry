@@ -45,6 +45,42 @@ export const OBSERVER_FEEDBACK_BY_CODE: Record<string, ObserverFeedbackAction> =
 // under Telegram's 64-byte cap. The localDay pins the click to its exact digest.
 export const TELEGRAM_OBSERVER_CALLBACK_PATTERN = /^ob:([rdsl]):([^:]+):(.+)$/;
 
+/**
+ * Decode a Telegram `ob:` callback token + resolve its routing. Returns null
+ * when the data is not an observer-feedback token; otherwise the decoded action
+ * + insight + localDay and the resolved chat/thread (chatId may be '' when
+ * Telegram gave us no chat, which the caller treats as undeliverable).
+ */
+export function parseTelegramObserverCallback(input: {
+  data: string;
+  callbackMessage?: {
+    chat?: { id?: number | string };
+    message_thread_id?: number;
+  };
+  fallbackChatId?: string | number;
+}): {
+  action: ObserverFeedbackAction;
+  insightId: string;
+  localDay: string;
+  chatId: string;
+  threadId?: string;
+} | null {
+  const match = TELEGRAM_OBSERVER_CALLBACK_PATTERN.exec(input.data);
+  if (!match) return null;
+  const chatId =
+    input.callbackMessage?.chat?.id?.toString() ||
+    input.fallbackChatId?.toString() ||
+    '';
+  const threadId = input.callbackMessage?.message_thread_id;
+  return {
+    action: OBSERVER_FEEDBACK_BY_CODE[match[1]!]!,
+    insightId: match[2]!,
+    localDay: match[3]!,
+    chatId,
+    ...(typeof threadId === 'number' ? { threadId: String(threadId) } : {}),
+  };
+}
+
 function observerCallbackData(
   action: ObserverFeedbackAction,
   insightId: string,
