@@ -225,6 +225,21 @@ describe('executeMemoryReviewDecision', () => {
     expect(result.state).toBe('invalid');
   });
 
+  it('maps a subject-lookup failure to a controlled invalid without executing', async () => {
+    resolveReviewSubjectWithinBoundaryMock.mockRejectedValueOnce(
+      new Error('database unavailable'),
+    );
+    const result = await executeMemoryReviewDecision({
+      reviewId: 'rev-1',
+      decision: 'approve',
+      reviewerId: 'U123',
+      sourceAgentFolder: 'main_agent',
+      conversationJid: 'sl:C123',
+    });
+    expect(processMemoryReviewDecisionRequestMock).not.toHaveBeenCalled();
+    expect(result.state).toBe('invalid');
+  });
+
   it('maps a lost pending-review claim to stale', async () => {
     resolveReviewSubjectWithinBoundaryMock.mockResolvedValueOnce({
       appId: 'default',

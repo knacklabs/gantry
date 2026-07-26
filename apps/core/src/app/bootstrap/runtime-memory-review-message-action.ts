@@ -127,26 +127,28 @@ export async function executeMemoryReviewDecision(
   const boundary = resolveTrustedMemorySubject(input.sourceAgentFolder, {
     userId: input.reviewerId,
   });
-  const subject = await resolveReviewSubjectWithinBoundary({
-    appId: boundary.appId,
-    agentId: boundary.agentId,
-    reviewId: input.reviewId,
-  });
-  if (!subject) {
-    return { state: 'invalid', receipt: 'This review could not be found.' };
-  }
-  const request = {
-    requestId: `memory-review-decision-${randomUUID()}`,
-    action: 'memory_review_decision' as const,
-    payload: {
-      review_id: input.reviewId,
-      decision: input.decision,
-      decision_source: DECISION_SOURCE,
-    },
-    // reviewerId is the approver's audit/authorization identity only.
-    context: { userId: input.reviewerId, reviewerIsControlApprover: true },
-  };
   try {
+    // Lookup lives inside the error boundary: a DB failure here maps to a
+    // controlled 'invalid', not an unhandled rejection out of the channel API.
+    const subject = await resolveReviewSubjectWithinBoundary({
+      appId: boundary.appId,
+      agentId: boundary.agentId,
+      reviewId: input.reviewId,
+    });
+    if (!subject) {
+      return { state: 'invalid', receipt: 'This review could not be found.' };
+    }
+    const request = {
+      requestId: `memory-review-decision-${randomUUID()}`,
+      action: 'memory_review_decision' as const,
+      payload: {
+        review_id: input.reviewId,
+        decision: input.decision,
+        decision_source: DECISION_SOURCE,
+      },
+      // reviewerId is the approver's audit/authorization identity only.
+      context: { userId: input.reviewerId, reviewerIsControlApprover: true },
+    };
     const response = await processMemoryReviewDecisionRequest({
       request,
       subject,
