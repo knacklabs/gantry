@@ -74,7 +74,7 @@ export function renderObserverSettingsYaml(
   lines: string[],
   observer: RuntimeSettings['observer'],
 ): void {
-  if (!observer.enabled && !observer.owner) return;
+  if (!observer.enabled && !observer.owner && !observer.delivery) return;
   lines.push('observer:', `  enabled: ${observer.enabled ? 'true' : 'false'}`);
   if (observer.owner) {
     lines.push(
@@ -82,6 +82,27 @@ export function renderObserverSettingsYaml(
       `    recipient: ${quoteYamlString(observer.owner.recipient)}`,
       `    conversation: ${quoteYamlString(observer.owner.conversation)}`,
     );
+  }
+  if (observer.delivery) {
+    const delivery = observer.delivery;
+    lines.push(
+      '  delivery:',
+      `    enabled: ${delivery.enabled ? 'true' : 'false'}`,
+    );
+    if (delivery.timezone !== undefined) {
+      lines.push(`    timezone: ${quoteYamlString(delivery.timezone)}`);
+    }
+    if (delivery.sendAt !== undefined) {
+      lines.push(`    send_at: ${quoteYamlString(delivery.sendAt)}`);
+    }
+    if (delivery.quietHours) {
+      lines.push(
+        '    quiet_hours:',
+        `      start: ${quoteYamlString(delivery.quietHours.start)}`,
+        `      end: ${quoteYamlString(delivery.quietHours.end)}`,
+      );
+    }
+    lines.push(`    max_insights: ${delivery.maxInsights}`);
   }
   lines.push('');
 }

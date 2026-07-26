@@ -69,6 +69,8 @@ export const openApiResponseSchemas: Record<string, JsonSchema> = {
   listMcpServers: ref('McpServerPageResponse'),
   listMemory: ref('MemoryListResponse'),
   listObserverInsights: ref('ObserverInsightListResponse'),
+  previewObserverDigest: ref('ObserverDigestPreviewResponse'),
+  listObserverDeliveries: ref('ObserverDigestDeliveryListResponse'),
   listModelCredentials: ref('ModelCredentialListResponse'),
   listModels: ref('ModelListResponse'),
   listOrStreamSessionEvents: ref('SessionRuntimeEventListResponse'),

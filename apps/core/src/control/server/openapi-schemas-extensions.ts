@@ -232,6 +232,115 @@ export const extensionOpenApiSchemas: Record<string, JsonSchema> = {
       nextCursor: { type: ['string', 'null'] },
     },
   },
+  ObserverDigestPreviewInsight: {
+    type: 'object',
+    required: [
+      'id',
+      'subject',
+      'insightType',
+      'title',
+      'summary',
+      'confidence',
+      'priorityScore',
+    ],
+    properties: {
+      id: { type: 'string' },
+      subject: { type: 'string' },
+      insightType: {
+        type: 'string',
+        enum: [
+          'commitment',
+          'contradiction',
+          'open_question',
+          'stale_fact',
+          'decision_without_owner',
+          'duplicated_work',
+          'repetition',
+        ],
+      },
+      title: { type: 'string' },
+      summary: { type: 'string' },
+      confidence: { type: 'number', minimum: 0, maximum: 1 },
+      priorityScore: { type: 'number' },
+    },
+  },
+  ObserverDigestPreviewResponse: {
+    oneOf: [
+      {
+        type: 'object',
+        required: ['eligible', 'reason', 'message'],
+        properties: {
+          eligible: { const: false },
+          reason: { type: 'string' },
+          message: { type: 'string' },
+        },
+      },
+      {
+        type: 'object',
+        required: [
+          'eligible',
+          'recipient',
+          'localDay',
+          'renderedDigest',
+          'skippedReason',
+          'selected',
+        ],
+        properties: {
+          eligible: { const: true },
+          recipient: { type: 'string' },
+          localDay: { type: 'string' },
+          renderedDigest: { type: ['string', 'null'] },
+          skippedReason: {
+            type: ['string', 'null'],
+            enum: ['no_qualifying_insights', null],
+          },
+          selected: {
+            type: 'array',
+            items: {
+              $ref: '#/components/schemas/ObserverDigestPreviewInsight',
+            },
+          },
+        },
+      },
+    ],
+  },
+  ObserverDigestDelivery: {
+    type: 'object',
+    required: [
+      'id',
+      'localDay',
+      'state',
+      'insightCount',
+      'reservedAt',
+      'sentAt',
+      'settledAt',
+      'createdAt',
+    ],
+    properties: {
+      id: { type: 'string' },
+      localDay: { type: 'string' },
+      state: {
+        type: 'string',
+        enum: ['reserved', 'sent', 'settled', 'failed'],
+      },
+      insightCount: { type: 'integer', minimum: 0 },
+      reservedAt: { type: ['string', 'null'], format: 'date-time' },
+      sentAt: { type: ['string', 'null'], format: 'date-time' },
+      settledAt: { type: ['string', 'null'], format: 'date-time' },
+      createdAt: isoDateTime,
+    },
+  },
+  ObserverDigestDeliveryListResponse: {
+    type: 'object',
+    required: ['recipient', 'deliveries'],
+    properties: {
+      recipient: { type: ['string', 'null'] },
+      deliveries: {
+        type: 'array',
+        items: { $ref: '#/components/schemas/ObserverDigestDelivery' },
+      },
+    },
+  },
   Skill: {
     type: 'object',
     required: ['id', 'appId', 'name', 'status'],

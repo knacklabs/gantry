@@ -108,6 +108,8 @@ const expectedControlRoutes = [
   'POST /v1/memory/search',
   'GET /v1/observer/insights',
   'GET /v1/observer/status',
+  'POST /v1/observer/preview',
+  'GET /v1/observer/deliveries',
   'GET /v1/models',
   'GET /v1/models/defaults',
   'PATCH /v1/models/defaults',

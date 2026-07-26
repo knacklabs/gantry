@@ -130,6 +130,8 @@ maybeDescribe('observer insight emission postgres integration', () => {
         conversationId: subject,
         messageId: first.id,
         ts: first.updatedAt,
+        providerAccountId: 'slack-one',
+        conversationJid: 'slack:C123',
       },
     ]);
     expect(

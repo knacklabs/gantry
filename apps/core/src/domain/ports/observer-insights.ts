@@ -47,6 +47,13 @@ export interface ObserverInsightEvidenceRef {
   conversationId: string;
   messageId: string;
   ts: string;
+  // Account-qualified provenance (added for digest freshness + permalinks).
+  // Legacy rows persisted before this may omit these; consumers must fail
+  // closed when the provider account or raw conversation jid is missing.
+  providerAccountId?: string;
+  conversationJid?: string;
+  threadId?: string | null;
+  permalink?: string | null;
 }
 
 export interface ProactiveInsight {
@@ -96,6 +103,57 @@ export interface ObserverDelivery {
   appId: string;
   recipient: string;
   localDay: string;
+  createdAt: string;
+}
+
+export const OBSERVER_DELIVERY_STATES = [
+  'reserved',
+  'sent',
+  'settled',
+  'failed',
+] as const;
+export type ObserverDeliveryState = (typeof OBSERVER_DELIVERY_STATES)[number];
+
+export interface ObserverDigestReservation {
+  id: string;
+  appId: string;
+  recipient: string;
+  localDay: string;
+  state: ObserverDeliveryState;
+  timezone: string | null;
+  conversationJid: string | null;
+  providerAccountId: string | null;
+  threadId: string | null;
+  renderedDigest: string | null;
+  contentHash: string | null;
+  outboundDeliveryId: string | null;
+  reservedAt: string | null;
+  sentAt: string | null;
+  settledAt: string | null;
+  createdAt: string;
+}
+
+export interface ObserverDigestClaimMembership {
+  insightId: string;
+  claimedAt: string;
+  position: number;
+}
+
+export interface ObserverDigestReserveResult {
+  reservation: ObserverDigestReservation;
+  created: boolean;
+}
+
+// Read-only digest history row for the deliveries control surface: a reservation
+// plus the count of insights it carried, without exposing the members or route.
+export interface ObserverDigestDeliverySummary {
+  id: string;
+  localDay: string;
+  state: ObserverDeliveryState;
+  insightCount: number;
+  reservedAt: string | null;
+  sentAt: string | null;
+  settledAt: string | null;
   createdAt: string;
 }
 
@@ -172,6 +230,63 @@ export interface ObserverInsightRepository {
     localDay: string;
     nowIso: string;
   }): Promise<ObserverDelivery>;
+  // App-wide digest assembly (across all subjects for one recipient).
+  claimPendingForDigest(input: {
+    appId: string;
+    recipient: string;
+    limit: number;
+    nowIso: string;
+  }): Promise<ProactiveInsight[]>;
+  // Read-only sibling of claimPendingForDigest: the same pending pool, same
+  // order, but claims nothing. Backs the dry-run digest preview.
+  listPendingForDigest(input: {
+    appId: string;
+    recipient: string;
+    limit: number;
+  }): Promise<ProactiveInsight[]>;
+  // Read-only digest history for a recipient, newest-first, with member counts.
+  listDigestDeliveries(input: {
+    appId: string;
+    recipient: string;
+    limit: number;
+  }): Promise<ObserverDigestDeliverySummary[]>;
+  findDigestReservation(input: {
+    appId: string;
+    recipient: string;
+    localDay: string;
+  }): Promise<ObserverDigestReservation | null>;
+  // All not-yet-settled reservations (reserved/sent) for a recipient across ANY
+  // localDay, oldest-first, so a delivery stranded before local midnight is
+  // still found and re-driven on the next day's tick.
+  findUnsettledDigestReservations(input: {
+    appId: string;
+    recipient: string;
+  }): Promise<ObserverDigestReservation[]>;
+  reserveDigest(input: {
+    id: string;
+    appId: string;
+    recipient: string;
+    localDay: string;
+    timezone: string;
+    conversationJid: string;
+    providerAccountId: string;
+    threadId?: string | null;
+    renderedDigest: string;
+    contentHash: string;
+    memberships: ObserverDigestClaimMembership[];
+    nowIso: string;
+  }): Promise<ObserverDigestReserveResult>;
+  settleDigest(input: {
+    deliveryId: string;
+    outboundDeliveryId: string;
+    cooldownUntil: string;
+    nowIso: string;
+  }): Promise<ObserverDigestReservation | null>;
+  recoverStaleDigestClaims(input: {
+    appId: string;
+    staleBeforeIso: string;
+    nowIso: string;
+  }): Promise<ProactiveInsight[]>;
   getInsightCursor(
     appId: string,
     subject: ObserverSubjectKey,

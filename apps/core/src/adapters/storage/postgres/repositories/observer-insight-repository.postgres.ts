@@ -13,6 +13,11 @@ import {
 
 import type {
   ObserverDelivery,
+  ObserverDeliveryState,
+  ObserverDigestClaimMembership,
+  ObserverDigestDeliverySummary,
+  ObserverDigestReservation,
+  ObserverDigestReserveResult,
   ObserverInsightCreate,
   ObserverInsightCursor,
   ObserverInsightRepository,
@@ -24,10 +29,26 @@ import type {
 import { isObserverSubjectKey } from '../../../../domain/ports/observer-insights.js';
 import * as pgSchema from '../schema/schema.js';
 import type { CanonicalDb } from './canonical-graph-repository.postgres.js';
+import {
+  Deliveries,
+  Insights,
+  clampLimit,
+  mapInsight,
+  nullableIso,
+  toIso,
+} from './observer-insight-repository.postgres.helpers.js';
+import {
+  claimPendingForDigest,
+  findDigestReservation,
+  findUnsettledDigestReservations,
+  listDigestDeliveries,
+  listPendingForDigest,
+  recoverStaleDigestClaims,
+  reserveDigest,
+  settleDigest,
+} from './observer-insight-repository.postgres.digest.js';
 
-const Insights = pgSchema.proactiveInsightsPostgres;
 const Embeddings = pgSchema.embeddingCachePostgres;
-const Deliveries = pgSchema.observerDeliveriesPostgres;
 const Cursors = pgSchema.observerInsightCursorsPostgres;
 const ACTIVE_INSIGHT_STATES: ObserverInsightState[] = [
   'pending',
@@ -383,6 +404,80 @@ export class PostgresObserverInsightRepository implements ObserverInsightReposit
     return mapDelivery(row);
   }
 
+  claimPendingForDigest(input: {
+    appId: string;
+    recipient: string;
+    limit: number;
+    nowIso: string;
+  }): Promise<ProactiveInsight[]> {
+    return claimPendingForDigest(this.db, input);
+  }
+
+  listPendingForDigest(input: {
+    appId: string;
+    recipient: string;
+    limit: number;
+  }): Promise<ProactiveInsight[]> {
+    return listPendingForDigest(this.db, input);
+  }
+
+  listDigestDeliveries(input: {
+    appId: string;
+    recipient: string;
+    limit: number;
+  }): Promise<ObserverDigestDeliverySummary[]> {
+    return listDigestDeliveries(this.db, input);
+  }
+
+  findDigestReservation(input: {
+    appId: string;
+    recipient: string;
+    localDay: string;
+  }): Promise<ObserverDigestReservation | null> {
+    return findDigestReservation(this.db, input);
+  }
+
+  findUnsettledDigestReservations(input: {
+    appId: string;
+    recipient: string;
+  }): Promise<ObserverDigestReservation[]> {
+    return findUnsettledDigestReservations(this.db, input);
+  }
+
+  reserveDigest(input: {
+    id: string;
+    appId: string;
+    recipient: string;
+    localDay: string;
+    timezone: string;
+    conversationJid: string;
+    providerAccountId: string;
+    threadId?: string | null;
+    renderedDigest: string;
+    contentHash: string;
+    memberships: ObserverDigestClaimMembership[];
+    nowIso: string;
+  }): Promise<ObserverDigestReserveResult> {
+    return reserveDigest(this.db, input);
+  }
+
+  settleDigest(input: {
+    deliveryId: string;
+    outboundDeliveryId: string;
+    cooldownUntil: string;
+    nowIso: string;
+  }): Promise<ObserverDigestReservation | null> {
+    return settleDigest(this.db, input);
+  }
+
+  recoverStaleDigestClaims(input: {
+    appId: string;
+    staleBeforeIso: string;
+    nowIso: string;
+  }): Promise<ProactiveInsight[]> {
+    return recoverStaleDigestClaims(this.db, input);
+  }
+
   async getInsightCursor(
     appId: string,
     subject: ObserverSubjectKey,
@@ -488,10 +583,6 @@ function keysetFilter(
   );
 }
 
-function clampLimit(limit: number): number {
-  return Math.max(1, Math.min(limit, 100));
-}
-
 function clampPageLimit(limit: number): number {
   return Math.max(1, Math.min(limit, 101));
 }
@@ -506,34 +597,6 @@ function assertCanonicalSubject(
   }
 }
 
-function mapInsight(row: typeof Insights.$inferSelect): ProactiveInsight {
-  return {
-    id: row.id,
-    appId: row.appId,
-    subject: row.subject as ObserverSubjectKey,
-    insightType: row.insightType as ProactiveInsight['insightType'],
-    title: row.title,
-    summary: row.summary,
-    evidenceRefs: Array.isArray(row.evidenceRefs)
-      ? (row.evidenceRefs as ProactiveInsight['evidenceRefs'])
-      : [],
-    batchSnapshotAt: toIso(row.batchSnapshotAt),
-    evidenceVersion: row.evidenceVersion,
-    canonicalSignature: row.canonicalSignature,
-    signatureEmbeddingRef: row.signatureEmbeddingRef ?? null,
-    confidence: row.confidence,
-    priorityScore: row.priorityScore,
-    state: row.state as ObserverInsightState,
-    cooldownUntil: nullableIso(row.cooldownUntil),
-    resolvedAt: nullableIso(row.resolvedAt),
-    surfacedAt: nullableIso(row.surfacedAt),
-    recipient: row.recipient,
-    deliveryId: row.deliveryId ?? null,
-    createdAt: toIso(row.createdAt),
-    updatedAt: toIso(row.updatedAt),
-  };
-}
-
 function mapDelivery(row: typeof Deliveries.$inferSelect): ObserverDelivery {
   return {
     id: row.id,
@@ -542,12 +605,4 @@ function mapDelivery(row: typeof Deliveries.$inferSelect): ObserverDelivery {
     localDay: row.localDay,
     createdAt: toIso(row.createdAt),
   };
-}
-
-function nullableIso(value: string | null): string | null {
-  return value ? toIso(value) : null;
-}
-
-function toIso(value: string): string {
-  return new Date(value).toISOString();
 }

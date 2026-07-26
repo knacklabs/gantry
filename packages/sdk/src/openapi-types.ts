@@ -97,6 +97,16 @@ export type ObserverInsightListResponse = JsonResponse<
   'listObserverInsights',
   200
 >;
+export type PreviewObserverDigestQuery = Query<'previewObserverDigest'>;
+export type ObserverDigestPreviewResponse = JsonResponse<
+  'previewObserverDigest',
+  200
+>;
+export type ListObserverDeliveriesQuery = Query<'listObserverDeliveries'>;
+export type ObserverDigestDeliveryListResponse = JsonResponse<
+  'listObserverDeliveries',
+  200
+>;
 
 export type ListProvidersResponse = JsonResponse<'listProviders', 200>;
 export type CreateProviderAccountResponse = JsonResponse<

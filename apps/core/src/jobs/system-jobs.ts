@@ -62,7 +62,16 @@ import {
   BRAIN_EMBEDDING_BACKFILL_SYSTEM_PROMPT,
   BRAIN_DREAMING_JOB_ID,
   BRAIN_DREAM_SYSTEM_PROMPT,
+  OBSERVER_DIGEST_SYSTEM_PROMPT,
 } from '../shared/system-job-identity.js';
+import { resolveObserverDeliveryStatus } from '../config/settings/observer-activation.js';
+import {
+  OBSERVER_DIGEST_JOB_ID,
+  observerRegistrationSignatureFields,
+  registerObserverDigestJob,
+  runScheduledObserverDigest,
+  setObserverDigestGateway,
+} from './observer-digest-job.js';
 import { computeNextJobRun } from './schedule-math.js';
 import { buildCanonicalJobLifecycleTarget } from './job-notification-routes.js';
 import { parseAgentThreadQueueKey } from '../shared/thread-queue-key.js';
@@ -96,6 +105,8 @@ type MemoryMaintenanceQueueLike = {
 
 let memoryMaintenanceQueue: MemoryMaintenanceQueueLike =
   getMemoryMaintenanceQueue();
+
+export { setObserverDigestGateway };
 
 function routeDigest(value: string): string {
   return createHash('sha256').update(value).digest('hex').slice(0, 16);
@@ -178,6 +189,9 @@ export async function registerSystemJobs(
   // return so a job kept alive by an unsettled lease is still removed on a
   // later pass once the lease clears.
   const brainSingletonPrimary = registrations[0];
+  const observerDeliveryStatus = resolveObserverDeliveryStatus(
+    getRuntimeSettingsForConfig(),
+  );
   const brainSingletons: Array<{ id: string; keep: boolean }> = [
     {
       id: BRAIN_DREAMING_JOB_ID,
@@ -186,6 +200,10 @@ export async function registerSystemJobs(
     {
       id: BRAIN_EMBEDDING_BACKFILL_JOB_ID,
       keep: Boolean(embeddingBackfillEnabled() && brainSingletonPrimary),
+    },
+    {
+      id: OBSERVER_DIGEST_JOB_ID,
+      keep: Boolean(observerDeliveryStatus.eligible && brainSingletonPrimary),
     },
   ];
   for (const { id, keep } of brainSingletons) {
@@ -206,6 +224,7 @@ export async function registerSystemJobs(
     backfillEnabled: embeddingBackfillEnabled(),
     brainBackfillEnabled: embeddingBackfillEnabled(),
     backfillCron: MEMORY_BACKFILL_CRON,
+    ...observerRegistrationSignatureFields(observerDeliveryStatus),
     routes: registrations
       .map(({ jid, group }) => [
         group.folder,
@@ -330,6 +349,12 @@ export async function registerSystemJobs(
       >[0]);
     }
   }
+
+  await registerObserverDigestJob(deps, {
+    observerDeliveryStatus,
+    primary,
+    nowIso,
+  });
 
   if (embeddingBackfillEnabled() && primary) {
     const existing = await deps.opsRepository.getJobById(
@@ -481,6 +506,9 @@ export async function handleSystemJob(
   }
   if (job.prompt === BRAIN_DREAM_SYSTEM_PROMPT) {
     return runScheduledBrainDreaming(options.signal);
+  }
+  if (job.prompt === OBSERVER_DIGEST_SYSTEM_PROMPT) {
+    return runScheduledObserverDigest(options.signal);
   }
   if (job.prompt === MEMORY_DREAM_SYSTEM_PROMPT) {
     options.signal?.throwIfAborted();
