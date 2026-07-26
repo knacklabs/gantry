@@ -36,7 +36,12 @@ const SLACK_SECTION_CAP = 2900;
 
 function truncateSlackMrkdwn(escaped: string, max: number): string {
   if (escaped.length <= max) return escaped;
-  const units = escaped.match(/&(?:amp|lt|gt);|[\s\S]/g) ?? [];
+  // Units are a whole mrkdwn entity, a whole surrogate pair, or one code unit —
+  // so the cut splits neither an `&amp;` NOR the halves of an emoji into a lone
+  // surrogate (matches the code-point-safe approach in truncateField).
+  const units =
+    escaped.match(/&(?:amp|lt|gt);|[\uD800-\uDBFF][\uDC00-\uDFFF]|[\s\S]/g) ??
+    [];
   let out = '';
   for (const unit of units) {
     if (out.length + unit.length > max - 1) break;

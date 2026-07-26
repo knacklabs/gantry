@@ -125,6 +125,26 @@ describe('observer digest — Slack render + codec', () => {
     expect(section.text.text).not.toMatch(/&(?!amp;|lt;|gt;)/);
   });
 
+  it('truncates the escaped section on whole code points (emoji straddling the cap is not split)', () => {
+    // `&` escapes ×5, so the escaped payload crosses SLACK_SECTION_CAP with an
+    // emoji sitting right at the boundary — the cut must not keep a lone surrogate.
+    // 575 `&` escape to 2875 chars; the emoji run then straddles the ~2899 cut.
+    const view = makeView({
+      count: 1,
+      summary: () => `${'&'.repeat(575)}${'😀'.repeat(60)}`,
+    });
+    const section = slackObserverDigestBlocks(view).find(
+      (b) => (b as { type?: string }).type === 'section',
+    ) as { text: { text: string } };
+    const text = section.text.text;
+    expect(text.length).toBeLessThanOrEqual(3000);
+    // No lone high surrogate, no replacement char, lossless UTF-8 round-trip.
+    expect(text).not.toMatch(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/);
+    expect(text).not.toContain('�');
+    expect(Buffer.from(text, 'utf8').toString('utf8')).toBe(text);
+    expect(text.endsWith('…')).toBe(true);
+  });
+
   it('escapes the fallback text so a captured mention/link cannot go live', () => {
     const view = makeView({
       count: 1,
