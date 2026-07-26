@@ -293,6 +293,8 @@ export interface MemoryReviewDecisionInput extends Partial<MemoryBoundaryContext
   editedValue?: string;
   editedReason?: string;
   reviewerId?: string;
+  /** Origin of the decision, e.g. 'mcp' | 'channel_action' | 'control_api'. */
+  decisionSource?: string;
 }
 
 export interface MemoryBoundaryContext {

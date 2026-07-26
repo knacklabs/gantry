@@ -723,6 +723,8 @@ export function createChannelWiring(
     setRetryTailRecoveryEnqueue,
     setDurableOutboundAttemptFactory,
     setMessageActionHandler: messageActionRouter.set,
+    setMemoryReviewMessageActionHandler:
+      messageActionRouter.setMemoryReviewHandler,
     sendStreamingChunk,
     resetStreaming: streamReset.resetStreaming,
     setTyping,

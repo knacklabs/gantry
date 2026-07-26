@@ -18,6 +18,7 @@ export type ParsedReviewDecisionRequest =
       decision: MemoryReviewDecision;
       editedValue?: string;
       editedReason?: string;
+      decisionSource?: string;
     }
   | {
       kind: 'batch';
@@ -135,6 +136,7 @@ export function parseReviewDecisionRequest(
     decision,
     editedValue: str(input, 'edited_value', 10_000),
     editedReason: str(input, 'edited_reason', 500),
+    decisionSource: str(input, 'decision_source', 64),
   }) as ParsedReviewDecisionRequest;
 }
 

@@ -17,6 +17,8 @@ function slackActionValue(
   providerAccountId?: string,
 ): string | undefined {
   if (action.kind === 'live_turn_stop') return undefined;
+  // ponytail: memory_review_decision rendering lands in Task 5 (Slack codec).
+  if (action.kind === 'memory_review_decision') return undefined;
   const value = SCHEDULER_ACTION_KINDS.has(action.kind)
     ? JSON.stringify({
         kind: action.kind,

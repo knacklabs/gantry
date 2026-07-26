@@ -106,6 +106,67 @@ describe('createChannelMessageActionRouter', () => {
     expect(handler).not.toHaveBeenCalled();
   });
 
+  it('routes memory review decisions to the memory handler and returns its outcome', async () => {
+    const router = createChannelMessageActionRouter();
+    const memoryHandler = vi.fn(async () => ({
+      state: 'applied' as const,
+      receipt: 'Memory review approved.',
+    }));
+    const handler = vi.fn();
+    router.set(handler);
+    router.setMemoryReviewHandler(memoryHandler);
+
+    const outcome = await router.handle({
+      kind: 'memory_review_decision',
+      conversationJid: 'sl:C123',
+      userId: 'U123',
+      reviewId: 'rev-1',
+      decision: 'approve',
+      label: 'Approve',
+    });
+
+    expect(memoryHandler).toHaveBeenCalledTimes(1);
+    expect(handler).not.toHaveBeenCalled();
+    expect(outcome).toEqual({
+      state: 'applied',
+      receipt: 'Memory review approved.',
+    });
+  });
+
+  it('rejects memory review callbacks with an empty review id', async () => {
+    const router = createChannelMessageActionRouter();
+    const memoryHandler = vi.fn();
+    router.setMemoryReviewHandler(memoryHandler as never);
+
+    await router.handle({
+      kind: 'memory_review_decision',
+      conversationJid: 'sl:C123',
+      userId: 'U123',
+      reviewId: '   ',
+      decision: 'approve',
+      label: 'Approve',
+    });
+
+    expect(memoryHandler).not.toHaveBeenCalled();
+  });
+
+  it('rejects memory review callbacks with an unknown decision', async () => {
+    const router = createChannelMessageActionRouter();
+    const memoryHandler = vi.fn();
+    router.setMemoryReviewHandler(memoryHandler as never);
+
+    await router.handle({
+      kind: 'memory_review_decision',
+      conversationJid: 'sl:C123',
+      userId: 'U123',
+      reviewId: 'rev-1',
+      decision: 'nuke' as never,
+      label: 'Nuke',
+    });
+
+    expect(memoryHandler).not.toHaveBeenCalled();
+  });
+
   it('runs scheduler run-now callbacks after same-channel approval', async () => {
     const sendMessage = vi.fn(async () => {});
     const runSchedulerNow = vi.fn(async () => 'Scheduler job queued (job-1).');

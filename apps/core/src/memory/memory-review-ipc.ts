@@ -207,6 +207,9 @@ export async function processMemoryReviewDecisionRequest(input: {
       ...(decisionInput.editedReason !== undefined
         ? { editedReason: decisionInput.editedReason }
         : {}),
+      ...(decisionInput.decisionSource !== undefined
+        ? { decisionSource: decisionInput.decisionSource }
+        : {}),
       reviewerId,
     }),
   );

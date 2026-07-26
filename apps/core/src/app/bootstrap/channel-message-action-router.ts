@@ -1,5 +1,7 @@
 import type {
   MessageActionCallbackInput,
+  MessageActionOutcome,
+  OnMemoryReviewMessageAction,
   OnMessageAction,
   ProgressUpdateOptions,
 } from '../../domain/types.js';
@@ -15,26 +17,46 @@ function isLiveStopActionTokenValid(
 
 function isMessageActionValid(input: MessageActionCallbackInput): boolean {
   if (input.kind === 'scheduler_run_now') return input.jobId.trim().length > 0;
+  if (input.kind === 'memory_review_decision') {
+    return (
+      input.reviewId.trim().length > 0 &&
+      (input.decision === 'approve' ||
+        input.decision === 'reject' ||
+        input.decision === 'edit')
+    );
+  }
   return isLiveStopActionTokenValid(input);
 }
 
 export function createChannelMessageActionRouter(): {
-  handle: OnMessageAction;
+  handle: (
+    input: MessageActionCallbackInput,
+  ) => Promise<MessageActionOutcome | void>;
   trackProgress: (
     conversationJid: string,
     options?: ProgressUpdateOptions,
   ) => void;
   set: (handler: OnMessageAction | undefined) => void;
+  setMemoryReviewHandler: (
+    handler: OnMemoryReviewMessageAction | undefined,
+  ) => void;
 } {
   let handler: OnMessageAction | undefined;
+  let memoryReviewHandler: OnMemoryReviewMessageAction | undefined;
   return {
     handle: async (input: MessageActionCallbackInput) => {
       if (!isMessageActionValid(input)) return;
-      await handler?.(input);
+      if (input.kind === 'memory_review_decision') {
+        return memoryReviewHandler?.(input);
+      }
+      return handler?.(input);
     },
     trackProgress: () => {},
     set: (next: OnMessageAction | undefined) => {
       handler = next;
+    },
+    setMemoryReviewHandler: (next: OnMemoryReviewMessageAction | undefined) => {
+      memoryReviewHandler = next;
     },
   };
 }

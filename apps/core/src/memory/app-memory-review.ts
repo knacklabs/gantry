@@ -279,6 +279,7 @@ export async function decideMemoryReview(input: {
   const reviewerFields = {
     decision: input.decision.decision,
     reviewerId: input.decision.reviewerId ?? null,
+    decisionSource: input.decision.decisionSource ?? null,
     editedValue: input.decision.editedValue ?? null,
     editedReason: input.decision.editedReason ?? null,
     updatedAt: now,
