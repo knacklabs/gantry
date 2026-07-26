@@ -169,6 +169,37 @@ describe('POST /v1/memory/reviews/{reviewId}/decision', () => {
     expect(serviceMock.getReviewDetail).not.toHaveBeenCalled();
   });
 
+  it('rejects edit_approve without a non-empty editedValue', async () => {
+    for (const bad of [
+      { decision: 'edit_approve' },
+      { decision: 'edit_approve', editedValue: '   ' },
+    ]) {
+      const res = await call(
+        'POST',
+        `/v1/memory/reviews/rev-1/decision?${SUBJECT_QUERY}`,
+        ctxWith(['memory:admin']),
+        bad,
+      );
+      expect(res.statusCode).toBe(400);
+    }
+    expect(serviceMock.getReviewDetail).not.toHaveBeenCalled();
+    expect(ipcMock.processMemoryReviewDecisionRequest).not.toHaveBeenCalled();
+  });
+
+  it('rejects a non-object body without throwing', async () => {
+    for (const bad of [null, 'nope', [1, 2]]) {
+      const res = await call(
+        'POST',
+        `/v1/memory/reviews/rev-1/decision?${SUBJECT_QUERY}`,
+        ctxWith(['memory:admin']),
+        bad,
+      );
+      expect(res.statusCode).toBe(400);
+    }
+    expect(serviceMock.getReviewDetail).not.toHaveBeenCalled();
+    expect(ipcMock.processMemoryReviewDecisionRequest).not.toHaveBeenCalled();
+  });
+
   it('applies an approval, deriving the reviewer from the key and stamping the source', async () => {
     serviceMock.getReviewDetail.mockResolvedValue({
       id: 'rev-1',

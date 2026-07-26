@@ -123,9 +123,16 @@ export const extensionOpenApiSchemas: Record<string, JsonSchema> = {
         type: 'string',
         enum: ['approve', 'reject', 'edit_approve'],
       },
-      editedValue: { type: 'string' },
+      editedValue: {
+        type: 'string',
+        description:
+          'Required (non-empty) when decision is edit_approve; ignored otherwise.',
+      },
       reason: { type: 'string' },
     },
+    // Conditional requirement is also enforced server-side (400 when missing).
+    if: { properties: { decision: { const: 'edit_approve' } } },
+    then: { required: ['decision', 'editedValue'] },
   },
   MemoryDreamingResponse: envelope('run', metadata),
   MemoryDreamingStatusResponse: envelope('runs', {

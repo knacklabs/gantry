@@ -3106,6 +3106,7 @@ export interface components {
         MemoryReviewDecisionRequest: {
             /** @enum {string} */
             decision: "approve" | "reject" | "edit_approve";
+            /** @description Required (non-empty) when decision is edit_approve; ignored otherwise. */
             editedValue?: string;
             reason?: string;
         };

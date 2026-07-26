@@ -254,7 +254,16 @@ export async function handleMemoryRoutes(
     }
     const subject = readReviewSubject(res, url, auth);
     if (!subject) return true;
-    const body = (await readJson(req)) as Record<string, unknown>;
+    const parsed = await readJson(req);
+    if (
+      typeof parsed !== 'object' ||
+      parsed === null ||
+      Array.isArray(parsed)
+    ) {
+      sendError(res, 400, 'INVALID_REQUEST', 'request body must be an object');
+      return true;
+    }
+    const body = parsed as Record<string, unknown>;
     const decision = body.decision;
     if (
       decision !== 'approve' &&
@@ -266,6 +275,20 @@ export async function handleMemoryRoutes(
         400,
         'INVALID_REQUEST',
         'decision must be approve, reject, or edit_approve',
+      );
+      return true;
+    }
+    // edit_approve replaces the recorded value, so it is meaningless without a
+    // non-empty editedValue — reject here rather than forward a broken decision.
+    if (
+      decision === 'edit_approve' &&
+      (typeof body.editedValue !== 'string' || !body.editedValue.trim())
+    ) {
+      sendError(
+        res,
+        400,
+        'INVALID_REQUEST',
+        'editedValue is required for an edit_approve decision',
       );
       return true;
     }
