@@ -122,10 +122,10 @@ describe('ToolExecutionPolicyService', () => {
     ).not.toContain('scheduler_grant_tool');
   });
 
-  it('recovers admin tool denials through reviewed capability guidance', () => {
+  it('recovers admin tool denials through exact persistent tool approval', () => {
     const request = classifier.classify({
       origin: 'mcp',
-      toolName: 'mcp__gantry__service_restart',
+      toolName: 'mcp__gantry__settings_desired_state',
       toolInput: {},
       executionMode: 'autonomous',
       runContext: { jobId: 'job-1' },
@@ -136,13 +136,28 @@ describe('ToolExecutionPolicyService', () => {
     ).toEqual(
       expect.objectContaining({
         status: 'deny',
-        recoveryAction: expect.stringContaining('reviewed admin capability'),
+        recoveryAction: expect.stringContaining(
+          '"name": "mcp__gantry__settings_desired_state"',
+        ),
       }),
     );
     expect(
       policy.evaluate({ request, autonomousAllowedToolRules: [] })
         .recoveryAction,
-    ).toContain('exact tool grants are not accepted');
+    ).toContain('exact Gantry tool access');
+  });
+
+  it('does not auto-allow newly durable-grantable exact Gantry tools', () => {
+    const request = classifier.classify({
+      origin: 'mcp',
+      toolName: 'mcp__gantry__scheduler_resume_job',
+      toolInput: { jobId: 'job-1' },
+    });
+
+    expect(policy.evaluate({ request })).toMatchObject({
+      status: 'not_applicable',
+      reason: 'No canonical tool execution policy matched.',
+    });
   });
 
   it('denies protected capability file targets through canonical policy', () => {
@@ -436,7 +451,7 @@ describe('ToolExecutionPolicyService', () => {
           'Tool not on autonomous run allowlist: mcp__gantry__scheduler_run_now.',
         ),
         recoveryAction:
-          'request_access { "target": { "kind": "tool", "name": "mcp__gantry__scheduler_run_now" }, "temporaryOnly": false, "reason": "This autonomous run needs scheduler access." }',
+          'request_access { "target": { "kind": "tool", "name": "mcp__gantry__scheduler_run_now" }, "temporaryOnly": false, "reason": "This autonomous run needs exact Gantry tool access." }',
       }),
     );
   });

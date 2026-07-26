@@ -27,6 +27,27 @@ function requestWithSuggestions(
 }
 
 describe('permission interaction', () => {
+  it('labels the generic MCP passthrough as access to any connected server', () => {
+    const text = formatPermissionPromptText(
+      {
+        requestId: 'permission_123',
+        sourceAgentFolder: 'main_agent',
+        toolName: 'mcp__gantry__mcp_call_tool',
+        suggestions: [
+          {
+            type: 'addRules',
+            behavior: 'allow',
+            destination: 'session',
+            rules: [{ toolName: 'mcp__gantry__mcp_call_tool' }],
+          },
+        ],
+      },
+      60_000,
+    );
+
+    expect(text).toContain('MCP Call Tool (any connected server)');
+  });
+
   it('renders request risk exactly once in plain-text and structured prompt paths', () => {
     const request: PermissionApprovalRequest = {
       ...requestWithSuggestions([]),

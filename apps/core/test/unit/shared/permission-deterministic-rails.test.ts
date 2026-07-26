@@ -309,6 +309,7 @@ describe('permission deterministic rails', () => {
   it.each([
     ['parse failure', 'echo "unterminated'],
     ['environment assignment', 'NAME=value git status'],
+    ['timezone environment assignment', 'TZ=Asia/Kolkata date'],
     ['shell expansion', 'echo $HOME'],
     ['oversize command', `echo ${'x'.repeat(4097)}`],
     ['bash string', 'bash -c echo'],

@@ -149,14 +149,22 @@ describe('storage-service', () => {
     await service.close();
   });
 
-  it('seeds durable scheduler tools as selectable built-in catalog entries', () => {
-    const seededToolNames = new Set(
-      DEFAULT_TOOL_CATALOG.map((tool) => tool.name),
+  it('preserves global admin seeds without globally seeding newly durable scheduler tools', () => {
+    const seededToolsByName = new Map(
+      DEFAULT_TOOL_CATALOG.map((tool) => [tool.name, tool]),
     );
 
-    expect(seededToolNames.has('mcp__gantry__scheduler_run_now')).toBe(true);
-    expect(seededToolNames.has('mcp__gantry__scheduler_list_jobs')).toBe(true);
-    expect(seededToolNames.has('mcp__gantry__scheduler_upsert_job')).toBe(
+    expect(
+      seededToolsByName.get('mcp__gantry__settings_desired_state')?.id,
+    ).toBe('tool:mcp__gantry__settings_desired_state');
+    expect(seededToolsByName.has('mcp__gantry__scheduler_run_now')).toBe(true);
+    expect(seededToolsByName.has('mcp__gantry__scheduler_list_jobs')).toBe(
+      true,
+    );
+    expect(seededToolsByName.has('mcp__gantry__scheduler_upsert_job')).toBe(
+      false,
+    );
+    expect(seededToolsByName.has('mcp__gantry__scheduler_resume_job')).toBe(
       false,
     );
   });

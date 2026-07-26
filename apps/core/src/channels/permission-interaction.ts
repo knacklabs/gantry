@@ -83,6 +83,7 @@ const USER_FACING_TOOL_LABELS: Record<string, string> = {
   AgentDelegation: 'agent delegation',
   Agent: 'agent delegation',
   Task: 'agent delegation',
+  mcp__gantry__mcp_call_tool: 'MCP Call Tool (any connected server)',
 };
 
 export function normalizePermissionAction(

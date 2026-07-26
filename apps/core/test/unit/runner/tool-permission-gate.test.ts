@@ -17,6 +17,10 @@ const { createCanUseToolCallback } =
   await import('@core/adapters/llm/anthropic-claude-agent/runner/tool-permission-gate.js');
 const { WORKSPACE_FOLDER_OPTION_KEY } =
   await import('@core/adapters/llm/anthropic-claude-agent/runner/types.js');
+const { evaluatePermissionDeterministicRails } =
+  await import('@core/domain/permission-deterministic-rails.js');
+const { stripShellCommandEnvPrefix } =
+  await import('@core/runtime/ipc-shell-command-prefix.js');
 
 function makePermissionOptions(overrides: Record<string, unknown> = {}) {
   return {
@@ -74,6 +78,34 @@ function combinedConsoleOutput(): string {
   ]
     .map((call) => String(call[0]))
     .join('');
+}
+
+function decideWrappedReadOnlyRequest(request: {
+  toolInput?: unknown;
+  hostInjectedCommandPrefix?: string;
+}) {
+  const toolInput = stripShellCommandEnvPrefix(
+    'RunCommand',
+    request.toolInput,
+    request.hostInjectedCommandPrefix,
+  );
+  const decision = evaluatePermissionDeterministicRails({
+    request: {
+      requestId: 'permission-test',
+      sourceAgentFolder: 'main_agent',
+      toolName: 'RunCommand',
+      toolInput,
+    },
+    approvedCapabilityIds: ['filesystem.read'],
+  });
+  return decision?.railOutcome === 'allow'
+    ? decision
+    : {
+        approved: false,
+        mode: 'cancel' as const,
+        reason: 'wrapped command was not deterministically read-only',
+        decidedBy: 'deterministic_rails',
+      };
 }
 
 describe('createCanUseToolCallback', () => {
@@ -489,7 +521,7 @@ describe('createCanUseToolCallback', () => {
     );
   });
 
-  it('keeps the runner prefix out of the permission request and adds it for execution', async () => {
+  it('wraps and declares a fresh command for permission and execution', async () => {
     const canUseTool = makeCallback({
       agentInput: {
         runMode: 'normal',
@@ -521,9 +553,11 @@ describe('createCanUseToolCallback', () => {
     const approvalRequest =
       permissionMock.requestPermissionApproval.mock.calls[0]?.[0];
     expect(approvalRequest).toMatchObject({
-      toolInput: { command: 'curl https://example.test' },
+      toolInput: {
+        command: `${hostInjectedCommandPrefix} curl https://example.test`,
+      },
+      hostInjectedCommandPrefix,
     });
-    expect(approvalRequest).not.toHaveProperty('hostInjectedCommandPrefix');
     expect(result).toEqual(
       expect.objectContaining({
         behavior: 'allow',
@@ -533,6 +567,75 @@ describe('createCanUseToolCallback', () => {
       }),
     );
   });
+
+  it.each([
+    {
+      lane: 'job subagent lane',
+      isScheduledJob: true,
+      jobId: 'job-1',
+      agentID: 'subagent-1',
+    },
+    {
+      lane: 'interactive retry',
+      isScheduledJob: false,
+      jobId: undefined,
+      agentID: undefined,
+    },
+  ])(
+    'declares an already-wrapped read-only command on the $lane without double-wrapping',
+    async ({ isScheduledJob, jobId, agentID }) => {
+      const hostInjectedCommandPrefix =
+        "GODEBUG=netdns=go HTTP_PROXY='http://127.0.0.1:18790/'";
+      permissionMock.requestPermissionApproval.mockImplementationOnce(
+        decideWrappedReadOnlyRequest,
+      );
+      const canUseTool = makeCallback({
+        agentInput: {
+          runMode: 'normal',
+          isScheduledJob,
+          appId: 'default',
+          agentId: 'agent:test',
+          runId: 'run-1',
+          jobId,
+          chatJid: 'tg:test',
+          threadId: undefined,
+          allowedTools: [],
+          toolNetworkEnv: {
+            HTTP_PROXY: 'http://127.0.0.1:18790/',
+          },
+          yoloMode: {
+            enabled: true,
+            denylist: [],
+            denylistPaths: [],
+          },
+        } as never,
+      });
+
+      await expect(
+        canUseTool(
+          'Bash',
+          { command: `${hostInjectedCommandPrefix} uname -s` },
+          makePermissionOptions({ ...(agentID ? { agentID } : {}) }) as never,
+        ),
+      ).resolves.toEqual(
+        expect.objectContaining({
+          behavior: 'allow',
+          updatedInput: {
+            command: `${hostInjectedCommandPrefix} uname -s`,
+          },
+        }),
+      );
+      expect(permissionMock.requestPermissionApproval).toHaveBeenCalledWith(
+        expect.objectContaining({
+          toolInput: {
+            command: `${hostInjectedCommandPrefix} uname -s`,
+          },
+          hostInjectedCommandPrefix,
+          ...(agentID ? { agentID } : {}),
+        }),
+      );
+    },
+  );
 
   it('does not silently allow a tool listed in allowedTools — the coordinator still decides', async () => {
     // PERM-2 Task F: a rule on the agent's configured allowedTools must not
