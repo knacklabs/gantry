@@ -335,6 +335,14 @@ export interface ObserverInsightRepository {
     suppressMs: number;
     suppressThreshold: number;
   }): Promise<ObserverOwnerActionResult>;
+  // Owner-scoped (app_id + recipient) insight types with an ACTIVE time-boxed
+  // suppression (suppressed_until > nowIso). Expired suppressions are not
+  // returned — their type resumes surfacing. Emission loads this once per run.
+  listActiveSuppressedTypes(input: {
+    appId: string;
+    recipient: string;
+    nowIso: string;
+  }): Promise<Set<ObserverInsightType>>;
   getInsightCursor(
     appId: string,
     subject: ObserverSubjectKey,

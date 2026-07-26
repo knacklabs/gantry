@@ -5,6 +5,7 @@ import {
   asc,
   desc,
   eq,
+  gt,
   inArray,
   lt,
   lte,
@@ -690,6 +691,27 @@ export class PostgresObserverInsightRepository implements ObserverInsightReposit
         Date.parse(suppressedUntil) > Date.parse(input.nowIso);
       return { outcome: 'applied', suppressedType };
     });
+  }
+
+  async listActiveSuppressedTypes(input: {
+    appId: string;
+    recipient: string;
+    nowIso: string;
+  }): Promise<Set<ObserverInsightType>> {
+    // Served by the (app_id, recipient, insight_type) PK prefix. Only rows
+    // whose window is still open (suppressed_until > now) count; NULL/expired
+    // rows are excluded by gt, so a lapsed suppression resumes surfacing.
+    const rows = await this.db
+      .select({ insightType: Suppressions.insightType })
+      .from(Suppressions)
+      .where(
+        and(
+          eq(Suppressions.appId, input.appId),
+          eq(Suppressions.recipient, input.recipient),
+          gt(Suppressions.suppressedUntil, input.nowIso),
+        ),
+      );
+    return new Set(rows.map((row) => row.insightType as ObserverInsightType));
   }
 
   async getInsightCursor(
