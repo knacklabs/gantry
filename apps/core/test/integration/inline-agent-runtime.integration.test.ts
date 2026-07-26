@@ -685,7 +685,8 @@ Response marker: stage-c-skill-loaded`;
           storage: {
             storageType: 'object-store',
             storageRef: 'memory:inline-response',
-            contentHash: 'sha256-inline-response',
+            contentHash:
+              'sha256:e1a17a0858cefdf133816e6cd8e60f6e45d96e40ac86b0f6bbf04f3b8c9343cc',
             sizeBytes: Buffer.byteLength(skillContent),
           },
         },
