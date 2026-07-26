@@ -1,7 +1,14 @@
 import {
   ADMIN_MCP_TOOL_NAMES,
+  ALL_GANTRY_MCP_TOOL_NAMES,
+  ASYNC_TASK_GANTRY_MCP_TOOL_NAMES,
   AUTHORITY_CHANGING_GANTRY_MCP_TOOL_NAMES,
-  SCHEDULER_MCP_TOOL_NAMES,
+  BASELINE_GANTRY_MCP_TOOL_NAMES,
+  DEFAULT_GANTRY_MCP_TOOL_NAMES,
+  DELEGATED_TASK_GANTRY_MCP_TOOL_NAMES,
+  GATED_GANTRY_MCP_TOOL_NAMES,
+  OPTIONAL_GANTRY_MCP_TOOL_NAMES,
+  REVIEWED_GANTRY_MCP_TOOL_NAMES,
 } from '../shared/admin-mcp-tools.js';
 import {
   selectedMemoryIpcActionsFromToolRules,
@@ -10,75 +17,23 @@ import {
 } from '../shared/memory-ipc-actions.js';
 import { isCanonicalBrowserCapabilityRule } from '../shared/agent-tool-references.js';
 
-export const BASELINE_GANTRY_MCP_TOOL_NAMES = [
-  'send_message',
-  'ask_user_question',
-  'render_status',
-  'render_facts',
-  'render_list',
-  'render_table',
-  'render_form',
-  'render_media',
-  'render_progress',
-  'todo_update',
-  'memory_search',
-  'memory_save',
-  'brain_search',
-  'brain_query',
-  'brain_write',
-  'continuity_summary',
-  'procedure_save',
-  'request_skill_install',
-  'request_skill_proposal',
-  'pattern_candidate_decision',
-  'proactive_surfacing_consent',
-  'request_skill_dependency_install',
-  'request_mcp_server',
-  'request_access',
-  'file',
-  'agent_profile_read',
-  'request_agent_profile_update',
-  'mcp_list_tools',
-  'mcp_search_tools',
-  'mcp_describe_tool',
-  'mcp_call_tool',
-] as const;
-
-export const ASYNC_TASK_GANTRY_MCP_TOOL_NAMES = [
-  'async_run_command',
-  'async_mcp_call',
-  'task_cancel',
-  'task_get',
-  'task_list',
-] as const;
-
-export const DELEGATED_TASK_GANTRY_MCP_TOOL_NAMES = [
-  'delegate_task',
-  'task_message',
-] as const;
-
 // Authority-changing Gantry tools let an agent request new install/setup/access
 // authority for itself. In the fixed-image worker product mode they are hidden
 // from user-facing live agents and scheduled jobs: workers never install tools,
 // skills, MCP servers, or dependencies during a run. Admin tools are tracked
-// separately in ADMIN_MCP_TOOL_NAMES. The canonical names live in the shared
-// admin-mcp-tools module; this re-export keeps the runner the agent-facing
-// source of truth for the tool surface.
-export { AUTHORITY_CHANGING_GANTRY_MCP_TOOL_NAMES };
-
-export const OPTIONAL_GANTRY_MCP_TOOL_NAMES = [
-  ...SCHEDULER_MCP_TOOL_NAMES,
-] as const;
-
-export const REVIEWED_GANTRY_MCP_TOOL_NAMES = [
-  'memory_patch',
-  'memory_demote',
-  'procedure_patch',
-  'memory_dream',
-  'memory_consolidate',
-  'memory_review_pending',
-  'memory_review_decision',
-] as const;
+// separately in ADMIN_MCP_TOOL_NAMES. The canonical constants live in shared;
+// these re-exports preserve the runner's public tool-surface API.
+export {
+  ALL_GANTRY_MCP_TOOL_NAMES,
+  ASYNC_TASK_GANTRY_MCP_TOOL_NAMES,
+  AUTHORITY_CHANGING_GANTRY_MCP_TOOL_NAMES,
+  BASELINE_GANTRY_MCP_TOOL_NAMES,
+  DEFAULT_GANTRY_MCP_TOOL_NAMES,
+  DELEGATED_TASK_GANTRY_MCP_TOOL_NAMES,
+  GATED_GANTRY_MCP_TOOL_NAMES,
+  OPTIONAL_GANTRY_MCP_TOOL_NAMES,
+  REVIEWED_GANTRY_MCP_TOOL_NAMES,
+};
 
 const REVIEWER_MEMORY_REVIEW_GANTRY_MCP_TOOL_NAMES = [
   'memory_review_pending',
@@ -109,28 +64,6 @@ export function isAuthorityChangingGantryMcpToolName(value: string): boolean {
 export function isNoPermissionHiddenGantryMcpToolName(value: string): boolean {
   return NO_PERMISSION_HIDDEN_GANTRY_MCP_TOOL_NAME_SET.has(value);
 }
-
-export const GATED_GANTRY_MCP_TOOL_NAMES = [
-  'browser_status',
-  'browser_open',
-  'browser_inspect',
-  'browser_act',
-  'browser_close',
-] as const;
-
-export const DEFAULT_GANTRY_MCP_TOOL_NAMES = [
-  ...BASELINE_GANTRY_MCP_TOOL_NAMES,
-  ...OPTIONAL_GANTRY_MCP_TOOL_NAMES,
-] as const;
-
-export const ALL_GANTRY_MCP_TOOL_NAMES = [
-  ...DEFAULT_GANTRY_MCP_TOOL_NAMES,
-  ...ASYNC_TASK_GANTRY_MCP_TOOL_NAMES,
-  ...DELEGATED_TASK_GANTRY_MCP_TOOL_NAMES,
-  ...GATED_GANTRY_MCP_TOOL_NAMES,
-  ...REVIEWED_GANTRY_MCP_TOOL_NAMES,
-  ...ADMIN_MCP_TOOL_NAMES,
-] as const;
 
 const ALL_GANTRY_MCP_TOOL_NAME_SET = new Set<string>(ALL_GANTRY_MCP_TOOL_NAMES);
 

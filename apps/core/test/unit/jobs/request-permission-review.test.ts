@@ -224,14 +224,55 @@ describe('request permission review helpers', () => {
     }
   });
 
-  it('does not suggest persistent grants for scheduler mutation tool requests', () => {
+  it('suggests persistent grants for scheduler mutation tool requests', () => {
+    for (const toolName of [
+      'mcp__gantry__scheduler_upsert_job',
+      'mcp__gantry__scheduler_update_job',
+      'mcp__gantry__scheduler_delete_job',
+      'mcp__gantry__scheduler_pause_job',
+      'mcp__gantry__scheduler_resume_job',
+    ]) {
+      expect(
+        requestPermissionSetupDecisionOptions({
+          permissionKind: 'tool',
+          toolName,
+          temporaryOnly: false,
+        }),
+        toolName,
+      ).toContain('allow_persistent_rule');
+    }
+  });
+
+  it('suggests grantable admin tools but excludes all four non-durable categories', () => {
     expect(
-      requestPermissionSetupDecisionOptions({
+      requestPermissionReviewSuggestions({
         permissionKind: 'tool',
-        toolName: 'mcp__gantry__scheduler_upsert_job',
+        toolName: 'mcp__gantry__admin_permission_list',
         temporaryOnly: false,
       }),
-    ).not.toContain('allow_persistent_rule');
+    ).toEqual([
+      {
+        type: 'addRules',
+        behavior: 'allow',
+        destination: 'session',
+        rules: [{ toolName: 'mcp__gantry__admin_permission_list' }],
+      },
+    ]);
+    for (const toolName of [
+      'mcp__gantry__mcp_call_tool',
+      'mcp__gantry__delegate_task',
+      'mcp__gantry__admin_permission_revoke',
+      'mcp__gantry__memory_review_decision',
+    ]) {
+      expect(
+        requestPermissionReviewSuggestions({
+          permissionKind: 'tool',
+          toolName,
+          temporaryOnly: false,
+        }),
+        toolName,
+      ).toBeUndefined();
+    }
   });
 
   it('prefers explicit scoped RunCommand permission over capability metadata on setup requests', () => {
@@ -584,13 +625,13 @@ describe('request permission review helpers', () => {
     );
   });
 
-  it('binds exact admin MCP tools without creating synthetic wildcard grants', async () => {
+  it('binds grantable exact admin MCP tools without creating synthetic wildcard grants', async () => {
     const ipcDir = fs.mkdtempSync(
       path.join(os.tmpdir(), 'gantry-admin-live-tool-rules-'),
     );
     const repository = {
       getTool: vi.fn(async () => ({
-        id: 'tool:mcp__gantry__service_restart',
+        id: 'tool:mcp__gantry__admin_permission_list',
         appId: 'app:test',
         status: 'active',
         selectable: true,
@@ -612,19 +653,19 @@ describe('request permission review helpers', () => {
         {
           type: 'addRules',
           behavior: 'allow',
-          rules: [{ toolName: 'mcp__gantry__service_restart' }],
+          rules: [{ toolName: 'mcp__gantry__admin_permission_list' }],
         },
       ],
     });
 
-    expect(persisted).toEqual(['mcp__gantry__service_restart']);
+    expect(persisted).toEqual(['mcp__gantry__admin_permission_list']);
     expect(repository.getTool).toHaveBeenCalledWith(
-      'tool:mcp__gantry__service_restart',
+      'tool:mcp__gantry__admin_permission_list',
     );
     expect(repository.saveTool).not.toHaveBeenCalled();
     expect(repository.saveAgentToolBinding).toHaveBeenCalledWith(
       expect.objectContaining({
-        toolId: 'tool:mcp__gantry__service_restart',
+        toolId: 'tool:mcp__gantry__admin_permission_list',
         status: 'active',
       }),
     );
@@ -635,7 +676,7 @@ describe('request permission review helpers', () => {
           'utf-8',
         ),
       ),
-    ).toEqual(['mcp__gantry__service_restart']);
+    ).toEqual(['mcp__gantry__admin_permission_list']);
   });
 
   it('binds persistent Browser approvals to the catalog Browser tool and mirrors settings', async () => {
@@ -1797,7 +1838,7 @@ describe('request permission review helpers', () => {
   it('rejects scoped admin MCP tool approvals', async () => {
     const repository = {
       getTool: vi.fn(async () => ({
-        id: 'tool:mcp__gantry__service_restart',
+        id: 'tool:mcp__gantry__admin_permission_list',
         appId: 'app:test',
         status: 'active',
         selectable: true,
@@ -1820,7 +1861,7 @@ describe('request permission review helpers', () => {
             behavior: 'allow',
             rules: [
               {
-                toolName: 'mcp__gantry__service_restart',
+                toolName: 'mcp__gantry__admin_permission_list',
                 ruleContent: 'reason=test',
               },
             ],

@@ -289,7 +289,7 @@ describe('ipc-interaction-handler', () => {
     fs.writeFileSync(claimedPath, '{}');
     const toolRepository = {
       getTool: vi.fn(async () => ({
-        id: 'tool:mcp__gantry__service_restart',
+        id: 'tool:mcp__gantry__admin_permission_list',
         appId: 'app:test',
         status: 'active',
         selectable: true,
@@ -310,7 +310,7 @@ describe('ipc-interaction-handler', () => {
         sourceAgentFolder: 'main_agent',
         runHandle: 'agent-run-1',
         targetJid: 'tg:team',
-        toolName: 'mcp__gantry__service_restart',
+        toolName: 'mcp__gantry__admin_permission_list',
         toolInput: { service: 'api' },
       },
       sourceAgentFolder: 'main_agent',
@@ -324,7 +324,7 @@ describe('ipc-interaction-handler', () => {
             {
               type: 'addRules',
               behavior: 'allow',
-              rules: [{ toolName: 'mcp__gantry__service_restart' }],
+              rules: [{ toolName: 'mcp__gantry__admin_permission_list' }],
             },
           ],
         })),
@@ -351,10 +351,10 @@ describe('ipc-interaction-handler', () => {
           'utf-8',
         ),
       ),
-    ).toEqual(['mcp__gantry__service_restart']);
+    ).toEqual(['mcp__gantry__admin_permission_list']);
     expect(mirrorAgentToolRulesToSettings).toHaveBeenCalledWith(
       'main_agent',
-      ['mcp__gantry__service_restart'],
+      ['mcp__gantry__admin_permission_list'],
       { appId: 'app:test' },
     );
     expect(mirrorAgentToolRulesToSettings).toHaveBeenCalledOnce();
@@ -369,7 +369,7 @@ describe('ipc-interaction-handler', () => {
     const sendMessage = vi.fn(async () => undefined);
     const toolRepository = {
       getTool: vi.fn(async () => ({
-        id: 'tool:mcp__gantry__service_restart',
+        id: 'tool:mcp__gantry__admin_permission_list',
         appId: 'app:test',
         status: 'active',
         selectable: true,
@@ -389,7 +389,7 @@ describe('ipc-interaction-handler', () => {
         runHandle: 'agent-run-thread',
         targetJid: 'tg:team',
         threadId: 'topic-7',
-        toolName: 'mcp__gantry__service_restart',
+        toolName: 'mcp__gantry__admin_permission_list',
         toolInput: { service: 'api' },
       },
       sourceAgentFolder: 'main_agent',
@@ -404,7 +404,7 @@ describe('ipc-interaction-handler', () => {
             {
               type: 'addRules',
               behavior: 'allow',
-              rules: [{ toolName: 'mcp__gantry__service_restart' }],
+              rules: [{ toolName: 'mcp__gantry__admin_permission_list' }],
             },
           ],
         })),
