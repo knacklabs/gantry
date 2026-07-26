@@ -44,6 +44,7 @@ function reviewUsage(): string {
     '  gantry memory reviews --agent-id <id> --subject-type <user|group|channel|common> --subject-id <id> [--json]',
     '  gantry memory review <reviewId> --agent-id <id> --subject-type <t> --subject-id <id> [--json]',
     '  gantry memory review decide <reviewId> --agent-id <id> --subject-type <t> --subject-id <id> (--approve | --reject | --edit-value <value>) [--reason <reason>] [--json]',
+    '    (use --edit-value=<value> for a value starting with "-", e.g. --edit-value=-5)',
   ].join('\n');
 }
 
@@ -58,6 +59,20 @@ interface ReviewFlags {
   editValueMissing: boolean;
   reason?: string;
 }
+
+// This command's own option flags. A space-separated `--edit-value` value is
+// only treated as MISSING when the next token is one of these (or absent), so a
+// legit hyphen-leading value like `-5` is still accepted.
+const RECOGNIZED_REVIEW_FLAGS = new Set([
+  '--agent-id',
+  '--subject-type',
+  '--subject-id',
+  '--reason',
+  '--edit-value',
+  '--approve',
+  '--reject',
+  '--json',
+]);
 
 function parseReviewFlags(args: string[]): ReviewFlags {
   const flags: ReviewFlags = {
@@ -81,11 +96,15 @@ function parseReviewFlags(args: string[]): ReviewFlags {
     } else if (arg === '--reason' && next) {
       flags.reason = next;
       index += 1;
+    } else if (arg?.startsWith('--edit-value=')) {
+      // Attached form: unambiguously accepts ANY value, incl. hyphen-leading
+      // and explicit-empty. Split on the first '='.
+      flags.editValue = arg.slice('--edit-value='.length);
     } else if (arg === '--edit-value') {
-      // Never swallow the next OPTION token or run off the end — that would
-      // submit a wrong mutating edit_approve (e.g. `--edit-value --reject`
-      // editing to "--reject"). Empty/whitespace is invalid too.
-      if (next === undefined || next.startsWith('-') || !next.trim()) {
+      // Space form: value is MISSING only when absent or a recognized option of
+      // this command — never swallow `--reject` into a mutating edit_approve.
+      // A non-flag token like `-5` is a legit value.
+      if (next === undefined || RECOGNIZED_REVIEW_FLAGS.has(next)) {
         flags.editValueMissing = true;
       } else {
         flags.editValue = next;
@@ -118,15 +137,19 @@ function reviewErrorMessage(err: unknown): string {
 }
 
 // Review content (evidence text, claim values, reasons, sourceUri) is
-// user-controlled memory/message text. Strip terminal control sequences so a
-// crafted value can't erase or forge the operator's review view, forge OSC
-// hyperlinks, or touch the clipboard. \n and \t are kept for layout; the --json
-// path is left untouched (JSON.stringify already escapes control chars).
+// user-controlled memory/message text. Neutralize it PER FIELD, before it is
+// assembled with the CLI's own labels: strip terminal control sequences so a
+// crafted value can't erase/forge the review view or forge OSC hyperlinks, AND
+// collapse tabs + line breaks to a single space so a value cannot forge a new
+// labelled line/row. The CLI's own structural newlines live between fields and
+// are never passed through here. --json is left raw (JSON.stringify escapes
+// control chars).
 function sanitizeTerminal(value: string): string {
   return value
     .replace(/\x1b\][^\x07]*(?:\x07|\x1b\\)/g, '') // OSC ... (BEL | ST)
     .replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, '') // CSI
-    .replace(/[\x00-\x08\x0b-\x1f\x7f-\x9f]/g, ''); // other C0/C1 (keep \t, \n)
+    .replace(/[\t\r\n]+/g, ' ') // collapse line breaks + tabs → space
+    .replace(/[\x00-\x08\x0b-\x1f\x7f-\x9f]/g, ''); // remaining C0/C1 controls
 }
 
 function short(value: string | undefined, max = 32): string {
@@ -254,20 +277,24 @@ function formatClaim(claim: {
   key?: string;
   value?: string;
 }): string {
-  return `  ${claim.kind ?? '(kind)'} ${claim.key ?? '(key)'} = ${claim.value ?? ''}`;
+  const s = sanitizeTerminal;
+  return `  ${s(claim.kind ?? '(kind)')} ${s(claim.key ?? '(key)')} = ${s(claim.value ?? '')}`;
 }
 
 function formatReviewDetail(review: MemoryReviewRecord): string {
+  // Sanitize each API-sourced field BEFORE it meets the CLI's own labels — the
+  // structural newlines that separate fields are the CLI's, never a value's.
+  const s = sanitizeTerminal;
   const lines = [
-    `Review: ${review.id}`,
-    `Status: ${review.status}`,
-    `Action: ${review.proposal?.action ?? review.proposedChange?.action ?? '(unknown)'}`,
-    `Created: ${review.createdAt}`,
+    `Review: ${s(review.id)}`,
+    `Status: ${s(review.status)}`,
+    `Action: ${s(review.proposal?.action ?? review.proposedChange?.action ?? '(unknown)')}`,
+    `Created: ${s(review.createdAt)}`,
   ];
   const snapshot = review.reviewSnapshot;
   if (!snapshot) {
     lines.push('', '(no immutable snapshot captured for this review)');
-    return sanitizeTerminal(lines.join('\n'));
+    return lines.join('\n');
   }
   const active = snapshot.conflict?.active;
   if (active) lines.push('', 'Now (active claim):', formatClaim(active));
@@ -279,8 +306,8 @@ function formatReviewDetail(review: MemoryReviewRecord): string {
     lines.push(
       '',
       'Proposed canonical:',
-      `  ${proposed.kind} ${proposed.key} = ${proposed.value}`,
-      `  Why: ${proposed.reason}`,
+      `  ${s(proposed.kind)} ${s(proposed.key)} = ${s(proposed.value)}`,
+      `  Why: ${s(proposed.reason)}`,
     );
   }
   if (snapshot.retiring?.length) {
@@ -290,17 +317,14 @@ function formatReviewDetail(review: MemoryReviewRecord): string {
     lines.push('', 'Evidence:');
     for (const evidence of snapshot.evidence) {
       lines.push(
-        `  [${evidence.role}] ${evidence.sourceType}${
-          evidence.sourceUri ? ` (${evidence.sourceUri})` : ''
+        `  [${s(evidence.role)}] ${s(evidence.sourceType)}${
+          evidence.sourceUri ? ` (${s(evidence.sourceUri)})` : ''
         }`,
-        `    ${evidence.text}`,
+        `    ${s(evidence.text)}`,
       );
     }
   }
-  // One sanitize over the whole assembled block neutralizes control sequences
-  // in every API-sourced field (claim values, reason, sourceUri, evidence text)
-  // while preserving the \n layout.
-  return sanitizeTerminal(lines.join('\n'));
+  return lines.join('\n');
 }
 
 async function decideReview(

@@ -230,6 +230,50 @@ describe('gantry memory review (detail)', () => {
     expect(detail).toContain('slack://c/1');
   });
 
+  it('neutralizes embedded newlines so a value cannot forge a labelled line', async () => {
+    const injected = 'PST\nDecision: approved';
+    state.response = {
+      review: {
+        id: 'rev-1',
+        status: 'pending_review',
+        createdAt: '2026-07-24T00:00:00.000Z',
+        proposal: { action: 'contradiction' },
+        reviewSnapshot: {
+          conflict: {
+            active: { kind: 'fact', key: 'timezone', value: injected },
+          },
+          evidence: [],
+        },
+      },
+    };
+    const { runMemoryCommand } = await loadMemoryCommand();
+    await runMemoryCommand('/tmp/home', ['review', 'rev-1', ...SUBJECT_ARGS]);
+    const detail = notes[0]?.message ?? '';
+    // The claim value renders on ONE line — no forged standalone "Decision:" row.
+    expect(detail).not.toMatch(/^Decision: approved$/m);
+    expect(detail).toMatch(/= PST Decision: approved$/m); // collapsed into the value
+
+    // --json preserves the raw newline.
+    notes.length = 0;
+    const writes: string[] = [];
+    const spy = vi
+      .spyOn(process.stdout, 'write')
+      .mockImplementation((chunk: string | Uint8Array) => {
+        writes.push(String(chunk));
+        return true;
+      });
+    await runMemoryCommand('/tmp/home', [
+      'review',
+      'rev-1',
+      ...SUBJECT_ARGS,
+      '--json',
+    ]);
+    spy.mockRestore();
+    expect(
+      JSON.parse(writes.join('')).review.reviewSnapshot.conflict.active.value,
+    ).toBe(injected);
+  });
+
   it('surfaces a not-found error from the API', async () => {
     state.error = new Error('Review not found');
     const { runMemoryCommand, log } = await loadMemoryCommand();
@@ -387,6 +431,41 @@ describe('gantry memory review decide', () => {
     expect(state.requests[0]?.body).toEqual({
       decision: 'edit_approve',
       editedValue: 'new text',
+    });
+  });
+
+  it('accepts a hyphen-leading value via the attached form --edit-value=-5', async () => {
+    state.response = { review: { status: 'applied' } };
+    const { runMemoryCommand } = await loadMemoryCommand();
+    const code = await runMemoryCommand('/tmp/home', [
+      'review',
+      'decide',
+      'rev-1',
+      ...SUBJECT_ARGS,
+      '--edit-value=-5',
+    ]);
+    expect(code).toBe(0);
+    expect(state.requests[0]?.body).toEqual({
+      decision: 'edit_approve',
+      editedValue: '-5',
+    });
+  });
+
+  it('accepts a hyphen-leading value via the space form when it is not a known flag', async () => {
+    state.response = { review: { status: 'applied' } };
+    const { runMemoryCommand } = await loadMemoryCommand();
+    const code = await runMemoryCommand('/tmp/home', [
+      'review',
+      'decide',
+      'rev-1',
+      ...SUBJECT_ARGS,
+      '--edit-value',
+      '-5',
+    ]);
+    expect(code).toBe(0);
+    expect(state.requests[0]?.body).toEqual({
+      decision: 'edit_approve',
+      editedValue: '-5',
     });
   });
 
