@@ -1483,6 +1483,66 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/memory/reviews": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List pending memory reviews
+         * @description Lists the pending memory-review queue for one subject as a bounded, immutable-snapshot preview.
+         */
+        get: operations["listMemoryReviews"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/memory/reviews/{reviewId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get memory review detail
+         * @description Returns the full immutable snapshot for one pending review: both claims, the proposed canonical value, and every cited evidence row with untruncated text and source uri.
+         */
+        get: operations["getMemoryReview"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/memory/reviews/{reviewId}/decision": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Decide a memory review
+         * @description Applies a reviewer decision (approve, reject, or edit_approve) to one pending review. The reviewer identity is derived from the authenticated API key; the decision source is recorded as the control API.
+         */
+        post: operations["decideMemoryReview"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/observer/status": {
         parameters: {
             query?: never;
@@ -3020,6 +3080,40 @@ export interface components {
             dryRun?: boolean;
             timeoutMs?: number;
             deadlineAtMs?: number;
+        };
+        MemoryReviewPageResponse: {
+            reviews: {
+                [key: string]: unknown;
+            }[];
+            review_page?: {
+                [key: string]: unknown;
+            };
+            page_context?: {
+                [key: string]: unknown;
+            };
+            total_count: number;
+            returned_count: number;
+            remaining_count: number;
+            limit: number;
+            offset: number;
+            next_offset?: number | null;
+        };
+        MemoryReviewDetailResponse: {
+            review: {
+                [key: string]: unknown;
+            };
+        };
+        MemoryReviewDecisionRequest: {
+            /** @constant */
+            decision: "edit_approve";
+            /** @description Replacement value applied to the reviewed memory. */
+            editedValue: string;
+            reason?: string;
+        } | {
+            /** @enum {string} */
+            decision: "approve" | "reject";
+            editedValue?: string;
+            reason?: string;
         };
         MemoryDreamingResponse: {
             run: {
@@ -6719,6 +6813,124 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    listMemoryReviews: {
+        parameters: {
+            query: {
+                /** @description App id. Defaults to API key app. */
+                appId?: string;
+                /** @description Agent id. */
+                agentId: string;
+                /** @description Canonical memory subject type. */
+                subjectType: "user" | "group" | "channel" | "common";
+                /** @description Canonical memory subject id. */
+                subjectId: string;
+                /** @description Maximum number of reviews to return. */
+                limit?: number;
+                /** @description Pending-review page offset. */
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Request succeeded. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemoryReviewPageResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    getMemoryReview: {
+        parameters: {
+            query: {
+                /** @description App id. Defaults to API key app. */
+                appId?: string;
+                /** @description Agent id. */
+                agentId: string;
+                /** @description Canonical memory subject type. */
+                subjectType: "user" | "group" | "channel" | "common";
+                /** @description Canonical memory subject id. */
+                subjectId: string;
+            };
+            header?: never;
+            path: {
+                /** @description Memory review id. */
+                reviewId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Request succeeded. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemoryReviewDetailResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    decideMemoryReview: {
+        parameters: {
+            query: {
+                /** @description App id. Defaults to API key app. */
+                appId?: string;
+                /** @description Agent id. */
+                agentId: string;
+                /** @description Canonical memory subject type. */
+                subjectType: "user" | "group" | "channel" | "common";
+                /** @description Canonical memory subject id. */
+                subjectId: string;
+            };
+            header?: never;
+            path: {
+                /** @description Memory review id. */
+                reviewId: string;
+            };
+            cookie?: never;
+        };
+        /** @description JSON request payload. */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MemoryReviewDecisionRequest"];
+            };
+        };
+        responses: {
+            /** @description Request succeeded. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemoryReviewDetailResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
             500: components["responses"]["InternalError"];
         };
     };

@@ -1395,6 +1395,127 @@ describe('TeamsChannel adapter scaffold', () => {
     });
   });
 
+  async function connectTeamsForReviewAction(onMessageAction: any) {
+    let startInput: Parameters<TeamsSdkClient['start']>[0] | undefined =
+      undefined;
+    const sdkClient: TeamsSdkClient = {
+      start: vi.fn(async (input) => {
+        startInput = input;
+      }),
+      stop: vi.fn(async () => {}),
+      sendMessage: vi.fn(async () => ({})),
+      sendAdaptiveCard: vi.fn(async () => ({ externalMessageId: 'x' })),
+      updateAdaptiveCard: vi.fn(async () => ({})),
+    };
+    const channel = new TeamsChannel(
+      {
+        clientId: 'client-id',
+        clientSecret: 'client-secret',
+        tenantId: 'tenant-id',
+      },
+      { ...makeOpts(), onMessageAction },
+      sdkClient,
+    );
+    await channel.connect();
+    return {
+      sdkClient,
+      get startInput() {
+        return startInput;
+      },
+    };
+  }
+
+  const reviewActionMessage = (targetJid: string): TeamsInboundMessage => ({
+    conversationId: '19:abc@thread.v2',
+    replyToId: 'review-card-1',
+    from: { id: 'teams-user-1', name: 'Team Admin' },
+    value: {
+      data: {
+        action: 'message_action',
+        kind: 'memory_review_decision',
+        reviewId: 'mrv_1',
+        decision: 'approve',
+        targetJid,
+      },
+    },
+  });
+
+  it('rebuilds the shared Teams review card to a receipt with no actions on a TERMINAL outcome', async () => {
+    const onMessageAction = vi.fn(async () => ({
+      state: 'applied' as const,
+      receipt: 'Applied · updated the note',
+    }));
+    const { sdkClient, startInput } =
+      await connectTeamsForReviewAction(onMessageAction);
+
+    await startInput?.onMessage(reviewActionMessage('teams:19:abc@thread.v2'));
+
+    expect(onMessageAction).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: 'memory_review_decision',
+        conversationJid: 'teams:19:abc@thread.v2',
+        reviewId: 'mrv_1',
+        decision: 'approve',
+        userId: 'teams-user-1',
+      }),
+    );
+    expect(sdkClient.updateAdaptiveCard).toHaveBeenCalledWith(
+      expect.objectContaining({
+        conversationId: '19:abc@thread.v2',
+        messageId: 'review-card-1',
+        card: expect.objectContaining({
+          body: [
+            expect.objectContaining({ text: 'Applied · updated the note' }),
+          ],
+          actions: [],
+        }),
+      }),
+    );
+    expect(sdkClient.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it('responds privately and leaves the shared Teams review card unchanged on a NON-TERMINAL outcome', async () => {
+    const onMessageAction = vi.fn(async () => ({
+      state: 'denied' as const,
+      receipt: 'Only the person who owns this note can decide.',
+      replacementText: 'Reply with an edit to change the proposal.',
+    }));
+    const { sdkClient, startInput } =
+      await connectTeamsForReviewAction(onMessageAction);
+
+    await startInput?.onMessage(reviewActionMessage('teams:19:abc@thread.v2'));
+
+    expect(sdkClient.updateAdaptiveCard).not.toHaveBeenCalled();
+    expect(sdkClient.sendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        conversationId: '19:abc@thread.v2',
+        text: 'Only the person who owns this note can decide.\n\nReply with an edit to change the proposal.',
+      }),
+    );
+  });
+
+  it('rejects a Teams review action for a FOREIGN targetJid before executing', async () => {
+    const onMessageAction = vi.fn(async () => ({
+      state: 'applied' as const,
+      receipt: 'nope',
+    }));
+    const { sdkClient, startInput } =
+      await connectTeamsForReviewAction(onMessageAction);
+
+    await startInput?.onMessage(
+      reviewActionMessage('teams:19:other@thread.v2'),
+    );
+
+    expect(onMessageAction).not.toHaveBeenCalled();
+    expect(sdkClient.updateAdaptiveCard).not.toHaveBeenCalled();
+    expect(sdkClient.sendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        conversationId: '19:abc@thread.v2',
+        text: 'This action belongs to a different chat.',
+      }),
+    );
+  });
+
   it('updates Teams progress cards and clears stop actions when done', async () => {
     const sdkClient: TeamsSdkClient = {
       start: vi.fn(async () => {}),

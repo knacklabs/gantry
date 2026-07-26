@@ -268,7 +268,6 @@ export function createChannelWiring(
       });
     }
   }
-
   const hasConnectedChannels = (): boolean => connectedChannels.length > 0;
   function describeDestinationJid(jid: string) {
     const provider = providerForJid(jid);
@@ -723,6 +722,8 @@ export function createChannelWiring(
     setRetryTailRecoveryEnqueue,
     setDurableOutboundAttemptFactory,
     setMessageActionHandler: messageActionRouter.set,
+    setMemoryReviewMessageActionHandler:
+      messageActionRouter.setMemoryReviewHandler,
     sendStreamingChunk,
     resetStreaming: streamReset.resetStreaming,
     setTyping,

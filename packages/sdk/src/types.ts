@@ -65,3 +65,21 @@ export type MemoryPatchInput = MemoryContext & {
   confidence?: number;
   isPinned?: boolean;
 };
+
+export type MemoryReviewSubject = {
+  appId?: string;
+  agentId: string;
+  subjectType: 'user' | 'group' | 'channel' | 'common';
+  subjectId: string;
+};
+
+export type MemoryReviewListInput = MemoryReviewSubject & {
+  limit?: number;
+  offset?: number;
+};
+
+export type MemoryReviewDecisionInput = MemoryReviewSubject &
+  (
+    | { decision: 'edit_approve'; editedValue: string; reason?: string }
+    | { decision: 'approve' | 'reject'; editedValue?: string; reason?: string }
+  );

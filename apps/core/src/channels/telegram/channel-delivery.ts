@@ -27,7 +27,10 @@ import {
   telegramThreadOptionsFromString,
   telegramQuestionCallbackId,
 } from './channel-shared.js';
-import { telegramActionReplyMarkup } from './message-action-affordances.js';
+import {
+  telegramActionReplyMarkup,
+  sendTelegramReviewMessage,
+} from './message-action-affordances.js';
 import {
   clearProgressActions,
   prepareTelegramProgressHandle,
@@ -59,6 +62,15 @@ export abstract class TelegramChannelDelivery extends TelegramChannelConnect {
     if (!this.bot) {
       logger.warn('Telegram bot not initialized');
       throw new Error('Telegram bot not initialized');
+    }
+
+    if (options.reviewMessageView) {
+      return sendTelegramReviewMessage({
+        bot: this.bot,
+        jid,
+        options,
+        sanitizeErrorMessage: (err) => this.sanitizeErrorMessage(err),
+      });
     }
 
     try {

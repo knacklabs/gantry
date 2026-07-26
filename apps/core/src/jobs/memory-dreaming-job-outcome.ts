@@ -4,8 +4,79 @@ import type {
   NormalizedMemorySubject,
 } from '../memory/memory-types.js';
 import { AppMemoryService } from '../memory/app-memory-service.js';
+import {
+  buildReviewMessageView,
+  type ReviewMessageView,
+} from '../memory/review-message-view.js';
 
 const MEMORY_REVIEW_NOTIFICATION_LOOKUP_TIMEOUT_MS = 2_000;
+
+/**
+ * Typed hand-off from the dreaming run to the terminal notification: which
+ * reviews this run newly surfaced plus a fully-built view of the FIRST one, so
+ * the notification renders the actual review + action buttons instead of a bare
+ * count. Snapshot-sourced (buildReviewMessageView reads the T3 frozen snapshot);
+ * never recovered by reverse-parsing the human summary.
+ */
+export interface MemoryReviewCreatedNotification {
+  kind: 'memory_review_created';
+  reviewMessageView: ReviewMessageView;
+  createdReviewIds: string[];
+  pendingCount: number;
+}
+
+/** Ids of reviews a completed dreaming run created, read structurally from the
+ * run summary (set by summarizeDreamDecisions). Empty for any other shape. */
+export function createdReviewIdsFromDreamSummary(summary: unknown): string[] {
+  if (!summary || typeof summary !== 'object' || Array.isArray(summary)) {
+    return [];
+  }
+  const value = (summary as Record<string, unknown>).createdReviewIds;
+  if (!Array.isArray(value)) return [];
+  return value.filter((id): id is string => typeof id === 'string' && !!id);
+}
+
+/**
+ * Load the FIRST newly-created review and build its provider-neutral view. The
+ * pending count drives the "＋N more pending" line. Returns null (caller keeps
+ * the concise count summary) if there are no new ids or the review can't be
+ * loaded — the notification never fabricates content.
+ */
+export async function buildMemoryReviewCreatedNotification(input: {
+  memory: AppMemoryService;
+  subject: NormalizedMemorySubject;
+  createdReviewIds: string[];
+  pendingCount: number;
+}): Promise<MemoryReviewCreatedNotification | null> {
+  const firstId = input.createdReviewIds[0];
+  if (!firstId) return null;
+  try {
+    const record = await input.memory.getReviewWithinAgentBoundary(
+      {
+        appId: input.subject.appId,
+        agentId: input.subject.agentId,
+        reviewId: firstId,
+      },
+      { statementTimeoutMs: MEMORY_REVIEW_NOTIFICATION_LOOKUP_TIMEOUT_MS },
+    );
+    if (!record) return null;
+    const reviewMessageView = buildReviewMessageView(record);
+    // This message shows the first review; the rest are surfaced as a
+    // "＋N more pending" indicator on the native card and the text fallback.
+    const morePendingCount = Math.max(0, input.pendingCount - 1);
+    if (morePendingCount > 0) {
+      reviewMessageView.morePendingCount = morePendingCount;
+    }
+    return {
+      kind: 'memory_review_created',
+      reviewMessageView,
+      createdReviewIds: input.createdReviewIds,
+      pendingCount: input.pendingCount,
+    };
+  } catch {
+    return null;
+  }
+}
 
 function pendingMemoryReviewLabel(count: number): string {
   return `${count} pending memory review${count === 1 ? '' : 's'}`;
@@ -102,4 +173,44 @@ function appendPendingReviewNotice(
 ) {
   if (pendingReviews <= alreadyReported) return summary;
   return `${summary} ${pendingMemoryReviewNotice(pendingReviews)}.`;
+}
+
+function dreamSummaryPendingCount(summary: unknown, fallback: number): number {
+  if (summary && typeof summary === 'object' && !Array.isArray(summary)) {
+    const value = (summary as Record<string, unknown>).pendingReviews;
+    if (typeof value === 'number' && Number.isFinite(value) && value >= 0) {
+      return Math.trunc(value);
+    }
+  }
+  return fallback;
+}
+
+/**
+ * Turn a completed dreaming run into the typed review-created context and hand
+ * it to the terminal-notification sink. No-op when the run created no reviews or
+ * no sink is wired — the notification then keeps its concise summary.
+ */
+export async function emitMemoryReviewCreatedContext(input: {
+  dreamRun: DreamingRunStatus | undefined;
+  memory: AppMemoryService;
+  subject: NormalizedMemorySubject;
+  onNotificationContext?: (context: MemoryReviewCreatedNotification) => void;
+}): Promise<void> {
+  const sink = input.onNotificationContext;
+  if (!sink || !input.dreamRun) return;
+  const createdReviewIds = createdReviewIdsFromDreamSummary(
+    input.dreamRun.summary,
+  );
+  if (createdReviewIds.length === 0) return;
+  const pendingCount = dreamSummaryPendingCount(
+    input.dreamRun.summary,
+    createdReviewIds.length,
+  );
+  const context = await buildMemoryReviewCreatedNotification({
+    memory: input.memory,
+    subject: input.subject,
+    createdReviewIds,
+    pendingCount,
+  });
+  if (context) sink(context);
 }

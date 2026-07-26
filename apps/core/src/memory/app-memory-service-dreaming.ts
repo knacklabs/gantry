@@ -4,7 +4,7 @@ import type {
 } from './memory-types.js';
 
 export function summarizeDreamDecisions(
-  decisions: Array<{ action: string }>,
+  decisions: Array<{ action: string; reviewId?: string }>,
   dryRun: boolean,
   options: { pendingReviews?: number } = {},
 ) {
@@ -16,6 +16,12 @@ export function summarizeDreamDecisions(
     Number.isFinite(options.pendingReviews)
       ? Math.max(0, Math.trunc(options.pendingReviews))
       : needsReview;
+  // Ids of reviews this run newly surfaced, carried structurally so the terminal
+  // notification can render the actual review instead of a bare count — never by
+  // reverse-parsing the human summary.
+  const createdReviewIds = decisions
+    .map((decision) => decision.reviewId)
+    .filter((id): id is string => Boolean(id));
   return {
     decisions: decisions.length,
     promoted: count('promote'),
@@ -26,6 +32,7 @@ export function summarizeDreamDecisions(
     dryRunDecisions: count('dry_run'),
     needsReview,
     pendingReviews,
+    createdReviewIds,
     dryRun,
   };
 }

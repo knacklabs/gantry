@@ -1,6 +1,7 @@
 import type {
   MessageDeliveryResult,
   MessageActionCallbackInput,
+  OnMemoryReviewMessageAction,
   MessageSendOptions,
   PermissionApprovalCancellation,
   PermissionApprovalDecision,
@@ -181,6 +182,9 @@ export interface ChannelWiring {
   setRuntimeSecrets: (provider: RuntimeSecretProvider) => void;
   setMessageActionHandler: (
     handler: ((input: MessageActionCallbackInput) => Promise<void>) | undefined,
+  ) => void;
+  setMemoryReviewMessageActionHandler: (
+    handler: OnMemoryReviewMessageAction | undefined,
   ) => void;
   sendStreamingChunk: (
     jid: string,

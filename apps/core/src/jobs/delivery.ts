@@ -1,6 +1,10 @@
 import { logger } from '../infrastructure/logging/logger.js';
 import { incrementOperationalError } from '../shared/operational-error-counters.js';
-import type { Job, MessageSendOptions } from '../domain/types.js';
+import type {
+  Job,
+  MessageActionAffordance,
+  MessageSendOptions,
+} from '../domain/types.js';
 import {
   getPartialMessageDeliveryMetadata,
   isPartialMessageDeliveryError,
@@ -56,6 +60,11 @@ export interface DurableJobNotificationEnqueueInput {
   profileId: string;
   idempotencyKey: string;
   text: string;
+  /** Carried through the durable outbox so a notification delivered via the
+   * queue keeps its native action buttons (e.g. memory-review Approve/Reject/
+   * Edit). Direct-send passes these via MessageSendOptions.actionAffordances;
+   * the outbox must persist them too or the buttons silently disappear. */
+  actionAffordances?: MessageActionAffordance[];
   metadata: Record<string, unknown>;
 }
 
@@ -146,6 +155,7 @@ export async function sendJobNotification(input: {
   phase: JobNotificationPhase;
   runId?: string | null;
   actionAffordances?: MessageSendOptions['actionAffordances'];
+  reviewMessageView?: MessageSendOptions['reviewMessageView'];
   sendMessage?: SchedulerSendMessage;
   enqueueDurableNotification?: EnqueueDurableJobNotification;
 }): Promise<boolean> {
@@ -172,6 +182,9 @@ export async function sendJobNotification(input: {
           profileId,
           idempotencyKey,
           text: input.text,
+          ...(input.actionAffordances
+            ? { actionAffordances: input.actionAffordances }
+            : {}),
           metadata: {
             jobId: input.job.id,
             runId: input.runId ?? null,
@@ -180,6 +193,9 @@ export async function sendJobNotification(input: {
             routeConversationJid: route.conversationJid,
             routeThreadId: route.threadId,
             routeProviderAccountId: route.providerAccountId ?? null,
+            ...(input.actionAffordances
+              ? { actionAffordances: input.actionAffordances }
+              : {}),
           },
         });
         if (enqueueResult !== false) delivered = true;
@@ -205,7 +221,10 @@ export async function sendJobNotification(input: {
   if (!sendMessage) return false;
   for (const route of routes) {
     const options =
-      route.threadId || route.providerAccountId || input.actionAffordances
+      route.threadId ||
+      route.providerAccountId ||
+      input.actionAffordances ||
+      input.reviewMessageView
         ? {
             ...(route.threadId ? { threadId: route.threadId } : {}),
             ...(route.providerAccountId
@@ -213,6 +232,9 @@ export async function sendJobNotification(input: {
               : {}),
             ...(input.actionAffordances
               ? { actionAffordances: input.actionAffordances }
+              : {}),
+            ...(input.reviewMessageView
+              ? { reviewMessageView: input.reviewMessageView }
               : {}),
           }
         : undefined;

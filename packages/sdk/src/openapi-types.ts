@@ -200,6 +200,15 @@ export type SearchMemoryResponse = JsonResponse<'searchMemory', 200>;
 export type ListMemoryResponse = JsonResponse<'listMemory', 200>;
 export type PatchMemoryResponse = JsonResponse<'patchMemory', 200>;
 export type DeleteMemoryResponse = JsonResponse<'deleteMemory', 200>;
+export type ListMemoryReviewsQuery = Query<'listMemoryReviews'>;
+export type ListMemoryReviewsResponse = JsonResponse<'listMemoryReviews', 200>;
+export type GetMemoryReviewQuery = Query<'getMemoryReview'>;
+export type GetMemoryReviewResponse = JsonResponse<'getMemoryReview', 200>;
+export type DecideMemoryReviewRequest = JsonRequest<'decideMemoryReview'>;
+export type DecideMemoryReviewResponse = JsonResponse<
+  'decideMemoryReview',
+  200
+>;
 export type TriggerMemoryDreamingRequest = JsonRequest<'triggerMemoryDreaming'>;
 export type MemorySubjectType = NonNullable<
   TriggerMemoryDreamingRequest['subjectType']

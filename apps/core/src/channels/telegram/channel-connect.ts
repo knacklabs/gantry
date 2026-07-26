@@ -7,6 +7,10 @@ import {
 } from '../permission-interaction.js';
 
 import { TelegramChannelPrompts } from './channel-prompts.js';
+import {
+  TELEGRAM_REVIEW_CALLBACK_PATTERN,
+  TELEGRAM_REVIEW_DECISION_BY_CODE,
+} from './message-action-affordances.js';
 import { resolveDurableTelegramPermissionCallback } from './permission-callback.js';
 import {
   TELEGRAM_PERMISSION_CALLBACK_PATTERN,
@@ -293,6 +297,87 @@ export abstract class TelegramChannelConnect extends TelegramChannelPrompts {
           actionToken: data.slice('lt:stop:'.length),
         });
         await ctx.answerCallbackQuery({ text: 'Stopping current run.' });
+        return;
+      }
+
+      const reviewMatch = TELEGRAM_REVIEW_CALLBACK_PATTERN.exec(data);
+      if (reviewMatch) {
+        const decision = TELEGRAM_REVIEW_DECISION_BY_CODE[reviewMatch[1]];
+        const reviewId = reviewMatch[2];
+        const callbackMessage = ctx.callbackQuery?.message as
+          | {
+              chat?: { id?: number | string };
+              message_thread_id?: number;
+            }
+          | undefined;
+        const chatId =
+          callbackMessage?.chat?.id?.toString() ||
+          ctx.chat?.id?.toString() ||
+          '';
+        if (!chatId) return;
+        // The review message is SHARED. Route first, then split by terminality:
+        // authority + the stale veto live in the host handler we dispatch to.
+        const outcome = await this.opts.onMessageAction?.({
+          kind: 'memory_review_decision',
+          conversationJid: `tg:${chatId}`,
+          ...(this.opts.providerAccountId
+            ? { providerAccountId: this.opts.providerAccountId }
+            : {}),
+          threadId:
+            typeof callbackMessage?.message_thread_id === 'number'
+              ? String(callbackMessage.message_thread_id)
+              : undefined,
+          userId: ctx.from?.id?.toString(),
+          reviewId,
+          decision,
+          label: '',
+        });
+        if (!outcome) {
+          await ctx.answerCallbackQuery();
+          return;
+        }
+        const terminal =
+          outcome.state === 'applied' ||
+          outcome.state === 'stale' ||
+          outcome.state === 'invalid';
+        if (terminal) {
+          // Ack is best-effort: an expired/failed callback query must NOT stop
+          // the finalize — the shared message + its live keyboard have to come
+          // down now that the review is resolved.
+          await ctx
+            .answerCallbackQuery({ text: outcome.receipt })
+            .catch((err: unknown) =>
+              logger.debug(
+                { reviewId, err: this.sanitizeErrorMessage(err) },
+                'Failed to ack Telegram memory review callback',
+              ),
+            );
+          await ctx
+            .editMessageText(outcome.receipt, {
+              reply_markup: { inline_keyboard: [] },
+            })
+            .catch((err: unknown) =>
+              logger.debug(
+                { reviewId, err: this.sanitizeErrorMessage(err) },
+                'Failed to update Telegram memory review message',
+              ),
+            );
+        } else {
+          // denied / edit: private alert to the clicker; leave the shared
+          // message + keyboard intact for legitimate approvers. A failed
+          // private ack shouldn't throw out of the handler.
+          const text = outcome.replacementText
+            ? `${outcome.receipt}\n\n${outcome.replacementText}`
+            : outcome.receipt;
+          await ctx
+            .answerCallbackQuery({ text, show_alert: true })
+            .catch((err: unknown) =>
+              logger.debug(
+                { reviewId, err: this.sanitizeErrorMessage(err) },
+                'Failed to ack Telegram memory review callback',
+              ),
+            );
+        }
         return;
       }
 

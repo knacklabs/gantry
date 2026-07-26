@@ -51,7 +51,9 @@ import {
 import {
   appendPendingReviewContextToError,
   countPendingReviewsForNotification,
+  emitMemoryReviewCreatedContext,
   formatMemoryDreamingOutcome,
+  type MemoryReviewCreatedNotification,
 } from './memory-dreaming-job-outcome.js';
 import {
   MEMORY_DREAM_SYSTEM_PROMPT,
@@ -496,7 +498,11 @@ export async function handleSystemJob(
     userId?: string;
     threadId?: string | null;
   },
-  options: { signal?: AbortSignal; deadlineAtMs?: number } = {},
+  options: {
+    signal?: AbortSignal;
+    deadlineAtMs?: number;
+    onNotificationContext?: (context: MemoryReviewCreatedNotification) => void;
+  } = {},
 ): Promise<string> {
   if (job.prompt === MEMORY_EMBEDDING_BACKFILL_SYSTEM_PROMPT) {
     return runScheduledEmbeddingBackfill(options.signal);
@@ -568,6 +574,12 @@ export async function handleSystemJob(
           throw new Error('invalid memory maintenance group');
         }
       }
+      await emitMemoryReviewCreatedContext({
+        dreamRun,
+        memory,
+        subject,
+        onNotificationContext: options.onNotificationContext,
+      });
       return formatMemoryDreamingOutcome(dreamRun, queueResult);
     } finally {
       jobDeadline.dispose();

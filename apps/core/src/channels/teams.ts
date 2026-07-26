@@ -24,7 +24,10 @@ import {
   buildTeamsUserQuestionCard,
   formatTeamsAttachmentUnavailableCopy as teamsTextWithAttachmentNotice,
 } from './teams-cards.js';
-import { handleTeamsMessageAction } from './teams-message-actions.js';
+import {
+  handleTeamsMessageAction,
+  teamsMessageActionCardSinks,
+} from './teams-message-actions.js';
 import {
   sendTeamsProgressUpdate,
   sendTeamsTextOrActionMessage,
@@ -621,17 +624,7 @@ export class TeamsChannel implements ChannelAdapter {
       userId,
       providerAccountId: this.opts.providerAccountId,
       onMessageAction: this.opts.onMessageAction,
-      sendDenied: async (conversationId, text) => {
-        if (!conversationId) return;
-        try {
-          await this.sdkClient.sendMessage({ conversationId, text });
-        } catch (err) {
-          logger.debug(
-            { conversationId, err },
-            'Failed to send Teams permission denial feedback',
-          );
-        }
-      },
+      ...teamsMessageActionCardSinks(this.sdkClient),
     });
   }
 

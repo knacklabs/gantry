@@ -92,6 +92,58 @@ export const extensionOpenApiSchemas: Record<string, JsonSchema> = {
       deadlineAtMs: { type: 'number', minimum: 0 },
     },
   },
+  MemoryReviewPageResponse: {
+    type: 'object',
+    required: [
+      'reviews',
+      'total_count',
+      'returned_count',
+      'remaining_count',
+      'limit',
+      'offset',
+    ],
+    properties: {
+      reviews: { type: 'array', items: metadata },
+      review_page: metadata,
+      page_context: metadata,
+      total_count: { type: 'integer' },
+      returned_count: { type: 'integer' },
+      remaining_count: { type: 'integer' },
+      limit: { type: 'integer' },
+      offset: { type: 'integer' },
+      next_offset: { type: 'integer', nullable: true },
+    },
+  },
+  MemoryReviewDetailResponse: envelope('review', metadata),
+  MemoryReviewDecisionRequest: {
+    oneOf: [
+      {
+        type: 'object',
+        required: ['decision', 'editedValue'],
+        properties: {
+          decision: { type: 'string', const: 'edit_approve' },
+          editedValue: {
+            type: 'string',
+            minLength: 1,
+            pattern: '\\S',
+            description: 'Replacement value applied to the reviewed memory.',
+          },
+          reason: { type: 'string' },
+        },
+      },
+      {
+        type: 'object',
+        required: ['decision'],
+        properties: {
+          decision: { type: 'string', enum: ['approve', 'reject'] },
+          // Accepted-and-ignored for approve/reject (kept for back-compat).
+          editedValue: { type: 'string' },
+          reason: { type: 'string' },
+        },
+      },
+    ],
+    discriminator: { propertyName: 'decision' },
+  },
   MemoryDreamingResponse: envelope('run', metadata),
   MemoryDreamingStatusResponse: envelope('runs', {
     type: 'array',

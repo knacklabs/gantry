@@ -1,9 +1,15 @@
 import type {
+  MemoryReviewActionDecision,
   MessageActionAffordance,
   PermissionApprovalRequest,
   PermissionCallbackScope,
   UserQuestionRequest,
 } from '../domain/types.js';
+import {
+  morePendingReviewsLabel,
+  type ReviewMessageSide,
+  type ReviewMessageView,
+} from '../domain/review-message-view.js';
 import type { AgentTodoRender } from '../domain/ports/task-lifecycle.js';
 import type { DurableQuestionCallback } from '../application/interactions/pending-interaction-durability.js';
 import { PERMISSION_APPROVAL_TIMEOUT_MS } from '../shared/permission-timeout.js';
@@ -54,6 +60,14 @@ export interface TeamsAdaptiveCardAction {
         action: 'message_action';
         kind: 'scheduler_run_now';
         jobId: string;
+        targetJid: string;
+        threadId?: string;
+      }
+    | {
+        action: 'message_action';
+        kind: 'memory_review_decision';
+        reviewId: string;
+        decision: MemoryReviewActionDecision;
         targetJid: string;
         threadId?: string;
       };
@@ -368,5 +382,131 @@ export function buildTeamsUserQuestionReceiptCard(
     version: '1.5',
     body: [{ type: 'TextBlock', text, wrap: true }],
     actions: [],
+  };
+}
+
+// A memory-review outcome (receipt) is just a text-only card with no actions —
+// identical in shape to the user-question receipt, so reuse it.
+export const buildTeamsReviewReceiptCard = buildTeamsUserQuestionReceiptCard;
+
+/**
+ * Neutralize dynamic snapshot text before embedding it in an Adaptive Card
+ * TextBlock (Teams renders a markdown subset). Backslash-escaping the link
+ * syntax `[ ] ( )`, the code backtick, and the angle brackets means captured
+ * memory can't inject a live link, code span, or a `<at>` mention. Mirrors the
+ * intent of the Slack mrkdwn / Telegram HTML escaping in T5. Emphasis chars
+ * (`_`/`*`) are intentionally left alone so common keys like `coffee_order`
+ * render cleanly — they carry no injection risk.
+ */
+function escapeTeamsCardText(value: string): string {
+  return value.replace(/[\\<>[\]()`]/g, '\\$&');
+}
+
+function teamsSideFact(side: ReviewMessageSide): {
+  title: string;
+  value: string;
+} {
+  const meta = [side.source, side.date]
+    .filter(Boolean)
+    .map((part) => escapeTeamsCardText(part as string))
+    .join(' · ');
+  const value = `"${escapeTeamsCardText(side.value)}"`;
+  return {
+    title: escapeTeamsCardText(side.label),
+    value: meta ? `${value} — ${meta}` : value,
+  };
+}
+
+/**
+ * Compact-structured Adaptive Card for a memory-review message. Mirrors the
+ * Slack/Telegram T5 renderers from the same provider-neutral ReviewMessageView:
+ *   - title TextBlock
+ *   - FactSet: Topic + each side (value with its "source · date") so a reviewer
+ *     sees WHAT the conflict is (both sides + recency) at a glance
+ *   - Change/Why container so they see WHAT will change plainly
+ *   - bounded evidence (already capped/truncated in the view) as a small subtle
+ *     container — never the full text
+ *   - three Action.Execute buttons carrying the memory_review_decision payload
+ *     + targetJid so inbound validation rejects foreign-chat callbacks
+ * All snapshot-sourced values are escaped for the TextBlock markdown subset.
+ */
+export function teamsReviewCard(
+  view: ReviewMessageView,
+  options: { targetJid: string; threadId?: string },
+): TeamsAdaptiveCardPayload {
+  const body: Array<Record<string, unknown>> = [
+    {
+      type: 'TextBlock',
+      size: 'Medium',
+      weight: 'Bolder',
+      text: escapeTeamsCardText(view.title),
+      wrap: true,
+    },
+    {
+      type: 'FactSet',
+      facts: [
+        { title: 'Topic', value: escapeTeamsCardText(view.topic) },
+        ...view.sides.map(teamsSideFact),
+      ],
+    },
+    {
+      type: 'Container',
+      items: [
+        {
+          type: 'TextBlock',
+          text: `**Change →** ${escapeTeamsCardText(view.change)}`,
+          wrap: true,
+        },
+        {
+          type: 'TextBlock',
+          text: `**Why:** ${escapeTeamsCardText(view.why)}`,
+          wrap: true,
+          isSubtle: true,
+        },
+      ],
+    },
+  ];
+  if (view.evidence.length > 0) {
+    // ponytail: bounded subtle container; the view already caps to 3 short
+    // snippets, so no ToggleVisibility needed — add one if evidence grows.
+    body.push({
+      type: 'Container',
+      items: view.evidence.map((item) => ({
+        type: 'TextBlock',
+        size: 'Small',
+        isSubtle: true,
+        wrap: true,
+        text: `📎 ${escapeTeamsCardText([item.source, item.date].filter(Boolean).join(' · '))}: ${escapeTeamsCardText(item.snippet)}`,
+      })),
+    });
+  }
+  const morePending = morePendingReviewsLabel(view);
+  if (morePending) {
+    body.push({
+      type: 'TextBlock',
+      size: 'Small',
+      isSubtle: true,
+      wrap: true,
+      text: escapeTeamsCardText(morePending),
+    });
+  }
+  return {
+    $schema: 'http://adaptivecards.io/schemas/adaptive-card.json',
+    type: 'AdaptiveCard',
+    version: '1.5',
+    body,
+    actions: view.affordances.map((affordance) => ({
+      type: 'Action.Execute',
+      title: affordance.label,
+      verb: 'gantry.memory.review',
+      data: {
+        action: 'message_action',
+        kind: 'memory_review_decision',
+        reviewId: affordance.reviewId,
+        decision: affordance.decision,
+        targetJid: options.targetJid,
+        ...(options.threadId ? { threadId: options.threadId } : {}),
+      },
+    })),
   };
 }

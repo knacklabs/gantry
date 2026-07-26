@@ -1,5 +1,24 @@
 import type { SemanticCapabilityDefinition } from '../shared/semantic-capabilities.js';
 import type { PermissionMode } from '../shared/permission-mode.js';
+import type { ReviewMessageView } from './review-message-view.js';
+import type { MessageActionAffordance } from './message-actions.js';
+
+export type {
+  MessageActionAffordanceKind,
+  MemoryReviewActionDecision,
+  MessageActionAffordance,
+  MessageActionCallbackInput,
+  MemoryReviewMessageActionInput,
+  MessageActionOutcome,
+  OnMessageAction,
+  OnMemoryReviewMessageAction,
+} from './message-actions.js';
+export type {
+  ReviewMessageView,
+  ReviewMessageSide,
+  ReviewMessageEvidence,
+  ReviewMessageAffordance,
+} from './review-message-view.js';
 
 export type {
   Job,
@@ -477,53 +496,16 @@ export interface ProgressUpdateOptions {
   actionAffordances?: MessageActionAffordance[];
 }
 
-export type MessageActionAffordanceKind =
-  | 'scheduler_run_now'
-  | 'scheduler_pause_job'
-  | 'live_turn_stop';
-
-export type MessageActionAffordance =
-  | {
-      kind: 'scheduler_run_now' | 'scheduler_pause_job';
-      label: string;
-      jobId: string;
-      runId?: string | null;
-    }
-  | {
-      kind: 'live_turn_stop';
-      label: string;
-      actionToken: string;
-    };
-
-export type MessageActionCallbackInput =
-  | {
-      kind: 'live_turn_stop';
-      conversationJid: string;
-      providerAccountId?: string;
-      threadId?: string;
-      userId?: string;
-      actionToken?: string;
-    }
-  | {
-      kind: 'scheduler_run_now';
-      conversationJid: string;
-      providerAccountId?: string;
-      threadId?: string;
-      userId?: string;
-      jobId: string;
-      runId?: string | null;
-    };
-
-export type OnMessageAction = (
-  input: MessageActionCallbackInput,
-) => Promise<void>;
-
 export interface MessageSendOptions {
   threadId?: string;
   providerAccountId?: string;
   agentId?: string;
   actionAffordances?: MessageActionAffordance[];
   files?: MessageFileAttachment[];
+  /** When set, channels with native support render this as a compact-structured
+   * memory-review message (per-channel native blocks/card) with the decision
+   * buttons. Channels without native buttons fall back to `text`. */
+  reviewMessageView?: ReviewMessageView;
 }
 
 export interface MessageFileAttachment {

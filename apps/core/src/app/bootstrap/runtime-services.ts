@@ -87,6 +87,7 @@ import {
   sendActiveCompactionQueuedReceipt,
 } from './runtime-services-active-compact.js';
 import { registerRuntimeLiveStopMessageAction } from './runtime-live-stop-message-action.js';
+import { registerRuntimeMemoryReviewMessageAction } from './runtime-memory-review-message-action.js';
 import { nowIso, nowMs, toIso } from '../../shared/time/datetime.js';
 import { LiveTurnAuthority } from '../../runtime/live-turn-authority.js';
 import type { LiveTurnRecoveryLoop } from '../../runtime/live-turn-recovery.js';
@@ -577,6 +578,7 @@ export async function startRuntimeServices(
     },
   };
   registerRuntimeLiveStopMessageAction(channelWiring, app, liveMessageQueue);
+  registerRuntimeMemoryReviewMessageAction(channelWiring, app);
   handleActiveControlCommand = async ({
     chatJid,
     queueJid,
@@ -717,9 +719,7 @@ export async function startRuntimeServices(
       hashSha256Hex: (value: string) =>
         createHash('sha256').update(value, 'utf8').digest('hex'),
     });
-    // Observer digest durable send: enqueue under the shared live-send profile
-    // (idempotent on the digest's per-day key). The outbound recovery loop below
-    // does the provider send; `durablySent` settles the digest once durably sent.
+    // Observer digest durable send: enqueue under the shared live-send profile (idempotent on the per-day key); the recovery loop below sends, `durablySent` settles it.
     setObserverDigestGateway({
       enqueue: async (input) => {
         const target = resolveDurableOutboundTarget({

@@ -3233,6 +3233,110 @@ describe('Slack channel', () => {
     expect(appRef.current.client.chat.postEphemeral).not.toHaveBeenCalled();
   });
 
+  async function invokeSlackReviewAction(
+    outcome: {
+      state: string;
+      receipt: string;
+      replacementText?: string;
+      clearActions?: boolean;
+    },
+    decision: 'approve' | 'reject' | 'edit' = 'approve',
+  ) {
+    const onMessageAction = vi.fn(async () => outcome);
+    const opts = {
+      ...createOptsWithApproverHook(['U_APPROVER']),
+      onMessageAction,
+    };
+    const channel = new SlackChannel('xoxb-token', 'xapp-token', opts as any);
+    await channel.connect();
+    const actionHandler = appRef.current.actionHandlers.get(
+      'gantry_message_action',
+    );
+    const ack = vi.fn();
+    await actionHandler({
+      ack,
+      action: {
+        value: JSON.stringify({
+          kind: 'memory_review_decision',
+          reviewId: 'mrv_abc',
+          decision,
+        }),
+      },
+      body: {
+        channel: { id: 'C1234567890' },
+        user: { id: 'U_APPROVER' },
+        message: { ts: '1710000000.100201', thread_ts: '1710000000.000111' },
+      },
+    });
+    return { ack, onMessageAction };
+  }
+
+  it('rebuilds the shared Slack message as a receipt with no buttons on applied', async () => {
+    const { ack, onMessageAction } = await invokeSlackReviewAction({
+      state: 'applied',
+      receipt: 'Memory review approved.',
+    });
+    expect(ack).toHaveBeenCalled();
+    expect(onMessageAction).toHaveBeenCalledWith({
+      kind: 'memory_review_decision',
+      conversationJid: 'sl:C1234567890',
+      providerAccountId: 'slack_default',
+      threadId: '1710000000.000111',
+      userId: 'U_APPROVER',
+      reviewId: 'mrv_abc',
+      decision: 'approve',
+      label: '',
+    });
+    const call = appRef.current.client.chat.update.mock.calls[0]?.[0];
+    expect(call).toMatchObject({
+      channel: 'C1234567890',
+      ts: '1710000000.100201',
+      text: 'Memory review approved.',
+    });
+    // Blocks are rebuilt (receipt section) with no actions block — buttons gone.
+    expect(call.blocks).toEqual([
+      {
+        type: 'section',
+        text: { type: 'mrkdwn', text: 'Memory review approved.' },
+      },
+    ]);
+    expect(appRef.current.client.chat.postEphemeral).not.toHaveBeenCalled();
+  });
+
+  it('delivers the reply-command ephemerally and leaves the shared Slack message intact on edit', async () => {
+    await invokeSlackReviewAction(
+      {
+        state: 'needs_input',
+        receipt: 'Reply to edit this review.',
+        replacementText: 'edit memory review mrv_abc: ',
+      },
+      'edit',
+    );
+    expect(appRef.current.client.chat.update).not.toHaveBeenCalled();
+    const ephemeral =
+      appRef.current.client.chat.postEphemeral.mock.calls[0]?.[0];
+    expect(ephemeral).toMatchObject({
+      channel: 'C1234567890',
+      user: 'U_APPROVER',
+    });
+    expect(ephemeral.text).toContain('edit memory review mrv_abc:');
+  });
+
+  it('delivers a denial ephemerally and leaves the shared Slack message intact', async () => {
+    await invokeSlackReviewAction(
+      { state: 'denied', receipt: 'Not authorized to decide this review.' },
+      'approve',
+    );
+    expect(appRef.current.client.chat.update).not.toHaveBeenCalled();
+    const ephemeral =
+      appRef.current.client.chat.postEphemeral.mock.calls[0]?.[0];
+    expect(ephemeral).toMatchObject({
+      channel: 'C1234567890',
+      user: 'U_APPROVER',
+      text: 'Not authorized to decide this review.',
+    });
+  });
+
   it('does not render Slack live stop action buttons', async () => {
     const opts = {
       ...createOptsWithApproverHook(['U_APPROVER']),

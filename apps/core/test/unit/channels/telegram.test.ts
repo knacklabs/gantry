@@ -1054,6 +1054,44 @@ describe('TelegramChannel', () => {
     );
   });
 
+  it('sends a memory-review message as native HTML with three decision buttons', async () => {
+    const channel = new TelegramChannel('token', createTestOpts());
+    await channel.connect({ inbound: false });
+    const reviewId = 'mrv_tg1';
+    await channel.sendMessage('tg:100200300', 'fallback text', {
+      reviewMessageView: {
+        reviewId,
+        kind: 'contradiction',
+        title: '🧠 Memory review · conflicting note',
+        topic: 'user.location',
+        sides: [{ label: 'Now', value: 'Paris' }],
+        change: '"Berlin"',
+        why: 'newer statement',
+        evidence: [],
+        morePendingCount: 3,
+        affordances: [
+          { label: 'Approve', decision: 'approve', reviewId },
+          { label: 'Reject', decision: 'reject', reviewId },
+          { label: 'Edit', decision: 'edit', reviewId },
+        ],
+      },
+    });
+
+    const call = currentBot().api.sendMessage.mock.calls.at(-1);
+    expect(call?.[1]).toContain('🧠 Memory review · conflicting note');
+    expect(call?.[1]).toContain('＋3 more pending reviews');
+    expect(call?.[2]).toMatchObject({ parse_mode: 'HTML' });
+    const buttons = call?.[2]?.reply_markup?.inline_keyboard?.[0] ?? [];
+    expect(buttons.map((b: { text: string }) => b.text)).toEqual([
+      'Approve',
+      'Reject',
+      'Edit',
+    ]);
+    expect(
+      buttons.map((b: { callback_data: string }) => b.callback_data),
+    ).toEqual([`mr:a:${reviewId}`, `mr:r:${reviewId}`, `mr:e:${reviewId}`]);
+  });
+
   it('renders todo messages in the active Telegram topic', async () => {
     const opts = createTestOpts();
     const channel = new TelegramChannel('test-token', opts);
@@ -3143,6 +3181,112 @@ describe('TelegramChannel', () => {
       expect(callbackCtx.answerCallbackQuery).toHaveBeenCalledWith({
         text: 'Checking retry request.',
       });
+    });
+
+    async function triggerTelegramReviewCallback(
+      outcome: {
+        state: string;
+        receipt: string;
+        replacementText?: string;
+        clearActions?: boolean;
+      },
+      data = 'mr:a:mrv_abc',
+    ) {
+      const onMessageAction = vi.fn(async () => outcome);
+      const opts = createTestOpts({ onMessageAction } as any);
+      const channel = new TelegramChannel('test-token', opts);
+      await channel.connect();
+      const callbackCtx = {
+        callbackQuery: {
+          data,
+          message: { chat: { id: 100200300 }, message_thread_id: 42 },
+        },
+        chat: { id: 100200300 },
+        from: { id: 111 },
+        answerCallbackQuery: vi.fn().mockResolvedValue(undefined),
+        editMessageText: vi.fn().mockResolvedValue(undefined),
+      };
+      await triggerCallbackQuery(callbackCtx as any);
+      return { onMessageAction, callbackCtx };
+    }
+
+    it('routes and replaces the shared Telegram message + clears the keyboard on applied', async () => {
+      const { onMessageAction, callbackCtx } =
+        await triggerTelegramReviewCallback({
+          state: 'applied',
+          receipt: 'Memory review approved.',
+        });
+      expect(onMessageAction).toHaveBeenCalledWith({
+        kind: 'memory_review_decision',
+        conversationJid: 'tg:100200300',
+        providerAccountId: 'telegram_default',
+        threadId: '42',
+        userId: '111',
+        reviewId: 'mrv_abc',
+        decision: 'approve',
+        label: '',
+      });
+      expect(callbackCtx.answerCallbackQuery).toHaveBeenCalledWith({
+        text: 'Memory review approved.',
+      });
+      expect(callbackCtx.editMessageText).toHaveBeenCalledWith(
+        'Memory review approved.',
+        { reply_markup: { inline_keyboard: [] } },
+      );
+    });
+
+    it('still removes the keyboard on a terminal decision when the ack rejects', async () => {
+      const onMessageAction = vi.fn(async () => ({
+        state: 'applied',
+        receipt: 'Memory review approved.',
+      }));
+      const opts = createTestOpts({ onMessageAction } as any);
+      const channel = new TelegramChannel('test-token', opts);
+      await channel.connect();
+      const callbackCtx = {
+        callbackQuery: {
+          data: 'mr:a:mrv_abc',
+          message: { chat: { id: 100200300 }, message_thread_id: 42 },
+        },
+        chat: { id: 100200300 },
+        from: { id: 111 },
+        answerCallbackQuery: vi
+          .fn()
+          .mockRejectedValue(new Error('query is too old')),
+        editMessageText: vi.fn().mockResolvedValue(undefined),
+      };
+      await triggerCallbackQuery(callbackCtx as any);
+      expect(callbackCtx.editMessageText).toHaveBeenCalledWith(
+        'Memory review approved.',
+        { reply_markup: { inline_keyboard: [] } },
+      );
+    });
+
+    it('alerts the clicker privately and leaves the shared Telegram message intact on edit', async () => {
+      const { callbackCtx } = await triggerTelegramReviewCallback(
+        {
+          state: 'needs_input',
+          receipt: 'Reply to edit.',
+          replacementText: 'edit memory review mrv_abc: ',
+        },
+        'mr:e:mrv_abc',
+      );
+      const alert = callbackCtx.answerCallbackQuery.mock.calls[0]?.[0];
+      expect(alert.text).toContain('edit memory review mrv_abc:');
+      expect(alert.show_alert).toBe(true);
+      expect(callbackCtx.editMessageText).not.toHaveBeenCalled();
+    });
+
+    it('alerts the clicker privately and leaves the shared Telegram message intact on denied', async () => {
+      const { callbackCtx } = await triggerTelegramReviewCallback(
+        { state: 'denied', receipt: 'Not authorized to decide this review.' },
+        'mr:a:mrv_abc',
+      );
+      expect(callbackCtx.answerCallbackQuery).toHaveBeenCalledWith({
+        text: 'Not authorized to decide this review.',
+        show_alert: true,
+      });
+      expect(callbackCtx.editMessageText).not.toHaveBeenCalled();
     });
 
     it('omits Telegram live stop action buttons but still routes stale callbacks', async () => {
