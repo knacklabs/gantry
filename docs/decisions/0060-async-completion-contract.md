@@ -113,6 +113,22 @@ The 60-second magic number, the synchronous wait on every path, the inline fast 
 tuning, the generic-versus-curated delegation split, the duplicate DeepAgents `AgentDelegation`
 facade, the polling obligation, and the `task_wait` tool proposed in the first draft.
 
+### Delivery rules (decided 2026-07-26)
+
+1. **Batch, do not spam.** After a task reaches terminal state, hold briefly to collect any
+   other tasks finishing in the same window, then re-engage the parent ONCE with all of them.
+   With no inline path every task would otherwise cost a wake-up; batching is the cost control.
+2. **Never interrupt a turn in progress.** If a task completes while the parent is mid-turn,
+   queue the delivery and hand it over when that turn ends. No half-finished replies, and no
+   dropped results.
+3. **No parent, no turn.** If the conversation has ended or the agent was deleted by the time a
+   task completes, persist the result so `task_get` still serves it, but do NOT start a turn.
+   Nothing is lost and nobody is messaged out of the blue. This is the mirror of the CANCEL-1
+   failure — a delivery outliving the thing that asked for it.
+4. **Delegation must name its target.** Generic `delegate_task` currently defaults the child to
+   the caller's own agent when no target is given. Require an explicit target instead. Handing
+   work to yourself is usually a mistake, and once completions are pushed it can loop.
+
 ### Sequencing, by damage
 
 | Order | Change | Why this order |
@@ -135,6 +151,9 @@ facade, the polling obligation, and the `task_wait` tool proposed in the first d
 
 ## Consequences
 
+- **Delivery semantics are decided, not deferred**: batch-then-deliver, never interrupt a live
+  turn, never start a turn when the parent is gone, and require an explicit delegation target.
+  The remaining tuning question is the batching window, not the shape.
 - **Coalescing is now the only cost control, which makes it load-bearing rather than a nicety.**
   With no inline path, EVERY async task costs a wake-up — including trivial ones. Completions
   landing while the parent is idle must batch into a single re-engagement, and the batching
@@ -158,24 +177,22 @@ facade, the polling obligation, and the `task_wait` tool proposed in the first d
 
 ## Open questions for the grill
 
-Resolved during the 2026-07-26 grill: the wait budget (removed — no sync wait), whether the
-inline fast path earns its complexity (no — cut), why generic delegation was push-free
-(unfinished, not deliberate), and where output lives (artifact store, fleet-safe).
+Resolved during the 2026-07-26 grill: the wait budget (removed — no sync wait at all), whether
+the inline fast path earns its complexity (no — cut), why generic delegation was push-free
+(unfinished, not deliberate), where output lives (artifact store, fleet-safe), how completions
+are delivered (batched, never interrupting, never waking an absent parent), and whether
+delegation may default to the caller's own agent (no — an explicit target is required).
 
 Remaining:
 
-1. **What is the coalescing window?** If two tasks finish ten minutes apart, is that one
-   re-engagement or two? This is now the only control on wake cost.
-2. What happens when completions land mid-turn — queue until the turn ends, or interrupt?
-3. Does the parent receive batched results in completion order, and does order matter?
-4. What wakes when the parent is gone — conversation ended, agent deleted? A follow-up must not
-   create a spurious turn that talks to nobody. CANCEL-1 spent its existence on the mirror
-   image of this.
-5. Is there admission control if an agent fires many async tasks at once, or does the follow-up
-   queue grow unbounded?
-6. Should the child-target default (caller's own agent) change, or is self-delegation a
-   supported case that simply needs loop protection?
-7. Does the DeepAgents sentinel still earn its keep once the facade is deleted, given the tools
+1. **How long is the batching window?** The only remaining tuning knob on wake cost. Long
+   enough to group a burst, short enough that news is not stale.
+2. Within a batch, does delivery order matter, or is a set of results sufficient?
+3. Is there admission control if an agent starts many tasks at once, or can the queue grow
+   unbounded?
+4. What is the artifact retention policy for spilled output — bound the POPULATION, not the
+   rate (see [[audit-paydown-2026-07]]).
+5. Does the DeepAgents sentinel still earn its keep once the facade is deleted, given the tools
    it probes are never mounted?
 
 See [[semantic-capabilities-are-the-feature]] and [[tool-surface-tiering]] — this contract must
