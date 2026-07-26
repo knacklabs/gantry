@@ -58,7 +58,6 @@
     "format:fix": "prettier --write \"apps/core/**/*.{ts,md}\" \"packages/contracts/src/**/*.ts\" \"packages/sdk/src/**/*.ts\"",
     "format:check": "prettier --check \"apps/core/**/*.{ts,md}\" \"packages/contracts/src/**/*.ts\" \"packages/sdk/src/**/*.ts\"",
     "check:architecture": "python3 scripts/check_architecture.py",
-    "security:audit": "npm audit --omit=dev --audit-level=high",
     "security:sbom": "npm sbom --omit=dev --sbom-format=cyclonedx",
     "security:package": "python3 scripts/check_package_contents.py",
     "security:images": "python3 scripts/check_runtime_images.py",

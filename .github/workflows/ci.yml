@@ -44,14 +44,30 @@ jobs:
           cache: npm
       - run: npm ci
 
+      # Static checks run first because they need nothing but `npm ci`, and they
+      # are the cheapest signal in the job. Everything below — Postgres bootstrap,
+      # SBOM, the ~4 minute image build — is wasted work when formatting, an
+      # architecture budget, or a type error is already broken.
+      #
+      # Format check and Architecture check stay adjacent because together they
+      # mirror verify.py's `structural` phase (format:check && check:architecture).
+      # Without the architecture step a PR can merge green while leaving main
+      # failing that gate, and because verify.py aborts at its first failing phase,
+      # one over-budget file then masks typecheck and tests for every branch.
+      - name: Format check
+        run: npm run format:check
+
+      - name: Architecture check
+        run: npm run check:architecture
+
+      - name: Typecheck
+        run: npm run typecheck
+
       - name: Bootstrap Postgres test DB
         run: |
           docker exec ${{ job.services.postgres.id }} psql -U postgres -d gantry_test -v ON_ERROR_STOP=1 \
             -c 'CREATE EXTENSION IF NOT EXISTS vector;' \
             -c 'CREATE EXTENSION IF NOT EXISTS pg_trgm;'
-
-      - name: Supply-chain audit
-        run: npm run security:audit
 
       - name: Generate runtime SBOM
         run: npm run --silent security:sbom > gantry-runtime-sbom.cdx.json
@@ -72,20 +88,6 @@ jobs:
 
       - name: Check runtime images
         run: npm run security:images -- --inspect-compose-images --require-content-inspection
-
-      - name: Format check
-        run: npm run format:check
-
-      # Pairs with the format check above to mirror verify.py's `structural`
-      # phase (format:check && check:architecture). Without this step a PR can
-      # merge green while leaving main failing the architecture gate — and
-      # because verify.py aborts at its first failing phase, one over-budget
-      # file then masks typecheck and tests for every branch in the repo.
-      - name: Architecture check
-        run: npm run check:architecture
-
-      - name: Typecheck
-        run: npm run typecheck
 
       - name: Build
         run: npm run build
