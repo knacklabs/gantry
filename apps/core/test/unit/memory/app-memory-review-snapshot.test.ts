@@ -157,7 +157,10 @@ interface Store {
 // query only sees the rows it constrains (matching real SQL); the review table
 // distinguishes dedupe (by flaggedContentHash), detail (by review id), and
 // list/count (return all).
-function makeDb(store: Store) {
+// vanishOnCapture simulates a concurrent delete between validation (which reads
+// items via inArray, multi-id) and single-id capture reads: an item id that
+// exists for multi-id queries but is gone for its single-id capture read.
+function makeDb(store: Store, opts?: { vanishOnCapture?: string }) {
   const rowsFor = (table: unknown): any[] => {
     if (table === pgSchema.memoryEvidencePostgres)
       return [...store.evidence.values()];
@@ -190,6 +193,14 @@ function makeDb(store: Store) {
               return all.filter((r) => params.includes(r.flaggedContentHash));
             const byId = all.filter((r) => params.includes(r.id));
             return byId.length ? byId : all;
+          }
+          if (
+            table === pgSchema.memoryItemsPostgres &&
+            opts?.vanishOnCapture &&
+            params.length === 1 &&
+            params[0] === opts.vanishOnCapture
+          ) {
+            return [];
           }
           return all.filter((r) => params.includes(r.id));
         };
@@ -593,6 +604,7 @@ describe('memory review snapshot capture + immutable render', () => {
 
   it('captures ALL merge participants and freezes them against later item changes', async () => {
     const store = emptyStore();
+    // Target carries its OWN source evidence (mev-t), distinct from merge-level.
     store.items.set(
       'mem-t',
       itemRow({
@@ -600,6 +612,7 @@ describe('memory review snapshot capture + immutable render', () => {
         kind: 'fact',
         key: 'fact:k',
         value: 'canonical target',
+        evidenceIds: ['mev-t'],
       }),
     );
     store.items.set(
@@ -613,6 +626,10 @@ describe('memory review snapshot capture + immutable render', () => {
     store.evidence.set(
       'mev-1',
       evidenceRow({ id: 'mev-1', text: 'merge grounding' }),
+    );
+    store.evidence.set(
+      'mev-t',
+      evidenceRow({ id: 'mev-t', text: 'target own grounding' }),
     );
     const db = makeDb(store);
     const outcome = await createPendingMemoryReview({
@@ -640,11 +657,109 @@ describe('memory review snapshot capture + immutable render', () => {
     store.items.delete('mem-r2');
 
     const detail = await getMemoryReviewDetail({ db, subject, reviewId });
-    const retiring = detail!.reviewSnapshot!.retiring!;
+    const snap = detail!.reviewSnapshot!;
+    const retiring = snap.retiring!;
     expect(retiring.map((r) => r.value).sort()).toEqual(['dup one', 'dup two']);
-    expect(detail!.reviewSnapshot!.conflict!.active.value).toBe(
-      'canonical target',
+    expect(snap.conflict!.active.value).toBe('canonical target');
+    // Target keeps its own citations; merge-level evidence is captured too.
+    expect(snap.conflict!.active.evidenceIds).toEqual(['mev-t']);
+    expect(snap.evidence.map((e) => e.id).sort()).toEqual(['mev-1', 'mev-t']);
+  });
+
+  it('fails closed when the merge target cannot be captured (concurrent delete)', async () => {
+    const store = emptyStore();
+    store.items.set(
+      'mem-t',
+      itemRow({ id: 'mem-t', kind: 'fact', key: 'fact:k', value: 'target' }),
     );
+    store.items.set(
+      'mem-r1',
+      itemRow({ id: 'mem-r1', kind: 'fact', key: 'fact:k', value: 'dup' }),
+    );
+    store.evidence.set(
+      'mev-1',
+      evidenceRow({ id: 'mev-1', text: 'merge grounding' }),
+    );
+    // Validation sees mem-t (inArray), but its single-id capture read returns
+    // nothing — as if it were deleted between the two DB reads.
+    const outcome = await createPendingMemoryReview({
+      db: makeDb(store, { vanishOnCapture: 'mem-t' }),
+      runId: 'run-mt',
+      subject,
+      phase: 'deep',
+      proposal: {
+        action: 'merge',
+        targetItemId: 'mem-t',
+        itemIds: ['mem-t', 'mem-r1'],
+        reason: 'duplicates',
+        confidence: 0.9,
+        evidenceIds: ['mev-1'],
+      },
+    });
+    expect(outcome.status).toBe('invalid');
+    expect(outcome.reason).toContain('merge target');
+    expect(store.reviews).toHaveLength(0);
+  });
+
+  it('parser rejects a schema-v1 snapshot citing evidence absent from evidence[]', async () => {
+    const store = emptyStore();
+    store.items.set(
+      'mem-9',
+      itemRow({
+        id: 'mem-9',
+        kind: 'fact',
+        key: 'fact:y',
+        value: 'current live value',
+      }),
+    );
+    // conflict.active cites mev-missing, but evidence[] only has mev-present.
+    const snapshot: MemoryReviewSnapshot = {
+      schemaVersion: 1,
+      subject: {
+        appId: subject.appId,
+        agentId: subject.agentId,
+        subjectType: subject.subjectType,
+        subjectId: subject.subjectId,
+      },
+      conflict: {
+        active: {
+          itemId: 'mem-9',
+          kind: 'fact',
+          key: 'fact:y',
+          value: 'frozen',
+          evidenceIds: ['mev-missing'],
+        },
+      },
+      evidence: [
+        {
+          id: 'mev-present',
+          role: 'active',
+          sourceType: 'session',
+          text: 'present',
+          capturedAt: '2026-05-07T00:00:00.000Z',
+        },
+      ],
+    };
+    store.reviews.push(
+      reviewRow({
+        id: 'mrv_incomplete',
+        proposal: {
+          action: 'needs_review',
+          itemId: 'mem-9',
+          value: 'proposed value',
+          reason: 'r',
+          confidence: 0.9,
+          evidenceIds: [],
+        },
+        snapshot,
+      }),
+    );
+    const [review] = await listPendingMemoryReviews({
+      db: makeDb(store),
+      subject,
+    });
+    expect(review.reviewSnapshot).toBeNull();
+    expect(review.proposedChange!.before!.value).toBe('current live value');
   });
 
   it('renders EACH review from its own snapshot: two reviews of the same item keep distinct frozen before-values', async () => {

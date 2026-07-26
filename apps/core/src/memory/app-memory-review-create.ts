@@ -123,13 +123,18 @@ async function buildReviewSnapshot(
     addRoles(proposal.evidenceIds, 'active');
   } else if (proposal.action === 'merge') {
     // Capture the target AND every retiring sibling so a reviewer sees exactly
-    // what disappears, frozen against later edits to those items.
-    const target = await captureCurrentItemClaim(
-      db,
-      proposal.targetItemId,
-      proposal.evidenceIds,
-    );
-    if (target) conflict = { active: target };
+    // what disappears, frozen against later edits to those items. The target
+    // keeps its OWN source evidence (like the participants); the merge-level
+    // proposal.evidenceIds are added separately below.
+    const target = await captureCurrentItemClaim(db, proposal.targetItemId);
+    if (!target) {
+      return {
+        ok: false,
+        reason: 'merge target item could not be captured',
+      };
+    }
+    conflict = { active: target };
+    addRoles(target.evidenceIds, 'active');
     const retiringIds = (proposal.itemIds || []).filter(
       (id) => id !== proposal.targetItemId,
     );

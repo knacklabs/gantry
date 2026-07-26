@@ -192,7 +192,18 @@ function parseReviewSnapshot(
   }
   if (!Array.isArray(parsed.evidence)) return null;
   if (!parsed.evidence.every(isSnapshotEvidence)) return null;
-  return parsed as unknown as MemoryReviewSnapshot;
+  // Every evidence id cited by any claim must be present in evidence[], or the
+  // snapshot would render with missing evidence. Incomplete → legacy fallback.
+  const snapshot = parsed as unknown as MemoryReviewSnapshot;
+  const present = new Set(snapshot.evidence.map((e) => e.id));
+  const cited = [
+    ...(snapshot.conflict?.active.evidenceIds ?? []),
+    ...(snapshot.conflict?.incoming?.evidenceIds ?? []),
+    ...(snapshot.proposedCanonical?.evidenceIds ?? []),
+    ...(snapshot.retiring ?? []).flatMap((r) => r.evidenceIds),
+  ];
+  if (cited.some((id) => !present.has(id))) return null;
+  return snapshot;
 }
 
 export function toMemoryReview(row: MemoryReviewRowLike): MemoryReviewRecord {
