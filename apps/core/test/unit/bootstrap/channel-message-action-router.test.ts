@@ -167,6 +167,61 @@ describe('createChannelMessageActionRouter', () => {
     expect(memoryHandler).not.toHaveBeenCalled();
   });
 
+  it('routes observer feedback to the observer handler and returns its outcome', async () => {
+    const router = createChannelMessageActionRouter();
+    const observerHandler = vi.fn(async () => ({
+      state: 'applied' as const,
+      receipt: 'Insight resolved.',
+    }));
+    const handler = vi.fn();
+    router.set(handler);
+    router.setObserverFeedbackHandler(observerHandler);
+
+    const outcome = await router.handle({
+      kind: 'observer_feedback',
+      conversationJid: 'sl:C123',
+      userId: 'U123',
+      insightId: 'ins-1',
+      action: 'resolve',
+    });
+
+    expect(observerHandler).toHaveBeenCalledTimes(1);
+    expect(handler).not.toHaveBeenCalled();
+    expect(outcome).toEqual({ state: 'applied', receipt: 'Insight resolved.' });
+  });
+
+  it('rejects observer feedback callbacks with an empty insight id', async () => {
+    const router = createChannelMessageActionRouter();
+    const observerHandler = vi.fn();
+    router.setObserverFeedbackHandler(observerHandler as never);
+
+    await router.handle({
+      kind: 'observer_feedback',
+      conversationJid: 'sl:C123',
+      userId: 'U123',
+      insightId: '   ',
+      action: 'resolve',
+    });
+
+    expect(observerHandler).not.toHaveBeenCalled();
+  });
+
+  it('rejects observer feedback callbacks with an unknown action', async () => {
+    const router = createChannelMessageActionRouter();
+    const observerHandler = vi.fn();
+    router.setObserverFeedbackHandler(observerHandler as never);
+
+    await router.handle({
+      kind: 'observer_feedback',
+      conversationJid: 'sl:C123',
+      userId: 'U123',
+      insightId: 'ins-1',
+      action: 'nuke' as never,
+    });
+
+    expect(observerHandler).not.toHaveBeenCalled();
+  });
+
   it('runs scheduler run-now callbacks after same-channel approval', async () => {
     const sendMessage = vi.fn(async () => {});
     const runSchedulerNow = vi.fn(async () => 'Scheduler job queued (job-1).');

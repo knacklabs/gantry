@@ -439,7 +439,7 @@ function digestContentHash(insights: ProactiveInsight[]): string {
  * Intl.DateTimeFormat so DST and offsets come from the IANA zone — never
  * Date#getHours or a fixed offset.
  */
-function ownerLocalClock(
+export function ownerLocalClock(
   nowIso: string,
   timezone: string,
 ): { localDay: string; minutes: number } {
