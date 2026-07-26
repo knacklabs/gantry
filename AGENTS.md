@@ -106,4 +106,5 @@ A task is not PR-ready until all of these exist:
 - Review runs as ONE autoreview pass — never inline, never nested reviewers — by invoking the autoreview SKILL HELPER directly (`"$AUTOREVIEW" --mode branch|commit|local`; it spawns the Codex engine in an isolated sandbox, definitive exit code). NEVER a `/codex:rescue`/companion `review` job (hangs at finalization). Applies to per-stage LOCAL autoreview and PR closeout.
 - Keep the template repo independent of any client-specific source repo.
 - Do not keep long policy blocks in `AGENTS.md`; move them into docs.
+- Talk to the human in plain, everyday English: short sentences, no jargon, say what it means not how it works. Precision belongs in commits, decisions and PR bodies.
 - PRs: orchestrator may push story branches + raise PRs once `pr_ready` (one per story); merging stays human-gated; every PR body opens with the plain-language goal/why before the technical delta; runtime-behavior PRs carry their agent-e2e delta (or state why not). Policy: `docs/review-instructions.md`.
