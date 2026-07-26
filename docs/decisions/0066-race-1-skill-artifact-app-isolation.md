@@ -11,7 +11,8 @@ date: 2026-07-26
 Skill artifact storage builds its storage reference from the sanitized skill
 name only — `skills/<name>` — in both the local and S3 stores
 (`local-skill-artifact-store.ts:24`, `s3-skill-artifact-store.ts:63`), while
-catalog uniqueness is per `(app_id, name)` (`schema/skills.ts`). Two apps that
+catalog uniqueness is per `(app_id, name)`
+(`apps/core/src/adapters/storage/postgres/schema/skills.ts`). Two apps that
 install a skill with the same name therefore resolve to one physical location:
 the second install overwrites the first, and the first app then executes the
 second app's bytes under its own identity, permissions, and recorded hash. This
