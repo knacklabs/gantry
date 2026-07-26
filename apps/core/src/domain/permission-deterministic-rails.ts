@@ -71,6 +71,7 @@ const GANTRY_INPUT_INDEPENDENT_BIRTHRIGHT_TOOLS = new Set([
   'scheduler_list_notification_targets',
   'scheduler_wait_for_events',
   'memory_search',
+  'memory_review_pending',
   'brain_search',
   'brain_query',
   'continuity_summary',
