@@ -7,7 +7,13 @@ happened and what it means. They do not need the internals narrated to decide so
 
 ## The rules
 
+**Be short.** Most answers fit in a few lines. Say what happened, what it means, and what is
+waiting on them. Cut everything else. A long message is not more thorough, it is harder to use.
+
 **Short sentences. One idea each.** If a sentence has three clauses joined by dashes, split it.
+
+**Do not narrate the work.** They do not need each step recounted. They need the outcome and
+anything that needs a decision.
 
 **Say what it means, not how it works.** "Background jobs were throwing away their output" beats
 "the rolling buffer truncates irrecoverably before persistence".
