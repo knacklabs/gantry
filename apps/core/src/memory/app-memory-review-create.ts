@@ -1,7 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import { and, eq, inArray } from 'drizzle-orm';
 import * as pgSchema from '../adapters/storage/postgres/schema/schema.js';
-import { parseJsonObject } from './app-memory-canonical-codec.js';
+import {
+  parseItemSource,
+  parseJsonObject,
+} from './app-memory-canonical-codec.js';
 import { validateMemoryReviewProposal } from './app-memory-review.js';
 import { nowIso } from './app-memory-service-query-helpers.js';
 import type {
@@ -27,7 +30,9 @@ export type CreateMemoryReviewOutcome = {
 async function captureCurrentItemClaim(
   db: Db,
   itemId: string | undefined,
-  evidenceIds: string[],
+  // When omitted, the claim's evidence ids come from the item's own source
+  // (used for merge participants, which carry their own grounding).
+  evidenceIds?: string[],
 ): Promise<MemoryContradiction['active'] | null> {
   if (!itemId) return null;
   const rows = await db
@@ -43,7 +48,7 @@ async function captureCurrentItemClaim(
     kind: row.kind,
     key: row.key,
     value: typeof value === 'string' ? value : '',
-    evidenceIds,
+    evidenceIds: evidenceIds ?? parseItemSource(row).evidenceIds,
   };
 }
 
@@ -85,15 +90,20 @@ async function captureSnapshotEvidence(
 
 /**
  * Freeze what a reviewer must see the moment a review is created: the current
- * claim(s), the proposed canonical, and every cited evidence row (text +
- * sourceUri). Display renders from this so it never drifts as items/evidence
- * mutate. Applying still re-validates live versions — this is display-only.
+ * claim(s), the proposed canonical, every merge participant, and every cited
+ * evidence row (text + sourceUri). Display renders from this so it never drifts
+ * as items/evidence mutate. Applying still re-validates live versions.
+ *
+ * Fails closed: if any cited evidence id (or merge participant) cannot be
+ * captured, no inconsistent snapshot is written — creation is rejected.
  */
 async function buildReviewSnapshot(
   db: Db,
   subject: NormalizedMemorySubject,
   proposal: MemoryLifecycleProposal,
-): Promise<MemoryReviewSnapshot> {
+): Promise<
+  { ok: true; snapshot: MemoryReviewSnapshot } | { ok: false; reason: string }
+> {
   const roleById = new Map<string, 'active' | 'incoming'>();
   const addRoles = (ids: string[] | undefined, role: 'active' | 'incoming') => {
     for (const id of ids || []) if (!roleById.has(id)) roleById.set(id, role);
@@ -101,6 +111,7 @@ async function buildReviewSnapshot(
 
   let conflict: MemoryReviewSnapshot['conflict'];
   let proposedCanonical: MemoryReviewSnapshot['proposedCanonical'];
+  let retiring: MemoryReviewSnapshot['retiring'];
 
   if (proposal.contradiction) {
     const c = proposal.contradiction;
@@ -109,17 +120,43 @@ async function buildReviewSnapshot(
     addRoles(c.incoming.evidenceIds, 'incoming');
     addRoles(c.active.evidenceIds, 'active');
     addRoles(c.proposedCanonical.evidenceIds, 'active');
+    addRoles(proposal.evidenceIds, 'active');
+  } else if (proposal.action === 'merge') {
+    // Capture the target AND every retiring sibling so a reviewer sees exactly
+    // what disappears, frozen against later edits to those items.
+    const target = await captureCurrentItemClaim(
+      db,
+      proposal.targetItemId,
+      proposal.evidenceIds,
+    );
+    if (target) conflict = { active: target };
+    const retiringIds = (proposal.itemIds || []).filter(
+      (id) => id !== proposal.targetItemId,
+    );
+    const captured: MemoryContradiction['active'][] = [];
+    for (const id of retiringIds) {
+      const claim = await captureCurrentItemClaim(db, id);
+      if (!claim) {
+        return {
+          ok: false,
+          reason: `review snapshot could not capture retiring merge item ${id}`,
+        };
+      }
+      captured.push(claim);
+      addRoles(claim.evidenceIds, 'active');
+    }
+    if (captured.length) retiring = captured;
+    addRoles(proposal.evidenceIds, 'active');
   } else {
-    // Single-sided review: capture the current target claim (before) and the
-    // proposed after. merge captures only the target item (its retiring
-    // siblings' values are not structurally captured — see note in report).
+    // Single-sided review: capture the current target claim (before) and, for
+    // rewrite/needs_review, the proposed after.
     const before = await captureCurrentItemClaim(
       db,
       proposal.itemId || proposal.targetItemId,
       proposal.evidenceIds,
     );
     if (before) conflict = { active: before };
-    if (proposal.action !== 'retire' && proposal.action !== 'merge') {
+    if (proposal.action !== 'retire') {
       proposedCanonical = {
         kind: proposal.kind ?? before?.kind ?? '',
         key: proposal.key ?? before?.key ?? '',
@@ -131,17 +168,31 @@ async function buildReviewSnapshot(
     addRoles(proposal.evidenceIds, 'active');
   }
 
+  const evidence = await captureSnapshotEvidence(db, subject, roleById);
+  if (evidence.length !== roleById.size) {
+    const captured = new Set(evidence.map((e) => e.id));
+    const missing = [...roleById.keys()].filter((id) => !captured.has(id));
+    return {
+      ok: false,
+      reason: `review snapshot is missing cited evidence: ${missing.join(', ')}`,
+    };
+  }
+
   return {
-    schemaVersion: 1,
-    subject: {
-      appId: subject.appId,
-      agentId: subject.agentId,
-      subjectType: subject.subjectType,
-      subjectId: subject.subjectId,
+    ok: true,
+    snapshot: {
+      schemaVersion: 1,
+      subject: {
+        appId: subject.appId,
+        agentId: subject.agentId,
+        subjectType: subject.subjectType,
+        subjectId: subject.subjectId,
+      },
+      ...(conflict ? { conflict } : {}),
+      ...(proposedCanonical ? { proposedCanonical } : {}),
+      ...(retiring ? { retiring } : {}),
+      evidence,
     },
-    ...(conflict ? { conflict } : {}),
-    ...(proposedCanonical ? { proposedCanonical } : {}),
-    evidence: await captureSnapshotEvidence(db, subject, roleById),
   };
 }
 
@@ -200,13 +251,16 @@ export async function createPendingMemoryReview(input: {
     const decided = duplicates[0];
     if (decided) return { status: 'adjudicated', reviewId: decided.id };
   }
-  const now = nowIso();
-  const id = `mrv_${randomUUID().replace(/-/g, '')}`;
-  const snapshot = await buildReviewSnapshot(
+  const snapshotResult = await buildReviewSnapshot(
     input.db,
     input.subject,
     input.proposal,
   );
+  if (!snapshotResult.ok) {
+    return { status: 'invalid', reviewId: '', reason: snapshotResult.reason };
+  }
+  const now = nowIso();
+  const id = `mrv_${randomUUID().replace(/-/g, '')}`;
   await input.db.insert(pgSchema.memoryReviewRequestsPostgres).values({
     id,
     runId: input.runId,
@@ -219,7 +273,7 @@ export async function createPendingMemoryReview(input: {
     proposalJson: JSON.stringify(input.proposal),
     itemVersionsJson: JSON.stringify(validation.itemVersions),
     candidateVersionsJson: JSON.stringify(validation.candidateVersions),
-    reviewSnapshotJson: JSON.stringify(snapshot),
+    reviewSnapshotJson: JSON.stringify(snapshotResult.snapshot),
     status: 'pending_review',
     validationSummary: validation.reason,
     flaggedContentHash: contentFingerprint || null,

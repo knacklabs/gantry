@@ -190,6 +190,11 @@ export interface MemoryReviewSnapshot {
     incoming?: MemoryContradiction['incoming'];
   };
   proposedCanonical?: MemoryContradiction['proposedCanonical'];
+  /**
+   * Merge only: every sibling item the merge will retire, captured at creation
+   * (same claim shape as conflict.active) so a reviewer sees what disappears.
+   */
+  retiring?: MemoryContradiction['active'][];
   evidence: MemoryReviewSnapshotEvidence[];
 }
 

@@ -13,8 +13,6 @@ import {
   normalizePendingReviewOffset,
   reviewEvidenceIds,
   reviewItemIds,
-  snapshotEvidenceSnippets,
-  snapshotReadableItems,
   toMemoryReviewDisplayPage,
   toMemoryReviewEvidenceSnippet,
   toReadableReviewItem,
@@ -158,19 +156,16 @@ export async function listPendingMemoryReviews(input: {
     },
   )) as MemoryReviewRow[];
   const reviews = rows.map(toMemoryReview);
-  // Snapshotted reviews render from the frozen artifact; only rows without a
-  // valid snapshot fall back to a live re-query (legacy).
+  // Snapshotted reviews render per-review from their own frozen artifact
+  // (inside withProposedChanges); only rows without a valid snapshot need this
+  // shared live re-query.
   const legacy = reviews.filter((review) => !review.reviewSnapshot);
   const legacyItems = await itemMapForReviews(
     input.db,
     legacy,
     input.statementTimeoutMs,
   );
-  const itemsById = new Map([
-    ...legacyItems,
-    ...snapshotReadableItems(reviews),
-  ]);
-  return withProposedChanges(reviews, itemsById);
+  return withProposedChanges(reviews, legacyItems);
 }
 export async function listPendingMemoryReviewPage(input: {
   db: Db;
@@ -195,16 +190,15 @@ export async function listPendingMemoryReviewPage(input: {
   });
   const returnedCount = reviews.length;
   const nextOffset = offset + returnedCount;
+  // Live evidence only for legacy rows; snapshotted reviews resolve their own
+  // evidence per-review inside toMemoryReviewDisplayPage.
   const legacy = reviews.filter((review) => !review.reviewSnapshot);
-  const evidenceById = new Map([
-    ...(await evidenceMapForReviews(
-      input.db,
-      input.subject,
-      legacy,
-      input.statementTimeoutMs,
-    )),
-    ...snapshotEvidenceSnippets(reviews),
-  ]);
+  const legacyEvidenceById = await evidenceMapForReviews(
+    input.db,
+    input.subject,
+    legacy,
+    input.statementTimeoutMs,
+  );
   return {
     reviews,
     reviewPage: toMemoryReviewDisplayPage({
@@ -216,7 +210,7 @@ export async function listPendingMemoryReviewPage(input: {
       limit,
       offset,
       nextOffset: nextOffset < totalCount ? nextOffset : null,
-      evidenceById,
+      legacyEvidenceById,
     }),
     totalCount,
     returnedCount,

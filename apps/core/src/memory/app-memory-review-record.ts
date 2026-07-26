@@ -90,21 +90,69 @@ function parseReviewProposal(value: string): MemoryLifecycleProposal {
   };
 }
 
-function isSnapshotEvidence(value: unknown): boolean {
-  if (!value || typeof value !== 'object') return false;
-  const e = value as Record<string, unknown>;
+function isObject(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function isStringArray(value: unknown): boolean {
+  return Array.isArray(value) && value.every((v) => typeof v === 'string');
+}
+
+/** Active/retiring participant claim: itemId/kind/key/value + evidenceIds[]. */
+function isActiveClaim(value: unknown): boolean {
+  if (!isObject(value)) return false;
   return (
-    typeof e.id === 'string' &&
-    (e.role === 'active' || e.role === 'incoming') &&
-    typeof e.sourceType === 'string' &&
-    typeof e.text === 'string' &&
-    typeof e.capturedAt === 'string'
+    typeof value.itemId === 'string' &&
+    typeof value.kind === 'string' &&
+    typeof value.key === 'string' &&
+    typeof value.value === 'string' &&
+    isStringArray(value.evidenceIds)
+  );
+}
+
+function isIncomingClaim(value: unknown): boolean {
+  if (!isObject(value)) return false;
+  return (
+    typeof value.candidateId === 'string' &&
+    typeof value.kind === 'string' &&
+    typeof value.key === 'string' &&
+    typeof value.value === 'string' &&
+    isStringArray(value.evidenceIds)
+  );
+}
+
+function isProposedCanonical(value: unknown): boolean {
+  if (!isObject(value)) return false;
+  return (
+    typeof value.kind === 'string' &&
+    typeof value.key === 'string' &&
+    typeof value.value === 'string' &&
+    typeof value.reason === 'string' &&
+    isStringArray(value.evidenceIds)
+  );
+}
+
+function isSnapshotEvidence(value: unknown): boolean {
+  if (!isObject(value)) return false;
+  return (
+    typeof value.id === 'string' &&
+    (value.role === 'active' || value.role === 'incoming') &&
+    typeof value.sourceType === 'string' &&
+    typeof value.text === 'string' &&
+    typeof value.capturedAt === 'string' &&
+    (value.sourceId === undefined ||
+      value.sourceId === null ||
+      typeof value.sourceId === 'string') &&
+    (value.sourceUri === undefined ||
+      value.sourceUri === null ||
+      typeof value.sourceUri === 'string')
   );
 }
 
 /**
- * Shape-check the frozen artifact. Malformed snapshots return null so callers
- * fall back to legacy (re-query) rendering instead of throwing on bad JSON.
+ * Full shape-check of the frozen artifact. Any missing/malformed field returns
+ * null so callers fall back to legacy (re-query) rendering rather than showing
+ * a partial snapshot with undefined values.
  */
 function parseReviewSnapshot(
   value: string | null,
@@ -112,7 +160,36 @@ function parseReviewSnapshot(
   if (!value) return null;
   const parsed = parseJsonObject(value) as Record<string, unknown>;
   if (parsed.schemaVersion !== 1) return null;
-  if (!parsed.subject || typeof parsed.subject !== 'object') return null;
+  const subject = parsed.subject;
+  if (
+    !isObject(subject) ||
+    typeof subject.appId !== 'string' ||
+    typeof subject.agentId !== 'string' ||
+    typeof subject.subjectType !== 'string' ||
+    typeof subject.subjectId !== 'string'
+  ) {
+    return null;
+  }
+  if (parsed.conflict !== undefined) {
+    if (!isObject(parsed.conflict)) return null;
+    if (!isActiveClaim(parsed.conflict.active)) return null;
+    if (
+      parsed.conflict.incoming !== undefined &&
+      !isIncomingClaim(parsed.conflict.incoming)
+    ) {
+      return null;
+    }
+  }
+  if (
+    parsed.proposedCanonical !== undefined &&
+    !isProposedCanonical(parsed.proposedCanonical)
+  ) {
+    return null;
+  }
+  if (parsed.retiring !== undefined) {
+    if (!Array.isArray(parsed.retiring)) return null;
+    if (!parsed.retiring.every(isActiveClaim)) return null;
+  }
   if (!Array.isArray(parsed.evidence)) return null;
   if (!parsed.evidence.every(isSnapshotEvidence)) return null;
   return parsed as unknown as MemoryReviewSnapshot;
