@@ -103,11 +103,20 @@ maybeDescribe('observer owner action Postgres persistence', () => {
       createdAt: NOW,
       updatedAt: NOW,
     });
-    for (const id of ['res', 'dis', 'snz', 'snz2', 'lk1', 'lk2']) {
+    for (const id of [
+      'res',
+      'dis',
+      'snz',
+      'snz2',
+      'sr',
+      'lk1',
+      'lk2',
+      'lk3',
+      'lk4',
+    ]) {
       await repo.create(
         insight(id, {
-          insightType:
-            id === 'lk1' || id === 'lk2' ? 'repetition' : 'commitment',
+          insightType: id.startsWith('lk') ? 'repetition' : 'commitment',
         }),
       );
     }
@@ -292,6 +301,73 @@ maybeDescribe('observer owner action Postgres persistence', () => {
     // NOW + 60d.
     expect(new Date(supp!.suppressed_until!).toISOString()).toBe(
       '2026-09-20T08:00:00.000Z',
+    );
+  });
+
+  it('terminal precedence: replaying a non-terminal action after a settling action is stale', async () => {
+    expect(await apply('sr', 'snooze')).toEqual({ outcome: 'applied' });
+    expect(await apply('sr', 'resolve')).toEqual({ outcome: 'applied' });
+    // sr is now resolved. A delayed replay of the ORIGINAL snooze must NOT ack
+    // — the insight moved on.
+    expect(await apply('sr', 'snooze')).toEqual({ outcome: 'stale' });
+    // The action consistent with the terminal state still replays idempotently.
+    expect(await apply('sr', 'resolve')).toEqual({
+      outcome: 'applied',
+      already: true,
+    });
+  });
+
+  it('out-of-order negatives only extend the suppression window, never shorten it', async () => {
+    // Precondition (from the less_like_this test): repetition is suppressed
+    // until 2026-09-20 with count 2.
+    const before = await suppression('repetition');
+    expect(before?.negative_count).toBe(2);
+    expect(new Date(before!.suppressed_until!).toISOString()).toBe(
+      '2026-09-20T08:00:00.000Z',
+    );
+
+    // A LATER feedback carrying an EARLIER nowIso (shorter candidate window)
+    // must not shorten suppressed_until or rewind last_feedback_at.
+    expect(
+      await repo.applyOwnerAction({
+        appId: APP_ID,
+        recipient: RECIPIENT,
+        actorUserId: ACTOR,
+        insightId: 'lk3',
+        action: 'less_like_this',
+        nowIso: '2026-07-20T08:00:00.000Z', // earlier than the current window's basis
+        snoozeMs: SNOOZE_MS,
+        suppressMs: SUPPRESS_MS,
+        suppressThreshold: THRESHOLD,
+      }),
+    ).toMatchObject({ outcome: 'applied' });
+    const afterEarly = await suppression('repetition');
+    expect(afterEarly?.negative_count).toBe(3);
+    // Unchanged — GREATEST kept the later window.
+    expect(new Date(afterEarly!.suppressed_until!).toISOString()).toBe(
+      '2026-09-20T08:00:00.000Z',
+    );
+
+    // A later nowIso with a longer window extends suppressed_until.
+    const LK4_NOW = '2026-07-25T08:00:00.000Z';
+    const LK4_SUPPRESS = 90 * DAY_MS;
+    expect(
+      await repo.applyOwnerAction({
+        appId: APP_ID,
+        recipient: RECIPIENT,
+        actorUserId: ACTOR,
+        insightId: 'lk4',
+        action: 'less_like_this',
+        nowIso: LK4_NOW,
+        snoozeMs: SNOOZE_MS,
+        suppressMs: LK4_SUPPRESS,
+        suppressThreshold: THRESHOLD,
+      }),
+    ).toMatchObject({ outcome: 'applied' });
+    const afterLate = await suppression('repetition');
+    expect(afterLate?.negative_count).toBe(4);
+    expect(new Date(afterLate!.suppressed_until!).toISOString()).toBe(
+      new Date(Date.parse(LK4_NOW) + LK4_SUPPRESS).toISOString(),
     );
   });
 

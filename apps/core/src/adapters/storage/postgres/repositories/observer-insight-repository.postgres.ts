@@ -539,10 +539,7 @@ export class PostgresObserverInsightRepository implements ObserverInsightReposit
         .for('update');
       if (!insight) return { outcome: 'invalid' };
 
-      // Idempotency first: this exact click (insight+actor+action) already
-      // applied, so the insight being terminal now is OUR doing. A replay is a
-      // no-op, not stale. We hold the insight row FOR UPDATE, so a concurrent
-      // click for the same insight serializes behind this read.
+      // Does this exact click (insight+actor+action) already have a row?
       const [duplicate] = await tx
         .select({ id: Feedback.id })
         .from(Feedback)
@@ -554,15 +551,27 @@ export class PostgresObserverInsightRepository implements ObserverInsightReposit
           ),
         )
         .limit(1);
-      if (duplicate) return { outcome: 'applied', already: true };
 
-      // Terminal by some OTHER action/actor (no matching key above) → stale.
+      // Terminal precedence: once an insight is settled, only an idempotent
+      // replay of the action that PRODUCED that terminal state is a no-op ack.
+      // Any other replayed action on a terminal insight (e.g. a delayed snooze
+      // after a later resolve) is stale — the insight moved on.
       if (insight.state === 'resolved' || insight.state === 'dropped') {
+        const consistentReplay =
+          (insight.state === 'resolved' && input.action === 'resolve') ||
+          (insight.state === 'dropped' &&
+            (input.action === 'dismiss' || input.action === 'less_like_this'));
+        if (duplicate && consistentReplay) {
+          return { outcome: 'applied', already: true };
+        }
         return { outcome: 'stale' };
       }
       // The only state an owner acts on is a delivered insight sitting in
       // cooldown; anything earlier (pending/claimed/sent) is not yet actionable.
       if (insight.state !== 'cooldown') return { outcome: 'stale' };
+      // Non-terminal replay (e.g. a repeated snooze on a still-cooldown
+      // insight) is idempotent.
+      if (duplicate) return { outcome: 'applied', already: true };
 
       // Record the audit/feedback row under the idempotency key. ON CONFLICT is
       // belt-and-suspenders for a lost race the FOR UPDATE lock already prevents.
@@ -662,9 +671,13 @@ export class PostgresObserverInsightRepository implements ObserverInsightReposit
           ],
           set: {
             negativeCount: sql`${Suppressions.negativeCount} + 1`,
-            lastFeedbackAt: input.nowIso,
+            // GREATEST keeps the LATER value so out-of-order negatives (actions
+            // on different insights lock different rows and can arrive with an
+            // earlier nowIso) can only extend, never shorten/rewind. Postgres
+            // GREATEST ignores NULLs, so a NULL existing → candidate wins.
+            lastFeedbackAt: sql`GREATEST(${Suppressions.lastFeedbackAt}, ${input.nowIso}::timestamptz)`,
             updatedAt: input.nowIso,
-            suppressedUntil: sql`CASE WHEN ${Suppressions.negativeCount} + 1 >= ${input.suppressThreshold} THEN ${suppressedUntilIfPromoted}::timestamptz ELSE ${Suppressions.suppressedUntil} END`,
+            suppressedUntil: sql`CASE WHEN ${Suppressions.negativeCount} + 1 >= ${input.suppressThreshold} THEN GREATEST(${Suppressions.suppressedUntil}, ${suppressedUntilIfPromoted}::timestamptz) ELSE ${Suppressions.suppressedUntil} END`,
           },
         })
         .returning({ suppressedUntil: Suppressions.suppressedUntil });
