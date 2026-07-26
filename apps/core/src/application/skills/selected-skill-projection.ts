@@ -140,6 +140,11 @@ async function projectSkillArtifact(input: {
       `Selected skill "${input.skill.id}" artifact must include SKILL.md.`,
     );
   }
+  // Intentional (decision 0066 §4, no-legacy): hashSkillBundle's framing changed,
+  // so skills installed before RACE-1 will mismatch here until re-hashed or
+  // reinstalled. This is handled operationally at rollout, not by an in-code
+  // compat/versioned-hash path — a skill is an executable bundle, so a stale
+  // digest must fail closed rather than run.
   const actualContentHash = hashSkillBundle(bundle);
   if (actualContentHash !== input.skill.storage.contentHash) {
     throw new Error(
