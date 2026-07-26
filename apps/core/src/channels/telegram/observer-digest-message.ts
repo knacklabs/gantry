@@ -9,6 +9,18 @@ import { logger } from '../../infrastructure/logging/logger.js';
 import { telegramThreadOptionsFromString } from './channel-shared.js';
 
 const TELEGRAM_CALLBACK_DATA_MAX_BYTES = 64;
+const TELEGRAM_CALLBACK_ANSWER_MAX_CHARS = 200;
+
+/**
+ * Telegram caps answerCallbackQuery text at 200 chars; longer text is rejected
+ * (and our .catch swallows it, so the clicker would get NO alert). Truncate with
+ * an ellipsis so the ack always lands.
+ */
+export function truncateTelegramCallbackAnswer(text: string): string {
+  return text.length <= TELEGRAM_CALLBACK_ANSWER_MAX_CHARS
+    ? text
+    : `${text.slice(0, TELEGRAM_CALLBACK_ANSWER_MAX_CHARS - 1)}…`;
+}
 
 const OBSERVER_FEEDBACK_CODE: Record<ObserverFeedbackAction, string> = {
   resolve: 'r',

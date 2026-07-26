@@ -15,6 +15,7 @@ import {
   TELEGRAM_OBSERVER_CALLBACK_PATTERN,
   OBSERVER_FEEDBACK_BY_CODE,
   telegramObserverDigestMessage,
+  truncateTelegramCallbackAnswer,
 } from './observer-digest-message.js';
 import { resolveDurableTelegramPermissionCallback } from './permission-callback.js';
 import {
@@ -424,7 +425,9 @@ export abstract class TelegramChannelConnect extends TelegramChannelPrompts {
             outcome.observerDigestView,
           );
           await ctx
-            .answerCallbackQuery({ text: outcome.receipt })
+            .answerCallbackQuery({
+              text: truncateTelegramCallbackAnswer(outcome.receipt),
+            })
             .catch((err: unknown) =>
               logger.debug(
                 { insightId, err: this.sanitizeErrorMessage(err) },
@@ -450,7 +453,10 @@ export abstract class TelegramChannelConnect extends TelegramChannelPrompts {
             ? `${outcome.receipt}\n\n${outcome.replacementText}`
             : outcome.receipt;
           await ctx
-            .answerCallbackQuery({ text, show_alert: true })
+            .answerCallbackQuery({
+              text: truncateTelegramCallbackAnswer(text),
+              show_alert: true,
+            })
             .catch((err: unknown) =>
               logger.debug(
                 { insightId, err: this.sanitizeErrorMessage(err) },

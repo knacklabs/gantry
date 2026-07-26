@@ -526,6 +526,7 @@ export function teamsReviewCard(
 
 function teamsObserverInsightContainer(
   insight: ObserverDigestInsightView,
+  options: { targetJid: string; threadId?: string },
 ): Record<string, unknown> {
   const items: Array<Record<string, unknown>> = [
     {
@@ -556,16 +557,39 @@ function teamsObserverInsightContainer(
       text: escapeTeamsCardText(insight.stateMarker),
     });
   }
+  // Buttons live in an ActionSet INSIDE this insight's container (not the
+  // card-level actions array) so each 4-button group sits beneath its own
+  // insight — otherwise Teams renders one flat footer of identical-looking
+  // buttons with no insight attribution, and >6 trips the primary-action cap.
+  if (insight.affordances.length > 0) {
+    items.push({
+      type: 'ActionSet',
+      actions: insight.affordances.map((affordance) => ({
+        type: 'Action.Execute',
+        title: affordance.label,
+        verb: 'gantry.observer.feedback',
+        data: {
+          action: 'message_action',
+          kind: 'observer_feedback',
+          insightId: affordance.insightId,
+          feedback: affordance.action,
+          targetJid: options.targetJid,
+          ...(options.threadId ? { threadId: options.threadId } : {}),
+        },
+      })),
+    });
+  }
   return { type: 'Container', items };
 }
 
 /**
  * Adaptive Card for one observer digest: a header, then per insight a container
- * (title + summary + type, plus a state marker once acted) and its own four
- * Action.Execute `observer_feedback` buttons carrying insightId + feedback +
- * targetJid (so inbound validation rejects foreign-chat callbacks). Up to 3
- * insight groups ride one card; a settled insight contributes no actions, so the
- * others stay actionable. Same renderer serves the initial send and the rebuild.
+ * (title + summary + type, plus a state marker once acted) holding its own four
+ * Action.Execute `observer_feedback` buttons as an ActionSet — carrying
+ * insightId + feedback + targetJid (so inbound validation rejects foreign-chat
+ * callbacks). Up to 3 insight groups ride one card; a settled insight
+ * contributes no ActionSet, so the others stay actionable. Same renderer serves
+ * the initial send and the rebuild.
  */
 export function teamsObserverDigestCard(
   view: ObserverDigestMessageView,
@@ -579,31 +603,16 @@ export function teamsObserverDigestCard(
       wrap: true,
       text: `Observer digest — ${escapeTeamsCardText(view.localDay)}`,
     },
-    ...view.insights.map(teamsObserverInsightContainer),
+    ...view.insights.map((insight) =>
+      teamsObserverInsightContainer(insight, options),
+    ),
   ];
-  const actions: TeamsAdaptiveCardAction[] = [];
-  for (const insight of view.insights) {
-    for (const affordance of insight.affordances) {
-      actions.push({
-        type: 'Action.Execute',
-        title: affordance.label,
-        verb: 'gantry.observer.feedback',
-        data: {
-          action: 'message_action',
-          kind: 'observer_feedback',
-          insightId: affordance.insightId,
-          feedback: affordance.action,
-          targetJid: options.targetJid,
-          ...(options.threadId ? { threadId: options.threadId } : {}),
-        },
-      });
-    }
-  }
   return {
     $schema: 'http://adaptivecards.io/schemas/adaptive-card.json',
     type: 'AdaptiveCard',
     version: '1.5',
     body,
-    actions,
+    // Buttons live in per-insight ActionSets in `body`, not here.
+    actions: [],
   };
 }

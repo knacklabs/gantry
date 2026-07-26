@@ -15,6 +15,7 @@ import {
   telegramObserverDigestMessage,
   TELEGRAM_OBSERVER_CALLBACK_PATTERN,
   OBSERVER_FEEDBACK_BY_CODE,
+  truncateTelegramCallbackAnswer,
 } from '@core/channels/telegram/observer-digest-message.js';
 import { teamsObserverDigestCard } from '@core/channels/teams-cards.js';
 import {
@@ -126,38 +127,61 @@ describe('observer digest — Telegram render + codec', () => {
     expect(text).toContain('&lt;b&gt;pwn&lt;/b&gt;');
     expect(text).toContain('&amp;');
   });
+
+  it('truncates a long callback answer to <= 200 chars (ellipsis) without throwing', () => {
+    expect(truncateTelegramCallbackAnswer('short')).toBe('short');
+    const long = 'x'.repeat(500);
+    const capped = truncateTelegramCallbackAnswer(long);
+    expect(capped.length).toBeLessThanOrEqual(200);
+    expect(capped.endsWith('…')).toBe(true);
+  });
 });
 
+type TeamsCard = ReturnType<typeof teamsObserverDigestCard>;
+
+// Each insight's buttons live in an ActionSet INSIDE its Container (not the
+// card-level actions footer), so pull them out per container.
+function insightActionSets(card: TeamsCard): Array<Array<{ data: unknown }>> {
+  return (card.body as Array<Record<string, unknown>>)
+    .filter((block) => block.type === 'Container')
+    .map((container) => {
+      const items = (container.items ?? []) as Array<Record<string, unknown>>;
+      const actionSet = items.find((item) => item.type === 'ActionSet');
+      return (actionSet?.actions ?? []) as Array<{ data: unknown }>;
+    });
+}
+
 describe('observer digest — Teams render + codec', () => {
-  it('renders 3 insight containers + 12 Action.Execute buttons round-tripping via the codec', () => {
+  it('gives each insight Container its own 4-action ActionSet carrying that insight id (no flat footer)', () => {
     const view = makeView();
     const card = teamsObserverDigestCard(view, { targetJid: 'teams:c1' });
-    expect(card.actions).toHaveLength(12);
-    for (const action of card.actions) {
-      expect(action.type).toBe('Action.Execute');
-      const parsed = readTeamsMessageAction(action.data);
-      expect(parsed?.kind).toBe('observer_feedback');
-    }
-    // first insight's four buttons carry that insight's id + the four actions
-    const first = card.actions
-      .slice(0, 4)
-      .map((a) => readTeamsMessageAction(a.data));
-    expect(first.map((p) => (p as { feedback: string }).feedback)).toEqual([
-      ...ACTIONS,
-    ]);
-    for (const p of first)
-      expect((p as { insightId: string }).insightId).toBe(
-        view.insights[0].insightId,
-      );
+    // no card-level actions footer — buttons sit beside their insight
+    expect(card.actions).toHaveLength(0);
+    const sets = insightActionSets(card);
+    expect(sets).toHaveLength(3);
+    sets.forEach((actions, i) => {
+      expect(actions).toHaveLength(4);
+      const parsed = actions.map((a) => readTeamsMessageAction(a.data));
+      expect(parsed.map((p) => (p as { feedback: string }).feedback)).toEqual([
+        ...ACTIONS,
+      ]);
+      for (const p of parsed) {
+        expect(p?.kind).toBe('observer_feedback');
+        expect((p as { insightId: string }).insightId).toBe(
+          view.insights[i].insightId,
+        );
+      }
+    });
   });
 
   it('rejects a foreign-chat callback', async () => {
     const view = makeView({ count: 1 });
     const card = teamsObserverDigestCard(view, { targetJid: 'teams:owner' });
+    const actionData = insightActionSets(card)[0][0].data;
     const sendDenied = vi.fn(async () => undefined);
     const onMessageAction = vi.fn(async () => undefined);
     const handled = await handleTeamsMessageAction({
-      message: { id: 'm1', value: card.actions[0].data } as never,
+      message: { id: 'm1', value: actionData } as never,
       jid: 'teams:intruder',
       userId: 'u1',
       onMessageAction,
@@ -176,10 +200,10 @@ describe('observer digest — Teams render + codec', () => {
       text: 'fallback',
       options: { observerDigestView: makeView() },
     });
-    const card = sendAdaptiveCard.mock.calls[0]?.[0]?.card as {
-      actions: unknown[];
-    };
-    expect(card.actions).toHaveLength(12);
+    const card = sendAdaptiveCard.mock.calls[0]?.[0]?.card as TeamsCard;
+    const sets = insightActionSets(card);
+    expect(sets).toHaveLength(3);
+    expect(sets.every((actions) => actions.length === 4)).toBe(true);
   });
 });
 
