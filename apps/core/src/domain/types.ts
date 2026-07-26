@@ -567,8 +567,8 @@ export interface MessageSendOptions {
   actionAffordances?: MessageActionAffordance[];
   files?: MessageFileAttachment[];
   /** When set, channels with native support render this as a compact-structured
-   * memory-review message (Slack blocks / Telegram HTML / Teams card) with the
-   * decision buttons. Channels without native buttons fall back to `text`. */
+   * memory-review message (per-channel native blocks/card) with the decision
+   * buttons. Channels without native buttons fall back to `text`. */
   reviewMessageView?: ReviewMessageView;
 }
 

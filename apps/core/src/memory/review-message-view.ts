@@ -6,8 +6,8 @@ import type {
 } from './memory-types.js';
 
 /**
- * Provider-neutral view model for a memory-review message. Slack, Telegram and
- * Teams each map this to native blocks; nothing here is provider-specific. Every
+ * Provider-neutral view model for a memory-review message. Each channel adapter
+ * maps this to its own native blocks; nothing here is provider-specific. Every
  * field is sourced from the review's IMMUTABLE snapshot (Task 3), never live
  * rows, so the message a reviewer sees never drifts from what was flagged.
  *
