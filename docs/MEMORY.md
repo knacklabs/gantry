@@ -171,8 +171,8 @@ A pending review surfaces two ways, and both decide the same
 
    The subject boundary rides on the query params; `--edit-value` maps to an
    `edit_approve` decision carrying the new value (use the attached form
-   `--edit-value=<value>` for a value starting with `-`). The reviewer identity
-   is still key-derived server-side.
+   `--edit-value=<value>` for a value starting with `--`). The reviewer
+   identity is still key-derived server-side.
 
 The agent-led MCP flow remains for text-only surfaces without native buttons:
 

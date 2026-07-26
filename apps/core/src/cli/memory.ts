@@ -44,7 +44,7 @@ function reviewUsage(): string {
     '  gantry memory reviews --agent-id <id> --subject-type <user|group|channel|common> --subject-id <id> [--json]',
     '  gantry memory review <reviewId> --agent-id <id> --subject-type <t> --subject-id <id> [--json]',
     '  gantry memory review decide <reviewId> --agent-id <id> --subject-type <t> --subject-id <id> (--approve | --reject | --edit-value <value>) [--reason <reason>] [--json]',
-    '    (use --edit-value=<value> for a value starting with "-", e.g. --edit-value=-5)',
+    '    (use --edit-value=<value> for a value starting with "--", e.g. --edit-value=--note)',
   ].join('\n');
 }
 
@@ -59,20 +59,6 @@ interface ReviewFlags {
   editValueMissing: boolean;
   reason?: string;
 }
-
-// This command's own option flags. A space-separated `--edit-value` value is
-// only treated as MISSING when the next token is one of these (or absent), so a
-// legit hyphen-leading value like `-5` is still accepted.
-const RECOGNIZED_REVIEW_FLAGS = new Set([
-  '--agent-id',
-  '--subject-type',
-  '--subject-id',
-  '--reason',
-  '--edit-value',
-  '--approve',
-  '--reject',
-  '--json',
-]);
 
 function parseReviewFlags(args: string[]): ReviewFlags {
   const flags: ReviewFlags = {
@@ -101,10 +87,12 @@ function parseReviewFlags(args: string[]): ReviewFlags {
       // and explicit-empty. Split on the first '='.
       flags.editValue = arg.slice('--edit-value='.length);
     } else if (arg === '--edit-value') {
-      // Space form: value is MISSING only when absent or a recognized option of
-      // this command — never swallow `--reject` into a mutating edit_approve.
-      // A non-flag token like `-5` is a legit value.
-      if (next === undefined || RECOGNIZED_REVIEW_FLAGS.has(next)) {
+      // Space form: any `--`-prefixed next token is an option or a typo (e.g.
+      // `--reject`, `--rejct`, `--edit-value=-5`), never a memory value — treat
+      // as MISSING so we can't swallow it into a mutating edit_approve. A single
+      // `-` token (e.g. `-5`) is a legit value. For a value that itself starts
+      // with `--`, use the attached `--edit-value=<value>` form above.
+      if (next === undefined || next.startsWith('--')) {
         flags.editValueMissing = true;
       } else {
         flags.editValue = next;

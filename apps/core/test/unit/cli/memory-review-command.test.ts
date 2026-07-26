@@ -402,6 +402,53 @@ describe('gantry memory review decide', () => {
     expect(log.error).toHaveBeenCalledWith('--edit-value requires a value.');
   });
 
+  it('rejects --edit-value followed by an attached-form option token (double dash)', async () => {
+    const { runMemoryCommand, log } = await loadMemoryCommand();
+    const code = await runMemoryCommand('/tmp/home', [
+      'review',
+      'decide',
+      'rev-1',
+      ...SUBJECT_ARGS,
+      '--edit-value',
+      '--edit-value=-5',
+    ]);
+    expect(code).toBe(1);
+    expect(state.requests).toHaveLength(0);
+    expect(log.error).toHaveBeenCalledWith('--edit-value requires a value.');
+  });
+
+  it('rejects --edit-value followed by a double-dash typo token', async () => {
+    const { runMemoryCommand, log } = await loadMemoryCommand();
+    const code = await runMemoryCommand('/tmp/home', [
+      'review',
+      'decide',
+      'rev-1',
+      ...SUBJECT_ARGS,
+      '--edit-value',
+      '--rejct',
+    ]);
+    expect(code).toBe(1);
+    expect(state.requests).toHaveLength(0);
+    expect(log.error).toHaveBeenCalledWith('--edit-value requires a value.');
+  });
+
+  it('accepts a literal --x value via the attached form', async () => {
+    state.response = { review: { status: 'applied' } };
+    const { runMemoryCommand } = await loadMemoryCommand();
+    const code = await runMemoryCommand('/tmp/home', [
+      'review',
+      'decide',
+      'rev-1',
+      ...SUBJECT_ARGS,
+      '--edit-value=--x',
+    ]);
+    expect(code).toBe(0);
+    expect(state.requests[0]?.body).toEqual({
+      decision: 'edit_approve',
+      editedValue: '--x',
+    });
+  });
+
   it('rejects --edit-value with no following token', async () => {
     const { runMemoryCommand, log } = await loadMemoryCommand();
     const code = await runMemoryCommand('/tmp/home', [
