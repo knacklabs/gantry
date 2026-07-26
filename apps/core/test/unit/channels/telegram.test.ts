@@ -3145,6 +3145,73 @@ describe('TelegramChannel', () => {
       });
     });
 
+    async function triggerTelegramReviewCallback(
+      outcome: {
+        state: string;
+        receipt: string;
+        replacementText?: string;
+        clearActions?: boolean;
+      },
+      data = 'mr:a:mrv_abc',
+    ) {
+      const onMessageAction = vi.fn(async () => outcome);
+      const opts = createTestOpts({ onMessageAction } as any);
+      const channel = new TelegramChannel('test-token', opts);
+      await channel.connect();
+      const callbackCtx = {
+        callbackQuery: {
+          data,
+          message: { chat: { id: 100200300 }, message_thread_id: 42 },
+        },
+        chat: { id: 100200300 },
+        from: { id: 111 },
+        answerCallbackQuery: vi.fn(),
+        editMessageText: vi.fn().mockResolvedValue(undefined),
+      };
+      await triggerCallbackQuery(callbackCtx as any);
+      return { onMessageAction, callbackCtx };
+    }
+
+    it('answers, routes, and clears the keyboard on an applied Telegram review decision', async () => {
+      const { onMessageAction, callbackCtx } =
+        await triggerTelegramReviewCallback({
+          state: 'applied',
+          receipt: 'Memory review approved.',
+        });
+      expect(callbackCtx.answerCallbackQuery).toHaveBeenCalledWith({
+        text: 'Recording decision…',
+      });
+      expect(onMessageAction).toHaveBeenCalledWith({
+        kind: 'memory_review_decision',
+        conversationJid: 'tg:100200300',
+        providerAccountId: 'telegram_default',
+        threadId: '42',
+        userId: '111',
+        reviewId: 'mrv_abc',
+        decision: 'approve',
+        label: '',
+      });
+      expect(callbackCtx.editMessageText).toHaveBeenCalledWith(
+        'Memory review approved.',
+        { reply_markup: { inline_keyboard: [] } },
+      );
+    });
+
+    it('shows the reply-command and keeps the keyboard on a Telegram review edit', async () => {
+      const { callbackCtx } = await triggerTelegramReviewCallback(
+        {
+          state: 'needs_input',
+          receipt: 'Reply to edit.',
+          replacementText: 'edit memory review mrv_abc: ',
+          clearActions: false,
+        },
+        'mr:e:mrv_abc',
+      );
+      const [text, extra] = callbackCtx.editMessageText.mock.calls[0];
+      expect(text).toContain('edit memory review mrv_abc:');
+      expect(extra).toEqual({});
+    });
+
     it('omits Telegram live stop action buttons but still routes stale callbacks', async () => {
       const opts = createTestOpts({ onMessageAction: vi.fn() } as any);
       const channel = new TelegramChannel('test-token', opts);

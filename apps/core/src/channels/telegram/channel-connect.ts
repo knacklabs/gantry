@@ -7,6 +7,10 @@ import {
 } from '../permission-interaction.js';
 
 import { TelegramChannelPrompts } from './channel-prompts.js';
+import {
+  TELEGRAM_REVIEW_CALLBACK_PATTERN,
+  TELEGRAM_REVIEW_DECISION_BY_CODE,
+} from './message-action-affordances.js';
 import { resolveDurableTelegramPermissionCallback } from './permission-callback.js';
 import {
   TELEGRAM_PERMISSION_CALLBACK_PATTERN,
@@ -293,6 +297,64 @@ export abstract class TelegramChannelConnect extends TelegramChannelPrompts {
           actionToken: data.slice('lt:stop:'.length),
         });
         await ctx.answerCallbackQuery({ text: 'Stopping current run.' });
+        return;
+      }
+
+      const reviewMatch = TELEGRAM_REVIEW_CALLBACK_PATTERN.exec(data);
+      if (reviewMatch) {
+        const decision = TELEGRAM_REVIEW_DECISION_BY_CODE[reviewMatch[1]];
+        const reviewId = reviewMatch[2];
+        const callbackMessage = ctx.callbackQuery?.message as
+          | {
+              chat?: { id?: number | string };
+              message_thread_id?: number;
+            }
+          | undefined;
+        const chatId =
+          callbackMessage?.chat?.id?.toString() ||
+          ctx.chat?.id?.toString() ||
+          '';
+        if (!chatId) return;
+        // Toast first so the button stops spinning; authority + the stale veto
+        // live in the host handler the router dispatches to.
+        await ctx.answerCallbackQuery({ text: 'Recording decision…' });
+        const outcome = await this.opts.onMessageAction?.({
+          kind: 'memory_review_decision',
+          conversationJid: `tg:${chatId}`,
+          ...(this.opts.providerAccountId
+            ? { providerAccountId: this.opts.providerAccountId }
+            : {}),
+          threadId:
+            typeof callbackMessage?.message_thread_id === 'number'
+              ? String(callbackMessage.message_thread_id)
+              : undefined,
+          userId: ctx.from?.id?.toString(),
+          reviewId,
+          decision,
+          label: '',
+        });
+        if (outcome) {
+          const cleared =
+            typeof outcome.clearActions === 'boolean'
+              ? outcome.clearActions
+              : outcome.state === 'applied' ||
+                outcome.state === 'stale' ||
+                outcome.state === 'invalid';
+          const text = outcome.replacementText
+            ? `${outcome.receipt}\n\n${outcome.replacementText}`
+            : outcome.receipt;
+          await ctx
+            .editMessageText(
+              text,
+              cleared ? { reply_markup: { inline_keyboard: [] } } : {},
+            )
+            .catch((err: unknown) =>
+              logger.debug(
+                { reviewId, err: this.sanitizeErrorMessage(err) },
+                'Failed to update Telegram memory review message',
+              ),
+            );
+        }
         return;
       }
 

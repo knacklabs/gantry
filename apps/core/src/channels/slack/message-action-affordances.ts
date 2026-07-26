@@ -1,4 +1,8 @@
 import type { MessageActionAffordance } from '../../domain/types.js';
+import type {
+  ReviewMessageSide,
+  ReviewMessageView,
+} from '../../memory/review-message-view.js';
 
 const SLACK_ACTION_VALUE_MAX_BYTES = 2000;
 const SCHEDULER_ACTION_KINDS = new Set<MessageActionAffordance['kind']>([
@@ -17,8 +21,17 @@ function slackActionValue(
   providerAccountId?: string,
 ): string | undefined {
   if (action.kind === 'live_turn_stop') return undefined;
-  // ponytail: memory_review_decision rendering lands in Task 5 (Slack codec).
-  if (action.kind === 'memory_review_decision') return undefined;
+  if (action.kind === 'memory_review_decision') {
+    const value = JSON.stringify({
+      kind: action.kind,
+      reviewId: action.reviewId,
+      decision: action.decision,
+      ...(providerAccountId ? { providerAccountId } : {}),
+    });
+    return Buffer.byteLength(value, 'utf8') <= SLACK_ACTION_VALUE_MAX_BYTES
+      ? value
+      : undefined;
+  }
   const value = SCHEDULER_ACTION_KINDS.has(action.kind)
     ? JSON.stringify({
         kind: action.kind,
@@ -70,4 +83,74 @@ export function slackMessageActionBlocks(
         },
         actionBlock,
       ];
+}
+
+function slackSideLine(side: ReviewMessageSide): string {
+  const meta = [side.source, side.date].filter(Boolean).join(' · ');
+  const value = `*${side.label}:* "${side.value}"`;
+  return meta ? `${value} — ${meta}` : value;
+}
+
+/**
+ * Compact-structured Block Kit for a memory-review message: a header (title),
+ * a section carrying Topic + each side (value with its "source · date"), a
+ * section for the change + why, a bounded evidence context block (collapsed to
+ * short snippets — never the full text), and an actions block with the three
+ * approve/reject/edit buttons whose value carries {kind, reviewId, decision}.
+ */
+export function slackReviewMessageBlocks(
+  view: ReviewMessageView,
+  options: { providerAccountId?: string } = {},
+): Array<Record<string, unknown>> {
+  const blocks: Array<Record<string, unknown>> = [
+    {
+      type: 'header',
+      text: { type: 'plain_text', text: view.title, emoji: true },
+    },
+    {
+      type: 'section',
+      text: {
+        type: 'mrkdwn',
+        text: [`*Topic:* ${view.topic}`, ...view.sides.map(slackSideLine)].join(
+          '\n',
+        ),
+      },
+    },
+    {
+      type: 'section',
+      text: {
+        type: 'mrkdwn',
+        text: `*Change →* ${view.change}\n*Why:* ${view.why}`,
+      },
+    },
+  ];
+  if (view.evidence.length > 0) {
+    blocks.push({
+      type: 'context',
+      elements: view.evidence.map((item) => ({
+        type: 'mrkdwn',
+        text: `📎 ${[item.source, item.date].filter(Boolean).join(' · ')}: ${item.snippet}`,
+      })),
+    });
+  }
+  const elements = view.affordances.map((affordance) => ({
+    type: 'button',
+    action_id: 'gantry_message_action',
+    text: {
+      type: 'plain_text',
+      text: truncateSlackButtonLabel(affordance.label),
+    },
+    ...(affordance.decision === 'reject' ? { style: 'danger' as const } : {}),
+    ...(affordance.decision === 'approve' ? { style: 'primary' as const } : {}),
+    value: JSON.stringify({
+      kind: 'memory_review_decision',
+      reviewId: affordance.reviewId,
+      decision: affordance.decision,
+      ...(options.providerAccountId
+        ? { providerAccountId: options.providerAccountId }
+        : {}),
+    }),
+  }));
+  blocks.push({ type: 'actions', elements });
+  return blocks;
 }

@@ -3233,6 +3233,94 @@ describe('Slack channel', () => {
     expect(appRef.current.client.chat.postEphemeral).not.toHaveBeenCalled();
   });
 
+  async function invokeSlackReviewAction(
+    outcome: {
+      state: string;
+      receipt: string;
+      replacementText?: string;
+      clearActions?: boolean;
+    },
+    decision: 'approve' | 'reject' | 'edit' = 'approve',
+  ) {
+    const onMessageAction = vi.fn(async () => outcome);
+    const opts = {
+      ...createOptsWithApproverHook(['U_APPROVER']),
+      onMessageAction,
+    };
+    const channel = new SlackChannel('xoxb-token', 'xapp-token', opts as any);
+    await channel.connect();
+    const actionHandler = appRef.current.actionHandlers.get(
+      'gantry_message_action',
+    );
+    const ack = vi.fn();
+    await actionHandler({
+      ack,
+      action: {
+        value: JSON.stringify({
+          kind: 'memory_review_decision',
+          reviewId: 'mrv_abc',
+          decision,
+        }),
+      },
+      body: {
+        channel: { id: 'C1234567890' },
+        user: { id: 'U_APPROVER' },
+        message: { ts: '1710000000.100201', thread_ts: '1710000000.000111' },
+      },
+    });
+    return { ack, onMessageAction };
+  }
+
+  it('routes Slack memory-review buttons through the callback and clears buttons on applied', async () => {
+    const { ack, onMessageAction } = await invokeSlackReviewAction({
+      state: 'applied',
+      receipt: 'Memory review approved.',
+    });
+    expect(ack).toHaveBeenCalled();
+    expect(onMessageAction).toHaveBeenCalledWith({
+      kind: 'memory_review_decision',
+      conversationJid: 'sl:C1234567890',
+      providerAccountId: 'slack_default',
+      threadId: '1710000000.000111',
+      userId: 'U_APPROVER',
+      reviewId: 'mrv_abc',
+      decision: 'approve',
+      label: '',
+    });
+    expect(appRef.current.client.chat.update).toHaveBeenCalledWith({
+      channel: 'C1234567890',
+      ts: '1710000000.100201',
+      text: 'Memory review approved.',
+      blocks: [],
+    });
+  });
+
+  it('shows the reply-command and keeps buttons for a Slack memory-review edit', async () => {
+    await invokeSlackReviewAction(
+      {
+        state: 'needs_input',
+        receipt: 'Reply to edit this review.',
+        replacementText: 'edit memory review mrv_abc: ',
+        clearActions: false,
+      },
+      'edit',
+    );
+    const call = appRef.current.client.chat.update.mock.calls[0]?.[0];
+    expect(call.ts).toBe('1710000000.100201');
+    expect(call.text).toContain('edit memory review mrv_abc:');
+    expect(call.blocks).toBeUndefined();
+  });
+
+  it('shows a receipt and keeps buttons when a Slack memory-review decision is denied', async () => {
+    await invokeSlackReviewAction(
+      { state: 'denied', receipt: 'Not authorized to decide this review.' },
+      'approve',
+    );
+    const call = appRef.current.client.chat.update.mock.calls[0]?.[0];
+    expect(call.text).toBe('Not authorized to decide this review.');
+    expect(call.blocks).toBeUndefined();
+  });
+
   it('does not render Slack live stop action buttons', async () => {
     const opts = {
       ...createOptsWithApproverHook(['U_APPROVER']),

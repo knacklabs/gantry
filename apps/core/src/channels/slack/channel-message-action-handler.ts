@@ -1,5 +1,7 @@
 import type {
+  MemoryReviewActionDecision,
   MessageActionAffordanceKind,
+  MessageActionOutcome,
   OnMessageAction,
 } from '../../domain/types.js';
 
@@ -13,9 +15,26 @@ type SlackAppLike = {
   client: {
     chat: {
       postEphemeral: (input: any) => Promise<unknown>;
+      update: (input: any) => Promise<unknown>;
     };
   };
 };
+
+/**
+ * Buttons come off the message once the review can no longer move: applied
+ * (settled), stale (withdrawn) or invalid (gone). denied keeps them — another
+ * approver may act — and the edit prompt (needs_input) keeps them so the
+ * reviewer can still approve/reject after replying. An explicit clearActions
+ * from the handler wins over this default.
+ */
+function reviewActionsCleared(outcome: MessageActionOutcome): boolean {
+  if (typeof outcome.clearActions === 'boolean') return outcome.clearActions;
+  return (
+    outcome.state === 'applied' ||
+    outcome.state === 'stale' ||
+    outcome.state === 'invalid'
+  );
+}
 
 export function registerSlackMessageActionHandler(
   app: SlackAppLike,
@@ -37,12 +56,52 @@ export function registerSlackMessageActionHandler(
           kind?: unknown;
           jobId?: unknown;
           runId?: unknown;
+          reviewId?: unknown;
+          decision?: unknown;
           providerAccountId?: unknown;
         }
       | undefined;
     try {
       payload = action.value ? JSON.parse(action.value) : undefined;
     } catch {
+      return;
+    }
+    if (
+      payload?.kind === 'memory_review_decision' &&
+      typeof payload.reviewId === 'string' &&
+      payload.reviewId.trim().length > 0 &&
+      (payload.decision === 'approve' ||
+        payload.decision === 'reject' ||
+        payload.decision === 'edit') &&
+      body.channel?.id &&
+      body.user?.id
+    ) {
+      const messageTs = body.message?.ts;
+      const outcome = await opts?.onMessageAction?.({
+        kind: 'memory_review_decision',
+        conversationJid: `sl:${body.channel.id}`,
+        ...providerAccountFromPayload(payload, opts?.providerAccountId),
+        threadId: body.message?.thread_ts,
+        userId: body.user.id,
+        reviewId: payload.reviewId,
+        decision: payload.decision as MemoryReviewActionDecision,
+        label: '',
+      });
+      if (outcome && messageTs) {
+        const text = outcome.replacementText
+          ? `${outcome.receipt}\n\n${outcome.replacementText}`
+          : outcome.receipt;
+        try {
+          await app.client.chat.update({
+            channel: body.channel.id,
+            ts: messageTs,
+            text,
+            ...(reviewActionsCleared(outcome) ? { blocks: [] } : {}),
+          });
+        } catch {
+          // ignore receipt update failures
+        }
+      }
       return;
     }
     if (
