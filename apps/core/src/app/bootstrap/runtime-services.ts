@@ -719,8 +719,7 @@ export async function startRuntimeServices(
     });
     // Observer digest durable send: enqueue under the shared live-send profile
     // (idempotent on the digest's per-day key). The outbound recovery loop below
-    // performs the actual provider send; `durablySent` reflects its rolled-up
-    // status so the digest is settled only once durably sent.
+    // does the provider send; `durablySent` settles the digest once durably sent.
     setObserverDigestGateway({
       enqueue: async (input) => {
         const target = resolveDurableOutboundTarget({

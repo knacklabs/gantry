@@ -128,7 +128,7 @@ interface ChannelSourceRef {
 /**
  * Channel pages encode `${providerAccountId}:${chat_jid}#${discriminator}`
  * (see brain-channel-harvest.ts). The provider account is the first segment;
- * the chat_jid can itself contain colons (e.g. `slack:C123`). The account is
+ * the chat_jid can itself contain colons (e.g. `<provider>:C123`). The account is
  * load-bearing: conversation ids are only unique per provider account.
  */
 export function parseChannelSourceRef(
