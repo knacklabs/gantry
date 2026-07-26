@@ -32,7 +32,7 @@
     "apps/core/src/channels/slack/channel-delivery-helpers.ts": 774,
     "apps/core/src/channels/slack/channel-delivery.ts": 732,
     "apps/core/src/channels/slack/channel-interactions.ts": 712,
-    "apps/core/src/channels/telegram/channel-connect.ts": 708,
+    "apps/core/src/channels/telegram/channel-connect.ts": 716,
     "apps/core/src/channels/telegram/channel-delivery.ts": 770,
     "apps/core/src/cli/group.ts": 850,
     "apps/core/src/cli/model.ts": 723,

@@ -428,6 +428,7 @@ export class PostgresObserverInsightRepository implements ObserverInsightReposit
     appId: string;
     recipient: string;
     limit: number;
+    nowIso: string;
   }): Promise<ProactiveInsight[]> {
     return listPendingForDigest(this.db, input);
   }

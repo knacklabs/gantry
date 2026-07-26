@@ -493,4 +493,39 @@ maybeDescribe('observer owner action Postgres persistence', () => {
       outcome: 'invalid',
     });
   });
+
+  it('claimPendingForDigest excludes a suppressed-type pending backlog insight while active, claims it once expired', async () => {
+    const R = 'owner:suppressed-1';
+    await repo.create(
+      insight('sup-a', {
+        recipient: R,
+        insightType: 'stale_fact',
+        canonicalSignature: 'sig:sup-a',
+      }),
+    );
+    // Active suppression on stale_fact for R (suppressed_until = NOW + 1 day).
+    await runtime.service.pool.query(
+      `INSERT INTO "${runtime.schemaName}".observer_insight_type_suppressions
+         (app_id, recipient, insight_type, negative_count, suppressed_until, last_feedback_at, updated_at)
+       VALUES ($1, $2, 'stale_fact', 2, $3, $4, $4)`,
+      [APP_ID, R, '2026-07-23T08:00:00.000Z', NOW],
+    );
+    // While suppressed: the pending backlog insight is NOT claimed.
+    expect(
+      await repo.claimPendingForDigest({
+        appId: APP_ID,
+        recipient: R,
+        limit: 10,
+        nowIso: NOW,
+      }),
+    ).toEqual([]);
+    // After the window expires (suppressed_until < nowIso): it IS claimed.
+    const claimed = await repo.claimPendingForDigest({
+      appId: APP_ID,
+      recipient: R,
+      limit: 10,
+      nowIso: '2026-07-24T08:00:00.000Z',
+    });
+    expect(claimed.map((row) => row.id)).toEqual(['sup-a']);
+  });
 });

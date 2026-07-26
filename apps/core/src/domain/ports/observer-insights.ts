@@ -288,6 +288,7 @@ export interface ObserverInsightRepository {
     appId: string;
     recipient: string;
     limit: number;
+    nowIso: string;
   }): Promise<ProactiveInsight[]>;
   // Read-only digest history for a recipient, newest-first, with member counts.
   listDigestDeliveries(input: {

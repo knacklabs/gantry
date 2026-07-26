@@ -20,6 +20,15 @@ import {
 } from './observer-insight-repository.postgres.helpers.js';
 
 const DeliveryInsights = pgSchema.observerDeliveryInsightsPostgres;
+const Suppressions = pgSchema.observerInsightTypeSuppressionsPostgres;
+
+// A pending insight of a type with an ACTIVE (suppressed_until > now) suppression
+// must not be claimed/previewed for the digest — otherwise a suppressed type's
+// backlog beyond maxInsights surfaces right after "Less like this". Filters at
+// the source query, so it covers the whole pending pool, not just candidates.
+function notSuppressedType(appId: string, recipient: string, nowIso: string) {
+  return sql`NOT EXISTS (SELECT 1 FROM ${Suppressions} s WHERE s.app_id = ${appId} AND s.recipient = ${recipient} AND s.insight_type = ${Insights.insightType} AND s.suppressed_until > ${nowIso}::timestamptz)`;
+}
 
 function mapReservation(
   row: typeof Deliveries.$inferSelect,
@@ -64,6 +73,7 @@ export async function claimPendingForDigest(
           eq(Insights.appId, input.appId),
           eq(Insights.recipient, input.recipient),
           eq(Insights.state, 'pending'),
+          notSuppressedType(input.appId, input.recipient, input.nowIso),
         ),
       )
       .orderBy(
@@ -99,6 +109,7 @@ export async function listPendingForDigest(
     appId: string;
     recipient: string;
     limit: number;
+    nowIso: string;
   },
 ): Promise<ProactiveInsight[]> {
   const rows = await db
@@ -109,6 +120,7 @@ export async function listPendingForDigest(
         eq(Insights.appId, input.appId),
         eq(Insights.recipient, input.recipient),
         eq(Insights.state, 'pending'),
+        notSuppressedType(input.appId, input.recipient, input.nowIso),
       ),
     )
     .orderBy(

@@ -5,6 +5,7 @@ import type {
 } from '../domain/types.js';
 import type { ObserverFeedbackAction } from '../domain/message-actions.js';
 import type { TeamsAdaptiveCardPayload } from './teams-cards.js';
+import { withObserverDigestEditLock } from './observer-digest-edit-lock.js';
 import {
   buildTeamsReviewReceiptCard,
   teamsObserverDigestCard,
@@ -238,43 +239,50 @@ export async function handleTeamsMessageAction(input: {
     return true;
   }
   if (payload.kind === 'observer_feedback') {
-    const outcome = await input.onMessageAction?.({
-      kind: 'observer_feedback',
-      conversationJid: input.jid,
-      ...(input.providerAccountId
-        ? { providerAccountId: input.providerAccountId }
-        : {}),
-      userId: input.userId,
-      insightId: payload.insightId,
-      action: payload.feedback,
-      localDay: payload.localDay,
-      ...(payload.threadId ? { threadId: payload.threadId } : {}),
-    });
-    if (!outcome) return true;
-    const conversationId = teamsConversationIdFromJid(input.jid);
-    if (outcome.state === 'applied' && outcome.observerDigestView) {
-      // One insight settled: rebuild the WHOLE card from the updated view so the
-      // acted insight loses its buttons + gains a marker while the others stay
-      // actionable for the owner.
-      const messageId = input.message.replyToId ?? input.message.id;
-      if (conversationId && messageId && input.updateReviewCard) {
-        await input.updateReviewCard({
-          conversationId,
-          messageId,
-          card: teamsObserverDigestCard(outcome.observerDigestView, {
-            targetJid: input.jid,
-            ...(payload.threadId ? { threadId: payload.threadId } : {}),
-          }),
+    const messageId = input.message.replyToId ?? input.message.id;
+    // Serialize concurrent clicks on THIS digest card so the later one rebuilds
+    // from the earlier's committed state (no resurrected buttons).
+    await withObserverDigestEditLock(
+      `teams:${input.jid}:${messageId}`,
+      async () => {
+        const outcome = await input.onMessageAction?.({
+          kind: 'observer_feedback',
+          conversationJid: input.jid,
+          ...(input.providerAccountId
+            ? { providerAccountId: input.providerAccountId }
+            : {}),
+          userId: input.userId,
+          insightId: payload.insightId,
+          action: payload.feedback,
+          localDay: payload.localDay,
+          ...(payload.threadId ? { threadId: payload.threadId } : {}),
         });
-      }
-    } else {
-      // denied / stale / invalid: never touch the shared card; smallest blast
-      // radius is a chat message (Teams' invoke path has no per-user ephemeral).
-      const text = outcome.replacementText
-        ? `${outcome.receipt}\n\n${outcome.replacementText}`
-        : outcome.receipt;
-      await input.sendDenied(conversationId, text);
-    }
+        if (!outcome) return;
+        const conversationId = teamsConversationIdFromJid(input.jid);
+        if (outcome.state === 'applied' && outcome.observerDigestView) {
+          // One insight settled: rebuild the WHOLE card from the updated view so
+          // the acted insight loses its buttons + gains a marker while the others
+          // stay actionable for the owner.
+          if (conversationId && messageId && input.updateReviewCard) {
+            await input.updateReviewCard({
+              conversationId,
+              messageId,
+              card: teamsObserverDigestCard(outcome.observerDigestView, {
+                targetJid: input.jid,
+                ...(payload.threadId ? { threadId: payload.threadId } : {}),
+              }),
+            });
+          }
+        } else {
+          // denied / stale / invalid: never touch the shared card; smallest blast
+          // radius is a chat message (Teams' invoke path has no per-user ephemeral).
+          const text = outcome.replacementText
+            ? `${outcome.receipt}\n\n${outcome.replacementText}`
+            : outcome.receipt;
+          await input.sendDenied(conversationId, text);
+        }
+      },
+    );
     return true;
   }
   if (payload.kind === 'scheduler_run_now') {
