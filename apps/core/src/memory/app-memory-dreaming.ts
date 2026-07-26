@@ -295,7 +295,12 @@ export async function runAppMemoryDreamPass(input: {
           continue;
         }
         proposal.contradiction = resolved.contradiction;
+        // A resolved contradiction is inherently a review item: force
+        // needs_review so it can never ride a promote/update/stage action
+        // into auto-apply. Bind both sides authoritatively from resolution.
+        proposal.action = 'needs_review';
         proposal.itemId = resolved.contradiction.active.itemId;
+        proposal.candidateId = resolved.contradiction.incoming.candidateId;
         proposal.kind = resolved.contradiction.proposedCanonical
           .kind as MemoryKind;
         proposal.key = resolved.contradiction.proposedCanonical.key;

@@ -59,6 +59,12 @@ export function validateContradiction(contradiction: MemoryContradiction): {
   if (normalizeClaim(active.value) === normalizeClaim(incoming.value)) {
     return { ok: false, reason: 'contradiction sides are not distinct claims' };
   }
+  if (
+    type === 'same_key_value_disagreement' &&
+    active.key.trim().toLowerCase() !== incoming.key.trim().toLowerCase()
+  ) {
+    return { ok: false, reason: 'same-key contradiction has mismatched keys' };
+  }
   return { ok: true, reason: 'contradiction passed host validation' };
 }
 

@@ -760,6 +760,213 @@ describe('runAppMemoryDreamPass guardrails', () => {
     expect(decisions).toEqual([{ action: 'needs_review' }]);
   });
 
+  it('forces a contradiction onto needs_review even when the model asked to promote', async () => {
+    const activeSourceRef = JSON.stringify({
+      source: 'dreaming',
+      subject,
+      version: 1,
+      evidenceIds: ['mev-active'],
+    });
+    const save = vi.fn();
+    const { db } = createDb([
+      [evidenceRow()],
+      [candidateRow({ value: 'new value' })],
+    ]);
+    const createPendingReview = vi.fn(async () => ({
+      status: 'created' as const,
+      reviewId: 'mrv-forced',
+    }));
+    const proposeDreaming = vi.fn(async () => [
+      {
+        // The model tries to sneak a contradiction through as an auto-apply.
+        action: 'promote' as const,
+        value: 'new value',
+        reason: 'Contradiction resolved.',
+        confidence: 0.9,
+        evidenceIds: ['mev-1'],
+        contradictionNomination: {
+          conflictType: 'same_key_value_disagreement' as const,
+          activeItemId: 'mem-1',
+          incomingCandidateId: 'mca-1',
+          activeEvidenceIds: ['mev-active'],
+          incomingEvidenceIds: ['mev-1'],
+        },
+      },
+    ]);
+
+    await runAppMemoryDreamPass({
+      db: db as never,
+      runId: 'mdr-llm-force-review',
+      subject,
+      phase: 'deep',
+      dryRun: false,
+      listItems: vi.fn(async () => [
+        {
+          row: activeItemRow({
+            id: 'mem-1',
+            value: 'old value',
+            sourceRefJson: activeSourceRef,
+          }),
+        },
+      ]),
+      save,
+      retire: vi.fn(async () => ({ deleted: true })),
+      proposeDreaming,
+      createPendingReview,
+    });
+
+    // Never auto-applied, and every review it produced is needs_review.
+    expect(save).not.toHaveBeenCalled();
+    for (const call of createPendingReview.mock.calls) {
+      expect((call[0] as { action: string }).action).toBe('needs_review');
+    }
+    expect(createPendingReview).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'needs_review',
+        contradiction: expect.objectContaining({
+          type: 'same_key_value_disagreement',
+        }),
+      }),
+      db,
+    );
+  });
+
+  it('binds candidateId from the resolved incoming side, overriding the top-level id', async () => {
+    const activeSourceRef = JSON.stringify({
+      source: 'dreaming',
+      subject,
+      version: 1,
+      evidenceIds: ['mev-active'],
+    });
+    const { db } = createDb([
+      [evidenceRow()],
+      [candidateRow({ value: 'new value' })],
+    ]);
+    const createPendingReview = vi.fn(async () => ({
+      status: 'created' as const,
+      reviewId: 'mrv-candidate-bind',
+    }));
+    const proposeDreaming = vi.fn(async () => [
+      {
+        action: 'needs_review' as const,
+        // The model supplies a WRONG top-level candidate id.
+        candidateId: 'mca-WRONG',
+        value: 'new value',
+        reason: 'Contradiction resolved.',
+        confidence: 0.9,
+        evidenceIds: ['mev-1'],
+        contradictionNomination: {
+          conflictType: 'same_key_value_disagreement' as const,
+          activeItemId: 'mem-1',
+          incomingCandidateId: 'mca-1',
+          activeEvidenceIds: ['mev-active'],
+          incomingEvidenceIds: ['mev-1'],
+        },
+      },
+    ]);
+
+    await runAppMemoryDreamPass({
+      db: db as never,
+      runId: 'mdr-llm-candidate-bind',
+      subject,
+      phase: 'deep',
+      dryRun: false,
+      listItems: vi.fn(async () => [
+        {
+          row: activeItemRow({
+            id: 'mem-1',
+            value: 'old value',
+            sourceRefJson: activeSourceRef,
+          }),
+        },
+      ]),
+      save: vi.fn(),
+      retire: vi.fn(async () => ({ deleted: true })),
+      proposeDreaming,
+      createPendingReview,
+    });
+
+    // Every routed proposal targets the resolved incoming candidate, never
+    // the bogus top-level id.
+    for (const call of createPendingReview.mock.calls) {
+      const proposal = call[0] as {
+        candidateId?: string;
+        contradiction?: { incoming: { candidateId: string } };
+      };
+      expect(proposal.candidateId).toBe('mca-1');
+      if (proposal.contradiction) {
+        expect(proposal.candidateId).toBe(
+          proposal.contradiction.incoming.candidateId,
+        );
+      }
+    }
+  });
+
+  it('drops a same-key contradiction whose sides carry different keys', async () => {
+    const activeSourceRef = JSON.stringify({
+      source: 'dreaming',
+      subject,
+      version: 1,
+      evidenceIds: ['mev-active'],
+    });
+    const createPendingReview = vi.fn();
+    const { db } = createDb([
+      [evidenceRow()],
+      [candidateRow({ key: 'decision:key-b', value: 'new value' })],
+    ]);
+    const proposeDreaming = vi.fn(async () => [
+      {
+        action: 'needs_review' as const,
+        value: 'new value',
+        reason: 'Contradiction resolved.',
+        confidence: 0.9,
+        evidenceIds: ['mev-1'],
+        contradictionNomination: {
+          conflictType: 'same_key_value_disagreement' as const,
+          activeItemId: 'mem-1',
+          incomingCandidateId: 'mca-1',
+          activeEvidenceIds: ['mev-active'],
+          incomingEvidenceIds: ['mev-1'],
+        },
+      },
+    ]);
+
+    await runAppMemoryDreamPass({
+      db: db as never,
+      runId: 'mdr-llm-key-mismatch',
+      subject,
+      phase: 'deep',
+      dryRun: false,
+      listItems: vi.fn(async () => [
+        {
+          row: activeItemRow({
+            id: 'mem-1',
+            key: 'decision:key-a',
+            value: 'old value',
+            sourceRefJson: activeSourceRef,
+          }),
+        },
+      ]),
+      save: vi.fn(async (value) => ({
+        id: 'mem-promoted',
+        key: value.key,
+        kind: value.kind,
+        value: value.value,
+      })),
+      retire: vi.fn(async () => ({ deleted: true })),
+      proposeDreaming,
+      createPendingReview,
+    });
+
+    // The same-key nomination names two differently-keyed claims: dropped, so
+    // no contradiction review is ever created.
+    for (const call of createPendingReview.mock.calls) {
+      expect(
+        (call[0] as { contradiction?: unknown }).contradiction,
+      ).toBeUndefined();
+    }
+  });
+
   it('does not mark candidates needs_review when their content was adjudicated', async () => {
     const save = vi.fn();
     const { db, inserted, updated } = createDb([
