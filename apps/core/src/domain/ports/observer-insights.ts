@@ -162,6 +162,33 @@ export interface ObserverInsightCursor {
   pageId: string;
 }
 
+export type ObserverFeedbackAction =
+  | 'resolve'
+  | 'dismiss'
+  | 'snooze'
+  | 'less_like_this';
+
+// A delivered insight plus the route it was delivered on, so the caller can
+// authorize an owner action against the owner DM before applying it.
+export interface ObserverOwnerActionInsight {
+  insight: ProactiveInsight;
+  conversationJid: string | null;
+  providerAccountId: string | null;
+  threadId: string | null;
+}
+
+export type ObserverOwnerActionOutcome = 'applied' | 'stale' | 'invalid';
+
+export interface ObserverOwnerActionResult {
+  outcome: ObserverOwnerActionOutcome;
+  // Set when the idempotency key already existed: the click is a replay and
+  // was a no-op (no re-count, no re-transition).
+  already?: boolean;
+  // less_like_this only: the type crossed the suppression threshold and its
+  // suppressed_until window is now active.
+  suppressedType?: boolean;
+}
+
 export interface ObserverInsightRepository {
   create(input: ObserverInsightCreate): Promise<ProactiveInsight>;
   listPendingForSubject(input: {
@@ -287,6 +314,27 @@ export interface ObserverInsightRepository {
     staleBeforeIso: string;
     nowIso: string;
   }): Promise<ProactiveInsight[]>;
+  // Owner-scoped (app_id + recipient) lookup of a single insight plus its
+  // delivery route, for authorizing an owner action. Null when the insight is
+  // not owned by this (app, recipient).
+  findInsightForOwnerAction(input: {
+    appId: string;
+    recipient: string;
+    insightId: string;
+  }): Promise<ObserverOwnerActionInsight | null>;
+  // Single atomic owner action on a delivered (cooldown) insight. Idempotent
+  // per (insight, actor, action). Durations are caller-supplied parameters.
+  applyOwnerAction(input: {
+    appId: string;
+    recipient: string;
+    actorUserId: string;
+    insightId: string;
+    action: ObserverFeedbackAction;
+    nowIso: string;
+    snoozeMs: number;
+    suppressMs: number;
+    suppressThreshold: number;
+  }): Promise<ObserverOwnerActionResult>;
   getInsightCursor(
     appId: string,
     subject: ObserverSubjectKey,

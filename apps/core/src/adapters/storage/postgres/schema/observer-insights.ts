@@ -202,3 +202,77 @@ export const proactiveInsightsPostgres = pgTable(
     ),
   }),
 );
+
+// Owner feedback on delivered insights. The unique (insight, actor, action)
+// index is the idempotency key: channel retries of the same button click
+// can't double-count a negative signal or re-drop an insight.
+export const observerInsightFeedbackPostgres = pgTable(
+  'observer_insight_feedback',
+  {
+    id: text('id').primaryKey(),
+    appId: text('app_id')
+      .notNull()
+      .references(() => appsPostgres.id, { onDelete: 'cascade' }),
+    recipient: text('recipient').notNull(),
+    insightId: text('insight_id')
+      .notNull()
+      .references(() => proactiveInsightsPostgres.id, { onDelete: 'cascade' }),
+    deliveryId: text('delivery_id').references(
+      () => observerDeliveriesPostgres.id,
+      { onDelete: 'set null' },
+    ),
+    actorUserId: text('actor_user_id').notNull(),
+    insightType: text('insight_type').notNull(),
+    action: text('action').notNull(),
+    createdAt: timestamp('created_at', {
+      withTimezone: true,
+      mode: 'string',
+    })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    insightActorActionUnique: uniqueIndex(
+      'observer_insight_feedback_insight_actor_action_unique',
+    ).on(table.insightId, table.actorUserId, table.action),
+    actionCheck: check(
+      'observer_insight_feedback_action_check',
+      sql`${table.action} IN ('resolve', 'dismiss', 'snooze', 'less_like_this')`,
+    ),
+  }),
+);
+
+// Time-boxed per-type suppression: once negative feedback for an (app,
+// recipient, insight_type) crosses the caller's threshold, suppressed_until
+// holds the auto-expiry after which the type surfaces again.
+export const observerInsightTypeSuppressionsPostgres = pgTable(
+  'observer_insight_type_suppressions',
+  {
+    appId: text('app_id')
+      .notNull()
+      .references(() => appsPostgres.id, { onDelete: 'cascade' }),
+    recipient: text('recipient').notNull(),
+    insightType: text('insight_type').notNull(),
+    negativeCount: integer('negative_count').notNull().default(0),
+    suppressedUntil: timestamp('suppressed_until', {
+      withTimezone: true,
+      mode: 'string',
+    }),
+    lastFeedbackAt: timestamp('last_feedback_at', {
+      withTimezone: true,
+      mode: 'string',
+    }).notNull(),
+    updatedAt: timestamp('updated_at', {
+      withTimezone: true,
+      mode: 'string',
+    })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    pk: primaryKey({
+      columns: [table.appId, table.recipient, table.insightType],
+      name: 'observer_insight_type_suppressions_pk',
+    }),
+  }),
+);

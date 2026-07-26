@@ -22,6 +22,8 @@ function slackActionValue(
   providerAccountId?: string,
 ): string | undefined {
   if (action.kind === 'live_turn_stop') return undefined;
+  // ponytail: observer_feedback rendering lands in a later OBS-RESOLVE task.
+  if (action.kind === 'observer_feedback') return undefined;
   if (action.kind === 'memory_review_decision') {
     const value = JSON.stringify({
       kind: action.kind,

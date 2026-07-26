@@ -2,9 +2,16 @@ export type MessageActionAffordanceKind =
   | 'scheduler_run_now'
   | 'scheduler_pause_job'
   | 'live_turn_stop'
-  | 'memory_review_decision';
+  | 'memory_review_decision'
+  | 'observer_feedback';
 
 export type MemoryReviewActionDecision = 'approve' | 'reject' | 'edit';
+
+export type ObserverFeedbackAction =
+  | 'resolve'
+  | 'dismiss'
+  | 'snooze'
+  | 'less_like_this';
 
 export type MessageActionAffordance =
   | {
@@ -23,6 +30,12 @@ export type MessageActionAffordance =
       label: string;
       reviewId: string;
       decision: MemoryReviewActionDecision;
+    }
+  | {
+      kind: 'observer_feedback';
+      label: string;
+      insightId: string;
+      action: ObserverFeedbackAction;
     };
 
 export type MessageActionCallbackInput =
@@ -52,6 +65,15 @@ export type MessageActionCallbackInput =
       reviewId: string;
       decision: MemoryReviewActionDecision;
       label: string;
+    }
+  | {
+      kind: 'observer_feedback';
+      conversationJid: string;
+      providerAccountId?: string;
+      threadId?: string;
+      userId: string;
+      insightId: string;
+      action: ObserverFeedbackAction;
     };
 
 export type MemoryReviewMessageActionInput = Extract<
