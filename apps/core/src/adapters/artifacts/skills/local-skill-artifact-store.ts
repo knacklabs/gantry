@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -22,7 +23,8 @@ export class LocalSkillArtifactStore implements SkillArtifactStore {
     bundle: SkillArtifactBundle;
   }): Promise<StoredSkillArtifact> {
     const bundle = normalizeSkillBundle(input.bundle);
-    // ponytail: content-hash uniqueness relies on hashSkillBundle framing; a crafted NUL-framing collision only risks same-(app,skill) stale bytes, not cross-app isolation (appId/catalogId provide that); framing hardening deferred as D-0011.
+    // The content hash is both the immutable storage key and integrity value;
+    // hashSkillBundle uses unambiguous length-prefixed framing.
     const contentHash = hashSkillBundle(bundle);
     const storageRef = path.posix.join(
       'apps',
@@ -32,22 +34,44 @@ export class LocalSkillArtifactStore implements SkillArtifactStore {
       encodeStorageSegment(contentHash),
     );
     const target = resolveStoragePath(this.artifactRoot, storageRef);
-    fs.mkdirSync(target, { recursive: true, mode: 0o700 });
-    let sizeBytes = 0;
-    for (const asset of bundle.assets) {
-      const filePath = resolveAssetPath(target, asset.path);
-      fs.mkdirSync(path.dirname(filePath), { recursive: true, mode: 0o700 });
-      const content = Buffer.from(asset.content);
-      fs.writeFileSync(filePath, content, { mode: 0o600 });
-      sizeBytes += content.byteLength;
-    }
-    // ponytail: Superseded hash directories stay in place; garbage collection is a follow-up.
-    return {
+    const sizeBytes = bundle.assets.reduce(
+      (total, asset) => total + asset.content.byteLength,
+      0,
+    );
+    const stored: StoredSkillArtifact = {
       storageType: 'local-filesystem',
       storageRef,
       contentHash,
       sizeBytes,
     };
+    if (fs.existsSync(target)) {
+      return stored;
+    }
+
+    fs.mkdirSync(path.dirname(target), { recursive: true, mode: 0o700 });
+    const tempDir = `${target}.tmp-${randomBytes(16).toString('hex')}`;
+    fs.mkdirSync(tempDir, { mode: 0o700 });
+    try {
+      for (const asset of bundle.assets) {
+        const filePath = resolveAssetPath(tempDir, asset.path);
+        fs.mkdirSync(path.dirname(filePath), {
+          recursive: true,
+          mode: 0o700,
+        });
+        fs.writeFileSync(filePath, Buffer.from(asset.content), { mode: 0o600 });
+      }
+      try {
+        fs.renameSync(tempDir, target);
+      } catch (error) {
+        if (!isConcurrentPublish(error) || !fs.existsSync(target)) {
+          throw error;
+        }
+      }
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+    // ponytail: Superseded hash directories stay in place; garbage collection is a follow-up.
+    return stored;
   }
 
   async getSkillArtifact(storageRef: string): Promise<SkillArtifactBundle> {
@@ -171,4 +195,9 @@ function encodeStorageSegment(value: string): string {
   const encoded = encodeURIComponent(value).replace(/\./g, '%2E');
   if (!encoded) throw new Error('Skill artifact storage segment is empty');
   return encoded;
+}
+
+function isConcurrentPublish(error: unknown): boolean {
+  const code = (error as NodeJS.ErrnoException).code;
+  return code === 'EEXIST' || code === 'ENOTEMPTY';
 }

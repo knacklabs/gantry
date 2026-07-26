@@ -58,7 +58,8 @@ export class S3SkillArtifactStore
     bundle: SkillArtifactBundle;
   }): Promise<StoredSkillArtifact> {
     const bundle = normalizeSkillBundle(input.bundle);
-    // ponytail: content-hash uniqueness relies on hashSkillBundle framing; a crafted NUL-framing collision only risks same-(app,skill) stale bytes, not cross-app isolation (appId/catalogId provide that); framing hardening deferred as D-0011.
+    // The content hash is both the immutable storage key and integrity value;
+    // hashSkillBundle uses unambiguous length-prefixed framing.
     const contentHash = hashSkillBundle(bundle);
     const storageRef = path.posix.join(
       'apps',
