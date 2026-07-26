@@ -698,6 +698,9 @@ describe('permission deterministic rails', () => {
     'mcp__gantry__ask_user_question',
     'mcp__gantry__render_table',
     'mcp__gantry__memory_search',
+    'mcp__gantry__scheduler_get_dead_letter',
+    'mcp__gantry__scheduler_list_notification_targets',
+    'mcp__gantry__scheduler_wait_for_events',
   ])(
     'allows input-independent birthright tools regardless of input visibility: %s',
     (toolName) => {
@@ -836,12 +839,13 @@ describe('permission deterministic rails', () => {
     'mcp__gantry__delegate_task',
     'mcp__gantry__request_access',
     'mcp__gantry__tool_consent',
-    'mcp__gantry__scheduler_run_now',
+    'mcp__gantry__scheduler_upsert_job',
     'mcp__gantry__scheduler_update_job',
-    'mcp__gantry__scheduler_resume_job',
-    'mcp__gantry__scheduler_create_job',
-    'mcp__gantry__scheduler_pause_job',
     'mcp__gantry__scheduler_delete_job',
+    'mcp__gantry__scheduler_pause_job',
+    'mcp__gantry__scheduler_resume_job',
+    'mcp__gantry__scheduler_run_now',
+    'mcp__gantry__scheduler_job',
     'mcp__other__send_message',
   ])(
     'does not grant birthright to side-effecting or consent tools: %s',
