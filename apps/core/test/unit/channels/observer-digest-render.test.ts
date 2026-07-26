@@ -136,15 +136,24 @@ describe('observer digest — Telegram render + codec', () => {
     expect(capped.endsWith('…')).toBe(true);
   });
 
-  it('truncates by code points so an emoji on the boundary is not split into a lone surrogate', () => {
-    // Pad so the 200th code-point boundary lands where an emoji starts.
-    const capped = truncateTelegramCallbackAnswer(
-      'a'.repeat(199) + '💤'.repeat(20),
-    );
+  it('truncates by code points so an emoji straddling the UTF-16 boundary is not split into a lone surrogate', () => {
+    // 💤 (U+1F4A4) is a surrogate pair. 198 'a' fill units 0–197, so the first
+    // 💤 occupies units 198–199 — it STRADDLES the slice(0,199) cut.
+    const input = 'a'.repeat(198) + '💤'.repeat(20);
+
+    // Prove the guard bites: the naive slice cuts INSIDE the pair, leaving a
+    // lone high surrogate at the end — exactly the bug we're guarding against.
+    const naive = String.prototype.slice.call(input, 0, 199);
+    const lastUnit = naive.charCodeAt(naive.length - 1);
+    expect(lastUnit >= 0xd800 && lastUnit <= 0xdbff).toBe(true);
+
+    const capped = truncateTelegramCallbackAnswer(input);
     const codePoints = Array.from(capped);
     expect(codePoints.length).toBeLessThanOrEqual(200);
     expect(capped).not.toContain('�'); // no replacement char
-    // no lone surrogate anywhere in the result
+    // for...of iterates whole code points: a valid pair yields one char with a
+    // codePointAt above the BMP, a lone surrogate yields a char IN the surrogate
+    // range — so asserting none land in 0xD800–0xDFFF proves no split pair.
     for (const ch of capped) {
       const code = ch.codePointAt(0)!;
       expect(code >= 0xd800 && code <= 0xdfff).toBe(false);
