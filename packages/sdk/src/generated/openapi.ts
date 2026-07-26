@@ -3112,6 +3112,7 @@ export interface components {
         } | {
             /** @enum {string} */
             decision: "approve" | "reject";
+            editedValue?: string;
             reason?: string;
         };
         MemoryDreamingResponse: {

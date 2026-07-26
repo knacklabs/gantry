@@ -323,6 +323,14 @@ describe('@gantry/sdk transport', () => {
         subjectId: 'user/9',
         decision: 'approve',
       });
+      // approve accepts (server ignores) editedValue — back-compat.
+      client.memory.reviews.decide('rev/1', {
+        agentId: 'agent/1',
+        subjectType: 'user',
+        subjectId: 'user/9',
+        decision: 'approve',
+        editedValue: 'x',
+      });
     };
     void _typeCheck;
   });
