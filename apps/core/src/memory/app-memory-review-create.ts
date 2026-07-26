@@ -1,11 +1,15 @@
 import { randomUUID } from 'node:crypto';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import * as pgSchema from '../adapters/storage/postgres/schema/schema.js';
+import { parseJsonObject } from './app-memory-canonical-codec.js';
 import { validateMemoryReviewProposal } from './app-memory-review.js';
 import { nowIso } from './app-memory-service-query-helpers.js';
 import type {
   DreamingRunStatus,
+  MemoryContradiction,
   MemoryLifecycleProposal,
+  MemoryReviewSnapshot,
+  MemoryReviewSnapshotEvidence,
   NormalizedMemorySubject,
 } from './memory-types.js';
 
@@ -19,6 +23,127 @@ export type CreateMemoryReviewOutcome = {
   reviewId: string;
   reason?: string;
 };
+
+async function captureCurrentItemClaim(
+  db: Db,
+  itemId: string | undefined,
+  evidenceIds: string[],
+): Promise<MemoryContradiction['active'] | null> {
+  if (!itemId) return null;
+  const rows = await db
+    .select()
+    .from(pgSchema.memoryItemsPostgres)
+    .where(eq(pgSchema.memoryItemsPostgres.id, itemId))
+    .limit(1);
+  const row = rows[0];
+  if (!row) return null;
+  const value = parseJsonObject(row.valueJson).value;
+  return {
+    itemId: row.id,
+    kind: row.kind,
+    key: row.key,
+    value: typeof value === 'string' ? value : '',
+    evidenceIds,
+  };
+}
+
+async function captureSnapshotEvidence(
+  db: Db,
+  subject: NormalizedMemorySubject,
+  roleById: Map<string, 'active' | 'incoming'>,
+): Promise<MemoryReviewSnapshotEvidence[]> {
+  const ids = [...roleById.keys()];
+  if (!ids.length) return [];
+  const rows = await db
+    .select()
+    .from(pgSchema.memoryEvidencePostgres)
+    .where(
+      and(
+        inArray(pgSchema.memoryEvidencePostgres.id, ids),
+        eq(pgSchema.memoryEvidencePostgres.appId, subject.appId),
+        eq(pgSchema.memoryEvidencePostgres.agentId, subject.agentId),
+        eq(pgSchema.memoryEvidencePostgres.subjectType, subject.subjectType),
+        eq(pgSchema.memoryEvidencePostgres.subjectId, subject.subjectId),
+      ),
+    );
+  const rowById = new Map(rows.map((row) => [row.id, row]));
+  return ids
+    .map((id) => rowById.get(id))
+    .filter((row): row is (typeof rows)[number] => Boolean(row))
+    .map((row) => ({
+      id: row.id,
+      role: roleById.get(row.id) ?? 'active',
+      sourceType: row.sourceType,
+      ...(row.sourceId ? { sourceId: row.sourceId } : {}),
+      // sourceUri: whatever the evidence row carries; null when absent.
+      // ponytail: no URI-derivation from sourceType/sourceId here (T4+ scope).
+      ...(row.sourceUri ? { sourceUri: row.sourceUri } : {}),
+      text: row.text,
+      capturedAt: row.createdAt,
+    }));
+}
+
+/**
+ * Freeze what a reviewer must see the moment a review is created: the current
+ * claim(s), the proposed canonical, and every cited evidence row (text +
+ * sourceUri). Display renders from this so it never drifts as items/evidence
+ * mutate. Applying still re-validates live versions — this is display-only.
+ */
+async function buildReviewSnapshot(
+  db: Db,
+  subject: NormalizedMemorySubject,
+  proposal: MemoryLifecycleProposal,
+): Promise<MemoryReviewSnapshot> {
+  const roleById = new Map<string, 'active' | 'incoming'>();
+  const addRoles = (ids: string[] | undefined, role: 'active' | 'incoming') => {
+    for (const id of ids || []) if (!roleById.has(id)) roleById.set(id, role);
+  };
+
+  let conflict: MemoryReviewSnapshot['conflict'];
+  let proposedCanonical: MemoryReviewSnapshot['proposedCanonical'];
+
+  if (proposal.contradiction) {
+    const c = proposal.contradiction;
+    conflict = { active: c.active, incoming: c.incoming };
+    proposedCanonical = c.proposedCanonical;
+    addRoles(c.incoming.evidenceIds, 'incoming');
+    addRoles(c.active.evidenceIds, 'active');
+    addRoles(c.proposedCanonical.evidenceIds, 'active');
+  } else {
+    // Single-sided review: capture the current target claim (before) and the
+    // proposed after. merge captures only the target item (its retiring
+    // siblings' values are not structurally captured — see note in report).
+    const before = await captureCurrentItemClaim(
+      db,
+      proposal.itemId || proposal.targetItemId,
+      proposal.evidenceIds,
+    );
+    if (before) conflict = { active: before };
+    if (proposal.action !== 'retire' && proposal.action !== 'merge') {
+      proposedCanonical = {
+        kind: proposal.kind ?? before?.kind ?? '',
+        key: proposal.key ?? before?.key ?? '',
+        value: proposal.value ?? '',
+        reason: proposal.reason,
+        evidenceIds: proposal.evidenceIds,
+      };
+    }
+    addRoles(proposal.evidenceIds, 'active');
+  }
+
+  return {
+    schemaVersion: 1,
+    subject: {
+      appId: subject.appId,
+      agentId: subject.agentId,
+      subjectType: subject.subjectType,
+      subjectId: subject.subjectId,
+    },
+    ...(conflict ? { conflict } : {}),
+    ...(proposedCanonical ? { proposedCanonical } : {}),
+    evidence: await captureSnapshotEvidence(db, subject, roleById),
+  };
+}
 
 export async function createPendingMemoryReview(input: {
   db: Db;
@@ -77,6 +202,11 @@ export async function createPendingMemoryReview(input: {
   }
   const now = nowIso();
   const id = `mrv_${randomUUID().replace(/-/g, '')}`;
+  const snapshot = await buildReviewSnapshot(
+    input.db,
+    input.subject,
+    input.proposal,
+  );
   await input.db.insert(pgSchema.memoryReviewRequestsPostgres).values({
     id,
     runId: input.runId,
@@ -89,6 +219,7 @@ export async function createPendingMemoryReview(input: {
     proposalJson: JSON.stringify(input.proposal),
     itemVersionsJson: JSON.stringify(validation.itemVersions),
     candidateVersionsJson: JSON.stringify(validation.candidateVersions),
+    reviewSnapshotJson: JSON.stringify(snapshot),
     status: 'pending_review',
     validationSummary: validation.reason,
     flaggedContentHash: contentFingerprint || null,

@@ -90,14 +90,32 @@ function parseReviewProposal(value: string): MemoryLifecycleProposal {
   };
 }
 
+function isSnapshotEvidence(value: unknown): boolean {
+  if (!value || typeof value !== 'object') return false;
+  const e = value as Record<string, unknown>;
+  return (
+    typeof e.id === 'string' &&
+    (e.role === 'active' || e.role === 'incoming') &&
+    typeof e.sourceType === 'string' &&
+    typeof e.text === 'string' &&
+    typeof e.capturedAt === 'string'
+  );
+}
+
+/**
+ * Shape-check the frozen artifact. Malformed snapshots return null so callers
+ * fall back to legacy (re-query) rendering instead of throwing on bad JSON.
+ */
 function parseReviewSnapshot(
   value: string | null,
 ): MemoryReviewSnapshot | null {
-  if (!value) {
-    return null;
-  }
-  // ponytail: shallow parse — Task 3 owns snapshot capture + validation.
-  return parseJsonObject(value) as unknown as MemoryReviewSnapshot;
+  if (!value) return null;
+  const parsed = parseJsonObject(value) as Record<string, unknown>;
+  if (parsed.schemaVersion !== 1) return null;
+  if (!parsed.subject || typeof parsed.subject !== 'object') return null;
+  if (!Array.isArray(parsed.evidence)) return null;
+  if (!parsed.evidence.every(isSnapshotEvidence)) return null;
+  return parsed as unknown as MemoryReviewSnapshot;
 }
 
 export function toMemoryReview(row: MemoryReviewRowLike): MemoryReviewRecord {

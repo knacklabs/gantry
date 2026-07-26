@@ -70,6 +70,52 @@ export function reviewEvidenceIds(
   return [...new Set(reviews.flatMap((review) => review.proposal.evidenceIds))];
 }
 
+/**
+ * Readable items sourced from the immutable snapshot (conflict.active) instead
+ * of a live re-query, so list previews stay frozen. Reviews without a valid
+ * snapshot are skipped here and fall back to the legacy re-query path.
+ */
+export function snapshotReadableItems(
+  reviews: MemoryReviewRecord[],
+): Map<string, MemoryReviewReadableItem> {
+  const map = new Map<string, MemoryReviewReadableItem>();
+  for (const review of reviews) {
+    const active = review.reviewSnapshot?.conflict?.active;
+    if (active) {
+      map.set(active.itemId, {
+        itemId: active.itemId,
+        kind: active.kind,
+        key: active.key,
+        value: active.value,
+      });
+    }
+  }
+  return map;
+}
+
+/**
+ * Evidence snippets sourced from the frozen snapshot (bounded list preview).
+ * Full untruncated text + sourceUri stays available via getReviewDetail.
+ */
+export function snapshotEvidenceSnippets(
+  reviews: MemoryReviewRecord[],
+): Map<string, MemoryReviewEvidenceSnippet> {
+  const map = new Map<string, MemoryReviewEvidenceSnippet>();
+  for (const review of reviews) {
+    for (const evidence of review.reviewSnapshot?.evidence ?? []) {
+      if (map.has(evidence.id)) continue;
+      map.set(evidence.id, {
+        evidenceId: evidence.id,
+        sourceType: evidence.sourceType,
+        sourceId: evidence.sourceId ?? null,
+        snippet: truncateReviewText(evidence.text.replace(/\s+/g, ' '), 240),
+        createdAt: evidence.capturedAt,
+      });
+    }
+  }
+  return map;
+}
+
 export function toReadableReviewItem(
   row: MemoryItemValueRow,
 ): MemoryReviewReadableItem {

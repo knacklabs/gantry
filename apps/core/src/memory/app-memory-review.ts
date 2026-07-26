@@ -13,6 +13,8 @@ import {
   normalizePendingReviewOffset,
   reviewEvidenceIds,
   reviewItemIds,
+  snapshotEvidenceSnippets,
+  snapshotReadableItems,
   toMemoryReviewDisplayPage,
   toMemoryReviewEvidenceSnippet,
   toReadableReviewItem,
@@ -156,11 +158,18 @@ export async function listPendingMemoryReviews(input: {
     },
   )) as MemoryReviewRow[];
   const reviews = rows.map(toMemoryReview);
-  const itemsById = await itemMapForReviews(
+  // Snapshotted reviews render from the frozen artifact; only rows without a
+  // valid snapshot fall back to a live re-query (legacy).
+  const legacy = reviews.filter((review) => !review.reviewSnapshot);
+  const legacyItems = await itemMapForReviews(
     input.db,
-    reviews,
+    legacy,
     input.statementTimeoutMs,
   );
+  const itemsById = new Map([
+    ...legacyItems,
+    ...snapshotReadableItems(reviews),
+  ]);
   return withProposedChanges(reviews, itemsById);
 }
 export async function listPendingMemoryReviewPage(input: {
@@ -186,12 +195,16 @@ export async function listPendingMemoryReviewPage(input: {
   });
   const returnedCount = reviews.length;
   const nextOffset = offset + returnedCount;
-  const evidenceById = await evidenceMapForReviews(
-    input.db,
-    input.subject,
-    reviews,
-    input.statementTimeoutMs,
-  );
+  const legacy = reviews.filter((review) => !review.reviewSnapshot);
+  const evidenceById = new Map([
+    ...(await evidenceMapForReviews(
+      input.db,
+      input.subject,
+      legacy,
+      input.statementTimeoutMs,
+    )),
+    ...snapshotEvidenceSnippets(reviews),
+  ]);
   return {
     reviews,
     reviewPage: toMemoryReviewDisplayPage({
@@ -213,6 +226,53 @@ export async function listPendingMemoryReviewPage(input: {
     nextOffset: nextOffset < totalCount ? nextOffset : null,
   };
 }
+/**
+ * Full immutable detail for one review: the parsed snapshot (both claims,
+ * proposedCanonical, and every cited evidence row with untruncated text +
+ * sourceUri). Scoped to the same appId/subject boundary as the pending page.
+ * Returns null when the id is outside the caller's subject boundary.
+ */
+export async function getMemoryReviewDetail(input: {
+  db: Db;
+  subject: NormalizedMemorySubject;
+  reviewId: string;
+  statementTimeoutMs?: number;
+}): Promise<MemoryReviewRecord | null> {
+  const rows = (await withStatementTimeout(
+    input.db,
+    input.statementTimeoutMs,
+    (timeoutMs) =>
+      sql`select set_config('statement_timeout', ${String(timeoutMs)}, true)`,
+    (db) =>
+      db
+        .select()
+        .from(pgSchema.memoryReviewRequestsPostgres)
+        .where(
+          and(
+            eq(pgSchema.memoryReviewRequestsPostgres.id, input.reviewId),
+            eq(
+              pgSchema.memoryReviewRequestsPostgres.appId,
+              input.subject.appId,
+            ),
+            eq(
+              pgSchema.memoryReviewRequestsPostgres.agentId,
+              input.subject.agentId,
+            ),
+            eq(
+              pgSchema.memoryReviewRequestsPostgres.subjectType,
+              input.subject.subjectType,
+            ),
+            eq(
+              pgSchema.memoryReviewRequestsPostgres.subjectId,
+              input.subject.subjectId,
+            ),
+          ),
+        )
+        .limit(1),
+  )) as MemoryReviewRow[];
+  return rows[0] ? toMemoryReview(rows[0]) : null;
+}
+
 export async function decideMemoryReview(input: {
   db: Db;
   subject: NormalizedMemorySubject;

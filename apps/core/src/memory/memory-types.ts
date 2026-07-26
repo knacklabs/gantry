@@ -185,7 +185,9 @@ export interface MemoryReviewSnapshot {
   subject: MemoryReviewPageSubject;
   conflict?: {
     active: MemoryContradiction['active'];
-    incoming: MemoryContradiction['incoming'];
+    // Optional: single-sided reviews (retire/rewrite/merge/plain needs_review)
+    // capture only the current claim; only true contradictions have an incoming.
+    incoming?: MemoryContradiction['incoming'];
   };
   proposedCanonical?: MemoryContradiction['proposedCanonical'];
   evidence: MemoryReviewSnapshotEvidence[];

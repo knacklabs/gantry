@@ -54,6 +54,7 @@ import {
 } from './app-memory-recall.js';
 import {
   decideMemoryReview,
+  getMemoryReviewDetail,
   listPendingMemoryReviewPage,
   listPendingMemoryReviews,
 } from './app-memory-review.js';
@@ -581,6 +582,25 @@ export class AppMemoryService {
     });
     options.signal?.throwIfAborted();
     return page;
+  }
+
+  async getReviewDetail(
+    input: Partial<MemoryBoundaryContext> & {
+      reviewId: string;
+      subjectType?: MemorySubjectType;
+      subjectId?: string;
+    },
+    options: { signal?: AbortSignal; statementTimeoutMs?: number } = {},
+  ): Promise<MemoryReviewRecord | null> {
+    if (!this.isEnabled()) return null;
+    options.signal?.throwIfAborted();
+    const subject = normalizeSubject(input);
+    return getMemoryReviewDetail({
+      db: this.db,
+      subject,
+      reviewId: input.reviewId,
+      statementTimeoutMs: options.statementTimeoutMs,
+    });
   }
 
   async decideReview(
