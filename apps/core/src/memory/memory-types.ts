@@ -69,6 +69,32 @@ export interface MemoryLifecycleProposal {
   reason: string;
   confidence: number;
   evidenceIds: string[];
+  /**
+   * Task 2: the validated active-vs-incoming pair when this needs_review
+   * proposal is a contradiction. Threaded into proposal_json so Task 3 can
+   * snapshot both sides.
+   */
+  contradiction?: MemoryContradiction;
+  /**
+   * Task 2: raw nomination emitted by the dreaming LLM. The host resolves it
+   * against the supplied active inventory into a {@link MemoryContradiction};
+   * never persisted on its own.
+   */
+  contradictionNomination?: MemoryContradictionNomination;
+}
+
+/**
+ * What the dreaming LLM is allowed to assert about a contradiction: which
+ * active item and staged candidate conflict, the conflict type, and each
+ * side's grounding evidence. The host looks up the authoritative kind/key/value
+ * itself — the model only nominates ids it was given.
+ */
+export interface MemoryContradictionNomination {
+  conflictType: MemoryContradiction['type'];
+  activeItemId: string;
+  incomingCandidateId: string;
+  activeEvidenceIds: string[];
+  incomingEvidenceIds: string[];
 }
 
 export interface MemoryReviewReadableItem {

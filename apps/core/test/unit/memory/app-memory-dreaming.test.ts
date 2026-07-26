@@ -531,30 +531,65 @@ describe('runAppMemoryDreamPass guardrails', () => {
     ]);
   });
 
-  it('routes REM correction-language items to review with source evidence', async () => {
-    const { db, inserted } = createDb([]);
-    const createPendingReview = vi.fn(async () => ({
-      status: 'created' as const,
-      reviewId: 'mrv-correction',
-    }));
-    const sourceRefJson = JSON.stringify({
-      source: 'dreaming',
-      subject,
-      version: 1,
-      evidenceIds: ['mev-1'],
-    });
+  it('does not flag correction language in a single memory value (no contradiction pair)', async () => {
+    // The old lexical REM detector filed a self-referential review whenever one
+    // memory contained "actually/instead/wrong". A contradiction needs a PAIR,
+    // so a lone memory with correction language must produce NO review.
+    const { db, inserted } = createDb([[], []]);
+    const createPendingReview = vi.fn();
 
     const decisions = await runAppMemoryDreamPass({
       db: db as never,
-      runId: 'mdr-rem-correction',
+      runId: 'mdr-single-value-correction',
       subject,
-      phase: 'rem',
+      phase: 'all',
       dryRun: false,
       listItems: vi.fn(async () => [
         {
           row: activeItemRow({
-            value: 'Actually use lead finder instead of Mode A.',
-            sourceRefJson,
+            value:
+              'Actually use lead finder instead of Mode A; the old note was wrong.',
+          }),
+        },
+      ]),
+      save: vi.fn(),
+      retire: vi.fn(async () => ({ deleted: true })),
+      createPendingReview,
+    });
+
+    expect(createPendingReview).not.toHaveBeenCalled();
+    expect(decisions.filter((d) => d.action === 'needs_review')).toHaveLength(
+      0,
+    );
+  });
+
+  it('files one contradiction review for a same-key pair with distinct grounded claims', async () => {
+    const activeSourceRef = JSON.stringify({
+      source: 'dreaming',
+      subject,
+      version: 1,
+      evidenceIds: ['mev-active'],
+    });
+    const { db, inserted } = createDb([
+      [],
+      [candidateRow({ value: 'new value' })],
+    ]);
+    const createPendingReview = vi.fn(async () => ({
+      status: 'created' as const,
+      reviewId: 'mrv-contradiction',
+    }));
+
+    const decisions = await runAppMemoryDreamPass({
+      db: db as never,
+      runId: 'mdr-deep-contradiction',
+      subject,
+      phase: 'deep',
+      dryRun: false,
+      listItems: vi.fn(async () => [
+        {
+          row: activeItemRow({
+            value: 'old value',
+            sourceRefJson: activeSourceRef,
           }),
         },
       ]),
@@ -564,52 +599,51 @@ describe('runAppMemoryDreamPass guardrails', () => {
     });
 
     expect(decisions).toEqual([{ action: 'needs_review' }]);
+    expect(createPendingReview).toHaveBeenCalledTimes(1);
     expect(createPendingReview).toHaveBeenCalledWith(
       expect.objectContaining({
         action: 'needs_review',
         itemId: 'mem-1',
-        value: 'Actually use lead finder instead of Mode A.',
-        evidenceIds: ['mev-1'],
+        candidateId: 'mca-1',
+        value: 'new value',
+        contradiction: expect.objectContaining({
+          type: 'same_key_value_disagreement',
+          active: expect.objectContaining({
+            itemId: 'mem-1',
+            value: 'old value',
+            evidenceIds: ['mev-active'],
+          }),
+          incoming: expect.objectContaining({
+            candidateId: 'mca-1',
+            value: 'new value',
+            evidenceIds: ['mev-1'],
+          }),
+          proposedCanonical: expect.objectContaining({
+            value: 'new value',
+            evidenceIds: ['mev-1'],
+          }),
+        }),
       }),
       db,
     );
+    // The contradiction must survive into the persisted proposal_json.
     expect(decisionValues(inserted)).toMatchObject([
-      {
-        action: 'needs_review',
-        itemId: 'mem-1',
-        evidenceIdsJson: '["mev-1"]',
-        rationale:
-          'REM dreaming routed correction language to memory review: mrv-correction.',
-      },
+      { action: 'needs_review', candidateId: 'mca-1', itemId: 'mem-1' },
     ]);
   });
 
-  it('skips re-flagging correction language a human already adjudicated', async () => {
-    const { db, inserted } = createDb([]);
-    const createPendingReview = vi.fn(async () => ({
-      status: 'adjudicated' as const,
-      reviewId: 'mrv-already-decided',
-    }));
-    const sourceRefJson = JSON.stringify({
-      source: 'dreaming',
-      subject,
-      version: 1,
-      evidenceIds: ['mev-1'],
-    });
+  it('does not attach a contradiction when the two sides carry identical values', async () => {
+    const { db } = createDb([[], [candidateRow({ value: 'same value' })]]);
+    const createPendingReview = vi.fn();
 
     const decisions = await runAppMemoryDreamPass({
       db: db as never,
-      runId: 'mdr-rem-correction-adjudicated',
+      runId: 'mdr-deep-identical',
       subject,
-      phase: 'rem',
+      phase: 'deep',
       dryRun: false,
       listItems: vi.fn(async () => [
-        {
-          row: activeItemRow({
-            value: 'Actually use lead finder instead of Mode A.',
-            sourceRefJson,
-          }),
-        },
+        { row: activeItemRow({ value: 'same value' }) },
       ]),
       save: vi.fn(),
       retire: vi.fn(async () => ({ deleted: true })),
@@ -617,15 +651,113 @@ describe('runAppMemoryDreamPass guardrails', () => {
     });
 
     expect(decisions).toEqual([{ action: 'skip' }]);
-    expect(decisionValues(inserted)).toMatchObject([
+    expect(createPendingReview).not.toHaveBeenCalled();
+  });
+
+  it('drops an LLM contradiction that references a foreign active item', async () => {
+    const { db } = createDb([[evidenceRow()], []]);
+    const createPendingReview = vi.fn();
+    const proposeDreaming = vi.fn(async () => [
       {
-        action: 'skip',
-        itemId: 'mem-1',
-        rationale: expect.stringContaining(
-          'identical content was already reviewed (mrv-already-decided)',
-        ),
+        action: 'needs_review' as const,
+        value: 'Runtime queue policy belongs under runtime.queue.',
+        reason: 'Contradiction resolved.',
+        confidence: 0.9,
+        evidenceIds: ['mev-1'],
+        contradictionNomination: {
+          conflictType: 'llm_claim_conflict' as const,
+          activeItemId: 'mem-FOREIGN',
+          incomingCandidateId: 'mca-1',
+          activeEvidenceIds: ['mev-active'],
+          incomingEvidenceIds: ['mev-1'],
+        },
       },
     ]);
+
+    const decisions = await runAppMemoryDreamPass({
+      db: db as never,
+      runId: 'mdr-llm-foreign',
+      subject,
+      phase: 'deep',
+      dryRun: false,
+      listItems: vi.fn(async () => [{ row: activeItemRow({ id: 'mem-1' }) }]),
+      save: vi.fn(),
+      retire: vi.fn(async () => ({ deleted: true })),
+      proposeDreaming,
+      createPendingReview,
+    });
+
+    expect(createPendingReview).not.toHaveBeenCalled();
+    expect(decisions).toEqual([]);
+  });
+
+  it('drops an LLM contradiction that is missing evidence on one side', async () => {
+    const activeSourceRef = JSON.stringify({
+      source: 'dreaming',
+      subject,
+      version: 1,
+      evidenceIds: ['mev-active'],
+    });
+    const { db } = createDb([
+      [evidenceRow()],
+      [candidateRow({ value: 'new value' })],
+    ]);
+    const createPendingReview = vi.fn(async () => ({
+      status: 'created' as const,
+      reviewId: 'mrv-deterministic',
+    }));
+    const proposeDreaming = vi.fn(async () => [
+      {
+        action: 'needs_review' as const,
+        value: 'new value',
+        reason: 'Contradiction resolved.',
+        confidence: 0.9,
+        evidenceIds: ['mev-1'],
+        contradictionNomination: {
+          conflictType: 'llm_claim_conflict' as const,
+          activeItemId: 'mem-1',
+          incomingCandidateId: 'mca-1',
+          activeEvidenceIds: [],
+          incomingEvidenceIds: ['mev-1'],
+        },
+      },
+    ]);
+
+    const decisions = await runAppMemoryDreamPass({
+      db: db as never,
+      runId: 'mdr-llm-missing-evidence',
+      subject,
+      phase: 'deep',
+      dryRun: false,
+      listItems: vi.fn(async () => [
+        {
+          row: activeItemRow({
+            id: 'mem-1',
+            value: 'old value',
+            sourceRefJson: activeSourceRef,
+          }),
+        },
+      ]),
+      save: vi.fn(),
+      retire: vi.fn(async () => ({ deleted: true })),
+      proposeDreaming,
+      createPendingReview,
+    });
+
+    // The LLM contradiction is dropped; the deterministic same-key pair still
+    // fires from the staged candidate, so exactly one review is created.
+    expect(createPendingReview).toHaveBeenCalledTimes(1);
+    expect(createPendingReview).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'needs_review',
+        candidateId: 'mca-1',
+        contradiction: expect.objectContaining({
+          type: 'same_key_value_disagreement',
+        }),
+      }),
+      db,
+    );
+    expect(decisions).toEqual([{ action: 'needs_review' }]);
   });
 
   it('does not mark candidates needs_review when their content was adjudicated', async () => {
