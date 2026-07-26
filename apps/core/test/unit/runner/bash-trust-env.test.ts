@@ -114,7 +114,22 @@ describe('applyBashTrustEnv', () => {
     });
   });
 
-  it('does not claim provenance for a prefix it did not inject', () => {
+  it('wraps fresh commands and declares the exact injected prefix', () => {
+    expect(
+      applyBashTrustEnvWithProvenance(
+        'RunCommand',
+        { command: 'pwd' },
+        { HTTP_PROXY: TOOL_PROXY_URL },
+      ),
+    ).toEqual({
+      toolInput: {
+        command: `GODEBUG=netdns=go HTTP_PROXY='${TOOL_PROXY_URL}' pwd`,
+      },
+      hostInjectedCommandPrefix: `GODEBUG=netdns=go HTTP_PROXY='${TOOL_PROXY_URL}'`,
+    });
+  });
+
+  it('declares the exact current prefix when the command is already wrapped', () => {
     const input = {
       command: `${TRUST_PREFIX} curl https://example.test`,
     };
@@ -137,6 +152,28 @@ describe('applyBashTrustEnv', () => {
         CARGO_HTTP_CAINFO: CA_PATH,
         DENO_CERT: CA_PATH,
       }),
-    ).toEqual({ toolInput: input });
+    ).toEqual({
+      toolInput: input,
+      hostInjectedCommandPrefix: TRUST_PREFIX,
+    });
+  });
+
+  it('does not recognize a stale proxy prefix as the current host wrap', () => {
+    const stalePrefix =
+      "GODEBUG=netdns=go HTTP_PROXY='http://127.0.0.1:18079/'";
+    const currentPrefix = `GODEBUG=netdns=go HTTP_PROXY='${TOOL_PROXY_URL}'`;
+
+    expect(
+      applyBashTrustEnvWithProvenance(
+        'Bash',
+        { command: `${stalePrefix} pwd` },
+        { HTTP_PROXY: TOOL_PROXY_URL },
+      ),
+    ).toEqual({
+      toolInput: {
+        command: `${currentPrefix} ${stalePrefix} pwd`,
+      },
+      hostInjectedCommandPrefix: currentPrefix,
+    });
   });
 });

@@ -58,13 +58,15 @@ export function applyBashTrustEnvWithProvenance(
   }
 
   const prefix = bashTrustEnvPrefix(toolNetworkEnv);
-  if (command.startsWith(`${prefix} `)) return { toolInput: input };
+  const toolInput = command.startsWith(`${prefix} `)
+    ? input
+    : {
+        ...input,
+        [commandKey]: `${prefix} ${command}`,
+      };
 
   return {
-    toolInput: {
-      ...input,
-      [commandKey]: `${prefix} ${command}`,
-    },
+    toolInput,
     hostInjectedCommandPrefix: prefix,
   };
 }

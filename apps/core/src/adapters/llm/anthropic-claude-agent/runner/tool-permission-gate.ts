@@ -234,6 +234,18 @@ export function createCanUseToolCallback(
       input.agentInput.toolNetworkEnv ?? {},
     );
     const trustInput = () => trustedInput.toolInput;
+    const requestPermissionApprovalWithTrustProvenance = (
+      approvalInput: ApprovalInput,
+    ) =>
+      requestPermissionApproval({
+        ...approvalInput,
+        toolInput: trustedInput.toolInput,
+        ...(trustedInput.hostInjectedCommandPrefix
+          ? {
+              hostInjectedCommandPrefix: trustedInput.hostInjectedCommandPrefix,
+            }
+          : {}),
+      });
     const sdkApprovalPrincipal =
       permissionOpts.agentID?.trim() ||
       input.agentInput.agentId ||
@@ -433,7 +445,7 @@ export function createCanUseToolCallback(
       const suggestions = yoloDenylistReason
         ? undefined
         : permissionPlan.suggestions;
-      const decision = await requestPermissionApproval({
+      const decision = await requestPermissionApprovalWithTrustProvenance({
         appId: input.agentInput.appId,
         agentId: input.agentInput.agentId,
         targetJid: input.agentInput.chatJid,
@@ -560,7 +572,7 @@ export function createCanUseToolCallback(
     const suggestions = yoloDenylistReason
       ? undefined
       : permissionPlan.suggestions;
-    const decision = await requestPermissionApproval({
+    const decision = await requestPermissionApprovalWithTrustProvenance({
       appId: input.agentInput.appId,
       agentId: input.agentInput.agentId,
       targetJid: input.agentInput.chatJid,
