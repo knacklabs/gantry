@@ -30,10 +30,7 @@ import {
 import { runEmbeddingBackfill } from '../memory/app-memory-backfill.js';
 import { pollAndImportProviderBatches } from '../memory/app-memory-backfill-provider-batch.js';
 import { createEmbeddingProvider } from '../memory/memory-embeddings.js';
-import type {
-  DreamingRunStatus,
-  NormalizedMemorySubject,
-} from '../memory/memory-types.js';
+import type { DreamingRunStatus } from '../memory/memory-types.js';
 import {
   DEFAULT_MEMORY_APP_ID,
   memoryAgentIdForWorkspaceFolder,
@@ -52,6 +49,11 @@ import {
   setSystemJobRegistrationSignature,
 } from './system-registration-cache.js';
 import {
+  appendPendingReviewContextToError,
+  countPendingReviewsForNotification,
+  formatMemoryDreamingOutcome,
+} from './memory-dreaming-job-outcome.js';
+import {
   MEMORY_DREAM_SYSTEM_PROMPT,
   MEMORY_DREAMING_JOB_ID_PREFIX,
   MEMORY_EMBEDDING_BACKFILL_JOB_ID,
@@ -60,18 +62,16 @@ import {
   BRAIN_EMBEDDING_BACKFILL_SYSTEM_PROMPT,
   BRAIN_DREAMING_JOB_ID,
   BRAIN_DREAM_SYSTEM_PROMPT,
-  OBSERVER_DIGEST_JOB_ID_PREFIX,
   OBSERVER_DIGEST_SYSTEM_PROMPT,
 } from '../shared/system-job-identity.js';
 import { resolveObserverDeliveryStatus } from '../config/settings/observer-activation.js';
 import {
-  runObserverDigest,
-  noopDigestDeliveryPort,
-  createOutboundDigestDeliveryPort,
-  type DigestSendGateway,
-} from '../brain/observer-digest.js';
-import { MessageInsightFreshnessProbe } from '../brain/observer-evidence-freshness.js';
-import { getRuntimeStorage } from '../adapters/storage/postgres/runtime-store.js';
+  OBSERVER_DIGEST_JOB_ID,
+  observerRegistrationSignatureFields,
+  registerObserverDigestJob,
+  runScheduledObserverDigest,
+  setObserverDigestGateway,
+} from './observer-digest-job.js';
 import { computeNextJobRun } from './schedule-math.js';
 import { buildCanonicalJobLifecycleTarget } from './job-notification-routes.js';
 import { parseAgentThreadQueueKey } from '../shared/thread-queue-key.js';
@@ -88,12 +88,6 @@ export {
 } from '../shared/system-job-identity.js';
 const MEMORY_EMBEDDING_BACKFILL_TIMEOUT_MS = 10 * 60 * 1000;
 const BRAIN_DREAMING_TIMEOUT_MS = 10 * 60 * 1000;
-const OBSERVER_DIGEST_TIMEOUT_MS = 5 * 60 * 1000;
-// A frequent tick that self-gates on owner-local send time + the daily
-// reservation, so no DST-aware exact-time cron is needed.
-const OBSERVER_DIGEST_CRON = '*/30 * * * *';
-const OBSERVER_DIGEST_JOB_ID = `${OBSERVER_DIGEST_JOB_ID_PREFIX}${DEFAULT_MEMORY_APP_ID}`;
-const MEMORY_REVIEW_NOTIFICATION_LOOKUP_TIMEOUT_MS = 2_000;
 
 function embeddingBackfillEnabled(): boolean {
   return MEMORY_BACKFILL_ENABLED && MEMORY_EMBED_PROVIDER !== 'disabled';
@@ -112,16 +106,7 @@ type MemoryMaintenanceQueueLike = {
 let memoryMaintenanceQueue: MemoryMaintenanceQueueLike =
   getMemoryMaintenanceQueue();
 
-// Registered at bootstrap (runtime-services) where the OutboundDeliveryService
-// lives. Until then the digest handler falls back to the no-op port so a digest
-// is reserved but not sent (and retried once the gateway is wired).
-let observerDigestGateway: DigestSendGateway | null = null;
-
-export function setObserverDigestGateway(
-  gateway: DigestSendGateway | null,
-): void {
-  observerDigestGateway = gateway;
-}
+export { setObserverDigestGateway };
 
 function routeDigest(value: string): string {
   return createHash('sha256').update(value).digest('hex').slice(0, 16);
@@ -176,43 +161,6 @@ export function memoryDreamingTimeoutForJob(
   return Math.max(
     30_000,
     normalizedJobTimeoutMs - MEMORY_DREAM_SYSTEM_JOB_FINALIZATION_GRACE_MS,
-  );
-}
-
-function pendingMemoryReviewLabel(count: number): string {
-  return `${count} pending memory review${count === 1 ? '' : 's'}`;
-}
-
-function pendingMemoryReviewNotice(count: number): string {
-  return `${pendingMemoryReviewLabel(count)} need${count === 1 ? 's' : ''} review`;
-}
-
-async function countPendingReviewsForNotification(input: {
-  memory: AppMemoryService;
-  subject: NormalizedMemorySubject;
-}): Promise<number> {
-  try {
-    const reviews = await input.memory.listPendingReviews(input.subject, {
-      statementTimeoutMs: MEMORY_REVIEW_NOTIFICATION_LOOKUP_TIMEOUT_MS,
-    });
-    return reviews.length;
-  } catch {
-    return 0;
-  }
-}
-
-function appendPendingReviewContextToError(
-  error: unknown,
-  pendingReviews: number,
-): Error {
-  if (pendingReviews <= 0) {
-    return error instanceof Error ? error : new Error(String(error));
-  }
-  const baseMessage =
-    error instanceof Error ? error.message : String(error || 'unknown error');
-  const separator = /[.!?]\s*$/.test(baseMessage) ? ' ' : '. ';
-  return new Error(
-    `${baseMessage}${separator}${pendingMemoryReviewNotice(pendingReviews)}.`,
   );
 }
 
@@ -276,11 +224,7 @@ export async function registerSystemJobs(
     backfillEnabled: embeddingBackfillEnabled(),
     brainBackfillEnabled: embeddingBackfillEnabled(),
     backfillCron: MEMORY_BACKFILL_CRON,
-    observerDigestEligible: observerDeliveryStatus.eligible,
-    observerDigestCron: OBSERVER_DIGEST_CRON,
-    observerDigestOwner: observerDeliveryStatus.eligible
-      ? `${observerDeliveryStatus.owner.conversationJid}|${observerDeliveryStatus.owner.providerAccountId}|${observerDeliveryStatus.owner.recipient}`
-      : null,
+    ...observerRegistrationSignatureFields(observerDeliveryStatus),
     routes: registrations
       .map(({ jid, group }) => [
         group.folder,
@@ -406,51 +350,11 @@ export async function registerSystemJobs(
     }
   }
 
-  // One app-wide observer digest job, targeted at the resolved OWNER route
-  // (bare conversationJid + providerAccountId), NOT a route-registry key. The
-  // handler self-gates on owner-local send time + the daily reservation, so a
-  // frequent tick is correct; silent because generic lifecycle receipts are
-  // suppressed (the digest itself is the only user-facing message, sent in T4).
-  if (observerDeliveryStatus.eligible && primary) {
-    const existing = await deps.opsRepository.getJobById(
-      OBSERVER_DIGEST_JOB_ID,
-    );
-    const target = buildCanonicalJobLifecycleTarget({
-      conversationJid: observerDeliveryStatus.owner.conversationJid,
-      workspaceKey: primary.group.folder,
-      threadId: null,
-      providerAccountId: observerDeliveryStatus.owner.providerAccountId,
-      label: 'Observer digest',
-    });
-    const computedNextRun = computeNextJobRun(
-      { schedule_type: 'cron', schedule_value: OBSERVER_DIGEST_CRON },
-      nowIso,
-    );
-    const observerDigestJob = {
-      id: OBSERVER_DIGEST_JOB_ID,
-      name: 'Observer Digest',
-      prompt: OBSERVER_DIGEST_SYSTEM_PROMPT,
-      schedule_type: 'cron',
-      schedule_value: OBSERVER_DIGEST_CRON,
-      session_id: null,
-      workspace_key: primary.group.folder,
-      created_by: 'agent',
-      status: existing?.status === 'paused' ? 'paused' : 'active',
-      next_run: existing?.next_run || computedNextRun,
-      silent: true,
-      timeout_ms: OBSERVER_DIGEST_TIMEOUT_MS,
-      max_retries: 1,
-      retry_backoff_ms: 30_000,
-      max_consecutive_failures: 3,
-      execution_context: target.executionContext,
-      notification_routes: target.notificationRoutes,
-    };
-    await deps.opsRepository.upsertJob(
-      observerDigestJob as unknown as Parameters<
-        SchedulerDependencies['opsRepository']['upsertJob']
-      >[0],
-    );
-  }
+  await registerObserverDigestJob(deps, {
+    observerDeliveryStatus,
+    primary,
+    nowIso,
+  });
 
   if (embeddingBackfillEnabled() && primary) {
     const existing = await deps.opsRepository.getJobById(
@@ -695,44 +599,6 @@ async function runScheduledBrainDreaming(
     : receipt;
 }
 
-async function runScheduledObserverDigest(
-  signal?: AbortSignal,
-): Promise<string> {
-  signal?.throwIfAborted();
-  const storage = getRuntimeStorage();
-  const repository = storage.repositories.observerInsights;
-  if (!observerDigestGateway) {
-    logger.warn(
-      {},
-      'observer digest gateway is not registered; reserving without sending (will retry once wired)',
-    );
-  }
-  const deliveryPort = observerDigestGateway
-    ? createOutboundDigestDeliveryPort({
-        gateway: observerDigestGateway,
-        repository,
-        now: () => currentIso(),
-      })
-    : noopDigestDeliveryPort;
-  const result = await runObserverDigest({
-    appId: DEFAULT_MEMORY_APP_ID,
-    nowIso: currentIso(),
-    deps: {
-      settings: getRuntimeSettingsForConfig(),
-      repository,
-      freshnessProbe: new MessageInsightFreshnessProbe(storage.ops),
-      deliveryPort,
-    },
-  });
-  if (result.status === 'reserved') {
-    return `Observer digest reserved for ${result.localDay}: ${result.selected} insight(s).`;
-  }
-  if (result.status === 'retried') {
-    return `Observer digest delivery retried for ${result.localDay}.`;
-  }
-  return `Observer digest skipped: ${result.reason}.`;
-}
-
 async function runScheduledBrainEmbeddingBackfill(
   signal?: AbortSignal,
 ): Promise<string> {
@@ -799,66 +665,6 @@ async function runScheduledEmbeddingBackfill(
     return `Memory embedding batch submitted: ${result.submitted} items queued.${pollNote}`;
   }
   return `Memory embedding backfill ${result.status}: ${result.indexed} indexed, ${result.pending} pending.${pollNote}`;
-}
-
-function numericSummaryValue(
-  summary: unknown,
-  key: string,
-): number | undefined {
-  if (!summary || typeof summary !== 'object' || Array.isArray(summary)) {
-    return undefined;
-  }
-  const value = (summary as Record<string, unknown>)[key];
-  return typeof value === 'number' && Number.isFinite(value)
-    ? Math.max(0, Math.trunc(value))
-    : undefined;
-}
-
-function formatMemoryDreamingOutcome(
-  run: DreamingRunStatus | undefined,
-  queueResult: MemoryMaintenanceQueueEnqueueResult,
-): string {
-  if (queueResult.deduped) {
-    return 'Memory dreaming was already running for this conversation.';
-  }
-  if (!run) {
-    return 'Memory dreaming completed.';
-  }
-  if (run.status === 'failed') {
-    const summary =
-      run.summary && typeof run.summary === 'object'
-        ? (run.summary as Record<string, unknown>)
-        : {};
-    const error = typeof summary.error === 'string' ? summary.error : '';
-    const pendingReviews = numericSummaryValue(summary, 'pendingReviews') ?? 0;
-    const base = error
-      ? `Memory dreaming failed: ${error}${/[.!?]\s*$/.test(error) ? '' : '.'}`
-      : 'Memory dreaming failed.';
-    return appendPendingReviewNotice(base, pendingReviews);
-  }
-  const needsReview = numericSummaryValue(run.summary, 'needsReview') ?? 0;
-  const pendingReviews =
-    numericSummaryValue(run.summary, 'pendingReviews') ?? needsReview;
-  const blocked = numericSummaryValue(run.summary, 'blocked') ?? 0;
-  const issues: string[] = [];
-  if (needsReview > 0) issues.push(`${needsReview} sent to review`);
-  if (pendingReviews > needsReview) {
-    issues.push(pendingMemoryReviewNotice(pendingReviews));
-  }
-  if (blocked > 0) issues.push(`${blocked} blocked`);
-  if (issues.length > 0) {
-    return `Memory dreaming needs attention: ${issues.join(', ')}.`;
-  }
-  return 'Memory dreaming completed.';
-}
-
-function appendPendingReviewNotice(
-  summary: string,
-  pendingReviews: number,
-  alreadyReported = 0,
-) {
-  if (pendingReviews <= alreadyReported) return summary;
-  return `${summary} ${pendingMemoryReviewNotice(pendingReviews)}.`;
 }
 
 export function resetSystemJobStateForTests(): void {

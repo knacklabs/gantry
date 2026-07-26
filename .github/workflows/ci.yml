@@ -76,6 +76,14 @@ jobs:
       - name: Format check
         run: npm run format:check
 
+      # Pairs with the format check above to mirror verify.py's `structural`
+      # phase (format:check && check:architecture). Without this step a PR can
+      # merge green while leaving main failing the architecture gate — and
+      # because verify.py aborts at its first failing phase, one over-budget
+      # file then masks typecheck and tests for every branch in the repo.
+      - name: Architecture check
+        run: npm run check:architecture
+
       - name: Typecheck
         run: npm run typecheck
 

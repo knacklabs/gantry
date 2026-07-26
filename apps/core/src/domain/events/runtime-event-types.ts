@@ -38,6 +38,7 @@ export const RUNTIME_EVENT_TYPES = {
   PERMISSION_YOLO_DENYLIST_HIT: 'permission.yolo_denylist_hit',
   PERMISSION_CLASSIFIER_DECISION: 'permission.classifier_decision',
   INTERACTION_PENDING: 'interaction.pending',
+  INTERACTION_CANCELLATION_DISCARDED: 'interaction.cancellation_discarded',
   CREDENTIAL_CAPABILITY_UPDATED: 'credential.capability.updated',
   CREDENTIAL_CAPABILITY_REMOVED: 'credential.capability.removed',
   CREDENTIAL_MODEL_UPDATED: 'credential.model.updated',

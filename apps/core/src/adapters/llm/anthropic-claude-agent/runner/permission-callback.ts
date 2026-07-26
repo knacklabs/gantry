@@ -6,6 +6,7 @@ import { isPlainObject } from '../../../../shared/object.js';
 import { persistentPermissionUpdates } from '../../../../shared/permission-tool-rules.js';
 import { AUTO_PERMISSION_CLASSIFIER_WAIT_MS } from '../../../../shared/permission-mode.js';
 import { NO_PERMISSION_TIMEOUT_MS } from '../../../../shared/permission-timeout.js';
+import { writePrivateFileSync } from '../../../../shared/private-fs.js';
 import {
   buildPermissionResponseSignaturePayload,
   createSignedIpcRequestEnvelope,
@@ -16,6 +17,7 @@ import {
   hasIpcRequestClaimMarker,
   ipcInteractionAuthEnvelopeOptions,
   ipcInteractionUnclaimableReason,
+  type IpcRequestClaimProbe,
 } from '../../../../shared/ipc-interaction-lifetime.js';
 import type { SemanticCapabilityDefinition } from '../../../../shared/semantic-capabilities.js';
 import {
@@ -101,6 +103,7 @@ export async function requestPermissionApproval(options: {
   targetJid?: string;
   threadId?: string;
   signal?: AbortSignal;
+  claimProbe?: IpcRequestClaimProbe;
 }): Promise<PermissionDecision> {
   return requestPermissionApprovalInner({
     ...options,
@@ -134,6 +137,7 @@ async function requestPermissionApprovalInner(options: {
   targetJid?: string;
   threadId?: string;
   signal?: AbortSignal;
+  claimProbe?: IpcRequestClaimProbe;
 }): Promise<PermissionDecision> {
   try {
     const appId = options.appId;
@@ -255,7 +259,7 @@ async function requestPermissionApprovalInner(options: {
     const authDeadline = unboundedInteractive
       ? Date.parse(String(envelope.authExpiresAt))
       : undefined;
-    fs.writeFileSync(requestTmpPath, JSON.stringify(envelope, null, 2));
+    writePrivateFileSync(requestTmpPath, JSON.stringify(envelope, null, 2));
     fs.renameSync(requestTmpPath, requestPath);
 
     if (
@@ -393,7 +397,10 @@ async function requestPermissionApprovalInner(options: {
         }
       }
       if (authDeadline !== undefined && !requestClaimed) {
-        requestClaimed = hasIpcRequestClaimMarker(requestPath);
+        requestClaimed = hasIpcRequestClaimMarker(
+          requestPath,
+          options.claimProbe,
+        );
         if (!requestClaimed && nowMs() >= authDeadline) break;
       }
       const aborted = await sleepWithAbort(100, options.signal);
@@ -496,7 +503,7 @@ function cancelPermissionRequest(input: {
     authLifetimeMs: IPC_CANCELLATION_RETENTION_TTL_MS,
     authPurpose: 'cancellation-retention',
   });
-  fs.writeFileSync(cancellationTmpPath, JSON.stringify(envelope, null, 2));
+  writePrivateFileSync(cancellationTmpPath, JSON.stringify(envelope, null, 2));
   fs.renameSync(cancellationTmpPath, cancellationPath);
 }
 

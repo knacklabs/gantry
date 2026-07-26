@@ -6,15 +6,24 @@ import path from 'path';
 // drift apart.
 export const IPC_INTERACTION_RETENTION_TTL_MS = 24 * 60 * 60_000;
 
-export function hasIpcRequestClaimMarker(requestPath: string): boolean {
+export type IpcRequestClaimProbe = (requestPath: string) => boolean;
+
+const filesystemIpcRequestClaimProbe: IpcRequestClaimProbe = (requestPath) => {
   const requestFile = path.basename(requestPath);
+  return fs
+    .readdirSync(path.dirname(requestPath))
+    .some(
+      (file) =>
+        file.startsWith('.processing-') && file.endsWith(`-${requestFile}`),
+    );
+};
+
+export function hasIpcRequestClaimMarker(
+  requestPath: string,
+  probe: IpcRequestClaimProbe = filesystemIpcRequestClaimProbe,
+): boolean {
   try {
-    return fs
-      .readdirSync(path.dirname(requestPath))
-      .some(
-        (file) =>
-          file.startsWith('.processing-') && file.endsWith(`-${requestFile}`),
-      );
+    return probe(requestPath);
   } catch {
     return false;
   }

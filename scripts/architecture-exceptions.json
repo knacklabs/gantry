@@ -616,6 +616,13 @@
     "maxViolations": 2
   },
   {
+    "file": "apps/core/src/jobs/observer-digest-job.ts",
+    "rule": "forbidden_import_by_layer",
+    "reason": "Observer digest job/handler split out of system-jobs.ts to fit its line budget; carries the same baseline layer-boundary debt (config + runtime-store imports) relocated verbatim, capped until the boundary slice removes it.",
+    "removeByPhase": "canonical-boundary-cleanup-phase",
+    "maxViolations": 3
+  },
+  {
     "file": "apps/core/src/jobs/types.ts",
     "rule": "forbidden_external_import_by_layer",
     "reason": "Baseline external-import debt from runtime-to-adapter extraction; capped so new runtime package imports fail until adapter ports replace this path.",

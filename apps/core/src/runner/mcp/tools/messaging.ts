@@ -7,7 +7,6 @@ import {
   nowIso,
   nowMs,
   nowMs as currentTimeMs,
-  sleep,
 } from '../../../shared/time/datetime.js';
 import {
   ensurePrivateDirSync,
@@ -30,24 +29,20 @@ import {
   jobRunLeaseToken,
   jobRunLeaseFencingVersion,
 } from '../context.js';
-import { truncateText } from '../formatting.js';
-import { hasValidIpcResponseSignature, writeIpcFile } from '../ipc.js';
+import { writeIpcFile } from '../ipc.js';
 import { createSignedIpcRequestEnvelope } from '../../../shared/ipc-signing.js';
 import {
-  hasIpcRequestClaimMarker,
   ipcInteractionAuthEnvelopeOptions,
-  ipcQuestionWaitExpiredReason,
+  type IpcRequestClaimProbe,
 } from '../../../shared/ipc-interaction-lifetime.js';
 import { makeIpcId } from '../ipc-ids.js';
 import {
-  CANCELLED_QUESTION_REASON,
-  writeUserQuestionCancellation as cancelUserQuestionRequest,
-} from './user-question-cancellation.js';
+  sleepWithAbort,
+  USER_QUESTION_POLL_INTERVAL_MS,
+  USER_QUESTION_TIMEOUT_MS,
+  waitForUserQuestionResponse,
+} from './user-question-response-wait.js';
 
-const USER_QUESTION_TIMEOUT_MS = 5 * 60 * 1000;
-const USER_QUESTION_POLL_INTERVAL_MS = 100;
-const USER_QUESTION_MAX_ANSWER_LENGTH = 500;
-const USER_QUESTION_MAX_ANSWERED_BY_LENGTH = 120;
 const INTERACTION_BOUNDARY_WAIT_MS = 2_000;
 
 const fallbackTextSchema = z
@@ -108,29 +103,6 @@ type RichInteractionKind =
   | 'form'
   | 'media'
   | 'progress';
-
-async function sleepWithAbort(
-  ms: number,
-  signal?: AbortSignal,
-): Promise<boolean> {
-  if (!signal) {
-    await sleep(ms);
-    return false;
-  }
-  if (signal.aborted) return true;
-  return new Promise((resolve) => {
-    const timer = setTimeout(() => {
-      signal.removeEventListener('abort', onAbort);
-      resolve(false);
-    }, ms);
-    const onAbort = () => {
-      clearTimeout(timer);
-      signal.removeEventListener('abort', onAbort);
-      resolve(true);
-    };
-    signal.addEventListener('abort', onAbort, { once: true });
-  });
-}
 
 async function requestUserInteractionBoundary(
   requestId: string,
@@ -405,7 +377,10 @@ function registerRichInteractionTools(server: McpServer): void {
   );
 }
 
-export function registerMessagingTools(server: McpServer): void {
+export function registerMessagingTools(
+  server: McpServer,
+  claimProbe?: IpcRequestClaimProbe,
+): void {
   server.tool(
     'send_message',
     "Send a message to the user or group immediately while you're still running. Use this for live progress updates or to send multiple messages. In scheduled jobs, the scheduler sends the completion notification, so do not use this for job results.",
@@ -478,15 +453,11 @@ export function registerMessagingTools(server: McpServer): void {
         timestamp: nowIso(),
         files: args.files,
       };
-
       writeIpcFile(MESSAGES_DIR, data);
-
       return { content: [{ type: 'text' as const, text: 'Message sent.' }] };
     },
   );
-
   registerRichInteractionTools(server);
-
   server.tool(
     'ask_user_question',
     'Ask the user a structured multiple-choice question across the active channel. Use when you need the user to pick between discrete options (e.g. which database, which approach, which config). Returns the selected option(s).',
@@ -531,7 +502,6 @@ export function registerMessagingTools(server: McpServer): void {
       const userQuestionResponsesDir = path.join(IPC_DIR, 'user-answers');
       ensurePrivateDirSync(userQuestionRequestsDir);
       ensurePrivateDirSync(userQuestionResponsesDir);
-
       const requestId = makeIpcId('userq');
       const requestPath = path.join(
         userQuestionRequestsDir,
@@ -543,7 +513,6 @@ export function registerMessagingTools(server: McpServer): void {
       );
       const tmpPath = `${requestPath}.tmp`;
       await requestUserInteractionBoundary(requestId, context?.signal);
-
       const payload = {
         requestId,
         sourceAgentFolder: workspaceFolder,
@@ -579,122 +548,15 @@ export function registerMessagingTools(server: McpServer): void {
 
       writePrivateFileSync(tmpPath, JSON.stringify(envelope, null, 2));
       fs.renameSync(tmpPath, requestPath);
-      // prettier-ignore
-      let deadline = permissionLane === 'autonomous' ? nowMs() + USER_QUESTION_TIMEOUT_MS : Date.parse(String(envelope.authExpiresAt));
-      // prettier-ignore
-      while ((permissionLane === 'interactive' && hasIpcRequestClaimMarker(requestPath) && (deadline = Infinity)) || nowMs() < deadline) {
-        if (context?.signal?.aborted) {
-          cancelUserQuestionRequest({ requestPath, requestId });
-          return {
-            content: [
-              {
-                type: 'text' as const,
-                text: CANCELLED_QUESTION_REASON,
-              },
-            ],
-          };
-        }
-        if (fs.existsSync(responsePath)) {
-          try {
-            const raw = JSON.parse(fs.readFileSync(responsePath, 'utf-8')) as {
-              requestId?: unknown;
-              answers?: Record<string, unknown>;
-              answeredBy?: unknown;
-              signature?: unknown;
-            };
-            fs.unlinkSync(responsePath);
-            const payload: Record<string, unknown> = {
-              requestId,
-              answers:
-                raw?.answers && typeof raw.answers === 'object'
-                  ? raw.answers
-                  : {},
-              ...(typeof raw?.answeredBy === 'string' && raw.answeredBy.trim()
-                ? { answeredBy: raw.answeredBy }
-                : {}),
-            };
-            if (raw.requestId !== requestId) {
-              return {
-                content: [
-                  {
-                    type: 'text' as const,
-                    text: 'Answer request id mismatch.',
-                  },
-                ],
-              };
-            }
-            if (
-              !hasValidIpcResponseSignature(
-                raw as unknown as Record<string, unknown>,
-                payload,
-              )
-            ) {
-              return {
-                content: [
-                  {
-                    type: 'text' as const,
-                    text: 'Answer verification failed.',
-                  },
-                ],
-              };
-            }
-            if (raw?.answers && typeof raw.answers === 'object') {
-              const lines: string[] = [];
-              for (const [q, answer] of Object.entries(raw.answers)) {
-                const normalizedAnswer = Array.isArray(answer)
-                  ? answer.map((item) => String(item)).join(', ')
-                  : String(answer);
-                lines.push(
-                  `${q}: ${truncateText(normalizedAnswer, USER_QUESTION_MAX_ANSWER_LENGTH)}`,
-                );
-              }
-              if (typeof raw.answeredBy === 'string' && raw.answeredBy.trim()) {
-                lines.push(
-                  `(answered by ${truncateText(raw.answeredBy.trim(), USER_QUESTION_MAX_ANSWERED_BY_LENGTH)})`,
-                );
-              }
-              return {
-                content: [
-                  {
-                    type: 'text' as const,
-                    text: lines.join('\n') || 'No answer received.',
-                  },
-                ],
-              };
-            }
-          } catch {
-            return {
-              content: [
-                { type: 'text' as const, text: 'Failed to read answer.' },
-              ],
-            };
-          }
-        }
-        const aborted = await sleepWithAbort(
-          USER_QUESTION_POLL_INTERVAL_MS,
-          context?.signal,
-        );
-        if (aborted) {
-          cancelUserQuestionRequest({ requestPath, requestId });
-          return {
-            content: [
-              {
-                type: 'text' as const,
-                text: CANCELLED_QUESTION_REASON,
-              },
-            ],
-          };
-        }
-      }
-      fs.rmSync(requestPath, { force: true });
-      return {
-        content: [
-          {
-            type: 'text' as const,
-            text: ipcQuestionWaitExpiredReason(permissionLane),
-          },
-        ],
-      };
+      return waitForUserQuestionResponse({
+        requestId,
+        requestPath,
+        responsePath,
+        permissionLane,
+        authExpiresAt: envelope.authExpiresAt,
+        signal: context?.signal,
+        claimProbe,
+      });
     },
   );
 }
