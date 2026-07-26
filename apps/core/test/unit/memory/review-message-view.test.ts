@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { buildReviewMessageView } from '@core/memory/review-message-view.js';
 import { slackReviewMessageBlocks } from '@core/channels/slack/message-action-affordances.js';
 import { telegramReviewMessage } from '@core/channels/telegram/message-action-affordances.js';
+import { teamsReviewCard } from '@core/channels/teams-cards.js';
 import type {
   MemoryLifecycleProposal,
   MemoryReviewRecord,
@@ -269,6 +270,125 @@ describe('slackReviewMessageBlocks', () => {
     expect(rendered).not.toContain('<https://evil.example|click>');
     expect(rendered).toContain('&lt;@U123&gt;');
     expect(rendered).toContain('&lt;https://evil.example|click&gt;');
+  });
+});
+
+describe('teamsReviewCard', () => {
+  const mergeSnapshot: MemoryReviewSnapshot = {
+    schemaVersion: 1,
+    subject: contradictionSnapshot.subject,
+    conflict: {
+      active: {
+        itemId: 'i-target',
+        kind: 'fact',
+        key: 'home_city',
+        value: 'Berlin',
+        evidenceIds: ['e-t'],
+      },
+    },
+    retiring: [
+      {
+        itemId: 'i-2',
+        kind: 'fact',
+        key: 'home_city',
+        value: 'Berlin, DE',
+        evidenceIds: ['e-2'],
+      },
+    ],
+    evidence: [
+      {
+        id: 'e-t',
+        role: 'active',
+        sourceType: 'message',
+        text: 'I live in Berlin',
+        capturedAt: '2026-07-01T00:00:00.000Z',
+      },
+    ],
+  };
+
+  it('renders a contradiction card: title, topic, both sides+source+date, change, why, bounded evidence, 3 Action.Execute buttons', () => {
+    const view = buildReviewMessageView(
+      record({ action: 'needs_review' }, contradictionSnapshot),
+    );
+    const card = teamsReviewCard(view, {
+      targetJid: 'teams:19:abc@thread.v2',
+      threadId: 'root-message',
+    });
+    const factSet = card.body.find((b) => b.type === 'FactSet') as {
+      facts: Array<{ title: string; value: string }>;
+    };
+    expect(factSet.facts[0]).toEqual({ title: 'Topic', value: 'coffee_order' });
+    const now = factSet.facts.find((f) => f.title === 'Now');
+    const next = factSet.facts.find((f) => f.title === 'New');
+    expect(now?.value).toContain('oat flat white');
+    expect(now?.value).toContain('message');
+    expect(now?.value).toContain('Jun 1, 2026');
+    expect(next?.value).toContain('almond cappuccino');
+    expect(next?.value).toContain('session');
+    expect(next?.value).toContain('Jul 20, 2026');
+    const rendered = JSON.stringify(card);
+    expect(rendered).toContain('Change →');
+    expect(rendered).toContain('Why:');
+    expect(rendered).toContain('Most recent explicit statement wins');
+    expect(rendered).toContain('I always get an oat flat white');
+    expect(card.actions).toHaveLength(3);
+    expect(card.actions.map((a) => a.type)).toEqual([
+      'Action.Execute',
+      'Action.Execute',
+      'Action.Execute',
+    ]);
+    expect(card.actions.map((a) => (a as any).data.decision)).toEqual([
+      'approve',
+      'reject',
+      'edit',
+    ]);
+    for (const action of card.actions) {
+      expect((action as any).data).toMatchObject({
+        action: 'message_action',
+        kind: 'memory_review_decision',
+        reviewId: view.reviewId,
+        targetJid: 'teams:19:abc@thread.v2',
+        threadId: 'root-message',
+      });
+    }
+  });
+
+  it('renders a merge card listing participants and no threadId when absent', () => {
+    const view = buildReviewMessageView(
+      record({ action: 'merge', reason: 'Same place' }, mergeSnapshot),
+    );
+    const card = teamsReviewCard(view, { targetJid: 'teams:19:abc@thread.v2' });
+    const rendered = JSON.stringify(card);
+    expect(rendered).toContain('merge 2 notes into');
+    expect(rendered).toContain('Berlin, DE');
+    expect(card.actions).toHaveLength(3);
+    expect((card.actions[0] as any).data.threadId).toBeUndefined();
+  });
+
+  it('neutralizes a markdown link / mention in snapshot content', () => {
+    const snapshot: MemoryReviewSnapshot = {
+      ...contradictionSnapshot,
+      conflict: {
+        active: {
+          ...contradictionSnapshot.conflict!.active,
+          value: 'ping <at>U123</at> see [click](https://evil.example)',
+        },
+        incoming: contradictionSnapshot.conflict!.incoming,
+      },
+    };
+    const view = buildReviewMessageView(
+      record({ action: 'needs_review' }, snapshot),
+    );
+    const rendered = JSON.stringify(
+      teamsReviewCard(view, {
+        targetJid: 'teams:19:abc@thread.v2',
+      }),
+    );
+    expect(rendered).not.toContain('[click](https://evil.example)');
+    expect(rendered).not.toContain('<at>U123</at>');
+    // escaped forms are present (JSON doubles each backslash)
+    expect(rendered).toContain('\\\\[click\\\\]');
+    expect(rendered).toContain('\\\\<at\\\\>');
   });
 });
 

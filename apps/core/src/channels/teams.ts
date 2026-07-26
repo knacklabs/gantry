@@ -632,6 +632,21 @@ export class TeamsChannel implements ChannelAdapter {
           );
         }
       },
+      updateReviewCard: async ({ conversationId, messageId, card }) => {
+        if (!this.sdkClient.updateAdaptiveCard) return;
+        try {
+          await this.sdkClient.updateAdaptiveCard({
+            conversationId,
+            messageId,
+            card,
+          });
+        } catch (err) {
+          logger.debug(
+            { conversationId, messageId, err },
+            'Failed to update Teams memory-review card to receipt',
+          );
+        }
+      },
     });
   }
 
