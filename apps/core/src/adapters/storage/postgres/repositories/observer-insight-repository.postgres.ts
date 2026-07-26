@@ -46,6 +46,7 @@ import {
 import {
   claimPendingForDigest,
   findDigestReservation,
+  findDigestReservationForInsight,
   findUnsettledDigestReservations,
   listDigestDeliveries,
   listPendingForDigest,
@@ -445,6 +446,44 @@ export class PostgresObserverInsightRepository implements ObserverInsightReposit
     localDay: string;
   }): Promise<ObserverDigestReservation | null> {
     return findDigestReservation(this.db, input);
+  }
+
+  findDigestReservationForInsight(input: {
+    appId: string;
+    recipient: string;
+    insightId: string;
+  }): Promise<ObserverDigestReservation | null> {
+    return findDigestReservationForInsight(this.db, input);
+  }
+
+  async listOwnerActionsForInsights(input: {
+    appId: string;
+    recipient: string;
+    insightIds: string[];
+  }): Promise<Map<string, ObserverFeedbackAction>> {
+    if (input.insightIds.length === 0) return new Map();
+    const rows = await this.db
+      .select({
+        insightId: Feedback.insightId,
+        action: Feedback.action,
+      })
+      .from(Feedback)
+      .where(
+        and(
+          eq(Feedback.appId, input.appId),
+          eq(Feedback.recipient, input.recipient),
+          inArray(Feedback.insightId, input.insightIds),
+        ),
+      )
+      .orderBy(desc(Feedback.createdAt));
+    // Ordered newest-first; keep the first (latest) action seen per insight.
+    const actions = new Map<string, ObserverFeedbackAction>();
+    for (const row of rows) {
+      if (!actions.has(row.insightId)) {
+        actions.set(row.insightId, row.action as ObserverFeedbackAction);
+      }
+    }
+    return actions;
   }
 
   findUnsettledDigestReservations(input: {

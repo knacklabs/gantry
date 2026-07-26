@@ -382,6 +382,91 @@ maybeDescribe('observer owner action Postgres persistence', () => {
     );
   });
 
+  it('findDigestReservationForInsight resolves the delivering reservation via membership (timezone-independent)', async () => {
+    // 'snz' was delivered by delivery-1; the lookup joins the persisted
+    // membership, so it never depends on recomputing localDay from a timezone.
+    const reservation = await repo.findDigestReservationForInsight({
+      appId: APP_ID,
+      recipient: RECIPIENT,
+      insightId: 'snz',
+    });
+    expect(reservation?.id).toBe('delivery-1');
+    expect(reservation?.localDay).toBe('2026-07-22');
+    // Owner-scoped: another recipient can't reach this reservation.
+    expect(
+      await repo.findDigestReservationForInsight({
+        appId: APP_ID,
+        recipient: 'owner:someone-else',
+        insightId: 'snz',
+      }),
+    ).toBeNull();
+    // An insight that was never delivered has no reservation.
+    expect(
+      await repo.findDigestReservationForInsight({
+        appId: APP_ID,
+        recipient: RECIPIENT,
+        insightId: 'does-not-exist',
+      }),
+    ).toBeNull();
+  });
+
+  it('listOwnerActionsForInsights returns the latest owner action per insight, owner-scoped', async () => {
+    // Deterministic latest-wins: deliver a fresh insight, then snooze it (T1)
+    // and resolve it (T2 > T1) so its two feedback rows have distinct createdAt.
+    await repo.create(insight('lw'));
+    await deliverToCooldown(repo, 'delivery-lw', '2026-07-23');
+    const commonArgs = {
+      appId: APP_ID,
+      recipient: RECIPIENT,
+      actorUserId: ACTOR,
+      insightId: 'lw',
+      snoozeMs: SNOOZE_MS,
+      suppressMs: SUPPRESS_MS,
+      suppressThreshold: THRESHOLD,
+    };
+    await repo.applyOwnerAction({
+      ...commonArgs,
+      action: 'snooze',
+      nowIso: '2026-07-22T08:00:00.000Z',
+    });
+    await repo.applyOwnerAction({
+      ...commonArgs,
+      action: 'resolve',
+      nowIso: '2026-07-22T09:00:00.000Z',
+    });
+
+    // By now: res -> resolve, dis -> dismiss, lw -> snooze THEN resolve (latest).
+    const actions = await repo.listOwnerActionsForInsights({
+      appId: APP_ID,
+      recipient: RECIPIENT,
+      insightIds: ['res', 'dis', 'lw', 'does-not-exist'],
+    });
+    expect(actions.get('res')).toBe('resolve');
+    expect(actions.get('dis')).toBe('dismiss');
+    expect(actions.get('lw')).toBe('resolve'); // latest of snooze->resolve
+    expect(actions.has('does-not-exist')).toBe(false);
+    // Owner-scoped: a different recipient sees none of these.
+    expect(
+      (
+        await repo.listOwnerActionsForInsights({
+          appId: APP_ID,
+          recipient: 'owner:someone-else',
+          insightIds: ['res', 'dis'],
+        })
+      ).size,
+    ).toBe(0);
+    // Empty input short-circuits to an empty map.
+    expect(
+      (
+        await repo.listOwnerActionsForInsights({
+          appId: APP_ID,
+          recipient: RECIPIENT,
+          insightIds: [],
+        })
+      ).size,
+    ).toBe(0);
+  });
+
   it('an insight outside (app,recipient) is invalid', async () => {
     expect(
       await repo.applyOwnerAction({

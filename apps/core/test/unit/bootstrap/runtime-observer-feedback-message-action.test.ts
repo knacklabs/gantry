@@ -129,19 +129,25 @@ function makeDeps(overrides: Partial<ObserverFeedbackMessageActionDeps> = {}): {
   applyOwnerAction: ReturnType<typeof vi.fn>;
   resolveVerifiedOwner: ReturnType<typeof vi.fn>;
   findInsightForOwnerAction: ReturnType<typeof vi.fn>;
-  loadDigestView: ReturnType<typeof vi.fn>;
+  loadReservationView: ReturnType<typeof vi.fn>;
+  listOwnerActions: ReturnType<typeof vi.fn>;
   warn: ReturnType<typeof vi.fn>;
 } {
   const applyOwnerAction = vi.fn(async () => ({ outcome: 'applied' as const }));
   const resolveVerifiedOwner = vi.fn(async () => ownerActivation());
   const findInsightForOwnerAction = vi.fn(async () => ownerInsight());
-  const loadDigestView = vi.fn(async () => digestView());
+  const loadReservationView = vi.fn(async () => digestView());
+  // Default feedback truth: only the just-acted insight has a recorded action.
+  const listOwnerActions = vi.fn(
+    async () => new Map([['ins-1', 'resolve' as const]]),
+  );
   const warn = vi.fn();
   return {
     applyOwnerAction,
     resolveVerifiedOwner,
     findInsightForOwnerAction,
-    loadDigestView,
+    loadReservationView,
+    listOwnerActions,
     warn,
     deps: {
       appId: APP_ID,
@@ -149,7 +155,8 @@ function makeDeps(overrides: Partial<ObserverFeedbackMessageActionDeps> = {}): {
       resolveVerifiedOwner,
       findInsightForOwnerAction: findInsightForOwnerAction as never,
       applyOwnerAction: applyOwnerAction as never,
-      loadDigestView,
+      loadReservationView,
+      listOwnerActions: listOwnerActions as never,
       warn,
       ...overrides,
     },
@@ -158,7 +165,7 @@ function makeDeps(overrides: Partial<ObserverFeedbackMessageActionDeps> = {}): {
 
 describe('handleObserverFeedbackAction', () => {
   it('applies an owner action and rebuilds the digest view with the locked params', async () => {
-    const { deps, applyOwnerAction, loadDigestView } = makeDeps();
+    const { deps, applyOwnerAction, loadReservationView } = makeDeps();
 
     const outcome = await handleObserverFeedbackAction(deps, baseAction());
 
@@ -173,7 +180,7 @@ describe('handleObserverFeedbackAction', () => {
       suppressMs: 60 * 24 * 60 * 60 * 1000,
       suppressThreshold: 2,
     });
-    expect(loadDigestView).toHaveBeenCalledTimes(1);
+    expect(loadReservationView).toHaveBeenCalledTimes(1);
     expect(outcome.state).toBe('applied');
     expect(outcome.receipt).toBe('Insight resolved.');
     const view = outcome.observerDigestView!;
@@ -301,9 +308,59 @@ describe('handleObserverFeedbackAction', () => {
     expect(outcome.receipt).toMatch(/fewer stale fact/i);
   });
 
+  it('rebuilds ALL prior owner actions, not just the just-acted insight', async () => {
+    // Owner already resolved ins-1 and dismissed ins-2 (durable feedback truth);
+    // ins-3 is untouched. Acting again must show BOTH settled + ins-3 actionable.
+    const view: ObserverDigestMessageView = {
+      localDay: '2026-07-01',
+      recipient: OWNER,
+      insights: [
+        digestView().insights[0]!,
+        digestView().insights[1]!,
+        {
+          insightId: 'ins-3',
+          title: 'Third',
+          summary: 'Third',
+          type: 'open_question',
+          affordances: [
+            {
+              kind: 'observer_feedback',
+              label: 'Resolve',
+              insightId: 'ins-3',
+              action: 'resolve',
+            },
+          ],
+        },
+      ],
+    };
+    const { deps } = makeDeps({
+      loadReservationView: vi.fn(async () => view),
+      listOwnerActions: vi.fn(
+        async () =>
+          new Map([
+            ['ins-1', 'resolve' as const],
+            ['ins-2', 'dismiss' as const],
+          ]),
+      ) as never,
+    });
+
+    const outcome = await handleObserverFeedbackAction(
+      deps,
+      baseAction({ insightId: 'ins-2', action: 'dismiss' }),
+    );
+
+    const rebuilt = outcome.observerDigestView!;
+    expect(rebuilt.insights[0]!.affordances).toEqual([]);
+    expect(rebuilt.insights[0]!.stateMarker).toBe('✓ resolved');
+    expect(rebuilt.insights[1]!.affordances).toEqual([]);
+    expect(rebuilt.insights[1]!.stateMarker).toBe('✕ dismissed');
+    expect(rebuilt.insights[2]!.affordances).toHaveLength(1);
+    expect(rebuilt.insights[2]!.stateMarker).toBeUndefined();
+  });
+
   it('still applies with a plain receipt when the view re-load fails', async () => {
     const { deps, warn } = makeDeps({
-      loadDigestView: vi.fn(async () => null),
+      loadReservationView: vi.fn(async () => null),
     });
     const outcome = await handleObserverFeedbackAction(deps, baseAction());
     expect(outcome.state).toBe('applied');
@@ -313,7 +370,7 @@ describe('handleObserverFeedbackAction', () => {
 
   it('still applies when the view re-load throws', async () => {
     const { deps, warn } = makeDeps({
-      loadDigestView: vi.fn(async () => {
+      loadReservationView: vi.fn(async () => {
         throw new Error('reservation gone');
       }),
     });
