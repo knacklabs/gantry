@@ -53,17 +53,18 @@ async function deliverToCooldown(
   repo: ObserverInsightRepository,
   reservationId: string,
   localDay: string,
+  recipient: string = RECIPIENT,
 ): Promise<void> {
   const claimed = await repo.claimPendingForDigest({
     appId: APP_ID,
-    recipient: RECIPIENT,
+    recipient,
     limit: 50,
     nowIso: NOW,
   });
   const reserve = await repo.reserveDigest({
     id: reservationId,
     appId: APP_ID,
-    recipient: RECIPIENT,
+    recipient,
     localDay,
     timezone: 'UTC',
     conversationJid: 'sl:C900',
@@ -157,13 +158,20 @@ maybeDescribe('observer owner action Postgres persistence', () => {
     return Number(rows[0]?.count ?? 0);
   }
 
-  const apply = (insightId: string, action: string) =>
+  // All beforeAll insights were delivered by delivery-1, so that is the button's
+  // delivery for these clicks.
+  const apply = (
+    insightId: string,
+    action: string,
+    deliveryId = 'delivery-1',
+  ) =>
     repo.applyOwnerAction({
       appId: APP_ID,
       recipient: RECIPIENT,
       actorUserId: ACTOR,
       insightId,
       action: action as never,
+      deliveryId,
       nowIso: NOW,
       snoozeMs: SNOOZE_MS,
       suppressMs: SUPPRESS_MS,
@@ -252,6 +260,7 @@ maybeDescribe('observer owner action Postgres persistence', () => {
         actorUserId: ACTOR,
         insightId: 'snz2',
         action: 'snooze',
+        deliveryId: 'delivery-1',
         nowIso: NOW,
         snoozeMs: DAY_MS, // NOW + 1d < COOLDOWN
         suppressMs: SUPPRESS_MS,
@@ -339,6 +348,7 @@ maybeDescribe('observer owner action Postgres persistence', () => {
         actorUserId: ACTOR,
         insightId: 'lk3',
         action: 'less_like_this',
+        deliveryId: 'delivery-1',
         nowIso: '2026-07-20T08:00:00.000Z', // earlier than the current window's basis
         snoozeMs: SNOOZE_MS,
         suppressMs: SUPPRESS_MS,
@@ -369,6 +379,7 @@ maybeDescribe('observer owner action Postgres persistence', () => {
         actorUserId: ACTOR,
         insightId: 'lk4',
         action: 'less_like_this',
+        deliveryId: 'delivery-1',
         nowIso: LK4_NOW,
         snoozeMs: SNOOZE_MS,
         suppressMs: LK4_SUPPRESS,
@@ -387,16 +398,18 @@ maybeDescribe('observer owner action Postgres persistence', () => {
     // can't produce resolve-then-later-snooze (resolve is terminal). Newest time
     // must win, so the snooze — not the older resolve — is the marker.
     await repo.create(insight('ord'));
+    // Both rows share delivery-1 (same occurrence) to isolate the tiebreak.
     const insertFeedback = (action: string, createdAt: string) =>
       runtime.service.pool.query(
         `INSERT INTO "${runtime.schemaName}".observer_insight_feedback
-           (id, app_id, recipient, insight_id, actor_user_id, insight_type, action, created_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+           (id, app_id, recipient, insight_id, delivery_id, actor_user_id, insight_type, action, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
         [
           `oif_ord_${action}`,
           APP_ID,
           RECIPIENT,
           'ord',
+          'delivery-1',
           ACTOR,
           'commitment',
           action,
@@ -410,6 +423,7 @@ maybeDescribe('observer owner action Postgres persistence', () => {
         appId: APP_ID,
         recipient: RECIPIENT,
         insightIds: ['ord'],
+        deliveryId: 'delivery-1',
       });
       expect(actions.get('ord')).toBe('snooze');
     }
@@ -425,6 +439,7 @@ maybeDescribe('observer owner action Postgres persistence', () => {
       recipient: RECIPIENT,
       actorUserId: ACTOR,
       insightId: 'lw',
+      deliveryId: 'delivery-lw',
       nowIso: NOW, // SAME timestamp for both rows
       snoozeMs: SNOOZE_MS,
       suppressMs: SUPPRESS_MS,
@@ -439,19 +454,21 @@ maybeDescribe('observer owner action Postgres persistence', () => {
         appId: APP_ID,
         recipient: RECIPIENT,
         insightIds: ['lw'],
+        deliveryId: 'delivery-lw',
       });
       expect(actions.get('lw')).toBe('resolve');
     }
 
-    // By now: res -> resolve, dis -> dismiss.
+    // Delivery-1 scope: res -> resolve, dis -> dismiss; lw (delivery-lw) absent.
     const actions = await repo.listOwnerActionsForInsights({
       appId: APP_ID,
       recipient: RECIPIENT,
       insightIds: ['res', 'dis', 'lw', 'does-not-exist'],
+      deliveryId: 'delivery-1',
     });
     expect(actions.get('res')).toBe('resolve');
     expect(actions.get('dis')).toBe('dismiss');
-    expect(actions.get('lw')).toBe('resolve');
+    expect(actions.has('lw')).toBe(false);
     expect(actions.has('does-not-exist')).toBe(false);
     // Owner-scoped: a different recipient sees none of these.
     expect(
@@ -460,6 +477,7 @@ maybeDescribe('observer owner action Postgres persistence', () => {
           appId: APP_ID,
           recipient: 'owner:someone-else',
           insightIds: ['res', 'dis'],
+          deliveryId: 'delivery-1',
         })
       ).size,
     ).toBe(0);
@@ -470,6 +488,7 @@ maybeDescribe('observer owner action Postgres persistence', () => {
           appId: APP_ID,
           recipient: RECIPIENT,
           insightIds: [],
+          deliveryId: 'delivery-1',
         })
       ).size,
     ).toBe(0);
@@ -483,6 +502,7 @@ maybeDescribe('observer owner action Postgres persistence', () => {
         actorUserId: ACTOR,
         insightId: 'snz',
         action: 'resolve',
+        deliveryId: 'delivery-1',
         nowIso: NOW,
         snoozeMs: SNOOZE_MS,
         suppressMs: SUPPRESS_MS,
@@ -527,5 +547,92 @@ maybeDescribe('observer owner action Postgres persistence', () => {
       nowIso: '2026-07-24T08:00:00.000Z',
     });
     expect(claimed.map((row) => row.id)).toEqual(['sup-a']);
+  });
+
+  it('scopes feedback to the delivery occurrence across a redelivery', async () => {
+    const R = 'owner:redeliver-1';
+    await repo.create(
+      insight('rd', { recipient: R, canonicalSignature: 'sig:rd' }),
+    );
+    const args = (deliveryId: string, action: string, nowIso: string) => ({
+      appId: APP_ID,
+      recipient: R,
+      actorUserId: ACTOR,
+      insightId: 'rd',
+      action: action as never,
+      deliveryId,
+      nowIso,
+      snoozeMs: SNOOZE_MS,
+      suppressMs: SUPPRESS_MS,
+      suppressThreshold: THRESHOLD,
+    });
+    const cooldownOf = async (): Promise<string> => {
+      const { rows } = await runtime.service.pool.query<{
+        cooldown_until: string;
+      }>(
+        `SELECT cooldown_until FROM "${runtime.schemaName}".proactive_insights WHERE id = 'rd'`,
+      );
+      return rows[0]!.cooldown_until;
+    };
+
+    // Delivery 1 → cooldown; snooze it (applied, extends cooldown).
+    await deliverToCooldown(repo, 'd-rd-1', '2026-07-22', R);
+    expect(await repo.applyOwnerAction(args('d-rd-1', 'snooze', NOW))).toEqual({
+      outcome: 'applied',
+    });
+
+    // Simulate cooldown expiry → back to pending → REDELIVER as delivery 2.
+    await runtime.service.pool.query(
+      `UPDATE "${runtime.schemaName}".proactive_insights SET state = 'pending' WHERE id = 'rd'`,
+    );
+    await deliverToCooldown(repo, 'd-rd-2', '2026-07-29', R);
+    const cooldownAfterRedeliver = await cooldownOf();
+
+    // (c) A rebuild of delivery 2 does NOT reflect delivery 1's snooze — so the
+    // old action can't clear the new digest's buttons.
+    const d2Before = await repo.listOwnerActionsForInsights({
+      appId: APP_ID,
+      recipient: R,
+      insightIds: ['rd'],
+      deliveryId: 'd-rd-2',
+    });
+    expect(d2Before.has('rd')).toBe(false);
+
+    // (a) STALE old-delivery button (d-rd-1) → stale, insight NOT mutated.
+    expect(
+      await repo.applyOwnerAction(
+        args('d-rd-1', 'resolve', '2026-07-29T09:00:00.000Z'),
+      ),
+    ).toEqual({ outcome: 'stale' });
+    const rd = await repo.findInsightForOwnerAction({
+      appId: APP_ID,
+      recipient: R,
+      insightId: 'rd',
+    });
+    expect(rd?.insight.state).toBe('cooldown'); // not resolved
+
+    // (b) Legitimate re-snooze in delivery 2 → NEW row (not `already`) + cooldown extends.
+    const LATER = '2026-07-29T10:00:00.000Z';
+    expect(
+      await repo.applyOwnerAction(args('d-rd-2', 'snooze', LATER)),
+    ).toEqual({ outcome: 'applied' });
+    expect(await feedbackCount('rd')).toBe(2); // one row per delivery
+    expect(Date.parse(await cooldownOf())).toBeGreaterThan(
+      Date.parse(cooldownAfterRedeliver),
+    );
+    // Rebuild of delivery 2 now shows only its own snooze.
+    const d2After = await repo.listOwnerActionsForInsights({
+      appId: APP_ID,
+      recipient: R,
+      insightIds: ['rd'],
+      deliveryId: 'd-rd-2',
+    });
+    expect(d2After.get('rd')).toBe('snooze');
+
+    // (d) Double-click within delivery 2 stays idempotent (no new row).
+    expect(
+      await repo.applyOwnerAction(args('d-rd-2', 'snooze', LATER)),
+    ).toEqual({ outcome: 'applied', already: true });
+    expect(await feedbackCount('rd')).toBe(2);
   });
 });

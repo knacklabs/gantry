@@ -55,25 +55,27 @@ export interface ObserverFeedbackMessageActionDeps {
     actorUserId: string;
     insightId: string;
     action: ObserverFeedbackAction;
+    deliveryId: string;
     nowIso: string;
     snoozeMs: number;
     suppressMs: number;
     suppressThreshold: number;
   }) => Promise<ObserverOwnerActionResult>;
-  // Best-effort re-load of the durable digest view for the EXACT delivery this
-  // button belongs to, keyed by the callback's own (recipient, localDay) — the
-  // token self-identifies its digest, so an insight that also rode a later digest
-  // can never resolve against the wrong one. Null when it cannot be recovered.
-  loadReservationView: (input: {
-    recipient: string;
-    localDay: string;
-  }) => Promise<ObserverDigestMessageView | null>;
-  // The owner's settled action per insight, so the rebuild re-marks EVERY
-  // already-acted insight in the digest — not just the one just clicked.
+  // Resolve the EXACT delivery the clicked button belongs to, keyed by the
+  // callback's own (recipient, localDay). Returns the delivery id (to scope the
+  // mutation + rebuild) and its durable view (view null on legacy rows). Null
+  // when no reservation exists for that day — the button can't be honored.
+  loadReservation: (input: { recipient: string; localDay: string }) => Promise<{
+    deliveryId: string;
+    view: ObserverDigestMessageView | null;
+  } | null>;
+  // The owner's settled action per insight WITHIN this delivery, so the rebuild
+  // re-marks every already-acted insight of THIS occurrence — not an earlier one.
   listOwnerActions: (input: {
     appId: string;
     recipient: string;
     insightIds: string[];
+    deliveryId: string;
   }) => Promise<Map<string, ObserverFeedbackAction>>;
   warn: (context: Record<string, unknown>, message: string) => void;
 }
@@ -131,12 +133,23 @@ export async function handleObserverFeedbackAction(
     ) {
       return { state: 'invalid', receipt: NOT_FOUND_RECEIPT };
     }
+    // Step 4: resolve the delivery this button was rendered for BEFORE mutating,
+    // so the action is scoped to that occurrence. No reservation for the button's
+    // localDay → the button can't be honored; do NOT mutate.
+    const reservation = await deps.loadReservation({
+      recipient: owner.recipient,
+      localDay: action.localDay,
+    });
+    if (!reservation) {
+      return { state: 'invalid', receipt: NOT_FOUND_RECEIPT };
+    }
     const result = await deps.applyOwnerAction({
       appId: deps.appId,
       recipient: owner.recipient,
       actorUserId: action.userId,
       insightId: action.insightId,
       action: action.action,
+      deliveryId: reservation.deliveryId,
       nowIso: deps.nowIso(),
       snoozeMs: SNOOZE_MS,
       suppressMs: SUPPRESS_MS,
@@ -161,15 +174,13 @@ export async function handleObserverFeedbackAction(
       receipt: receiptForAction(action.action, found.insight.insightType),
     };
     try {
-      const view = await deps.loadReservationView({
-        recipient: owner.recipient,
-        localDay: action.localDay,
-      });
+      const view = reservation.view;
       if (view) {
         const owned = await deps.listOwnerActions({
           appId: deps.appId,
           recipient: owner.recipient,
           insightIds: view.insights.map((insight) => insight.insightId),
+          deliveryId: reservation.deliveryId,
         });
         outcome.observerDigestView = view.insights.reduce(
           (rebuilt, insight) => {

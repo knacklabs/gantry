@@ -17,6 +17,7 @@ const OWNER = 'U-owner';
 const OWNER_JID = 'sl:D-owner';
 const OWNER_ACCOUNT = 'acct-1';
 const LOCAL_DAY = '2026-07-27';
+const DELIVERY_ID = 'del-1';
 
 function baseAction(
   overrides: Partial<ObserverFeedbackMessageActionInput> = {},
@@ -133,14 +134,17 @@ function makeDeps(overrides: Partial<ObserverFeedbackMessageActionDeps> = {}): {
   applyOwnerAction: ReturnType<typeof vi.fn>;
   resolveVerifiedOwner: ReturnType<typeof vi.fn>;
   findInsightForOwnerAction: ReturnType<typeof vi.fn>;
-  loadReservationView: ReturnType<typeof vi.fn>;
+  loadReservation: ReturnType<typeof vi.fn>;
   listOwnerActions: ReturnType<typeof vi.fn>;
   warn: ReturnType<typeof vi.fn>;
 } {
   const applyOwnerAction = vi.fn(async () => ({ outcome: 'applied' as const }));
   const resolveVerifiedOwner = vi.fn(async () => ownerActivation());
   const findInsightForOwnerAction = vi.fn(async () => ownerInsight());
-  const loadReservationView = vi.fn(async () => digestView());
+  const loadReservation = vi.fn(async () => ({
+    deliveryId: DELIVERY_ID,
+    view: digestView(),
+  }));
   // Default feedback truth: only the just-acted insight has a recorded action.
   const listOwnerActions = vi.fn(
     async () => new Map([['ins-1', 'resolve' as const]]),
@@ -150,7 +154,7 @@ function makeDeps(overrides: Partial<ObserverFeedbackMessageActionDeps> = {}): {
     applyOwnerAction,
     resolveVerifiedOwner,
     findInsightForOwnerAction,
-    loadReservationView,
+    loadReservation,
     listOwnerActions,
     warn,
     deps: {
@@ -159,7 +163,7 @@ function makeDeps(overrides: Partial<ObserverFeedbackMessageActionDeps> = {}): {
       resolveVerifiedOwner,
       findInsightForOwnerAction: findInsightForOwnerAction as never,
       applyOwnerAction: applyOwnerAction as never,
-      loadReservationView,
+      loadReservation: loadReservation as never,
       listOwnerActions: listOwnerActions as never,
       warn,
       ...overrides,
@@ -169,7 +173,8 @@ function makeDeps(overrides: Partial<ObserverFeedbackMessageActionDeps> = {}): {
 
 describe('handleObserverFeedbackAction', () => {
   it('applies an owner action and rebuilds the digest view with the locked params', async () => {
-    const { deps, applyOwnerAction, loadReservationView } = makeDeps();
+    const { deps, applyOwnerAction, loadReservation, listOwnerActions } =
+      makeDeps();
 
     const outcome = await handleObserverFeedbackAction(deps, baseAction());
 
@@ -179,16 +184,21 @@ describe('handleObserverFeedbackAction', () => {
       actorUserId: OWNER,
       insightId: 'ins-1',
       action: 'resolve',
+      deliveryId: DELIVERY_ID,
       nowIso: '2026-07-02T00:00:00.000Z',
       snoozeMs: 30 * 24 * 60 * 60 * 1000,
       suppressMs: 60 * 24 * 60 * 60 * 1000,
       suppressThreshold: 2,
     });
-    expect(loadReservationView).toHaveBeenCalledTimes(1);
-    expect(loadReservationView).toHaveBeenCalledWith({
+    expect(loadReservation).toHaveBeenCalledTimes(1);
+    expect(loadReservation).toHaveBeenCalledWith({
       recipient: OWNER,
       localDay: LOCAL_DAY,
     });
+    // Rebuild reads feedback scoped to THIS delivery.
+    expect(listOwnerActions).toHaveBeenCalledWith(
+      expect.objectContaining({ deliveryId: DELIVERY_ID }),
+    );
     expect(outcome.state).toBe('applied');
     expect(outcome.receipt).toBe('Insight resolved.');
     const view = outcome.observerDigestView!;
@@ -343,7 +353,10 @@ describe('handleObserverFeedbackAction', () => {
       ],
     };
     const { deps } = makeDeps({
-      loadReservationView: vi.fn(async () => view),
+      loadReservation: vi.fn(async () => ({
+        deliveryId: DELIVERY_ID,
+        view,
+      })) as never,
       listOwnerActions: vi.fn(
         async () =>
           new Map([
@@ -376,17 +389,18 @@ describe('handleObserverFeedbackAction', () => {
       recipient: OWNER,
       insights: [{ ...digestView().insights[0]!, title: 'OLD digest' }],
     };
-    const loadReservationView = vi.fn(async ({ localDay }) =>
-      localDay === OLD_DAY ? oldView : digestView(),
-    );
-    const { deps } = makeDeps({ loadReservationView });
+    const loadReservation = vi.fn(async ({ localDay }) => ({
+      deliveryId: DELIVERY_ID,
+      view: localDay === OLD_DAY ? oldView : digestView(),
+    }));
+    const { deps } = makeDeps({ loadReservation: loadReservation as never });
 
     const outcome = await handleObserverFeedbackAction(
       deps,
       baseAction({ localDay: OLD_DAY }),
     );
 
-    expect(loadReservationView).toHaveBeenCalledWith({
+    expect(loadReservation).toHaveBeenCalledWith({
       recipient: OWNER,
       localDay: OLD_DAY,
     });
@@ -397,20 +411,32 @@ describe('handleObserverFeedbackAction', () => {
   it('resolves the correct digest after a timezone config change (local_day comes from the token)', async () => {
     // No surfacedAt/timezone recompute — the button carries its own local_day, so
     // a later tz change cannot mis-key the reservation lookup.
-    const { deps, loadReservationView } = makeDeps();
+    const { deps, loadReservation } = makeDeps();
     await handleObserverFeedbackAction(
       deps,
       baseAction({ localDay: LOCAL_DAY }),
     );
-    expect(loadReservationView).toHaveBeenCalledWith({
+    expect(loadReservation).toHaveBeenCalledWith({
       recipient: OWNER,
       localDay: LOCAL_DAY,
     });
   });
 
-  it('still applies with a plain receipt when the view re-load fails', async () => {
+  it('is invalid without mutating when no reservation exists for the button local_day', async () => {
+    const { deps, applyOwnerAction } = makeDeps({
+      loadReservation: vi.fn(async () => null),
+    });
+    const outcome = await handleObserverFeedbackAction(deps, baseAction());
+    expect(outcome.state).toBe('invalid');
+    expect(applyOwnerAction).not.toHaveBeenCalled();
+  });
+
+  it('still applies with a plain receipt when the reservation has no durable view', async () => {
     const { deps, warn } = makeDeps({
-      loadReservationView: vi.fn(async () => null),
+      loadReservation: vi.fn(async () => ({
+        deliveryId: DELIVERY_ID,
+        view: null,
+      })) as never,
     });
     const outcome = await handleObserverFeedbackAction(deps, baseAction());
     expect(outcome.state).toBe('applied');
@@ -418,11 +444,22 @@ describe('handleObserverFeedbackAction', () => {
     expect(warn).toHaveBeenCalledTimes(1);
   });
 
-  it('still applies when the view re-load throws', async () => {
-    const { deps, warn } = makeDeps({
-      loadReservationView: vi.fn(async () => {
+  it('is invalid without mutating when the reservation load throws', async () => {
+    const { deps, applyOwnerAction } = makeDeps({
+      loadReservation: vi.fn(async () => {
         throw new Error('reservation gone');
       }),
+    });
+    const outcome = await handleObserverFeedbackAction(deps, baseAction());
+    expect(outcome.state).toBe('invalid');
+    expect(applyOwnerAction).not.toHaveBeenCalled();
+  });
+
+  it('still applies when the delivery-scoped rebuild read throws', async () => {
+    const { deps, warn } = makeDeps({
+      listOwnerActions: vi.fn(async () => {
+        throw new Error('rebuild read failed');
+      }) as never,
     });
     const outcome = await handleObserverFeedbackAction(deps, baseAction());
     expect(outcome.state).toBe('applied');

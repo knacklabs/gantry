@@ -3,7 +3,7 @@ CREATE TABLE IF NOT EXISTS "observer_insight_feedback" (
 	"app_id" text NOT NULL,
 	"recipient" text NOT NULL,
 	"insight_id" text NOT NULL,
-	"delivery_id" text,
+	"delivery_id" text NOT NULL,
 	"actor_user_id" text NOT NULL,
 	"insight_type" text NOT NULL,
 	"action" text NOT NULL,
@@ -24,6 +24,6 @@ CREATE TABLE IF NOT EXISTS "observer_insight_type_suppressions" (
 --> statement-breakpoint
 ALTER TABLE "observer_insight_feedback" ADD CONSTRAINT "observer_insight_feedback_app_id_apps_id_fk" FOREIGN KEY ("app_id") REFERENCES "apps"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "observer_insight_feedback" ADD CONSTRAINT "observer_insight_feedback_insight_id_fk" FOREIGN KEY ("insight_id") REFERENCES "proactive_insights"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "observer_insight_feedback" ADD CONSTRAINT "observer_insight_feedback_delivery_id_fk" FOREIGN KEY ("delivery_id") REFERENCES "observer_deliveries"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "observer_insight_feedback" ADD CONSTRAINT "observer_insight_feedback_delivery_id_fk" FOREIGN KEY ("delivery_id") REFERENCES "observer_deliveries"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "observer_insight_type_suppressions" ADD CONSTRAINT "observer_insight_type_suppressions_app_id_apps_id_fk" FOREIGN KEY ("app_id") REFERENCES "apps"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-CREATE UNIQUE INDEX "observer_insight_feedback_insight_actor_action_unique" ON "observer_insight_feedback" USING btree ("insight_id","actor_user_id","action");
+CREATE UNIQUE INDEX "observer_insight_feedback_insight_actor_action_unique" ON "observer_insight_feedback" USING btree ("insight_id","actor_user_id","action","delivery_id");

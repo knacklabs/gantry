@@ -37,15 +37,18 @@ export function registerRuntimeObserverFeedbackMessageAction(
       ),
     applyOwnerAction: (input) =>
       getRuntimeStorage().repositories.observerInsights.applyOwnerAction(input),
-    // Re-load the durable digest view by the callback's own (recipient, localDay)
-    // — the button carries the day it was rendered for, so this pins to the exact
-    // delivery and is timezone-stable (no surfacedAt/timezone recompute).
-    loadReservationView: async ({ recipient, localDay }) => {
+    // Resolve the exact delivery + its durable view by the callback's own
+    // (recipient, localDay) — the button carries the day it was rendered for, so
+    // this pins to the exact delivery and is timezone-stable (no surfacedAt
+    // recompute). The delivery id scopes the mutation + rebuild.
+    loadReservation: async ({ recipient, localDay }) => {
       const reservation =
         await getRuntimeStorage().repositories.observerInsights.findDigestReservation(
           { appId: DEFAULT_MEMORY_APP_ID, recipient, localDay },
         );
-      return reservation?.renderedView ?? null;
+      return reservation
+        ? { deliveryId: reservation.id, view: reservation.renderedView }
+        : null;
     },
     listOwnerActions: (input) =>
       getRuntimeStorage().repositories.observerInsights.listOwnerActionsForInsights(

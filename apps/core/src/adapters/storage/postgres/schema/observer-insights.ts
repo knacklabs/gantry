@@ -204,9 +204,10 @@ export const proactiveInsightsPostgres = pgTable(
   }),
 );
 
-// Owner feedback on delivered insights. The unique (insight, actor, action)
-// index is the idempotency key: channel retries of the same button click
-// can't double-count a negative signal or re-drop an insight.
+// Owner feedback on delivered insights. Feedback is DELIVERY-scoped: the unique
+// (insight, actor, action, delivery) index is the idempotency key, so a repeated
+// click within one delivery is a no-op, but a legitimate re-action on a
+// REDELIVERED occurrence (new delivery_id) is a distinct row.
 export const observerInsightFeedbackPostgres = pgTable(
   'observer_insight_feedback',
   {
@@ -218,10 +219,9 @@ export const observerInsightFeedbackPostgres = pgTable(
     insightId: text('insight_id')
       .notNull()
       .references(() => proactiveInsightsPostgres.id, { onDelete: 'cascade' }),
-    deliveryId: text('delivery_id').references(
-      () => observerDeliveriesPostgres.id,
-      { onDelete: 'set null' },
-    ),
+    deliveryId: text('delivery_id')
+      .notNull()
+      .references(() => observerDeliveriesPostgres.id, { onDelete: 'cascade' }),
     actorUserId: text('actor_user_id').notNull(),
     insightType: text('insight_type').notNull(),
     action: text('action').notNull(),
@@ -235,7 +235,7 @@ export const observerInsightFeedbackPostgres = pgTable(
   (table) => ({
     insightActorActionUnique: uniqueIndex(
       'observer_insight_feedback_insight_actor_action_unique',
-    ).on(table.insightId, table.actorUserId, table.action),
+    ).on(table.insightId, table.actorUserId, table.action, table.deliveryId),
     actionCheck: check(
       'observer_insight_feedback_action_check',
       sql`${table.action} IN ('resolve', 'dismiss', 'snooze', 'less_like_this')`,

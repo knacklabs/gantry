@@ -309,6 +309,8 @@ export interface ObserverInsightRepository {
     appId: string;
     recipient: string;
     insightIds: string[];
+    // Feedback is delivery-scoped: only rows from this delivery count.
+    deliveryId: string;
   }): Promise<Map<string, ObserverFeedbackAction>>;
   // All not-yet-settled reservations (reserved/sent) for a recipient across ANY
   // localDay, oldest-first, so a delivery stranded before local midnight is
@@ -351,14 +353,17 @@ export interface ObserverInsightRepository {
     recipient: string;
     insightId: string;
   }): Promise<ObserverOwnerActionInsight | null>;
-  // Single atomic owner action on a delivered (cooldown) insight. Idempotent
-  // per (insight, actor, action). Durations are caller-supplied parameters.
+  // Single atomic owner action on a delivered (cooldown) insight. Scoped to the
+  // clicked button's delivery: idempotent per (insight, actor, action, delivery),
+  // and a button from an older delivery than the insight's current one is stale.
+  // Durations are caller-supplied parameters.
   applyOwnerAction(input: {
     appId: string;
     recipient: string;
     actorUserId: string;
     insightId: string;
     action: ObserverFeedbackAction;
+    deliveryId: string;
     nowIso: string;
     snoozeMs: number;
     suppressMs: number;

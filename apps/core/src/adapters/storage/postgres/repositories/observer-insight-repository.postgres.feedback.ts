@@ -56,6 +56,9 @@ export async function applyOwnerAction(
     actorUserId: string;
     insightId: string;
     action: ObserverFeedbackAction;
+    // The delivery the CLICKED button was rendered for (resolved from the
+    // callback's localDay). Feedback is scoped to this occurrence.
+    deliveryId: string;
     nowIso: string;
     snoozeMs: number;
     suppressMs: number;
@@ -77,7 +80,12 @@ export async function applyOwnerAction(
       .for('update');
     if (!insight) return { outcome: 'invalid' };
 
-    // Does this exact click (insight+actor+action) already have a row?
+    // Stale-delivery reject: the insight's current delivery moved on (it was
+    // re-delivered after cooldown), so a button from an OLDER digest must not
+    // mutate the newer occurrence.
+    if (insight.deliveryId !== input.deliveryId) return { outcome: 'stale' };
+
+    // Does this exact click (insight+actor+action+delivery) already have a row?
     const [duplicate] = await tx
       .select({ id: Feedback.id })
       .from(Feedback)
@@ -86,6 +94,7 @@ export async function applyOwnerAction(
           eq(Feedback.insightId, input.insightId),
           eq(Feedback.actorUserId, input.actorUserId),
           eq(Feedback.action, input.action),
+          eq(Feedback.deliveryId, input.deliveryId),
         ),
       )
       .limit(1);
@@ -120,14 +129,19 @@ export async function applyOwnerAction(
         appId: input.appId,
         recipient: input.recipient,
         insightId: input.insightId,
-        deliveryId: insight.deliveryId,
+        deliveryId: input.deliveryId,
         actorUserId: input.actorUserId,
         insightType: insight.insightType,
         action: input.action,
         createdAt: input.nowIso,
       })
       .onConflictDoNothing({
-        target: [Feedback.insightId, Feedback.actorUserId, Feedback.action],
+        target: [
+          Feedback.insightId,
+          Feedback.actorUserId,
+          Feedback.action,
+          Feedback.deliveryId,
+        ],
       })
       .returning({ id: Feedback.id });
     if (inserted.length === 0) return { outcome: 'applied', already: true };
@@ -227,6 +241,9 @@ export async function listOwnerActionsForInsights(
     appId: string;
     recipient: string;
     insightIds: string[];
+    // Rebuild only reflects feedback from THE delivery being edited, so an
+    // earlier delivery's action can't mark/clear the newer digest's buttons.
+    deliveryId: string;
   },
 ): Promise<Map<string, ObserverFeedbackAction>> {
   if (input.insightIds.length === 0) return new Map();
@@ -240,6 +257,7 @@ export async function listOwnerActionsForInsights(
       and(
         eq(Feedback.appId, input.appId),
         eq(Feedback.recipient, input.recipient),
+        eq(Feedback.deliveryId, input.deliveryId),
         inArray(Feedback.insightId, input.insightIds),
       ),
     )

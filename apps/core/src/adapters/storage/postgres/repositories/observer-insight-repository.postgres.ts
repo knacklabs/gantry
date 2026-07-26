@@ -453,6 +453,7 @@ export class PostgresObserverInsightRepository implements ObserverInsightReposit
     appId: string;
     recipient: string;
     insightIds: string[];
+    deliveryId: string;
   }): Promise<Map<string, ObserverFeedbackAction>> {
     return listOwnerActionsForInsights(this.db, input);
   }
@@ -512,6 +513,7 @@ export class PostgresObserverInsightRepository implements ObserverInsightReposit
     actorUserId: string;
     insightId: string;
     action: ObserverFeedbackAction;
+    deliveryId: string;
     nowIso: string;
     snoozeMs: number;
     suppressMs: number;

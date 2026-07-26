@@ -214,13 +214,15 @@ maybeDescribe('observer digest resolution round-trip (Postgres)', () => {
       findInsightForOwnerAction: (input) =>
         repo.findInsightForOwnerAction(input),
       applyOwnerAction: (input) => repo.applyOwnerAction(input),
-      loadReservationView: async ({ recipient, localDay }) => {
+      loadReservation: async ({ recipient, localDay }) => {
         const reservation = await repo.findDigestReservation({
           appId: APP_ID,
           recipient,
           localDay,
         });
-        return reservation?.renderedView ?? null;
+        return reservation
+          ? { deliveryId: reservation.id, view: reservation.renderedView }
+          : null;
       },
       listOwnerActions: (input) => repo.listOwnerActionsForInsights(input),
       warn: () => undefined,
