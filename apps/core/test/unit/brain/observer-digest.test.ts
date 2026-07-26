@@ -110,6 +110,7 @@ function reservationFrom(
     providerAccountId: OWNER.providerAccountId,
     threadId: null,
     renderedDigest: 'digest',
+    renderedView: null,
     contentHash: 'hash',
     outboundDeliveryId: null,
     reservedAt: '2026-07-25T12:00:00.000Z',

@@ -1,3 +1,5 @@
+import type { ObserverDigestMessageView } from '../observer-digest-view.js';
+
 export const OBSERVER_INSIGHT_TYPES = [
   'commitment',
   'contradiction',
@@ -125,6 +127,10 @@ export interface ObserverDigestReservation {
   providerAccountId: string | null;
   threadId: string | null;
   renderedDigest: string | null;
+  /** Provider-neutral, immutable digest view (ordered insights + their
+   * `observer_feedback` affordances) persisted at reserve time so the buttons
+   * survive a recovery/resend. Null on rows reserved before this was added. */
+  renderedView: ObserverDigestMessageView | null;
   contentHash: string | null;
   outboundDeliveryId: string | null;
   reservedAt: string | null;
@@ -299,6 +305,7 @@ export interface ObserverInsightRepository {
     providerAccountId: string;
     threadId?: string | null;
     renderedDigest: string;
+    renderedView?: ObserverDigestMessageView | null;
     contentHash: string;
     memberships: ObserverDigestClaimMembership[];
     nowIso: string;

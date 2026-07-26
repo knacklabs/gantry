@@ -778,6 +778,13 @@
       "when": 1784917200000,
       "tag": "0113_observer_insight_feedback",
       "breakpoints": true
+    },
+    {
+      "idx": 114,
+      "version": "7",
+      "when": 1784920800000,
+      "tag": "0114_observer_digest_view",
+      "breakpoints": true
     }
   ]
 }

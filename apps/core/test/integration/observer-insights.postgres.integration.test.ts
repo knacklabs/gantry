@@ -129,6 +129,7 @@ maybeDescribe('observer insight Postgres persistence', () => {
       'reserved_at',
       'sent_at',
       'settled_at',
+      'rendered_view',
     ]);
     expect(columnsFor('observer_delivery_insights')).toEqual([
       'delivery_id',

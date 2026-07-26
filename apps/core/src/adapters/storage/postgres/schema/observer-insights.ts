@@ -35,6 +35,7 @@ export const observerDeliveriesPostgres = pgTable(
     threadId: text('thread_id'),
     timezone: text('timezone'),
     renderedDigest: text('rendered_digest'),
+    renderedView: jsonb('rendered_view'),
     contentHash: text('content_hash'),
     outboundDeliveryId: text('outbound_delivery_id'),
     state: text('state').notNull().default('reserved'),

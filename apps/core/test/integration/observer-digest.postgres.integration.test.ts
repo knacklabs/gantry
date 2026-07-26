@@ -156,6 +156,72 @@ maybeDescribe('observer digest orchestration (Postgres)', () => {
     expect(byId.get('ok-2')).toMatchObject({ state: 'cooldown' });
   });
 
+  it('persists the digest view so affordances survive an enqueue -> recovery round-trip', async () => {
+    const repo = runtime.repositories.observerInsights;
+    const recipient = 'owner:view';
+    await repo.create(insight('view-1', recipient, { priorityScore: 0.9 }));
+    await repo.create(insight('view-2', recipient, { priorityScore: 0.8 }));
+
+    hoisted.status = eligibleStatus(recipient);
+    // Send not yet durable -> the reservation stays 'reserved' (the recovery
+    // backlog the next tick re-drives).
+    const gateway: DigestSendGateway = {
+      enqueue: vi.fn(async () => ({
+        outboundDeliveryId: 'outbound-view',
+        durablySent: false,
+      })),
+    };
+    const deliveryPort = createOutboundDigestDeliveryPort({
+      gateway,
+      repository: repo,
+      now: () => NOW,
+    });
+
+    await runObserverDigest({
+      appId: APP_ID,
+      nowIso: NOW,
+      deps: {
+        settings: {} as never,
+        repository: repo,
+        freshnessProbe: alwaysFresh,
+        deliveryPort,
+        idFactory: () => 'delivery-view',
+      },
+    });
+
+    // The view is carried on the enqueue call (Task 4 renders native buttons).
+    const enqueued = (gateway.enqueue as ReturnType<typeof vi.fn>).mock
+      .calls[0][0];
+    expect(enqueued.observerDigestView?.insights).toHaveLength(2);
+
+    // ...and it SURVIVES the recovery round-trip: re-read from Postgres via the
+    // digest recovery loop (findUnsettled) with the affordances intact. This is
+    // the gap being closed — today only the rendered TEXT survives.
+    const [recovered] = await repo.findUnsettledDigestReservations({
+      appId: APP_ID,
+      recipient,
+    });
+    const view = recovered?.renderedView;
+    expect(view?.localDay).toBe('2026-07-25');
+    expect(view?.recipient).toBe(recipient);
+    expect(view?.insights.map((entry) => entry.insightId)).toEqual([
+      'view-1',
+      'view-2',
+    ]);
+    for (const entry of view!.insights) {
+      expect(entry.affordances.map((a) => a.action)).toEqual([
+        'resolve',
+        'dismiss',
+        'snooze',
+        'less_like_this',
+      ]);
+      for (const affordance of entry.affordances) {
+        expect(affordance.kind).toBe('observer_feedback');
+        expect(affordance.insightId).toBe(entry.insightId);
+      }
+    }
+  });
+
   it('deliver failure leaves the reservation unsettled and the next run retries it (idempotent key, no duplicate)', async () => {
     const repo = runtime.repositories.observerInsights;
     const recipient = 'owner:retry';

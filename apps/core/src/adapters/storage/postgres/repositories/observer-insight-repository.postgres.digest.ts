@@ -35,6 +35,8 @@ function mapReservation(
     providerAccountId: row.providerAccountId ?? null,
     threadId: row.threadId ?? null,
     renderedDigest: row.renderedDigest ?? null,
+    renderedView:
+      (row.renderedView as ObserverDigestReservation['renderedView']) ?? null,
     contentHash: row.contentHash ?? null,
     outboundDeliveryId: row.outboundDeliveryId ?? null,
     reservedAt: nullableIso(row.reservedAt),
@@ -216,6 +218,7 @@ export async function reserveDigest(
     providerAccountId: string;
     threadId?: string | null;
     renderedDigest: string;
+    renderedView?: ObserverDigestReservation['renderedView'];
     contentHash: string;
     memberships: ObserverDigestClaimMembership[];
     nowIso: string;
@@ -235,6 +238,7 @@ export async function reserveDigest(
         providerAccountId: input.providerAccountId,
         threadId: input.threadId ?? null,
         renderedDigest: input.renderedDigest,
+        renderedView: input.renderedView ?? null,
         contentHash: input.contentHash,
         reservedAt: input.nowIso,
         createdAt: input.nowIso,
