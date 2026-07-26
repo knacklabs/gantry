@@ -1,6 +1,7 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const processMemoryReviewDecisionRequestMock = vi.hoisted(() => vi.fn());
+const resolveReviewSubjectWithinBoundaryMock = vi.hoisted(() => vi.fn());
 const resolveTrustedMemorySubjectMock = vi.hoisted(() =>
   vi.fn(() => ({
     appId: 'default',
@@ -12,6 +13,7 @@ const resolveTrustedMemorySubjectMock = vi.hoisted(() =>
 
 vi.mock('@core/memory/memory-review-ipc.js', () => ({
   processMemoryReviewDecisionRequest: processMemoryReviewDecisionRequestMock,
+  resolveReviewSubjectWithinBoundary: resolveReviewSubjectWithinBoundaryMock,
 }));
 vi.mock('@core/memory/memory-ipc.js', () => ({
   resolveTrustedMemorySubject: resolveTrustedMemorySubjectMock,
@@ -158,7 +160,19 @@ describe('handleMemoryReviewDecisionAction', () => {
 });
 
 describe('executeMemoryReviewDecision', () => {
-  it('calls the trusted executor with channel_action decision_source and the reviewer id', async () => {
+  beforeEach(() => {
+    processMemoryReviewDecisionRequestMock.mockReset();
+    resolveReviewSubjectWithinBoundaryMock.mockReset();
+  });
+
+  it("uses the review's OWN subject, not the approver, and records channel_action", async () => {
+    // Approver U-ADMIN is NOT the review owner U-OWNER (user-scoped memory).
+    resolveReviewSubjectWithinBoundaryMock.mockResolvedValueOnce({
+      appId: 'default',
+      agentId: 'a',
+      subjectType: 'user',
+      subjectId: 'U-OWNER',
+    });
     processMemoryReviewDecisionRequestMock.mockResolvedValueOnce({
       ok: true,
       data: { review: { status: 'applied' } },
@@ -166,20 +180,30 @@ describe('executeMemoryReviewDecision', () => {
     const result = await executeMemoryReviewDecision({
       reviewId: 'rev-1',
       decision: 'approve',
-      reviewerId: 'U123',
+      reviewerId: 'U-ADMIN',
       sourceAgentFolder: 'main_agent',
       conversationJid: 'sl:C123',
     });
+    expect(resolveReviewSubjectWithinBoundaryMock).toHaveBeenCalledWith({
+      appId: 'default',
+      agentId: 'a',
+      reviewId: 'rev-1',
+    });
     expect(processMemoryReviewDecisionRequestMock).toHaveBeenCalledTimes(1);
     const call = processMemoryReviewDecisionRequestMock.mock.calls[0][0];
-    expect(call.request.action).toBe('memory_review_decision');
+    // subject is the review's owner, NOT the approver.
+    expect(call.subject).toMatchObject({
+      subjectType: 'user',
+      subjectId: 'U-OWNER',
+    });
     expect(call.request.payload).toMatchObject({
       review_id: 'rev-1',
       decision: 'approve',
       decision_source: 'channel_action',
     });
+    // approver identity flows through as audit/authorization context only.
     expect(call.request.context).toMatchObject({
-      userId: 'U123',
+      userId: 'U-ADMIN',
       reviewerIsControlApprover: true,
     });
     expect(result).toEqual({
@@ -188,7 +212,26 @@ describe('executeMemoryReviewDecision', () => {
     });
   });
 
+  it('returns invalid without executing when the review is outside the agent boundary', async () => {
+    resolveReviewSubjectWithinBoundaryMock.mockResolvedValueOnce(null);
+    const result = await executeMemoryReviewDecision({
+      reviewId: 'foreign-rev',
+      decision: 'approve',
+      reviewerId: 'U123',
+      sourceAgentFolder: 'main_agent',
+      conversationJid: 'sl:C123',
+    });
+    expect(processMemoryReviewDecisionRequestMock).not.toHaveBeenCalled();
+    expect(result.state).toBe('invalid');
+  });
+
   it('maps a lost pending-review claim to stale', async () => {
+    resolveReviewSubjectWithinBoundaryMock.mockResolvedValueOnce({
+      appId: 'default',
+      agentId: 'a',
+      subjectType: 'user',
+      subjectId: 'U-OWNER',
+    });
     processMemoryReviewDecisionRequestMock.mockRejectedValueOnce(
       new Error('pending memory review not found'),
     );
@@ -203,6 +246,12 @@ describe('executeMemoryReviewDecision', () => {
   });
 
   it('maps other executor failures to invalid', async () => {
+    resolveReviewSubjectWithinBoundaryMock.mockResolvedValueOnce({
+      appId: 'default',
+      agentId: 'a',
+      subjectType: 'user',
+      subjectId: 'U-OWNER',
+    });
     processMemoryReviewDecisionRequestMock.mockRejectedValueOnce(
       new Error('memory subsystem unavailable'),
     );

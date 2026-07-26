@@ -55,6 +55,7 @@ import {
 import {
   decideMemoryReview,
   getMemoryReviewDetail,
+  getMemoryReviewWithinAgentBoundary,
   listPendingMemoryReviewPage,
   listPendingMemoryReviews,
 } from './app-memory-review.js';
@@ -600,6 +601,22 @@ export class AppMemoryService {
       subject,
       reviewId: input.reviewId,
       statementTimeoutMs: options.statementTimeoutMs,
+    });
+  }
+
+  async getReviewWithinAgentBoundary(
+    input: { appId: string; agentId: string; reviewId: string },
+    options: { statementTimeoutMs?: number } = {},
+  ): Promise<MemoryReviewRecord | null> {
+    if (!this.isEnabled()) return null;
+    return getMemoryReviewWithinAgentBoundary({
+      db: this.db,
+      appId: input.appId,
+      agentId: input.agentId,
+      reviewId: input.reviewId,
+      ...(options.statementTimeoutMs !== undefined
+        ? { statementTimeoutMs: options.statementTimeoutMs }
+        : {}),
     });
   }
 

@@ -1,7 +1,10 @@
 import { randomUUID } from 'node:crypto';
 
 import { findConversationRoutesForChat } from '../../shared/thread-queue-key.js';
-import { processMemoryReviewDecisionRequest } from '../../memory/memory-review-ipc.js';
+import {
+  processMemoryReviewDecisionRequest,
+  resolveReviewSubjectWithinBoundary,
+} from '../../memory/memory-review-ipc.js';
 import { resolveTrustedMemorySubject } from '../../memory/memory-ipc.js';
 import type { ChannelWiring } from './channel-wiring-types.js';
 import type {
@@ -118,10 +121,20 @@ function getSourceAgentFolder(
 export async function executeMemoryReviewDecision(
   input: MemoryReviewDecisionExecuteInput,
 ): Promise<{ state: DecisionState; receipt: string }> {
-  const subject = resolveTrustedMemorySubject(input.sourceAgentFolder, {
+  // appId/agentId are the channel-bound boundary; subjectType/subjectId are
+  // discarded — the review's OWN subject (below) is authoritative, never the
+  // approver's identity.
+  const boundary = resolveTrustedMemorySubject(input.sourceAgentFolder, {
     userId: input.reviewerId,
-    chatJid: input.conversationJid,
   });
+  const subject = await resolveReviewSubjectWithinBoundary({
+    appId: boundary.appId,
+    agentId: boundary.agentId,
+    reviewId: input.reviewId,
+  });
+  if (!subject) {
+    return { state: 'invalid', receipt: 'This review could not be found.' };
+  }
   const request = {
     requestId: `memory-review-decision-${randomUUID()}`,
     action: 'memory_review_decision' as const,
@@ -130,6 +143,7 @@ export async function executeMemoryReviewDecision(
       decision: input.decision,
       decision_source: DECISION_SOURCE,
     },
+    // reviewerId is the approver's audit/authorization identity only.
     context: { userId: input.reviewerId, reviewerIsControlApprover: true },
   };
   try {
