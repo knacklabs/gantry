@@ -100,6 +100,57 @@ maybeDescribe('Postgres permission decision memory', () => {
     expect(row?.canonicalRoot).not.toBeNull();
   });
 
+  it.each([
+    {
+      label: 'past',
+      effectHash: 'effect-expired',
+      expiresAt: '2000-01-01T00:00:00.000Z',
+      returned: false,
+    },
+    {
+      label: 'future',
+      effectHash: 'effect-future',
+      expiresAt: '2999-01-01T00:00:00.000Z',
+      returned: true,
+    },
+    {
+      label: 'NULL',
+      effectHash: 'effect-no-expiry',
+      expiresAt: undefined,
+      returned: true,
+    },
+  ])(
+    'returns only active rows when expires_at is $label',
+    async ({ effectHash, expiresAt, returned }) => {
+      const repository = runtime.repositories.permissionDecisionMemory;
+      await repository.putClassifierVerdict({
+        appId: APP,
+        agentFolder: FOLDER,
+        effectHash,
+        decision: 'allow',
+        reason: 'expiry test',
+        risk_level: 'low',
+        effectSchemaVersion: 1,
+        railVersion: 3,
+        provenance: 'classifier',
+        nowIso: '2026-07-12T00:00:00.000Z',
+        expiresAt,
+      });
+
+      const result = await repository.get({
+        appId: APP,
+        agentFolder: FOLDER,
+        kind: 'classifier_verdict',
+        lookupIdentity: effectHash,
+      });
+      if (returned) {
+        expect(result).toMatchObject({ lookupIdentity: effectHash });
+      } else {
+        expect(result).toBeNull();
+      }
+    },
+  );
+
   it('enforces the (app, folder, kind, lookup_identity) unique constraint', async () => {
     const base = {
       appId: APP,
