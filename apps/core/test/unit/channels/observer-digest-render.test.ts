@@ -7,6 +7,7 @@ import {
 import type { ObserverDigestMessageView } from '@core/domain/observer-digest-view.js';
 import {
   slackObserverDigestBlocks,
+  slackObserverDigestFallbackText,
   parseSlackObserverFeedback,
 } from '@core/channels/slack/observer-digest-affordances.js';
 import { registerSlackMessageActionHandler } from '@core/channels/slack/channel-message-action-handler.js';
@@ -110,6 +111,30 @@ describe('observer digest — Slack render + codec', () => {
     for (const section of sections) {
       expect(section.text.text.length).toBeLessThanOrEqual(3000);
     }
+  });
+
+  it('bounds the section AFTER mrkdwn escaping (many & expand past raw caps)', () => {
+    // 800 raw `&` (within SUMMARY_CAP) escape to 4000 `&amp;` > 3000; the escaped
+    // payload must be truncated on whole entities (never a split &amp;).
+    const view = makeView({ count: 1, summary: () => '&'.repeat(800) });
+    const section = slackObserverDigestBlocks(view).find(
+      (b) => (b as { type?: string }).type === 'section',
+    ) as { text: { text: string } };
+    expect(section.text.text.length).toBeLessThanOrEqual(3000);
+    // No dangling half-entity at the cut (no `&` not part of a full entity).
+    expect(section.text.text).not.toMatch(/&(?!amp;|lt;|gt;)/);
+  });
+
+  it('escapes the fallback text so a captured mention/link cannot go live', () => {
+    const view = makeView({
+      count: 1,
+      title: () => 'Ping <@U123> see <https://x|link>',
+      summary: () => 'sum & more',
+    });
+    const text = slackObserverDigestFallbackText(view);
+    expect(text).not.toContain('<@U123>');
+    expect(text).toContain('&lt;@U123&gt;');
+    expect(text).toContain('&amp;');
   });
 });
 

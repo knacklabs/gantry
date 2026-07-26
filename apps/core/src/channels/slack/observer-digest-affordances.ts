@@ -28,6 +28,23 @@ function truncateSlackButtonLabel(label: string): string {
   return trimmed.length <= 75 ? trimmed : `${trimmed.slice(0, 72)}...`;
 }
 
+// Headroom under Slack's 3000-char section-text limit. The view's per-field caps
+// bound the RAW text, but escaping expands `&`/`<`/`>` (e.g. `&`→`&amp;`), so we
+// bound the ESCAPED payload here — truncating on whole mrkdwn entities so an
+// `&amp;`/`&lt;`/`&gt;` is never split into a broken half-entity.
+const SLACK_SECTION_CAP = 2900;
+
+function truncateSlackMrkdwn(escaped: string, max: number): string {
+  if (escaped.length <= max) return escaped;
+  const units = escaped.match(/&(?:amp|lt|gt);|[\s\S]/g) ?? [];
+  let out = '';
+  for (const unit of units) {
+    if (out.length + unit.length > max - 1) break;
+    out += unit;
+  }
+  return `${out}…`;
+}
+
 function slackInsightBlocks(
   insight: ObserverDigestInsightView,
   providerAccountId?: string,
@@ -37,7 +54,10 @@ function slackInsightBlocks(
       type: 'section',
       text: {
         type: 'mrkdwn',
-        text: `*${escapeSlackMrkdwn(insight.title)}*\n${escapeSlackMrkdwn(insight.summary)}`,
+        text: truncateSlackMrkdwn(
+          `*${escapeSlackMrkdwn(insight.title)}*\n${escapeSlackMrkdwn(insight.summary)}`,
+          SLACK_SECTION_CAP,
+        ),
       },
     },
     {
@@ -91,10 +111,14 @@ function slackInsightBlocks(
 export function slackObserverDigestFallbackText(
   view: ObserverDigestMessageView,
 ): string {
-  const lines = [`Observer digest — ${view.localDay}`];
+  // Escape interpolated snapshot fields: this is the top-level `text`, which
+  // Slack parses as mrkdwn, so a captured `<@U123>`/`<https://…|x>` must not
+  // become a live mention/link in notifications or a screen reader's a11y text.
+  const lines = [`Observer digest — ${escapeSlackMrkdwn(view.localDay)}`];
   view.insights.forEach((insight, index) => {
     const tail = insight.stateMarker ?? insight.summary;
-    lines.push(`${index + 1}. ${insight.title}${tail ? ` — ${tail}` : ''}`);
+    const line = `${index + 1}. ${escapeSlackMrkdwn(insight.title)}`;
+    lines.push(tail ? `${line} — ${escapeSlackMrkdwn(tail)}` : line);
   });
   return lines.join('\n');
 }
