@@ -4,8 +4,72 @@ import type {
   NormalizedMemorySubject,
 } from '../memory/memory-types.js';
 import { AppMemoryService } from '../memory/app-memory-service.js';
+import {
+  buildReviewMessageView,
+  type ReviewMessageView,
+} from '../memory/review-message-view.js';
 
 const MEMORY_REVIEW_NOTIFICATION_LOOKUP_TIMEOUT_MS = 2_000;
+
+/**
+ * Typed hand-off from the dreaming run to the terminal notification: which
+ * reviews this run newly surfaced plus a fully-built view of the FIRST one, so
+ * the notification renders the actual review + action buttons instead of a bare
+ * count. Snapshot-sourced (buildReviewMessageView reads the T3 frozen snapshot);
+ * never recovered by reverse-parsing the human summary.
+ */
+export interface MemoryReviewCreatedNotification {
+  kind: 'memory_review_created';
+  reviewMessageView: ReviewMessageView;
+  createdReviewIds: string[];
+  pendingCount: number;
+}
+
+/** Ids of reviews a completed dreaming run created, read structurally from the
+ * run summary (set by summarizeDreamDecisions). Empty for any other shape. */
+export function createdReviewIdsFromDreamSummary(summary: unknown): string[] {
+  if (!summary || typeof summary !== 'object' || Array.isArray(summary)) {
+    return [];
+  }
+  const value = (summary as Record<string, unknown>).createdReviewIds;
+  if (!Array.isArray(value)) return [];
+  return value.filter((id): id is string => typeof id === 'string' && !!id);
+}
+
+/**
+ * Load the FIRST newly-created review and build its provider-neutral view. The
+ * pending count drives the "＋N more pending" line. Returns null (caller keeps
+ * the concise count summary) if there are no new ids or the review can't be
+ * loaded — the notification never fabricates content.
+ */
+export async function buildMemoryReviewCreatedNotification(input: {
+  memory: AppMemoryService;
+  subject: NormalizedMemorySubject;
+  createdReviewIds: string[];
+  pendingCount: number;
+}): Promise<MemoryReviewCreatedNotification | null> {
+  const firstId = input.createdReviewIds[0];
+  if (!firstId) return null;
+  try {
+    const record = await input.memory.getReviewWithinAgentBoundary(
+      {
+        appId: input.subject.appId,
+        agentId: input.subject.agentId,
+        reviewId: firstId,
+      },
+      { statementTimeoutMs: MEMORY_REVIEW_NOTIFICATION_LOOKUP_TIMEOUT_MS },
+    );
+    if (!record) return null;
+    return {
+      kind: 'memory_review_created',
+      reviewMessageView: buildReviewMessageView(record),
+      createdReviewIds: input.createdReviewIds,
+      pendingCount: input.pendingCount,
+    };
+  } catch {
+    return null;
+  }
+}
 
 function pendingMemoryReviewLabel(count: number): string {
   return `${count} pending memory review${count === 1 ? '' : 's'}`;

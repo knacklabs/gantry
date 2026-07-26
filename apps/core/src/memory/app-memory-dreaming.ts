@@ -115,10 +115,11 @@ export async function runAppMemoryDreamPass(input: {
     db: Db;
     signal?: AbortSignal;
   }) => Promise<void>;
-}): Promise<Array<{ action: DreamDecisionAction }>> {
+}): Promise<Array<{ action: DreamDecisionAction; reviewId?: string }>> {
   const { db, runId, subject, phase, dryRun } = input;
   input.signal?.throwIfAborted();
-  const decisions: Array<{ action: DreamDecisionAction }> = [];
+  const decisions: Array<{ action: DreamDecisionAction; reviewId?: string }> =
+    [];
   const recentEvidence = await db
     .select()
     .from(pgSchema.memoryEvidencePostgres)
@@ -315,7 +316,7 @@ export async function runAppMemoryDreamPass(input: {
         proposal.action === 'merge' ||
         proposal.action === 'needs_review'
       ) {
-        const action = await routeMemoryProposalToReview({
+        const { action, reviewId } = await routeMemoryProposalToReview({
           db,
           runId,
           subject,
@@ -329,7 +330,7 @@ export async function runAppMemoryDreamPass(input: {
           blockRationale:
             'LLM proposal blocked because memory review creation failed.',
         });
-        decisions.push({ action });
+        decisions.push({ action, reviewId });
       }
     }
     for (const candidate of candidates) {
@@ -393,7 +394,7 @@ export async function runAppMemoryDreamPass(input: {
           decisions.push({ action: 'dry_run' });
           continue;
         }
-        const action = await routeMemoryProposalToReview({
+        const { action, reviewId } = await routeMemoryProposalToReview({
           db,
           runId,
           subject,
@@ -419,7 +420,7 @@ export async function runAppMemoryDreamPass(input: {
           blockRationale:
             'Deep dreaming blocked retire candidate because memory review creation failed.',
         });
-        decisions.push({ action });
+        decisions.push({ action, reviewId });
         continue;
       }
       const validation = validatePromotableCandidate(candidate);
@@ -437,7 +438,7 @@ export async function runAppMemoryDreamPass(input: {
           decisions.push({ action: 'blocked' });
           continue;
         }
-        const action = await routeMemoryProposalToReview({
+        const { action, reviewId } = await routeMemoryProposalToReview({
           db,
           runId,
           subject,
@@ -458,7 +459,7 @@ export async function runAppMemoryDreamPass(input: {
           reviewRationale: `${validation.rationale} Routed to memory review`,
           blockRationale: validation.rationale,
         });
-        decisions.push({ action });
+        decisions.push({ action, reviewId });
         continue;
       }
       if (existing && existing.value !== candidate.value) {
@@ -479,7 +480,7 @@ export async function runAppMemoryDreamPass(input: {
           },
           reason,
         });
-        const action = await routeMemoryProposalToReview({
+        const { action, reviewId } = await routeMemoryProposalToReview({
           db,
           runId,
           subject,
@@ -505,7 +506,7 @@ export async function runAppMemoryDreamPass(input: {
           blockRationale:
             'Deep dreaming blocked candidate because memory review creation failed.',
         });
-        decisions.push({ action });
+        decisions.push({ action, reviewId });
         continue;
       }
       if (

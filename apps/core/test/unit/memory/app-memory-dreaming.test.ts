@@ -598,7 +598,9 @@ describe('runAppMemoryDreamPass guardrails', () => {
       createPendingReview,
     });
 
-    expect(decisions).toEqual([{ action: 'needs_review' }]);
+    expect(decisions).toEqual([
+      { action: 'needs_review', reviewId: 'mrv-contradiction' },
+    ]);
     expect(createPendingReview).toHaveBeenCalledTimes(1);
     expect(createPendingReview).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -757,7 +759,9 @@ describe('runAppMemoryDreamPass guardrails', () => {
       }),
       db,
     );
-    expect(decisions).toEqual([{ action: 'needs_review' }]);
+    expect(decisions).toEqual([
+      { action: 'needs_review', reviewId: 'mrv-deterministic' },
+    ]);
   });
 
   it('forces a contradiction onto needs_review even when the model asked to promote', async () => {
@@ -1025,7 +1029,9 @@ describe('runAppMemoryDreamPass guardrails', () => {
       createPendingReview,
     });
 
-    expect(decisions).toEqual([{ action: 'needs_review' }]);
+    expect(decisions).toEqual([
+      { action: 'needs_review', reviewId: 'mrv-update' },
+    ]);
     expect(save).not.toHaveBeenCalled();
     expect(createPendingReview).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -1122,8 +1128,8 @@ describe('runAppMemoryDreamPass guardrails', () => {
     });
 
     expect(decisions).toEqual([
-      { action: 'needs_review' },
-      { action: 'needs_review' },
+      { action: 'needs_review', reviewId: 'mrv-preference' },
+      { action: 'needs_review', reviewId: 'mrv-risky' },
     ]);
     expect(save).not.toHaveBeenCalled();
     expect(createPendingReview).toHaveBeenCalledTimes(2);
@@ -1237,7 +1243,9 @@ describe('runAppMemoryDreamPass guardrails', () => {
       createPendingReview,
     });
 
-    expect(decisions).toEqual([{ action: 'needs_review' }]);
+    expect(decisions).toEqual([
+      { action: 'needs_review', reviewId: 'mrv-retire' },
+    ]);
     expect(retire).not.toHaveBeenCalled();
     expect(createPendingReview).toHaveBeenCalledWith(
       expect.objectContaining({

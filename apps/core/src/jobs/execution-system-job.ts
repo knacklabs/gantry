@@ -4,6 +4,7 @@ import {
   MEMORY_DREAM_SYSTEM_JOB_FINALIZATION_GRACE_MS,
 } from '../shared/memory-dreaming-timeout.js';
 import { nowMs } from '../shared/time/datetime.js';
+import type { MemoryReviewCreatedNotification } from './memory-dreaming-job-outcome.js';
 import { handleSystemJob, MEMORY_DREAM_SYSTEM_PROMPT } from './system-jobs.js';
 
 type SystemJobContext = Parameters<typeof handleSystemJob>[1];
@@ -35,13 +36,27 @@ export async function runSystemJobTurn(input: {
   timeoutMs: number;
   signal?: AbortSignal;
   logger?: SystemJobLogger;
-}): Promise<{ result: string | null; error: string | null }> {
+}): Promise<{
+  result: string | null;
+  error: string | null;
+  notificationContext?: MemoryReviewCreatedNotification;
+}> {
+  let notificationContext: MemoryReviewCreatedNotification | undefined;
   try {
-    const systemResult: unknown = await runSystemJobWithDeadline(input);
+    const systemResult: unknown = await runSystemJobWithDeadline({
+      ...input,
+      onNotificationContext: (context) => {
+        notificationContext = context;
+      },
+    });
     if (typeof systemResult !== 'string') {
       throw new Error('System job returned a non-displayable result.');
     }
-    return { result: systemResult, error: null };
+    return {
+      result: systemResult,
+      error: null,
+      ...(notificationContext ? { notificationContext } : {}),
+    };
   } catch (err) {
     return {
       result: null,
@@ -57,6 +72,7 @@ export async function runSystemJobWithDeadline(input: {
   timeoutMs: number;
   signal?: AbortSignal;
   logger?: SystemJobLogger;
+  onNotificationContext?: (context: MemoryReviewCreatedNotification) => void;
 }): Promise<unknown> {
   const log = input.logger ?? NOOP_LOGGER;
   const controller = new AbortController();
@@ -84,6 +100,9 @@ export async function runSystemJobWithDeadline(input: {
       startedAtMs: input.startedAtMs,
       timeoutMs: input.timeoutMs,
     }),
+    ...(input.onNotificationContext
+      ? { onNotificationContext: input.onNotificationContext }
+      : {}),
   });
   const observedWork = work.then(
     (result) => {

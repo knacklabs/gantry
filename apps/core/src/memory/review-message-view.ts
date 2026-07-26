@@ -231,3 +231,34 @@ export function buildReviewMessageView(
     ],
   };
 }
+
+function sideText(side: ReviewMessageSide): string {
+  const meta = [side.source, side.date].filter(Boolean).join(' · ');
+  const value = `${side.label}: "${side.value}"`;
+  return meta ? `${value} — ${meta}` : value;
+}
+
+/**
+ * Plain-text rendering of a review for channels/surfaces without native buttons
+ * (the in-app channel, unsupported providers). Same compact-structured content
+ * as the native cards, plus an explicit reply-command line so a reviewer can
+ * still act — no fake button metadata, just the documented text path.
+ */
+export function reviewMessageFallbackText(view: ReviewMessageView): string {
+  const lines = [
+    view.title,
+    `Topic: ${view.topic}`,
+    ...view.sides.map(sideText),
+    `Change → ${view.change}`,
+    `Why: ${view.why}`,
+  ];
+  for (const item of view.evidence) {
+    const meta = [item.source, item.date].filter(Boolean).join(' · ');
+    lines.push(`📎 ${meta ? `${meta}: ` : ''}${item.snippet}`);
+  }
+  lines.push(
+    `Reply "approve ${view.reviewId}" or "reject ${view.reviewId}", ` +
+      `or "edit memory review ${view.reviewId}: <replacement> — <reason>".`,
+  );
+  return lines.join('\n');
+}

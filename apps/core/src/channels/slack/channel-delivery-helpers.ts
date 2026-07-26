@@ -22,7 +22,10 @@ import {
   splitSlackTextByCodeUnits,
 } from './text-limits.js';
 import { nowIso } from '../../shared/time/datetime.js';
-import { slackMessageActionBlocks } from './message-action-affordances.js';
+import {
+  slackMessageActionBlocks,
+  slackReviewMessageBlocks,
+} from './message-action-affordances.js';
 import { slackThreadTsFromThreadId } from './thread-ts.js';
 import {
   handleSlackThreadProgressStatus,
@@ -43,6 +46,13 @@ type SlackDeliveryLogger = {
   warn(metadata: Record<string, unknown>, message: string): void;
 };
 function slackActionBlocks(text: string, options: MessageSendOptions) {
+  if (options.reviewMessageView) {
+    return slackReviewMessageBlocks(options.reviewMessageView, {
+      ...(options.providerAccountId
+        ? { providerAccountId: options.providerAccountId }
+        : {}),
+    });
+  }
   return options.actionAffordances
     ? slackMessageActionBlocks(text, options.actionAffordances, {
         providerAccountId: options.providerAccountId,

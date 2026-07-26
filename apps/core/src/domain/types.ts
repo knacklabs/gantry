@@ -1,5 +1,6 @@
 import type { SemanticCapabilityDefinition } from '../shared/semantic-capabilities.js';
 import type { PermissionMode } from '../shared/permission-mode.js';
+import type { ReviewMessageView } from '../memory/review-message-view.js';
 
 export type {
   Job,
@@ -565,6 +566,10 @@ export interface MessageSendOptions {
   agentId?: string;
   actionAffordances?: MessageActionAffordance[];
   files?: MessageFileAttachment[];
+  /** When set, channels with native support render this as a compact-structured
+   * memory-review message (Slack blocks / Telegram HTML / Teams card) with the
+   * decision buttons. Channels without native buttons fall back to `text`. */
+  reviewMessageView?: ReviewMessageView;
 }
 
 export interface MessageFileAttachment {

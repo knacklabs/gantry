@@ -1054,6 +1054,42 @@ describe('TelegramChannel', () => {
     );
   });
 
+  it('sends a memory-review message as native HTML with three decision buttons', async () => {
+    const channel = new TelegramChannel('token', createTestOpts());
+    await channel.connect({ inbound: false });
+    const reviewId = 'mrv_tg1';
+    await channel.sendMessage('tg:100200300', 'fallback text', {
+      reviewMessageView: {
+        reviewId,
+        kind: 'contradiction',
+        title: '🧠 Memory review · conflicting note',
+        topic: 'user.location',
+        sides: [{ label: 'Now', value: 'Paris' }],
+        change: '"Berlin"',
+        why: 'newer statement',
+        evidence: [],
+        affordances: [
+          { label: 'Approve', decision: 'approve', reviewId },
+          { label: 'Reject', decision: 'reject', reviewId },
+          { label: 'Edit', decision: 'edit', reviewId },
+        ],
+      },
+    });
+
+    const call = currentBot().api.sendMessage.mock.calls.at(-1);
+    expect(call?.[1]).toContain('🧠 Memory review · conflicting note');
+    expect(call?.[2]).toMatchObject({ parse_mode: 'HTML' });
+    const buttons = call?.[2]?.reply_markup?.inline_keyboard?.[0] ?? [];
+    expect(buttons.map((b: { text: string }) => b.text)).toEqual([
+      'Approve',
+      'Reject',
+      'Edit',
+    ]);
+    expect(
+      buttons.map((b: { callback_data: string }) => b.callback_data),
+    ).toEqual([`mr:a:${reviewId}`, `mr:r:${reviewId}`, `mr:e:${reviewId}`]);
+  });
+
   it('renders todo messages in the active Telegram topic', async () => {
     const opts = createTestOpts();
     const channel = new TelegramChannel('test-token', opts);

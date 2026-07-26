@@ -41,6 +41,7 @@ import {
   logMemoryDreamJobFailure,
   notifySchedulerTerminalRunState,
 } from './execution-notifications.js';
+import type { MemoryReviewCreatedNotification } from './memory-dreaming-job-outcome.js';
 import {
   claimSchedulerRunLease,
   createSchedulerRunLeaseAbort,
@@ -266,6 +267,7 @@ async function runActiveJob(
       resultSummaryAccumulator.append(delta);
     };
     let accumulatedUsage: AgentOutput['usage'];
+    let memoryReviewNotification: MemoryReviewCreatedNotification | undefined;
     const startNotified = false;
     try {
       const groupDir = resolveWorkspaceFolderPath(execution.group.folder);
@@ -294,6 +296,7 @@ async function runActiveJob(
       });
       appendResultSummary(systemOutcome.result);
       error = systemOutcome.error;
+      memoryReviewNotification = systemOutcome.notificationContext;
     } else {
       if (!error) {
         let turnContext: JobTurnContext | undefined;
@@ -754,6 +757,7 @@ async function runActiveJob(
         durationMs: Math.max(0, nowMs() - startedAtMs),
         runShortId,
         sendMessage: deps.sendMessage,
+        ...(memoryReviewNotification ? { memoryReviewNotification } : {}),
       }));
     if (notified) {
       const markJobRunNotified = deps.opsRepository.markJobRunNotified;
