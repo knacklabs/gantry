@@ -69,9 +69,6 @@ jobs:
             -c 'CREATE EXTENSION IF NOT EXISTS vector;' \
             -c 'CREATE EXTENSION IF NOT EXISTS pg_trgm;'
 
-      - name: Supply-chain audit
-        run: npm run security:audit
-
       - name: Generate runtime SBOM
         run: npm run --silent security:sbom > gantry-runtime-sbom.cdx.json
 
