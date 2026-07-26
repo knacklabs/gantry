@@ -50,6 +50,16 @@ compatibility code.
    quarantines) rather than returning the stored hash — matching the S3
    materializer's existing behavior.
 
+2b. **Collision-resistant hash framing (closes D-0011).** Because the digest is now
+   both the storage-path key and the integrity value, `hashSkillBundle` uses an
+   unambiguous, length-prefixed serialization (asset count, then per asset a
+   4-byte big-endian path length + path + content length + content) instead of
+   NUL-delimited framing, whose delimiter could also appear in content and produce
+   a single-asset/two-asset collision. `normalizeSkillBundle` also rejects bundles
+   whose asset paths collapse to the same normalized path (non-round-trippable).
+   Fixing the framing changes every bundle's hash — accepted under the no-legacy
+   policy (see §4).
+
 3. **App-scope the install lock key.** The three install writers key
    `withSkillMaterializationLock` by lowercased name only; change them to
    `<appId>:<name>` via one shared helper, so the lock scope matches the new
@@ -63,8 +73,13 @@ compatibility code.
    already-installed skills to the new layout is an **operational** step done by
    hand against a given runtime, not shipped code. On the local gantry runtime all
    21 installed skills are under a single app (`default`), so no cross-app
-   collision exists there and the running instance keeps working unchanged after
-   deploy; hand-migration there is optional/cosmetic.
+   collision exists there. NOTE: because §2b changes the hash of every bundle, the
+   read-time integrity check will reject existing installs (their stored
+   `content_hash` used the old framing) until they are re-hashed. So the
+   local-runtime migration is **required, not optional**: for each installed skill,
+   recompute the new hash, move its bytes to
+   `apps/<appId>/skills/<catalogId>/<newHash>/`, and update the row's `storage_ref`
+   and `content_hash`. Skills can alternatively be reinstalled.
 
 ## Consequences
 

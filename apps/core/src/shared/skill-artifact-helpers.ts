@@ -12,13 +12,21 @@ type SkillBundle = {
 };
 
 export function normalizeSkillBundle(bundle: SkillBundle): SkillBundle {
-  const assets = bundle.assets
-    .map((asset) => ({
-      path: normalizeSkillArtifactPath(asset.path),
-      contentType: asset.contentType,
-      content: new Uint8Array(asset.content),
-    }))
-    .sort((left, right) => left.path.localeCompare(right.path));
+  const assets = bundle.assets.map((asset) => ({
+    path: normalizeSkillArtifactPath(asset.path),
+    contentType: asset.contentType,
+    content: new Uint8Array(asset.content),
+  }));
+  const seenPaths = new Set<string>();
+  for (const asset of assets) {
+    if (seenPaths.has(asset.path)) {
+      throw new Error(
+        `Duplicate skill asset path after normalization: ${asset.path}`,
+      );
+    }
+    seenPaths.add(asset.path);
+  }
+  assets.sort((left, right) => left.path.localeCompare(right.path));
   if (!assets.some((asset) => asset.path === 'SKILL.md')) {
     throw new Error('Skill artifact must contain SKILL.md');
   }
@@ -27,11 +35,18 @@ export function normalizeSkillBundle(bundle: SkillBundle): SkillBundle {
 
 export function hashSkillBundle(bundle: SkillBundle): string {
   const hash = createHash('sha256');
-  for (const asset of normalizeSkillBundle(bundle).assets) {
-    hash.update(asset.path);
-    hash.update('\0');
+  const assets = normalizeSkillBundle(bundle).assets;
+  const lengthPrefix = Buffer.allocUnsafe(4);
+  lengthPrefix.writeUInt32BE(assets.length);
+  hash.update(lengthPrefix);
+  for (const asset of assets) {
+    const pathBytes = Buffer.from(asset.path, 'utf-8');
+    lengthPrefix.writeUInt32BE(pathBytes.byteLength);
+    hash.update(lengthPrefix);
+    hash.update(pathBytes);
+    lengthPrefix.writeUInt32BE(asset.content.byteLength);
+    hash.update(lengthPrefix);
     hash.update(asset.content);
-    hash.update('\0');
   }
   return `sha256:${hash.digest('hex')}`;
 }

@@ -23,6 +23,7 @@ import {
   saveRuntimeSettings,
 } from '@core/config/settings/runtime-settings.js';
 import { makeAppGroup } from '@core/application/sessions/session-interaction-module.js';
+import { hashSkillBundle } from '@core/shared/skill-artifact-helpers.js';
 
 const INLINE_DATA_DIR = vi.hoisted(
   () => `/tmp/gantry-inline-runtime-integration-${process.pid}`,
@@ -685,8 +686,14 @@ Response marker: stage-c-skill-loaded`;
           storage: {
             storageType: 'object-store',
             storageRef: 'memory:inline-response',
-            contentHash:
-              'sha256:e1a17a0858cefdf133816e6cd8e60f6e45d96e40ac86b0f6bbf04f3b8c9343cc',
+            contentHash: hashSkillBundle({
+              assets: [
+                {
+                  path: 'SKILL.md',
+                  content: Buffer.from(skillContent),
+                },
+              ],
+            }),
             sizeBytes: Buffer.byteLength(skillContent),
           },
         },
