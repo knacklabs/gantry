@@ -78,6 +78,26 @@ describe('buildObserverDigestMessageView', () => {
     expect(insight.summary.endsWith('…')).toBe(true);
   });
 
+  it('truncates on whole code points so an emoji at the cap is not split into a lone surrogate', () => {
+    // Emoji straddles the UTF-16 cut boundary: a naive slice(0, max-1) would keep
+    // a lone high surrogate. 158 'a's put an emoji across UTF-16 indices 158/159.
+    const title = 'a'.repeat(158) + '😀😀😀😀';
+    const summary = 'b'.repeat(798) + '😀😀😀😀';
+    const view = buildObserverDigestMessageView({
+      localDay: '2026-07-25',
+      recipient: 'owner-1',
+      insights: [{ id: 'ins-a', title, summary, insightType: 'commitment' }],
+    });
+    for (const field of [view.insights[0]!.title, view.insights[0]!.summary]) {
+      // No lone high surrogate (high not followed by a low).
+      expect(field).not.toMatch(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/);
+      // No replacement char, and a UTF-8 round-trip is lossless.
+      expect(field).not.toContain('�');
+      expect(Buffer.from(field, 'utf8').toString('utf8')).toBe(field);
+      expect(field.endsWith('…')).toBe(true);
+    }
+  });
+
   it('leaves short title and summary untouched', () => {
     const view = buildObserverDigestMessageView({
       localDay: '2026-07-25',

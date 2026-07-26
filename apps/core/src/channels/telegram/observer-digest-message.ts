@@ -114,6 +114,10 @@ export function telegramObserverDigestMessage(
   const lines = [
     `<b>Observer digest — ${escapeTelegramHtml(view.localDay)}</b>`,
   ];
+  // Telegram's 4096 limit counts the RENDERED text: HTML tags aren't counted and
+  // entities render to one char, so we measure the plain (pre-escape, pre-tag)
+  // lines — not the inflated HTML source — to avoid dropping insights that fit.
+  const plainLines = [`Observer digest — ${view.localDay}`];
   const inline_keyboard: Array<Array<{ text: string; callback_data: string }>> =
     [];
   for (let index = 0; index < view.insights.length; index += 1) {
@@ -122,11 +126,17 @@ export function telegramObserverDigestMessage(
       '',
       `<b>${index + 1}. ${escapeTelegramHtml(insight.title)}</b>`,
     ];
-    if (insight.summary) block.push(escapeTelegramHtml(insight.summary));
+    const plainBlock = ['', `${index + 1}. ${insight.title}`];
+    if (insight.summary) {
+      block.push(escapeTelegramHtml(insight.summary));
+      plainBlock.push(insight.summary);
+    }
     block.push(`<i>${escapeTelegramHtml(insight.type)}</i>`);
+    plainBlock.push(insight.type);
     let row: Array<{ text: string; callback_data: string }> = [];
     if (insight.stateMarker) {
       block.push(escapeTelegramHtml(insight.stateMarker));
+      plainBlock.push(insight.stateMarker);
     } else {
       row = insight.affordances
         .map((affordance) => {
@@ -146,18 +156,20 @@ export function telegramObserverDigestMessage(
     }
     // Aggregate backstop: per-field caps bound one insight, but a full top-N of
     // capped insights can still exceed Telegram's 4096-char message limit. Drop
-    // whole trailing insights (never slice HTML mid-tag) once the assembled text
+    // whole trailing insights (never slice HTML mid-tag) once the RENDERED text
     // would pass a safe ceiling, and note how many were dropped. Always render at
     // least the first insight. ponytail: per-message cap; the upgrade path if
     // maxInsights ever grows large is splitting into multiple messages.
     if (
       index > 0 &&
-      [...lines, ...block].join('\n').length > TELEGRAM_MESSAGE_SAFE_CEILING
+      [...plainLines, ...plainBlock].join('\n').length >
+        TELEGRAM_MESSAGE_SAFE_CEILING
     ) {
       lines.push('', `…and ${view.insights.length - index} more`);
       break;
     }
     lines.push(...block);
+    plainLines.push(...plainBlock);
     if (row.length > 0) inline_keyboard.push(row);
   }
   return { text: lines.join('\n'), reply_markup: { inline_keyboard } };

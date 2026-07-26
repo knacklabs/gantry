@@ -154,6 +154,16 @@ describe('observer digest — Telegram render + codec', () => {
     expect(text).not.toMatch(/…and \d+ more/);
   });
 
+  it('does not false-drop insights whose ESCAPED HTML is large but RENDERED text fits', () => {
+    // Each summary is 700 raw `<` (renders as 700 chars) but escapes to ~2800
+    // chars of &lt;. Measuring the HTML source would blow the ceiling and drop
+    // insights that render well under 4096; measuring rendered text keeps them.
+    const view = makeView({ count: 3, summary: () => '<'.repeat(700) });
+    const { text, reply_markup } = telegramObserverDigestMessage(view);
+    expect(text).not.toMatch(/…and \d+ more/);
+    expect(reply_markup.inline_keyboard).toHaveLength(3);
+  });
+
   it('escapes a malicious title in the HTML text', () => {
     const { text } = telegramObserverDigestMessage(
       makeView({ count: 1, title: () => '<b>pwn</b> & co' }),

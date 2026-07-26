@@ -105,8 +105,14 @@ const OBSERVER_FEEDBACK_AFFORDANCES: ReadonlyArray<{
 const TITLE_CAP = 160;
 const SUMMARY_CAP = 800;
 
+// Cut on whole code points (Array.from splits on code points, not UTF-16 units)
+// so a supplementary char / emoji straddling the cap can't become a lone
+// surrogate → replacement-char corruption.
 function truncateField(value: string, max: number): string {
-  return value.length <= max ? value : `${value.slice(0, max - 1)}…`;
+  const codePoints = Array.from(value);
+  return codePoints.length <= max
+    ? value
+    : `${codePoints.slice(0, max - 1).join('')}…`;
 }
 
 export function buildObserverDigestMessageView(input: {
