@@ -12,7 +12,7 @@ describe('createPermissionApprovalRequester cancellation retries', () => {
     vi.useRealTimers();
   });
 
-  it('catches a rejected cancellation retry, logs it, and reschedules without an unhandled rejection', async () => {
+  it('catches a throwing channel handler and leaves retry ownership to the durable directory', async () => {
     vi.useFakeTimers();
     const unhandledRejection = vi.fn();
     process.on('unhandledRejection', unhandledRejection);
@@ -22,16 +22,7 @@ describe('createPermissionApprovalRequester cancellation retries', () => {
     );
     const cancelPendingPermission = vi
       .fn()
-      .mockResolvedValueOnce('retryable')
-      .mockRejectedValueOnce(cancellationFailure)
-      .mockImplementationOnce(async () => {
-        resolveDecision({
-          approved: false,
-          mode: 'cancel',
-          decidedBy: 'runtime',
-        });
-        return 'settled' as const;
-      });
+      .mockRejectedValue(cancellationFailure);
     const logger = { error: vi.fn() };
     const requestPermissionApproval = createPermissionApprovalRequester({
       findBoundChannel: () => ({}),
@@ -67,7 +58,6 @@ describe('createPermissionApprovalRequester cancellation retries', () => {
         }),
       ).resolves.toBe('queued');
 
-      await vi.advanceTimersByTimeAsync(250);
       expect(logger.error).toHaveBeenCalledWith(
         expect.objectContaining({
           err: cancellationFailure,
@@ -76,20 +66,77 @@ describe('createPermissionApprovalRequester cancellation retries', () => {
           message: 'Target channel permission cancellation failed',
         }),
       );
-      expect(cancelPendingPermission).toHaveBeenCalledTimes(2);
-
-      await vi.advanceTimersByTimeAsync(250);
+      await vi.advanceTimersByTimeAsync(1_500);
+      expect(cancelPendingPermission).toHaveBeenCalledOnce();
+      resolveDecision({
+        approved: true,
+        mode: 'allow_once',
+        decidedBy: 'approver',
+      });
       await expect(decision).resolves.toMatchObject({
         approved: false,
         mode: 'cancel',
       });
-      expect(cancelPendingPermission).toHaveBeenCalledTimes(3);
       await Promise.resolve();
       expect(unhandledRejection).not.toHaveBeenCalled();
     } finally {
       process.off('unhandledRejection', unhandledRejection);
     }
   });
+
+  it.each([
+    ['retryable', 'queued'],
+    ['not_found', 'queued'],
+    ['settled', 'settled'],
+    ['already_decided', 'settled'],
+  ] as const)(
+    'maps channel result %s to %s without starting a local retry',
+    async (channelResult, cancellationResult) => {
+      vi.useFakeTimers();
+      let resolveDecision!: (decision: PermissionApprovalDecision) => void;
+      const cancelPendingPermission = vi.fn(async () => channelResult);
+      const requester = createPermissionApprovalRequester({
+        findBoundChannel: () => ({}),
+        asPermissionApprovalSurface: () => ({
+          requestPermissionApproval: async (
+            _jid,
+            _request,
+            onPromptDelivered,
+          ) => {
+            onPromptDelivered?.('permission-prompt');
+            return new Promise<PermissionApprovalDecision>((resolve) => {
+              resolveDecision = resolve;
+            });
+          },
+          cancelPendingPermission,
+        }),
+        interactionLifecycle: { logger: { error: vi.fn() } },
+      });
+      const cancellation = {
+        requestId: `permission-${channelResult}`,
+        appId: 'default',
+        sourceAgentFolder: 'main_agent',
+        reason: 'Permission cancelled.',
+      };
+      const decision = requester({
+        ...cancellation,
+        targetJid: 'tg:team',
+        toolName: 'Bash',
+      });
+
+      await expect(requester.cancel(cancellation)).resolves.toBe(
+        cancellationResult,
+      );
+      await vi.advanceTimersByTimeAsync(1_500);
+      expect(cancelPendingPermission).toHaveBeenCalledOnce();
+      resolveDecision({
+        approved: true,
+        mode: 'allow_once',
+        decidedBy: 'approver',
+      });
+      await decision;
+    },
+  );
 
   it('preserves a retryable member cancellation through batch fan-out', async () => {
     vi.useFakeTimers();

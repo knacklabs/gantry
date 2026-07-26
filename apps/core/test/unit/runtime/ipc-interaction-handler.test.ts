@@ -2686,15 +2686,13 @@ describe('ipc-interaction-handler', () => {
       before + 1,
     );
     expect(fs.existsSync(claimedPath)).toBe(false);
-    expect(
-      fs.existsSync(
-        path.join(
-          tempDir,
-          'errors',
-          'main_agent-claimed-unresolved-permission.json',
+    expect(fs.readdirSync(path.join(tempDir, 'errors'))).toEqual([
+      expect.stringMatching(
+        new RegExp(
+          `^\\d+-[0-9a-f-]{36}-main_agent-${path.basename(tempDir)}-claimed-unresolved-permission\\.json$`,
         ),
       ),
-    ).toBe(true);
+    ]);
   });
 
   it('retries only durable resolution after a transient post-authority failure', async () => {

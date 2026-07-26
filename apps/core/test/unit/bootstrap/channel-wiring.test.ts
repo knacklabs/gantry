@@ -578,7 +578,7 @@ describe('createChannelWiring', () => {
     });
   });
 
-  it('catches and reschedules a rejected question cancellation from prompt delivery', async () => {
+  it('catches a throwing question handler and leaves retry ownership to the durable directory', async () => {
     vi.useFakeTimers();
     const unhandledRejection = vi.fn();
     process.on('unhandledRejection', unhandledRejection);
@@ -589,19 +589,13 @@ describe('createChannelWiring', () => {
     const cancellationFailure = new Error('question cancellation unavailable');
     const cancelPendingQuestion = vi
       .fn()
-      .mockResolvedValueOnce('retryable')
-      .mockRejectedValueOnce(cancellationFailure)
-      .mockImplementationOnce(async (cancellation) => {
-        resolveAnswer({ requestId: cancellation.requestId, answers: {} });
-        return 'settled' as const;
-      });
+      .mockRejectedValue(cancellationFailure);
     const logger = { debug: vi.fn(), error: vi.fn() };
-    let deliverPrompt!: () => void;
     const responder = createUserQuestionResponder({
       findBoundChannel: () => ({}),
       asUserQuestionSurface: () => ({
         requestUserAnswer: vi.fn(async (_jid, request, onPromptDelivered) => {
-          deliverPrompt = () => onPromptDelivered?.('question-prompt-retry');
+          onPromptDelivered?.('question-prompt-retry');
           return new Promise<{
             requestId: string;
             answers: Record<string, string | string[]>;
@@ -632,9 +626,6 @@ describe('createChannelWiring', () => {
         }),
       ).resolves.toBe('queued');
 
-      deliverPrompt();
-      await vi.advanceTimersByTimeAsync(0);
-
       expect(logger.error).toHaveBeenCalledWith(
         expect.objectContaining({
           err: cancellationFailure,
@@ -643,13 +634,13 @@ describe('createChannelWiring', () => {
           message: 'Target channel user question cancellation failed',
         }),
       );
-
-      await vi.advanceTimersByTimeAsync(250);
+      await vi.advanceTimersByTimeAsync(1_500);
+      expect(cancelPendingQuestion).toHaveBeenCalledOnce();
+      resolveAnswer({ requestId: request.requestId, answers: {} });
       await expect(answer).resolves.toEqual({
         requestId: request.requestId,
         answers: {},
       });
-      expect(cancelPendingQuestion).toHaveBeenCalledTimes(3);
       await Promise.resolve();
       expect(unhandledRejection).not.toHaveBeenCalled();
     } finally {
@@ -658,6 +649,62 @@ describe('createChannelWiring', () => {
       vi.useRealTimers();
     }
   });
+
+  it.each([
+    ['retryable', 'queued'],
+    ['not_found', 'queued'],
+    ['settled', 'settled'],
+    ['already_decided', 'settled'],
+  ] as const)(
+    'maps question result %s to %s without starting a local retry',
+    async (channelResult, cancellationResult) => {
+      vi.useFakeTimers();
+      let resolveAnswer!: (response: {
+        requestId: string;
+        answers: Record<string, string | string[]>;
+      }) => void;
+      const cancelPendingQuestion = vi.fn(async () => channelResult);
+      const responder = createUserQuestionResponder({
+        findBoundChannel: () => ({}),
+        asUserQuestionSurface: () => ({
+          requestUserAnswer: vi.fn(async (_jid, request, onPromptDelivered) => {
+            onPromptDelivered?.('question-prompt');
+            return new Promise<{
+              requestId: string;
+              answers: Record<string, string | string[]>;
+            }>((resolve) => {
+              resolveAnswer = resolve;
+            });
+          }),
+          cancelPendingQuestion,
+        }),
+        interactionLifecycle: {
+          logger: { debug: vi.fn(), error: vi.fn() },
+        },
+      });
+      const cancellation = {
+        requestId: `question-${channelResult}`,
+        appId: 'default',
+        sourceAgentFolder: 'main_agent',
+        reason: 'Question cancelled.',
+      };
+      const answer = responder.requestUserAnswer({
+        ...cancellation,
+        targetJid: 'tg:team',
+        questions: [],
+      });
+
+      await expect(responder.cancelUserQuestion(cancellation)).resolves.toBe(
+        cancellationResult,
+      );
+      await vi.advanceTimersByTimeAsync(1_500);
+      expect(cancelPendingQuestion).toHaveBeenCalledOnce();
+      resolveAnswer({ requestId: cancellation.requestId, answers: {} });
+      await answer;
+      responder.clear();
+      vi.useRealTimers();
+    },
+  );
 
   it('drops a shadowing question waiter before rethrowing its persistence error', async () => {
     const events: string[] = [];

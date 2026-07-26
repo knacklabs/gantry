@@ -13,7 +13,9 @@ import {
   claimPermissionInteractionCallback,
   configurePendingInteractionDurability,
   configurePendingInteractionPermissionPersistence,
+  findDurablePermissionInteractionByRequestId,
 } from '@core/application/interactions/pending-interaction-durability.js';
+import { createPermissionApprovalRequester } from '@core/channels/permission-approval-requester.js';
 import { createAgentToolRuleSettingsMirror } from '@core/config/settings/agent-tool-rule-settings-mirror.js';
 import { GANTRY_HOME, RUNTIME_SETTINGS_PATH } from '@core/config/index.js';
 import {
@@ -31,7 +33,11 @@ import type {
 } from '@core/domain/types.js';
 import { createIpcAuthEnvelope } from '@core/runtime/ipc-auth.js';
 import type { IpcDeps } from '@core/runtime/ipc-domain-types.js';
-import { processPermissionInteractionIpc } from '@core/runtime/ipc-interaction-processing.js';
+import {
+  interactionInFlightKey,
+  processPermissionInteractionIpc,
+} from '@core/runtime/ipc-interaction-processing.js';
+import { processPermissionCancellationDirectory } from '@core/runtime/ipc-permission-cancellation-directory.js';
 import { FilesystemRunnerControlPort } from '@core/runtime/filesystem-runner-control-port.js';
 import {
   parsePermissionIpcRequest,
@@ -65,6 +71,18 @@ const ENV_KEYS = [
   'TZ',
   'LANG',
   'LC_ALL',
+  'GANTRY_WORKSPACE_GROUP_DIR',
+  'GANTRY_WORKSPACE_EXTRA_DIR',
+  'GANTRY_IPC_DIR',
+  'GANTRY_IPC_INPUT_DIR',
+  'GANTRY_IPC_AUTH_TOKEN',
+  'GANTRY_IPC_RESPONSE_VERIFY_KEY',
+  'GANTRY_IPC_RESPONSE_KEY_ID',
+  'GANTRY_APP_ID',
+  'GANTRY_AGENT_ID',
+  'GANTRY_CHAT_JID',
+  'GANTRY_PERMISSION_LANE',
+  'GANTRY_INTERACTIVE_PERMISSION_TIMEOUT_MS',
   ...AGENT_CREDENTIAL_ENV_KEYS,
 ] as const;
 
@@ -593,5 +611,203 @@ maybeDescribe('permission decision durable IPC chain (Postgres)', () => {
     expect(events.map((event) => event.eventType)).not.toContain(
       RUNTIME_EVENT_TYPES.PERMISSION_DENIED,
     );
+  }, 60_000);
+
+  it('rejects a late approval after a claimed runner request is cancelled through the durable lane', async () => {
+    let promptActive = false;
+    let deliveredRequest: PermissionApprovalRequest | undefined;
+    let resolvePrompt!: (decision: PermissionApprovalDecision) => void;
+    let markPromptReady!: () => void;
+    const promptReady = new Promise<void>((resolve) => {
+      markPromptReady = resolve;
+    });
+    const cancelPendingPermission = vi.fn(
+      async (
+        cancellation: Parameters<
+          NonNullable<IpcDeps['cancelPermissionApproval']>
+        >[0],
+      ) => {
+        if (!promptActive || !deliveredRequest) return 'not_found' as const;
+        const claimed = await claimPermissionInteractionCallback({
+          scope: {
+            appId: deliveredRequest.appId ?? APP_ID,
+            sourceAgentFolder: deliveredRequest.sourceAgentFolder,
+            interactionId: deliveredRequest.requestId,
+          },
+          mode: 'cancel',
+          approverRef: 'runtime',
+          matchKind: 'individual',
+        });
+        if (claimed.status === 'retryable') return 'retryable' as const;
+        if (claimed.status === 'already_decided') {
+          return 'already_decided' as const;
+        }
+        promptActive = false;
+        resolvePrompt({
+          ...decisionForMode(deliveredRequest, 'cancel', 'runtime'),
+          reason: cancellation.reason,
+          permissionCallbackClaim: claimed.claim,
+        });
+        return 'settled' as const;
+      },
+    );
+    const permissionRequester = createPermissionApprovalRequester({
+      findBoundChannel: () => ({}),
+      asPermissionApprovalSurface: () => ({
+        requestPermissionApproval: async (
+          _targetJid,
+          request,
+          onPromptDelivered,
+        ) => {
+          await expect(
+            bindPendingPermissionInteractionMessage({
+              request,
+              decisionOptions: [
+                'allow_once',
+                'allow_persistent_rule',
+                'cancel',
+              ],
+              externalMessageId: 'cancel-chain-prompt',
+              provider: 'test',
+              conversationId: TARGET_JID,
+            }),
+          ).resolves.toBe(true);
+          deliveredRequest = request;
+          promptActive = true;
+          onPromptDelivered?.('cancel-chain-prompt');
+          markPromptReady();
+          return new Promise<PermissionApprovalDecision>((resolve) => {
+            resolvePrompt = resolve;
+          });
+        },
+        cancelPendingPermission,
+      }),
+      interactionLifecycle: { logger: { error: vi.fn() } },
+    });
+
+    process.env.GANTRY_WORKSPACE_GROUP_DIR = path.join(ipcBaseDir, 'workspace');
+    process.env.GANTRY_WORKSPACE_EXTRA_DIR = path.join(ipcBaseDir, 'extra');
+    process.env.GANTRY_IPC_DIR = path.join(ipcBaseDir, AGENT_FOLDER);
+    process.env.GANTRY_IPC_INPUT_DIR = path.join(ipcBaseDir, 'input');
+    process.env.GANTRY_IPC_AUTH_TOKEN = ipcAuth.authToken;
+    process.env.GANTRY_IPC_RESPONSE_VERIFY_KEY = ipcAuth.responseVerifyKey;
+    process.env.GANTRY_IPC_RESPONSE_KEY_ID = ipcAuth.responseKeyId;
+    process.env.GANTRY_APP_ID = APP_ID;
+    process.env.GANTRY_AGENT_ID = AGENT_ID;
+    process.env.GANTRY_CHAT_JID = TARGET_JID;
+    process.env.GANTRY_PERMISSION_LANE = 'interactive';
+    process.env.GANTRY_INTERACTIVE_PERMISSION_TIMEOUT_MS = '0';
+    vi.resetModules();
+    const { requestPermissionApproval } =
+      await import('@core/adapters/llm/anthropic-claude-agent/runner/permission-callback.js');
+    const controller = new AbortController();
+    const runnerDecision = requestPermissionApproval({
+      appId: APP_ID,
+      agentId: AGENT_ID,
+      workspaceFolder: AGENT_FOLDER,
+      targetJid: TARGET_JID,
+      toolName: 'Bash',
+      toolInput: { command: 'git status --short' },
+      signal: controller.signal,
+    });
+    const hostProcessing = processNextSignedPermission({
+      requestPermissionApproval: permissionRequester,
+    });
+
+    await promptReady;
+    expect(deliveredRequest).toBeDefined();
+    const request = deliveredRequest!;
+    const requestFile = `${request.requestId}.json`;
+    const requestDir = runnerControl.requestDir(
+      AGENT_FOLDER,
+      'permission-requests',
+    );
+    expect(
+      fs
+        .readdirSync(requestDir)
+        .some(
+          (file) =>
+            file.startsWith('.processing-') && file.endsWith(`-${requestFile}`),
+        ),
+    ).toBe(true);
+    expect(promptActive).toBe(true);
+
+    controller.abort();
+    await expect(runnerDecision).resolves.toMatchObject({
+      approved: false,
+      reason: 'Permission request cancelled.',
+      decisionClassification: 'user_reject',
+    });
+    const cancellationDir = runnerControl.requestDir(
+      AGENT_FOLDER,
+      'permission-cancellations',
+    );
+    expect(
+      fs.readdirSync(cancellationDir).filter((file) => file.endsWith('.json')),
+    ).toHaveLength(1);
+
+    const inFlightInteractionIpc = new Set([
+      interactionInFlightKey({
+        sourceAgentFolder: AGENT_FOLDER,
+        kind: 'permission',
+        requestId: request.requestId,
+      }),
+    ]);
+    const cancelPermissionApproval = vi.fn(permissionRequester.cancel);
+    await processPermissionCancellationDirectory({
+      sourceAgentFolder: AGENT_FOLDER,
+      shouldProcessRequestLane: () => true,
+      inFlightInteractionIpc,
+      runnerControlPort: runnerControl,
+      cancelPermissionApproval,
+      publishRuntimeEvent: (event) =>
+        runtime.storageRuntime.runtimeEvents
+          .publish(event)
+          .then(() => undefined),
+      logger: { error: vi.fn(), warn: vi.fn() },
+    });
+    await hostProcessing;
+
+    expect(cancelPermissionApproval).toHaveBeenCalledOnce();
+    expect(cancelPendingPermission).toHaveBeenCalledOnce();
+    expect(promptActive).toBe(false);
+    expect(
+      fs.readdirSync(cancellationDir).filter((file) => file.endsWith('.json')),
+    ).toEqual([]);
+    expect(await interactionRow(request.requestId)).toMatchObject({
+      status: 'cancelled',
+      resolutionJson: {
+        approved: false,
+        mode: 'cancel',
+      },
+    });
+    await expect(
+      findDurablePermissionInteractionByRequestId({
+        scope: {
+          appId: APP_ID,
+          sourceAgentFolder: AGENT_FOLDER,
+          interactionId: request.requestId,
+        },
+      }),
+    ).resolves.toBeNull();
+
+    await expect(
+      claimPermissionInteractionCallback({
+        scope: {
+          appId: APP_ID,
+          sourceAgentFolder: AGENT_FOLDER,
+          interactionId: request.requestId,
+        },
+        mode: 'allow_persistent_rule',
+        approverRef: APPROVER,
+        matchKind: 'individual',
+      }),
+    ).resolves.toEqual({ status: 'already_decided' });
+    expect(await permissionDecisionRow(request.requestId)).toMatchObject({
+      effect: 'deny',
+    });
+    expect(
+      (await runtimeEvents(request.requestId)).map((event) => event.eventType),
+    ).not.toContain(RUNTIME_EVENT_TYPES.PERMISSION_PERSISTED);
   }, 60_000);
 });

@@ -65,7 +65,9 @@ async function waitForJsonFile(dir: string): Promise<string> {
   throw new Error(`Timed out waiting for JSON file in ${dir}`);
 }
 
-async function askUserQuestionHandler(): Promise<
+async function askUserQuestionHandler(options?: {
+  claimProbe?: (requestPath: string) => boolean;
+}): Promise<
   (
     args: Record<string, unknown>,
     context?: { signal?: AbortSignal },
@@ -83,7 +85,7 @@ async function askUserQuestionHandler(): Promise<
   };
   const { registerMessagingTools } =
     await import('@core/runner/mcp/tools/messaging.js');
-  registerMessagingTools(server as never);
+  registerMessagingTools(server as never, options?.claimProbe);
   const handler = handlers.get('ask_user_question');
   if (!handler) throw new Error('ask_user_question was not registered');
   return handler as never;
@@ -153,16 +155,30 @@ describe('ask_user_question lane deadlines', () => {
   it('waits for a claimed interactive question beyond the auth TTL until answered', async () => {
     vi.stubEnv('GANTRY_INTERACTIVE_PERMISSION_TIMEOUT_MS', '0');
     contextState.permissionLane = 'interactive';
-    const handler = await askUserQuestionHandler();
+    vi.useFakeTimers();
+    const claimProbe = vi
+      .fn<(requestPath: string) => boolean>()
+      .mockReturnValueOnce(true)
+      .mockReturnValue(false);
+    const handler = await askUserQuestionHandler({ claimProbe });
     let settled = false;
     const result = handler(questionArgs);
     void result.then(() => {
       settled = true;
     });
-    await passInteractionBoundary();
+
+    const boundaryDir = path.join(
+      contextState.ipcDir,
+      'interaction-boundaries',
+    );
+    const [boundaryFile] = fs.readdirSync(boundaryDir);
+    fs.unlinkSync(path.join(boundaryDir, boundaryFile));
+    await vi.advanceTimersByTimeAsync(100);
 
     const requestDir = path.join(contextState.ipcDir, 'user-questions');
-    const requestFile = await waitForJsonFile(requestDir);
+    const [requestFile] = fs
+      .readdirSync(requestDir)
+      .filter((entry) => entry.endsWith('.json'));
     const requestPath = path.join(requestDir, requestFile);
     const request = JSON.parse(
       fs.readFileSync(requestPath, 'utf8'),
@@ -181,19 +197,12 @@ describe('ask_user_question lane deadlines', () => {
         fallbackTimeoutMs: 5 * 60_000,
       }),
     ).toBeUndefined();
-    const claimMarkerPath = path.join(
-      requestDir,
-      `.processing-host-${requestFile}`,
-    );
-    fs.renameSync(requestPath, claimMarkerPath);
-    await new Promise((resolve) => setTimeout(resolve, 150));
-    fs.unlinkSync(claimMarkerPath);
+    expect(claimProbe).toHaveBeenCalledWith(requestPath);
 
-    const dateNow = vi
-      .spyOn(Date, 'now')
-      .mockReturnValue(Date.parse(request.authExpiresAt!) + 60_000);
-    await new Promise((resolve) => setTimeout(resolve, 150));
+    vi.setSystemTime(Date.parse(request.authExpiresAt!) + 60_000);
+    await vi.advanceTimersByTimeAsync(100);
     expect(settled).toBe(false);
+    expect(claimProbe).toHaveBeenCalledOnce();
 
     const responseDir = path.join(contextState.ipcDir, 'user-answers');
     fs.mkdirSync(responseDir, { recursive: true });
@@ -206,6 +215,7 @@ describe('ask_user_question lane deadlines', () => {
         signature: 'test-signature',
       }),
     );
+    await vi.advanceTimersByTimeAsync(100);
 
     await expect(result).resolves.toEqual({
       content: [
@@ -215,7 +225,6 @@ describe('ask_user_question lane deadlines', () => {
         },
       ],
     });
-    dateNow.mockRestore();
   });
 
   it('returns a clear failure when an unclaimed interactive question reaches its ingestion bound', async () => {

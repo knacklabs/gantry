@@ -100,7 +100,6 @@ export function createPermissionApprovalRequester(input: {
     ) => Promise<'settled' | 'already_decided' | 'retryable' | 'not_found'>
   >();
   const activeCancellationTargets = new Map<string, string>();
-  const cancellationRetryTimers = new Map<string, NodeJS.Timeout>();
   const pendingResolvers = new Map<
     string,
     {
@@ -219,7 +218,9 @@ export function createPermissionApprovalRequester(input: {
             });
             for (const key of cancellationKeys) {
               const cancellation = queuedCancellations.get(key);
-              if (cancellation) settleQueuedCancellationSafely(cancellation);
+              if (cancellation) {
+                void settleQueuedCancellationSafely(cancellation);
+              }
             }
           },
         );
@@ -266,52 +267,39 @@ export function createPermissionApprovalRequester(input: {
 
   async function settleQueuedCancellation(
     cancellation: PermissionApprovalCancellation,
-  ): Promise<void> {
+  ): Promise<'settled' | 'queued'> {
     const key = permissionRequestScopeKey(cancellation);
     const cancel = activeCancellationHandlers.get(key);
-    if (!cancel) return;
+    if (!cancel) return 'queued';
     const result = await cancel(cancellation);
     if (result === 'settled' || result === 'already_decided') {
       clearQueuedCancellation(key);
-      return;
+      return 'settled';
     }
-    if (result === 'retryable') scheduleCancellationRetry(cancellation);
+    // The durable IPC directory owns retries; a local timer can race it and cannot survive restart.
+    return 'queued';
   }
 
-  function settleQueuedCancellationSafely(
+  async function settleQueuedCancellationSafely(
     cancellation: PermissionApprovalCancellation,
-  ): void {
+  ): Promise<'settled' | 'queued'> {
     const key = permissionRequestScopeKey(cancellation);
     const targetJid = activeCancellationTargets.get(key);
-    void settleQueuedCancellation(cancellation).catch((err) => {
+    try {
+      return await settleQueuedCancellation(cancellation);
+    } catch (err) {
       input.interactionLifecycle.logger.error({
         err,
         targetJid,
         requestId: cancellation.requestId,
         message: 'Target channel permission cancellation failed',
       });
-      scheduleCancellationRetry(cancellation);
-    });
-  }
-
-  function scheduleCancellationRetry(
-    cancellation: PermissionApprovalCancellation,
-  ): void {
-    const key = permissionRequestScopeKey(cancellation);
-    if (cancellationRetryTimers.has(key)) return;
-    const timer = setTimeout(() => {
-      cancellationRetryTimers.delete(key);
-      settleQueuedCancellationSafely(cancellation);
-    }, 250);
-    timer.unref?.();
-    cancellationRetryTimers.set(key, timer);
+      return 'queued';
+    }
   }
 
   function clearQueuedCancellation(key: string): void {
     queuedCancellations.delete(key);
-    const retryTimer = cancellationRetryTimers.get(key);
-    if (retryTimer) clearTimeout(retryTimer);
-    cancellationRetryTimers.delete(key);
   }
 
   async function dispatchBatch(batch: PermissionBatch): Promise<void> {
@@ -481,13 +469,7 @@ export function createPermissionApprovalRequester(input: {
     queuedCancellations.set(key, cancellation);
     const cancel = activeCancellationHandlers.get(key);
     if (!cancel) return 'queued';
-    const result = await cancel(cancellation);
-    if (result === 'settled' || result === 'already_decided') {
-      clearQueuedCancellation(key);
-      return 'settled';
-    }
-    if (result === 'retryable') scheduleCancellationRetry(cancellation);
-    return 'queued';
+    return settleQueuedCancellationSafely(cancellation);
   };
   return requestPermissionApproval;
 }

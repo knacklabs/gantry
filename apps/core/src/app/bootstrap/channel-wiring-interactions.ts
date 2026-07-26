@@ -102,7 +102,6 @@ export function createUserQuestionResponder(input: {
     NonNullable<UserQuestionSurfaceLike['cancelPendingQuestion']>
   >();
   const activeCancellationTargets = new Map<string, string>();
-  const cancellationRetryTimers = new Map<string, NodeJS.Timeout>();
 
   const questionScopeKey = (
     request: Pick<
@@ -118,45 +117,35 @@ export function createUserQuestionResponder(input: {
 
   async function settleQueuedCancellation(
     cancellation: UserQuestionCancellation,
-  ): Promise<void> {
+  ): Promise<'settled' | 'queued'> {
     const key = questionScopeKey(cancellation);
     const cancel = activeCancellationHandlers.get(key);
-    if (!cancel) return;
+    if (!cancel) return 'queued';
     const result = await cancel(cancellation);
     if (result === 'settled' || result === 'already_decided') {
       queuedCancellations.delete(key);
-      return;
+      return 'settled';
     }
-    scheduleCancellationRetry(cancellation);
+    // The durable IPC directory owns retries; a local timer can race it and cannot survive restart.
+    return 'queued';
   }
 
-  function settleQueuedCancellationSafely(
+  async function settleQueuedCancellationSafely(
     cancellation: UserQuestionCancellation,
-  ): void {
+  ): Promise<'settled' | 'queued'> {
     const key = questionScopeKey(cancellation);
     const targetJid = activeCancellationTargets.get(key);
-    void settleQueuedCancellation(cancellation).catch((err) => {
+    try {
+      return await settleQueuedCancellation(cancellation);
+    } catch (err) {
       input.interactionLifecycle.logger.error({
         err,
         targetJid,
         requestId: cancellation.requestId,
         message: 'Target channel user question cancellation failed',
       });
-      scheduleCancellationRetry(cancellation);
-    });
-  }
-
-  function scheduleCancellationRetry(
-    cancellation: UserQuestionCancellation,
-  ): void {
-    const key = questionScopeKey(cancellation);
-    if (cancellationRetryTimers.has(key)) return;
-    const timer = setTimeout(() => {
-      cancellationRetryTimers.delete(key);
-      settleQueuedCancellationSafely(cancellation);
-    }, 250);
-    timer.unref?.();
-    cancellationRetryTimers.set(key, timer);
+      return 'queued';
+    }
   }
 
   async function dispatchUserAnswer(
@@ -194,7 +183,9 @@ export function createUserQuestionResponder(input: {
               threadId: request.threadId,
             });
             const cancellation = queuedCancellations.get(key);
-            if (cancellation) settleQueuedCancellationSafely(cancellation);
+            if (cancellation) {
+              void settleQueuedCancellationSafely(cancellation);
+            }
             if (questionIndex === undefined) {
               onPromptDelivered?.(messageId);
               return;
@@ -213,9 +204,6 @@ export function createUserQuestionResponder(input: {
         activeCancellationHandlers.delete(key);
         activeCancellationTargets.delete(key);
         queuedCancellations.delete(key);
-        const retryTimer = cancellationRetryTimers.get(key);
-        if (retryTimer) clearTimeout(retryTimer);
-        cancellationRetryTimers.delete(key);
       }
     } catch (err) {
       if (err instanceof DurableInteractionPersistenceError) {
@@ -256,13 +244,7 @@ export function createUserQuestionResponder(input: {
     userQuestionResponseCache.delete(key);
     const cancel = activeCancellationHandlers.get(key);
     if (!cancel) return 'queued';
-    const result = await cancel(cancellation);
-    if (result === 'settled' || result === 'already_decided') {
-      queuedCancellations.delete(key);
-      return 'settled';
-    }
-    scheduleCancellationRetry(cancellation);
-    return 'queued';
+    return settleQueuedCancellationSafely(cancellation);
   }
 
   return {
@@ -274,10 +256,6 @@ export function createUserQuestionResponder(input: {
       queuedCancellations.clear();
       activeCancellationHandlers.clear();
       activeCancellationTargets.clear();
-      for (const timer of cancellationRetryTimers.values()) {
-        clearTimeout(timer);
-      }
-      cancellationRetryTimers.clear();
     },
   };
 }
