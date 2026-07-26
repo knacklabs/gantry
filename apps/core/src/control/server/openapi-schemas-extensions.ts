@@ -92,6 +92,41 @@ export const extensionOpenApiSchemas: Record<string, JsonSchema> = {
       deadlineAtMs: { type: 'number', minimum: 0 },
     },
   },
+  MemoryReviewPageResponse: {
+    type: 'object',
+    required: [
+      'reviews',
+      'total_count',
+      'returned_count',
+      'remaining_count',
+      'limit',
+      'offset',
+    ],
+    properties: {
+      reviews: { type: 'array', items: metadata },
+      review_page: metadata,
+      page_context: metadata,
+      total_count: { type: 'integer' },
+      returned_count: { type: 'integer' },
+      remaining_count: { type: 'integer' },
+      limit: { type: 'integer' },
+      offset: { type: 'integer' },
+      next_offset: { type: 'integer', nullable: true },
+    },
+  },
+  MemoryReviewDetailResponse: envelope('review', metadata),
+  MemoryReviewDecisionRequest: {
+    type: 'object',
+    required: ['decision'],
+    properties: {
+      decision: {
+        type: 'string',
+        enum: ['approve', 'reject', 'edit_approve'],
+      },
+      editedValue: { type: 'string' },
+      reason: { type: 'string' },
+    },
+  },
   MemoryDreamingResponse: envelope('run', metadata),
   MemoryDreamingStatusResponse: envelope('runs', {
     type: 'array',

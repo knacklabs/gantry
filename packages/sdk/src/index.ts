@@ -14,6 +14,9 @@ import type {
   ClientOptions,
   MemoryContext,
   MemoryPatchInput,
+  MemoryReviewDecisionInput,
+  MemoryReviewListInput,
+  MemoryReviewSubject,
   MemorySaveInput,
   MemorySearchInput,
   RequestOptions,
@@ -651,6 +654,32 @@ export class GantryClient {
           method: 'GET',
           path: `/v1/memory/dreaming/status${querySuffix(input)}`,
         }),
+    },
+    reviews: {
+      list: (input: MemoryReviewListInput) =>
+        this.transport.request<OpenApi.ListMemoryReviewsResponse>({
+          method: 'GET',
+          path: `/v1/memory/reviews${querySuffix(input)}`,
+        }),
+      get: (reviewId: string, input: MemoryReviewSubject) =>
+        this.transport.request<OpenApi.GetMemoryReviewResponse>({
+          method: 'GET',
+          path: `/v1/memory/reviews/${encodeURIComponent(reviewId)}${querySuffix(input)}`,
+        }),
+      decide: (reviewId: string, input: MemoryReviewDecisionInput) => {
+        const { decision, editedValue, reason, ...subject } = input;
+        return this.transport.request<OpenApi.DecideMemoryReviewResponse>({
+          method: 'POST',
+          // The subject boundary rides on the query; the body carries only the
+          // decision so reviewer identity stays key-derived server-side.
+          path: `/v1/memory/reviews/${encodeURIComponent(reviewId)}/decision${querySuffix(subject)}`,
+          body: {
+            decision,
+            ...(editedValue === undefined ? {} : { editedValue }),
+            ...(reason === undefined ? {} : { reason }),
+          },
+        });
+      },
     },
   };
 }
