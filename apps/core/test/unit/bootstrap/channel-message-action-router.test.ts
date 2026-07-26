@@ -183,6 +183,7 @@ describe('createChannelMessageActionRouter', () => {
       userId: 'U123',
       insightId: 'ins-1',
       action: 'resolve',
+      localDay: '2026-07-27',
     });
 
     expect(observerHandler).toHaveBeenCalledTimes(1);
@@ -201,6 +202,7 @@ describe('createChannelMessageActionRouter', () => {
       userId: 'U123',
       insightId: '   ',
       action: 'resolve',
+      localDay: '2026-07-27',
     });
 
     expect(observerHandler).not.toHaveBeenCalled();
@@ -217,6 +219,24 @@ describe('createChannelMessageActionRouter', () => {
       userId: 'U123',
       insightId: 'ins-1',
       action: 'nuke' as never,
+      localDay: '2026-07-27',
+    });
+
+    expect(observerHandler).not.toHaveBeenCalled();
+  });
+
+  it('rejects observer feedback callbacks with an empty local day', async () => {
+    const router = createChannelMessageActionRouter();
+    const observerHandler = vi.fn();
+    router.setObserverFeedbackHandler(observerHandler as never);
+
+    await router.handle({
+      kind: 'observer_feedback',
+      conversationJid: 'sl:C123',
+      userId: 'U123',
+      insightId: 'ins-1',
+      action: 'resolve',
+      localDay: '  ',
     });
 
     expect(observerHandler).not.toHaveBeenCalled();

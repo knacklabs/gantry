@@ -115,6 +115,7 @@ describe('observer digest — Telegram render + codec', () => {
         expect(m).not.toBeNull();
         expect(OBSERVER_FEEDBACK_BY_CODE[m![1]]).toBe(ACTIONS[ai]);
         expect(m![2]).toBe(insight.insightId);
+        expect(m![3]).toBe(view.localDay);
       });
     });
   });
@@ -276,6 +277,7 @@ describe('observer digest — Slack handler (rebuild vs private)', () => {
         kind: 'observer_feedback',
         insightId,
         action: 'resolve',
+        localDay: '2026-07-27',
       }),
     },
     body: { channel: { id: 'C1' }, message: { ts: '9.9' }, user: { id: 'U1' } },

@@ -36,7 +36,8 @@ function isMessageActionValid(input: MessageActionCallbackInput): boolean {
   if (input.kind === 'observer_feedback') {
     return (
       input.insightId.trim().length > 0 &&
-      OBSERVER_FEEDBACK_ACTIONS.has(input.action)
+      OBSERVER_FEEDBACK_ACTIONS.has(input.action) &&
+      input.localDay.trim().length > 0
     );
   }
   return isLiveStopActionTokenValid(input);

@@ -38,6 +38,10 @@ export type MessageActionAffordance =
       label: string;
       insightId: string;
       action: ObserverFeedbackAction;
+      // The digest's immutable local day, stamped at render. It rides the
+      // callback token so a click self-identifies its EXACT delivery — an insight
+      // that rode a later digest too must not resolve against the newer one.
+      localDay: string;
     };
 
 export type MessageActionCallbackInput =
@@ -76,6 +80,9 @@ export type MessageActionCallbackInput =
       userId: string;
       insightId: string;
       action: ObserverFeedbackAction;
+      // Carried from the callback token: the reservation's local day, so the
+      // handler loads the EXACT digest this button belongs to (not the newest).
+      localDay: string;
     };
 
 export type MemoryReviewMessageActionInput = Extract<

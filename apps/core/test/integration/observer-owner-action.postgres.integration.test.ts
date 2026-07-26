@@ -382,37 +382,9 @@ maybeDescribe('observer owner action Postgres persistence', () => {
     );
   });
 
-  it('findDigestReservationForInsight resolves the delivering reservation via membership (timezone-independent)', async () => {
-    // 'snz' was delivered by delivery-1; the lookup joins the persisted
-    // membership, so it never depends on recomputing localDay from a timezone.
-    const reservation = await repo.findDigestReservationForInsight({
-      appId: APP_ID,
-      recipient: RECIPIENT,
-      insightId: 'snz',
-    });
-    expect(reservation?.id).toBe('delivery-1');
-    expect(reservation?.localDay).toBe('2026-07-22');
-    // Owner-scoped: another recipient can't reach this reservation.
-    expect(
-      await repo.findDigestReservationForInsight({
-        appId: APP_ID,
-        recipient: 'owner:someone-else',
-        insightId: 'snz',
-      }),
-    ).toBeNull();
-    // An insight that was never delivered has no reservation.
-    expect(
-      await repo.findDigestReservationForInsight({
-        appId: APP_ID,
-        recipient: RECIPIENT,
-        insightId: 'does-not-exist',
-      }),
-    ).toBeNull();
-  });
-
-  it('listOwnerActionsForInsights returns the latest owner action per insight, owner-scoped', async () => {
-    // Deterministic latest-wins: deliver a fresh insight, then snooze it (T1)
-    // and resolve it (T2 > T1) so its two feedback rows have distinct createdAt.
+  it('listOwnerActionsForInsights: terminal action outranks a SAME-timestamp snooze, deterministically', async () => {
+    // A snooze then a resolve at the IDENTICAL createdAt (same nowIso). The
+    // terminal resolve must win every rebuild — the ORDER BY puts snooze last.
     await repo.create(insight('lw'));
     await deliverToCooldown(repo, 'delivery-lw', '2026-07-23');
     const commonArgs = {
@@ -420,22 +392,25 @@ maybeDescribe('observer owner action Postgres persistence', () => {
       recipient: RECIPIENT,
       actorUserId: ACTOR,
       insightId: 'lw',
+      nowIso: NOW, // SAME timestamp for both rows
       snoozeMs: SNOOZE_MS,
       suppressMs: SUPPRESS_MS,
       suppressThreshold: THRESHOLD,
     };
-    await repo.applyOwnerAction({
-      ...commonArgs,
-      action: 'snooze',
-      nowIso: '2026-07-22T08:00:00.000Z',
-    });
-    await repo.applyOwnerAction({
-      ...commonArgs,
-      action: 'resolve',
-      nowIso: '2026-07-22T09:00:00.000Z',
-    });
+    await repo.applyOwnerAction({ ...commonArgs, action: 'snooze' });
+    await repo.applyOwnerAction({ ...commonArgs, action: 'resolve' });
 
-    // By now: res -> resolve, dis -> dismiss, lw -> snooze THEN resolve (latest).
+    // Repeat the read to prove the tiebreak is stable, not luck-of-the-scan.
+    for (let i = 0; i < 5; i += 1) {
+      const actions = await repo.listOwnerActionsForInsights({
+        appId: APP_ID,
+        recipient: RECIPIENT,
+        insightIds: ['lw'],
+      });
+      expect(actions.get('lw')).toBe('resolve');
+    }
+
+    // By now: res -> resolve, dis -> dismiss.
     const actions = await repo.listOwnerActionsForInsights({
       appId: APP_ID,
       recipient: RECIPIENT,
@@ -443,7 +418,7 @@ maybeDescribe('observer owner action Postgres persistence', () => {
     });
     expect(actions.get('res')).toBe('resolve');
     expect(actions.get('dis')).toBe('dismiss');
-    expect(actions.get('lw')).toBe('resolve'); // latest of snooze->resolve
+    expect(actions.get('lw')).toBe('resolve');
     expect(actions.has('does-not-exist')).toBe(false);
     // Owner-scoped: a different recipient sees none of these.
     expect(

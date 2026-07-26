@@ -81,6 +81,7 @@ export interface TeamsAdaptiveCardAction {
         kind: 'observer_feedback';
         insightId: string;
         feedback: ObserverFeedbackAction;
+        localDay: string;
         targetJid: string;
         threadId?: string;
       };
@@ -573,6 +574,7 @@ function teamsObserverInsightContainer(
           kind: 'observer_feedback',
           insightId: affordance.insightId,
           feedback: affordance.action,
+          localDay: affordance.localDay,
           targetJid: options.targetJid,
           ...(options.threadId ? { threadId: options.threadId } : {}),
         },

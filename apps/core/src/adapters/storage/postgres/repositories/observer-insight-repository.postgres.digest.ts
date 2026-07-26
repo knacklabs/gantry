@@ -185,30 +185,6 @@ export async function findDigestReservation(
   return row ? mapReservation(row) : null;
 }
 
-export async function findDigestReservationForInsight(
-  db: CanonicalDb,
-  input: {
-    appId: string;
-    recipient: string;
-    insightId: string;
-  },
-): Promise<ObserverDigestReservation | null> {
-  const [row] = await db
-    .select({ delivery: Deliveries })
-    .from(DeliveryInsights)
-    .innerJoin(Deliveries, eq(Deliveries.id, DeliveryInsights.deliveryId))
-    .where(
-      and(
-        eq(DeliveryInsights.insightId, input.insightId),
-        eq(Deliveries.appId, input.appId),
-        eq(Deliveries.recipient, input.recipient),
-      ),
-    )
-    .orderBy(desc(Deliveries.createdAt), desc(Deliveries.id))
-    .limit(1);
-  return row ? mapReservation(row.delivery) : null;
-}
-
 export async function findUnsettledDigestReservations(
   db: CanonicalDb,
   input: {

@@ -40,15 +40,17 @@ export const OBSERVER_FEEDBACK_BY_CODE: Record<string, ObserverFeedbackAction> =
     l: 'less_like_this',
   };
 
-// `ob:<r|d|s|l>:<insightId>`. Insight ids are `prin_` + uuid (~41 chars), so the
-// callback stays ~46 bytes — well under Telegram's 64-byte cap.
-export const TELEGRAM_OBSERVER_CALLBACK_PATTERN = /^ob:([rdsl]):(.+)$/;
+// `ob:<r|d|s|l>:<insightId>:<localDay>`. Insight ids are `prin_` + uuid (~41
+// chars) and localDay is a 10-char YYYY-MM-DD, so the callback stays ~57 bytes —
+// under Telegram's 64-byte cap. The localDay pins the click to its exact digest.
+export const TELEGRAM_OBSERVER_CALLBACK_PATTERN = /^ob:([rdsl]):([^:]+):(.+)$/;
 
 function observerCallbackData(
   action: ObserverFeedbackAction,
   insightId: string,
+  localDay: string,
 ): string | undefined {
-  const data = `ob:${OBSERVER_FEEDBACK_CODE[action]}:${insightId}`;
+  const data = `ob:${OBSERVER_FEEDBACK_CODE[action]}:${insightId}:${localDay}`;
   return Buffer.byteLength(data, 'utf8') <= TELEGRAM_CALLBACK_DATA_MAX_BYTES
     ? data
     : undefined;
@@ -89,6 +91,7 @@ export function telegramObserverDigestMessage(
         const callback_data = observerCallbackData(
           affordance.action,
           affordance.insightId,
+          affordance.localDay,
         );
         return callback_data ? { text: affordance.label, callback_data } : null;
       })

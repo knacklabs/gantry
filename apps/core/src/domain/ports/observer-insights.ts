@@ -288,18 +288,10 @@ export interface ObserverInsightRepository {
     recipient: string;
     localDay: string;
   }): Promise<ObserverDigestReservation | null>;
-  // Owner-scoped lookup of the reservation (with its durable renderedView) that
-  // DELIVERED a given insight, via the persisted delivery membership — timezone-
-  // stable, unlike recomputing localDay from surfacedAt. Most recent when the
-  // insight rode more than one delivery. Null when it was never delivered.
-  findDigestReservationForInsight(input: {
-    appId: string;
-    recipient: string;
-    insightId: string;
-  }): Promise<ObserverDigestReservation | null>;
   // The owner's settled action per insight (the durable feedback truth), so a
   // digest rebuild can re-mark EVERY already-acted insight — not just the one
-  // just clicked. Latest action wins when an insight has more than one row.
+  // just clicked. A terminal action (resolve/dismiss/less_like_this) outranks a
+  // same-timestamp snooze; ties then break on created_at DESC, id DESC.
   listOwnerActionsForInsights(input: {
     appId: string;
     recipient: string;

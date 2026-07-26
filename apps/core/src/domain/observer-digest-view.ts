@@ -117,6 +117,7 @@ export function buildObserverDigestMessageView(input: {
         label: affordance.label,
         insightId: insight.id,
         action: affordance.action,
+        localDay: input.localDay,
       })),
     })),
   };

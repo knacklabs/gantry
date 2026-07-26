@@ -391,6 +391,7 @@ export abstract class TelegramChannelConnect extends TelegramChannelPrompts {
       if (observerMatch) {
         const action = OBSERVER_FEEDBACK_BY_CODE[observerMatch[1]];
         const insightId = observerMatch[2];
+        const localDay = observerMatch[3];
         const callbackMessage = ctx.callbackQuery?.message as
           | { chat?: { id?: number | string }; message_thread_id?: number }
           | undefined;
@@ -412,6 +413,7 @@ export abstract class TelegramChannelConnect extends TelegramChannelPrompts {
           userId: ctx.from?.id?.toString() ?? '',
           insightId,
           action,
+          localDay,
         });
         if (!outcome) {
           await ctx.answerCallbackQuery();

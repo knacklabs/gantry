@@ -46,6 +46,8 @@ describe('buildObserverDigestMessageView', () => {
         expect(affordance.kind).toBe('observer_feedback');
         expect(affordance.insightId).toBe(insight.insightId);
         expect(affordance.label.length).toBeGreaterThan(0);
+        // localDay is stamped so the callback token can pin its exact digest.
+        expect(affordance.localDay).toBe(view.localDay);
       }
     }
 

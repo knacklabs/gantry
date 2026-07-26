@@ -44,6 +44,7 @@ export function readTeamsMessageAction(value: unknown):
       kind: 'observer_feedback';
       insightId: string;
       feedback: ObserverFeedbackAction;
+      localDay: string;
       targetJid: string;
       threadId?: string;
     }
@@ -89,10 +90,14 @@ export function readTeamsMessageAction(value: unknown):
     ) {
       return null;
     }
+    if (typeof payload.localDay !== 'string' || !payload.localDay.trim()) {
+      return null;
+    }
     return {
       kind: 'observer_feedback',
       insightId: payload.insightId,
       feedback: payload.feedback as ObserverFeedbackAction,
+      localDay: payload.localDay,
       targetJid: payload.targetJid,
       ...(typeof payload.threadId === 'string'
         ? { threadId: payload.threadId }
@@ -242,6 +247,7 @@ export async function handleTeamsMessageAction(input: {
       userId: input.userId,
       insightId: payload.insightId,
       action: payload.feedback,
+      localDay: payload.localDay,
       ...(payload.threadId ? { threadId: payload.threadId } : {}),
     });
     if (!outcome) return true;

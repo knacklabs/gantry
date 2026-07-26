@@ -67,6 +67,7 @@ function slackInsightBlocks(
       kind: 'observer_feedback',
       insightId: affordance.insightId,
       action: affordance.action,
+      localDay: affordance.localDay,
       ...(providerAccountId ? { providerAccountId } : {}),
     }),
   }));
@@ -108,6 +109,7 @@ export function slackObserverDigestBlocks(
 export function parseSlackObserverFeedback(value: unknown): {
   insightId: string;
   action: ObserverFeedbackAction;
+  localDay: string;
   providerAccountId?: string;
 } | null {
   const payload = value as
@@ -115,6 +117,7 @@ export function parseSlackObserverFeedback(value: unknown): {
         kind?: unknown;
         insightId?: unknown;
         action?: unknown;
+        localDay?: unknown;
         providerAccountId?: unknown;
       }
     | undefined;
@@ -123,13 +126,16 @@ export function parseSlackObserverFeedback(value: unknown): {
     typeof payload.insightId !== 'string' ||
     payload.insightId.trim().length === 0 ||
     typeof payload.action !== 'string' ||
-    !OBSERVER_FEEDBACK_ACTIONS.has(payload.action as ObserverFeedbackAction)
+    !OBSERVER_FEEDBACK_ACTIONS.has(payload.action as ObserverFeedbackAction) ||
+    typeof payload.localDay !== 'string' ||
+    payload.localDay.trim().length === 0
   ) {
     return null;
   }
   return {
     insightId: payload.insightId,
     action: payload.action as ObserverFeedbackAction,
+    localDay: payload.localDay,
     ...(typeof payload.providerAccountId === 'string'
       ? { providerAccountId: payload.providerAccountId }
       : {}),

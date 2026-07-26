@@ -16,6 +16,7 @@ const APP_ID = 'default';
 const OWNER = 'U-owner';
 const OWNER_JID = 'sl:D-owner';
 const OWNER_ACCOUNT = 'acct-1';
+const LOCAL_DAY = '2026-07-27';
 
 function baseAction(
   overrides: Partial<ObserverFeedbackMessageActionInput> = {},
@@ -27,6 +28,7 @@ function baseAction(
     userId: OWNER,
     insightId: 'ins-1',
     action: 'resolve',
+    localDay: LOCAL_DAY,
     ...overrides,
   };
 }
@@ -181,6 +183,10 @@ describe('handleObserverFeedbackAction', () => {
       suppressThreshold: 2,
     });
     expect(loadReservationView).toHaveBeenCalledTimes(1);
+    expect(loadReservationView).toHaveBeenCalledWith({
+      recipient: OWNER,
+      localDay: LOCAL_DAY,
+    });
     expect(outcome.state).toBe('applied');
     expect(outcome.receipt).toBe('Insight resolved.');
     const view = outcome.observerDigestView!;
@@ -356,6 +362,47 @@ describe('handleObserverFeedbackAction', () => {
     expect(rebuilt.insights[1]!.stateMarker).toBe('✕ dismissed');
     expect(rebuilt.insights[2]!.affordances).toHaveLength(1);
     expect(rebuilt.insights[2]!.stateMarker).toBeUndefined();
+  });
+
+  it('loads the reservation for the callback local_day (the OLDER digest), never the newest', async () => {
+    // Same insight rode two digests. Clicking the OLDER message's button must
+    // load the OLDER reservation's view — keyed by the token's local_day.
+    const OLD_DAY = '2026-07-01';
+    const oldView: ObserverDigestMessageView = {
+      localDay: OLD_DAY,
+      recipient: OWNER,
+      insights: [{ ...digestView().insights[0]!, title: 'OLD digest' }],
+    };
+    const loadReservationView = vi.fn(async ({ localDay }) =>
+      localDay === OLD_DAY ? oldView : digestView(),
+    );
+    const { deps } = makeDeps({ loadReservationView });
+
+    const outcome = await handleObserverFeedbackAction(
+      deps,
+      baseAction({ localDay: OLD_DAY }),
+    );
+
+    expect(loadReservationView).toHaveBeenCalledWith({
+      recipient: OWNER,
+      localDay: OLD_DAY,
+    });
+    expect(outcome.observerDigestView!.localDay).toBe(OLD_DAY);
+    expect(outcome.observerDigestView!.insights[0]!.title).toBe('OLD digest');
+  });
+
+  it('resolves the correct digest after a timezone config change (local_day comes from the token)', async () => {
+    // No surfacedAt/timezone recompute — the button carries its own local_day, so
+    // a later tz change cannot mis-key the reservation lookup.
+    const { deps, loadReservationView } = makeDeps();
+    await handleObserverFeedbackAction(
+      deps,
+      baseAction({ localDay: LOCAL_DAY }),
+    );
+    expect(loadReservationView).toHaveBeenCalledWith({
+      recipient: OWNER,
+      localDay: LOCAL_DAY,
+    });
   });
 
   it('still applies with a plain receipt when the view re-load fails', async () => {

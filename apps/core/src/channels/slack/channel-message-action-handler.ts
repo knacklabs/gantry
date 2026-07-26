@@ -84,6 +84,7 @@ export function registerSlackMessageActionHandler(
         userId: body.user.id,
         insightId: observerFeedback.insightId,
         action: observerFeedback.action,
+        localDay: observerFeedback.localDay,
       });
       if (outcome) {
         try {

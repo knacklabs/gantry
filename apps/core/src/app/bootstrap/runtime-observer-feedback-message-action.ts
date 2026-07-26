@@ -5,7 +5,6 @@ import type {
   ObserverInsightType,
   ObserverOwnerActionInsight,
   ObserverOwnerActionResult,
-  ProactiveInsight,
 } from '../../domain/ports/observer-insights.js';
 import { getRuntimeSettingsForConfig } from '../../config/index.js';
 import { resolveVerifiedObserverActivationStatus } from '../../config/settings/observer-activation.js';
@@ -67,12 +66,14 @@ export interface ObserverFeedbackMessageActionDeps {
     suppressMs: number;
     suppressThreshold: number;
   }) => Promise<ObserverOwnerActionResult>;
-  // Best-effort re-load of the durable digest view that DELIVERED this insight
-  // (the reservation's renderedView), found via persisted delivery membership so
-  // it is timezone-stable. Null when it cannot be recovered.
-  loadReservationView: (
-    insight: ProactiveInsight,
-  ) => Promise<ObserverDigestMessageView | null>;
+  // Best-effort re-load of the durable digest view for the EXACT delivery this
+  // button belongs to, keyed by the callback's own (recipient, localDay) — the
+  // token self-identifies its digest, so an insight that also rode a later digest
+  // can never resolve against the wrong one. Null when it cannot be recovered.
+  loadReservationView: (input: {
+    recipient: string;
+    localDay: string;
+  }) => Promise<ObserverDigestMessageView | null>;
   // The owner's settled action per insight, so the rebuild re-marks EVERY
   // already-acted insight in the digest — not just the one just clicked.
   listOwnerActions: (input: {
@@ -162,7 +163,10 @@ export async function handleObserverFeedbackAction(
       receipt: receiptForAction(action.action, found.insight.insightType),
     };
     try {
-      const view = await deps.loadReservationView(found.insight);
+      const view = await deps.loadReservationView({
+        recipient: owner.recipient,
+        localDay: action.localDay,
+      });
       if (view) {
         const owned = await deps.listOwnerActions({
           appId: deps.appId,
@@ -219,16 +223,13 @@ export function registerRuntimeObserverFeedbackMessageAction(
       ),
     applyOwnerAction: (input) =>
       getRuntimeStorage().repositories.observerInsights.applyOwnerAction(input),
-    // Re-load the durable digest view via the PERSISTED delivery membership
-    // (timezone-stable) rather than recomputing localDay from surfacedAt.
-    loadReservationView: async (insight) => {
+    // Re-load the durable digest view by the callback's own (recipient, localDay)
+    // — the button carries the day it was rendered for, so this pins to the exact
+    // delivery and is timezone-stable (no surfacedAt/timezone recompute).
+    loadReservationView: async ({ recipient, localDay }) => {
       const reservation =
-        await getRuntimeStorage().repositories.observerInsights.findDigestReservationForInsight(
-          {
-            appId: DEFAULT_MEMORY_APP_ID,
-            recipient: insight.recipient,
-            insightId: insight.id,
-          },
+        await getRuntimeStorage().repositories.observerInsights.findDigestReservation(
+          { appId: DEFAULT_MEMORY_APP_ID, recipient, localDay },
         );
       return reservation?.renderedView ?? null;
     },

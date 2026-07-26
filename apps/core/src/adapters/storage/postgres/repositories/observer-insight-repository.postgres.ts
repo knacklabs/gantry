@@ -46,7 +46,6 @@ import {
 import {
   claimPendingForDigest,
   findDigestReservation,
-  findDigestReservationForInsight,
   findUnsettledDigestReservations,
   listDigestDeliveries,
   listPendingForDigest,
@@ -448,14 +447,6 @@ export class PostgresObserverInsightRepository implements ObserverInsightReposit
     return findDigestReservation(this.db, input);
   }
 
-  findDigestReservationForInsight(input: {
-    appId: string;
-    recipient: string;
-    insightId: string;
-  }): Promise<ObserverDigestReservation | null> {
-    return findDigestReservationForInsight(this.db, input);
-  }
-
   async listOwnerActionsForInsights(input: {
     appId: string;
     recipient: string;
@@ -475,8 +466,15 @@ export class PostgresObserverInsightRepository implements ObserverInsightReposit
           inArray(Feedback.insightId, input.insightIds),
         ),
       )
-      .orderBy(desc(Feedback.createdAt));
-    // Ordered newest-first; keep the first (latest) action seen per insight.
+      // Deterministic tiebreak: a terminal action (resolve/dismiss/less_like_this)
+      // is the real end-state, so it outranks a same-timestamp snooze; then newest
+      // first, then id DESC so equal timestamps never order arbitrarily.
+      .orderBy(
+        sql`(${Feedback.action} = 'snooze') asc`,
+        desc(Feedback.createdAt),
+        desc(Feedback.id),
+      );
+    // Ordered end-state-first; keep the first action seen per insight.
     const actions = new Map<string, ObserverFeedbackAction>();
     for (const row of rows) {
       if (!actions.has(row.insightId)) {
