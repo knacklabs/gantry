@@ -4,7 +4,6 @@ import os from 'node:os';
 import path from 'node:path';
 
 import {
-  DeleteObjectsCommand,
   GetObjectCommand,
   ListObjectsV2Command,
   PutObjectCommand,
@@ -19,11 +18,10 @@ import {
   type SkillArtifactStore,
   type StoredSkillArtifact,
 } from '../../../domain/ports/skill-artifact-store.js';
-import { materializedSkillDirectoryNameFor } from '../../../domain/skills/skills.js';
 import {
   hashSkillBundle,
   normalizeSkillBundle,
-} from './local-skill-artifact-store.js';
+} from '../../../shared/skill-artifact-helpers.js';
 
 /**
  * Object whose final key segment starts with this marker is artifact metadata,
@@ -31,7 +29,6 @@ import {
  * the rebuilt bundle excludes it.
  */
 const ARTIFACT_MANIFEST_KEY = '.gantry-artifact.json';
-const S3_DELETE_OBJECTS_MAX_KEYS = 1000;
 
 interface ArtifactManifest {
   contentHash: string;
@@ -41,10 +38,10 @@ interface ArtifactManifest {
 
 /**
  * Current-state S3 artifact store. Mirrors the local skill store layout: a
- * skill maps to the key prefix `skills/<sanitized-name>/` with one object per
- * asset. Updates replace the prefix in place (no versioning). Integrity reuses
- * the shared `hashSkillBundle` content hash; materialize verifies sha256 and
- * atomically activates, quarantining on mismatch.
+ * skill maps to `apps/<appId>/skills/<catalogId>/<contentHash>/` with one
+ * object per asset. Integrity reuses the shared `hashSkillBundle` content
+ * hash; materialize verifies sha256 and atomically activates, quarantining on
+ * mismatch.
  */
 export class S3SkillArtifactStore
   implements SkillArtifactStore, SkillArtifactMaterializer
@@ -61,13 +58,15 @@ export class S3SkillArtifactStore
     bundle: SkillArtifactBundle;
   }): Promise<StoredSkillArtifact> {
     const bundle = normalizeSkillBundle(input.bundle);
+    // ponytail: content-hash uniqueness relies on hashSkillBundle framing; a crafted NUL-framing collision only risks same-(app,skill) stale bytes, not cross-app isolation (appId/catalogId provide that); framing hardening deferred as D-0011.
     const contentHash = hashSkillBundle(bundle);
     const storageRef = path.posix.join(
+      'apps',
+      encodeStorageSegment(input.appId),
       'skills',
-      sanitizeSegment(materializedSkillDirectoryNameFor(input.skillName)),
+      encodeStorageSegment(input.skillId),
+      encodeStorageSegment(contentHash),
     );
-    // Replace-on-update: clear the prefix before writing the new asset set.
-    await this.deletePrefix(storageRef);
     let sizeBytes = 0;
     const assetPaths: string[] = [];
     for (const asset of bundle.assets) {
@@ -101,6 +100,7 @@ export class S3SkillArtifactStore
         Metadata: { sha256: contentHash.replace(/^sha256:/, '') },
       }),
     );
+    // ponytail: Superseded hash directories stay in place; garbage collection is a follow-up.
     return {
       storageType: 'object-store',
       storageRef,
@@ -191,30 +191,6 @@ export class S3SkillArtifactStore
     await fs.rm(quarantinePath, { recursive: true, force: true });
     await fs.rename(sourceDir, quarantinePath);
     return quarantinePath;
-  }
-
-  private async deletePrefix(storageRef: string): Promise<void> {
-    const prefix = `${normalizeStorageRef(storageRef)}/`;
-    const keys = await this.listPrefix(prefix);
-    if (keys.length === 0) return;
-    for (
-      let start = 0;
-      start < keys.length;
-      start += S3_DELETE_OBJECTS_MAX_KEYS
-    ) {
-      const chunk = keys.slice(start, start + S3_DELETE_OBJECTS_MAX_KEYS);
-      const response = await this.client.send(
-        new DeleteObjectsCommand({
-          Bucket: this.bucket,
-          Delete: { Objects: chunk.map((Key) => ({ Key })) },
-        }),
-      );
-      if (response.Errors && response.Errors.length > 0) {
-        throw new Error(
-          `Failed to delete ${response.Errors.length} S3 skill artifact object(s) under ${storageRef}`,
-        );
-      }
-    }
   }
 
   private async listPrefix(prefix: string): Promise<string[]> {
@@ -315,6 +291,12 @@ function contentTypeForPath(assetPath: string): string | undefined {
 
 function isHiddenPathSegment(value: string): boolean {
   return value.split('/').some((part) => part.startsWith('.'));
+}
+
+function encodeStorageSegment(value: string): string {
+  const encoded = encodeURIComponent(value).replace(/\./g, '%2E');
+  if (!encoded) throw new Error('Skill artifact storage segment is empty');
+  return encoded;
 }
 
 function sanitizeSegment(value: string): string {

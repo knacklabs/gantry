@@ -1,5 +1,3 @@
-import path from 'node:path';
-
 import type {
   SkillArtifactBundle,
   SkillArtifactStore,
@@ -34,12 +32,7 @@ export class RemoteFirstSkillArtifactStore implements SkillArtifactStore {
   async getSkillArtifact(storageRef: string): Promise<SkillArtifactBundle> {
     try {
       const bundle = await this.authority.getSkillArtifact(storageRef);
-      await this.tryWarmCache({
-        appId: 'cache',
-        skillId: `cache:${storageRef}`,
-        skillName: skillNameFromStorageRef(storageRef),
-        bundle,
-      });
+      await this.tryWarmCacheFromStorageRef(storageRef, bundle);
       return bundle;
     } catch (authorityError) {
       if (!isMissingArtifactError(authorityError)) {
@@ -69,12 +62,35 @@ export class RemoteFirstSkillArtifactStore implements SkillArtifactStore {
       // Local cache warming must never block the remote-authoritative write/read.
     }
   }
-}
 
-function skillNameFromStorageRef(storageRef: string): string {
-  const normalized = storageRef.replace(/\\/g, '/');
-  const segment = normalized.split('/').filter(Boolean).at(-1);
-  return segment ? path.posix.basename(segment) : 'skill';
+  private async tryWarmCacheFromStorageRef(
+    storageRef: string,
+    bundle: SkillArtifactBundle,
+  ): Promise<void> {
+    try {
+      const [apps, appId, skills, skillId, contentHash, ...extra] = storageRef
+        .replace(/\\/g, '/')
+        .split('/');
+      if (
+        apps !== 'apps' ||
+        !appId ||
+        skills !== 'skills' ||
+        !skillId ||
+        !contentHash ||
+        extra.length > 0
+      ) {
+        return;
+      }
+      await this.cache.putSkillArtifact({
+        appId: decodeURIComponent(appId),
+        skillId: decodeURIComponent(skillId),
+        skillName: storageRef,
+        bundle,
+      });
+    } catch {
+      // Local cache warming must never block the remote-authoritative read.
+    }
+  }
 }
 
 function errorMessage(value: unknown): string {

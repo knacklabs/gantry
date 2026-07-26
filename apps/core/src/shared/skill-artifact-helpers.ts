@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import fs from 'fs';
 import path from 'path';
 
@@ -5,6 +6,35 @@ export type SkillAssetBytes = {
   path: string;
   content: Uint8Array;
 };
+
+type SkillBundle = {
+  assets: Array<SkillAssetBytes & { contentType?: string }>;
+};
+
+export function normalizeSkillBundle(bundle: SkillBundle): SkillBundle {
+  const assets = bundle.assets
+    .map((asset) => ({
+      path: normalizeSkillArtifactPath(asset.path),
+      contentType: asset.contentType,
+      content: new Uint8Array(asset.content),
+    }))
+    .sort((left, right) => left.path.localeCompare(right.path));
+  if (!assets.some((asset) => asset.path === 'SKILL.md')) {
+    throw new Error('Skill artifact must contain SKILL.md');
+  }
+  return { assets };
+}
+
+export function hashSkillBundle(bundle: SkillBundle): string {
+  const hash = createHash('sha256');
+  for (const asset of normalizeSkillBundle(bundle).assets) {
+    hash.update(asset.path);
+    hash.update('\0');
+    hash.update(asset.content);
+    hash.update('\0');
+  }
+  return `sha256:${hash.digest('hex')}`;
+}
 
 export function normalizeSkillAssetPath(value: string): string {
   const normalized = value.replace(/\\/g, '/');
@@ -88,4 +118,12 @@ export function cleanSkillMetadataText(
 ): string | undefined {
   const trimmed = value?.trim();
   return trimmed || undefined;
+}
+
+function normalizeSkillArtifactPath(value: string): string {
+  try {
+    return normalizeSkillAssetPath(value);
+  } catch {
+    throw new Error(`Invalid skill artifact path: ${value}`);
+  }
 }

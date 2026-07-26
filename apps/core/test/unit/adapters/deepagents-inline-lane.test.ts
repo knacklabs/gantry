@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
+import { hashSkillBundle } from '@core/shared/skill-artifact-helpers.js';
 
 const deep = vi.hoisted(() => {
   class Backend {
@@ -397,6 +398,15 @@ description: Use this skill to write release notes.
 # Release writer
 Always mention the migration impact.
 `;
+    const skillBundle = {
+      assets: [
+        {
+          path: 'SKILL.md',
+          contentType: 'text/markdown',
+          content: Buffer.from(skillContent),
+        },
+      ],
+    };
     const skillRepository = {
       listEnabledSkillsForAgent: vi.fn(async () => [
         {
@@ -411,7 +421,7 @@ Always mention the migration impact.
           storage: {
             storageType: 'object-store',
             storageRef: 'skill-release',
-            contentHash: 'sha256:release',
+            contentHash: hashSkillBundle(skillBundle),
             sizeBytes: skillContent.length,
           },
           createdAt: new Date(0).toISOString(),
@@ -420,15 +430,7 @@ Always mention the migration impact.
       ]),
     };
     const skillArtifactStore = {
-      getSkillArtifact: vi.fn(async () => ({
-        assets: [
-          {
-            path: 'SKILL.md',
-            contentType: 'text/markdown',
-            content: Buffer.from(skillContent),
-          },
-        ],
-      })),
+      getSkillArtifact: vi.fn(async () => skillBundle),
     };
     deep.streamEvents.mockImplementation(() => ({
       async *[Symbol.asyncIterator]() {

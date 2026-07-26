@@ -36,6 +36,7 @@ import {
   skillNameForReceipt,
   type ApprovedCommandSkillInstallResult,
 } from './skill-install-assets.js';
+import { skillMaterializationLockKey } from '../shared/skill-install-lock.js';
 import { parseSkillPackageAssets } from './skill-package-ipc.js';
 import { claimPatternCandidateForSkillProposal } from './pattern-candidate-skill-proposal.js';
 import {
@@ -546,8 +547,10 @@ async function installSkillFromApprovedCommand(input: {
       try {
         const assets = collectInstalledSkillAssets(root);
         name = skillNameForReceipt(assets, name);
-        const materializationKey =
-          materializedSkillDirectoryNameFor(name).toLowerCase();
+        const materializationKey = skillMaterializationLockKey(
+          input.appId,
+          materializedSkillDirectoryNameFor(name),
+        );
         if (installedMaterializationKeys.has(materializationKey)) {
           throw new Error(`Duplicate skill name: ${name}.`);
         }

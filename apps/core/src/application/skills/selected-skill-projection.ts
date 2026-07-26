@@ -9,7 +9,10 @@ import {
   skillMaterializationCollisions,
 } from '../../domain/skills/skill-identity.js';
 import type { SkillActionPermission } from '../../domain/skills/skill-action-permissions.js';
-import { normalizeSkillAssetPath } from '../../shared/skill-artifact-helpers.js';
+import {
+  hashSkillBundle,
+  normalizeSkillAssetPath,
+} from '../../shared/skill-artifact-helpers.js';
 
 export interface SelectedSkillProjectionAsset {
   path: string;
@@ -135,6 +138,12 @@ async function projectSkillArtifact(input: {
   if (!assets.some((asset) => asset.path === 'SKILL.md')) {
     throw new Error(
       `Selected skill "${input.skill.id}" artifact must include SKILL.md.`,
+    );
+  }
+  const actualContentHash = hashSkillBundle(bundle);
+  if (actualContentHash !== input.skill.storage.contentHash) {
+    throw new Error(
+      `Selected skill "${input.skill.id}" artifact integrity check failed: expected ${input.skill.storage.contentHash}, got ${actualContentHash}.`,
     );
   }
   return {
