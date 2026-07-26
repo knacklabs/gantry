@@ -46,6 +46,20 @@ not by name:
 Every scheduler mutation stays outside birthright: `upsert`, `update`, `delete`, `pause`,
 `resume`, `run_now`, `job`.
 
+### Also granted: `memory_review_pending` (added 2026-07-26)
+
+A sweep of all 65 registered tools found one more of the same shape. `memory_review_pending`
+calls `AppMemoryService.listPendingReviewPage()` — a paged read. Its neighbours are already
+granted: `memory_search` is input-independent birthright, and `memory_save` is input-gated
+birthright. So the agent could already search memory and write to memory without asking, but
+had to interrupt a human to ask *what is waiting for that human's approval*. That is backwards,
+and matches the tool's own description ("what needs memory approval?").
+
+Not granted, and deliberately: `admin_permission_list`, `settings_desired_state` and
+`guided_action_preview` are read-only in effect but sit behind
+`sourceAgentHasAdminToolCapability`. That admin tier is an existing, deliberate boundary;
+widening it is a separate policy decision rather than an omission to tidy up.
+
 ## Consequences
 - The agent can read dead letters, notification targets and awaited events without a prompt,
   which is the self-debugging case birthright exists for.
