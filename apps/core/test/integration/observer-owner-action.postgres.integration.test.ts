@@ -130,12 +130,16 @@ maybeDescribe('observer owner action Postgres persistence', () => {
   async function suppression(insightType: string): Promise<{
     negative_count: number;
     suppressed_until: string | null;
+    last_feedback_at: string;
+    updated_at: string;
   } | null> {
     const { rows } = await runtime.service.pool.query<{
       negative_count: number;
       suppressed_until: string | null;
+      last_feedback_at: string;
+      updated_at: string;
     }>(
-      `SELECT negative_count, suppressed_until
+      `SELECT negative_count, suppressed_until, last_feedback_at, updated_at
        FROM "${runtime.schemaName}".observer_insight_type_suppressions
        WHERE app_id = $1 AND recipient = $2 AND insight_type = $3`,
       [APP_ID, RECIPIENT, insightType],
@@ -346,6 +350,13 @@ maybeDescribe('observer owner action Postgres persistence', () => {
     // Unchanged — GREATEST kept the later window.
     expect(new Date(afterEarly!.suppressed_until!).toISOString()).toBe(
       '2026-09-20T08:00:00.000Z',
+    );
+    // updated_at must not rewind below its prior value or below last_feedback_at.
+    expect(Date.parse(afterEarly!.updated_at)).toBeGreaterThanOrEqual(
+      Date.parse(before!.updated_at),
+    );
+    expect(Date.parse(afterEarly!.updated_at)).toBeGreaterThanOrEqual(
+      Date.parse(afterEarly!.last_feedback_at),
     );
 
     // A later nowIso with a longer window extends suppressed_until.

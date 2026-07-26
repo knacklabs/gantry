@@ -676,7 +676,10 @@ export class PostgresObserverInsightRepository implements ObserverInsightReposit
             // earlier nowIso) can only extend, never shorten/rewind. Postgres
             // GREATEST ignores NULLs, so a NULL existing → candidate wins.
             lastFeedbackAt: sql`GREATEST(${Suppressions.lastFeedbackAt}, ${input.nowIso}::timestamptz)`,
-            updatedAt: input.nowIso,
+            // Keep updated_at monotonic: the row IS changing (count++), so it
+            // must never rewind below its prior value or below last_feedback_at
+            // when an out-of-order (earlier nowIso) negative lands.
+            updatedAt: sql`GREATEST(${Suppressions.updatedAt}, ${input.nowIso}::timestamptz)`,
             suppressedUntil: sql`CASE WHEN ${Suppressions.negativeCount} + 1 >= ${input.suppressThreshold} THEN GREATEST(${Suppressions.suppressedUntil}, ${suppressedUntilIfPromoted}::timestamptz) ELSE ${Suppressions.suppressedUntil} END`,
           },
         })
