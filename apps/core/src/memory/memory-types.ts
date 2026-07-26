@@ -109,6 +109,62 @@ export interface MemoryReviewPageSubject {
   subjectId: string;
 }
 
+/**
+ * A detected disagreement between an active memory item and an incoming
+ * candidate, plus the canonical value dreaming proposes to resolve it. Task 2
+ * populates this from the risk-based detector; here it is a type only.
+ */
+export interface MemoryContradiction {
+  type: 'same_key_value_disagreement' | 'llm_claim_conflict';
+  active: {
+    itemId: string;
+    kind: string;
+    key: string;
+    value: string;
+    evidenceIds: string[];
+  };
+  incoming: {
+    candidateId: string;
+    kind: string;
+    key: string;
+    value: string;
+    evidenceIds: string[];
+  };
+  proposedCanonical: {
+    kind: string;
+    key: string;
+    value: string;
+    reason: string;
+    evidenceIds: string[];
+  };
+}
+
+export interface MemoryReviewSnapshotEvidence {
+  id: string;
+  role: 'active' | 'incoming';
+  sourceType: string;
+  sourceId?: string;
+  sourceUri?: string;
+  text: string;
+  capturedAt: string;
+}
+
+/**
+ * Immutable artifact captured when a review request is created. Persisted as
+ * `review_snapshot_json` so display never re-reads mutable rows. Task 3 fills
+ * it; here it is a type only.
+ */
+export interface MemoryReviewSnapshot {
+  schemaVersion: 1;
+  subject: MemoryReviewPageSubject;
+  conflict?: {
+    active: MemoryContradiction['active'];
+    incoming: MemoryContradiction['incoming'];
+  };
+  proposedCanonical?: MemoryContradiction['proposedCanonical'];
+  evidence: MemoryReviewSnapshotEvidence[];
+}
+
 export interface MemoryReviewPageContext {
   subject: MemoryReviewPageSubject;
   limit: number;
@@ -157,6 +213,12 @@ export interface MemoryReviewRecord extends NormalizedMemorySubject {
   itemVersions: Record<string, number>;
   candidateVersions: Record<string, string>;
   validationSummary: string;
+  /** Raw immutable artifact JSON captured at review creation (Task 3). */
+  reviewSnapshotJson?: string | null;
+  /** Parsed form of {@link reviewSnapshotJson} when present and valid. */
+  reviewSnapshot?: MemoryReviewSnapshot | null;
+  /** Origin of the decision, e.g. 'mcp' | 'channel_action' | 'control_api'. */
+  decisionSource?: string | null;
   reviewerId?: string | null;
   decision?: MemoryReviewDecision | null;
   editedValue?: string | null;
@@ -244,6 +306,7 @@ export interface MemoryEvidenceRecord extends NormalizedMemorySubject {
   id: string;
   sourceType: MemoryEvidenceSource;
   sourceId?: string | null;
+  sourceUri?: string | null;
   actorId?: string | null;
   text: string;
   metadata: Record<string, unknown>;

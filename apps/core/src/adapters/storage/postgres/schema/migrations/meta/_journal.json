@@ -764,6 +764,13 @@
       "when": 1784910000000,
       "tag": "0111_observer_digest_delivery",
       "breakpoints": true
+    },
+    {
+      "idx": 112,
+      "version": "7",
+      "when": 1784913600000,
+      "tag": "0112_memory_review_artifact",
+      "breakpoints": true
     }
   ]
 }

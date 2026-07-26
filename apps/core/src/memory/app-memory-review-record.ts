@@ -3,6 +3,7 @@ import type {
   DreamingRunStatus,
   MemoryLifecycleProposal,
   MemoryReviewRecord,
+  MemoryReviewSnapshot,
   MemorySubjectType,
 } from './memory-types.js';
 
@@ -20,6 +21,8 @@ interface MemoryReviewRowLike {
   itemVersionsJson: string;
   candidateVersionsJson: string;
   validationSummary: string;
+  reviewSnapshotJson: string | null;
+  decisionSource: string | null;
   reviewerId: string | null;
   decision: string | null;
   editedValue: string | null;
@@ -87,6 +90,16 @@ function parseReviewProposal(value: string): MemoryLifecycleProposal {
   };
 }
 
+function parseReviewSnapshot(
+  value: string | null,
+): MemoryReviewSnapshot | null {
+  if (!value) {
+    return null;
+  }
+  // ponytail: shallow parse — Task 3 owns snapshot capture + validation.
+  return parseJsonObject(value) as unknown as MemoryReviewSnapshot;
+}
+
 export function toMemoryReview(row: MemoryReviewRowLike): MemoryReviewRecord {
   return {
     id: row.id,
@@ -101,6 +114,9 @@ export function toMemoryReview(row: MemoryReviewRowLike): MemoryReviewRecord {
     itemVersions: parseJsonNumberRecord(row.itemVersionsJson),
     candidateVersions: parseJsonStringRecord(row.candidateVersionsJson),
     validationSummary: row.validationSummary,
+    reviewSnapshotJson: row.reviewSnapshotJson,
+    reviewSnapshot: parseReviewSnapshot(row.reviewSnapshotJson),
+    decisionSource: row.decisionSource,
     reviewerId: row.reviewerId,
     decision: row.decision as MemoryReviewRecord['decision'],
     editedValue: row.editedValue,
