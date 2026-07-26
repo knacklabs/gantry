@@ -2397,36 +2397,53 @@ describe('agent-runner IPC lifecycle', () => {
   );
 
   it(
-    'synthesizes exact persistent permission suggestions for Gantry admin tools',
+    'synthesizes persistent suggestions only for grantable Gantry admin tools',
     async () => {
-      const fixture = createRunnerFixture();
+      const grantableFixture = createRunnerFixture();
 
-      const result = await runRunner(fixture, baseInput(), {
+      const grantableResult = await runRunner(grantableFixture, baseInput(), {
         TEST_PERMISSION_DECISION: 'approve',
-        TEST_PERMISSION_TOOL_NAME: 'mcp__gantry__service_restart',
+        TEST_PERMISSION_TOOL_NAME: 'mcp__gantry__admin_permission_list',
         TEST_PERMISSION_SCOPE: 'environment:staging',
         TEST_EXIT_AFTER_QUERY: '1',
       });
 
-      expect(result.exitCode).toBe(0);
-      const call = readRecord(fixture.recordPath).calls[0];
-      expect(call?.permissionRequest).toEqual(
+      expect(grantableResult.exitCode).toBe(0);
+      const grantableCall = readRecord(grantableFixture.recordPath).calls[0];
+      expect(grantableCall?.permissionRequest).toEqual(
         expect.objectContaining({
-          toolName: 'mcp__gantry__service_restart',
+          toolName: 'mcp__gantry__admin_permission_list',
           suggestions: [
             {
               type: 'addRules',
               behavior: 'allow',
               destination: 'session',
-              rules: [{ toolName: 'mcp__gantry__service_restart' }],
+              rules: [{ toolName: 'mcp__gantry__admin_permission_list' }],
             },
           ],
         }),
       );
-      expect(call?.permissionDecision).toEqual({
+      expect(grantableCall?.permissionDecision).toEqual({
         behavior: 'allow',
         updatedInput: { scope: 'environment:staging' },
       });
+
+      const excludedFixture = createRunnerFixture();
+      const excludedResult = await runRunner(excludedFixture, baseInput(), {
+        TEST_PERMISSION_DECISION: 'approve',
+        TEST_PERMISSION_TOOL_NAME: 'mcp__gantry__admin_permission_revoke',
+        TEST_PERMISSION_SCOPE: 'environment:staging',
+        TEST_EXIT_AFTER_QUERY: '1',
+      });
+
+      expect(excludedResult.exitCode).toBe(0);
+      const excludedCall = readRecord(excludedFixture.recordPath).calls[0];
+      expect(excludedCall?.permissionRequest).toEqual(
+        expect.objectContaining({
+          toolName: 'mcp__gantry__admin_permission_revoke',
+        }),
+      );
+      expect(excludedCall?.permissionRequest).not.toHaveProperty('suggestions');
     },
     RUNNER_IPC_TEST_TIMEOUT_MS,
   );

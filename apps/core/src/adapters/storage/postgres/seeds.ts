@@ -4,7 +4,7 @@ import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import * as pgSchema from './schema/schema.js';
 import {
   ADMIN_MCP_TOOL_FULL_NAMES,
-  DURABLE_SCHEDULER_MCP_TOOL_FULL_NAMES,
+  SEEDED_SCHEDULER_MCP_TOOL_FULL_NAMES,
   adminMcpToolIdForFullName,
 } from '../../../shared/admin-mcp-tools.js';
 import {
@@ -196,7 +196,7 @@ export const DEFAULT_TOOL_CATALOG = [
       'high',
     ),
   ),
-  ...DURABLE_SCHEDULER_MCP_TOOL_FULL_NAMES.map((name) =>
+  ...SEEDED_SCHEDULER_MCP_TOOL_FULL_NAMES.map((name) =>
     hostTool(
       name,
       schedulerToolDisplayName(name),

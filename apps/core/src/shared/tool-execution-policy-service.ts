@@ -8,10 +8,7 @@ import {
   normalizeBashLeafRuleContent,
   parseBashCommand,
 } from './bash-command-parser.js';
-import {
-  isAdminMcpToolFullName,
-  isDurableSchedulerMcpToolFullName,
-} from './admin-mcp-tools.js';
+import { isDurableGantryMcpToolFullName } from './admin-mcp-tools.js';
 import {
   isKnownProjectedBrowserMcpToolName,
   publicGantryToolNameForSdkTool,
@@ -610,11 +607,8 @@ function autonomousGrantRecovery(
     }
     return `request_access { "target": { "kind": "run_command", "argvPattern": "${escapeJson(rule)}" }, "temporaryOnly": false, "reason": "This autonomous run needs scoped command access." }`;
   }
-  if (isAdminMcpToolFullName(request.toolName)) {
-    return `Use the Agent Access summary to find and request the reviewed admin capability for ${request.toolName}; exact tool grants are not accepted as durable authority.`;
-  }
-  if (isDurableSchedulerMcpToolFullName(request.toolName)) {
-    return `request_access { "target": { "kind": "tool", "name": "${escapeJson(request.toolName)}" }, "temporaryOnly": false, "reason": "This autonomous run needs scheduler access." }`;
+  if (isDurableGantryMcpToolFullName(request.toolName)) {
+    return `request_access { "target": { "kind": "tool", "name": "${escapeJson(request.toolName)}" }, "temporaryOnly": false, "reason": "This autonomous run needs exact Gantry tool access." }`;
   }
   const thirdPartyMcp = thirdPartyMcpToolServerName(request.toolName);
   if (thirdPartyMcp) {
