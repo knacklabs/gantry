@@ -115,9 +115,11 @@ facade, the polling obligation, and the `task_wait` tool proposed in the first d
 
 ### Delivery rules (decided 2026-07-26)
 
-1. **Batch, do not spam.** After a task reaches terminal state, hold briefly to collect any
-   other tasks finishing in the same window, then re-engage the parent ONCE with all of them.
-   With no inline path every task would otherwise cost a wake-up; batching is the cost control.
+1. **Batch, do not spam.** After a task reaches terminal state, hold for a **few seconds** to
+   collect any other tasks finishing in that window, then re-engage the parent ONCE with all of
+   them. With no inline path every task would otherwise cost a wake-up; batching is the cost
+   control. A few seconds catches a genuine burst while keeping the news fresh; a minute-long
+   window would group harder but leave the parent unaware of work that already finished.
 2. **Never interrupt a turn in progress.** If a task completes while the parent is mid-turn,
    queue the delivery and hand it over when that turn ends. No half-finished replies, and no
    dropped results.
@@ -166,10 +168,12 @@ facade, the polling obligation, and the `task_wait` tool proposed in the first d
   implementing — "no remembered reason" is not the same as "no reason".
 - The test asserting `sendMessage` is never called for generic delegation must be updated
   knowingly, with loop protection in place — not deleted to make a new assertion pass.
-- Artifact-store spill inherits that subsystem's retention model rather than inventing one.
-  Bound the POPULATION, not the rate: CANCEL-1's archive quarantine took six review cycles
-  precisely because each attempt bounded work-per-call, entries-scanned, then removal-rate
-  before landing on population. See [[audit-paydown-2026-07]].
+- **Retention bounds the POPULATION, not the rate or the age.** Keep the most recent N spilled
+  outputs and delete the oldest beyond that, so storage cannot run away no matter how many
+  tasks run. A time-based policy ("keep 30 days") leaves the total unbounded, which is the
+  same trap CANCEL-1's archive quarantine fell into: six review cycles, each bounding
+  work-per-call, then entries-scanned, then removal-rate, before population turned out to be
+  the only quantity that actually bounds disk. See [[audit-paydown-2026-07]].
 - Scalability comes from convergence: every async kind and both runtimes end at the same
   completion contract and the same artifact-backed output. A new runtime inherits it.
 - `async_mcp_call` nests its id under `task.id` while other starts return a top-level `id`.
@@ -180,14 +184,13 @@ facade, the polling obligation, and the `task_wait` tool proposed in the first d
 Resolved during the 2026-07-26 grill: the wait budget (removed — no sync wait at all), whether
 the inline fast path earns its complexity (no — cut), why generic delegation was push-free
 (unfinished, not deliberate), where output lives (artifact store, fleet-safe), how completions
-are delivered (batched, never interrupting, never waking an absent parent), and whether
-delegation may default to the caller's own agent (no — an explicit target is required).
+are delivered (batched, never interrupting, never waking an absent parent), whether delegation
+may default to the caller's own agent (no — an explicit target is required), the batching
+window (a few seconds), and the retention shape (population cap, oldest deleted first).
 
 Remaining:
 
-1. **How long is the batching window?** The only remaining tuning knob on wake cost. Long
-   enough to group a burst, short enough that news is not stale.
-2. Within a batch, does delivery order matter, or is a set of results sufficient?
+1. Within a batch, does delivery order matter, or is a set of results sufficient?
 3. Is there admission control if an agent starts many tasks at once, or can the queue grow
    unbounded?
 4. What is the artifact retention policy for spilled output — bound the POPULATION, not the
