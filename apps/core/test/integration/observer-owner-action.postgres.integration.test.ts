@@ -382,9 +382,42 @@ maybeDescribe('observer owner action Postgres persistence', () => {
     );
   });
 
+  it('listOwnerActionsForInsights: a NEWER snooze beats an OLDER resolve (time wins over terminal preference)', async () => {
+    // Feedback rows are inserted directly to control created_at: applyOwnerAction
+    // can't produce resolve-then-later-snooze (resolve is terminal). Newest time
+    // must win, so the snooze — not the older resolve — is the marker.
+    await repo.create(insight('ord'));
+    const insertFeedback = (action: string, createdAt: string) =>
+      runtime.service.pool.query(
+        `INSERT INTO "${runtime.schemaName}".observer_insight_feedback
+           (id, app_id, recipient, insight_id, actor_user_id, insight_type, action, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+        [
+          `oif_ord_${action}`,
+          APP_ID,
+          RECIPIENT,
+          'ord',
+          ACTOR,
+          'commitment',
+          action,
+          createdAt,
+        ],
+      );
+    await insertFeedback('resolve', '2026-07-22T08:00:00.000Z');
+    await insertFeedback('snooze', '2026-07-22T10:00:00.000Z'); // newer
+    for (let i = 0; i < 5; i += 1) {
+      const actions = await repo.listOwnerActionsForInsights({
+        appId: APP_ID,
+        recipient: RECIPIENT,
+        insightIds: ['ord'],
+      });
+      expect(actions.get('ord')).toBe('snooze');
+    }
+  });
+
   it('listOwnerActionsForInsights: terminal action outranks a SAME-timestamp snooze, deterministically', async () => {
     // A snooze then a resolve at the IDENTICAL createdAt (same nowIso). The
-    // terminal resolve must win every rebuild — the ORDER BY puts snooze last.
+    // terminal resolve must win every rebuild — the ORDER BY breaks the tie.
     await repo.create(insight('lw'));
     await deliverToCooldown(repo, 'delivery-lw', '2026-07-23');
     const commonArgs = {

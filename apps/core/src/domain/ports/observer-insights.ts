@@ -290,8 +290,8 @@ export interface ObserverInsightRepository {
   }): Promise<ObserverDigestReservation | null>;
   // The owner's settled action per insight (the durable feedback truth), so a
   // digest rebuild can re-mark EVERY already-acted insight — not just the one
-  // just clicked. A terminal action (resolve/dismiss/less_like_this) outranks a
-  // same-timestamp snooze; ties then break on created_at DESC, id DESC.
+  // just clicked. Newest-by-time wins; a terminal action (resolve/dismiss/
+  // less_like_this) only outranks a snooze at an EQUAL timestamp; then id DESC.
   listOwnerActionsForInsights(input: {
     appId: string;
     recipient: string;

@@ -467,11 +467,11 @@ export class PostgresObserverInsightRepository implements ObserverInsightReposit
         ),
       )
       // Deterministic tiebreak: a terminal action (resolve/dismiss/less_like_this)
-      // is the real end-state, so it outranks a same-timestamp snooze; then newest
-      // first, then id DESC so equal timestamps never order arbitrarily.
+      // newest-by-time always wins; the terminal-over-snooze preference only
+      // breaks an EQUAL timestamp; id DESC is the final deterministic tiebreak.
       .orderBy(
-        sql`(${Feedback.action} = 'snooze') asc`,
         desc(Feedback.createdAt),
+        sql`(${Feedback.action} = 'snooze') asc`,
         desc(Feedback.id),
       );
     // Ordered end-state-first; keep the first action seen per insight.
