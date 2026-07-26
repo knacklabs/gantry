@@ -132,8 +132,24 @@ describe('observer digest — Telegram render + codec', () => {
     expect(truncateTelegramCallbackAnswer('short')).toBe('short');
     const long = 'x'.repeat(500);
     const capped = truncateTelegramCallbackAnswer(long);
-    expect(capped.length).toBeLessThanOrEqual(200);
+    expect(Array.from(capped).length).toBeLessThanOrEqual(200);
     expect(capped.endsWith('…')).toBe(true);
+  });
+
+  it('truncates by code points so an emoji on the boundary is not split into a lone surrogate', () => {
+    // Pad so the 200th code-point boundary lands where an emoji starts.
+    const capped = truncateTelegramCallbackAnswer(
+      'a'.repeat(199) + '💤'.repeat(20),
+    );
+    const codePoints = Array.from(capped);
+    expect(codePoints.length).toBeLessThanOrEqual(200);
+    expect(capped).not.toContain('�'); // no replacement char
+    // no lone surrogate anywhere in the result
+    for (const ch of capped) {
+      const code = ch.codePointAt(0)!;
+      expect(code >= 0xd800 && code <= 0xdfff).toBe(false);
+    }
+    expect(codePoints[codePoints.length - 1]).toBe('…');
   });
 });
 

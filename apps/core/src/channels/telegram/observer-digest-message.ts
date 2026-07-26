@@ -13,13 +13,16 @@ const TELEGRAM_CALLBACK_ANSWER_MAX_CHARS = 200;
 
 /**
  * Telegram caps answerCallbackQuery text at 200 chars; longer text is rejected
- * (and our .catch swallows it, so the clicker would get NO alert). Truncate with
- * an ellipsis so the ack always lands.
+ * (and our .catch swallows it, so the clicker would get NO alert). Truncate by
+ * CODE POINTS (Array.from splits on whole code points) so a surrogate-pair emoji
+ * — e.g. the digest markers ✓/💤 — straddling the boundary never gets sliced
+ * into a lone surrogate. '…' is one code point, so the result stays ≤200.
  */
 export function truncateTelegramCallbackAnswer(text: string): string {
-  return text.length <= TELEGRAM_CALLBACK_ANSWER_MAX_CHARS
+  const codePoints = Array.from(text);
+  return codePoints.length <= TELEGRAM_CALLBACK_ANSWER_MAX_CHARS
     ? text
-    : `${text.slice(0, TELEGRAM_CALLBACK_ANSWER_MAX_CHARS - 1)}…`;
+    : `${codePoints.slice(0, TELEGRAM_CALLBACK_ANSWER_MAX_CHARS - 1).join('')}…`;
 }
 
 const OBSERVER_FEEDBACK_CODE: Record<ObserverFeedbackAction, string> = {
