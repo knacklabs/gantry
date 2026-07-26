@@ -112,14 +112,21 @@ export function registerSlackMessageActionHandler(
                   text: `${outcome.receipt}\n\n${slackObserverDigestFallbackText(
                     outcome.observerDigestView,
                   )}`,
-                  blocks: slackObserverDigestBlocks(
-                    outcome.observerDigestView,
-                    {
-                      ...(opts?.providerAccountId
-                        ? { providerAccountId: opts.providerAccountId }
-                        : {}),
-                    },
-                  ),
+                  blocks: (() => {
+                    // Preserve the account on the rebuilt buttons: prefer the
+                    // parsed account (the original render carried it) so a later
+                    // click still passes owner-route auth even when the
+                    // handler-level opts.providerAccountId is unset.
+                    const providerAccountId =
+                      observerFeedback.providerAccountId ??
+                      opts?.providerAccountId;
+                    return slackObserverDigestBlocks(
+                      outcome.observerDigestView,
+                      {
+                        ...(providerAccountId ? { providerAccountId } : {}),
+                      },
+                    );
+                  })(),
                 });
               } else {
                 // denied / stale / invalid (non-owner, already-acted): private to

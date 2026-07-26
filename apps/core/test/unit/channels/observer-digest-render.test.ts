@@ -179,9 +179,9 @@ describe('observer digest — Telegram render + codec', () => {
     });
   });
 
-  it('keeps the message under Telegram 4096 and drops trailing insights with "…and N more"', () => {
-    // Many insights, each with capped-but-full fields: the aggregate would blow
-    // past 4096, so the backstop must fire.
+  it('keeps ALL insights under Telegram 4096 by shortening summaries (never dropping)', () => {
+    // Many insights, each with capped-but-full fields: the naive aggregate would
+    // blow past 4096. Adaptive budgeting must keep EVERY insight + keyboard row.
     const view = makeView({
       count: 12,
       title: () => 'T'.repeat(500),
@@ -189,13 +189,20 @@ describe('observer digest — Telegram render + codec', () => {
     });
     const { text, reply_markup } = telegramObserverDigestMessage(view);
     expect(text.length).toBeLessThanOrEqual(4096);
-    expect(text).toMatch(/…and \d+ more/);
-    // Dropped insights contribute no keyboard rows.
-    expect(reply_markup.inline_keyboard.length).toBeLessThan(12);
+    // No insight dropped: all 12 keyboard rows present, none silently settled.
+    expect(reply_markup.inline_keyboard).toHaveLength(12);
+    expect(text).not.toMatch(/…and \d+ more/);
+    // Every insight is represented (its numbered heading appears).
+    for (let i = 1; i <= 12; i += 1) {
+      expect(text).toContain(`${i}. `);
+    }
+    // Summaries were shortened to fit (ellipsis present somewhere).
+    expect(text).toContain('…');
   });
 
-  it('does not add "…and N more" when the whole digest fits', () => {
+  it('does not truncate when the whole digest comfortably fits', () => {
     const { text } = telegramObserverDigestMessage(makeView({ count: 3 }));
+    expect(text).not.toContain('…');
     expect(text).not.toMatch(/…and \d+ more/);
   });
 
@@ -396,6 +403,49 @@ describe('observer digest — Slack handler (rebuild vs private)', () => {
     expect(call.text).toContain('done'); // receipt prefix
     expect(call.text).toContain('Insight 1');
     expect(call.text).toContain('Insight 2');
+  });
+
+  it('preserves the parsed provider account on the rebuilt buttons when opts has none', async () => {
+    const view = makeView({ count: 2 });
+    const acted = view.insights[0].insightId;
+    const outcome: MessageActionOutcome = {
+      state: 'applied',
+      receipt: 'done',
+      observerDigestView: markObserverDigestInsight(view, acted, 'resolve'),
+    };
+    const { app, update, invoke } = fakeApp();
+    // No handler-level providerAccountId — it must come from the parsed value.
+    registerSlackMessageActionHandler(app as never, {
+      onMessageAction: async () => outcome,
+    });
+    await invoke({
+      ack: vi.fn(async () => undefined),
+      action: {
+        value: JSON.stringify({
+          kind: 'observer_feedback',
+          insightId: acted,
+          action: 'resolve',
+          localDay: '2026-07-27',
+          providerAccountId: 'pa-parsed',
+        }),
+      },
+      body: {
+        channel: { id: 'C1' },
+        message: { ts: '9.9' },
+        user: { id: 'U1' },
+      },
+    });
+    const call = update.mock.calls[0]?.[0] as {
+      blocks: Array<{ type: string; elements?: Array<{ value: string }> }>;
+    };
+    const buttonValues = call.blocks
+      .filter((b) => b.type === 'actions')
+      .flatMap((b) => b.elements ?? [])
+      .map((e) => JSON.parse(e.value) as { providerAccountId?: string });
+    expect(buttonValues.length).toBeGreaterThan(0);
+    for (const value of buttonValues) {
+      expect(value.providerAccountId).toBe('pa-parsed');
+    }
   });
 
   it('denied outcome replies privately and does NOT modify the digest', async () => {

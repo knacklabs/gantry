@@ -10,9 +10,22 @@ import { telegramThreadOptionsFromString } from './channel-shared.js';
 
 const TELEGRAM_CALLBACK_DATA_MAX_BYTES = 64;
 const TELEGRAM_CALLBACK_ANSWER_MAX_CHARS = 200;
-// Headroom under Telegram's hard 4096-char message limit; the digest drops whole
-// trailing insights rather than risk a rejected send.
+// Headroom under Telegram's hard 4096-char message limit. EVERY reserved insight
+// is kept (dropping one would silently settle it to a 7-day cooldown the owner
+// never saw); instead each insight's title+summary is budgeted down to fit.
 const TELEGRAM_MESSAGE_SAFE_CEILING = 4000;
+// Per-insight non-text overhead (numbering + type line + marker + separators);
+// overestimated so the assembled total stays under the ceiling.
+const TELEGRAM_INSIGHT_FIXED_OVERHEAD = 60;
+
+// Code-point-safe truncation to `max` (Array.from splits on whole code points, so
+// an emoji straddling the cut is never sliced into a lone surrogate).
+function truncateCodePoints(value: string, max: number): string {
+  const codePoints = Array.from(value);
+  return codePoints.length <= max
+    ? value
+    : `${codePoints.slice(0, Math.max(0, max - 1)).join('')}…`;
+}
 
 /**
  * Telegram caps answerCallbackQuery text at 200 chars; longer text is rejected
@@ -111,34 +124,49 @@ export function telegramObserverDigestMessage(
     inline_keyboard: Array<Array<{ text: string; callback_data: string }>>;
   };
 } {
-  const lines = [
-    `<b>Observer digest — ${escapeTelegramHtml(view.localDay)}</b>`,
-  ];
-  // Telegram's 4096 limit counts the RENDERED text: HTML tags aren't counted and
-  // entities render to one char, so we measure the plain (pre-escape, pre-tag)
-  // lines — not the inflated HTML source — to avoid dropping insights that fit.
-  const plainLines = [`Observer digest — ${view.localDay}`];
+  const header = `Observer digest — ${view.localDay}`;
+  const lines = [`<b>${escapeTelegramHtml(header)}</b>`];
   const inline_keyboard: Array<Array<{ text: string; callback_data: string }>> =
     [];
-  for (let index = 0; index < view.insights.length; index += 1) {
+  const count = view.insights.length;
+  // Adaptive budget: each insight's title+summary share the leftover rendered
+  // budget after the header + a fixed per-insight overhead, so ALL N insights
+  // (and all N keyboard rows) fit in one message and none is silently dropped.
+  // Telegram counts the RENDERED length (tags/entities don't inflate it), so we
+  // budget the raw (pre-escape) text. ponytail: sized for the small top-N
+  // maxInsights; an absurdly large maxInsights would need multi-message
+  // splitting (not built — the digest is a bounded daily top-N).
+  const variableBudget =
+    count > 0
+      ? Math.max(
+          24,
+          Math.floor(
+            (TELEGRAM_MESSAGE_SAFE_CEILING -
+              header.length -
+              TELEGRAM_INSIGHT_FIXED_OVERHEAD * count) /
+              count,
+          ),
+        )
+      : 0;
+  for (let index = 0; index < count; index += 1) {
     const insight = view.insights[index]!;
-    const block = [
-      '',
-      `<b>${index + 1}. ${escapeTelegramHtml(insight.title)}</b>`,
-    ];
-    const plainBlock = ['', `${index + 1}. ${insight.title}`];
-    if (insight.summary) {
-      block.push(escapeTelegramHtml(insight.summary));
-      plainBlock.push(insight.summary);
+    // Fit title+summary into this insight's share: keep the whole title when it
+    // still leaves room for a summary; otherwise the title takes the budget.
+    let title = insight.title;
+    let summary = insight.summary;
+    if (title.length >= variableBudget) {
+      title = truncateCodePoints(title, variableBudget);
+      summary = '';
+    } else {
+      summary = truncateCodePoints(summary, variableBudget - title.length);
     }
+    const block = ['', `<b>${index + 1}. ${escapeTelegramHtml(title)}</b>`];
+    if (summary) block.push(escapeTelegramHtml(summary));
     block.push(`<i>${escapeTelegramHtml(insight.type)}</i>`);
-    plainBlock.push(insight.type);
-    let row: Array<{ text: string; callback_data: string }> = [];
     if (insight.stateMarker) {
       block.push(escapeTelegramHtml(insight.stateMarker));
-      plainBlock.push(insight.stateMarker);
     } else {
-      row = insight.affordances
+      const row = insight.affordances
         .map((affordance) => {
           const callback_data = observerCallbackData(
             affordance.action,
@@ -153,24 +181,9 @@ export function telegramObserverDigestMessage(
           (button): button is { text: string; callback_data: string } =>
             button !== null,
         );
-    }
-    // Aggregate backstop: per-field caps bound one insight, but a full top-N of
-    // capped insights can still exceed Telegram's 4096-char message limit. Drop
-    // whole trailing insights (never slice HTML mid-tag) once the RENDERED text
-    // would pass a safe ceiling, and note how many were dropped. Always render at
-    // least the first insight. ponytail: per-message cap; the upgrade path if
-    // maxInsights ever grows large is splitting into multiple messages.
-    if (
-      index > 0 &&
-      [...plainLines, ...plainBlock].join('\n').length >
-        TELEGRAM_MESSAGE_SAFE_CEILING
-    ) {
-      lines.push('', `…and ${view.insights.length - index} more`);
-      break;
+      if (row.length > 0) inline_keyboard.push(row);
     }
     lines.push(...block);
-    plainLines.push(...plainBlock);
-    if (row.length > 0) inline_keyboard.push(row);
   }
   return { text: lines.join('\n'), reply_markup: { inline_keyboard } };
 }
