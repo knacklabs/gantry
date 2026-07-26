@@ -2,9 +2,10 @@ import type {
   MemoryReviewActionDecision,
   MessageActionAffordance,
 } from '../../domain/types.js';
-import type {
-  ReviewMessageSide,
-  ReviewMessageView,
+import {
+  morePendingReviewsLabel,
+  type ReviewMessageSide,
+  type ReviewMessageView,
 } from '../../memory/review-message-view.js';
 import { escapeTelegramHtml } from './html-render.js';
 
@@ -137,6 +138,8 @@ export function telegramReviewMessage(view: ReviewMessageView): {
       .join('\n');
     lines.push(`<blockquote expandable>${evidenceLines}</blockquote>`);
   }
+  const morePending = morePendingReviewsLabel(view);
+  if (morePending) lines.push(escapeTelegramHtml(morePending));
   const buttons = view.affordances
     .map((affordance) => {
       const callback_data = telegramReviewCallbackData(

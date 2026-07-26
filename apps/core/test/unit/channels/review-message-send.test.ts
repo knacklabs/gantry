@@ -4,7 +4,9 @@ import { sendSlackMessage } from '@core/channels/slack/channel-delivery-helpers.
 import { sendTeamsTextOrActionMessage } from '@core/channels/teams-progress.js';
 import type { ReviewMessageView } from '@core/memory/review-message-view.js';
 
-function makeReviewView(): ReviewMessageView {
+function makeReviewView(
+  overrides: Partial<ReviewMessageView> = {},
+): ReviewMessageView {
   const reviewId = 'mrv_send1';
   return {
     reviewId,
@@ -23,6 +25,7 @@ function makeReviewView(): ReviewMessageView {
       { label: 'Reject', decision: 'reject', reviewId },
       { label: 'Edit', decision: 'edit', reviewId },
     ],
+    ...overrides,
   };
 }
 
@@ -97,5 +100,59 @@ describe('memory-review native send', () => {
         reviewId: 'mrv_send1',
       });
     }
+  });
+
+  it('Slack shows a "＋N more pending" indicator on the native card', async () => {
+    const postMessage = vi.fn(async () => ({ ok: true, ts: '1.2' }));
+    const app = { client: { chat: { postMessage } } } as never;
+
+    await sendSlackMessage({
+      app,
+      jid: 'sl:C123',
+      channelId: 'C123',
+      formattedText: 'fallback',
+      options: { reviewMessageView: makeReviewView({ morePendingCount: 2 }) },
+      log: { warn: () => undefined },
+      sendSnippetFallback: async () => null,
+    });
+
+    const blocks = (postMessage.mock.calls[0]?.[0] as { blocks: unknown[] })
+      .blocks;
+    expect(JSON.stringify(blocks)).toContain('＋2 more pending reviews');
+  });
+
+  it('Slack omits the indicator when this is the only pending review', async () => {
+    const postMessage = vi.fn(async () => ({ ok: true, ts: '1.2' }));
+    const app = { client: { chat: { postMessage } } } as never;
+
+    await sendSlackMessage({
+      app,
+      jid: 'sl:C123',
+      channelId: 'C123',
+      formattedText: 'fallback',
+      options: { reviewMessageView: makeReviewView() },
+      log: { warn: () => undefined },
+      sendSnippetFallback: async () => null,
+    });
+
+    const blocks = (postMessage.mock.calls[0]?.[0] as { blocks: unknown[] })
+      .blocks;
+    expect(JSON.stringify(blocks)).not.toContain('more pending');
+  });
+
+  it('Teams shows a "＋N more pending" indicator on the card body', async () => {
+    const sendAdaptiveCard = vi.fn(async () => undefined);
+    const sdkClient = { sendAdaptiveCard } as never;
+
+    await sendTeamsTextOrActionMessage({
+      sdkClient,
+      jid: 'teams:conversation-1',
+      text: 'fallback',
+      options: { reviewMessageView: makeReviewView({ morePendingCount: 1 }) },
+    });
+
+    const card = sendAdaptiveCard.mock.calls[0]?.[0]?.card;
+    expect(JSON.stringify(card.body)).toContain('＋1 more pending review');
+    expect(JSON.stringify(card.body)).not.toContain('reviews');
   });
 });

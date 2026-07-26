@@ -60,9 +60,16 @@ export async function buildMemoryReviewCreatedNotification(input: {
       { statementTimeoutMs: MEMORY_REVIEW_NOTIFICATION_LOOKUP_TIMEOUT_MS },
     );
     if (!record) return null;
+    const reviewMessageView = buildReviewMessageView(record);
+    // This message shows the first review; the rest are surfaced as a
+    // "＋N more pending" indicator on the native card and the text fallback.
+    const morePendingCount = Math.max(0, input.pendingCount - 1);
+    if (morePendingCount > 0) {
+      reviewMessageView.morePendingCount = morePendingCount;
+    }
     return {
       kind: 'memory_review_created',
-      reviewMessageView: buildReviewMessageView(record),
+      reviewMessageView,
       createdReviewIds: input.createdReviewIds,
       pendingCount: input.pendingCount,
     };

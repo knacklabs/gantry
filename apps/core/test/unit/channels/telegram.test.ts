@@ -1068,6 +1068,7 @@ describe('TelegramChannel', () => {
         change: '"Berlin"',
         why: 'newer statement',
         evidence: [],
+        morePendingCount: 3,
         affordances: [
           { label: 'Approve', decision: 'approve', reviewId },
           { label: 'Reject', decision: 'reject', reviewId },
@@ -1078,6 +1079,7 @@ describe('TelegramChannel', () => {
 
     const call = currentBot().api.sendMessage.mock.calls.at(-1);
     expect(call?.[1]).toContain('🧠 Memory review · conflicting note');
+    expect(call?.[1]).toContain('＋3 more pending reviews');
     expect(call?.[2]).toMatchObject({ parse_mode: 'HTML' });
     const buttons = call?.[2]?.reply_markup?.inline_keyboard?.[0] ?? [];
     expect(buttons.map((b: { text: string }) => b.text)).toEqual([

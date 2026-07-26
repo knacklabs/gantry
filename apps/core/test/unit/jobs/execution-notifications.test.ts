@@ -37,12 +37,16 @@ function makeReviewView(
 function makeReviewNotification(
   overrides: Partial<MemoryReviewCreatedNotification> = {},
 ): MemoryReviewCreatedNotification {
-  const reviewMessageView = overrides.reviewMessageView ?? makeReviewView();
+  const pendingCount = overrides.pendingCount ?? 1;
+  const morePendingCount = Math.max(0, pendingCount - 1);
+  const reviewMessageView =
+    overrides.reviewMessageView ??
+    makeReviewView(morePendingCount > 0 ? { morePendingCount } : {});
   return {
     kind: 'memory_review_created',
     reviewMessageView,
     createdReviewIds: [reviewMessageView.reviewId],
-    pendingCount: 1,
+    pendingCount,
     ...overrides,
   };
 }

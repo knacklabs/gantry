@@ -39,11 +39,13 @@ describe('summarizeDreamDecisions', () => {
         { action: 'needs_review', reviewId: 'mrv_1' },
         { action: 'promote' },
         { action: 'needs_review', reviewId: 'mrv_2' },
+        // needs_review for a pre-existing review carries no reviewId → excluded.
+        { action: 'needs_review' },
       ],
       false,
     );
     expect(summary.createdReviewIds).toEqual(['mrv_1', 'mrv_2']);
-    expect(summary.needsReview).toBe(2);
+    expect(summary.needsReview).toBe(3);
   });
 });
 
@@ -73,6 +75,8 @@ describe('buildMemoryReviewCreatedNotification', () => {
     expect(context?.kind).toBe('memory_review_created');
     expect(context?.reviewMessageView.reviewId).toBe('mrv_1');
     expect(context?.reviewMessageView.affordances).toHaveLength(3);
+    // pendingCount 2 → this message shows 1, so 1 more is pending.
+    expect(context?.reviewMessageView.morePendingCount).toBe(1);
     expect(context?.pendingCount).toBe(2);
     expect(
       (memory as { getReviewWithinAgentBoundary: ReturnType<typeof vi.fn> })
@@ -81,6 +85,16 @@ describe('buildMemoryReviewCreatedNotification', () => {
       { appId: 'default', agentId: 'agent-1', reviewId: 'mrv_1' },
       expect.objectContaining({ statementTimeoutMs: expect.any(Number) }),
     );
+  });
+
+  it('leaves morePendingCount unset when this is the only pending review', async () => {
+    const context = await buildMemoryReviewCreatedNotification({
+      memory: fakeMemory(record),
+      subject,
+      createdReviewIds: ['mrv_1'],
+      pendingCount: 1,
+    });
+    expect(context?.reviewMessageView.morePendingCount).toBeUndefined();
   });
 
   it('returns null when there are no created ids', async () => {

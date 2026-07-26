@@ -5,9 +5,10 @@ import type {
   PermissionCallbackScope,
   UserQuestionRequest,
 } from '../domain/types.js';
-import type {
-  ReviewMessageSide,
-  ReviewMessageView,
+import {
+  morePendingReviewsLabel,
+  type ReviewMessageSide,
+  type ReviewMessageView,
 } from '../memory/review-message-view.js';
 import type { AgentTodoRender } from '../domain/ports/task-lifecycle.js';
 import type { DurableQuestionCallback } from '../application/interactions/pending-interaction-durability.js';
@@ -477,6 +478,16 @@ export function teamsReviewCard(
         wrap: true,
         text: `📎 ${escapeTeamsCardText([item.source, item.date].filter(Boolean).join(' · '))}: ${escapeTeamsCardText(item.snippet)}`,
       })),
+    });
+  }
+  const morePending = morePendingReviewsLabel(view);
+  if (morePending) {
+    body.push({
+      type: 'TextBlock',
+      size: 'Small',
+      isSubtle: true,
+      wrap: true,
+      text: escapeTeamsCardText(morePending),
     });
   }
   return {

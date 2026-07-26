@@ -215,11 +215,9 @@ async function sendMemoryReviewNotification(input: {
   sendMessage: SchedulerSendMessage;
 }): Promise<boolean> {
   const view = input.notification.reviewMessageView;
-  const morePending = Math.max(0, input.notification.pendingCount - 1);
-  const text =
-    morePending > 0
-      ? `${reviewMessageFallbackText(view)}\n＋${morePending} more pending review${morePending === 1 ? '' : 's'}.`
-      : reviewMessageFallbackText(view);
+  // reviewMessageFallbackText already folds in the "＋N more pending" line from
+  // view.morePendingCount, so the text fallback and native cards stay in sync.
+  const text = reviewMessageFallbackText(view);
   return sendJobNotification({
     job: input.job,
     text,

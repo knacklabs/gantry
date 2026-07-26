@@ -1,7 +1,8 @@
 import type { MessageActionAffordance } from '../../domain/types.js';
-import type {
-  ReviewMessageSide,
-  ReviewMessageView,
+import {
+  morePendingReviewsLabel,
+  type ReviewMessageSide,
+  type ReviewMessageView,
 } from '../../memory/review-message-view.js';
 
 const SLACK_ACTION_VALUE_MAX_BYTES = 2000;
@@ -147,6 +148,13 @@ export function slackReviewMessageBlocks(
         type: 'mrkdwn',
         text: `📎 ${escapeSlackMrkdwn([item.source, item.date].filter(Boolean).join(' · '))}: ${escapeSlackMrkdwn(item.snippet)}`,
       })),
+    });
+  }
+  const morePending = morePendingReviewsLabel(view);
+  if (morePending) {
+    blocks.push({
+      type: 'context',
+      elements: [{ type: 'mrkdwn', text: escapeSlackMrkdwn(morePending) }],
     });
   }
   const elements = view.affordances.map((affordance) => ({

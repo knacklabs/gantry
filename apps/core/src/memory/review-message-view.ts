@@ -30,6 +30,10 @@ export interface ReviewMessageView {
   why: string;
   evidence: ReviewMessageEvidence[];
   affordances: ReviewMessageAffordance[];
+  /** How many OTHER reviews are still pending beyond this one, so each native
+   * renderer can show a "＋N more pending" indicator (this message shows only
+   * the first). Unset/0 when this is the only pending review. */
+  morePendingCount?: number;
 }
 
 export interface ReviewMessageSide {
@@ -239,6 +243,19 @@ function sideText(side: ReviewMessageSide): string {
 }
 
 /**
+ * Shared "＋N more pending review(s)" indicator, so every surface (native cards
+ * and the text fallback) words it identically. Returns undefined when this is
+ * the only pending review.
+ */
+export function morePendingReviewsLabel(
+  view: ReviewMessageView,
+): string | undefined {
+  const more = view.morePendingCount ?? 0;
+  if (more <= 0) return undefined;
+  return `＋${more} more pending review${more === 1 ? '' : 's'}`;
+}
+
+/**
  * Plain-text rendering of a review for channels/surfaces without native buttons
  * (the in-app channel, unsupported providers). Same compact-structured content
  * as the native cards, plus an explicit reply-command line so a reviewer can
@@ -256,6 +273,8 @@ export function reviewMessageFallbackText(view: ReviewMessageView): string {
     const meta = [item.source, item.date].filter(Boolean).join(' · ');
     lines.push(`📎 ${meta ? `${meta}: ` : ''}${item.snippet}`);
   }
+  const morePending = morePendingReviewsLabel(view);
+  if (morePending) lines.push(`${morePending}.`);
   lines.push(
     `Reply "approve ${view.reviewId}" or "reject ${view.reviewId}", ` +
       `or "edit memory review ${view.reviewId}: <replacement> — <reason>".`,

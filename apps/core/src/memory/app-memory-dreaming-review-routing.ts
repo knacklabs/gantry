@@ -153,5 +153,9 @@ export async function routeMemoryProposalToReview(input: {
     ...(input.evidenceIds ? { evidenceIds: input.evidenceIds } : {}),
     applied: false,
   });
-  return reviewId ? { action, reviewId } : { action };
+  // Only a review created THIS run counts as newly-surfaced. A `pending_exists`
+  // outcome (the proposal re-encounters a review that already exists) must NOT
+  // report a reviewId, or every recurring dreaming run would re-announce the
+  // same review until the user resolves it.
+  return outcome.status === 'created' ? { action, reviewId } : { action };
 }

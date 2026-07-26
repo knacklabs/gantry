@@ -634,6 +634,45 @@ describe('runAppMemoryDreamPass guardrails', () => {
     ]);
   });
 
+  it('does not report a reviewId when the review already exists (pending_exists)', async () => {
+    const { db } = createDb([[], [candidateRow({ value: 'new value' })]]);
+    const activeSourceRef = JSON.stringify({
+      source: 'dreaming',
+      subject,
+      version: 1,
+      evidenceIds: ['mev-active'],
+    });
+    // The proposal re-encounters a review that already exists; it must NOT be
+    // reported as newly-created, or every recurring run re-announces it.
+    const createPendingReview = vi.fn(async () => ({
+      status: 'pending_exists' as const,
+      reviewId: 'mrv-already-there',
+    }));
+
+    const decisions = await runAppMemoryDreamPass({
+      db: db as never,
+      runId: 'mdr-deep-pending-exists',
+      subject,
+      phase: 'deep',
+      dryRun: false,
+      listItems: vi.fn(async () => [
+        {
+          row: activeItemRow({
+            value: 'old value',
+            sourceRefJson: activeSourceRef,
+          }),
+        },
+      ]),
+      save: vi.fn(),
+      retire: vi.fn(async () => ({ deleted: true })),
+      createPendingReview,
+    });
+
+    // action stays needs_review, but reviewId is absent → not collected into
+    // createdReviewIds → no "review created" notification this run.
+    expect(decisions).toEqual([{ action: 'needs_review' }]);
+  });
+
   it('does not attach a contradiction when the two sides carry identical values', async () => {
     const { db } = createDb([[], [candidateRow({ value: 'same value' })]]);
     const createPendingReview = vi.fn();
