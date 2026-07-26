@@ -331,6 +331,28 @@ describe('coordinatePermissionDecision', () => {
     expect(tail).not.toHaveBeenCalled();
   });
 
+  it('falls through to the live classifier when an expired cached verdict is excluded', async () => {
+    const liveClassifierDecision = {
+      approved: false,
+      mode: 'cancel' as const,
+      decidedBy: 'live_classifier',
+    };
+    const tail = vi.fn(async () => liveClassifierDecision);
+    const getClassifierVerdict = vi.fn(async () => null);
+
+    await expect(
+      coordinatePermissionDecision({
+        request: { ...request },
+        effectHash: 'expired-effect-hash',
+        decisionMemory: { getClassifierVerdict } as never,
+        deterministicRails: () => undefined,
+        tail,
+      }),
+    ).resolves.toEqual(liveClassifierDecision);
+    expect(getClassifierVerdict).toHaveBeenCalledOnce();
+    expect(tail).toHaveBeenCalledOnce();
+  });
+
   it('reuses a cached verdict only within the same parent conversation, including its threads', async () => {
     const base = {
       ...request,

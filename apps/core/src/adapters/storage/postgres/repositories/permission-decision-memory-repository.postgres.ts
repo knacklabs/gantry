@@ -1,4 +1,4 @@
-import { and, eq, isNull, sql } from 'drizzle-orm';
+import { and, eq, gt, isNull, or, sql } from 'drizzle-orm';
 
 import {
   AllowOnceNeverPersistedError,
@@ -162,6 +162,7 @@ export class PostgresPermissionDecisionMemoryRepository implements PermissionDec
           eq(table.kind, input.kind),
           eq(table.lookupIdentity, input.lookupIdentity),
           isNull(table.revokedAt),
+          or(isNull(table.expiresAt), gt(table.expiresAt, sql`now()`)),
         ),
       )
       .limit(1);
@@ -181,6 +182,7 @@ export class PostgresPermissionDecisionMemoryRepository implements PermissionDec
           eq(table.appId, input.appId),
           eq(table.agentFolder, input.agentFolder),
           isNull(table.revokedAt),
+          or(isNull(table.expiresAt), gt(table.expiresAt, sql`now()`)),
           input.kind ? eq(table.kind, input.kind) : undefined,
         ),
       );
