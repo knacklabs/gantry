@@ -591,6 +591,7 @@ export function startIpcWatcher(deps: IpcDeps): void {
           inFlightInteractionIpc,
           runnerControlPort,
           cancelPermissionApproval: deps.cancelPermissionApproval,
+          publishRuntimeEvent: deps.publishRuntimeEvent,
           logger,
         });
 
@@ -748,6 +749,7 @@ export function startIpcWatcher(deps: IpcDeps): void {
           inFlightInteractionIpc,
           runnerControlPort,
           cancelUserQuestion: deps.cancelUserQuestion,
+          publishRuntimeEvent: deps.publishRuntimeEvent,
           logger,
         });
       }
