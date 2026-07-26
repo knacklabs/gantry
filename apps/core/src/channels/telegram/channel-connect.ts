@@ -341,8 +341,17 @@ export abstract class TelegramChannelConnect extends TelegramChannelPrompts {
           outcome.state === 'stale' ||
           outcome.state === 'invalid';
         if (terminal) {
-          // Safe for everyone: replace the shared message + drop the keyboard.
-          await ctx.answerCallbackQuery({ text: outcome.receipt });
+          // Ack is best-effort: an expired/failed callback query must NOT stop
+          // the finalize — the shared message + its live keyboard have to come
+          // down now that the review is resolved.
+          await ctx
+            .answerCallbackQuery({ text: outcome.receipt })
+            .catch((err: unknown) =>
+              logger.debug(
+                { reviewId, err: this.sanitizeErrorMessage(err) },
+                'Failed to ack Telegram memory review callback',
+              ),
+            );
           await ctx
             .editMessageText(outcome.receipt, {
               reply_markup: { inline_keyboard: [] },
@@ -355,11 +364,19 @@ export abstract class TelegramChannelConnect extends TelegramChannelPrompts {
             );
         } else {
           // denied / edit: private alert to the clicker; leave the shared
-          // message + keyboard intact for legitimate approvers.
+          // message + keyboard intact for legitimate approvers. A failed
+          // private ack shouldn't throw out of the handler.
           const text = outcome.replacementText
             ? `${outcome.receipt}\n\n${outcome.replacementText}`
             : outcome.receipt;
-          await ctx.answerCallbackQuery({ text, show_alert: true });
+          await ctx
+            .answerCallbackQuery({ text, show_alert: true })
+            .catch((err: unknown) =>
+              logger.debug(
+                { reviewId, err: this.sanitizeErrorMessage(err) },
+                'Failed to ack Telegram memory review callback',
+              ),
+            );
         }
         return;
       }

@@ -3165,7 +3165,7 @@ describe('TelegramChannel', () => {
         },
         chat: { id: 100200300 },
         from: { id: 111 },
-        answerCallbackQuery: vi.fn(),
+        answerCallbackQuery: vi.fn().mockResolvedValue(undefined),
         editMessageText: vi.fn().mockResolvedValue(undefined),
       };
       await triggerCallbackQuery(callbackCtx as any);
@@ -3191,6 +3191,33 @@ describe('TelegramChannel', () => {
       expect(callbackCtx.answerCallbackQuery).toHaveBeenCalledWith({
         text: 'Memory review approved.',
       });
+      expect(callbackCtx.editMessageText).toHaveBeenCalledWith(
+        'Memory review approved.',
+        { reply_markup: { inline_keyboard: [] } },
+      );
+    });
+
+    it('still removes the keyboard on a terminal decision when the ack rejects', async () => {
+      const onMessageAction = vi.fn(async () => ({
+        state: 'applied',
+        receipt: 'Memory review approved.',
+      }));
+      const opts = createTestOpts({ onMessageAction } as any);
+      const channel = new TelegramChannel('test-token', opts);
+      await channel.connect();
+      const callbackCtx = {
+        callbackQuery: {
+          data: 'mr:a:mrv_abc',
+          message: { chat: { id: 100200300 }, message_thread_id: 42 },
+        },
+        chat: { id: 100200300 },
+        from: { id: 111 },
+        answerCallbackQuery: vi
+          .fn()
+          .mockRejectedValue(new Error('query is too old')),
+        editMessageText: vi.fn().mockResolvedValue(undefined),
+      };
+      await triggerCallbackQuery(callbackCtx as any);
       expect(callbackCtx.editMessageText).toHaveBeenCalledWith(
         'Memory review approved.',
         { reply_markup: { inline_keyboard: [] } },
