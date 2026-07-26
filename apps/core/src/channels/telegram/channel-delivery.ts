@@ -29,7 +29,7 @@ import {
 } from './channel-shared.js';
 import {
   telegramActionReplyMarkup,
-  telegramReviewMessage,
+  sendTelegramReviewMessage,
 } from './message-action-affordances.js';
 import {
   clearProgressActions,
@@ -65,7 +65,12 @@ export abstract class TelegramChannelDelivery extends TelegramChannelConnect {
     }
 
     if (options.reviewMessageView) {
-      return this.sendReviewMessage(jid, options);
+      return sendTelegramReviewMessage({
+        bot: this.bot,
+        jid,
+        options,
+        sanitizeErrorMessage: (err) => this.sanitizeErrorMessage(err),
+      });
     }
 
     try {
@@ -181,48 +186,6 @@ export abstract class TelegramChannelDelivery extends TelegramChannelConnect {
       logger.error(
         { jid, error: this.sanitizeErrorMessage(err) },
         'Failed to send Telegram message',
-      );
-      throw err;
-    }
-  }
-
-  /**
-   * Memory-review card: sent as native Telegram HTML with an inline keyboard of
-   * Approve/Reject/Edit buttons (parse_mode HTML, not the MarkdownV2 pipeline the
-   * default send uses — the review renderer emits HTML with an expandable
-   * evidence blockquote).
-   */
-  private async sendReviewMessage(
-    jid: string,
-    options: MessageSendOptions,
-  ): Promise<MessageDeliveryResult> {
-    const view = options.reviewMessageView;
-    if (!view || !this.bot) return {};
-    const numericId = jid.replace(/^tg:/, '');
-    const rendered = telegramReviewMessage(view);
-    const threadOpts = telegramThreadOptionsFromString(options.threadId);
-    try {
-      const sent = await this.bot.api.sendMessage(numericId, rendered.text, {
-        parse_mode: 'HTML',
-        link_preview_options: { is_disabled: true },
-        reply_markup: rendered.reply_markup,
-        ...threadOpts,
-      });
-      const messageId = sent?.message_id;
-      return {
-        ...(messageId !== undefined
-          ? {
-              externalMessageId: String(messageId),
-              externalMessageIds: [String(messageId)],
-            }
-          : {}),
-        deliveredParts: 1,
-        totalParts: 1,
-      };
-    } catch (err) {
-      logger.error(
-        { jid, error: this.sanitizeErrorMessage(err) },
-        'Failed to send Telegram memory-review message',
       );
       throw err;
     }

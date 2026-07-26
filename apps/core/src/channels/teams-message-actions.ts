@@ -5,8 +5,9 @@ import type {
 } from '../domain/types.js';
 import type { TeamsAdaptiveCardPayload } from './teams-cards.js';
 import { buildTeamsReviewReceiptCard } from './teams-cards.js';
-import type { TeamsInboundMessage } from './teams-types.js';
+import type { TeamsInboundMessage, TeamsSdkClient } from './teams-types.js';
 import { teamsConversationIdFromJid } from './teams-types.js';
+import { logger } from '../infrastructure/logging/logger.js';
 
 export function readTeamsMessageAction(value: unknown):
   | {
@@ -82,6 +83,45 @@ export function readTeamsMessageAction(value: unknown):
     ...(typeof payload.threadId === 'string'
       ? { threadId: payload.threadId }
       : {}),
+  };
+}
+
+/**
+ * Provider sinks the Teams message-action handler uses to acknowledge an action:
+ * a plain-text denial and the memory-review card→receipt update. Both swallow
+ * SDK errors to a debug log so a failed acknowledgement never breaks handling.
+ */
+export function teamsMessageActionCardSinks(sdkClient: TeamsSdkClient): {
+  sendDenied: (conversationId: string | null, text: string) => Promise<void>;
+  updateReviewCard: (params: {
+    conversationId: string;
+    messageId: string;
+    card: TeamsAdaptiveCardPayload;
+  }) => Promise<void>;
+} {
+  return {
+    sendDenied: async (conversationId, text) => {
+      if (!conversationId) return;
+      try {
+        await sdkClient.sendMessage({ conversationId, text });
+      } catch (err) {
+        logger.debug(
+          { conversationId, err },
+          'Failed to send Teams permission denial feedback',
+        );
+      }
+    },
+    updateReviewCard: async ({ conversationId, messageId, card }) => {
+      if (!sdkClient.updateAdaptiveCard) return;
+      try {
+        await sdkClient.updateAdaptiveCard({ conversationId, messageId, card });
+      } catch (err) {
+        logger.debug(
+          { conversationId, messageId, err },
+          'Failed to update Teams memory-review card to receipt',
+        );
+      }
+    },
   };
 }
 

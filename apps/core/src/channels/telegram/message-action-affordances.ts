@@ -1,13 +1,17 @@
 import type {
   MemoryReviewActionDecision,
   MessageActionAffordance,
+  MessageDeliveryResult,
+  MessageSendOptions,
 } from '../../domain/types.js';
 import {
   morePendingReviewsLabel,
   type ReviewMessageSide,
   type ReviewMessageView,
-} from '../../memory/review-message-view.js';
+} from '../../domain/review-message-view.js';
 import { escapeTelegramHtml } from './html-render.js';
+import { logger } from '../../infrastructure/logging/logger.js';
+import { telegramThreadOptionsFromString } from './channel-shared.js';
 
 const TELEGRAM_ACTION_CALLBACK_BY_KIND: Record<
   MessageActionAffordance['kind'],
@@ -156,4 +160,50 @@ export function telegramReviewMessage(view: ReviewMessageView): {
     text: lines.join('\n'),
     reply_markup: { inline_keyboard: [buttons] },
   };
+}
+
+/**
+ * Memory-review card: sent as native Telegram HTML with an inline keyboard of
+ * Approve/Reject/Edit buttons (parse_mode HTML, not the MarkdownV2 pipeline the
+ * default send uses — the review renderer emits HTML with an expandable evidence
+ * blockquote). `bot` is the grammy Bot (typed `any` here to keep this module off
+ * the grammy import, matching the other telegram send helpers).
+ */
+export async function sendTelegramReviewMessage(input: {
+  bot: any;
+  jid: string;
+  options: MessageSendOptions;
+  sanitizeErrorMessage: (err: unknown) => string;
+}): Promise<MessageDeliveryResult> {
+  const { bot, jid, options, sanitizeErrorMessage } = input;
+  const view = options.reviewMessageView;
+  if (!view || !bot) return {};
+  const numericId = jid.replace(/^tg:/, '');
+  const rendered = telegramReviewMessage(view);
+  const threadOpts = telegramThreadOptionsFromString(options.threadId);
+  try {
+    const sent = await bot.api.sendMessage(numericId, rendered.text, {
+      parse_mode: 'HTML',
+      link_preview_options: { is_disabled: true },
+      reply_markup: rendered.reply_markup,
+      ...threadOpts,
+    });
+    const messageId = sent?.message_id;
+    return {
+      ...(messageId !== undefined
+        ? {
+            externalMessageId: String(messageId),
+            externalMessageIds: [String(messageId)],
+          }
+        : {}),
+      deliveredParts: 1,
+      totalParts: 1,
+    };
+  } catch (err) {
+    logger.error(
+      { jid, error: sanitizeErrorMessage(err) },
+      'Failed to send Telegram memory-review message',
+    );
+    throw err;
+  }
 }

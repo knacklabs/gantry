@@ -268,7 +268,6 @@ export function createChannelWiring(
       });
     }
   }
-
   const hasConnectedChannels = (): boolean => connectedChannels.length > 0;
   function describeDestinationJid(jid: string) {
     const provider = providerForJid(jid);

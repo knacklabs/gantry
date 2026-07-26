@@ -3,7 +3,7 @@ import {
   morePendingReviewsLabel,
   type ReviewMessageSide,
   type ReviewMessageView,
-} from '../../memory/review-message-view.js';
+} from '../../domain/review-message-view.js';
 
 const SLACK_ACTION_VALUE_MAX_BYTES = 2000;
 const SCHEDULER_ACTION_KINDS = new Set<MessageActionAffordance['kind']>([

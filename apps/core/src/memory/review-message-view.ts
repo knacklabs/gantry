@@ -1,60 +1,27 @@
-import type { MemoryReviewActionDecision } from '../domain/types.js';
 import type {
   MemoryReviewRecord,
   MemoryReviewSnapshot,
   MemoryReviewSnapshotEvidence,
 } from './memory-types.js';
+import {
+  morePendingReviewsLabel,
+  type ReviewMessageView,
+  type ReviewMessageSide,
+  type ReviewMessageEvidence,
+} from '../domain/review-message-view.js';
 
-/**
- * Provider-neutral view model for a memory-review message. Each channel adapter
- * maps this to its own native blocks; nothing here is provider-specific. Every
- * field is sourced from the review's IMMUTABLE snapshot (Task 3), never live
- * rows, so the message a reviewer sees never drifts from what was flagged.
- *
- * Layout is the locked "compact structured" shape:
- *   <title>
- *   Topic: <topic>
- *   • <side.label>: "<value>" — <source> · <date>   (one per side)
- *   Change → <change>
- *   Why: <why>
- *   [evidence — collapsible, bounded]
- *   [Approve] [Reject] [Edit]
- */
-export interface ReviewMessageView {
-  reviewId: string;
-  kind: 'contradiction' | 'retire' | 'rewrite' | 'merge';
-  title: string;
-  topic: string;
-  sides: ReviewMessageSide[];
-  change: string;
-  why: string;
-  evidence: ReviewMessageEvidence[];
-  affordances: ReviewMessageAffordance[];
-  /** How many OTHER reviews are still pending beyond this one, so each native
-   * renderer can show a "＋N more pending" indicator (this message shows only
-   * the first). Unset/0 when this is the only pending review. */
-  morePendingCount?: number;
-}
-
-export interface ReviewMessageSide {
-  label: string;
-  value: string;
-  source?: string;
-  date?: string;
-}
-
-export interface ReviewMessageEvidence {
-  source: string;
-  snippet: string;
-  date?: string;
-  uri?: string;
-}
-
-export interface ReviewMessageAffordance {
-  label: string;
-  decision: MemoryReviewActionDecision;
-  reviewId: string;
-}
+// The provider-neutral view types + the pure `morePendingReviewsLabel` helper
+// live in the domain layer so channel adapters can render them without an
+// adapters→runtime import. This module keeps the snapshot-driven builder and
+// the text fallback, which need the runtime memory types, and re-exports the
+// domain view types so existing runtime importers keep their import path.
+export type {
+  ReviewMessageView,
+  ReviewMessageSide,
+  ReviewMessageEvidence,
+  ReviewMessageAffordance,
+} from '../domain/review-message-view.js';
+export { morePendingReviewsLabel } from '../domain/review-message-view.js';
 
 const MAX_VALUE_LENGTH = 140;
 const MAX_EVIDENCE = 3;
@@ -240,19 +207,6 @@ function sideText(side: ReviewMessageSide): string {
   const meta = [side.source, side.date].filter(Boolean).join(' · ');
   const value = `${side.label}: "${side.value}"`;
   return meta ? `${value} — ${meta}` : value;
-}
-
-/**
- * Shared "＋N more pending review(s)" indicator, so every surface (native cards
- * and the text fallback) words it identically. Returns undefined when this is
- * the only pending review.
- */
-export function morePendingReviewsLabel(
-  view: ReviewMessageView,
-): string | undefined {
-  const more = view.morePendingCount ?? 0;
-  if (more <= 0) return undefined;
-  return `＋${more} more pending review${more === 1 ? '' : 's'}`;
 }
 
 /**

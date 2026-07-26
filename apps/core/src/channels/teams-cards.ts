@@ -9,7 +9,7 @@ import {
   morePendingReviewsLabel,
   type ReviewMessageSide,
   type ReviewMessageView,
-} from '../memory/review-message-view.js';
+} from '../domain/review-message-view.js';
 import type { AgentTodoRender } from '../domain/ports/task-lifecycle.js';
 import type { DurableQuestionCallback } from '../application/interactions/pending-interaction-durability.js';
 import { PERMISSION_APPROVAL_TIMEOUT_MS } from '../shared/permission-timeout.js';

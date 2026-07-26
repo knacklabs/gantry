@@ -5,7 +5,6 @@ import {
 } from '../memory/memory-embeddings.js';
 
 import { controlApiRequest } from './control-api.js';
-import type { MemoryReviewRecord } from '../memory/memory-types.js';
 import { readEnvFile } from '../config/env/file.js';
 import {
   collectMemoryStatus,
@@ -238,12 +237,12 @@ async function showReview(
     p.log.error(reviewUsage());
     return 1;
   }
-  let data: { review?: MemoryReviewRecord };
+  let data: { review?: ReviewDetail };
   try {
     data = (await controlApiRequest(runtimeHome, {
       method: 'GET',
       path: `/v1/memory/reviews/${encodeURIComponent(reviewId)}?${params}`,
-    })) as { review?: MemoryReviewRecord };
+    })) as { review?: ReviewDetail };
   } catch (err) {
     p.log.error(reviewErrorMessage(err));
     return 1;
@@ -260,16 +259,48 @@ async function showReview(
   return 0;
 }
 
-function formatClaim(claim: {
+/**
+ * CLI-side display shape for a memory-review detail response. The concrete
+ * record lives in the runtime memory layer (which the CLI adapter must not
+ * import); this covers only the fields the review formatters read from the
+ * control-API JSON.
+ */
+interface ReviewClaimDetail {
   kind?: string;
   key?: string;
   value?: string;
-}): string {
+}
+interface ReviewDetail {
+  id: string;
+  status: string;
+  createdAt: string;
+  proposal?: { action?: string };
+  proposedChange?: { action?: string };
+  applyOutcome?: string;
+  reviewSnapshot?: {
+    conflict?: { active?: ReviewClaimDetail; incoming?: ReviewClaimDetail };
+    proposedCanonical?: {
+      kind: string;
+      key: string;
+      value: string;
+      reason: string;
+    };
+    retiring?: ReviewClaimDetail[];
+    evidence?: {
+      role: string;
+      sourceType: string;
+      sourceUri?: string;
+      text: string;
+    }[];
+  } | null;
+}
+
+function formatClaim(claim: ReviewClaimDetail): string {
   const s = sanitizeTerminal;
   return `  ${s(claim.kind ?? '(kind)')} ${s(claim.key ?? '(key)')} = ${s(claim.value ?? '')}`;
 }
 
-function formatReviewDetail(review: MemoryReviewRecord): string {
+function formatReviewDetail(review: ReviewDetail): string {
   // Sanitize each API-sourced field BEFORE it meets the CLI's own labels — the
   // structural newlines that separate fields are the CLI's, never a value's.
   const s = sanitizeTerminal;
@@ -352,13 +383,13 @@ async function decideReview(
     ...(flags.editValue !== undefined ? { editedValue: flags.editValue } : {}),
     ...(flags.reason !== undefined ? { reason: flags.reason } : {}),
   };
-  let data: { review?: MemoryReviewRecord };
+  let data: { review?: ReviewDetail };
   try {
     data = (await controlApiRequest(runtimeHome, {
       method: 'POST',
       path: `/v1/memory/reviews/${encodeURIComponent(reviewId)}/decision?${params}`,
       body,
-    })) as { review?: MemoryReviewRecord };
+    })) as { review?: ReviewDetail };
   } catch (err) {
     p.log.error(reviewErrorMessage(err));
     return 1;

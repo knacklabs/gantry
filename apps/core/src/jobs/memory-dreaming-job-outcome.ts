@@ -174,3 +174,43 @@ function appendPendingReviewNotice(
   if (pendingReviews <= alreadyReported) return summary;
   return `${summary} ${pendingMemoryReviewNotice(pendingReviews)}.`;
 }
+
+function dreamSummaryPendingCount(summary: unknown, fallback: number): number {
+  if (summary && typeof summary === 'object' && !Array.isArray(summary)) {
+    const value = (summary as Record<string, unknown>).pendingReviews;
+    if (typeof value === 'number' && Number.isFinite(value) && value >= 0) {
+      return Math.trunc(value);
+    }
+  }
+  return fallback;
+}
+
+/**
+ * Turn a completed dreaming run into the typed review-created context and hand
+ * it to the terminal-notification sink. No-op when the run created no reviews or
+ * no sink is wired — the notification then keeps its concise summary.
+ */
+export async function emitMemoryReviewCreatedContext(input: {
+  dreamRun: DreamingRunStatus | undefined;
+  memory: AppMemoryService;
+  subject: NormalizedMemorySubject;
+  onNotificationContext?: (context: MemoryReviewCreatedNotification) => void;
+}): Promise<void> {
+  const sink = input.onNotificationContext;
+  if (!sink || !input.dreamRun) return;
+  const createdReviewIds = createdReviewIdsFromDreamSummary(
+    input.dreamRun.summary,
+  );
+  if (createdReviewIds.length === 0) return;
+  const pendingCount = dreamSummaryPendingCount(
+    input.dreamRun.summary,
+    createdReviewIds.length,
+  );
+  const context = await buildMemoryReviewCreatedNotification({
+    memory: input.memory,
+    subject: input.subject,
+    createdReviewIds,
+    pendingCount,
+  });
+  if (context) sink(context);
+}
