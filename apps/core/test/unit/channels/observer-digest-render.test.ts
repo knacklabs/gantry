@@ -97,6 +97,20 @@ describe('observer digest — Slack render + codec', () => {
     expect(payload.blocks?.[0]).toMatchObject({ type: 'header' });
     expect(payload.blocks?.filter((b) => b.type === 'actions')).toHaveLength(3);
   });
+
+  it('keeps every section text under Slack 3000 even with over-long title+summary', () => {
+    const view = makeView({
+      count: 3,
+      title: () => 'T'.repeat(5000),
+      summary: () => 'S'.repeat(5000),
+    });
+    const sections = slackObserverDigestBlocks(view).filter(
+      (b) => (b as { type?: string }).type === 'section',
+    ) as Array<{ text: { text: string } }>;
+    for (const section of sections) {
+      expect(section.text.text.length).toBeLessThanOrEqual(3000);
+    }
+  });
 });
 
 describe('observer digest — Telegram render + codec', () => {
@@ -118,6 +132,26 @@ describe('observer digest — Telegram render + codec', () => {
         expect(m![3]).toBe(view.localDay);
       });
     });
+  });
+
+  it('keeps the message under Telegram 4096 and drops trailing insights with "…and N more"', () => {
+    // Many insights, each with capped-but-full fields: the aggregate would blow
+    // past 4096, so the backstop must fire.
+    const view = makeView({
+      count: 12,
+      title: () => 'T'.repeat(500),
+      summary: () => 'S'.repeat(2000),
+    });
+    const { text, reply_markup } = telegramObserverDigestMessage(view);
+    expect(text.length).toBeLessThanOrEqual(4096);
+    expect(text).toMatch(/…and \d+ more/);
+    // Dropped insights contribute no keyboard rows.
+    expect(reply_markup.inline_keyboard.length).toBeLessThan(12);
+  });
+
+  it('does not add "…and N more" when the whole digest fits', () => {
+    const { text } = telegramObserverDigestMessage(makeView({ count: 3 }));
+    expect(text).not.toMatch(/…and \d+ more/);
   });
 
   it('escapes a malicious title in the HTML text', () => {
@@ -298,10 +332,15 @@ describe('observer digest — Slack handler (rebuild vs private)', () => {
     await invoke(clickArgs(acted));
     expect(postEphemeral).not.toHaveBeenCalled();
     expect(update).toHaveBeenCalledTimes(1);
-    const blocks = (
-      update.mock.calls[0]?.[0] as { blocks: Array<{ type: string }> }
-    ).blocks;
-    expect(blocks.filter((b) => b.type === 'actions')).toHaveLength(2);
+    const call = update.mock.calls[0]?.[0] as {
+      text: string;
+      blocks: Array<{ type: string }>;
+    };
+    expect(call.blocks.filter((b) => b.type === 'actions')).toHaveLength(2);
+    // a11y fallback: top-level text carries the OTHER insights, not just receipt.
+    expect(call.text).toContain('done'); // receipt prefix
+    expect(call.text).toContain('Insight 1');
+    expect(call.text).toContain('Insight 2');
   });
 
   it('denied outcome replies privately and does NOT modify the digest', async () => {

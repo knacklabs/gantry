@@ -7,6 +7,7 @@ import type {
 import {
   parseSlackObserverFeedback,
   slackObserverDigestBlocks,
+  slackObserverDigestFallbackText,
 } from './observer-digest-affordances.js';
 
 const SCHEDULER_MESSAGE_ACTION_KINDS = new Set<MessageActionAffordanceKind>([
@@ -98,7 +99,11 @@ export function registerSlackMessageActionHandler(
             await app.client.chat.update({
               channel: body.channel.id,
               ts: messageTs,
-              text: outcome.receipt,
+              // Keep the full digest in the top-level `text` (screen readers read
+              // it, not blocks); receipt line first, then every insight.
+              text: `${outcome.receipt}\n\n${slackObserverDigestFallbackText(
+                outcome.observerDigestView,
+              )}`,
               blocks: slackObserverDigestBlocks(outcome.observerDigestView, {
                 ...(opts?.providerAccountId
                   ? { providerAccountId: opts.providerAccountId }

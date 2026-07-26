@@ -82,6 +82,23 @@ function slackInsightBlocks(
  * group's buttons (see markObserverDigestInsight), so this same renderer serves
  * both the initial send and the per-outcome rebuild.
  */
+/**
+ * Plain-text fallback for the digest message's top-level `text` field. Screen
+ * readers read `text`, not blocks, so a blocks-only update would drop the whole
+ * digest for a11y users after the first action. Header + per-insight
+ * "N. title — <marker or summary>", so every insight stays announced.
+ */
+export function slackObserverDigestFallbackText(
+  view: ObserverDigestMessageView,
+): string {
+  const lines = [`Observer digest — ${view.localDay}`];
+  view.insights.forEach((insight, index) => {
+    const tail = insight.stateMarker ?? insight.summary;
+    lines.push(`${index + 1}. ${insight.title}${tail ? ` — ${tail}` : ''}`);
+  });
+  return lines.join('\n');
+}
+
 export function slackObserverDigestBlocks(
   view: ObserverDigestMessageView,
   options: { providerAccountId?: string } = {},

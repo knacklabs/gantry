@@ -10,6 +10,9 @@ import { telegramThreadOptionsFromString } from './channel-shared.js';
 
 const TELEGRAM_CALLBACK_DATA_MAX_BYTES = 64;
 const TELEGRAM_CALLBACK_ANSWER_MAX_CHARS = 200;
+// Headroom under Telegram's hard 4096-char message limit; the digest drops whole
+// trailing insights rather than risk a rejected send.
+const TELEGRAM_MESSAGE_SAFE_CEILING = 4000;
 
 /**
  * Telegram caps answerCallbackQuery text at 200 chars; longer text is rejected
@@ -113,30 +116,50 @@ export function telegramObserverDigestMessage(
   ];
   const inline_keyboard: Array<Array<{ text: string; callback_data: string }>> =
     [];
-  view.insights.forEach((insight, index) => {
-    lines.push('');
-    lines.push(`<b>${index + 1}. ${escapeTelegramHtml(insight.title)}</b>`);
-    if (insight.summary) lines.push(escapeTelegramHtml(insight.summary));
-    lines.push(`<i>${escapeTelegramHtml(insight.type)}</i>`);
+  for (let index = 0; index < view.insights.length; index += 1) {
+    const insight = view.insights[index]!;
+    const block = [
+      '',
+      `<b>${index + 1}. ${escapeTelegramHtml(insight.title)}</b>`,
+    ];
+    if (insight.summary) block.push(escapeTelegramHtml(insight.summary));
+    block.push(`<i>${escapeTelegramHtml(insight.type)}</i>`);
+    let row: Array<{ text: string; callback_data: string }> = [];
     if (insight.stateMarker) {
-      lines.push(escapeTelegramHtml(insight.stateMarker));
-      return;
-    }
-    const row = insight.affordances
-      .map((affordance) => {
-        const callback_data = observerCallbackData(
-          affordance.action,
-          affordance.insightId,
-          affordance.localDay,
+      block.push(escapeTelegramHtml(insight.stateMarker));
+    } else {
+      row = insight.affordances
+        .map((affordance) => {
+          const callback_data = observerCallbackData(
+            affordance.action,
+            affordance.insightId,
+            affordance.localDay,
+          );
+          return callback_data
+            ? { text: affordance.label, callback_data }
+            : null;
+        })
+        .filter(
+          (button): button is { text: string; callback_data: string } =>
+            button !== null,
         );
-        return callback_data ? { text: affordance.label, callback_data } : null;
-      })
-      .filter(
-        (button): button is { text: string; callback_data: string } =>
-          button !== null,
-      );
+    }
+    // Aggregate backstop: per-field caps bound one insight, but a full top-N of
+    // capped insights can still exceed Telegram's 4096-char message limit. Drop
+    // whole trailing insights (never slice HTML mid-tag) once the assembled text
+    // would pass a safe ceiling, and note how many were dropped. Always render at
+    // least the first insight. ponytail: per-message cap; the upgrade path if
+    // maxInsights ever grows large is splitting into multiple messages.
+    if (
+      index > 0 &&
+      [...lines, ...block].join('\n').length > TELEGRAM_MESSAGE_SAFE_CEILING
+    ) {
+      lines.push('', `…and ${view.insights.length - index} more`);
+      break;
+    }
+    lines.push(...block);
     if (row.length > 0) inline_keyboard.push(row);
-  });
+  }
   return { text: lines.join('\n'), reply_markup: { inline_keyboard } };
 }
 

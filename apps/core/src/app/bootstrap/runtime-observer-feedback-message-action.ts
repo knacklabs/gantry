@@ -151,6 +151,12 @@ export async function handleObserverFeedbackAction(
     // Applied: rebuild the whole digest view from the durable feedback truth so
     // EVERY already-acted insight shows its marker with buttons removed (not just
     // the one just clicked), while un-acted insights stay actionable.
+    // ponytail: two near-simultaneous actions on the SAME digest can land their
+    // provider edits out of order, transiently resurrecting a settled insight's
+    // buttons. Durable state stays correct (atomic applyOwnerAction) and a
+    // resurrected click safely no-ops (stale), so the next action self-heals the
+    // message. Upgrade path if this matters: per-digest serialization / a version
+    // guard across all three channel edit paths.
     const outcome: MessageActionOutcome = {
       state: 'applied',
       receipt: receiptForAction(action.action, found.insight.insightType),

@@ -58,6 +58,43 @@ describe('buildObserverDigestMessageView', () => {
     });
   });
 
+  it('truncates over-long title and summary with an ellipsis', () => {
+    const view = buildObserverDigestMessageView({
+      localDay: '2026-07-25',
+      recipient: 'owner-1',
+      insights: [
+        {
+          id: 'ins-a',
+          title: 'T'.repeat(5000),
+          summary: 'S'.repeat(5000),
+          insightType: 'commitment',
+        },
+      ],
+    });
+    const insight = view.insights[0]!;
+    expect(insight.title.length).toBeLessThanOrEqual(160);
+    expect(insight.summary.length).toBeLessThanOrEqual(800);
+    expect(insight.title.endsWith('…')).toBe(true);
+    expect(insight.summary.endsWith('…')).toBe(true);
+  });
+
+  it('leaves short title and summary untouched', () => {
+    const view = buildObserverDigestMessageView({
+      localDay: '2026-07-25',
+      recipient: 'owner-1',
+      insights: [
+        {
+          id: 'ins-a',
+          title: 'Short',
+          summary: 'Also short',
+          insightType: 'commitment',
+        },
+      ],
+    });
+    expect(view.insights[0]!.title).toBe('Short');
+    expect(view.insights[0]!.summary).toBe('Also short');
+  });
+
   it('returns an empty insight list for an empty selection', () => {
     const view = buildObserverDigestMessageView({
       localDay: '2026-07-25',

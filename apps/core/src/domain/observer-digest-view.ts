@@ -97,6 +97,18 @@ const OBSERVER_FEEDBACK_AFFORDANCES: ReadonlyArray<{
  * (the SAME insights the text render uses). Pure over its inputs so unit tests
  * and channel adapters can consume it without the runtime.
  */
+// Per-field caps so a single-message native render can't blow past a channel's
+// per-section (~3000-char) or per-message (~4096-char) limit. Applied here so
+// every channel adapter inherits the same bound. The digest is a small top-N
+// (schedule.maxInsights), so these per-field caps bound the aggregate too; a
+// channel with a per-message limit additionally backstops the assembled total.
+const TITLE_CAP = 160;
+const SUMMARY_CAP = 800;
+
+function truncateField(value: string, max: number): string {
+  return value.length <= max ? value : `${value.slice(0, max - 1)}…`;
+}
+
 export function buildObserverDigestMessageView(input: {
   localDay: string;
   recipient: string;
@@ -109,8 +121,8 @@ export function buildObserverDigestMessageView(input: {
     recipient: input.recipient,
     insights: input.insights.map((insight) => ({
       insightId: insight.id,
-      title: insight.title,
-      summary: insight.summary,
+      title: truncateField(insight.title, TITLE_CAP),
+      summary: truncateField(insight.summary, SUMMARY_CAP),
       type: insight.insightType,
       affordances: OBSERVER_FEEDBACK_AFFORDANCES.map((affordance) => ({
         kind: 'observer_feedback' as const,
