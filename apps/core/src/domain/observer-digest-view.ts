@@ -30,6 +30,46 @@ export interface ObserverDigestInsightView {
   summary: string;
   type: ObserverInsightType;
   affordances: ObserverFeedbackAffordance[];
+  /**
+   * Set once an owner action settles this insight (buttons dropped). Rendered in
+   * place of the button group so the other insights stay actionable in the same
+   * message. Absent while the insight is still open.
+   */
+  stateMarker?: string;
+}
+
+/** The in-message state marker each terminal action leaves on its insight. */
+export const OBSERVER_FEEDBACK_MARKERS: Record<ObserverFeedbackAction, string> =
+  {
+    resolve: '✓ resolved',
+    dismiss: '✕ dismissed',
+    snooze: '💤 snoozed',
+    less_like_this: '👎 fewer like this',
+  };
+
+/**
+ * Rebuild the digest view after ONE insight is acted on: the acted insight loses
+ * its affordances and gains its state marker; every other insight is untouched
+ * and still actionable. Pure — the host (Task 5) calls it with the reservation's
+ * durable view; channel adapters then re-render the returned view natively.
+ */
+export function markObserverDigestInsight(
+  view: ObserverDigestMessageView,
+  insightId: string,
+  action: ObserverFeedbackAction,
+): ObserverDigestMessageView {
+  return {
+    ...view,
+    insights: view.insights.map((insight) =>
+      insight.insightId === insightId
+        ? {
+            ...insight,
+            affordances: [],
+            stateMarker: OBSERVER_FEEDBACK_MARKERS[action],
+          }
+        : insight,
+    ),
+  };
 }
 
 /** The `observer_feedback` variant of the shared message-action affordance. */

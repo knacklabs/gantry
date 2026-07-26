@@ -4,6 +4,10 @@ import type {
   MessageActionOutcome,
   OnMessageAction,
 } from '../../domain/types.js';
+import {
+  parseSlackObserverFeedback,
+  slackObserverDigestBlocks,
+} from './observer-digest-affordances.js';
 
 const SCHEDULER_MESSAGE_ACTION_KINDS = new Set<MessageActionAffordanceKind>([
   'scheduler_run_now',
@@ -64,6 +68,58 @@ export function registerSlackMessageActionHandler(
     try {
       payload = action.value ? JSON.parse(action.value) : undefined;
     } catch {
+      return;
+    }
+    const observerFeedback = parseSlackObserverFeedback(payload);
+    if (observerFeedback && body.channel?.id && body.user?.id) {
+      const messageTs = body.message?.ts;
+      const outcome = await opts?.onMessageAction?.({
+        kind: 'observer_feedback',
+        conversationJid: `sl:${body.channel.id}`,
+        ...providerAccountFromPayload(
+          { providerAccountId: observerFeedback.providerAccountId },
+          opts?.providerAccountId,
+        ),
+        threadId: body.message?.thread_ts,
+        userId: body.user.id,
+        insightId: observerFeedback.insightId,
+        action: observerFeedback.action,
+      });
+      if (outcome) {
+        try {
+          if (
+            outcome.state === 'applied' &&
+            outcome.observerDigestView &&
+            messageTs
+          ) {
+            // One insight settled: rebuild the WHOLE digest from the updated
+            // view (acted insight's buttons gone + marker; others still live).
+            await app.client.chat.update({
+              channel: body.channel.id,
+              ts: messageTs,
+              text: outcome.receipt,
+              blocks: slackObserverDigestBlocks(outcome.observerDigestView, {
+                ...(opts?.providerAccountId
+                  ? { providerAccountId: opts.providerAccountId }
+                  : {}),
+              }),
+            });
+          } else {
+            // denied / stale / invalid (non-owner, already-acted): private to
+            // the clicker; the shared digest is untouched and still actionable.
+            const text = outcome.replacementText
+              ? `${outcome.receipt}\n\n${outcome.replacementText}`
+              : outcome.receipt;
+            await app.client.chat.postEphemeral({
+              channel: body.channel.id,
+              user: body.user.id,
+              text,
+            });
+          }
+        } catch {
+          // ignore receipt delivery failures
+        }
+      }
       return;
     }
     if (

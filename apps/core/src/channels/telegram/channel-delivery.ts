@@ -31,6 +31,7 @@ import {
   telegramActionReplyMarkup,
   sendTelegramReviewMessage,
 } from './message-action-affordances.js';
+import { sendTelegramObserverDigestMessage } from './observer-digest-message.js';
 import {
   clearProgressActions,
   prepareTelegramProgressHandle,
@@ -62,6 +63,15 @@ export abstract class TelegramChannelDelivery extends TelegramChannelConnect {
     if (!this.bot) {
       logger.warn('Telegram bot not initialized');
       throw new Error('Telegram bot not initialized');
+    }
+
+    if (options.observerDigestView) {
+      return sendTelegramObserverDigestMessage({
+        bot: this.bot,
+        jid,
+        options,
+        sanitizeErrorMessage: (err) => this.sanitizeErrorMessage(err),
+      });
     }
 
     if (options.reviewMessageView) {

@@ -3,8 +3,19 @@ import type {
   MessageActionOutcome,
   OnMessageAction,
 } from '../domain/types.js';
+import type { ObserverFeedbackAction } from '../domain/message-actions.js';
 import type { TeamsAdaptiveCardPayload } from './teams-cards.js';
-import { buildTeamsReviewReceiptCard } from './teams-cards.js';
+import {
+  buildTeamsReviewReceiptCard,
+  teamsObserverDigestCard,
+} from './teams-cards.js';
+
+const OBSERVER_FEEDBACK_ACTIONS = new Set<ObserverFeedbackAction>([
+  'resolve',
+  'dismiss',
+  'snooze',
+  'less_like_this',
+]);
 import type { TeamsInboundMessage, TeamsSdkClient } from './teams-types.js';
 import { teamsConversationIdFromJid } from './teams-types.js';
 import { logger } from '../infrastructure/logging/logger.js';
@@ -26,6 +37,13 @@ export function readTeamsMessageAction(value: unknown):
       kind: 'memory_review_decision';
       reviewId: string;
       decision: MemoryReviewActionDecision;
+      targetJid: string;
+      threadId?: string;
+    }
+  | {
+      kind: 'observer_feedback';
+      insightId: string;
+      feedback: ObserverFeedbackAction;
       targetJid: string;
       threadId?: string;
     }
@@ -55,6 +73,26 @@ export function readTeamsMessageAction(value: unknown):
       kind: 'memory_review_decision',
       reviewId: payload.reviewId,
       decision: payload.decision,
+      targetJid: payload.targetJid,
+      ...(typeof payload.threadId === 'string'
+        ? { threadId: payload.threadId }
+        : {}),
+    };
+  }
+  if (payload.kind === 'observer_feedback') {
+    if (typeof payload.insightId !== 'string' || !payload.insightId.trim()) {
+      return null;
+    }
+    if (
+      typeof payload.feedback !== 'string' ||
+      !OBSERVER_FEEDBACK_ACTIONS.has(payload.feedback as ObserverFeedbackAction)
+    ) {
+      return null;
+    }
+    return {
+      kind: 'observer_feedback',
+      insightId: payload.insightId,
+      feedback: payload.feedback as ObserverFeedbackAction,
       targetJid: payload.targetJid,
       ...(typeof payload.threadId === 'string'
         ? { threadId: payload.threadId }
@@ -187,6 +225,45 @@ export async function handleTeamsMessageAction(input: {
       // chat message; the shared review context others rely on stays intact.
       // ponytail: post-to-conversation; swap for a true ephemeral if the SDK
       // ever exposes one.
+      const text = outcome.replacementText
+        ? `${outcome.receipt}\n\n${outcome.replacementText}`
+        : outcome.receipt;
+      await input.sendDenied(conversationId, text);
+    }
+    return true;
+  }
+  if (payload.kind === 'observer_feedback') {
+    const outcome = await input.onMessageAction?.({
+      kind: 'observer_feedback',
+      conversationJid: input.jid,
+      ...(input.providerAccountId
+        ? { providerAccountId: input.providerAccountId }
+        : {}),
+      userId: input.userId,
+      insightId: payload.insightId,
+      action: payload.feedback,
+      ...(payload.threadId ? { threadId: payload.threadId } : {}),
+    });
+    if (!outcome) return true;
+    const conversationId = teamsConversationIdFromJid(input.jid);
+    if (outcome.state === 'applied' && outcome.observerDigestView) {
+      // One insight settled: rebuild the WHOLE card from the updated view so the
+      // acted insight loses its buttons + gains a marker while the others stay
+      // actionable for the owner.
+      const messageId = input.message.replyToId ?? input.message.id;
+      if (conversationId && messageId && input.updateReviewCard) {
+        await input.updateReviewCard({
+          conversationId,
+          messageId,
+          card: teamsObserverDigestCard(outcome.observerDigestView, {
+            targetJid: input.jid,
+            ...(payload.threadId ? { threadId: payload.threadId } : {}),
+          }),
+        });
+      }
+    } else {
+      // denied / stale / invalid: never touch the shared card; smallest blast
+      // radius is a chat message (Teams' invoke path has no per-user ephemeral).
       const text = outcome.replacementText
         ? `${outcome.receipt}\n\n${outcome.replacementText}`
         : outcome.receipt;

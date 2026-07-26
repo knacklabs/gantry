@@ -3,7 +3,11 @@ import type {
   MessageSendOptions,
   ProgressUpdateOptions,
 } from '../domain/types.js';
-import { buildTeamsMessageCard, teamsReviewCard } from './teams-cards.js';
+import {
+  buildTeamsMessageCard,
+  teamsObserverDigestCard,
+  teamsReviewCard,
+} from './teams-cards.js';
 import { sendTeamsTextMessage } from './teams-delivery.js';
 import type { TeamsSdkClient } from './teams-types.js';
 import { teamsConversationIdFromJid } from './teams-types.js';
@@ -45,6 +49,16 @@ export async function sendTeamsTextOrActionMessage(input: {
   const options = input.options ?? {};
   const conversationId = teamsConversationIdFromJid(input.jid);
   if (!conversationId) return;
+  if (options.observerDigestView && input.sdkClient.sendAdaptiveCard) {
+    return input.sdkClient.sendAdaptiveCard({
+      conversationId,
+      card: teamsObserverDigestCard(options.observerDigestView, {
+        targetJid: input.jid,
+        ...(options.threadId ? { threadId: options.threadId } : {}),
+      }),
+      ...(options.threadId ? { threadId: options.threadId } : {}),
+    });
+  }
   if (options.reviewMessageView && input.sdkClient.sendAdaptiveCard) {
     return input.sdkClient.sendAdaptiveCard({
       conversationId,

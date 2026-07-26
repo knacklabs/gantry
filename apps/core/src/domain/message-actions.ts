@@ -1,3 +1,5 @@
+import type { ObserverDigestMessageView } from './observer-digest-view.js';
+
 export type MessageActionAffordanceKind =
   | 'scheduler_run_now'
   | 'scheduler_pause_job'
@@ -81,6 +83,11 @@ export type MemoryReviewMessageActionInput = Extract<
   { kind: 'memory_review_decision' }
 >;
 
+export type ObserverFeedbackMessageActionInput = Extract<
+  MessageActionCallbackInput,
+  { kind: 'observer_feedback' }
+>;
+
 /**
  * Result a message-action handler returns to the provider adapter so it can
  * render a receipt and decide whether to clear/replace the action buttons.
@@ -92,7 +99,20 @@ export interface MessageActionOutcome {
   receipt: string;
   replacementText?: string;
   clearActions?: boolean;
+  /**
+   * Digest-only rebuild payload. When an owner action is APPLIED to one insight,
+   * the host (Task 5) re-loads the reservation's rendered view, marks the acted
+   * insight (buttons removed + state marker) via markObserverDigestInsight, and
+   * returns it here so the channel re-renders the WHOLE digest natively —
+   * the acted insight settled, the others still fully actionable. Absent for
+   * non-terminal outcomes (denied/stale/invalid), which never mutate the digest.
+   */
+  observerDigestView?: ObserverDigestMessageView;
 }
+
+export type OnObserverFeedbackMessageAction = (
+  input: ObserverFeedbackMessageActionInput,
+) => Promise<MessageActionOutcome | void>;
 
 export type OnMessageAction = (
   input: MessageActionCallbackInput,
