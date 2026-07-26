@@ -69,97 +69,113 @@ of the premises this investigation started from were wrong. Both matter, so both
 
 ## Decision (proposed)
 
-**One completion contract for every async kind: bounded sync wait, then durable push.**
+**One completion contract for every async kind: always return a handle, always push the
+result.** Grilled and revised 2026-07-26; the owner's answers cut this further than the first
+draft proposed.
 
-The curated `delegate_to_<agent>` path already implements the correct shape — wait briefly,
-return the result inline if it finishes, otherwise hand back a handle and durably wake the
-parent when it completes. It is built, tested and works. Its only flaw is being wired for
-callable agents alone. Promote it to THE contract for commands, MCP calls and all delegation,
-on both runtimes.
-
-1. Every async start accepts a **sync wait budget** (small default, configurable).
-2. Work finishing inside that budget **returns inline** — no extra turn, no polling, no wake-up.
-3. Work exceeding it returns a handle, and on terminal state emits **one durable follow-up**
-   that re-engages the parent.
-4. Output **always spills to a gantry-owned file** — bounded summary inline, path in the
-   handle, full content via `task_get`. This is a separate channel from the observability
-   event, so no host path is ever published to a webhook subscriber.
-5. `task_get` / `task_list` / `task_cancel` / `task_message` remain for explicit inspection and
+1. Every async start **returns a handle immediately**. No synchronous wait, for any kind.
+2. On terminal state the task emits **one durable follow-up** that re-engages the parent.
+3. Output **always spills to the artifact store** — bounded summary inline, artifact reference
+   on the task row, full content via `task_get`.
+4. `task_get` / `task_list` / `task_cancel` / `task_message` remain for explicit inspection and
    live steering.
 
-### Why this shape rather than the alternatives
+### Why no synchronous wait
 
-- **Generalisation, not invention.** Universal push, better-polling, and a standalone wait tool
-  are each a NEW mechanism. This is the existing one applied consistently.
-- **The common case costs nothing.** Most async work is fast: it returns inline and never
-  touches the push path. Slow work cannot lose its result. Neither case asks the agent to
-  remember anything.
-- **It removes a tool rather than adding one.** The bounded wait belongs in the start call, not
-  in a separate `task_wait`. That also dissolves this design's most load-bearing open question
-  — whether a wait primitive could park without holding a runner slot — because there is no
-  wait primitive to park.
-- **Scalability comes from the interface.** A new async kind implements one contract; a new
-  runtime inherits it. That is what holds as the surface grows.
+The first draft generalised the curated path's bounded sync wait. That was wrong twice over:
+
+- **It did not dissolve the slot-holding problem, it spread it.** `delegate_to_<agent>` blocks
+  its turn for up to 60 seconds; generalising that would let any `async_run_command` block a
+  turn for a minute. Moving the wait into the start call renamed the problem rather than
+  removing it.
+- **The inline fast path rested on an unevidenced assumption** — that most async work is fast.
+  A caller that wanted a fast synchronous answer would not have reached for an async tool.
+  Async means slow; optimising the short case is complexity for a case that barely exists.
+
+Removing the wait entirely deletes the 60-second magic number rather than shrinking it, removes
+budget tuning from the design, and leaves exactly one code path.
+
+### Why the artifact store rather than a local file
+
+Output must survive multi-host. The task row lives in shared Postgres, so a local file on the
+host that ran the task would be unreadable from any other host serving `task_get` — a latent
+bug the day the fleet runs multi-host, and this repo already builds a fleet image.
+
+Reuse the artifact stores that already exist (`adapters/artifacts/` has S3-backed stores for
+skills, toolchains and browser profiles). The task row carries an artifact reference, not a
+filesystem path, so any host can serve the result and retention hooks into a solved shape.
+This is also a different channel from the observability event, so no host path is ever
+published to a webhook subscriber.
 
 ### What this removes
 
-The 60-second magic number (becomes a configured budget), the generic-versus-curated
-delegation split, the duplicate DeepAgents `AgentDelegation` facade, the polling obligation,
-and the previously proposed `task_wait` tool.
+The 60-second magic number, the synchronous wait on every path, the inline fast path, budget
+tuning, the generic-versus-curated delegation split, the duplicate DeepAgents `AgentDelegation`
+facade, the polling obligation, and the `task_wait` tool proposed in the first draft.
 
 ### Sequencing, by damage
 
 | Order | Change | Why this order |
 |---|---|---|
-| 1 | Gantry-owned spill file | data is destroyed today; nothing recovers it afterwards |
-| 2 | One delegation pipeline with explicit target resolution | results exist but never arrive |
-| 3 | Sync-wait budget on every async start | replaces the 60s hack; makes the fast path free |
+| 1 | Artifact-store spill | data is destroyed today; nothing recovers it afterwards |
+| 2 | Durable push on every terminal task, with coalescing | results exist but never arrive |
+| 3 | One delegation pipeline with explicit target resolution | removes the weak path and the loop risk |
 | 4 | Delete the duplicate facade | one start entry point per runtime |
 
 ### Explicitly NOT doing
 
 - **No `SubagentStop`.** The native `Agent` path is disallowed; the hook would never fire.
-- **No `task_wait` tool.** Superseded by the sync-wait budget on the start call.
-- **No event streaming into the model.** Every pushed event costs a full inference turn, so a
-  chatty task would cost dozens. `task_get` already exposes a ~1s-refreshed stdout/stderr tail
-  plus `lastProgress` and heartbeat for diagnosis, which is a poll-shaped need.
+- **No `task_wait` tool and no sync wait.** Cut during the grill.
+- **No event streaming into the model.** Every pushed event costs a full inference turn.
+  `task_get` already exposes a ~1s-refreshed stdout/stderr tail plus `lastProgress` and
+  heartbeat for diagnosis, which is a poll-shaped need.
 - **No Managed Agents migration.** Purpose-built for this shape, but beta and ineligible for
-  ZDR and HIPAA BAA because session state persists server-side. A product decision, not a bug fix.
+  ZDR and HIPAA BAA because session state persists server-side.
 - **No new task table, queue or notification bus.** All three exist and work.
 
 ## Consequences
 
-- Scalability comes from convergence rather than addition: every async kind — command, MCP
-  call, delegated agent, both runtimes — ends at the same completion contract and the same
-  file-backed output.
-- **Wake amplification is a real cost and must be designed for, not discovered.** Ten
-  background commands completing means ten follow-ups unless completions landing while the
-  parent is idle are COALESCED into a single re-engagement. Treat coalescing as part of the
-  contract.
-- **Self-delegation loops become reachable.** Generic delegation currently defaults the child
-  target to the caller's own agent. With push enabled that can loop, so target resolution must
-  be explicit in one place and same-agent delegation handled deliberately rather than by default.
-- Changing generic delegation's completion behaviour changes deliberate current behaviour
-  pinned by a test asserting `sendMessage` is never called. That test must be updated knowingly,
-  with the loop risk addressed — not deleted to make a new assertion pass.
-- A spill file introduces retention obligations the in-memory buffer does not have: size caps,
-  TTL, and cleanup on task deletion.
+- **Coalescing is now the only cost control, which makes it load-bearing rather than a nicety.**
+  With no inline path, EVERY async task costs a wake-up — including trivial ones. Completions
+  landing while the parent is idle must batch into a single re-engagement, and the batching
+  window is a first-class design parameter, not an implementation detail.
+- **Self-delegation loop protection is required regardless of the test's provenance.** The
+  owner reports the push-free behaviour was unfinished rather than deliberate, but generic
+  delegation still defaults the child target to the caller's own agent, so enabling push makes
+  looping reachable on its own merits. Target resolution must become explicit and same-agent
+  delegation handled deliberately. The originating commit should still be spot-checked when
+  implementing — "no remembered reason" is not the same as "no reason".
+- The test asserting `sendMessage` is never called for generic delegation must be updated
+  knowingly, with loop protection in place — not deleted to make a new assertion pass.
+- Artifact-store spill inherits that subsystem's retention model rather than inventing one.
+  Bound the POPULATION, not the rate: CANCEL-1's archive quarantine took six review cycles
+  precisely because each attempt bounded work-per-call, entries-scanned, then removal-rate
+  before landing on population. See [[audit-paydown-2026-07]].
+- Scalability comes from convergence: every async kind and both runtimes end at the same
+  completion contract and the same artifact-backed output. A new runtime inherits it.
 - `async_mcp_call` nests its id under `task.id` while other starts return a top-level `id`.
-  Worth normalising while this surface is open; the model should not handle two shapes.
+  Worth normalising while this surface is open.
 
 ## Open questions for the grill
 
-1. What is the right default sync-wait budget? Too short and everything takes the push path;
-   too long and turns stall. It should be configurable per async kind.
-2. How are concurrent completions coalesced into one re-engagement, and what is the batching
-   window?
-3. Why was generic delegation deliberately left push-free? The test is evidence of intent; the
-   reasoning should be recovered before overriding it.
-4. Where do spill files live, and under what retention? They contain arbitrary command output
-   and inherit the same protection questions as any host-side artifact.
-5. Should the child-target default (caller's own agent) change, or is self-delegation a
-   legitimate supported case that simply needs loop protection?
-6. Does the DeepAgents sentinel still earn its keep once the facade is deleted, given the tools
+Resolved during the 2026-07-26 grill: the wait budget (removed — no sync wait), whether the
+inline fast path earns its complexity (no — cut), why generic delegation was push-free
+(unfinished, not deliberate), and where output lives (artifact store, fleet-safe).
+
+Remaining:
+
+1. **What is the coalescing window?** If two tasks finish ten minutes apart, is that one
+   re-engagement or two? This is now the only control on wake cost.
+2. What happens when completions land mid-turn — queue until the turn ends, or interrupt?
+3. Does the parent receive batched results in completion order, and does order matter?
+4. What wakes when the parent is gone — conversation ended, agent deleted? A follow-up must not
+   create a spurious turn that talks to nobody. CANCEL-1 spent its existence on the mirror
+   image of this.
+5. Is there admission control if an agent fires many async tasks at once, or does the follow-up
+   queue grow unbounded?
+6. Should the child-target default (caller's own agent) change, or is self-delegation a
+   supported case that simply needs loop protection?
+7. Does the DeepAgents sentinel still earn its keep once the facade is deleted, given the tools
    it probes are never mounted?
 
 See [[semantic-capabilities-are-the-feature]] and [[tool-surface-tiering]] — this contract must
