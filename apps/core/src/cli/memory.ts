@@ -55,11 +55,17 @@ interface ReviewFlags {
   approve: boolean;
   reject: boolean;
   editValue?: string;
+  editValueMissing: boolean;
   reason?: string;
 }
 
 function parseReviewFlags(args: string[]): ReviewFlags {
-  const flags: ReviewFlags = { json: false, approve: false, reject: false };
+  const flags: ReviewFlags = {
+    json: false,
+    approve: false,
+    reject: false,
+    editValueMissing: false,
+  };
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
     const next = args[index + 1];
@@ -75,9 +81,16 @@ function parseReviewFlags(args: string[]): ReviewFlags {
     } else if (arg === '--reason' && next) {
       flags.reason = next;
       index += 1;
-    } else if (arg === '--edit-value' && next) {
-      flags.editValue = next;
-      index += 1;
+    } else if (arg === '--edit-value') {
+      // Never swallow the next OPTION token or run off the end — that would
+      // submit a wrong mutating edit_approve (e.g. `--edit-value --reject`
+      // editing to "--reject"). Empty/whitespace is invalid too.
+      if (next === undefined || next.startsWith('-') || !next.trim()) {
+        flags.editValueMissing = true;
+      } else {
+        flags.editValue = next;
+        index += 1;
+      }
     } else if (arg === '--approve') {
       flags.approve = true;
     } else if (arg === '--reject') {
@@ -104,9 +117,21 @@ function reviewErrorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
+// Review content (evidence text, claim values, reasons, sourceUri) is
+// user-controlled memory/message text. Strip terminal control sequences so a
+// crafted value can't erase or forge the operator's review view, forge OSC
+// hyperlinks, or touch the clipboard. \n and \t are kept for layout; the --json
+// path is left untouched (JSON.stringify already escapes control chars).
+function sanitizeTerminal(value: string): string {
+  return value
+    .replace(/\x1b\][^\x07]*(?:\x07|\x1b\\)/g, '') // OSC ... (BEL | ST)
+    .replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, '') // CSI
+    .replace(/[\x00-\x08\x0b-\x1f\x7f-\x9f]/g, ''); // other C0/C1 (keep \t, \n)
+}
+
 function short(value: string | undefined, max = 32): string {
   if (!value) return '—';
-  const single = value.replace(/\s+/g, ' ').trim();
+  const single = sanitizeTerminal(value).replace(/\s+/g, ' ').trim();
   return single.length > max ? `${single.slice(0, max - 1)}…` : single;
 }
 
@@ -165,15 +190,17 @@ function formatReviewTable(
   createdById: Map<string, string>,
 ): string {
   const rows = items.map((item) => [
-    item.review_id,
-    item.action,
+    sanitizeTerminal(item.review_id),
+    sanitizeTerminal(item.action),
     short(
       item.before?.key ?? item.after?.key ?? item.target?.key ?? item.summary,
     ),
     `${short(item.before?.value ?? item.target?.value, 24)} → ${
-      item.after?.value ? short(item.after.value, 24) : item.action
+      item.after?.value
+        ? short(item.after.value, 24)
+        : sanitizeTerminal(item.action)
     }`,
-    createdById.get(item.review_id) ?? '',
+    sanitizeTerminal(createdById.get(item.review_id) ?? ''),
   ]);
   const headers = ['Review', 'Kind', 'Topic', 'Now → Change', 'Created'];
   const widths = headers.map((header, index) =>
@@ -240,7 +267,7 @@ function formatReviewDetail(review: MemoryReviewRecord): string {
   const snapshot = review.reviewSnapshot;
   if (!snapshot) {
     lines.push('', '(no immutable snapshot captured for this review)');
-    return lines.join('\n');
+    return sanitizeTerminal(lines.join('\n'));
   }
   const active = snapshot.conflict?.active;
   if (active) lines.push('', 'Now (active claim):', formatClaim(active));
@@ -270,7 +297,10 @@ function formatReviewDetail(review: MemoryReviewRecord): string {
       );
     }
   }
-  return lines.join('\n');
+  // One sanitize over the whole assembled block neutralizes control sequences
+  // in every API-sourced field (claim values, reason, sourceUri, evidence text)
+  // while preserving the \n layout.
+  return sanitizeTerminal(lines.join('\n'));
 }
 
 async function decideReview(
@@ -282,6 +312,12 @@ async function decideReview(
   const params = reviewSubjectParams(flags);
   if (!reviewId || !params) {
     p.log.error(reviewUsage());
+    return 1;
+  }
+  // Catch `--edit-value` with no value BEFORE the exactly-one guard: a swallowed
+  // `--reject` would otherwise leave reject=true and pass that guard.
+  if (flags.editValueMissing) {
+    p.log.error('--edit-value requires a value.');
     return 1;
   }
   const chosen =

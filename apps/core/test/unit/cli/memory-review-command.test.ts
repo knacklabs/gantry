@@ -129,6 +129,45 @@ describe('gantry memory reviews (list)', () => {
     expect(notes[0]?.message).toBe('No pending reviews.');
   });
 
+  it('neutralizes terminal control sequences in human-readable output but keeps them raw in --json', async () => {
+    const hostile = 'PST\x1b[2Kforged\x1b]8;;http://evil\x07link\x07';
+    state.response = {
+      reviews: [{ id: 'rev-1', createdAt: '2026-07-24T00:00:00.000Z' }],
+      review_page: {
+        items: [
+          {
+            review_id: 'rev-1',
+            action: 'contradiction',
+            summary: 'tz',
+            before: { key: 'timezone', value: hostile },
+            after: { key: 'timezone', value: 'EST' },
+          },
+        ],
+      },
+    };
+    const { runMemoryCommand } = await loadMemoryCommand();
+    await runMemoryCommand('/tmp/home', ['reviews', ...SUBJECT_ARGS]);
+    const table = notes[0]?.message ?? '';
+    // eslint-disable-next-line no-control-regex
+    expect(table).not.toMatch(/\x1b/);
+    expect(table).toContain('forged'); // text kept, escape stripped
+
+    // --json leaves the raw response untouched (JSON.stringify escapes controls).
+    notes.length = 0;
+    const writes: string[] = [];
+    const spy = vi
+      .spyOn(process.stdout, 'write')
+      .mockImplementation((chunk: string | Uint8Array) => {
+        writes.push(String(chunk));
+        return true;
+      });
+    await runMemoryCommand('/tmp/home', ['reviews', ...SUBJECT_ARGS, '--json']);
+    spy.mockRestore();
+    expect(JSON.parse(writes.join('')).review_page.items[0].before.value).toBe(
+      hostile,
+    );
+  });
+
   it('rejects a missing subject arg with usage', async () => {
     const { runMemoryCommand, log } = await loadMemoryCommand();
     const code = await runMemoryCommand('/tmp/home', [
@@ -302,6 +341,53 @@ describe('gantry memory review decide', () => {
     expect(none).toBe(1);
     expect(state.requests).toHaveLength(0);
     expect(log.error).toHaveBeenCalled();
+  });
+
+  it('rejects --edit-value that swallows an option token, with no API call', async () => {
+    const { runMemoryCommand, log } = await loadMemoryCommand();
+    const code = await runMemoryCommand('/tmp/home', [
+      'review',
+      'decide',
+      'rev-1',
+      ...SUBJECT_ARGS,
+      '--edit-value',
+      '--reject',
+    ]);
+    expect(code).toBe(1);
+    expect(state.requests).toHaveLength(0);
+    expect(log.error).toHaveBeenCalledWith('--edit-value requires a value.');
+  });
+
+  it('rejects --edit-value with no following token', async () => {
+    const { runMemoryCommand, log } = await loadMemoryCommand();
+    const code = await runMemoryCommand('/tmp/home', [
+      'review',
+      'decide',
+      'rev-1',
+      ...SUBJECT_ARGS,
+      '--edit-value',
+    ]);
+    expect(code).toBe(1);
+    expect(state.requests).toHaveLength(0);
+    expect(log.error).toHaveBeenCalledWith('--edit-value requires a value.');
+  });
+
+  it('accepts a real --edit-value and submits edit_approve', async () => {
+    state.response = { review: { status: 'applied' } };
+    const { runMemoryCommand } = await loadMemoryCommand();
+    const code = await runMemoryCommand('/tmp/home', [
+      'review',
+      'decide',
+      'rev-1',
+      ...SUBJECT_ARGS,
+      '--edit-value',
+      'new text',
+    ]);
+    expect(code).toBe(0);
+    expect(state.requests[0]?.body).toEqual({
+      decision: 'edit_approve',
+      editedValue: 'new text',
+    });
   });
 
   it('surfaces a 409 not-pending message from the API', async () => {
