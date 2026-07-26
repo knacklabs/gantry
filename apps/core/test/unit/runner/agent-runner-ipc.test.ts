@@ -10,6 +10,7 @@ import {
   GANTRY_CLAUDE_SDK_SKILLS_ENV,
   SDK_NATIVE_SKILL_OVERRIDES,
 } from '@core/adapters/llm/anthropic-claude-agent/native-sdk-skills.js';
+import { stripShellCommandEnvPrefix } from '@core/runtime/ipc-shell-command-prefix.js';
 
 const RUNNER_IPC_CHILD_TIMEOUT_MS = 50_000;
 const RUNNER_IPC_TEST_TIMEOUT_MS = 60_000;
@@ -2292,15 +2293,29 @@ describe('agent-runner IPC lifecycle', () => {
         '"interactionBoundary":"user_interaction"',
       );
       const call = readRecord(fixture.recordPath).calls[0];
+      const hostInjectedCommandPrefix = 'GODEBUG=netdns=go';
       expect(call?.permissionRequest).toEqual(
         expect.objectContaining({
           sourceAgentFolder: 'team',
           runHandle: 'runner-test-run',
           toolName: 'RunCommand',
+          hostInjectedCommandPrefix,
           signature: expect.any(String),
         }),
       );
       expect(call?.permissionRequest?.toolInput).toEqual(
+        expect.objectContaining({
+          cmd: `${hostInjectedCommandPrefix} npm test`,
+          apiToken: 'secret-token',
+        }),
+      );
+      expect(
+        stripShellCommandEnvPrefix(
+          'RunCommand',
+          call?.permissionRequest?.toolInput,
+          hostInjectedCommandPrefix,
+        ),
+      ).toEqual(
         expect.objectContaining({ cmd: 'npm test', apiToken: 'secret-token' }),
       );
       expect(call?.permissionRequest?.suggestions).toEqual([
@@ -2346,13 +2361,27 @@ describe('agent-runner IPC lifecycle', () => {
 
       expect(result.exitCode, result.stderr).toBe(0);
       const call = readRecord(fixture.recordPath).calls[0];
+      const hostInjectedCommandPrefix = 'GODEBUG=netdns=go';
       expect(call?.permissionRequest).toEqual(
         expect.objectContaining({
           toolName: 'RunCommand',
+          hostInjectedCommandPrefix,
           toolInput: expect.objectContaining({
-            cmd: command,
+            cmd: `${hostInjectedCommandPrefix} ${command}`,
             dangerouslyDisableSandbox: true,
           }),
+        }),
+      );
+      expect(
+        stripShellCommandEnvPrefix(
+          'RunCommand',
+          call?.permissionRequest?.toolInput,
+          hostInjectedCommandPrefix,
+        ),
+      ).toEqual(
+        expect.objectContaining({
+          cmd: command,
+          dangerouslyDisableSandbox: true,
         }),
       );
       expect(call?.permissionDecision).toEqual({
