@@ -78,8 +78,8 @@ export type MemoryReviewListInput = MemoryReviewSubject & {
   offset?: number;
 };
 
-export type MemoryReviewDecisionInput = MemoryReviewSubject & {
-  decision: 'approve' | 'reject' | 'edit_approve';
-  editedValue?: string;
-  reason?: string;
-};
+export type MemoryReviewDecisionInput = MemoryReviewSubject &
+  (
+    | { decision: 'edit_approve'; editedValue: string; reason?: string }
+    | { decision: 'approve' | 'reject'; editedValue?: string; reason?: string }
+  );

@@ -3104,10 +3104,14 @@ export interface components {
             };
         };
         MemoryReviewDecisionRequest: {
+            /** @constant */
+            decision: "edit_approve";
+            /** @description Replacement value applied to the reviewed memory. */
+            editedValue: string;
+            reason?: string;
+        } | {
             /** @enum {string} */
-            decision: "approve" | "reject" | "edit_approve";
-            /** @description Required (non-empty) when decision is edit_approve; ignored otherwise. */
-            editedValue?: string;
+            decision: "approve" | "reject";
             reason?: string;
         };
         MemoryDreamingResponse: {

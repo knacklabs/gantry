@@ -116,23 +116,31 @@ export const extensionOpenApiSchemas: Record<string, JsonSchema> = {
   },
   MemoryReviewDetailResponse: envelope('review', metadata),
   MemoryReviewDecisionRequest: {
-    type: 'object',
-    required: ['decision'],
-    properties: {
-      decision: {
-        type: 'string',
-        enum: ['approve', 'reject', 'edit_approve'],
+    oneOf: [
+      {
+        type: 'object',
+        required: ['decision', 'editedValue'],
+        properties: {
+          decision: { type: 'string', const: 'edit_approve' },
+          editedValue: {
+            type: 'string',
+            minLength: 1,
+            pattern: '\\S',
+            description: 'Replacement value applied to the reviewed memory.',
+          },
+          reason: { type: 'string' },
+        },
       },
-      editedValue: {
-        type: 'string',
-        description:
-          'Required (non-empty) when decision is edit_approve; ignored otherwise.',
+      {
+        type: 'object',
+        required: ['decision'],
+        properties: {
+          decision: { type: 'string', enum: ['approve', 'reject'] },
+          reason: { type: 'string' },
+        },
       },
-      reason: { type: 'string' },
-    },
-    // Conditional requirement is also enforced server-side (400 when missing).
-    if: { properties: { decision: { const: 'edit_approve' } } },
-    then: { required: ['decision', 'editedValue'] },
+    ],
+    discriminator: { propertyName: 'decision' },
   },
   MemoryDreamingResponse: envelope('run', metadata),
   MemoryDreamingStatusResponse: envelope('runs', {

@@ -306,6 +306,25 @@ describe('@gantry/sdk transport', () => {
       path: '/v1/memory/reviews/rev%2F1/decision?agentId=agent%2F1&subjectType=user&subjectId=user%2F9',
       body: { decision: 'edit_approve', editedValue: 'v2', reason: 'why' },
     });
+
+    // Compile-time contract: edit_approve without editedValue is a type error
+    // (never executed — checked by tsc). approve without editedValue is fine.
+    const _typeCheck = () => {
+      // @ts-expect-error editedValue is required for an edit_approve decision.
+      client.memory.reviews.decide('rev/1', {
+        agentId: 'agent/1',
+        subjectType: 'user',
+        subjectId: 'user/9',
+        decision: 'edit_approve',
+      });
+      client.memory.reviews.decide('rev/1', {
+        agentId: 'agent/1',
+        subjectType: 'user',
+        subjectId: 'user/9',
+        decision: 'approve',
+      });
+    };
+    void _typeCheck;
   });
 
   it('builds ingress management requests', async () => {
