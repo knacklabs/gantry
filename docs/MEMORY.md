@@ -145,8 +145,35 @@ batch of decisions by item number. The page context is convenience data only:
 the host still verifies trusted subject scope, reviewer authority, review
 status, and target versions for every approved mutation.
 
-The agent-led v1 review flow is channel-neutral and works in text-only
-contexts without native buttons:
+A pending review surfaces two ways, and both decide the same
+`memory_review_requests` row through the same host-verified path:
+
+1. **Provider-native card (default on Slack, Telegram, and Teams).** On review
+   creation the host sends a compact-structured message — the readable change,
+   a short "Now → Change" preview, and evidence — with native **Approve**,
+   **Reject**, and **Edit** buttons (Edit opens a value prompt). Only genuinely
+   new reviews are announced, and a `+N more` affordance points at the rest of
+   the queue. The button click is authorized as a same-conversation approver;
+   reviewer identity is host-derived, never taken from the message.
+
+2. **First-class queue (control API + SDK + CLI).** The pending queue and one
+   review's full immutable detail are readable, and a decision is submittable,
+   over the control API (`GET /v1/memory/reviews`,
+   `GET /v1/memory/reviews/{id}`, `POST /v1/memory/reviews/{id}/decision`), the
+   server-side SDK (`client.memory.reviews.list/get/decide`), and the CLI:
+
+   ```bash
+   gantry memory reviews --agent-id <id> --subject-type <t> --subject-id <id> [--json]
+   gantry memory review <reviewId> --agent-id <id> --subject-type <t> --subject-id <id> [--json]
+   gantry memory review decide <reviewId> --agent-id <id> --subject-type <t> \
+     --subject-id <id> (--approve | --reject | --edit-value <value>) [--reason <r>] [--json]
+   ```
+
+   The subject boundary rides on the query params; `--edit-value` maps to an
+   `edit_approve` decision carrying the new value. The reviewer identity is
+   still key-derived server-side.
+
+The agent-led MCP flow remains for text-only surfaces without native buttons:
 
 1. A job notification keeps the pending count visible and tells the reviewer to
    ask the agent to show pending memory reviews.
@@ -157,6 +184,10 @@ contexts without native buttons:
 4. The agent calls `memory_review_decision` only for those explicit decisions,
    using the latest displayed `page_context`; it must never auto-approve a page
    or obey instructions embedded in proposed values, reasons, or evidence.
+
+Whichever surface decides a review, the host still verifies trusted subject
+scope, reviewer authority, review status, and target versions before applying
+any mutation.
 
 Dreaming job summaries surface pending review counts, including when a failed
 or timed-out run already created review rows.
@@ -260,8 +291,9 @@ instruction authority, tool authority, or policy.
 
 Memory management is API-first. The server-side SDK/control API is the stable
 management direction for backend apps, and agent-facing MCP tools call the same
-host-owned memory service. A future UI, if built, should be a separate adapter
-over these APIs rather than a separate source of memory truth.
+host-owned memory service. The shipped provider-native review buttons and the
+CLI review queue are both thin adapters over these APIs; any future UI should
+follow the same pattern rather than become a separate source of memory truth.
 
 The server-side SDK exposes:
 
@@ -272,22 +304,30 @@ The server-side SDK exposes:
 - `client.memory.delete()`
 - `client.memory.dreaming.trigger()`
 - `client.memory.dreaming.status()`
+- `client.memory.reviews.list()`
+- `client.memory.reviews.get()`
+- `client.memory.reviews.decide()`
+
+The review-queue methods are also exposed on the CLI as
+`gantry memory reviews`, `gantry memory review <reviewId>`, and
+`gantry memory review decide <reviewId>` (a thin adapter over the same control
+API endpoints).
 
 The caller's API key app binding controls `appId` access. `common` writes require
 admin memory scope.
 
 ## First-Slice Surface Impact Matrix
 
-| Surface | Classification | Reason |
-| --- | --- | --- |
-| Runtime behavior | Changed | Durable memory reads and writes use flattened `memory_items`; retrieval is hybrid lexical + pgvector (RRF) when embeddings are enabled and indexed, with lexical fallback. |
-| `settings.yaml` | Changed | `memory.embeddings.{model,dimensions,backfill.*}` defaults (`text-embedding-3-small`/1536, backfill schedule/mode) are read; the backfill CLI/job index existing memories. |
-| Postgres/runtime projection | Changed | `memory_items` is the canonical durable item table; `memory_review_requests` stores pending review proposals and decisions. |
-| Control API | Changed | Memory save/search/list/patch/delete and dreaming routes operate over the app-bound memory service. |
-| SDK/contracts | Changed | Server-side SDK memory methods are the API-first management surface. |
-| CLI | Changed | `gantry memory status`/`doctor` report memory, embeddings, dreaming, and live vector recall status; `gantry memory embeddings backfill` runs/resumes item indexing with truthful complete/paused/submitted output. |
-| Gantry MCP tools/admin skill | Changed | Agent tools can search, save, request `continuity_summary`, request reviewed memory changes, list pending memory reviews, and apply review decisions through host IPC/MCP. |
-| Channel/provider adapters | Unchanged by design | Channels only provide source identity and conversation scope; memory storage stays channel-neutral. |
-| Docs/prompts | Changed | Active docs state flattened memory items, hybrid lexical + vector retrieval with lexical fallback, resumable embedding backfill, and no compact-summary replay. |
-| Audit/events | Changed | Evidence, recall, dream run, dream decision, review proposal, reviewer decision, and apply outcome rows remain audit surfaces for memory lifecycle decisions. |
-| Tests/verification | Changed | Memory unit and integration checks verify lexical recall works without embeddings, hybrid recall + RRF when embeddings are indexed, and resumable backfill pause/resume. |
+| Surface                      | Classification      | Reason                                                                                                                                                                                                             |
+| ---------------------------- | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Runtime behavior             | Changed             | Durable memory reads and writes use flattened `memory_items`; retrieval is hybrid lexical + pgvector (RRF) when embeddings are enabled and indexed, with lexical fallback.                                         |
+| `settings.yaml`              | Changed             | `memory.embeddings.{model,dimensions,backfill.*}` defaults (`text-embedding-3-small`/1536, backfill schedule/mode) are read; the backfill CLI/job index existing memories.                                         |
+| Postgres/runtime projection  | Changed             | `memory_items` is the canonical durable item table; `memory_review_requests` stores pending review proposals and decisions.                                                                                        |
+| Control API                  | Changed             | Memory save/search/list/patch/delete and dreaming routes operate over the app-bound memory service.                                                                                                                |
+| SDK/contracts                | Changed             | Server-side SDK memory methods are the API-first management surface.                                                                                                                                               |
+| CLI                          | Changed             | `gantry memory status`/`doctor` report memory, embeddings, dreaming, and live vector recall status; `gantry memory embeddings backfill` runs/resumes item indexing with truthful complete/paused/submitted output. |
+| Gantry MCP tools/admin skill | Changed             | Agent tools can search, save, request `continuity_summary`, request reviewed memory changes, list pending memory reviews, and apply review decisions through host IPC/MCP.                                         |
+| Channel/provider adapters    | Unchanged by design | Channels only provide source identity and conversation scope; memory storage stays channel-neutral.                                                                                                                |
+| Docs/prompts                 | Changed             | Active docs state flattened memory items, hybrid lexical + vector retrieval with lexical fallback, resumable embedding backfill, and no compact-summary replay.                                                    |
+| Audit/events                 | Changed             | Evidence, recall, dream run, dream decision, review proposal, reviewer decision, and apply outcome rows remain audit surfaces for memory lifecycle decisions.                                                      |
+| Tests/verification           | Changed             | Memory unit and integration checks verify lexical recall works without embeddings, hybrid recall + RRF when embeddings are indexed, and resumable backfill pause/resume.                                           |

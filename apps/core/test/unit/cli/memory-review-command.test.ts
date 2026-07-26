@@ -1,0 +1,320 @@
+import { afterEach, describe, expect, it, vi } from 'vitest';
+
+interface CapturedRequest {
+  method: string;
+  path: string;
+  body?: unknown;
+}
+
+const state = vi.hoisted(() => ({
+  requests: [] as CapturedRequest[],
+  response: undefined as unknown,
+  error: undefined as Error | undefined,
+}));
+
+vi.mock('@core/cli/control-api.js', () => ({
+  controlApiRequest: async (_runtimeHome: string, input: CapturedRequest) => {
+    state.requests.push({
+      method: input.method,
+      path: input.path,
+      body: input.body,
+    });
+    if (state.error) throw state.error;
+    return state.response;
+  },
+}));
+
+const notes: Array<{ message: string; title?: string }> = [];
+
+async function loadMemoryCommand() {
+  const log = {
+    error: vi.fn(),
+    success: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
+  };
+  vi.doMock('@clack/prompts', () => ({
+    isCancel: () => false,
+    note: (message: string, title?: string) => notes.push({ message, title }),
+    log,
+  }));
+  const { runMemoryCommand } = await import('@core/cli/memory.js');
+  return { runMemoryCommand, log };
+}
+
+const SUBJECT_ARGS = [
+  '--agent-id',
+  'agent:main',
+  '--subject-type',
+  'user',
+  '--subject-id',
+  'u1',
+];
+
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.resetModules();
+  vi.doUnmock('@clack/prompts');
+  state.requests.length = 0;
+  state.response = undefined;
+  state.error = undefined;
+  notes.length = 0;
+});
+
+describe('gantry memory reviews (list)', () => {
+  it('renders a table from the review page', async () => {
+    state.response = {
+      reviews: [{ id: 'rev-1', createdAt: '2026-07-24T00:00:00.000Z' }],
+      review_page: {
+        items: [
+          {
+            review_id: 'rev-1',
+            action: 'contradiction',
+            summary: 'timezone changed',
+            before: { key: 'timezone', value: 'PST' },
+            after: { key: 'timezone', value: 'EST' },
+          },
+        ],
+      },
+    };
+    const { runMemoryCommand } = await loadMemoryCommand();
+    const code = await runMemoryCommand('/tmp/home', [
+      'reviews',
+      ...SUBJECT_ARGS,
+    ]);
+    expect(code).toBe(0);
+    expect(state.requests[0]?.method).toBe('GET');
+    expect(state.requests[0]?.path).toContain('/v1/memory/reviews?');
+    expect(state.requests[0]?.path).toContain('agentId=agent%3Amain');
+    expect(state.requests[0]?.path).toContain('subjectType=user');
+    expect(state.requests[0]?.path).toContain('subjectId=u1');
+    const table = notes[0]?.message ?? '';
+    expect(table).toContain('rev-1');
+    expect(table).toContain('contradiction');
+    expect(table).toContain('PST → EST');
+    expect(table).toContain('2026-07-24T00:00:00.000Z');
+  });
+
+  it('emits raw JSON with --json', async () => {
+    state.response = { reviews: [], review_page: { items: [] } };
+    const writes: string[] = [];
+    const spy = vi
+      .spyOn(process.stdout, 'write')
+      .mockImplementation((chunk: string | Uint8Array) => {
+        writes.push(String(chunk));
+        return true;
+      });
+    const { runMemoryCommand } = await loadMemoryCommand();
+    const code = await runMemoryCommand('/tmp/home', [
+      'reviews',
+      ...SUBJECT_ARGS,
+      '--json',
+    ]);
+    spy.mockRestore();
+    expect(code).toBe(0);
+    expect(JSON.parse(writes.join(''))).toEqual({
+      reviews: [],
+      review_page: { items: [] },
+    });
+  });
+
+  it('reports a friendly message when the queue is empty', async () => {
+    state.response = { reviews: [], review_page: { items: [] } };
+    const { runMemoryCommand } = await loadMemoryCommand();
+    const code = await runMemoryCommand('/tmp/home', [
+      'reviews',
+      ...SUBJECT_ARGS,
+    ]);
+    expect(code).toBe(0);
+    expect(notes[0]?.message).toBe('No pending reviews.');
+  });
+
+  it('rejects a missing subject arg with usage', async () => {
+    const { runMemoryCommand, log } = await loadMemoryCommand();
+    const code = await runMemoryCommand('/tmp/home', [
+      'reviews',
+      '--agent-id',
+      'agent:main',
+    ]);
+    expect(code).toBe(1);
+    expect(state.requests).toHaveLength(0);
+    expect(log.error).toHaveBeenCalled();
+  });
+});
+
+describe('gantry memory review (detail)', () => {
+  it('renders the full immutable snapshot', async () => {
+    state.response = {
+      review: {
+        id: 'rev-1',
+        status: 'pending_review',
+        createdAt: '2026-07-24T00:00:00.000Z',
+        proposal: { action: 'contradiction' },
+        reviewSnapshot: {
+          conflict: {
+            active: { kind: 'fact', key: 'timezone', value: 'PST' },
+            incoming: { kind: 'fact', key: 'timezone', value: 'EST' },
+          },
+          proposedCanonical: {
+            kind: 'fact',
+            key: 'timezone',
+            value: 'EST',
+            reason: 'user moved',
+          },
+          evidence: [
+            {
+              role: 'incoming',
+              sourceType: 'message',
+              sourceUri: 'slack://c/1',
+              text: 'I moved to New York',
+            },
+          ],
+        },
+      },
+    };
+    const { runMemoryCommand } = await loadMemoryCommand();
+    const code = await runMemoryCommand('/tmp/home', [
+      'review',
+      'rev-1',
+      ...SUBJECT_ARGS,
+    ]);
+    expect(code).toBe(0);
+    expect(state.requests[0]?.method).toBe('GET');
+    expect(state.requests[0]?.path).toContain('/v1/memory/reviews/rev-1?');
+    const detail = notes[0]?.message ?? '';
+    expect(detail).toContain('Now (active claim):');
+    expect(detail).toContain('PST');
+    expect(detail).toContain('Change (incoming claim):');
+    expect(detail).toContain('EST');
+    expect(detail).toContain('Why: user moved');
+    expect(detail).toContain('I moved to New York');
+    expect(detail).toContain('slack://c/1');
+  });
+
+  it('surfaces a not-found error from the API', async () => {
+    state.error = new Error('Review not found');
+    const { runMemoryCommand, log } = await loadMemoryCommand();
+    const code = await runMemoryCommand('/tmp/home', [
+      'review',
+      'missing',
+      ...SUBJECT_ARGS,
+    ]);
+    expect(code).toBe(1);
+    expect(log.error).toHaveBeenCalledWith('Review not found');
+  });
+
+  it('emits raw JSON with --json', async () => {
+    state.response = { review: { id: 'rev-1', status: 'pending_review' } };
+    const writes: string[] = [];
+    const spy = vi
+      .spyOn(process.stdout, 'write')
+      .mockImplementation((chunk: string | Uint8Array) => {
+        writes.push(String(chunk));
+        return true;
+      });
+    const { runMemoryCommand } = await loadMemoryCommand();
+    const code = await runMemoryCommand('/tmp/home', [
+      'review',
+      'rev-1',
+      ...SUBJECT_ARGS,
+      '--json',
+    ]);
+    spy.mockRestore();
+    expect(code).toBe(0);
+    expect(JSON.parse(writes.join('')).review.id).toBe('rev-1');
+  });
+});
+
+describe('gantry memory review decide', () => {
+  it('maps --approve to an approve decision', async () => {
+    state.response = { review: { status: 'applied', applyOutcome: 'saved' } };
+    const { runMemoryCommand, log } = await loadMemoryCommand();
+    const code = await runMemoryCommand('/tmp/home', [
+      'review',
+      'decide',
+      'rev-1',
+      ...SUBJECT_ARGS,
+      '--approve',
+    ]);
+    expect(code).toBe(0);
+    expect(state.requests[0]?.method).toBe('POST');
+    expect(state.requests[0]?.path).toContain(
+      '/v1/memory/reviews/rev-1/decision?',
+    );
+    expect(state.requests[0]?.body).toEqual({ decision: 'approve' });
+    expect(log.success).toHaveBeenCalledWith('Review rev-1: applied (saved)');
+  });
+
+  it('maps --reject to a reject decision with reason', async () => {
+    state.response = { review: { status: 'rejected' } };
+    const { runMemoryCommand } = await loadMemoryCommand();
+    const code = await runMemoryCommand('/tmp/home', [
+      'review',
+      'decide',
+      'rev-1',
+      ...SUBJECT_ARGS,
+      '--reject',
+      '--reason',
+      'stale',
+    ]);
+    expect(code).toBe(0);
+    expect(state.requests[0]?.body).toEqual({
+      decision: 'reject',
+      reason: 'stale',
+    });
+  });
+
+  it('maps --edit-value to edit_approve with editedValue', async () => {
+    state.response = { review: { status: 'applied' } };
+    const { runMemoryCommand } = await loadMemoryCommand();
+    const code = await runMemoryCommand('/tmp/home', [
+      'review',
+      'decide',
+      'rev-1',
+      ...SUBJECT_ARGS,
+      '--edit-value',
+      'GMT',
+    ]);
+    expect(code).toBe(0);
+    expect(state.requests[0]?.body).toEqual({
+      decision: 'edit_approve',
+      editedValue: 'GMT',
+    });
+  });
+
+  it('requires exactly one decision flag', async () => {
+    const { runMemoryCommand, log } = await loadMemoryCommand();
+    const both = await runMemoryCommand('/tmp/home', [
+      'review',
+      'decide',
+      'rev-1',
+      ...SUBJECT_ARGS,
+      '--approve',
+      '--reject',
+    ]);
+    expect(both).toBe(1);
+    const none = await runMemoryCommand('/tmp/home', [
+      'review',
+      'decide',
+      'rev-1',
+      ...SUBJECT_ARGS,
+    ]);
+    expect(none).toBe(1);
+    expect(state.requests).toHaveLength(0);
+    expect(log.error).toHaveBeenCalled();
+  });
+
+  it('surfaces a 409 not-pending message from the API', async () => {
+    state.error = new Error('This review is no longer pending');
+    const { runMemoryCommand, log } = await loadMemoryCommand();
+    const code = await runMemoryCommand('/tmp/home', [
+      'review',
+      'decide',
+      'rev-1',
+      ...SUBJECT_ARGS,
+      '--approve',
+    ]);
+    expect(code).toBe(1);
+    expect(log.error).toHaveBeenCalledWith('This review is no longer pending');
+  });
+});
