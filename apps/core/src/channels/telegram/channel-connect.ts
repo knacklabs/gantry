@@ -315,9 +315,8 @@ export abstract class TelegramChannelConnect extends TelegramChannelPrompts {
           ctx.chat?.id?.toString() ||
           '';
         if (!chatId) return;
-        // Toast first so the button stops spinning; authority + the stale veto
-        // live in the host handler the router dispatches to.
-        await ctx.answerCallbackQuery({ text: 'Recording decision…' });
+        // The review message is SHARED. Route first, then split by terminality:
+        // authority + the stale veto live in the host handler we dispatch to.
         const outcome = await this.opts.onMessageAction?.({
           kind: 'memory_review_decision',
           conversationJid: `tg:${chatId}`,
@@ -333,27 +332,34 @@ export abstract class TelegramChannelConnect extends TelegramChannelPrompts {
           decision,
           label: '',
         });
-        if (outcome) {
-          const cleared =
-            typeof outcome.clearActions === 'boolean'
-              ? outcome.clearActions
-              : outcome.state === 'applied' ||
-                outcome.state === 'stale' ||
-                outcome.state === 'invalid';
-          const text = outcome.replacementText
-            ? `${outcome.receipt}\n\n${outcome.replacementText}`
-            : outcome.receipt;
+        if (!outcome) {
+          await ctx.answerCallbackQuery();
+          return;
+        }
+        const terminal =
+          outcome.state === 'applied' ||
+          outcome.state === 'stale' ||
+          outcome.state === 'invalid';
+        if (terminal) {
+          // Safe for everyone: replace the shared message + drop the keyboard.
+          await ctx.answerCallbackQuery({ text: outcome.receipt });
           await ctx
-            .editMessageText(
-              text,
-              cleared ? { reply_markup: { inline_keyboard: [] } } : {},
-            )
+            .editMessageText(outcome.receipt, {
+              reply_markup: { inline_keyboard: [] },
+            })
             .catch((err: unknown) =>
               logger.debug(
                 { reviewId, err: this.sanitizeErrorMessage(err) },
                 'Failed to update Telegram memory review message',
               ),
             );
+        } else {
+          // denied / edit: private alert to the clicker; leave the shared
+          // message + keyboard intact for legitimate approvers.
+          const text = outcome.replacementText
+            ? `${outcome.receipt}\n\n${outcome.replacementText}`
+            : outcome.receipt;
+          await ctx.answerCallbackQuery({ text, show_alert: true });
         }
         return;
       }

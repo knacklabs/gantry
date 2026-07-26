@@ -3271,7 +3271,7 @@ describe('Slack channel', () => {
     return { ack, onMessageAction };
   }
 
-  it('routes Slack memory-review buttons through the callback and clears buttons on applied', async () => {
+  it('rebuilds the shared Slack message as a receipt with no buttons on applied', async () => {
     const { ack, onMessageAction } = await invokeSlackReviewAction({
       state: 'applied',
       receipt: 'Memory review approved.',
@@ -3287,38 +3287,54 @@ describe('Slack channel', () => {
       decision: 'approve',
       label: '',
     });
-    expect(appRef.current.client.chat.update).toHaveBeenCalledWith({
+    const call = appRef.current.client.chat.update.mock.calls[0]?.[0];
+    expect(call).toMatchObject({
       channel: 'C1234567890',
       ts: '1710000000.100201',
       text: 'Memory review approved.',
-      blocks: [],
     });
+    // Blocks are rebuilt (receipt section) with no actions block — buttons gone.
+    expect(call.blocks).toEqual([
+      {
+        type: 'section',
+        text: { type: 'mrkdwn', text: 'Memory review approved.' },
+      },
+    ]);
+    expect(appRef.current.client.chat.postEphemeral).not.toHaveBeenCalled();
   });
 
-  it('shows the reply-command and keeps buttons for a Slack memory-review edit', async () => {
+  it('delivers the reply-command ephemerally and leaves the shared Slack message intact on edit', async () => {
     await invokeSlackReviewAction(
       {
         state: 'needs_input',
         receipt: 'Reply to edit this review.',
         replacementText: 'edit memory review mrv_abc: ',
-        clearActions: false,
       },
       'edit',
     );
-    const call = appRef.current.client.chat.update.mock.calls[0]?.[0];
-    expect(call.ts).toBe('1710000000.100201');
-    expect(call.text).toContain('edit memory review mrv_abc:');
-    expect(call.blocks).toBeUndefined();
+    expect(appRef.current.client.chat.update).not.toHaveBeenCalled();
+    const ephemeral =
+      appRef.current.client.chat.postEphemeral.mock.calls[0]?.[0];
+    expect(ephemeral).toMatchObject({
+      channel: 'C1234567890',
+      user: 'U_APPROVER',
+    });
+    expect(ephemeral.text).toContain('edit memory review mrv_abc:');
   });
 
-  it('shows a receipt and keeps buttons when a Slack memory-review decision is denied', async () => {
+  it('delivers a denial ephemerally and leaves the shared Slack message intact', async () => {
     await invokeSlackReviewAction(
       { state: 'denied', receipt: 'Not authorized to decide this review.' },
       'approve',
     );
-    const call = appRef.current.client.chat.update.mock.calls[0]?.[0];
-    expect(call.text).toBe('Not authorized to decide this review.');
-    expect(call.blocks).toBeUndefined();
+    expect(appRef.current.client.chat.update).not.toHaveBeenCalled();
+    const ephemeral =
+      appRef.current.client.chat.postEphemeral.mock.calls[0]?.[0];
+    expect(ephemeral).toMatchObject({
+      channel: 'C1234567890',
+      user: 'U_APPROVER',
+      text: 'Not authorized to decide this review.',
+    });
   });
 
   it('does not render Slack live stop action buttons', async () => {

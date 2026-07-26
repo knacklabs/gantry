@@ -3172,15 +3172,12 @@ describe('TelegramChannel', () => {
       return { onMessageAction, callbackCtx };
     }
 
-    it('answers, routes, and clears the keyboard on an applied Telegram review decision', async () => {
+    it('routes and replaces the shared Telegram message + clears the keyboard on applied', async () => {
       const { onMessageAction, callbackCtx } =
         await triggerTelegramReviewCallback({
           state: 'applied',
           receipt: 'Memory review approved.',
         });
-      expect(callbackCtx.answerCallbackQuery).toHaveBeenCalledWith({
-        text: 'Recording decision…',
-      });
       expect(onMessageAction).toHaveBeenCalledWith({
         kind: 'memory_review_decision',
         conversationJid: 'tg:100200300',
@@ -3191,25 +3188,40 @@ describe('TelegramChannel', () => {
         decision: 'approve',
         label: '',
       });
+      expect(callbackCtx.answerCallbackQuery).toHaveBeenCalledWith({
+        text: 'Memory review approved.',
+      });
       expect(callbackCtx.editMessageText).toHaveBeenCalledWith(
         'Memory review approved.',
         { reply_markup: { inline_keyboard: [] } },
       );
     });
 
-    it('shows the reply-command and keeps the keyboard on a Telegram review edit', async () => {
+    it('alerts the clicker privately and leaves the shared Telegram message intact on edit', async () => {
       const { callbackCtx } = await triggerTelegramReviewCallback(
         {
           state: 'needs_input',
           receipt: 'Reply to edit.',
           replacementText: 'edit memory review mrv_abc: ',
-          clearActions: false,
         },
         'mr:e:mrv_abc',
       );
-      const [text, extra] = callbackCtx.editMessageText.mock.calls[0];
-      expect(text).toContain('edit memory review mrv_abc:');
-      expect(extra).toEqual({});
+      const alert = callbackCtx.answerCallbackQuery.mock.calls[0]?.[0];
+      expect(alert.text).toContain('edit memory review mrv_abc:');
+      expect(alert.show_alert).toBe(true);
+      expect(callbackCtx.editMessageText).not.toHaveBeenCalled();
+    });
+
+    it('alerts the clicker privately and leaves the shared Telegram message intact on denied', async () => {
+      const { callbackCtx } = await triggerTelegramReviewCallback(
+        { state: 'denied', receipt: 'Not authorized to decide this review.' },
+        'mr:a:mrv_abc',
+      );
+      expect(callbackCtx.answerCallbackQuery).toHaveBeenCalledWith({
+        text: 'Not authorized to decide this review.',
+        show_alert: true,
+      });
+      expect(callbackCtx.editMessageText).not.toHaveBeenCalled();
     });
 
     it('omits Telegram live stop action buttons but still routes stale callbacks', async () => {

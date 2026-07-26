@@ -249,6 +249,27 @@ describe('slackReviewMessageBlocks', () => {
       providerAccountId: 'slack_default',
     });
   });
+
+  it('escapes malicious snapshot content so it cannot become a live mention/link', () => {
+    const snapshot: MemoryReviewSnapshot = {
+      ...contradictionSnapshot,
+      conflict: {
+        active: {
+          ...contradictionSnapshot.conflict!.active,
+          value: 'ping <@U123> see <https://evil.example|click>',
+        },
+        incoming: contradictionSnapshot.conflict!.incoming,
+      },
+    };
+    const view = buildReviewMessageView(
+      record({ action: 'needs_review' }, snapshot),
+    );
+    const rendered = JSON.stringify(slackReviewMessageBlocks(view));
+    expect(rendered).not.toContain('<@U123>');
+    expect(rendered).not.toContain('<https://evil.example|click>');
+    expect(rendered).toContain('&lt;@U123&gt;');
+    expect(rendered).toContain('&lt;https://evil.example|click&gt;');
+  });
 });
 
 describe('telegramReviewMessage', () => {

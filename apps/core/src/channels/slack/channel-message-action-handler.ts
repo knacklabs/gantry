@@ -21,14 +21,14 @@ type SlackAppLike = {
 };
 
 /**
- * Buttons come off the message once the review can no longer move: applied
- * (settled), stale (withdrawn) or invalid (gone). denied keeps them — another
- * approver may act — and the edit prompt (needs_input) keeps them so the
- * reviewer can still approve/reject after replying. An explicit clearActions
- * from the handler wins over this default.
+ * The review message is SHARED in the channel. Terminal outcomes (applied /
+ * stale / invalid — the review is resolved or gone) are safe for everyone, so
+ * we replace the shared message with the receipt and drop the buttons.
+ * Non-terminal outcomes (denied / needs_input[edit]) go PRIVATELY to the
+ * clicker and never touch the shared message — a denial from an unauthorized
+ * member, or an edit prompt, must not destroy the review context others rely on.
  */
-function reviewActionsCleared(outcome: MessageActionOutcome): boolean {
-  if (typeof outcome.clearActions === 'boolean') return outcome.clearActions;
+function isTerminalReviewOutcome(outcome: MessageActionOutcome): boolean {
   return (
     outcome.state === 'applied' ||
     outcome.state === 'stale' ||
@@ -87,19 +87,35 @@ export function registerSlackMessageActionHandler(
         decision: payload.decision as MemoryReviewActionDecision,
         label: '',
       });
-      if (outcome && messageTs) {
-        const text = outcome.replacementText
-          ? `${outcome.receipt}\n\n${outcome.replacementText}`
-          : outcome.receipt;
+      if (outcome) {
         try {
-          await app.client.chat.update({
-            channel: body.channel.id,
-            ts: messageTs,
-            text,
-            ...(reviewActionsCleared(outcome) ? { blocks: [] } : {}),
-          });
+          if (isTerminalReviewOutcome(outcome) && messageTs) {
+            // Rebuild the shared message as a receipt: Slack renders blocks, so
+            // replace them (not just fallback text) to actually drop the buttons.
+            await app.client.chat.update({
+              channel: body.channel.id,
+              ts: messageTs,
+              text: outcome.receipt,
+              blocks: [
+                {
+                  type: 'section',
+                  text: { type: 'mrkdwn', text: outcome.receipt },
+                },
+              ],
+            });
+          } else if (!isTerminalReviewOutcome(outcome)) {
+            // denied / edit: private to the clicker; shared message untouched.
+            const text = outcome.replacementText
+              ? `${outcome.receipt}\n\n${outcome.replacementText}`
+              : outcome.receipt;
+            await app.client.chat.postEphemeral({
+              channel: body.channel.id,
+              user: body.user.id,
+              text,
+            });
+          }
         } catch {
-          // ignore receipt update failures
+          // ignore receipt delivery failures
         }
       }
       return;

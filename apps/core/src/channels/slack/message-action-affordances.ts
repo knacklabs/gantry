@@ -85,9 +85,24 @@ export function slackMessageActionBlocks(
       ];
 }
 
+/**
+ * Escape dynamic snapshot content before embedding it in Slack mrkdwn, so a
+ * captured `<@U123>` or `<https://x|label>` can't become a live mention/link
+ * when the bot republishes it. Mirrors the Telegram HTML escaping.
+ */
+function escapeSlackMrkdwn(value: string): string {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;');
+}
+
 function slackSideLine(side: ReviewMessageSide): string {
-  const meta = [side.source, side.date].filter(Boolean).join(' · ');
-  const value = `*${side.label}:* "${side.value}"`;
+  const meta = [side.source, side.date]
+    .filter(Boolean)
+    .map((part) => escapeSlackMrkdwn(part as string))
+    .join(' · ');
+  const value = `*${side.label}:* "${escapeSlackMrkdwn(side.value)}"`;
   return meta ? `${value} — ${meta}` : value;
 }
 
@@ -111,16 +126,17 @@ export function slackReviewMessageBlocks(
       type: 'section',
       text: {
         type: 'mrkdwn',
-        text: [`*Topic:* ${view.topic}`, ...view.sides.map(slackSideLine)].join(
-          '\n',
-        ),
+        text: [
+          `*Topic:* ${escapeSlackMrkdwn(view.topic)}`,
+          ...view.sides.map(slackSideLine),
+        ].join('\n'),
       },
     },
     {
       type: 'section',
       text: {
         type: 'mrkdwn',
-        text: `*Change →* ${view.change}\n*Why:* ${view.why}`,
+        text: `*Change →* ${escapeSlackMrkdwn(view.change)}\n*Why:* ${escapeSlackMrkdwn(view.why)}`,
       },
     },
   ];
@@ -129,7 +145,7 @@ export function slackReviewMessageBlocks(
       type: 'context',
       elements: view.evidence.map((item) => ({
         type: 'mrkdwn',
-        text: `📎 ${[item.source, item.date].filter(Boolean).join(' · ')}: ${item.snippet}`,
+        text: `📎 ${escapeSlackMrkdwn([item.source, item.date].filter(Boolean).join(' · '))}: ${escapeSlackMrkdwn(item.snippet)}`,
       })),
     });
   }
