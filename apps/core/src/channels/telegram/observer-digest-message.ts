@@ -12,19 +12,23 @@ const TELEGRAM_CALLBACK_DATA_MAX_BYTES = 64;
 const TELEGRAM_CALLBACK_ANSWER_MAX_CHARS = 200;
 // Headroom under Telegram's hard 4096-char message limit. EVERY reserved insight
 // is kept (dropping one would silently settle it to a 7-day cooldown the owner
-// never saw); instead each insight's title+summary is budgeted down to fit.
+// never saw); an overflowing digest is shrunk by trimming summaries instead.
 const TELEGRAM_MESSAGE_SAFE_CEILING = 4000;
-// Per-insight non-text overhead (numbering + type line + marker + separators);
-// overestimated so the assembled total stays under the ceiling.
-const TELEGRAM_INSIGHT_FIXED_OVERHEAD = 60;
 
-// Code-point-safe truncation to `max` (Array.from splits on whole code points, so
-// an emoji straddling the cut is never sliced into a lone surrogate).
-function truncateCodePoints(value: string, max: number): string {
-  const codePoints = Array.from(value);
-  return codePoints.length <= max
-    ? value
-    : `${codePoints.slice(0, Math.max(0, max - 1)).join('')}…`;
+// Truncate `value` to at most `maxUnits` UTF-16 code units (Telegram's metric,
+// == JS `.length`) while cutting on WHOLE code points, so an emoji straddling the
+// boundary is never sliced into a lone surrogate. A supplementary char costs 2
+// units, so emoji-heavy content can't slip past the budget. The '…' marker costs
+// 1 unit and is included in the budget.
+function truncateUtf16Units(value: string, maxUnits: number): string {
+  if (value.length <= maxUnits) return value;
+  const budget = Math.max(0, maxUnits - 1); // reserve 1 unit for the ellipsis
+  let out = '';
+  for (const codePoint of value) {
+    if (out.length + codePoint.length > budget) break;
+    out += codePoint;
+  }
+  return `${out}…`;
 }
 
 /**
@@ -125,66 +129,103 @@ export function telegramObserverDigestMessage(
   };
 } {
   const header = `Observer digest — ${view.localDay}`;
+  // Per-insight mutable title/summary (start FULL, already domain-capped).
+  const fields = view.insights.map((insight) => ({
+    title: insight.title,
+    summary: insight.summary,
+  }));
+
+  // The RENDERED text Telegram measures: HTML tags aren't counted and entities
+  // render to one char, so the plain (pre-escape/pre-tag) assembly IS the
+  // rendered text, and its `.length` is the UTF-16-unit count against the limit.
+  const renderedLength = (): number => {
+    const parts = [header];
+    view.insights.forEach((insight, i) => {
+      parts.push('', `${i + 1}. ${fields[i]!.title}`);
+      if (fields[i]!.summary) parts.push(fields[i]!.summary);
+      parts.push(insight.type);
+      if (insight.stateMarker) parts.push(insight.stateMarker);
+    });
+    return parts.join('\n').length;
+  };
+
+  // Measure-first: only shrink when the FULL digest overflows — a long summary
+  // is left untouched if short siblings leave enough room. On overflow, trim
+  // summaries LONGEST-FIRST (units, surrogate-safe) until it fits; drop a
+  // summary fully before touching any title, and only trim a title when every
+  // summary is already empty. Every insight + keyboard row is always kept.
+  // ponytail: sized for the small top-N maxInsights; an absurdly large
+  // maxInsights would need multi-message splitting (not built).
+  while (renderedLength() > TELEGRAM_MESSAGE_SAFE_CEILING) {
+    const overflow = renderedLength() - TELEGRAM_MESSAGE_SAFE_CEILING;
+    let idx = -1;
+    fields.forEach((field, i) => {
+      if (
+        field.summary.length > 0 &&
+        (idx < 0 || field.summary.length > fields[idx]!.summary.length)
+      ) {
+        idx = i;
+      }
+    });
+    if (idx >= 0) {
+      const summary = fields[idx]!.summary;
+      fields[idx]!.summary =
+        overflow >= summary.length
+          ? ''
+          : truncateUtf16Units(summary, summary.length - overflow);
+      continue;
+    }
+    // Every summary empty: trim the longest title (never drops the insight).
+    let tIdx = -1;
+    fields.forEach((field, i) => {
+      if (
+        field.title.length > 0 &&
+        (tIdx < 0 || field.title.length > fields[tIdx]!.title.length)
+      ) {
+        tIdx = i;
+      }
+    });
+    if (tIdx < 0) break;
+    const title = fields[tIdx]!.title;
+    const trimmed = truncateUtf16Units(
+      title,
+      Math.max(1, title.length - overflow),
+    );
+    if (trimmed.length >= title.length) break; // no progress — stop
+    fields[tIdx]!.title = trimmed;
+  }
+
   const lines = [`<b>${escapeTelegramHtml(header)}</b>`];
   const inline_keyboard: Array<Array<{ text: string; callback_data: string }>> =
     [];
-  const count = view.insights.length;
-  // Adaptive budget: each insight's title+summary share the leftover rendered
-  // budget after the header + a fixed per-insight overhead, so ALL N insights
-  // (and all N keyboard rows) fit in one message and none is silently dropped.
-  // Telegram counts the RENDERED length (tags/entities don't inflate it), so we
-  // budget the raw (pre-escape) text. ponytail: sized for the small top-N
-  // maxInsights; an absurdly large maxInsights would need multi-message
-  // splitting (not built — the digest is a bounded daily top-N).
-  const variableBudget =
-    count > 0
-      ? Math.max(
-          24,
-          Math.floor(
-            (TELEGRAM_MESSAGE_SAFE_CEILING -
-              header.length -
-              TELEGRAM_INSIGHT_FIXED_OVERHEAD * count) /
-              count,
-          ),
-        )
-      : 0;
-  for (let index = 0; index < count; index += 1) {
-    const insight = view.insights[index]!;
-    // Fit title+summary into this insight's share: keep the whole title when it
-    // still leaves room for a summary; otherwise the title takes the budget.
-    let title = insight.title;
-    let summary = insight.summary;
-    if (title.length >= variableBudget) {
-      title = truncateCodePoints(title, variableBudget);
-      summary = '';
-    } else {
-      summary = truncateCodePoints(summary, variableBudget - title.length);
+  view.insights.forEach((insight, index) => {
+    lines.push(
+      '',
+      `<b>${index + 1}. ${escapeTelegramHtml(fields[index]!.title)}</b>`,
+    );
+    if (fields[index]!.summary) {
+      lines.push(escapeTelegramHtml(fields[index]!.summary));
     }
-    const block = ['', `<b>${index + 1}. ${escapeTelegramHtml(title)}</b>`];
-    if (summary) block.push(escapeTelegramHtml(summary));
-    block.push(`<i>${escapeTelegramHtml(insight.type)}</i>`);
+    lines.push(`<i>${escapeTelegramHtml(insight.type)}</i>`);
     if (insight.stateMarker) {
-      block.push(escapeTelegramHtml(insight.stateMarker));
-    } else {
-      const row = insight.affordances
-        .map((affordance) => {
-          const callback_data = observerCallbackData(
-            affordance.action,
-            affordance.insightId,
-            affordance.localDay,
-          );
-          return callback_data
-            ? { text: affordance.label, callback_data }
-            : null;
-        })
-        .filter(
-          (button): button is { text: string; callback_data: string } =>
-            button !== null,
-        );
-      if (row.length > 0) inline_keyboard.push(row);
+      lines.push(escapeTelegramHtml(insight.stateMarker));
+      return;
     }
-    lines.push(...block);
-  }
+    const row = insight.affordances
+      .map((affordance) => {
+        const callback_data = observerCallbackData(
+          affordance.action,
+          affordance.insightId,
+          affordance.localDay,
+        );
+        return callback_data ? { text: affordance.label, callback_data } : null;
+      })
+      .filter(
+        (button): button is { text: string; callback_data: string } =>
+          button !== null,
+      );
+    if (row.length > 0) inline_keyboard.push(row);
+  });
   return { text: lines.join('\n'), reply_markup: { inline_keyboard } };
 }
 

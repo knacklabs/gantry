@@ -28,6 +28,13 @@ import type { MessageActionOutcome } from '@core/domain/types.js';
 
 const ACTIONS = ['resolve', 'dismiss', 'snooze', 'less_like_this'] as const;
 
+// Telegram's 4096 limit counts the RENDERED text: HTML tags aren't counted and
+// entities render to one char. The test content here has no &<> so stripping the
+// <b>/<i> tags yields the rendered length.
+function renderedLength(html: string): number {
+  return html.replace(/<\/?[bi]>/g, '').length;
+}
+
 function makeView(overrides?: {
   count?: number;
   title?: (i: number) => string;
@@ -46,6 +53,34 @@ function makeView(overrides?: {
     recipient: 'owner',
     insights,
   });
+}
+
+// A view with EXACT (uncapped) title/summary so the Telegram fit algorithm can
+// be tested with precise sizes the domain-level caps would otherwise bound.
+function makeRawView(
+  fields: Array<{ title: string; summary: string }>,
+): ObserverDigestMessageView {
+  const localDay = '2026-07-27';
+  return {
+    localDay,
+    recipient: 'owner',
+    insights: fields.map((field, i) => {
+      const insightId = `prin_${'a'.repeat(32)}${i}`;
+      return {
+        insightId,
+        title: field.title,
+        summary: field.summary,
+        type: 'commitment' as const,
+        affordances: ACTIONS.map((action) => ({
+          kind: 'observer_feedback' as const,
+          label: action,
+          insightId,
+          action,
+          localDay,
+        })),
+      };
+    }),
+  };
 }
 
 describe('observer digest — Slack render + codec', () => {
@@ -179,31 +214,59 @@ describe('observer digest — Telegram render + codec', () => {
     });
   });
 
-  it('keeps ALL insights under Telegram 4096 by shortening summaries (never dropping)', () => {
-    // Many insights, each with capped-but-full fields: the naive aggregate would
-    // blow past 4096. Adaptive budgeting must keep EVERY insight + keyboard row.
+  it('leaves a comfortably-fitting 12-insight digest completely untouched (no shortening)', () => {
+    // Full render well under 4000 → measure-first must NOT trim anything.
     const view = makeView({
       count: 12,
-      title: () => 'T'.repeat(500),
-      summary: () => 'S'.repeat(2000),
+      title: (i) => `Title ${i}`,
+      summary: (i) => `Summary ${i} `.repeat(4), // short
     });
     const { text, reply_markup } = telegramObserverDigestMessage(view);
-    expect(text.length).toBeLessThanOrEqual(4096);
-    // No insight dropped: all 12 keyboard rows present, none silently settled.
+    expect(text.length).toBeLessThan(4000);
+    expect(text).not.toContain('…');
     expect(reply_markup.inline_keyboard).toHaveLength(12);
-    expect(text).not.toMatch(/…and \d+ more/);
-    // Every insight is represented (its numbered heading appears).
-    for (let i = 1; i <= 12; i += 1) {
-      expect(text).toContain(`${i}. `);
-    }
-    // Summaries were shortened to fit (ellipsis present somewhere).
-    expect(text).toContain('…');
+    // Every summary rendered in full.
+    view.insights.forEach((insight) => {
+      expect(text).toContain(insight.summary);
+    });
   });
 
-  it('does not truncate when the whole digest comfortably fits', () => {
-    const { text } = telegramObserverDigestMessage(makeView({ count: 3 }));
-    expect(text).not.toContain('…');
-    expect(text).not.toMatch(/…and \d+ more/);
+  it('shrinks an emoji-heavy overflow by UTF-16 units, keeping all insights + no lone surrogate', () => {
+    // Supplementary (2-unit) emoji: full render exceeds 4096; unit-aware shrink
+    // must bring it under and never split a surrogate pair.
+    const view = makeRawView(
+      Array.from({ length: 12 }, (_, i) => ({
+        title: `T${i}`,
+        summary: '😀'.repeat(200), // 400 UTF-16 units each; forces a partial cut
+      })),
+    );
+    const { text, reply_markup } = telegramObserverDigestMessage(view);
+    // Telegram's 4096 limit applies to the RENDERED text (tags aren't counted).
+    expect(renderedLength(text)).toBeLessThanOrEqual(4096);
+    expect(reply_markup.inline_keyboard).toHaveLength(12);
+    for (let i = 1; i <= 12; i += 1) expect(text).toContain(`${i}. `);
+    expect(text).not.toMatch(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/); // no lone high surrogate
+    expect(text).not.toContain('�');
+    expect(Buffer.from(text, 'utf8').toString('utf8')).toBe(text); // lossless
+  });
+
+  it('trims only the long summary on mixed overflow, leaving short siblings intact', () => {
+    // One giant summary + eleven short ones; total over ceiling → longest-first
+    // trimming should touch only the giant, not the short eleven.
+    const view = makeRawView(
+      Array.from({ length: 12 }, (_, i) => ({
+        title: `T${i}`,
+        summary: i === 0 ? 'L'.repeat(4200) : `short ${i}`,
+      })),
+    );
+    const { text, reply_markup } = telegramObserverDigestMessage(view);
+    expect(renderedLength(text)).toBeLessThanOrEqual(4096);
+    expect(reply_markup.inline_keyboard).toHaveLength(12);
+    // The eleven short summaries are untouched.
+    for (let i = 1; i < 12; i += 1) expect(text).toContain(`short ${i}`);
+    // The long one was trimmed (its full form is gone; an ellipsis remains).
+    expect(text).not.toContain('L'.repeat(4200));
+    expect(text).toContain('…');
   });
 
   it('does not false-drop insights whose ESCAPED HTML is large but RENDERED text fits', () => {
