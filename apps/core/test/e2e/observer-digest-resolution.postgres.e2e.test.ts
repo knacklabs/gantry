@@ -253,14 +253,14 @@ maybeDescribe('observer digest resolution round-trip (Postgres)', () => {
 
   it('Telegram: render → callback_data decode → router → owner auth → applyOwnerAction → DB → rebuilt keyboard', async () => {
     const owner = {
-      recipient: 'owner:tg',
+      recipient: 'owner:tg1',
       conversationJid: 'tg:9001',
       providerAccountId: 'pa-tg',
       providerId: 'telegram',
     };
     const view = await deliverDigest({
       ...owner,
-      insightIds: ['tg-a', 'tg-b'],
+      insightIds: ['tg1-a', 'tg1-b'],
     });
     const router = routerFor(owner);
 
@@ -278,7 +278,7 @@ maybeDescribe('observer digest resolution round-trip (Postgres)', () => {
       insightId: match![2],
       localDay: match![3],
     };
-    expect(decoded).toMatchObject({ action: 'resolve', insightId: 'tg-a' });
+    expect(decoded).toMatchObject({ action: 'resolve', insightId: 'tg1-a' });
 
     const outcome = await router.handle({
       kind: 'observer_feedback',
@@ -297,11 +297,11 @@ maybeDescribe('observer digest resolution round-trip (Postgres)', () => {
     });
     const rebuilt = outcome!.observerDigestView!;
     expect(rebuilt.insights[0]).toMatchObject({
-      insightId: 'tg-a',
+      insightId: 'tg1-a',
       affordances: [],
       stateMarker: '✓ resolved',
     });
-    expect(rebuilt.insights[1].insightId).toBe('tg-b');
+    expect(rebuilt.insights[1].insightId).toBe('tg1-b');
     expect(rebuilt.insights[1].affordances).toHaveLength(4);
 
     // Re-render: the acted insight's keyboard row is gone; the other stays live.
@@ -311,10 +311,10 @@ maybeDescribe('observer digest resolution round-trip (Postgres)', () => {
 
     // Durable DB state actually changed.
     const states = await insightsById();
-    expect(states.get('tg-a')?.state).toBe('resolved');
-    expect(states.get('tg-b')?.state).toBe('cooldown');
-    expect(await feedbackCount('tg-a')).toBe(1);
-    expect(await feedbackCount('tg-b')).toBe(0);
+    expect(states.get('tg1-a')?.state).toBe('resolved');
+    expect(states.get('tg1-b')?.state).toBe('cooldown');
+    expect(await feedbackCount('tg1-a')).toBe(1);
+    expect(await feedbackCount('tg1-b')).toBe(0);
   });
 
   it('Teams: full card handler → decode → router → applyOwnerAction → DB → rebuilt card (acted loses ActionSet, other keeps it)', async () => {
@@ -368,35 +368,41 @@ maybeDescribe('observer digest resolution round-trip (Postgres)', () => {
     expect(await feedbackCount('tm-a')).toBe(0);
   });
 
-  it('rebuilds from ALL durable owner actions: a second insight settled on another channel stays marked in the rebuild', async () => {
-    // tg-a was already resolved above; now dismiss tg-b and confirm the rebuild
-    // re-marks BOTH (the view is rebuilt from every durable feedback row, not
-    // just the just-clicked insight).
+  it('rebuilds from ALL durable owner actions: an earlier settled insight stays marked when a second one is acted', async () => {
+    // Self-contained: seed a fresh digest, resolve tg3-a, THEN dismiss tg3-b and
+    // confirm the rebuild re-marks BOTH (the view is rebuilt from every durable
+    // feedback row, not just the just-clicked insight).
     const owner = {
-      recipient: 'owner:tg',
-      conversationJid: 'tg:9001',
+      recipient: 'owner:tg3',
+      conversationJid: 'tg:9003',
       providerAccountId: 'pa-tg',
       providerId: 'telegram',
     };
+    await deliverDigest({ ...owner, insightIds: ['tg3-a', 'tg3-b'] });
     const router = routerFor(owner);
-    const outcome = await router.handle({
-      kind: 'observer_feedback',
-      conversationJid: owner.conversationJid,
-      providerAccountId: owner.providerAccountId,
-      userId: owner.recipient,
-      insightId: 'tg-b',
-      action: 'dismiss',
-      localDay: LOCAL_DAY,
-    });
+
+    const click = (insightId: string, action: 'resolve' | 'dismiss') =>
+      router.handle({
+        kind: 'observer_feedback',
+        conversationJid: owner.conversationJid,
+        providerAccountId: owner.providerAccountId,
+        userId: owner.recipient,
+        insightId,
+        action,
+        localDay: LOCAL_DAY,
+      });
+
+    await click('tg3-a', 'resolve');
+    const outcome = await click('tg3-b', 'dismiss');
     expect(outcome).toMatchObject({ state: 'applied' });
     const rebuilt = outcome!.observerDigestView!;
     expect(rebuilt.insights[0]).toMatchObject({
-      insightId: 'tg-a',
+      insightId: 'tg3-a',
       stateMarker: '✓ resolved',
       affordances: [],
     });
     expect(rebuilt.insights[1]).toMatchObject({
-      insightId: 'tg-b',
+      insightId: 'tg3-b',
       stateMarker: '✕ dismissed',
       affordances: [],
     });
@@ -404,25 +410,26 @@ maybeDescribe('observer digest resolution round-trip (Postgres)', () => {
 
   it('denies a non-owner clicker without mutating the durable state', async () => {
     const owner = {
-      recipient: 'owner:teams',
-      conversationJid: 'teams:ownerdm',
-      providerAccountId: 'pa-teams',
+      recipient: 'owner:deny',
+      conversationJid: 'teams:denydm',
+      providerAccountId: 'pa-deny',
       providerId: 'teams',
     };
+    await deliverDigest({ ...owner, insightIds: ['dn-a', 'dn-b'] });
     const router = routerFor(owner);
     const outcome = await router.handle({
       kind: 'observer_feedback',
       conversationJid: owner.conversationJid,
       providerAccountId: owner.providerAccountId,
       userId: 'intruder', // not the owner recipient
-      insightId: 'tm-a',
+      insightId: 'dn-a',
       action: 'resolve',
       localDay: LOCAL_DAY,
     });
     expect(outcome).toMatchObject({ state: 'denied' });
-    // tm-a is still open, no feedback row written.
+    // dn-a is still open, no feedback row written.
     const states = await insightsById();
-    expect(states.get('tm-a')?.state).toBe('cooldown');
-    expect(await feedbackCount('tm-a')).toBe(0);
+    expect(states.get('dn-a')?.state).toBe('cooldown');
+    expect(await feedbackCount('dn-a')).toBe(0);
   });
 });
