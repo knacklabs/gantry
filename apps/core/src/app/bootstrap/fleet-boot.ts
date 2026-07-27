@@ -8,6 +8,7 @@ import {
   getRuntimeBrowserProfileArtifactStore,
   getRuntimeBrowserProfileSnapshotRepository,
   getRuntimeStorage,
+  withSettingsProjectorLease,
 } from '../../adapters/storage/postgres/runtime-store.js';
 import {
   ARTIFACTS_DIR,
@@ -145,55 +146,57 @@ export async function prepareFleetSettings(input: {
   app: RuntimeApp;
 }): Promise<FleetSettingsResult> {
   const storage = getRuntimeStorage();
-  const latest =
-    await storage.repositories.settingsRevisions.getLatestSettingsRevision(
-      input.appId,
-    );
-  if (!latest) {
-    markSettingsNotLoaded();
-    logger.warn(
-      { appId: input.appId, seedCommand: SEED_COMMAND },
-      `Fleet worker has no settings revision yet; /readyz stays red until ` +
-        `desired state is seeded. Run: ${SEED_COMMAND}`,
-    );
-    return { loaded: false, revision: null };
-  }
-  if (latest.minReaderVersion > CURRENT_SETTINGS_READER_VERSION) {
-    markSettingsNotLoaded();
-    logger.error(
+  return withSettingsProjectorLease(input.appId, async () => {
+    const latest =
+      await storage.repositories.settingsRevisions.getLatestSettingsRevision(
+        input.appId,
+      );
+    if (!latest) {
+      markSettingsNotLoaded();
+      logger.warn(
+        { appId: input.appId, seedCommand: SEED_COMMAND },
+        `Fleet worker has no settings revision yet; /readyz stays red until ` +
+          `desired state is seeded. Run: ${SEED_COMMAND}`,
+      );
+      return { loaded: false, revision: null };
+    }
+    if (latest.minReaderVersion > CURRENT_SETTINGS_READER_VERSION) {
+      markSettingsNotLoaded();
+      logger.error(
+        {
+          appId: input.appId,
+          revision: latest.revision,
+          minReaderVersion: latest.minReaderVersion,
+          readerVersion: CURRENT_SETTINGS_READER_VERSION,
+        },
+        'Fleet settings revision requires a newer reader version; holding boot ' +
+          'until this worker is upgraded',
+      );
+      return { loaded: false, revision: latest.revision };
+    }
+    const settings = settingsFromRevisionDocument(latest.settingsDocument);
+    // Apply through the single shared import path (validate → write settings.yaml
+    // → reconcile → reload runtime state), the same path the watcher and CLI use.
+    // Writing settings.yaml here is an internal loader reuse so the existing
+    // `loadRuntimeSettings` path can read fleet desired state; the file is NOT the
+    // fleet wire contract (the typed document in `settings_revisions` is).
+    await importWorkstationSettings(
       {
+        runtimeHome: input.runtimeHome,
+        ops: storage.ops,
+        repositories: storage.repositories,
         appId: input.appId,
-        revision: latest.revision,
-        minReaderVersion: latest.minReaderVersion,
-        readerVersion: CURRENT_SETTINGS_READER_VERSION,
+        reloadRuntimeState: () => input.app.loadState(),
       },
-      'Fleet settings revision requires a newer reader version; holding boot ' +
-        'until this worker is upgraded',
+      settings,
     );
-    return { loaded: false, revision: latest.revision };
-  }
-  const settings = settingsFromRevisionDocument(latest.settingsDocument);
-  // Apply through the single shared import path (validate → write settings.yaml
-  // → reconcile → reload runtime state), the same path the watcher and CLI use.
-  // Writing settings.yaml here is an internal loader reuse so the existing
-  // `loadRuntimeSettings` path can read fleet desired state; the file is NOT the
-  // fleet wire contract (the typed document in `settings_revisions` is).
-  await importWorkstationSettings(
-    {
-      runtimeHome: input.runtimeHome,
-      ops: storage.ops,
-      repositories: storage.repositories,
-      appId: input.appId,
-      reloadRuntimeState: () => input.app.loadState(),
-    },
-    settings,
-  );
-  markSettingsLoaded();
-  logger.info(
-    { appId: input.appId, revision: latest.revision },
-    'Loaded fleet settings from revision',
-  );
-  return { loaded: true, revision: latest.revision };
+    markSettingsLoaded();
+    logger.info(
+      { appId: input.appId, revision: latest.revision },
+      'Loaded fleet settings from revision',
+    );
+    return { loaded: true, revision: latest.revision };
+  });
 }
 
 export interface FleetSubsystems {

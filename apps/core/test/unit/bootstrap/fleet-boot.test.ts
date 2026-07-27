@@ -8,6 +8,9 @@ const loadState = vi.hoisted(() => ({
   markSettingsNotLoaded: vi.fn(),
 }));
 const importMock = vi.hoisted(() => ({ importWorkstationSettings: vi.fn() }));
+const projectorLease = vi.hoisted(() =>
+  vi.fn(async <T>(_appId: string, fn: () => Promise<T> | T) => fn()),
+);
 const log = vi.hoisted(() => ({
   warn: vi.fn(),
   info: vi.fn(),
@@ -17,6 +20,7 @@ const log = vi.hoisted(() => ({
 vi.mock('@core/adapters/storage/postgres/runtime-store.js', () => ({
   getRuntimeBrowserProfileArtifactStore: () => ({}),
   getRuntimeBrowserProfileSnapshotRepository: () => ({}),
+  withSettingsProjectorLease: projectorLease,
   getRuntimeStorage: () => ({
     ops: {},
     repositories: {
@@ -140,6 +144,7 @@ describe('prepareFleetSettings', () => {
     loadState.markSettingsLoaded.mockClear();
     loadState.markSettingsNotLoaded.mockClear();
     importMock.importWorkstationSettings.mockClear();
+    projectorLease.mockClear();
     log.warn.mockClear();
     log.info.mockClear();
     log.error.mockClear();
@@ -182,6 +187,11 @@ describe('prepareFleetSettings', () => {
     });
 
     expect(result).toEqual({ loaded: true, revision: 9 });
+    expect(projectorLease).toHaveBeenCalledOnce();
+    expect(projectorLease).toHaveBeenCalledWith(
+      'default',
+      expect.any(Function),
+    );
     expect(importMock.importWorkstationSettings).toHaveBeenCalledOnce();
     expect(loadState.markSettingsLoaded).toHaveBeenCalledOnce();
   });

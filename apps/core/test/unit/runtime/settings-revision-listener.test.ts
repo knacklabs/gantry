@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type {
   SettingsRevision,
@@ -7,6 +7,30 @@ import type {
 import type { SettingsRevisionWakeupSource } from '@core/config/settings/settings-revision-notify.js';
 
 const applied: number[] = [];
+const importSettings = vi.hoisted(() => vi.fn());
+const coordinator = vi.hoisted(() => {
+  let tail = Promise.resolve();
+  return {
+    reset: () => {
+      tail = Promise.resolve();
+    },
+    withLease: vi.fn(
+      async <T>(_appId: string, fn: () => Promise<T> | T): Promise<T> => {
+        const previous = tail;
+        let release!: () => void;
+        tail = new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        await previous;
+        try {
+          return await fn();
+        } finally {
+          release();
+        }
+      },
+    ),
+  };
+});
 
 vi.mock('@core/config/settings/settings-import-service.js', async () => {
   const actual = await vi.importActual<
@@ -14,12 +38,16 @@ vi.mock('@core/config/settings/settings-import-service.js', async () => {
   >('@core/config/settings/settings-import-service.js');
   return {
     ...actual,
-    importWorkstationSettings: vi.fn(async () => {
-      applied.push(Date.now());
-    }),
-    settingsFromRevisionDocument: vi.fn(() => ({}) as never),
+    importWorkstationSettings: importSettings,
+    settingsFromRevisionDocument: vi.fn(
+      (document: Record<string, unknown>) => document as never,
+    ),
   };
 });
+
+vi.mock('@core/adapters/storage/postgres/runtime-store.js', () => ({
+  withSettingsProjectorLease: coordinator.withLease,
+}));
 
 const loadState = vi.hoisted(() => ({ markSettingsLoaded: vi.fn() }));
 vi.mock('@core/runtime/settings-load-state.js', () => ({
@@ -66,7 +94,7 @@ function revision(
   return {
     appId: 'default',
     revision: revisionNumber,
-    settingsDocument: { agent: { name: 'Ada' } },
+    settingsDocument: { revision: revisionNumber },
     minReaderVersion,
     createdBy: 'test',
     note: null,
@@ -101,6 +129,18 @@ function makeListener(
 }
 
 describe('SettingsRevisionListener', () => {
+  beforeEach(() => {
+    applied.length = 0;
+    coordinator.reset();
+    coordinator.withLease.mockClear();
+    importSettings.mockReset();
+    importSettings.mockImplementation(
+      async (_deps: unknown, settings: { revision?: number }) => {
+        applied.push(settings.revision ?? -1);
+      },
+    );
+  });
+
   it('applies a new revision and marks settings loaded on first apply', async () => {
     applied.length = 0;
     loadState.markSettingsLoaded.mockClear();
@@ -216,6 +256,42 @@ describe('SettingsRevisionListener', () => {
 
     expect(result).toEqual({ result: 'applied', revision: 2 });
     expect(listener.getAppliedRevision()).toBe(2);
+  });
+
+  it('serializes concurrent projectors for the same app', async () => {
+    let activeApplies = 0;
+    let maxActiveApplies = 0;
+    importSettings.mockImplementation(async () => {
+      activeApplies += 1;
+      maxActiveApplies = Math.max(maxActiveApplies, activeApplies);
+      await new Promise((resolve) => setImmediate(resolve));
+      activeApplies -= 1;
+    });
+    const repo = makeRepo([revision(1, 1)]);
+    const first = makeListener(repo, new FakeWakeupSource());
+    const second = makeListener(repo, new FakeWakeupSource());
+
+    await Promise.all([first.applyLatest(), second.applyLatest()]);
+
+    expect(maxActiveApplies).toBe(1);
+    expect(coordinator.withLease).toHaveBeenCalledTimes(2);
+  });
+
+  it('skips a stale target and applies the current head under the lease', async () => {
+    const target = revision(10, 1);
+    const head = revision(11, 1);
+    const repo = makeRepo([target]);
+    repo.getLatestSettingsRevision = vi
+      .fn()
+      .mockResolvedValueOnce(target)
+      .mockResolvedValueOnce(head);
+    const listener = makeListener(repo, new FakeWakeupSource());
+
+    const result = await listener.applyLatest();
+
+    expect(result).toEqual({ result: 'applied', revision: 11 });
+    expect(applied).toEqual([11]);
+    expect(listener.getAppliedRevision()).toBe(11);
   });
 
   it('is a no-op when the latest revision is already applied', async () => {

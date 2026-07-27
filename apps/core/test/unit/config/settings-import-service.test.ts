@@ -22,9 +22,16 @@ import {
 } from '@core/config/settings/settings-import-service.js';
 
 const applyRuntimeSettingsDesiredState = vi.hoisted(() => vi.fn());
+const withSettingsProjectorLease = vi.hoisted(() =>
+  vi.fn(async <T>(_appId: string, fn: () => Promise<T> | T) => fn()),
+);
 
 vi.mock('@core/config/settings/restart-sync.js', () => ({
   applyRuntimeSettingsDesiredState,
+}));
+
+vi.mock('@core/adapters/storage/postgres/runtime-store.js', () => ({
+  withSettingsProjectorLease,
 }));
 
 vi.mock('@core/config/settings/runtime-settings-validation.js', () => ({
@@ -348,6 +355,47 @@ describe('importFleetSettingsRevision', () => {
 
     expect(repo.lastAppendExpectedRevision).toBe(1);
     expect(repo.rows).toHaveLength(2);
+  });
+
+  it('projects a required mutation through the app coordinator using the created revision', async () => {
+    capabilityErrors = [];
+    withSettingsProjectorLease.mockClear();
+    applyRuntimeSettingsDesiredState.mockReset();
+    applyRuntimeSettingsDesiredState.mockImplementation(
+      async (input: { settings: unknown }) => input.settings,
+    );
+    const previousSettings = createDefaultRuntimeSettings();
+    const nextSettings = createDefaultRuntimeSettings();
+    nextSettings.agent.name = 'next';
+    const repo = new FakeRevisionRepo();
+
+    await importWorkstationSettings(
+      {
+        runtimeHome: '/tmp/gantry-import-test',
+        ops: {} as never,
+        repositories: {} as never,
+        appId: 'default' as never,
+        previousSettings,
+        revisionMirror: {
+          settingsRevisions: repo,
+          createdBy: 'test:fleet',
+        },
+        revisionMirrorRequired: true,
+      },
+      nextSettings,
+    );
+
+    expect(withSettingsProjectorLease).toHaveBeenCalledOnce();
+    expect(withSettingsProjectorLease).toHaveBeenCalledWith(
+      'default',
+      expect.any(Function),
+    );
+    expect(applyRuntimeSettingsDesiredState).toHaveBeenCalledWith(
+      expect.objectContaining({
+        projectionRevision: 1,
+        settingsRevisions: repo,
+      }),
+    );
   });
 
   it('canonicalizes old revision rows before stale revision comparison', async () => {

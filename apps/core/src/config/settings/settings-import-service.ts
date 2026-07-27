@@ -27,6 +27,7 @@ import type {
   ProviderId,
 } from '../../domain/provider/provider.js';
 import { migrateLegacyAgentBindings } from './settings-revision-legacy-bindings.js';
+import { withSettingsProjectorLease } from '../../adapters/storage/postgres/runtime-store.js';
 
 /**
  * Reader version of the settings-revision contract this build understands. A
@@ -198,16 +199,13 @@ export async function importWorkstationSettings(
       latest &&
       revisionDocumentMatchesSettings(latest.settingsDocument, revisionSettings)
     ) {
-      await applyRuntimeSettingsDesiredState({
-        runtimeHome: deps.runtimeHome,
-        settings: revisionSettings,
-        ops: deps.ops,
-        repositories: deps.repositories,
-        appId: deps.appId,
-        previousSettings: deps.previousSettings,
-        reloadRuntimeState: deps.reloadRuntimeState,
+      await projectRequiredSettingsRevision({
+        deps,
+        appId,
+        revisionMirror: deps.revisionMirror,
+        targetRevision: latest.revision,
+        targetSettings: revisionSettings,
       });
-      activateRuntimeModelAliases(revisionSettings);
       return { status: 'no_op' };
     }
     await validateProjectionPreconditions({
@@ -240,16 +238,13 @@ export async function importWorkstationSettings(
     if (outcome.status === 'conflict') {
       throw new SettingsRevisionConflictError(outcome);
     }
-    const appliedSettings = await applyRuntimeSettingsDesiredState({
-      runtimeHome: deps.runtimeHome,
-      settings: revisionSettings,
-      ops: deps.ops,
-      repositories: deps.repositories,
-      appId: deps.appId,
-      previousSettings: deps.previousSettings,
-      reloadRuntimeState: deps.reloadRuntimeState,
+    await projectRequiredSettingsRevision({
+      deps,
+      appId,
+      revisionMirror: deps.revisionMirror,
+      targetRevision: outcome.revision,
+      targetSettings: revisionSettings,
     });
-    activateRuntimeModelAliases(appliedSettings);
     return { status: 'revision_created', revision: outcome.revision };
   }
   const appliedSettings = await applyRuntimeSettingsDesiredState({
@@ -323,6 +318,48 @@ export async function importWorkstationSettings(
     );
     return { status: 'applied_no_revision' };
   }
+}
+
+async function projectRequiredSettingsRevision(input: {
+  deps: SettingsImportServiceDeps & {
+    previousSettings?: RuntimeSettings;
+    reloadRuntimeState?: () => Promise<void>;
+  };
+  appId: AppId;
+  revisionMirror: SettingsRevisionMirror;
+  targetRevision: number;
+  targetSettings: RuntimeSettings;
+}): Promise<RuntimeSettings> {
+  return withSettingsProjectorLease(input.appId, async () => {
+    const head =
+      await input.revisionMirror.settingsRevisions.getLatestSettingsRevision(
+        input.appId,
+      );
+    if (!head || head.revision < input.targetRevision) {
+      throw new Error(
+        `Settings projection revision ${input.targetRevision} is not present at the current head`,
+      );
+    }
+    const projectsTarget = head.revision === input.targetRevision;
+    const settings = projectsTarget
+      ? input.targetSettings
+      : settingsFromRevisionDocument(head.settingsDocument);
+    const appliedSettings = await applyRuntimeSettingsDesiredState({
+      runtimeHome: input.deps.runtimeHome,
+      settings,
+      ops: input.deps.ops,
+      repositories: input.deps.repositories,
+      appId: input.appId,
+      previousSettings: projectsTarget
+        ? input.deps.previousSettings
+        : undefined,
+      reloadRuntimeState: input.deps.reloadRuntimeState,
+      projectionRevision: head.revision,
+      settingsRevisions: input.revisionMirror.settingsRevisions,
+    });
+    activateRuntimeModelAliases(appliedSettings);
+    return appliedSettings;
+  });
 }
 
 export type FleetImportOutcome =

@@ -50,6 +50,39 @@ function mockProjectionSync(
   };
 }
 
+function mockDesiredStateApply() {
+  const reconcile = vi.fn();
+  const saveRuntimeSettings = vi.fn();
+  const activateRuntimeModelAliases = vi.fn();
+  vi.doMock('@core/config/settings/desired-state-service.js', () => ({
+    SettingsDesiredStateService: class {
+      reconcile(settings: unknown) {
+        return reconcile(settings);
+      }
+    },
+  }));
+  vi.doMock('@core/config/settings/runtime-settings.js', () => ({
+    loadRuntimeSettings: vi.fn(),
+    saveRuntimeSettings,
+    activateRuntimeModelAliases,
+    addAgentToolRulesToRuntimeSettings: vi.fn(),
+    removeAgentToolRulesFromRuntimeSettings: vi.fn(),
+    withRuntimeModelAliases: vi.fn((_settings, fn) => fn()),
+  }));
+  vi.doMock(
+    '@core/config/settings/configured-capability-normalization.js',
+    () => ({
+      normalizeConfiguredCapabilitiesInSettings: vi.fn(
+        async ({ settings }) => ({ settings, changed: false }),
+      ),
+    }),
+  );
+  vi.doMock('@core/config/settings/runtime-settings-validation.js', () => ({
+    validateLoadedRuntimeSettings: vi.fn(() => ({ ok: true })),
+  }));
+  return { activateRuntimeModelAliases, reconcile, saveRuntimeSettings };
+}
+
 describe('syncRuntimeSettingsFromProjection fleet mode', () => {
   afterEach(() => {
     vi.resetModules();
@@ -392,5 +425,96 @@ describe('syncRuntimeSettingsFromProjection fleet mode', () => {
     ).rejects.toThrow(
       'Fleet tool-rule settings mutation requires the settings revisions repository.',
     );
+  });
+
+  it('restores previous settings when the failed projection is still the head', async () => {
+    const mocks = mockDesiredStateApply();
+    const failedSettings = { marker: 'failed' };
+    const previousSettings = { marker: 'previous' };
+    const failure = new Error('reconcile failed');
+    mocks.reconcile.mockImplementation(async (settings) => {
+      if (settings === failedSettings) throw failure;
+      return { invalidReferences: [] };
+    });
+    const reloadRuntimeState = vi.fn(async () => {});
+    const settingsRevisions = {
+      getLatestSettingsRevision: vi.fn(async () => ({ revision: 10 })),
+    } as never;
+    const { applyRuntimeSettingsDesiredState } =
+      await import('@core/config/settings/restart-sync.js');
+
+    await expect(
+      applyRuntimeSettingsDesiredState({
+        runtimeHome: '/tmp/gantry-test',
+        settings: failedSettings as never,
+        previousSettings: previousSettings as never,
+        ops: {} as never,
+        repositories: {} as never,
+        appId: 'app:test' as never,
+        reloadRuntimeState,
+        projectionRevision: 10,
+        settingsRevisions,
+      }),
+    ).rejects.toBe(failure);
+
+    expect(mocks.saveRuntimeSettings).toHaveBeenNthCalledWith(
+      1,
+      '/tmp/gantry-test',
+      failedSettings,
+    );
+    expect(mocks.saveRuntimeSettings).toHaveBeenNthCalledWith(
+      2,
+      '/tmp/gantry-test',
+      previousSettings,
+    );
+    expect(mocks.reconcile).toHaveBeenNthCalledWith(2, previousSettings);
+    expect(reloadRuntimeState).toHaveBeenCalledOnce();
+    expect(mocks.activateRuntimeModelAliases).toHaveBeenCalledWith(
+      previousSettings,
+    );
+  });
+
+  it('does not roll revision 11 back when an older revision 10 apply fails', async () => {
+    const mocks = mockDesiredStateApply();
+    const revision11 = { marker: 'revision-11' };
+    const revision10 = { marker: 'revision-10' };
+    const revision9 = { marker: 'revision-9' };
+    const failure = new Error('revision 10 reconcile failed');
+    mocks.reconcile.mockImplementation(async (settings) => {
+      if (settings === revision10) throw failure;
+      return { invalidReferences: [] };
+    });
+    const settingsRevisions = {
+      getLatestSettingsRevision: vi.fn(async () => ({ revision: 11 })),
+    } as never;
+    const { applyRuntimeSettingsDesiredState } =
+      await import('@core/config/settings/restart-sync.js');
+
+    await applyRuntimeSettingsDesiredState({
+      runtimeHome: '/tmp/gantry-test',
+      settings: revision11 as never,
+      ops: {} as never,
+      repositories: {} as never,
+      appId: 'app:test' as never,
+    });
+    await expect(
+      applyRuntimeSettingsDesiredState({
+        runtimeHome: '/tmp/gantry-test',
+        settings: revision10 as never,
+        previousSettings: revision9 as never,
+        ops: {} as never,
+        repositories: {} as never,
+        appId: 'app:test' as never,
+        projectionRevision: 10,
+        settingsRevisions,
+      }),
+    ).rejects.toBe(failure);
+
+    expect(mocks.saveRuntimeSettings.mock.calls).toEqual([
+      ['/tmp/gantry-test', revision11],
+      ['/tmp/gantry-test', revision10],
+    ]);
+    expect(mocks.activateRuntimeModelAliases).toHaveBeenCalledTimes(1);
+    expect(mocks.activateRuntimeModelAliases).toHaveBeenCalledWith(revision11);
   });
 });

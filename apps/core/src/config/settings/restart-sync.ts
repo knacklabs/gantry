@@ -39,6 +39,8 @@ export async function applyRuntimeSettingsDesiredState(input: {
   appId?: AppId;
   previousSettings?: RuntimeSettings;
   reloadRuntimeState?: () => Promise<void>;
+  projectionRevision?: number;
+  settingsRevisions?: SettingsRevisionRepository;
 }): Promise<RuntimeSettings> {
   const service = new SettingsDesiredStateService({
     ops: input.ops,
@@ -65,6 +67,13 @@ export async function applyRuntimeSettingsDesiredState(input: {
   }
   const rollback = async () => {
     if (!input.previousSettings) return;
+    if (input.projectionRevision !== undefined) {
+      const latest =
+        await input.settingsRevisions?.getLatestSettingsRevision(
+          input.appId ?? ('default' as AppId),
+        );
+      if (latest?.revision !== input.projectionRevision) return;
+    }
     saveRuntimeSettings(input.runtimeHome, input.previousSettings);
     await service.reconcile(input.previousSettings);
     await input.reloadRuntimeState?.();
