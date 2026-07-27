@@ -118,6 +118,7 @@ export async function startGantryRuntime(
       close: () => Promise<void>;
     };
   } = {};
+  const runtimeLease = { tryAcquire: tryAcquireRuntimeAdvisoryLease };
   app.setChannelRuntime({
     hasChannel: channelWiring.hasChannel,
     supportsStreaming: channelWiring.supportsStreaming,
@@ -137,6 +138,7 @@ export async function startGantryRuntime(
   });
 
   const startup = await runStartup(app, {
+    leases: runtimeLease,
     settingsAuthority: shouldDeferPreflightForFleetRole ? 'file' : 'revision',
     validateSettingsImportPreflight: options.skipPreflight
       ? () => ({ ok: true })
@@ -165,6 +167,7 @@ export async function startGantryRuntime(
       appId: 'default' as AppId,
       runtimeHome: GANTRY_HOME,
       app,
+      leases: runtimeLease,
     });
     fleetSettingsLoaded = prepared.loaded;
     if (prepared.loaded) {
@@ -201,6 +204,7 @@ export async function startGantryRuntime(
         appId: 'default' as AppId,
         settingsRevisions: storage.repositories.settingsRevisions,
         settingsRevisionPool: storage.service.pool,
+        leases: runtimeLease,
       });
   let fleetSubsystems: FleetSubsystems | undefined;
   const browserToolModulePath = [
@@ -225,7 +229,7 @@ export async function startGantryRuntime(
   const liveRecoveryCoordinatorLeaseManager =
     startLiveRecoveryCoordinatorLeaseAcquisition({
       runtimeSettings,
-      leases: { tryAcquire: tryAcquireRuntimeAdvisoryLease },
+      leases: runtimeLease,
       liveExecutionEnabled: roleCaps.liveExecution,
     });
 
@@ -316,6 +320,7 @@ export async function startGantryRuntime(
         getPermissionDecisionMemoryRepository: () =>
           storage.repositories.permissionDecisionMemory,
         settingsRepositories: storage.repositories,
+        leases: runtimeLease,
         getOutboundDeliveryRepository: () =>
           storage.repositories.outboundDeliveries,
         getWorkerCoordinationRepository: () =>
@@ -374,6 +379,7 @@ export async function startGantryRuntime(
         appId: 'default' as AppId,
         runtimeHome: GANTRY_HOME,
         pool: storage.service.pool,
+        leases: runtimeLease,
         bakeExecution: roleCaps.bakeExecution,
         capabilityReconciliation: roleCaps.workerRegistration,
         settingsLoaded: fleetSettingsLoaded,
@@ -420,8 +426,9 @@ export async function startGantryRuntime(
         enabled: RUNTIME_MEMORY_ENABLED,
         dreamingEnabled: RUNTIME_MEMORY_DREAMING_ENABLED,
       }),
-      agentSettings: createControlAgentSettingsPort(),
-      settingsImport: createControlSettingsImportPort(),
+      agentSettings: createControlAgentSettingsPort(runtimeLease),
+      settingsImport: createControlSettingsImportPort(runtimeLease),
+      leases: runtimeLease,
       resolveObserverStatus: createResolveObserverStatus({
         getEffectiveRuntimeSettings: () => effectiveRuntimeSettings,
         getInternalRuntimeSettings: getRuntimeSettingsForConfig,

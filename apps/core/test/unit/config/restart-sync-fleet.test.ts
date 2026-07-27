@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 class MockSettingsStaleMutationError extends Error {}
 class MockSettingsRevisionConflictError extends Error {}
+const leases = { tryAcquire: vi.fn() };
 
 function mockProjectionSync(
   settings: Array<{
@@ -110,6 +111,7 @@ describe('syncRuntimeSettingsFromProjection fleet mode', () => {
       repositories: {} as never,
       appId: 'app:test' as never,
       settingsRevisions,
+      leases,
     });
 
     expect(mocks.importWorkstationSettings).toHaveBeenCalledWith(
@@ -119,6 +121,7 @@ describe('syncRuntimeSettingsFromProjection fleet mode', () => {
           settingsRevisions,
           createdBy: 'projection-sync',
         }),
+        leases,
         revisionMirrorRequired: true,
       }),
       exported,
@@ -145,6 +148,7 @@ describe('syncRuntimeSettingsFromProjection fleet mode', () => {
       ops: {} as never,
       repositories: {} as never,
       settingsRevisions: {} as never,
+      leases,
       overrides: {
         providerAccount: { id: 'slack-one', runtimeSecretRefs: {} },
       },
@@ -181,6 +185,7 @@ describe('syncRuntimeSettingsFromProjection fleet mode', () => {
       ops: {} as never,
       repositories: {} as never,
       settingsRevisions: {} as never,
+      leases,
     });
 
     expect(mocks.loadRuntimeSettings).toHaveBeenCalledTimes(2);
@@ -208,6 +213,7 @@ describe('syncRuntimeSettingsFromProjection fleet mode', () => {
         ops: {} as never,
         repositories: {} as never,
         settingsRevisions: {} as never,
+        leases,
       }),
     ).rejects.toBe(failure);
 
@@ -277,6 +283,7 @@ describe('syncRuntimeSettingsFromProjection fleet mode', () => {
       } as never,
       appId: 'app:test' as never,
       settingsRevisions,
+      leases,
     });
 
     expect(loadRuntimeSettings).toHaveBeenCalledTimes(2);
@@ -289,6 +296,7 @@ describe('syncRuntimeSettingsFromProjection fleet mode', () => {
           settingsRevisions,
           createdBy: 'permission:persistent-tool-rule',
         }),
+        leases,
         revisionMirrorRequired: true,
       }),
       expect.objectContaining({
@@ -372,6 +380,7 @@ describe('syncRuntimeSettingsFromProjection fleet mode', () => {
       } as never,
       appId: 'app:test' as never,
       settingsRevisions,
+      leases,
     });
 
     expect(settingsFromRevisionDocument).toHaveBeenCalledWith({

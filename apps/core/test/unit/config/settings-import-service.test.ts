@@ -22,16 +22,13 @@ import {
 } from '@core/config/settings/settings-import-service.js';
 
 const applyRuntimeSettingsDesiredState = vi.hoisted(() => vi.fn());
-const withSettingsProjectorLease = vi.hoisted(() =>
-  vi.fn(async <T>(_appId: string, fn: () => Promise<T> | T) => fn()),
-);
+const releaseLease = vi.fn(async () => {});
+const leases = {
+  tryAcquire: vi.fn(async () => ({ release: releaseLease })),
+};
 
 vi.mock('@core/config/settings/restart-sync.js', () => ({
   applyRuntimeSettingsDesiredState,
-}));
-
-vi.mock('@core/adapters/storage/postgres/runtime-store.js', () => ({
-  withSettingsProjectorLease,
 }));
 
 vi.mock('@core/config/settings/runtime-settings-validation.js', () => ({
@@ -250,6 +247,7 @@ describe('importFleetSettingsRevision', () => {
             settingsRevisions: repo,
             createdBy: 'test:fleet',
           },
+          leases,
           revisionMirrorRequired: true,
         },
         createDefaultRuntimeSettings(),
@@ -282,6 +280,7 @@ describe('importFleetSettingsRevision', () => {
           settingsRevisions: repo,
           createdBy: 'test:fleet',
         },
+        leases,
         revisionMirrorRequired: true,
       },
       createDefaultRuntimeSettings(),
@@ -348,6 +347,7 @@ describe('importFleetSettingsRevision', () => {
           settingsRevisions: repo,
           createdBy: 'test:fleet',
         },
+        leases,
         revisionMirrorRequired: true,
       },
       appliedSettings,
@@ -359,7 +359,8 @@ describe('importFleetSettingsRevision', () => {
 
   it('projects a required mutation through the app coordinator using the created revision', async () => {
     capabilityErrors = [];
-    withSettingsProjectorLease.mockClear();
+    leases.tryAcquire.mockClear();
+    releaseLease.mockClear();
     applyRuntimeSettingsDesiredState.mockReset();
     applyRuntimeSettingsDesiredState.mockImplementation(
       async (input: { settings: unknown }) => input.settings,
@@ -380,16 +381,16 @@ describe('importFleetSettingsRevision', () => {
           settingsRevisions: repo,
           createdBy: 'test:fleet',
         },
+        leases,
         revisionMirrorRequired: true,
       },
       nextSettings,
     );
 
-    expect(withSettingsProjectorLease).toHaveBeenCalledOnce();
-    expect(withSettingsProjectorLease).toHaveBeenCalledWith(
-      'default',
-      expect.any(Function),
+    expect(leases.tryAcquire).toHaveBeenCalledWith(
+      'settings-projector:default',
     );
+    expect(releaseLease).toHaveBeenCalledOnce();
     expect(applyRuntimeSettingsDesiredState).toHaveBeenCalledWith(
       expect.objectContaining({
         projectionRevision: 1,
@@ -452,6 +453,7 @@ describe('importFleetSettingsRevision', () => {
           settingsRevisions: repo,
           createdBy: 'test:fleet',
         },
+        leases,
         revisionMirrorRequired: true,
       },
       nextSettings,
@@ -485,6 +487,7 @@ describe('importFleetSettingsRevision', () => {
           settingsRevisions: repo,
           createdBy: 'test:fleet',
         },
+        leases,
         revisionMirrorRequired: true,
       },
       firstSettings,
@@ -502,6 +505,7 @@ describe('importFleetSettingsRevision', () => {
           settingsRevisions: repo,
           createdBy: 'test:fleet',
         },
+        leases,
         revisionMirrorRequired: true,
       },
       secondSettings,
@@ -544,6 +548,7 @@ describe('importFleetSettingsRevision', () => {
             settingsRevisions: repo,
             createdBy: 'test:workstation',
           },
+          leases,
           revisionMirrorRequired: true,
         },
         nextSettings,
@@ -581,6 +586,7 @@ describe('importFleetSettingsRevision', () => {
             createdBy: 'test:fleet',
             logWarn,
           },
+          leases,
           revisionMirrorRequired: true,
         },
         nextSettings,
@@ -620,6 +626,7 @@ describe('importFleetSettingsRevision', () => {
             settingsRevisions: repo,
             createdBy: 'test:fleet',
           },
+          leases,
           revisionMirrorRequired: true,
         },
         nextSettings,
@@ -676,6 +683,7 @@ describe('importFleetSettingsRevision', () => {
             settingsRevisions: repo,
             createdBy: 'test:fleet',
           },
+          leases,
           revisionMirrorRequired: true,
         },
         nextSettings,
@@ -740,6 +748,7 @@ describe('importFleetSettingsRevision', () => {
             settingsRevisions: repo,
             createdBy: 'test:fleet',
           },
+          leases,
           revisionMirrorRequired: true,
         },
         nextSettings,

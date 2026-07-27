@@ -8,7 +8,6 @@ import {
   getRuntimeBrowserProfileArtifactStore,
   getRuntimeBrowserProfileSnapshotRepository,
   getRuntimeStorage,
-  withSettingsProjectorLease,
 } from '../../adapters/storage/postgres/runtime-store.js';
 import {
   ARTIFACTS_DIR,
@@ -27,6 +26,7 @@ import {
 } from '../../config/settings/settings-import-service.js';
 import { PostgresSettingsRevisionWakeupSource } from '../../config/settings/settings-revision-notify.js';
 import type { AppId } from '../../domain/app/app.js';
+import type { RuntimeLeasePort } from '../../domain/ports/runtime-lease.js';
 import { isDraining } from './draining-state.js';
 import type { SkillArtifactMaterializer } from '../../domain/ports/skill-artifact-store.js';
 import type { ToolchainArtifactMaterializer } from '../../domain/ports/toolchain-artifact-store.js';
@@ -51,10 +51,13 @@ import type {
   ControlSettingsImportPort,
   EffectiveControlRuntimeSettings,
 } from '../../application/control-plane/control-plane-storage-model.js';
+import { withSettingsProjectorLease } from '../../domain/ports/settings-projector-lease.js';
 
 const SEED_COMMAND = 'gantry settings import --file settings.yaml';
 
-export function createControlAgentSettingsPort(): ControlAgentSettingsPort {
+export function createControlAgentSettingsPort(
+  leases?: RuntimeLeasePort,
+): ControlAgentSettingsPort {
   return {
     decodeRevisionDocument: settingsFromRevisionDocument,
     defaultSettings: createDefaultRuntimeSettings,
@@ -90,6 +93,7 @@ export function createControlAgentSettingsPort(): ControlAgentSettingsPort {
             createdBy: 'control-api:agent-harness',
           },
           revisionMirrorRequired: true,
+          leases,
         },
         settings,
       );
@@ -97,7 +101,9 @@ export function createControlAgentSettingsPort(): ControlAgentSettingsPort {
   };
 }
 
-export function createControlSettingsImportPort(): ControlSettingsImportPort {
+export function createControlSettingsImportPort(
+  leases?: RuntimeLeasePort,
+): ControlSettingsImportPort {
   return {
     serializeRevisionDocument: (settings) =>
       settingsToRevisionDocument(
@@ -105,7 +111,12 @@ export function createControlSettingsImportPort(): ControlSettingsImportPort {
       ),
     importWorkstation: (deps, settings) =>
       importWorkstationSettings(
-        deps as unknown as Parameters<typeof importWorkstationSettings>[0],
+        {
+          ...(deps as unknown as Parameters<
+            typeof importWorkstationSettings
+          >[0]),
+          leases,
+        },
         settings as ReturnType<typeof settingsFromRevisionDocument>,
       ),
     importFleet: (deps, settings, options) =>
@@ -144,9 +155,10 @@ export async function prepareFleetSettings(input: {
   appId: AppId;
   runtimeHome: string;
   app: RuntimeApp;
+  leases: RuntimeLeasePort;
 }): Promise<FleetSettingsResult> {
   const storage = getRuntimeStorage();
-  return withSettingsProjectorLease(input.appId, async () => {
+  return withSettingsProjectorLease(input.leases, input.appId, async () => {
     const latest =
       await storage.repositories.settingsRevisions.getLatestSettingsRevision(
         input.appId,
@@ -221,6 +233,7 @@ export async function startFleetSubsystems(input: {
   appId: AppId;
   runtimeHome: string;
   pool: Pool;
+  leases: RuntimeLeasePort;
   /** Best-effort delivery for bake outcome notices to the approval conversation. */
   sendMessage: (conversationJid: string, text: string) => Promise<void>;
   /**
@@ -308,6 +321,7 @@ export async function startFleetSubsystems(input: {
     appId: input.appId,
     runtimeHome: input.runtimeHome,
     settingsRevisions: storage.repositories.settingsRevisions,
+    leases: input.leases,
     ops: storage.ops,
     repositories: storage.repositories,
     wakeupSource: new PostgresSettingsRevisionWakeupSource(

@@ -11,6 +11,7 @@ import {
   readRuntimeSecretEnv,
 } from '../../config/index.js';
 import type { AppId } from '../../domain/app/app.js';
+import type { RuntimeLeasePort } from '../../domain/ports/runtime-lease.js';
 import { logger } from '../../infrastructure/logging/logger.js';
 import {
   initTracing,
@@ -18,7 +19,10 @@ import {
   shutdownTracing,
 } from '../../infrastructure/observability/tracing.js';
 import { ensureRuntimeLayoutDirectories } from '../../platform/runtime-layout.js';
-import { initializeRuntimeStorage } from '../../adapters/storage/postgres/runtime-store.js';
+import {
+  initializeRuntimeStorage,
+  tryAcquireRuntimeAdvisoryLease,
+} from '../../adapters/storage/postgres/runtime-store.js';
 import { SettingsDesiredStateService } from '../../config/settings/desired-state-service.js';
 import {
   CURRENT_SETTINGS_READER_VERSION,
@@ -59,6 +63,7 @@ interface StartupDeps {
   formatRuntimePreflightFailure: FormatSettingsImportPreflightFailure;
   logger: Pick<typeof logger, 'info' | 'warn'>;
   settingsAuthority: 'file' | 'revision';
+  leases: RuntimeLeasePort;
 }
 
 export interface StartupResult {
@@ -86,6 +91,7 @@ function makeDefaultDeps(): StartupDeps {
       ),
     logger,
     settingsAuthority: 'file',
+    leases: { tryAcquire: tryAcquireRuntimeAdvisoryLease },
   };
 }
 
@@ -115,6 +121,7 @@ export async function runStartup(
       validateSettingsImportPreflight: resolved.validateSettingsImportPreflight,
       formatRuntimePreflightFailure: resolved.formatRuntimePreflightFailure,
       logger: resolved.logger,
+      leases: resolved.leases,
     });
     await closeStartupStorage(storage);
     storage = await resolved.initializeRuntimeStorage({
@@ -250,6 +257,7 @@ async function loadRevisionAuthoritySettings(input: {
   validateSettingsImportPreflight: ValidateSettingsImportPreflight;
   formatRuntimePreflightFailure: FormatSettingsImportPreflightFailure;
   logger: StartupDeps['logger'];
+  leases: RuntimeLeasePort;
 }): Promise<RuntimeSettings> {
   const appId = 'default' as AppId;
   const latest =
@@ -326,6 +334,7 @@ async function loadRevisionAuthoritySettings(input: {
       },
       revisionMirrorRequired: true,
       expectedRevision: 0,
+      leases: input.leases,
     },
     settings,
   );

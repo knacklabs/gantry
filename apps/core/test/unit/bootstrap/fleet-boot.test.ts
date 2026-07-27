@@ -8,9 +8,13 @@ const loadState = vi.hoisted(() => ({
   markSettingsNotLoaded: vi.fn(),
 }));
 const importMock = vi.hoisted(() => ({ importWorkstationSettings: vi.fn() }));
-const projectorLease = vi.hoisted(() =>
-  vi.fn(async <T>(_appId: string, fn: () => Promise<T> | T) => fn()),
-);
+const lease = vi.hoisted(() => {
+  const release = vi.fn(async () => {});
+  return {
+    release,
+    tryAcquire: vi.fn(async () => ({ release })),
+  };
+});
 const log = vi.hoisted(() => ({
   warn: vi.fn(),
   info: vi.fn(),
@@ -20,7 +24,6 @@ const log = vi.hoisted(() => ({
 vi.mock('@core/adapters/storage/postgres/runtime-store.js', () => ({
   getRuntimeBrowserProfileArtifactStore: () => ({}),
   getRuntimeBrowserProfileSnapshotRepository: () => ({}),
-  withSettingsProjectorLease: projectorLease,
   getRuntimeStorage: () => ({
     ops: {},
     repositories: {
@@ -118,6 +121,7 @@ function revisionRow(revision: number): SettingsRevision {
 }
 
 const fakeApp = { loadState: async () => {} } as never;
+const leases = { tryAcquire: lease.tryAcquire };
 
 function bakeDependency(
   overrides: Partial<RuntimeDependency> = {},
@@ -144,7 +148,7 @@ describe('prepareFleetSettings', () => {
     loadState.markSettingsLoaded.mockClear();
     loadState.markSettingsNotLoaded.mockClear();
     importMock.importWorkstationSettings.mockClear();
-    projectorLease.mockClear();
+    lease.tryAcquire.mockClear();
     log.warn.mockClear();
     log.info.mockClear();
     log.error.mockClear();
@@ -156,6 +160,7 @@ describe('prepareFleetSettings', () => {
       appId: 'default' as never,
       runtimeHome: '/tmp/gantry-fleet',
       app: fakeApp,
+      leases,
     });
 
     expect(result).toEqual({ loaded: false, revision: null });
@@ -184,14 +189,11 @@ describe('prepareFleetSettings', () => {
       appId: 'default' as never,
       runtimeHome: '/tmp/gantry-fleet',
       app: fakeApp,
+      leases,
     });
 
     expect(result).toEqual({ loaded: true, revision: 9 });
-    expect(projectorLease).toHaveBeenCalledOnce();
-    expect(projectorLease).toHaveBeenCalledWith(
-      'default',
-      expect.any(Function),
-    );
+    expect(lease.tryAcquire).toHaveBeenCalledWith('settings-projector:default');
     expect(importMock.importWorkstationSettings).toHaveBeenCalledOnce();
     expect(loadState.markSettingsLoaded).toHaveBeenCalledOnce();
   });
@@ -211,6 +213,7 @@ describe('prepareFleetSettings', () => {
       appId: 'default' as never,
       runtimeHome: '/tmp/gantry-fleet',
       app: fakeApp,
+      leases,
     });
 
     expect(result).toEqual({ loaded: false, revision: 10 });
@@ -333,6 +336,7 @@ describe('startFleetSubsystems', () => {
       runtimeHome: '/tmp/gantry-fleet',
       pool: {} as never,
       sendMessage: async () => {},
+      leases,
       settingsLoaded: false,
       onSettingsReady,
     });
@@ -377,6 +381,7 @@ describe('startFleetSubsystems', () => {
       sendMessage: async () => {},
       bakeExecution: true,
       capabilityReconciliation: true,
+      leases,
       settingsLoaded: true,
     });
     try {
@@ -397,6 +402,7 @@ describe('startFleetSubsystems', () => {
       sendMessage: async () => {},
       bakeExecution: false,
       capabilityReconciliation: true,
+      leases,
       settingsLoaded: true,
     });
     try {
@@ -417,6 +423,7 @@ describe('startFleetSubsystems', () => {
       sendMessage: async () => {},
       bakeExecution: false,
       capabilityReconciliation: false,
+      leases,
       settingsLoaded: true,
     });
     try {
@@ -437,6 +444,7 @@ describe('startFleetSubsystems', () => {
       runtimeHome: '/tmp/gantry-fleet',
       pool: {} as never,
       sendMessage: async () => {},
+      leases,
       settingsLoaded: true,
       onSettingsReady,
     });

@@ -8,27 +8,22 @@ import type { SettingsRevisionWakeupSource } from '@core/config/settings/setting
 
 const applied: number[] = [];
 const importSettings = vi.hoisted(() => vi.fn());
-const coordinator = vi.hoisted(() => {
-  let tail = Promise.resolve();
+const leaseState = vi.hoisted(() => {
+  let held = false;
+  const tryAcquire = vi.fn(async () => {
+    if (held) return undefined;
+    held = true;
+    return {
+      release: async () => {
+        held = false;
+      },
+    };
+  });
   return {
     reset: () => {
-      tail = Promise.resolve();
+      held = false;
     },
-    withLease: vi.fn(
-      async <T>(_appId: string, fn: () => Promise<T> | T): Promise<T> => {
-        const previous = tail;
-        let release!: () => void;
-        tail = new Promise<void>((resolve) => {
-          release = resolve;
-        });
-        await previous;
-        try {
-          return await fn();
-        } finally {
-          release();
-        }
-      },
-    ),
+    tryAcquire,
   };
 });
 
@@ -44,10 +39,6 @@ vi.mock('@core/config/settings/settings-import-service.js', async () => {
     ),
   };
 });
-
-vi.mock('@core/adapters/storage/postgres/runtime-store.js', () => ({
-  withSettingsProjectorLease: coordinator.withLease,
-}));
 
 const loadState = vi.hoisted(() => ({ markSettingsLoaded: vi.fn() }));
 vi.mock('@core/runtime/settings-load-state.js', () => ({
@@ -115,6 +106,7 @@ function makeListener(
     appId: 'default' as never,
     runtimeHome: '/tmp/gantry-listener-test',
     settingsRevisions: repo,
+    leases: { tryAcquire: leaseState.tryAcquire },
     ops: {} as never,
     repositories: {} as never,
     wakeupSource: wakeup,
@@ -131,8 +123,8 @@ function makeListener(
 describe('SettingsRevisionListener', () => {
   beforeEach(() => {
     applied.length = 0;
-    coordinator.reset();
-    coordinator.withLease.mockClear();
+    leaseState.reset();
+    leaseState.tryAcquire.mockClear();
     importSettings.mockReset();
     importSettings.mockImplementation(
       async (_deps: unknown, settings: { revision?: number }) => {
@@ -216,6 +208,7 @@ describe('SettingsRevisionListener', () => {
       appId: 'default' as never,
       runtimeHome: '/tmp/gantry-listener-test',
       settingsRevisions: makeRepo([revision(1, 1)]),
+      leases: { tryAcquire: leaseState.tryAcquire },
       ops: {} as never,
       repositories: {} as never,
       wakeupSource: new FakeWakeupSource(),
@@ -274,7 +267,9 @@ describe('SettingsRevisionListener', () => {
     await Promise.all([first.applyLatest(), second.applyLatest()]);
 
     expect(maxActiveApplies).toBe(1);
-    expect(coordinator.withLease).toHaveBeenCalledTimes(2);
+    expect(leaseState.tryAcquire).toHaveBeenCalledWith(
+      'settings-projector:default',
+    );
   });
 
   it('skips a stale target and applies the current head under the lease', async () => {

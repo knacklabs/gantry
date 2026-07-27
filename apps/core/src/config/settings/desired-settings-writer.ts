@@ -1,5 +1,6 @@
 import type { AppId } from '../../domain/app/app.js';
 import type { SettingsRevisionRepository } from '../../domain/ports/fleet-capability-state.js';
+import type { RuntimeLeasePort } from '../../domain/ports/runtime-lease.js';
 import {
   loadRuntimeSettings,
   saveRuntimeSettings,
@@ -21,6 +22,7 @@ export interface DesiredSettingsWriteStorage {
   repositories: SettingsDesiredStateRepositories;
   settingsRevisions?: SettingsRevisionRepository;
   pool?: SettingsRevisionMirror['pool'];
+  leases?: RuntimeLeasePort;
   close?: () => Promise<void>;
 }
 
@@ -119,6 +121,7 @@ export async function writeDesiredRuntimeSettings(input: {
           createdBy: input.createdBy ?? 'cli:desired-settings-write',
         },
         revisionMirrorRequired: true,
+        leases: storage.leases,
       },
       input.settings,
     );

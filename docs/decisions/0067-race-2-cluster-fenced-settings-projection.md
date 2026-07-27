@@ -21,7 +21,8 @@ Exploration (decision inputs) established:
 - **The fleet is genuinely multi-process.** Control, live-worker (≥2), and
   job-worker roles all reach `startFleetSubsystems()` and each starts a settings
   listener; all project the same app's revision into the shared Postgres
-  desired-state repositories (decision 0027; `app/index.ts`, `fleet-boot.ts`).
+  desired-state repositories (decision 0027; `apps/core/src/app/index.ts`,
+  `fleet-boot.ts`).
   Per-task settings *files* are container-local in production, but the
   desired-state *rows* are shared, so the interleaving is real. Local fleet
   rehearsal even shares the settings file.

@@ -1,5 +1,6 @@
 import type { AppId } from '../../domain/app/app.js';
 import type { SettingsRevisionRepository } from '../../domain/ports/fleet-capability-state.js';
+import type { RuntimeLeasePort } from '../../domain/ports/runtime-lease.js';
 import type { SettingsRevisionMirror } from './settings-import-service.js';
 import type {
   SettingsDesiredStateOps,
@@ -68,10 +69,9 @@ export async function applyRuntimeSettingsDesiredState(input: {
   const rollback = async () => {
     if (!input.previousSettings) return;
     if (input.projectionRevision !== undefined) {
-      const latest =
-        await input.settingsRevisions?.getLatestSettingsRevision(
-          input.appId ?? ('default' as AppId),
-        );
+      const latest = await input.settingsRevisions?.getLatestSettingsRevision(
+        input.appId ?? ('default' as AppId),
+      );
       if (latest?.revision !== input.projectionRevision) return;
     }
     saveRuntimeSettings(input.runtimeHome, input.previousSettings);
@@ -106,6 +106,7 @@ export async function syncRuntimeSettingsFromProjection(input: {
   pool?: SettingsRevisionMirror['pool'];
   createdBy?: string;
   overrides?: ProjectionSettingsOverrides;
+  leases?: RuntimeLeasePort;
 }): Promise<void> {
   const service = new SettingsDesiredStateService({
     ops: input.ops,
@@ -144,6 +145,7 @@ export async function syncRuntimeSettingsFromProjection(input: {
               createdBy: input.createdBy ?? 'projection-sync',
             },
             revisionMirrorRequired: true,
+            leases: input.leases,
           },
           exported,
         );
@@ -184,6 +186,7 @@ export async function addAgentToolRulesToSyncedRuntimeSettings(input: {
   settingsRevisions?: SettingsRevisionRepository;
   pool?: SettingsRevisionMirror['pool'];
   createdBy?: string;
+  leases?: RuntimeLeasePort;
 }): Promise<void> {
   for (let attempt = 0; attempt <= MAX_STALE_SETTINGS_RETRIES; attempt += 1) {
     const base = await loadSyncedMutationBaseSettings({
@@ -226,6 +229,7 @@ export async function addAgentToolRulesToSyncedRuntimeSettings(input: {
               createdBy: input.createdBy ?? 'permission:persistent-tool-rule',
             },
             revisionMirrorRequired: true,
+            leases: input.leases,
             expectedRevision: base.expectedRevision,
           },
           nextSettings,
@@ -314,6 +318,7 @@ export async function removeAgentToolRulesFromSyncedRuntimeSettings(input: {
   settingsRevisions?: SettingsRevisionRepository;
   pool?: SettingsRevisionMirror['pool'];
   createdBy?: string;
+  leases?: RuntimeLeasePort;
 }): Promise<void> {
   const base = await loadSyncedMutationBaseSettings({
     runtimeHome: input.runtimeHome,
@@ -345,6 +350,7 @@ export async function removeAgentToolRulesFromSyncedRuntimeSettings(input: {
           createdBy: input.createdBy ?? 'permission:persistent-tool-rule',
         },
         revisionMirrorRequired: true,
+        leases: input.leases,
         expectedRevision: base.expectedRevision,
       },
       nextSettings,

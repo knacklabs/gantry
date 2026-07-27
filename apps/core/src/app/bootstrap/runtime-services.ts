@@ -140,6 +140,7 @@ interface Deps extends Pick<IpcDeps, RuntimeStorageDep> {
   getToolRepository: () => ToolCatalogRepository;
   getPermissionRepository?: () => PermissionRepository;
   settingsRepositories?: AgentToolRuleSettingsRepositories;
+  leases?: import('../../domain/ports/runtime-lease.js').RuntimeLeasePort;
   getOutboundDeliveryRepository?: () => OutboundDeliveryRepository | undefined;
   getWorkerCoordinationRepository?: () =>
     | WorkerCoordinationRepository
@@ -397,6 +398,7 @@ export async function startRuntimeServices(
     opsRepository: resolved.opsRepository,
     repositories: resolved.settingsRepositories,
     reloadRuntimeState: () => app.loadState(),
+    leases: resolved.leases,
   });
   configurePendingInteractionPermissionPersistence({
     opsRepository: resolved.opsRepository,

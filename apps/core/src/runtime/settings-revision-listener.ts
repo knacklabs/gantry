@@ -3,6 +3,7 @@ import type {
   SettingsRevision,
   SettingsRevisionRepository,
 } from '../domain/ports/fleet-capability-state.js';
+import type { RuntimeLeasePort } from '../domain/ports/runtime-lease.js';
 import type {
   SettingsDesiredStateOps,
   SettingsDesiredStateRepositories,
@@ -18,7 +19,7 @@ import {
   markSettingsLoaded,
   markSettingsNotLoaded,
 } from './settings-load-state.js';
-import { withSettingsProjectorLease } from '../adapters/storage/postgres/runtime-store.js';
+import { withSettingsProjectorLease } from '../domain/ports/settings-projector-lease.js';
 
 export interface SettingsRevisionSkewAlert {
   appId: string;
@@ -31,6 +32,7 @@ export interface SettingsRevisionListenerDeps {
   appId: AppId;
   runtimeHome: string;
   settingsRevisions: SettingsRevisionRepository;
+  leases: RuntimeLeasePort;
   ops: SettingsDesiredStateOps;
   repositories: SettingsDesiredStateRepositories;
   wakeupSource: SettingsRevisionWakeupSource;
@@ -152,21 +154,25 @@ export class SettingsRevisionListener {
     if (latest.revision <= this.appliedRevision) {
       return { result: 'unchanged' };
     }
-    return withSettingsProjectorLease(this.deps.appId, async () => {
-      const head =
-        await this.deps.settingsRevisions.getLatestSettingsRevision(
-          this.deps.appId,
-        );
-      if (!head || head.revision <= this.appliedRevision) {
-        return { result: 'unchanged' };
-      }
-      if (head.minReaderVersion > this.readerVersion) {
-        this.holdForSkew(head);
-        return { result: 'held', revision: head.revision };
-      }
-      await this.applyRevision(head);
-      return { result: 'applied', revision: head.revision };
-    });
+    return withSettingsProjectorLease(
+      this.deps.leases,
+      this.deps.appId,
+      async () => {
+        const head =
+          await this.deps.settingsRevisions.getLatestSettingsRevision(
+            this.deps.appId,
+          );
+        if (!head || head.revision <= this.appliedRevision) {
+          return { result: 'unchanged' };
+        }
+        if (head.minReaderVersion > this.readerVersion) {
+          this.holdForSkew(head);
+          return { result: 'held', revision: head.revision };
+        }
+        await this.applyRevision(head);
+        return { result: 'applied', revision: head.revision };
+      },
+    );
   }
 
   /** Revision number currently applied (0 before any apply). */

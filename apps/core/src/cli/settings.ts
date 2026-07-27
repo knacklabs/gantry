@@ -6,6 +6,7 @@ import {
   closeRuntimeStorage,
   getRuntimeStorage,
   initializeRuntimeStorage,
+  tryAcquireRuntimeAdvisoryLease,
 } from '../adapters/storage/postgres/runtime-store.js';
 import {
   getDeploymentMode,
@@ -19,6 +20,8 @@ import {
   type WorkstationSettingsImportOutcome,
 } from '../config/settings/settings-import-service.js';
 import type { AppId } from '../domain/app/app.js';
+
+const leases = { tryAcquire: tryAcquireRuntimeAdvisoryLease };
 
 function usage(): string {
   return [
@@ -127,6 +130,7 @@ export async function runSettingsCommand(
             logWarn: (_context, message) => p.log.warn(message),
           },
           revisionMirrorRequired: true,
+          leases,
         },
         exported,
       );
@@ -211,6 +215,7 @@ async function runImport(
             logWarn: (_context, message) => p.log.warn(message),
           },
           revisionMirrorRequired: true,
+          leases,
           expectedRevision: Number.isInteger(flags.expectedRevision)
             ? flags.expectedRevision
             : null,
