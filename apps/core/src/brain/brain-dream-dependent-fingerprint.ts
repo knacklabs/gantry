@@ -28,9 +28,13 @@ export interface DependentEdgeReader {
     appId: string,
     pageId: string,
   ): Promise<DependentEdgeRow[]>;
-  edgesTouchingEntity(
+  // The UNION of edges touching ANY of the given entities, taken as ONE query so
+  // a locking reader acquires the whole set in a single deterministic order. Two
+  // concurrent merges over overlapping endpoints would otherwise grab the shared
+  // rows in opposite partial order and deadlock.
+  edgesTouchingEntities(
     appId: string,
-    entityId: string,
+    entityIds: string[],
   ): Promise<DependentEdgeRow[]>;
 }
 
@@ -58,18 +62,16 @@ async function collectDependentEdges(
       return op.pageId ? reader.edgesByEvidencePage(appId, op.pageId) : [];
     case 'delete_entity':
       // Cascade-deleted edges are those touching the entity (from OR to).
-      return op.entityId ? reader.edgesTouchingEntity(appId, op.entityId) : [];
+      return op.entityId
+        ? reader.edgesTouchingEntities(appId, [op.entityId])
+        : [];
     case 'merge_entities': {
-      // Source edges are repointed; target edges drive dedup — both matter.
-      const [source, target] = await Promise.all([
-        op.sourceEntityId
-          ? reader.edgesTouchingEntity(appId, op.sourceEntityId)
-          : [],
-        op.targetEntityId
-          ? reader.edgesTouchingEntity(appId, op.targetEntityId)
-          : [],
-      ]);
-      return [...source, ...target];
+      // Source edges are repointed; target edges drive dedup — both matter. Taken
+      // as ONE union query so the locking reader can't deadlock two crossing merges.
+      const ids = [op.sourceEntityId, op.targetEntityId].filter(
+        (id): id is string => Boolean(id),
+      );
+      return ids.length > 0 ? reader.edgesTouchingEntities(appId, ids) : [];
     }
     default:
       // delete_edge is a graph leaf; retire_page is deferred. The root target's

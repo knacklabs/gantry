@@ -116,11 +116,18 @@ function intakeDependentReader(
         id: edge.id,
         updatedAt: edge.updatedAt,
       })),
-    edgesTouchingEntity: async (appId, entityId) =>
-      (await repository.listEdgesForEntity(appId, entityId)).map((edge) => ({
+    edgesTouchingEntities: async (appId, entityIds) => {
+      // Non-locking read: per-entity lists concatenated are the SAME set the
+      // executor locks in one union query (computeDependentFingerprint de-dups),
+      // so the snapshot + apply hashes compare. Order is irrelevant here.
+      const lists = await Promise.all(
+        entityIds.map((id) => repository.listEdgesForEntity(appId, id)),
+      );
+      return lists.flat().map((edge) => ({
         id: edge.id,
         updatedAt: edge.updatedAt,
-      })),
+      }));
+    },
   };
 }
 

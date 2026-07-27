@@ -1,4 +1,4 @@
-import { and, eq, ne, or } from 'drizzle-orm';
+import { and, asc, eq, inArray, ne, or } from 'drizzle-orm';
 
 import { PostgresBrainRepository } from '../adapters/storage/postgres/repositories/brain-repository.postgres.js';
 import type { CanonicalDb } from '../adapters/storage/postgres/repositories/canonical-graph-repository.postgres.js';
@@ -201,27 +201,34 @@ type Tx = Parameters<Parameters<CanonicalDb['transaction']>[0]>[0];
 // the fingerprint re-read and the subsequent mutation see a set no concurrent
 // writer can change out from under them. Same row sets as the intake reader.
 function executorDependentReader(tx: Tx): DependentEdgeReader {
+  // Every locking query is ORDER BY id: a single, stable global lock order over
+  // the union so no two concurrent approvals can acquire the shared rows in
+  // opposite partial order (deadlock).
   return {
     edgesByEvidencePage: async (appId, pageId) =>
       tx
         .select({ id: Edges.id, updatedAt: Edges.updatedAt })
         .from(Edges)
         .where(and(eq(Edges.appId, appId), eq(Edges.evidencePageId, pageId)))
+        .orderBy(asc(Edges.id))
         .for('update'),
-    edgesTouchingEntity: async (appId, entityId) =>
-      tx
-        .select({ id: Edges.id, updatedAt: Edges.updatedAt })
-        .from(Edges)
-        .where(
-          and(
-            eq(Edges.appId, appId),
-            or(
-              eq(Edges.fromEntityId, entityId),
-              eq(Edges.toEntityId, entityId),
-            ),
-          ),
-        )
-        .for('update'),
+    edgesTouchingEntities: async (appId, entityIds) =>
+      entityIds.length === 0
+        ? []
+        : tx
+            .select({ id: Edges.id, updatedAt: Edges.updatedAt })
+            .from(Edges)
+            .where(
+              and(
+                eq(Edges.appId, appId),
+                or(
+                  inArray(Edges.fromEntityId, entityIds),
+                  inArray(Edges.toEntityId, entityIds),
+                ),
+              ),
+            )
+            .orderBy(asc(Edges.id))
+            .for('update'),
   };
 }
 

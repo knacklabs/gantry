@@ -61,11 +61,15 @@ maybeDescribe('brain dream review decision executor', () => {
           id: edge.id,
           updatedAt: edge.updatedAt,
         })),
-      edgesTouchingEntity: async (appId, entityId) =>
-        (await repository.listEdgesForEntity(appId, entityId)).map((edge) => ({
+      edgesTouchingEntities: async (appId, entityIds) => {
+        const lists = await Promise.all(
+          entityIds.map((id) => repository.listEdgesForEntity(appId, id)),
+        );
+        return lists.flat().map((edge) => ({
           id: edge.id,
           updatedAt: edge.updatedAt,
-        })),
+        }));
+      },
     };
     return computeDependentFingerprint(reader, APP_ID, op);
   }
@@ -674,6 +678,48 @@ maybeDescribe('brain dream review decision executor', () => {
     // Mutation rolled back (page intact); a re-decide never re-mutates.
     expect(await repository.getPageById(APP_ID, page.id)).not.toBeNull();
     expect((await decide(reviewId, 'approve')).mutated).toBe(false);
+  });
+
+  it('two crossing concurrent merges complete without a deadlock', async () => {
+    // A–D and B–C edges: merge(A→B) and merge(C→D) BOTH depend on the SAME two
+    // edges. With the union locked in one ORDER BY id query, they serialize
+    // instead of deadlocking; one applies, the other stales on the shared change.
+    const [a, b, c, d] = [
+      await seedEntity('cross-a'),
+      await seedEntity('cross-b'),
+      await seedEntity('cross-c'),
+      await seedEntity('cross-d'),
+    ];
+    const page = await seedPage('cross-merge', 'body');
+    await seedEdge('mentions', a.id, d.id, page.id);
+    await seedEdge('mentions', b.id, c.id, page.id);
+    const merge1 = await createReview(
+      'merge_entities',
+      { sourceEntityId: a.id, targetEntityId: b.id },
+      [
+        { targetKind: 'entity', targetId: a.id, expectedVersion: a.updatedAt },
+        { targetKind: 'entity', targetId: b.id, expectedVersion: b.updatedAt },
+      ],
+    );
+    const merge2 = await createReview(
+      'merge_entities',
+      { sourceEntityId: c.id, targetEntityId: d.id },
+      [
+        { targetKind: 'entity', targetId: c.id, expectedVersion: c.updatedAt },
+        { targetKind: 'entity', targetId: d.id, expectedVersion: d.updatedAt },
+      ],
+    );
+
+    // Promise.all rejects if either approval throws a deadlock — passing IS the
+    // no-deadlock assertion.
+    const results = await Promise.all([
+      decide(merge1, 'approve'),
+      decide(merge2, 'approve'),
+    ]);
+    for (const r of results) {
+      expect(['applied', 'stale', 'failed']).toContain(r.outcome);
+    }
+    expect(results.some((r) => r.outcome === 'applied')).toBe(true);
   });
 
   // ---- Dependent-set drift (P1). Each mutates a DEPENDENT edge WITHOUT bumping
