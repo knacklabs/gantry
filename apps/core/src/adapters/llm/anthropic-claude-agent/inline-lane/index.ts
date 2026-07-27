@@ -30,6 +30,11 @@ import {
 } from '../../inline-lane-tool-activity.js';
 import { validateModelCredentialProjectionForEntry } from '../model-provider-credential-validation.js';
 import {
+  ArtifactClaudeSkillSource,
+  materializeClaudeSkills,
+} from '../claude-skill-materializer.js';
+import {
+  claudeSdkSkillNamesForMaterializedSkills,
   SDK_NATIVE_SKILL_DISABLE_ENV,
   SDK_NATIVE_SKILL_OVERRIDES,
 } from '../native-sdk-skills.js';
@@ -125,6 +130,15 @@ export const runClaudeInlineAgentLoopLane: ProviderInlineAgentLoopLane = async (
         lookupHostname: input.mcpHostnameLookup,
       });
     }
+    const configDir = path.join(
+      input.runtimeDataDir,
+      'inline-claude',
+      input.group.folder,
+    );
+    const enabledSdkSkills = await materializeInlineClaudeSkills(
+      input,
+      configDir,
+    );
     const persistSdkSession = !input.input.isScheduledJob;
     const sdkQuery = query({
       prompt,
@@ -142,17 +156,16 @@ export const runClaudeInlineAgentLoopLane: ProviderInlineAgentLoopLane = async (
           : {}),
         persistSession: persistSdkSession,
         systemPrompt: inlineSystemPrompt(input),
-        env: isolatedSdkEnv(
-          input.modelCredentialEnv,
-          path.join(input.runtimeDataDir, 'inline-claude', input.group.folder),
-        ),
+        env: isolatedSdkEnv(input.modelCredentialEnv, configDir),
         settings: {
           autoMemoryEnabled: false,
           includeGitInstructions: false,
           skillOverrides: SDK_NATIVE_SKILL_OVERRIDES,
         },
-        skills: [],
-        settingSources: [],
+        skills: enabledSdkSkills,
+        // Load only the per-run CLAUDE_CONFIG_DIR settings so Claude discovers
+        // Gantry-materialized skills without reading workspace configuration.
+        settingSources: ['user'],
         tools: [],
         allowedTools: toolsDisabled
           ? []
@@ -412,6 +425,37 @@ function remoteSdkMcpConfig(input: {
     headers: input.headers,
     ...(tools.length > 0 ? { tools } : {}),
   };
+}
+
+async function materializeInlineClaudeSkills(
+  input: Parameters<ProviderInlineAgentLoopLane>[0],
+  configDir: string,
+): Promise<string[]> {
+  const selectedSkillIds = input.input.attachedSkillSourceIds ?? [];
+  if (selectedSkillIds.length === 0) return [];
+  if (
+    !input.skillRepository ||
+    !input.skillArtifactStore ||
+    !input.skillContext?.appId ||
+    !input.skillContext.agentId
+  ) {
+    throw new Error(
+      'Selected skills require configured Gantry skill storage before the inline runner can start.',
+    );
+  }
+  const materializedSkills = await materializeClaudeSkills({
+    skillSource: new ArtifactClaudeSkillSource(
+      input.skillRepository,
+      input.skillArtifactStore,
+      {
+        appId: input.skillContext.appId as never,
+        agentId: input.skillContext.agentId as never,
+      },
+    ),
+    skillsDir: path.join(configDir, 'skills'),
+    enabledSkillIds: selectedSkillIds,
+  });
+  return claudeSdkSkillNamesForMaterializedSkills(materializedSkills);
 }
 
 function isolatedSdkEnv(

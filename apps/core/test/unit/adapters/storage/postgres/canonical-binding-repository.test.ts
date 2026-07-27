@@ -514,7 +514,7 @@ describe('canonical binding repository route projection', () => {
     expect(bindingRowToGroup(row)).toMatchObject({ jid: 'sl:C123' });
   });
 
-  it('loads a legacy conversation id unchanged and warns once', async () => {
+  it('normalizes a legacy conversation id for runtime routing and warns once', async () => {
     const providerAccountId = 'provider-account:slack';
     const routeKey = makeAgentThreadQueueKey(
       'sl:C123',
@@ -546,7 +546,9 @@ describe('canonical binding repository route projection', () => {
       repository,
     ).getAllConversationRoutes();
 
-    expect(routes[routeKey]?.conversationId).toBe('sales_slack');
+    expect(routes[routeKey]?.conversationId).toBe(
+      `conversation:${providerAccountId}:sl:C123`,
+    );
     expect(testLogger.warn).toHaveBeenCalledOnce();
     expect(testLogger.warn).toHaveBeenCalledWith(
       {

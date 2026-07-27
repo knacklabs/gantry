@@ -563,7 +563,7 @@ export async function runSlackStep(draft: SetupDraft): Promise<FlowAction> {
       const selected = await p.select({
         message: 'Choose the Slack conversation for Gantry',
         options: [
-          ...discovered.chats.slice(0, 20).map((chat) => ({
+          ...discovered.chats.map((chat) => ({
             value: chat.chatJid,
             label: `${chat.chatTitle} (${chat.chatJid.replace(/^sl:/, '')})`,
             hint: chat.chatType,
