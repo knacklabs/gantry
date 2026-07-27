@@ -486,28 +486,45 @@ maybeDescribe('brain dream review owner-DM notification (T6)', () => {
     const key = `brain-review:${review.id}`;
     expect(await deliveryCountByKey(key)).toBe(0); // orphaned — nothing sent
 
+    // The orphan query returns THIS review (no delivery) but excludes any pending
+    // review that already has a delivery (e.g. once-only from an earlier test).
+    const orphansBefore = await reviews.listPendingBrainReviewsWithoutDelivery({
+      appId: APP_ID,
+      limit: 500,
+    });
+    expect(orphansBefore.map((r) => r.id)).toContain(review.id);
+    for (const orphan of orphansBefore) {
+      expect(await deliveryCountByKey(`brain-review:${orphan.id}`)).toBe(0);
+    }
+
     const notify = createBrainReviewNotifier({
       gateway,
       appId: APP_ID,
       resolveOwner: async () => ({ owner: OWNER }),
     });
-    // Recovery pass re-enqueues the orphan (and re-touches other pending reviews
-    // idempotently).
+    // Recovery delivers the orphan.
     const first = await redeliverPendingBrainReviews({
       reviews,
       appId: APP_ID,
       notify,
     });
-    expect(first.pending).toBeGreaterThanOrEqual(1);
+    expect(first.delivered).toBeGreaterThanOrEqual(1);
     expect(await deliveryCountByKey(key)).toBe(1);
-    // Idempotent: a second pass does not double-post.
-    await redeliverPendingBrainReviews({ reviews, appId: APP_ID, notify });
+    // A delivered review is no longer an orphan → a second pass finds none and
+    // terminates immediately without re-posting.
+    const second = await redeliverPendingBrainReviews({
+      reviews,
+      appId: APP_ID,
+      notify,
+    });
+    expect(second.delivered).toBe(0);
     expect(await deliveryCountByKey(key)).toBe(1);
   });
 
-  it('RECOVERY paginates: >200 orphaned reviews ALL get exactly one delivery', async () => {
-    // Bare pending reviews with no outbound record. 205 > the 200 page size, so a
-    // single-page recovery would strand #201..#205; pagination must reach them.
+  it('RECOVERY drains: >200 orphaned reviews ALL get exactly one delivery', async () => {
+    // Bare pending reviews with no outbound record. 205 > the 200 orphan page, so
+    // the drain must page through: delivered orphans drop out of the query, so the
+    // set shrinks to empty and all are reached in one pass.
     const ids: string[] = [];
     const createdAt = '2026-07-28T00:00:00.000Z';
     for (let i = 0; i < 205; i++) {
@@ -561,12 +578,19 @@ maybeDescribe('brain dream review owner-DM notification (T6)', () => {
       appId: APP_ID,
       notify,
     });
-    expect(result.pending).toBeGreaterThanOrEqual(205);
+    expect(result.delivered).toBeGreaterThanOrEqual(205);
 
     // EVERY one of the 205 — including those beyond the first page — has exactly
     // one delivery.
     for (const reviewId of ids) {
       expect(await deliveryCountByKey(`brain-review:${reviewId}`)).toBe(1);
     }
+    // Drained: a second pass sees no orphans (all delivered) and terminates.
+    const second = await redeliverPendingBrainReviews({
+      reviews,
+      appId: APP_ID,
+      notify,
+    });
+    expect(second.delivered).toBe(0);
   }, 60_000);
 });

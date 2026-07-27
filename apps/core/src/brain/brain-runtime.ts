@@ -182,13 +182,13 @@ function runtimeBrainReviewNotifier(
   });
 }
 
-// Startup recovery: re-enqueue any pending review whose owner-DM notification was
-// lost. No-op if the gateway isn't wired yet. Single-app (DEFAULT_MEMORY_APP_ID).
+// Startup recovery: re-enqueue any ORPHANED review notification (pending, no
+// outbound delivery). No-op if the gateway isn't wired yet. Single-app.
 export async function recoverPendingBrainReviewNotifications(): Promise<{
-  pending: number;
+  delivered: number;
 }> {
   const notify = runtimeBrainReviewNotifier(DEFAULT_MEMORY_APP_ID);
-  if (!notify) return { pending: 0 };
+  if (!notify) return { delivered: 0 };
   return redeliverPendingBrainReviews({
     reviews: getRuntimeStorage().repositories.brainDreamReviews,
     appId: DEFAULT_MEMORY_APP_ID,

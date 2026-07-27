@@ -97,11 +97,15 @@ export interface BrainDreamReviewRepository {
   listPendingBrainDreamReviews(input: {
     appId: string;
     limit: number;
-    // Keyset cursor for stable pagination over the (createdAt, id) order —
-    // returns only rows strictly after it. Re-enqueuing a notification does NOT
-    // remove a review from the pending set, so the recovery pass must page
-    // forward past the ones it already touched, not re-scan from the top.
-    after?: { createdAt: string; id: string };
+  }): Promise<BrainDreamReview[]>;
+  // Recovery targets ORPHANS only: pending reviews with NO durable outbound
+  // delivery for their `brain-review:<id>` key. A successful re-enqueue creates
+  // that delivery, so the review drops out of this set immediately — the set
+  // strictly shrinks and is inherently tiny (orphans arise only from a transient
+  // initial enqueue/owner-resolve failure), so recovery needs no cursor or cap.
+  listPendingBrainReviewsWithoutDelivery(input: {
+    appId: string;
+    limit: number;
   }): Promise<BrainDreamReview[]>;
   claimBrainDreamReviewTransition(
     input: BrainDreamReviewClaimInput,

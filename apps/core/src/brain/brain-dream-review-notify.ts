@@ -39,59 +39,53 @@ export interface NotifiableBrainReview {
   reviewSnapshot: Record<string, unknown>;
 }
 
-const REDELIVER_PAGE_SIZE = 200;
+// ponytail: a generous backstop, not the terminating mechanism. Orphans are rare
+// (they arise only from a transient initial enqueue/owner-resolve failure); a
+// huge orphan set signals a systemic enqueue outage, not normal operation.
+const ORPHAN_PAGE_SIZE = 200;
 
 /**
- * Recovery pass for orphaned notifications: re-enqueue EVERY pending review's
- * owner-DM notification, paging forward to COMPLETION. Best-effort delivery
- * happens ONCE at intake; a transient owner-resolve/enqueue failure leaves the
- * review pending with no outbound record and nothing re-notifies it. Re-enqueuing
- * is safe to repeat — the enqueue is idempotent on `brain-review:<reviewId>`, so a
- * review that already has a delivery is a no-op and an orphan gets a fresh record
- * for the outbound recovery loop to send. Re-notifying does NOT clear the pending
- * state, so we page by (createdAt, id) keyset until a short page arrives, never
- * re-scanning the first page.
- *
- * ponytail: no per-pass cap — scan the whole set. The pending destructive-review
- * set is inherently SMALL (an owner acts on each proposal, so it doesn't grow like
- * a message queue), so a full scan per startup is cheap. A fixed cap would instead
- * STARVE rows past it forever, since a delivered review stays pending and every
- * run restarts from the top. If the pending set ever DID grow large, add a
- * persistent/rotating cursor across process starts so each run advances a slice.
+ * Recovery pass for ORPHANED notifications only: re-enqueue the owner-DM
+ * notification for pending reviews that have NO durable outbound delivery for
+ * their `brain-review:<id>` key. Best-effort delivery happens ONCE at intake; a
+ * transient owner-resolve/enqueue failure leaves the review an orphan and nothing
+ * re-notifies it. Re-enqueuing is idempotent, and a SUCCESSFUL re-enqueue creates
+ * the delivery row — so that review drops out of the orphan query immediately. The
+ * set therefore shrinks strictly as it drains: no per-pass cap and no persistent
+ * cursor needed, and an already-delivered backlog is never re-scanned (the query
+ * excludes it). A `seen` guard stops the drain if delivery keeps failing (e.g. no
+ * verified owner) so a stuck orphan can't loop forever.
  */
 export async function redeliverPendingBrainReviews(deps: {
   reviews: {
-    listPendingBrainDreamReviews(input: {
+    listPendingBrainReviewsWithoutDelivery(input: {
       appId: string;
       limit: number;
-      after?: { createdAt: string; id: string };
-    }): Promise<
-      Array<NotifiableBrainReview & { id: string; createdAt: string }>
-    >;
+    }): Promise<NotifiableBrainReview[]>;
   };
   appId: string;
   notify: BrainReviewNotifier;
   pageSize?: number;
-}): Promise<{ pending: number }> {
-  const pageSize = deps.pageSize ?? REDELIVER_PAGE_SIZE;
-  let processed = 0;
-  let after: { createdAt: string; id: string } | undefined;
+}): Promise<{ delivered: number }> {
+  const pageSize = deps.pageSize ?? ORPHAN_PAGE_SIZE;
+  const seen = new Set<string>();
+  let delivered = 0;
   for (;;) {
-    const page = await deps.reviews.listPendingBrainDreamReviews({
+    const orphans = await deps.reviews.listPendingBrainReviewsWithoutDelivery({
       appId: deps.appId,
       limit: pageSize,
-      after,
     });
-    if (page.length === 0) break;
-    for (const review of page) {
-      await deps.notify(review); // notifier never throws; outcome ignored (best-effort)
-      processed += 1;
+    // Only rows we haven't attempted this pass. If none are new, every remaining
+    // orphan failed delivery — stop instead of re-attempting the same set.
+    const fresh = orphans.filter((review) => !seen.has(review.id));
+    if (fresh.length === 0) break;
+    for (const review of fresh) {
+      seen.add(review.id);
+      const outcome = await deps.notify(review); // never throws
+      if (outcome.delivered) delivered += 1;
     }
-    const last = page[page.length - 1]!;
-    after = { createdAt: last.createdAt, id: last.id };
-    if (page.length < pageSize) break;
   }
-  return { pending: processed };
+  return { delivered };
 }
 
 /** Build the durable card view + fallback text for a review. */

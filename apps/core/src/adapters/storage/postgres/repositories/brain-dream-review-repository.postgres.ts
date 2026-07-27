@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
-import { and, asc, eq, gt, or } from 'drizzle-orm';
+import { and, asc, eq, notExists, sql } from 'drizzle-orm';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 
 import type {
@@ -13,11 +13,13 @@ import type {
 } from '../../../../brain/brain-dream-review-repository.js';
 import { isTerminalBrainDreamReviewState } from '../../../../brain/brain-dream-review-repository.js';
 import * as pgSchema from '../schema/schema.js';
+import { outboundDeliveriesPostgres } from '../schema/outbound-delivery.js';
 
 type Db = NodePgDatabase<typeof pgSchema>;
 
 const Reviews = pgSchema.brainDreamReviewsPostgres;
 const Targets = pgSchema.brainDreamReviewTargetsPostgres;
+const Deliveries = outboundDeliveriesPostgres;
 
 const OPEN_TARGET_INDEX = 'idx_brain_dream_review_targets_open_unique';
 const DECISION_UNIQUE = 'brain_dream_reviews_decision_id_unique';
@@ -107,18 +109,7 @@ export class PostgresBrainDreamReviewRepository implements BrainDreamReviewRepos
   async listPendingBrainDreamReviews(input: {
     appId: string;
     limit: number;
-    after?: { createdAt: string; id: string };
   }): Promise<BrainDreamReview[]> {
-    // Keyset predicate: rows strictly after (createdAt, id) in the sort order.
-    const afterCursor = input.after
-      ? or(
-          gt(Reviews.createdAt, input.after.createdAt),
-          and(
-            eq(Reviews.createdAt, input.after.createdAt),
-            gt(Reviews.id, input.after.id),
-          ),
-        )
-      : undefined;
     const rows = await this.db
       .select()
       .from(Reviews)
@@ -126,7 +117,42 @@ export class PostgresBrainDreamReviewRepository implements BrainDreamReviewRepos
         and(
           eq(Reviews.appId, input.appId),
           eq(Reviews.state, 'pending_review'),
-          ...(afterCursor ? [afterCursor] : []),
+        ),
+      )
+      .orderBy(asc(Reviews.createdAt), asc(Reviews.id))
+      .limit(clampLimit(input.limit));
+    return rows.map(mapReview);
+  }
+
+  async listPendingBrainReviewsWithoutDelivery(input: {
+    appId: string;
+    limit: number;
+  }): Promise<BrainDreamReview[]> {
+    // Anti-join: pending reviews with NO durable outbound delivery for their
+    // enqueued key `brain-review:<id>` (unique on app_id + idempotency_key). A
+    // successful re-enqueue creates that row, so the review leaves this set — the
+    // recovery drain shrinks strictly to empty without a cursor or per-pass cap.
+    const rows = await this.db
+      .select()
+      .from(Reviews)
+      .where(
+        and(
+          eq(Reviews.appId, input.appId),
+          eq(Reviews.state, 'pending_review'),
+          notExists(
+            this.db
+              .select({ one: sql`1` })
+              .from(Deliveries)
+              .where(
+                and(
+                  eq(Deliveries.appId, input.appId),
+                  eq(
+                    Deliveries.idempotencyKey,
+                    sql`${'brain-review:'} || ${Reviews.id}`,
+                  ),
+                ),
+              ),
+          ),
         ),
       )
       .orderBy(asc(Reviews.createdAt), asc(Reviews.id))
