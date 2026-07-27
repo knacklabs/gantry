@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
-import { and, asc, eq, notExists, sql } from 'drizzle-orm';
+import { and, asc, eq, gt, notExists, or, sql } from 'drizzle-orm';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 
 import type {
@@ -127,11 +127,22 @@ export class PostgresBrainDreamReviewRepository implements BrainDreamReviewRepos
   async listPendingBrainReviewsWithoutDelivery(input: {
     appId: string;
     limit: number;
+    after?: { createdAt: string; id: string };
   }): Promise<BrainDreamReview[]> {
     // Anti-join: pending reviews with NO durable outbound delivery for their
-    // enqueued key `brain-review:<id>` (unique on app_id + idempotency_key). A
-    // successful re-enqueue creates that row, so the review leaves this set — the
-    // recovery drain shrinks strictly to empty without a cursor or per-pass cap.
+    // enqueued key `brain-review:<id>` (unique on app_id + idempotency_key). The
+    // recovery drain advances a (createdAt, id) keyset cursor by the last fetched
+    // row, so it scans the orphan set forward exactly once — a delivered review
+    // leaves the set, a failed one stays but is skipped past this pass.
+    const afterCursor = input.after
+      ? or(
+          gt(Reviews.createdAt, input.after.createdAt),
+          and(
+            eq(Reviews.createdAt, input.after.createdAt),
+            gt(Reviews.id, input.after.id),
+          ),
+        )
+      : undefined;
     const rows = await this.db
       .select()
       .from(Reviews)
@@ -153,6 +164,7 @@ export class PostgresBrainDreamReviewRepository implements BrainDreamReviewRepos
                 ),
               ),
           ),
+          ...(afterCursor ? [afterCursor] : []),
         ),
       )
       .orderBy(asc(Reviews.createdAt), asc(Reviews.id))

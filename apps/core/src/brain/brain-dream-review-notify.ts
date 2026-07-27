@@ -39,9 +39,6 @@ export interface NotifiableBrainReview {
   reviewSnapshot: Record<string, unknown>;
 }
 
-// ponytail: a generous backstop, not the terminating mechanism. Orphans are rare
-// (they arise only from a transient initial enqueue/owner-resolve failure); a
-// huge orphan set signals a systemic enqueue outage, not normal operation.
 const ORPHAN_PAGE_SIZE = 200;
 
 /**
@@ -49,41 +46,51 @@ const ORPHAN_PAGE_SIZE = 200;
  * notification for pending reviews that have NO durable outbound delivery for
  * their `brain-review:<id>` key. Best-effort delivery happens ONCE at intake; a
  * transient owner-resolve/enqueue failure leaves the review an orphan and nothing
- * re-notifies it. Re-enqueuing is idempotent, and a SUCCESSFUL re-enqueue creates
- * the delivery row — so that review drops out of the orphan query immediately. The
- * set therefore shrinks strictly as it drains: no per-pass cap and no persistent
- * cursor needed, and an already-delivered backlog is never re-scanned (the query
- * excludes it). A `seen` guard stops the drain if delivery keeps failing (e.g. no
- * verified owner) so a stuck orphan can't loop forever.
+ * re-notifies it. Re-enqueuing is idempotent, so re-running is safe.
+ *
+ * Drain via a (createdAt, id) keyset cursor that advances by the LAST FETCHED row
+ * every iteration — regardless of whether that row's notify succeeded. So the pass
+ * scans the orphan set forward EXACTLY ONCE: it never re-fetches the front, always
+ * advances past a failing prefix to reach deliverable orphans behind it, and
+ * terminates on a short page. Delivered orphans drop out of the anti-join for
+ * future passes; ones whose notify fails (effectively global — e.g. no verified
+ * owner — or transient) stay orphans and are retried on the NEXT startup pass.
+ * ponytail: the already-delivered backlog is never scanned (the anti-join excludes
+ * it), so no per-pass cap is needed.
  */
 export async function redeliverPendingBrainReviews(deps: {
   reviews: {
     listPendingBrainReviewsWithoutDelivery(input: {
       appId: string;
       limit: number;
-    }): Promise<NotifiableBrainReview[]>;
+      after?: { createdAt: string; id: string };
+    }): Promise<
+      Array<NotifiableBrainReview & { id: string; createdAt: string }>
+    >;
   };
   appId: string;
   notify: BrainReviewNotifier;
   pageSize?: number;
 }): Promise<{ delivered: number }> {
   const pageSize = deps.pageSize ?? ORPHAN_PAGE_SIZE;
-  const seen = new Set<string>();
   let delivered = 0;
+  let after: { createdAt: string; id: string } | undefined;
   for (;;) {
-    const orphans = await deps.reviews.listPendingBrainReviewsWithoutDelivery({
+    const page = await deps.reviews.listPendingBrainReviewsWithoutDelivery({
       appId: deps.appId,
       limit: pageSize,
+      after,
     });
-    // Only rows we haven't attempted this pass. If none are new, every remaining
-    // orphan failed delivery — stop instead of re-attempting the same set.
-    const fresh = orphans.filter((review) => !seen.has(review.id));
-    if (fresh.length === 0) break;
-    for (const review of fresh) {
-      seen.add(review.id);
+    if (page.length === 0) break;
+    for (const review of page) {
       const outcome = await deps.notify(review); // never throws
       if (outcome.delivered) delivered += 1;
     }
+    // Advance by the last fetched row — NOT by delivery success — so a failing
+    // prefix can't pin the scan; failures are retried on the next startup pass.
+    const last = page[page.length - 1]!;
+    after = { createdAt: last.createdAt, id: last.id };
+    if (page.length < pageSize) break;
   }
   return { delivered };
 }

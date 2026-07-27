@@ -593,4 +593,68 @@ maybeDescribe('brain dream review owner-DM notification (T6)', () => {
     });
     expect(second.delivered).toBe(0);
   }, 60_000);
+
+  it('RECOVERY advances past a failing prefix: a later orphan is still delivered', async () => {
+    // 3 orphans that FAIL notify, ordered before 1 that succeeds. With pageSize 2
+    // the failing prefix fills a whole page; the cursor must advance by the last
+    // fetched row (not by delivery) to reach the deliverable orphan behind it.
+    async function seedOrphan(id: string, createdAt: string) {
+      await repository.journalDreamDecision({
+        id: `${id}-dec`,
+        appId: APP_ID,
+        runId: 'fp-run',
+        pageId: null,
+        op: { action: 'delete_page' },
+        outcome: 'proposed',
+        reason: 'fp',
+      });
+      const created = await reviews.createBrainDreamReview({
+        id,
+        appId: APP_ID,
+        runId: 'fp-run',
+        decisionId: `${id}-dec`,
+        action: 'delete_page',
+        canonicalOp: { action: 'delete_page', version: 1, pageId: `${id}-p` },
+        reviewSnapshot: { action: 'delete_page', before: { title: id } },
+        nowIso: createdAt,
+        targets: [
+          { targetKind: 'page', targetId: `${id}-t`, expectedVersion: 'v1' },
+        ],
+      });
+      if (!created.ok) throw new Error(`fp create failed: ${created.conflict}`);
+    }
+    await seedOrphan('fp-fail-0', '2026-07-30T00:00:00.000Z');
+    await seedOrphan('fp-fail-1', '2026-07-30T00:00:00.000Z');
+    await seedOrphan('fp-fail-2', '2026-07-30T00:00:00.000Z');
+    await seedOrphan('fp-ok', '2026-07-30T00:00:01.000Z'); // sorts AFTER the prefix
+
+    // Gateway that throws for the failing prefix (notifier catches → delivered:false)
+    // and succeeds via the real gateway otherwise.
+    const failingGateway: BrainReviewNotifyGateway = {
+      enqueue: async (input) => {
+        if (input.idempotencyKey.includes('fp-fail')) {
+          throw new Error('simulated enqueue failure');
+        }
+        return gateway.enqueue(input);
+      },
+    };
+    const notify = createBrainReviewNotifier({
+      gateway: failingGateway,
+      appId: APP_ID,
+      resolveOwner: async () => ({ owner: OWNER }),
+    });
+
+    const result = await redeliverPendingBrainReviews({
+      reviews,
+      appId: APP_ID,
+      notify,
+      pageSize: 2, // failing prefix (fp-fail-0/1) fills page 1; cursor must cross it
+    });
+    expect(result.delivered).toBe(1);
+    // The deliverable orphan behind the failing prefix WAS reached + delivered.
+    expect(await deliveryCountByKey('brain-review:fp-ok')).toBe(1);
+    // The failing prefix stayed orphaned (retried next startup), not delivered.
+    expect(await deliveryCountByKey('brain-review:fp-fail-0')).toBe(0);
+    expect(await deliveryCountByKey('brain-review:fp-fail-2')).toBe(0);
+  }, 60_000);
 });

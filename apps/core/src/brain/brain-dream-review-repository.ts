@@ -99,13 +99,14 @@ export interface BrainDreamReviewRepository {
     limit: number;
   }): Promise<BrainDreamReview[]>;
   // Recovery targets ORPHANS only: pending reviews with NO durable outbound
-  // delivery for their `brain-review:<id>` key. A successful re-enqueue creates
-  // that delivery, so the review drops out of this set immediately — the set
-  // strictly shrinks and is inherently tiny (orphans arise only from a transient
-  // initial enqueue/owner-resolve failure), so recovery needs no cursor or cap.
+  // delivery for their `brain-review:<id>` key. The recovery drain pages this
+  // with a (createdAt, id) keyset cursor that advances by the LAST fetched row,
+  // so it scans the orphan set forward exactly once — past notify failures,
+  // never re-fetching the front — and terminates on a short page.
   listPendingBrainReviewsWithoutDelivery(input: {
     appId: string;
     limit: number;
+    after?: { createdAt: string; id: string };
   }): Promise<BrainDreamReview[]>;
   claimBrainDreamReviewTransition(
     input: BrainDreamReviewClaimInput,
