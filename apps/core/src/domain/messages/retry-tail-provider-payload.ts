@@ -140,11 +140,13 @@ function readString(
   return trimmed.slice(0, options.maxLength);
 }
 
-// Identity-bearing fields (insightId, localDay) drive callback tokens, so an
-// oversized value must be REJECTED, not truncated: a truncated id could collide
-// with another insight's id (the binding equality would still pass) and settle
-// the WRONG insight on click. Over-limit/empty/non-string -> undefined, dropping
-// the owning element. Display fields keep truncation via readString.
+// Identity-bearing fields (insightId, localDay) drive callback tokens, so the
+// value must be VERBATIM: neither truncated nor trim-normalized. Normalizing
+// " x " -> "x" could match a DIFFERENT insight's real id and settle the wrong
+// target on click — the same risk truncation had. Reject (drop the owning
+// element) if the RAW value is empty, non-string, over the max, or would change
+// under trim; else return the ORIGINAL string. Display fields keep truncation
+// via readString.
 function readIdentity(
   value: unknown,
   options: {
@@ -152,9 +154,10 @@ function readIdentity(
   },
 ): string | undefined {
   if (typeof value !== 'string') return undefined;
-  const trimmed = value.trim();
-  if (!trimmed || trimmed.length > options.maxLength) return undefined;
-  return trimmed;
+  if (!value || value.length > options.maxLength || value !== value.trim()) {
+    return undefined;
+  }
+  return value;
 }
 
 function readStringArray(
@@ -206,11 +209,11 @@ function readObserverDigestView(
   const recipient = readString(source.recipient, { maxLength: MAX_ID_LENGTH });
   if (recipient) view.recipient = recipient;
   if (Array.isArray(source.insights)) {
-    for (const entry of source.insights) {
+    // Bound entries INSPECTED, not just accepted: a malformed array of millions
+    // of invalid entries must not be traversed in full (DoS on enqueue/recovery).
+    for (const entry of source.insights.slice(0, MAX_DIGEST_INSIGHTS)) {
       const insight = readObserverDigestInsight(entry, localDay);
-      if (!insight) continue;
-      view.insights.push(insight);
-      if (view.insights.length >= MAX_DIGEST_INSIGHTS) break;
+      if (insight) view.insights.push(insight);
     }
   }
   return view;
@@ -243,15 +246,15 @@ function readObserverDigestInsight(
   });
   if (stateMarker) insight.stateMarker = stateMarker;
   if (Array.isArray(source.affordances)) {
-    for (const entry of source.affordances) {
+    // Bound entries INSPECTED (see insights loop): each insight can carry an
+    // arbitrarily large invalid affordance array.
+    for (const entry of source.affordances.slice(0, MAX_DIGEST_AFFORDANCES)) {
       const affordance = readObserverFeedbackAffordance(
         entry,
         insightId,
         viewLocalDay,
       );
-      if (!affordance) continue;
-      insight.affordances.push(affordance);
-      if (insight.affordances.length >= MAX_DIGEST_AFFORDANCES) break;
+      if (affordance) insight.affordances.push(affordance);
     }
   }
   return insight;

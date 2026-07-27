@@ -134,6 +134,64 @@ describe('sanitizeRetryTailProviderPayload observerDigestView passthrough', () =
     ]);
   });
 
+  it('rejects (does not trim-normalize) identity fields with surrounding whitespace', () => {
+    const view = wellFormedView();
+
+    // Insight insightId with whitespace -> insight dropped (not normalized+kept).
+    const insightSpaced = sanitizeRetryTailProviderPayload({
+      observerDigestView: {
+        ...view,
+        insights: [
+          { ...view.insights[0], insightId: ' i-1 ' },
+          view.insights[1],
+        ],
+      },
+    });
+    expect(
+      insightSpaced?.observerDigestView?.insights.map((i) => i.insightId),
+    ).toEqual(['i-2']);
+
+    // View localDay with whitespace -> whole view dropped.
+    const viewSpaced = sanitizeRetryTailProviderPayload({
+      observerDigestView: { ...view, localDay: ' 2026-07-25 ' },
+    });
+    expect(viewSpaced?.observerDigestView).toBeUndefined();
+
+    // Over-limit ONLY because of surrounding whitespace -> still dropped
+    // (length is measured on the RAW value, not the trimmed one).
+    const paddedOverLimit = ' '.repeat(60) + 'day' + ' '.repeat(60); // >64 raw
+    const dayPadded = sanitizeRetryTailProviderPayload({
+      observerDigestView: { ...view, localDay: paddedOverLimit },
+    });
+    expect(dayPadded?.observerDigestView).toBeUndefined();
+  });
+
+  it('bounds the number of INSPECTED entries, not just accepted ones', () => {
+    const view = wellFormedView();
+    // 50 invalid entries (null) fill the inspection budget; a VALID insight sits
+    // at index 50. If the loop bounded only ACCEPTED entries it would inspect all
+    // 51 and keep the valid one; bounding INSPECTED entries stops at 50, so the
+    // valid entry beyond the cap is never reached -> zero insights.
+    const insights = [...Array(50).fill(null), view.insights[0]];
+    const out = sanitizeRetryTailProviderPayload({
+      observerDigestView: { ...view, insights },
+    });
+    expect(out?.observerDigestView?.insights).toEqual([]);
+
+    // Same for affordances: 8 invalid then a valid one beyond the cap -> dropped.
+    const affordances = [
+      ...Array(8).fill(null),
+      view.insights[0].affordances[0],
+    ];
+    const affOut = sanitizeRetryTailProviderPayload({
+      observerDigestView: {
+        ...view,
+        insights: [{ ...view.insights[0], affordances }],
+      },
+    });
+    expect(affOut?.observerDigestView?.insights[0].affordances).toEqual([]);
+  });
+
   it('rejects (does not truncate) oversized identity fields', () => {
     const view = wellFormedView();
     const bigId = 'x'.repeat(300); // > MAX_ID_LENGTH (256)
