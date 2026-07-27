@@ -142,7 +142,7 @@ Expected test-only write scope:
 - `apps/core/test/harness/response-latency-postgres.ts`
 - `apps/core/test/unit/runtime/response-latency-contract.test.ts`
 - `apps/core/test/unit/runtime/response-latency-scenarios.test.ts`
-- `apps/core/test/integration/response-latency-postgres.integration.test.ts`
+- `apps/core/test/integration/response-latency-postgres.postgres.integration.test.ts`
 
 Stage 1 primitives:
 
@@ -249,7 +249,7 @@ Stage `LAT-0-POSTGRES`
   S12.
 - Write scope:
   - `apps/core/test/harness/response-latency-postgres.ts`
-  - `apps/core/test/integration/response-latency-postgres.integration.test.ts`
+  - `apps/core/test/integration/response-latency-postgres.postgres.integration.test.ts`
 - Dependencies:
   - `LAT-0-PRIMITIVES`
   - `LAT-0-SCENARIOS`
@@ -296,7 +296,7 @@ Targeted implementation checks:
 ```bash
 npm run test:unit -- apps/core/test/unit/runtime/response-latency-contract.test.ts
 npm run test:unit -- apps/core/test/unit/runtime/response-latency-scenarios.test.ts
-npm run test:integration:postgres -- apps/core/test/integration/response-latency-postgres.integration.test.ts
+npm run test:integration:postgres -- apps/core/test/integration/response-latency-postgres.postgres.integration.test.ts
 ```
 
 Before review:

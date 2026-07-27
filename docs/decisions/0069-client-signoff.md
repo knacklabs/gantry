@@ -54,7 +54,7 @@ including:
 - `apps/core/test/harness/response-latency-scenarios.ts`
 - `apps/core/test/unit/runtime/response-latency-scenarios.test.ts`
 - `apps/core/test/harness/response-latency-postgres.ts`
-- `apps/core/test/integration/response-latency-postgres.integration.test.ts`
+- `apps/core/test/integration/response-latency-postgres.postgres.integration.test.ts`
 
 Every commit still needs local autoreview before commit. The task cannot be
 PR-ready until automated tests, deterministic verify, one three-lens autoreview
