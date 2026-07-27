@@ -94,7 +94,7 @@ describe('parseDestructiveOp', () => {
   it('rejects a wrong-typed target id (never inferred)', () => {
     expect(
       parseDestructiveOp({ action: 'delete_entity', entity_id: 123 }),
-    ).toEqual({ ok: false, reason: 'delete_entity requires entity_id' });
+    ).toEqual({ ok: false, reason: 'entity_id must be a string' });
   });
 
   it('rejects an unsupported version', () => {
@@ -134,5 +134,65 @@ describe('parseDestructiveOp', () => {
     expect(parseDestructiveOp([{ action: 'delete_page' }])).toMatchObject({
       ok: false,
     });
+  });
+
+  it('preserves rewrite markdown byte-for-byte (verbatim, no trim)', () => {
+    const markdown = '  ```ts\n  code();\n  ```\n\n';
+    const result = parseDestructiveOp({
+      action: 'rewrite_page',
+      page_id: 'P1',
+      markdown,
+    });
+    expect(result).toEqual({
+      ok: true,
+      op: {
+        action: 'rewrite_page',
+        version: 1,
+        pageId: 'P1',
+        title: null,
+        markdown,
+      },
+    });
+    // Exact bytes round-trip; leading spaces + trailing newline intact.
+    if (result.ok && result.op.action === 'rewrite_page') {
+      expect(result.op.markdown).toBe(markdown);
+    }
+  });
+
+  it('rejects a wrong-typed (non-string) title', () => {
+    expect(
+      parseDestructiveOp({
+        action: 'rewrite_page',
+        page_id: 'P1',
+        markdown: 'body',
+        title: 42,
+      }),
+    ).toEqual({ ok: false, reason: 'rewrite_page title must be a string' });
+  });
+
+  it('rejects conflicting snake/camel id aliases but accepts equal ones', () => {
+    expect(
+      parseDestructiveOp({ action: 'delete_page', page_id: 'A', pageId: 'B' }),
+    ).toEqual({ ok: false, reason: 'conflicting page_id/pageId values' });
+    expect(
+      parseDestructiveOp({ action: 'delete_page', page_id: 'A', pageId: 'A' }),
+    ).toEqual({
+      ok: true,
+      op: { action: 'delete_page', version: 1, pageId: 'A' },
+    });
+  });
+
+  it('rejects a wrong-typed id alias', () => {
+    expect(parseDestructiveOp({ action: 'delete_page', pageId: 99 })).toEqual({
+      ok: false,
+      reason: 'pageId must be a string',
+    });
+    expect(
+      parseDestructiveOp({
+        action: 'merge_entities',
+        source_entity_id: { nested: true },
+        target_entity_id: 'E2',
+      }),
+    ).toEqual({ ok: false, reason: 'source_entity_id must be a string' });
   });
 });

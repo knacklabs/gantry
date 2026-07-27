@@ -93,42 +93,60 @@ export function parseDestructiveOp(raw: unknown): ParseDestructiveOpResult {
   switch (action) {
     case 'rewrite_page': {
       const pageId = readId(row, 'page_id', 'pageId');
-      const markdown = readString(row.markdown);
-      if (!pageId) return missing('rewrite_page', 'page_id');
-      if (!markdown) return missing('rewrite_page', 'markdown');
-      const title = readString(row.title);
+      if (!pageId.ok) return pageId;
+      if (!pageId.value) return missing('rewrite_page', 'page_id');
+      // Verbatim body: leading indentation (code blocks) and trailing newlines
+      // are semantically meaningful, so store the ORIGINAL string; only a
+      // trimmed COPY is used for the non-blank check.
+      if (typeof row.markdown !== 'string' || !row.markdown.trim()) {
+        return missing('rewrite_page', 'markdown');
+      }
+      // Optional title: if present it MUST be a string (no coercing 42 → null).
+      if (row.title !== undefined && typeof row.title !== 'string') {
+        return { ok: false, reason: 'rewrite_page title must be a string' };
+      }
+      const title = typeof row.title === 'string' ? row.title.trim() : '';
       return {
         ok: true,
         op: {
           action,
           version: 1,
-          pageId,
+          pageId: pageId.value,
           title: title || null,
-          markdown,
+          markdown: row.markdown,
         },
       };
     }
     case 'delete_page': {
       const pageId = readId(row, 'page_id', 'pageId');
-      if (!pageId) return missing('delete_page', 'page_id');
-      return { ok: true, op: { action, version: 1, pageId } };
+      if (!pageId.ok) return pageId;
+      if (!pageId.value) return missing('delete_page', 'page_id');
+      return { ok: true, op: { action, version: 1, pageId: pageId.value } };
     }
     case 'delete_entity': {
       const entityId = readId(row, 'entity_id', 'entityId');
-      if (!entityId) return missing('delete_entity', 'entity_id');
-      return { ok: true, op: { action, version: 1, entityId } };
+      if (!entityId.ok) return entityId;
+      if (!entityId.value) return missing('delete_entity', 'entity_id');
+      return { ok: true, op: { action, version: 1, entityId: entityId.value } };
     }
     case 'delete_edge': {
       const edgeId = readId(row, 'edge_id', 'edgeId');
-      if (!edgeId) return missing('delete_edge', 'edge_id');
-      return { ok: true, op: { action, version: 1, edgeId } };
+      if (!edgeId.ok) return edgeId;
+      if (!edgeId.value) return missing('delete_edge', 'edge_id');
+      return { ok: true, op: { action, version: 1, edgeId: edgeId.value } };
     }
     case 'merge_entities': {
       const sourceEntityId = readId(row, 'source_entity_id', 'sourceEntityId');
+      if (!sourceEntityId.ok) return sourceEntityId;
+      if (!sourceEntityId.value) {
+        return missing('merge_entities', 'source_entity_id');
+      }
       const targetEntityId = readId(row, 'target_entity_id', 'targetEntityId');
-      if (!sourceEntityId) return missing('merge_entities', 'source_entity_id');
-      if (!targetEntityId) return missing('merge_entities', 'target_entity_id');
-      if (sourceEntityId === targetEntityId) {
+      if (!targetEntityId.ok) return targetEntityId;
+      if (!targetEntityId.value) {
+        return missing('merge_entities', 'target_entity_id');
+      }
+      if (sourceEntityId.value === targetEntityId.value) {
         return {
           ok: false,
           reason: 'merge_entities source and target must differ',
@@ -136,7 +154,12 @@ export function parseDestructiveOp(raw: unknown): ParseDestructiveOpResult {
       }
       return {
         ok: true,
-        op: { action, version: 1, sourceEntityId, targetEntityId },
+        op: {
+          action,
+          version: 1,
+          sourceEntityId: sourceEntityId.value,
+          targetEntityId: targetEntityId.value,
+        },
       };
     }
   }
@@ -173,16 +196,42 @@ function checkVersion(
   return { ok: true };
 }
 
+// Resolve an id from its snake_case (primary) or camelCase (fallback) alias.
+// Fail closed: a present alias that is not a string is a typed reject, and two
+// present aliases that DISAGREE are a typed reject (never silently pick one).
+// `value` is the trimmed id, or '' when neither alias is present (→ caller's
+// missing()).
 function readId(
   row: Record<string, unknown>,
   snake: string,
   camel: string,
-): string {
-  return readString(row[snake]) || readString(row[camel]);
+): { ok: true; value: string } | { ok: false; reason: string } {
+  const snakeVal = readAliasString(row, snake);
+  if (!snakeVal.ok) return snakeVal;
+  const camelVal = readAliasString(row, camel);
+  if (!camelVal.ok) return camelVal;
+  if (snakeVal.value !== null && camelVal.value !== null) {
+    if (snakeVal.value !== camelVal.value) {
+      return {
+        ok: false,
+        reason: `conflicting ${snake}/${camel} values`,
+      };
+    }
+    return { ok: true, value: snakeVal.value };
+  }
+  return { ok: true, value: snakeVal.value ?? camelVal.value ?? '' };
 }
 
-function readString(value: unknown): string {
-  return typeof value === 'string' ? value.trim() : '';
+// A present key must be a string; absent → null. No coercion.
+function readAliasString(
+  row: Record<string, unknown>,
+  key: string,
+): { ok: true; value: string | null } | { ok: false; reason: string } {
+  if (!(key in row) || row[key] === undefined) return { ok: true, value: null };
+  if (typeof row[key] !== 'string') {
+    return { ok: false, reason: `${key} must be a string` };
+  }
+  return { ok: true, value: (row[key] as string).trim() };
 }
 
 function missing(
