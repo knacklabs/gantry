@@ -11,7 +11,7 @@ date: 2026-07-27
 Two ABA/ordering races in the browser profile lock (RACE-4 of the concurrency
 hardening initiative):
 
-1. **Stale-lock reclamation is not atomic.** `runtime/browser-profiles.ts`
+1. **Stale-lock reclamation is not atomic.** `apps/core/src/runtime/browser-profiles.ts`
    (~:314-324) handles an `EEXIST` on `openSync(..., 'wx')` by reading the
    existing lock, deciding it is stale (dead pid, or pid-less and older than
    `PROFILE_LOCK_STALE_MS`), and then `fs.rmSync(lockPath, { force: true })`.
@@ -23,7 +23,7 @@ hardening initiative):
    delete (`if (current.token === token) rmSync`).
 
 2. **`closeBrowser` releases the lock before clearing shared state.**
-   `runtime/browser-capability.ts` (~:663-669) calls `session.lock.release()`
+   `apps/core/src/runtime/browser-capability.ts` (~:663-669) calls `session.lock.release()`
    and only *afterward* `sessions.delete`, `clearBrowserSessionRecord`, and
    `updateProfileMetadata`. A new owner can acquire the lock in that window and
    write a fresh session record + metadata, which the old closer then clobbers
@@ -47,8 +47,8 @@ hardening initiative):
 
 ## Consequences
 
-- **Touched:** `runtime/browser-profiles.ts` (stale-reclaim guard),
-  `runtime/browser-capability.ts` (cleanup-before-release ordering), and their
+- **Touched:** `apps/core/src/runtime/browser-profiles.ts` (stale-reclaim guard),
+  `apps/core/src/runtime/browser-capability.ts` (cleanup-before-release ordering), and their
   unit tests.
 - No new lock format or dependency; reuses the existing token in the lock file.
 - **Tradeoff:** an extra `readLockFile` in the reclaim path (once per stale

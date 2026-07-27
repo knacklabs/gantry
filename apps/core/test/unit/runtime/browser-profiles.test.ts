@@ -104,4 +104,55 @@ describe('browser-profiles', () => {
     expect(fs.existsSync(second.lockPath)).toBe(true);
     second.release();
   });
+
+  it('still reclaims a genuinely stale lock', async () => {
+    const root = makeTmpRoot(roots);
+    vi.doMock('@core/config/index.js', () => ({
+      DATA_DIR: root,
+    }));
+
+    const mod = await import('@core/runtime/browser-profiles.js');
+    const profile = mod.createProfile('stale-lock');
+    const lockPath = path.join(profile.dir, 'profile.lock');
+    fs.writeFileSync(
+      lockPath,
+      JSON.stringify({ pid: 0, token: 'stale-token' }),
+    );
+
+    const lock = await mod.acquireProfileLock('stale-lock', 1000);
+    expect(fs.readFileSync(lockPath, 'utf-8')).not.toContain('stale-token');
+    lock.release();
+  });
+
+  it('does not remove a fresh lock that replaces the observed stale lock', async () => {
+    const root = makeTmpRoot(roots);
+    vi.doMock('@core/config/index.js', () => ({
+      DATA_DIR: root,
+    }));
+
+    const mod = await import('@core/runtime/browser-profiles.js');
+    const profile = mod.createProfile('replaced-stale-lock');
+    const lockPath = path.join(profile.dir, 'profile.lock');
+    const staleLock = JSON.stringify({ pid: 0, token: 'stale-token' });
+    const freshLock = JSON.stringify({
+      pid: process.pid,
+      token: 'fresh-token',
+    });
+    fs.writeFileSync(lockPath, staleLock);
+
+    const originalReadFileSync = fs.readFileSync;
+    vi.spyOn(fs, 'readFileSync').mockImplementationOnce(
+      (filePath, ...args: any[]) => {
+        const observed = originalReadFileSync(filePath, ...(args as [any]));
+        fs.rmSync(lockPath);
+        fs.writeFileSync(lockPath, freshLock);
+        return observed;
+      },
+    );
+
+    await expect(
+      mod.acquireProfileLock('replaced-stale-lock', 250),
+    ).rejects.toThrow(/Timed out acquiring profile lock/);
+    expect(fs.readFileSync(lockPath, 'utf-8')).toBe(freshLock);
+  });
 });

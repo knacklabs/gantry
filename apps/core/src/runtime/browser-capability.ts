@@ -660,13 +660,13 @@ export async function closeBrowser(
     exited = await waitForProcessExit(session, 1_000);
   }
 
-  session.lock.release();
   sessions.delete(normalized);
   clearBrowserSessionRecord(createProfile(normalized));
   updateProfileMetadata(normalized, {
     last_used: nowIso(),
     cdp_port: undefined,
   });
+  session.lock.release();
 
   return {
     closed: exited,

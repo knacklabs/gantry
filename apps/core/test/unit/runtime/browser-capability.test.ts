@@ -513,6 +513,47 @@ describe('browser-capability', () => {
     expect(closed.elapsedMs).toEqual(expect.any(Number));
   });
 
+  it('clears shared browser state before releasing the profile lock', async () => {
+    const manager = await import('@core/runtime/browser-capability.js');
+    const profiles = await import('@core/runtime/browser-profiles.js');
+    queueHealthyContentTarget('target-1');
+
+    const status = await manager.launchBrowser();
+    vi.mocked(profiles.updateProfileMetadata).mockClear();
+    rmSyncSpy.mockClear();
+    killSpy.mockImplementation((pid, signal) => {
+      const numericPid = Number(pid);
+      if (signal === 0 || signal === undefined) {
+        if (mocks.processes.has(numericPid)) return true;
+        throw new Error('not running');
+      }
+      const proc = mocks.processes.get(numericPid);
+      queueMicrotask(() => proc?.emit('close', 0, signal));
+      return true;
+    });
+    mocks.release.mockImplementationOnce(() => {
+      try {
+        expect(manager.getKnownBrowserStatus().running).toBe(false);
+        expect(rmSyncSpy).toHaveBeenCalledWith(
+          '/tmp/gantry-browser-capability-test/browser-session.json',
+          { force: true },
+        );
+        expect(profiles.updateProfileMetadata).toHaveBeenCalledWith('gantry', {
+          last_used: expect.any(String),
+          cdp_port: undefined,
+        });
+      } finally {
+        mocks.processes.delete(status.pid);
+      }
+    });
+
+    await expect(manager.closeBrowser()).resolves.toMatchObject({
+      closed: true,
+      reason: 'terminated',
+    });
+    expect(mocks.release).toHaveBeenCalledTimes(1);
+  });
+
   it('keeps the default browser visible even in CI-like environments', async () => {
     vi.stubEnv('CI', 'true');
     const manager = await import('@core/runtime/browser-capability.js');

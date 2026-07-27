@@ -320,6 +320,24 @@ export async function acquireProfileLock(
           (existing.pid === undefined &&
             currentTimeMs() - stat.mtimeMs > PROFILE_LOCK_STALE_MS)
         ) {
+          const current = readLockFile(lockPath);
+          let matchesObserved =
+            existing.token !== undefined && current.token === existing.token;
+          if (existing.token === undefined) {
+            let currentMtimeMs: number;
+            try {
+              currentMtimeMs = fs.statSync(lockPath).mtimeMs;
+            } catch {
+              continue;
+            }
+            matchesObserved =
+              current.token === undefined &&
+              current.pid === existing.pid &&
+              currentMtimeMs === stat.mtimeMs;
+          }
+          if (!matchesObserved || isPidAlive(current.pid)) {
+            continue;
+          }
           fs.rmSync(lockPath, { force: true });
           continue;
         }
