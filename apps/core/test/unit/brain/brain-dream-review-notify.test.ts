@@ -50,7 +50,7 @@ describe('brain review notify', () => {
       resolveOwner: async () => ({ owner: OWNER }),
     });
 
-    await notify(REVIEW);
+    await expect(notify(REVIEW)).resolves.toEqual({ delivered: true });
     await notify(REVIEW); // exactly-once at the caller relies on the key below
 
     expect(enqueue).toHaveBeenCalledTimes(2);
@@ -76,7 +76,7 @@ describe('brain review notify', () => {
       },
       warn,
     });
-    await expect(notify(REVIEW)).resolves.toBeUndefined();
+    await expect(notify(REVIEW)).resolves.toMatchObject({ delivered: false });
     expect(enqueue).not.toHaveBeenCalled();
     expect(warn).toHaveBeenCalledOnce();
     expect(warn.mock.calls[0]![0]).toMatchObject({ reviewId: 'bdrv_1' });
@@ -93,7 +93,10 @@ describe('brain review notify', () => {
       resolveOwner: async () => ({ owner: OWNER }),
       warn,
     });
-    await expect(notify(REVIEW)).resolves.toBeUndefined();
+    await expect(notify(REVIEW)).resolves.toMatchObject({
+      delivered: false,
+      reason: 'enqueue DB blip',
+    });
     expect(enqueue).toHaveBeenCalledOnce();
     expect(warn).toHaveBeenCalledOnce();
     expect(warn.mock.calls[0]![0]).toMatchObject({ reviewId: 'bdrv_1' });
@@ -108,7 +111,10 @@ describe('brain review notify', () => {
       resolveOwner: async () => ({}),
       warn,
     });
-    await expect(notify(REVIEW)).resolves.toBeUndefined();
+    await expect(notify(REVIEW)).resolves.toMatchObject({
+      delivered: false,
+      reason: expect.stringContaining('owner'),
+    });
     expect(enqueue).not.toHaveBeenCalled();
     expect(warn).toHaveBeenCalledOnce();
   });
@@ -123,7 +129,7 @@ describe('brain review notify', () => {
       resolveOwner: async () => ({}),
       warn,
     });
-    await expect(noOwner(REVIEW)).resolves.toBeUndefined();
+    await expect(noOwner(REVIEW)).resolves.toMatchObject({ delivered: false });
 
     const enqueueFails = createBrainReviewNotifier({
       gateway: {
@@ -135,7 +141,9 @@ describe('brain review notify', () => {
       resolveOwner: async () => ({ owner: OWNER }),
       warn,
     });
-    await expect(enqueueFails(REVIEW)).resolves.toBeUndefined();
+    await expect(enqueueFails(REVIEW)).resolves.toMatchObject({
+      delivered: false,
+    });
     expect(warn).toHaveBeenCalledTimes(2);
   });
 });

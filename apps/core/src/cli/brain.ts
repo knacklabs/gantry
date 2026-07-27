@@ -74,7 +74,15 @@ export async function runBrainCommand(
               opened.conversations,
             ),
         });
-        await notify(review);
+        // The notifier is best-effort (never throws); the CLI must NOT report
+        // success on a swallowed owner-resolution / enqueue failure.
+        const outcome = await notify(review);
+        if (!outcome.delivered) {
+          p.log.error(
+            `Could not notify ${reviewId}: ${outcome.reason ?? 'delivery failed'}.`,
+          );
+          return 1;
+        }
         p.log.success(`Re-enqueued notification for ${reviewId}.`);
         return 0;
       } finally {

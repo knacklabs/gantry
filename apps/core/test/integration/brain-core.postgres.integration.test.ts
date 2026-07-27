@@ -5,6 +5,8 @@ import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { PostgresBrainRepository } from '@core/adapters/storage/postgres/repositories/brain-repository.postgres.js';
+import { PostgresBrainDreamReviewRepository } from '@core/adapters/storage/postgres/repositories/brain-dream-review-repository.postgres.js';
+import { DEFAULT_MEMORY_APP_ID } from '@core/memory/app-memory-boundaries.js';
 import {
   _setRuntimeStorageForTest,
   closeRuntimeStorage,
@@ -232,6 +234,70 @@ Dana works at Knacklabs.`,
         delete process.env.GANTRY_BOOTSTRAP_SETTINGS_IF_MISSING;
       else process.env.GANTRY_BOOTSTRAP_SETTINGS_IF_MISSING = oldBootstrap;
       fs.rmSync(fixtureDir, { recursive: true, force: true });
+      fs.rmSync(runtimeHome, { recursive: true, force: true });
+    }
+  });
+
+  it('reviews notify exits NON-zero (no false success) when the owner is unresolved', async () => {
+    // Seed a pending review the CLI can find.
+    const reviews = new PostgresBrainDreamReviewRepository(runtime.service.db);
+    const NOW = '2026-07-29T00:00:00.000Z';
+    await repo.journalDreamDecision({
+      id: 'cli-notify-dec',
+      appId: DEFAULT_MEMORY_APP_ID,
+      runId: 'cli-notify',
+      pageId: null,
+      op: { action: 'delete_page' },
+      outcome: 'proposed',
+      reason: 'test',
+    });
+    const created = await reviews.createBrainDreamReview({
+      id: 'cli-notify-rev',
+      appId: DEFAULT_MEMORY_APP_ID,
+      decisionId: 'cli-notify-dec',
+      action: 'delete_page',
+      canonicalOp: { action: 'delete_page', version: 1, pageId: 'p' },
+      reviewSnapshot: { action: 'delete_page', before: { title: 'x' } },
+      nowIso: NOW,
+      targets: [
+        { targetKind: 'page', targetId: 'cli-notify-p', expectedVersion: 'v1' },
+      ],
+    });
+    expect(created.ok).toBe(true);
+
+    const runtimeHome = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'gantry-brain-home-'),
+    );
+    const oldDatabaseUrl = process.env.GANTRY_DATABASE_URL;
+    const oldSchema = process.env.GANTRY_SETTINGS_POSTGRES_SCHEMA;
+    const oldHome = process.env.GANTRY_HOME;
+    const oldBootstrap = process.env.GANTRY_BOOTSTRAP_SETTINGS_IF_MISSING;
+    try {
+      process.env.GANTRY_DATABASE_URL = process.env.GANTRY_TEST_DATABASE_URL;
+      process.env.GANTRY_SETTINGS_POSTGRES_SCHEMA = runtime.schemaName;
+      process.env.GANTRY_HOME = runtimeHome;
+      process.env.GANTRY_BOOTSTRAP_SETTINGS_IF_MISSING = '1';
+
+      // Bootstrapped settings have no verified owner → the notifier reports
+      // delivered:false → the CLI must exit NON-zero, not print a false success.
+      const code = await runBrainCommand(runtimeHome, [
+        'reviews',
+        'notify',
+        'cli-notify-rev',
+      ]);
+      expect(code).toBe(1);
+    } finally {
+      if (oldDatabaseUrl === undefined) delete process.env.GANTRY_DATABASE_URL;
+      else process.env.GANTRY_DATABASE_URL = oldDatabaseUrl;
+      if (oldSchema === undefined)
+        delete process.env.GANTRY_SETTINGS_POSTGRES_SCHEMA;
+      else process.env.GANTRY_SETTINGS_POSTGRES_SCHEMA = oldSchema;
+      if (oldHome === undefined) delete process.env.GANTRY_HOME;
+      else process.env.GANTRY_HOME = oldHome;
+      if (oldBootstrap === undefined)
+        delete process.env.GANTRY_BOOTSTRAP_SETTINGS_IF_MISSING;
+      else process.env.GANTRY_BOOTSTRAP_SETTINGS_IF_MISSING = oldBootstrap;
+      _setRuntimeStorageForTest(runtime.storageRuntime);
       fs.rmSync(runtimeHome, { recursive: true, force: true });
     }
   });

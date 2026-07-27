@@ -39,33 +39,60 @@ export interface NotifiableBrainReview {
   reviewSnapshot: Record<string, unknown>;
 }
 
+const REDELIVER_PAGE_SIZE = 200;
+// ponytail: per-pass cap so a runaway pending set can't unbound the startup pass.
+// A single pass pages forward (keyset cursor) through the WHOLE pending set up to
+// this cap, so any orphan is recovered — not just the first page. Only >cap
+// pending in ONE pass leaves a tail for the next process start (which re-pins the
+// front until a persistent recovery cursor exists); 10k undelivered destructive
+// reviews is already pathological.
+const REDELIVER_MAX_PER_PASS = 10_000;
+
 /**
- * Recovery pass for orphaned notifications: re-enqueue every pending review's
- * owner-DM notification. Best-effort delivery happens ONCE at intake; a transient
- * owner-resolve/enqueue failure leaves the review pending with no outbound record
- * and nothing re-notifies it. Re-enqueuing is safe to repeat — the enqueue is
- * idempotent on `brain-review:<reviewId>`, so a review that already has a durable
- * delivery is a no-op and an orphaned one gets a fresh record for the outbound
- * recovery loop to send. ponytail: no per-review outbound-existence probe — the
- * idempotency key IS the dedup; bounded because pending reviews are few.
+ * Recovery pass for orphaned notifications: re-enqueue EVERY pending review's
+ * owner-DM notification, paging forward through the full set. Best-effort delivery
+ * happens ONCE at intake; a transient owner-resolve/enqueue failure leaves the
+ * review pending with no outbound record and nothing re-notifies it. Re-enqueuing
+ * is safe to repeat — the enqueue is idempotent on `brain-review:<reviewId>`, so a
+ * review that already has a delivery is a no-op and an orphan gets a fresh record
+ * for the outbound recovery loop to send. Re-notifying does NOT clear the pending
+ * state, so we page by (createdAt, id) keyset, never re-scanning the first page.
  */
 export async function redeliverPendingBrainReviews(deps: {
   reviews: {
     listPendingBrainDreamReviews(input: {
       appId: string;
       limit: number;
-    }): Promise<NotifiableBrainReview[]>;
+      after?: { createdAt: string; id: string };
+    }): Promise<
+      Array<NotifiableBrainReview & { id: string; createdAt: string }>
+    >;
   };
   appId: string;
   notify: BrainReviewNotifier;
-  limit?: number;
+  pageSize?: number;
+  maxPerPass?: number;
 }): Promise<{ pending: number }> {
-  const pending = await deps.reviews.listPendingBrainDreamReviews({
-    appId: deps.appId,
-    limit: deps.limit ?? 200,
-  });
-  for (const review of pending) await deps.notify(review); // notifier never throws
-  return { pending: pending.length };
+  const pageSize = deps.pageSize ?? REDELIVER_PAGE_SIZE;
+  const maxPerPass = deps.maxPerPass ?? REDELIVER_MAX_PER_PASS;
+  let processed = 0;
+  let after: { createdAt: string; id: string } | undefined;
+  while (processed < maxPerPass) {
+    const page = await deps.reviews.listPendingBrainDreamReviews({
+      appId: deps.appId,
+      limit: Math.min(pageSize, maxPerPass - processed),
+      after,
+    });
+    if (page.length === 0) break;
+    for (const review of page) {
+      await deps.notify(review); // notifier never throws; outcome ignored (best-effort)
+      processed += 1;
+    }
+    const last = page[page.length - 1]!;
+    after = { createdAt: last.createdAt, id: last.id };
+    if (page.length < pageSize) break;
+  }
+  return { pending: processed };
 }
 
 /** Build the durable card view + fallback text for a review. */
@@ -81,9 +108,16 @@ export function buildBrainReviewNotification(review: NotifiableBrainReview): {
   return { view, text: [view.headline, ...view.details].join('\n') };
 }
 
+export interface BrainReviewNotifyOutcome {
+  // True only when an outbound delivery was created/exists for the review key.
+  // False on a missing verified owner or an enqueue failure (both warned).
+  delivered: boolean;
+  reason?: string;
+}
+
 export type BrainReviewNotifier = (
   review: NotifiableBrainReview,
-) => Promise<void>;
+) => Promise<BrainReviewNotifyOutcome>;
 
 /**
  * Bind a notifier to a gateway + owner resolver. Resolves the CURRENT verified
@@ -123,11 +157,12 @@ export function createBrainReviewNotifier(deps: {
     try {
       const { owner } = await deps.resolveOwner();
       if (!owner) {
+        const reason = 'no verified owner route configured';
         safeWarn(
           { reviewId: review.id },
-          'brain review not delivered: no verified owner route configured',
+          `brain review not delivered: ${reason}`,
         );
-        return;
+        return { delivered: false, reason };
       }
       const { view, text } = buildBrainReviewNotification(review);
       await deps.gateway.enqueue({
@@ -139,14 +174,14 @@ export function createBrainReviewNotifier(deps: {
         text,
         brainReviewView: view,
       });
+      return { delivered: true };
     } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err);
       safeWarn(
-        {
-          reviewId: review.id,
-          error: err instanceof Error ? err.message : String(err),
-        },
+        { reviewId: review.id, error: reason },
         'brain review notification failed; will surface via the pending-review list',
       );
+      return { delivered: false, reason };
     }
   };
 }

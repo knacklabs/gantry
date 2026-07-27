@@ -97,6 +97,11 @@ export interface BrainDreamReviewRepository {
   listPendingBrainDreamReviews(input: {
     appId: string;
     limit: number;
+    // Keyset cursor for stable pagination over the (createdAt, id) order —
+    // returns only rows strictly after it. Re-enqueuing a notification does NOT
+    // remove a review from the pending set, so the recovery pass must page
+    // forward past the ones it already touched, not re-scan from the top.
+    after?: { createdAt: string; id: string };
   }): Promise<BrainDreamReview[]>;
   claimBrainDreamReviewTransition(
     input: BrainDreamReviewClaimInput,

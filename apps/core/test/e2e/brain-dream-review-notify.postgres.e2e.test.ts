@@ -504,4 +504,69 @@ maybeDescribe('brain dream review owner-DM notification (T6)', () => {
     await redeliverPendingBrainReviews({ reviews, appId: APP_ID, notify });
     expect(await deliveryCountByKey(key)).toBe(1);
   });
+
+  it('RECOVERY paginates: >200 orphaned reviews ALL get exactly one delivery', async () => {
+    // Bare pending reviews with no outbound record. 205 > the 200 page size, so a
+    // single-page recovery would strand #201..#205; pagination must reach them.
+    const ids: string[] = [];
+    const createdAt = '2026-07-28T00:00:00.000Z';
+    for (let i = 0; i < 205; i++) {
+      const reviewId = `bulk-rev-${String(i).padStart(3, '0')}`;
+      const decisionId = `bulk-dec-${i}`;
+      await repository.journalDreamDecision({
+        id: decisionId,
+        appId: APP_ID,
+        runId: 'bulk-run',
+        pageId: null,
+        op: { action: 'delete_page' },
+        outcome: 'proposed',
+        reason: 'bulk',
+      });
+      const created = await reviews.createBrainDreamReview({
+        id: reviewId,
+        appId: APP_ID,
+        runId: 'bulk-run',
+        decisionId,
+        action: 'delete_page',
+        canonicalOp: {
+          action: 'delete_page',
+          version: 1,
+          pageId: `bulk-p-${i}`,
+        },
+        reviewSnapshot: {
+          action: 'delete_page',
+          before: { title: `bulk ${i}` },
+        },
+        nowIso: createdAt,
+        targets: [
+          {
+            targetKind: 'page',
+            targetId: `bulk-target-${i}`,
+            expectedVersion: 'v1',
+          },
+        ],
+      });
+      if (!created.ok)
+        throw new Error(`bulk create failed: ${created.conflict}`);
+      ids.push(reviewId);
+    }
+
+    const notify = createBrainReviewNotifier({
+      gateway,
+      appId: APP_ID,
+      resolveOwner: async () => ({ owner: OWNER }),
+    });
+    const result = await redeliverPendingBrainReviews({
+      reviews,
+      appId: APP_ID,
+      notify,
+    });
+    expect(result.pending).toBeGreaterThanOrEqual(205);
+
+    // EVERY one of the 205 — including those beyond the first page — has exactly
+    // one delivery.
+    for (const reviewId of ids) {
+      expect(await deliveryCountByKey(`brain-review:${reviewId}`)).toBe(1);
+    }
+  }, 60_000);
 });

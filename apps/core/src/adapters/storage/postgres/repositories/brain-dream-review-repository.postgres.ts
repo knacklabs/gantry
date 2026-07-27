@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
-import { and, asc, eq } from 'drizzle-orm';
+import { and, asc, eq, gt, or } from 'drizzle-orm';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 
 import type {
@@ -107,7 +107,18 @@ export class PostgresBrainDreamReviewRepository implements BrainDreamReviewRepos
   async listPendingBrainDreamReviews(input: {
     appId: string;
     limit: number;
+    after?: { createdAt: string; id: string };
   }): Promise<BrainDreamReview[]> {
+    // Keyset predicate: rows strictly after (createdAt, id) in the sort order.
+    const afterCursor = input.after
+      ? or(
+          gt(Reviews.createdAt, input.after.createdAt),
+          and(
+            eq(Reviews.createdAt, input.after.createdAt),
+            gt(Reviews.id, input.after.id),
+          ),
+        )
+      : undefined;
     const rows = await this.db
       .select()
       .from(Reviews)
@@ -115,6 +126,7 @@ export class PostgresBrainDreamReviewRepository implements BrainDreamReviewRepos
         and(
           eq(Reviews.appId, input.appId),
           eq(Reviews.state, 'pending_review'),
+          ...(afterCursor ? [afterCursor] : []),
         ),
       )
       .orderBy(asc(Reviews.createdAt), asc(Reviews.id))
