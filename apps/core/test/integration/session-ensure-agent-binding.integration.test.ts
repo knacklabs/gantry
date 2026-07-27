@@ -47,6 +47,9 @@ vi.mock('@core/jobs/scheduler.js', () => ({
 }));
 
 vi.mock('@core/adapters/storage/postgres/runtime-store.js', () => ({
+  tryAcquireRuntimeAdvisoryLease: vi.fn(async () => ({
+    release: vi.fn(async () => {}),
+  })),
   getRuntimeControlRepository: () => ({
     listDueWebhookDeliveries: vi.fn(async () => []),
     claimDueWebhookDeliveries: vi.fn(async () => []),

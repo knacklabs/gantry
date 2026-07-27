@@ -4,6 +4,7 @@ import { McpToolProxy } from '../application/mcp/mcp-tool-proxy.js';
 import {
   getRuntimeRepositories,
   getRuntimeStorage,
+  tryAcquireRuntimeAdvisoryLease,
 } from '../adapters/storage/postgres/runtime-store.js';
 import {
   GANTRY_HOME,
@@ -884,5 +885,6 @@ async function syncApprovedCapabilitySettings(
     pool: storage.service?.pool,
     createdBy: 'capability-approval:projection-sync',
     appId,
+    leases: { tryAcquire: tryAcquireRuntimeAdvisoryLease },
   });
 }

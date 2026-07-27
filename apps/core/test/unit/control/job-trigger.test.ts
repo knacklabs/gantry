@@ -142,6 +142,9 @@ const opsRepo = {
 let runtimeToolRepository: unknown;
 
 vi.mock('@core/adapters/storage/postgres/runtime-store.js', () => ({
+  tryAcquireRuntimeAdvisoryLease: vi.fn(async () => ({
+    release: vi.fn(async () => {}),
+  })),
   getRuntimeControlRepository: () => controlRepo,
   getRuntimeEventExchange: () => runtimeEvents,
   getRuntimeRepositories: () => opsRepo,

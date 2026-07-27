@@ -11,6 +11,8 @@ import {
   readRuntimeSecretEnv,
 } from '../../config/index.js';
 import type { AppId } from '../../domain/app/app.js';
+import type { RuntimeLeasePort } from '../../domain/ports/runtime-lease.js';
+import { withSettingsProjectorLease } from '../../domain/ports/settings-projector-lease.js';
 import { logger } from '../../infrastructure/logging/logger.js';
 import {
   initTracing,
@@ -18,7 +20,10 @@ import {
   shutdownTracing,
 } from '../../infrastructure/observability/tracing.js';
 import { ensureRuntimeLayoutDirectories } from '../../platform/runtime-layout.js';
-import { initializeRuntimeStorage } from '../../adapters/storage/postgres/runtime-store.js';
+import {
+  initializeRuntimeStorage,
+  tryAcquireRuntimeAdvisoryLease,
+} from '../../adapters/storage/postgres/runtime-store.js';
 import { SettingsDesiredStateService } from '../../config/settings/desired-state-service.js';
 import {
   CURRENT_SETTINGS_READER_VERSION,
@@ -59,6 +64,7 @@ interface StartupDeps {
   formatRuntimePreflightFailure: FormatSettingsImportPreflightFailure;
   logger: Pick<typeof logger, 'info' | 'warn'>;
   settingsAuthority: 'file' | 'revision';
+  leases: RuntimeLeasePort;
 }
 
 export interface StartupResult {
@@ -86,6 +92,7 @@ function makeDefaultDeps(): StartupDeps {
       ),
     logger,
     settingsAuthority: 'file',
+    leases: { tryAcquire: tryAcquireRuntimeAdvisoryLease },
   };
 }
 
@@ -115,6 +122,7 @@ export async function runStartup(
       validateSettingsImportPreflight: resolved.validateSettingsImportPreflight,
       formatRuntimePreflightFailure: resolved.formatRuntimePreflightFailure,
       logger: resolved.logger,
+      leases: resolved.leases,
     });
     await closeStartupStorage(storage);
     storage = await resolved.initializeRuntimeStorage({
@@ -250,6 +258,7 @@ async function loadRevisionAuthoritySettings(input: {
   validateSettingsImportPreflight: ValidateSettingsImportPreflight;
   formatRuntimePreflightFailure: FormatSettingsImportPreflightFailure;
   logger: StartupDeps['logger'];
+  leases: RuntimeLeasePort;
 }): Promise<RuntimeSettings> {
   const appId = 'default' as AppId;
   const latest =
@@ -257,49 +266,59 @@ async function loadRevisionAuthoritySettings(input: {
       appId,
     );
   if (latest) {
-    if (latest.minReaderVersion > CURRENT_SETTINGS_READER_VERSION) {
-      throw new Error(
-        `Settings revision ${latest.revision} requires settings reader version ` +
-          `${latest.minReaderVersion}; this runtime supports ${CURRENT_SETTINGS_READER_VERSION}. ` +
-          'Upgrade Gantry before applying this revision.',
+    return withSettingsProjectorLease(input.leases, appId, async () => {
+      const head =
+        await input.storage.repositories.settingsRevisions.getLatestSettingsRevision(
+          appId,
+        );
+      if (!head) {
+        throw new Error('Settings revision disappeared during startup');
+      }
+      if (head.minReaderVersion > CURRENT_SETTINGS_READER_VERSION) {
+        throw new Error(
+          `Settings revision ${head.revision} requires settings reader version ` +
+            `${head.minReaderVersion}; this runtime supports ${CURRENT_SETTINGS_READER_VERSION}. ` +
+            'Upgrade Gantry before applying this revision.',
+        );
+      }
+      const settings = settingsFromRevisionDocument(head.settingsDocument);
+      if (input.settingsFileExists(input.runtimeHome)) {
+        let fileSettings: RuntimeSettings | null = null;
+        try {
+          fileSettings = input.loadRuntimeSettings(input.runtimeHome);
+        } catch (err) {
+          input.logger.warn(
+            { err, appId, revision: head.revision },
+            'settings.yaml is invalid; using latest settings revision',
+          );
+        }
+        if (
+          fileSettings &&
+          stableJson(settingsToRevisionDocument(fileSettings)) !==
+            stableJson(head.settingsDocument)
+        ) {
+          input.logger.warn(
+            { appId, revision: head.revision },
+            'settings.yaml differs from latest settings revision; restoring revision-authority mirror',
+          );
+        }
+      }
+      await input.importWorkstationSettings(
+        {
+          runtimeHome: input.runtimeHome,
+          ops: input.storage.ops,
+          repositories: input.storage.repositories,
+          appId,
+          projectionAuthority: 'revision',
+        },
+        settings,
       );
-    }
-    const settings = settingsFromRevisionDocument(latest.settingsDocument);
-    if (input.settingsFileExists(input.runtimeHome)) {
-      let fileSettings: RuntimeSettings | null = null;
-      try {
-        fileSettings = input.loadRuntimeSettings(input.runtimeHome);
-      } catch (err) {
-        input.logger.warn(
-          { err, appId, revision: latest.revision },
-          'settings.yaml is invalid; using latest settings revision',
-        );
-      }
-      if (
-        fileSettings &&
-        stableJson(settingsToRevisionDocument(fileSettings)) !==
-          stableJson(latest.settingsDocument)
-      ) {
-        input.logger.warn(
-          { appId, revision: latest.revision },
-          'settings.yaml differs from latest settings revision; restoring revision-authority mirror',
-        );
-      }
-    }
-    await input.importWorkstationSettings(
-      {
-        runtimeHome: input.runtimeHome,
-        ops: input.storage.ops,
-        repositories: input.storage.repositories,
-        appId,
-      },
-      settings,
-    );
-    input.logger.info(
-      { appId, revision: latest.revision },
-      'Loaded workstation settings from settings revision',
-    );
-    return settings;
+      input.logger.info(
+        { appId, revision: head.revision },
+        'Loaded workstation settings from settings revision',
+      );
+      return settings;
+    });
   }
 
   const settings = input.loadRuntimeSettings(input.runtimeHome);
@@ -326,6 +345,7 @@ async function loadRevisionAuthoritySettings(input: {
       },
       revisionMirrorRequired: true,
       expectedRevision: 0,
+      leases: input.leases,
     },
     settings,
   );
