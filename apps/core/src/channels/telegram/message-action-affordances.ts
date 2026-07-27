@@ -280,3 +280,46 @@ export async function sendTelegramReviewMessage(input: {
     throw err;
   }
 }
+
+/**
+ * Brain destructive-proposal review card: sent as native Telegram HTML with an
+ * Approve/Reject inline keyboard. Mirrors sendTelegramReviewMessage.
+ */
+export async function sendTelegramBrainReviewMessage(input: {
+  bot: any;
+  jid: string;
+  options: MessageSendOptions;
+  sanitizeErrorMessage: (err: unknown) => string;
+}): Promise<MessageDeliveryResult> {
+  const { bot, jid, options, sanitizeErrorMessage } = input;
+  const view = options.brainReviewView;
+  if (!view || !bot) return {};
+  const numericId = jid.replace(/^tg:/, '');
+  const rendered = telegramBrainReviewMessage(view);
+  const threadOpts = telegramThreadOptionsFromString(options.threadId);
+  try {
+    const sent = await bot.api.sendMessage(numericId, rendered.text, {
+      parse_mode: 'HTML',
+      link_preview_options: { is_disabled: true },
+      reply_markup: rendered.reply_markup,
+      ...threadOpts,
+    });
+    const messageId = sent?.message_id;
+    return {
+      ...(messageId !== undefined
+        ? {
+            externalMessageId: String(messageId),
+            externalMessageIds: [String(messageId)],
+          }
+        : {}),
+      deliveredParts: 1,
+      totalParts: 1,
+    };
+  } catch (err) {
+    logger.error(
+      { jid, error: sanitizeErrorMessage(err) },
+      'Failed to send Telegram brain-review message',
+    );
+    throw err;
+  }
+}

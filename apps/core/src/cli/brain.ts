@@ -6,12 +6,14 @@ import * as p from '@clack/prompts';
 import type { BrainService } from '../brain/brain-service.js';
 import { normalizeBrainSlug } from '../brain/brain-page-ingest.js';
 import { openBrainFromHome } from '../brain/brain-runtime.js';
+import { renderBrainReviewCard } from '../domain/brain-review-card.js';
 
 function usage(): string {
   return [
     'Usage:',
     '  gantry brain import <dir>',
     '  gantry brain status [--json]',
+    '  gantry brain reviews [--json]',
   ].join('\n');
 }
 
@@ -27,6 +29,39 @@ export async function runBrainCommand(
         p.log.success(
           `Brain import complete: ${summary.created} created, ${summary.updated} updated, ${summary.files} files scanned.`,
         );
+        return 0;
+      } finally {
+        await close();
+      }
+    });
+  }
+  if (command === 'reviews') {
+    const jsonMode = args.includes('--json');
+    return withBrain(runtimeHome, async (_brain, appId, close, opened) => {
+      try {
+        const pending = await opened.reviews.listPendingBrainDreamReviews({
+          appId,
+          limit: 50,
+        });
+        if (jsonMode) {
+          process.stdout.write(`${JSON.stringify(pending, null, 2)}\n`);
+        } else if (pending.length === 0) {
+          p.log.info('No pending brain reviews.');
+        } else {
+          p.note(
+            pending
+              .map((review) => {
+                const card = renderBrainReviewCard({
+                  reviewId: review.id,
+                  action: review.action,
+                  snapshot: review.reviewSnapshot,
+                });
+                return `${review.id}  ${card.headline}`;
+              })
+              .join('\n'),
+            `Pending brain reviews (${pending.length})`,
+          );
+        }
         return 0;
       } finally {
         await close();

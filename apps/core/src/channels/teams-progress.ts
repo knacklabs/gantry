@@ -7,6 +7,7 @@ import {
   buildTeamsMessageCard,
   teamsObserverDigestCard,
   teamsReviewCard,
+  teamsBrainReviewCard,
 } from './teams-cards.js';
 import { sendTeamsTextMessage } from './teams-delivery.js';
 import type { TeamsSdkClient } from './teams-types.js';
@@ -63,6 +64,16 @@ export async function sendTeamsTextOrActionMessage(input: {
     return input.sdkClient.sendAdaptiveCard({
       conversationId,
       card: teamsReviewCard(options.reviewMessageView, {
+        targetJid: input.jid,
+        ...(options.threadId ? { threadId: options.threadId } : {}),
+      }),
+      ...(options.threadId ? { threadId: options.threadId } : {}),
+    });
+  }
+  if (options.brainReviewView && input.sdkClient.sendAdaptiveCard) {
+    return input.sdkClient.sendAdaptiveCard({
+      conversationId,
+      card: teamsBrainReviewCard(options.brainReviewView, {
         targetJid: input.jid,
         ...(options.threadId ? { threadId: options.threadId } : {}),
       }),

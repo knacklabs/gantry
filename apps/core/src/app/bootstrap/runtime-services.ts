@@ -60,7 +60,10 @@ import {
 } from '../../domain/messages/partial-delivery.js';
 import { isAmbiguousDurableDeliveryError } from '../../domain/messages/durable-delivery.js';
 import { startOutboundDeliveryRecoveryLoop } from '../../jobs/outbound-delivery-recovery.js';
-import { setObserverDigestGateway } from '../../jobs/system-jobs.js';
+import {
+  setObserverDigestGateway,
+  setBrainReviewNotifyGateway,
+} from '../../jobs/system-jobs.js';
 // prettier-ignore
 import {
   closeBrowser,
@@ -71,6 +74,7 @@ import type { OutboundDeliveryProfile } from '../../domain/outbound-delivery/pla
 import {
   LIVE_SEND_PROFILE_ID,
   OBSERVER_DIGEST_PROFILE_ID,
+  BRAIN_REVIEW_PROFILE_ID,
   RETRY_TAIL_PROFILE_ID,
   canonicalThreadIdFor,
   normalizeDestinationHintAgainstCanonical,
@@ -733,6 +737,30 @@ export async function startRuntimeServices(
         };
       },
     };
+    // Brain review notification: single-part send whose card view (T5/T6) rides
+    // in the item providerPayload so recovery dispatch renders native buttons.
+    const brainReviewProfile: OutboundDeliveryProfile = {
+      profileId: BRAIN_REVIEW_PROFILE_ID,
+      plan: (input) => {
+        const brainReviewView =
+          input.metadata &&
+          typeof input.metadata === 'object' &&
+          'brainReviewView' in input.metadata
+            ? (input.metadata.brainReviewView as unknown)
+            : undefined;
+        return {
+          parts: [
+            {
+              canonicalText: input.text,
+              ...(brainReviewView !== undefined
+                ? { providerPayload: { brainReviewView } }
+                : {}),
+            },
+          ],
+          canonicalFinalText: input.text,
+        };
+      },
+    };
     const outboundDeliveryService = new OutboundDeliveryService({
       repository: outboundDeliveryRepository,
       profiles: {
@@ -743,7 +771,9 @@ export async function startRuntimeServices(
               ? liveSendProfile
               : profileId === OBSERVER_DIGEST_PROFILE_ID
                 ? observerDigestProfile
-                : undefined,
+                : profileId === BRAIN_REVIEW_PROFILE_ID
+                  ? brainReviewProfile
+                  : undefined,
       },
       now: () => nowIso(),
       createId: () => randomUUID(),
@@ -783,6 +813,37 @@ export async function startRuntimeServices(
           outboundDeliveryId: result.delivery.id,
           durablySent: result.delivery.status === 'sent',
         };
+      },
+    });
+    // Brain destructive-proposal review notification: enqueue the owner-DM card
+    // under the brain-review profile, idempotent on `brain-review:<reviewId>`
+    // (exactly one notification per review). The recovery loop below sends it and
+    // re-renders the native buttons from the carried view.
+    setBrainReviewNotifyGateway({
+      enqueue: async (input) => {
+        const target = resolveDurableOutboundTarget({
+          defaultAppId: input.appId,
+          jid: input.conversationJid,
+          providerAccountId: input.providerAccountId,
+        });
+        const result = await outboundDeliveryService.enqueue({
+          appId: target.appId as never,
+          conversationId: target.conversationId as never,
+          threadId: canonicalThreadIdFor({
+            jid: input.conversationJid,
+            threadId: input.threadId ?? undefined,
+            providerAccountId: input.providerAccountId,
+          }) as never,
+          profileId: BRAIN_REVIEW_PROFILE_ID,
+          idempotencyKey: input.idempotencyKey,
+          text: input.text,
+          metadata: {
+            destinationJid: input.conversationJid,
+            brainReview: true,
+            brainReviewView: input.brainReviewView,
+          },
+        });
+        return { outboundDeliveryId: result.delivery.id };
       },
     });
     channelWiring.setDurableOutboundAttemptFactory(async (input) => {
@@ -986,6 +1047,9 @@ export async function startRuntimeServices(
           const observerDigestView = payload?.observerDigestView as
             | MessageSendOptions['observerDigestView']
             | undefined;
+          const brainReviewView = payload?.brainReviewView as
+            | MessageSendOptions['brainReviewView']
+            | undefined;
           const deliveryResult = await channelWiring.sendProviderMessage(
             destinationJid,
             claimed.item.canonicalText,
@@ -998,6 +1062,7 @@ export async function startRuntimeServices(
                   ? { threadId: destinationThreadId }
                   : {}),
                 ...(observerDigestView ? { observerDigestView } : {}),
+                ...(brainReviewView ? { brainReviewView } : {}),
               },
             },
           );

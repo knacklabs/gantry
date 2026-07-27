@@ -3,6 +3,7 @@ import type { PermissionMode } from '../shared/permission-mode.js';
 import type { ReviewMessageView } from './review-message-view.js';
 import type { MessageActionAffordance } from './message-actions.js';
 import type { ObserverDigestMessageView } from './observer-digest-view.js';
+import type { BrainReviewCardView } from './brain-review-card.js';
 
 export type {
   MessageActionAffordanceKind,
@@ -521,6 +522,11 @@ export interface MessageSendOptions {
    * message of up to 3 insight groups, each with its four `observer_feedback`
    * buttons. Channels without native buttons fall back to `text`. */
   observerDigestView?: ObserverDigestMessageView;
+  /** When set, channels with native support render the destructive-proposal
+   * review card (headline + detail) with its Approve/Reject
+   * `brain_dream_review_decision` buttons. Channels without native buttons fall
+   * back to `text`. */
+  brainReviewView?: BrainReviewCardView;
 }
 
 export interface MessageFileAttachment {

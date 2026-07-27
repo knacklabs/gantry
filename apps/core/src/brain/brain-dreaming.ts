@@ -12,6 +12,7 @@ import {
 } from './brain-page-ingest.js';
 import type { BrainRepository } from './brain-repository.js';
 import type { BrainDreamReviewRepository } from './brain-dream-review-repository.js';
+import type { BrainReviewNotifier } from './brain-dream-review-notify.js';
 import { intakeDestructiveDreamOp } from './brain-dream-review-intake.js';
 import type { BrainService } from './brain-service.js';
 import type { ObserverInsightEmissionRuntime } from './observer-insight-emission.js';
@@ -65,6 +66,7 @@ export async function runBrainDreamBatch(input: {
   brain: BrainService;
   repository: BrainRepository;
   reviews?: BrainDreamReviewRepository;
+  notify?: BrainReviewNotifier;
   appId: string;
   proposer?: BrainDreamProposalPort;
   limit?: number;
@@ -104,6 +106,7 @@ export async function runBrainDreamBatch(input: {
       brain: input.brain,
       repository: input.repository,
       reviews: input.reviews,
+      notify: input.notify,
       appId: input.appId,
       runId,
       page,
@@ -129,6 +132,7 @@ async function runObserverBrainDreamBatch(input: {
   brain: BrainService;
   repository: BrainRepository;
   reviews?: BrainDreamReviewRepository;
+  notify?: BrainReviewNotifier;
   appId: string;
   proposer?: BrainDreamProposalPort;
   limit?: number;
@@ -194,6 +198,7 @@ async function runObserverBrainDreamBatch(input: {
         brain: input.brain,
         repository: input.repository,
         reviews: input.reviews,
+        notify: input.notify,
         appId: input.appId,
         runId,
         page,
@@ -257,6 +262,7 @@ export async function applyBrainDreamOperations(input: {
   brain: BrainService;
   repository: BrainRepository;
   reviews?: BrainDreamReviewRepository;
+  notify?: BrainReviewNotifier;
   appId: string;
   runId: string;
   page?: BrainPage;
@@ -278,6 +284,7 @@ export async function applyBrainDreamOperations(input: {
       if (op.kind === 'destructive') {
         const handled = await handleDestructiveOp({
           reviews: input.reviews,
+          notify: input.notify,
           repository: input.repository,
           appId: input.appId,
           runId: input.runId,
@@ -321,6 +328,7 @@ export async function applyBrainDreamOperations(input: {
 // `proposed` as before. No mutation is ever executed here.
 async function handleDestructiveOp(input: {
   reviews?: BrainDreamReviewRepository;
+  notify?: BrainReviewNotifier;
   repository: BrainRepository;
   appId: string;
   runId: string;
@@ -345,6 +353,7 @@ async function handleDestructiveOp(input: {
     {
       repository: input.repository,
       reviews: input.reviews,
+      notify: input.notify,
       appId: input.appId,
       runId: input.runId,
       pageId: input.pageId,

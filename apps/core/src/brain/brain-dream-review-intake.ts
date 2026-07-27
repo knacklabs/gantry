@@ -9,6 +9,7 @@ import {
   parseDestructiveOp,
   type ParsedDestructiveOp,
 } from './brain-dream-op-schema.js';
+import type { BrainReviewNotifier } from './brain-dream-review-notify.js';
 import type { BrainRepository } from './brain-repository.js';
 import type { BrainEdge, BrainEntity, BrainPage } from './brain-types.js';
 
@@ -19,6 +20,9 @@ export interface BrainDreamReviewIntakeDeps {
   runId: string;
   pageId: string | null;
   nowIso: string;
+  // Owner-DM delivery of the created review (T6). Best-effort and out-of-band:
+  // a delivery failure must NOT roll back the review, so it never throws here.
+  notify?: BrainReviewNotifier;
 }
 
 export interface BrainDreamIntakeResult {
@@ -73,6 +77,9 @@ export async function intakeDestructiveDreamOp(
   });
 
   if (result.ok) {
+    // Deliver out-of-band; swallow any failure so it never rolls back the
+    // already-committed review (the pending-review list is the recovery handle).
+    await deps.notify?.(result.review).catch(() => {});
     return {
       outcome: 'proposed',
       reason: `queued for owner review (${result.review.id})`,

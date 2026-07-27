@@ -12,11 +12,11 @@ const SLACK_SECTION_CAP = 2900;
 export function slackBrainReviewBlocks(
   view: BrainReviewCardView,
   opts: { providerAccountId?: string } = {},
-): unknown[] {
+): Array<Record<string, unknown>> {
   const lines = [view.headline, ...view.details]
     .map((line) => escapeSlackMrkdwn(line))
     .join('\n');
-  const blocks: unknown[] = [
+  const blocks: Array<Record<string, unknown>> = [
     {
       type: 'section',
       text: {

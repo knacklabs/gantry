@@ -109,6 +109,7 @@ let memoryMaintenanceQueue: MemoryMaintenanceQueueLike =
   getMemoryMaintenanceQueue();
 
 export { setObserverDigestGateway };
+export { setBrainReviewNotifyGateway } from '../brain/brain-dream-review-notify.js';
 
 function routeDigest(value: string): string {
   return createHash('sha256').update(value).digest('hex').slice(0, 16);

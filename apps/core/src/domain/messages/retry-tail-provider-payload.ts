@@ -6,6 +6,14 @@ const SAFE_WARNING_CODE = /^[a-z0-9]+(?:[._][a-z0-9]+)+(?::[0-9]{1,6})*$/;
 const SECRET_LIKE_WARNING_TEXT =
   /\b(token|secret|authorization|bearer|api[_-]?key|password)\b|sk-[a-z0-9_-]{8,}|xox[a-z]-[a-z0-9-]{8,}/i;
 
+export interface SanitizedBrainReviewView {
+  reviewId: string;
+  action: string;
+  headline: string;
+  details: string[];
+  buttons: Array<{ label: string; decision: 'approve' | 'reject' }>;
+}
+
 export interface RetryTailProviderPayload {
   provider?: string;
   channelId?: string;
@@ -21,6 +29,11 @@ export interface RetryTailProviderPayload {
   totalParts?: number;
   warnings?: string[];
   fallbackArtifactId?: string;
+  // Host-generated structured card view (brain destructive-proposal review, T6).
+  // Bounded passthrough so the Approve/Reject buttons survive durable persistence
+  // and are re-rendered on recovery dispatch (the retry-tail allowlist otherwise
+  // strips unknown keys). Not user/provider content, so it is not secret-scanned.
+  brainReviewView?: SanitizedBrainReviewView;
 }
 
 export function sanitizeRetryTailProviderPayload(
@@ -76,8 +89,50 @@ export function sanitizeRetryTailProviderPayload(
   if (deliveredParts !== undefined) sanitized.deliveredParts = deliveredParts;
   const totalParts = readInt(source.totalParts);
   if (totalParts !== undefined) sanitized.totalParts = totalParts;
+  const brainReviewView = readBrainReviewView(source.brainReviewView);
+  if (brainReviewView) sanitized.brainReviewView = brainReviewView;
 
   return Object.keys(sanitized).length > 0 ? sanitized : undefined;
+}
+
+const MAX_CARD_TEXT = 1000;
+const MAX_CARD_DETAILS = 10;
+const MAX_CARD_BUTTONS = 4;
+
+// Bounded reader for the brain-review card view. Structural only — coerces each
+// field to a length-capped string / small array; a malformed shape yields
+// undefined (the send falls back to text), never throws.
+function readBrainReviewView(
+  value: unknown,
+): SanitizedBrainReviewView | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return undefined;
+  }
+  const source = value as Record<string, unknown>;
+  const reviewId = readString(source.reviewId, { maxLength: MAX_ID_LENGTH });
+  const action = readString(source.action, { maxLength: 64 });
+  const headline = readString(source.headline, { maxLength: MAX_CARD_TEXT });
+  if (!reviewId || !action || !headline) return undefined;
+  const details: string[] = [];
+  if (Array.isArray(source.details)) {
+    for (const entry of source.details.slice(0, MAX_CARD_DETAILS)) {
+      const line = readString(entry, { maxLength: MAX_CARD_TEXT });
+      if (line) details.push(line);
+    }
+  }
+  const buttons: SanitizedBrainReviewView['buttons'] = [];
+  if (Array.isArray(source.buttons)) {
+    for (const entry of source.buttons.slice(0, MAX_CARD_BUTTONS)) {
+      if (!entry || typeof entry !== 'object') continue;
+      const button = entry as Record<string, unknown>;
+      const label = readString(button.label, { maxLength: 75 });
+      const decision = button.decision;
+      if (label && (decision === 'approve' || decision === 'reject')) {
+        buttons.push({ label, decision });
+      }
+    }
+  }
+  return { reviewId, action, headline, details, buttons };
 }
 
 function readString(
