@@ -140,6 +140,23 @@ function readString(
   return trimmed.slice(0, options.maxLength);
 }
 
+// Identity-bearing fields (insightId, localDay) drive callback tokens, so an
+// oversized value must be REJECTED, not truncated: a truncated id could collide
+// with another insight's id (the binding equality would still pass) and settle
+// the WRONG insight on click. Over-limit/empty/non-string -> undefined, dropping
+// the owning element. Display fields keep truncation via readString.
+function readIdentity(
+  value: unknown,
+  options: {
+    maxLength: number;
+  },
+): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
+  if (!trimmed || trimmed.length > options.maxLength) return undefined;
+  return trimmed;
+}
+
 function readStringArray(
   value: unknown,
   options: {
@@ -179,7 +196,9 @@ function readObserverDigestView(
     return undefined;
   }
   const source = value as Record<string, unknown>;
-  const localDay = readString(source.localDay, { maxLength: MAX_DIGEST_SHORT });
+  const localDay = readIdentity(source.localDay, {
+    maxLength: MAX_DIGEST_SHORT,
+  });
   // localDay is the digest's identity (it rides every callback token); without a
   // valid one the view can't render actionable buttons — fail safe to text-only.
   if (!localDay) return undefined;
@@ -205,7 +224,9 @@ function readObserverDigestInsight(
     return undefined;
   }
   const source = value as Record<string, unknown>;
-  const insightId = readString(source.insightId, { maxLength: MAX_ID_LENGTH });
+  const insightId = readIdentity(source.insightId, {
+    maxLength: MAX_ID_LENGTH,
+  });
   if (!insightId) return undefined;
   const insight: SanitizedObserverDigestInsight = {
     insightId,
@@ -247,9 +268,13 @@ function readObserverFeedbackAffordance(
   const source = value as Record<string, unknown>;
   if (source.kind !== 'observer_feedback') return undefined;
   const label = readString(source.label, { maxLength: MAX_DIGEST_LABEL });
-  const insightId = readString(source.insightId, { maxLength: MAX_ID_LENGTH });
+  const insightId = readIdentity(source.insightId, {
+    maxLength: MAX_ID_LENGTH,
+  });
   const action = readString(source.action, { maxLength: MAX_DIGEST_SHORT });
-  const localDay = readString(source.localDay, { maxLength: MAX_DIGEST_SHORT });
+  const localDay = readIdentity(source.localDay, {
+    maxLength: MAX_DIGEST_SHORT,
+  });
   if (
     !label ||
     !insightId ||

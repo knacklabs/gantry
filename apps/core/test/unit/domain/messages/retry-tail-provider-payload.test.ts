@@ -134,6 +134,75 @@ describe('sanitizeRetryTailProviderPayload observerDigestView passthrough', () =
     ]);
   });
 
+  it('rejects (does not truncate) oversized identity fields', () => {
+    const view = wellFormedView();
+    const bigId = 'x'.repeat(300); // > MAX_ID_LENGTH (256)
+    const bigDay = 'd'.repeat(65); // > MAX_DIGEST_SHORT (64)
+
+    // Oversized insight insightId -> that insight is dropped, sibling survives.
+    const insightDropped = sanitizeRetryTailProviderPayload({
+      observerDigestView: {
+        ...view,
+        insights: [{ ...view.insights[0], insightId: bigId }, view.insights[1]],
+      },
+    });
+    expect(
+      insightDropped?.observerDigestView?.insights.map((i) => i.insightId),
+    ).toEqual(['i-2']);
+
+    // Oversized affordance insightId -> the owning insight (same oversized id)
+    // drops entirely, proving the id was never truncated-and-kept.
+    const affDropped = sanitizeRetryTailProviderPayload({
+      observerDigestView: {
+        ...view,
+        insights: [
+          {
+            ...view.insights[0],
+            insightId: bigId,
+            affordances: [
+              {
+                kind: 'observer_feedback',
+                label: 'Resolve',
+                insightId: bigId,
+                action: 'resolve',
+                localDay: '2026-07-25',
+              },
+            ],
+          },
+        ],
+      },
+    });
+    expect(affDropped?.observerDigestView?.insights).toEqual([]);
+
+    // Oversized affordance localDay -> that affordance dropped, insight kept.
+    const dayDropped = sanitizeRetryTailProviderPayload({
+      observerDigestView: {
+        ...view,
+        insights: [
+          {
+            ...view.insights[0],
+            affordances: [
+              {
+                kind: 'observer_feedback',
+                label: 'Resolve',
+                insightId: 'i-1',
+                action: 'resolve',
+                localDay: bigDay,
+              },
+            ],
+          },
+        ],
+      },
+    });
+    expect(dayDropped?.observerDigestView?.insights[0].affordances).toEqual([]);
+
+    // Oversized view localDay -> no view at all.
+    const viewDropped = sanitizeRetryTailProviderPayload({
+      observerDigestView: { ...view, localDay: bigDay },
+    });
+    expect(viewDropped?.observerDigestView).toBeUndefined();
+  });
+
   it('drops the whole view when localDay is missing (fail safe to text-only)', () => {
     const view = wellFormedView();
     const { localDay: _drop, ...noDay } = view;
