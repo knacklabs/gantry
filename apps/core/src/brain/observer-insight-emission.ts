@@ -177,6 +177,7 @@ export async function emitObserverInsights(input: {
   persisted: number;
   deduplicated: number;
   filtered: number;
+  typeSuppressed: number;
   message: string;
 }> {
   const embedding = input.embedding;
@@ -195,10 +196,32 @@ export async function emitObserverInsights(input: {
         limit: 20,
       })
     : [];
-  const candidates = [
+  let candidates = [
     ...input.drafts.map(normalizePageCandidate),
     ...patterns.map(normalizePatternCandidate),
   ].filter((candidate): candidate is NormalizedCandidate => candidate !== null);
+
+  // Owner-suppressed types are dropped ONCE per run, before embedding, so no
+  // embed cost or insert is spent on a type the owner has muted. The set is
+  // time-boxed by the repo (expired suppressions resume surfacing).
+  const suppressedTypes =
+    candidates.length === 0
+      ? new Set<ObserverInsightType>()
+      : await input.repository.listActiveSuppressedTypes({
+          appId: input.appId,
+          recipient: input.ownerRecipient,
+          nowIso: nowIso(),
+        });
+  let typeSuppressed = 0;
+  if (suppressedTypes.size > 0) {
+    candidates = candidates.filter((candidate) => {
+      if (suppressedTypes.has(candidate.insightType)) {
+        typeSuppressed += 1;
+        return false;
+      }
+      return true;
+    });
+  }
 
   if (candidates.length === 0) {
     const createdAt = nowIso();
@@ -217,9 +240,9 @@ export async function emitObserverInsights(input: {
     return {
       persisted: 0,
       deduplicated: 0,
-      filtered: 0,
-      message:
-        'Insight emission complete: 0 persisted, 0 deduplicated, 0 filtered.',
+      filtered: typeSuppressed,
+      typeSuppressed,
+      message: `Insight emission complete: 0 persisted, 0 deduplicated, ${typeSuppressed} filtered.`,
     };
   }
 
@@ -372,11 +395,13 @@ export async function emitObserverInsights(input: {
       createdAt,
     );
   }
+  const totalFiltered = filtered + typeSuppressed;
   return {
     persisted,
     deduplicated,
-    filtered,
-    message: `Insight emission complete: ${persisted} persisted, ${deduplicated} deduplicated, ${filtered} filtered.`,
+    filtered: totalFiltered,
+    typeSuppressed,
+    message: `Insight emission complete: ${persisted} persisted, ${deduplicated} deduplicated, ${totalFiltered} filtered.`,
   };
 }
 
@@ -477,12 +502,14 @@ function pausedResult(): {
   persisted: number;
   deduplicated: number;
   filtered: number;
+  typeSuppressed: number;
   message: string;
 } {
   return {
     persisted: 0,
     deduplicated: 0,
     filtered: 0,
+    typeSuppressed: 0,
     message: OBSERVER_EMBEDDINGS_UNAVAILABLE_MESSAGE,
   };
 }

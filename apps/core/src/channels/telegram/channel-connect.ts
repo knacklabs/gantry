@@ -11,6 +11,12 @@ import {
   TELEGRAM_REVIEW_CALLBACK_PATTERN,
   TELEGRAM_REVIEW_DECISION_BY_CODE,
 } from './message-action-affordances.js';
+import {
+  parseTelegramObserverCallback,
+  telegramObserverDigestMessage,
+  truncateTelegramCallbackAnswer,
+} from './observer-digest-message.js';
+import { withObserverDigestEditLock } from '../observer-digest-edit-lock.js';
 import { resolveDurableTelegramPermissionCallback } from './permission-callback.js';
 import {
   TELEGRAM_PERMISSION_CALLBACK_PATTERN,
@@ -378,6 +384,88 @@ export abstract class TelegramChannelConnect extends TelegramChannelPrompts {
               ),
             );
         }
+        return;
+      }
+
+      const observer = parseTelegramObserverCallback({
+        data,
+        callbackMessage: ctx.callbackQuery?.message,
+        fallbackChatId: ctx.chat?.id,
+      });
+      if (observer) {
+        const { action, insightId, localDay, chatId, threadId } = observer;
+        if (!chatId) return;
+        const messageId = ctx.callbackQuery?.message?.message_id;
+        // Serialize concurrent clicks on THIS digest message so the later one
+        // rebuilds from the earlier's committed state (no resurrected buttons).
+        await withObserverDigestEditLock(
+          `tg:${chatId}:${messageId ?? ''}`,
+          async () => {
+            const outcome = await this.opts.onMessageAction?.({
+              kind: 'observer_feedback',
+              conversationJid: `tg:${chatId}`,
+              ...(this.opts.providerAccountId
+                ? { providerAccountId: this.opts.providerAccountId }
+                : {}),
+              ...(threadId ? { threadId } : {}),
+              userId: ctx.from?.id?.toString() ?? '',
+              insightId,
+              action,
+              localDay,
+            });
+            if (!outcome) {
+              await ctx.answerCallbackQuery();
+              return;
+            }
+            if (outcome.state === 'applied' && outcome.observerDigestView) {
+              // One insight settled: rebuild the WHOLE digest (acted insight's row
+              // gone + marker; the other insights keep their live buttons). Ack is
+              // best-effort so an expired callback query can't block the edit.
+              const rendered = telegramObserverDigestMessage(
+                outcome.observerDigestView,
+              );
+              await ctx
+                .answerCallbackQuery({
+                  text: truncateTelegramCallbackAnswer(outcome.receipt),
+                })
+                .catch((err: unknown) =>
+                  logger.debug(
+                    { insightId, err: this.sanitizeErrorMessage(err) },
+                    'Failed to ack Telegram observer feedback callback',
+                  ),
+                );
+              await ctx
+                .editMessageText(rendered.text, {
+                  parse_mode: 'HTML',
+                  link_preview_options: { is_disabled: true },
+                  reply_markup: rendered.reply_markup,
+                })
+                .catch((err: unknown) =>
+                  logger.debug(
+                    { insightId, err: this.sanitizeErrorMessage(err) },
+                    'Failed to rebuild Telegram observer digest message',
+                  ),
+                );
+            } else {
+              // denied / stale / invalid: private alert to the clicker; the shared
+              // digest keeps every live button intact.
+              const text = outcome.replacementText
+                ? `${outcome.receipt}\n\n${outcome.replacementText}`
+                : outcome.receipt;
+              await ctx
+                .answerCallbackQuery({
+                  text: truncateTelegramCallbackAnswer(text),
+                  show_alert: true,
+                })
+                .catch((err: unknown) =>
+                  logger.debug(
+                    { insightId, err: this.sanitizeErrorMessage(err) },
+                    'Failed to ack Telegram observer feedback callback',
+                  ),
+                );
+            }
+          },
+        );
         return;
       }
 

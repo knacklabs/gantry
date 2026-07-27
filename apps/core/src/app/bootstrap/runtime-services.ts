@@ -70,6 +70,7 @@ import {
 import type { OutboundDeliveryProfile } from '../../domain/outbound-delivery/planner.js';
 import {
   LIVE_SEND_PROFILE_ID,
+  OBSERVER_DIGEST_PROFILE_ID,
   RETRY_TAIL_PROFILE_ID,
   canonicalThreadIdFor,
   normalizeDestinationHintAgainstCanonical,
@@ -88,6 +89,7 @@ import {
 } from './runtime-services-active-compact.js';
 import { registerRuntimeLiveStopMessageAction } from './runtime-live-stop-message-action.js';
 import { registerRuntimeMemoryReviewMessageAction } from './runtime-memory-review-message-action.js';
+import { registerRuntimeObserverFeedbackMessageAction } from './runtime-observer-feedback-wiring.js';
 import { nowIso, nowMs, toIso } from '../../shared/time/datetime.js';
 import { LiveTurnAuthority } from '../../runtime/live-turn-authority.js';
 import type { LiveTurnRecoveryLoop } from '../../runtime/live-turn-recovery.js';
@@ -579,6 +581,7 @@ export async function startRuntimeServices(
   };
   registerRuntimeLiveStopMessageAction(channelWiring, app, liveMessageQueue);
   registerRuntimeMemoryReviewMessageAction(channelWiring, app);
+  registerRuntimeObserverFeedbackMessageAction(channelWiring);
   handleActiveControlCommand = async ({
     chatJid,
     queueJid,
@@ -704,6 +707,30 @@ export async function startRuntimeServices(
         };
       },
     };
+    // Observer digest: single-part send whose native view (Task 4) rides in the
+    // item providerPayload so the recovery dispatch can render native buttons.
+    const observerDigestProfile: OutboundDeliveryProfile = {
+      profileId: OBSERVER_DIGEST_PROFILE_ID,
+      plan: (input) => {
+        const observerDigestView =
+          input.metadata &&
+          typeof input.metadata === 'object' &&
+          'observerDigestView' in input.metadata
+            ? (input.metadata.observerDigestView as unknown)
+            : undefined;
+        return {
+          parts: [
+            {
+              canonicalText: input.text,
+              ...(observerDigestView !== undefined
+                ? { providerPayload: { observerDigestView } }
+                : {}),
+            },
+          ],
+          canonicalFinalText: input.text,
+        };
+      },
+    };
     const outboundDeliveryService = new OutboundDeliveryService({
       repository: outboundDeliveryRepository,
       profiles: {
@@ -712,7 +739,9 @@ export async function startRuntimeServices(
             ? retryTailProfile
             : profileId === LIVE_SEND_PROFILE_ID
               ? liveSendProfile
-              : undefined,
+              : profileId === OBSERVER_DIGEST_PROFILE_ID
+                ? observerDigestProfile
+                : undefined,
       },
       now: () => nowIso(),
       createId: () => randomUUID(),
@@ -735,12 +764,17 @@ export async function startRuntimeServices(
             threadId: input.threadId ?? undefined,
             providerAccountId: input.providerAccountId,
           }) as never,
-          profileId: LIVE_SEND_PROFILE_ID,
+          profileId: OBSERVER_DIGEST_PROFILE_ID,
           idempotencyKey: input.idempotencyKey,
           text: input.text,
           metadata: {
             destinationJid: input.conversationJid,
             observerDigest: true,
+            // Carried into the item providerPayload by observerDigestProfile so
+            // the recovery dispatch renders native per-insight feedback buttons.
+            ...(input.observerDigestView
+              ? { observerDigestView: input.observerDigestView }
+              : {}),
           },
         });
         return {
@@ -947,6 +981,9 @@ export async function startRuntimeServices(
           ...(destinationThreadId ? { threadId: destinationThreadId } : {}),
         });
         try {
+          const observerDigestView = payload?.observerDigestView as
+            | MessageSendOptions['observerDigestView']
+            | undefined;
           const deliveryResult = await channelWiring.sendProviderMessage(
             destinationJid,
             claimed.item.canonicalText,
@@ -958,6 +995,7 @@ export async function startRuntimeServices(
                 ...(destinationThreadId
                   ? { threadId: destinationThreadId }
                   : {}),
+                ...(observerDigestView ? { observerDigestView } : {}),
               },
             },
           );

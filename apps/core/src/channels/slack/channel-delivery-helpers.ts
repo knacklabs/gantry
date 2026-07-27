@@ -26,6 +26,7 @@ import {
   slackMessageActionBlocks,
   slackReviewMessageBlocks,
 } from './message-action-affordances.js';
+import { slackObserverDigestBlocks } from './observer-digest-affordances.js';
 import { slackThreadTsFromThreadId } from './thread-ts.js';
 import {
   handleSlackThreadProgressStatus,
@@ -46,6 +47,13 @@ type SlackDeliveryLogger = {
   warn(metadata: Record<string, unknown>, message: string): void;
 };
 function slackActionBlocks(text: string, options: MessageSendOptions) {
+  if (options.observerDigestView) {
+    return slackObserverDigestBlocks(options.observerDigestView, {
+      ...(options.providerAccountId
+        ? { providerAccountId: options.providerAccountId }
+        : {}),
+    });
+  }
   if (options.reviewMessageView) {
     return slackReviewMessageBlocks(options.reviewMessageView, {
       ...(options.providerAccountId

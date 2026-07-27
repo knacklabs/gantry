@@ -4,6 +4,12 @@ import type {
   MessageActionOutcome,
   OnMessageAction,
 } from '../../domain/types.js';
+import {
+  parseSlackObserverFeedback,
+  slackObserverDigestBlocks,
+  slackObserverDigestFallbackText,
+} from './observer-digest-affordances.js';
+import { withObserverDigestEditLock } from '../observer-digest-edit-lock.js';
 
 const SCHEDULER_MESSAGE_ACTION_KINDS = new Set<MessageActionAffordanceKind>([
   'scheduler_run_now',
@@ -64,6 +70,82 @@ export function registerSlackMessageActionHandler(
     try {
       payload = action.value ? JSON.parse(action.value) : undefined;
     } catch {
+      return;
+    }
+    const observerFeedback = parseSlackObserverFeedback(payload);
+    if (observerFeedback && body.channel?.id && body.user?.id) {
+      const channelId = body.channel.id;
+      const userId = body.user.id;
+      const messageTs = body.message?.ts;
+      // Serialize concurrent clicks on THIS digest message so the later one
+      // rebuilds from the earlier's committed state (no resurrected buttons).
+      await withObserverDigestEditLock(
+        `sl:${channelId}:${messageTs ?? ''}`,
+        async () => {
+          const outcome = await opts?.onMessageAction?.({
+            kind: 'observer_feedback',
+            conversationJid: `sl:${channelId}`,
+            ...providerAccountFromPayload(
+              { providerAccountId: observerFeedback.providerAccountId },
+              opts?.providerAccountId,
+            ),
+            threadId: body.message?.thread_ts,
+            userId,
+            insightId: observerFeedback.insightId,
+            action: observerFeedback.action,
+            localDay: observerFeedback.localDay,
+          });
+          if (outcome) {
+            try {
+              if (
+                outcome.state === 'applied' &&
+                outcome.observerDigestView &&
+                messageTs
+              ) {
+                // One insight settled: rebuild the WHOLE digest from the updated
+                // view (acted insight's buttons gone + marker; others still live).
+                await app.client.chat.update({
+                  channel: channelId,
+                  ts: messageTs,
+                  // Keep the full digest in the top-level `text` (screen readers read
+                  // it, not blocks); receipt line first, then every insight.
+                  text: `${outcome.receipt}\n\n${slackObserverDigestFallbackText(
+                    outcome.observerDigestView,
+                  )}`,
+                  blocks: (() => {
+                    // Preserve the account on the rebuilt buttons: prefer the
+                    // parsed account (the original render carried it) so a later
+                    // click still passes owner-route auth even when the
+                    // handler-level opts.providerAccountId is unset.
+                    const providerAccountId =
+                      observerFeedback.providerAccountId ??
+                      opts?.providerAccountId;
+                    return slackObserverDigestBlocks(
+                      outcome.observerDigestView,
+                      {
+                        ...(providerAccountId ? { providerAccountId } : {}),
+                      },
+                    );
+                  })(),
+                });
+              } else {
+                // denied / stale / invalid (non-owner, already-acted): private to
+                // the clicker; the shared digest is untouched and still actionable.
+                const text = outcome.replacementText
+                  ? `${outcome.receipt}\n\n${outcome.replacementText}`
+                  : outcome.receipt;
+                await app.client.chat.postEphemeral({
+                  channel: channelId,
+                  user: userId,
+                  text,
+                });
+              }
+            } catch {
+              // ignore receipt delivery failures
+            }
+          }
+        },
+      );
       return;
     }
     if (

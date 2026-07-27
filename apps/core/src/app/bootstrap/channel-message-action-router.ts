@@ -3,8 +3,16 @@ import type {
   MessageActionOutcome,
   OnMemoryReviewMessageAction,
   OnMessageAction,
+  OnObserverFeedbackMessageAction,
   ProgressUpdateOptions,
 } from '../../domain/types.js';
+
+const OBSERVER_FEEDBACK_ACTIONS = new Set([
+  'resolve',
+  'dismiss',
+  'snooze',
+  'less_like_this',
+]);
 
 function isLiveStopActionTokenValid(
   input: MessageActionCallbackInput,
@@ -25,6 +33,13 @@ function isMessageActionValid(input: MessageActionCallbackInput): boolean {
         input.decision === 'edit')
     );
   }
+  if (input.kind === 'observer_feedback') {
+    return (
+      input.insightId.trim().length > 0 &&
+      OBSERVER_FEEDBACK_ACTIONS.has(input.action) &&
+      input.localDay.trim().length > 0
+    );
+  }
   return isLiveStopActionTokenValid(input);
 }
 
@@ -40,14 +55,23 @@ export function createChannelMessageActionRouter(): {
   setMemoryReviewHandler: (
     handler: OnMemoryReviewMessageAction | undefined,
   ) => void;
+  setObserverFeedbackHandler: (
+    handler: OnObserverFeedbackMessageAction | undefined,
+  ) => void;
 } {
   let handler: OnMessageAction | undefined;
   let memoryReviewHandler: OnMemoryReviewMessageAction | undefined;
+  // Task 5 sets the owner-only executor here; until then observer_feedback
+  // callbacks parse + validate + route but settle to a no-op (void outcome).
+  let observerFeedbackHandler: OnObserverFeedbackMessageAction | undefined;
   return {
     handle: async (input: MessageActionCallbackInput) => {
       if (!isMessageActionValid(input)) return;
       if (input.kind === 'memory_review_decision') {
         return memoryReviewHandler?.(input);
+      }
+      if (input.kind === 'observer_feedback') {
+        return observerFeedbackHandler?.(input);
       }
       return handler?.(input);
     },
@@ -57,6 +81,11 @@ export function createChannelMessageActionRouter(): {
     },
     setMemoryReviewHandler: (next: OnMemoryReviewMessageAction | undefined) => {
       memoryReviewHandler = next;
+    },
+    setObserverFeedbackHandler: (
+      next: OnObserverFeedbackMessageAction | undefined,
+    ) => {
+      observerFeedbackHandler = next;
     },
   };
 }

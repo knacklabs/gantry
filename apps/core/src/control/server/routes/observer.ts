@@ -221,6 +221,7 @@ export async function handleObserverRoutes(
       appId,
       recipient: status.owner.recipient,
       limit: digestPrefetchLimit(status.schedule.maxInsights),
+      nowIso: new Date().toISOString(),
     });
     const freshnessProbe = new MessageInsightFreshnessProbe(
       getRuntimeStorage().ops,

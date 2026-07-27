@@ -724,6 +724,8 @@ export function createChannelWiring(
     setMessageActionHandler: messageActionRouter.set,
     setMemoryReviewMessageActionHandler:
       messageActionRouter.setMemoryReviewHandler,
+    setObserverFeedbackMessageActionHandler:
+      messageActionRouter.setObserverFeedbackHandler,
     sendStreamingChunk,
     resetStreaming: streamReset.resetStreaming,
     setTyping,

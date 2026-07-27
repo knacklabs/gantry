@@ -18,11 +18,14 @@ import type {
   ObserverDigestDeliverySummary,
   ObserverDigestReservation,
   ObserverDigestReserveResult,
+  ObserverFeedbackAction,
   ObserverInsightCreate,
   ObserverInsightCursor,
   ObserverInsightRepository,
   ObserverInsightType,
   ObserverInsightState,
+  ObserverOwnerActionInsight,
+  ObserverOwnerActionResult,
   ObserverSubjectKey,
   ProactiveInsight,
 } from '../../../../domain/ports/observer-insights.js';
@@ -47,6 +50,12 @@ import {
   reserveDigest,
   settleDigest,
 } from './observer-insight-repository.postgres.digest.js';
+import {
+  applyOwnerAction,
+  findInsightForOwnerAction,
+  listActiveSuppressedTypes,
+  listOwnerActionsForInsights,
+} from './observer-insight-repository.postgres.feedback.js';
 
 const Embeddings = pgSchema.embeddingCachePostgres;
 const Cursors = pgSchema.observerInsightCursorsPostgres;
@@ -64,7 +73,9 @@ const ALLOWED_TRANSITIONS: Record<
   pending: ['claimed', 'dropped'],
   claimed: ['pending', 'dropped'],
   sent: ['cooldown'],
-  cooldown: ['resolved', 'dropped'],
+  // cooldown -> cooldown is the owner "snooze" self-transition (extends the
+  // cooldown window without leaving the state).
+  cooldown: ['resolved', 'dropped', 'cooldown'],
   resolved: [],
   dropped: [],
 };
@@ -417,6 +428,7 @@ export class PostgresObserverInsightRepository implements ObserverInsightReposit
     appId: string;
     recipient: string;
     limit: number;
+    nowIso: string;
   }): Promise<ProactiveInsight[]> {
     return listPendingForDigest(this.db, input);
   }
@@ -435,6 +447,15 @@ export class PostgresObserverInsightRepository implements ObserverInsightReposit
     localDay: string;
   }): Promise<ObserverDigestReservation | null> {
     return findDigestReservation(this.db, input);
+  }
+
+  listOwnerActionsForInsights(input: {
+    appId: string;
+    recipient: string;
+    insightIds: string[];
+    deliveryId: string;
+  }): Promise<Map<string, ObserverFeedbackAction>> {
+    return listOwnerActionsForInsights(this.db, input);
   }
 
   findUnsettledDigestReservations(input: {
@@ -476,6 +497,37 @@ export class PostgresObserverInsightRepository implements ObserverInsightReposit
     nowIso: string;
   }): Promise<ProactiveInsight[]> {
     return recoverStaleDigestClaims(this.db, input);
+  }
+
+  findInsightForOwnerAction(input: {
+    appId: string;
+    recipient: string;
+    insightId: string;
+  }): Promise<ObserverOwnerActionInsight | null> {
+    return findInsightForOwnerAction(this.db, input);
+  }
+
+  applyOwnerAction(input: {
+    appId: string;
+    recipient: string;
+    actorUserId: string;
+    insightId: string;
+    action: ObserverFeedbackAction;
+    deliveryId: string;
+    nowIso: string;
+    snoozeMs: number;
+    suppressMs: number;
+    suppressThreshold: number;
+  }): Promise<ObserverOwnerActionResult> {
+    return applyOwnerAction(this.db, input);
+  }
+
+  listActiveSuppressedTypes(input: {
+    appId: string;
+    recipient: string;
+    nowIso: string;
+  }): Promise<Set<ObserverInsightType>> {
+    return listActiveSuppressedTypes(this.db, input);
   }
 
   async getInsightCursor(

@@ -216,6 +216,7 @@ maybeDescribe(
         appId: APP_ID,
         recipient: RECIPIENT,
         limit: 10,
+        nowIso: new Date().toISOString(),
       });
       expect(pending.map((p) => p.id).sort()).toEqual(['p-hi', 'p-lo']);
     });

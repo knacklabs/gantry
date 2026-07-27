@@ -167,6 +167,134 @@ describe('createChannelMessageActionRouter', () => {
     expect(memoryHandler).not.toHaveBeenCalled();
   });
 
+  it('routes observer feedback to the observer handler and returns its outcome', async () => {
+    const router = createChannelMessageActionRouter();
+    const observerHandler = vi.fn(async () => ({
+      state: 'applied' as const,
+      receipt: 'Insight resolved.',
+    }));
+    const handler = vi.fn();
+    router.set(handler);
+    router.setObserverFeedbackHandler(observerHandler);
+
+    const outcome = await router.handle({
+      kind: 'observer_feedback',
+      conversationJid: 'sl:C123',
+      userId: 'U123',
+      insightId: 'ins-1',
+      action: 'resolve',
+      localDay: '2026-07-27',
+    });
+
+    expect(observerHandler).toHaveBeenCalledTimes(1);
+    expect(handler).not.toHaveBeenCalled();
+    expect(outcome).toEqual({ state: 'applied', receipt: 'Insight resolved.' });
+  });
+
+  it('rejects observer feedback callbacks with an empty insight id', async () => {
+    const router = createChannelMessageActionRouter();
+    const observerHandler = vi.fn();
+    router.setObserverFeedbackHandler(observerHandler as never);
+
+    await router.handle({
+      kind: 'observer_feedback',
+      conversationJid: 'sl:C123',
+      userId: 'U123',
+      insightId: '   ',
+      action: 'resolve',
+      localDay: '2026-07-27',
+    });
+
+    expect(observerHandler).not.toHaveBeenCalled();
+  });
+
+  it('rejects observer feedback callbacks with an unknown action', async () => {
+    const router = createChannelMessageActionRouter();
+    const observerHandler = vi.fn();
+    router.setObserverFeedbackHandler(observerHandler as never);
+
+    await router.handle({
+      kind: 'observer_feedback',
+      conversationJid: 'sl:C123',
+      userId: 'U123',
+      insightId: 'ins-1',
+      action: 'nuke' as never,
+      localDay: '2026-07-27',
+    });
+
+    expect(observerHandler).not.toHaveBeenCalled();
+  });
+
+  it('keeps the memory-review path intact alongside observer feedback on one router (Phase 2 regression)', async () => {
+    // Both handlers registered on the SAME router: prove Phase 2's new
+    // observer_feedback variant did not alter the memory-review decision path —
+    // each callback still routes to its own handler and neither leaks.
+    const router = createChannelMessageActionRouter();
+    const generic = vi.fn();
+    const memoryHandler = vi.fn(async () => ({
+      state: 'applied' as const,
+      receipt: 'Memory review approved.',
+    }));
+    const observerHandler = vi.fn(async () => ({
+      state: 'applied' as const,
+      receipt: 'Insight resolved.',
+    }));
+    router.set(generic);
+    router.setMemoryReviewHandler(memoryHandler);
+    router.setObserverFeedbackHandler(observerHandler);
+
+    const memOutcome = await router.handle({
+      kind: 'memory_review_decision',
+      conversationJid: 'sl:C123',
+      userId: 'U123',
+      reviewId: 'rev-1',
+      decision: 'approve',
+      label: 'Approve',
+    });
+    expect(memoryHandler).toHaveBeenCalledTimes(1);
+    expect(observerHandler).not.toHaveBeenCalled();
+    expect(generic).not.toHaveBeenCalled();
+    expect(memOutcome).toEqual({
+      state: 'applied',
+      receipt: 'Memory review approved.',
+    });
+
+    // An observer click afterwards routes ONLY to the observer handler and leaves
+    // the memory-review handler exactly as it was.
+    const obsOutcome = await router.handle({
+      kind: 'observer_feedback',
+      conversationJid: 'sl:C123',
+      userId: 'U123',
+      insightId: 'ins-1',
+      action: 'resolve',
+      localDay: '2026-07-27',
+    });
+    expect(observerHandler).toHaveBeenCalledTimes(1);
+    expect(memoryHandler).toHaveBeenCalledTimes(1);
+    expect(generic).not.toHaveBeenCalled();
+    expect(obsOutcome).toEqual({
+      state: 'applied',
+      receipt: 'Insight resolved.',
+    });
+  });
+
+  it('rejects observer feedback callbacks with an empty local day', async () => {
+    const router = createChannelMessageActionRouter();
+    const observerHandler = vi.fn();
+    router.setObserverFeedbackHandler(observerHandler as never);
+
+    await router.handle({
+      kind: 'observer_feedback',
+      conversationJid: 'sl:C123',
+      userId: 'U123',
+      insightId: 'ins-1',
+      action: 'resolve',
+      localDay: '  ',
+    });
+
+    expect(observerHandler).not.toHaveBeenCalled();
+  });
+
   it('runs scheduler run-now callbacks after same-channel approval', async () => {
     const sendMessage = vi.fn(async () => {});
     const runSchedulerNow = vi.fn(async () => 'Scheduler job queued (job-1).');

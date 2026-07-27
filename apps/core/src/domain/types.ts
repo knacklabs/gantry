@@ -2,6 +2,7 @@ import type { SemanticCapabilityDefinition } from '../shared/semantic-capabiliti
 import type { PermissionMode } from '../shared/permission-mode.js';
 import type { ReviewMessageView } from './review-message-view.js';
 import type { MessageActionAffordance } from './message-actions.js';
+import type { ObserverDigestMessageView } from './observer-digest-view.js';
 
 export type {
   MessageActionAffordanceKind,
@@ -9,9 +10,11 @@ export type {
   MessageActionAffordance,
   MessageActionCallbackInput,
   MemoryReviewMessageActionInput,
+  ObserverFeedbackMessageActionInput,
   MessageActionOutcome,
   OnMessageAction,
   OnMemoryReviewMessageAction,
+  OnObserverFeedbackMessageAction,
 } from './message-actions.js';
 export type {
   ReviewMessageView,
@@ -19,6 +22,11 @@ export type {
   ReviewMessageEvidence,
   ReviewMessageAffordance,
 } from './review-message-view.js';
+export type {
+  ObserverDigestMessageView,
+  ObserverDigestInsightView,
+  ObserverFeedbackAffordance,
+} from './observer-digest-view.js';
 
 export type {
   Job,
@@ -506,6 +514,10 @@ export interface MessageSendOptions {
    * memory-review message (per-channel native blocks/card) with the decision
    * buttons. Channels without native buttons fall back to `text`. */
   reviewMessageView?: ReviewMessageView;
+  /** When set, channels with native support render the observer digest as one
+   * message of up to 3 insight groups, each with its four `observer_feedback`
+   * buttons. Channels without native buttons fall back to `text`. */
+  observerDigestView?: ObserverDigestMessageView;
 }
 
 export interface MessageFileAttachment {

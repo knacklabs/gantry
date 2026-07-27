@@ -3,8 +3,20 @@ import type {
   MessageActionOutcome,
   OnMessageAction,
 } from '../domain/types.js';
+import type { ObserverFeedbackAction } from '../domain/message-actions.js';
 import type { TeamsAdaptiveCardPayload } from './teams-cards.js';
-import { buildTeamsReviewReceiptCard } from './teams-cards.js';
+import { withObserverDigestEditLock } from './observer-digest-edit-lock.js';
+import {
+  buildTeamsReviewReceiptCard,
+  teamsObserverDigestCard,
+} from './teams-cards.js';
+
+const OBSERVER_FEEDBACK_ACTIONS = new Set<ObserverFeedbackAction>([
+  'resolve',
+  'dismiss',
+  'snooze',
+  'less_like_this',
+]);
 import type { TeamsInboundMessage, TeamsSdkClient } from './teams-types.js';
 import { teamsConversationIdFromJid } from './teams-types.js';
 import { logger } from '../infrastructure/logging/logger.js';
@@ -26,6 +38,14 @@ export function readTeamsMessageAction(value: unknown):
       kind: 'memory_review_decision';
       reviewId: string;
       decision: MemoryReviewActionDecision;
+      targetJid: string;
+      threadId?: string;
+    }
+  | {
+      kind: 'observer_feedback';
+      insightId: string;
+      feedback: ObserverFeedbackAction;
+      localDay: string;
       targetJid: string;
       threadId?: string;
     }
@@ -55,6 +75,30 @@ export function readTeamsMessageAction(value: unknown):
       kind: 'memory_review_decision',
       reviewId: payload.reviewId,
       decision: payload.decision,
+      targetJid: payload.targetJid,
+      ...(typeof payload.threadId === 'string'
+        ? { threadId: payload.threadId }
+        : {}),
+    };
+  }
+  if (payload.kind === 'observer_feedback') {
+    if (typeof payload.insightId !== 'string' || !payload.insightId.trim()) {
+      return null;
+    }
+    if (
+      typeof payload.feedback !== 'string' ||
+      !OBSERVER_FEEDBACK_ACTIONS.has(payload.feedback as ObserverFeedbackAction)
+    ) {
+      return null;
+    }
+    if (typeof payload.localDay !== 'string' || !payload.localDay.trim()) {
+      return null;
+    }
+    return {
+      kind: 'observer_feedback',
+      insightId: payload.insightId,
+      feedback: payload.feedback as ObserverFeedbackAction,
+      localDay: payload.localDay,
       targetJid: payload.targetJid,
       ...(typeof payload.threadId === 'string'
         ? { threadId: payload.threadId }
@@ -192,6 +236,53 @@ export async function handleTeamsMessageAction(input: {
         : outcome.receipt;
       await input.sendDenied(conversationId, text);
     }
+    return true;
+  }
+  if (payload.kind === 'observer_feedback') {
+    const messageId = input.message.replyToId ?? input.message.id;
+    // Serialize concurrent clicks on THIS digest card so the later one rebuilds
+    // from the earlier's committed state (no resurrected buttons).
+    await withObserverDigestEditLock(
+      `teams:${input.jid}:${messageId}`,
+      async () => {
+        const outcome = await input.onMessageAction?.({
+          kind: 'observer_feedback',
+          conversationJid: input.jid,
+          ...(input.providerAccountId
+            ? { providerAccountId: input.providerAccountId }
+            : {}),
+          userId: input.userId,
+          insightId: payload.insightId,
+          action: payload.feedback,
+          localDay: payload.localDay,
+          ...(payload.threadId ? { threadId: payload.threadId } : {}),
+        });
+        if (!outcome) return;
+        const conversationId = teamsConversationIdFromJid(input.jid);
+        if (outcome.state === 'applied' && outcome.observerDigestView) {
+          // One insight settled: rebuild the WHOLE card from the updated view so
+          // the acted insight loses its buttons + gains a marker while the others
+          // stay actionable for the owner.
+          if (conversationId && messageId && input.updateReviewCard) {
+            await input.updateReviewCard({
+              conversationId,
+              messageId,
+              card: teamsObserverDigestCard(outcome.observerDigestView, {
+                targetJid: input.jid,
+                ...(payload.threadId ? { threadId: payload.threadId } : {}),
+              }),
+            });
+          }
+        } else {
+          // denied / stale / invalid: never touch the shared card; smallest blast
+          // radius is a chat message (Teams' invoke path has no per-user ephemeral).
+          const text = outcome.replacementText
+            ? `${outcome.receipt}\n\n${outcome.replacementText}`
+            : outcome.receipt;
+          await input.sendDenied(conversationId, text);
+        }
+      },
+    );
     return true;
   }
   if (payload.kind === 'scheduler_run_now') {

@@ -35,6 +35,7 @@ export const observerDeliveriesPostgres = pgTable(
     threadId: text('thread_id'),
     timezone: text('timezone'),
     renderedDigest: text('rendered_digest'),
+    renderedView: jsonb('rendered_view'),
     contentHash: text('content_hash'),
     outboundDeliveryId: text('outbound_delivery_id'),
     state: text('state').notNull().default('reserved'),
@@ -200,5 +201,79 @@ export const proactiveInsightsPostgres = pgTable(
       'proactive_insights_confidence_check',
       sql`${table.confidence} >= 0 AND ${table.confidence} <= 1`,
     ),
+  }),
+);
+
+// Owner feedback on delivered insights. Feedback is DELIVERY-scoped: the unique
+// (insight, actor, action, delivery) index is the idempotency key, so a repeated
+// click within one delivery is a no-op, but a legitimate re-action on a
+// REDELIVERED occurrence (new delivery_id) is a distinct row.
+export const observerInsightFeedbackPostgres = pgTable(
+  'observer_insight_feedback',
+  {
+    id: text('id').primaryKey(),
+    appId: text('app_id')
+      .notNull()
+      .references(() => appsPostgres.id, { onDelete: 'cascade' }),
+    recipient: text('recipient').notNull(),
+    insightId: text('insight_id')
+      .notNull()
+      .references(() => proactiveInsightsPostgres.id, { onDelete: 'cascade' }),
+    deliveryId: text('delivery_id')
+      .notNull()
+      .references(() => observerDeliveriesPostgres.id, { onDelete: 'cascade' }),
+    actorUserId: text('actor_user_id').notNull(),
+    insightType: text('insight_type').notNull(),
+    action: text('action').notNull(),
+    createdAt: timestamp('created_at', {
+      withTimezone: true,
+      mode: 'string',
+    })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    insightActorActionUnique: uniqueIndex(
+      'observer_insight_feedback_insight_actor_action_unique',
+    ).on(table.insightId, table.actorUserId, table.action, table.deliveryId),
+    actionCheck: check(
+      'observer_insight_feedback_action_check',
+      sql`${table.action} IN ('resolve', 'dismiss', 'snooze', 'less_like_this')`,
+    ),
+  }),
+);
+
+// Time-boxed per-type suppression: once negative feedback for an (app,
+// recipient, insight_type) crosses the caller's threshold, suppressed_until
+// holds the auto-expiry after which the type surfaces again.
+export const observerInsightTypeSuppressionsPostgres = pgTable(
+  'observer_insight_type_suppressions',
+  {
+    appId: text('app_id')
+      .notNull()
+      .references(() => appsPostgres.id, { onDelete: 'cascade' }),
+    recipient: text('recipient').notNull(),
+    insightType: text('insight_type').notNull(),
+    negativeCount: integer('negative_count').notNull().default(0),
+    suppressedUntil: timestamp('suppressed_until', {
+      withTimezone: true,
+      mode: 'string',
+    }),
+    lastFeedbackAt: timestamp('last_feedback_at', {
+      withTimezone: true,
+      mode: 'string',
+    }).notNull(),
+    updatedAt: timestamp('updated_at', {
+      withTimezone: true,
+      mode: 'string',
+    })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    pk: primaryKey({
+      columns: [table.appId, table.recipient, table.insightType],
+      name: 'observer_insight_type_suppressions_pk',
+    }),
   }),
 );

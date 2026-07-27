@@ -45,6 +45,7 @@ export interface BrainDreamBatchResult {
     persisted: number;
     deduplicated: number;
     filtered: number;
+    typeSuppressed: number;
     message: string;
   };
 }

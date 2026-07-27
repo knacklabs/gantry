@@ -5,6 +5,11 @@ import type {
   PermissionCallbackScope,
   UserQuestionRequest,
 } from '../domain/types.js';
+import type { ObserverFeedbackAction } from '../domain/message-actions.js';
+import type {
+  ObserverDigestInsightView,
+  ObserverDigestMessageView,
+} from '../domain/observer-digest-view.js';
 import {
   morePendingReviewsLabel,
   type ReviewMessageSide,
@@ -68,6 +73,15 @@ export interface TeamsAdaptiveCardAction {
         kind: 'memory_review_decision';
         reviewId: string;
         decision: MemoryReviewActionDecision;
+        targetJid: string;
+        threadId?: string;
+      }
+    | {
+        action: 'message_action';
+        kind: 'observer_feedback';
+        insightId: string;
+        feedback: ObserverFeedbackAction;
+        localDay: string;
         targetJid: string;
         threadId?: string;
       };
@@ -508,5 +522,99 @@ export function teamsReviewCard(
         ...(options.threadId ? { threadId: options.threadId } : {}),
       },
     })),
+  };
+}
+
+function teamsObserverInsightContainer(
+  insight: ObserverDigestInsightView,
+  options: { targetJid: string; threadId?: string },
+): Record<string, unknown> {
+  const items: Array<Record<string, unknown>> = [
+    {
+      type: 'TextBlock',
+      weight: 'Bolder',
+      wrap: true,
+      text: escapeTeamsCardText(insight.title),
+    },
+    {
+      type: 'TextBlock',
+      wrap: true,
+      text: escapeTeamsCardText(insight.summary),
+    },
+    {
+      type: 'TextBlock',
+      size: 'Small',
+      isSubtle: true,
+      wrap: true,
+      text: escapeTeamsCardText(insight.type),
+    },
+  ];
+  if (insight.stateMarker) {
+    items.push({
+      type: 'TextBlock',
+      size: 'Small',
+      isSubtle: true,
+      wrap: true,
+      text: escapeTeamsCardText(insight.stateMarker),
+    });
+  }
+  // Buttons live in an ActionSet INSIDE this insight's container (not the
+  // card-level actions array) so each 4-button group sits beneath its own
+  // insight — otherwise Teams renders one flat footer of identical-looking
+  // buttons with no insight attribution, and >6 trips the primary-action cap.
+  if (insight.affordances.length > 0) {
+    items.push({
+      type: 'ActionSet',
+      actions: insight.affordances.map((affordance) => ({
+        type: 'Action.Execute',
+        title: affordance.label,
+        verb: 'gantry.observer.feedback',
+        data: {
+          action: 'message_action',
+          kind: 'observer_feedback',
+          insightId: affordance.insightId,
+          feedback: affordance.action,
+          localDay: affordance.localDay,
+          targetJid: options.targetJid,
+          ...(options.threadId ? { threadId: options.threadId } : {}),
+        },
+      })),
+    });
+  }
+  return { type: 'Container', items };
+}
+
+/**
+ * Adaptive Card for one observer digest: a header, then per insight a container
+ * (title + summary + type, plus a state marker once acted) holding its own four
+ * Action.Execute `observer_feedback` buttons as an ActionSet — carrying
+ * insightId + feedback + targetJid (so inbound validation rejects foreign-chat
+ * callbacks). Up to 3 insight groups ride one card; a settled insight
+ * contributes no ActionSet, so the others stay actionable. Same renderer serves
+ * the initial send and the rebuild.
+ */
+export function teamsObserverDigestCard(
+  view: ObserverDigestMessageView,
+  options: { targetJid: string; threadId?: string },
+): TeamsAdaptiveCardPayload {
+  const body: Array<Record<string, unknown>> = [
+    {
+      type: 'TextBlock',
+      size: 'Medium',
+      weight: 'Bolder',
+      wrap: true,
+      text: `Observer digest — ${escapeTeamsCardText(view.localDay)}`,
+    },
+    ...view.insights.map((insight) =>
+      teamsObserverInsightContainer(insight, options),
+    ),
+  ];
+  return {
+    $schema: 'http://adaptivecards.io/schemas/adaptive-card.json',
+    type: 'AdaptiveCard',
+    version: '1.5',
+    body,
+    // Buttons live in per-insight ActionSets in `body`, not here.
+    actions: [],
   };
 }

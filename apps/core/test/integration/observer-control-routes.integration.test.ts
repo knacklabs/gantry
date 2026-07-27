@@ -555,6 +555,7 @@ describe('observer control routes', () => {
       appId: 'default',
       recipient: 'owner-1',
       limit: 30,
+      nowIso: expect.any(String),
     });
     expect(observerRepository.claimPendingForDigest).not.toHaveBeenCalled();
     expect(observerRepository.reserveDigest).not.toHaveBeenCalled();

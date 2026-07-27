@@ -22,6 +22,8 @@ const TELEGRAM_ACTION_CALLBACK_BY_KIND: Record<
   live_turn_stop: '',
   // ponytail: memory_review_decision rendering lands in Task 6 (Telegram codec).
   memory_review_decision: '',
+  // ponytail: observer_feedback rendering lands in a later OBS-RESOLVE task.
+  observer_feedback: '',
 };
 const TELEGRAM_CALLBACK_DATA_MAX_BYTES = 64;
 
@@ -50,6 +52,7 @@ export function telegramActionReplyMarkup(actions?: MessageActionAffordance[]):
     .map((action) => {
       if (action.kind === 'live_turn_stop') return null;
       if (action.kind === 'memory_review_decision') return null;
+      if (action.kind === 'observer_feedback') return null;
       const code = TELEGRAM_ACTION_CALLBACK_BY_KIND[action.kind];
       if (!code || !action.label.trim()) return null;
       const callbackData = telegramSchedulerActionCallback(action);

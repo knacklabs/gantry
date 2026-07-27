@@ -6,6 +6,8 @@ import type {
   ObserverDeliverySchedule,
 } from '../config/settings/observer-activation.js';
 import type { RuntimeSettings } from '../config/settings/runtime-settings-types.js';
+import type { ObserverDigestMessageView } from '../domain/observer-digest-view.js';
+import { buildObserverDigestMessageView } from '../domain/observer-digest-view.js';
 import type {
   ObserverDigestClaimMembership,
   ObserverDigestReservation,
@@ -42,6 +44,10 @@ export interface DigestSendGateway {
     threadId: string | null;
     idempotencyKey: string;
     text: string;
+    /** Provider-neutral view (ordered insights + `observer_feedback`
+     * affordances) rehydrated from the reservation. Carried so Task 4 can
+     * render native buttons; the text above stays the fallback. */
+    observerDigestView?: ObserverDigestMessageView | null;
   }): Promise<{ outboundDeliveryId: string; durablySent: boolean }>;
 }
 
@@ -103,6 +109,7 @@ export function createOutboundDigestDeliveryPort(deps: {
         threadId: reservation.threadId,
         idempotencyKey: digestOutboundIdempotencyKey(reservation),
         text: reservation.renderedDigest,
+        observerDigestView: reservation.renderedView,
       });
       // Invariant: never settle before the outbound is durably sent.
       if (!durablySent) return;
@@ -264,6 +271,11 @@ export async function runObserverDigest(input: {
     }),
   );
   const renderedDigest = renderDigest(clock.localDay, selected);
+  const renderedView = buildObserverDigestMessageView({
+    localDay: clock.localDay,
+    recipient: owner.recipient,
+    insights: selected,
+  });
   const contentHash = digestContentHash(selected);
 
   const reserve = await repository.reserveDigest({
@@ -276,6 +288,7 @@ export async function runObserverDigest(input: {
     providerAccountId: owner.providerAccountId,
     threadId: null,
     renderedDigest,
+    renderedView,
     contentHash,
     memberships,
     nowIso,

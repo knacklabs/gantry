@@ -2,6 +2,7 @@ import type {
   MessageDeliveryResult,
   MessageActionCallbackInput,
   OnMemoryReviewMessageAction,
+  OnObserverFeedbackMessageAction,
   MessageSendOptions,
   PermissionApprovalCancellation,
   PermissionApprovalDecision,
@@ -185,6 +186,9 @@ export interface ChannelWiring {
   ) => void;
   setMemoryReviewMessageActionHandler: (
     handler: OnMemoryReviewMessageAction | undefined,
+  ) => void;
+  setObserverFeedbackMessageActionHandler: (
+    handler: OnObserverFeedbackMessageAction | undefined,
   ) => void;
   sendStreamingChunk: (
     jid: string,
