@@ -28,6 +28,14 @@ export class PostgresBrainDreamReviewRepository implements BrainDreamReviewRepos
   async createBrainDreamReview(
     input: BrainDreamReviewCreateInput,
   ): Promise<BrainDreamReviewCreateResult> {
+    // Collapse duplicate targets before touching the DB. Same (kind, id) with
+    // the SAME expected version is redundant (keep one); with DIFFERING
+    // versions it's contradictory input — reject rather than persist an
+    // arbitrary snapshot version a later drift check would trust.
+    const deduped = dedupTargets(input.targets);
+    if (!deduped.ok) return { ok: false, conflict: 'target_version_conflict' };
+    const distinctTargets = deduped.targets;
+
     try {
       const review = await this.db.transaction(async (tx) => {
         const [row] = await tx
@@ -51,11 +59,9 @@ export class PostgresBrainDreamReviewRepository implements BrainDreamReviewRepos
           })
           .returning();
 
-        // A proposal may list the same target twice; that's redundant, not a
-        // conflict. Dedup by (kind, id) so the intra-insert collision never
-        // trips the partial-unique index; a genuine target_open conflict must
-        // come only from ANOTHER review's open claim.
-        const distinctTargets = dedupTargets(input.targets);
+        // Distinct targets only, so the intra-insert collision never trips the
+        // partial-unique index; a genuine target_open conflict must come only
+        // from ANOTHER review's open claim.
         if (distinctTargets.length > 0) {
           await tx.insert(Targets).values(
             distinctTargets.map((target) => ({
@@ -184,16 +190,26 @@ function classifyConflict(
   return null;
 }
 
+// Collapse duplicates when a (kind, id) repeats with the SAME expected version;
+// flag `ok:false` when it repeats with a DIFFERING version (contradictory).
 function dedupTargets(
   targets: BrainDreamReviewCreateInput['targets'],
-): BrainDreamReviewCreateInput['targets'] {
-  const seen = new Set<string>();
-  return targets.filter((t) => {
+):
+  | { ok: true; targets: BrainDreamReviewCreateInput['targets'] }
+  | { ok: false } {
+  const byTarget = new Map<string, string | null>();
+  const distinct: BrainDreamReviewCreateInput['targets'] = [];
+  for (const t of targets) {
     const key = `${t.targetKind}|${t.targetId}`;
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
+    const version = t.expectedVersion ?? null;
+    if (byTarget.has(key)) {
+      if (byTarget.get(key) !== version) return { ok: false };
+      continue; // redundant duplicate, keep the first occurrence
+    }
+    byTarget.set(key, version);
+    distinct.push(t);
+  }
+  return { ok: true, targets: distinct };
 }
 
 function clampLimit(limit: number): number {

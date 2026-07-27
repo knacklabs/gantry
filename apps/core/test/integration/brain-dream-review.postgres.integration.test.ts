@@ -50,7 +50,7 @@ maybeDescribe('brain dream review Postgres persistence', () => {
     });
     // Reviews FK brain_dream_decisions(decision_id); seed the provenance rows.
     await runtime.service.db.insert(brainDreamDecisionsPostgres).values(
-      ['d1', 'd2', 'd3', 'd4', 'd5'].map((id) => ({
+      ['d1', 'd2', 'd3', 'd4', 'd5', 'd6'].map((id) => ({
         id,
         appId: APP_ID,
         runId: RUN_ID,
@@ -206,16 +206,16 @@ maybeDescribe('brain dream review Postgres persistence', () => {
     expect(pending.map((r) => r.id)).toEqual(['r3']);
   });
 
-  it('dedups a redundantly-listed target; a separate review still conflicts', async () => {
-    const dup = await repo().createBrainDreamReview({
-      ...review('r4', 'd4', [
+  it('dedups a same-version duplicate; rejects a differing-version duplicate; separate review still conflicts', async () => {
+    // (a) same target twice, SAME expected version → redundant, keep one.
+    const dup = await repo().createBrainDreamReview(
+      review('r4', 'd4', [
         { targetKind: 'entity', targetId: 'ENT9', expectedVersion: 'v1' },
         { targetKind: 'entity', targetId: 'ENT9', expectedVersion: 'v1' },
       ]),
-    });
+    );
     expect(dup.ok).toBe(true);
 
-    // Exactly one target row persisted for the distinct (kind, id).
     const rows = await runtime.service.pool.query<{ count: string }>(
       `SELECT count(*)::text AS count
        FROM ${runtime.schemaName}.brain_dream_review_targets
@@ -224,7 +224,32 @@ maybeDescribe('brain dream review Postgres persistence', () => {
     );
     expect(rows.rows[0]?.count).toBe('1');
 
-    // A separate review on that same target still hits the open claim.
+    // (b) same target twice, DIFFERING expected version → contradictory input.
+    const contradictory = await repo().createBrainDreamReview(
+      review('r6', 'd6', [
+        { targetKind: 'entity', targetId: 'ENT10', expectedVersion: 'v1' },
+        { targetKind: 'entity', targetId: 'ENT10', expectedVersion: 'v2' },
+      ]),
+    );
+    expect(contradictory).toEqual({
+      ok: false,
+      conflict: 'target_version_conflict',
+    });
+    // Rejected before touching the DB: neither the review nor any target row.
+    expect(
+      await repo().findPendingBrainDreamReview({
+        appId: APP_ID,
+        reviewId: 'r6',
+      }),
+    ).toBeNull();
+    const orphan = await runtime.service.pool.query<{ count: string }>(
+      `SELECT count(*)::text AS count
+       FROM ${runtime.schemaName}.brain_dream_review_targets
+       WHERE target_kind = 'entity' AND target_id = 'ENT10'`,
+    );
+    expect(orphan.rows[0]?.count).toBe('0');
+
+    // A separate review on r4's still-open target hits the open claim.
     const conflict = await repo().createBrainDreamReview(
       review('r5', 'd5', [
         { targetKind: 'entity', targetId: 'ENT9', expectedVersion: 'v1' },

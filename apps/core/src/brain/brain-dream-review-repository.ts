@@ -55,13 +55,18 @@ export interface BrainDreamReview {
   error: string | null;
 }
 
-// Typed, non-throwing create result. A `target_open` conflict means another
-// pending review already owns one of the targets; `decision_exists` means a
-// review row already exists for this decision. T2 journals rejected/skips on
-// either instead of crashing the dream run.
+// Typed, non-throwing create result. `target_open` means another pending
+// review already owns one of the targets; `decision_exists` means a review row
+// already exists for this decision; `target_version_conflict` means the input
+// itself lists one target twice with DIFFERING expected versions (contradictory
+// / malformed). T2's intake journals rejected/skips on any of these instead of
+// crashing the dream run or persisting an arbitrary version.
 export type BrainDreamReviewCreateResult =
   | { ok: true; review: BrainDreamReview }
-  | { ok: false; conflict: 'target_open' | 'decision_exists' };
+  | {
+      ok: false;
+      conflict: 'target_open' | 'decision_exists' | 'target_version_conflict';
+    };
 
 export interface BrainDreamReviewClaimInput {
   reviewId: string;
