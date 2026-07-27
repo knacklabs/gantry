@@ -3,7 +3,6 @@ import os from 'node:os';
 import path from 'node:path';
 
 import {
-  DeleteObjectsCommand,
   GetObjectCommand,
   ListObjectsV2Command,
   PutObjectCommand,
@@ -12,8 +11,8 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { S3SkillArtifactStore } from '@core/adapters/artifacts/skills/s3-skill-artifact-store.js';
-import { hashSkillBundle } from '@core/adapters/artifacts/skills/local-skill-artifact-store.js';
 import { ArtifactIntegrityError } from '@core/domain/ports/skill-artifact-store.js';
+import { hashSkillBundle } from '@core/shared/skill-artifact-helpers.js';
 
 interface StoredObject {
   body: Buffer;
@@ -55,13 +54,6 @@ class FakeS3Client {
         Metadata: stored.metadata,
       };
     }
-    if (command instanceof DeleteObjectsCommand) {
-      const { Bucket, Delete } = command.input;
-      for (const entry of Delete?.Objects ?? []) {
-        if (entry.Key) this.objects.delete(`${Bucket}/${entry.Key}`);
-      }
-      return {};
-    }
     throw new Error(
       `Unsupported command: ${(command as object).constructor.name}`,
     );
@@ -101,7 +93,7 @@ describe('S3SkillArtifactStore', () => {
     fs.rmSync(tempRoot, { recursive: true, force: true });
   });
 
-  it('mirrors the local skills/<name>/ layout under the key prefix', async () => {
+  it('mirrors the local content-addressed app layout under the key prefix', async () => {
     const { store, fake } = makeStore();
     const stored = await store.putSkillArtifact({
       appId: 'app:one',
@@ -111,17 +103,57 @@ describe('S3SkillArtifactStore', () => {
     });
 
     expect(stored.storageType).toBe('object-store');
-    expect(stored.storageRef).toBe('skills/Uploaded-One');
+    expect(stored.storageRef).toBe(
+      `apps/app%3Aone/skills/skill%3AUploaded%20One/${stored.contentHash.replace(':', '%3A')}`,
+    );
     expect(stored.contentHash).toBe(hashSkillBundle(skillBundle));
 
     const keys = [...fake.objects.keys()].map((k) =>
       k.slice(`${BUCKET}/`.length),
     );
-    expect(keys).toContain('skills/Uploaded-One/SKILL.md');
-    expect(keys).toContain('skills/Uploaded-One/nested/context.md');
+    expect(keys).toContain(`${stored.storageRef}/SKILL.md`);
+    expect(keys).toContain(`${stored.storageRef}/nested/context.md`);
     // sha256 is written as object metadata (defense in depth).
-    const asset = fake.objects.get(`${BUCKET}/skills/Uploaded-One/SKILL.md`);
+    const asset = fake.objects.get(`${BUCKET}/${stored.storageRef}/SKILL.md`);
     expect(asset?.metadata.sha256).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it('isolates same-named skill bytes by app', async () => {
+    const { store } = makeStore();
+    const first = await store.putSkillArtifact({
+      appId: 'app/first',
+      skillId: 'skill:shared',
+      skillName: 'Shared',
+      bundle: {
+        assets: [{ path: 'SKILL.md', content: Buffer.from('# First') }],
+      },
+    });
+    const second = await store.putSkillArtifact({
+      appId: 'app-first',
+      skillId: 'skill:shared',
+      skillName: 'Shared',
+      bundle: {
+        assets: [{ path: 'SKILL.md', content: Buffer.from('# Second') }],
+      },
+    });
+
+    expect(first.storageRef).not.toBe(second.storageRef);
+    expect(first.storageRef).toMatch(
+      /^apps\/app%2Ffirst\/skills\/skill%3Ashared\//,
+    );
+    expect(second.storageRef).toMatch(
+      /^apps\/app-first\/skills\/skill%3Ashared\//,
+    );
+    expect(
+      Buffer.from(
+        (await store.getSkillArtifact(first.storageRef)).assets[0]!.content,
+      ).toString(),
+    ).toBe('# First');
+    expect(
+      Buffer.from(
+        (await store.getSkillArtifact(second.storageRef)).assets[0]!.content,
+      ).toString(),
+    ).toBe('# Second');
   });
 
   it('round-trips a bundle through get and excludes hidden metadata', async () => {
@@ -144,9 +176,9 @@ describe('S3SkillArtifactStore', () => {
     expect(hashSkillBundle(loaded)).toBe(stored.contentHash);
   });
 
-  it('replaces on update without versioning (stale assets are purged)', async () => {
+  it('leaves superseded hash prefixes intact', async () => {
     const { store, fake } = makeStore();
-    await store.putSkillArtifact({
+    const first = await store.putSkillArtifact({
       appId: 'app:one',
       skillId: 'skill:replace',
       skillName: 'replace',
@@ -157,7 +189,7 @@ describe('S3SkillArtifactStore', () => {
         ],
       },
     });
-    await store.putSkillArtifact({
+    const second = await store.putSkillArtifact({
       appId: 'app:one',
       skillId: 'skill:replace',
       skillName: 'replace',
@@ -166,10 +198,20 @@ describe('S3SkillArtifactStore', () => {
     const keys = [...fake.objects.keys()].map((k) =>
       k.slice(`${BUCKET}/`.length),
     );
-    expect(keys).not.toContain('skills/replace/old.md');
-    const loaded = await store.getSkillArtifact('skills/replace');
-    expect(loaded.assets.map((a) => a.path)).toEqual(['SKILL.md']);
-    expect(Buffer.from(loaded.assets[0]!.content).toString()).toBe('# v2');
+    expect(first.storageRef).not.toBe(second.storageRef);
+    expect(keys).toContain(`${first.storageRef}/old.md`);
+    expect(
+      Buffer.from(
+        (await store.getSkillArtifact(first.storageRef)).assets.find(
+          (asset) => asset.path === 'SKILL.md',
+        )!.content,
+      ).toString(),
+    ).toBe('# v1');
+    expect(
+      Buffer.from(
+        (await store.getSkillArtifact(second.storageRef)).assets[0]!.content,
+      ).toString(),
+    ).toBe('# v2');
   });
 
   it('materializes to disk with an atomic rename when the hash verifies', async () => {
@@ -228,7 +270,7 @@ describe('S3SkillArtifactStore', () => {
 
     expect(caught).toBeInstanceOf(ArtifactIntegrityError);
     const error = caught as ArtifactIntegrityError;
-    expect(error.storageRef).toBe('skills/tampered');
+    expect(error.storageRef).toBe(stored.storageRef);
     expect(error.expectedContentHash).toBe('sha256:deadbeef');
     expect(error.actualContentHash).toBe(stored.contentHash);
     // Not activated.
