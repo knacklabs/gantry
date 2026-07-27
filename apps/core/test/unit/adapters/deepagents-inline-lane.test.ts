@@ -1134,6 +1134,118 @@ Always mention the migration impact.
     }
   });
 
+  it('cancels already-started remote MCP startup peers before waiting for them after an initial-wave failure', async () => {
+    const serverNames = ['alpha', 'bravo', 'charlie', 'delta', 'echo'];
+    const startupError = new Error('alpha startup failed');
+    const discoveryBarrier = createDeterministicBarrier(4);
+    const participants: ReturnType<typeof discoveryBarrier.arrive>[] = [];
+    const connectOrder: string[] = [];
+    let releaseInitialWave: (() => void) | undefined;
+    const initialWaveGate = new Promise<void>((resolve) => {
+      releaseInitialWave = resolve;
+    });
+    let releaseBlockedPeer: (() => void) | undefined;
+    let blockedPeerClosed = false;
+    let blockedPeerRequestAborted = false;
+    let blockedPeerRequestSignal: AbortSignal | undefined;
+    remote.Client.connectImpl = async (client, transport) => {
+      const info = client.info as { name: string };
+      const serverName = info.name.replace('gantry-inline-', '');
+      connectOrder.push(serverName);
+      if (serverName !== 'bravo') return;
+      const transportOptions = (
+        transport as {
+          options?: { requestInit?: { signal?: AbortSignal } };
+        }
+      ).options;
+      blockedPeerRequestSignal = transportOptions?.requestInit?.signal;
+      if (blockedPeerRequestSignal) {
+        blockedPeerRequestSignal.addEventListener(
+          'abort',
+          () => {
+            blockedPeerRequestAborted = true;
+          },
+          { once: true },
+        );
+      }
+    };
+    remote.loadTools.mockImplementation(async (serverName: string, client) => {
+      const participant = discoveryBarrier.arrive();
+      participants.push(participant);
+      await initialWaveGate;
+      if (serverName === 'alpha') throw startupError;
+      if (serverName === 'bravo') {
+        await new Promise<void>((resolve) => {
+          releaseBlockedPeer = resolve;
+          client.close.mockImplementationOnce(async () => {
+            blockedPeerClosed = true;
+            resolve();
+          });
+        });
+      } else {
+        await participant.completed;
+      }
+      return [
+        {
+          name: 'read',
+          description: `${serverName} read tool.`,
+          schema: z.object({}),
+          invoke: remote.invoke,
+        },
+      ];
+    });
+    const input = laneInput({
+      mcpServers: serverNames.map((serverName) => ({
+        name: serverName,
+        config: {
+          type: 'http',
+          url: `https://mcp.example.test/${serverName}`,
+        },
+        allowedToolPatterns: ['*'],
+      })),
+    });
+    const lane = createDeepAgentsInlineAgentLoopLane({
+      databaseUrl: 'postgres://gantry:test@localhost:5432/gantry',
+      schema: 'gantry_deepagents',
+    });
+
+    const result = lane(input);
+    try {
+      await flushMicrotasks();
+
+      expect(discoveryBarrier.snapshot()).toMatchObject({ arrivals: 4 });
+      expect(connectOrder).toEqual(serverNames.slice(0, 4));
+      expect(connectOrder).not.toContain('echo');
+      expect(deep.createAgent).not.toHaveBeenCalled();
+      expect(remote.Client.instances).toHaveLength(4);
+
+      releaseInitialWave?.();
+      await flushMicrotasks();
+      expect(
+        blockedPeerClosed || blockedPeerRequestAborted,
+        'blocked peer should be cancelled before its discovery promise settles',
+      ).toBe(true);
+
+      participants
+        .filter((_, index) => serverNames[index] !== 'bravo')
+        .forEach((participant) => participant.release());
+
+      await expect(result).rejects.toBe(startupError);
+      expect(remote.Client.instances).toHaveLength(4);
+      expect(connectOrder).not.toContain('echo');
+      for (const client of remote.Client.instances) {
+        expect(client.close).toHaveBeenCalledOnce();
+      }
+      expect(checkpoint.Saver.instances[0]?.end).toHaveBeenCalledOnce();
+    } finally {
+      releaseInitialWave?.();
+      await flushMicrotasks();
+      releaseBlockedPeer?.();
+      participants.forEach((participant) => participant.release());
+      await releaseBarrierParticipantsUntilSettled(result, participants);
+    }
+  });
+
   it('aborts remote MCP startup without starting queued work and closes connected clients', async () => {
     const serverNames = ['alpha', 'bravo', 'charlie', 'delta', 'echo'];
     const controller = new AbortController();
