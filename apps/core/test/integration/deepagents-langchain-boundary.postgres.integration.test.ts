@@ -570,6 +570,7 @@ async function runRunner(input: {
 const tempRoots: string[] = [];
 const checkpointSchemas: string[] = [];
 let checkpointCounter = 0;
+const SHELL_PERMISSION_REQUEST_WAIT_MS = 30_000;
 // Stub MCP servers must resolve @modelcontextprotocol/sdk from the repo
 // node_modules, so the temp tree lives under the repo (not os.tmpdir()).
 const REPO_TMP_BASE = path.resolve(__dirname, '../.tmp-deepagents-int');
@@ -613,7 +614,7 @@ async function approveNextShellRequestViaHostCoordinator(input: {
   );
   const startedAt = Date.now();
   let rawRequest: Record<string, unknown> | undefined;
-  while (Date.now() - startedAt < 5_000) {
+  while (Date.now() - startedAt < SHELL_PERMISSION_REQUEST_WAIT_MS) {
     const requestFile = fs.existsSync(requestDir)
       ? fs.readdirSync(requestDir).find((entry) => entry.endsWith('.json'))
       : undefined;
