@@ -9,6 +9,7 @@ import { BrainService } from '@core/brain/brain-service.js';
 import { executeBrainDreamReviewDecision } from '@core/brain/brain-dream-review-executor.js';
 import {
   createBrainReviewNotifier,
+  redeliverPendingBrainReviews,
   type BrainReviewNotifyGateway,
 } from '@core/brain/brain-dream-review-notify.js';
 import { handleBrainDreamReviewAction } from '@core/app/bootstrap/runtime-brain-review-message-action.js';
@@ -205,6 +206,14 @@ maybeDescribe('brain dream review owner-DM notification (T6)', () => {
   async function deliveryCount(): Promise<number> {
     const rows = await runtime.service.pool.query<{ count: string }>(
       `SELECT count(*)::text AS count FROM ${runtime.schemaName}.outbound_deliveries`,
+    );
+    return Number(rows.rows[0]!.count);
+  }
+
+  async function deliveryCountByKey(key: string): Promise<number> {
+    const rows = await runtime.service.pool.query<{ count: string }>(
+      `SELECT count(*)::text AS count FROM ${runtime.schemaName}.outbound_deliveries WHERE idempotency_key = $1`,
+      [key],
     );
     return Number(rows.rows[0]!.count);
   }
@@ -451,5 +460,48 @@ maybeDescribe('brain dream review owner-DM notification (T6)', () => {
       [observer.delivery.id],
     );
     expect(observerRow.rows).toHaveLength(1);
+  });
+
+  it('RECOVERY: an orphaned review (no outbound row) is re-notified, idempotently', async () => {
+    // Create a review WITHOUT a notifier — simulates a transient owner-resolve /
+    // enqueue failure at intake: the review is pending but has no outbound record.
+    const page = await seedPageWithEdge('recover-me');
+    await applyBrainDreamOperations({
+      brain,
+      repository,
+      reviews,
+      appId: APP_ID,
+      runId: 'notify-run',
+      page,
+      evidencePages: [page],
+      ops: [{ action: 'delete_page', page_id: page.id }],
+    });
+    const review = (
+      await reviews.listPendingBrainDreamReviews({ appId: APP_ID, limit: 50 })
+    ).find(
+      (r) =>
+        r.action === 'delete_page' &&
+        (r.canonicalOp as { pageId?: string }).pageId === page.id,
+    )!;
+    const key = `brain-review:${review.id}`;
+    expect(await deliveryCountByKey(key)).toBe(0); // orphaned — nothing sent
+
+    const notify = createBrainReviewNotifier({
+      gateway,
+      appId: APP_ID,
+      resolveOwner: async () => ({ owner: OWNER }),
+    });
+    // Recovery pass re-enqueues the orphan (and re-touches other pending reviews
+    // idempotently).
+    const first = await redeliverPendingBrainReviews({
+      reviews,
+      appId: APP_ID,
+      notify,
+    });
+    expect(first.pending).toBeGreaterThanOrEqual(1);
+    expect(await deliveryCountByKey(key)).toBe(1);
+    // Idempotent: a second pass does not double-post.
+    await redeliverPendingBrainReviews({ reviews, appId: APP_ID, notify });
+    expect(await deliveryCountByKey(key)).toBe(1);
   });
 });

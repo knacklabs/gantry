@@ -6,6 +6,12 @@ import * as p from '@clack/prompts';
 import type { BrainService } from '../brain/brain-service.js';
 import { normalizeBrainSlug } from '../brain/brain-page-ingest.js';
 import { openBrainFromHome } from '../brain/brain-runtime.js';
+import { createBrainReviewNotifier } from '../brain/brain-dream-review-notify.js';
+import {
+  createBrainReviewOutboundService,
+  brainReviewNotifyGatewayFor,
+} from '../app/bootstrap/brain-review-notify-gateway.js';
+import { resolveVerifiedOwnerRoute } from '../config/settings/observer-activation.js';
 import { renderBrainReviewCard } from '../domain/brain-review-card.js';
 
 function usage(): string {
@@ -14,6 +20,7 @@ function usage(): string {
     '  gantry brain import <dir>',
     '  gantry brain status [--json]',
     '  gantry brain reviews [--json]',
+    '  gantry brain reviews notify <reviewId>',
   ].join('\n');
 }
 
@@ -29,6 +36,46 @@ export async function runBrainCommand(
         p.log.success(
           `Brain import complete: ${summary.created} created, ${summary.updated} updated, ${summary.files} files scanned.`,
         );
+        return 0;
+      } finally {
+        await close();
+      }
+    });
+  }
+  if (command === 'reviews' && value === 'notify') {
+    const reviewId = rest[0];
+    if (!reviewId) {
+      p.log.error('Usage: gantry brain reviews notify <reviewId>');
+      return 1;
+    }
+    return withBrain(runtimeHome, async (_brain, appId, close, opened) => {
+      try {
+        const review = await opened.reviews.findPendingBrainDreamReview({
+          appId,
+          reviewId,
+        });
+        if (!review) {
+          p.log.error(
+            `No pending review ${reviewId} (already decided or absent).`,
+          );
+          return 1;
+        }
+        // Assemble the durable gateway the running runtime uses; the outbound
+        // recovery loop sends what we enqueue (idempotent on the review key).
+        const notify = createBrainReviewNotifier({
+          gateway: brainReviewNotifyGatewayFor(
+            createBrainReviewOutboundService(opened.outboundDeliveries),
+          ),
+          appId,
+          resolveOwner: () =>
+            resolveVerifiedOwnerRoute(
+              opened.settings,
+              appId,
+              opened.conversations,
+            ),
+        });
+        await notify(review);
+        p.log.success(`Re-enqueued notification for ${reviewId}.`);
         return 0;
       } finally {
         await close();

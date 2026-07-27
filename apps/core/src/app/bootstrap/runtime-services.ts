@@ -63,7 +63,12 @@ import { startOutboundDeliveryRecoveryLoop } from '../../jobs/outbound-delivery-
 import {
   setObserverDigestGateway,
   setBrainReviewNotifyGateway,
+  recoverPendingBrainReviewNotifications,
 } from '../../jobs/system-jobs.js';
+import {
+  brainReviewOutboundProfile,
+  brainReviewNotifyGatewayFor,
+} from './brain-review-notify-gateway.js';
 // prettier-ignore
 import {
   closeBrowser,
@@ -737,30 +742,6 @@ export async function startRuntimeServices(
         };
       },
     };
-    // Brain review notification: single-part send whose card view (T5/T6) rides
-    // in the item providerPayload so recovery dispatch renders native buttons.
-    const brainReviewProfile: OutboundDeliveryProfile = {
-      profileId: BRAIN_REVIEW_PROFILE_ID,
-      plan: (input) => {
-        const brainReviewView =
-          input.metadata &&
-          typeof input.metadata === 'object' &&
-          'brainReviewView' in input.metadata
-            ? (input.metadata.brainReviewView as unknown)
-            : undefined;
-        return {
-          parts: [
-            {
-              canonicalText: input.text,
-              ...(brainReviewView !== undefined
-                ? { providerPayload: { brainReviewView } }
-                : {}),
-            },
-          ],
-          canonicalFinalText: input.text,
-        };
-      },
-    };
     const outboundDeliveryService = new OutboundDeliveryService({
       repository: outboundDeliveryRepository,
       profiles: {
@@ -772,7 +753,7 @@ export async function startRuntimeServices(
               : profileId === OBSERVER_DIGEST_PROFILE_ID
                 ? observerDigestProfile
                 : profileId === BRAIN_REVIEW_PROFILE_ID
-                  ? brainReviewProfile
+                  ? brainReviewOutboundProfile
                   : undefined,
       },
       now: () => nowIso(),
@@ -815,36 +796,20 @@ export async function startRuntimeServices(
         };
       },
     });
-    // Brain destructive-proposal review notification: enqueue the owner-DM card
-    // under the brain-review profile, idempotent on `brain-review:<reviewId>`
-    // (exactly one notification per review). The recovery loop below sends it and
-    // re-renders the native buttons from the carried view.
-    setBrainReviewNotifyGateway({
-      enqueue: async (input) => {
-        const target = resolveDurableOutboundTarget({
-          defaultAppId: input.appId,
-          jid: input.conversationJid,
-          providerAccountId: input.providerAccountId,
-        });
-        const result = await outboundDeliveryService.enqueue({
-          appId: target.appId as never,
-          conversationId: target.conversationId as never,
-          threadId: canonicalThreadIdFor({
-            jid: input.conversationJid,
-            threadId: input.threadId ?? undefined,
-            providerAccountId: input.providerAccountId,
-          }) as never,
-          profileId: BRAIN_REVIEW_PROFILE_ID,
-          idempotencyKey: input.idempotencyKey,
-          text: input.text,
-          metadata: {
-            destinationJid: input.conversationJid,
-            brainReview: true,
-            brainReviewView: input.brainReviewView,
-          },
-        });
-        return { outboundDeliveryId: result.delivery.id };
-      },
+    // Brain destructive-proposal review notification (shared profile + enqueue
+    // closure, also used by the CLI re-notify command).
+    setBrainReviewNotifyGateway(
+      brainReviewNotifyGatewayFor(outboundDeliveryService),
+    );
+    // One-shot recovery: re-enqueue any pending review whose owner-DM
+    // notification was lost (transient owner-resolve/enqueue failure leaves the
+    // review orphaned — pending but with no outbound record). Idempotent, best
+    // effort; the outbound recovery loop then sends. Fire-and-forget.
+    void recoverPendingBrainReviewNotifications().catch((err) => {
+      logger.warn(
+        { error: err instanceof Error ? err.message : String(err) },
+        'brain review notification recovery pass failed',
+      );
     });
     channelWiring.setDurableOutboundAttemptFactory(async (input) => {
       const target = resolveDurableOutboundTarget({

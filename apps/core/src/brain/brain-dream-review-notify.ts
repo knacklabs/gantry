@@ -39,6 +39,35 @@ export interface NotifiableBrainReview {
   reviewSnapshot: Record<string, unknown>;
 }
 
+/**
+ * Recovery pass for orphaned notifications: re-enqueue every pending review's
+ * owner-DM notification. Best-effort delivery happens ONCE at intake; a transient
+ * owner-resolve/enqueue failure leaves the review pending with no outbound record
+ * and nothing re-notifies it. Re-enqueuing is safe to repeat — the enqueue is
+ * idempotent on `brain-review:<reviewId>`, so a review that already has a durable
+ * delivery is a no-op and an orphaned one gets a fresh record for the outbound
+ * recovery loop to send. ponytail: no per-review outbound-existence probe — the
+ * idempotency key IS the dedup; bounded because pending reviews are few.
+ */
+export async function redeliverPendingBrainReviews(deps: {
+  reviews: {
+    listPendingBrainDreamReviews(input: {
+      appId: string;
+      limit: number;
+    }): Promise<NotifiableBrainReview[]>;
+  };
+  appId: string;
+  notify: BrainReviewNotifier;
+  limit?: number;
+}): Promise<{ pending: number }> {
+  const pending = await deps.reviews.listPendingBrainDreamReviews({
+    appId: deps.appId,
+    limit: deps.limit ?? 200,
+  });
+  for (const review of pending) await deps.notify(review); // notifier never throws
+  return { pending: pending.length };
+}
+
 /** Build the durable card view + fallback text for a review. */
 export function buildBrainReviewNotification(review: NotifiableBrainReview): {
   view: BrainReviewCardView;

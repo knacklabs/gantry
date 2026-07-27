@@ -63,6 +63,36 @@ describe('telegramBrainReviewMessage', () => {
     expect(msg.text).toContain('repoints 5 relationships');
   });
 
+  it('bounds an over-long card to Telegram 4096 with valid HTML + buttons', () => {
+    const msg = render('revL', 'delete_page', {
+      before: { title: 'X'.repeat(10_000) },
+      dependents: { edges: [], embeddings: 0 },
+    });
+    // Telegram counts UTF-16 units (JS .length); over the hard limit = rejected.
+    expect(msg.text.length).toBeLessThanOrEqual(4096);
+    // Valid HTML: exactly one balanced <b></b>, no dangling entity anywhere.
+    expect(msg.text.match(/<b>/g)!.length).toBe(1);
+    expect(msg.text.match(/<\/b>/g)!.length).toBe(1);
+    expect(msg.text.replace(/&(amp|lt|gt);/g, '')).not.toContain('&');
+    // Buttons still attach.
+    const buttons = msg.reply_markup.inline_keyboard[0]!;
+    expect(buttons.map((b) => b.callback_data)).toEqual([
+      'bd:a:revL',
+      'bd:r:revL',
+    ]);
+  });
+
+  it('entity-safe truncation: a title of all-escaping chars never splits &amp;', () => {
+    // '&' → '&amp;' (5 units); a 2000-char title escapes to 10000 units, so the
+    // headline must be truncated — mid-entity cuts must be repaired.
+    const msg = render('revE', 'delete_page', {
+      before: { title: '&'.repeat(2000) },
+      dependents: { edges: [], embeddings: 0 },
+    });
+    expect(msg.text.length).toBeLessThanOrEqual(4096);
+    expect(msg.text.replace(/&(amp|lt|gt);/g, '')).not.toContain('&');
+  });
+
   it('callback_data round-trips back to {decision, reviewId}', () => {
     const match = TELEGRAM_BRAIN_REVIEW_CALLBACK_PATTERN.exec('bd:r:rev-xyz');
     expect(match).not.toBeNull();

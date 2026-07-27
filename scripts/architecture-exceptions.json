@@ -182,6 +182,13 @@
     "maxViolations": 3
   },
   {
+    "file": "apps/core/src/cli/brain.ts",
+    "rule": "forbidden_import_by_layer",
+    "reason": "`gantry brain reviews notify` composes the durable brain-review notify gateway (bootstrap) + verified-owner resolver (config) as a local admin adapter to re-enqueue an orphaned review notification; capped until the CLI command service is extracted.",
+    "removeByPhase": "canonical-boundary-cleanup-phase",
+    "maxViolations": 2
+  },
+  {
     "file": "apps/core/src/cli/config.ts",
     "rule": "forbidden_import_by_layer",
     "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",

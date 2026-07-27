@@ -25,9 +25,15 @@ import {
 import {
   createBrainReviewNotifier,
   getBrainReviewNotifyGateway,
+  redeliverPendingBrainReviews,
   type BrainReviewNotifier,
 } from './brain-dream-review-notify.js';
 import type { BrainDreamReviewRepository } from './brain-dream-review-repository.js';
+import type {
+  ConversationRepository,
+  OutboundDeliveryRepository,
+} from '../domain/ports/repositories.js';
+import type { RuntimeSettings } from '../config/settings/runtime-settings-types.js';
 import { BrainService } from './brain-service.js';
 import { OBSERVER_CURSOR_SUBJECT } from './observer-insight-emission.js';
 
@@ -176,10 +182,28 @@ function runtimeBrainReviewNotifier(
   });
 }
 
+// Startup recovery: re-enqueue any pending review whose owner-DM notification was
+// lost. No-op if the gateway isn't wired yet. Single-app (DEFAULT_MEMORY_APP_ID).
+export async function recoverPendingBrainReviewNotifications(): Promise<{
+  pending: number;
+}> {
+  const notify = runtimeBrainReviewNotifier(DEFAULT_MEMORY_APP_ID);
+  if (!notify) return { pending: 0 };
+  return redeliverPendingBrainReviews({
+    reviews: getRuntimeStorage().repositories.brainDreamReviews,
+    appId: DEFAULT_MEMORY_APP_ID,
+    notify,
+  });
+}
+
 export interface OpenedBrain {
   brain: BrainService;
   appId: string;
   reviews: BrainDreamReviewRepository;
+  // Exposed for the CLI re-notify command (which assembles the durable gateway).
+  outboundDeliveries: OutboundDeliveryRepository;
+  conversations: ConversationRepository;
+  settings: RuntimeSettings;
   harvestEnabledConversations: number;
   close: () => Promise<void>;
 }
@@ -215,6 +239,9 @@ export async function openBrainFromHome(
     brain,
     appId: DEFAULT_MEMORY_APP_ID,
     reviews: storage.repositories.brainDreamReviews,
+    outboundDeliveries: storage.repositories.outboundDeliveries,
+    conversations: storage.repositories.conversations,
+    settings,
     harvestEnabledConversations: Object.values(settings.conversations).filter(
       (conversation) => conversation.brainHarvest,
     ).length,

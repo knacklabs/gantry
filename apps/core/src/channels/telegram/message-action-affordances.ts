@@ -13,7 +13,10 @@ import {
 } from '../../domain/review-message-view.js';
 import { escapeTelegramHtml } from './html-render.js';
 import { logger } from '../../infrastructure/logging/logger.js';
-import { telegramThreadOptionsFromString } from './channel-shared.js';
+import {
+  telegramThreadOptionsFromString,
+  TELEGRAM_MESSAGE_MAX_LENGTH,
+} from './channel-shared.js';
 
 const TELEGRAM_ACTION_CALLBACK_BY_KIND: Record<
   MessageActionAffordance['kind'],
@@ -147,11 +150,38 @@ function brainReviewCallbackData(
     : undefined;
 }
 
+// Telegram counts message length in UTF-16 units; a payload over the hard limit
+// is rejected forever (outbound recovery would retry it endlessly). Truncate an
+// already-ESCAPED fragment (escapeTelegramHtml emits only &amp;/&lt;/&gt; — no
+// tags) on WHOLE code points, then drop any dangling partial entity so a cut
+// never splits `&amp;` into invalid HTML.
+function truncateEscapedTelegramHtml(
+  escaped: string,
+  maxUnits: number,
+): string {
+  if (escaped.length <= maxUnits) return escaped;
+  let out = '';
+  for (const codePoint of escaped) {
+    if (out.length + codePoint.length > maxUnits) break;
+    out += codePoint;
+  }
+  const lastAmp = out.lastIndexOf('&');
+  if (lastAmp !== -1 && !out.slice(lastAmp).includes(';')) {
+    out = out.slice(0, lastAmp);
+  }
+  return out;
+}
+
 /**
  * Compact Telegram HTML card for a brain destructive-proposal review: the
- * scannable "what will change" headline + optional before→after detail lines
- * (all snapshot-derived text HTML-escaped), plus an Approve/Reject inline
+ * scannable "what will change" headline (bold) + optional before→after detail
+ * lines (all snapshot-derived text HTML-escaped), plus an Approve/Reject inline
  * keyboard. A button whose callback_data overflows the 64-byte cap is dropped.
+ *
+ * The rendered text is bounded to Telegram's 4096-UTF-16-unit hard limit — a
+ * long title/entity name can't produce a permanently-unsendable payload. Only
+ * the headline carries tags (<b></b>); truncation is entity-safe, so the HTML
+ * stays valid.
  */
 export function telegramBrainReviewMessage(view: BrainReviewCardView): {
   text: string;
@@ -159,10 +189,31 @@ export function telegramBrainReviewMessage(view: BrainReviewCardView): {
     inline_keyboard: Array<Array<{ text: string; callback_data: string }>>;
   };
 } {
-  const lines = [
-    `<b>${escapeTelegramHtml(view.headline)}</b>`,
-    ...view.details.map((line) => escapeTelegramHtml(line)),
-  ];
+  const BOLD_TAGS = '<b></b>'.length;
+  let headline = escapeTelegramHtml(view.headline);
+  if (BOLD_TAGS + headline.length > TELEGRAM_MESSAGE_MAX_LENGTH) {
+    headline =
+      truncateEscapedTelegramHtml(
+        headline,
+        TELEGRAM_MESSAGE_MAX_LENGTH - BOLD_TAGS - 1,
+      ) + '…';
+  }
+  const lines = [`<b>${headline}</b>`];
+  let used = lines[0]!.length;
+  for (const raw of view.details) {
+    const escaped = escapeTelegramHtml(raw);
+    if (used + 1 + escaped.length <= TELEGRAM_MESSAGE_MAX_LENGTH) {
+      lines.push(escaped);
+      used += 1 + escaped.length;
+      continue;
+    }
+    // Last line that fits gets a truncated fragment (+ ellipsis); then stop.
+    const room = TELEGRAM_MESSAGE_MAX_LENGTH - used - 1; // minus the '\n'
+    if (room > 1) {
+      lines.push(truncateEscapedTelegramHtml(escaped, room - 1) + '…');
+    }
+    break;
+  }
   const buttons = view.buttons
     .map((button) => {
       const callback_data = brainReviewCallbackData(
