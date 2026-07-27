@@ -42,7 +42,17 @@ Non-goals:
 Bounded write scope for implementation:
 
 - `apps/core/src/adapters/llm/deepagents-langchain/inline-lane/index.ts`
+- `apps/core/src/adapters/llm/deepagents-langchain/inline-lane/remote-mcp-startup.ts`
 - `apps/core/test/unit/adapters/deepagents-inline-lane.test.ts`
+
+Structural amendment after first verification: the initial in-file extraction
+proved `inline-lane/index.ts` at 761 lines against the 720-line architecture
+budget. The canonical architecture gate requires splitting the cohesive helper
+instead of adding a file-size allowlist. The sibling must stay adapter-local to
+the DeepAgents inline-lane directory, must be named only for remote MCP startup,
+and must not become a generic concurrency/config abstraction. In this plan,
+"local" means adapter-local, not physically inside `index.ts`. This amendment is
+behavior-neutral and retains the exact LAT-1 acceptance and security boundaries.
 
 ## Acceptance Criteria
 - With five remote MCP servers in a unit test, at most four `Client.connect`
@@ -66,18 +76,24 @@ Bounded write scope for implementation:
 - No new dependency is added for concurrency limiting.
 
 ## Technical Approach
-Recommendation: keep the limiter local to `inline-lane/index.ts` and run server
-startup tasks with a fixed limit of 4. This is the smallest shape that satisfies
-the approved Phase 1 contract without adding a shared utility for one call site.
+Recommendation: keep the limiter adapter-local to the DeepAgents inline lane and
+run server startup tasks with a fixed limit of 4. The implementation may use the
+small sibling module
+`apps/core/src/adapters/llm/deepagents-langchain/inline-lane/remote-mcp-startup.ts`
+because the first verification measured `inline-lane/index.ts` at 761 lines
+against the 720-line architecture budget. This is the smallest shape that
+satisfies the approved Phase 1 contract without adding a shared utility for one
+call site.
 
 Implementation outline:
 
-1. Extract the per-server serial body into a small local async helper that returns
-   `{ index, clients, tools }` or no tools for unsupported transports.
+1. Extract the per-server serial body into a small adapter-local async helper
+   that returns `{ index, clients, tools }` or no tools for unsupported
+   transports.
 2. Before each server task starts, preserve the existing checks:
    `signal.throwIfAborted()` and `assertMcpNetworkHostAllowed(...)`.
-3. Start tasks through a tiny local limit runner with concurrency 4. Do not add
-   `p-limit`; there is no existing dependency and this is a single use.
+3. Start tasks through a tiny adapter-local limit runner with concurrency 4. Do
+   not add `p-limit`; there is no existing dependency and this is a single use.
 4. Keep each server's connect and list-tools sequence ordered within that server.
    Concurrency is across servers only.
 5. Collect results by original input index and flatten tools in that order. This
@@ -97,9 +113,13 @@ there is no second production call site in scope.
 - `docs/decisions/0070-client-signoff.md` records accepted LAT-1 client signoff,
   the stacked rebase dependency, the limit-4 startup scope, and the explicit
   non-goals.
-- No new technical decisions beyond the LAT-1 signoff. The implementation uses
-  existing architecture: DeepAgents owns this adapter seam, Gantry owns remote
-  MCP guarded fetch and policy, and no public contract changes.
+- No new technical decisions beyond the LAT-1 signoff. The structural amendment
+  follows the canonical architecture gate's measured `index.ts` line-budget
+  failure and the repo policy to split cohesive helpers instead of adding a
+  file-size allowlist; it adds no generic concurrency/config decision. The
+  implementation uses existing architecture: DeepAgents owns this adapter seam,
+  Gantry owns remote MCP guarded fetch and policy, and no public contract
+  changes.
 
 ## Surface Impact
 | Surface | Status | Reason |
@@ -140,6 +160,7 @@ Stage `LAT-1-IMPLEMENT-CLEANUP`
   code left by the extraction.
 - Write scope:
   - `apps/core/src/adapters/llm/deepagents-langchain/inline-lane/index.ts`
+  - `apps/core/src/adapters/llm/deepagents-langchain/inline-lane/remote-mcp-startup.ts`
   - `apps/core/test/unit/adapters/deepagents-inline-lane.test.ts`
 - Dependencies:
   - `LAT-1-RED-CONTRACT`
@@ -151,7 +172,8 @@ Stage `LAT-1-IMPLEMENT-CLEANUP`
     and rethrows the original setup error.
   - Existing remote MCP tests for filtering, authorization, audit, and close pass.
 - Reviewer focus: no unbounded `Promise.all`, no new dependency, deterministic
-  flattening by input index, no late client leak on reject.
+  flattening by input index, no late client leak on reject, and no extraction
+  outside the adapter-local inline-lane directory.
 
 Stage `LAT-1-VALIDATION-CLOSEOUT`
 
@@ -177,6 +199,11 @@ Stage `LAT-1-VALIDATION-CLOSEOUT`
 - A rejected task can leave later-started clients open if cleanup runs before
   started tasks settle. Mitigation: wait for started work to settle before
   closing tracked clients.
+- If the helper is forced to live physically inside `index.ts`, architecture
+  file-size gates fail again. Mitigation: keep remote MCP startup in the small
+  adapter-local sibling required by the canonical architecture gate after the
+  measured `index.ts` 761-line result exceeded the 720-line budget, and keep
+  generic concurrency/config out of scope.
 - Unbounded concurrency would move latency but create resource and egress spikes.
   Mitigation: fixed limit 4 and a five-server test proving the fifth waits.
 - The branch is stacked on Phase 0. After Phase 0 merges, rebase must preserve
