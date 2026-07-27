@@ -5,6 +5,9 @@ import { PostgresBrainDreamReviewRepository } from '@core/adapters/storage/postg
 import { executeBrainDreamReviewDecision } from '@core/brain/brain-dream-review-executor.js';
 import {
   computeDependentFingerprint,
+  hashPageContent,
+  hashEntityContent,
+  hashEdgeContent,
   type DependentEdgeReader,
   type DependentOp,
 } from '@core/brain/brain-dream-dependent-fingerprint.js';
@@ -54,21 +57,30 @@ maybeDescribe('brain dream review decision executor', () => {
 
   // Mirror intake: compute the dependent-set fingerprint from the current DB
   // state so a review created here carries the same drift binding production does.
+  const edgeContent = (edge: {
+    id: string;
+    type: string;
+    fromEntityId: string;
+    toEntityId: string;
+    evidencePageId: string;
+  }) => ({
+    id: edge.id,
+    type: edge.type,
+    fromEntityId: edge.fromEntityId,
+    toEntityId: edge.toEntityId,
+    evidencePageId: edge.evidencePageId,
+  });
   function fingerprintFor(op: DependentOp): Promise<string> {
     const reader: DependentEdgeReader = {
       edgesByEvidencePage: async (appId, pageId) =>
-        (await repository.graphForPages(appId, [pageId])).edges.map((edge) => ({
-          id: edge.id,
-          updatedAt: edge.updatedAt,
-        })),
+        (await repository.graphForPages(appId, [pageId])).edges.map(
+          edgeContent,
+        ),
       edgesTouchingEntities: async (appId, entityIds) => {
         const lists = await Promise.all(
           entityIds.map((id) => repository.listEdgesForEntity(appId, id)),
         );
-        return lists.flat().map((edge) => ({
-          id: edge.id,
-          updatedAt: edge.updatedAt,
-        }));
+        return lists.flat().map(edgeContent);
       },
     };
     return computeDependentFingerprint(reader, APP_ID, op);
@@ -118,7 +130,7 @@ maybeDescribe('brain dream review decision executor', () => {
         {
           targetKind: 'page',
           targetId: page.id,
-          expectedVersion: page.updatedAt,
+          expectedVersion: hashPageContent(page),
         },
       ],
     });
@@ -297,12 +309,13 @@ maybeDescribe('brain dream review decision executor', () => {
     expect(await reviewState(reviewId)).toBe('applied');
   });
 
-  it('DRIFT: a concurrent updated_at bump → stale, no mutation', async () => {
+  it('DRIFT: a content edit that PRESERVES updated_at → stale, no mutation', async () => {
     const page = await seedPage('drift-target', 'body');
     const reviewId = await createPageReview('delete_page', page);
-    // Simulate a concurrent write after the snapshot: bump updated_at.
+    // Concurrent edit to the page CONTENT, leaving updated_at unchanged — an
+    // updated_at-only drift check would MISS this; the content hash catches it.
     await runtime.service.pool.query(
-      `UPDATE ${runtime.schemaName}.brain_pages SET updated_at = '2030-01-01T00:00:00.000Z' WHERE id = $1`,
+      `UPDATE ${runtime.schemaName}.brain_pages SET markdown = 'edited body' WHERE id = $1`,
       [page.id],
     );
 
@@ -412,7 +425,7 @@ maybeDescribe('brain dream review decision executor', () => {
       {
         targetKind: 'edge',
         targetId: edge.id,
-        expectedVersion: edge.updatedAt,
+        expectedVersion: hashEdgeContent(edge),
       },
     ]);
 
@@ -438,7 +451,7 @@ maybeDescribe('brain dream review decision executor', () => {
         {
           targetKind: 'entity',
           targetId: victim.id,
-          expectedVersion: victim.updatedAt,
+          expectedVersion: hashEntityContent(victim),
         },
       ],
     );
@@ -478,12 +491,12 @@ maybeDescribe('brain dream review decision executor', () => {
         {
           targetKind: 'entity',
           targetId: source.id,
-          expectedVersion: source.updatedAt,
+          expectedVersion: hashEntityContent(source),
         },
         {
           targetKind: 'entity',
           targetId: target.id,
-          expectedVersion: target.updatedAt,
+          expectedVersion: hashEntityContent(target),
         },
       ],
     );
@@ -532,18 +545,18 @@ maybeDescribe('brain dream review decision executor', () => {
         {
           targetKind: 'entity',
           targetId: source.id,
-          expectedVersion: source.updatedAt,
+          expectedVersion: hashEntityContent(source),
         },
         {
           targetKind: 'entity',
           targetId: target.id,
-          expectedVersion: target.updatedAt,
+          expectedVersion: hashEntityContent(target),
         },
       ],
     );
-    // Concurrent write bumps the source entity after the snapshot.
+    // Concurrent edit to the source entity CONTENT, updated_at preserved.
     await runtime.service.pool.query(
-      `UPDATE ${runtime.schemaName}.brain_entities SET updated_at = '2030-01-01T00:00:00.000Z' WHERE id = $1`,
+      `UPDATE ${runtime.schemaName}.brain_entities SET name = 'DriftSourceEdited' WHERE id = $1`,
       [source.id],
     );
 
@@ -572,12 +585,12 @@ maybeDescribe('brain dream review decision executor', () => {
         {
           targetKind: 'entity',
           targetId: source.id,
-          expectedVersion: source.updatedAt,
+          expectedVersion: hashEntityContent(source),
         },
         {
           targetKind: 'entity',
           targetId: target.id,
-          expectedVersion: target.updatedAt,
+          expectedVersion: hashEntityContent(target),
         },
       ],
     );
@@ -608,12 +621,12 @@ maybeDescribe('brain dream review decision executor', () => {
         {
           targetKind: 'entity',
           targetId: source.id,
-          expectedVersion: source.updatedAt,
+          expectedVersion: hashEntityContent(source),
         },
         {
           targetKind: 'entity',
           targetId: target.id,
-          expectedVersion: target.updatedAt,
+          expectedVersion: hashEntityContent(target),
         },
       ],
     );
@@ -697,16 +710,32 @@ maybeDescribe('brain dream review decision executor', () => {
       'merge_entities',
       { sourceEntityId: a.id, targetEntityId: b.id },
       [
-        { targetKind: 'entity', targetId: a.id, expectedVersion: a.updatedAt },
-        { targetKind: 'entity', targetId: b.id, expectedVersion: b.updatedAt },
+        {
+          targetKind: 'entity',
+          targetId: a.id,
+          expectedVersion: hashEntityContent(a),
+        },
+        {
+          targetKind: 'entity',
+          targetId: b.id,
+          expectedVersion: hashEntityContent(b),
+        },
       ],
     );
     const merge2 = await createReview(
       'merge_entities',
       { sourceEntityId: c.id, targetEntityId: d.id },
       [
-        { targetKind: 'entity', targetId: c.id, expectedVersion: c.updatedAt },
-        { targetKind: 'entity', targetId: d.id, expectedVersion: d.updatedAt },
+        {
+          targetKind: 'entity',
+          targetId: c.id,
+          expectedVersion: hashEntityContent(c),
+        },
+        {
+          targetKind: 'entity',
+          targetId: d.id,
+          expectedVersion: hashEntityContent(d),
+        },
       ],
     );
 
@@ -742,10 +771,15 @@ maybeDescribe('brain dream review decision executor', () => {
     );
     return id;
   }
-  async function sqlBumpEdge(id: string): Promise<void> {
+  // Repoint an edge's endpoint, leaving updated_at UNCHANGED — content drift with
+  // a preserved timestamp, which only the content-hash fingerprint catches.
+  async function sqlRepointEdge(
+    id: string,
+    newToEntityId: string,
+  ): Promise<void> {
     await runtime.service.pool.query(
-      `UPDATE ${runtime.schemaName}.brain_edges SET updated_at = '2031-01-01T00:00:00.000Z' WHERE id = $1`,
-      [id],
+      `UPDATE ${runtime.schemaName}.brain_edges SET to_entity_id = $2 WHERE id = $1`,
+      [id, newToEntityId],
     );
   }
 
@@ -762,13 +796,14 @@ maybeDescribe('brain dream review decision executor', () => {
     expect(await reviewState(reviewId)).toBe('stale');
   });
 
-  it('delete_page: a MODIFIED dependent edge → stale, page untouched', async () => {
+  it('delete_page: a REPOINTED dependent edge (timestamp preserved) → stale', async () => {
     const page = await seedPage('dep-delpage-mod', 'body');
     const a = await seedEntity('dep-a2');
     const b = await seedEntity('dep-b2');
+    const c = await seedEntity('dep-c2');
     const edge = await seedEdge('mentions', a.id, b.id, page.id);
     const reviewId = await createPageReview('delete_page', page);
-    await sqlBumpEdge(edge.id); // same id, new updated_at
+    await sqlRepointEdge(edge.id, c.id); // a→b becomes a→c, updated_at preserved
     const result = await decide(reviewId, 'approve');
     expect(result).toMatchObject({ outcome: 'stale', mutated: false });
     expect(await repository.getPageById(APP_ID, page.id)).not.toBeNull();
@@ -803,7 +838,7 @@ maybeDescribe('brain dream review decision executor', () => {
         {
           targetKind: 'entity',
           targetId: victim.id,
-          expectedVersion: victim.updatedAt,
+          expectedVersion: hashEntityContent(victim),
         },
       ],
     );
@@ -813,9 +848,10 @@ maybeDescribe('brain dream review decision executor', () => {
     expect(await repository.getEntityById(APP_ID, victim.id)).not.toBeNull();
   });
 
-  it('delete_entity: a MODIFIED cascade edge → stale, entity untouched', async () => {
+  it('delete_entity: a REPOINTED cascade edge (timestamp preserved) → stale', async () => {
     const victim = await seedEntity('dep-victim-mod');
     const other = await seedEntity('dep-other-5');
+    const other2 = await seedEntity('dep-other2-5');
     const page = await seedPage('dep-delent-mod', 'body');
     const edge = await seedEdge('mentions', victim.id, other.id, page.id);
     const reviewId = await createReview(
@@ -825,11 +861,11 @@ maybeDescribe('brain dream review decision executor', () => {
         {
           targetKind: 'entity',
           targetId: victim.id,
-          expectedVersion: victim.updatedAt,
+          expectedVersion: hashEntityContent(victim),
         },
       ],
     );
-    await sqlBumpEdge(edge.id);
+    await sqlRepointEdge(edge.id, other2.id); // still touches victim; content changed
     const result = await decide(reviewId, 'approve');
     expect(result).toMatchObject({ outcome: 'stale', mutated: false });
     expect(await repository.getEntityById(APP_ID, victim.id)).not.toBeNull();
@@ -848,12 +884,12 @@ maybeDescribe('brain dream review decision executor', () => {
         {
           targetKind: 'entity',
           targetId: source.id,
-          expectedVersion: source.updatedAt,
+          expectedVersion: hashEntityContent(source),
         },
         {
           targetKind: 'entity',
           targetId: target.id,
-          expectedVersion: target.updatedAt,
+          expectedVersion: hashEntityContent(target),
         },
       ],
     );
@@ -864,10 +900,11 @@ maybeDescribe('brain dream review decision executor', () => {
     expect(await repository.getEntityById(APP_ID, target.id)).not.toBeNull();
   });
 
-  it('merge_entities: a MODIFIED source edge → stale, both intact', async () => {
+  it('merge_entities: a REPOINTED source edge (timestamp preserved) → stale', async () => {
     const source = await seedEntity('dep-src-mod');
     const target = await seedEntity('dep-tgt-mod');
     const bystander = await seedEntity('dep-by-7');
+    const bystander2 = await seedEntity('dep-by2-7');
     const page = await seedPage('dep-merge-mod', 'body');
     const edge = await seedEdge('mentions', source.id, bystander.id, page.id);
     const reviewId = await createReview(
@@ -877,16 +914,16 @@ maybeDescribe('brain dream review decision executor', () => {
         {
           targetKind: 'entity',
           targetId: source.id,
-          expectedVersion: source.updatedAt,
+          expectedVersion: hashEntityContent(source),
         },
         {
           targetKind: 'entity',
           targetId: target.id,
-          expectedVersion: target.updatedAt,
+          expectedVersion: hashEntityContent(target),
         },
       ],
     );
-    await sqlBumpEdge(edge.id);
+    await sqlRepointEdge(edge.id, bystander2.id); // still touches source; content changed
     const result = await decide(reviewId, 'approve');
     expect(result).toMatchObject({ outcome: 'stale', mutated: false });
     expect(await repository.getEntityById(APP_ID, source.id)).not.toBeNull();

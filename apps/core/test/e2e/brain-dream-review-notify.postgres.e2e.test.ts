@@ -373,9 +373,9 @@ maybeDescribe('brain dream review owner-DM notification (T6)', () => {
     });
     const reviewId = await intakeDeletePage(page, notify);
 
-    // Concurrent write after the snapshot: bump updated_at.
+    // Concurrent CONTENT edit after the snapshot (updated_at preserved).
     await runtime.service.pool.query(
-      `UPDATE ${runtime.schemaName}.brain_pages SET updated_at = '2030-01-01T00:00:00.000Z' WHERE id = $1`,
+      `UPDATE ${runtime.schemaName}.brain_pages SET markdown = 'edited' WHERE id = $1`,
       [page.id],
     );
 

@@ -6,7 +6,11 @@ import { applyBrainDreamOperations } from '@core/brain/brain-dreaming.js';
 import { BrainService } from '@core/brain/brain-service.js';
 import type { BrainEntity, BrainPage } from '@core/brain/brain-types.js';
 import { normalizeEntityName } from '@core/brain/brain-page-ingest.js';
-import { fingerprintDependentEdges } from '@core/brain/brain-dream-dependent-fingerprint.js';
+import {
+  fingerprintDependentEdges,
+  hashPageContent,
+  hashEntityContent,
+} from '@core/brain/brain-dream-dependent-fingerprint.js';
 
 import {
   createPostgresIntegrationRuntime,
@@ -115,7 +119,7 @@ maybeDescribe('brain dream destructive-op review intake', () => {
     return rows.rows;
   }
 
-  it('creates a review with one target (expected_version = updated_at) + frozen snapshot', async () => {
+  it('creates a review with one target (expected_version = content hash) + frozen snapshot', async () => {
     const summary = await run({ action: 'delete_page', page_id: delPage.id });
     expect(summary).toMatchObject({ proposed: 1, rejected: 0 });
 
@@ -136,7 +140,7 @@ maybeDescribe('brain dream destructive-op review intake', () => {
     expect(targets[0]).toMatchObject({
       target_kind: 'page',
       target_id: delPage.id,
-      expected_version: delPage.updatedAt,
+      expected_version: hashPageContent(delPage),
       open: true,
     });
 
@@ -205,7 +209,7 @@ maybeDescribe('brain dream destructive-op review intake', () => {
       new Set([entA.id, entB.id]),
     );
     expect(targets.map((t) => t.expected_version).sort()).toEqual(
-      [entA.updatedAt, entB.updatedAt].sort(),
+      [hashEntityContent(entA), hashEntityContent(entB)].sort(),
     );
   });
 
@@ -270,7 +274,15 @@ maybeDescribe('brain dream destructive-op review intake', () => {
     )!;
     const snap = review.reviewSnapshot as {
       dependentFingerprint: string;
-      dependents: { edges: Array<{ id: string; updatedAt: string }> };
+      dependents: {
+        edges: Array<{
+          id: string;
+          type: string;
+          fromEntityId: string;
+          toEntityId: string;
+          evidencePageId: string;
+        }>;
+      };
     };
     // The stored fingerprint is the hash of the EXACT edge records in the
     // snapshot's dependents — not a separate, possibly-drifted read.
@@ -279,7 +291,10 @@ maybeDescribe('brain dream destructive-op review intake', () => {
       fingerprintDependentEdges(
         snap.dependents.edges.map((e) => ({
           id: e.id,
-          updatedAt: e.updatedAt,
+          type: e.type,
+          fromEntityId: e.fromEntityId,
+          toEntityId: e.toEntityId,
+          evidencePageId: e.evidencePageId,
         })),
       ),
     );

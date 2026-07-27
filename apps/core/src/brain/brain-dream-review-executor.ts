@@ -6,6 +6,9 @@ import * as pgSchema from '../adapters/storage/postgres/schema/schema.js';
 import { nowIso } from '../shared/time/datetime.js';
 import {
   computeDependentFingerprint,
+  hashPageContent,
+  hashEntityContent,
+  hashEdgeContent,
   type DependentEdgeReader,
   type DependentOp,
 } from './brain-dream-dependent-fingerprint.js';
@@ -204,10 +207,17 @@ function executorDependentReader(tx: Tx): DependentEdgeReader {
   // Every locking query is ORDER BY id: a single, stable global lock order over
   // the union so no two concurrent approvals can acquire the shared rows in
   // opposite partial order (deadlock).
+  const edgeContentColumns = {
+    id: Edges.id,
+    type: Edges.type,
+    fromEntityId: Edges.fromEntityId,
+    toEntityId: Edges.toEntityId,
+    evidencePageId: Edges.evidencePageId,
+  };
   return {
     edgesByEvidencePage: async (appId, pageId) =>
       tx
-        .select({ id: Edges.id, updatedAt: Edges.updatedAt })
+        .select(edgeContentColumns)
         .from(Edges)
         .where(and(eq(Edges.appId, appId), eq(Edges.evidencePageId, pageId)))
         .orderBy(asc(Edges.id))
@@ -216,7 +226,7 @@ function executorDependentReader(tx: Tx): DependentEdgeReader {
       entityIds.length === 0
         ? []
         : tx
-            .select({ id: Edges.id, updatedAt: Edges.updatedAt })
+            .select(edgeContentColumns)
             .from(Edges)
             .where(
               and(
@@ -232,6 +242,10 @@ function executorDependentReader(tx: Tx): DependentEdgeReader {
   };
 }
 
+// Re-read the target row's drift-relevant CONTENT under lock and hash it the same
+// way intake did (content, not updated_at) → compare to target.expectedVersion.
+// A missing row returns null (→ stale). A content edit that preserved the
+// timestamp still changes the hash, so it is caught.
 async function lockAndReadVersion(
   tx: Tx,
   appId: string,
@@ -239,29 +253,43 @@ async function lockAndReadVersion(
 ): Promise<string | null> {
   if (target.targetKind === 'page') {
     const [row] = await tx
-      .select({ updatedAt: Pages.updatedAt })
+      .select({
+        title: Pages.title,
+        markdown: Pages.markdown,
+        slug: Pages.slug,
+        sourceKind: Pages.sourceKind,
+      })
       .from(Pages)
       .where(and(eq(Pages.appId, appId), eq(Pages.id, target.targetId)))
       .for('update')
       .limit(1);
-    return row?.updatedAt ?? null;
+    return row ? hashPageContent(row) : null;
   }
   if (target.targetKind === 'entity') {
     const [row] = await tx
-      .select({ updatedAt: Entities.updatedAt })
+      .select({
+        kind: Entities.kind,
+        name: Entities.name,
+        normalizedName: Entities.normalizedName,
+      })
       .from(Entities)
       .where(and(eq(Entities.appId, appId), eq(Entities.id, target.targetId)))
       .for('update')
       .limit(1);
-    return row?.updatedAt ?? null;
+    return row ? hashEntityContent(row) : null;
   }
   const [row] = await tx
-    .select({ updatedAt: Edges.updatedAt })
+    .select({
+      type: Edges.type,
+      fromEntityId: Edges.fromEntityId,
+      toEntityId: Edges.toEntityId,
+      evidencePageId: Edges.evidencePageId,
+    })
     .from(Edges)
     .where(and(eq(Edges.appId, appId), eq(Edges.id, target.targetId)))
     .for('update')
     .limit(1);
-  return row?.updatedAt ?? null;
+  return row ? hashEdgeContent(row) : null;
 }
 
 // Dispatch to the per-op mutation. Page ops are T3; graph ops are T4 and throw

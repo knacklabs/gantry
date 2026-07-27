@@ -11,6 +11,9 @@ import {
 } from './brain-dream-op-schema.js';
 import {
   fingerprintDependentEdges,
+  hashPageContent,
+  hashEntityContent,
+  hashEdgeContent,
   type DependentEdgeRow,
 } from './brain-dream-dependent-fingerprint.js';
 import type { BrainReviewNotifier } from './brain-dream-review-notify.js';
@@ -116,8 +119,9 @@ type ResolvedTargets =
 
 // Resolve the op's target row(s) from the store. A missing referenced
 // page/entity/edge is a validation failure (journaled rejected, never
-// surfaced). expected_version = the row's current updated_at (the locked drift
-// token — see plan). merge_entities yields TWO entity targets.
+// surfaced). expected_version = a HASH of the row's drift-relevant CONTENT (not
+// updated_at, which isn't a collision-proof revision), so a timestamp-preserving
+// edit still drifts. merge_entities yields TWO entity targets.
 async function resolveTargets(
   repository: BrainRepository,
   appId: string,
@@ -131,7 +135,7 @@ async function resolveTargets(
       return {
         ok: true,
         page,
-        targets: [target('page', page.id, page.updatedAt)],
+        targets: [target('page', page.id, hashPageContent(page))],
       };
     }
     case 'delete_entity': {
@@ -140,7 +144,7 @@ async function resolveTargets(
       return {
         ok: true,
         entity,
-        targets: [target('entity', entity.id, entity.updatedAt)],
+        targets: [target('entity', entity.id, hashEntityContent(entity))],
       };
     }
     case 'delete_edge': {
@@ -149,7 +153,7 @@ async function resolveTargets(
       return {
         ok: true,
         edge,
-        targets: [target('edge', edge.id, edge.updatedAt)],
+        targets: [target('edge', edge.id, hashEdgeContent(edge))],
       };
     }
     case 'merge_entities': {
@@ -168,8 +172,8 @@ async function resolveTargets(
         sourceEntity,
         targetEntity,
         targets: [
-          target('entity', sourceEntity.id, sourceEntity.updatedAt),
-          target('entity', targetEntity.id, targetEntity.updatedAt),
+          target('entity', sourceEntity.id, hashEntityContent(sourceEntity)),
+          target('entity', targetEntity.id, hashEntityContent(targetEntity)),
         ],
       };
     }
@@ -185,7 +189,10 @@ interface BuiltSnapshot {
 
 const edgeRow = (edge: BrainEdge): DependentEdgeRow => ({
   id: edge.id,
-  updatedAt: edge.updatedAt,
+  type: edge.type,
+  fromEntityId: edge.fromEntityId,
+  toEntityId: edge.toEntityId,
+  evidencePageId: edge.evidencePageId,
 });
 
 // Immutable human-review snapshot: before/after where applicable + the
