@@ -46,6 +46,9 @@ import {
 } from '../harness/postgres-integration-runtime.js';
 
 const maybeDescribe = hasPostgresIntegrationDatabase ? describe : describe.skip;
+const runtimeLease = {
+  tryAcquire: async () => ({ release: async () => {} }),
+};
 
 // Uses the seeded default app/agent (seeds.ts). A second configured agent
 // guards the (appId, agentId) scoping of durable rules: a regression to
@@ -129,6 +132,7 @@ maybeDescribe('permission durable authority chain (Postgres)', () => {
         opsRepository: runtime.ops,
         repositories: runtime.repositories,
         reloadRuntimeState: async () => {},
+        leases: runtimeLease,
       }),
     });
   }, 60_000);
