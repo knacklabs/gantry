@@ -77,7 +77,11 @@ export interface BrainDreamReviewClaimInput {
   to: BrainDreamReviewState;
   nowIso: string;
   decidedAt?: string | null;
+  // Full reviewer identity (P2 audit): user id alone can't identify the
+  // authorizing principal, since ids overlap across providers/accounts.
   reviewerUserId?: string | null;
+  reviewerConversationJid?: string | null;
+  reviewerProviderAccountId?: string | null;
   outcome?: string | null;
   error?: string | null;
 }

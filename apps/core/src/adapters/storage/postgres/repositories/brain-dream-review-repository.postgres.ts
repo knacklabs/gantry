@@ -130,6 +130,12 @@ export class PostgresBrainDreamReviewRepository implements BrainDreamReviewRepos
       if (input.reviewerUserId !== undefined) {
         set.reviewerUserId = input.reviewerUserId;
       }
+      if (input.reviewerConversationJid !== undefined) {
+        set.reviewerConversationJid = input.reviewerConversationJid;
+      }
+      if (input.reviewerProviderAccountId !== undefined) {
+        set.reviewerProviderAccountId = input.reviewerProviderAccountId;
+      }
       if (input.outcome !== undefined) set.outcome = input.outcome;
       if (input.error !== undefined) set.error = input.error;
       if (isTerminalBrainDreamReviewState(input.to)) {

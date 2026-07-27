@@ -18,6 +18,12 @@ export function registerRuntimeBrainDreamReviewMessageAction(
   channelWiring: ChannelWiring,
 ): void {
   const deps: BrainReviewMessageActionDeps = {
+    // Single-app by design, same as observer + memory review: the brain dream
+    // batch (runScheduledBrainDreaming), the T6 owner-DM notification, and this
+    // decision handler ALL key DEFAULT_MEMORY_APP_ID, so a review's creation
+    // scope always matches the handler's verification scope. If brain ever
+    // becomes multi-app, thread the runtime app id here (and into the batch) so
+    // they can't silently mismatch — the e2e asserts handler.appId == review.appId.
     appId: DEFAULT_MEMORY_APP_ID,
     resolveVerifiedOwner: () =>
       resolveVerifiedOwnerRoute(

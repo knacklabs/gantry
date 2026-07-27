@@ -53,11 +53,14 @@ export interface BrainDreamReviewDecisionResult {
 // Owner-decision executor for a destructive brain-dream review. The FIRST task
 // that mutates the brain, so every path is fail-closed:
 //  reject  → conditional pending_review→rejected, no mutation.
-//  approve → conditional pending_review→applying (at-most-once), then ONE tx:
-//            lock targets in stable order, re-read updated_at vs expected;
-//            any drift/missing → applying→stale, mutate nothing;
-//            else run the per-op executor + finalize applying→applied ALL in
-//            the same tx (all-or-nothing); executor throw → rollback + failed.
+//  approve → ONE transaction: lock the review row FOR UPDATE (at-most-once), then
+//            lock targets + re-read updated_at vs expected AND re-check the
+//            dependent-edge fingerprint; any drift/missing → stale, mutate
+//            nothing; else run the per-op executor inside a SAVEPOINT and finalize
+//            to applied — all in the same tx (all-or-nothing). A mutation error
+//            rolls back the savepoint (brain unchanged) and records `failed`
+//            durably in the SAME tx; a crash rolls the whole tx back to
+//            pending_review (re-clickable) — the review is never stranded.
 export async function executeBrainDreamReviewDecision(
   input: BrainDreamReviewDecisionInput,
 ): Promise<BrainDreamReviewDecisionResult> {
@@ -70,112 +73,125 @@ export async function executeBrainDreamReviewDecision(
       to: 'rejected',
       nowIso: stamp,
       decidedAt: stamp,
+      // Full reviewer identity (P2 audit): user id alone can't identify the
+      // principal since ids overlap across providers/accounts.
       reviewerUserId: input.reviewer.userId,
+      reviewerConversationJid: input.reviewer.conversationJid,
+      reviewerProviderAccountId: input.reviewer.providerAccountId,
       outcome: 'rejected by owner',
     });
     if (claim.claimed) return { outcome: 'rejected', mutated: false };
     return { ...(await currentState(input)), mutated: false };
   }
 
-  // APPROVE. Claim the review at-most-once; a lost claim never double-applies.
-  const claim = await input.reviews.claimBrainDreamReviewTransition({
-    appId: input.appId,
-    reviewId: input.reviewId,
-    from: 'pending_review',
-    to: 'applying',
-    nowIso: stamp,
-    reviewerUserId: input.reviewer.userId,
-  });
-  if (!claim.claimed) return { ...(await currentState(input)), mutated: false };
+  // APPROVE — one transaction. A genuine infra failure (connection loss, or a
+  // terminal-state write error) propagates: the whole tx rolls back to
+  // pending_review and the caller reports it as transient (buttons stay). Only
+  // the per-op MUTATION is caught (below) so `failed` can be recorded durably.
+  return input.db.transaction(async (tx) => {
+    // Lock the review row FOR UPDATE. This is the at-most-once gate: a second
+    // concurrent approve blocks here, then sees the terminal state the winner
+    // committed and returns without mutating.
+    const [review] = await tx
+      .select()
+      .from(Reviews)
+      .where(
+        and(eq(Reviews.appId, input.appId), eq(Reviews.id, input.reviewId)),
+      )
+      .for('update')
+      .limit(1);
+    if (!review) return { outcome: 'not_found' as const, mutated: false };
+    if (review.state !== 'pending_review') {
+      return {
+        outcome: review.state as BrainDreamReviewState,
+        mutated: false,
+      };
+    }
 
-  try {
-    return await input.db.transaction(async (tx) => {
-      const [review] = await tx
-        .select()
-        .from(Reviews)
-        .where(
-          and(eq(Reviews.appId, input.appId), eq(Reviews.id, input.reviewId)),
-        )
-        .limit(1);
-      if (!review) {
-        // Should not happen (we just claimed it) — treat as drift.
-        return { outcome: 'not_found' as const, mutated: false };
-      }
-      const targets = await tx
-        .select()
-        .from(Targets)
-        .where(eq(Targets.reviewId, input.reviewId));
+    const targets = await tx
+      .select()
+      .from(Targets)
+      .where(eq(Targets.reviewId, input.reviewId));
 
-      // Lock every target row in a STABLE order (kind, id) and re-read its
-      // current updated_at. Any mismatch or missing row → fail closed to stale.
-      const ordered = [...targets].sort(
-        (a, b) =>
-          a.targetKind.localeCompare(b.targetKind) ||
-          a.targetId.localeCompare(b.targetId),
-      );
-      for (const target of ordered) {
-        const current = await lockAndReadVersion(tx, input.appId, target);
-        if (current === null || current !== target.expectedVersion) {
-          await finalizeInTx(tx, input.reviewId, 'stale', {
-            nowIso: stamp,
-            outcome: `stale: ${target.targetKind} ${target.targetId} drifted`,
-          });
-          return {
-            outcome: 'stale' as const,
-            mutated: false,
-            reason: `${target.targetKind} ${target.targetId} changed since review`,
-          };
-        }
-      }
-
-      // Root rows validated. Now bind the approval to the exact DEPENDENT edge
-      // set the owner saw (P1): re-read it under lock and compare to the snapshot
-      // fingerprint. Any added/removed/repointed/re-versioned edge → fail closed.
-      const storedFingerprint = (
-        review.reviewSnapshotJson as { dependentFingerprint?: unknown }
-      )?.dependentFingerprint;
-      const currentFingerprint = await computeDependentFingerprint(
-        executorDependentReader(tx),
-        input.appId,
-        review.canonicalOpJson as DependentOp,
-      );
-      if (storedFingerprint !== currentFingerprint) {
-        await finalizeInTx(tx, input.reviewId, 'stale', {
+    // Lock every target row in a STABLE order (kind, id) and re-read its
+    // current updated_at. Any mismatch or missing row → fail closed to stale.
+    const ordered = [...targets].sort(
+      (a, b) =>
+        a.targetKind.localeCompare(b.targetKind) ||
+        a.targetId.localeCompare(b.targetId),
+    );
+    for (const target of ordered) {
+      const current = await lockAndReadVersion(tx, input.appId, target);
+      if (current === null || current !== target.expectedVersion) {
+        await setTerminalInTx(tx, input.reviewId, 'stale', {
           nowIso: stamp,
-          outcome: 'stale: dependent set drifted since review',
+          outcome: `stale: ${target.targetKind} ${target.targetId} drifted`,
+          reviewer: input.reviewer,
         });
         return {
           outcome: 'stale' as const,
           mutated: false,
-          reason: 'dependent set changed since review',
+          reason: `${target.targetKind} ${target.targetId} changed since review`,
         };
       }
+    }
 
-      // All targets + dependents validated → mutate in this same transaction.
-      await runOpExecutor(tx, input.appId, review, stamp);
-      input.testFaultAfterMutation?.();
-      await finalizeInTx(tx, input.reviewId, 'applied', {
+    // Root rows validated. Now bind the approval to the exact DEPENDENT edge set
+    // the owner saw (P1): re-read it under lock and compare to the snapshot
+    // fingerprint. Any added/removed/repointed/re-versioned edge → fail closed.
+    const storedFingerprint = (
+      review.reviewSnapshotJson as { dependentFingerprint?: unknown }
+    )?.dependentFingerprint;
+    const currentFingerprint = await computeDependentFingerprint(
+      executorDependentReader(tx),
+      input.appId,
+      review.canonicalOpJson as DependentOp,
+    );
+    if (storedFingerprint !== currentFingerprint) {
+      await setTerminalInTx(tx, input.reviewId, 'stale', {
         nowIso: stamp,
-        outcome: 'applied',
+        outcome: 'stale: dependent set drifted since review',
+        reviewer: input.reviewer,
       });
-      return { outcome: 'applied' as const, mutated: true };
-    });
-  } catch (error) {
-    // The mutation rolled back with the transaction; record the failure out of
-    // band so the durable state reflects it (review stays out of pending).
-    const message = error instanceof Error ? error.message : String(error);
-    await input.reviews.claimBrainDreamReviewTransition({
-      appId: input.appId,
-      reviewId: input.reviewId,
-      from: 'applying',
-      to: 'failed',
+      return {
+        outcome: 'stale' as const,
+        mutated: false,
+        reason: 'dependent set changed since review',
+      };
+    }
+
+    // All targets + dependents validated → mutate inside a SAVEPOINT so a per-op
+    // error rolls back ONLY the mutation (brain unchanged) while this tx stays
+    // open to record `failed` durably.
+    let mutationError: string | null = null;
+    try {
+      await tx.transaction(async (sp) => {
+        await runOpExecutor(sp, input.appId, review, stamp);
+        input.testFaultAfterMutation?.();
+      });
+    } catch (error) {
+      mutationError = error instanceof Error ? error.message : String(error);
+    }
+    if (mutationError !== null) {
+      await setTerminalInTx(tx, input.reviewId, 'failed', {
+        nowIso: stamp,
+        outcome: 'failed',
+        error: mutationError,
+        reviewer: input.reviewer,
+      });
+      return {
+        outcome: 'failed' as const,
+        mutated: false,
+        reason: mutationError,
+      };
+    }
+    await setTerminalInTx(tx, input.reviewId, 'applied', {
       nowIso: stamp,
-      decidedAt: stamp,
-      outcome: 'failed',
-      error: message,
+      outcome: 'applied',
+      reviewer: input.reviewer,
     });
-    return { outcome: 'failed', mutated: false, reason: message };
-  }
+    return { outcome: 'applied' as const, mutated: true };
+  });
 }
 
 type TargetRow = typeof Targets.$inferSelect;
@@ -433,16 +449,36 @@ async function mergeEntities(
     .where(and(eq(Entities.appId, appId), eq(Entities.id, source)));
 }
 
-async function finalizeInTx(
+// Write the terminal state + FULL reviewer identity + close open targets, all in
+// the caller's tx. Safe to write unconditionally by id: the caller holds the
+// review row FOR UPDATE and has verified it was pending_review.
+async function setTerminalInTx(
   tx: Tx,
   reviewId: string,
-  to: 'applied' | 'stale',
-  fields: { nowIso: string; outcome: string },
+  to: 'applied' | 'stale' | 'failed',
+  fields: {
+    nowIso: string;
+    outcome: string;
+    error?: string;
+    reviewer: {
+      userId: string;
+      conversationJid: string;
+      providerAccountId: string;
+    };
+  },
 ): Promise<void> {
   await tx
     .update(Reviews)
-    .set({ state: to, decidedAt: fields.nowIso, outcome: fields.outcome })
-    .where(and(eq(Reviews.id, reviewId), eq(Reviews.state, 'applying')));
+    .set({
+      state: to,
+      decidedAt: fields.nowIso,
+      outcome: fields.outcome,
+      error: fields.error ?? null,
+      reviewerUserId: fields.reviewer.userId,
+      reviewerConversationJid: fields.reviewer.conversationJid,
+      reviewerProviderAccountId: fields.reviewer.providerAccountId,
+    })
+    .where(eq(Reviews.id, reviewId));
   await tx
     .update(Targets)
     .set({ open: false })

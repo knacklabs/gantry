@@ -623,6 +623,59 @@ maybeDescribe('brain dream review decision executor', () => {
     expect(await reviewState(reviewId)).toBe('applied');
   });
 
+  async function reviewerRow(reviewId: string) {
+    const rows = await runtime.service.pool.query<{
+      reviewer_user_id: string | null;
+      reviewer_conversation_jid: string | null;
+      reviewer_provider_account_id: string | null;
+    }>(
+      `SELECT reviewer_user_id, reviewer_conversation_jid, reviewer_provider_account_id
+       FROM ${runtime.schemaName}.brain_dream_reviews WHERE id = $1`,
+      [reviewId],
+    );
+    return rows.rows[0]!;
+  }
+
+  it('approve persists the COMPLETE reviewer identity (P2 audit)', async () => {
+    const page = await seedPage('reviewer-approve', 'body');
+    const reviewId = await createPageReview('delete_page', page);
+    await decide(reviewId, 'approve');
+    expect(await reviewerRow(reviewId)).toEqual({
+      reviewer_user_id: REVIEWER.userId,
+      reviewer_conversation_jid: REVIEWER.conversationJid,
+      reviewer_provider_account_id: REVIEWER.providerAccountId,
+    });
+  });
+
+  it('reject persists the COMPLETE reviewer identity (P2 audit)', async () => {
+    const page = await seedPage('reviewer-reject', 'body');
+    const reviewId = await createPageReview('delete_page', page);
+    await decide(reviewId, 'reject');
+    expect(await reviewerRow(reviewId)).toEqual({
+      reviewer_user_id: REVIEWER.userId,
+      reviewer_conversation_jid: REVIEWER.conversationJid,
+      reviewer_provider_account_id: REVIEWER.providerAccountId,
+    });
+  });
+
+  it('a faulted approve is terminal (failed), never stranded in applying', async () => {
+    const page = await seedPage('no-strand', 'body');
+    const reviewId = await createPageReview('delete_page', page);
+    const result = await decide(reviewId, 'approve', () => {
+      throw new Error('boom');
+    });
+    expect(result.outcome).toBe('failed');
+    // Terminal, NOT 'applying' — the single-txn design can't strand it.
+    expect(await reviewState(reviewId)).toBe('failed');
+    // Reviewer recorded even on failure (audit trail).
+    expect((await reviewerRow(reviewId)).reviewer_user_id).toBe(
+      REVIEWER.userId,
+    );
+    // Mutation rolled back (page intact); a re-decide never re-mutates.
+    expect(await repository.getPageById(APP_ID, page.id)).not.toBeNull();
+    expect((await decide(reviewId, 'approve')).mutated).toBe(false);
+  });
+
   // ---- Dependent-set drift (P1). Each mutates a DEPENDENT edge WITHOUT bumping
   // the root row's updated_at, so only the dependent fingerprint can catch it. ----
 
