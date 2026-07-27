@@ -475,6 +475,53 @@ maybeDescribe('brain dream review decision executor', () => {
     expect(await edgeRow(edge.id)).not.toBeNull(); // edge intact
   });
 
+  it('delete_edge endpoint read is FOR UPDATE: a concurrent rename is serialized → stale', async () => {
+    const page = await seedPage('edge-lock-evidence', 'body');
+    const from = await seedEntity('LockFrom');
+    const to = await seedEntity('LockTo');
+    const edge = await seedEdge('mentions', from.id, to.id, page.id);
+    const reviewId = await createReview('delete_edge', { edgeId: edge.id }, [
+      {
+        targetKind: 'edge',
+        targetId: edge.id,
+        expectedVersion: hashEdgeTargetContent(edge, from, to),
+      },
+    ]);
+
+    // Hold a FOR UPDATE lock on the FROM endpoint in a separate txn.
+    const holder = await runtime.service.pool.connect();
+    let result: Awaited<ReturnType<typeof decide>> | undefined;
+    try {
+      await holder.query('BEGIN');
+      await holder.query(
+        `SELECT id FROM ${runtime.schemaName}.brain_entities WHERE id = $1 FOR UPDATE`,
+        [from.id],
+      );
+      // The approve must BLOCK on the endpoint lock (proving the endpoint read is
+      // FOR UPDATE); it cannot settle while the holder keeps the row locked.
+      let settled = false;
+      const decidePromise = decide(reviewId, 'approve').then((r) => {
+        settled = true;
+        return r;
+      });
+      await new Promise((res) => setTimeout(res, 400));
+      expect(settled).toBe(false);
+
+      // Rename under the held lock, then release: the approve's lock is granted
+      // AFTER the rename committed → its post-lock hash differs → stale.
+      await holder.query(
+        `UPDATE ${runtime.schemaName}.brain_entities SET name = 'RenamedUnderLock' WHERE id = $1`,
+        [from.id],
+      );
+      await holder.query('COMMIT');
+      result = await decidePromise;
+    } finally {
+      holder.release();
+    }
+    expect(result).toMatchObject({ outcome: 'stale', mutated: false });
+    expect(await edgeRow(edge.id)).not.toBeNull();
+  });
+
   it('approve delete_entity → entity + inbound/outbound edges cascade, applied', async () => {
     const page = await seedPage('entity-evidence', 'body');
     const victim = await seedEntity('Victim');

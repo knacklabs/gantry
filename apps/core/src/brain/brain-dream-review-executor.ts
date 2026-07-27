@@ -332,26 +332,36 @@ async function lockAndReadVersion(
     .limit(1);
   if (!row) return null;
   // The delete_edge target hash folds in the endpoint entities' identity (the
-  // card's by-name authorization context) — re-read them so a rename since the
-  // snapshot drifts to stale.
-  const [from, to] = await Promise.all([
-    readEntityIdentity(tx, appId, row.fromEntityId),
-    readEntityIdentity(tx, appId, row.toEntityId),
-  ]);
-  return hashEdgeTargetContent(row, from, to);
-}
-
-async function readEntityIdentity(
-  tx: Tx,
-  appId: string,
-  entityId: string,
-): Promise<{ name: string; normalizedName: string } | null> {
-  const [row] = await tx
-    .select({ name: Entities.name, normalizedName: Entities.normalizedName })
+  // card's by-name authorization context), so those rows are part of the drift
+  // gate and must be LOCKED too — an ordinary read lets a concurrent rename
+  // commit right after it while the edge lock is held. Lock both endpoints
+  // FOR UPDATE in ONE query ordered by id (deterministic global order — two
+  // concurrent delete_edge approvals sharing an endpoint acquire it in the same
+  // order, no deadlock) and hash from the POST-LOCK values. A rename committed
+  // before the lock → hash differs → stale; one attempted after → blocks until
+  // this delete commits. A missing endpoint → null (edge cascade-deletes → stale).
+  const endpointIds = [...new Set([row.fromEntityId, row.toEntityId])];
+  const locked = await tx
+    .select({
+      id: Entities.id,
+      name: Entities.name,
+      normalizedName: Entities.normalizedName,
+    })
     .from(Entities)
-    .where(and(eq(Entities.appId, appId), eq(Entities.id, entityId)))
-    .limit(1);
-  return row ?? null;
+    .where(and(eq(Entities.appId, appId), inArray(Entities.id, endpointIds)))
+    .orderBy(asc(Entities.id))
+    .for('update');
+  const byId = new Map(
+    locked.map((e) => [
+      e.id,
+      { name: e.name, normalizedName: e.normalizedName },
+    ]),
+  );
+  return hashEdgeTargetContent(
+    row,
+    byId.get(row.fromEntityId) ?? null,
+    byId.get(row.toEntityId) ?? null,
+  );
 }
 
 // Dispatch to the per-op mutation. Page ops are T3; graph ops are T4 and throw
