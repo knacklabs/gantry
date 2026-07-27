@@ -127,11 +127,7 @@ describe('resolveGroupAgentAccessContext', () => {
     ]);
     expect(
       context.semanticCapabilities.map((capability) => capability.capabilityId),
-    ).toEqual([
-      'analytics.query',
-      'crm.records.read',
-      'skill.release.publish',
-    ]);
+    ).toEqual(['analytics.query', 'crm.records.read', 'skill.release.publish']);
     expect(context.capabilityCatalog.readyActions).toEqual([
       expect.objectContaining({
         kind: 'reviewed_capability',
@@ -290,7 +286,10 @@ function mcpServer(input: {
     createdSource: 'admin',
     riskClass: 'medium',
     transport: 'http',
-    config: { transport: 'http', url: `https://${input.name}.example.test/mcp` },
+    config: {
+      transport: 'http',
+      url: `https://${input.name}.example.test/mcp`,
+    },
     allowedToolPatterns: ['*'],
     autoApproveToolPatterns: [],
     credentialRefs: [],
