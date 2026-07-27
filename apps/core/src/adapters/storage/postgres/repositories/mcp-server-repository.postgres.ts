@@ -1,6 +1,9 @@
-import { and, asc, desc, eq, inArray, lt } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, lt, sql } from 'drizzle-orm';
 
-import type { McpServerRepository } from '../../../../domain/ports/repositories.js';
+import type {
+  AgentMcpAccessSnapshot,
+  McpServerRepository,
+} from '../../../../domain/ports/repositories.js';
 import type {
   AgentMcpServerBinding,
   MaterializedMcpServer,
@@ -29,6 +32,49 @@ function parseJsonRecord(
   return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
     ? (parsed as Record<string, unknown>)
     : {};
+}
+
+function jsonArray(value: unknown): Array<Record<string, unknown>> {
+  if (Array.isArray(value)) return value as Array<Record<string, unknown>>;
+  if (typeof value !== 'string') return [];
+  const parsed = JSON.parse(value);
+  return Array.isArray(parsed)
+    ? (parsed as Array<Record<string, unknown>>)
+    : [];
+}
+
+function fromDbJson(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  const row = value as Record<string, unknown>;
+  return {
+    id: row.id,
+    appId: row.app_id,
+    agentId: row.agent_id,
+    serverId: row.server_id,
+    status: row.status,
+    required: row.required,
+    permissionPolicyIdsJson: row.permission_policy_ids_json,
+    allowedToolPatternsJson: row.allowed_tool_patterns_json,
+    conversationId: row.conversation_id,
+    threadId: row.thread_id,
+    name: row.name,
+    displayName: row.display_name,
+    description: row.description,
+    createdSource: row.created_source,
+    riskClass: row.risk_class,
+    requestedBy: row.requested_by,
+    requestedReason: row.requested_reason,
+    transport: row.transport,
+    configJson: row.config_json,
+    autoApproveToolPatternsJson: row.auto_approve_tool_patterns_json,
+    credentialRefsJson: row.credential_refs_json,
+    networkHostsJson: row.network_hosts_json,
+    sandboxProfileId: row.sandbox_profile_id,
+    disabledBy: row.disabled_by,
+    disabledAt: row.disabled_at,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
 }
 
 export class PostgresMcpServerRepository implements McpServerRepository {
@@ -231,6 +277,60 @@ export class PostgresMcpServerRepository implements McpServerRepository {
     cursor?: string;
   }): Promise<AgentMcpServerBinding[]> {
     return this.listAgentBindingRows(input);
+  }
+
+  async listAgentMcpAccessSnapshot(input: {
+    appId: AgentMcpServerBinding['appId'];
+    agentId: AgentMcpServerBinding['agentId'];
+  }): Promise<AgentMcpAccessSnapshot> {
+    const result = await this.db.execute<{
+      active_bindings: unknown;
+      materialized_servers: unknown;
+    }>(sql`
+      SELECT
+        (
+          SELECT COALESCE(jsonb_agg(jsonb_build_object(
+            'binding', to_jsonb(b),
+            'definition', CASE WHEN s.id IS NULL THEN NULL ELSE to_jsonb(s) END
+          ) ORDER BY b.created_at DESC), '[]'::jsonb)
+          FROM agent_mcp_server_bindings b
+          LEFT JOIN mcp_servers s
+            ON s.id = b.server_id
+           AND s.app_id = ${input.appId}
+          WHERE b.app_id = ${input.appId}
+            AND b.agent_id = ${input.agentId}
+            AND b.status = 'active'
+        ) AS active_bindings,
+        (
+          SELECT COALESCE(jsonb_agg(jsonb_build_object(
+            'binding', to_jsonb(b),
+            'definition', to_jsonb(s)
+          ) ORDER BY s.name), '[]'::jsonb)
+          FROM agent_mcp_server_bindings b
+          INNER JOIN mcp_servers s
+            ON s.id = b.server_id
+          WHERE b.app_id = ${input.appId}
+            AND b.agent_id = ${input.agentId}
+            AND b.status = 'active'
+            AND s.app_id = ${input.appId}
+            AND s.status = 'active'
+        ) AS materialized_servers
+    `);
+    const row = result.rows[0];
+    return {
+      activeBindings: jsonArray(row?.active_bindings).map((entry) => ({
+        binding: this.mapBinding(fromDbJson(entry.binding) as never),
+        definition: entry.definition
+          ? this.mapServer(fromDbJson(entry.definition) as never)
+          : null,
+      })),
+      materializedServers: jsonArray(row?.materialized_servers).map(
+        (entry) => ({
+          binding: this.mapBinding(fromDbJson(entry.binding) as never),
+          definition: this.mapServer(fromDbJson(entry.definition) as never),
+        }),
+      ),
+    };
   }
 
   async listAgentBindingsForAgents(input: {

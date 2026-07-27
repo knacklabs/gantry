@@ -94,6 +94,25 @@ class MemoryMcpRepository implements McpServerRepository {
     );
   }
 
+  async listAgentMcpAccessSnapshot(input: { appId: string; agentId: string }) {
+    const activeBindings = (await this.listAgentBindings(input)).filter(
+      (binding) => binding.status === 'active',
+    );
+    const rows = activeBindings.map((binding) => ({
+      binding,
+      definition: this.servers.get(binding.serverId) ?? null,
+    }));
+    return {
+      activeBindings: rows,
+      materializedServers: rows.flatMap((row) =>
+        row.definition?.appId === input.appId &&
+        row.definition.status === 'active'
+          ? [{ binding: row.binding, definition: row.definition }]
+          : [],
+      ),
+    };
+  }
+
   async listAgentBindingsForAgents(input: {
     appId: string;
     agentIds: readonly string[];

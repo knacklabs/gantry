@@ -1,6 +1,9 @@
-import { and, asc, eq, inArray, type SQL } from 'drizzle-orm';
+import { and, asc, eq, inArray, sql, type SQL } from 'drizzle-orm';
 
-import type { ToolCatalogRepository } from '../../../../domain/ports/repositories.js';
+import type {
+  AgentToolAccessSnapshot,
+  ToolCatalogRepository,
+} from '../../../../domain/ports/repositories.js';
 import type {
   AgentToolBinding,
   AgentToolSource,
@@ -22,6 +25,44 @@ function parseJson<T>(value: unknown, fallback: T): T {
     if (!(err instanceof SyntaxError)) throw err;
     return fallback;
   }
+}
+
+function jsonArray(value: unknown): Array<Record<string, unknown>> {
+  if (Array.isArray(value)) return value as Array<Record<string, unknown>>;
+  if (typeof value !== 'string') return [];
+  const parsed = JSON.parse(value);
+  return Array.isArray(parsed)
+    ? (parsed as Array<Record<string, unknown>>)
+    : [];
+}
+
+function fromDbJson(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  const row = value as Record<string, unknown>;
+  return {
+    id: row.id,
+    appId: row.app_id,
+    agentId: row.agent_id,
+    toolId: row.tool_id,
+    configVersionId: row.config_version_id,
+    name: row.name,
+    kind: row.kind,
+    provider: row.provider,
+    providerToolName: row.provider_tool_name,
+    displayName: row.display_name,
+    description: row.description,
+    category: row.category,
+    inputSchemaJson: row.input_schema_json,
+    outputSchemaJson: row.output_schema_json,
+    risk: row.risk,
+    selectable: row.selectable,
+    status: row.status,
+    permissionPolicyId: row.permission_policy_id,
+    sandboxProfileId: row.sandbox_profile_id,
+    adapterRef: row.adapter_ref,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
 }
 
 export class PostgresToolCatalogRepository implements ToolCatalogRepository {
@@ -123,6 +164,51 @@ export class PostgresToolCatalogRepository implements ToolCatalogRepository {
     agentId: AgentToolBinding['agentId'];
   }): Promise<AgentToolBinding[]> {
     return this.listAgentToolBindingRows(input);
+  }
+
+  async listAgentToolAccessSnapshot(input: {
+    appId: AgentToolBinding['appId'];
+    agentId: AgentToolBinding['agentId'];
+  }): Promise<AgentToolAccessSnapshot> {
+    const result = await retryPostgresRead('agent_tool_access.snapshot', () =>
+      this.db.execute<{
+        active_bindings: unknown;
+        app_active_definitions: unknown;
+      }>(sql`
+        SELECT
+          (
+            SELECT COALESCE(jsonb_agg(jsonb_build_object(
+              'binding', to_jsonb(b),
+              'definition', CASE WHEN t.id IS NULL THEN NULL ELSE to_jsonb(t) END
+            ) ORDER BY b.created_at), '[]'::jsonb)
+            FROM agent_tool_bindings b
+            LEFT JOIN tool_catalog t
+              ON t.id = b.tool_id
+             AND t.app_id = ${input.appId}
+            WHERE b.app_id = ${input.appId}
+              AND b.agent_id = ${input.agentId}
+              AND b.status = 'active'
+          ) AS active_bindings,
+          (
+            SELECT COALESCE(jsonb_agg(to_jsonb(t) ORDER BY t.display_name), '[]'::jsonb)
+            FROM tool_catalog t
+            WHERE t.app_id = ${input.appId}
+              AND t.status = 'active'
+          ) AS app_active_definitions
+      `),
+    );
+    const row = result.rows[0];
+    return {
+      activeBindings: jsonArray(row?.active_bindings).map((entry) => ({
+        binding: this.mapBinding(fromDbJson(entry.binding) as never),
+        definition: entry.definition
+          ? this.mapTool(fromDbJson(entry.definition) as never)
+          : null,
+      })),
+      appActiveDefinitions: jsonArray(row?.app_active_definitions).map((tool) =>
+        this.mapTool(fromDbJson(tool) as never),
+      ),
+    };
   }
 
   async listAgentToolBindingsForAgents(input: {

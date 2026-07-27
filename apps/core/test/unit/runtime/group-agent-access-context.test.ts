@@ -160,8 +160,31 @@ describe('resolveGroupAgentAccessContext', () => {
         capabilityCatalogDigest: context.capabilityCatalog.digest,
       }),
     );
+    expect(Object.isFrozen(context.accessSnapshot?.skills)).toBe(true);
+    expect(
+      Object.isFrozen(
+        context.accessSnapshot?.skills.enabledDefinitions[0]?.promptRefs,
+      ),
+    ).toBe(true);
+    expect(
+      Object.isFrozen(
+        context.accessSnapshot?.mcp.materializedServers[0]?.definition.config,
+      ),
+    ).toBe(true);
+    expect(() => {
+      (
+        context.accessSnapshot!.skills.enabledDefinitions[0]!
+          .promptRefs as string[]
+      ).push('MUTATED.md');
+    }).toThrow();
 
     expect({
+      listAgentToolAccessSnapshot:
+        toolRepository.listAgentToolAccessSnapshot.mock.calls.length,
+      listAgentSkillAccessSnapshot:
+        skillRepository.listAgentSkillAccessSnapshot.mock.calls.length,
+      listAgentMcpAccessSnapshot:
+        mcpRepository.listAgentMcpAccessSnapshot.mock.calls.length,
       listAgentToolBindings:
         toolRepository.listAgentToolBindings.mock.calls.length,
       getTool: toolRepository.getTool.mock.calls.length,
@@ -174,6 +197,9 @@ describe('resolveGroupAgentAccessContext', () => {
       listAgentBindings: mcpRepository.listAgentBindings.mock.calls.length,
       getServer: mcpRepository.getServer.mock.calls.length,
     }).toEqual({
+      listAgentToolAccessSnapshot: 1,
+      listAgentSkillAccessSnapshot: 1,
+      listAgentMcpAccessSnapshot: 1,
       listAgentToolBindings: 0,
       getTool: 0,
       listTools: 0,
@@ -304,6 +330,23 @@ function toolRepositoryFixture(input: {
   broadTools: Array<ReturnType<typeof tool>>;
 }): ToolCatalogRepository {
   return {
+    listAgentToolAccessSnapshot: vi.fn(async () => ({
+      activeBindings: [
+        {
+          binding: {
+            id: 'agent-tool-binding:crm',
+            appId: APP_ID,
+            agentId: AGENT_ID,
+            toolId: input.selectedTool.id,
+            status: 'active',
+            createdAt: NOW,
+            updatedAt: NOW,
+          },
+          definition: input.selectedTool,
+        },
+      ],
+      appActiveDefinitions: [input.selectedTool, ...input.broadTools],
+    })),
     listAgentToolBindings: vi.fn(async () => [
       {
         id: 'agent-tool-binding:crm',
@@ -327,6 +370,23 @@ function skillRepositoryFixture(input: {
 }): SkillCatalogRepository {
   const skills = new Map(input.skills.map((item) => [item.id, item]));
   return {
+    listAgentSkillAccessSnapshot: vi.fn(async () => ({
+      activeBindings: input.skills.map((item) => ({
+        binding: {
+          id: `agent-skill-binding:${item.id}`,
+          appId: APP_ID,
+          agentId: AGENT_ID,
+          skillId: item.id,
+          status: 'active',
+          createdAt: NOW,
+          updatedAt: NOW,
+        },
+        definition: item,
+      })),
+      enabledDefinitions: input.skills.filter(
+        (item) => item.status === 'installed',
+      ),
+    })),
     listAgentSkillBindings: vi.fn(async () =>
       input.skills.map((item) => ({
         id: `agent-skill-binding:${item.id}`,
@@ -350,6 +410,40 @@ function mcpRepositoryFixture(input: {
 }): McpServerRepository {
   const servers = new Map(input.servers.map((server) => [server.id, server]));
   return {
+    listAgentMcpAccessSnapshot: vi.fn(async () => ({
+      activeBindings: input.servers.map((server) => ({
+        binding: {
+          id: `agent-mcp-binding:${server.id}`,
+          appId: APP_ID,
+          agentId: AGENT_ID,
+          serverId: server.id,
+          status: 'active',
+          required: false,
+          permissionPolicyIds: [],
+          allowedToolPatterns: [],
+          createdAt: NOW,
+          updatedAt: NOW,
+        },
+        definition: server,
+      })),
+      materializedServers: input.servers
+        .filter((server) => server.status === 'active')
+        .map((server) => ({
+          binding: {
+            id: `agent-mcp-binding:${server.id}`,
+            appId: APP_ID,
+            agentId: AGENT_ID,
+            serverId: server.id,
+            status: 'active',
+            required: false,
+            permissionPolicyIds: [],
+            allowedToolPatterns: [],
+            createdAt: NOW,
+            updatedAt: NOW,
+          },
+          definition: server,
+        })),
+    })),
     listAgentBindings: vi.fn(async () =>
       input.servers.map((server) => ({
         id: `agent-mcp-binding:${server.id}`,

@@ -2,6 +2,8 @@ import type {
   SkillCatalogRepository,
   ToolCatalogRepository,
 } from '../../domain/ports/repositories.js';
+import type { SkillCatalogItem } from '../../domain/skills/skills.js';
+import type { ToolCatalogItem } from '../../domain/tools/tools.js';
 import { skillActionSource } from '../../domain/skills/skill-action-permissions.js';
 import { isGantryMcpWildcardRule } from '../../shared/admin-mcp-tools.js';
 import {
@@ -41,6 +43,14 @@ export interface AgentToolRuntimePolicy {
 export interface ReviewedMcpReadBinding {
   capabilityId: string;
   toolPattern: string;
+}
+
+export interface AgentToolRuntimePolicySnapshotInput {
+  appId: string;
+  errorSubject: string;
+  selectedToolDefinitionsByBinding: readonly (ToolCatalogItem | null)[];
+  activeSkillDefinitions?: readonly SkillCatalogItem[];
+  makeError?: (message: string) => Error;
 }
 
 export function reviewedMcpReadBindingsForRuntimeAccess(input: {
@@ -92,10 +102,34 @@ export async function resolveAgentToolRuntimePolicy(
   const tools = await Promise.all(
     activeBindings.map((binding) => input.repository.getTool(binding.toolId)),
   );
-  const activeSkillActionKeys = await activeSkillActionProjectionKeys(input);
+  return projectAgentToolRuntimePolicy({
+    appId: input.appId,
+    errorSubject: input.errorSubject,
+    selectedToolDefinitionsByBinding: tools,
+    activeSkillDefinitions: await activeSkillActionDefinitions(input),
+    makeError: input.makeError,
+  });
+}
+
+export function resolveAgentToolRuntimePolicyFromSnapshot(
+  input: AgentToolRuntimePolicySnapshotInput,
+): AgentToolRuntimePolicy {
+  return projectAgentToolRuntimePolicy(input);
+}
+
+function projectAgentToolRuntimePolicy(input: {
+  appId: string;
+  errorSubject: string;
+  selectedToolDefinitionsByBinding: readonly (ToolCatalogItem | null)[];
+  activeSkillDefinitions?: readonly SkillCatalogItem[];
+  makeError?: (message: string) => Error;
+}): AgentToolRuntimePolicy {
+  const activeSkillActionKeys = input.activeSkillDefinitions
+    ? activeSkillActionProjectionKeysFromSkills(input.activeSkillDefinitions)
+    : undefined;
   const runtimeAccess: CapabilityRuntimeAccess[] = [];
   const semanticCapabilities: SemanticCapabilityDefinition[] = [];
-  const rules = tools.flatMap((tool) => {
+  const rules = input.selectedToolDefinitionsByBinding.flatMap((tool) => {
     if (tool?.appId && tool.appId !== input.appId) return [];
     const name = tool?.name?.trim();
     const capability = semanticCapabilityFromToolCatalogItem({
@@ -338,17 +372,22 @@ function stringList(values: readonly string[] | undefined): string[] {
   return [...out];
 }
 
-async function activeSkillActionProjectionKeys(
+async function activeSkillActionDefinitions(
   input: AgentToolRuntimeRuleResolutionInput,
-): Promise<Set<string> | undefined> {
+): Promise<SkillCatalogItem[] | undefined> {
   if (!input.skillRepository) return undefined;
   if (!('listEnabledSkillsForAgent' in input.skillRepository)) {
     return undefined;
   }
-  const skills = await input.skillRepository.listEnabledSkillsForAgent({
+  return input.skillRepository.listEnabledSkillsForAgent({
     appId: input.appId as never,
     agentId: input.agentId as never,
   });
+}
+
+function activeSkillActionProjectionKeysFromSkills(
+  skills: readonly SkillCatalogItem[],
+): Set<string> {
   return new Set(
     skills.flatMap((skill) =>
       (skill.actionPermissions ?? []).map((action) =>

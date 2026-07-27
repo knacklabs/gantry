@@ -1,6 +1,7 @@
 import type { NewMessage, ConversationRoute } from '../domain/types.js';
 import type { RuntimeAgentSessionRepository } from '../domain/repositories/ops-repo.js';
 import type { SkillArtifactStore } from '../domain/ports/skill-artifact-store.js';
+import type { SkillCatalogItem } from '../domain/skills/skills.js';
 import { selectedSkillDisplay } from '../domain/skills/skill-identity.js';
 import type {
   CapabilitySecretRepository,
@@ -509,7 +510,11 @@ export async function buildApprovedSkillContextBlock(input: {
     appId: string;
     agentId: string;
   };
+  enabledSkills?: readonly SkillCatalogItem[];
 }): Promise<string> {
+  if (input.enabledSkills) {
+    return buildApprovedSkillContextBlockFromSkills(input.enabledSkills);
+  }
   if (!input.skillRepository || !input.turnContext) {
     return '';
   }
@@ -517,6 +522,12 @@ export async function buildApprovedSkillContextBlock(input: {
     appId: input.turnContext.appId as never,
     agentId: input.turnContext.agentId as never,
   });
+  return buildApprovedSkillContextBlockFromSkills(skills);
+}
+
+export function buildApprovedSkillContextBlockFromSkills(
+  skills: readonly SkillCatalogItem[],
+): string {
   if (skills.length === 0) return '';
   const sections: string[] = [
     '[[INSTALLED_SKILLS_AVAILABLE_THIS_SESSION]]',

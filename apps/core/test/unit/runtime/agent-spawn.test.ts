@@ -549,6 +549,18 @@ class SpawnMcpRepository implements McpServerRepository {
     return [];
   }
 
+  async listAgentMcpAccessSnapshot(input: { appId: AppId; agentId: AgentId }) {
+    const materializedServers =
+      await this.listMaterializedServersForAgent(input);
+    return {
+      activeBindings: materializedServers.map((record) => ({
+        binding: record.binding,
+        definition: record.definition,
+      })),
+      materializedServers,
+    };
+  }
+
   async listMaterializedServersForAgent(input: {
     appId: AppId;
     agentId: AgentId;
