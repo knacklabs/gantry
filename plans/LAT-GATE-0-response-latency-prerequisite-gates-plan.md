@@ -189,7 +189,7 @@ Cleanup search terms for the implementer:
 
 - `docs/decisions/0064-client-signoff.md` records the original accepted
   LAT-GATE-0 signoff for three fixture repairs.
-- `docs/decisions/0066-client-signoff.md` records the accepted revised signoff
+- `docs/decisions/0067-client-signoff.md` records the accepted revised signoff
   for the narrowed two-fixture plan and Linux/CI-parity hermetic E2E gate.
 
 ## Task Decomposition
@@ -242,7 +242,7 @@ Before implementation:
 - `/opt/homebrew/bin/python3 .agents/scripts/forge.py decision list --active`
 - Re-resolve every cited symbol with `rg`/file reads.
 - Confirm Forge is back to planning and contradiction signal `S-0001-8d39` is
-  resolved by accepted `docs/decisions/0066-client-signoff.md` before
+  resolved by accepted `docs/decisions/0067-client-signoff.md` before
   implementation proceeds.
 
 During implementation:
