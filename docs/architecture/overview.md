@@ -3,14 +3,16 @@
 Top-down map for new contributors. Subsystem details live in the docs linked
 from each section; this file is the index that ties them together.
 
-If you only read one architecture doc, read this one first, then jump to the
-subsystem doc that matches your task.
+For the current source-audited system map, start with
+[Codebase Guide](../CODEBASE_GUIDE.md). This page then provides the deeper
+contributor-oriented architecture index.
 
 ## 1. Context
 
 Gantry is a single Node.js process that hosts agents around a provider-neutral
-and channel-neutral capability system. Humans reach it through Slack, Telegram,
-Teams, or web/API surfaces. Backend apps reach it through `@gantry/sdk`.
+and channel-neutral capability system. Humans reach it through Slack, Discord,
+Telegram, or web/API surfaces. Microsoft Teams is currently a setup/discovery
+placeholder without production message transport. Backend apps reach it through `@gantry/sdk`.
 External systems reach it through signed `/v1/ingresses/:id/invoke` calls.
 Postgres holds all durable state. Gantry Model Gateway brokers model credentials.
 
@@ -19,7 +21,8 @@ flowchart LR
   subgraph Humans
     SL[Slack]
     TG[Telegram]
-    TE[Teams]
+    DC[Discord]
+    TE[Teams<br/>setup/discovery only]
     WB[Web/SDK Conversations]
   end
   subgraph "External systems"
@@ -44,7 +47,7 @@ flowchart LR
 
   SL --> ORCH
   TG --> ORCH
-  TE --> ORCH
+  DC --> ORCH
   WB --> CTRL
   SDK --> CTRL
   EXT --> CTRL
