@@ -1,0 +1,288 @@
+import { and, eq } from 'drizzle-orm';
+
+import { PostgresBrainRepository } from '../adapters/storage/postgres/repositories/brain-repository.postgres.js';
+import type { CanonicalDb } from '../adapters/storage/postgres/repositories/canonical-graph-repository.postgres.js';
+import * as pgSchema from '../adapters/storage/postgres/schema/schema.js';
+import { nowIso } from '../shared/time/datetime.js';
+import { parseBrainMarkdown } from './brain-page-ingest.js';
+import type {
+  BrainDreamReviewRepository,
+  BrainDreamReviewState,
+} from './brain-dream-review-repository.js';
+import { replaceBrainPageGraph } from './brain-service.js';
+
+const Reviews = pgSchema.brainDreamReviewsPostgres;
+const Targets = pgSchema.brainDreamReviewTargetsPostgres;
+const Pages = pgSchema.brainPagesPostgres;
+const Entities = pgSchema.brainEntitiesPostgres;
+const Edges = pgSchema.brainEdgesPostgres;
+
+export interface BrainDreamReviewDecisionInput {
+  db: CanonicalDb;
+  reviews: BrainDreamReviewRepository;
+  appId: string;
+  reviewId: string;
+  decision: 'approve' | 'reject';
+  reviewer: {
+    userId: string;
+    conversationJid: string;
+    providerAccountId: string;
+  };
+  nowIso?: string;
+  // Test-only fault seam: called INSIDE the apply transaction, right after the
+  // per-op mutation and before the terminal transition, to prove all-or-nothing
+  // rollback. Undefined in production.
+  // ponytail: test hook, not a production knob.
+  testFaultAfterMutation?: () => void;
+}
+
+export interface BrainDreamReviewDecisionResult {
+  // The review's resulting (or already-recorded) state.
+  outcome: BrainDreamReviewState | 'not_found';
+  // True only when this call performed the brain mutation.
+  mutated: boolean;
+  reason?: string;
+}
+
+// Owner-decision executor for a destructive brain-dream review. The FIRST task
+// that mutates the brain, so every path is fail-closed:
+//  reject  → conditional pending_review→rejected, no mutation.
+//  approve → conditional pending_review→applying (at-most-once), then ONE tx:
+//            lock targets in stable order, re-read updated_at vs expected;
+//            any drift/missing → applying→stale, mutate nothing;
+//            else run the per-op executor + finalize applying→applied ALL in
+//            the same tx (all-or-nothing); executor throw → rollback + failed.
+export async function executeBrainDreamReviewDecision(
+  input: BrainDreamReviewDecisionInput,
+): Promise<BrainDreamReviewDecisionResult> {
+  const stamp = input.nowIso ?? nowIso();
+  if (input.decision === 'reject') {
+    const claim = await input.reviews.claimBrainDreamReviewTransition({
+      reviewId: input.reviewId,
+      from: 'pending_review',
+      to: 'rejected',
+      nowIso: stamp,
+      decidedAt: stamp,
+      reviewerUserId: input.reviewer.userId,
+      outcome: 'rejected by owner',
+    });
+    if (claim.claimed) return { outcome: 'rejected', mutated: false };
+    return { ...(await currentState(input)), mutated: false };
+  }
+
+  // APPROVE. Claim the review at-most-once; a lost claim never double-applies.
+  const claim = await input.reviews.claimBrainDreamReviewTransition({
+    reviewId: input.reviewId,
+    from: 'pending_review',
+    to: 'applying',
+    nowIso: stamp,
+    reviewerUserId: input.reviewer.userId,
+  });
+  if (!claim.claimed) return { ...(await currentState(input)), mutated: false };
+
+  try {
+    return await input.db.transaction(async (tx) => {
+      const [review] = await tx
+        .select()
+        .from(Reviews)
+        .where(
+          and(eq(Reviews.appId, input.appId), eq(Reviews.id, input.reviewId)),
+        )
+        .limit(1);
+      if (!review) {
+        // Should not happen (we just claimed it) — treat as drift.
+        return { outcome: 'not_found' as const, mutated: false };
+      }
+      const targets = await tx
+        .select()
+        .from(Targets)
+        .where(eq(Targets.reviewId, input.reviewId));
+
+      // Lock every target row in a STABLE order (kind, id) and re-read its
+      // current updated_at. Any mismatch or missing row → fail closed to stale.
+      const ordered = [...targets].sort(
+        (a, b) =>
+          a.targetKind.localeCompare(b.targetKind) ||
+          a.targetId.localeCompare(b.targetId),
+      );
+      for (const target of ordered) {
+        const current = await lockAndReadVersion(tx, input.appId, target);
+        if (current === null || current !== target.expectedVersion) {
+          await finalizeInTx(tx, input.reviewId, 'stale', {
+            nowIso: stamp,
+            outcome: `stale: ${target.targetKind} ${target.targetId} drifted`,
+          });
+          return {
+            outcome: 'stale' as const,
+            mutated: false,
+            reason: `${target.targetKind} ${target.targetId} changed since review`,
+          };
+        }
+      }
+
+      // All targets validated → mutate in this same transaction.
+      await runOpExecutor(tx, input.appId, review);
+      input.testFaultAfterMutation?.();
+      await finalizeInTx(tx, input.reviewId, 'applied', {
+        nowIso: stamp,
+        outcome: 'applied',
+      });
+      return { outcome: 'applied' as const, mutated: true };
+    });
+  } catch (error) {
+    // The mutation rolled back with the transaction; record the failure out of
+    // band so the durable state reflects it (review stays out of pending).
+    const message = error instanceof Error ? error.message : String(error);
+    await input.reviews.claimBrainDreamReviewTransition({
+      reviewId: input.reviewId,
+      from: 'applying',
+      to: 'failed',
+      nowIso: stamp,
+      decidedAt: stamp,
+      outcome: 'failed',
+      error: message,
+    });
+    return { outcome: 'failed', mutated: false, reason: message };
+  }
+}
+
+type TargetRow = typeof Targets.$inferSelect;
+type Tx = Parameters<Parameters<CanonicalDb['transaction']>[0]>[0];
+
+async function lockAndReadVersion(
+  tx: Tx,
+  appId: string,
+  target: TargetRow,
+): Promise<string | null> {
+  if (target.targetKind === 'page') {
+    const [row] = await tx
+      .select({ updatedAt: Pages.updatedAt })
+      .from(Pages)
+      .where(and(eq(Pages.appId, appId), eq(Pages.id, target.targetId)))
+      .for('update')
+      .limit(1);
+    return row?.updatedAt ?? null;
+  }
+  if (target.targetKind === 'entity') {
+    const [row] = await tx
+      .select({ updatedAt: Entities.updatedAt })
+      .from(Entities)
+      .where(and(eq(Entities.appId, appId), eq(Entities.id, target.targetId)))
+      .for('update')
+      .limit(1);
+    return row?.updatedAt ?? null;
+  }
+  const [row] = await tx
+    .select({ updatedAt: Edges.updatedAt })
+    .from(Edges)
+    .where(and(eq(Edges.appId, appId), eq(Edges.id, target.targetId)))
+    .for('update')
+    .limit(1);
+  return row?.updatedAt ?? null;
+}
+
+// Dispatch to the per-op mutation. Page ops are T3; graph ops are T4 and throw
+// here (→ failed, never a silent no-op). retire_page is deferred and must never
+// reach the executor (intake defers it) — throw if it somehow does.
+async function runOpExecutor(
+  tx: Tx,
+  appId: string,
+  review: typeof Reviews.$inferSelect,
+): Promise<void> {
+  const op = review.canonicalOpJson as { action?: string };
+  const action = op?.action;
+  const repo = new PostgresBrainRepository(tx as unknown as CanonicalDb);
+  switch (action) {
+    case 'rewrite_page':
+      return rewritePage(repo, appId, op as RewritePageOp);
+    case 'delete_page':
+      return deletePage(tx, appId, op as DeletePageOp);
+    case 'delete_edge':
+    case 'delete_entity':
+    case 'merge_entities':
+      throw new Error(`${action} executor not implemented (T4)`);
+    case 'retire_page':
+      throw new Error('retire_page unsupported in v1');
+    default:
+      throw new Error(`unknown destructive op: ${String(action)}`);
+  }
+}
+
+interface RewritePageOp {
+  pageId: string;
+  title: string | null;
+  markdown: string;
+}
+interface DeletePageOp {
+  pageId: string;
+}
+
+async function rewritePage(
+  repo: PostgresBrainRepository,
+  appId: string,
+  op: RewritePageOp,
+): Promise<void> {
+  const existing = await repo.getPageById(appId, op.pageId);
+  if (!existing) throw new Error(`rewrite_page target missing: ${op.pageId}`);
+  // Overwrite content VERBATIM (T2 preserved markdown byte-for-byte). The repo
+  // stores markdown as-is; upsert by (appId, slug) updates this same row and
+  // bumps updated_at.
+  await repo.upsertPage({
+    appId,
+    slug: existing.slug,
+    title: op.title ?? existing.title,
+    markdown: op.markdown,
+    sourceKind: existing.sourceKind,
+    sourceRef: existing.sourceRef,
+    authorId: existing.authorId,
+    metadata: existing.metadata,
+  });
+  // Re-derive edges from the new content, exactly as BrainService.write does.
+  await replaceBrainPageGraph(
+    repo,
+    appId,
+    existing.id,
+    parseBrainMarkdown(op.markdown),
+  );
+}
+
+async function deletePage(
+  tx: Tx,
+  appId: string,
+  op: DeletePageOp,
+): Promise<void> {
+  // Evidence edges (evidence_page_id) and page embeddings (page_id) are FK
+  // ON DELETE cascade, so deleting the page row removes them in the same tx.
+  await tx
+    .delete(Pages)
+    .where(and(eq(Pages.appId, appId), eq(Pages.id, op.pageId)));
+}
+
+async function finalizeInTx(
+  tx: Tx,
+  reviewId: string,
+  to: 'applied' | 'stale',
+  fields: { nowIso: string; outcome: string },
+): Promise<void> {
+  await tx
+    .update(Reviews)
+    .set({ state: to, decidedAt: fields.nowIso, outcome: fields.outcome })
+    .where(and(eq(Reviews.id, reviewId), eq(Reviews.state, 'applying')));
+  await tx
+    .update(Targets)
+    .set({ open: false })
+    .where(and(eq(Targets.reviewId, reviewId), eq(Targets.open, true)));
+}
+
+async function currentState(input: {
+  db: CanonicalDb;
+  appId: string;
+  reviewId: string;
+}): Promise<{ outcome: BrainDreamReviewState | 'not_found' }> {
+  const [row] = await input.db
+    .select({ state: Reviews.state })
+    .from(Reviews)
+    .where(and(eq(Reviews.appId, input.appId), eq(Reviews.id, input.reviewId)))
+    .limit(1);
+  return { outcome: (row?.state as BrainDreamReviewState) ?? 'not_found' };
+}
