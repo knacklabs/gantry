@@ -212,8 +212,16 @@ describe('SettingsRevisionListener', () => {
     expect(onFirstRevisionApplied).not.toHaveBeenCalled();
   });
 
-  it('keeps the applied revision when the first-revision hook throws', async () => {
+  it('retries a failed first-revision hook before marking settings loaded', async () => {
     applied.length = 0;
+    const failure = new Error('held service failed to start');
+    const deferredStarts: string[] = [];
+    const onFirstRevisionApplied = vi
+      .fn()
+      .mockRejectedValueOnce(failure)
+      .mockImplementationOnce(async () => {
+        deferredStarts.push('started');
+      });
     const warn = vi.fn();
     const listener = new SettingsRevisionListener({
       appId: 'default' as never,
@@ -225,21 +233,24 @@ describe('SettingsRevisionListener', () => {
       wakeupSource: new FakeWakeupSource(),
       reloadRuntimeState: async () => {},
       readerVersion: 1,
-      onFirstRevisionApplied: () => {
-        throw new Error('held service failed to start');
-      },
+      onFirstRevisionApplied,
       logWarn: warn,
       setIntervalFn: (() => 0 as never) as typeof setInterval,
       clearIntervalFn: (() => {}) as typeof clearInterval,
     });
 
-    const result = await listener.applyLatest();
+    listener.wake();
 
-    expect(result).toEqual({ result: 'applied', revision: 1 });
+    await vi.waitFor(() => expect(listener.getAppliedRevision()).toBe(1));
+    expect(onFirstRevisionApplied).toHaveBeenCalledTimes(2);
+    expect(deferredStarts).toEqual(['started']);
+    expect(importSettings).toHaveBeenCalledTimes(2);
+    expect(loadState.markSettingsNotLoaded).toHaveBeenCalledOnce();
+    expect(loadState.markSettingsLoaded).toHaveBeenCalledOnce();
     expect(listener.getAppliedRevision()).toBe(1);
     expect(warn).toHaveBeenCalledWith(
-      expect.objectContaining({ revision: 1 }),
-      expect.stringContaining('First-revision start hook failed'),
+      { err: failure },
+      'Settings revision apply failed',
     );
   });
 

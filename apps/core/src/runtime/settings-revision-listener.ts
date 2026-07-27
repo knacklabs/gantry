@@ -42,11 +42,11 @@ export interface SettingsRevisionListenerDeps {
   readerVersion?: number;
   onSkewAlert?: (alert: SettingsRevisionSkewAlert) => void;
   /**
-   * Invoked exactly once, after the FIRST revision is applied by this listener.
-   * Fleet boot uses it to release services held while no desired state existed
+   * Invoked for the FIRST revision until it succeeds, then never again. Fleet
+   * boot uses it to release services held while no desired state existed
    * (scheduler job claiming, capability subsystems). Never fired on skew-hold.
-   * Errors are logged, not thrown — a failed deferred start must not poison
-   * the applied revision.
+   * A failed deferred start keeps the revision pending so the listener retries
+   * the callback before marking settings loaded.
    */
   onFirstRevisionApplied?: (
     settings: EffectiveControlRuntimeSettings,
@@ -222,18 +222,11 @@ export class SettingsRevisionListener {
       settings,
     );
     const previousRevision = this.appliedRevision;
+    if (previousRevision === 0) {
+      await this.deps.onFirstRevisionApplied?.(settings);
+    }
     this.appliedRevision = revision.revision;
     markSettingsLoaded();
-    if (previousRevision === 0) {
-      try {
-        await this.deps.onFirstRevisionApplied?.(settings);
-      } catch (err) {
-        this.deps.logWarn?.(
-          { err, revision: revision.revision },
-          'First-revision start hook failed; held services may need a restart',
-        );
-      }
-    }
     this.deps.logInfo?.(
       { appId: revision.appId, revision: revision.revision },
       'Applied settings revision',
