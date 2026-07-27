@@ -84,6 +84,56 @@ describe('sanitizeRetryTailProviderPayload observerDigestView passthrough', () =
     expect(actions).toEqual(['resolve', 'dismiss', 'snooze', 'less_like_this']);
   });
 
+  it('drops affordances whose insightId or localDay does not match their container', () => {
+    const view = wellFormedView();
+    const out = sanitizeRetryTailProviderPayload({
+      observerDigestView: {
+        ...view,
+        insights: [
+          {
+            ...view.insights[0],
+            affordances: [
+              // Foreign insightId: click would settle a DIFFERENT insight.
+              {
+                kind: 'observer_feedback',
+                label: 'Resolve',
+                insightId: 'i-2',
+                action: 'resolve',
+                localDay: '2026-07-25',
+              },
+              // Foreign localDay: click would settle a different digest day.
+              {
+                kind: 'observer_feedback',
+                label: 'Dismiss',
+                insightId: 'i-1',
+                action: 'dismiss',
+                localDay: '2026-07-26',
+              },
+              // Correctly bound: survives.
+              {
+                kind: 'observer_feedback',
+                label: 'Snooze',
+                insightId: 'i-1',
+                action: 'snooze',
+                localDay: '2026-07-25',
+              },
+            ],
+          },
+        ],
+      },
+    });
+    const survived = out?.observerDigestView?.insights[0].affordances;
+    expect(survived).toEqual([
+      {
+        kind: 'observer_feedback',
+        label: 'Snooze',
+        insightId: 'i-1',
+        action: 'snooze',
+        localDay: '2026-07-25',
+      },
+    ]);
+  });
+
   it('drops the whole view when localDay is missing (fail safe to text-only)', () => {
     const view = wellFormedView();
     const { localDay: _drop, ...noDay } = view;

@@ -188,7 +188,7 @@ function readObserverDigestView(
   if (recipient) view.recipient = recipient;
   if (Array.isArray(source.insights)) {
     for (const entry of source.insights) {
-      const insight = readObserverDigestInsight(entry);
+      const insight = readObserverDigestInsight(entry, localDay);
       if (!insight) continue;
       view.insights.push(insight);
       if (view.insights.length >= MAX_DIGEST_INSIGHTS) break;
@@ -199,6 +199,7 @@ function readObserverDigestView(
 
 function readObserverDigestInsight(
   value: unknown,
+  viewLocalDay: string,
 ): SanitizedObserverDigestInsight | undefined {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     return undefined;
@@ -222,7 +223,11 @@ function readObserverDigestInsight(
   if (stateMarker) insight.stateMarker = stateMarker;
   if (Array.isArray(source.affordances)) {
     for (const entry of source.affordances) {
-      const affordance = readObserverFeedbackAffordance(entry);
+      const affordance = readObserverFeedbackAffordance(
+        entry,
+        insightId,
+        viewLocalDay,
+      );
       if (!affordance) continue;
       insight.affordances.push(affordance);
       if (insight.affordances.length >= MAX_DIGEST_AFFORDANCES) break;
@@ -233,6 +238,8 @@ function readObserverDigestInsight(
 
 function readObserverFeedbackAffordance(
   value: unknown,
+  parentInsightId: string,
+  viewLocalDay: string,
 ): SanitizedObserverFeedbackAffordance | undefined {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     return undefined;
@@ -248,7 +255,13 @@ function readObserverFeedbackAffordance(
     !insightId ||
     !action ||
     !localDay ||
-    !OBSERVER_FEEDBACK_ACTIONS.has(action)
+    !OBSERVER_FEEDBACK_ACTIONS.has(action) ||
+    // A button drives a callback that mutates (insightId, localDay). Bind it to
+    // its container so a corrupted payload can't render a button beside insight
+    // A whose click settles insight B (or a different digest day). Mismatch
+    // drops just this affordance — fail safe, never throw.
+    insightId !== parentInsightId ||
+    localDay !== viewLocalDay
   ) {
     return undefined;
   }
