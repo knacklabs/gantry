@@ -1,4 +1,4 @@
-import { and, eq } from 'drizzle-orm';
+import { and, eq, ne, or } from 'drizzle-orm';
 
 import { PostgresBrainRepository } from '../adapters/storage/postgres/repositories/brain-repository.postgres.js';
 import type { CanonicalDb } from '../adapters/storage/postgres/repositories/canonical-graph-repository.postgres.js';
@@ -124,7 +124,7 @@ export async function executeBrainDreamReviewDecision(
       }
 
       // All targets validated → mutate in this same transaction.
-      await runOpExecutor(tx, input.appId, review);
+      await runOpExecutor(tx, input.appId, review, stamp);
       input.testFaultAfterMutation?.();
       await finalizeInTx(tx, input.reviewId, 'applied', {
         nowIso: stamp,
@@ -192,6 +192,7 @@ async function runOpExecutor(
   tx: Tx,
   appId: string,
   review: typeof Reviews.$inferSelect,
+  nowIso: string,
 ): Promise<void> {
   const op = review.canonicalOpJson as { action?: string };
   const action = op?.action;
@@ -202,9 +203,11 @@ async function runOpExecutor(
     case 'delete_page':
       return deletePage(tx, appId, op as DeletePageOp);
     case 'delete_edge':
+      return deleteEdge(tx, appId, op as DeleteEdgeOp);
     case 'delete_entity':
+      return deleteEntity(tx, appId, op as DeleteEntityOp);
     case 'merge_entities':
-      throw new Error(`${action} executor not implemented (T4)`);
+      return mergeEntities(tx, appId, op as MergeEntitiesOp, nowIso);
     case 'retire_page':
       throw new Error('retire_page unsupported in v1');
     default:
@@ -219,6 +222,16 @@ interface RewritePageOp {
 }
 interface DeletePageOp {
   pageId: string;
+}
+interface DeleteEdgeOp {
+  edgeId: string;
+}
+interface DeleteEntityOp {
+  entityId: string;
+}
+interface MergeEntitiesOp {
+  sourceEntityId: string;
+  targetEntityId: string;
 }
 
 async function rewritePage(
@@ -268,6 +281,100 @@ async function deletePage(
   await tx
     .delete(Pages)
     .where(and(eq(Pages.appId, appId), eq(Pages.id, op.pageId)));
+}
+
+// Edges are graph leaves — nothing FK-references an edge — so deleting the row
+// orphans nothing. Endpoints (entities) + evidence page are untouched.
+async function deleteEdge(
+  tx: Tx,
+  appId: string,
+  op: DeleteEdgeOp,
+): Promise<void> {
+  await tx
+    .delete(Edges)
+    .where(and(eq(Edges.appId, appId), eq(Edges.id, op.edgeId)));
+}
+
+// brain_edges.from_entity_id AND to_entity_id both FK ON DELETE cascade, so
+// deleting the entity removes its inbound + outbound edges in the same tx.
+async function deleteEntity(
+  tx: Tx,
+  appId: string,
+  op: DeleteEntityOp,
+): Promise<void> {
+  await tx
+    .delete(Entities)
+    .where(and(eq(Entities.appId, appId), eq(Entities.id, op.entityId)));
+}
+
+// Merge source → target. Both entities are already locked + drift-validated by
+// the caller (they are the review's two targets), so a missing/changed endpoint
+// fails closed to stale before we get here. Edges are repointed off a FRESH read
+// under lock (the snapshot's mergeDelta is display-only). Edge uniqueness key is
+// (app_id, type, from_entity_id, to_entity_id, evidence_page_id).
+async function mergeEntities(
+  tx: Tx,
+  appId: string,
+  op: MergeEntitiesOp,
+  nowIso: string,
+): Promise<void> {
+  const { sourceEntityId: source, targetEntityId: target } = op;
+  const sourceEdges = await tx
+    .select()
+    .from(Edges)
+    .where(
+      and(
+        eq(Edges.appId, appId),
+        or(eq(Edges.fromEntityId, source), eq(Edges.toEntityId, source)),
+      ),
+    )
+    .for('update');
+  // Deterministic order so duplicate resolution is stable.
+  for (const edge of [...sourceEdges].sort((a, b) =>
+    a.id.localeCompare(b.id),
+  )) {
+    const from = edge.fromEntityId === source ? target : edge.fromEntityId;
+    const to = edge.toEntityId === source ? target : edge.toEntityId;
+    // Self-loop (source→target etc. collapses to target→target): drop it. The
+    // schema has no self-edge CHECK, but a merge must not manufacture one.
+    if (from === to) {
+      await tx.delete(Edges).where(eq(Edges.id, edge.id));
+      continue;
+    }
+    // Duplicate: repointing would collide with an existing edge on the unique
+    // key (incl. one repointed earlier in this loop, visible in-tx). Drop the
+    // redundant repointed edge rather than violate the unique index.
+    const [dup] = await tx
+      .select({ id: Edges.id })
+      .from(Edges)
+      .where(
+        and(
+          eq(Edges.appId, appId),
+          eq(Edges.type, edge.type),
+          eq(Edges.fromEntityId, from),
+          eq(Edges.toEntityId, to),
+          eq(Edges.evidencePageId, edge.evidencePageId),
+          ne(Edges.id, edge.id),
+        ),
+      )
+      .limit(1);
+    if (dup) {
+      await tx.delete(Edges).where(eq(Edges.id, edge.id));
+      continue;
+    }
+    await tx
+      .update(Edges)
+      .set({ fromEntityId: from, toEntityId: to, updatedAt: nowIso })
+      .where(eq(Edges.id, edge.id));
+  }
+  // Bump the surviving target so its graph change is visible to later drift.
+  await tx
+    .update(Entities)
+    .set({ updatedAt: nowIso })
+    .where(and(eq(Entities.appId, appId), eq(Entities.id, target)));
+  await tx
+    .delete(Entities)
+    .where(and(eq(Entities.appId, appId), eq(Entities.id, source)));
 }
 
 async function finalizeInTx(
