@@ -215,6 +215,7 @@ export class SettingsRevisionListener {
         ops: this.deps.ops,
         repositories: this.deps.repositories,
         appId: this.deps.appId,
+        projectionAuthority: 'revision',
         reloadRuntimeState: this.deps.reloadRuntimeState,
       },
       settings,

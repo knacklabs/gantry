@@ -198,6 +198,7 @@ export async function prepareFleetSettings(input: {
         ops: storage.ops,
         repositories: storage.repositories,
         appId: input.appId,
+        projectionAuthority: 'revision',
         reloadRuntimeState: () => input.app.loadState(),
       },
       settings,

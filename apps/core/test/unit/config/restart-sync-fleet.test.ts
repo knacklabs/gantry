@@ -51,10 +51,10 @@ function mockProjectionSync(
   };
 }
 
-function mockDesiredStateApply(rollbackSettings?: unknown) {
+function mockDesiredStateApply(onDiskSettings?: unknown) {
   const reconcile = vi.fn();
   const loadRuntimeSettingsFromPath = vi.fn(() => {
-    if (rollbackSettings !== undefined) return rollbackSettings;
+    if (onDiskSettings !== undefined) return onDiskSettings;
     throw Object.assign(new Error('settings.yaml missing'), { code: 'ENOENT' });
   });
   const saveRuntimeSettings = vi.fn();
@@ -481,10 +481,11 @@ describe('syncRuntimeSettingsFromProjection fleet mode', () => {
     expect(mocks.activateRuntimeModelAliases).not.toHaveBeenCalled();
   });
 
-  it('restores workstation settings when reconcile fails without a revision', async () => {
+  it('restores explicit previous workstation settings instead of the on-disk candidate', async () => {
     const previousSettings = { marker: 'previous' };
     const failedSettings = { marker: 'failed' };
-    const mocks = mockDesiredStateApply(previousSettings);
+    const onDiskCandidate = { marker: 'on-disk-candidate' };
+    const mocks = mockDesiredStateApply(onDiskCandidate);
     const failure = new Error('reconcile failed');
     mocks.reconcile.mockImplementation(async (settings) => {
       if (settings === failedSettings) throw failure;
@@ -502,16 +503,12 @@ describe('syncRuntimeSettingsFromProjection fleet mode', () => {
         repositories: {} as never,
         appId: 'app:test' as never,
         forwardCorrected: false,
+        previousSettings: previousSettings as never,
         reloadRuntimeState,
       }),
     ).rejects.toBe(failure);
 
-    expect(mocks.loadRuntimeSettingsFromPath).toHaveBeenCalledWith(
-      '/tmp/gantry-test/settings.yaml',
-    );
-    expect(
-      mocks.loadRuntimeSettingsFromPath.mock.invocationCallOrder[0],
-    ).toBeLessThan(mocks.saveRuntimeSettings.mock.invocationCallOrder[0]!);
+    expect(mocks.loadRuntimeSettingsFromPath).not.toHaveBeenCalled();
     expect(mocks.saveRuntimeSettings.mock.calls).toEqual([
       ['/tmp/gantry-test', failedSettings],
       ['/tmp/gantry-test', previousSettings],

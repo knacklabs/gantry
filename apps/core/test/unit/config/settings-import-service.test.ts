@@ -154,6 +154,7 @@ describe('importFleetSettingsRevision', () => {
         ops: {} as never,
         repositories: {} as never,
         appId: 'default' as never,
+        previousSettings: createDefaultRuntimeSettings(),
         revisionMirror: {
           settingsRevisions: repo,
           createdBy: 'test:workstation',
@@ -192,6 +193,7 @@ describe('importFleetSettingsRevision', () => {
         ops: {} as never,
         repositories: {} as never,
         appId: 'default' as never,
+        previousSettings: createDefaultRuntimeSettings(),
         revisionMirror: {
           settingsRevisions: repo,
           createdBy: 'test:workstation',
@@ -213,6 +215,7 @@ describe('importFleetSettingsRevision', () => {
   it('returns applied_no_revision without a revision mirror', async () => {
     capabilityErrors = [];
     const settings = createDefaultRuntimeSettings();
+    const previousSettings = structuredClone(settings);
     applyRuntimeSettingsDesiredState.mockResolvedValue(settings);
 
     const outcome = await importWorkstationSettings(
@@ -221,13 +224,42 @@ describe('importFleetSettingsRevision', () => {
         ops: {} as never,
         repositories: {} as never,
         appId: 'default' as never,
+        previousSettings,
       },
       settings,
     );
 
     expect(outcome).toEqual({ status: 'applied_no_revision' });
     expect(applyRuntimeSettingsDesiredState).toHaveBeenCalledWith(
-      expect.objectContaining({ forwardCorrected: false }),
+      expect.objectContaining({
+        forwardCorrected: false,
+        previousSettings,
+      }),
+    );
+  });
+
+  it('uses forward correction for an explicit revision-authority projection', async () => {
+    capabilityErrors = [];
+    const settings = createDefaultRuntimeSettings();
+    applyRuntimeSettingsDesiredState.mockReset();
+    applyRuntimeSettingsDesiredState.mockResolvedValue(settings);
+
+    await importWorkstationSettings(
+      {
+        runtimeHome: '/tmp/gantry-import-test',
+        ops: {} as never,
+        repositories: {} as never,
+        appId: 'default' as never,
+        projectionAuthority: 'revision',
+      },
+      settings,
+    );
+
+    expect(applyRuntimeSettingsDesiredState).toHaveBeenCalledWith(
+      expect.objectContaining({
+        forwardCorrected: true,
+        previousSettings: undefined,
+      }),
     );
   });
 
@@ -312,6 +344,7 @@ describe('importFleetSettingsRevision', () => {
         ops: {} as never,
         repositories: {} as never,
         appId: 'default' as never,
+        previousSettings: createDefaultRuntimeSettings(),
         revisionMirror: {
           settingsRevisions: repo,
           createdBy: 'test:workstation',

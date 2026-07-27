@@ -141,6 +141,7 @@ export async function importWorkstationSettings(
     revisionMirrorRequired?: boolean;
     expectedRevision?: number | null;
     leases?: RuntimeLeasePort;
+    projectionAuthority?: 'file' | 'revision';
   },
   settings: RuntimeSettings,
 ): Promise<WorkstationSettingsImportOutcome> {
@@ -156,6 +157,9 @@ export async function importWorkstationSettings(
     throw new Error(
       'Settings mutation requires a runtime lease port for serialized projection.',
     );
+  }
+  if (deps.projectionAuthority !== 'revision' && !deps.previousSettings) {
+    throw new Error('File-authority import requires previous settings.');
   }
   const validation = await validateSettingsForImport(deps, settings);
   if (!validation.ok) {
@@ -263,7 +267,8 @@ export async function importWorkstationSettings(
     ops: deps.ops,
     repositories: deps.repositories,
     appId: deps.appId,
-    forwardCorrected: false,
+    forwardCorrected: deps.projectionAuthority === 'revision',
+    previousSettings: deps.previousSettings,
     reloadRuntimeState: deps.reloadRuntimeState,
   });
   activateRuntimeModelAliases(appliedSettings);

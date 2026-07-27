@@ -145,6 +145,10 @@ describe('SettingsRevisionListener', () => {
 
     expect(result).toEqual({ result: 'applied', revision: 1 });
     expect(applied).toHaveLength(1);
+    expect(importSettings).toHaveBeenCalledWith(
+      expect.objectContaining({ projectionAuthority: 'revision' }),
+      expect.anything(),
+    );
     expect(loadState.markSettingsLoaded).toHaveBeenCalledOnce();
     expect(listener.getAppliedRevision()).toBe(1);
   });

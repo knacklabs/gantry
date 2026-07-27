@@ -54,19 +54,29 @@ Exploration (decision inputs) established:
    performs multiple shared Postgres writes that can interleave — a re-read-only
    fence closes just one check-then-act window and is insufficient.
 
-4. **Forward-correction on failure — no snapshot rollback.** A partially failed
-   projection is NOT undone. There is no safe local rollback base: the worker's
-   `settings.yaml` is container-local while `reconcile()` mutates shared Postgres
-   desired-state, so a lagging worker's local file can be older than the shared
-   repositories and restoring it would move shared state *backward*. Instead,
-   projection is idempotent and authoritative: each projection re-reads the head
-   under the lease and applies the FULL current state, so a subsequent projection
-   overwrites any partial state with a complete, current one. On failure the
-   projector logs and **retries / re-wakes** (rather than restoring), so a
-   transient failure self-heals forward and does not linger. (Supersedes both the
-   earlier head-comparison fence and the local-snapshot-restore formulation, which
-   autoreview showed unsafe against shared state; a precise applied-projection
-   rollback contract, if ever needed, is a separate decision.)
+4. **Failure handling depends on who is authoritative (two-way taxonomy).**
+   - **Revision-authority projections** — anything projecting a committed fleet
+     revision (fleet boot, the revision listener, `projectRequiredSettingsRevision`)
+     — use **forward-correction, no rollback**. There is no safe local rollback
+     base: the worker's `settings.yaml` is container-local while `reconcile()`
+     mutates shared Postgres, so restoring the local file could move shared state
+     *backward*. Projection is idempotent (each re-reads the head under the lease
+     and applies the FULL current state), so a subsequent projection overwrites any
+     partial state; on failure the projector logs and **retries / re-wakes**.
+   - **File-authority imports** — where the caller's supplied settings ARE the
+     source of truth (reload watcher, local/CLI workstation import) — roll back to
+     the caller's **explicit `previousSettings`** (last-known-good) on failure.
+     Never capture the current on-disk `settings.yaml` as the base: the reload
+     watcher has already overwritten it with the failing candidate, so the on-disk
+     value is the very config that just failed. These paths are single-authority
+     (no shared-state regression concern), so restoring the explicit last-known-good
+     is correct.
+
+   Implemented via a `forwardCorrected` flag on `applyRuntimeSettingsDesiredState`:
+   revision-authority callers pass `true` (no rollback); file-authority callers pass
+   `false` and supply `previousSettings`. (Supersedes both the earlier
+   head-comparison fence and the on-disk-snapshot-restore formulation, which
+   autoreview showed unsafe.)
 
 4b. **An unreadable superseding head is surfaced, not silently succeeded.** When
    a worker acquires the lease and finds the head requires a newer reader version

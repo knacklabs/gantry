@@ -300,6 +300,7 @@ async function loadRevisionAuthoritySettings(input: {
         ops: input.storage.ops,
         repositories: input.storage.repositories,
         appId,
+        projectionAuthority: 'revision',
       },
       settings,
     );
