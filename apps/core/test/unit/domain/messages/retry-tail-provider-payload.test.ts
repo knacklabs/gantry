@@ -1,0 +1,141 @@
+import { describe, expect, it } from 'vitest';
+
+import { buildObserverDigestMessageView } from '@core/domain/observer-digest-view.js';
+import { sanitizeRetryTailProviderPayload } from '@core/domain/messages/retry-tail-provider-payload.js';
+
+function wellFormedView() {
+  return buildObserverDigestMessageView({
+    localDay: '2026-07-25',
+    recipient: 'owner:happy',
+    insights: [
+      { id: 'i-1', title: 'First', summary: 'One', insightType: 'commitment' },
+      { id: 'i-2', title: 'Second', summary: 'Two', insightType: 'commitment' },
+    ],
+  });
+}
+
+describe('sanitizeRetryTailProviderPayload observerDigestView passthrough', () => {
+  it('carries a well-formed view through with insights + affordances intact', () => {
+    const view = wellFormedView();
+    const out = sanitizeRetryTailProviderPayload({ observerDigestView: view });
+
+    const survived = out?.observerDigestView;
+    expect(survived?.localDay).toBe('2026-07-25');
+    expect(survived?.recipient).toBe('owner:happy');
+    expect(survived?.insights.map((i) => i.insightId)).toEqual(['i-1', 'i-2']);
+    for (const insight of survived!.insights) {
+      expect(insight.affordances.map((a) => a.action)).toEqual([
+        'resolve',
+        'dismiss',
+        'snooze',
+        'less_like_this',
+      ]);
+      for (const affordance of insight.affordances) {
+        expect(affordance.kind).toBe('observer_feedback');
+        expect(affordance.insightId).toBe(insight.insightId);
+        expect(affordance.localDay).toBe('2026-07-25');
+      }
+    }
+  });
+
+  it('strips unknown extra keys inside the view, insight, and affordance', () => {
+    const view = wellFormedView();
+    const out = sanitizeRetryTailProviderPayload({
+      observerDigestView: {
+        ...view,
+        junkTop: 'x',
+        insights: [{ ...view.insights[0], junkInsight: 'y' }],
+      },
+    });
+
+    const survived = out?.observerDigestView as Record<string, unknown>;
+    expect(survived).toBeDefined();
+    expect(survived.junkTop).toBeUndefined();
+    const insight = (survived.insights as Record<string, unknown>[])[0];
+    expect(insight.junkInsight).toBeUndefined();
+    expect(insight.insightId).toBe('i-1');
+  });
+
+  it('drops an affordance with an unknown action', () => {
+    const view = wellFormedView();
+    const out = sanitizeRetryTailProviderPayload({
+      observerDigestView: {
+        ...view,
+        insights: [
+          {
+            ...view.insights[0],
+            affordances: [
+              ...view.insights[0].affordances,
+              {
+                kind: 'observer_feedback',
+                label: 'Nuke',
+                insightId: 'i-1',
+                action: 'delete_everything',
+                localDay: '2026-07-25',
+              },
+            ],
+          },
+        ],
+      },
+    });
+    const actions = out?.observerDigestView?.insights[0].affordances.map(
+      (a) => a.action,
+    );
+    expect(actions).toEqual(['resolve', 'dismiss', 'snooze', 'less_like_this']);
+  });
+
+  it('drops the whole view when localDay is missing (fail safe to text-only)', () => {
+    const view = wellFormedView();
+    const { localDay: _drop, ...noDay } = view;
+    const out = sanitizeRetryTailProviderPayload({ observerDigestView: noDay });
+    expect(out?.observerDigestView).toBeUndefined();
+  });
+
+  it('drops an insight missing its insightId but keeps the valid siblings', () => {
+    const view = wellFormedView();
+    const out = sanitizeRetryTailProviderPayload({
+      observerDigestView: {
+        ...view,
+        insights: [{ title: 'orphan', affordances: [] }, view.insights[1]],
+      },
+    });
+    expect(out?.observerDigestView?.insights.map((i) => i.insightId)).toEqual([
+      'i-2',
+    ]);
+  });
+
+  it('bounds oversized fields and array counts', () => {
+    const big = 'a'.repeat(5_000);
+    const affordances = Array.from({ length: 40 }, () => ({
+      kind: 'observer_feedback',
+      label: 'Resolve',
+      insightId: 'i-1',
+      action: 'resolve',
+      localDay: '2026-07-25',
+    }));
+    const insights = Array.from({ length: 200 }, (_unused, idx) => ({
+      insightId: `i-${idx}`,
+      title: big,
+      summary: big,
+      type: 'commitment',
+      affordances,
+    }));
+    const out = sanitizeRetryTailProviderPayload({
+      observerDigestView: { localDay: '2026-07-25', insights },
+    });
+    const survived = out!.observerDigestView!;
+    expect(survived.insights.length).toBeLessThanOrEqual(50);
+    expect(survived.insights[0].title!.length).toBeLessThanOrEqual(200);
+    expect(survived.insights[0].summary!.length).toBeLessThanOrEqual(1_000);
+    expect(survived.insights[0].affordances.length).toBeLessThanOrEqual(8);
+  });
+
+  it('ignores a non-object view entirely', () => {
+    expect(
+      sanitizeRetryTailProviderPayload({ observerDigestView: 'nope' }),
+    ).toBeUndefined();
+    expect(
+      sanitizeRetryTailProviderPayload({ observerDigestView: [1, 2, 3] }),
+    ).toBeUndefined();
+  });
+});
