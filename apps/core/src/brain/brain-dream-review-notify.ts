@@ -40,23 +40,24 @@ export interface NotifiableBrainReview {
 }
 
 const REDELIVER_PAGE_SIZE = 200;
-// ponytail: per-pass cap so a runaway pending set can't unbound the startup pass.
-// A single pass pages forward (keyset cursor) through the WHOLE pending set up to
-// this cap, so any orphan is recovered — not just the first page. Only >cap
-// pending in ONE pass leaves a tail for the next process start (which re-pins the
-// front until a persistent recovery cursor exists); 10k undelivered destructive
-// reviews is already pathological.
-const REDELIVER_MAX_PER_PASS = 10_000;
 
 /**
  * Recovery pass for orphaned notifications: re-enqueue EVERY pending review's
- * owner-DM notification, paging forward through the full set. Best-effort delivery
+ * owner-DM notification, paging forward to COMPLETION. Best-effort delivery
  * happens ONCE at intake; a transient owner-resolve/enqueue failure leaves the
  * review pending with no outbound record and nothing re-notifies it. Re-enqueuing
  * is safe to repeat — the enqueue is idempotent on `brain-review:<reviewId>`, so a
  * review that already has a delivery is a no-op and an orphan gets a fresh record
  * for the outbound recovery loop to send. Re-notifying does NOT clear the pending
- * state, so we page by (createdAt, id) keyset, never re-scanning the first page.
+ * state, so we page by (createdAt, id) keyset until a short page arrives, never
+ * re-scanning the first page.
+ *
+ * ponytail: no per-pass cap — scan the whole set. The pending destructive-review
+ * set is inherently SMALL (an owner acts on each proposal, so it doesn't grow like
+ * a message queue), so a full scan per startup is cheap. A fixed cap would instead
+ * STARVE rows past it forever, since a delivered review stays pending and every
+ * run restarts from the top. If the pending set ever DID grow large, add a
+ * persistent/rotating cursor across process starts so each run advances a slice.
  */
 export async function redeliverPendingBrainReviews(deps: {
   reviews: {
@@ -71,16 +72,14 @@ export async function redeliverPendingBrainReviews(deps: {
   appId: string;
   notify: BrainReviewNotifier;
   pageSize?: number;
-  maxPerPass?: number;
 }): Promise<{ pending: number }> {
   const pageSize = deps.pageSize ?? REDELIVER_PAGE_SIZE;
-  const maxPerPass = deps.maxPerPass ?? REDELIVER_MAX_PER_PASS;
   let processed = 0;
   let after: { createdAt: string; id: string } | undefined;
-  while (processed < maxPerPass) {
+  for (;;) {
     const page = await deps.reviews.listPendingBrainDreamReviews({
       appId: deps.appId,
-      limit: Math.min(pageSize, maxPerPass - processed),
+      limit: pageSize,
       after,
     });
     if (page.length === 0) break;
