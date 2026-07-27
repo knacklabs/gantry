@@ -92,19 +92,25 @@ Exploration (decision inputs) established:
 ## Scope split (RACE-2 core vs RACE-2b)
 
 This decision covers the **core**: per-app advisory-lease **serialization** of
-projection, stale-revision skip, the reader-version fence, the failure taxonomy
-above, and readiness-red-on-failure. This closes the primary out-of-order
-projection race and is strictly better than the pre-RACE-2 state (which had no
-serialization at all).
+projection (including startup projecting an existing revision), stale-revision
+skip, the reader-version fence, the failure taxonomy above, and
+readiness-red-on-failure **on the listener path** (§4c). This closes the primary
+out-of-order projection race and is strictly better than the pre-RACE-2 state
+(which had no serialization at all).
 
-**Deferred to RACE-2b (its own decision):** a *reliable* forward-correction
-guarantee — a durable "last-fully-applied revision" marker so a synchronous
-required projection that fails **after** the listener has already advanced its
-applied-revision counter is guaranteed to be re-projected (today such a rare
-interleaving can strand partial shared state until the next settings change,
-though readiness is red meanwhile, §4c). Autoreview surfaced this as the
-"applied-projection contract"; it is a distinct, deeper design than the
-serialization core and is tracked separately so the core can land.
+**Deferred to RACE-2b (D-0013, its own decision) — the reliable-failure
+contract:** two coupled pieces autoreview surfaced as the "applied-projection
+contract," both distinct/deeper than the serialization core:
+  1. A durable **"last-fully-applied revision" marker** so a synchronous required
+     projection that fails **after** the listener already advanced its
+     applied-revision counter is guaranteed to be re-projected (today such a rare
+     interleaving can strand partial shared state until the next settings change).
+  2. **Readiness-red completeness across all synchronous mutation projection
+     paths** (control/CLI/watcher), not just the listener. Doing this in the core
+     required threading a readiness signal through ~15 composition files and broke
+     a layer budget — it belongs with the failure contract, not the serialization
+     core.
+These are tracked together so the serialization core can land now.
 
 5. **Route initial fleet boot through the same coordinator**, since boot and
    synchronous mutation paths call the same shared apply function — listener-only
