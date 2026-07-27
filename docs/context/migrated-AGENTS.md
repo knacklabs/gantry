@@ -18,11 +18,11 @@ Primary surfaces:
 ## Mandatory Read Order
 
 1. [README.md](README.md)
-2. [WORKFLOW.md](../../WORKFLOW.md)
-3. [docs/FACTORY.md](../FACTORY.md)
-4. [docs/QUALITY.md](../QUALITY.md)
-5. [docs/architecture/codebase-refactor-principles.md](../architecture/codebase-refactor-principles.md)
-6. [docs/architecture/current-verification-commands.md](../architecture/current-verification-commands.md)
+2. [WORKFLOW.md](WORKFLOW.md)
+3. [docs/FACTORY.md](docs/FACTORY.md)
+4. [docs/QUALITY.md](docs/QUALITY.md)
+5. [docs/architecture/codebase-refactor-principles.md](docs/architecture/codebase-refactor-principles.md)
+6. [docs/architecture/current-verification-commands.md](docs/architecture/current-verification-commands.md)
 
 Use `python3 .codex/scripts/stage_orchestrator.py` to get current phase commands and required artifacts.
 
@@ -290,7 +290,7 @@ Important constraints:
 - Archive stale generated state under `~/gantry/cleanup-archive/<timestamp>/`; keep secrets, settings, Postgres data, Credential Center rows, artifacts, and active agent folders unless reset is requested.
 - Architecture exceptions must be time-bounded ratchets with max counts; never relax the checker globally to hide new debt.
 - For replacement or cutover work, include a cleanup verification step that searches for stale active references and records the result before final response or PR handoff.
-- Use [docs/architecture/current-verification-commands.md](../architecture/current-verification-commands.md) as the command reference.
+- Use [docs/architecture/current-verification-commands.md](docs/architecture/current-verification-commands.md) as the command reference.
 
 ## Codex Harness
 
