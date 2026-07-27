@@ -11,10 +11,12 @@ import {
   addAgentToolRulesToRuntimeSettings,
   activateRuntimeModelAliases,
   loadRuntimeSettings,
+  loadRuntimeSettingsFromPath,
   removeAgentToolRulesFromRuntimeSettings,
   saveRuntimeSettings,
   withRuntimeModelAliases,
 } from './runtime-settings.js';
+import { settingsFilePath } from './runtime-home.js';
 import { normalizeConfiguredCapabilitiesInSettings } from './configured-capability-normalization.js';
 import { validateLoadedRuntimeSettings } from './runtime-settings-validation.js';
 import { agentIdForFolder } from './desired-state-service-helpers.js';
@@ -38,6 +40,7 @@ export async function applyRuntimeSettingsDesiredState(input: {
   ops: SettingsDesiredStateOps;
   repositories: SettingsDesiredStateRepositories;
   appId?: AppId;
+  forwardCorrected: boolean;
   reloadRuntimeState?: () => Promise<void>;
 }): Promise<RuntimeSettings> {
   const service = new SettingsDesiredStateService({
@@ -63,16 +66,36 @@ export async function applyRuntimeSettingsDesiredState(input: {
       ].join('\n'),
     );
   }
-  saveRuntimeSettings(input.runtimeHome, settings);
-  const reconcile = await service.reconcile(reconcileSettings);
-  if (reconcile.invalidReferences.length > 0) {
-    throw new Error(
-      `settings desired state contains invalid references:\n${reconcile.invalidReferences.join('\n')}`,
-    );
+  let rollbackSettings: RuntimeSettings | undefined;
+  if (!input.forwardCorrected) {
+    try {
+      rollbackSettings = loadRuntimeSettingsFromPath(
+        settingsFilePath(input.runtimeHome),
+      );
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+    }
   }
-  await input.reloadRuntimeState?.();
-  activateRuntimeModelAliases(settings);
-  return settings;
+  try {
+    saveRuntimeSettings(input.runtimeHome, settings);
+    const reconcile = await service.reconcile(reconcileSettings);
+    if (reconcile.invalidReferences.length > 0) {
+      throw new Error(
+        `settings desired state contains invalid references:\n${reconcile.invalidReferences.join('\n')}`,
+      );
+    }
+    await input.reloadRuntimeState?.();
+    activateRuntimeModelAliases(settings);
+    return settings;
+  } catch (err) {
+    if (rollbackSettings) {
+      saveRuntimeSettings(input.runtimeHome, rollbackSettings);
+      await service.reconcile(rollbackSettings);
+      await input.reloadRuntimeState?.();
+      activateRuntimeModelAliases(rollbackSettings);
+    }
+    throw err;
+  }
 }
 
 export async function syncRuntimeSettingsFromProjection(input: {
@@ -148,6 +171,7 @@ export async function syncRuntimeSettingsFromProjection(input: {
     await applyRuntimeSettingsDesiredState({
       ...input,
       settings: exported,
+      forwardCorrected: false,
     });
     return;
   }
@@ -235,6 +259,7 @@ export async function addAgentToolRulesToSyncedRuntimeSettings(input: {
       ops: input.ops,
       repositories: input.repositories,
       appId: input.appId,
+      forwardCorrected: false,
       reloadRuntimeState: input.reloadRuntimeState,
     });
     return;
@@ -345,6 +370,7 @@ export async function removeAgentToolRulesFromSyncedRuntimeSettings(input: {
     ops: input.ops,
     repositories: input.repositories,
     appId: input.appId,
+    forwardCorrected: false,
     reloadRuntimeState: input.reloadRuntimeState,
   });
 }

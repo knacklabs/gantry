@@ -263,6 +263,7 @@ export async function importWorkstationSettings(
     ops: deps.ops,
     repositories: deps.repositories,
     appId: deps.appId,
+    forwardCorrected: false,
     reloadRuntimeState: deps.reloadRuntimeState,
   });
   activateRuntimeModelAliases(appliedSettings);
@@ -351,10 +352,7 @@ async function projectRequiredSettingsRevision(input: {
       );
     }
     const projectsTarget = head.revision === input.targetRevision;
-    if (
-      !projectsTarget &&
-      head.minReaderVersion > CURRENT_SETTINGS_READER_VERSION
-    ) {
+    if (head.minReaderVersion > CURRENT_SETTINGS_READER_VERSION) {
       throw new SettingsIncompatibleReaderError(
         head.revision,
         head.minReaderVersion,
@@ -370,6 +368,7 @@ async function projectRequiredSettingsRevision(input: {
       ops: input.deps.ops,
       repositories: input.deps.repositories,
       appId: input.appId,
+      forwardCorrected: true,
       reloadRuntimeState: input.deps.reloadRuntimeState,
     });
     activateRuntimeModelAliases(appliedSettings);

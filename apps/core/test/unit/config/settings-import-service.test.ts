@@ -226,6 +226,9 @@ describe('importFleetSettingsRevision', () => {
     );
 
     expect(outcome).toEqual({ status: 'applied_no_revision' });
+    expect(applyRuntimeSettingsDesiredState).toHaveBeenCalledWith(
+      expect.objectContaining({ forwardCorrected: false }),
+    );
   });
 
   it('required workstation mirror propagates append failure', async () => {
@@ -393,12 +396,15 @@ describe('importFleetSettingsRevision', () => {
     );
     expect(releaseLease).toHaveBeenCalledOnce();
     const applyInput = applyRuntimeSettingsDesiredState.mock.calls[0]?.[0];
+    expect(applyInput).toEqual(
+      expect.objectContaining({ forwardCorrected: true }),
+    );
     expect(applyInput).not.toHaveProperty('previousSettings');
     expect(applyInput).not.toHaveProperty('projectionRevision');
     expect(applyInput).not.toHaveProperty('settingsRevisions');
   });
 
-  it('delegates a failed superseding-head projection to the apply-owned rollback', async () => {
+  it('keeps failed superseding-head projection in forward-correction mode', async () => {
     capabilityErrors = [];
     leases.tryAcquire.mockClear();
     releaseLease.mockClear();
@@ -455,6 +461,7 @@ describe('importFleetSettingsRevision', () => {
       ops: expect.anything(),
       repositories: expect.anything(),
       appId: 'default',
+      forwardCorrected: true,
       reloadRuntimeState: undefined,
     });
     expect(releaseLease).toHaveBeenCalledOnce();
@@ -509,6 +516,49 @@ describe('importFleetSettingsRevision', () => {
       expect.objectContaining<Partial<SettingsIncompatibleReaderError>>({
         name: 'SettingsIncompatibleReaderError',
         revision: 2,
+        minReaderVersion: CURRENT_SETTINGS_READER_VERSION + 1,
+        readerVersion: CURRENT_SETTINGS_READER_VERSION,
+      }),
+    );
+    expect(applyRuntimeSettingsDesiredState).not.toHaveBeenCalled();
+    expect(releaseLease).toHaveBeenCalledOnce();
+  });
+
+  it('rejects an exact head that requires a newer settings reader', async () => {
+    capabilityErrors = [];
+    leases.tryAcquire.mockClear();
+    releaseLease.mockClear();
+    applyRuntimeSettingsDesiredState.mockReset();
+    const settings = createDefaultRuntimeSettings();
+    const repo = new FakeRevisionRepo();
+    await repo.appendSettingsRevision({
+      appId: 'default',
+      settingsDocument: settingsToRevisionDocument(settings),
+      minReaderVersion: CURRENT_SETTINGS_READER_VERSION + 1,
+      createdBy: 'newer-runtime',
+    });
+
+    await expect(
+      importWorkstationSettings(
+        {
+          runtimeHome: '/tmp/gantry-import-test',
+          ops: {} as never,
+          repositories: {} as never,
+          appId: 'default' as never,
+          previousSettings: settings,
+          revisionMirror: {
+            settingsRevisions: repo,
+            createdBy: 'test:fleet',
+          },
+          leases,
+          revisionMirrorRequired: true,
+        },
+        settings,
+      ),
+    ).rejects.toEqual(
+      expect.objectContaining<Partial<SettingsIncompatibleReaderError>>({
+        name: 'SettingsIncompatibleReaderError',
+        revision: 1,
         minReaderVersion: CURRENT_SETTINGS_READER_VERSION + 1,
         readerVersion: CURRENT_SETTINGS_READER_VERSION,
       }),
