@@ -327,9 +327,12 @@ export async function consultPermissionClassifierBeforePrompt(
       }
     : // prettier-ignore
       yoloDenylistMatch ? { risk_level: 'high', reason: `YOLO-mode denylist backstop matched "${yoloDenylistMatch.pattern}"; ask the user for explicit approval.`, latencyMs: 0 }
-      : gantryRisk
-          ? { risk_level: gantryRisk.risk_level, reason: gantryRisk.reason, latencyMs: 0 }
-      : !deterministicGate?.allowed && input.permissionMode === 'auto_strict'
+      : // The auto_strict deterministic-denial guard runs BEFORE the gantry
+        // verdict: the gantry map may only REDUCE prompts in normal auto mode,
+        // never turn a strict-mode denial into an allow. In auto_strict a gantry
+        // mutation (gate not allowed) still asks; gantry reads never reach here
+        // (rails birthright-allow them first).
+        !deterministicGate?.allowed && input.permissionMode === 'auto_strict'
           ? {
               risk_level: 'high',
               reason:
@@ -337,6 +340,8 @@ export async function consultPermissionClassifierBeforePrompt(
                 'Deterministic read-only proof was unavailable; ask the user.',
               latencyMs: 0,
             }
+      : gantryRisk
+          ? { risk_level: gantryRisk.risk_level, reason: gantryRisk.reason, latencyMs: 0 }
           : await (input.classifierConsult ?? consultPermissionClassifier)({
             appId: (input.appId ?? 'default') as AppId,
             agentIdentity: {

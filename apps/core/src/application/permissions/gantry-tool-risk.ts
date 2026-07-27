@@ -31,14 +31,6 @@ const DISPLAY_INTERACTION_TOOLS = new Set<string>([
   'todo_update',
 ]);
 
-// Interactive browser actions (open/act/close). Bounded to the browser session
-// but they drive a real page, so they are auto-approvable-but-not-free: medium.
-const BROWSER_ACTION_TOOLS = new Set<string>([
-  'browser_open',
-  'browser_act',
-  'browser_close',
-]);
-
 // Tools whose blast radius depends on arguments this deterministic map does not
 // inspect, and where the worst case is dangerous. `file` can perform protected
 // config writes, so the whole tool asks rather than auto-approving a list/read.
@@ -77,7 +69,8 @@ export function gantryNativeCanonicalToolName(
  *   - unboundable / authority / decision-actor buckets, destructive verbs,
  *     admin mutations, and arg-dependent-dangerous tools -> high (ask).
  *   - read/inspect shapes and pure display -> low (auto-approve).
- *   - browser actions and boundable routine mutations -> medium (auto-approve).
+ *   - boundable routine mutations -> medium (auto-approve).
+ *   - mutating browser actions -> high (ask; unbounded real-world effect).
  *   - anything unmapped or unknown -> high (never silently auto-approve an
  *     unknown gantry mutation).
  */
@@ -122,8 +115,16 @@ export function gantryToolDefaultRisk(
   if (READ_VERB.test(canonical) || DISPLAY_INTERACTION_TOOLS.has(canonical)) {
     return low(`Gantry ${canonical} is a read-only or display action.`);
   }
-  if (BROWSER_ACTION_TOOLS.has(canonical)) {
-    return medium(`Gantry ${canonical} drives a bounded browser session.`);
+  // A "bounded browser session" does NOT bound real-world effect: browser_act
+  // can submit forms, publish data, confirm purchases, or trigger destructive
+  // account actions. Any mutating browser tool asks. Read-only browser ops
+  // (browser_status / browser_inspect) already returned low via READ_VERB.
+  // ponytail: arg-level classification of non-mutating actions can auto-approve
+  // later; HIGH default now.
+  if (canonical.startsWith('browser_')) {
+    return high(
+      `Gantry ${canonical} performs a browser action with unbounded real-world effect; ask the user.`,
+    );
   }
   if (bucket === 'grantable-exact') {
     return medium(`Gantry ${canonical} is a routine, boundable mutation.`);

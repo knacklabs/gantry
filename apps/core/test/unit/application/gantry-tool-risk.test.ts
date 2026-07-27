@@ -59,6 +59,8 @@ describe('gantryToolDefaultRisk', () => {
     'mcp__gantry__render_status',
     'mcp__gantry__ask_user_question',
     'mcp__gantry__send_message',
+    'mcp__gantry__browser_status',
+    'mcp__gantry__browser_inspect',
   ])('rates read/display tool %s low (auto-approve)', (tool) => {
     const risk = gantryToolDefaultRisk(tool);
     expect(risk?.risk_level).toBe('low');
@@ -98,6 +100,9 @@ describe('gantryToolDefaultRisk', () => {
     'mcp__gantry__pattern_candidate_decision', // decision actor
     'mcp__gantry__proactive_surfacing_consent', // decision actor
     'mcp__gantry__file', // arg-dependent protected config writes
+    'mcp__gantry__browser_open', // browser action -> unbounded real-world effect
+    'mcp__gantry__browser_act', // submit/click/type on a real page
+    'mcp__gantry__browser_close', // browser action
   ])('rates high-risk tool %s high (ask)', (tool) => {
     const risk = gantryToolDefaultRisk(tool);
     expect(risk?.risk_level).toBe('high');

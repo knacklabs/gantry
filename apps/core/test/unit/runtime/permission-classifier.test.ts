@@ -785,31 +785,54 @@ describe('permission classifier decision events', () => {
     expect(classifierConsult).toHaveBeenCalledOnce();
   });
 
-  it.each(['auto', 'auto_strict'] as const)(
-    'auto-approves a routine gantry mutation via the deterministic map without the LLM in %s',
-    async (permissionMode) => {
-      const classifierConsult = vi.fn();
-      await expect(
-        consultPermissionClassifierBeforePrompt({
-          permissionMode,
-          requestFamily: 'tool',
-          agentFolder: 'researcher',
-          correlationId: 'request:gantry-scheduler',
-          actor: 'permission',
-          intentSource: 'operator_message',
-          turnIntentSummary: 'Update the digest schedule.',
-          canonicalToolName: 'mcp__gantry__scheduler_update_job',
-          toolInput: { jobId: 'job-1', cron: '0 9 * * *' },
-          policyDecisionReason: 'No durable rule matched.',
-          approvedCapabilityIds: [],
-          classifierConfig: { memoryExtractorModel: 'extractor-model' },
-          publishRuntimeEvent: vi.fn(async () => undefined),
-          classifierConsult,
-        }),
-      ).resolves.toMatchObject({ decision: 'allow', latencyMs: 0 });
-      expect(classifierConsult).not.toHaveBeenCalled();
-    },
-  );
+  it('auto-approves a routine gantry mutation via the deterministic map without the LLM in auto', async () => {
+    const classifierConsult = vi.fn();
+    await expect(
+      consultPermissionClassifierBeforePrompt({
+        permissionMode: 'auto',
+        requestFamily: 'tool',
+        agentFolder: 'researcher',
+        correlationId: 'request:gantry-scheduler',
+        actor: 'permission',
+        intentSource: 'operator_message',
+        turnIntentSummary: 'Update the digest schedule.',
+        canonicalToolName: 'mcp__gantry__scheduler_update_job',
+        toolInput: { jobId: 'job-1', cron: '0 9 * * *' },
+        policyDecisionReason: 'No durable rule matched.',
+        approvedCapabilityIds: [],
+        classifierConfig: { memoryExtractorModel: 'extractor-model' },
+        publishRuntimeEvent: vi.fn(async () => undefined),
+        classifierConsult,
+      }),
+    ).resolves.toMatchObject({ decision: 'allow', latencyMs: 0 });
+    expect(classifierConsult).not.toHaveBeenCalled();
+  });
+
+  it('does NOT let the gantry map override an auto_strict deterministic denial (mutation still asks)', async () => {
+    const classifierConsult = vi.fn();
+    await expect(
+      consultPermissionClassifierBeforePrompt({
+        // Gantry mutations have no deterministic read-only proof (evaluateMcpRead
+        // blocks gantry), so in auto_strict the strict-denial guard must win over
+        // the low/medium gantry rating and ask.
+        permissionMode: 'auto_strict',
+        requestFamily: 'tool',
+        agentFolder: 'researcher',
+        correlationId: 'request:gantry-scheduler-strict',
+        actor: 'permission',
+        intentSource: 'operator_message',
+        turnIntentSummary: 'Update the digest schedule.',
+        canonicalToolName: 'mcp__gantry__scheduler_update_job',
+        toolInput: { jobId: 'job-1', cron: '0 9 * * *' },
+        policyDecisionReason: 'No durable rule matched.',
+        approvedCapabilityIds: [],
+        classifierConfig: { memoryExtractorModel: 'extractor-model' },
+        publishRuntimeEvent: vi.fn(async () => undefined),
+        classifierConsult,
+      }),
+    ).resolves.toMatchObject({ decision: 'ask', latencyMs: 0 });
+    expect(classifierConsult).not.toHaveBeenCalled();
+  });
 
   it.each(['auto', 'auto_strict'] as const)(
     'asks on a high-risk gantry authority tool via the deterministic map in %s',
