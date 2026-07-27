@@ -231,6 +231,9 @@ vi.mock('@core/adapters/storage/postgres/runtime-store.js', () => {
     listAgents: vi.fn(async () => []),
   };
   return {
+    tryAcquireRuntimeAdvisoryLease: vi.fn(async () => ({
+      release: vi.fn(async () => {}),
+    })),
     getRuntimeControlRepository: () => ({
       listDueWebhookDeliveries: vi.fn(async () => []),
       claimDueWebhookDeliveries: vi.fn(async () => []),

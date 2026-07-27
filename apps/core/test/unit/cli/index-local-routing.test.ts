@@ -444,6 +444,9 @@ describe('CLI local routing', () => {
       ensureRuntimeSettings: vi.fn(),
     }));
     vi.doMock('@core/adapters/storage/postgres/runtime-store.js', () => ({
+      tryAcquireRuntimeAdvisoryLease: vi.fn(async () => ({
+        release: vi.fn(async () => {}),
+      })),
       getRuntimeStorage: vi.fn(() => {
         throw new Error('runtime storage not initialized');
       }),
