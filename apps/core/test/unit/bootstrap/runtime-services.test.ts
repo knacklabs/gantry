@@ -177,6 +177,7 @@ function makeChannelWiring(): ChannelWiring {
     setMessageActionHandler: vi.fn(),
     setMemoryReviewMessageActionHandler: vi.fn(),
     setObserverFeedbackMessageActionHandler: vi.fn(),
+    setBrainDreamReviewMessageActionHandler: vi.fn(),
     sendStreamingChunk: vi.fn(async () => {}),
     resetStreaming: vi.fn(),
     setTyping: vi.fn(async () => {}),

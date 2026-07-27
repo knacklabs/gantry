@@ -1,9 +1,11 @@
 import type {
+  BrainDreamReviewActionDecision,
   MemoryReviewActionDecision,
   MessageActionAffordance,
   MessageDeliveryResult,
   MessageSendOptions,
 } from '../../domain/types.js';
+import type { BrainReviewCardView } from '../../domain/brain-review-card.js';
 import {
   morePendingReviewsLabel,
   type ReviewMessageSide,
@@ -11,7 +13,10 @@ import {
 } from '../../domain/review-message-view.js';
 import { escapeTelegramHtml } from './html-render.js';
 import { logger } from '../../infrastructure/logging/logger.js';
-import { telegramThreadOptionsFromString } from './channel-shared.js';
+import {
+  telegramThreadOptionsFromString,
+  TELEGRAM_MESSAGE_MAX_LENGTH,
+} from './channel-shared.js';
 
 const TELEGRAM_ACTION_CALLBACK_BY_KIND: Record<
   MessageActionAffordance['kind'],
@@ -24,6 +29,8 @@ const TELEGRAM_ACTION_CALLBACK_BY_KIND: Record<
   memory_review_decision: '',
   // ponytail: observer_feedback rendering lands in a later OBS-RESOLVE task.
   observer_feedback: '',
+  // brain_dream_review_decision has its own renderer (telegramBrainReviewMessage).
+  brain_dream_review_decision: '',
 };
 const TELEGRAM_CALLBACK_DATA_MAX_BYTES = 64;
 
@@ -53,6 +60,7 @@ export function telegramActionReplyMarkup(actions?: MessageActionAffordance[]):
       if (action.kind === 'live_turn_stop') return null;
       if (action.kind === 'memory_review_decision') return null;
       if (action.kind === 'observer_feedback') return null;
+      if (action.kind === 'brain_dream_review_decision') return null;
       const code = TELEGRAM_ACTION_CALLBACK_BY_KIND[action.kind];
       if (!code || !action.label.trim()) return null;
       const callbackData = telegramSchedulerActionCallback(action);
@@ -109,6 +117,119 @@ function telegramReviewCallbackData(
   return Buffer.byteLength(data, 'utf8') <= TELEGRAM_CALLBACK_DATA_MAX_BYTES
     ? data
     : undefined;
+}
+
+const TELEGRAM_BRAIN_REVIEW_DECISION_CODE: Record<
+  BrainDreamReviewActionDecision,
+  string
+> = {
+  approve: 'a',
+  reject: 'r',
+};
+
+export const TELEGRAM_BRAIN_REVIEW_CALLBACK_PATTERN = /^bd:([ar]):(.+)$/;
+
+export const TELEGRAM_BRAIN_REVIEW_DECISION_BY_CODE: Record<
+  string,
+  BrainDreamReviewActionDecision
+> = {
+  a: 'approve',
+  r: 'reject',
+};
+
+// Compact `bd:<a|r>:<reviewId>` callback_data — distinct `bd:` prefix keeps it
+// unambiguous from the memory-review `mr:` codec. The guard drops a button that
+// would exceed Telegram's 64-byte cap rather than truncate an id.
+function brainReviewCallbackData(
+  decision: BrainDreamReviewActionDecision,
+  reviewId: string,
+): string | undefined {
+  const data = `bd:${TELEGRAM_BRAIN_REVIEW_DECISION_CODE[decision]}:${reviewId}`;
+  return Buffer.byteLength(data, 'utf8') <= TELEGRAM_CALLBACK_DATA_MAX_BYTES
+    ? data
+    : undefined;
+}
+
+// Telegram counts message length in UTF-16 units; a payload over the hard limit
+// is rejected forever (outbound recovery would retry it endlessly). Truncate an
+// already-ESCAPED fragment (escapeTelegramHtml emits only &amp;/&lt;/&gt; — no
+// tags) on WHOLE code points, then drop any dangling partial entity so a cut
+// never splits `&amp;` into invalid HTML.
+function truncateEscapedTelegramHtml(
+  escaped: string,
+  maxUnits: number,
+): string {
+  if (escaped.length <= maxUnits) return escaped;
+  let out = '';
+  for (const codePoint of escaped) {
+    if (out.length + codePoint.length > maxUnits) break;
+    out += codePoint;
+  }
+  const lastAmp = out.lastIndexOf('&');
+  if (lastAmp !== -1 && !out.slice(lastAmp).includes(';')) {
+    out = out.slice(0, lastAmp);
+  }
+  return out;
+}
+
+/**
+ * Compact Telegram HTML card for a brain destructive-proposal review: the
+ * scannable "what will change" headline (bold) + optional before→after detail
+ * lines (all snapshot-derived text HTML-escaped), plus an Approve/Reject inline
+ * keyboard. A button whose callback_data overflows the 64-byte cap is dropped.
+ *
+ * The rendered text is bounded to Telegram's 4096-UTF-16-unit hard limit — a
+ * long title/entity name can't produce a permanently-unsendable payload. Only
+ * the headline carries tags (<b></b>); truncation is entity-safe, so the HTML
+ * stays valid.
+ */
+export function telegramBrainReviewMessage(view: BrainReviewCardView): {
+  text: string;
+  reply_markup: {
+    inline_keyboard: Array<Array<{ text: string; callback_data: string }>>;
+  };
+} {
+  const BOLD_TAGS = '<b></b>'.length;
+  let headline = escapeTelegramHtml(view.headline);
+  if (BOLD_TAGS + headline.length > TELEGRAM_MESSAGE_MAX_LENGTH) {
+    headline =
+      truncateEscapedTelegramHtml(
+        headline,
+        TELEGRAM_MESSAGE_MAX_LENGTH - BOLD_TAGS - 1,
+      ) + '…';
+  }
+  const lines = [`<b>${headline}</b>`];
+  let used = lines[0]!.length;
+  for (const raw of view.details) {
+    const escaped = escapeTelegramHtml(raw);
+    if (used + 1 + escaped.length <= TELEGRAM_MESSAGE_MAX_LENGTH) {
+      lines.push(escaped);
+      used += 1 + escaped.length;
+      continue;
+    }
+    // Last line that fits gets a truncated fragment (+ ellipsis); then stop.
+    const room = TELEGRAM_MESSAGE_MAX_LENGTH - used - 1; // minus the '\n'
+    if (room > 1) {
+      lines.push(truncateEscapedTelegramHtml(escaped, room - 1) + '…');
+    }
+    break;
+  }
+  const buttons = view.buttons
+    .map((button) => {
+      const callback_data = brainReviewCallbackData(
+        button.decision,
+        view.reviewId,
+      );
+      return callback_data ? { text: button.label, callback_data } : null;
+    })
+    .filter(
+      (button): button is { text: string; callback_data: string } =>
+        button !== null,
+    );
+  return {
+    text: lines.join('\n'),
+    reply_markup: { inline_keyboard: [buttons] },
+  };
 }
 
 function telegramSideLine(side: ReviewMessageSide): string {
@@ -206,6 +327,49 @@ export async function sendTelegramReviewMessage(input: {
     logger.error(
       { jid, error: sanitizeErrorMessage(err) },
       'Failed to send Telegram memory-review message',
+    );
+    throw err;
+  }
+}
+
+/**
+ * Brain destructive-proposal review card: sent as native Telegram HTML with an
+ * Approve/Reject inline keyboard. Mirrors sendTelegramReviewMessage.
+ */
+export async function sendTelegramBrainReviewMessage(input: {
+  bot: any;
+  jid: string;
+  options: MessageSendOptions;
+  sanitizeErrorMessage: (err: unknown) => string;
+}): Promise<MessageDeliveryResult> {
+  const { bot, jid, options, sanitizeErrorMessage } = input;
+  const view = options.brainReviewView;
+  if (!view || !bot) return {};
+  const numericId = jid.replace(/^tg:/, '');
+  const rendered = telegramBrainReviewMessage(view);
+  const threadOpts = telegramThreadOptionsFromString(options.threadId);
+  try {
+    const sent = await bot.api.sendMessage(numericId, rendered.text, {
+      parse_mode: 'HTML',
+      link_preview_options: { is_disabled: true },
+      reply_markup: rendered.reply_markup,
+      ...threadOpts,
+    });
+    const messageId = sent?.message_id;
+    return {
+      ...(messageId !== undefined
+        ? {
+            externalMessageId: String(messageId),
+            externalMessageIds: [String(messageId)],
+          }
+        : {}),
+      deliveredParts: 1,
+      totalParts: 1,
+    };
+  } catch (err) {
+    logger.error(
+      { jid, error: sanitizeErrorMessage(err) },
+      'Failed to send Telegram brain-review message',
     );
     throw err;
   }

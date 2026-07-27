@@ -8,6 +8,8 @@ import {
 
 import { TelegramChannelPrompts } from './channel-prompts.js';
 import {
+  TELEGRAM_BRAIN_REVIEW_CALLBACK_PATTERN,
+  TELEGRAM_BRAIN_REVIEW_DECISION_BY_CODE,
   TELEGRAM_REVIEW_CALLBACK_PATTERN,
   TELEGRAM_REVIEW_DECISION_BY_CODE,
 } from './message-action-affordances.js';
@@ -381,6 +383,83 @@ export abstract class TelegramChannelConnect extends TelegramChannelPrompts {
               logger.debug(
                 { reviewId, err: this.sanitizeErrorMessage(err) },
                 'Failed to ack Telegram memory review callback',
+              ),
+            );
+        }
+        return;
+      }
+
+      const brainReviewMatch =
+        TELEGRAM_BRAIN_REVIEW_CALLBACK_PATTERN.exec(data);
+      if (brainReviewMatch) {
+        const decision =
+          TELEGRAM_BRAIN_REVIEW_DECISION_BY_CODE[brainReviewMatch[1]];
+        const reviewId = brainReviewMatch[2];
+        const callbackMessage = ctx.callbackQuery?.message as
+          | {
+              chat?: { id?: number | string };
+              message_thread_id?: number;
+            }
+          | undefined;
+        const chatId =
+          callbackMessage?.chat?.id?.toString() ||
+          ctx.chat?.id?.toString() ||
+          '';
+        if (!chatId) return;
+        // Owner-only authority + drift/at-most-once vetoes live in the host
+        // handler; route first, then split by terminality like memory review.
+        const outcome = await this.opts.onMessageAction?.({
+          kind: 'brain_dream_review_decision',
+          conversationJid: `tg:${chatId}`,
+          ...(this.opts.providerAccountId
+            ? { providerAccountId: this.opts.providerAccountId }
+            : {}),
+          threadId:
+            typeof callbackMessage?.message_thread_id === 'number'
+              ? String(callbackMessage.message_thread_id)
+              : undefined,
+          userId: ctx.from?.id?.toString(),
+          reviewId,
+          decision,
+        });
+        if (!outcome) {
+          await ctx.answerCallbackQuery();
+          return;
+        }
+        const terminal =
+          outcome.state === 'applied' ||
+          outcome.state === 'stale' ||
+          outcome.state === 'invalid';
+        if (terminal) {
+          await ctx
+            .answerCallbackQuery({ text: outcome.receipt })
+            .catch((err: unknown) =>
+              logger.debug(
+                { reviewId, err: this.sanitizeErrorMessage(err) },
+                'Failed to ack Telegram brain review callback',
+              ),
+            );
+          await ctx
+            .editMessageText(outcome.receipt, {
+              reply_markup: { inline_keyboard: [] },
+            })
+            .catch((err: unknown) =>
+              logger.debug(
+                { reviewId, err: this.sanitizeErrorMessage(err) },
+                'Failed to update Telegram brain review message',
+              ),
+            );
+        } else {
+          // denied: private alert to the clicker; shared card + keyboard intact.
+          const text = outcome.replacementText
+            ? `${outcome.receipt}\n\n${outcome.replacementText}`
+            : outcome.receipt;
+          await ctx
+            .answerCallbackQuery({ text, show_alert: true })
+            .catch((err: unknown) =>
+              logger.debug(
+                { reviewId, err: this.sanitizeErrorMessage(err) },
+                'Failed to ack Telegram brain review callback',
               ),
             );
         }

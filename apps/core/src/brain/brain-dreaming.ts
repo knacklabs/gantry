@@ -11,6 +11,9 @@ import {
   normalizeEntityName,
 } from './brain-page-ingest.js';
 import type { BrainRepository } from './brain-repository.js';
+import type { BrainDreamReviewRepository } from './brain-dream-review-repository.js';
+import type { BrainReviewNotifier } from './brain-dream-review-notify.js';
+import { intakeDestructiveDreamOp } from './brain-dream-review-intake.js';
 import type { BrainService } from './brain-service.js';
 import type { ObserverInsightEmissionRuntime } from './observer-insight-emission.js';
 import {
@@ -62,6 +65,8 @@ const DESTRUCTIVE_ACTIONS = new Set([
 export async function runBrainDreamBatch(input: {
   brain: BrainService;
   repository: BrainRepository;
+  reviews?: BrainDreamReviewRepository;
+  notify?: BrainReviewNotifier;
   appId: string;
   proposer?: BrainDreamProposalPort;
   limit?: number;
@@ -100,6 +105,8 @@ export async function runBrainDreamBatch(input: {
     const summary = await applyBrainDreamOperations({
       brain: input.brain,
       repository: input.repository,
+      reviews: input.reviews,
+      notify: input.notify,
       appId: input.appId,
       runId,
       page,
@@ -124,6 +131,8 @@ export async function runBrainDreamBatch(input: {
 async function runObserverBrainDreamBatch(input: {
   brain: BrainService;
   repository: BrainRepository;
+  reviews?: BrainDreamReviewRepository;
+  notify?: BrainReviewNotifier;
   appId: string;
   proposer?: BrainDreamProposalPort;
   limit?: number;
@@ -188,6 +197,8 @@ async function runObserverBrainDreamBatch(input: {
       const summary = await applyBrainDreamOperations({
         brain: input.brain,
         repository: input.repository,
+        reviews: input.reviews,
+        notify: input.notify,
         appId: input.appId,
         runId,
         page,
@@ -250,6 +261,8 @@ function compareBrainPages(left: BrainPage, right: BrainPage): number {
 export async function applyBrainDreamOperations(input: {
   brain: BrainService;
   repository: BrainRepository;
+  reviews?: BrainDreamReviewRepository;
+  notify?: BrainReviewNotifier;
   appId: string;
   runId: string;
   page?: BrainPage;
@@ -264,12 +277,24 @@ export async function applyBrainDreamOperations(input: {
   for (const raw of input.ops) {
     input.signal?.throwIfAborted();
     const op = normalizeOperation(raw);
+    const decisionId = `bdd_${randomUUID().replace(/-/g, '')}`;
     let outcome: BrainDreamOutcome = 'rejected';
     let reason = op.valid ? '' : op.reason;
     if (op.valid) {
       if (op.kind === 'destructive') {
-        outcome = 'proposed';
-        reason = 'destructive operation is journaled for later review';
+        const handled = await handleDestructiveOp({
+          reviews: input.reviews,
+          notify: input.notify,
+          repository: input.repository,
+          appId: input.appId,
+          runId: input.runId,
+          pageId: input.page?.id ?? null,
+          action: op.action,
+          raw,
+          decisionId,
+        });
+        outcome = handled.outcome;
+        reason = handled.reason;
       } else {
         const applied = await applyOperation({
           ...input,
@@ -281,7 +306,7 @@ export async function applyBrainDreamOperations(input: {
       }
     }
     await input.repository.journalDreamDecision({
-      id: `bdd_${randomUUID().replace(/-/g, '')}`,
+      id: decisionId,
       appId: input.appId,
       runId: input.runId,
       pageId: input.page?.id ?? null,
@@ -295,6 +320,48 @@ export async function applyBrainDreamOperations(input: {
     summary[outcome] += 1;
   }
   return summary;
+}
+
+// retire_page is deferred in v1 (no review). Every other destructive op runs
+// through validation + snapshot + review creation ONLY when a review repo is
+// wired; without it (e.g. legacy callers/tests) the op is simply journaled
+// `proposed` as before. No mutation is ever executed here.
+async function handleDestructiveOp(input: {
+  reviews?: BrainDreamReviewRepository;
+  notify?: BrainReviewNotifier;
+  repository: BrainRepository;
+  appId: string;
+  runId: string;
+  pageId: string | null;
+  action: string;
+  raw: unknown;
+  decisionId: string;
+}): Promise<{ outcome: BrainDreamOutcome; reason: string }> {
+  if (input.action === 'retire_page') {
+    return {
+      outcome: 'proposed',
+      reason: 'retire_page is deferred in v1 (journaled without review)',
+    };
+  }
+  if (!input.reviews) {
+    return {
+      outcome: 'proposed',
+      reason: 'destructive operation is journaled for later review',
+    };
+  }
+  return intakeDestructiveDreamOp(
+    {
+      repository: input.repository,
+      reviews: input.reviews,
+      notify: input.notify,
+      appId: input.appId,
+      runId: input.runId,
+      pageId: input.pageId,
+      nowIso: nowIso(),
+    },
+    input.raw,
+    input.decisionId,
+  );
 }
 
 type NormalizedOperation =

@@ -104,6 +104,7 @@ import { PostgresAsyncTaskRepository } from './async-task-repository.postgres.js
 import { PostgresPatternCandidateRepository } from './pattern-candidate-repository.postgres.js';
 import { PostgresProactiveSurfacingRepository } from './proactive-surfacing-repository.postgres.js';
 import { PostgresObserverInsightRepository } from './observer-insight-repository.postgres.js';
+import { PostgresBrainDreamReviewRepository } from './brain-dream-review-repository.postgres.js';
 import { PostgresChatBatchRepository } from './chat-batch-repository.postgres.js';
 import type {
   RuntimeDependencyRepository,
@@ -113,6 +114,7 @@ import type {
 import type { AsyncTaskRepository } from '../../../../domain/ports/async-tasks.js';
 import type { PatternCandidateRepository } from '../../../../domain/ports/pattern-candidates.js';
 import type { ObserverInsightRepository } from '../../../../domain/ports/observer-insights.js';
+import type { BrainDreamReviewRepository } from '../../../../brain/brain-dream-review-repository.js';
 import type { ChatBatchRepository } from '../../../../domain/ports/chat-batches.js';
 import type { PermissionPromotionRepository } from '../../../../domain/ports/permission-promotion.js';
 import type { PermissionDecisionMemoryRepository } from '../../../../domain/ports/permission-decision-memory.js';
@@ -151,6 +153,7 @@ export interface PostgresDomainRepositoryBundle {
   patternCandidates: PatternCandidateRepository;
   proactiveSurfacing: PostgresProactiveSurfacingRepository;
   observerInsights: ObserverInsightRepository;
+  brainDreamReviews: BrainDreamReviewRepository;
   chatBatches: ChatBatchRepository;
   permissionPromotions: PermissionPromotionRepository;
   permissionDecisionMemory: PermissionDecisionMemoryRepository;
@@ -1788,6 +1791,7 @@ export function createPostgresDomainRepositories(
     patternCandidates: new PostgresPatternCandidateRepository(db),
     proactiveSurfacing: new PostgresProactiveSurfacingRepository(db),
     observerInsights: new PostgresObserverInsightRepository(db),
+    brainDreamReviews: new PostgresBrainDreamReviewRepository(db),
     chatBatches: new PostgresChatBatchRepository(db),
     permissionPromotions: new PostgresPermissionPromotionRepository(db),
     permissionDecisionMemory: new PostgresPermissionDecisionMemoryRepository(

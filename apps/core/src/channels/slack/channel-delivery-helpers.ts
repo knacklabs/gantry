@@ -27,6 +27,7 @@ import {
   slackReviewMessageBlocks,
 } from './message-action-affordances.js';
 import { slackObserverDigestBlocks } from './observer-digest-affordances.js';
+import { slackBrainReviewBlocks } from './brain-review-affordances.js';
 import { slackThreadTsFromThreadId } from './thread-ts.js';
 import {
   handleSlackThreadProgressStatus,
@@ -56,6 +57,13 @@ function slackActionBlocks(text: string, options: MessageSendOptions) {
   }
   if (options.reviewMessageView) {
     return slackReviewMessageBlocks(options.reviewMessageView, {
+      ...(options.providerAccountId
+        ? { providerAccountId: options.providerAccountId }
+        : {}),
+    });
+  }
+  if (options.brainReviewView) {
+    return slackBrainReviewBlocks(options.brainReviewView, {
       ...(options.providerAccountId
         ? { providerAccountId: options.providerAccountId }
         : {}),

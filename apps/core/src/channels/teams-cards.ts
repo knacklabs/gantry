@@ -5,7 +5,11 @@ import type {
   PermissionCallbackScope,
   UserQuestionRequest,
 } from '../domain/types.js';
-import type { ObserverFeedbackAction } from '../domain/message-actions.js';
+import type {
+  BrainDreamReviewActionDecision,
+  ObserverFeedbackAction,
+} from '../domain/message-actions.js';
+import type { BrainReviewCardView } from '../domain/brain-review-card.js';
 import type {
   ObserverDigestInsightView,
   ObserverDigestMessageView,
@@ -82,6 +86,14 @@ export interface TeamsAdaptiveCardAction {
         insightId: string;
         feedback: ObserverFeedbackAction;
         localDay: string;
+        targetJid: string;
+        threadId?: string;
+      }
+    | {
+        action: 'message_action';
+        kind: 'brain_dream_review_decision';
+        reviewId: string;
+        decision: BrainDreamReviewActionDecision;
         targetJid: string;
         threadId?: string;
       };
@@ -518,6 +530,55 @@ export function teamsReviewCard(
         kind: 'memory_review_decision',
         reviewId: affordance.reviewId,
         decision: affordance.decision,
+        targetJid: options.targetJid,
+        ...(options.threadId ? { threadId: options.threadId } : {}),
+      },
+    })),
+  };
+}
+
+/**
+ * Compact-structured Adaptive Card for a brain-dream destructive-review. Mirrors
+ * teamsReviewCard: a bold "what will change" headline TextBlock + optional detail
+ * lines (rewrite before→after) + two Action.Execute buttons (Approve/Reject)
+ * carrying the brain_dream_review_decision payload + targetJid so inbound
+ * validation rejects foreign-chat callbacks. Every snapshot-sourced value is
+ * escaped for the TextBlock markdown subset.
+ */
+export function teamsBrainReviewCard(
+  view: BrainReviewCardView,
+  options: { targetJid: string; threadId?: string },
+): TeamsAdaptiveCardPayload {
+  const body: Array<Record<string, unknown>> = [
+    {
+      type: 'TextBlock',
+      size: 'Medium',
+      weight: 'Bolder',
+      text: escapeTeamsCardText(view.headline),
+      wrap: true,
+    },
+    ...view.details.map((line) => ({
+      type: 'TextBlock',
+      size: 'Small',
+      isSubtle: true,
+      wrap: true,
+      text: escapeTeamsCardText(line),
+    })),
+  ];
+  return {
+    $schema: 'http://adaptivecards.io/schemas/adaptive-card.json',
+    type: 'AdaptiveCard',
+    version: '1.5',
+    body,
+    actions: view.buttons.map((button) => ({
+      type: 'Action.Execute',
+      title: button.label,
+      verb: 'gantry.brain.review',
+      data: {
+        action: 'message_action',
+        kind: 'brain_dream_review_decision',
+        reviewId: view.reviewId,
+        decision: button.decision,
         targetJid: options.targetJid,
         ...(options.threadId ? { threadId: options.threadId } : {}),
       },

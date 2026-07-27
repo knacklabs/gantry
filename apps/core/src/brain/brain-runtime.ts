@@ -6,6 +6,7 @@ import {
   MEMORY_EMBED_MODEL,
   MEMORY_EMBED_PROVIDER,
 } from '../config/index.js';
+import { resolveVerifiedOwnerRoute } from '../config/settings/observer-activation.js';
 import { loadRuntimeSettings } from '../config/settings/runtime-settings.js';
 import type { AppId } from '../domain/app/app.js';
 import { DEFAULT_MEMORY_APP_ID } from '../memory/app-memory-boundaries.js';
@@ -21,6 +22,18 @@ import {
   runBrainDreamBatch,
   type BrainDreamProposalPort,
 } from './brain-dreaming.js';
+import {
+  createBrainReviewNotifier,
+  getBrainReviewNotifyGateway,
+  redeliverPendingBrainReviews,
+  type BrainReviewNotifier,
+} from './brain-dream-review-notify.js';
+import type { BrainDreamReviewRepository } from './brain-dream-review-repository.js';
+import type {
+  ConversationRepository,
+  OutboundDeliveryRepository,
+} from '../domain/ports/repositories.js';
+import type { RuntimeSettings } from '../config/settings/runtime-settings-types.js';
 import { BrainService } from './brain-service.js';
 import { OBSERVER_CURSOR_SUBJECT } from './observer-insight-emission.js';
 
@@ -118,6 +131,8 @@ export async function runRuntimeBrainDreamBatch(input: {
   return runBrainDreamBatch({
     brain: new BrainService(repository),
     repository,
+    reviews: storage.repositories.brainDreamReviews,
+    notify: runtimeBrainReviewNotifier(input.appId),
     appId: input.appId,
     limit: input.limit,
     signal: input.signal,
@@ -146,9 +161,49 @@ export async function runRuntimeBrainDreamBatch(input: {
   });
 }
 
+// Bind the owner-DM review notifier to the live gateway (set at bootstrap) +
+// the CURRENT verified owner route. Returns undefined until the gateway is
+// wired, so the dream batch simply skips delivery (review still created and
+// surfaced by `gantry brain reviews`).
+function runtimeBrainReviewNotifier(
+  appId: string,
+): BrainReviewNotifier | undefined {
+  const gateway = getBrainReviewNotifyGateway();
+  if (!gateway) return undefined;
+  return createBrainReviewNotifier({
+    gateway,
+    appId,
+    resolveOwner: () =>
+      resolveVerifiedOwnerRoute(
+        getRuntimeSettingsForConfig(),
+        appId,
+        getRuntimeStorage().repositories.conversations,
+      ),
+  });
+}
+
+// Startup recovery: re-enqueue any ORPHANED review notification (pending, no
+// outbound delivery). No-op if the gateway isn't wired yet. Single-app.
+export async function recoverPendingBrainReviewNotifications(): Promise<{
+  delivered: number;
+}> {
+  const notify = runtimeBrainReviewNotifier(DEFAULT_MEMORY_APP_ID);
+  if (!notify) return { delivered: 0 };
+  return redeliverPendingBrainReviews({
+    reviews: getRuntimeStorage().repositories.brainDreamReviews,
+    appId: DEFAULT_MEMORY_APP_ID,
+    notify,
+  });
+}
+
 export interface OpenedBrain {
   brain: BrainService;
   appId: string;
+  reviews: BrainDreamReviewRepository;
+  // Exposed for the CLI re-notify command (which assembles the durable gateway).
+  outboundDeliveries: OutboundDeliveryRepository;
+  conversations: ConversationRepository;
+  settings: RuntimeSettings;
   harvestEnabledConversations: number;
   close: () => Promise<void>;
 }
@@ -183,6 +238,10 @@ export async function openBrainFromHome(
   return {
     brain,
     appId: DEFAULT_MEMORY_APP_ID,
+    reviews: storage.repositories.brainDreamReviews,
+    outboundDeliveries: storage.repositories.outboundDeliveries,
+    conversations: storage.repositories.conversations,
+    settings,
     harvestEnabledConversations: Object.values(settings.conversations).filter(
       (conversation) => conversation.brainHarvest,
     ).length,

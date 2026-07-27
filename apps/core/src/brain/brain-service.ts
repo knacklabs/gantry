@@ -7,7 +7,7 @@ import {
   normalizeEntityName,
   parseBrainMarkdown,
   sourceKindFromFrontmatter,
-  type BrainEntityRef,
+  type ParsedBrainMarkdown,
 } from './brain-page-ingest.js';
 import { recallBrainPages } from './brain-recall.js';
 import type {
@@ -87,39 +87,11 @@ export class BrainService {
         null,
       metadata: parsed.frontmatter,
     });
-    const extracted = extractBrainPageRefs(parsed);
-    const entityRefs = ensureEdgeEntityRefs(
-      extracted.entities,
-      extracted.edges,
-    );
-    const entities = await this.repository.upsertEntities(
-      input.appId,
-      entityRefs.map((ref) => ({
-        kind: ref.kind,
-        name: ref.name,
-        normalizedName: normalizeEntityName(ref.name),
-      })),
-    );
-    const entityByKey = new Map(
-      entities.map((entity) => [
-        `${entity.kind}:${entity.normalizedName}`,
-        entity,
-      ]),
-    );
-    const edges = await this.repository.replacePageEdges(
+    const { entities, edges } = await replaceBrainPageGraph(
+      this.repository,
       input.appId,
       page.id,
-      extracted.edges.flatMap((edge) => {
-        const from = entityByKey.get(
-          `${edge.from.kind}:${normalizeEntityName(edge.from.name)}`,
-        );
-        const to = entityByKey.get(
-          `${edge.to.kind}:${normalizeEntityName(edge.to.name)}`,
-        );
-        return from && to
-          ? [{ type: edge.type, fromEntityId: from.id, toEntityId: to.id }]
-          : [];
-      }),
+      parsed,
     );
     if (input.embed !== false) await this.embedPageIfEnabled(page);
     return { page, created, entities, edges };
@@ -294,11 +266,51 @@ export class BrainService {
   }
 }
 
-function ensureEdgeEntityRefs(
-  entities: BrainEntityRef[],
-  edges: Array<{ from: BrainEntityRef; to: BrainEntityRef }>,
-): BrainEntityRef[] {
-  return [...entities, ...edges.flatMap((edge) => [edge.from, edge.to])];
+// Re-derive a page's entities + edges from its parsed markdown and replace the
+// page's edge set. Shared by BrainService.write and the rewrite_page review
+// executor (T3) so both stay consistent. Runs entirely through the repository,
+// so passing a transaction-bound repository keeps it atomic.
+export async function replaceBrainPageGraph(
+  repository: BrainRepository,
+  appId: string,
+  pageId: string,
+  parsed: ParsedBrainMarkdown,
+): Promise<{ entities: BrainEntity[]; edges: BrainEdge[] }> {
+  const extracted = extractBrainPageRefs(parsed);
+  const entityRefs = [
+    ...extracted.entities,
+    ...extracted.edges.flatMap((edge) => [edge.from, edge.to]),
+  ];
+  const entities = await repository.upsertEntities(
+    appId,
+    entityRefs.map((ref) => ({
+      kind: ref.kind,
+      name: ref.name,
+      normalizedName: normalizeEntityName(ref.name),
+    })),
+  );
+  const entityByKey = new Map(
+    entities.map((entity) => [
+      `${entity.kind}:${entity.normalizedName}`,
+      entity,
+    ]),
+  );
+  const edges = await repository.replacePageEdges(
+    appId,
+    pageId,
+    extracted.edges.flatMap((edge) => {
+      const from = entityByKey.get(
+        `${edge.from.kind}:${normalizeEntityName(edge.from.name)}`,
+      );
+      const to = entityByKey.get(
+        `${edge.to.kind}:${normalizeEntityName(edge.to.name)}`,
+      );
+      return from && to
+        ? [{ type: edge.type, fromEntityId: from.id, toEntityId: to.id }]
+        : [];
+    }),
+  );
+  return { entities, edges };
 }
 
 function stringFromFrontmatter(value: unknown): string | undefined {
