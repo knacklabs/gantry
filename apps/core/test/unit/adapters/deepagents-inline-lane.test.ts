@@ -53,7 +53,11 @@ const model = vi.hoisted(() => ({
 const remote = vi.hoisted(() => {
   class Client {
     static instances: Client[] = [];
-    connect = vi.fn(async () => undefined);
+    static connectImpl: (client: Client, transport: unknown) => Promise<void> =
+      async () => undefined;
+    connect = vi.fn((transport: unknown) =>
+      Client.connectImpl(this, transport),
+    );
     close = vi.fn(async () => undefined);
     constructor(readonly info: unknown) {
       Client.instances.push(this);
@@ -129,6 +133,7 @@ vi.mock(mcpAdaptersPackage, () => ({
 import { createDeepAgentsInlineAgentLoopLane } from '@core/adapters/llm/deepagents-langchain/inline-lane/index.js';
 import { InMemoryInlineRunnerControlPort } from '@core/runtime/agent-inline.js';
 import { DEEPAGENTS_ENGINE } from '@core/shared/agent-engine.js';
+import { createDeterministicBarrier } from '../../harness/response-latency-harness.js';
 
 function laneInput(overrides: Record<string, unknown> = {}) {
   const coreTools = {
@@ -202,6 +207,7 @@ beforeEach(() => {
   checkpoint.Saver.tuple = { checkpoint: {} };
   checkpoint.Pool.instances = [];
   remote.Client.instances = [];
+  remote.Client.connectImpl = async () => undefined;
   remote.HttpTransport.instances = [];
   deep.createAgent.mockReturnValue({ streamEvents: deep.streamEvents });
   deep.createAgentMemory.mockReturnValue({
@@ -951,6 +957,113 @@ Always mention the migration impact.
     expect(remote.Client.instances[0]?.close).toHaveBeenCalledOnce();
   });
 
+  it('starts remote MCP servers with bounded concurrency and keeps configured tool order', async () => {
+    deep.streamEvents.mockImplementation(() => ({
+      async *[Symbol.asyncIterator]() {
+        yield streamEvent('done');
+      },
+    }));
+    const serverNames = ['alpha', 'bravo', 'charlie', 'delta', 'echo'];
+    const barrier = createDeterministicBarrier(serverNames.length);
+    const participants: ReturnType<typeof barrier.arrive>[] = [];
+    const connectOrder: string[] = [];
+    const inventoryByServer = Object.fromEntries(
+      serverNames.map((serverName) => [
+        serverName,
+        [
+          {
+            name: 'first',
+            description: `${serverName} first tool.`,
+            schema: z.object({}),
+            invoke: remote.invoke,
+          },
+          {
+            name: 'second',
+            description: `${serverName} second tool.`,
+            schema: z.object({}),
+            invoke: remote.invoke,
+          },
+        ],
+      ]),
+    );
+    remote.Client.connectImpl = async (client) => {
+      const info = client.info as { name: string };
+      connectOrder.push(info.name.replace('gantry-inline-', ''));
+      const participant = barrier.arrive();
+      participants.push(participant);
+      await participant.completed;
+    };
+    remote.loadTools.mockImplementation(async (serverName: string) => {
+      const tools = inventoryByServer[serverName];
+      if (!tools) throw new Error(`unexpected server ${serverName}`);
+      return tools;
+    });
+    const input = laneInput({
+      mcpServers: serverNames.map((serverName, index) => ({
+        name: serverName,
+        config: {
+          type: index % 2 === 0 ? 'http' : 'sse',
+          url: `https://mcp.example.test/${serverName}`,
+        },
+        allowedToolPatterns: ['*'],
+      })),
+    });
+    const lane = createDeepAgentsInlineAgentLoopLane({
+      databaseUrl: 'postgres://gantry:test@localhost:5432/gantry',
+      schema: 'gantry_deepagents',
+    });
+
+    const result = lane(input);
+    try {
+      await flushMicrotasks();
+
+      expect(barrier.snapshot()).toMatchObject({
+        arrivals: 4,
+        active: 4,
+        completed: 0,
+        maximumActive: 4,
+        allArrived: false,
+      });
+      expect(connectOrder).toEqual(serverNames.slice(0, 4));
+
+      participants[0]?.release();
+      await barrier.waitForArrivals(5);
+
+      expect(connectOrder).toEqual(serverNames);
+      expect(barrier.snapshot()).toMatchObject({
+        arrivals: 5,
+        active: 4,
+        maximumActive: 4,
+        allArrived: true,
+      });
+
+      participants[4]?.release();
+      participants[3]?.release();
+      participants[2]?.release();
+      participants[1]?.release();
+
+      await expect(result).resolves.toMatchObject({ status: 'success' });
+      const toolNames = deep.createAgent.mock.calls[0]?.[0].tools.map(
+        (tool) => tool.name,
+      );
+      expect(toolNames).toEqual([
+        'send_message',
+        'mcp__alpha__first',
+        'mcp__alpha__second',
+        'mcp__bravo__first',
+        'mcp__bravo__second',
+        'mcp__charlie__first',
+        'mcp__charlie__second',
+        'mcp__delta__first',
+        'mcp__delta__second',
+        'mcp__echo__first',
+        'mcp__echo__second',
+      ]);
+    } finally {
+      await releaseBarrierParticipantsUntilSettled(result, participants);
+    }
+  });
+
   it('filters remote MCP tools with reviewed wildcard scopes', async () => {
     deep.streamEvents.mockImplementation(() => ({
       async *[Symbol.asyncIterator]() {
@@ -1168,4 +1281,38 @@ function streamEvent(text: string) {
       },
     },
   };
+}
+
+async function flushMicrotasks() {
+  for (let index = 0; index < 8; index += 1) {
+    await Promise.resolve();
+  }
+}
+
+async function releaseBarrierParticipantsUntilSettled(
+  result: Promise<unknown>,
+  participants: readonly ReturnType<
+    ReturnType<typeof createDeterministicBarrier>['arrive']
+  >[],
+) {
+  const released = new Set<
+    ReturnType<ReturnType<typeof createDeterministicBarrier>['arrive']>
+  >();
+  let settled = false;
+  const settledResult = result
+    .catch(() => undefined)
+    .finally(() => {
+      settled = true;
+    });
+
+  while (!settled) {
+    for (const participant of participants) {
+      if (!released.has(participant)) {
+        released.add(participant);
+        participant.release();
+      }
+    }
+    await Promise.race([settledResult, flushMicrotasks()]);
+  }
+  await settledResult;
 }
