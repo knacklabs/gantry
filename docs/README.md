@@ -8,7 +8,7 @@ boundaries, decisions, security model, and operations.
 - [Repository README](../README.md) - install, setup, and runtime overview.
 - [Static project explorer](../index.html) - visual architecture and feature map.
 - [Codebase guide](CODEBASE_GUIDE.md) - source-derived runtime and contributor guide.
-- [Code audit findings](../bug.md) - reproduced defects and verification status.
+- [Contributor code audit findings](CODE_AUDIT_FINDINGS.md) - independently reproduced observations submitted for maintainer review.
 - [Product brief](product/BRIEF.md) - concise product intent and scope.
 - [Requirements](REQUIREMENTS.md) - product and architecture requirements.
 - [Specification](SPEC.md) - expected runtime behavior and constraints.

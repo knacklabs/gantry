@@ -1,4 +1,11 @@
-# Gantry Code Audit Findings
+# Contributor Code Audit Findings
+
+> **Contributor review — not an official Gantry bug tracker.** This document
+> records an independent source audit submitted for maintainer review. Finding
+> status means the contributor reproduced the observation at the audited
+> commit; it does not imply maintainer confirmation, prioritization, or
+> endorsement. Maintainers may accept, revise, move, or reject these findings
+> during review.
 
 This report is based on runtime source and executable checks on commit
 `db41baa550a5779f119bf2cfa1b9890856afc69d` (2026-07-27). It does not treat
@@ -6,16 +13,16 @@ older documentation or planning notes as proof of current behavior.
 
 ## Summary
 
-| ID      | Severity | Finding                                                                | Status                             |
-| ------- | -------- | ---------------------------------------------------------------------- | ---------------------------------- |
-| BUG-001 | High     | The required lint command fails with 44 errors                         | Confirmed                          |
-| BUG-002 | Medium   | Production dependency tree has six known advisories                    | Confirmed                          |
-| BUG-003 | Medium   | Published repository metadata points to the former repository          | Fixed in this documentation change |
-| BUG-004 | Medium   | Public docs overstate Microsoft Teams runtime support                  | Fixed in this documentation change |
-| BUG-005 | Medium   | Caught-error context is lost at three boundaries                       | Confirmed                          |
-| BUG-006 | Medium   | An exception is thrown from `finally` in the inbound attachment writer | Confirmed                          |
+| ID        | Severity | Finding                                                                | Status                            |
+| --------- | -------- | ---------------------------------------------------------------------- | --------------------------------- |
+| AUDIT-001 | High     | The required lint command fails with 44 errors                         | Reproduced by contributor         |
+| AUDIT-002 | Medium   | Production dependency tree has six known advisories                    | Reproduced by contributor         |
+| AUDIT-003 | Medium   | Published repository metadata points to the former repository          | Addressed in this proposed change |
+| AUDIT-004 | Medium   | Public docs overstate Microsoft Teams runtime support                  | Addressed in this proposed change |
+| AUDIT-005 | Medium   | Caught-error context is lost at three boundaries                       | Reproduced by contributor         |
+| AUDIT-006 | Medium   | An exception is thrown from `finally` in the inbound attachment writer | Reproduced by contributor         |
 
-## BUG-001: The lint gate is red on `main`
+## AUDIT-001: The lint gate is red on the audited `main` snapshot
 
 Severity: High
 
@@ -53,7 +60,7 @@ Recommended fix:
    mechanical lint cleanup.
 3. Run `npm run lint` in CI as a required check.
 
-## BUG-002: Production dependency advisories
+## AUDIT-002: Production dependency advisories
 
 Severity: Medium
 
@@ -94,7 +101,7 @@ Recommended fix:
 3. Re-run `npm audit --omit=dev`, the 7,460 unit tests, and MCP integration
    suites.
 
-## BUG-003: Repository URLs identify the former home
+## AUDIT-003: Repository URLs identify the former home
 
 Severity: Medium
 
@@ -114,7 +121,7 @@ Status: fixed in the root README, SDK README, and package manifests by this
 change. Historical decision records were left untouched because they are
 historical evidence, not current onboarding instructions.
 
-## BUG-004: Microsoft Teams is advertised as an active runtime channel
+## AUDIT-004: Microsoft Teams is advertised as an active runtime channel
 
 Severity: Medium
 
@@ -133,7 +140,7 @@ Status: corrected in the root README, static project explorer, current
 architecture pages, and codebase guide. The implementation remains
 setup/discovery-only.
 
-## BUG-005: Caught-error context is discarded
+## AUDIT-005: Caught-error context is discarded
 
 Severity: Medium
 
@@ -152,7 +159,7 @@ Recommended fix: capture the original error and attach it with
 `new Error(message, { cause: error })`, preserving the outer domain-specific
 message.
 
-## BUG-006: Throwing from `finally` can replace the real attachment error
+## AUDIT-006: Throwing from `finally` can replace the real attachment error
 
 Severity: Medium
 

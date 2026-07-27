@@ -452,4 +452,5 @@ Postgres integration and end-to-end suites require an isolated database through
 
 At the audited commit, architecture checks and type checking pass, and all
 7,460 unit tests pass outside a restricted localhost sandbox. Lint and
-production dependency audit findings are tracked in [`../bug.md`](../bug.md).
+production dependency audit observations are tracked in
+[`CODE_AUDIT_FINDINGS.md`](CODE_AUDIT_FINDINGS.md).
