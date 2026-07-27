@@ -75,24 +75,38 @@ export function createBrainReviewNotifier(deps: {
   warn?: (context: Record<string, unknown>, message: string) => void;
 }): BrainReviewNotifier {
   return async (review) => {
-    const { owner } = await deps.resolveOwner();
-    if (!owner) {
+    // Best-effort contract: ANY failure (owner resolution, render, enqueue) is
+    // caught here and reported — the notifier never throws, so a transient DB /
+    // enqueue blip can't roll back the already-committed review, and no caller
+    // has to add its own catch. The pending-review list is the recovery handle.
+    try {
+      const { owner } = await deps.resolveOwner();
+      if (!owner) {
+        deps.warn?.(
+          { reviewId: review.id },
+          'brain review not delivered: no verified owner route configured',
+        );
+        return;
+      }
+      const { view, text } = buildBrainReviewNotification(review);
+      await deps.gateway.enqueue({
+        appId: deps.appId,
+        conversationJid: owner.conversationJid,
+        providerAccountId: owner.providerAccountId,
+        threadId: null,
+        idempotencyKey: brainReviewNotifyIdempotencyKey(review.id),
+        text,
+        brainReviewView: view,
+      });
+    } catch (err) {
       deps.warn?.(
-        { reviewId: review.id },
-        'brain review not delivered: no verified owner route configured',
+        {
+          reviewId: review.id,
+          error: err instanceof Error ? err.message : String(err),
+        },
+        'brain review notification failed; will surface via the pending-review list',
       );
-      return;
     }
-    const { view, text } = buildBrainReviewNotification(review);
-    await deps.gateway.enqueue({
-      appId: deps.appId,
-      conversationJid: owner.conversationJid,
-      providerAccountId: owner.providerAccountId,
-      threadId: null,
-      idempotencyKey: brainReviewNotifyIdempotencyKey(review.id),
-      text,
-      brainReviewView: view,
-    });
   };
 }
 

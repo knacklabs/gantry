@@ -65,6 +65,40 @@ describe('brain review notify', () => {
     }
   });
 
+  it('catches a resolveOwner rejection: never throws, warns', async () => {
+    const enqueue = vi.fn(async () => ({ outboundDeliveryId: 'out-1' }));
+    const warn = vi.fn();
+    const notify = createBrainReviewNotifier({
+      gateway: { enqueue },
+      appId: 'app',
+      resolveOwner: async () => {
+        throw new Error('owner lookup DB blip');
+      },
+      warn,
+    });
+    await expect(notify(REVIEW)).resolves.toBeUndefined();
+    expect(enqueue).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledOnce();
+    expect(warn.mock.calls[0]![0]).toMatchObject({ reviewId: 'bdrv_1' });
+  });
+
+  it('catches a gateway.enqueue rejection: never throws, warns', async () => {
+    const enqueue = vi.fn(async () => {
+      throw new Error('enqueue DB blip');
+    });
+    const warn = vi.fn();
+    const notify = createBrainReviewNotifier({
+      gateway: { enqueue },
+      appId: 'app',
+      resolveOwner: async () => ({ owner: OWNER }),
+      warn,
+    });
+    await expect(notify(REVIEW)).resolves.toBeUndefined();
+    expect(enqueue).toHaveBeenCalledOnce();
+    expect(warn).toHaveBeenCalledOnce();
+    expect(warn.mock.calls[0]![0]).toMatchObject({ reviewId: 'bdrv_1' });
+  });
+
   it('skips delivery (never throws) when no verified owner is configured', async () => {
     const enqueue = vi.fn(async () => ({ outboundDeliveryId: 'out-1' }));
     const warn = vi.fn();
