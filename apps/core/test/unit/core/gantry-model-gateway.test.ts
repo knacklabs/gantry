@@ -859,6 +859,74 @@ describe('GantryModelGatewayBroker', () => {
     }
   });
 
+  it('retries an audit write once without run_id when the run_id FK is violated', async () => {
+    const repo = new MutableModelCredentialRepository();
+    repo.set('anthropic', 'sk-ant-old');
+    const fkError = Object.assign(new Error('insert failed'), {
+      // Drizzle wraps the pg driver error; the SQLSTATE is on the cause chain.
+      cause: Object.assign(new Error('violates foreign key constraint'), {
+        code: '23503',
+        constraint: 'runtime_events_run_id_fkey',
+      }),
+    });
+    const audit = vi.fn(async (event: { runId?: string }) => {
+      if (event.runId !== undefined) throw fkError;
+      return undefined;
+    });
+    const broker = new GantryModelGatewayBroker(repo, { audit });
+    try {
+      await broker.getInjection({
+        binding: {
+          profile: 'gantry',
+          purpose: 'model_runtime',
+          appId,
+          runId: '45462980-895e-4195-b830-fca4f803945f' as never,
+          modelRouteId: 'anthropic',
+        },
+      });
+
+      // First attempt carries the run id; the FK violation degrades it to one
+      // unscoped retry so the usage/cost record survives.
+      expect(audit).toHaveBeenCalledTimes(2);
+      expect(audit.mock.calls[0]?.[0]).toHaveProperty(
+        'runId',
+        '45462980-895e-4195-b830-fca4f803945f',
+      );
+      expect(audit.mock.calls[1]?.[0]).not.toHaveProperty('runId');
+      expect(audit.mock.calls[1]?.[0]).toMatchObject({
+        appId,
+        eventType: 'credential.model.used',
+        payload: expect.objectContaining({ outcome: 'token_issued' }),
+      });
+    } finally {
+      await broker.close();
+    }
+  });
+
+  it('does not retry an audit write on a non-FK error', async () => {
+    const repo = new MutableModelCredentialRepository();
+    repo.set('anthropic', 'sk-ant-old');
+    const audit = vi.fn(async () => {
+      throw Object.assign(new Error('connection reset'), { code: '08006' });
+    });
+    const broker = new GantryModelGatewayBroker(repo, { audit });
+    try {
+      await broker.getInjection({
+        binding: {
+          profile: 'gantry',
+          purpose: 'model_runtime',
+          appId,
+          runId: '45462980-895e-4195-b830-fca4f803945f' as never,
+          modelRouteId: 'anthropic',
+        },
+      });
+
+      expect(audit).toHaveBeenCalledTimes(1);
+    } finally {
+      await broker.close();
+    }
+  });
+
   it('does not publish synthetic memory query scopes as runtime run ids', async () => {
     const repo = new MutableModelCredentialRepository();
     repo.set('anthropic', 'sk-ant-old');

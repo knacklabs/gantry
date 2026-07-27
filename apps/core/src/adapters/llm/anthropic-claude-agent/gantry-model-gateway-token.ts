@@ -1,5 +1,8 @@
 import type { AppId } from '../../../domain/app/app.js';
-import type { RuntimeEventPublishInput } from '../../../domain/events/events.js';
+import {
+  isSyntheticRunId,
+  type RuntimeEventPublishInput,
+} from '../../../domain/events/events.js';
 import { CredentialBrokerPolicyError } from '../../../domain/models/credential-errors.js';
 import type {
   AgentCredentialBrokerBinding,
@@ -196,11 +199,10 @@ export function runtimeEventRunIdFor(
   token: GatewayTokenRecord,
 ): RuntimeEventPublishInput['runId'] | undefined {
   if (!token.runId) return undefined;
-  // Allowlist: only real agent runs have an `agent_runs` row to satisfy the
-  // runtime_events -> agent_runs FK. Synthetic ids (permission-classifier:,
-  // memory-query:, credential-run:, and any future one) have no row, so drop
-  // them rather than spam FK violations.
-  return String(token.runId).startsWith('agent-run:') ? token.runId : undefined;
+  // Drop only SYNTHETIC run-ids (no `agent_runs` row -> FK violation). Real run
+  // ids come in two shapes — `agent-run:<uuid>` and a bare uuid — and both must
+  // pass through, so this cannot be an `agent-run:` allowlist.
+  return isSyntheticRunId(String(token.runId)) ? undefined : token.runId;
 }
 
 function jsonStringField(body: Buffer, field: string): string | undefined {
