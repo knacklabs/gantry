@@ -785,6 +785,136 @@ describe('permission classifier decision events', () => {
     expect(classifierConsult).toHaveBeenCalledOnce();
   });
 
+  it('auto-approves a routine gantry mutation via the deterministic map without the LLM in auto', async () => {
+    const classifierConsult = vi.fn();
+    await expect(
+      consultPermissionClassifierBeforePrompt({
+        permissionMode: 'auto',
+        requestFamily: 'tool',
+        agentFolder: 'researcher',
+        correlationId: 'request:gantry-scheduler',
+        actor: 'permission',
+        intentSource: 'operator_message',
+        turnIntentSummary: 'Update the digest schedule.',
+        canonicalToolName: 'mcp__gantry__scheduler_update_job',
+        toolInput: { jobId: 'job-1', cron: '0 9 * * *' },
+        policyDecisionReason: 'No durable rule matched.',
+        approvedCapabilityIds: [],
+        classifierConfig: { memoryExtractorModel: 'extractor-model' },
+        publishRuntimeEvent: vi.fn(async () => undefined),
+        classifierConsult,
+      }),
+    ).resolves.toMatchObject({ decision: 'allow', latencyMs: 0 });
+    expect(classifierConsult).not.toHaveBeenCalled();
+  });
+
+  it('does NOT let the gantry map override an auto_strict deterministic denial (mutation still asks)', async () => {
+    const classifierConsult = vi.fn();
+    await expect(
+      consultPermissionClassifierBeforePrompt({
+        // Gantry mutations have no deterministic read-only proof (evaluateMcpRead
+        // blocks gantry), so in auto_strict the strict-denial guard must win over
+        // the low/medium gantry rating and ask.
+        permissionMode: 'auto_strict',
+        requestFamily: 'tool',
+        agentFolder: 'researcher',
+        correlationId: 'request:gantry-scheduler-strict',
+        actor: 'permission',
+        intentSource: 'operator_message',
+        turnIntentSummary: 'Update the digest schedule.',
+        canonicalToolName: 'mcp__gantry__scheduler_update_job',
+        toolInput: { jobId: 'job-1', cron: '0 9 * * *' },
+        policyDecisionReason: 'No durable rule matched.',
+        approvedCapabilityIds: [],
+        classifierConfig: { memoryExtractorModel: 'extractor-model' },
+        publishRuntimeEvent: vi.fn(async () => undefined),
+        classifierConsult,
+      }),
+    ).resolves.toMatchObject({ decision: 'ask', latencyMs: 0 });
+    expect(classifierConsult).not.toHaveBeenCalled();
+  });
+
+  it.each(['auto', 'auto_strict'] as const)(
+    'asks on a high-risk gantry authority tool via the deterministic map in %s',
+    async (permissionMode) => {
+      const classifierConsult = vi.fn();
+      await expect(
+        consultPermissionClassifierBeforePrompt({
+          permissionMode,
+          requestFamily: 'tool',
+          agentFolder: 'researcher',
+          correlationId: 'request:gantry-access',
+          actor: 'permission',
+          intentSource: 'operator_message',
+          turnIntentSummary: 'Grant myself a new capability.',
+          canonicalToolName: 'mcp__gantry__request_access',
+          toolInput: { capability: 'gog' },
+          policyDecisionReason: 'No durable rule matched.',
+          approvedCapabilityIds: [],
+          classifierConfig: { memoryExtractorModel: 'extractor-model' },
+          publishRuntimeEvent: vi.fn(async () => undefined),
+          classifierConsult,
+        }),
+      ).resolves.toMatchObject({ decision: 'ask', latencyMs: 0 });
+      expect(classifierConsult).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(['promotion', 'review', 'admin'] as const)(
+    'does NOT apply the gantry map to the %s family (a low/medium gantry tool is never auto-allowed as a non-tool request)',
+    async (requestFamily) => {
+      const classifierConsult = vi.fn();
+      // A promotion/review/admin request whose canonicalToolName happens to be a
+      // low/medium gantry tool must NOT inherit that tool's routine EXECUTION
+      // rating: a tool's execution risk does not establish that granting durable
+      // authority or approving a review is safe. Only the 'tool' family may use
+      // the gantry map — every other family is ineligible and returns undefined
+      // (the caller then prompts), never a gantry auto-allow.
+      await expect(
+        consultPermissionClassifierBeforePrompt({
+          permissionMode: 'auto',
+          requestFamily,
+          agentFolder: 'researcher',
+          correlationId: `request:gantry-${requestFamily}`,
+          actor: 'permission',
+          intentSource: 'operator_message',
+          turnIntentSummary: 'Persist a rule for the digest schedule.',
+          canonicalToolName: 'mcp__gantry__scheduler_update_job',
+          toolInput: { jobId: 'job-1', cron: '0 9 * * *' },
+          policyDecisionReason: 'No durable rule matched.',
+          approvedCapabilityIds: [],
+          classifierConfig: { memoryExtractorModel: 'extractor-model' },
+          publishRuntimeEvent: vi.fn(async () => undefined),
+          classifierConsult,
+        }),
+      ).resolves.toBeUndefined();
+      expect(classifierConsult).not.toHaveBeenCalled();
+    },
+  );
+
+  it('asks on an unmapped gantry tool without the LLM (never silent auto-approve)', async () => {
+    const classifierConsult = vi.fn();
+    await expect(
+      consultPermissionClassifierBeforePrompt({
+        permissionMode: 'auto',
+        requestFamily: 'tool',
+        agentFolder: 'researcher',
+        correlationId: 'request:gantry-unknown',
+        actor: 'permission',
+        intentSource: 'operator_message',
+        turnIntentSummary: 'Do something new.',
+        canonicalToolName: 'mcp__gantry__frobnicate_everything',
+        toolInput: {},
+        policyDecisionReason: 'No durable rule matched.',
+        approvedCapabilityIds: [],
+        classifierConfig: { memoryExtractorModel: 'extractor-model' },
+        publishRuntimeEvent: vi.fn(async () => undefined),
+        classifierConsult,
+      }),
+    ).resolves.toMatchObject({ decision: 'ask', latencyMs: 0 });
+    expect(classifierConsult).not.toHaveBeenCalled();
+  });
+
   it.each(['auto', 'auto_strict'] as const)(
     'allows a routine benign OS command in %s',
     async (permissionMode) => {
