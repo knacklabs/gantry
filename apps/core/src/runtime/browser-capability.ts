@@ -29,10 +29,12 @@ import {
   isPidAlive,
   isPidOwnedByBrowserProfile,
   isPidOwnedVisibleBrowserProfile,
+  stopBrowserProcess,
 } from './browser-process.js';
 import {
   browserProfileNeedsRestore,
   restoreBrowserProfileBeforeLaunch,
+  skipNextBrowserProfileSnapshot,
 } from './browser-profile-sync.js';
 import type { RuntimeLeasePort } from '../domain/ports/runtime-lease.js';
 
@@ -58,6 +60,7 @@ interface BrowserSession {
 
 const sessions = new Map<string, BrowserSession>();
 const pendingLaunches = new Map<string, Promise<BrowserSessionStatus>>();
+const leaseLossTeardowns = new Map<string, Promise<void>>();
 let profileLockLeases: RuntimeLeasePort | undefined;
 
 export function registerBrowserProfileLockLeasePort(
@@ -219,7 +222,7 @@ async function closePersistedSessionBeforeRestore(
   if (!record) return;
   const processState = browserProcessProfileState(record.pid, profile);
   if (isPidAlive(record.pid) && processState.owned) {
-    await terminatePid(record.pid);
+    await stopBrowserProcess({ pid: record.pid });
   }
   clearBrowserSessionRecord(profile);
   updateProfileMetadata(profileName, { cdp_port: undefined });
@@ -247,27 +250,35 @@ function touchSession(session: BrowserSession): void {
   session.keepAliveTimer.unref?.();
 }
 
-async function terminatePid(pid: number): Promise<void> {
-  if (!Number.isInteger(pid) || pid <= 0) return;
-  try {
-    process.kill(pid, 'SIGTERM');
-  } catch {
-    return;
-  }
-  const startedAt = currentTimeMs();
-  while (currentTimeMs() - startedAt < 2_000) {
-    try {
-      process.kill(pid, 0);
-      await new Promise((resolve) => setTimeout(resolve, 100));
-    } catch {
-      return;
-    }
-  }
-  try {
-    process.kill(pid, 'SIGKILL');
-  } catch {
-    // ignore
-  }
+function profileLeaseLostError(profileName: string): Error {
+  return new Error(`Browser profile lease lost for ${profileName}`);
+}
+
+function assertProfileLockValid(lock: BrowserProfileLock): void {
+  if (!lock.isValid()) throw profileLeaseLostError(lock.name);
+}
+
+function registerLiveBrowserSession(session: BrowserSession): void {
+  assertProfileLockValid(session.lock);
+  sessions.set(session.profileName, session);
+  session.lock.onLost((err) => {
+    if (leaseLossTeardowns.has(session.profileName)) return;
+    logger.error(
+      { err, profileName: session.profileName, pid: session.pid },
+      'Browser profile lease lost; stopping session without snapshot',
+    );
+    skipNextBrowserProfileSnapshot(session.profileName);
+    const teardown = shutdownLiveBrowserSession(session).then(
+      () => undefined,
+      (cleanupError) => {
+        logger.error(
+          { err: cleanupError, profileName: session.profileName },
+          'Failed to clean up browser session after profile lease loss',
+        );
+      },
+    );
+    leaseLossTeardowns.set(session.profileName, teardown);
+  });
 }
 
 async function recoverPersistedBrowserSession(input: {
@@ -301,7 +312,7 @@ async function recoverPersistedBrowserSession(input: {
       { profileName: input.profileName, pid: record.pid },
       'Terminating non-visible persisted browser session',
     );
-    await terminatePid(record.pid);
+    await stopBrowserProcess({ pid: record.pid });
     clearBrowserSessionRecord(input.profile);
     updateProfileMetadata(input.profileName, { cdp_port: undefined });
     return null;
@@ -312,7 +323,7 @@ async function recoverPersistedBrowserSession(input: {
       { profileName: input.profileName, pid: record.pid, port: record.port },
       'Terminating browser process with unhealthy persisted CDP session',
     );
-    await terminatePid(record.pid);
+    await stopBrowserProcess({ pid: record.pid });
     clearBrowserSessionRecord(input.profile);
     updateProfileMetadata(input.profileName, { cdp_port: undefined });
     return null;
@@ -329,7 +340,7 @@ async function recoverPersistedBrowserSession(input: {
     keepAliveTimer: null,
     headless: false,
   };
-  sessions.set(input.profileName, session);
+  registerLiveBrowserSession(session);
   touchSession(session);
   logger.info(
     { profileName: input.profileName, pid: record.pid, port: record.port },
@@ -364,6 +375,9 @@ export async function launchBrowser(
   opts: LaunchBrowserOptions = {},
 ): Promise<BrowserSessionStatus> {
   const profileName = resolveProfileName(opts.profileName);
+  if (leaseLossTeardowns.has(profileName)) {
+    throw profileLeaseLostError(profileName);
+  }
   const keepAliveMs = resolveBrowserKeepAliveMs(opts.keepAliveMs);
   const pending = pendingLaunches.get(profileName);
   if (pending) return await waitForPendingLaunch(pending, opts);
@@ -394,8 +408,11 @@ async function launchBrowserInner(
 ): Promise<BrowserSessionStatus> {
   const profile = createProfile(profileName);
   let existing = sessions.get(profileName);
+  if (existing) assertProfileLockValid(existing.lock);
   if (existing && (await isSessionHealthy(existing))) {
+    assertProfileLockValid(existing.lock);
     if (await browserProfileNeedsRestore(profileName, profile.dir)) {
+      assertProfileLockValid(existing.lock);
       logger.info(
         { profileName, pid: existing.pid, port: existing.port },
         'Closing browser session before restoring newer shared profile snapshot',
@@ -403,6 +420,7 @@ async function launchBrowserInner(
       await closeBrowser(profileName);
       existing = undefined;
     } else {
+      assertProfileLockValid(existing.lock);
       existing.keepAliveMs = keepAliveMs;
       touchSession(existing);
       return toRunningStatus(existing);
@@ -412,17 +430,22 @@ async function launchBrowserInner(
   if (existing) {
     await closeUnhealthySession(profileName, existing);
   }
+  if (leaseLossTeardowns.has(profileName))
+    throw profileLeaseLostError(profileName);
 
   const lock = await acquireProfileLock(profileName, getProfileLockLeases());
   let chromeProcess: ChildProcess | undefined;
 
   try {
+    assertProfileLockValid(lock);
     const needsRestore = await browserProfileNeedsRestore(
       profileName,
       profile.dir,
     );
+    assertProfileLockValid(lock);
     if (needsRestore) {
       await closePersistedSessionBeforeRestore(profileName, profile);
+      assertProfileLockValid(lock);
     } else {
       const recovered = await recoverPersistedBrowserSession({
         profileName,
@@ -431,14 +454,15 @@ async function launchBrowserInner(
         keepAliveMs,
       });
       if (recovered) return toRunningStatus(recovered);
+      assertProfileLockValid(lock);
     }
 
-    // No owned Chrome is running (adoption above returned null): restore a newer
-    // cross-worker snapshot before launch. No-op off-fleet.
     await restoreBrowserProfileBeforeLaunch(profileName, profile);
+    assertProfileLockValid(lock);
 
     cleanupChromeSingletonArtifacts(profile.userDataDir);
     const debuggingPort = await reserveLoopbackPort();
+    assertProfileLockValid(lock);
     const chromeFlags = [
       ...DEFAULT_CHROME_ARGS,
       `--user-data-dir=${profile.userDataDir}`,
@@ -463,6 +487,7 @@ async function launchBrowserInner(
         ? { deadlineAtMs: opts.deadlineAtMs }
         : undefined,
     );
+    assertProfileLockValid(lock);
 
     const session: BrowserSession = {
       profileName,
@@ -477,7 +502,7 @@ async function launchBrowserInner(
       headless: false,
     };
 
-    sessions.set(profileName, session);
+    registerLiveBrowserSession(session);
     touchSession(session);
 
     logger.info(
@@ -534,44 +559,14 @@ export async function ensureBrowserReady(
   return launchBrowser(opts);
 }
 
-async function waitForProcessExit(
-  session: BrowserSession,
-  timeoutMs: number,
-): Promise<boolean> {
-  if (!isChromeAlive(session)) return true;
-  const child = session.chromeProcess as
-    | (ChildProcess & {
-        once?: ChildProcess['once'];
-      })
-    | undefined;
-  if (typeof child?.once === 'function') {
-    const exited = await new Promise<boolean>((resolve) => {
-      const timer = setTimeout(() => resolve(false), timeoutMs);
-      const done = () => {
-        clearTimeout(timer);
-        resolve(true);
-      };
-      child.once('exit', done);
-      child.once('close', done);
-    });
-    if (exited) return true;
-  }
-
-  const startedAt = currentTimeMs();
-  while (currentTimeMs() - startedAt < timeoutMs) {
-    if (!isChromeAlive(session)) return true;
-    await new Promise((resolve) => setTimeout(resolve, 100));
-  }
-  return !isChromeAlive(session);
-}
-
 export async function getBrowserStatus(
   profileName = DEFAULT_BROWSER_PROFILE_NAME,
 ): Promise<BrowserSessionStatus> {
   const normalized = resolveProfileName(profileName);
   const session = sessions.get(normalized);
   if (session) {
-    if (await isSessionHealthy(session)) return toRunningStatus(session);
+    if (session.lock.isValid() && (await isSessionHealthy(session)))
+      return toRunningStatus(session);
     return toStoppedStatus(normalized);
   }
 
@@ -599,8 +594,29 @@ export function getKnownBrowserStatus(
 ): BrowserSessionStatus {
   const normalized = resolveProfileName(profileName);
   const session = sessions.get(normalized);
-  if (!session || !isChromeAlive(session)) return toStoppedStatus(normalized);
+  if (!session || !session.lock.isValid() || !isChromeAlive(session))
+    return toStoppedStatus(normalized);
   return toRunningStatus(session);
+}
+
+async function shutdownLiveBrowserSession(
+  session: BrowserSession,
+): Promise<boolean | undefined> {
+  if (sessions.get(session.profileName) !== session) return undefined;
+  if (!sessions.delete(session.profileName)) return undefined;
+  if (session.keepAliveTimer) clearTimeout(session.keepAliveTimer);
+  session.keepAliveTimer = null;
+  const exited = await stopBrowserProcess(session);
+  try {
+    clearBrowserSessionRecord(createProfile(session.profileName));
+    updateProfileMetadata(session.profileName, {
+      last_used: nowIso(),
+      cdp_port: undefined,
+    });
+  } finally {
+    await session.lock.release();
+  }
+  return exited;
 }
 
 export async function closeBrowser(
@@ -608,11 +624,22 @@ export async function closeBrowser(
 ): Promise<{ closed: boolean; reason?: string; elapsedMs?: number }> {
   const startedAt = currentTimeMs();
   const normalized = resolveProfileName(profileName);
+  const leaseLossTeardown = leaseLossTeardowns.get(normalized);
+  if (leaseLossTeardown) {
+    await leaseLossTeardown;
+    leaseLossTeardowns.delete(normalized);
+    return {
+      closed: true,
+      reason: 'lease_lost',
+      elapsedMs: currentTimeMs() - startedAt,
+    };
+  }
   const session = sessions.get(normalized);
   if (!session) {
     const profile = createProfile(normalized);
     const lock = await acquireProfileLock(normalized, getProfileLockLeases());
     try {
+      assertProfileLockValid(lock);
       const record = readBrowserSessionRecord(profile);
       if (!record) {
         return {
@@ -625,13 +652,14 @@ export async function closeBrowser(
         isPidAlive(record.pid) &&
         isPidOwnedByBrowserProfile(record.pid, profile);
       if (shouldTerminate) {
-        await terminatePid(record.pid);
+        await stopBrowserProcess({ pid: record.pid });
       } else {
         logger.warn(
           { profileName: normalized, pid: record.pid },
           'Clearing persisted browser session without terminating unverified PID',
         );
       }
+      assertProfileLockValid(lock);
       clearBrowserSessionRecord(profile);
       updateProfileMetadata(normalized, {
         last_used: nowIso(),
@@ -654,38 +682,16 @@ export async function closeBrowser(
     }
   }
 
-  if (session.keepAliveTimer) {
-    clearTimeout(session.keepAliveTimer);
-    session.keepAliveTimer = null;
-  }
-  try {
-    process.kill(session.pid, 'SIGTERM');
-  } catch {
-    // ignore
-  }
-  let exited = await waitForProcessExit(session, 2_000);
-  if (!exited) {
-    try {
-      process.kill(session.pid, 'SIGKILL');
-    } catch {
-      // ignore
-    }
-    exited = await waitForProcessExit(session, 1_000);
-  }
-  try {
-    sessions.delete(normalized);
-    clearBrowserSessionRecord(createProfile(normalized));
-    updateProfileMetadata(normalized, {
-      last_used: nowIso(),
-      cdp_port: undefined,
-    });
-  } finally {
-    await session.lock.release();
-  }
+  const exited = await shutdownLiveBrowserSession(session);
 
   return {
-    closed: exited,
-    reason: exited ? 'terminated' : 'process_did_not_exit',
+    closed: exited ?? true,
+    reason:
+      exited === undefined
+        ? 'not_running'
+        : exited
+          ? 'terminated'
+          : 'process_did_not_exit',
     elapsedMs: currentTimeMs() - startedAt,
   };
 }

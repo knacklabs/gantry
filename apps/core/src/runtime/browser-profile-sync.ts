@@ -74,6 +74,7 @@ let coordinator: BrowserProfileSyncDeps | null = null;
  * The JOB path uses its own browserActivityCount diagnostic instead.
  */
 const profileActivity = new Set<string>();
+const snapshotsSkippedAfterLeaseLoss = new Set<string>();
 
 export function markBrowserProfileActivity(profileName: string): void {
   profileActivity.add(profileName);
@@ -82,6 +83,10 @@ export function markBrowserProfileActivity(profileName: string): void {
 /** Read-and-clear the activity flag for a profile. */
 export function consumeBrowserProfileActivity(profileName: string): boolean {
   return profileActivity.delete(profileName);
+}
+
+export function skipNextBrowserProfileSnapshot(profileName: string): void {
+  snapshotsSkippedAfterLeaseLoss.add(profileName);
 }
 
 export function registerBrowserProfileSync(
@@ -231,6 +236,13 @@ export async function snapshotBrowserProfile(
   | { status: 'stale'; contentHash: string }
 > {
   if (!coordinator) return { status: 'noop', reason: 'sync_disabled' };
+  if (snapshotsSkippedAfterLeaseLoss.delete(input.profileName)) {
+    logger.error(
+      { profileName: input.profileName },
+      'Skipped browser profile snapshot after profile lease loss',
+    );
+    return { status: 'noop', reason: 'lease_lost' };
+  }
 
   let lock: { release: () => void | Promise<void> };
   try {

@@ -28,6 +28,8 @@ export interface BrowserProfile {
 export interface BrowserProfileLock {
   name: string;
   lockPath?: string;
+  isValid: () => boolean;
+  onLost: (handler: (err: Error) => void) => void;
   release: () => void | Promise<void>;
 }
 
@@ -236,10 +238,26 @@ export async function acquireProfileLock(
   while (true) {
     const lease = await leases.tryAcquire(leaseKey);
     if (lease) {
+      let lostError: Error | undefined;
+      let released = false;
+      const lostHandlers = new Set<(err: Error) => void>();
+      lease.onLost?.((err) => {
+        if (lostError) return;
+        lostError = err;
+        for (const handler of lostHandlers) handler(err);
+      });
       let releasePromise: Promise<void> | undefined;
       return {
         name: normalized,
-        release: () => (releasePromise ??= lease.release()),
+        isValid: () => !lostError && !released,
+        onLost: (handler) => {
+          if (lostError) handler(lostError);
+          else lostHandlers.add(handler);
+        },
+        release: () => {
+          released = true;
+          return (releasePromise ??= lease.release());
+        },
       };
     }
 

@@ -20,6 +20,7 @@ import {
   registerBrowserProfileSync,
   restoreBrowserProfile,
   restoreBrowserProfileBeforeLaunch,
+  skipNextBrowserProfileSnapshot,
   snapshotBrowserProfile,
 } from '@core/runtime/browser-profile-sync.js';
 
@@ -222,6 +223,21 @@ describe('browser-profile-sync', () => {
       userDataDir,
     });
     expect(after.status).toBe('written');
+  });
+
+  it('skips the next snapshot after profile lease ownership is lost', async () => {
+    registerBrowserProfileSync({ store, repository, leases });
+    await seedUserData(userDataDir, { 'Local State': 'unsafe' });
+    skipNextBrowserProfileSnapshot('p');
+
+    const skipped = await snapshotBrowserProfile({
+      profileName: 'p',
+      profileDir,
+      userDataDir,
+    });
+
+    expect(skipped).toEqual({ status: 'noop', reason: 'lease_lost' });
+    expect(await repository.getBrowserProfileSnapshot('p')).toBeNull();
   });
 
   it('restore no-ops with no stored snapshot', async () => {

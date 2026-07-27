@@ -67,6 +67,45 @@ describe('browser-profiles', () => {
     expect(release).toHaveBeenCalledOnce();
   });
 
+  it('registers lease loss before resolving and exposes invalid ownership', async () => {
+    const root = makeTmpRoot(roots);
+    vi.doMock('@core/config/index.js', () => ({
+      DATA_DIR: root,
+    }));
+
+    const mod = await import('@core/runtime/browser-profiles.js');
+    let loseLease: ((err: Error) => void) | undefined;
+    const registrationOrder: string[] = [];
+    const onLost = vi.fn((handler: (err: Error) => void) => {
+      registrationOrder.push('registered');
+      loseLease = handler;
+    });
+    const release = vi.fn(async () => {});
+    const acquired = Promise.resolve({ onLost, release });
+    const acquiring = mod.acquireProfileLock('loss-observed', {
+      tryAcquire: () => {
+        void acquired.then(() =>
+          queueMicrotask(() => registrationOrder.push('after-acquire')),
+        );
+        return acquired;
+      },
+    });
+
+    const lock = await acquiring;
+    expect(registrationOrder).toEqual(['registered', 'after-acquire']);
+    expect(onLost).toHaveBeenCalledOnce();
+    const observedLoss = vi.fn();
+    lock.onLost(observedLoss);
+
+    const loss = new Error('lease connection lost');
+    loseLease?.(loss);
+
+    expect(lock.isValid()).toBe(false);
+    expect(observedLoss).toHaveBeenCalledWith(loss);
+    await Promise.all([lock.release(), lock.release()]);
+    expect(release).toHaveBeenCalledOnce();
+  });
+
   it('retries a held lease and fails closed after the bounded wait', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(1_000);

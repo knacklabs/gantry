@@ -11,6 +11,8 @@ const mocks = vi.hoisted(() => {
     EventEmitter & { pid: number; unref: ReturnType<typeof vi.fn> }
   >();
   const commandLines = new Map<number, string>();
+  const profileLockLostHandlers = new Set<(err: Error) => void>();
+  let profileLockValid = true;
   return {
     processes,
     commandLines,
@@ -66,6 +68,19 @@ const mocks = vi.hoisted(() => {
       return proc;
     }),
     release: vi.fn(),
+    isProfileLockValid: () => profileLockValid,
+    onProfileLockLost: (handler: (err: Error) => void) => {
+      profileLockLostHandlers.add(handler);
+    },
+    loseProfileLock: (err: Error) => {
+      profileLockValid = false;
+      for (const handler of profileLockLostHandlers) handler(err);
+    },
+    resetProfileLock: () => {
+      profileLockValid = true;
+      profileLockLostHandlers.clear();
+    },
+    skipNextBrowserProfileSnapshot: vi.fn(),
     clearBrowserSessionRecord: vi.fn(),
     fetch: vi.fn(),
   };
@@ -91,7 +106,11 @@ vi.mock('@core/shared/chrome-executable.js', () => ({
 }));
 
 vi.mock('@core/runtime/browser-profiles.js', () => ({
-  acquireProfileLock: vi.fn(async () => ({ release: mocks.release })),
+  acquireProfileLock: vi.fn(async () => ({
+    isValid: mocks.isProfileLockValid,
+    onLost: mocks.onProfileLockLost,
+    release: mocks.release,
+  })),
   createProfile: vi.fn((name = 'gantry') => ({
     name,
     dir: '/tmp/gantry-browser-capability-test',
@@ -111,6 +130,13 @@ vi.mock('@core/runtime/browser-profiles.js', () => ({
   updateProfileMetadata: vi.fn(),
 }));
 
+vi.mock('@core/runtime/browser-profile-sync.js', async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import('@core/runtime/browser-profile-sync.js')
+  >()),
+  skipNextBrowserProfileSnapshot: mocks.skipNextBrowserProfileSnapshot,
+}));
+
 vi.mock('@core/runtime/browser-session-record.js', async (importOriginal) => ({
   ...(await importOriginal<
     typeof import('@core/runtime/browser-session-record.js')
@@ -120,6 +146,7 @@ vi.mock('@core/runtime/browser-session-record.js', async (importOriginal) => ({
 
 vi.mock('@core/infrastructure/logging/logger.js', () => ({
   logger: {
+    error: vi.fn(),
     info: vi.fn(),
     warn: vi.fn(),
   },
@@ -222,6 +249,8 @@ describe('browser-capability', () => {
     mocks.spawn.mockClear();
     mocks.execFileSync.mockClear();
     mocks.release.mockClear();
+    mocks.resetProfileLock();
+    mocks.skipNextBrowserProfileSnapshot.mockClear();
     mocks.clearBrowserSessionRecord.mockReset();
     mocks.clearBrowserSessionRecord.mockImplementation(
       (profile: { dir: string }) => {
@@ -574,6 +603,50 @@ describe('browser-capability', () => {
       reason: 'terminated',
     });
     expect(mocks.release).toHaveBeenCalledTimes(1);
+  });
+
+  it('fails closed and tears down a live session when its profile lease is lost', async () => {
+    const manager = await import('@core/runtime/browser-capability.js');
+    const profiles = await import('@core/runtime/browser-profiles.js');
+    queueHealthyContentTarget('target-1');
+    const status = await manager.launchBrowser();
+    vi.mocked(profiles.updateProfileMetadata).mockClear();
+    mocks.clearBrowserSessionRecord.mockClear();
+    mocks.release.mockClear();
+
+    mocks.loseProfileLock(new Error('database connection lost'));
+
+    await expect(manager.ensureBrowserReady()).rejects.toThrow(
+      'Browser profile lease lost for gantry',
+    );
+    await vi.waitFor(() =>
+      expect(killSpy).toHaveBeenCalledWith(status.pid, 'SIGTERM'),
+    );
+    await vi.waitFor(() =>
+      expect(manager.getKnownBrowserStatus().running).toBe(false),
+    );
+    await vi.waitFor(() =>
+      expect(mocks.clearBrowserSessionRecord).toHaveBeenCalled(),
+    );
+    expect(profiles.updateProfileMetadata).toHaveBeenCalledWith('gantry', {
+      last_used: expect.any(String),
+      cdp_port: undefined,
+    });
+    expect(mocks.skipNextBrowserProfileSnapshot).toHaveBeenCalledWith('gantry');
+    expect(mocks.release).toHaveBeenCalledOnce();
+
+    const termCalls = killSpy.mock.calls.filter(
+      ([pid, signal]) => pid === status.pid && signal === 'SIGTERM',
+    ).length;
+    await expect(manager.closeBrowser()).resolves.toMatchObject({
+      closed: true,
+      reason: 'lease_lost',
+    });
+    expect(
+      killSpy.mock.calls.filter(
+        ([pid, signal]) => pid === status.pid && signal === 'SIGTERM',
+      ),
+    ).toHaveLength(termCalls);
   });
 
   it('releases the profile lock when clearing the session record fails', async () => {
