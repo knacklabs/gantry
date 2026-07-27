@@ -188,7 +188,7 @@ describe('system memory dreaming jobs', () => {
     const updateJob = vi.fn(async () => undefined);
     const getJobById = vi.fn(async (id: string) =>
       id.startsWith('system:dreaming:')
-        ? makeJob({ id, status: 'dead_lettered', silent: false })
+        ? makeJob({ id, status: 'dead_lettered', silent: true })
         : undefined,
     );
     const getAllJobs = vi.fn(async () => []);
@@ -208,9 +208,9 @@ describe('system memory dreaming jobs', () => {
     } as never);
 
     // A dead-lettered job is no longer skipped: registration re-stamps the
-    // corrected bare-jid target (and silent) so a later operator resume works.
-    // The repo upsert preserves the dead_lettered status, so this is not a
-    // revival — no auto-resume happens here.
+    // corrected bare-jid target so a later operator resume works. The repo
+    // upsert preserves the dead_lettered status, so this is not a revival —
+    // no auto-resume happens here.
     const dreamUpserts = upsertJob.mock.calls.filter(
       (call) => call[0].prompt === '__system:memory_dream',
     );
@@ -223,6 +223,51 @@ describe('system memory dreaming jobs', () => {
     });
     expect(dreamUpserts[0]?.[0].silent).toBe(true);
     expect(updateJob).not.toHaveBeenCalled();
+  });
+
+  it('preserves operator-edited name/schedule/silent across restart while re-stamping runtime-owned fields', async () => {
+    const { registerSystemJobs } = await loadSystemJobs();
+    const upsertJob = vi.fn().mockResolvedValue({ created: false });
+    // Operator has renamed, rescheduled, and muted the existing system job.
+    const getJobById = vi.fn(async (id: string) =>
+      id.startsWith('system:dreaming:')
+        ? makeJob({
+            id,
+            name: 'Operator Renamed Dreaming',
+            schedule_value: '0 4 * * *',
+            silent: true,
+          })
+        : undefined,
+    );
+
+    await registerSystemJobs({
+      conversationRoutes: () => ({
+        'sl:C123': makeRoute({ folder: 'agent', conversationKind: 'channel' }),
+      }),
+      opsRepository: {
+        getJobById,
+        getAllJobs: vi.fn(async () => []),
+        deleteJob: vi.fn(async () => undefined),
+        upsertJob,
+      },
+    } as never);
+
+    const dreamUpsert = upsertJob.mock.calls.find(
+      (call) => call[0].prompt === '__system:memory_dream',
+    )?.[0];
+    expect(dreamUpsert).toBeDefined();
+    // Operator-editable fields carried forward from the existing row.
+    expect(dreamUpsert.name).toBe('Operator Renamed Dreaming');
+    expect(dreamUpsert.schedule_value).toBe('0 4 * * *');
+    expect(dreamUpsert.silent).toBe(true);
+    // Runtime-owned fields still re-stamped from code.
+    expect(dreamUpsert.prompt).toBe('__system:memory_dream');
+    expect(dreamUpsert.execution_context).toEqual({
+      conversationJid: 'sl:C123',
+      threadId: null,
+      workspaceKey: 'agent',
+      sessionId: null,
+    });
   });
 
   it('stores a bare execution jid + provider account for a fully-qualified route key and resolves without dead-lettering', async () => {
