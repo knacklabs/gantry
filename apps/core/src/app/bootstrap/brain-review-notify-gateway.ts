@@ -92,7 +92,10 @@ export function brainReviewNotifyGatewayFor(
           brainReviewView: input.brainReviewView,
         },
       });
-      return { outboundDeliveryId: result.delivery.id };
+      return {
+        outboundDeliveryId: result.delivery.id,
+        created: result.created,
+      };
     },
   };
 }

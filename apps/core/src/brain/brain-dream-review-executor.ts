@@ -26,6 +26,31 @@ const Entities = pgSchema.brainEntitiesPostgres;
 const Edges = pgSchema.brainEdgesPostgres;
 const Embeddings = pgSchema.brainPageEmbeddingsPostgres;
 
+// Recoverable infra errors that can surface from the mutation and must NOT be
+// persisted as terminal `failed`: deadlock, serialization failure, lock-not-
+// available, statement/query timeout. Walk the pg error `.cause` chain (drizzle
+// wraps the driver error) like T1's conflict classifier.
+const RETRYABLE_SQLSTATES: ReadonlySet<string> = new Set([
+  '40P01', // deadlock_detected
+  '40001', // serialization_failure
+  '55P03', // lock_not_available
+  '57014', // query_canceled (statement timeout)
+]);
+
+function isRetryableDbError(err: unknown): boolean {
+  let current: unknown = err;
+  for (
+    let depth = 0;
+    current && typeof current === 'object' && depth < 5;
+    depth++
+  ) {
+    const code = (current as { code?: unknown }).code;
+    if (typeof code === 'string' && RETRYABLE_SQLSTATES.has(code)) return true;
+    current = (current as { cause?: unknown }).cause;
+  }
+  return false;
+}
+
 export interface BrainDreamReviewDecisionInput {
   db: CanonicalDb;
   reviews: BrainDreamReviewRepository;
@@ -166,26 +191,29 @@ export async function executeBrainDreamReviewDecision(
     // All targets + dependents validated → mutate inside a SAVEPOINT so a per-op
     // error rolls back ONLY the mutation (brain unchanged) while this tx stays
     // open to record `failed` durably.
-    let mutationError: string | null = null;
     try {
       await tx.transaction(async (sp) => {
         await runOpExecutor(sp, input.appId, review, stamp);
         input.testFaultAfterMutation?.();
       });
     } catch (error) {
-      mutationError = error instanceof Error ? error.message : String(error);
-    }
-    if (mutationError !== null) {
+      // A RETRYABLE infra error (deadlock/serialization/lock+statement timeout)
+      // can fire after the savepoint rolled back the mutation. Do NOT persist
+      // `failed` (that closes targets + strips the owner's buttons); RETHROW so
+      // the OUTER tx aborts and the review stays pending_review — re-clickable.
+      // Only DETERMINISTIC op errors (validation/logic) become terminal failed.
+      if (isRetryableDbError(error)) throw error;
+      const message = error instanceof Error ? error.message : String(error);
       await setTerminalInTx(tx, input.reviewId, 'failed', {
         nowIso: stamp,
         outcome: 'failed',
-        error: mutationError,
+        error: message,
         reviewer: input.reviewer,
       });
       return {
         outcome: 'failed' as const,
         mutated: false,
-        reason: mutationError,
+        reason: message,
       };
     }
     await setTerminalInTx(tx, input.reviewId, 'applied', {

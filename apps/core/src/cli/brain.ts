@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -61,7 +62,9 @@ export async function runBrainCommand(
           return 1;
         }
         // Assemble the durable gateway the running runtime uses; the outbound
-        // recovery loop sends what we enqueue (idempotent on the review key).
+        // recovery loop sends what we enqueue. A per-invocation generation forces
+        // a FRESH message to the CURRENT owner even if a prior delivery exists
+        // under the stable key (and re-resolves whoever is owner NOW).
         const notify = createBrainReviewNotifier({
           gateway: brainReviewNotifyGatewayFor(
             createBrainReviewOutboundService(opened.outboundDeliveries),
@@ -73,9 +76,11 @@ export async function runBrainCommand(
               appId,
               opened.conversations,
             ),
+          keyGeneration: randomUUID().replace(/-/g, '').slice(0, 12),
         });
         // The notifier is best-effort (never throws); the CLI must NOT report
-        // success on a swallowed owner-resolution / enqueue failure.
+        // success on a swallowed owner-resolution / enqueue failure, and only
+        // when a NEW message was actually scheduled for the current owner.
         const outcome = await notify(review);
         if (!outcome.delivered) {
           p.log.error(
@@ -83,7 +88,15 @@ export async function runBrainCommand(
           );
           return 1;
         }
-        p.log.success(`Re-enqueued notification for ${reviewId}.`);
+        if (!outcome.created) {
+          p.log.error(
+            `No new notification scheduled for ${reviewId} (nothing sent).`,
+          );
+          return 1;
+        }
+        p.log.success(
+          `Scheduled a fresh notification for ${reviewId} to the current owner.`,
+        );
         return 0;
       } finally {
         await close();

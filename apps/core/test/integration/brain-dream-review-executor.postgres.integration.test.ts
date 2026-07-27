@@ -693,6 +693,24 @@ maybeDescribe('brain dream review decision executor', () => {
     expect((await decide(reviewId, 'approve')).mutated).toBe(false);
   });
 
+  it('retryable DB error (deadlock) is NOT persisted failed; review stays pending + re-clickable', async () => {
+    const page = await seedPage('retryable-target', 'body');
+    const reviewId = await createPageReview('delete_page', page);
+    // A retryable-coded error after the mutation → the executor rethrows (outer
+    // tx aborts); nothing is persisted as failed.
+    await expect(
+      decide(reviewId, 'approve', () => {
+        throw Object.assign(new Error('deadlock detected'), { code: '40P01' });
+      }),
+    ).rejects.toThrow();
+    expect(await reviewState(reviewId)).toBe('pending_review');
+    expect(await repository.getPageById(APP_ID, page.id)).not.toBeNull();
+    // Re-clickable: a subsequent clean approve applies.
+    const result = await decide(reviewId, 'approve');
+    expect(result).toMatchObject({ outcome: 'applied', mutated: true });
+    expect(await repository.getPageById(APP_ID, page.id)).toBeNull();
+  });
+
   it('two crossing concurrent merges complete without a deadlock', async () => {
     // A–D and B–C edges: merge(A→B) and merge(C→D) BOTH depend on the SAME two
     // edges. With the union locked in one ORDER BY id query, they serialize

@@ -25,12 +25,24 @@ export interface BrainReviewNotifyGateway {
     /** Rendered card + buttons, carried into the durable outbound record so
      * recovery re-renders native buttons; `text` stays the fallback. */
     brainReviewView: BrainReviewCardView;
-  }): Promise<{ outboundDeliveryId: string }>;
+    // `created` is false when the idempotency key already had a delivery (no new
+    // outbound scheduled). The manual re-notify path relies on this to report
+    // honestly and to force a fresh send via a generation-suffixed key.
+  }): Promise<{ outboundDeliveryId: string; created: boolean }>;
 }
 
-/** Stable, per-review idempotency key: exactly ONE notification per review. */
-export function brainReviewNotifyIdempotencyKey(reviewId: string): string {
-  return `brain-review:${reviewId}`;
+/**
+ * Idempotency key for a review notification. STARTUP recovery uses the stable
+ * base key (`brain-review:<id>`) so orphan-fill stays exactly-once. The MANUAL
+ * re-notify passes a `generation` suffix so it forces a FRESH outbound message to
+ * the CURRENT owner even when a prior delivery exists under the base key.
+ */
+export function brainReviewNotifyIdempotencyKey(
+  reviewId: string,
+  generation?: string,
+): string {
+  const base = `brain-review:${reviewId}`;
+  return generation ? `${base}:r${generation}` : base;
 }
 
 export interface NotifiableBrainReview {
@@ -109,9 +121,13 @@ export function buildBrainReviewNotification(review: NotifiableBrainReview): {
 }
 
 export interface BrainReviewNotifyOutcome {
-  // True only when an outbound delivery was created/exists for the review key.
+  // True when an outbound delivery was created OR already exists for the key.
   // False on a missing verified owner or an enqueue failure (both warned).
   delivered: boolean;
+  // True only when THIS call scheduled a NEW outbound message (enqueue created a
+  // row). False when the idempotency key already had one. The manual re-notify
+  // reports success only on `created`; startup recovery ignores it.
+  created: boolean;
   reason?: string;
 }
 
@@ -135,6 +151,10 @@ export function createBrainReviewNotifier(deps: {
       providerAccountId: string;
     };
   }>;
+  // Manual re-notify passes a per-invocation generation → a distinct idempotency
+  // key that forces a fresh outbound message even if a prior delivery exists.
+  // Omitted by startup recovery (stable key = orphan-fill, no dupes).
+  keyGeneration?: string;
   warn?: (context: Record<string, unknown>, message: string) => void;
 }): BrainReviewNotifier {
   // Diagnostics must never become the notifier's failure: a throwing logger is
@@ -162,26 +182,29 @@ export function createBrainReviewNotifier(deps: {
           { reviewId: review.id },
           `brain review not delivered: ${reason}`,
         );
-        return { delivered: false, reason };
+        return { delivered: false, created: false, reason };
       }
       const { view, text } = buildBrainReviewNotification(review);
-      await deps.gateway.enqueue({
+      const { created } = await deps.gateway.enqueue({
         appId: deps.appId,
         conversationJid: owner.conversationJid,
         providerAccountId: owner.providerAccountId,
         threadId: null,
-        idempotencyKey: brainReviewNotifyIdempotencyKey(review.id),
+        idempotencyKey: brainReviewNotifyIdempotencyKey(
+          review.id,
+          deps.keyGeneration,
+        ),
         text,
         brainReviewView: view,
       });
-      return { delivered: true };
+      return { delivered: true, created };
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);
       safeWarn(
         { reviewId: review.id, error: reason },
         'brain review notification failed; will surface via the pending-review list',
       );
-      return { delivered: false, reason };
+      return { delivered: false, created: false, reason };
     }
   };
 }

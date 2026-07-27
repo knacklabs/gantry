@@ -147,7 +147,10 @@ maybeDescribe('brain dream review owner-DM notification (T6)', () => {
           text: input.text,
           metadata: { brainReviewView: input.brainReviewView },
         });
-        return { outboundDeliveryId: result.delivery.id };
+        return {
+          outboundDeliveryId: result.delivery.id,
+          created: result.created,
+        };
       },
     };
   }, 60_000);
@@ -657,4 +660,90 @@ maybeDescribe('brain dream review owner-DM notification (T6)', () => {
     expect(await deliveryCountByKey('brain-review:fp-fail-0')).toBe(0);
     expect(await deliveryCountByKey('brain-review:fp-fail-2')).toBe(0);
   }, 60_000);
+
+  async function deliveryConversationByKey(
+    key: string,
+  ): Promise<string | null> {
+    const rows = await runtime.service.pool.query<{ conversation_id: string }>(
+      `SELECT conversation_id FROM ${runtime.schemaName}.outbound_deliveries WHERE idempotency_key = $1`,
+      [key],
+    );
+    return rows.rows[0]?.conversation_id ?? null;
+  }
+
+  it('MANUAL re-notify schedules a FRESH message even when a delivery exists', async () => {
+    const page = await seedPageWithEdge('renotify-exists');
+    // First delivery under the STABLE key (startup-style, no generation).
+    const stable = createBrainReviewNotifier({
+      gateway,
+      appId: APP_ID,
+      resolveOwner: async () => ({ owner: OWNER }),
+    });
+    const reviewId = await intakeDeletePage(page, stable);
+    expect(await deliveryCountByKey(`brain-review:${reviewId}`)).toBe(1);
+
+    // Manual re-notify with a generation → a NEW outbound under a distinct key
+    // (not a silent no-op), and it reports created truthfully.
+    const manual = createBrainReviewNotifier({
+      gateway,
+      appId: APP_ID,
+      resolveOwner: async () => ({ owner: OWNER }),
+      keyGeneration: 'g1',
+    });
+    const review = await reviews.findPendingBrainDreamReview({
+      appId: APP_ID,
+      reviewId,
+    });
+    const outcome = await manual(review!);
+    expect(outcome).toMatchObject({ delivered: true, created: true });
+    expect(await deliveryCountByKey(`brain-review:${reviewId}:rg1`)).toBe(1);
+    // The stable-key delivery is untouched (still exactly one).
+    expect(await deliveryCountByKey(`brain-review:${reviewId}`)).toBe(1);
+  });
+
+  it('MANUAL re-notify targets the CURRENT owner after an owner-route change', async () => {
+    // A second, app-owned owner conversation (the "new" owner).
+    await runtime.repositories.conversations.saveConversation({
+      id: 'conversation:slack_two:sl:D-owner2' as never,
+      appId: APP_ID as never,
+      providerAccountId: 'slack_two' as never,
+      externalRef: { kind: 'conversation', value: 'D-owner2' },
+      kind: 'channel',
+      title: 'New Owner DM',
+      status: 'active',
+      createdAt: NOW,
+      updatedAt: NOW,
+    });
+    const NEW_OWNER = {
+      recipient: 'owner-2',
+      conversationJid: 'sl:D-owner2',
+      providerAccountId: 'slack_two',
+    };
+    const page = await seedPageWithEdge('renotify-newowner');
+    const stable = createBrainReviewNotifier({
+      gateway,
+      appId: APP_ID,
+      resolveOwner: async () => ({ owner: OWNER }),
+    });
+    const reviewId = await intakeDeletePage(page, stable);
+
+    // Owner route changed → manual re-notify resolves the NEW owner and delivers
+    // there (enqueue validates the destination is app-owned, so success proves it
+    // targeted the new owner's conversation).
+    const manual = createBrainReviewNotifier({
+      gateway,
+      appId: APP_ID,
+      resolveOwner: async () => ({ owner: NEW_OWNER }),
+      keyGeneration: 'g2',
+    });
+    const review = await reviews.findPendingBrainDreamReview({
+      appId: APP_ID,
+      reviewId,
+    });
+    const outcome = await manual(review!);
+    expect(outcome).toMatchObject({ delivered: true, created: true });
+    expect(
+      await deliveryConversationByKey(`brain-review:${reviewId}:rg2`),
+    ).toBe('conversation:slack_two:sl:D-owner2');
+  });
 });

@@ -42,7 +42,10 @@ describe('brain review notify', () => {
   });
 
   it('resolves the verified owner and enqueues idempotently', async () => {
-    const enqueue = vi.fn(async () => ({ outboundDeliveryId: 'out-1' }));
+    const enqueue = vi.fn(async () => ({
+      outboundDeliveryId: 'out-1',
+      created: true,
+    }));
     const gateway: BrainReviewNotifyGateway = { enqueue };
     const notify = createBrainReviewNotifier({
       gateway,
@@ -50,7 +53,10 @@ describe('brain review notify', () => {
       resolveOwner: async () => ({ owner: OWNER }),
     });
 
-    await expect(notify(REVIEW)).resolves.toEqual({ delivered: true });
+    await expect(notify(REVIEW)).resolves.toEqual({
+      delivered: true,
+      created: true,
+    });
     await notify(REVIEW); // exactly-once at the caller relies on the key below
 
     expect(enqueue).toHaveBeenCalledTimes(2);
@@ -66,7 +72,10 @@ describe('brain review notify', () => {
   });
 
   it('catches a resolveOwner rejection: never throws, warns', async () => {
-    const enqueue = vi.fn(async () => ({ outboundDeliveryId: 'out-1' }));
+    const enqueue = vi.fn(async () => ({
+      outboundDeliveryId: 'out-1',
+      created: true,
+    }));
     const warn = vi.fn();
     const notify = createBrainReviewNotifier({
       gateway: { enqueue },
@@ -103,7 +112,10 @@ describe('brain review notify', () => {
   });
 
   it('skips delivery (never throws) when no verified owner is configured', async () => {
-    const enqueue = vi.fn(async () => ({ outboundDeliveryId: 'out-1' }));
+    const enqueue = vi.fn(async () => ({
+      outboundDeliveryId: 'out-1',
+      created: true,
+    }));
     const warn = vi.fn();
     const notify = createBrainReviewNotifier({
       gateway: { enqueue },
@@ -124,7 +136,12 @@ describe('brain review notify', () => {
       throw new Error('logger exploded');
     });
     const noOwner = createBrainReviewNotifier({
-      gateway: { enqueue: vi.fn(async () => ({ outboundDeliveryId: 'x' })) },
+      gateway: {
+        enqueue: vi.fn(async () => ({
+          outboundDeliveryId: 'x',
+          created: true,
+        })),
+      },
       appId: 'app',
       resolveOwner: async () => ({}),
       warn,
