@@ -451,6 +451,6 @@ Postgres integration and end-to-end suites require an isolated database through
 `GANTRY_TEST_DATABASE_URL`. Enable `vector` and `pg_trgm` before migrations.
 
 At the audited commit, architecture checks and type checking pass, and all
-7,460 unit tests pass outside a restricted localhost sandbox. Lint and
-production dependency audit observations are tracked in
-[`CODE_AUDIT_FINDINGS.md`](CODE_AUDIT_FINDINGS.md).
+7,460 unit tests pass outside a restricted localhost sandbox. Database-backed
+integration and end-to-end suites were not part of that verification because
+they require the isolated Postgres environment described above.

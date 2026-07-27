@@ -49,8 +49,8 @@ scratchpad designs promoted into `docs/architecture/`.
 
 Current onboarding and architecture documents contain claims and repository
 links that no longer match the implementation on `main`. A developer needs one
-source-derived guide, a static project explorer, and a contributor audit report
-that distinguish current runtime behavior from historical intent.
+source-derived guide and a static project explorer that distinguish current
+runtime behavior from historical intent.
 
 ### Approved scope
 
@@ -59,7 +59,8 @@ Yash approved the following scope on 2026-07-27:
 - audit the complete tracked repository using source code, executable
   registries, schemas, and tests as current-behavior evidence;
 - create a self-contained root `index.html` project and architecture explorer;
-- create a detailed codebase guide and a contributor-authored audit report;
+- document verification boundaries and environment-dependent checks where they
+  help developers use the project correctly;
 - refresh active onboarding, architecture, SDK, and repository metadata;
 - repair broken documentation links without changing the historical meaning
   of review, decision, or migrated-context records;

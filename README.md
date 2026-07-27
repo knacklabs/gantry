@@ -220,7 +220,6 @@ should first read [AGENTS.md](AGENTS.md), [WORKFLOW.md](WORKFLOW.md),
 
 - [Static project and architecture explorer](index.html)
 - [Source-derived codebase guide](docs/CODEBASE_GUIDE.md)
-- [Contributor code audit findings](docs/CODE_AUDIT_FINDINGS.md)
 - [Product brief](docs/product/BRIEF.md)
 - [Architecture docs](docs/architecture/README.md)
 - [Decision records](docs/decisions/README.md)

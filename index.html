@@ -580,9 +580,6 @@
           <a class="button" href="docs/CODEBASE_GUIDE.md"
             >Read the developer guide</a
           >
-          <a class="button" href="docs/CODE_AUDIT_FINDINGS.md"
-            >Review contributor findings</a
-          >
         </div>
         <div class="audit-strip" aria-label="Code audit statistics">
           <div class="metric">
@@ -1073,13 +1070,13 @@
         <div class="shell">
           <div class="section-head">
             <div>
-              <div class="eyebrow">Audit result</div>
-              <h2>What is healthy, and what needs attention.</h2>
+              <div class="eyebrow">Verification scope</div>
+              <h2>What was verified for this guide.</h2>
             </div>
             <p class="section-copy">
-              The contributor audit records only independently reproduced
-              observations. Restricted-sandbox socket failures were not
-              misclassified as product failures.
+              Executable checks support the source-derived claims. Database
+              suites need an isolated Postgres environment with the required
+              extensions.
             </p>
           </div>
           <div class="checks">
@@ -1092,17 +1089,14 @@
                 <li>574 unit-test files / 7,460 tests</li>
               </ul>
             </article>
-            <article class="check fail">
-              <h3>Needs attention</h3>
+            <article class="check">
+              <h3>Environment-dependent</h3>
               <ul>
-                <li>Lint: 44 errors and 1,052 warnings</li>
-                <li>Production audit: six known advisories</li>
-                <li>Three lost-error-cause boundaries</li>
-                <li>Unsafe throw from an attachment-writer finally block</li>
+                <li>Postgres integration suites</li>
+                <li>Postgres end-to-end suites</li>
+                <li><code>vector</code> and <code>pg_trgm</code> extensions</li>
+                <li><code>GANTRY_TEST_DATABASE_URL</code> isolation</li>
               </ul>
-              <a class="button" href="docs/CODE_AUDIT_FINDINGS.md"
-                >Open contributor audit</a
-              >
             </article>
           </div>
         </div>
