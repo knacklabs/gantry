@@ -1,7 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
 
+import { RUNTIME_EVENT_TYPES } from '@core/domain/events/runtime-event-types.js';
 import { finalizeSchedulerJobRun } from '@core/jobs/execution-finalization.js';
-import { createJobRunDiagnostics } from '@core/jobs/execution-diagnostics.js';
+import {
+  createJobRunDiagnostics,
+  updateDiagnosticsFromRuntimeEvent,
+} from '@core/jobs/execution-diagnostics.js';
 import type { SchedulerDependencies } from '@core/jobs/types.js';
 import type { Job } from '@core/domain/types.js';
 
@@ -124,6 +128,99 @@ describe('finalizeSchedulerJobRun — permission ASK on a fenced job', () => {
     expect(updateJob).toHaveBeenCalledWith(
       'job-1',
       expect.objectContaining({ status: 'paused' }),
+    );
+  });
+});
+
+describe('finalizeSchedulerJobRun — transient permission approvals', () => {
+  it('keeps a successful recurring job active after reviewed-rule allow_once', async () => {
+    const { deps, updateJob } = makeDeps();
+    const diagnostics = createJobRunDiagnostics();
+    updateDiagnosticsFromRuntimeEvent(
+      diagnostics,
+      RUNTIME_EVENT_TYPES.JOB_TOOL_ACTIVITY,
+      {
+        phase: 'permission_allowed',
+        tool: 'Bash',
+        mode: 'allow_once',
+        decidedBy: 'reviewed_rule',
+        ok: true,
+      },
+    );
+
+    const state = await finalizeSchedulerJobRun({
+      currentJob: makeJob({
+        schedule_type: 'interval',
+        schedule_value: '60000',
+      }),
+      deps,
+      scheduledFor: '2024-01-01T00:00:00.000Z',
+      now: '2024-01-01T00:00:01.000Z',
+      error: null,
+      diagnostics,
+      pausedForSetupDuringRun: false,
+      deletedDuringRun: false,
+      runtimeAppId: 'default',
+      runId: 'run-reviewed-rule',
+      publishRuntimeEvent: vi.fn(async () => undefined),
+    });
+
+    expect(state.runStatus).toBe('completed');
+    expect(state.pauseReason).toBeNull();
+    expect(updateJob).toHaveBeenCalledWith(
+      'job-1',
+      expect.objectContaining({
+        status: 'active',
+        pause_reason: null,
+      }),
+    );
+    expect(updateJob).not.toHaveBeenCalledWith(
+      'job-1',
+      expect.objectContaining({ status: 'paused' }),
+    );
+  });
+
+  it('pauses a successful recurring job after human allow_once', async () => {
+    const { deps, updateJob } = makeDeps();
+    const diagnostics = createJobRunDiagnostics();
+    updateDiagnosticsFromRuntimeEvent(
+      diagnostics,
+      RUNTIME_EVENT_TYPES.JOB_TOOL_ACTIVITY,
+      {
+        phase: 'permission_allowed',
+        tool: 'Bash',
+        mode: 'allow_once',
+        decidedBy: 'human',
+        ok: true,
+      },
+    );
+
+    const state = await finalizeSchedulerJobRun({
+      currentJob: makeJob({
+        schedule_type: 'interval',
+        schedule_value: '60000',
+      }),
+      deps,
+      scheduledFor: '2024-01-01T00:00:00.000Z',
+      now: '2024-01-01T00:00:01.000Z',
+      error: null,
+      diagnostics,
+      pausedForSetupDuringRun: false,
+      deletedDuringRun: false,
+      runtimeAppId: 'default',
+      runId: 'run-human',
+      publishRuntimeEvent: vi.fn(async () => undefined),
+    });
+
+    expect(state.runStatus).toBe('completed');
+    expect(state.pauseReason).toBe('Setup required');
+    expect(updateJob).toHaveBeenCalledWith(
+      'job-1',
+      expect.objectContaining({
+        status: 'paused',
+        next_run: null,
+        pause_reason: 'Setup required',
+      }),
     );
   });
 });
