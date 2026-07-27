@@ -6,6 +6,7 @@ import { applyBrainDreamOperations } from '@core/brain/brain-dreaming.js';
 import { BrainService } from '@core/brain/brain-service.js';
 import type { BrainEntity, BrainPage } from '@core/brain/brain-types.js';
 import { normalizeEntityName } from '@core/brain/brain-page-ingest.js';
+import { fingerprintDependentEdges } from '@core/brain/brain-dream-dependent-fingerprint.js';
 
 import {
   createPostgresIntegrationRuntime,
@@ -231,6 +232,57 @@ maybeDescribe('brain dream destructive-op review intake', () => {
     expect(snap.before.toEntityId).toBe(entB.id);
     expect(snap.before.fromEntityName).toBe('Alice');
     expect(snap.before.toEntityName).toBe('Alicia');
+  });
+
+  it('stored fingerprint hashes EXACTLY the edges frozen in the snapshot (single read)', async () => {
+    // Fresh page + two edges so the snapshot has a non-trivial dependent set.
+    const page = (
+      await repository.upsertPage({
+        appId: APP_ID,
+        slug: 'fp-page',
+        title: 'FP',
+        markdown: 'body',
+        sourceKind: 'user',
+      })
+    ).page;
+    await repository.upsertEdges(APP_ID, page.id, [
+      { type: 'mentions', fromEntityId: entA.id, toEntityId: entB.id },
+      { type: 'relates_to', fromEntityId: entB.id, toEntityId: entA.id },
+    ]);
+    const summary = await applyBrainDreamOperations({
+      brain,
+      repository,
+      reviews,
+      appId: APP_ID,
+      runId: 'intake-run',
+      page,
+      evidencePages: [page],
+      ops: [{ action: 'delete_page', page_id: page.id }],
+    });
+    expect(summary).toMatchObject({ proposed: 1 });
+
+    const review = (
+      await reviews.listPendingBrainDreamReviews({ appId: APP_ID, limit: 50 })
+    ).find(
+      (r) =>
+        r.action === 'delete_page' &&
+        (r.canonicalOp as { pageId?: string }).pageId === page.id,
+    )!;
+    const snap = review.reviewSnapshot as {
+      dependentFingerprint: string;
+      dependents: { edges: Array<{ id: string; updatedAt: string }> };
+    };
+    // The stored fingerprint is the hash of the EXACT edge records in the
+    // snapshot's dependents — not a separate, possibly-drifted read.
+    expect(snap.dependents.edges).toHaveLength(2);
+    expect(snap.dependentFingerprint).toBe(
+      fingerprintDependentEdges(
+        snap.dependents.edges.map((e) => ({
+          id: e.id,
+          updatedAt: e.updatedAt,
+        })),
+      ),
+    );
   });
 
   it('defers retire_page: journaled proposed, no review', async () => {

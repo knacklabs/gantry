@@ -81,16 +81,24 @@ async function collectDependentEdges(
 }
 
 /**
- * Stable, order-independent hash of the dependent edge set: sorted, de-duped
+ * Stable, order-independent hash of a dependent edge set: sorted, de-duped
  * `${id}:${updatedAt}` keys. An empty set hashes to a fixed value, so every op
- * (even leaves) stores and re-checks a fingerprint uniformly.
+ * (even leaves) stores and re-checks a fingerprint uniformly. Intake hashes the
+ * EXACT edges it froze into the snapshot (one read → card + fingerprint agree);
+ * the executor collects the current set under lock and hashes it the same way.
  */
+export function fingerprintDependentEdges(edges: DependentEdgeRow[]): string {
+  const keys = [...new Set(edges.map((e) => `${e.id}:${e.updatedAt}`))].sort();
+  return createHash('sha256').update(keys.join('|'), 'utf8').digest('hex');
+}
+
+/** Collect the op's dependent set via the reader, then fingerprint it. */
 export async function computeDependentFingerprint(
   reader: DependentEdgeReader,
   appId: string,
   op: DependentOp,
 ): Promise<string> {
-  const edges = await collectDependentEdges(reader, appId, op);
-  const keys = [...new Set(edges.map((e) => `${e.id}:${e.updatedAt}`))].sort();
-  return createHash('sha256').update(keys.join('|'), 'utf8').digest('hex');
+  return fingerprintDependentEdges(
+    await collectDependentEdges(reader, appId, op),
+  );
 }
