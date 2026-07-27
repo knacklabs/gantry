@@ -196,11 +196,11 @@ export function runtimeEventRunIdFor(
   token: GatewayTokenRecord,
 ): RuntimeEventPublishInput['runId'] | undefined {
   if (!token.runId) return undefined;
-  const runId = String(token.runId);
-  return runId.startsWith('credential-run:') ||
-    runId.startsWith('memory-query:')
-    ? undefined
-    : token.runId;
+  // Allowlist: only real agent runs have an `agent_runs` row to satisfy the
+  // runtime_events -> agent_runs FK. Synthetic ids (permission-classifier:,
+  // memory-query:, credential-run:, and any future one) have no row, so drop
+  // them rather than spam FK violations.
+  return String(token.runId).startsWith('agent-run:') ? token.runId : undefined;
 }
 
 function jsonStringField(body: Buffer, field: string): string | undefined {

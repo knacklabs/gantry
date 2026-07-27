@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   gatewayTokenAllowsPath,
+  runtimeEventRunIdFor,
   type GatewayTokenRecord,
 } from '@core/adapters/llm/anthropic-claude-agent/gantry-model-gateway-token.js';
 import type { AppId } from '@core/domain/app/app.js';
@@ -58,6 +59,27 @@ describe('gateway batch token file scope', () => {
         'GET',
       ),
     ).toBe(false);
+  });
+});
+
+describe('runtimeEventRunIdFor audit run-id allowlist', () => {
+  it('passes through only real agent-run ids and drops synthetic ids', () => {
+    expect(runtimeEventRunIdFor(tokenRecord({ runId: 'agent-run:abc' }))).toBe(
+      'agent-run:abc',
+    );
+    expect(
+      runtimeEventRunIdFor(tokenRecord({ runId: 'permission-classifier:x' })),
+    ).toBeUndefined();
+    expect(
+      runtimeEventRunIdFor(tokenRecord({ runId: 'memory-query:x' })),
+    ).toBeUndefined();
+    expect(
+      runtimeEventRunIdFor(tokenRecord({ runId: 'credential-run:x' })),
+    ).toBeUndefined();
+    expect(
+      runtimeEventRunIdFor(tokenRecord({ runId: undefined })),
+    ).toBeUndefined();
+    expect(runtimeEventRunIdFor(tokenRecord({ runId: '' }))).toBeUndefined();
   });
 });
 
