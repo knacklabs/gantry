@@ -207,7 +207,7 @@ describe('browser-capability', () => {
   let statSyncSpy: ReturnType<typeof vi.spyOn>;
   let readFileSyncSpy: ReturnType<typeof vi.spyOn>;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.useRealTimers();
     vi.resetModules();
     fs.mkdirSync('/tmp/gantry-browser-capability-test', { recursive: true });
@@ -266,6 +266,10 @@ describe('browser-capability', () => {
         return { isFile: () => true, size: 2048 } as fs.Stats;
       }
       throw new Error('missing');
+    });
+    const manager = await import('@core/runtime/browser-capability.js');
+    manager.registerBrowserProfileLockLeasePort({
+      tryAcquire: async () => ({ release: async () => {} }),
     });
   });
 

@@ -1,17 +1,13 @@
 import fs from 'fs';
 import path from 'path';
-import { randomBytes, randomUUID } from 'node:crypto';
 
 import { DATA_DIR } from '../config/index.js';
-import {
-  nowDate,
-  nowIso,
-  nowMs as currentTimeMs,
-} from '../shared/time/datetime.js';
+import type { RuntimeLeasePort } from '../domain/ports/runtime-lease.js';
+import { nowIso, nowMs as currentTimeMs } from '../shared/time/datetime.js';
 
 const PROFILE_NAME_PATTERN = /^[a-z0-9][a-z0-9._-]{0,63}$/;
-const PROFILE_LOCK_STALE_MS = 10 * 60 * 1000;
-const PROFILE_LOCK_HEARTBEAT_MS = 30_000;
+const PROFILE_LOCK_RETRY_MS = 50;
+const PROFILE_LOCK_TIMEOUT_MS = 30_000;
 
 export interface BrowserProfileMetadata {
   created_at: string;
@@ -31,8 +27,8 @@ export interface BrowserProfile {
 
 export interface BrowserProfileLock {
   name: string;
-  lockPath: string;
-  release: () => void;
+  lockPath?: string;
+  release: () => void | Promise<void>;
 }
 
 export function getBrowserProfilesRoot(): string {
@@ -224,148 +220,32 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function readLockFile(lockPath: string): { pid?: number; token?: string } {
-  try {
-    const parsed = JSON.parse(fs.readFileSync(lockPath, 'utf-8')) as Record<
-      string,
-      unknown
-    >;
-    const pid =
-      typeof parsed.pid === 'number' && Number.isFinite(parsed.pid)
-        ? Math.round(parsed.pid)
-        : undefined;
-    const token = typeof parsed.token === 'string' ? parsed.token : undefined;
-    return { pid, token };
-  } catch {
-    return {};
-  }
-}
-
-function isPidAlive(pid: number | undefined): boolean {
-  if (!pid || pid <= 0) return false;
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 export async function acquireProfileLock(
   name: string,
-  timeoutMs = 5000,
+  leases: RuntimeLeasePort,
+  timeoutMs = PROFILE_LOCK_TIMEOUT_MS,
 ): Promise<BrowserProfileLock> {
   const normalized = assertProfileName(name);
-  const profileDir = getProfileDir(normalized);
-  ensureDir(profileDir);
-  const lockPath = path.join(profileDir, 'profile.lock');
+  const leaseKey = `browser-profile:${normalized}`;
+  const boundedTimeoutMs = Math.min(
+    PROFILE_LOCK_TIMEOUT_MS,
+    Math.max(0, timeoutMs),
+  );
   const started = currentTimeMs();
 
-  while (currentTimeMs() - started < timeoutMs) {
-    const token = randomUUID();
-    try {
-      const fd = fs.openSync(lockPath, 'wx', 0o600);
-      fs.writeFileSync(
-        fd,
-        JSON.stringify({
-          pid: process.pid,
-          token,
-          created_at: nowIso(),
-        }),
-      );
-      fs.closeSync(fd);
-
-      let released = false;
-      const heartbeat = setInterval(() => {
-        try {
-          const current = readLockFile(lockPath);
-          if (current.token === token) {
-            const now = nowDate();
-            fs.utimesSync(lockPath, now, now);
-          }
-        } catch {
-          // Best effort heartbeat; release/token checks still protect takeover.
-        }
-      }, PROFILE_LOCK_HEARTBEAT_MS);
-      heartbeat.unref?.();
+  while (true) {
+    const lease = await leases.tryAcquire(leaseKey);
+    if (lease) {
+      let releasePromise: Promise<void> | undefined;
       return {
         name: normalized,
-        lockPath,
-        release: () => {
-          if (released) return;
-          released = true;
-          clearInterval(heartbeat);
-          try {
-            const current = readLockFile(lockPath);
-            if (current.token === token) {
-              fs.rmSync(lockPath, { force: true });
-            }
-          } catch {
-            // ignore
-          }
-        },
+        release: () => (releasePromise ??= lease.release()),
       };
-    } catch (err) {
-      const code =
-        err && typeof err === 'object' && 'code' in err
-          ? String((err as { code?: string }).code)
-          : '';
-      if (code !== 'EEXIST') throw err;
-
-      try {
-        const stat = fs.statSync(lockPath);
-        const existing = readLockFile(lockPath);
-        if (
-          !isPidAlive(existing.pid) ||
-          (existing.pid === undefined &&
-            currentTimeMs() - stat.mtimeMs > PROFILE_LOCK_STALE_MS)
-        ) {
-          const reclaimPath = `${lockPath}.reclaim-${randomBytes(8).toString('hex')}`;
-          try {
-            fs.renameSync(lockPath, reclaimPath);
-          } catch {
-            continue;
-          }
-          const restoreClaimedLock = (): void => {
-            try {
-              // Unlike rename, link is an atomic no-replace restore on POSIX.
-              fs.linkSync(reclaimPath, lockPath);
-            } catch {
-              // A new owner may already have restored lockPath.
-            }
-            try {
-              fs.rmSync(reclaimPath, { force: true });
-            } catch {
-              // Best effort; never remove the current lockPath on cleanup.
-            }
-          };
-
-          try {
-            const claimed = readLockFile(reclaimPath);
-            let matchesObserved =
-              existing.token !== undefined && claimed.token === existing.token;
-            if (existing.token === undefined) {
-              matchesObserved =
-                claimed.token === undefined &&
-                claimed.pid === existing.pid &&
-                fs.statSync(reclaimPath).mtimeMs === stat.mtimeMs;
-            }
-
-            if (matchesObserved) {
-              fs.rmSync(reclaimPath, { force: true });
-              continue;
-            }
-            restoreClaimedLock();
-          } catch {
-            restoreClaimedLock();
-          }
-          continue;
-        }
-      } catch {
-        // Best effort; retry.
-      }
-      await sleep(100);
     }
+
+    const remainingMs = boundedTimeoutMs - (currentTimeMs() - started);
+    if (remainingMs <= 0) break;
+    await sleep(Math.min(PROFILE_LOCK_RETRY_MS, remainingMs));
   }
 
   throw new Error(`Timed out acquiring profile lock for ${normalized}`);

@@ -101,6 +101,10 @@ import {
 } from '@core/app/bootstrap/fleet-boot.js';
 import type { RuntimeDependency } from '@core/domain/ports/fleet-capability-state.js';
 
+const leases = {
+  tryAcquire: async () => ({ release: async () => {} }),
+};
+
 function revisionRow(revision: number): SettingsRevision {
   return {
     appId: 'default',
@@ -322,6 +326,7 @@ describe('startFleetSubsystems', () => {
       appId: 'default' as never,
       runtimeHome: '/tmp/gantry-fleet',
       pool: {} as never,
+      leases,
       sendMessage: async () => {},
       settingsLoaded: false,
       onSettingsReady,
@@ -364,6 +369,7 @@ describe('startFleetSubsystems', () => {
       appId: 'default' as never,
       runtimeHome: '/tmp/gantry-fleet',
       pool: {} as never,
+      leases,
       sendMessage: async () => {},
       bakeExecution: true,
       capabilityReconciliation: true,
@@ -384,6 +390,7 @@ describe('startFleetSubsystems', () => {
       appId: 'default' as never,
       runtimeHome: '/tmp/gantry-fleet',
       pool: {} as never,
+      leases,
       sendMessage: async () => {},
       bakeExecution: false,
       capabilityReconciliation: true,
@@ -404,6 +411,7 @@ describe('startFleetSubsystems', () => {
       appId: 'default' as never,
       runtimeHome: '/tmp/gantry-fleet',
       pool: {} as never,
+      leases,
       sendMessage: async () => {},
       bakeExecution: false,
       capabilityReconciliation: false,
@@ -426,6 +434,7 @@ describe('startFleetSubsystems', () => {
       appId: 'default' as never,
       runtimeHome: '/tmp/gantry-fleet',
       pool: {} as never,
+      leases,
       sendMessage: async () => {},
       settingsLoaded: true,
       onSettingsReady,

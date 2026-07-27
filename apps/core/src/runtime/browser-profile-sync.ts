@@ -12,6 +12,7 @@ import type {
   BrowserProfileSnapshotRepository,
   UpsertBrowserProfileSnapshotResult,
 } from '../domain/ports/browser-profile-snapshot.js';
+import type { RuntimeLeasePort } from '../domain/ports/runtime-lease.js';
 import { logger } from '../infrastructure/logging/logger.js';
 import { isExcludedBrowserProfilePath } from '../shared/browser-profile-snapshot-exclude.js';
 import { hashBrowserProfileFileModel } from '../shared/browser-profile-hash.js';
@@ -39,6 +40,7 @@ const SNAPSHOT_LOCK_TIMEOUT_MS = 250;
 export interface BrowserProfileSyncDeps {
   store: BrowserProfileArtifactStore & BrowserProfileArtifactMaterializer;
   repository: BrowserProfileSnapshotRepository;
+  leases: RuntimeLeasePort;
   workerInstanceId?: string;
 }
 
@@ -230,10 +232,11 @@ export async function snapshotBrowserProfile(
 > {
   if (!coordinator) return { status: 'noop', reason: 'sync_disabled' };
 
-  let lock: { release: () => void };
+  let lock: { release: () => void | Promise<void> };
   try {
     lock = await acquireProfileLock(
       input.profileName,
+      coordinator.leases,
       SNAPSHOT_LOCK_TIMEOUT_MS,
     );
   } catch {
@@ -316,7 +319,7 @@ export async function snapshotBrowserProfile(
     writeSnapshotMarker(input.profileDir, stored.contentHash);
     return { status: 'written', contentHash: stored.contentHash };
   } finally {
-    lock.release();
+    await lock.release();
   }
 }
 

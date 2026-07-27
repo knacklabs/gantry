@@ -24,6 +24,9 @@ import {
 const maybeDescribe = process.env.GANTRY_TEST_DATABASE_URL
   ? describe
   : describe.skip;
+const leases = {
+  tryAcquire: async () => ({ release: async () => {} }),
+};
 
 maybeDescribe('Browser profile snapshot store (0079)', () => {
   let service: PostgresStorageService;
@@ -175,6 +178,7 @@ maybeDescribe('Browser profile snapshot store (0079)', () => {
         registerBrowserProfileSync({
           store,
           repository: browserProfileSnapshots,
+          leases,
           workerInstanceId: 'worker-A',
         });
         const snap = await snapshotBrowserProfile({
@@ -190,6 +194,7 @@ maybeDescribe('Browser profile snapshot store (0079)', () => {
         registerBrowserProfileSync({
           store,
           repository: browserProfileSnapshots,
+          leases,
           workerInstanceId: 'worker-B',
         });
         const restore = await restoreBrowserProfile({

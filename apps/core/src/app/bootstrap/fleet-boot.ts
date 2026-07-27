@@ -29,6 +29,7 @@ import type { AppId } from '../../domain/app/app.js';
 import { isDraining } from './draining-state.js';
 import type { SkillArtifactMaterializer } from '../../domain/ports/skill-artifact-store.js';
 import type { ToolchainArtifactMaterializer } from '../../domain/ports/toolchain-artifact-store.js';
+import type { RuntimeLeasePort } from '../../domain/ports/runtime-lease.js';
 import { logger } from '../../infrastructure/logging/logger.js';
 import {
   startToolchainBakeSubsystem,
@@ -218,6 +219,7 @@ export async function startFleetSubsystems(input: {
   appId: AppId;
   runtimeHome: string;
   pool: Pool;
+  leases: RuntimeLeasePort;
   /** Best-effort delivery for bake outcome notices to the approval conversation. */
   sendMessage: (conversationJid: string, text: string) => Promise<void>;
   /**
@@ -249,6 +251,7 @@ export async function startFleetSubsystems(input: {
     registerBrowserProfileSync({
       store: getRuntimeBrowserProfileArtifactStore(),
       repository: getRuntimeBrowserProfileSnapshotRepository(),
+      leases: input.leases,
       workerInstanceId,
     });
   };

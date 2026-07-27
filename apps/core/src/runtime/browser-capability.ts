@@ -34,6 +34,7 @@ import {
   browserProfileNeedsRestore,
   restoreBrowserProfileBeforeLaunch,
 } from './browser-profile-sync.js';
+import type { RuntimeLeasePort } from '../domain/ports/runtime-lease.js';
 
 export const DEFAULT_BROWSER_PROFILE_NAME = 'gantry';
 export type {
@@ -57,6 +58,20 @@ interface BrowserSession {
 
 const sessions = new Map<string, BrowserSession>();
 const pendingLaunches = new Map<string, Promise<BrowserSessionStatus>>();
+let profileLockLeases: RuntimeLeasePort | undefined;
+
+export function registerBrowserProfileLockLeasePort(
+  leases: RuntimeLeasePort | null,
+): void {
+  profileLockLeases = leases ?? undefined;
+}
+
+function getProfileLockLeases(): RuntimeLeasePort {
+  if (!profileLockLeases) {
+    throw new Error('Browser profile lock lease port is not configured');
+  }
+  return profileLockLeases;
+}
 
 function cleanupChromeSingletonArtifacts(userDataDir: string): void {
   for (const lockFile of [
@@ -398,7 +413,7 @@ async function launchBrowserInner(
     await closeUnhealthySession(profileName, existing);
   }
 
-  const lock = await acquireProfileLock(profileName);
+  const lock = await acquireProfileLock(profileName, getProfileLockLeases());
   let chromeProcess: ChildProcess | undefined;
 
   try {
@@ -479,7 +494,7 @@ async function launchBrowserInner(
         // ignore
       }
     }
-    lock.release();
+    await lock.release();
     throw err;
   }
 }
@@ -596,7 +611,7 @@ export async function closeBrowser(
   const session = sessions.get(normalized);
   if (!session) {
     const profile = createProfile(normalized);
-    const lock = await acquireProfileLock(normalized);
+    const lock = await acquireProfileLock(normalized, getProfileLockLeases());
     try {
       const record = readBrowserSessionRecord(profile);
       if (!record) {
@@ -635,7 +650,7 @@ export async function closeBrowser(
         elapsedMs: currentTimeMs() - startedAt,
       };
     } finally {
-      lock.release();
+      await lock.release();
     }
   }
 
@@ -665,7 +680,7 @@ export async function closeBrowser(
       cdp_port: undefined,
     });
   } finally {
-    session.lock.release();
+    await session.lock.release();
   }
 
   return {

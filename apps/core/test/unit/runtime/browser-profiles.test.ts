@@ -18,6 +18,7 @@ describe('browser-profiles', () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     vi.restoreAllMocks();
     while (roots.length > 0) {
       const root = roots.pop();
@@ -47,136 +48,59 @@ describe('browser-profiles', () => {
     expect(found?.metadata.last_used).toBeTruthy();
   });
 
-  it('acquires and releases locks', async () => {
+  it('acquires the normalized profile lease and releases it', async () => {
     const root = makeTmpRoot(roots);
     vi.doMock('@core/config/index.js', () => ({
       DATA_DIR: root,
     }));
 
     const mod = await import('@core/runtime/browser-profiles.js');
-    mod.createProfile('lock-test');
+    const release = vi.fn(async () => {});
+    const tryAcquire = vi.fn(async () => ({ release }));
 
-    const lock = await mod.acquireProfileLock('lock-test', 1000);
-    expect(fs.existsSync(lock.lockPath)).toBe(true);
+    const lock = await mod.acquireProfileLock(' Lease-Test ', { tryAcquire });
 
-    await expect(mod.acquireProfileLock('lock-test', 250)).rejects.toThrow(
+    expect(tryAcquire).toHaveBeenCalledOnce();
+    expect(tryAcquire).toHaveBeenCalledWith('browser-profile:lease-test');
+    expect(lock.name).toBe('lease-test');
+    await lock.release();
+    expect(release).toHaveBeenCalledOnce();
+  });
+
+  it('retries a held lease and fails closed after the bounded wait', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1_000);
+    const root = makeTmpRoot(roots);
+    vi.doMock('@core/config/index.js', () => ({
+      DATA_DIR: root,
+    }));
+
+    const mod = await import('@core/runtime/browser-profiles.js');
+    const tryAcquire = vi.fn(async () => undefined);
+    const acquiring = mod.acquireProfileLock('held-lease', { tryAcquire }, 125);
+    const rejection = expect(acquiring).rejects.toThrow(
       /Timed out acquiring profile lock/,
     );
 
-    lock.release();
-    expect(fs.existsSync(lock.lockPath)).toBe(false);
-
-    const second = await mod.acquireProfileLock('lock-test', 1000);
-    second.release();
+    await vi.runAllTimersAsync();
+    await rejection;
+    expect(tryAcquire.mock.calls.length).toBeGreaterThan(1);
   });
 
-  it('does not steal a stale-mtime lock while the recorded pid is alive', async () => {
+  it('releases an acquired lease at most once', async () => {
     const root = makeTmpRoot(roots);
     vi.doMock('@core/config/index.js', () => ({
       DATA_DIR: root,
     }));
 
     const mod = await import('@core/runtime/browser-profiles.js');
-    mod.createProfile('live-lock');
-    const lock = await mod.acquireProfileLock('live-lock', 1000);
-    const old = new Date(Date.now() - 20 * 60 * 1000);
-    fs.utimesSync(lock.lockPath, old, old);
-
-    await expect(mod.acquireProfileLock('live-lock', 250)).rejects.toThrow(
-      /Timed out acquiring profile lock/,
-    );
-    lock.release();
-  });
-
-  it('only releases the lock file owned by the same token', async () => {
-    const root = makeTmpRoot(roots);
-    vi.doMock('@core/config/index.js', () => ({
-      DATA_DIR: root,
-    }));
-
-    const mod = await import('@core/runtime/browser-profiles.js');
-    mod.createProfile('token-lock');
-    const first = await mod.acquireProfileLock('token-lock', 1000);
-    fs.rmSync(first.lockPath, { force: true });
-    const second = await mod.acquireProfileLock('token-lock', 1000);
-
-    first.release();
-    expect(fs.existsSync(second.lockPath)).toBe(true);
-    second.release();
-  });
-
-  it('still reclaims a genuinely stale lock', async () => {
-    const root = makeTmpRoot(roots);
-    vi.doMock('@core/config/index.js', () => ({
-      DATA_DIR: root,
-    }));
-
-    const mod = await import('@core/runtime/browser-profiles.js');
-    const profile = mod.createProfile('stale-lock');
-    const lockPath = path.join(profile.dir, 'profile.lock');
-    fs.writeFileSync(
-      lockPath,
-      JSON.stringify({ pid: 0, token: 'stale-token' }),
-    );
-    const renameSyncSpy = vi.spyOn(fs, 'renameSync');
-
-    const lock = await mod.acquireProfileLock('stale-lock', 1000);
-    expect(renameSyncSpy).toHaveBeenCalledOnce();
-    expect(renameSyncSpy.mock.calls[0]?.[0]).toBe(lockPath);
-    expect(renameSyncSpy.mock.calls[0]?.[1]).toMatch(/\.reclaim-[0-9a-f]{16}$/);
-    expect(fs.readFileSync(lockPath, 'utf-8')).not.toContain('stale-token');
-    lock.release();
-  });
-
-  it('reclaims a stale pid-less lock with no token', async () => {
-    const root = makeTmpRoot(roots);
-    vi.doMock('@core/config/index.js', () => ({
-      DATA_DIR: root,
-    }));
-
-    const mod = await import('@core/runtime/browser-profiles.js');
-    const profile = mod.createProfile('pidless-stale-lock');
-    const lockPath = path.join(profile.dir, 'profile.lock');
-    fs.writeFileSync(lockPath, '{}');
-    const old = new Date(Date.now() - 20 * 60 * 1000);
-    fs.utimesSync(lockPath, old, old);
-
-    const lock = await mod.acquireProfileLock('pidless-stale-lock', 1000);
-    expect(fs.readFileSync(lockPath, 'utf-8')).toContain('"token":');
-    lock.release();
-  });
-
-  it('does not remove a fresh lock swapped in before the stale-lock claim', async () => {
-    const root = makeTmpRoot(roots);
-    vi.doMock('@core/config/index.js', () => ({
-      DATA_DIR: root,
-    }));
-
-    const mod = await import('@core/runtime/browser-profiles.js');
-    const profile = mod.createProfile('replaced-stale-lock');
-    const lockPath = path.join(profile.dir, 'profile.lock');
-    const staleLock = JSON.stringify({ pid: 0, token: 'stale-token' });
-    const freshLock = JSON.stringify({
-      pid: process.pid,
-      token: 'fresh-token',
+    const release = vi.fn(async () => {});
+    const lock = await mod.acquireProfileLock('idempotent-release', {
+      tryAcquire: async () => ({ release }),
     });
-    fs.writeFileSync(lockPath, staleLock);
 
-    const originalReadFileSync = fs.readFileSync;
-    vi.spyOn(fs, 'readFileSync').mockImplementationOnce(
-      (filePath, ...args: any[]) => {
-        const observed = originalReadFileSync(filePath, ...(args as [any]));
-        fs.rmSync(lockPath);
-        fs.writeFileSync(lockPath, freshLock);
-        return observed;
-      },
-    );
-    const renameSyncSpy = vi.spyOn(fs, 'renameSync');
+    await Promise.all([lock.release(), lock.release()]);
 
-    await expect(
-      mod.acquireProfileLock('replaced-stale-lock', 250),
-    ).rejects.toThrow(/Timed out acquiring profile lock/);
-    expect(renameSyncSpy).toHaveBeenCalled();
-    expect(fs.readFileSync(lockPath, 'utf-8')).toBe(freshLock);
+    expect(release).toHaveBeenCalledOnce();
   });
 });

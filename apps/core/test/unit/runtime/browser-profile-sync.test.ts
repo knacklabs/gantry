@@ -10,6 +10,7 @@ import type {
   UpsertBrowserProfileSnapshotInput,
   UpsertBrowserProfileSnapshotResult,
 } from '@core/domain/ports/browser-profile-snapshot.js';
+import type { RuntimeLeasePort } from '@core/domain/ports/runtime-lease.js';
 import { ArtifactIntegrityError } from '@core/domain/ports/browser-profile-artifact-store.js';
 import { LocalBrowserProfileArtifactStore } from '@core/adapters/artifacts/browser-profiles/local-browser-profile-artifact-store.js';
 import { acquireProfileLock } from '@core/runtime/browser-profiles.js';
@@ -78,12 +79,31 @@ async function seedUserData(
   }
 }
 
+function createRuntimeLeasePort(): RuntimeLeasePort {
+  const held = new Set<string>();
+  return {
+    tryAcquire: async (key) => {
+      if (held.has(key)) return undefined;
+      held.add(key);
+      let released = false;
+      return {
+        release: async () => {
+          if (released) return;
+          released = true;
+          held.delete(key);
+        },
+      };
+    },
+  };
+}
+
 describe('browser-profile-sync', () => {
   let artifactRoot: string;
   let profileDir: string;
   let userDataDir: string;
   let store: LocalBrowserProfileArtifactStore;
   let repository: FakeSnapshotRepository;
+  let leases: RuntimeLeasePort;
 
   beforeEach(async () => {
     artifactRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'gantry-sync-art-'));
@@ -91,6 +111,7 @@ describe('browser-profile-sync', () => {
     userDataDir = path.join(profileDir, 'user-data');
     store = new LocalBrowserProfileArtifactStore(artifactRoot);
     repository = new FakeSnapshotRepository();
+    leases = createRuntimeLeasePort();
   });
 
   afterEach(async () => {
@@ -112,7 +133,7 @@ describe('browser-profile-sync', () => {
   });
 
   it('no-ops when there is no user-data state', async () => {
-    registerBrowserProfileSync({ store, repository });
+    registerBrowserProfileSync({ store, repository, leases });
     const result = await snapshotBrowserProfile({
       profileName: 'p',
       profileDir,
@@ -122,7 +143,7 @@ describe('browser-profile-sync', () => {
   });
 
   it('writes a snapshot, then no-ops when the hash is unchanged', async () => {
-    registerBrowserProfileSync({ store, repository });
+    registerBrowserProfileSync({ store, repository, leases });
     await seedUserData(userDataDir, {
       'Local State': '{}',
       'Default/Cookies': 'c',
@@ -147,7 +168,7 @@ describe('browser-profile-sync', () => {
   });
 
   it('drops a snapshot at a lower fence than the stored one', async () => {
-    registerBrowserProfileSync({ store, repository });
+    registerBrowserProfileSync({ store, repository, leases });
     await seedUserData(userDataDir, { 'Local State': 'v2' });
     const high = await snapshotBrowserProfile({
       profileName: 'p',
@@ -173,12 +194,12 @@ describe('browser-profile-sync', () => {
   });
 
   it('skips the snapshot when the profile lock is held (browser relaunched mid-finalize)', async () => {
-    registerBrowserProfileSync({ store, repository });
+    registerBrowserProfileSync({ store, repository, leases });
     await seedUserData(userDataDir, { 'Local State': '{}' });
     // A same-worker concurrent turn relaunched Chrome and holds the profile
     // lock. The snapshot must skip rather than walk a non-quiescent tree or
     // block finalize.
-    const held = await acquireProfileLock('lockheld-profile');
+    const held = await acquireProfileLock('lockheld-profile', leases);
     try {
       const result = await snapshotBrowserProfile({
         profileName: 'lockheld-profile',
@@ -191,7 +212,7 @@ describe('browser-profile-sync', () => {
         await repository.getBrowserProfileSnapshot('lockheld-profile'),
       ).toBeNull();
     } finally {
-      held.release();
+      await held.release();
     }
 
     // Once the lock is free, the same snapshot succeeds.
@@ -204,7 +225,7 @@ describe('browser-profile-sync', () => {
   });
 
   it('restore no-ops with no stored snapshot', async () => {
-    registerBrowserProfileSync({ store, repository });
+    registerBrowserProfileSync({ store, repository, leases });
     const result = await restoreBrowserProfile({
       profileName: 'p',
       profileDir,
@@ -214,7 +235,7 @@ describe('browser-profile-sync', () => {
   });
 
   it('restore no-ops when the local marker already matches', async () => {
-    registerBrowserProfileSync({ store, repository });
+    registerBrowserProfileSync({ store, repository, leases });
     await seedUserData(userDataDir, { 'Local State': 'x' });
     await snapshotBrowserProfile({ profileName: 'p', profileDir, userDataDir });
     // snapshot wrote the marker; restore on the same worker is a fast no-op.
@@ -228,7 +249,7 @@ describe('browser-profile-sync', () => {
 
   it('restores across workers when the stored hash differs from local', async () => {
     // Worker A snapshots.
-    registerBrowserProfileSync({ store, repository });
+    registerBrowserProfileSync({ store, repository, leases });
     await seedUserData(userDataDir, {
       'Local State': 'shared',
       'Default/Cookies': 'session-token',
@@ -240,7 +261,7 @@ describe('browser-profile-sync', () => {
       path.join(os.tmpdir(), 'gantry-sync-b-'),
     );
     const userDataDirB = path.join(profileDirB, 'user-data');
-    registerBrowserProfileSync({ store, repository });
+    registerBrowserProfileSync({ store, repository, leases });
     const result = await restoreBrowserProfile({
       profileName: 'p',
       profileDir: profileDirB,
@@ -254,7 +275,7 @@ describe('browser-profile-sync', () => {
   });
 
   it('fails closed before launch when a stored snapshot cannot be restored', async () => {
-    registerBrowserProfileSync({ store, repository });
+    registerBrowserProfileSync({ store, repository, leases });
     await seedUserData(userDataDir, { 'Local State': 'shared' });
     await snapshotBrowserProfile({ profileName: 'p', profileDir, userDataDir });
 
@@ -267,7 +288,7 @@ describe('browser-profile-sync', () => {
     const profileDirB = await fs.mkdtemp(
       path.join(os.tmpdir(), 'gantry-sync-b-'),
     );
-    registerBrowserProfileSync({ store: brokenStore, repository });
+    registerBrowserProfileSync({ store: brokenStore, repository, leases });
     await expect(
       restoreBrowserProfileBeforeLaunch('p', {
         dir: profileDirB,
@@ -278,7 +299,7 @@ describe('browser-profile-sync', () => {
   });
 
   it('fails open before launch on snapshot integrity error: launches anyway, marker untouched', async () => {
-    registerBrowserProfileSync({ store, repository });
+    registerBrowserProfileSync({ store, repository, leases });
     await seedUserData(userDataDir, { 'Local State': 'shared' });
     await snapshotBrowserProfile({ profileName: 'p', profileDir, userDataDir });
 
@@ -301,7 +322,11 @@ describe('browser-profile-sync', () => {
     const profileDirB = await fs.mkdtemp(
       path.join(os.tmpdir(), 'gantry-sync-b-'),
     );
-    registerBrowserProfileSync({ store: quarantiningStore, repository });
+    registerBrowserProfileSync({
+      store: quarantiningStore,
+      repository,
+      leases,
+    });
 
     // Fails OPEN: no throw, launch proceeds.
     await expect(
