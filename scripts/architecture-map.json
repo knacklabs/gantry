@@ -16,6 +16,7 @@
   ],
   "defaultLineBudget": 700,
   "lineBudgets": {
+    "apps/core/src/config/settings/settings-import-service.ts": 720,
     "apps/core/src/adapters/storage/postgres/repositories/domain-repositories.postgres.ts": 2100,
     "apps/core/src/adapters/storage/postgres/repositories/control-plane-repository.postgres.ts": 760,
     "apps/core/src/jobs/ipc-skill-install-handlers.ts": 760,

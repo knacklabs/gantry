@@ -337,6 +337,14 @@ async function projectRequiredSettingsRevision(input: {
       );
     }
     const projectsTarget = head.revision === input.targetRevision;
+    if (
+      !projectsTarget &&
+      head.minReaderVersion > CURRENT_SETTINGS_READER_VERSION
+    ) {
+      // Too old to read the superseding head: skip it (a reader-capable projector
+      // will); fall back to the caller's readable target (previousSettings is optional).
+      return input.deps.previousSettings ?? input.targetSettings;
+    }
     const settings = projectsTarget
       ? input.targetSettings
       : settingsFromRevisionDocument(head.settingsDocument);

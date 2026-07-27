@@ -399,6 +399,56 @@ describe('importFleetSettingsRevision', () => {
     );
   });
 
+  it('skips a superseding head that requires a newer settings reader', async () => {
+    capabilityErrors = [];
+    leases.tryAcquire.mockClear();
+    releaseLease.mockClear();
+    applyRuntimeSettingsDesiredState.mockReset();
+    const previousSettings = createDefaultRuntimeSettings();
+    previousSettings.agent.name = 'previous';
+    const nextSettings = createDefaultRuntimeSettings();
+    nextSettings.agent.name = 'target';
+    const unreadableSettings = createDefaultRuntimeSettings();
+    unreadableSettings.agent.name = 'unreadable';
+    const repo = new FakeRevisionRepo();
+    const supersedingHead: SettingsRevision = {
+      appId: 'default',
+      revision: 2,
+      settingsDocument: settingsToRevisionDocument(unreadableSettings),
+      minReaderVersion: CURRENT_SETTINGS_READER_VERSION + 1,
+      createdBy: 'test:newer-writer',
+      note: null,
+      createdAt: new Date().toISOString(),
+    };
+    vi.spyOn(repo, 'getLatestSettingsRevision')
+      .mockResolvedValueOnce(null)
+      .mockImplementationOnce(async () => {
+        repo.rows.push(supersedingHead);
+        return supersedingHead;
+      });
+
+    const outcome = await importWorkstationSettings(
+      {
+        runtimeHome: '/tmp/gantry-import-test',
+        ops: {} as never,
+        repositories: {} as never,
+        appId: 'default' as never,
+        previousSettings,
+        revisionMirror: {
+          settingsRevisions: repo,
+          createdBy: 'test:fleet',
+        },
+        leases,
+        revisionMirrorRequired: true,
+      },
+      nextSettings,
+    );
+
+    expect(outcome).toEqual({ status: 'revision_created', revision: 1 });
+    expect(applyRuntimeSettingsDesiredState).not.toHaveBeenCalled();
+    expect(releaseLease).toHaveBeenCalledOnce();
+  });
+
   it('canonicalizes old revision rows before stale revision comparison', async () => {
     capabilityErrors = [];
     applyRuntimeSettingsDesiredState.mockReset();
