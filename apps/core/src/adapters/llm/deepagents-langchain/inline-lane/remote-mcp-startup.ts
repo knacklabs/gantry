@@ -49,10 +49,36 @@ export async function connectRemoteMcpTools(
   const guardedFetch = createGuardedMcpFetch({
     lookupHostname: input.lookupHostname,
   });
+  const startupAbort = new AbortController();
   const clients: Client[] = [];
+  const failureClosedClients = new WeakSet<Client>();
+  const failureClosePromises: Promise<void>[] = [];
   const results: Array<ConnectedRemoteMcpServer | undefined> = [];
   let nextIndex = 0;
   let failure: { error: unknown } | undefined;
+  const closeClientAfterFailure = (client: Client) => {
+    if (failureClosedClients.has(client)) return;
+    failureClosedClients.add(client);
+    failureClosePromises.push(client.close().catch(() => undefined));
+  };
+  const stopStartup = (error: unknown) => {
+    failure ??= { error };
+    if (!startupAbort.signal.aborted) startupAbort.abort(error);
+    for (const client of clients) closeClientAfterFailure(client);
+  };
+  const registerClient = (client: Client) => {
+    clients.push(client);
+    if (failure) closeClientAfterFailure(client);
+  };
+  const throwIfStartupStopped = () => {
+    if (failure) throw failure.error;
+    input.signal.throwIfAborted();
+  };
+  const onInputAbort = () => {
+    stopStartup(input.signal.reason ?? new Error('Remote MCP startup aborted'));
+  };
+  if (input.signal.aborted) onInputAbort();
+  else input.signal.addEventListener('abort', onInputAbort, { once: true });
   const workerCount = Math.min(REMOTE_MCP_STARTUP_CONCURRENCY, servers.length);
   const workers = Array.from({ length: workerCount }, async () => {
     while (!failure) {
@@ -61,25 +87,30 @@ export async function connectRemoteMcpTools(
       const server = servers[index];
       if (!server) return;
       try {
+        throwIfStartupStopped();
         const result = await connectOneRemoteMcpServer({
           index,
           server,
           input,
           guardedFetch,
-          connectedClients: clients,
+          startupSignal: startupAbort.signal,
+          registerClient,
+          throwIfStartupStopped,
         });
         if (result) results[index] = result;
       } catch (error) {
-        failure ??= { error };
+        stopStartup(error);
         return;
       }
     }
   });
-  await Promise.all(workers);
+  try {
+    await Promise.all(workers);
+  } finally {
+    input.signal.removeEventListener('abort', onInputAbort);
+  }
   if (failure) {
-    await Promise.all(
-      clients.map((client) => client.close().catch(() => undefined)),
-    );
+    await Promise.all(failureClosePromises);
     throw failure.error;
   }
   const tools = results.flatMap((result) => result?.tools ?? []);
@@ -99,12 +130,14 @@ async function connectOneRemoteMcpServer(input: {
   server: MaterializedMcpCapability;
   input: RemoteMcpStartupInput;
   guardedFetch: ReturnType<typeof createGuardedMcpFetch>;
-  connectedClients: Client[];
+  startupSignal: AbortSignal;
+  registerClient(client: Client): void;
+  throwIfStartupStopped(): void;
 }): Promise<ConnectedRemoteMcpServer | undefined> {
   const { server } = input;
   if (server.config.type !== 'http' && server.config.type !== 'sse')
     return undefined;
-  input.input.signal.throwIfAborted();
+  input.throwIfStartupStopped();
   assertMcpNetworkHostAllowed({
     serverName: server.name,
     url: server.config.url,
@@ -114,22 +147,29 @@ async function connectOneRemoteMcpServer(input: {
     name: `gantry-inline-${server.name}`,
     version: '1.0.0',
   });
+  input.registerClient(client);
+  input.throwIfStartupStopped();
   const headers = server.config.headers;
+  const requestInit = {
+    ...(headers ? { headers } : {}),
+    signal: combineAbortSignals(input.input.signal, input.startupSignal),
+  };
   const transport =
     server.config.type === 'sse'
       ? new SSEClientTransport(new URL(server.config.url), {
           fetch: input.guardedFetch as never,
-          requestInit: headers ? { headers } : undefined,
+          requestInit,
         })
       : new StreamableHTTPClientTransport(new URL(server.config.url), {
           fetch: input.guardedFetch as never,
-          requestInit: headers ? { headers } : undefined,
+          requestInit,
         });
   await client.connect(transport);
-  input.connectedClients.push(client);
+  input.throwIfStartupStopped();
   const loaded = await loadMcpTools(server.name, client, {
     prefixToolNameWithServerName: false,
   });
+  input.throwIfStartupStopped();
   const tools: StructuredToolInterface[] = [];
   for (const remoteTool of loaded) {
     if (
@@ -199,4 +239,23 @@ async function connectOneRemoteMcpServer(input: {
     );
   }
   return { index: input.index, client, tools };
+}
+
+function combineAbortSignals(
+  signal: AbortSignal,
+  startupSignal: AbortSignal,
+): AbortSignal {
+  const controller = new AbortController();
+  const abort = (source: AbortSignal) => {
+    if (!controller.signal.aborted) controller.abort(source.reason);
+  };
+  if (signal.aborted) abort(signal);
+  if (startupSignal.aborted) abort(startupSignal);
+  if (!controller.signal.aborted) {
+    signal.addEventListener('abort', () => abort(signal), { once: true });
+    startupSignal.addEventListener('abort', () => abort(startupSignal), {
+      once: true,
+    });
+  }
+  return controller.signal;
 }
