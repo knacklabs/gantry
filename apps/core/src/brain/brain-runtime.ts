@@ -118,6 +118,7 @@ export async function runRuntimeBrainDreamBatch(input: {
   return runBrainDreamBatch({
     brain: new BrainService(repository),
     repository,
+    reviews: storage.repositories.brainDreamReviews,
     appId: input.appId,
     limit: input.limit,
     signal: input.signal,

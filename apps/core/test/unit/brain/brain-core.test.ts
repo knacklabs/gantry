@@ -745,6 +745,40 @@ class InMemoryBrainRepository implements BrainRepository {
     );
   }
 
+  async getPageById(appId: string, pageId: string) {
+    return (
+      this.pages.find((page) => page.appId === appId && page.id === pageId) ??
+      null
+    );
+  }
+
+  async getEntityById(appId: string, entityId: string) {
+    return (
+      this.entities.find(
+        (entity) => entity.appId === appId && entity.id === entityId,
+      ) ?? null
+    );
+  }
+
+  async getEdgeById(appId: string, edgeId: string) {
+    return (
+      this.edges.find((edge) => edge.appId === appId && edge.id === edgeId) ??
+      null
+    );
+  }
+
+  async listEdgesForEntity(appId: string, entityId: string) {
+    return this.edges.filter(
+      (edge) =>
+        edge.appId === appId &&
+        (edge.fromEntityId === entityId || edge.toEntityId === entityId),
+    );
+  }
+
+  async countPageEmbeddings(_appId: string, _pageId: string) {
+    return 0;
+  }
+
   async getEntityByName(
     appId: string,
     kind: BrainEntity['kind'],
