@@ -13,7 +13,7 @@ import {
   fingerprintDependentEdges,
   hashPageContent,
   hashEntityContent,
-  hashEdgeContent,
+  hashEdgeTargetContent,
   type DependentEdgeRow,
 } from './brain-dream-dependent-fingerprint.js';
 import type { BrainReviewNotifier } from './brain-dream-review-notify.js';
@@ -112,6 +112,10 @@ type ResolvedTargets =
       page?: BrainPage;
       entity?: BrainEntity;
       edge?: BrainEdge;
+      // delete_edge endpoint entities, resolved once for the target hash + the
+      // card's by-name context (nullable: a missing endpoint is best-effort).
+      edgeFrom?: BrainEntity | null;
+      edgeTo?: BrainEntity | null;
       sourceEntity?: BrainEntity;
       targetEntity?: BrainEntity;
     }
@@ -150,10 +154,24 @@ async function resolveTargets(
     case 'delete_edge': {
       const edge = await repository.getEdgeById(appId, op.edgeId);
       if (!edge) return notFound('edge', op.edgeId);
+      // Endpoint identity is authorization context (the card reads by NAME), so
+      // fold it into the target hash — a rename after intake must drift to stale.
+      const [edgeFrom, edgeTo] = await Promise.all([
+        repository.getEntityById(appId, edge.fromEntityId),
+        repository.getEntityById(appId, edge.toEntityId),
+      ]);
       return {
         ok: true,
         edge,
-        targets: [target('edge', edge.id, hashEdgeContent(edge))],
+        edgeFrom,
+        edgeTo,
+        targets: [
+          target(
+            'edge',
+            edge.id,
+            hashEdgeTargetContent(edge, edgeFrom, edgeTo),
+          ),
+        ],
       };
     }
     case 'merge_entities': {
@@ -246,13 +264,11 @@ async function buildSnapshot(
     }
     case 'delete_edge': {
       const edge = resolved.edge!;
-      // Resolve endpoint names so the review card reads by NAME, not raw ids —
-      // the owner has to judge WHAT relationship is being removed. Names are
-      // best-effort: a missing endpoint leaves the id-only fallback in place.
-      const [from, to] = await Promise.all([
-        repository.getEntityById(appId, edge.fromEntityId),
-        repository.getEntityById(appId, edge.toEntityId),
-      ]);
+      // Endpoint entities were resolved for the target hash (a rename → stale);
+      // reuse them so the card reads by NAME. Best-effort: a missing endpoint
+      // leaves the id-only fallback in place.
+      const from = resolved.edgeFrom ?? null;
+      const to = resolved.edgeTo ?? null;
       return {
         snapshot: {
           action: op.action,
@@ -262,8 +278,8 @@ async function buildSnapshot(
             toEntityName: to?.name,
           },
         },
-        // A single edge is a graph leaf — the root target's own version covers
-        // it, so there is no dependent set to fingerprint.
+        // A single edge is a graph leaf — the root target's own version (which
+        // now includes the endpoint identity) is the whole drift story.
         dependentEdges: [],
       };
     }
@@ -307,12 +323,17 @@ function notFound(kind: string, id: string): { ok: false; reason: string } {
 }
 
 function pageView(page: BrainPage) {
+  // Capture EVERY mutable field delete_page destroys (matches the full-row drift
+  // hash) so the frozen snapshot records exactly what would be removed.
   return {
     id: page.id,
     slug: page.slug,
     title: page.title,
     markdown: page.markdown,
     sourceKind: page.sourceKind,
+    sourceRef: page.sourceRef,
+    authorId: page.authorId,
+    metadata: page.metadata,
     updatedAt: page.updatedAt,
   };
 }

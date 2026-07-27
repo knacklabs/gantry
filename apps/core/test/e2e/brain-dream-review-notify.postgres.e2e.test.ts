@@ -746,4 +746,52 @@ maybeDescribe('brain dream review owner-DM notification (T6)', () => {
       await deliveryConversationByKey(`brain-review:${reviewId}:rg2`),
     ).toBe('conversation:slack_two:sl:D-owner2');
   });
+
+  it('ANTI-JOIN: a review with only a generation-key delivery is NOT an orphan', async () => {
+    // No-op notifier → intake creates the review WITHOUT any outbound row.
+    const noopNotify = createBrainReviewNotifier({
+      gateway: {
+        enqueue: async () => ({ outboundDeliveryId: 'noop', created: false }),
+      },
+      appId: APP_ID,
+      resolveOwner: async () => ({ owner: OWNER }),
+    });
+    const genReviewId = await intakeDeletePage(
+      await seedPageWithEdge('antijoin-gen'),
+      noopNotify,
+    );
+    const orphanReviewId = await intakeDeletePage(
+      await seedPageWithEdge('antijoin-orphan'),
+      noopNotify,
+    );
+
+    // Manual re-notify creates ONLY a generation-suffixed delivery (no base key).
+    const manual = createBrainReviewNotifier({
+      gateway,
+      appId: APP_ID,
+      resolveOwner: async () => ({ owner: OWNER }),
+      keyGeneration: 'gen1',
+    });
+    const genReview = await reviews.findPendingBrainDreamReview({
+      appId: APP_ID,
+      reviewId: genReviewId,
+    });
+    expect((await manual(genReview!)).created).toBe(true);
+    expect(await deliveryCountByKey(`brain-review:${genReviewId}`)).toBe(0);
+    expect(await deliveryCountByKey(`brain-review:${genReviewId}:rgen1`)).toBe(
+      1,
+    );
+
+    // The anti-join treats the generation-key delivery as "has a delivery" → the
+    // review is NOT an orphan (startup recovery won't send a duplicate base card);
+    // a review with NO delivery at all still IS an orphan.
+    const orphanIds = (
+      await reviews.listPendingBrainReviewsWithoutDelivery({
+        appId: APP_ID,
+        limit: 500,
+      })
+    ).map((r) => r.id);
+    expect(orphanIds).not.toContain(genReviewId);
+    expect(orphanIds).toContain(orphanReviewId);
+  });
 });

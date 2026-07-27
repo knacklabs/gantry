@@ -157,9 +157,18 @@ export class PostgresBrainDreamReviewRepository implements BrainDreamReviewRepos
               .where(
                 and(
                   eq(Deliveries.appId, input.appId),
-                  eq(
-                    Deliveries.idempotencyKey,
-                    sql`${'brain-review:'} || ${Reviews.id}`,
+                  // ANY delivery for this review counts as "has a delivery": the
+                  // stable base key `brain-review:<id>` OR a manual re-notify
+                  // generation key `brain-review:<id>:r<gen>`. starts_with is a
+                  // LITERAL prefix test (no LIKE `_`/`%` wildcards), and the ':r'
+                  // boundary keeps `<id>` from matching a different review whose
+                  // id has this one as a prefix.
+                  or(
+                    eq(
+                      Deliveries.idempotencyKey,
+                      sql`${'brain-review:'} || ${Reviews.id}`,
+                    ),
+                    sql`starts_with(${Deliveries.idempotencyKey}, ${'brain-review:'} || ${Reviews.id} || ${':r'})`,
                   ),
                 ),
               ),

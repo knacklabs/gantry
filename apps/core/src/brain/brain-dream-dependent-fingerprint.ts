@@ -25,15 +25,33 @@ function sha256Hex(value: string): string {
   return createHash('sha256').update(value, 'utf8').digest('hex');
 }
 
-/** Content revision of a page target: the fields a rewrite/delete acts on. */
+/**
+ * Content revision of a page target. Covers EVERY mutable field a delete_page
+ * destroys — not just title/markdown/slug/sourceKind but also sourceRef,
+ * authorId, and metadata — so a concurrent change to provenance/metadata (never
+ * re-shown to the owner) still drifts the hash. rewrite_page reuses the same
+ * full-row hash (a superset is safe). metadata comes from jsonb (canonical key
+ * order on both the intake and apply reads), so JSON.stringify is stable.
+ */
 export function hashPageContent(page: {
   title: string;
   markdown: string;
   slug: string;
   sourceKind: string;
+  sourceRef: string | null;
+  authorId: string | null;
+  metadata: unknown;
 }): string {
   return sha256Hex(
-    JSON.stringify([page.title, page.markdown, page.slug, page.sourceKind]),
+    JSON.stringify([
+      page.title,
+      page.markdown,
+      page.slug,
+      page.sourceKind,
+      page.sourceRef,
+      page.authorId,
+      page.metadata ?? null,
+    ]),
   );
 }
 
@@ -48,7 +66,7 @@ export function hashEntityContent(entity: {
   );
 }
 
-/** Content revision of an edge target (delete_edge root). */
+/** Content revision of a dependent edge (id-keyed set membership + fields). */
 export function hashEdgeContent(edge: {
   type: string;
   fromEntityId: string;
@@ -61,6 +79,37 @@ export function hashEdgeContent(edge: {
       edge.fromEntityId,
       edge.toEntityId,
       edge.evidencePageId,
+    ]),
+  );
+}
+
+/**
+ * Content revision of the delete_edge ROOT target: the edge fields PLUS the
+ * endpoint entities' identity (name + normalizedName). The card presents the
+ * relationship by endpoint NAME as authorization context, but the edge row only
+ * holds endpoint IDs — so a rename after intake would leave the edge hash
+ * unchanged and let the delete proceed against stale names. Folding the endpoint
+ * names in makes a rename drift the target hash → stale. A missing endpoint
+ * (deleted) hashes as null (the edge would cascade-delete → target gone → stale).
+ */
+export function hashEdgeTargetContent(
+  edge: {
+    type: string;
+    fromEntityId: string;
+    toEntityId: string;
+    evidencePageId: string;
+  },
+  from: { name: string; normalizedName: string } | null,
+  to: { name: string; normalizedName: string } | null,
+): string {
+  return sha256Hex(
+    JSON.stringify([
+      edge.type,
+      edge.fromEntityId,
+      edge.toEntityId,
+      edge.evidencePageId,
+      from ? [from.name, from.normalizedName] : null,
+      to ? [to.name, to.normalizedName] : null,
     ]),
   );
 }

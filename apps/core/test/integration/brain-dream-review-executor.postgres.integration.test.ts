@@ -7,7 +7,7 @@ import {
   computeDependentFingerprint,
   hashPageContent,
   hashEntityContent,
-  hashEdgeContent,
+  hashEdgeTargetContent,
   type DependentEdgeReader,
   type DependentOp,
 } from '@core/brain/brain-dream-dependent-fingerprint.js';
@@ -327,6 +327,20 @@ maybeDescribe('brain dream review decision executor', () => {
     expect(await openTargets(reviewId)).toBe(0);
   });
 
+  it('delete_page: a METADATA-only edit (title/markdown unchanged) → stale', async () => {
+    // Full-row page hash: changing provenance/metadata a delete would destroy —
+    // without touching title/markdown — must still drift.
+    const page = await seedPage('meta-drift', 'body');
+    const reviewId = await createPageReview('delete_page', page);
+    await runtime.service.pool.query(
+      `UPDATE ${runtime.schemaName}.brain_pages SET metadata_json = '{"changed":true}'::jsonb WHERE id = $1`,
+      [page.id],
+    );
+    const result = await decide(reviewId, 'approve');
+    expect(result).toMatchObject({ outcome: 'stale', mutated: false });
+    expect(await repository.getPageById(APP_ID, page.id)).not.toBeNull();
+  });
+
   it('at-most-once: two concurrent approves apply exactly once', async () => {
     const page = await seedPage('race-target', 'body');
     const reviewId = await createPageReview('delete_page', page);
@@ -425,7 +439,7 @@ maybeDescribe('brain dream review decision executor', () => {
       {
         targetKind: 'edge',
         targetId: edge.id,
-        expectedVersion: hashEdgeContent(edge),
+        expectedVersion: hashEdgeTargetContent(edge, a, b),
       },
     ]);
 
@@ -436,6 +450,29 @@ maybeDescribe('brain dream review decision executor', () => {
     expect(await repository.getEntityById(APP_ID, a.id)).not.toBeNull();
     expect(await repository.getEntityById(APP_ID, b.id)).not.toBeNull();
     expect(await reviewState(reviewId)).toBe('applied');
+  });
+
+  it('delete_edge: an endpoint entity rename → stale (endpoint identity pinned)', async () => {
+    const page = await seedPage('edge-rename-evidence', 'body');
+    const from = await seedEntity('RenameFrom');
+    const to = await seedEntity('RenameTo');
+    const edge = await seedEdge('mentions', from.id, to.id, page.id);
+    const reviewId = await createReview('delete_edge', { edgeId: edge.id }, [
+      {
+        targetKind: 'edge',
+        targetId: edge.id,
+        expectedVersion: hashEdgeTargetContent(edge, from, to),
+      },
+    ]);
+    // Rename the FROM endpoint after snapshot; the edge ROW itself is untouched,
+    // so an edge-only hash would miss it — the pinned endpoint identity catches it.
+    await runtime.service.pool.query(
+      `UPDATE ${runtime.schemaName}.brain_entities SET name = 'RenamedFrom' WHERE id = $1`,
+      [from.id],
+    );
+    const result = await decide(reviewId, 'approve');
+    expect(result).toMatchObject({ outcome: 'stale', mutated: false });
+    expect(await edgeRow(edge.id)).not.toBeNull(); // edge intact
   });
 
   it('approve delete_entity → entity + inbound/outbound edges cascade, applied', async () => {

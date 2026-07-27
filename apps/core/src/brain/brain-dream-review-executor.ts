@@ -8,7 +8,7 @@ import {
   computeDependentFingerprint,
   hashPageContent,
   hashEntityContent,
-  hashEdgeContent,
+  hashEdgeTargetContent,
   type DependentEdgeReader,
   type DependentOp,
 } from './brain-dream-dependent-fingerprint.js';
@@ -286,12 +286,25 @@ async function lockAndReadVersion(
         markdown: Pages.markdown,
         slug: Pages.slug,
         sourceKind: Pages.sourceKind,
+        sourceRef: Pages.sourceRef,
+        authorId: Pages.authorId,
+        metadataJson: Pages.metadataJson,
       })
       .from(Pages)
       .where(and(eq(Pages.appId, appId), eq(Pages.id, target.targetId)))
       .for('update')
       .limit(1);
-    return row ? hashPageContent(row) : null;
+    // Normalize metadata exactly as toBrainPage does (null/non-object → {}) so
+    // the hash matches the one intake computed from the mapped BrainPage.
+    return row
+      ? hashPageContent({
+          ...row,
+          metadata:
+            row.metadataJson && typeof row.metadataJson === 'object'
+              ? row.metadataJson
+              : {},
+        })
+      : null;
   }
   if (target.targetKind === 'entity') {
     const [row] = await tx
@@ -317,7 +330,28 @@ async function lockAndReadVersion(
     .where(and(eq(Edges.appId, appId), eq(Edges.id, target.targetId)))
     .for('update')
     .limit(1);
-  return row ? hashEdgeContent(row) : null;
+  if (!row) return null;
+  // The delete_edge target hash folds in the endpoint entities' identity (the
+  // card's by-name authorization context) — re-read them so a rename since the
+  // snapshot drifts to stale.
+  const [from, to] = await Promise.all([
+    readEntityIdentity(tx, appId, row.fromEntityId),
+    readEntityIdentity(tx, appId, row.toEntityId),
+  ]);
+  return hashEdgeTargetContent(row, from, to);
+}
+
+async function readEntityIdentity(
+  tx: Tx,
+  appId: string,
+  entityId: string,
+): Promise<{ name: string; normalizedName: string } | null> {
+  const [row] = await tx
+    .select({ name: Entities.name, normalizedName: Entities.normalizedName })
+    .from(Entities)
+    .where(and(eq(Entities.appId, appId), eq(Entities.id, entityId)))
+    .limit(1);
+  return row ?? null;
 }
 
 // Dispatch to the per-op mutation. Page ops are T3; graph ops are T4 and throw
