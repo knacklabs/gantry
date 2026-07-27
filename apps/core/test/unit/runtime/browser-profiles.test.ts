@@ -128,7 +128,25 @@ describe('browser-profiles', () => {
     lock.release();
   });
 
-  it('does not remove a fresh lock after another reclaimer claims the stale lock first', async () => {
+  it('reclaims a stale pid-less lock with no token', async () => {
+    const root = makeTmpRoot(roots);
+    vi.doMock('@core/config/index.js', () => ({
+      DATA_DIR: root,
+    }));
+
+    const mod = await import('@core/runtime/browser-profiles.js');
+    const profile = mod.createProfile('pidless-stale-lock');
+    const lockPath = path.join(profile.dir, 'profile.lock');
+    fs.writeFileSync(lockPath, '{}');
+    const old = new Date(Date.now() - 20 * 60 * 1000);
+    fs.utimesSync(lockPath, old, old);
+
+    const lock = await mod.acquireProfileLock('pidless-stale-lock', 1000);
+    expect(fs.readFileSync(lockPath, 'utf-8')).toContain('"token":');
+    lock.release();
+  });
+
+  it('does not remove a fresh lock swapped in before the stale-lock claim', async () => {
     const root = makeTmpRoot(roots);
     vi.doMock('@core/config/index.js', () => ({
       DATA_DIR: root,
@@ -144,22 +162,21 @@ describe('browser-profiles', () => {
     });
     fs.writeFileSync(lockPath, staleLock);
 
-    const originalRenameSync = fs.renameSync;
-    vi.spyOn(fs, 'renameSync').mockImplementationOnce(() => {
-      const concurrentReclaimPath = `${lockPath}.reclaim-concurrent`;
-      originalRenameSync(lockPath, concurrentReclaimPath);
-      fs.rmSync(concurrentReclaimPath, { force: true });
-      fs.writeFileSync(lockPath, freshLock);
-      const error = new Error(
-        'stale lock already reclaimed',
-      ) as NodeJS.ErrnoException;
-      error.code = 'ENOENT';
-      throw error;
-    });
+    const originalReadFileSync = fs.readFileSync;
+    vi.spyOn(fs, 'readFileSync').mockImplementationOnce(
+      (filePath, ...args: any[]) => {
+        const observed = originalReadFileSync(filePath, ...(args as [any]));
+        fs.rmSync(lockPath);
+        fs.writeFileSync(lockPath, freshLock);
+        return observed;
+      },
+    );
+    const renameSyncSpy = vi.spyOn(fs, 'renameSync');
 
     await expect(
       mod.acquireProfileLock('replaced-stale-lock', 250),
     ).rejects.toThrow(/Timed out acquiring profile lock/);
+    expect(renameSyncSpy).toHaveBeenCalled();
     expect(fs.readFileSync(lockPath, 'utf-8')).toBe(freshLock);
   });
 });

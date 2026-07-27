@@ -326,7 +326,39 @@ export async function acquireProfileLock(
           } catch {
             continue;
           }
-          fs.rmSync(reclaimPath, { force: true });
+          const restoreClaimedLock = (): void => {
+            try {
+              // Unlike rename, link is an atomic no-replace restore on POSIX.
+              fs.linkSync(reclaimPath, lockPath);
+            } catch {
+              // A new owner may already have restored lockPath.
+            }
+            try {
+              fs.rmSync(reclaimPath, { force: true });
+            } catch {
+              // Best effort; never remove the current lockPath on cleanup.
+            }
+          };
+
+          try {
+            const claimed = readLockFile(reclaimPath);
+            let matchesObserved =
+              existing.token !== undefined && claimed.token === existing.token;
+            if (existing.token === undefined) {
+              matchesObserved =
+                claimed.token === undefined &&
+                claimed.pid === existing.pid &&
+                fs.statSync(reclaimPath).mtimeMs === stat.mtimeMs;
+            }
+
+            if (matchesObserved) {
+              fs.rmSync(reclaimPath, { force: true });
+              continue;
+            }
+            restoreClaimedLock();
+          } catch {
+            restoreClaimedLock();
+          }
           continue;
         }
       } catch {
