@@ -29,6 +29,7 @@ import {
 } from './brain-types.js';
 
 export {
+  buildGraphPayload,
   dreamMarkdownWindow,
   MemoryLlmBrainDreamProposer,
   type BrainDreamProposal,
@@ -95,9 +96,11 @@ export async function runBrainDreamBatch(input: {
   };
   for (const page of pages) {
     input.signal?.throwIfAborted();
+    const graph = await input.repository.graphForPages(input.appId, [page.id]);
     const ops = (await proposer.propose({
       appId: input.appId,
       pages: [page],
+      graph,
       signal: input.signal,
       timeoutMs: input.timeoutMs,
     })) as unknown[];
@@ -183,9 +186,11 @@ async function runObserverBrainDreamBatch(input: {
 
   for (const page of pages) {
     input.signal?.throwIfAborted();
+    const graph = await input.repository.graphForPages(input.appId, [page.id]);
     const rawProposal = await proposer.propose({
       appId: input.appId,
       pages: [page],
+      graph,
       observerEnabled: true,
       signal: input.signal,
       timeoutMs: input.timeoutMs,
