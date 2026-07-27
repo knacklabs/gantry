@@ -860,6 +860,38 @@ describe('permission classifier decision events', () => {
     },
   );
 
+  it.each(['promotion', 'review', 'admin'] as const)(
+    'does NOT apply the gantry map to the %s family (a low/medium gantry tool is never auto-allowed as a non-tool request)',
+    async (requestFamily) => {
+      const classifierConsult = vi.fn();
+      // A promotion/review/admin request whose canonicalToolName happens to be a
+      // low/medium gantry tool must NOT inherit that tool's routine EXECUTION
+      // rating: a tool's execution risk does not establish that granting durable
+      // authority or approving a review is safe. Only the 'tool' family may use
+      // the gantry map — every other family is ineligible and returns undefined
+      // (the caller then prompts), never a gantry auto-allow.
+      await expect(
+        consultPermissionClassifierBeforePrompt({
+          permissionMode: 'auto',
+          requestFamily,
+          agentFolder: 'researcher',
+          correlationId: `request:gantry-${requestFamily}`,
+          actor: 'permission',
+          intentSource: 'operator_message',
+          turnIntentSummary: 'Persist a rule for the digest schedule.',
+          canonicalToolName: 'mcp__gantry__scheduler_update_job',
+          toolInput: { jobId: 'job-1', cron: '0 9 * * *' },
+          policyDecisionReason: 'No durable rule matched.',
+          approvedCapabilityIds: [],
+          classifierConfig: { memoryExtractorModel: 'extractor-model' },
+          publishRuntimeEvent: vi.fn(async () => undefined),
+          classifierConsult,
+        }),
+      ).resolves.toBeUndefined();
+      expect(classifierConsult).not.toHaveBeenCalled();
+    },
+  );
+
   it('asks on an unmapped gantry tool without the LLM (never silent auto-approve)', async () => {
     const classifierConsult = vi.fn();
     await expect(

@@ -313,8 +313,15 @@ export async function consultPermissionClassifierBeforePrompt(
   // authority/destructive/unknown tools rate high (ask). The truncated-input and
   // YOLO-denylist safety gates above still win. Non-gantry tools return
   // undefined here and keep the Bash / third-party-MCP / LLM path unchanged.
+  //
+  // Gated on the 'tool' family ONLY: this map rates tool EXECUTION risk. A
+  // tool's routine execution rating does NOT establish that granting durable
+  // authority (promotion) or approving a review is safe. isPermissionClassifier-
+  // Eligible already blocks non-'tool' families at the top of this function, so
+  // this is defense-in-depth: the gantry map can never auto-allow a non-'tool'
+  // request even if that eligibility gate is later broadened.
   const gantryRisk =
-    inputTruncated || yoloDenylistMatch
+    inputTruncated || yoloDenylistMatch || input.requestFamily !== 'tool'
       ? undefined
       : gantryToolDefaultRisk(input.canonicalToolName);
   const classifierResult: PermissionClassifierResult = inputTruncated
