@@ -157,6 +157,57 @@ describe('OutboundDeliveryService', () => {
     ]);
   });
 
+  it('carries an observerDigestView through enqueue sanitize so recovery dispatch can render buttons', async () => {
+    const repository = new MemoryOutboundDeliveryRepository();
+    const observerDigestView = {
+      localDay: '2026-07-25',
+      recipient: 'owner:happy',
+      insights: [
+        {
+          insightId: 'i-1',
+          title: 'First',
+          summary: 'One',
+          type: 'commitment',
+          affordances: [
+            {
+              kind: 'observer_feedback',
+              label: 'Resolve',
+              insightId: 'i-1',
+              action: 'resolve',
+              localDay: '2026-07-25',
+            },
+          ],
+        },
+      ],
+    };
+    const profile = createProfile(() => ({
+      parts: [
+        { canonicalText: 'digest', providerPayload: { observerDigestView } },
+      ],
+      canonicalFinalText: 'digest',
+    }));
+    const service = new OutboundDeliveryService({
+      repository,
+      profiles: new MemoryProfileRegistry(profile),
+      now: () => '2026-05-08T00:00:00.000Z',
+      createId: () => 'seed-id',
+      hashSha256Hex,
+    });
+
+    await service.enqueue({
+      appId: 'app:test' as never,
+      conversationId: 'conversation:test' as never,
+      profileId: 'profile:test',
+      idempotencyKey: 'idem:digest',
+      text: 'ignored',
+    });
+
+    const persisted = repository.enqueues[0]!.items[0]!.providerPayload as {
+      observerDigestView?: typeof observerDigestView;
+    };
+    expect(persisted.observerDigestView).toEqual(observerDigestView);
+  });
+
   it('can enqueue a single delivery item as initially claimed for immediate durable sends', async () => {
     const repository = new MemoryOutboundDeliveryRepository();
     const profile = createProfile(() => ({
