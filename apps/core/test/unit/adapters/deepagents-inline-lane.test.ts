@@ -55,10 +55,14 @@ const remote = vi.hoisted(() => {
     static instances: Client[] = [];
     static connectImpl: (client: Client, transport: unknown) => Promise<void> =
       async () => undefined;
-    connect = vi.fn((transport: unknown) =>
-      Client.connectImpl(this, transport),
-    );
-    close = vi.fn(async () => undefined);
+    private transport?: { close?(): Promise<void> | void };
+    connect = vi.fn((transport: unknown) => {
+      this.transport = transport as { close?(): Promise<void> | void };
+      return Client.connectImpl(this, transport);
+    });
+    close = vi.fn(async () => {
+      await this.transport?.close?.();
+    });
     constructor(readonly info: unknown) {
       Client.instances.push(this);
     }
@@ -72,7 +76,9 @@ const remote = vi.hoisted(() => {
       HttpTransport.instances.push(this);
     }
   }
-  class SseTransport extends HttpTransport {}
+  class SseTransport extends HttpTransport {
+    close = vi.fn(async () => undefined);
+  }
   return {
     Client,
     HttpTransport,
@@ -1246,6 +1252,89 @@ Always mention the migration impact.
     }
   });
 
+  it('settles an in-flight SSE endpoint connection when a peer startup fails', async () => {
+    const startupError = new Error('alpha startup failed');
+    const connectBarrier = createDeterministicBarrier(2);
+    const participants: ReturnType<typeof connectBarrier.arrive>[] = [];
+    let releaseSseConnect: (() => void) | undefined;
+    const sseConnect = new Promise<void>((resolve) => {
+      releaseSseConnect = resolve;
+    });
+    remote.Client.connectImpl = async (client, transport) => {
+      const participant = connectBarrier.arrive();
+      participants.push(participant);
+      await connectBarrier.waitForArrivals(2);
+      const serverName = (client.info as { name: string }).name.replace(
+        'gantry-inline-',
+        '',
+      );
+      if (serverName === 'alpha') throw startupError;
+      expect(transport).toBeInstanceOf(remote.SseTransport);
+      // The MCP SDK's SSE start promise remains pending when close aborts the
+      // initial EventSource fetch, so only an explicit startup race can settle it.
+      await sseConnect;
+    };
+    const input = laneInput({
+      mcpServers: [
+        {
+          name: 'alpha',
+          config: {
+            type: 'http',
+            url: 'https://mcp.example.test/alpha',
+          },
+          allowedToolPatterns: ['*'],
+        },
+        {
+          name: 'bravo',
+          config: {
+            type: 'sse',
+            url: 'https://mcp.example.test/bravo',
+          },
+          allowedToolPatterns: ['*'],
+        },
+      ],
+    });
+    const lane = createDeepAgentsInlineAgentLoopLane({
+      databaseUrl: 'postgres://gantry:test@localhost:5432/gantry',
+      schema: 'gantry_deepagents',
+    });
+
+    const result = lane(input);
+    let outcome:
+      | { status: 'resolved' }
+      | { status: 'rejected'; error: unknown };
+    const observed = result.then(
+      () => {
+        outcome = { status: 'resolved' };
+      },
+      (error: unknown) => {
+        outcome = { status: 'rejected', error };
+      },
+    );
+    try {
+      await connectBarrier.waitForArrivals(2);
+      await new Promise<void>((resolve) => setImmediate(resolve));
+
+      const sseTransport = remote.HttpTransport.instances.find(
+        (transport) => transport instanceof remote.SseTransport,
+      ) as InstanceType<typeof remote.SseTransport> | undefined;
+      expect(sseTransport?.options.fetch).toEqual(expect.any(Function));
+      expect(
+        (
+          sseTransport?.options.requestInit as
+            | { signal?: AbortSignal }
+            | undefined
+        )?.signal?.aborted,
+      ).toBe(true);
+      expect(sseTransport?.close).toHaveBeenCalledOnce();
+      expect(outcome).toEqual({ status: 'rejected', error: startupError });
+    } finally {
+      releaseSseConnect?.();
+      participants.forEach((participant) => participant.release());
+      await observed;
+    }
+  });
+
   it('aborts remote MCP startup without starting queued work and closes connected clients', async () => {
     const serverNames = ['alpha', 'bravo', 'charlie', 'delta', 'echo'];
     const controller = new AbortController();
@@ -1309,6 +1398,44 @@ Always mention the migration impact.
     } finally {
       await releaseBarrierParticipantsUntilSettled(result, participants);
     }
+  });
+
+  it('returns the graceful aborted result when cancellation reaches startup with no remote MCP work', async () => {
+    const controller = new AbortController();
+    model.build.mockImplementationOnce(async () => {
+      controller.abort(new Error('cancelled during model setup'));
+      return {
+        model: { profile: { maxInputTokens: 100 } },
+        endpointFamily: 'openai',
+        modelId: 'test-model',
+      };
+    });
+    deep.streamEvents.mockImplementation(() => ({
+      async *[Symbol.asyncIterator]() {
+        yield streamEvent('ignored after cancellation');
+      },
+    }));
+    const input = laneInput({
+      signal: controller.signal,
+      mcpServers: [
+        {
+          name: 'local-only',
+          config: { command: 'ignored-stdio-command' },
+          allowedToolPatterns: ['*'],
+        },
+      ],
+    });
+    const lane = createDeepAgentsInlineAgentLoopLane({
+      databaseUrl: 'postgres://gantry:test@localhost:5432/gantry',
+      schema: 'gantry_deepagents',
+    });
+
+    await expect(lane(input)).resolves.toMatchObject({
+      status: 'error',
+      error: 'Inline DeepAgents lane aborted.',
+      newSessionId: expect.any(String),
+    });
+    expect(remote.Client.instances).toHaveLength(0);
   });
 
   it('filters remote MCP tools with reviewed wildcard scopes', async () => {

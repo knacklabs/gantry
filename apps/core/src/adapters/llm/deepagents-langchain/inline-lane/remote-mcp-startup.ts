@@ -46,6 +46,13 @@ export async function connectRemoteMcpTools(
   servers: readonly MaterializedMcpCapability[],
   input: RemoteMcpStartupInput,
 ): Promise<RemoteMcpStartupResult> {
+  if (
+    !servers.some(
+      (server) => server.config.type === 'http' || server.config.type === 'sse',
+    )
+  ) {
+    return { tools: [], close: () => Promise.resolve() };
+  }
   const guardedFetch = createGuardedMcpFetch({
     lookupHostname: input.lookupHostname,
   });
@@ -164,7 +171,7 @@ async function connectOneRemoteMcpServer(input: {
           fetch: input.guardedFetch as never,
           requestInit,
         });
-  await client.connect(transport);
+  await settleOnAbort(client.connect(transport), input.startupSignal);
   input.throwIfStartupStopped();
   const loaded = await loadMcpTools(server.name, client, {
     prefixToolNameWithServerName: false,
@@ -258,4 +265,25 @@ function combineAbortSignals(
     });
   }
   return controller.signal;
+}
+
+function settleOnAbort<T>(
+  operation: Promise<T>,
+  signal: AbortSignal,
+): Promise<T> {
+  if (signal.aborted) return Promise.reject(signal.reason);
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(signal.reason);
+    signal.addEventListener('abort', onAbort, { once: true });
+    operation.then(
+      (value) => {
+        signal.removeEventListener('abort', onAbort);
+        resolve(value);
+      },
+      (error: unknown) => {
+        signal.removeEventListener('abort', onAbort);
+        reject(error);
+      },
+    );
+  });
 }
