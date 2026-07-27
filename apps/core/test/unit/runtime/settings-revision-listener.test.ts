@@ -40,10 +40,13 @@ vi.mock('@core/config/settings/settings-import-service.js', async () => {
   };
 });
 
-const loadState = vi.hoisted(() => ({ markSettingsLoaded: vi.fn() }));
+const loadState = vi.hoisted(() => ({
+  markSettingsLoaded: vi.fn(),
+  markSettingsNotLoaded: vi.fn(),
+}));
 vi.mock('@core/runtime/settings-load-state.js', () => ({
   markSettingsLoaded: loadState.markSettingsLoaded,
-  markSettingsNotLoaded: vi.fn(),
+  markSettingsNotLoaded: loadState.markSettingsNotLoaded,
   areSettingsLoaded: () => true,
 }));
 
@@ -127,6 +130,8 @@ describe('SettingsRevisionListener', () => {
     applied.length = 0;
     leaseState.reset();
     leaseState.tryAcquire.mockClear();
+    loadState.markSettingsLoaded.mockClear();
+    loadState.markSettingsNotLoaded.mockClear();
     importSettings.mockReset();
     importSettings.mockImplementation(
       async (_deps: unknown, settings: { revision?: number }) => {
@@ -319,6 +324,40 @@ describe('SettingsRevisionListener', () => {
       { err: failure },
       'Settings revision apply failed',
     );
+  });
+
+  it('marks settings not loaded after a failed apply and loaded after recovery', async () => {
+    const rows = [revision(1, 1)];
+    const listener = makeListener(makeRepo(rows), new FakeWakeupSource());
+    await listener.applyLatest();
+
+    rows.push(revision(2, 1));
+    const failure = new Error('projection failed');
+    let finishRetry!: () => void;
+    importSettings.mockRejectedValueOnce(failure).mockImplementationOnce(
+      (_deps: unknown, settings: { revision?: number }) =>
+        new Promise<void>((resolve) => {
+          finishRetry = () => {
+            applied.push(settings.revision ?? -1);
+            resolve();
+          };
+        }),
+    );
+
+    listener.wake();
+
+    await vi.waitFor(() =>
+      expect(loadState.markSettingsNotLoaded).toHaveBeenCalledOnce(),
+    );
+    expect(loadState.markSettingsLoaded).toHaveBeenCalledOnce();
+
+    finishRetry();
+
+    await vi.waitFor(() => expect(listener.getAppliedRevision()).toBe(2));
+    expect(loadState.markSettingsLoaded).toHaveBeenCalledTimes(2);
+    expect(
+      loadState.markSettingsNotLoaded.mock.invocationCallOrder[0],
+    ).toBeLessThan(loadState.markSettingsLoaded.mock.invocationCallOrder[1]!);
   });
 
   it('is a no-op when the latest revision is already applied', async () => {

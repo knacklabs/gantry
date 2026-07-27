@@ -84,6 +84,28 @@ Exploration (decision inputs) established:
    held / incompatible-reader outcome (as the listener and boot paths do) so the
    caller keeps readiness red and does not continue on stale settings.
 
+4c. **On a failed revision-authority projection, readiness goes red.** Because
+   forward-correction leaves partial state in place, a failed apply marks settings
+   **not-loaded** (readiness red) until a later full projection succeeds — so an
+   incomplete projection is never advertised as ready.
+
+## Scope split (RACE-2 core vs RACE-2b)
+
+This decision covers the **core**: per-app advisory-lease **serialization** of
+projection, stale-revision skip, the reader-version fence, the failure taxonomy
+above, and readiness-red-on-failure. This closes the primary out-of-order
+projection race and is strictly better than the pre-RACE-2 state (which had no
+serialization at all).
+
+**Deferred to RACE-2b (its own decision):** a *reliable* forward-correction
+guarantee — a durable "last-fully-applied revision" marker so a synchronous
+required projection that fails **after** the listener has already advanced its
+applied-revision counter is guaranteed to be re-projected (today such a rare
+interleaving can strand partial shared state until the next settings change,
+though readiness is red meanwhile, §4c). Autoreview surfaced this as the
+"applied-projection contract"; it is a distinct, deeper design than the
+serialization core and is tracked separately so the core can land.
+
 5. **Route initial fleet boot through the same coordinator**, since boot and
    synchronous mutation paths call the same shared apply function — listener-only
    locking would leave those unserialized.

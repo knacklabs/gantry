@@ -130,6 +130,7 @@ export class SettingsRevisionListener {
       .then(() => undefined)
       .catch((err) => {
         this.deps.logWarn?.({ err }, 'Settings revision apply failed');
+        markSettingsNotLoaded();
         if (retryOnFailure && !this.stopped) {
           this.rerunRequested = true;
         }
@@ -222,8 +223,8 @@ export class SettingsRevisionListener {
     );
     const previousRevision = this.appliedRevision;
     this.appliedRevision = revision.revision;
+    markSettingsLoaded();
     if (previousRevision === 0) {
-      markSettingsLoaded();
       try {
         await this.deps.onFirstRevisionApplied?.(settings);
       } catch (err) {
