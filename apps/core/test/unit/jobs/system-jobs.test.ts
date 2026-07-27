@@ -235,6 +235,9 @@ describe('system memory dreaming jobs', () => {
             id,
             name: 'Operator Renamed Dreaming',
             schedule_value: '0 4 * * *',
+            // next_run already tracks the edited (daily 04:00) schedule, not the
+            // code default ('* * * * *' -> next minute).
+            next_run: '2026-06-01T04:00:00.000Z',
             silent: true,
           })
         : undefined,
@@ -260,6 +263,9 @@ describe('system memory dreaming jobs', () => {
     expect(dreamUpsert.name).toBe('Operator Renamed Dreaming');
     expect(dreamUpsert.schedule_value).toBe('0 4 * * *');
     expect(dreamUpsert.silent).toBe(true);
+    // next_run stays consistent with the preserved schedule (not recomputed
+    // from the hardcoded '* * * * *' default).
+    expect(dreamUpsert.next_run).toBe('2026-06-01T04:00:00.000Z');
     // Runtime-owned fields still re-stamped from code.
     expect(dreamUpsert.prompt).toBe('__system:memory_dream');
     expect(dreamUpsert.execution_context).toEqual({
