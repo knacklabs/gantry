@@ -24,7 +24,9 @@ interface RemoteMcpStartupInput {
   authorizeThirdPartyMcpTool: LaneInput['coreTools']['authorizeThirdPartyMcpTool'];
   recordThirdPartyMcpToolActivity: LaneInput['coreTools']['recordThirdPartyMcpToolActivity'];
   egressDenylist: readonly string[];
-  lookupHostname?: Parameters<typeof createGuardedMcpFetch>[0]['lookupHostname'];
+  lookupHostname?: Parameters<
+    typeof createGuardedMcpFetch
+  >[0]['lookupHostname'];
   signal: AbortSignal;
   toolActivity: InlineToolActivity;
 }
