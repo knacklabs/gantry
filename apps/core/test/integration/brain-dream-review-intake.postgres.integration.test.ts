@@ -208,6 +208,31 @@ maybeDescribe('brain dream destructive-op review intake', () => {
     );
   });
 
+  it('delete_edge snapshot captures endpoint NAMES alongside ids', async () => {
+    const [edge] = await repository.upsertEdges(APP_ID, mergePage.id, [
+      { type: 'reports_to', fromEntityId: entA.id, toEntityId: entB.id },
+    ]);
+    const summary = await run({ action: 'delete_edge', edge_id: edge.id });
+    expect(summary).toMatchObject({ proposed: 1, rejected: 0 });
+
+    const review = (
+      await reviews.listPendingBrainDreamReviews({ appId: APP_ID, limit: 50 })
+    ).find((r) => r.action === 'delete_edge');
+    expect(review).toBeDefined();
+    const snap = review!.reviewSnapshot as {
+      before: {
+        fromEntityId: string;
+        toEntityId: string;
+        fromEntityName?: string;
+        toEntityName?: string;
+      };
+    };
+    expect(snap.before.fromEntityId).toBe(entA.id);
+    expect(snap.before.toEntityId).toBe(entB.id);
+    expect(snap.before.fromEntityName).toBe('Alice');
+    expect(snap.before.toEntityName).toBe('Alicia');
+  });
+
   it('defers retire_page: journaled proposed, no review', async () => {
     const summary = await run({ action: 'retire_page', page_id: delPage.id });
     expect(summary).toMatchObject({ proposed: 1, rejected: 0 });

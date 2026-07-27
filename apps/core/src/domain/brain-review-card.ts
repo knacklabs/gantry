@@ -68,9 +68,11 @@ export function renderBrainReviewCard(input: {
     }
     case 'delete_edge': {
       const edge = asRecord(s.before);
+      const from = str(edge.fromEntityName) || str(edge.fromEntityId) || '?';
+      const to = str(edge.toEntityName) || str(edge.toEntityId) || '?';
       return {
         ...base,
-        headline: `🗑 Remove relationship: ${str(edge.fromEntityId) || '?'} —${str(edge.type) || 'related'}→ ${str(edge.toEntityId) || '?'}`,
+        headline: `🗑 Remove relationship: «${from}» —${str(edge.type) || 'related'}→ «${to}»`,
         details: [],
       };
     }

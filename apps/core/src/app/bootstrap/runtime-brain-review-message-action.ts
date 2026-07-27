@@ -54,6 +54,7 @@ const OWNER_ONLY_RECEIPT =
 const NOT_FOUND_RECEIPT = 'This proposal could not be found.';
 const APPLYING_RECEIPT = 'This proposal is already being applied.';
 const FAILED_RECEIPT = 'This change could not be applied.';
+const TRANSIENT_RECEIPT = "Couldn't process this, please try again.";
 
 export async function handleBrainDreamReviewAction(
   deps: BrainReviewMessageActionDeps,
@@ -88,7 +89,7 @@ export async function handleBrainDreamReviewAction(
         providerAccountId: owner.providerAccountId,
       },
     });
-    return mapOutcome(result, action.decision);
+    return mapOutcome(result);
   } catch (err) {
     deps.warn(
       {
@@ -97,9 +98,14 @@ export async function handleBrainDreamReviewAction(
       },
       'brain review action failed inside the owner boundary',
     );
-    // Any lookup/DB failure is a controlled invalid, never an unhandled
-    // rejection escaping into the channel adapter.
-    return { state: 'invalid', receipt: FAILED_RECEIPT };
+    // A thrown/transient error (e.g. a DB blip) may fire BEFORE any decision is
+    // recorded — the review is still pending_review. A terminal 'invalid' would
+    // make every adapter replace the shared card and strip the buttons, so a
+    // momentary failure would permanently disable the owner. Return the SAME
+    // non-terminal shape as denied/applying: a private note to the clicker, the
+    // shared card + buttons untouched, so a retry is still possible. DURABLE
+    // failures (failed/not_found from the executor) stay terminal in mapOutcome.
+    return { state: 'denied', receipt: TRANSIENT_RECEIPT };
   }
 }
 
@@ -109,7 +115,6 @@ export async function handleBrainDreamReviewAction(
 // leaves the shared card untouched.
 function mapOutcome(
   result: BrainDreamReviewDecisionResult,
-  decision: 'approve' | 'reject',
 ): MessageActionOutcome {
   switch (result.outcome) {
     case 'applied':
@@ -134,11 +139,11 @@ function mapOutcome(
     case 'failed':
       return { state: 'invalid', receipt: FAILED_RECEIPT, clearActions: true };
     case 'applying':
-      // Lost the at-most-once race; the winning click settles the card.
-      return {
-        state: 'denied',
-        receipt: decision === 'approve' ? APPLYING_RECEIPT : NOT_FOUND_RECEIPT,
-      };
+      // Lost the at-most-once race; the winning click settles the card. Both
+      // approve AND reject report the same applying receipt — a reject clicker
+      // seeing "could not be found" for a proposal that IS being applied is
+      // false and confusing for a destructive change.
+      return { state: 'denied', receipt: APPLYING_RECEIPT };
     case 'not_found':
       return {
         state: 'invalid',

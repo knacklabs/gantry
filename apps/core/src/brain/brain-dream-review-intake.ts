@@ -198,9 +198,21 @@ async function buildSnapshot(
       };
     }
     case 'delete_edge': {
+      const edge = resolved.edge!;
+      // Resolve endpoint names so the review card reads by NAME, not raw ids —
+      // the owner has to judge WHAT relationship is being removed. Names are
+      // best-effort: a missing endpoint leaves the id-only fallback in place.
+      const [from, to] = await Promise.all([
+        repository.getEntityById(appId, edge.fromEntityId),
+        repository.getEntityById(appId, edge.toEntityId),
+      ]);
       return {
         action: op.action,
-        before: edgeView(resolved.edge!),
+        before: {
+          ...edgeView(edge),
+          fromEntityName: from?.name,
+          toEntityName: to?.name,
+        },
       };
     }
     case 'merge_entities': {

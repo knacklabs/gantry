@@ -45,11 +45,33 @@ describe('renderBrainReviewCard — compact "what changes" per op', () => {
     );
   });
 
-  it('delete_edge: A —type→ B from the edge snapshot', () => {
+  it('delete_edge: reads endpoint NAMES when present', () => {
     const view = card('delete_edge', {
-      before: { type: 'works_at', fromEntityId: 'E1', toEntityId: 'E2' },
+      before: {
+        type: 'works_at',
+        fromEntityId: 'E1',
+        toEntityId: 'E2',
+        fromEntityName: 'Alice',
+        toEntityName: 'Acme',
+      },
     });
-    expect(view.headline).toBe('🗑 Remove relationship: E1 —works_at→ E2');
+    expect(view.headline).toBe(
+      '🗑 Remove relationship: «Alice» —works_at→ «Acme»',
+    );
+  });
+
+  it('delete_edge: falls back to the id when a name is unavailable', () => {
+    const view = card('delete_edge', {
+      before: {
+        type: 'works_at',
+        fromEntityId: 'E1',
+        toEntityId: 'E2',
+        fromEntityName: 'Alice',
+      },
+    });
+    expect(view.headline).toBe(
+      '🗑 Remove relationship: «Alice» —works_at→ «E2»',
+    );
   });
 
   it('merge_entities: source into target + repoint count', () => {

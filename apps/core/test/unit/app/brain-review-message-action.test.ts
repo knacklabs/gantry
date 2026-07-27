@@ -156,6 +156,57 @@ describe('owner-only brain review executor handler', () => {
     });
     const out = await handleBrainDreamReviewAction(d, input());
     expect(out.state).toBe('denied'); // non-terminal: shared card untouched
+    expect(out.clearActions).toBeFalsy();
+  });
+
+  it('reject click while applying returns the SAME applying receipt (not not_found)', async () => {
+    const applyingReceipt = 'This proposal is already being applied.';
+    const notFoundReceipt = 'This proposal could not be found.';
+    const approve = await handleBrainDreamReviewAction(
+      deps({
+        executeDecision: async () => ({ outcome: 'applying', mutated: false }),
+      }).deps,
+      input({ decision: 'approve' }),
+    );
+    const reject = await handleBrainDreamReviewAction(
+      deps({
+        executeDecision: async () => ({ outcome: 'applying', mutated: false }),
+      }).deps,
+      input({ decision: 'reject' }),
+    );
+    expect(approve.receipt).toBe(applyingReceipt);
+    expect(reject.receipt).toBe(applyingReceipt);
+    expect(reject.receipt).not.toBe(notFoundReceipt);
+  });
+
+  it('a thrown/transient error (before any decision) is NON-terminal — buttons stay', async () => {
+    for (const failing of [
+      deps({
+        executeDecision: async () => {
+          throw new Error('DB blip');
+        },
+      }),
+      deps({
+        resolveVerifiedOwner: async () => {
+          throw new Error('owner lookup blip');
+        },
+      }),
+    ]) {
+      const out = await handleBrainDreamReviewAction(failing.deps, input());
+      expect(out.state).toBe('denied'); // non-terminal
+      expect(out.clearActions).toBeFalsy(); // shared card + buttons untouched
+    }
+  });
+
+  it('durable failed / not_found stay TERMINAL invalid (buttons cleared)', async () => {
+    for (const outcome of ['failed', 'not_found'] as const) {
+      const { deps: d } = deps({
+        executeDecision: async () => ({ outcome, mutated: false }),
+      });
+      const out = await handleBrainDreamReviewAction(d, input());
+      expect(out.state).toBe('invalid');
+      expect(out.clearActions).toBe(true);
+    }
   });
 
   it('maps drift (stale) to a terminal stale outcome', async () => {
