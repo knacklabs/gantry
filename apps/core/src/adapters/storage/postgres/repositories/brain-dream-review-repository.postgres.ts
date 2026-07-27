@@ -142,7 +142,11 @@ export class PostgresBrainDreamReviewRepository implements BrainDreamReviewRepos
         .update(Reviews)
         .set(set)
         .where(
-          and(eq(Reviews.id, input.reviewId), eq(Reviews.state, input.from)),
+          and(
+            eq(Reviews.id, input.reviewId),
+            eq(Reviews.appId, input.appId),
+            eq(Reviews.state, input.from),
+          ),
         )
         .returning({ id: Reviews.id });
       if (claimed.length === 0) return { claimed: false };

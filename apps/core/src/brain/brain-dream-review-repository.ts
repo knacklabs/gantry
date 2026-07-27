@@ -69,6 +69,9 @@ export type BrainDreamReviewCreateResult =
     };
 
 export interface BrainDreamReviewClaimInput {
+  // App scope is part of the atomic predicate — a review id from another app
+  // must never transition this app's row (no cross-app claim/reject/approve).
+  appId: string;
   reviewId: string;
   from: BrainDreamReviewState;
   to: BrainDreamReviewState;

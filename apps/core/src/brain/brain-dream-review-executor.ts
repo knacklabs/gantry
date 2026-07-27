@@ -16,6 +16,7 @@ const Targets = pgSchema.brainDreamReviewTargetsPostgres;
 const Pages = pgSchema.brainPagesPostgres;
 const Entities = pgSchema.brainEntitiesPostgres;
 const Edges = pgSchema.brainEdgesPostgres;
+const Embeddings = pgSchema.brainPageEmbeddingsPostgres;
 
 export interface BrainDreamReviewDecisionInput {
   db: CanonicalDb;
@@ -58,6 +59,7 @@ export async function executeBrainDreamReviewDecision(
   const stamp = input.nowIso ?? nowIso();
   if (input.decision === 'reject') {
     const claim = await input.reviews.claimBrainDreamReviewTransition({
+      appId: input.appId,
       reviewId: input.reviewId,
       from: 'pending_review',
       to: 'rejected',
@@ -72,6 +74,7 @@ export async function executeBrainDreamReviewDecision(
 
   // APPROVE. Claim the review at-most-once; a lost claim never double-applies.
   const claim = await input.reviews.claimBrainDreamReviewTransition({
+    appId: input.appId,
     reviewId: input.reviewId,
     from: 'pending_review',
     to: 'applying',
@@ -134,6 +137,7 @@ export async function executeBrainDreamReviewDecision(
     // band so the durable state reflects it (review stays out of pending).
     const message = error instanceof Error ? error.message : String(error);
     await input.reviews.claimBrainDreamReviewTransition({
+      appId: input.appId,
       reviewId: input.reviewId,
       from: 'applying',
       to: 'failed',
@@ -194,7 +198,7 @@ async function runOpExecutor(
   const repo = new PostgresBrainRepository(tx as unknown as CanonicalDb);
   switch (action) {
     case 'rewrite_page':
-      return rewritePage(repo, appId, op as RewritePageOp);
+      return rewritePage(tx, repo, appId, op as RewritePageOp);
     case 'delete_page':
       return deletePage(tx, appId, op as DeletePageOp);
     case 'delete_edge':
@@ -218,6 +222,7 @@ interface DeletePageOp {
 }
 
 async function rewritePage(
+  tx: Tx,
   repo: PostgresBrainRepository,
   appId: string,
   op: RewritePageOp,
@@ -244,6 +249,13 @@ async function rewritePage(
     existing.id,
     parseBrainMarkdown(op.markdown),
   );
+  // Invalidate the pre-rewrite embedding IN THE SAME TX so no stale-content
+  // embedding can survive an applied rewrite. The page's updated_at bump + the
+  // now-absent embedding row make it a pending candidate; the existing embed
+  // backfill lifecycle re-embeds the new content out-of-band (no embedder call
+  // inside the transaction — that would be a non-transactional external effect).
+  // ponytail: re-embed rides the standard backfill pass, not an inline call.
+  await tx.delete(Embeddings).where(eq(Embeddings.pageId, op.pageId));
 }
 
 async function deletePage(

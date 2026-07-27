@@ -100,11 +100,12 @@ maybeDescribe('brain dream review decision executor', () => {
     reviewId: string,
     decision: 'approve' | 'reject',
     testFaultAfterMutation?: () => void,
+    appId: string = APP_ID,
   ) {
     return executeBrainDreamReviewDecision({
       db: runtime.service.db,
       reviews,
-      appId: APP_ID,
+      appId,
       reviewId,
       decision,
       reviewer: REVIEWER,
@@ -247,5 +248,48 @@ maybeDescribe('brain dream review decision executor', () => {
     const graph = await repository.graphForPages(APP_ID, [page.id]);
     expect(graph.edges).toHaveLength(0);
     expect(await reviewState(reviewId)).toBe('failed');
+  });
+
+  it('cross-app: a foreign appId cannot transition the review', async () => {
+    const page = await seedPage('cross-app-target', 'body');
+    const reviewId = await createPageReview('delete_page', page);
+
+    // Approve/reject under a DIFFERENT app must not touch this review.
+    const approve = await decide(
+      reviewId,
+      'approve',
+      undefined,
+      'intruder-app',
+    );
+    expect(approve.mutated).toBe(false);
+    const reject = await decide(reviewId, 'reject', undefined, 'intruder-app');
+    expect(reject.mutated).toBe(false);
+
+    // The review is untouched — still pending, NOT left in applying.
+    expect(await reviewState(reviewId)).toBe('pending_review');
+    expect(await repository.getPageById(APP_ID, page.id)).not.toBeNull();
+    // And the real owner can still act on it.
+    expect((await decide(reviewId, 'approve')).outcome).toBe('applied');
+  });
+
+  it('rewrite_page invalidates the stale embedding row in the same tx', async () => {
+    const page = await seedPage('embed-target', 'old content');
+    await runtime.service.pool.query(
+      `INSERT INTO ${runtime.schemaName}.brain_page_embeddings
+         (page_id, provider, model, content_hash, dimensions, status, created_at, updated_at)
+       VALUES ($1,'p','m','old-hash',1536,'ready',$2,$2)`,
+      [page.id, NOW],
+    );
+    expect(await repository.countPageEmbeddings(APP_ID, page.id)).toBe(1);
+
+    const reviewId = await createPageReview('rewrite_page', page, {
+      title: 'Fresh',
+      markdown: 'brand new content\n',
+    });
+    const result = await decide(reviewId, 'approve');
+    expect(result).toMatchObject({ outcome: 'applied', mutated: true });
+
+    // Stale embedding is gone; re-embed rides the backfill lifecycle.
+    expect(await repository.countPageEmbeddings(APP_ID, page.id)).toBe(0);
   });
 });

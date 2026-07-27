@@ -163,6 +163,7 @@ maybeDescribe('brain dream review Postgres persistence', () => {
 
   it('claims a conditional transition at-most-once', async () => {
     const first = await repo().claimBrainDreamReviewTransition({
+      appId: APP_ID,
       reviewId: 'r1',
       from: 'pending_review',
       to: 'applying',
@@ -172,6 +173,7 @@ maybeDescribe('brain dream review Postgres persistence', () => {
 
     // Second claim from the now-changed state loses.
     const second = await repo().claimBrainDreamReviewTransition({
+      appId: APP_ID,
       reviewId: 'r1',
       from: 'pending_review',
       to: 'applying',
@@ -182,6 +184,7 @@ maybeDescribe('brain dream review Postgres persistence', () => {
 
   it('closes open targets on a terminal transition, freeing them', async () => {
     const terminal = await repo().claimBrainDreamReviewTransition({
+      appId: APP_ID,
       reviewId: 'r1',
       from: 'applying',
       to: 'applied',
