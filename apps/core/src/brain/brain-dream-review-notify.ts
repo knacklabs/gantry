@@ -74,6 +74,18 @@ export function createBrainReviewNotifier(deps: {
   }>;
   warn?: (context: Record<string, unknown>, message: string) => void;
 }): BrainReviewNotifier {
+  // Diagnostics must never become the notifier's failure: a throwing logger is
+  // swallowed so warn can't escape the never-throw contract.
+  const safeWarn = (
+    context: Record<string, unknown>,
+    message: string,
+  ): void => {
+    try {
+      deps.warn?.(context, message);
+    } catch {
+      // ponytail: a broken logger can't be reported to itself; drop it.
+    }
+  };
   return async (review) => {
     // Best-effort contract: ANY failure (owner resolution, render, enqueue) is
     // caught here and reported — the notifier never throws, so a transient DB /
@@ -82,7 +94,7 @@ export function createBrainReviewNotifier(deps: {
     try {
       const { owner } = await deps.resolveOwner();
       if (!owner) {
-        deps.warn?.(
+        safeWarn(
           { reviewId: review.id },
           'brain review not delivered: no verified owner route configured',
         );
@@ -99,7 +111,7 @@ export function createBrainReviewNotifier(deps: {
         brainReviewView: view,
       });
     } catch (err) {
-      deps.warn?.(
+      safeWarn(
         {
           reviewId: review.id,
           error: err instanceof Error ? err.message : String(err),

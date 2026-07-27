@@ -112,4 +112,30 @@ describe('brain review notify', () => {
     expect(enqueue).not.toHaveBeenCalled();
     expect(warn).toHaveBeenCalledOnce();
   });
+
+  it('a throwing warn logger never escapes (missing-owner + failure paths)', async () => {
+    const warn = vi.fn(() => {
+      throw new Error('logger exploded');
+    });
+    const noOwner = createBrainReviewNotifier({
+      gateway: { enqueue: vi.fn(async () => ({ outboundDeliveryId: 'x' })) },
+      appId: 'app',
+      resolveOwner: async () => ({}),
+      warn,
+    });
+    await expect(noOwner(REVIEW)).resolves.toBeUndefined();
+
+    const enqueueFails = createBrainReviewNotifier({
+      gateway: {
+        enqueue: vi.fn(async () => {
+          throw new Error('enqueue blip');
+        }),
+      },
+      appId: 'app',
+      resolveOwner: async () => ({ owner: OWNER }),
+      warn,
+    });
+    await expect(enqueueFails(REVIEW)).resolves.toBeUndefined();
+    expect(warn).toHaveBeenCalledTimes(2);
+  });
 });
