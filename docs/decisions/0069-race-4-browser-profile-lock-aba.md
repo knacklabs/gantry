@@ -31,19 +31,30 @@ hardening initiative):
 
 ## Decision
 
-1. **Token-guarded (compare-and-delete) stale reclamation.** Before removing a
-   lock it judged stale, the reclaim path re-reads the lock and removes it only
-   if it is still the **same** instance it observed (same token — or same
-   pid+mtime for a pid-less lock). If it changed, another process already
-   reclaimed it: do not remove, just retry the acquire loop. This mirrors the
-   token guard `release()` already uses, extended to reclamation.
+1. **Atomic rename-to-claim stale reclamation.** After judging the existing lock
+   stale (unchanged criteria: dead pid, or pid-less and older than
+   `PROFILE_LOCK_STALE_MS`), the reclaim path does NOT unlink the pathname
+   directly. It **atomically claims** the observed instance with
+   `renameSync(lockPath → <lockPath>.reclaim-<random>)`, then removes the claimed
+   file and retries the `openSync(..., 'wx')` acquire. Exactly one contender can
+   win the rename; a loser gets `ENOENT` (another contender already reclaimed) and
+   simply retries without deleting anything. Because acquisition uses `'wx'`, no
+   fresh lock can exist while the stale file occupies `lockPath`, so the claimed
+   file is always the stale instance.
 
-2. **Release the lock last.** In `closeBrowser`, perform all shared-state
+   *(Supersedes the read/re-read compare-and-delete first drafted here: a
+   read → check → `rmSync` sequence is inherently non-atomic — autoreview showed
+   it only narrows the ABA window rather than closing it, since a contender can
+   still delete and recreate the lock between the check and the unlink.)*
+
+2. **Release the lock last, guaranteed.** In `closeBrowser`, all shared-state
    cleanup — `sessions.delete`, `clearBrowserSessionRecord`,
-   `updateProfileMetadata` — **before** `session.lock.release()`. Release is the
-   final operation, so no new owner can acquire the lock until this closer has
-   finished touching shared state. (The non-hot-path branch already does this;
-   this aligns the hot path.)
+   `updateProfileMetadata` — runs **before** `session.lock.release()`, and the
+   release sits in a `finally` so it always runs even if cleanup throws. Ordering
+   stops a new owner from having its fresh state clobbered; the `finally` stops a
+   cleanup failure from leaking the lock permanently (`sessions.delete` has already
+   dropped the only reference that could release it). (The non-hot-path branch
+   already released in a `finally`; this aligns the hot path.)
 
 ## Consequences
 
@@ -51,7 +62,7 @@ hardening initiative):
   `apps/core/src/runtime/browser-capability.ts` (cleanup-before-release ordering), and their
   unit tests.
 - No new lock format or dependency; reuses the existing token in the lock file.
-- **Tradeoff:** an extra `readLockFile` in the reclaim path (once per stale
+- **Tradeoff:** one extra `rename` in the reclaim path (once per stale
   observation) — negligible; correctness dominates a rare takeover path.
 - Bounded: does not address browser per-turn *ownership* scope (RACE-3, separate)
   or the snapshot-quiescence lock (already handled). Closes RACE-4.

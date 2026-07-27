@@ -118,13 +118,17 @@ describe('browser-profiles', () => {
       lockPath,
       JSON.stringify({ pid: 0, token: 'stale-token' }),
     );
+    const renameSyncSpy = vi.spyOn(fs, 'renameSync');
 
     const lock = await mod.acquireProfileLock('stale-lock', 1000);
+    expect(renameSyncSpy).toHaveBeenCalledOnce();
+    expect(renameSyncSpy.mock.calls[0]?.[0]).toBe(lockPath);
+    expect(renameSyncSpy.mock.calls[0]?.[1]).toMatch(/\.reclaim-[0-9a-f]{16}$/);
     expect(fs.readFileSync(lockPath, 'utf-8')).not.toContain('stale-token');
     lock.release();
   });
 
-  it('does not remove a fresh lock that replaces the observed stale lock', async () => {
+  it('does not remove a fresh lock after another reclaimer claims the stale lock first', async () => {
     const root = makeTmpRoot(roots);
     vi.doMock('@core/config/index.js', () => ({
       DATA_DIR: root,
@@ -140,15 +144,18 @@ describe('browser-profiles', () => {
     });
     fs.writeFileSync(lockPath, staleLock);
 
-    const originalReadFileSync = fs.readFileSync;
-    vi.spyOn(fs, 'readFileSync').mockImplementationOnce(
-      (filePath, ...args: any[]) => {
-        const observed = originalReadFileSync(filePath, ...(args as [any]));
-        fs.rmSync(lockPath);
-        fs.writeFileSync(lockPath, freshLock);
-        return observed;
-      },
-    );
+    const originalRenameSync = fs.renameSync;
+    vi.spyOn(fs, 'renameSync').mockImplementationOnce(() => {
+      const concurrentReclaimPath = `${lockPath}.reclaim-concurrent`;
+      originalRenameSync(lockPath, concurrentReclaimPath);
+      fs.rmSync(concurrentReclaimPath, { force: true });
+      fs.writeFileSync(lockPath, freshLock);
+      const error = new Error(
+        'stale lock already reclaimed',
+      ) as NodeJS.ErrnoException;
+      error.code = 'ENOENT';
+      throw error;
+    });
 
     await expect(
       mod.acquireProfileLock('replaced-stale-lock', 250),

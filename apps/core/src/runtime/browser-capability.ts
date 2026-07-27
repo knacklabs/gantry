@@ -643,13 +643,11 @@ export async function closeBrowser(
     clearTimeout(session.keepAliveTimer);
     session.keepAliveTimer = null;
   }
-
   try {
     process.kill(session.pid, 'SIGTERM');
   } catch {
     // ignore
   }
-
   let exited = await waitForProcessExit(session, 2_000);
   if (!exited) {
     try {
@@ -659,14 +657,16 @@ export async function closeBrowser(
     }
     exited = await waitForProcessExit(session, 1_000);
   }
-
-  sessions.delete(normalized);
-  clearBrowserSessionRecord(createProfile(normalized));
-  updateProfileMetadata(normalized, {
-    last_used: nowIso(),
-    cdp_port: undefined,
-  });
-  session.lock.release();
+  try {
+    sessions.delete(normalized);
+    clearBrowserSessionRecord(createProfile(normalized));
+    updateProfileMetadata(normalized, {
+      last_used: nowIso(),
+      cdp_port: undefined,
+    });
+  } finally {
+    session.lock.release();
+  }
 
   return {
     closed: exited,

@@ -66,6 +66,7 @@ const mocks = vi.hoisted(() => {
       return proc;
     }),
     release: vi.fn(),
+    clearBrowserSessionRecord: vi.fn(),
     fetch: vi.fn(),
   };
 });
@@ -108,6 +109,13 @@ vi.mock('@core/runtime/browser-profiles.js', () => ({
   ),
   listProfiles: vi.fn(() => []),
   updateProfileMetadata: vi.fn(),
+}));
+
+vi.mock('@core/runtime/browser-session-record.js', async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import('@core/runtime/browser-session-record.js')
+  >()),
+  clearBrowserSessionRecord: mocks.clearBrowserSessionRecord,
 }));
 
 vi.mock('@core/infrastructure/logging/logger.js', () => ({
@@ -214,6 +222,16 @@ describe('browser-capability', () => {
     mocks.spawn.mockClear();
     mocks.execFileSync.mockClear();
     mocks.release.mockClear();
+    mocks.clearBrowserSessionRecord.mockReset();
+    mocks.clearBrowserSessionRecord.mockImplementation(
+      (profile: { dir: string }) => {
+        try {
+          fs.rmSync(`${profile.dir}/browser-session.json`, { force: true });
+        } catch {
+          // Match the production cleanup behavior by default.
+        }
+      },
+    );
     mocks.fetch.mockReset();
     vi.stubGlobal('fetch', mocks.fetch);
     stubCdpWebSocket();
@@ -551,6 +569,37 @@ describe('browser-capability', () => {
       closed: true,
       reason: 'terminated',
     });
+    expect(mocks.release).toHaveBeenCalledTimes(1);
+  });
+
+  it('releases the profile lock when clearing the session record fails', async () => {
+    const manager = await import('@core/runtime/browser-capability.js');
+    queueHealthyContentTarget('target-1');
+
+    await manager.launchBrowser();
+    mocks.release.mockClear();
+    const cleanupError = new Error('session record cleanup failed');
+    mocks.clearBrowserSessionRecord.mockImplementationOnce(() => {
+      throw cleanupError;
+    });
+
+    await expect(manager.closeBrowser()).rejects.toBe(cleanupError);
+    expect(mocks.release).toHaveBeenCalledTimes(1);
+  });
+
+  it('releases the profile lock when updating profile metadata fails', async () => {
+    const manager = await import('@core/runtime/browser-capability.js');
+    const profiles = await import('@core/runtime/browser-profiles.js');
+    queueHealthyContentTarget('target-1');
+
+    await manager.launchBrowser();
+    mocks.release.mockClear();
+    const cleanupError = new Error('profile metadata cleanup failed');
+    vi.mocked(profiles.updateProfileMetadata).mockImplementationOnce(() => {
+      throw cleanupError;
+    });
+
+    await expect(manager.closeBrowser()).rejects.toBe(cleanupError);
     expect(mocks.release).toHaveBeenCalledTimes(1);
   });
 
