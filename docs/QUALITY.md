@@ -66,3 +66,5 @@ PR-ready requires:
 - review scores >= 8 (all three lenses)
 - functional score >= 8 when required (`user_facing: true`)
 - evidence for acceptance criteria
+
+<!-- CI baseline probe: verifying whether the agent-e2e gate is red on untouched main (5cf6bdb65). Delete this branch after. -->
