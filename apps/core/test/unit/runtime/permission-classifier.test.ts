@@ -786,6 +786,81 @@ describe('permission classifier decision events', () => {
   });
 
   it.each(['auto', 'auto_strict'] as const)(
+    'auto-approves a routine gantry mutation via the deterministic map without the LLM in %s',
+    async (permissionMode) => {
+      const classifierConsult = vi.fn();
+      await expect(
+        consultPermissionClassifierBeforePrompt({
+          permissionMode,
+          requestFamily: 'tool',
+          agentFolder: 'researcher',
+          correlationId: 'request:gantry-scheduler',
+          actor: 'permission',
+          intentSource: 'operator_message',
+          turnIntentSummary: 'Update the digest schedule.',
+          canonicalToolName: 'mcp__gantry__scheduler_update_job',
+          toolInput: { jobId: 'job-1', cron: '0 9 * * *' },
+          policyDecisionReason: 'No durable rule matched.',
+          approvedCapabilityIds: [],
+          classifierConfig: { memoryExtractorModel: 'extractor-model' },
+          publishRuntimeEvent: vi.fn(async () => undefined),
+          classifierConsult,
+        }),
+      ).resolves.toMatchObject({ decision: 'allow', latencyMs: 0 });
+      expect(classifierConsult).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(['auto', 'auto_strict'] as const)(
+    'asks on a high-risk gantry authority tool via the deterministic map in %s',
+    async (permissionMode) => {
+      const classifierConsult = vi.fn();
+      await expect(
+        consultPermissionClassifierBeforePrompt({
+          permissionMode,
+          requestFamily: 'tool',
+          agentFolder: 'researcher',
+          correlationId: 'request:gantry-access',
+          actor: 'permission',
+          intentSource: 'operator_message',
+          turnIntentSummary: 'Grant myself a new capability.',
+          canonicalToolName: 'mcp__gantry__request_access',
+          toolInput: { capability: 'gog' },
+          policyDecisionReason: 'No durable rule matched.',
+          approvedCapabilityIds: [],
+          classifierConfig: { memoryExtractorModel: 'extractor-model' },
+          publishRuntimeEvent: vi.fn(async () => undefined),
+          classifierConsult,
+        }),
+      ).resolves.toMatchObject({ decision: 'ask', latencyMs: 0 });
+      expect(classifierConsult).not.toHaveBeenCalled();
+    },
+  );
+
+  it('asks on an unmapped gantry tool without the LLM (never silent auto-approve)', async () => {
+    const classifierConsult = vi.fn();
+    await expect(
+      consultPermissionClassifierBeforePrompt({
+        permissionMode: 'auto',
+        requestFamily: 'tool',
+        agentFolder: 'researcher',
+        correlationId: 'request:gantry-unknown',
+        actor: 'permission',
+        intentSource: 'operator_message',
+        turnIntentSummary: 'Do something new.',
+        canonicalToolName: 'mcp__gantry__frobnicate_everything',
+        toolInput: {},
+        policyDecisionReason: 'No durable rule matched.',
+        approvedCapabilityIds: [],
+        classifierConfig: { memoryExtractorModel: 'extractor-model' },
+        publishRuntimeEvent: vi.fn(async () => undefined),
+        classifierConsult,
+      }),
+    ).resolves.toMatchObject({ decision: 'ask', latencyMs: 0 });
+    expect(classifierConsult).not.toHaveBeenCalled();
+  });
+
+  it.each(['auto', 'auto_strict'] as const)(
     'allows a routine benign OS command in %s',
     async (permissionMode) => {
       const classifierConsult = vi.fn(async () => ({

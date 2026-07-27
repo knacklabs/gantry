@@ -5,6 +5,7 @@ import {
   isPermissionClassifierEligible,
   type PermissionClassifierRequestFamily,
 } from '../application/permissions/permission-classifier.js';
+import { gantryToolDefaultRisk } from '../application/permissions/gantry-tool-risk.js';
 import {
   PERMISSION_PROMOTION_ALLOW_THRESHOLD,
   type PermissionPromotionInput,
@@ -307,6 +308,15 @@ export async function consultPermissionClassifierBeforePrompt(
           workspaceRoot: input.workspaceRoot,
           reviewedMcpReadBindings: input.reviewedMcpReadBindings,
         });
+  // Gantry-native tools get a deterministic, config-free default risk rating
+  // instead of an LLM call: routine reads/mutations rate low/medium (auto), and
+  // authority/destructive/unknown tools rate high (ask). The truncated-input and
+  // YOLO-denylist safety gates above still win. Non-gantry tools return
+  // undefined here and keep the Bash / third-party-MCP / LLM path unchanged.
+  const gantryRisk =
+    inputTruncated || yoloDenylistMatch
+      ? undefined
+      : gantryToolDefaultRisk(input.canonicalToolName);
   const classifierResult: PermissionClassifierResult = inputTruncated
     ? {
         risk_level: 'high',
@@ -317,6 +327,8 @@ export async function consultPermissionClassifierBeforePrompt(
       }
     : // prettier-ignore
       yoloDenylistMatch ? { risk_level: 'high', reason: `YOLO-mode denylist backstop matched "${yoloDenylistMatch.pattern}"; ask the user for explicit approval.`, latencyMs: 0 }
+      : gantryRisk
+          ? { risk_level: gantryRisk.risk_level, reason: gantryRisk.reason, latencyMs: 0 }
       : !deterministicGate?.allowed && input.permissionMode === 'auto_strict'
           ? {
               risk_level: 'high',
