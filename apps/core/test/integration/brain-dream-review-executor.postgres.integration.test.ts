@@ -3,6 +3,11 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { PostgresBrainRepository } from '@core/adapters/storage/postgres/repositories/brain-repository.postgres.js';
 import { PostgresBrainDreamReviewRepository } from '@core/adapters/storage/postgres/repositories/brain-dream-review-repository.postgres.js';
 import { executeBrainDreamReviewDecision } from '@core/brain/brain-dream-review-executor.js';
+import {
+  computeDependentFingerprint,
+  type DependentEdgeReader,
+  type DependentOp,
+} from '@core/brain/brain-dream-dependent-fingerprint.js';
 import type { BrainPage } from '@core/brain/brain-types.js';
 
 import {
@@ -47,6 +52,24 @@ maybeDescribe('brain dream review decision executor', () => {
     await runtime.cleanup();
   });
 
+  // Mirror intake: compute the dependent-set fingerprint from the current DB
+  // state so a review created here carries the same drift binding production does.
+  function fingerprintFor(op: DependentOp): Promise<string> {
+    const reader: DependentEdgeReader = {
+      edgesByEvidencePage: async (appId, pageId) =>
+        (await repository.graphForPages(appId, [pageId])).edges.map((edge) => ({
+          id: edge.id,
+          updatedAt: edge.updatedAt,
+        })),
+      edgesTouchingEntity: async (appId, entityId) =>
+        (await repository.listEdgesForEntity(appId, entityId)).map((edge) => ({
+          id: edge.id,
+          updatedAt: edge.updatedAt,
+        })),
+    };
+    return computeDependentFingerprint(reader, APP_ID, op);
+  }
+
   async function seedPage(slug: string, markdown: string): Promise<BrainPage> {
     const { page } = await repository.upsertPage({
       appId: APP_ID,
@@ -82,7 +105,10 @@ maybeDescribe('brain dream review decision executor', () => {
       decisionId,
       action,
       canonicalOp: { action, version: 1, pageId: page.id, ...canonicalExtra },
-      reviewSnapshot: { action },
+      reviewSnapshot: {
+        action,
+        dependentFingerprint: await fingerprintFor({ action, pageId: page.id }),
+      },
       nowIso: NOW,
       targets: [
         {
@@ -124,7 +150,13 @@ maybeDescribe('brain dream review decision executor', () => {
       decisionId,
       action,
       canonicalOp: { action, version: 1, ...canonicalOp },
-      reviewSnapshot: { action },
+      reviewSnapshot: {
+        action,
+        dependentFingerprint: await fingerprintFor({
+          action,
+          ...canonicalOp,
+        } as DependentOp),
+      },
       nowIso: NOW,
       targets,
     });
@@ -589,5 +621,176 @@ maybeDescribe('brain dream review decision executor', () => {
     expect([a, b].filter((r) => r.mutated).length).toBe(1);
     expect(await repository.getEntityById(APP_ID, source.id)).toBeNull();
     expect(await reviewState(reviewId)).toBe('applied');
+  });
+
+  // ---- Dependent-set drift (P1). Each mutates a DEPENDENT edge WITHOUT bumping
+  // the root row's updated_at, so only the dependent fingerprint can catch it. ----
+
+  let edgeSeq = 0;
+  async function sqlInsertEdge(
+    type: string,
+    from: string,
+    to: string,
+    evidencePageId: string,
+  ): Promise<string> {
+    edgeSeq += 1;
+    const id = `depedge-${edgeSeq}`;
+    await runtime.service.pool.query(
+      `INSERT INTO ${runtime.schemaName}.brain_edges
+         (id, app_id, type, from_entity_id, to_entity_id, evidence_page_id, created_at, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$7)`,
+      [id, APP_ID, type, from, to, evidencePageId, NOW],
+    );
+    return id;
+  }
+  async function sqlBumpEdge(id: string): Promise<void> {
+    await runtime.service.pool.query(
+      `UPDATE ${runtime.schemaName}.brain_edges SET updated_at = '2031-01-01T00:00:00.000Z' WHERE id = $1`,
+      [id],
+    );
+  }
+
+  it('delete_page: an ADDED dependent edge → stale, page untouched', async () => {
+    const page = await seedPage('dep-delpage-add', 'body');
+    const a = await seedEntity('dep-a1');
+    const b = await seedEntity('dep-b1');
+    await seedEdge('mentions', a.id, b.id, page.id);
+    const reviewId = await createPageReview('delete_page', page);
+    await sqlInsertEdge('relates_to', a.id, b.id, page.id); // grows the set
+    const result = await decide(reviewId, 'approve');
+    expect(result).toMatchObject({ outcome: 'stale', mutated: false });
+    expect(await repository.getPageById(APP_ID, page.id)).not.toBeNull();
+    expect(await reviewState(reviewId)).toBe('stale');
+  });
+
+  it('delete_page: a MODIFIED dependent edge → stale, page untouched', async () => {
+    const page = await seedPage('dep-delpage-mod', 'body');
+    const a = await seedEntity('dep-a2');
+    const b = await seedEntity('dep-b2');
+    const edge = await seedEdge('mentions', a.id, b.id, page.id);
+    const reviewId = await createPageReview('delete_page', page);
+    await sqlBumpEdge(edge.id); // same id, new updated_at
+    const result = await decide(reviewId, 'approve');
+    expect(result).toMatchObject({ outcome: 'stale', mutated: false });
+    expect(await repository.getPageById(APP_ID, page.id)).not.toBeNull();
+  });
+
+  it('rewrite_page: a dependent edge change → stale, content untouched', async () => {
+    const page = await seedPage('dep-rewrite', 'original body');
+    const a = await seedEntity('dep-a3');
+    const b = await seedEntity('dep-b3');
+    await seedEdge('mentions', a.id, b.id, page.id);
+    const reviewId = await createPageReview('rewrite_page', page, {
+      title: 'New',
+      markdown: '---\npeople: [Zed]\n---\nbody\n',
+    });
+    await sqlInsertEdge('relates_to', a.id, b.id, page.id);
+    const result = await decide(reviewId, 'approve');
+    expect(result).toMatchObject({ outcome: 'stale', mutated: false });
+    expect((await repository.getPageById(APP_ID, page.id))!.markdown).toBe(
+      'original body',
+    );
+  });
+
+  it('delete_entity: an ADDED cascade edge → stale, entity untouched', async () => {
+    const victim = await seedEntity('dep-victim-add');
+    const other = await seedEntity('dep-other-4');
+    const page = await seedPage('dep-delent-add', 'body');
+    await seedEdge('mentions', victim.id, other.id, page.id);
+    const reviewId = await createReview(
+      'delete_entity',
+      { entityId: victim.id },
+      [
+        {
+          targetKind: 'entity',
+          targetId: victim.id,
+          expectedVersion: victim.updatedAt,
+        },
+      ],
+    );
+    await sqlInsertEdge('relates_to', other.id, victim.id, page.id); // touches victim
+    const result = await decide(reviewId, 'approve');
+    expect(result).toMatchObject({ outcome: 'stale', mutated: false });
+    expect(await repository.getEntityById(APP_ID, victim.id)).not.toBeNull();
+  });
+
+  it('delete_entity: a MODIFIED cascade edge → stale, entity untouched', async () => {
+    const victim = await seedEntity('dep-victim-mod');
+    const other = await seedEntity('dep-other-5');
+    const page = await seedPage('dep-delent-mod', 'body');
+    const edge = await seedEdge('mentions', victim.id, other.id, page.id);
+    const reviewId = await createReview(
+      'delete_entity',
+      { entityId: victim.id },
+      [
+        {
+          targetKind: 'entity',
+          targetId: victim.id,
+          expectedVersion: victim.updatedAt,
+        },
+      ],
+    );
+    await sqlBumpEdge(edge.id);
+    const result = await decide(reviewId, 'approve');
+    expect(result).toMatchObject({ outcome: 'stale', mutated: false });
+    expect(await repository.getEntityById(APP_ID, victim.id)).not.toBeNull();
+  });
+
+  it('merge_entities: an ADDED edge on a merge endpoint → stale, both intact', async () => {
+    const source = await seedEntity('dep-src-add');
+    const target = await seedEntity('dep-tgt-add');
+    const bystander = await seedEntity('dep-by-6');
+    const page = await seedPage('dep-merge-add', 'body');
+    await seedEdge('mentions', source.id, bystander.id, page.id);
+    const reviewId = await createReview(
+      'merge_entities',
+      { sourceEntityId: source.id, targetEntityId: target.id },
+      [
+        {
+          targetKind: 'entity',
+          targetId: source.id,
+          expectedVersion: source.updatedAt,
+        },
+        {
+          targetKind: 'entity',
+          targetId: target.id,
+          expectedVersion: target.updatedAt,
+        },
+      ],
+    );
+    await sqlInsertEdge('relates_to', target.id, bystander.id, page.id); // touches target
+    const result = await decide(reviewId, 'approve');
+    expect(result).toMatchObject({ outcome: 'stale', mutated: false });
+    expect(await repository.getEntityById(APP_ID, source.id)).not.toBeNull();
+    expect(await repository.getEntityById(APP_ID, target.id)).not.toBeNull();
+  });
+
+  it('merge_entities: a MODIFIED source edge → stale, both intact', async () => {
+    const source = await seedEntity('dep-src-mod');
+    const target = await seedEntity('dep-tgt-mod');
+    const bystander = await seedEntity('dep-by-7');
+    const page = await seedPage('dep-merge-mod', 'body');
+    const edge = await seedEdge('mentions', source.id, bystander.id, page.id);
+    const reviewId = await createReview(
+      'merge_entities',
+      { sourceEntityId: source.id, targetEntityId: target.id },
+      [
+        {
+          targetKind: 'entity',
+          targetId: source.id,
+          expectedVersion: source.updatedAt,
+        },
+        {
+          targetKind: 'entity',
+          targetId: target.id,
+          expectedVersion: target.updatedAt,
+        },
+      ],
+    );
+    await sqlBumpEdge(edge.id);
+    const result = await decide(reviewId, 'approve');
+    expect(result).toMatchObject({ outcome: 'stale', mutated: false });
+    expect(await repository.getEntityById(APP_ID, source.id)).not.toBeNull();
+    expect(await repository.getEntityById(APP_ID, target.id)).not.toBeNull();
   });
 });

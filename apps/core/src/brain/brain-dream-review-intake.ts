@@ -9,6 +9,10 @@ import {
   parseDestructiveOp,
   type ParsedDestructiveOp,
 } from './brain-dream-op-schema.js';
+import {
+  computeDependentFingerprint,
+  type DependentEdgeReader,
+} from './brain-dream-dependent-fingerprint.js';
 import type { BrainReviewNotifier } from './brain-dream-review-notify.js';
 import type { BrainRepository } from './brain-repository.js';
 import type { BrainEdge, BrainEntity, BrainPage } from './brain-types.js';
@@ -52,6 +56,15 @@ export async function intakeDestructiveDreamOp(
     resolved,
   );
 
+  // Pin the COMPLETE dependent edge set (P1): the executor re-reads it under
+  // lock and fails closed to `stale` on any add/remove/version change. Root
+  // updated_at alone doesn't move when a sibling review mutates a shared edge.
+  snapshot.dependentFingerprint = await computeDependentFingerprint(
+    intakeDependentReader(deps.repository),
+    deps.appId,
+    parsed.op,
+  );
+
   // Journal the decision FIRST so the review's decision_id FK resolves; the
   // caller re-journals the final outcome afterwards (idempotent by id).
   await deps.repository.journalDreamDecision({
@@ -88,6 +101,26 @@ export async function intakeDestructiveDreamOp(
   return {
     outcome: 'rejected',
     reason: `review not created: ${result.conflict}`,
+  };
+}
+
+// Dependent-edge reader backed by the BrainRepository (plain reads). The
+// executor uses a FOR UPDATE reader over the same row sets; both route through
+// computeDependentFingerprint, so the snapshot + apply-time hashes are comparable.
+function intakeDependentReader(
+  repository: BrainRepository,
+): DependentEdgeReader {
+  return {
+    edgesByEvidencePage: async (appId, pageId) =>
+      (await repository.graphForPages(appId, [pageId])).edges.map((edge) => ({
+        id: edge.id,
+        updatedAt: edge.updatedAt,
+      })),
+    edgesTouchingEntity: async (appId, entityId) =>
+      (await repository.listEdgesForEntity(appId, entityId)).map((edge) => ({
+        id: edge.id,
+        updatedAt: edge.updatedAt,
+      })),
   };
 }
 

@@ -4,6 +4,11 @@ import { PostgresBrainRepository } from '../adapters/storage/postgres/repositori
 import type { CanonicalDb } from '../adapters/storage/postgres/repositories/canonical-graph-repository.postgres.js';
 import * as pgSchema from '../adapters/storage/postgres/schema/schema.js';
 import { nowIso } from '../shared/time/datetime.js';
+import {
+  computeDependentFingerprint,
+  type DependentEdgeReader,
+  type DependentOp,
+} from './brain-dream-dependent-fingerprint.js';
 import { parseBrainMarkdown } from './brain-page-ingest.js';
 import type {
   BrainDreamReviewRepository,
@@ -123,7 +128,30 @@ export async function executeBrainDreamReviewDecision(
         }
       }
 
-      // All targets validated → mutate in this same transaction.
+      // Root rows validated. Now bind the approval to the exact DEPENDENT edge
+      // set the owner saw (P1): re-read it under lock and compare to the snapshot
+      // fingerprint. Any added/removed/repointed/re-versioned edge → fail closed.
+      const storedFingerprint = (
+        review.reviewSnapshotJson as { dependentFingerprint?: unknown }
+      )?.dependentFingerprint;
+      const currentFingerprint = await computeDependentFingerprint(
+        executorDependentReader(tx),
+        input.appId,
+        review.canonicalOpJson as DependentOp,
+      );
+      if (storedFingerprint !== currentFingerprint) {
+        await finalizeInTx(tx, input.reviewId, 'stale', {
+          nowIso: stamp,
+          outcome: 'stale: dependent set drifted since review',
+        });
+        return {
+          outcome: 'stale' as const,
+          mutated: false,
+          reason: 'dependent set changed since review',
+        };
+      }
+
+      // All targets + dependents validated → mutate in this same transaction.
       await runOpExecutor(tx, input.appId, review, stamp);
       input.testFaultAfterMutation?.();
       await finalizeInTx(tx, input.reviewId, 'applied', {
@@ -152,6 +180,34 @@ export async function executeBrainDreamReviewDecision(
 
 type TargetRow = typeof Targets.$inferSelect;
 type Tx = Parameters<Parameters<CanonicalDb['transaction']>[0]>[0];
+
+// Dependent-edge reader that LOCKS the rows FOR UPDATE inside the apply tx, so
+// the fingerprint re-read and the subsequent mutation see a set no concurrent
+// writer can change out from under them. Same row sets as the intake reader.
+function executorDependentReader(tx: Tx): DependentEdgeReader {
+  return {
+    edgesByEvidencePage: async (appId, pageId) =>
+      tx
+        .select({ id: Edges.id, updatedAt: Edges.updatedAt })
+        .from(Edges)
+        .where(and(eq(Edges.appId, appId), eq(Edges.evidencePageId, pageId)))
+        .for('update'),
+    edgesTouchingEntity: async (appId, entityId) =>
+      tx
+        .select({ id: Edges.id, updatedAt: Edges.updatedAt })
+        .from(Edges)
+        .where(
+          and(
+            eq(Edges.appId, appId),
+            or(
+              eq(Edges.fromEntityId, entityId),
+              eq(Edges.toEntityId, entityId),
+            ),
+          ),
+        )
+        .for('update'),
+  };
+}
 
 async function lockAndReadVersion(
   tx: Tx,
