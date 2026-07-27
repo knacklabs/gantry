@@ -50,7 +50,7 @@ maybeDescribe('brain dream review Postgres persistence', () => {
     });
     // Reviews FK brain_dream_decisions(decision_id); seed the provenance rows.
     await runtime.service.db.insert(brainDreamDecisionsPostgres).values(
-      ['d1', 'd2', 'd3'].map((id) => ({
+      ['d1', 'd2', 'd3', 'd4', 'd5'].map((id) => ({
         id,
         appId: APP_ID,
         runId: RUN_ID,
@@ -204,5 +204,32 @@ maybeDescribe('brain dream review Postgres persistence', () => {
       limit: 10,
     });
     expect(pending.map((r) => r.id)).toEqual(['r3']);
+  });
+
+  it('dedups a redundantly-listed target; a separate review still conflicts', async () => {
+    const dup = await repo().createBrainDreamReview({
+      ...review('r4', 'd4', [
+        { targetKind: 'entity', targetId: 'ENT9', expectedVersion: 'v1' },
+        { targetKind: 'entity', targetId: 'ENT9', expectedVersion: 'v1' },
+      ]),
+    });
+    expect(dup.ok).toBe(true);
+
+    // Exactly one target row persisted for the distinct (kind, id).
+    const rows = await runtime.service.pool.query<{ count: string }>(
+      `SELECT count(*)::text AS count
+       FROM ${runtime.schemaName}.brain_dream_review_targets
+       WHERE review_id = $1 AND target_kind = 'entity' AND target_id = 'ENT9'`,
+      ['r4'],
+    );
+    expect(rows.rows[0]?.count).toBe('1');
+
+    // A separate review on that same target still hits the open claim.
+    const conflict = await repo().createBrainDreamReview(
+      review('r5', 'd5', [
+        { targetKind: 'entity', targetId: 'ENT9', expectedVersion: 'v1' },
+      ]),
+    );
+    expect(conflict).toEqual({ ok: false, conflict: 'target_open' });
   });
 });

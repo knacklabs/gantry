@@ -51,9 +51,14 @@ export class PostgresBrainDreamReviewRepository implements BrainDreamReviewRepos
           })
           .returning();
 
-        if (input.targets.length > 0) {
+        // A proposal may list the same target twice; that's redundant, not a
+        // conflict. Dedup by (kind, id) so the intra-insert collision never
+        // trips the partial-unique index; a genuine target_open conflict must
+        // come only from ANOTHER review's open claim.
+        const distinctTargets = dedupTargets(input.targets);
+        if (distinctTargets.length > 0) {
           await tx.insert(Targets).values(
-            input.targets.map((target) => ({
+            distinctTargets.map((target) => ({
               id: `bdrt_${randomUUID().replace(/-/g, '')}`,
               reviewId: input.id,
               appId: input.appId,
@@ -177,6 +182,18 @@ function classifyConflict(
     current = e.cause;
   }
   return null;
+}
+
+function dedupTargets(
+  targets: BrainDreamReviewCreateInput['targets'],
+): BrainDreamReviewCreateInput['targets'] {
+  const seen = new Set<string>();
+  return targets.filter((t) => {
+    const key = `${t.targetKind}|${t.targetId}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 function clampLimit(limit: number): number {
