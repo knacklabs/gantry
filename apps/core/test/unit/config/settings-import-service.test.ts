@@ -16,6 +16,7 @@ import {
   CURRENT_SETTINGS_READER_VERSION,
   importFleetSettingsRevision,
   importWorkstationSettings,
+  SettingsIncompatibleReaderError,
   SettingsRevisionConflictError,
   settingsFromRevisionDocument,
   settingsToRevisionDocument,
@@ -459,7 +460,7 @@ describe('importFleetSettingsRevision', () => {
     expect(releaseLease).toHaveBeenCalledOnce();
   });
 
-  it('skips a superseding head that requires a newer settings reader', async () => {
+  it('rejects a superseding head that requires a newer settings reader', async () => {
     capabilityErrors = [];
     leases.tryAcquire.mockClear();
     releaseLease.mockClear();
@@ -487,24 +488,31 @@ describe('importFleetSettingsRevision', () => {
         return supersedingHead;
       });
 
-    const outcome = await importWorkstationSettings(
-      {
-        runtimeHome: '/tmp/gantry-import-test',
-        ops: {} as never,
-        repositories: {} as never,
-        appId: 'default' as never,
-        previousSettings,
-        revisionMirror: {
-          settingsRevisions: repo,
-          createdBy: 'test:fleet',
+    await expect(
+      importWorkstationSettings(
+        {
+          runtimeHome: '/tmp/gantry-import-test',
+          ops: {} as never,
+          repositories: {} as never,
+          appId: 'default' as never,
+          previousSettings,
+          revisionMirror: {
+            settingsRevisions: repo,
+            createdBy: 'test:fleet',
+          },
+          leases,
+          revisionMirrorRequired: true,
         },
-        leases,
-        revisionMirrorRequired: true,
-      },
-      nextSettings,
+        nextSettings,
+      ),
+    ).rejects.toEqual(
+      expect.objectContaining<Partial<SettingsIncompatibleReaderError>>({
+        name: 'SettingsIncompatibleReaderError',
+        revision: 2,
+        minReaderVersion: CURRENT_SETTINGS_READER_VERSION + 1,
+        readerVersion: CURRENT_SETTINGS_READER_VERSION,
+      }),
     );
-
-    expect(outcome).toEqual({ status: 'revision_created', revision: 1 });
     expect(applyRuntimeSettingsDesiredState).not.toHaveBeenCalled();
     expect(releaseLease).toHaveBeenCalledOnce();
   });

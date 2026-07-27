@@ -54,18 +54,25 @@ Exploration (decision inputs) established:
    performs multiple shared Postgres writes that can interleave — a re-read-only
    fence closes just one check-then-act window and is insufficient.
 
-4. **Rollback restores the pre-apply state captured under the lease.** On a
-   failed projection, restore the actual on-disk state read immediately before
-   the apply (captured while holding the lease), unconditionally — skipping only
-   when there was no prior state (first boot). Do NOT fence rollback on the
-   latest desired-revision head: revision *creation* is not under the projector
-   lease, so a newer revision can be *created* (but not *projected*) while this
-   process holds the lease projecting an older one — "head is newer" therefore
-   does not mean "a newer revision was projected," and using it to skip rollback
-   would abandon a partial failed projection. Because the whole apply+rollback
-   runs under the lease, no concurrent projection can be clobbered; the next
-   lease holder re-reads and projects the latest head. (Supersedes the earlier
-   head-comparison formulation, which autoreview showed unsafe.)
+4. **Forward-correction on failure — no snapshot rollback.** A partially failed
+   projection is NOT undone. There is no safe local rollback base: the worker's
+   `settings.yaml` is container-local while `reconcile()` mutates shared Postgres
+   desired-state, so a lagging worker's local file can be older than the shared
+   repositories and restoring it would move shared state *backward*. Instead,
+   projection is idempotent and authoritative: each projection re-reads the head
+   under the lease and applies the FULL current state, so a subsequent projection
+   overwrites any partial state with a complete, current one. On failure the
+   projector logs and **retries / re-wakes** (rather than restoring), so a
+   transient failure self-heals forward and does not linger. (Supersedes both the
+   earlier head-comparison fence and the local-snapshot-restore formulation, which
+   autoreview showed unsafe against shared state; a precise applied-projection
+   rollback contract, if ever needed, is a separate decision.)
+
+4b. **An unreadable superseding head is surfaced, not silently succeeded.** When
+   a worker acquires the lease and finds the head requires a newer reader version
+   than it supports, it does not report a successful projection: it propagates a
+   held / incompatible-reader outcome (as the listener and boot paths do) so the
+   caller keeps readiness red and does not continue on stale settings.
 
 5. **Route initial fleet boot through the same coordinator**, since boot and
    synchronous mutation paths call the same shared apply function — listener-only

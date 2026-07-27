@@ -100,6 +100,7 @@ function makeListener(
     readerVersion: number;
     onSkewAlert: (alert: unknown) => void;
     onFirstRevisionApplied: () => Promise<void> | void;
+    logWarn: (context: Record<string, unknown>, message: string) => void;
   }> = {},
 ) {
   return new SettingsRevisionListener({
@@ -114,6 +115,7 @@ function makeListener(
     readerVersion: overrides.readerVersion ?? 1,
     onSkewAlert: overrides.onSkewAlert,
     onFirstRevisionApplied: overrides.onFirstRevisionApplied,
+    logWarn: overrides.logWarn,
     // Never auto-fire the interval; tests drive passes explicitly.
     setIntervalFn: (() => 0 as never) as typeof setInterval,
     clearIntervalFn: (() => {}) as typeof clearInterval,
@@ -287,6 +289,32 @@ describe('SettingsRevisionListener', () => {
     expect(result).toEqual({ result: 'applied', revision: 11 });
     expect(applied).toEqual([11]);
     expect(listener.getAppliedRevision()).toBe(11);
+  });
+
+  it('re-wakes once after a transient projection failure', async () => {
+    const failure = new Error('projection failed');
+    importSettings
+      .mockRejectedValueOnce(failure)
+      .mockImplementationOnce(
+        async (_deps: unknown, settings: { revision?: number }) => {
+          applied.push(settings.revision ?? -1);
+        },
+      );
+    const logWarn = vi.fn();
+    const listener = makeListener(
+      makeRepo([revision(1, 1)]),
+      new FakeWakeupSource(),
+      { logWarn },
+    );
+
+    listener.wake();
+
+    await vi.waitFor(() => expect(listener.getAppliedRevision()).toBe(1));
+    expect(importSettings).toHaveBeenCalledTimes(2);
+    expect(logWarn).toHaveBeenCalledWith(
+      { err: failure },
+      'Settings revision apply failed',
+    );
   });
 
   it('is a no-op when the latest revision is already applied', async () => {

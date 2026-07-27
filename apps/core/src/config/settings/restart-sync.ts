@@ -11,12 +11,10 @@ import {
   addAgentToolRulesToRuntimeSettings,
   activateRuntimeModelAliases,
   loadRuntimeSettings,
-  loadRuntimeSettingsFromPath,
   removeAgentToolRulesFromRuntimeSettings,
   saveRuntimeSettings,
   withRuntimeModelAliases,
 } from './runtime-settings.js';
-import { settingsFilePath } from './runtime-home.js';
 import { normalizeConfiguredCapabilitiesInSettings } from './configured-capability-normalization.js';
 import { validateLoadedRuntimeSettings } from './runtime-settings-validation.js';
 import { agentIdForFolder } from './desired-state-service-helpers.js';
@@ -65,34 +63,16 @@ export async function applyRuntimeSettingsDesiredState(input: {
       ].join('\n'),
     );
   }
-  let rollbackSettings: RuntimeSettings | undefined;
-  try {
-    rollbackSettings = loadRuntimeSettingsFromPath(
-      settingsFilePath(input.runtimeHome),
+  saveRuntimeSettings(input.runtimeHome, settings);
+  const reconcile = await service.reconcile(reconcileSettings);
+  if (reconcile.invalidReferences.length > 0) {
+    throw new Error(
+      `settings desired state contains invalid references:\n${reconcile.invalidReferences.join('\n')}`,
     );
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
   }
-  try {
-    saveRuntimeSettings(input.runtimeHome, settings);
-    const reconcile = await service.reconcile(reconcileSettings);
-    if (reconcile.invalidReferences.length > 0) {
-      throw new Error(
-        `settings desired state contains invalid references:\n${reconcile.invalidReferences.join('\n')}`,
-      );
-    }
-    await input.reloadRuntimeState?.();
-    activateRuntimeModelAliases(settings);
-    return settings;
-  } catch (err) {
-    if (rollbackSettings) {
-      saveRuntimeSettings(input.runtimeHome, rollbackSettings);
-      await service.reconcile(rollbackSettings);
-      await input.reloadRuntimeState?.();
-      activateRuntimeModelAliases(rollbackSettings);
-    }
-    throw err;
-  }
+  await input.reloadRuntimeState?.();
+  activateRuntimeModelAliases(settings);
+  return settings;
 }
 
 export async function syncRuntimeSettingsFromProjection(input: {

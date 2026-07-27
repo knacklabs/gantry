@@ -117,6 +117,10 @@ export class SettingsRevisionListener {
 
   /** Trigger one apply pass, coalescing overlapping wakeups. */
   wake(): void {
+    this.runApply(true);
+  }
+
+  private runApply(retryOnFailure: boolean): void {
     if (this.stopped) return;
     if (this.inFlight) {
       this.rerunRequested = true;
@@ -124,14 +128,17 @@ export class SettingsRevisionListener {
     }
     this.inFlight = this.applyLatest()
       .then(() => undefined)
-      .catch((err) =>
-        this.deps.logWarn?.({ err }, 'Settings revision apply failed'),
-      )
+      .catch((err) => {
+        this.deps.logWarn?.({ err }, 'Settings revision apply failed');
+        if (retryOnFailure && !this.stopped) {
+          this.rerunRequested = true;
+        }
+      })
       .finally(() => {
         this.inFlight = null;
         if (this.rerunRequested && !this.stopped) {
           this.rerunRequested = false;
-          this.wake();
+          this.runApply(false);
         }
       });
   }

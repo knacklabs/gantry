@@ -94,6 +94,21 @@ export class SettingsRevisionConflictError extends Error {
   }
 }
 
+export class SettingsIncompatibleReaderError extends Error {
+  constructor(
+    readonly revision: number,
+    readonly minReaderVersion: number,
+    readonly readerVersion: number,
+  ) {
+    super(
+      `Settings revision ${revision} requires settings reader version ` +
+        `${minReaderVersion}; this runtime supports ${readerVersion}. ` +
+        'Upgrade Gantry before applying this revision.',
+    );
+    this.name = 'SettingsIncompatibleReaderError';
+  }
+}
+
 /** Shared validation for YAML, CLI, and control API settings mutations. */
 export async function validateSettingsForImport(
   deps: SettingsImportServiceDeps,
@@ -340,9 +355,11 @@ async function projectRequiredSettingsRevision(input: {
       !projectsTarget &&
       head.minReaderVersion > CURRENT_SETTINGS_READER_VERSION
     ) {
-      // Too old to read the superseding head: skip it (a reader-capable projector
-      // will); fall back to the caller's readable target (previousSettings is optional).
-      return input.deps.previousSettings ?? input.targetSettings;
+      throw new SettingsIncompatibleReaderError(
+        head.revision,
+        head.minReaderVersion,
+        CURRENT_SETTINGS_READER_VERSION,
+      );
     }
     const settings = projectsTarget
       ? input.targetSettings
