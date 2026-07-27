@@ -1526,7 +1526,7 @@ describe('permission interaction', () => {
     expect(receipt).not.toContain('perm-abc-123');
   });
 
-  it('omits sensitive details instead of showing redaction markers in accepted receipts', () => {
+  it('shows the command with the secret span masked in accepted receipts', () => {
     const receipt = formatPermissionReceiptText(
       'perm-abc-123',
       {
@@ -1546,7 +1546,9 @@ describe('permission interaction', () => {
     );
 
     expect(receipt).toContain('Allowed once: Command');
-    expect(receipt).not.toContain('REDACTED');
+    // The secret span is masked but the rest of the command stays visible.
+    expect(receipt).toContain('curl https://api.example.com');
+    expect(receipt).toContain('[REDACTED_SECRET]');
     expect(receipt).not.toContain('abcdefghijklmnopqrstuvwxyz123456');
     expect(receipt).not.toContain('Request ID');
     expect(receipt).not.toContain('perm-abc-123');
