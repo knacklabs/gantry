@@ -13,7 +13,9 @@ need AI agents to run safely inside product and operations workflows.
 ## Current Scope
 
 - CLI and package-based runtime setup.
-- Slack, Telegram, Teams, Discord, and web or SDK-facing runtime concepts.
+- Active Slack, Telegram, Discord, and web or SDK-facing runtime transports.
+- Microsoft Teams setup and discovery scaffolding; production message
+  transport remains outside the current implementation.
 - Postgres-backed settings, credential references, memory, jobs, events, and audit state.
 - Provider-neutral model routing through catalog aliases and gateway-owned credentials.
 
