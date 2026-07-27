@@ -1,0 +1,1149 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" href="data:," />
+    <meta
+      name="description"
+      content="A source-derived guide to the Gantry self-hosted agent runtime: architecture, features, security boundaries, data flow, APIs, and code map."
+    />
+    <meta name="theme-color" content="#101612" />
+    <title>Gantry — Project & Architecture Explorer</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --ink: #f2f6ee;
+        --muted: #a9b6a8;
+        --faint: #6f7d71;
+        --line: rgba(232, 244, 226, 0.14);
+        --panel: rgba(19, 29, 23, 0.82);
+        --panel-2: #17231b;
+        --bg: #0d120f;
+        --accent: #ffc857;
+        --accent-2: #75d9c2;
+        --warn: #ffcb67;
+        --danger: #ff8f75;
+        --max: 1240px;
+        --radius: 18px;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html {
+        scroll-behavior: smooth;
+      }
+      body {
+        margin: 0;
+        color: var(--ink);
+        background:
+          radial-gradient(
+            circle at 78% 4%,
+            rgba(117, 217, 194, 0.13),
+            transparent 28rem
+          ),
+          radial-gradient(
+            circle at 16% 14%,
+            rgba(255, 200, 87, 0.1),
+            transparent 25rem
+          ),
+          var(--bg);
+        font:
+          16px/1.65 ui-sans-serif,
+          system-ui,
+          -apple-system,
+          BlinkMacSystemFont,
+          'Segoe UI',
+          sans-serif;
+      }
+      a {
+        color: inherit;
+      }
+      a:focus-visible,
+      summary:focus-visible,
+      .search:focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: 4px;
+      }
+      code,
+      pre {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      }
+      .shell {
+        width: min(calc(100% - 32px), var(--max));
+        margin: 0 auto;
+      }
+      .topbar {
+        position: sticky;
+        top: 0;
+        z-index: 20;
+        border-bottom: 1px solid var(--line);
+        background: rgba(13, 18, 15, 0.86);
+        backdrop-filter: blur(18px);
+      }
+      .topbar-inner {
+        min-height: 68px;
+        display: flex;
+        align-items: center;
+        gap: 22px;
+      }
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 11px;
+        text-decoration: none;
+        font-weight: 760;
+        letter-spacing: -0.02em;
+      }
+      .mark {
+        width: 31px;
+        height: 31px;
+        border-radius: 9px;
+        display: grid;
+        place-items: center;
+        color: #101612;
+        background: var(--accent);
+        font:
+          900 17px/1 ui-monospace,
+          monospace;
+        box-shadow: 0 0 34px rgba(255, 200, 87, 0.22);
+      }
+      .nav {
+        display: flex;
+        align-items: center;
+        gap: 18px;
+        margin-left: auto;
+      }
+      .nav a {
+        color: var(--muted);
+        text-decoration: none;
+        font-size: 14px;
+      }
+      .nav a.active {
+        color: var(--accent);
+      }
+      .search {
+        width: 220px;
+        padding: 9px 12px;
+        color: var(--ink);
+        background: #111a14;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        outline: none;
+      }
+      .search:focus {
+        border-color: rgba(255, 200, 87, 0.7);
+        box-shadow: 0 0 0 3px rgba(255, 200, 87, 0.08);
+      }
+      .hero {
+        padding: 92px 0 66px;
+      }
+      .eyebrow {
+        color: var(--accent);
+        text-transform: uppercase;
+        letter-spacing: 0.15em;
+        font-size: 12px;
+        font-weight: 800;
+      }
+      h1,
+      h2,
+      h3 {
+        line-height: 1.08;
+        letter-spacing: -0.045em;
+      }
+      h1 {
+        max-width: 900px;
+        margin: 17px 0 22px;
+        font-size: clamp(48px, 8vw, 94px);
+      }
+      h1 span {
+        color: var(--accent);
+      }
+      .lede {
+        max-width: 790px;
+        color: #c6d0c4;
+        font-size: clamp(18px, 2vw, 23px);
+        line-height: 1.55;
+      }
+      .hero-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        margin-top: 30px;
+      }
+      .button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        padding: 11px 16px;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        text-decoration: none;
+        font-weight: 700;
+        font-size: 14px;
+        background: var(--panel);
+        transition: transform 140ms cubic-bezier(0.23, 1, 0.32, 1);
+      }
+      .button.primary {
+        color: #0d120f;
+        background: var(--accent);
+        border-color: var(--accent);
+      }
+      .button:active {
+        transform: scale(0.97);
+      }
+      .audit-strip {
+        display: grid;
+        grid-template-columns: repeat(5, 1fr);
+        gap: 1px;
+        margin-top: 62px;
+        overflow: hidden;
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        background: var(--line);
+      }
+      .metric {
+        padding: 22px;
+        background: #111914;
+      }
+      .metric strong {
+        display: block;
+        font-size: 26px;
+        letter-spacing: -0.04em;
+      }
+      .metric span {
+        color: var(--faint);
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.09em;
+      }
+      section {
+        scroll-margin-top: 88px;
+        padding: 72px 0;
+        border-top: 1px solid var(--line);
+      }
+      .section-head {
+        display: grid;
+        grid-template-columns: 0.7fr 1.3fr;
+        gap: 50px;
+        margin-bottom: 34px;
+      }
+      h2 {
+        margin: 0;
+        font-size: clamp(34px, 5vw, 59px);
+      }
+      .section-copy {
+        max-width: 720px;
+        color: var(--muted);
+        font-size: 18px;
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 14px;
+      }
+      .card {
+        min-height: 190px;
+        padding: 24px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        background: linear-gradient(
+          145deg,
+          rgba(24, 36, 28, 0.94),
+          rgba(17, 25, 20, 0.86)
+        );
+      }
+      .card .kicker {
+        color: var(--accent-2);
+        font:
+          700 12px/1.2 ui-monospace,
+          monospace;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+      }
+      .card h3 {
+        margin: 16px 0 10px;
+        font-size: 23px;
+      }
+      .card p {
+        color: var(--muted);
+        margin: 0;
+      }
+      .architecture {
+        display: grid;
+        grid-template-columns: 1fr 70px 1fr 70px 1fr;
+        align-items: stretch;
+        gap: 0;
+      }
+      .layer {
+        display: grid;
+        gap: 10px;
+      }
+      .layer-title {
+        color: var(--faint);
+        margin-bottom: 6px;
+        font:
+          700 12px/1 ui-monospace,
+          monospace;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+      }
+      .node {
+        padding: 14px 15px;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        background: var(--panel-2);
+      }
+      .node strong {
+        display: block;
+        margin-bottom: 3px;
+      }
+      .node small {
+        color: var(--muted);
+      }
+      .arrow {
+        display: grid;
+        place-items: center;
+        color: var(--accent);
+        font-size: 27px;
+      }
+      .flow {
+        display: grid;
+        grid-template-columns: repeat(7, minmax(120px, 1fr));
+        gap: 8px;
+        overflow-x: auto;
+        padding-bottom: 8px;
+      }
+      .flow-step {
+        position: relative;
+        min-height: 148px;
+        padding: 17px;
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        background: #121b15;
+      }
+      .flow-step b {
+        display: block;
+        color: var(--accent);
+        font:
+          800 12px/1 ui-monospace,
+          monospace;
+        margin-bottom: 20px;
+      }
+      .flow-step strong {
+        display: block;
+        line-height: 1.25;
+      }
+      .flow-step small {
+        display: block;
+        color: var(--muted);
+        margin-top: 8px;
+        line-height: 1.45;
+      }
+      .flow-step:not(:last-child)::after {
+        content: '→';
+        position: absolute;
+        right: -8px;
+        top: 58px;
+        z-index: 2;
+        color: var(--accent);
+      }
+      .feature-list {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 12px;
+      }
+      .feature {
+        padding: 18px 20px;
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        background: rgba(18, 27, 21, 0.72);
+      }
+      .feature summary {
+        cursor: pointer;
+        font-weight: 760;
+        font-size: 18px;
+      }
+      .feature p {
+        color: var(--muted);
+        margin: 12px 0 0;
+      }
+      .tag {
+        display: inline-block;
+        margin: 8px 6px 0 0;
+        padding: 4px 8px;
+        color: var(--accent-2);
+        border: 1px solid rgba(117, 217, 194, 0.24);
+        border-radius: 999px;
+        font-size: 11px;
+      }
+      .role-table {
+        width: 100%;
+        border-collapse: collapse;
+        overflow: hidden;
+        border-radius: 14px;
+      }
+      .role-table th,
+      .role-table td {
+        padding: 14px;
+        text-align: left;
+        border-bottom: 1px solid var(--line);
+      }
+      .role-table th {
+        color: var(--faint);
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+      }
+      .yes {
+        color: var(--accent);
+      }
+      .no {
+        color: var(--faint);
+      }
+      .security {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 12px;
+      }
+      .security .card {
+        min-height: 250px;
+      }
+      .code-map {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 8px;
+      }
+      .path {
+        display: grid;
+        grid-template-columns: 240px 1fr;
+        gap: 16px;
+        padding: 13px 15px;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        text-decoration: none;
+        background: rgba(17, 25, 20, 0.7);
+      }
+      .path code {
+        color: var(--accent-2);
+        font-size: 12px;
+      }
+      .path span {
+        color: var(--muted);
+      }
+      .checks {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 14px;
+      }
+      .check {
+        padding: 22px;
+        border-radius: var(--radius);
+        border: 1px solid var(--line);
+        background: #121b15;
+      }
+      .check.pass {
+        border-color: rgba(255, 200, 87, 0.28);
+      }
+      .check.fail {
+        border-color: rgba(255, 143, 117, 0.33);
+      }
+      .check h3 {
+        margin-top: 0;
+      }
+      .check ul {
+        padding-left: 20px;
+        color: var(--muted);
+      }
+      footer {
+        padding: 50px 0 80px;
+        color: var(--faint);
+        border-top: 1px solid var(--line);
+      }
+      .hidden-by-search {
+        display: none !important;
+      }
+      @media (hover: hover) and (pointer: fine) {
+        .nav a:hover {
+          color: var(--accent);
+        }
+        .button:hover {
+          transform: translateY(-1px);
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        html {
+          scroll-behavior: auto;
+        }
+        .button {
+          transition: none;
+        }
+      }
+      @media (max-width: 1000px) {
+        .nav a {
+          display: none;
+        }
+        .audit-strip {
+          grid-template-columns: repeat(2, 1fr);
+        }
+        .grid,
+        .security {
+          grid-template-columns: repeat(2, 1fr);
+        }
+        .architecture {
+          grid-template-columns: 1fr;
+          gap: 10px;
+        }
+        .arrow {
+          transform: rotate(90deg);
+          min-height: 35px;
+        }
+        .code-map {
+          grid-template-columns: 1fr;
+        }
+      }
+      @media (max-width: 680px) {
+        .shell {
+          width: min(calc(100% - 22px), var(--max));
+        }
+        .topbar-inner {
+          min-height: 60px;
+        }
+        .brand span:last-child {
+          display: none;
+        }
+        .search {
+          width: min(62vw, 250px);
+        }
+        .hero {
+          padding-top: 64px;
+        }
+        .section-head {
+          grid-template-columns: 1fr;
+          gap: 18px;
+        }
+        .grid,
+        .security,
+        .feature-list,
+        .checks {
+          grid-template-columns: 1fr;
+        }
+        .audit-strip {
+          grid-template-columns: 1fr 1fr;
+        }
+        .path {
+          grid-template-columns: 1fr;
+          gap: 5px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="shell topbar-inner">
+        <a class="brand" href="#top"
+          ><span class="mark">G</span><span>Gantry Explorer</span></a
+        >
+        <nav class="nav" aria-label="Project sections">
+          <a href="#architecture">Architecture</a>
+          <a href="#features">Features</a>
+          <a href="#security">Security</a>
+          <a href="#code">Code map</a>
+          <input
+            id="search"
+            class="search"
+            type="search"
+            placeholder="Search this guide…"
+            aria-label="Search this guide"
+          />
+        </nav>
+      </div>
+    </header>
+
+    <main id="top">
+      <div class="shell hero">
+        <div class="eyebrow">Source-derived project guide · main @ db41baa</div>
+        <h1>
+          The runtime between <span>AI intent</span> and real-world action.
+        </h1>
+        <p class="lede">
+          Gantry is a self-hosted, provider-neutral agent runtime. It accepts
+          work from chat, applications, schedules, and signed ingress; applies
+          memory, policy, permissions, sandboxing, and credential isolation;
+          then records the complete result in durable runtime state.
+        </p>
+        <div class="hero-actions">
+          <a class="button primary" href="#architecture"
+            >Explore the architecture</a
+          >
+          <a class="button" href="docs/CODEBASE_GUIDE.md"
+            >Read the developer guide</a
+          >
+          <a class="button" href="bug.md">Review confirmed issues</a>
+        </div>
+        <div class="audit-strip" aria-label="Code audit statistics">
+          <div class="metric">
+            <strong>2,784</strong><span>tracked files</span>
+          </div>
+          <div class="metric">
+            <strong>792,712</strong><span>text lines scanned</span>
+          </div>
+          <div class="metric">
+            <strong>2,097</strong><span>source files parsed</span>
+          </div>
+          <div class="metric">
+            <strong>7,460</strong><span>unit tests passing</span>
+          </div>
+          <div class="metric">
+            <strong>120</strong><span>OpenAPI operations</span>
+          </div>
+        </div>
+      </div>
+
+      <section id="architecture" data-searchable>
+        <div class="shell">
+          <div class="section-head">
+            <div>
+              <div class="eyebrow">System map</div>
+              <h2>Five boundaries, one runtime.</h2>
+            </div>
+            <p class="section-copy">
+              Inputs are normalized before they reach execution. Model adapters
+              stay behind a provider-neutral contract. Every action crosses
+              policy, sandbox, credential, and audit boundaries owned by the
+              host.
+            </p>
+          </div>
+          <div class="architecture">
+            <div class="layer">
+              <div class="layer-title">Inputs</div>
+              <div class="node">
+                <strong>Human channels</strong
+                ><small
+                  >Slack, Telegram, Discord; Teams setup/discovery
+                  scaffold</small
+                >
+              </div>
+              <div class="node">
+                <strong>Product backends</strong
+                ><small>Node SDK, Control API, Unix socket or HTTP</small>
+              </div>
+              <div class="node">
+                <strong>Automation</strong
+                ><small>Jobs, signed ingress, direct LLM API</small>
+              </div>
+            </div>
+            <div class="arrow" aria-hidden="true">→</div>
+            <div class="layer">
+              <div class="layer-title">Gantry host</div>
+              <div class="node">
+                <strong>Canonical intent</strong
+                ><small
+                  >App, agent, conversation, optional thread, session or
+                  job</small
+                >
+              </div>
+              <div class="node">
+                <strong>Durable admission</strong
+                ><small>Queues, claims, leases, fencing and recovery</small>
+              </div>
+              <div class="node">
+                <strong>Context composition</strong
+                ><small
+                  >Prompt, digests, memory, tools, skills and current
+                  policy</small
+                >
+              </div>
+            </div>
+            <div class="arrow" aria-hidden="true">→</div>
+            <div class="layer">
+              <div class="layer-title">Execution & evidence</div>
+              <div class="node">
+                <strong>Model adapters</strong
+                ><small>Claude Agent SDK or DeepAgents + LangChain</small>
+              </div>
+              <div class="node">
+                <strong>Controlled capabilities</strong
+                ><small
+                  >Gantry tools, Browser, MCP, skills, approved commands</small
+                >
+              </div>
+              <div class="node">
+                <strong>Durable result</strong
+                ><small
+                  >Postgres events, messages, runs, usage, delivery and
+                  audit</small
+                >
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="flow" data-searchable>
+        <div class="shell">
+          <div class="section-head">
+            <div>
+              <div class="eyebrow">Interactive turn</div>
+              <h2>How one message becomes a governed run.</h2>
+            </div>
+            <p class="section-copy">
+              The same execution spine serves provider chat, SDK sessions, and
+              application work.
+            </p>
+          </div>
+          <div class="flow">
+            <div class="flow-step">
+              <b>01</b><strong>Normalize</strong
+              ><small
+                >Provider payload becomes canonical app, conversation, thread
+                and sender identity.</small
+              >
+            </div>
+            <div class="flow-step">
+              <b>02</b><strong>Persist</strong
+              ><small
+                >The message is durable before model execution is
+                admitted.</small
+              >
+            </div>
+            <div class="flow-step">
+              <b>03</b><strong>Claim</strong
+              ><small
+                >Queue capacity and Postgres lease fencing serialize the live
+                scope.</small
+              >
+            </div>
+            <div class="flow-step">
+              <b>04</b><strong>Compose</strong
+              ><small
+                >Current agent config, memory, session continuity and
+                capabilities are loaded.</small
+              >
+            </div>
+            <div class="flow-step">
+              <b>05</b><strong>Execute</strong
+              ><small
+                >The compatible model harness starts or resumes a provider
+                session.</small
+              >
+            </div>
+            <div class="flow-step">
+              <b>06</b><strong>Authorize</strong
+              ><small
+                >Each risky tool call is allowed, reviewed, or denied by host
+                policy.</small
+              >
+            </div>
+            <div class="flow-step">
+              <b>07</b><strong>Deliver</strong
+              ><small
+                >Text streams out; final answer, usage, events and receipts
+                become durable.</small
+              >
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="features" data-searchable>
+        <div class="shell">
+          <div class="section-head">
+            <div>
+              <div class="eyebrow">Feature catalog</div>
+              <h2>What the code actually ships.</h2>
+            </div>
+            <p class="section-copy">
+              Open a feature to see its runtime contract. Labels describe
+              current implementation, not roadmap intent.
+            </p>
+          </div>
+          <div class="feature-list">
+            <details class="feature" open>
+              <summary>Three execution surfaces</summary>
+              <p>
+                Sandboxed worker agents, lightweight inline agents, and
+                provider-shaped direct LLM endpoints all share credential and
+                audit authority.
+              </p>
+              <span class="tag">worker</span><span class="tag">inline</span
+              ><span class="tag">direct API</span>
+            </details>
+            <details class="feature">
+              <summary>Provider-neutral model routing</summary>
+              <p>
+                Friendly aliases resolve through a 68-entry catalog across 13
+                providers. Compatible harness selection is derived and validated
+                before spawn.
+              </p>
+              <span class="tag">Anthropic SDK</span
+              ><span class="tag">DeepAgents</span
+              ><span class="tag">Model Gateway</span>
+            </details>
+            <details class="feature">
+              <summary>Conversation and channel routing</summary>
+              <p>
+                Slack, Telegram, Discord and the internal App provider are
+                active. Microsoft Teams is currently setup/discovery-only.
+              </p>
+              <span class="tag">DM</span><span class="tag">channel</span
+              ><span class="tag">thread/topic</span>
+            </details>
+            <details class="feature">
+              <summary>Capability and approval policy</summary>
+              <p>
+                Sources install functionality; versioned capabilities grant
+                authority. Signed IPC and durable pending interactions keep
+                agents from approving themselves.
+              </p>
+              <span class="tag">Allow once</span
+              ><span class="tag">granular grant</span
+              ><span class="tag">locked preset</span>
+            </details>
+            <details class="feature">
+              <summary>Browser automation</summary>
+              <p>
+                A canonical Browser capability projects signed tools into
+                host-managed visible Chrome profiles with CDP, site policy,
+                bounded artifacts and fleet snapshots.
+              </p>
+              <span class="tag">visible Chrome</span
+              ><span class="tag">persistent profiles</span>
+            </details>
+            <details class="feature">
+              <summary>Skills, MCP and approved commands</summary>
+              <p>
+                Reviewed skill artifacts and MCP definitions are inventory until
+                selected. Raw provider tools and raw MCP configuration are never
+                durable authority.
+              </p>
+              <span class="tag">reviewed artifacts</span
+              ><span class="tag">tool allowlists</span>
+            </details>
+            <details class="feature">
+              <summary>Scoped memory and dreaming</summary>
+              <p>
+                Memory is app + agent + user/channel scoped. Lexical recall is
+                always active; optional vectors are fused at read time. Dreaming
+                owns automatic durable promotion.
+              </p>
+              <span class="tag">digests</span><span class="tag">evidence</span
+              ><span class="tag">reviews</span>
+            </details>
+            <details class="feature">
+              <summary>Company brain and observer</summary>
+              <p>
+                Brain pages, entities, edges and embeddings form an
+                organizational knowledge layer. Observer digests surface
+                reviewed proactive insights.
+              </p>
+              <span class="tag">knowledge graph</span
+              ><span class="tag">insights</span>
+            </details>
+            <details class="feature">
+              <summary>Durable jobs and delegation</summary>
+              <p>
+                Jobs carry schedules, setup state, leases, runs and delivery
+                targets. Agent delegation and async tasks use host-owned durable
+                lifecycle rows.
+              </p>
+              <span class="tag">pg-boss trigger</span
+              ><span class="tag">Gantry run evidence</span>
+            </details>
+            <details class="feature">
+              <summary>SDK, events, webhooks and ingress</summary>
+              <p>
+                Backends use typed sessions and numbered runtime events.
+                Webhooks are outbound callbacks; signed ingresses are narrow
+                inbound authority.
+              </p>
+              <span class="tag">SSE</span><span class="tag">HMAC</span
+              ><span class="tag">dead letter</span>
+            </details>
+          </div>
+        </div>
+      </section>
+
+      <section id="security" data-searchable>
+        <div class="shell">
+          <div class="section-head">
+            <div>
+              <div class="eyebrow">Security model</div>
+              <h2>Authority stays in the host.</h2>
+            </div>
+            <p class="section-copy">
+              Model output, providers, browser backends, MCP servers, tools and
+              worker processes are treated as untrusted execution surfaces.
+            </p>
+          </div>
+          <div class="security">
+            <article class="card">
+              <div class="kicker">Identity</div>
+              <h3>Who is asking?</h3>
+              <p>
+                App ownership, sender policy, conversation membership and
+                control approvers are checked independently.
+              </p>
+            </article>
+            <article class="card">
+              <div class="kicker">Authority</div>
+              <h3>What may run?</h3>
+              <p>
+                Only selected, versioned capabilities and current granular rules
+                can authorize an action.
+              </p>
+            </article>
+            <article class="card">
+              <div class="kicker">Containment</div>
+              <h3>Where can it run?</h3>
+              <p>
+                Enforcing sandbox providers, protected paths, egress policy and
+                bounded IPC constrain execution.
+              </p>
+            </article>
+            <article class="card">
+              <div class="kicker">Secrets</div>
+              <h3>Which credential lane?</h3>
+              <p>
+                Model tokens stay behind the loopback gateway. Tool credentials
+                use separate reviewed capability bindings.
+              </p>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section id="roles" data-searchable>
+        <div class="shell">
+          <div class="section-head">
+            <div>
+              <div class="eyebrow">Deployment</div>
+              <h2>One process locally, split roles in a fleet.</h2>
+            </div>
+            <p class="section-copy">
+              Role capabilities are data-driven and fail closed. Worker roles
+              mount only operations routes.
+            </p>
+          </div>
+          <div style="overflow-x: auto">
+            <table class="role-table">
+              <thead>
+                <tr>
+                  <th>Role</th>
+                  <th>Full API</th>
+                  <th>Live turns</th>
+                  <th>Jobs</th>
+                  <th>Provider inbound</th>
+                  <th>Bake / reconcile</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>all</code></td>
+                  <td class="yes">Yes</td>
+                  <td class="yes">Yes</td>
+                  <td class="yes">Yes</td>
+                  <td class="yes">Yes</td>
+                  <td class="yes">Yes</td>
+                </tr>
+                <tr>
+                  <td><code>control</code></td>
+                  <td class="yes">Yes</td>
+                  <td class="no">No</td>
+                  <td class="no">No</td>
+                  <td class="no">No</td>
+                  <td class="no">No</td>
+                </tr>
+                <tr>
+                  <td><code>live-worker</code></td>
+                  <td>Ops only</td>
+                  <td class="yes">Yes</td>
+                  <td class="no">No</td>
+                  <td class="yes">Yes</td>
+                  <td>Reconcile</td>
+                </tr>
+                <tr>
+                  <td><code>job-worker</code></td>
+                  <td>Ops only</td>
+                  <td class="no">No</td>
+                  <td class="yes">Yes</td>
+                  <td class="no">No</td>
+                  <td class="yes">Yes</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section id="code" data-searchable>
+        <div class="shell">
+          <div class="section-head">
+            <div>
+              <div class="eyebrow">Contributor map</div>
+              <h2>Where each responsibility lives.</h2>
+            </div>
+            <p class="section-copy">
+              The modular-monolith boundary is visible in the directory layout:
+              domain ports point inward; adapters and composition stay at the
+              edges.
+            </p>
+          </div>
+          <div class="code-map">
+            <a
+              class="path"
+              href="https://github.com/knacklabs/gantry/tree/main/apps/core/src/app"
+              ><code>apps/core/src/app</code
+              ><span>Composition, boot and lifecycle</span></a
+            >
+            <a
+              class="path"
+              href="https://github.com/knacklabs/gantry/tree/main/apps/core/src/domain"
+              ><code>apps/core/src/domain</code
+              ><span>Domain types, invariants and ports</span></a
+            >
+            <a
+              class="path"
+              href="https://github.com/knacklabs/gantry/tree/main/apps/core/src/application"
+              ><code>apps/core/src/application</code
+              ><span>Use cases and policy orchestration</span></a
+            >
+            <a
+              class="path"
+              href="https://github.com/knacklabs/gantry/tree/main/apps/core/src/adapters"
+              ><code>apps/core/src/adapters</code
+              ><span>Models, Postgres, browser, sandbox and artifacts</span></a
+            >
+            <a
+              class="path"
+              href="https://github.com/knacklabs/gantry/tree/main/apps/core/src/runtime"
+              ><code>apps/core/src/runtime</code
+              ><span>Live turns, queues, IPC and execution</span></a
+            >
+            <a
+              class="path"
+              href="https://github.com/knacklabs/gantry/tree/main/apps/core/src/jobs"
+              ><code>apps/core/src/jobs</code
+              ><span>Scheduler, jobs, tasks and recovery</span></a
+            >
+            <a
+              class="path"
+              href="https://github.com/knacklabs/gantry/tree/main/apps/core/src/channels"
+              ><code>apps/core/src/channels</code
+              ><span>Provider adapters and delivery</span></a
+            >
+            <a
+              class="path"
+              href="https://github.com/knacklabs/gantry/tree/main/apps/core/src/memory"
+              ><code>apps/core/src/memory</code
+              ><span>Scoped memory, evidence and dreaming</span></a
+            >
+            <a
+              class="path"
+              href="https://github.com/knacklabs/gantry/tree/main/apps/core/src/brain"
+              ><code>apps/core/src/brain</code
+              ><span>Company knowledge graph</span></a
+            >
+            <a
+              class="path"
+              href="https://github.com/knacklabs/gantry/tree/main/apps/core/src/control"
+              ><code>apps/core/src/control</code
+              ><span>Control API and OpenAPI</span></a
+            >
+            <a
+              class="path"
+              href="https://github.com/knacklabs/gantry/tree/main/packages/sdk"
+              ><code>packages/sdk</code
+              ><span>Node SDK and generated wire types</span></a
+            >
+            <a
+              class="path"
+              href="https://github.com/knacklabs/gantry/tree/main/ops"
+              ><code>ops</code
+              ><span>Docker, launchd, Postgres and Terraform</span></a
+            >
+          </div>
+        </div>
+      </section>
+
+      <section id="health" data-searchable>
+        <div class="shell">
+          <div class="section-head">
+            <div>
+              <div class="eyebrow">Audit result</div>
+              <h2>What is healthy, and what needs attention.</h2>
+            </div>
+            <p class="section-copy">
+              The issue report records only reproduced findings.
+              Restricted-sandbox socket failures were not misclassified as
+              product failures.
+            </p>
+          </div>
+          <div class="checks">
+            <article class="check pass">
+              <h3>Passing</h3>
+              <ul>
+                <li>Architecture boundary checks</li>
+                <li>TypeScript type checking</li>
+                <li>2,097 parsed source files, zero syntax errors</li>
+                <li>574 unit-test files / 7,460 tests</li>
+              </ul>
+            </article>
+            <article class="check fail">
+              <h3>Needs attention</h3>
+              <ul>
+                <li>Lint: 44 errors and 1,052 warnings</li>
+                <li>Production audit: six known advisories</li>
+                <li>Three lost-error-cause boundaries</li>
+                <li>Unsafe throw from an attachment-writer finally block</li>
+              </ul>
+              <a class="button" href="bug.md">Open bug.md</a>
+            </article>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <div class="shell">
+        Built from runtime source on 2026-07-27. Historical plans and decisions
+        remain valuable context, but this explorer uses executable code and
+        schemas as the current-behavior authority.
+      </div>
+    </footer>
+
+    <script>
+      const search = document.querySelector('#search');
+      const searchable = [...document.querySelectorAll('[data-searchable]')];
+      search.addEventListener('input', () => {
+        const query = search.value.trim().toLowerCase();
+        for (const section of searchable) {
+          section.classList.toggle(
+            'hidden-by-search',
+            query && !section.textContent.toLowerCase().includes(query),
+          );
+        }
+      });
+      const links = [...document.querySelectorAll('.nav a')];
+      const sections = links
+        .map((link) => document.querySelector(link.getAttribute('href')))
+        .filter(Boolean);
+      const observer = new IntersectionObserver(
+        (entries) => {
+          const visible = entries
+            .filter((entry) => entry.isIntersecting)
+            .sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0];
+          if (!visible) return;
+          for (const link of links)
+            link.classList.toggle(
+              'active',
+              link.getAttribute('href') === '#' + visible.target.id,
+            );
+        },
+        { rootMargin: '-20% 0px -65% 0px', threshold: [0, 0.2, 0.6] },
+      );
+      sections.forEach((section) => observer.observe(section));
+    </script>
+  </body>
+</html>

@@ -9,8 +9,9 @@ without tying application code to one model provider or chat surface.
 Gantry is not a chatbot wrapper and not a personal assistant. It is the
 runtime boundary between:
 
-- human channels such as Slack, Microsoft Teams, Telegram, Discord, and
-  web/SDK clients;
+- active human channels such as Slack, Telegram, Discord, and web/SDK clients;
+- Microsoft Teams setup and conversation discovery (the runtime transport is
+  still a scaffold and is not available yet);
 - application events, SDK calls, and scheduled jobs;
 - approved tools, local CLIs, browser automation, skills, and MCP servers;
 - Postgres-backed runtime state, artifacts, settings, credentials, and audit.
@@ -59,8 +60,8 @@ sudo apt install -y ca-certificates curl git libatomic1 bubblewrap socat ripgrep
 ## Quick Start From Source
 
 ```bash
-git clone https://github.com/cawstudios/Agent.Gantry.git
-cd Agent.Gantry
+git clone https://github.com/knacklabs/gantry.git
+cd gantry
 npm ci
 npm run build
 ```
@@ -217,6 +218,9 @@ should first read [AGENTS.md](AGENTS.md), [WORKFLOW.md](WORKFLOW.md),
 
 ## Documentation
 
+- [Static project and architecture explorer](index.html)
+- [Source-derived codebase guide](docs/CODEBASE_GUIDE.md)
+- [Confirmed code audit findings](bug.md)
 - [Product brief](docs/product/BRIEF.md)
 - [Architecture docs](docs/architecture/README.md)
 - [Decision records](docs/decisions/README.md)
@@ -232,7 +236,6 @@ checks.
 ## License
 
 MIT. See [LICENSE](LICENSE).
-
 
 ## Working in this repo — Symphony Forge
 
