@@ -5,9 +5,12 @@ export type MessageActionAffordanceKind =
   | 'scheduler_pause_job'
   | 'live_turn_stop'
   | 'memory_review_decision'
-  | 'observer_feedback';
+  | 'observer_feedback'
+  | 'brain_dream_review_decision';
 
 export type MemoryReviewActionDecision = 'approve' | 'reject' | 'edit';
+
+export type BrainDreamReviewActionDecision = 'approve' | 'reject';
 
 export type ObserverFeedbackAction =
   | 'resolve'
@@ -42,6 +45,12 @@ export type MessageActionAffordance =
       // callback token so a click self-identifies its EXACT delivery — an insight
       // that rode a later digest too must not resolve against the newer one.
       localDay: string;
+    }
+  | {
+      kind: 'brain_dream_review_decision';
+      label: string;
+      reviewId: string;
+      decision: BrainDreamReviewActionDecision;
     };
 
 export type MessageActionCallbackInput =
@@ -83,6 +92,15 @@ export type MessageActionCallbackInput =
       // Carried from the callback token: the reservation's local day, so the
       // handler loads the EXACT digest this button belongs to (not the newest).
       localDay: string;
+    }
+  | {
+      kind: 'brain_dream_review_decision';
+      conversationJid: string;
+      providerAccountId?: string;
+      threadId?: string;
+      userId: string;
+      reviewId: string;
+      decision: BrainDreamReviewActionDecision;
     };
 
 export type MemoryReviewMessageActionInput = Extract<
@@ -93,6 +111,11 @@ export type MemoryReviewMessageActionInput = Extract<
 export type ObserverFeedbackMessageActionInput = Extract<
   MessageActionCallbackInput,
   { kind: 'observer_feedback' }
+>;
+
+export type BrainDreamReviewMessageActionInput = Extract<
+  MessageActionCallbackInput,
+  { kind: 'brain_dream_review_decision' }
 >;
 
 /**
@@ -119,6 +142,10 @@ export interface MessageActionOutcome {
 
 export type OnObserverFeedbackMessageAction = (
   input: ObserverFeedbackMessageActionInput,
+) => Promise<MessageActionOutcome | void>;
+
+export type OnBrainDreamReviewMessageAction = (
+  input: BrainDreamReviewMessageActionInput,
 ) => Promise<MessageActionOutcome | void>;
 
 export type OnMessageAction = (

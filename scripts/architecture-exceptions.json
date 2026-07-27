@@ -98,6 +98,13 @@
     "maxViolations": 3
   },
   {
+    "file": "apps/core/src/app/bootstrap/runtime-brain-review-wiring.ts",
+    "rule": "forbidden_import_by_layer",
+    "reason": "brain-review owner-only wiring composes adapters/config for the message-action handler — same capped bootstrap-wiring seam as the sibling register files.",
+    "removeByPhase": "canonical-boundary-cleanup-phase",
+    "maxViolations": 3
+  },
+  {
     "file": "apps/core/src/app/bootstrap/startup.ts",
     "rule": "forbidden_import_by_layer",
     "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception. +1 (2026-07-14): observability tracing bootstrap (initTracing/shutdownTracing from infrastructure/observability) \u2014 settings-adjacent init; move behind a domain port when the boundary slice lands.",

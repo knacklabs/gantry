@@ -9,6 +9,7 @@ import {
   slackObserverDigestBlocks,
   slackObserverDigestFallbackText,
 } from './observer-digest-affordances.js';
+import { parseSlackBrainReview } from './brain-review-affordances.js';
 import { withObserverDigestEditLock } from '../observer-digest-edit-lock.js';
 
 const SCHEDULER_MESSAGE_ACTION_KINDS = new Set<MessageActionAffordanceKind>([
@@ -187,6 +188,53 @@ export function registerSlackMessageActionHandler(
             });
           } else if (!isTerminalReviewOutcome(outcome)) {
             // denied / edit: private to the clicker; shared message untouched.
+            const text = outcome.replacementText
+              ? `${outcome.receipt}\n\n${outcome.replacementText}`
+              : outcome.receipt;
+            await app.client.chat.postEphemeral({
+              channel: body.channel.id,
+              user: body.user.id,
+              text,
+            });
+          }
+        } catch {
+          // ignore receipt delivery failures
+        }
+      }
+      return;
+    }
+    const brainReview = parseSlackBrainReview(payload);
+    if (brainReview && body.channel?.id && body.user?.id) {
+      const messageTs = body.message?.ts;
+      const outcome = await opts?.onMessageAction?.({
+        kind: 'brain_dream_review_decision',
+        conversationJid: `sl:${body.channel.id}`,
+        ...providerAccountFromPayload(
+          { providerAccountId: brainReview.providerAccountId },
+          opts?.providerAccountId,
+        ),
+        threadId: body.message?.thread_ts,
+        userId: body.user.id,
+        reviewId: brainReview.reviewId,
+        decision: brainReview.decision,
+      });
+      if (outcome) {
+        try {
+          if (isTerminalReviewOutcome(outcome) && messageTs) {
+            // Terminal: replace blocks with a receipt section to drop buttons.
+            await app.client.chat.update({
+              channel: body.channel.id,
+              ts: messageTs,
+              text: outcome.receipt,
+              blocks: [
+                {
+                  type: 'section',
+                  text: { type: 'mrkdwn', text: outcome.receipt },
+                },
+              ],
+            });
+          } else if (!isTerminalReviewOutcome(outcome)) {
+            // denied (non-owner / lost race): private to the clicker.
             const text = outcome.replacementText
               ? `${outcome.receipt}\n\n${outcome.replacementText}`
               : outcome.receipt;

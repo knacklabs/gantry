@@ -1,9 +1,11 @@
 import type {
+  BrainDreamReviewActionDecision,
   MemoryReviewActionDecision,
   MessageActionAffordance,
   MessageDeliveryResult,
   MessageSendOptions,
 } from '../../domain/types.js';
+import type { BrainReviewCardView } from '../../domain/brain-review-card.js';
 import {
   morePendingReviewsLabel,
   type ReviewMessageSide,
@@ -24,6 +26,8 @@ const TELEGRAM_ACTION_CALLBACK_BY_KIND: Record<
   memory_review_decision: '',
   // ponytail: observer_feedback rendering lands in a later OBS-RESOLVE task.
   observer_feedback: '',
+  // brain_dream_review_decision has its own renderer (telegramBrainReviewMessage).
+  brain_dream_review_decision: '',
 };
 const TELEGRAM_CALLBACK_DATA_MAX_BYTES = 64;
 
@@ -53,6 +57,7 @@ export function telegramActionReplyMarkup(actions?: MessageActionAffordance[]):
       if (action.kind === 'live_turn_stop') return null;
       if (action.kind === 'memory_review_decision') return null;
       if (action.kind === 'observer_feedback') return null;
+      if (action.kind === 'brain_dream_review_decision') return null;
       const code = TELEGRAM_ACTION_CALLBACK_BY_KIND[action.kind];
       if (!code || !action.label.trim()) return null;
       const callbackData = telegramSchedulerActionCallback(action);
@@ -109,6 +114,71 @@ function telegramReviewCallbackData(
   return Buffer.byteLength(data, 'utf8') <= TELEGRAM_CALLBACK_DATA_MAX_BYTES
     ? data
     : undefined;
+}
+
+const TELEGRAM_BRAIN_REVIEW_DECISION_CODE: Record<
+  BrainDreamReviewActionDecision,
+  string
+> = {
+  approve: 'a',
+  reject: 'r',
+};
+
+export const TELEGRAM_BRAIN_REVIEW_CALLBACK_PATTERN = /^bd:([ar]):(.+)$/;
+
+export const TELEGRAM_BRAIN_REVIEW_DECISION_BY_CODE: Record<
+  string,
+  BrainDreamReviewActionDecision
+> = {
+  a: 'approve',
+  r: 'reject',
+};
+
+// Compact `bd:<a|r>:<reviewId>` callback_data — distinct `bd:` prefix keeps it
+// unambiguous from the memory-review `mr:` codec. The guard drops a button that
+// would exceed Telegram's 64-byte cap rather than truncate an id.
+function brainReviewCallbackData(
+  decision: BrainDreamReviewActionDecision,
+  reviewId: string,
+): string | undefined {
+  const data = `bd:${TELEGRAM_BRAIN_REVIEW_DECISION_CODE[decision]}:${reviewId}`;
+  return Buffer.byteLength(data, 'utf8') <= TELEGRAM_CALLBACK_DATA_MAX_BYTES
+    ? data
+    : undefined;
+}
+
+/**
+ * Compact Telegram HTML card for a brain destructive-proposal review: the
+ * scannable "what will change" headline + optional before→after detail lines
+ * (all snapshot-derived text HTML-escaped), plus an Approve/Reject inline
+ * keyboard. A button whose callback_data overflows the 64-byte cap is dropped.
+ */
+export function telegramBrainReviewMessage(view: BrainReviewCardView): {
+  text: string;
+  reply_markup: {
+    inline_keyboard: Array<Array<{ text: string; callback_data: string }>>;
+  };
+} {
+  const lines = [
+    `<b>${escapeTelegramHtml(view.headline)}</b>`,
+    ...view.details.map((line) => escapeTelegramHtml(line)),
+  ];
+  const buttons = view.buttons
+    .map((button) => {
+      const callback_data = brainReviewCallbackData(
+        button.decision,
+        view.reviewId,
+      );
+      return callback_data ? { text: button.label, callback_data } : null;
+    })
+    .filter(
+      (button): button is { text: string; callback_data: string } =>
+        button !== null,
+    );
+  return {
+    text: lines.join('\n'),
+    reply_markup: { inline_keyboard: [buttons] },
+  };
 }
 
 function telegramSideLine(side: ReviewMessageSide): string {

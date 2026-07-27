@@ -7,14 +7,17 @@ import type { ObserverDigestMessageView } from './observer-digest-view.js';
 export type {
   MessageActionAffordanceKind,
   MemoryReviewActionDecision,
+  BrainDreamReviewActionDecision,
   MessageActionAffordance,
   MessageActionCallbackInput,
   MemoryReviewMessageActionInput,
   ObserverFeedbackMessageActionInput,
+  BrainDreamReviewMessageActionInput,
   MessageActionOutcome,
   OnMessageAction,
   OnMemoryReviewMessageAction,
   OnObserverFeedbackMessageAction,
+  OnBrainDreamReviewMessageAction,
 } from './message-actions.js';
 export type {
   ReviewMessageView,

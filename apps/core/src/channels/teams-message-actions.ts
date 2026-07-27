@@ -3,7 +3,10 @@ import type {
   MessageActionOutcome,
   OnMessageAction,
 } from '../domain/types.js';
-import type { ObserverFeedbackAction } from '../domain/message-actions.js';
+import type {
+  BrainDreamReviewActionDecision,
+  ObserverFeedbackAction,
+} from '../domain/message-actions.js';
 import type { TeamsAdaptiveCardPayload } from './teams-cards.js';
 import { withObserverDigestEditLock } from './observer-digest-edit-lock.js';
 import {
@@ -46,6 +49,13 @@ export function readTeamsMessageAction(value: unknown):
       insightId: string;
       feedback: ObserverFeedbackAction;
       localDay: string;
+      targetJid: string;
+      threadId?: string;
+    }
+  | {
+      kind: 'brain_dream_review_decision';
+      reviewId: string;
+      decision: BrainDreamReviewActionDecision;
       targetJid: string;
       threadId?: string;
     }
@@ -99,6 +109,23 @@ export function readTeamsMessageAction(value: unknown):
       insightId: payload.insightId,
       feedback: payload.feedback as ObserverFeedbackAction,
       localDay: payload.localDay,
+      targetJid: payload.targetJid,
+      ...(typeof payload.threadId === 'string'
+        ? { threadId: payload.threadId }
+        : {}),
+    };
+  }
+  if (payload.kind === 'brain_dream_review_decision') {
+    if (typeof payload.reviewId !== 'string' || !payload.reviewId.trim()) {
+      return null;
+    }
+    if (payload.decision !== 'approve' && payload.decision !== 'reject') {
+      return null;
+    }
+    return {
+      kind: 'brain_dream_review_decision',
+      reviewId: payload.reviewId,
+      decision: payload.decision,
       targetJid: payload.targetJid,
       ...(typeof payload.threadId === 'string'
         ? { threadId: payload.threadId }
@@ -231,6 +258,40 @@ export async function handleTeamsMessageAction(input: {
       // chat message; the shared review context others rely on stays intact.
       // ponytail: post-to-conversation; swap for a true ephemeral if the SDK
       // ever exposes one.
+      const text = outcome.replacementText
+        ? `${outcome.receipt}\n\n${outcome.replacementText}`
+        : outcome.receipt;
+      await input.sendDenied(conversationId, text);
+    }
+    return true;
+  }
+  if (payload.kind === 'brain_dream_review_decision') {
+    const outcome = await input.onMessageAction?.({
+      kind: 'brain_dream_review_decision',
+      conversationJid: input.jid,
+      ...(input.providerAccountId
+        ? { providerAccountId: input.providerAccountId }
+        : {}),
+      userId: input.userId,
+      reviewId: payload.reviewId,
+      decision: payload.decision,
+      ...(payload.threadId ? { threadId: payload.threadId } : {}),
+    });
+    if (!outcome) return true;
+    const conversationId = teamsConversationIdFromJid(input.jid);
+    if (isTerminalReviewOutcome(outcome)) {
+      // Decision settled: rebuild the SHARED card as a receipt with no buttons.
+      const messageId = input.message.replyToId ?? input.message.id;
+      if (conversationId && messageId && input.updateReviewCard) {
+        await input.updateReviewCard({
+          conversationId,
+          messageId,
+          card: buildTeamsReviewReceiptCard(outcome.receipt),
+        });
+      }
+    } else {
+      // denied: never touch the shared card (smallest blast radius is a chat
+      // message; Teams' invoke path has no per-user ephemeral).
       const text = outcome.replacementText
         ? `${outcome.receipt}\n\n${outcome.replacementText}`
         : outcome.receipt;

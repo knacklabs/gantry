@@ -90,6 +90,7 @@ import {
 import { registerRuntimeLiveStopMessageAction } from './runtime-live-stop-message-action.js';
 import { registerRuntimeMemoryReviewMessageAction } from './runtime-memory-review-message-action.js';
 import { registerRuntimeObserverFeedbackMessageAction } from './runtime-observer-feedback-wiring.js';
+import { registerRuntimeBrainDreamReviewMessageAction } from './runtime-brain-review-wiring.js';
 import { nowIso, nowMs, toIso } from '../../shared/time/datetime.js';
 import { LiveTurnAuthority } from '../../runtime/live-turn-authority.js';
 import type { LiveTurnRecoveryLoop } from '../../runtime/live-turn-recovery.js';
@@ -582,6 +583,7 @@ export async function startRuntimeServices(
   registerRuntimeLiveStopMessageAction(channelWiring, app, liveMessageQueue);
   registerRuntimeMemoryReviewMessageAction(channelWiring, app);
   registerRuntimeObserverFeedbackMessageAction(channelWiring);
+  registerRuntimeBrainDreamReviewMessageAction(channelWiring);
   handleActiveControlCommand = async ({
     chatJid,
     queueJid,
