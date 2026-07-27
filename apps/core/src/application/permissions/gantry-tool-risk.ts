@@ -24,12 +24,24 @@ const DESTRUCTIVE_VERB =
   /(?:^|_)(?:delete|remove|revoke|purge|destroy|wipe|reset|restart|drop)(?:_|$)/;
 
 // Pure display / user-interaction surfaces. Side-effect-free for the operator,
-// who sees the real payload.
+// who sees the real payload. NB: send_message is deliberately NOT here — it is
+// an external mutation (see EXTERNAL_MUTATION_TOOLS).
 const DISPLAY_INTERACTION_TOOLS = new Set<string>([
-  'send_message',
   'ask_user_question',
   'todo_update',
 ]);
+
+// External mutations whose risk depends on destination + payload (can disclose
+// private data, reach unintended recipients, or trigger downstream automation),
+// so they must not auto-approve from the tool name alone. Normal
+// current-conversation messaging is birthright-granted by the deterministic
+// rails BEFORE the classifier tail (permission-deterministic-rails.ts:
+// GANTRY_INPUT_GATED_BIRTHRIGHT_TOOLS), so this HIGH default only applies to
+// send_message requests birthright did NOT cover (e.g. risk-sanitized input),
+// which should ask. ponytail: arg-aware classification (auto-approve the current
+// conversation / known recipient, HIGH for arbitrary destinations) is the richer
+// fix if we ever surface send_message shapes birthright doesn't already cover.
+const EXTERNAL_MUTATION_TOOLS = new Set<string>(['send_message']);
 
 // Tools whose blast radius depends on arguments this deterministic map does not
 // inspect, and where the worst case is dangerous. `file` can perform protected
@@ -70,7 +82,8 @@ export function gantryNativeCanonicalToolName(
  *     admin mutations, and arg-dependent-dangerous tools -> high (ask).
  *   - read/inspect shapes and pure display -> low (auto-approve).
  *   - boundable routine mutations -> medium (auto-approve).
- *   - mutating browser actions -> high (ask; unbounded real-world effect).
+ *   - external mutations (send_message) and mutating browser actions -> high
+ *     (ask; effect depends on destination/payload / unbounded real-world effect).
  *   - anything unmapped or unknown -> high (never silently auto-approve an
  *     unknown gantry mutation).
  */
@@ -104,6 +117,11 @@ export function gantryToolDefaultRisk(
   if (ARG_DEPENDENT_HIGH_RISK_TOOLS.has(canonical)) {
     return high(
       `Gantry ${canonical} can mutate protected state depending on arguments; ask the user.`,
+    );
+  }
+  if (EXTERNAL_MUTATION_TOOLS.has(canonical)) {
+    return high(
+      `Gantry ${canonical} sends an external message whose effect depends on destination and payload; ask the user.`,
     );
   }
   if (ADMIN_GANTRY_TOOL_NAME_SET.has(canonical) && !READ_VERB.test(canonical)) {

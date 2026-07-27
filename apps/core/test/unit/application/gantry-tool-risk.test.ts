@@ -58,7 +58,6 @@ describe('gantryToolDefaultRisk', () => {
     'mcp__gantry__continuity_summary',
     'mcp__gantry__render_status',
     'mcp__gantry__ask_user_question',
-    'mcp__gantry__send_message',
     'mcp__gantry__browser_status',
     'mcp__gantry__browser_inspect',
   ])('rates read/display tool %s low (auto-approve)', (tool) => {
@@ -103,6 +102,7 @@ describe('gantryToolDefaultRisk', () => {
     'mcp__gantry__browser_open', // browser action -> unbounded real-world effect
     'mcp__gantry__browser_act', // submit/click/type on a real page
     'mcp__gantry__browser_close', // browser action
+    'mcp__gantry__send_message', // external mutation: destination/payload dependent
   ])('rates high-risk tool %s high (ask)', (tool) => {
     const risk = gantryToolDefaultRisk(tool);
     expect(risk?.risk_level).toBe('high');
