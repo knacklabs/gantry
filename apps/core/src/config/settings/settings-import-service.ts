@@ -248,7 +248,6 @@ export async function importWorkstationSettings(
     ops: deps.ops,
     repositories: deps.repositories,
     appId: deps.appId,
-    previousSettings: deps.previousSettings,
     reloadRuntimeState: deps.reloadRuntimeState,
   });
   activateRuntimeModelAliases(appliedSettings);
@@ -354,12 +353,7 @@ async function projectRequiredSettingsRevision(input: {
       ops: input.deps.ops,
       repositories: input.deps.repositories,
       appId: input.appId,
-      previousSettings: projectsTarget
-        ? input.deps.previousSettings
-        : undefined,
       reloadRuntimeState: input.deps.reloadRuntimeState,
-      projectionRevision: head.revision,
-      settingsRevisions: input.revisionMirror.settingsRevisions,
     });
     activateRuntimeModelAliases(appliedSettings);
     return appliedSettings;

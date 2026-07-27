@@ -54,9 +54,18 @@ Exploration (decision inputs) established:
    performs multiple shared Postgres writes that can interleave — a re-read-only
    fence closes just one check-then-act window and is insufficient.
 
-4. **Revision-aware rollback.** Rollback never restores `previousSettings` when
-   the current head is newer than the failed target; it carries the failed
-   revision and checks the latest head before restoring.
+4. **Rollback restores the pre-apply state captured under the lease.** On a
+   failed projection, restore the actual on-disk state read immediately before
+   the apply (captured while holding the lease), unconditionally — skipping only
+   when there was no prior state (first boot). Do NOT fence rollback on the
+   latest desired-revision head: revision *creation* is not under the projector
+   lease, so a newer revision can be *created* (but not *projected*) while this
+   process holds the lease projecting an older one — "head is newer" therefore
+   does not mean "a newer revision was projected," and using it to skip rollback
+   would abandon a partial failed projection. Because the whole apply+rollback
+   runs under the lease, no concurrent projection can be clobbered; the next
+   lease holder re-reads and projects the latest head. (Supersedes the earlier
+   head-comparison formulation, which autoreview showed unsafe.)
 
 5. **Route initial fleet boot through the same coordinator**, since boot and
    synchronous mutation paths call the same shared apply function — listener-only

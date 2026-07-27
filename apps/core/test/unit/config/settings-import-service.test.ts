@@ -391,12 +391,72 @@ describe('importFleetSettingsRevision', () => {
       'settings-projector:default',
     );
     expect(releaseLease).toHaveBeenCalledOnce();
-    expect(applyRuntimeSettingsDesiredState).toHaveBeenCalledWith(
-      expect.objectContaining({
-        projectionRevision: 1,
-        settingsRevisions: repo,
+    const applyInput = applyRuntimeSettingsDesiredState.mock.calls[0]?.[0];
+    expect(applyInput).not.toHaveProperty('previousSettings');
+    expect(applyInput).not.toHaveProperty('projectionRevision');
+    expect(applyInput).not.toHaveProperty('settingsRevisions');
+  });
+
+  it('delegates a failed superseding-head projection to the apply-owned rollback', async () => {
+    capabilityErrors = [];
+    leases.tryAcquire.mockClear();
+    releaseLease.mockClear();
+    applyRuntimeSettingsDesiredState.mockReset();
+    const previousSettings = createDefaultRuntimeSettings();
+    previousSettings.agent.name = 'previous';
+    const targetSettings = createDefaultRuntimeSettings();
+    targetSettings.agent.name = 'target';
+    const supersedingSettings = createDefaultRuntimeSettings();
+    supersedingSettings.agent.name = 'superseding';
+    const repo = new FakeRevisionRepo();
+    const supersedingHead: SettingsRevision = {
+      appId: 'default',
+      revision: 2,
+      settingsDocument: settingsToRevisionDocument(supersedingSettings),
+      minReaderVersion: CURRENT_SETTINGS_READER_VERSION,
+      createdBy: 'test:newer-writer',
+      note: null,
+      createdAt: new Date().toISOString(),
+    };
+    vi.spyOn(repo, 'getLatestSettingsRevision')
+      .mockResolvedValueOnce(null)
+      .mockImplementationOnce(async () => {
+        repo.rows.push(supersedingHead);
+        return supersedingHead;
+      });
+    const failure = new Error('superseding projection failed');
+    applyRuntimeSettingsDesiredState.mockRejectedValueOnce(failure);
+
+    await expect(
+      importWorkstationSettings(
+        {
+          runtimeHome: '/tmp/gantry-import-test',
+          ops: {} as never,
+          repositories: {} as never,
+          appId: 'default' as never,
+          previousSettings,
+          revisionMirror: {
+            settingsRevisions: repo,
+            createdBy: 'test:fleet',
+          },
+          leases,
+          revisionMirrorRequired: true,
+        },
+        targetSettings,
+      ),
+    ).rejects.toBe(failure);
+
+    expect(applyRuntimeSettingsDesiredState).toHaveBeenCalledWith({
+      runtimeHome: '/tmp/gantry-import-test',
+      settings: expect.objectContaining({
+        agent: expect.objectContaining({ name: 'superseding' }),
       }),
-    );
+      ops: expect.anything(),
+      repositories: expect.anything(),
+      appId: 'default',
+      reloadRuntimeState: undefined,
+    });
+    expect(releaseLease).toHaveBeenCalledOnce();
   });
 
   it('skips a superseding head that requires a newer settings reader', async () => {

@@ -11,10 +11,12 @@ import {
   addAgentToolRulesToRuntimeSettings,
   activateRuntimeModelAliases,
   loadRuntimeSettings,
+  loadRuntimeSettingsFromPath,
   removeAgentToolRulesFromRuntimeSettings,
   saveRuntimeSettings,
   withRuntimeModelAliases,
 } from './runtime-settings.js';
+import { settingsFilePath } from './runtime-home.js';
 import { normalizeConfiguredCapabilitiesInSettings } from './configured-capability-normalization.js';
 import { validateLoadedRuntimeSettings } from './runtime-settings-validation.js';
 import { agentIdForFolder } from './desired-state-service-helpers.js';
@@ -38,10 +40,7 @@ export async function applyRuntimeSettingsDesiredState(input: {
   ops: SettingsDesiredStateOps;
   repositories: SettingsDesiredStateRepositories;
   appId?: AppId;
-  previousSettings?: RuntimeSettings;
   reloadRuntimeState?: () => Promise<void>;
-  projectionRevision?: number;
-  settingsRevisions?: SettingsRevisionRepository;
 }): Promise<RuntimeSettings> {
   const service = new SettingsDesiredStateService({
     ops: input.ops,
@@ -66,19 +65,14 @@ export async function applyRuntimeSettingsDesiredState(input: {
       ].join('\n'),
     );
   }
-  const rollback = async () => {
-    if (!input.previousSettings) return;
-    if (input.projectionRevision !== undefined) {
-      const latest = await input.settingsRevisions?.getLatestSettingsRevision(
-        input.appId ?? ('default' as AppId),
-      );
-      if (latest?.revision !== input.projectionRevision) return;
-    }
-    saveRuntimeSettings(input.runtimeHome, input.previousSettings);
-    await service.reconcile(input.previousSettings);
-    await input.reloadRuntimeState?.();
-    activateRuntimeModelAliases(input.previousSettings);
-  };
+  let rollbackSettings: RuntimeSettings | undefined;
+  try {
+    rollbackSettings = loadRuntimeSettingsFromPath(
+      settingsFilePath(input.runtimeHome),
+    );
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+  }
   try {
     saveRuntimeSettings(input.runtimeHome, settings);
     const reconcile = await service.reconcile(reconcileSettings);
@@ -91,7 +85,12 @@ export async function applyRuntimeSettingsDesiredState(input: {
     activateRuntimeModelAliases(settings);
     return settings;
   } catch (err) {
-    await rollback();
+    if (rollbackSettings) {
+      saveRuntimeSettings(input.runtimeHome, rollbackSettings);
+      await service.reconcile(rollbackSettings);
+      await input.reloadRuntimeState?.();
+      activateRuntimeModelAliases(rollbackSettings);
+    }
     throw err;
   }
 }
@@ -169,7 +168,6 @@ export async function syncRuntimeSettingsFromProjection(input: {
     await applyRuntimeSettingsDesiredState({
       ...input,
       settings: exported,
-      previousSettings: settings,
     });
     return;
   }
@@ -254,7 +252,6 @@ export async function addAgentToolRulesToSyncedRuntimeSettings(input: {
     await applyRuntimeSettingsDesiredState({
       runtimeHome: input.runtimeHome,
       settings: nextSettings,
-      previousSettings,
       ops: input.ops,
       repositories: input.repositories,
       appId: input.appId,
@@ -365,7 +362,6 @@ export async function removeAgentToolRulesFromSyncedRuntimeSettings(input: {
   await applyRuntimeSettingsDesiredState({
     runtimeHome: input.runtimeHome,
     settings: nextSettings,
-    previousSettings,
     ops: input.ops,
     repositories: input.repositories,
     appId: input.appId,
