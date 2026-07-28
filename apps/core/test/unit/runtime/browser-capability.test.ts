@@ -228,6 +228,19 @@ function queueHealthyContentTarget(targetId = 'target-1', port = 4567) {
     .mockResolvedValueOnce(cdpResponse([target]));
 }
 
+function queueLeaseLostContentTarget(error: Error) {
+  const target = { id: 'target-1', type: 'page' };
+  mocks.fetch
+    .mockImplementationOnce(async () => {
+      mocks.loseProfileLock(error);
+      return cdpVersionResponse();
+    })
+    .mockResolvedValueOnce(cdpResponse([target]))
+    .mockResolvedValueOnce(cdpResponse([target]))
+    .mockResolvedValueOnce(cdpVersionResponse())
+    .mockResolvedValueOnce(cdpResponse([target]));
+}
+
 describe('browser-capability', () => {
   let killSpy: ReturnType<typeof vi.spyOn>;
   let existsSyncSpy: ReturnType<typeof vi.spyOn>;
@@ -390,6 +403,91 @@ describe('browser-capability', () => {
       lockCallsBefore + 1,
     );
     expect(mocks.spawn).toHaveBeenCalledTimes(1);
+  });
+
+  it('tracks and awaits fresh-launch lease-loss teardown through TERM and KILL', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1_000);
+    const manager = await import('@core/runtime/browser-capability.js');
+    const leaseLostError = new Error('database connection lost');
+    queueLeaseLostContentTarget(leaseLostError);
+    queueHealthyContentTarget('target-2', 4568);
+    killSpy.mockImplementation((pid, signal) => {
+      const numericPid = Number(pid);
+      if (signal === 0 || signal === undefined) {
+        if (mocks.processes.has(numericPid)) return true;
+        throw new Error('not running');
+      }
+      if (signal === 'SIGKILL') {
+        const proc = mocks.processes.get(numericPid);
+        mocks.processes.delete(numericPid);
+        queueMicrotask(() => proc?.emit('close', 0, signal));
+      }
+      return true;
+    });
+
+    let launchSettled = false;
+    const launchResult = manager.launchBrowser().then(
+      (value) => {
+        launchSettled = true;
+        return { value };
+      },
+      (error) => {
+        launchSettled = true;
+        return { error };
+      },
+    );
+    await vi.waitFor(() => expect(mocks.spawn).toHaveBeenCalledTimes(1));
+    const spawnedPid = mocks.spawn.mock.results[0]?.value.pid as number;
+    await vi.waitFor(() =>
+      expect(killSpy).toHaveBeenCalledWith(spawnedPid, 'SIGTERM'),
+    );
+
+    expect(launchSettled).toBe(false);
+    expect(mocks.release).not.toHaveBeenCalled();
+    mocks.resetProfileLock();
+    await expect(manager.launchBrowser()).rejects.toThrow(
+      'Browser profile lease lost for gantry',
+    );
+    expect(mocks.spawn).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(4_100);
+    expect(killSpy).toHaveBeenCalledWith(spawnedPid, 'SIGKILL');
+    const failedLaunch = await launchResult;
+    expect(failedLaunch).toMatchObject({
+      error: { message: 'Browser profile lease lost for gantry' },
+    });
+    expect(mocks.release).toHaveBeenCalledTimes(1);
+
+    await expect(manager.launchBrowser()).resolves.toMatchObject({
+      running: true,
+      port: 4568,
+      targetId: 'target-2',
+    });
+    expect(mocks.spawn).toHaveBeenCalledTimes(2);
+  });
+
+  it('preserves the fresh-launch error when tracked teardown fails', async () => {
+    const browserProcess = await import('@core/runtime/browser-process.js');
+    const teardownError = new Error('teardown failed');
+    const stopSpy = vi
+      .spyOn(browserProcess, 'stopBrowserProcess')
+      .mockRejectedValueOnce(teardownError);
+    const manager = await import('@core/runtime/browser-capability.js');
+    queueLeaseLostContentTarget(new Error('database connection lost'));
+
+    const error = await manager.launchBrowser().catch((err) => err);
+
+    expect(error).toMatchObject({
+      message: 'Browser profile lease lost for gantry',
+    });
+    expect(error).not.toBe(teardownError);
+    expect(stopSpy).toHaveBeenCalledOnce();
+    expect(mocks.release).toHaveBeenCalledTimes(1);
+    mocks.resetProfileLock();
+    await expect(manager.launchBrowser()).rejects.toThrow(
+      'Browser profile lease lost for gantry',
+    );
   });
 
   it('does not let one caller deadline poison a shared cold launch', async () => {

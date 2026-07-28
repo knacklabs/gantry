@@ -519,11 +519,10 @@ async function launchBrowserInner(
     return toRunningStatus(session);
   } catch (err) {
     if (chromeProcess?.pid) {
-      try {
-        process.kill(chromeProcess.pid, 'SIGTERM');
-      } catch {
-        // ignore
-      }
+      await trackBrowserLeaseLossTeardown(
+        { profileName, pid: chromeProcess.pid, chromeProcess },
+        stopBrowserProcess({ pid: chromeProcess.pid, chromeProcess }),
+      ).outcome;
     }
     await lock.release();
     throw err;
