@@ -78,6 +78,11 @@ In scope:
   change.
 - Deleting duplicate production hot-path access callers only after searches show
   no remaining production users.
+- One test-only validation prerequisite in
+  `apps/core/test/e2e/brain-dream-review-notify.postgres.e2e.test.ts`: capture
+  the review id created by the operation under test instead of rediscovering it
+  from accumulated pending-review state. This does not change production
+  behavior or LAT-2 authority semantics.
 
 Non-goals:
 
@@ -142,6 +147,9 @@ Allowed test write scope:
 - `apps/core/test/integration/domain-repositories.postgres.integration.test.ts`
 - A LAT-2 focused Postgres query-count integration test may be added only if it
   uses `apps/core/test/harness/response-latency-postgres.ts`.
+- `apps/core/test/e2e/brain-dream-review-notify.postgres.e2e.test.ts`, limited
+  to making its created-review lookup independent of accumulated pending-review
+  rows so the full Postgres validation gate is deterministic.
 
 ## Acceptance Criteria
 
@@ -188,6 +196,8 @@ Allowed test write scope:
   existing services and are not routed through the per-turn snapshot.
 - Cleanup searches show no remaining duplicate production hot-path callers to
   the old per-turn helper combination before any helper is deleted.
+- The brain dream review notification E2E uses the review emitted by its own
+  operation and remains correct when prior pending reviews exist.
 - No new dependency is added.
 - The decomposition records `user_facing: false`.
 
@@ -417,6 +427,7 @@ Stage `LAT-2-CLEANUP-VERIFY`
 - Write scope:
   - duplicate helper imports/callers in production files already touched by this
     plan
+  - `apps/core/test/e2e/brain-dream-review-notify.postgres.e2e.test.ts`
   - `.factory/tests.json` through `record_test_from_json.py`
 - Dependencies:
   - `LAT-2-WIRE-RUNTIME-CONSUMERS`
@@ -424,6 +435,9 @@ Stage `LAT-2-CLEANUP-VERIFY`
   - Cleanup searches show no remaining production hot-path calls to the old
     duplicate helper combination.
   - Admin/control/review functions that use list/get repository methods remain.
+  - The brain dream review notification E2E captures the review created by the
+    current operation and passes when the database contains prior pending
+    reviews, without changing production code.
   - Focused unit tests, Postgres integration query-count proof, architecture
     check, typecheck, and deterministic verify are recorded with exact output or
     exact blockers.
