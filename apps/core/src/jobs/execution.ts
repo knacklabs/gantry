@@ -497,6 +497,18 @@ export async function runJob(
                       },
                     }
                   : {}),
+                ...(currentJob.agent_task?.completionGate &&
+                currentJob.agent_task.callerResolvedTools &&
+                currentJob.session_id
+                  ? {
+                      delegatedCompletionGate: {
+                        ...currentJob.agent_task.completionGate,
+                        interactionTimeoutMs:
+                          currentJob.agent_task.callerResolvedTools
+                            .interactionTimeoutMs,
+                      },
+                    }
+                  : {}),
                 effort: currentJob.agent_task?.modelControls?.effort,
                 configuredThinking:
                   currentJob.agent_task?.modelControls?.thinking,

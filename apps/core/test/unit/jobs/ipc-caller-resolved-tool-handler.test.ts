@@ -98,4 +98,67 @@ describe('caller-resolved delegated completion gate', () => {
       }),
     );
   });
+
+  it('authorizes a configured hidden root-job completion gate', async () => {
+    const acceptData = vi.fn();
+    const reject = vi.fn();
+    requestCallerResolvedTool.mockResolvedValue({
+      decision: 'accept',
+      progressToken: 'coverage:complete',
+    });
+    const handler = createCallerResolvedToolHandler({
+      responder: () => ({ acceptData, reject }) as never,
+      taskScope: () =>
+        ({
+          appId: 'app:test',
+          agentId: 'agent:tender',
+          conversationId: 'conversation-1',
+          threadId: null,
+          sandboxPolicy: {},
+        }) as never,
+    });
+
+    await handler({
+      sourceAgentFolder: 'tender',
+      data: {
+        runId: 'run-1',
+        jobId: 'job-1',
+        payload: {
+          toolName: 'validate_root_completion',
+          toolInput: { completionAttempt: 1 },
+        },
+      },
+      deps: {
+        opsRepository: {
+          getJobById: async () => ({
+            session_id: 'session-1',
+            agent_task: {
+              callerResolvedTools: {
+                tools: [
+                  {
+                    name: 'search',
+                    description: 'search',
+                    inputSchema: { type: 'object' },
+                  },
+                ],
+                maxInteractions: 1,
+                interactionTimeoutMs: 90_000,
+              },
+              completionGate: {
+                toolName: 'validate_root_completion',
+                maxNoProgressContinuations: 2,
+              },
+              executionPolicy: { totalTimeoutMs: 120_000 },
+            },
+          }),
+        },
+      },
+    } as never);
+
+    expect(reject).not.toHaveBeenCalled();
+    expect(acceptData).toHaveBeenCalledWith(
+      'Caller-resolved tool completed.',
+      expect.objectContaining({ decision: 'accept' }),
+    );
+  });
 });

@@ -39,6 +39,13 @@ export const JobAgentTaskSchema = z
       })
       .strict()
       .optional(),
+    completionGate: z
+      .object({
+        toolName: z.string().min(1).max(80),
+        maxNoProgressContinuations: z.number().int().positive().max(10),
+      })
+      .strict()
+      .optional(),
     executionPolicy: z
       .object({
         totalTimeoutMs: z

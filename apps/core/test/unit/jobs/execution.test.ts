@@ -1324,6 +1324,61 @@ describe('jobs/execution', () => {
     );
   });
 
+  it('projects a root-job completion gate into the shared runner gate', async () => {
+    const job = makeJob({
+      session_id: 'session-1',
+      agent_task: {
+        callerResolvedTools: {
+          tools: [
+            {
+              name: 'load_seeds',
+              description: 'Load source seeds.',
+              inputSchema: { type: 'object' },
+            },
+          ],
+          maxInteractions: 10,
+          interactionTimeoutMs: 90_000,
+        },
+        completionGate: {
+          toolName: 'validate_source_discovery_completion',
+          maxNoProgressContinuations: 2,
+        },
+        executionPolicy: { totalTimeoutMs: 30_000 },
+      },
+    });
+    const runAgent = vi.fn(async () => ({
+      status: 'success',
+      result: 'runtime flow completed',
+    }));
+
+    await runJob(
+      job,
+      {
+        conversationRoutes: () => ({ 'tg:scheduler': makeRoute() }),
+        queue: {} as never,
+        onProcess: () => {},
+        sendMessage: vi.fn(async () => undefined) as never,
+        opsRepository: makeOpsRepository(job) as never,
+        runAgent: runAgent as never,
+      },
+      'tg:scheduler',
+    );
+
+    expect(runAgent).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        delegatedCompletionGate: {
+          toolName: 'validate_source_discovery_completion',
+          maxNoProgressContinuations: 2,
+          interactionTimeoutMs: 90_000,
+        },
+      }),
+      expect.any(Function),
+      expect.any(Function),
+      expect.anything(),
+    );
+  });
+
   it('inherits selected skills and MCP servers from the target agent at run time', async () => {
     const job = makeJob();
     const opsRepository = {

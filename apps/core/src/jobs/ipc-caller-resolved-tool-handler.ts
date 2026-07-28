@@ -70,12 +70,18 @@ export function createCallerResolvedToolHandler(input: {
         ? parentTask.privateCorrelationJson.taskKey
         : null) ?? 'parent';
     const completionGate = job?.agent_task?.delegatedCompletionGate;
-    const isCompletionGate = Boolean(
+    const isDelegatedCompletionGate = Boolean(
       parentTaskId &&
       completionGate &&
       completionGate.toolName === toolName &&
       completionGate.taskKeys.includes(taskKey),
     );
+    const isRootCompletionGate = Boolean(
+      !parentTaskId &&
+      job?.agent_task?.completionGate?.toolName === toolName,
+    );
+    const isCompletionGate =
+      isDelegatedCompletionGate || isRootCompletionGate;
     if (
       !config ||
       !sessionId ||

@@ -39,6 +39,10 @@ export interface JobAgentTask {
     taskKeys: string[];
     maxNoProgressContinuations: number;
   };
+  completionGate?: {
+    toolName: string;
+    maxNoProgressContinuations: number;
+  };
   executionPolicy: { totalTimeoutMs: number };
   modelControls?: {
     effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
