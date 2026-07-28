@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import fs from 'fs';
 import fsp from 'fs/promises';
 import os from 'os';
@@ -341,7 +342,7 @@ describe('profile file mirror', () => {
     });
     fs.mkdirSync(path.dirname(targetPath), { recursive: true });
     fs.writeFileSync(targetPath, '# existing', 'utf-8');
-    vi.spyOn(fsp, 'readFile').mockRejectedValueOnce(
+    vi.spyOn(fsp, 'open').mockRejectedValueOnce(
       Object.assign(new Error('permission denied'), { code: 'EACCES' }),
     );
 
@@ -354,6 +355,91 @@ describe('profile file mirror', () => {
     ).rejects.toMatchObject({ code: 'EACCES' });
 
     expect(fs.readFileSync(targetPath, 'utf-8')).toBe('# existing');
+  });
+
+  it('fails closed without following a symlinked mirror target', async () => {
+    const runtimeHome = makeRuntimeHome();
+    const input = {
+      runtimeHome,
+      agentFolder: 'symlinked_target_agent',
+      fileName: 'SOUL.md',
+    };
+    const targetPath = profileMirrorPath(input.agentFolder, input.fileName, {
+      runtimeHome,
+    });
+    const outsidePath = path.join(runtimeHome, 'outside.md');
+    fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+    fs.writeFileSync(
+      outsidePath,
+      '# outside\n<!-- gantry-profile-version: 11 -->',
+      'utf-8',
+    );
+    fs.symlinkSync(outsidePath, targetPath);
+
+    await expect(
+      writeProfileFileMirror({
+        ...input,
+        content: '# must not replace',
+        version: 12,
+      }),
+    ).rejects.toMatchObject({ code: 'ELOOP' });
+
+    expect(fs.lstatSync(targetPath).isSymbolicLink()).toBe(true);
+    expect(fs.readFileSync(outsidePath, 'utf-8')).toBe(
+      '# outside\n<!-- gantry-profile-version: 11 -->',
+    );
+  });
+
+  it('fails closed on a FIFO without waiting for a writer', async () => {
+    const runtimeHome = makeRuntimeHome();
+    const input = {
+      runtimeHome,
+      agentFolder: 'fifo_target_agent',
+      fileName: 'SOUL.md',
+    };
+    const targetPath = profileMirrorPath(input.agentFolder, input.fileName, {
+      runtimeHome,
+    });
+    fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+    execFileSync('mkfifo', [targetPath]);
+
+    await expect(
+      writeProfileFileMirror({
+        ...input,
+        content: '# must not replace',
+        version: 12,
+      }),
+    ).rejects.toThrow('not a regular file');
+
+    expect(fs.lstatSync(targetPath).isFIFO()).toBe(true);
+  }, 1_000);
+
+  it('reads only a bounded tail when checking a large mirror target', async () => {
+    const runtimeHome = makeRuntimeHome();
+    const input = {
+      runtimeHome,
+      agentFolder: 'large_target_agent',
+      fileName: 'SOUL.md',
+    };
+    const targetPath = profileMirrorPath(input.agentFolder, input.fileName, {
+      runtimeHome,
+    });
+    const marker = '\n<!-- gantry-profile-version: 11 -->';
+    fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+    fs.writeFileSync(targetPath, `${'x'.repeat(2 * 1024 * 1024)}${marker}`);
+    const probe = await fsp.open(targetPath, 'r');
+    const readSpy = vi.spyOn(Object.getPrototypeOf(probe), 'read');
+    await probe.close();
+
+    await writeProfileFileMirror({
+      ...input,
+      content: '# stale v10',
+      version: 10,
+    });
+
+    expect(readSpy).toHaveBeenCalledTimes(1);
+    expect(readSpy.mock.calls[0]?.[2]).toBeLessThanOrEqual(1024);
+    expect(readRawMirror(input).endsWith(marker)).toBe(true);
   });
 
   it('serializes overlapping writes to the same target', async () => {
@@ -542,6 +628,7 @@ describe('profile file mirror', () => {
     } catch {
       return;
     }
+    const openSpy = vi.spyOn(fsp, 'open');
 
     await expect(
       writeProfileFileMirror({
@@ -551,5 +638,6 @@ describe('profile file mirror', () => {
         content: '# unsafe',
       }),
     ).rejects.toThrow('not a safe directory');
+    expect(openSpy).not.toHaveBeenCalled();
   });
 });

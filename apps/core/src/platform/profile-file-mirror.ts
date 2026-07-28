@@ -1,4 +1,5 @@
 import fs from 'fs';
+import { constants as fsConstants } from 'fs';
 import fsp from 'fs/promises';
 import type { FileHandle } from 'fs/promises';
 import { randomUUID } from 'node:crypto';
@@ -20,6 +21,8 @@ export const PROFILE_MIRROR_HEADER =
 
 const mirrorWriteChainByTarget = new Map<string, Promise<void>>();
 
+const PROFILE_MIRROR_VERSION_TAIL_BYTES = 1024;
+
 const PROFILE_MIRROR_MARKER_PATTERN =
   /\r?\n<!-- gantry-profile-version: ([^\r\n]*?) -->$/;
 
@@ -35,12 +38,57 @@ function parseProfileMirrorVersion(content: string): number | undefined {
 async function readRecordedMirrorVersion(
   targetPath: string,
 ): Promise<number | undefined> {
+  let handle: FileHandle;
   try {
-    return parseProfileMirrorVersion(await fsp.readFile(targetPath, 'utf-8'));
+    handle = await fsp.open(targetPath, profileMirrorReadOpenFlags());
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
     throw err;
   }
+  try {
+    const stat = await handle.stat();
+    if (!stat.isFile()) {
+      throw new Error(
+        `Profile mirror target is not a regular file: ${targetPath}`,
+      );
+    }
+    const length = Math.min(stat.size, PROFILE_MIRROR_VERSION_TAIL_BYTES);
+    const position = stat.size - length;
+    const tail = Buffer.allocUnsafe(length);
+    let bytesRead = 0;
+    while (bytesRead < length) {
+      const result = await handle.read(
+        tail,
+        bytesRead,
+        length - bytesRead,
+        position + bytesRead,
+      );
+      if (result.bytesRead === 0) break;
+      bytesRead += result.bytesRead;
+    }
+    return parseProfileMirrorVersion(
+      tail.subarray(0, bytesRead).toString('utf-8'),
+    );
+  } finally {
+    await handle.close();
+  }
+}
+
+function profileMirrorReadOpenFlags(): number {
+  // O_NOFOLLOW guards the FINAL component, which is all we need here: the
+  // containing directory is validated separately by
+  // ensureSafeProfileMirrorDirectory. Do NOT use darwin's O_NOFOLLOW_ANY — it
+  // rejects a symlink anywhere in the path, and macOS temp dirs live under
+  // /var/folders where /var itself is a symlink to /private/var, so ordinary
+  // files fail with ELOOP.
+  if (process.platform === 'darwin' || process.platform === 'linux') {
+    return (
+      fsConstants.O_RDONLY | fsConstants.O_NONBLOCK | fsConstants.O_NOFOLLOW
+    );
+  }
+  throw new Error(
+    'Profile mirror version reads are unsupported on this platform',
+  );
 }
 
 export function stripProfileMirrorMarker(content: string): string {
@@ -128,6 +176,7 @@ export async function writeProfileFileMirror(input: {
   const previousWrite =
     mirrorWriteChainByTarget.get(targetPath) ?? Promise.resolve();
   const write = previousWrite.then(async () => {
+    await ensureSafeProfileMirrorDirectory(dir);
     const recordedVersion = await readRecordedMirrorVersion(targetPath);
     if (
       input.version !== undefined &&
@@ -174,21 +223,7 @@ async function writeProfileFileMirrorAtomic(input: {
   version?: number;
 }): Promise<void> {
   const { dir, mirrorFileName, targetPath } = input;
-  try {
-    const existingDirStat = await fsp.lstat(dir);
-    if (!existingDirStat.isDirectory() || existingDirStat.isSymbolicLink()) {
-      throw new Error(
-        `Profile mirror directory is not a safe directory: ${dir}`,
-      );
-    }
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
-  }
-  await fsp.mkdir(dir, { recursive: true, mode: 0o700 });
-  const dirStat = await fsp.lstat(dir);
-  if (!dirStat.isDirectory() || dirStat.isSymbolicLink()) {
-    throw new Error(`Profile mirror directory is not a safe directory: ${dir}`);
-  }
+  await ensureSafeProfileMirrorDirectory(dir);
   const tmpPath = path.join(
     dir,
     `.${mirrorFileName}.${process.pid}.${randomUUID()}.tmp`,
@@ -208,6 +243,24 @@ async function writeProfileFileMirrorAtomic(input: {
     if (handle) await handle.close().catch(() => undefined);
     await fsp.rm(tmpPath, { force: true }).catch(() => undefined);
     throw err;
+  }
+}
+
+async function ensureSafeProfileMirrorDirectory(dir: string): Promise<void> {
+  try {
+    const existingDirStat = await fsp.lstat(dir);
+    if (!existingDirStat.isDirectory() || existingDirStat.isSymbolicLink()) {
+      throw new Error(
+        `Profile mirror directory is not a safe directory: ${dir}`,
+      );
+    }
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+  }
+  await fsp.mkdir(dir, { recursive: true, mode: 0o700 });
+  const dirStat = await fsp.lstat(dir);
+  if (!dirStat.isDirectory() || dirStat.isSymbolicLink()) {
+    throw new Error(`Profile mirror directory is not a safe directory: ${dir}`);
   }
 }
 
