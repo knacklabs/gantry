@@ -1231,6 +1231,35 @@ describe('control server runtime hardening', () => {
       );
       expect(response.status).toBe(200);
       const body = await response.json();
+      const nativeOpenAiModels = body.models.filter(
+        (model: { modelRoute?: { id?: string } }) =>
+          model.modelRoute?.id === 'openai',
+      );
+      expect(
+        nativeOpenAiModels.map(
+          (model: { aliases: string[] }) => model.aliases[0],
+        ),
+      ).toEqual([
+        'gpt',
+        'gpt-5.4',
+        'gpt-mini',
+        'gpt-terra',
+        'gpt-luna',
+        'gpt-sol',
+      ]);
+      for (const model of nativeOpenAiModels as Array<{
+        aliases: string[];
+        supportedWorkloads: string[];
+      }>) {
+        expect(model.supportedWorkloads, model.aliases[0]).toEqual([
+          'chat',
+          'one_time_job',
+          'recurring_job',
+          'memory_extractor',
+          'memory_dreaming',
+          'memory_consolidation',
+        ]);
+      }
       expect(body.models).toEqual(
         expect.arrayContaining([
           expect.objectContaining({
@@ -1238,6 +1267,8 @@ describe('control server runtime hardening', () => {
             aliases: ['gpt-terra', 'gpt-5.6-terra'],
             supportedWorkloads: [
               'chat',
+              'one_time_job',
+              'recurring_job',
               'memory_extractor',
               'memory_dreaming',
               'memory_consolidation',
@@ -1250,6 +1281,8 @@ describe('control server runtime hardening', () => {
             aliases: ['gpt-luna', 'gpt-5.6-luna'],
             supportedWorkloads: [
               'chat',
+              'one_time_job',
+              'recurring_job',
               'memory_extractor',
               'memory_dreaming',
               'memory_consolidation',
@@ -1262,6 +1295,8 @@ describe('control server runtime hardening', () => {
             aliases: ['gpt-sol', 'gpt-5.6-sol'],
             supportedWorkloads: [
               'chat',
+              'one_time_job',
+              'recurring_job',
               'memory_extractor',
               'memory_dreaming',
               'memory_consolidation',

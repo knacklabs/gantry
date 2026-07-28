@@ -196,9 +196,9 @@ gantry model set chat grok
 gantry model set chat opus
 ```
 
-No API key belongs in `settings.yaml`. The GPT-5.6 aliases support chat and the
-three memory workloads; they are intentionally not offered for one-time or
-recurring jobs. `grok` now selects Grok 4.5 for chat, memory, and jobs, while
+No API key belongs in `settings.yaml`. The GPT-5.6 aliases support chat,
+memory, one-time job, and recurring-job workloads. `grok` now selects Grok 4.5 for
+chat, memory, and jobs, while
 the pinned `grok-4.3` alias remains available. `opus` now selects Claude Opus
 5 for chat and jobs, while `opus-4.8` remains pinned to Claude Opus 4.8.
 

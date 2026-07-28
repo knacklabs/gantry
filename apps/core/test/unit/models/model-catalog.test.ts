@@ -28,6 +28,24 @@ function rowFor(text: string, alias: string): string {
   return line;
 }
 
+const NATIVE_OPENAI_JOB_ALIASES = [
+  'gpt',
+  'gpt-5.4',
+  'gpt-mini',
+  'gpt-terra',
+  'gpt-luna',
+  'gpt-sol',
+] as const;
+
+const COMPLETE_OPENAI_WORKLOADS = [
+  'chat',
+  'one_time_job',
+  'recurring_job',
+  'memory_extractor',
+  'memory_dreaming',
+  'memory_consolidation',
+] as const;
+
 describe('model catalog resolution', () => {
   afterEach(() => {
     configureCustomModelCatalogEntries([]);
@@ -167,6 +185,8 @@ describe('model catalog resolution', () => {
         supportsTools: true,
         supportedWorkloads: [
           'chat',
+          'one_time_job',
+          'recurring_job',
           'memory_extractor',
           'memory_dreaming',
           'memory_consolidation',
@@ -208,6 +228,8 @@ describe('model catalog resolution', () => {
       supportsTools: true,
       supportedWorkloads: [
         'chat',
+        'one_time_job',
+        'recurring_job',
         'memory_extractor',
         'memory_dreaming',
         'memory_consolidation',
@@ -292,6 +314,8 @@ describe('model catalog resolution', () => {
       capabilities,
       supportedWorkloads: [
         'chat',
+        'one_time_job',
+        'recurring_job',
         'memory_extractor',
         'memory_dreaming',
         'memory_consolidation',
@@ -588,11 +612,40 @@ describe('model catalog resolution', () => {
     ).not.toContain('openai.gpt-oss-safeguard-120b');
   });
 
-  it('scopes OpenAI chat models to chat and memory workloads, not jobs', () => {
-    expect(resolveModelSelectionForWorkload('gpt', 'chat')).toMatchObject({
-      ok: true,
-      alias: 'gpt',
-    });
+  it('scopes every native OpenAI chat model to chat, memory, and job workloads', () => {
+    for (const alias of NATIVE_OPENAI_JOB_ALIASES) {
+      const resolved = resolveModelSelection(alias);
+      if (!resolved.ok) throw new Error(resolved.message);
+      expect(resolved.entry.modelRoute.id, alias).toBe('openai');
+      expect(resolved.entry.supportedWorkloads, alias).toEqual(
+        COMPLETE_OPENAI_WORKLOADS,
+      );
+      for (const workload of COMPLETE_OPENAI_WORKLOADS) {
+        expect(
+          resolveModelSelectionForWorkload(alias, workload),
+          `${alias} ${workload}`,
+        ).toMatchObject({
+          ok: true,
+          alias,
+        });
+      }
+    }
+
+    for (const [alias, provider] of [
+      ['opus', 'anthropic'],
+      ['grok', 'xai'],
+    ] as const) {
+      const resolved = resolveModelSelection(alias);
+      if (!resolved.ok) throw new Error(resolved.message);
+      expect(resolved.entry.modelRoute.id).toBe(provider);
+      expect(
+        resolveModelSelectionForWorkload(alias, 'one_time_job'),
+      ).toMatchObject({ ok: true, alias });
+      expect(
+        resolveModelSelectionForWorkload(alias, 'recurring_job'),
+      ).toMatchObject({ ok: true, alias });
+    }
+
     // OpenAI gpt entries now declare the memory workloads so a zero-Anthropic
     // deployment can select them for memory under the deepagents memory engine.
     for (const workload of [
@@ -608,13 +661,6 @@ describe('model catalog resolution', () => {
         resolveModelSelectionForWorkload('gpt-mini', workload),
       ).toMatchObject({ ok: true, alias: 'gpt-mini' });
     }
-    // Jobs remain out of scope for OpenAI-lane chat models.
-    expect(
-      resolveModelSelectionForWorkload('gpt', 'one_time_job'),
-    ).toMatchObject({
-      ok: false,
-      reason: 'unsupported-workload',
-    });
   });
 
   it('uses catalog aliases for setup and curated memory LLM defaults', () => {

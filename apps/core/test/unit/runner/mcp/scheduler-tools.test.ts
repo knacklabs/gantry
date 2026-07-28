@@ -88,9 +88,12 @@ describe('scheduler MCP tools', () => {
     expect(text).toContain('glm-5.2 | GLM 5.2');
     expect(text).toContain('grok | Grok 4.5');
     expect(text).toContain('grok-4.3 | Grok 4.3');
-    expect(text).not.toContain('GPT-5.6 Terra');
-    expect(text).not.toContain('GPT-5.6 Luna');
-    expect(text).not.toContain('GPT-5.6 Sol');
+    expect(text).toContain('gpt | GPT-5.5');
+    expect(text).toContain('gpt-5.4 | GPT-5.4');
+    expect(text).toContain('gpt-mini | GPT-5.4 mini');
+    expect(text).toContain('gpt-terra | GPT-5.6 Terra');
+    expect(text).toContain('gpt-luna | GPT-5.6 Luna');
+    expect(text).toContain('gpt-sol | GPT-5.6 Sol');
     expect(text).toContain('Base cost (in/out per 1M)');
     expect(text).toContain('Response family');
 

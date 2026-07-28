@@ -34,6 +34,8 @@ type ExecutableModelEntryFn = (input: {
 
 const OPENAI_MODEL_WORKLOADS = [
   'chat',
+  'one_time_job',
+  'recurring_job',
   'memory_extractor',
   'memory_dreaming',
   'memory_consolidation',

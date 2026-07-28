@@ -159,16 +159,27 @@ describe('model provider registry', () => {
     expect(getModelProviderDefinition('xai')?.batch).toBeUndefined();
   });
 
-  it('makes OpenAI an executable chat and memory model route', () => {
+  it('makes OpenAI an executable chat, job, and memory model route matching the native catalog', () => {
     const openai = getModelProviderDefinition('openai');
+    const nativeOpenAiWorkloads = new Set(
+      listModelCatalogEntries()
+        .filter((entry) => entry.modelRoute.id === 'openai')
+        .map((entry) => JSON.stringify(entry.supportedWorkloads)),
+    );
+
     expect(openai?.executable).toBe(true);
     expect(openai?.modelRoute).toBe(true);
     expect(openai?.supportedWorkloads).toEqual([
       'chat',
+      'one_time_job',
+      'recurring_job',
       'memory_extractor',
       'memory_dreaming',
       'memory_consolidation',
     ]);
+    expect(nativeOpenAiWorkloads).toEqual(
+      new Set([JSON.stringify(openai?.supportedWorkloads)]),
+    );
     expect(openai?.gateway.sdkProjection).toMatchObject({
       baseUrlEnv: 'OPENAI_BASE_URL',
       tokenEnv: 'OPENAI_API_KEY',

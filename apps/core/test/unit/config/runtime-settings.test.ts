@@ -655,18 +655,30 @@ provider_accounts:
   });
 
   it('round-trips the new built-in aliases and enforces their workloads', () => {
+    const defaults = createDefaultRuntimeSettings();
+    expect(defaults.agent.oneTimeJobDefaultModel).toBe('');
+    expect(defaults.agent.recurringJobDefaultModel).toBe('');
+    expect(renderRuntimeSettingsYaml(defaults)).not.toContain(
+      'one_time_model:',
+    );
+    expect(renderRuntimeSettingsYaml(defaults)).not.toContain(
+      'recurring_model:',
+    );
+
     const settings = createDefaultRuntimeSettings();
     settings.agent.defaultModel = 'gpt-terra';
-    settings.agent.oneTimeJobDefaultModel = 'grok';
-    settings.agent.recurringJobDefaultModel = 'grok-4.5';
+    settings.agent.oneTimeJobDefaultModel = 'gpt-terra';
+    settings.agent.recurringJobDefaultModel = 'gpt-luna';
     settings.memory.llm.models.extractor = 'gpt-luna';
 
     const yaml = renderRuntimeSettingsYaml(settings);
+    expect(yaml).toContain('one_time_model: gpt-terra');
+    expect(yaml).toContain('recurring_model: gpt-luna');
     expect(yaml).not.toContain('model_aliases:');
     const parsed = parseRuntimeSettings(yaml);
     expect(parsed.agent.defaultModel).toBe('gpt-terra');
-    expect(parsed.agent.oneTimeJobDefaultModel).toBe('grok');
-    expect(parsed.agent.recurringJobDefaultModel).toBe('grok-4.5');
+    expect(parsed.agent.oneTimeJobDefaultModel).toBe('gpt-terra');
+    expect(parsed.agent.recurringJobDefaultModel).toBe('gpt-luna');
     expect(parsed.memory.llm.models.extractor).toBe('gpt-luna');
 
     const valid = validateLoadedRuntimeSettings('/tmp/gantry-missing', parsed);
@@ -674,20 +686,16 @@ provider_accounts:
       'model is invalid',
     );
 
-    parsed.agent.oneTimeJobDefaultModel = 'gpt-terra';
-    parsed.agent.recurringJobDefaultModel = 'gpt-luna';
+    parsed.agent.oneTimeJobDefaultModel = 'sonet';
+    parsed.agent.recurringJobDefaultModel = 'sonet';
     const invalid = validateLoadedRuntimeSettings(
       '/tmp/gantry-missing',
       parsed,
     );
     expect(invalid.failure?.details).toEqual(
       expect.arrayContaining([
-        expect.stringContaining(
-          'agent.one_time_job_default_model is invalid: Model alias "gpt-terra"',
-        ),
-        expect.stringContaining(
-          'agent.recurring_job_default_model is invalid: Model alias "gpt-luna"',
-        ),
+        expect.stringContaining('agent.one_time_job_default_model is invalid'),
+        expect.stringContaining('agent.recurring_job_default_model is invalid'),
       ]),
     );
   });
