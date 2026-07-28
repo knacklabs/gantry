@@ -1,10 +1,7 @@
 import type { AppId } from '../../domain/app/app.js';
 import type { SettingsRevisionRepository } from '../../domain/ports/fleet-capability-state.js';
 import type { RuntimeLeasePort } from '../../domain/ports/runtime-lease.js';
-import {
-  loadRuntimeSettings,
-  saveRuntimeSettings,
-} from './runtime-settings.js';
+import { loadRuntimeSettings } from './runtime-settings.js';
 import { classifySettingsChanges } from './desired-state-service-helpers.js';
 import {
   importWorkstationSettings,
@@ -47,6 +44,9 @@ let storageProvider:
     }) => Promise<DesiredSettingsWriteStorage | undefined>)
   | undefined;
 
+const SETTINGS_MUTATION_REQUIRES_RUNTIME_STORAGE =
+  'Settings mutation requires runtime storage so settings_revisions can be durably appended.';
+
 export function configureDesiredSettingsStorageProvider(
   provider:
     | ((input?: {
@@ -73,20 +73,11 @@ export async function writeDesiredRuntimeSettings(input: {
 }): Promise<DesiredRuntimeSettingsWriteResult> {
   const deploymentMode = input.settings.runtime.deploymentMode;
   if (!storageProvider) {
-    const previousSettings =
-      input.previousSettings ?? loadRuntimeSettings(input.runtimeHome);
-    const restartRequired = classifySettingsChanges(
-      previousSettings,
-      input.settings,
-    ).restartRequired;
-    saveRuntimeSettings(input.runtimeHome, input.settings);
-    return { reconciled: false, restartRequired };
+    throw new Error(SETTINGS_MUTATION_REQUIRES_RUNTIME_STORAGE);
   }
   const storage = await storageProvider({ settings: input.settings });
   if (!storage) {
-    throw new Error(
-      'Settings mutation requires runtime storage so settings_revisions can be durably appended.',
-    );
+    throw new Error(SETTINGS_MUTATION_REQUIRES_RUNTIME_STORAGE);
   }
   if (!deploymentMode) {
     await storage.close?.();
