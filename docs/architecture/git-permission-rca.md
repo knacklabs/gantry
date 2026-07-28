@@ -1,5 +1,14 @@
 <!-- Promoted verbatim from the session scratchpad (git-permission-rca.md) on 2026-07-22; RCA referenced by permission-engine-redesign-goal-prompt.md. -->
 
+> **Historical incident snapshot (2026-07-22).** The evidence and conclusions
+> below describe the runtime deployed during that incident. They are retained
+> for traceability, not as the current permission or sandbox contract. The
+> current runtime no longer has the SDK filesystem/network sandbox described in
+> section C; `direct` has no inner execution confinement, while optional
+> `sandbox_runtime` supplies the outer jail. See
+> [`capability-management.md`](./capability-management.md) and
+> [`runtime-components.md`](./runtime-components.md).
+
 ## Root-cause report
 
 ### A. What the live logs actually prove
@@ -99,4 +108,3 @@ The main agent is already direct. Routing Git—or all trusted `RunCommand`s—t
 5. **Do not change the current sandbox gate without a reproduced denial.** If improved telemetry later identifies a denylisted/unresolvable host or protected clone target, fix that specific policy in `sdk-sandbox-network-gate.ts` or `filesystem-sandbox.ts`. The present logs do not justify such a change.
 
 Plain-English verdict: the main agent is already in direct mode, but “direct” only removes the outer runner sandbox; Bash still uses the SDK safety boundary. The confirmed problem is authorization: Git commands do not match the narrowly scoped rule, Git is intentionally absent from the silent-read allowlist, and the fallback classifier sometimes asks. The apparent sandbox event was an older, mislabeled successful token-mint event—not proof that Git was blocked. The real fix is reviewed, canonical Git capability/rule coverage plus better logging, not routing commands around the sandbox. No files were changed; `git diff` remained empty.
-

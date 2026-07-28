@@ -102,9 +102,9 @@ Cite the existing test for each proven row; add only the rightmost boundary gap.
 - `auto_strict`: asks WITHOUT classifier only when deterministic safety is
   unproven; deterministic-PROVEN input still calls the strict classifier (does NOT
   auto-allow from the gate alone) — classifier.test.ts:614-667.
-- YOLO denylist hit → returns `ask` + emits `permission.yolo_denylist_hit`; an
-  unattended/locked parent flow may CONVERT that ask to denial (name the context;
-  it's not universally "blocked") — classifier.test.ts:868-941.
+- YOLO denylist hit → host hard-deny + `permission.yolo_denylist_hit` before
+  cache, classifier, or human prompt — prove no execution and no pending
+  interaction through the real decision chain.
 - Durable authority = `RunCommand(...)` ARGV-LEAF scope (NOT a command-name class;
   command-name class is the separate permission-lane's future change). Each simple
   command leaf matches its own rule — permission-suggestion-synthesis.test.ts,
@@ -116,7 +116,9 @@ Cite the existing test for each proven row; add only the rightmost boundary gap.
   change) — request-permission-review.test.ts:429-505.
 - Locked-agent forged IPC → fail-closed at parent boundary —
   ipc-locked-permission-denial.test.ts.
-- Eligibility → only Bash/RunCommand + non-gantry MCP reach the classifier.
+- Eligibility → tool-family Bash/RunCommand, MCP (including Gantry), and bare
+  Gantry-native canonical tools may reach the classifier; admin, review, and
+  promotion request families do not.
 Remaining integration GAPS to add (the only new work): one real chain through the
 parent callback/IPC boundary → durable interaction → decision → event repository;
 attended-vs-unattended context proof; promotion RESTART SURVIVAL + record-before-
@@ -311,9 +313,10 @@ needs the packaged real-turn path.
 Typed `AgentE2EScenario` + `AgentE2EEvidence` under `apps/core/test/agent-e2e/`.
 Start the EXACT CI-built image (immutable artifact) with isolated `GANTRY_HOME`,
 disposable Postgres, real migrations, isolated non-production encryption/IPC
-secrets, an enforcing `sandbox_runtime` config (the production image sets
-NODE_ENV=production → security posture requires enforcing sandbox + non-prod
-secrets independent of model access — `security-posture.ts:31-80`), restart once,
+secrets, and an explicitly selected sandbox provider (`direct` or
+`sandbox_runtime`). The production image sets `NODE_ENV=production`, so the
+security posture requires strong secrets independent of model access but does
+not choose confinement (`security-posture.ts:31-80`). Restart once,
 then drive onboarding + model selection via API (above), then a real Control API
 turn: `POST /v1/sessions/ensure` (sessions:write) → `POST
 /v1/sessions/{id}/messages` (returns 202 — NOT completion) → observe events via

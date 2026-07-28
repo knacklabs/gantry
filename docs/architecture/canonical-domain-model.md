@@ -233,7 +233,10 @@ rules, decision, approver when applicable, expiration, and run/tool context.
 execution is one possible sandbox implementation, not the domain model.
 
 `SandboxLease` grants a run or tool call permission to use a sandbox profile for
-a bounded time and scope. Leases are created only after permission evaluation.
+a bounded time and scope. The model requires a lease to be created only after
+permission evaluation. The current production runner does not yet create these
+leases; `sandbox_runtime` enforcement works without that lifecycle/audit record,
+and `direct` intentionally has no sandbox lease.
 
 ### Workspace And Browser
 
@@ -243,7 +246,9 @@ content hashes when available. It makes runs reproducible and auditable.
 
 `BrowserProfile` is a named browser identity owned by an app or agent. It
 stores profile metadata, browser state references, auth markers, and usage
-policy. Browser profile use still requires permission and sandbox checks.
+policy. Browser profile use still requires permission checks. When a run
+selects `sandbox_runtime`, it also requires sandbox compatibility and
+enforcement checks; `direct` has no inner sandbox check.
 
 ## Provider Conversation Mapping
 

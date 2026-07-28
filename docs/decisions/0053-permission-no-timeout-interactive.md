@@ -25,11 +25,21 @@ a no-timeout value. The JOB lane is UNCHANGED: it already rejects immediately
 (timeout 0) and pauses durably, resuming the same work via the recovery
 orchestrator when the admin approves.
 
+## Implementation Note — 2026-07-28
+
+The interactive runner wait is indefinite as decided. The prompt formatter
+currently rounds timeout `0` up and displays `Reply in 1m`; that stale text is a
+display bug and does not create a one-minute deadline. The job recovery path
+also currently queues replacement work after releasing the prior lease rather
+than resuming the same fenced run.
+
 ## Consequences
 - A live turn holds its runner slot while waiting — accepted tradeoff; the human
   cancels/aborts to release it. Jobs pause durably and hold no slot.
 - Preserves the durable begin/recover pipeline, the job immediate-reject-then-
   pause path, the cancel/abort escapes, and the 24h GC TTL (not a timebox).
-- Removes the "reply within N minutes" prompt text (no deadline to show).
-- Fully implements the killed-5-min-timebox decision — see
-  [[no-timed-grant-permission]] and [[permission-holistic-redesign]].
+- The prompt should not display "reply within N minutes"; the implementation
+  note above records the remaining renderer defect.
+- Implements the live-wait portion of the killed-5-min-timebox decision; the
+  remaining display and same-fenced-run recovery gaps are called out above.
+  See [[no-timed-grant-permission]] and [[permission-holistic-redesign]].

@@ -9,9 +9,9 @@
 ## TL;DR
 
 1. Gantry now has a `RunnerSandboxProvider` spawn seam at `apps/core/src/runtime/agent-spawn-process.ts`, with fail-closed behavior when the configured provider cannot start.
-2. `runtime.sandbox.provider` selects either `direct` or the enforcing `sandbox_runtime` provider. `direct` preserves local compatibility and is not an OS sandbox.
+2. `runtime.sandbox.provider` selects either `direct` or the enforcing `sandbox_runtime` provider. `direct` is supported in every deployment mode and has no inner OS sandbox; `sandbox_runtime` is optional defense-in-depth.
 3. The enforcing provider uses pinned `@anthropic-ai/sandbox-runtime@0.0.52` (Bubblewrap on Linux, Seatbelt on macOS), a per-run config file, broad read with protected-path read denies, workspace/runtime/temp writes with protected-path write denies, approved `networkHosts`, and Gantry's egress proxy. In this mode Gantry uses one whole-runner OS sandbox instead of nesting the Claude SDK sandbox inside it.
-4. Resource caps are settings-owned under `runtime.sandbox.resource_limits` and are applied before the runner starts.
+4. Sandbox resource caps are settings-owned under `runtime.sandbox.resource_limits` and are applied by `sandbox_runtime` before the runner starts; queue limits still bound both providers.
 5. Stdio MCP projected into the model runner is contained by the same whole-runner sandbox when `runtime.sandbox.provider: sandbox_runtime` is configured. The separate admin/current-session MCP proxy remains fail-closed for stdio unless it is wired to an enforcing sandbox provider.
 6. Live turns, scheduled job prompt runs, scheduler recovery turns, and native SDK subagents share this same runner boundary. Native subagents run inside the parent SDK process; host-owned system jobs remain trusted control-plane work.
 
@@ -21,8 +21,12 @@
 
 `runtime.sandbox.provider` is the only v1 execution-mode authority.
 
-- `direct`: personal/laptop compatibility mode. It is the easiest local setup and has no outer OS sandbox.
-- `sandbox_runtime`: enforcing single-host mode. Use this for organisation and safe-host deployments after `gantry doctor` confirms host support.
+- `direct`: first-class mode for workstation or fleet. It has no inner OS jail;
+  Gantry authorization plus the host/container/VM deployment boundary are the
+  controls.
+- `sandbox_runtime`: optional enforcing defense-in-depth. Use it when an
+  additional whole-runner OS jail is wanted and `gantry doctor` confirms host
+  support.
 - Docker/cloud sandbox: future optional backend. It is not required for v1 and does not create a separate organisation mode.
 
 Browser stays host-managed through Gantry IPC. Stdio MCP servers, local CLIs, skills, jobs, and native subagents follow the configured sandbox provider. The sandbox does not install tools; missing CLI binaries, MCP servers, skill dependencies, or auth preflights are setup blockers, not permissions. In `sandbox_runtime`, networked tools must use standard proxy-aware clients (`HTTP_PROXY`, `HTTPS_PROXY`, or `ALL_PROXY`); tools that bypass those proxies fail closed.
@@ -44,7 +48,8 @@ gantry doctor
 gantry status
 ```
 
-Expected status labels are `Sandbox: direct (compatibility, no OS sandbox)` and `Sandbox: sandbox_runtime (enforcing)`.
+`gantry status` reports the selected provider and whether it is enforcing:
+`direct` is non-enforcing and `sandbox_runtime` is enforcing.
 
 ---
 
@@ -119,7 +124,7 @@ Use the **`RunnerSandboxProvider` port** and route the spawn in `agent-spawn-pro
 
 ```
 agent-spawn-process          ──►  RunnerSandboxProvider.start(spec)
-                                     ├─ direct provider             (compatibility; not enforcing)
+                                     ├─ direct provider             (first-class; not enforcing)
                                      ├─ SandboxRuntimeRunnerSandboxProvider (@anthropic-ai/sandbox-runtime: bwrap / Seatbelt)
                                      └─ RemoteSandboxProvider       (LATER: cloud microVM / deepagents remote backend)
 ```
@@ -129,10 +134,20 @@ agent-spawn-process          ──►  RunnerSandboxProvider.start(spec)
 - If a configured hardened provider cannot satisfy the profile, it must **fail closed**.
 - Keep the interface **host-agnostic** so `RemoteSandboxProvider` drops in unchanged later.
 - The provider is command-generic: callers pass an explicit executable, cwd, runtime write paths, and protected paths. The read policy stays broad except explicit protected read denies so macOS/Linux tooling can resolve interpreters, linked libraries, and package stores without bespoke allowlists.
-- Do not nest the Claude SDK filesystem sandbox inside `sandbox_runtime`; macOS Seatbelt rejects nested sandboxing in practice. The outer runner sandbox is the OS boundary for SDK-managed Bash/file/MCP subprocesses in enforcing mode, while `direct` mode keeps the Claude SDK sandbox. In outer-sandbox mode, mark the Claude Code child as already sandboxed, prefer the resolved `claude` executable on `PATH` when present, allow generated Claude session/cache state under the per-agent config directory, per-run temp directory, and Claude Code's uid-scoped temp directory, and keep stable settings, MCP, and skill definitions deny-write protected.
+- Do not request a Claude SDK filesystem sandbox in either mode. In `direct`,
+  authorization and credential/protected-path rails are authoritative and the
+  deployment boundary provides isolation. In `sandbox_runtime`, the outer
+  runner sandbox is the OS boundary for SDK-managed Bash/file/MCP subprocesses.
+  In outer-sandbox mode, mark the Claude Code child as already sandboxed, prefer
+  the resolved `claude` executable on `PATH` when present, allow generated Claude
+  session/cache state under the per-agent config directory, per-run temp
+  directory, and Claude Code's uid-scoped temp directory, and keep stable
+  settings, MCP, and skill definitions deny-write protected.
 - On macOS, enable sandbox-runtime's weaker network isolation only for the enforcing outer sandbox so Go-based approved CLIs can verify TLS through `com.apple.trustd.agent`; Gantry's egress proxy and domain audit still enforce outbound policy.
 
-This keeps the host runner provider-neutral. `direct` is explicit compatibility mode; `sandbox_runtime` is the single-host OS enforcement mode.
+This keeps the host runner provider-neutral. `direct` is a first-class
+non-enforcing mode; `sandbox_runtime` is the optional single-host OS enforcement
+mode.
 
 ---
 
@@ -211,25 +226,24 @@ The Phase-1 seam does **not** change when the harness is swapped, because the ho
 
 **Locked sub-decision (deepagents `execute` vs. Gantry gate):**
 
-- Personal/experimental mode may start jail-only after Phase 3 is verified.
-- Org mode must route `execute` back through Gantry's permission gate before exposing it.
-- This preserves the semantic-capability model and per-action audit where tenant risk exists.
+- Both personal and organisation modes route execution through Gantry's
+  permission gate before exposing it.
+- `sandbox_runtime` may additionally confine that execution; choosing `direct`
+  does not bypass the semantic-capability model or per-action audit.
 
 **Status (implemented):** the `deepagents:langchain` adapter never uses a
 deepagents execution backend. The runner uses the default `StateBackend` (no
 `execute`), deny-all filesystem permissions, and never `LocalShellBackend` /
 `FilesystemBackend`; the baked-in `task`/`write_todos`/filesystem tools stay
 excluded from the model surface. Shell execution is available ONLY through a
-Gantry-owned, policy-gated, sandbox-confined tool injected into `tools`:
+Gantry-owned, policy-gated tool injected into `tools`:
 
-- `deepAgentsEnforcingSandboxGuard` (the single operative pre-spawn guard in
-  `apps/core/src/runtime/deepagents-shell-filesystem-guard.ts`) fails the spawn
-  closed when a DeepAgents run requests shell (`Bash`/`RunCommand`) or filesystem
-  (`FileRead`/`FileWrite`/`FileEdit`/`FileSearch`) authority that cannot be
-  confined — `direct` mode, or any production/remote posture without an enforcing
-  `sandbox_runtime` provider — with `DeepAgents requires an enforcing sandbox
-  before shell or filesystem tools can be enabled in this deployment mode.` Under
-  `sandbox_runtime` the guard returns null (allowed).
+- `deepAgentsShellFilesystemGuard` in
+  `apps/core/src/runtime/deepagents-shell-filesystem-guard.ts` follows decision
+  0040 and does not gate tool projection on the sandbox provider. Matching
+  Gantry-owned `RunCommand` or `File*` authority is required in both modes;
+  `sandbox_runtime` additionally confines the run, while `direct` relies on
+  authorization plus the deployment boundary.
 - On the allowed path the host projects `GANTRY_DEEPAGENTS_SHELL_ENABLED='1'`
   (derived from the SAME guard inputs via `deepAgentsShellEnabledEnv`). The runner
   then injects a `RunCommand`-named LangChain tool (`gantry-shell-tool.ts`) ONLY
@@ -238,9 +252,11 @@ Gantry-owned, policy-gated, sandbox-confined tool injected into `tools`:
   neutral gate the third-party MCP tools use (protected-capability/memory/yolo
   pre-checks → `evaluateNeutralToolPolicy` → durable `requestPermissionApprovalViaIpc`).
   Denied calls return the deny string to the model and never execute; allowed
-  calls `spawn` a child of the already-sandboxed runner, inheriting the OS
-  confinement (protected-path write denies) and the runner's egress-proxy env.
-  Filesystem (`File*`) tools are NOT projected in this phase (shell only).
+  calls `spawn` a child of the selected runner. Under `sandbox_runtime` it
+  inherits the OS confinement; under `direct` it remains governed by the
+  permission decision and deployment boundary. Both receive the runner's
+  egress-proxy environment. Gantry-owned `File*` facade tools are also projected
+  for DeepAgents and each action remains permission-gated.
 
 ---
 

@@ -1,5 +1,89 @@
 # Permission engine redesign — empowered classifier + safety rails — goal prompt
 
+> **Implementation status (2026-07-28): SHIPPED on `main`.** The core redesign
+> landed through PERM-1–PERM-4, with follow-up correctness and usability
+> hardening in PERM-6–PERM-8 and the Gantry-native tool risk mapping. The
+> current contract is recorded immediately below. The remainder of this file is
+> retained as the historical design record; whenever it proposes a different
+> cache scope, grant scope, sandbox behavior, flow order, or UX, the current
+> contract wins. Current proof gaps live in `agent-e2e-test-matrix.md`.
+>
+> **Post-implementation gaps found in the 2026-07-28 audit:**
+>
+> - D-0008 remains open: approved scheduled-job work is requeued as a new run
+>   after the old lease is released; same-fenced-run resume and explicit
+>   `controlApprovers` routing are not built.
+> - Canonical audit linkage is incomplete: persisted decisions currently carry
+>   no matched `PermissionRule` ids, while inline short-circuit decisions do not
+>   consistently create canonical `PermissionDecision` rows.
+> - `SandboxLease` is modeled and persisted but is not created by the production
+>   runner path. That is lifecycle/audit completeness for optional
+>   `sandbox_runtime`, not a blocker for `direct`, fleet, or production use.
+> - For runs that select `sandbox_runtime`, D-0005 keeps sandbox
+>   escape-as-a-new-action deferred until protected-path and credential rails
+>   remain authoritative outside the OS jail.
+> - The unused `remembered_deny` and `standing_grant` decision-memory kinds need
+>   an explicit finish-or-remove decision.
+> - Cache writes fail open to the live decision, but a decision-memory read
+>   failure currently escapes the coordinator. Until that is fixed, the cache
+>   is not operationally a completely optional optimization.
+> - Packaged/live proof still needs allow-once execution resume, run interruption,
+>   real command output, and co-resident agent grant-isolation coverage before
+>   the E2E merge gate can become required.
+
+## Current shipped contract
+
+The host-side coordinator is the single allow authority. Its precedence is:
+
+```text
+hard deny -> locked preset -> fixed image -> reviewed agent rule/capability
+-> deterministic rails -> cached classifier allow -> classifier -> human
+```
+
+The stages after deterministic rails are conditional:
+
+- A deterministic rail can allow, deny, or require approval. An approval floor
+  goes to the learned-root stage or the human; neither cache nor classifier may
+  weaken it.
+- The worker IPC lane computes a versioned effect hash from app, provider
+  account, parent conversation, agent, tool, canonical action, schema version,
+  and rail version. Threads share their parent conversation's cache. When a
+  request has no parent-conversation id, the hash falls back to
+  app/provider-account/agent/effect scope. Missing, redacted, or risk-relevant
+  truncated input is not cacheable.
+- The cache reuses only a classifier `allow`. Stored `ask` verdicts are not a
+  shortcut and are classified again. Human `Allow once` decisions never enter
+  reusable decision memory.
+- In `auto` and `auto_strict`, eligible tool requests may reach the risk
+  classifier after the deterministic stages abstain. The model returns only
+  `risk_level`, optional `risk_category`, and `reason`; it never decides
+  authorization. Gantry maps low/medium risk to `allow_once` and high/critical,
+  malformed, timed-out, or unavailable results to human approval. An unattended
+  request that still needs a human is denied rather than left waiting.
+- A human prompt is durably recorded before delivery. Channel-authenticated
+  responses resolve the pending record; stale, late, cancelled, or unsigned
+  responses cannot grant access.
+- `Allow for future` creates narrowly scoped **agent-owned** authority, mirrors
+  it through the settings desired-state path, and applies to every conversation
+  where that agent runs. Learned trusted roots are also app+agent scoped.
+  Conversation and thread ids remain delivery/audit context; they do not turn
+  durable agent authority into conversation-local authority.
+- Optional stages vary by lane. Worker IPC has the full effect-cache and
+  classifier path. Inline third-party MCP uses the coordinator and classifier
+  without decision-memory caching. Core-tool paths use the same hard
+  precedence and durable human tail but do not all invoke the classifier or
+  cache.
+- `direct` has no inner Claude SDK or Gantry OS sandbox. Its controls are
+  deterministic authorization rails plus the deployment's host/container/VM
+  boundary. `sandbox_runtime` is optional defense-in-depth that adds an outer
+  whole-runner OS jail in any deployment mode.
+
+## Historical design record
+
+Everything below records the investigation, proposals, rejected alternatives,
+and staged acceptance language that led to the shipped implementation. It is
+not the current runtime contract.
+
 Status: GRILL + DOUBLE-CRITIQUE + PLAN-VALIDATION HARDENED 2026-07-22 (Fable + Codex
 critiques + a Codex plan-validation, all folded). **L2 sandbox-relaxation FOLDED IN
 (direct-relaxed is the universal default; `sandbox_runtime` opt-in) — L2 RE-VALIDATED
@@ -18,8 +102,9 @@ protected-path/credential ask-floors, the sandbox stops enforcing entirely (esca
 hatch on, gated by rails). No credential-guard gap exists at any point.**
 Supersedes
 `permission-floor-and-promotion-goal-prompt.md`, folds `permission-simplification-goal-prompt.md`.
-RCA: session scratchpad `git-permission-rca.md` (NOT in-tree — its incident claims
-below are ASSUMPTIONS pending runtime re-verification, not repo-provable).
+RCA: `git-permission-rca.md`, promoted into this architecture folder on
+2026-07-22. Its incident-specific external-log observations remain historical
+evidence rather than assertions re-verified by this status update.
 
 **Authorization is the SINGLE control, across TWO layers of one thesis** (Gantry's
 permission + classifier IS the control; a second hard OS sandbox on top is redundant):
