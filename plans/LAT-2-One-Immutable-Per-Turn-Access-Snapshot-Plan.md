@@ -59,6 +59,10 @@ In scope:
 - Runtime hot-path access resolution for live turns, job execution, recovered
   delegated-agent runs, inline task lifecycle access, and direct inline agent
   execution.
+- Final job readiness must evaluate tool policy, selected skill capabilities,
+  and MCP source readiness from the same immutable access snapshot that the
+  job runner will receive. Browser, credential, worker-registry, and runtime
+  dependency readiness remain live checks at their existing boundaries.
 - One repository read family each for tool access rows, skill access rows, and
   MCP access rows for a given `{ appId, agentId }`.
 - Minimal hot-path access snapshot query methods that return raw active bindings
@@ -121,6 +125,10 @@ Allowed production write scope:
 - `apps/core/src/app/bootstrap/inline-agent-task-lifecycle.ts`
 - `apps/core/src/app/bootstrap/runtime-services-async-task-recovery.ts`
 - `apps/core/src/jobs/execution.ts`
+- `apps/core/src/jobs/execution-readiness.ts`
+- `apps/core/src/jobs/capability-readiness.ts`
+- `apps/core/src/jobs/capability-eligibility.ts`
+- `apps/core/src/application/jobs/job-readiness-service.ts`
 - `apps/core/src/jobs/ipc-agent-delegation-target.ts`
 - `apps/core/src/jobs/ipc-delegated-agent-execution.ts`
 - `apps/core/src/jobs/ipc-agent-task-lifecycle-handlers.ts`
@@ -145,8 +153,14 @@ Allowed test write scope:
 
 - Focused unit tests beside the touched runtime/application/adapter seams.
 - `apps/core/test/integration/domain-repositories.postgres.integration.test.ts`
+- `apps/core/test/integration/mcp-server.postgres.integration.test.ts`
 - A LAT-2 focused Postgres query-count integration test may be added only if it
   uses `apps/core/test/harness/response-latency-postgres.ts`.
+- `apps/core/test/unit/runtime/group-agent-access-context.test.ts`
+- `apps/core/test/unit/jobs/execution.test.ts`
+- `apps/core/test/unit/application/job-readiness-service.test.ts`
+- `apps/core/test/unit/jobs/capability-readiness.test.ts`
+- `apps/core/test/unit/jobs/capability-eligibility.test.ts`
 - `apps/core/test/e2e/brain-dream-review-notify.postgres.e2e.test.ts`, limited
   to making its created-review lookup independent of accumulated pending-review
   rows so the full Postgres validation gate is deterministic.
@@ -163,6 +177,11 @@ Allowed test write scope:
   access query, and one MCP access query for a normal execution owner snapshot.
   If a repository is absent, the corresponding value is empty or fails exactly
   as the current missing-repository path does.
+- Final job readiness reuses the already loaded snapshot for inherited tool
+  policy, selected skill capability ids, and materialized MCP server rows. It
+  does not issue a second tool, skill-binding, MCP-binding, or MCP
+  materialization read before spawning the runner, and readiness cannot observe
+  a newer access revision than the runner snapshot.
 - The tool access query returns active binding rows plus nullable selected tool
   definitions and all app-wide active tool definitions in one SQL statement. It
   app-filters both joined selected tool rows and app-wide definitions, preserves
@@ -175,6 +194,11 @@ Allowed test write scope:
   definitions/materialized active rows in one SQL statement. Attached source ids
   still follow current same-app existence semantics, not only active
   materialized rows.
+- The MCP access query preserves the prior newest-500 binding boundary for both
+  aggregate projections before definition/status filtering. With 501 bindings
+  where the newest binding is disabled, the snapshot exposes 499 active rows
+  from the bounded newest-500 window rather than reaching back to the oldest
+  binding or returning an unbounded set.
 - Snapshot-derived outputs are value-equivalent to current outputs for:
   `toolPolicyRules`, `runtimeAccess`, semantic capabilities, selected skill ids,
   selected skill displays, approved skill context block, attached MCP source ids,
@@ -182,6 +206,10 @@ Allowed test write scope:
 - Provider session expiry still occurs when access projection, selected skills,
   MCP sources, semantic capability content, capability catalog digest, or locked
   preset changes.
+- When `turnContext` is absent but `catalogScope` is present, the capability
+  catalog still loads the scoped installed-skill and connected-MCP inventory
+  that the pre-LAT-2 path exposed. Other turn-owned projections remain empty;
+  the fallback must not invent a full turn context.
 - Locked agents remain fail-closed and never receive acquire/admin guidance that
   the current locked-preset logic removes.
 - MCP source inventory and reviewed action authority remain separate: connected
@@ -271,6 +299,20 @@ Implementation outline:
 8. After all production callers are moved, delete or narrow only the duplicate
    hot-path helpers that have no remaining production users. Do not delete
    admin/control/review helper functions.
+9. Pass the already resolved snapshot projections into the final job-readiness
+   call. Reuse its tool policy, selected active skill bindings for fleet
+   capability requirements, and materialized MCP rows while retaining live
+   checks for credentials, browser state, runtime dependencies, and active
+   worker inventory. Repository-backed readiness callers that do not already
+   own a snapshot keep their existing behavior.
+10. Apply the historical newest-500 MCP binding window inside the one-statement
+    snapshot query before both active-binding and materialized-server
+    projections filter rows. Add a 501-binding Postgres regression with the
+    newest binding disabled.
+11. When only `catalogScope` is available, load one scoped snapshot solely for
+    capability-catalog inventory instead of projecting a synthetic empty
+    catalog. Preserve empty turn-owned policy, selection, MCP attachment, and
+    semantic projections on that fallback path.
 
 Rejected simpler approach:
 
@@ -444,6 +486,41 @@ Stage `LAT-2-CLEANUP-VERIFY`
 - Reviewer focus: no accidental deletion of admin surfaces, no skipped blocker
   reported as green.
 
+Stage `LAT-2-AUTOREVIEW-FIXES`
+
+- Objective: close the three bounded final-autoreview regressions without
+  widening LAT-2 into a general readiness or catalog redesign.
+- Write scope:
+  - `apps/core/src/jobs/execution.ts`
+  - `apps/core/src/jobs/execution-readiness.ts`
+  - `apps/core/src/application/jobs/job-readiness-service.ts`
+  - `apps/core/src/jobs/capability-readiness.ts`
+  - `apps/core/src/jobs/capability-eligibility.ts`
+  - `apps/core/src/adapters/storage/postgres/repositories/mcp-server-repository.postgres.ts`
+  - `apps/core/src/runtime/group-agent-access-context.ts`
+  - `apps/core/test/unit/jobs/execution.test.ts`
+  - `apps/core/test/unit/application/job-readiness-service.test.ts`
+  - `apps/core/test/unit/jobs/capability-readiness.test.ts`
+  - `apps/core/test/unit/jobs/capability-eligibility.test.ts`
+  - `apps/core/test/unit/runtime/group-agent-access-context.test.ts`
+  - `apps/core/test/integration/mcp-server.postgres.integration.test.ts`
+- Dependencies:
+  - `LAT-2-CLEANUP-VERIFY`
+- Acceptance criteria:
+  - Final job readiness consumes the same snapshot-derived tool policy, selected
+    skill bindings, and materialized MCP rows passed to the runner, while
+    non-access readiness remains live.
+  - A focused job regression proves no duplicate tool, skill-binding,
+    MCP-binding, or MCP-materialization read occurs after snapshot load.
+  - A 501-binding Postgres regression proves the newest-500 boundary is applied
+    before filtering to both MCP snapshot aggregates.
+  - A catalog-only regression proves missing `turnContext` still projects
+    installed skills and connected MCP sources for `catalogScope` without
+    populating turn-owned access fields.
+- Reviewer focus: preserve one per-turn authority view, the historical MCP
+  boundary, and the degraded catalog fallback without adding cache or changing
+  public contracts.
+
 ## Risks
 
 - The tool materialized join could accidentally filter tool catalog status and
@@ -470,6 +547,17 @@ Stage `LAT-2-CLEANUP-VERIFY`
   Python check. Mitigation: use `/opt/homebrew/bin/python3
   .agents/scripts/forge.py ...` in this worktree and keep the mismatch recorded
   in `@session-state.md`.
+- Final readiness can accidentally mix snapshot access with newer repository
+  state. Mitigation: inject only the already-derived access inputs while
+  retaining explicitly non-access live probes, and assert no duplicate access
+  repository calls.
+- Limiting after filtering would silently backfill older MCP bindings.
+  Mitigation: bound the newest 500 bindings first, then project active and
+  materialized rows from that same window.
+- Loading a full fallback snapshot from `catalogScope` could populate
+  turn-owned access fields that were previously empty. Mitigation: use the
+  fallback snapshot only for capability-catalog inventory and pin the other
+  fields in a focused unit test.
 
 ## Verify Plan
 
