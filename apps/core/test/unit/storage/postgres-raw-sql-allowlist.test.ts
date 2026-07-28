@@ -18,6 +18,10 @@ const ALLOWED_RAW_SQL_FILES = new Set([
   // pg_advisory_xact_lock makes Observer batch claiming atomic across workers
   // (prefer-orphan state machine); same operational primitive as above.
   'apps/core/src/adapters/storage/postgres/repositories/chat-batch-repository.postgres.ts',
+  // Identity alias and merge mutations use transaction-scoped advisory locks
+  // to make exact-key resolution and merge idempotency atomic.
+  'apps/core/src/adapters/storage/postgres/repositories/person-identity-mappers.postgres.ts',
+  'apps/core/src/adapters/storage/postgres/repositories/person-identity-repository.postgres.ts',
   // LISTEN/NOTIFY is wakeup-only; durable rows remain authoritative.
   'apps/core/src/adapters/storage/postgres/live-admission-notify.postgres.ts',
   'apps/core/src/adapters/storage/postgres/runtime-event-notifier.postgres.ts',
@@ -67,7 +71,7 @@ describe('person identity migration contract', () => {
     const migration = fs.readFileSync(
       path.join(
         ROOT,
-        'apps/core/src/adapters/storage/postgres/schema/migrations/0102_person_identity_management.sql',
+        'apps/core/src/adapters/storage/postgres/schema/migrations/0116_person_identity_management.sql',
       ),
       'utf8',
     );
@@ -90,7 +94,7 @@ describe('person identity migration contract', () => {
     const migration = fs.readFileSync(
       path.join(
         ROOT,
-        'apps/core/src/adapters/storage/postgres/schema/migrations/0105_person_merge_audit_result.sql',
+        'apps/core/src/adapters/storage/postgres/schema/migrations/0119_person_merge_audit_result.sql',
       ),
       'utf8',
     );

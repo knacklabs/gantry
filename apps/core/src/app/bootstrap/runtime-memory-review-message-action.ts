@@ -125,7 +125,9 @@ export async function executeMemoryReviewDecision(
   // discarded — the review's OWN subject (below) is authoritative, never the
   // approver's identity.
   const boundary = resolveTrustedMemorySubject(input.sourceAgentFolder, {
-    userId: input.reviewerId,
+    appId: 'default',
+    agentId: input.sourceAgentFolder,
+    personId: input.reviewerId,
   });
   try {
     // Lookup lives inside the error boundary: a DB failure here maps to a
@@ -147,7 +149,7 @@ export async function executeMemoryReviewDecision(
         decision_source: DECISION_SOURCE,
       },
       // reviewerId is the approver's audit/authorization identity only.
-      context: { userId: input.reviewerId, reviewerIsControlApprover: true },
+      context: { personId: input.reviewerId, reviewerIsControlApprover: true },
     };
     const response = await processMemoryReviewDecisionRequest({
       request,

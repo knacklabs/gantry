@@ -3,8 +3,22 @@ import { randomUUID } from 'node:crypto';
 import { ModelCredentialService } from '../../../application/model-credentials/model-credential-service.js';
 import type { AppId } from '../../../domain/app/app.js';
 import type { RuntimeEventPublishInput } from '../../../domain/events/events.js';
+import {
+  isRuntimeEventConversationFkId,
+  isRuntimeEventThreadFkId,
+} from '../../../domain/events/runtime-event-conversation.js';
 import { RUNTIME_EVENT_TYPES } from '../../../domain/events/runtime-event-types.js';
 import { publishAuditEventWithRunIdFallback } from './gantry-model-gateway-audit.js';
+
+type GatewayUseAuditInput = {
+  outcome: string;
+  method: string;
+  status: number;
+  upstreamHost?: string;
+  upstreamPath?: string;
+  credentialFingerprint?: string;
+  usage?: ReturnType<typeof normalizeModelUsage>;
+};
 import type { AgentCredentialBroker } from '../../../domain/ports/agent-credential-broker.js';
 import type { ModelCredentialRepository } from '../../../domain/ports/repositories.js';
 import type {
@@ -579,6 +593,14 @@ export class GantryModelGatewayBroker implements AgentCredentialBroker {
     input: GatewayUseAuditInput,
   ): Promise<void> {
     if (!this.audit) return;
+    const conversationId = isRuntimeEventConversationFkId(
+      tokenRecord.conversationId,
+    )
+      ? tokenRecord.conversationId
+      : undefined;
+    const threadId = isRuntimeEventThreadFkId(tokenRecord.threadId)
+      ? tokenRecord.threadId
+      : undefined;
     await this.publishAuditEvent(
       {
         appId: tokenRecord.appId,
@@ -629,6 +651,14 @@ export class GantryModelGatewayBroker implements AgentCredentialBroker {
     outcome: 'token_issued' | 'token_rejected',
   ): Promise<void> {
     if (!this.audit) return;
+    const conversationId = isRuntimeEventConversationFkId(
+      tokenRecord.conversationId,
+    )
+      ? tokenRecord.conversationId
+      : undefined;
+    const threadId = isRuntimeEventThreadFkId(tokenRecord.threadId)
+      ? tokenRecord.threadId
+      : undefined;
     await this.publishAuditEvent(
       {
         appId: tokenRecord.appId,

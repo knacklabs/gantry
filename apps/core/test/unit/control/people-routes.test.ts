@@ -354,6 +354,7 @@ describe('people control routes', () => {
     expect(res.statusCode).toBe(200);
     expect(fakeRepository.resolveIdentity).toHaveBeenCalledWith(
       expect.objectContaining({ provider: 'telegram' }),
+      expect.any(Function),
     );
     expect(runtimeEvents.publish).toHaveBeenCalledWith(
       expect.objectContaining({

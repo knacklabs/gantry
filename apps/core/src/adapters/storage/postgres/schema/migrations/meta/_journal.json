@@ -794,66 +794,52 @@
       "breakpoints": true
     },
     {
-      "idx": 103,
+      "idx": 116,
       "version": "7",
-      "when": 1784000001000,
-      "tag": "0103_drop_legacy_user_alias_unique_index",
+      "when": 1785000001000,
+      "tag": "0116_person_identity_management",
       "breakpoints": true
     },
     {
-      "idx": 104,
+      "idx": 117,
       "version": "7",
-      "when": 1784000002000,
-      "tag": "0104_people_identity_query_indexes",
+      "when": 1785000002000,
+      "tag": "0117_drop_legacy_user_alias_unique_index",
       "breakpoints": true
     },
     {
-      "idx": 105,
+      "idx": 118,
       "version": "7",
-      "when": 1784000003000,
-      "tag": "0105_person_merge_audit_result",
+      "when": 1785000003000,
+      "tag": "0118_people_identity_query_indexes",
       "breakpoints": true
     },
     {
-      "idx": 106,
+      "idx": 119,
       "version": "7",
-      "when": 1784000004000,
-      "tag": "0106_identity_isolation_and_participant_identity",
+      "when": 1785000004000,
+      "tag": "0119_person_merge_audit_result",
       "breakpoints": true
     },
     {
-      "idx": 107,
+      "idx": 120,
       "version": "7",
-      "when": 1784000005000,
-      "tag": "0107_identity_app_scoped_person_foreign_keys",
+      "when": 1785000005000,
+      "tag": "0120_identity_isolation_and_participant_identity",
       "breakpoints": true
     },
     {
-      "idx": 103,
+      "idx": 121,
       "version": "7",
-      "when": 1784000001000,
-      "tag": "0103_drop_legacy_user_alias_unique_index",
+      "when": 1785000006000,
+      "tag": "0121_identity_app_scoped_person_foreign_keys",
       "breakpoints": true
     },
     {
-      "idx": 104,
+      "idx": 122,
       "version": "7",
-      "when": 1784000002000,
-      "tag": "0104_people_identity_query_indexes",
-      "breakpoints": true
-    },
-    {
-      "idx": 105,
-      "version": "7",
-      "when": 1784000003000,
-      "tag": "0105_person_merge_audit_result",
-      "breakpoints": true
-    },
-    {
-      "idx": 110,
-      "version": "7",
-      "when": 1784540000000,
-      "tag": "0110_identity_memory_scope_cleanup",
+      "when": 1785000007000,
+      "tag": "0122_identity_memory_scope_cleanup",
       "breakpoints": true
     }
   ]

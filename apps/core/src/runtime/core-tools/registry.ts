@@ -553,9 +553,10 @@ async function memoryResult(
       allowedActions: ['memory_search', 'memory_save'],
       context: {
         appId: deps.context.appId ?? '',
+        agentId: deps.context.sourceAgentFolder,
         chatJid: deps.context.conversationId,
         threadId: deps.context.threadId,
-        userId: deps.context.memoryUserId,
+        personId: deps.context.memoryUserId,
         defaultScope: deps.context.memoryDefaultScope ?? 'group',
       },
     },

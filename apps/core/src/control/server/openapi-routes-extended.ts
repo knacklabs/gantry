@@ -1,6 +1,7 @@
 import { doc, ids, query, type RouteDoc } from './openapi-route-helpers.js';
 import { mcpOpenApiRouteDocs } from './openapi-mcp-routes.js';
 import { memoryReviewRouteDocs } from './openapi-memory-review-routes.js';
+import { peopleOpenApiRouteDocs } from './openapi-people.js';
 
 export const extendedOpenApiRouteDocs: RouteDoc[] = [
   doc(

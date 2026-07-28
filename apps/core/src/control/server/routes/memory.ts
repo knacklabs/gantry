@@ -340,7 +340,7 @@ export async function handleMemoryRoutes(
               : {}),
             decision_source: 'control_api',
           },
-          context: { userId: reviewerId, reviewerIsControlApprover: true },
+          context: { personId: reviewerId, reviewerIsControlApprover: true },
         },
         subject,
       });

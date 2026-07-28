@@ -11,6 +11,7 @@ import { PartialMessageDeliveryError } from '@core/domain/messages/partial-deliv
 import { RUNTIME_EVENT_TYPES } from '@core/domain/events/runtime-event-types.js';
 import { buildProviderSessionAccessFingerprint } from '@core/runtime/provider-session-access-fingerprint.js';
 import { createAgentExecutionAdapterRegistry } from '@core/application/agent-execution/agent-execution-adapter-registry.js';
+import { normalizeProviderId } from '@core/channels/provider-registry.js';
 import { stableSha256Json } from '@core/shared/stable-hash.js';
 
 // ---------------------------------------------------------------------------
@@ -1698,13 +1699,11 @@ describe('createGroupProcessor', () => {
           appId: 'app-one',
           agentId: 'agent-one',
           runId: 'run-one',
+          conversationId: 'group1@g.us',
           eventType: 'sandbox.blocked',
           actor: 'runner',
           responseMode: 'none',
-          payload: {
-            phase: 'startup',
-            conversationJid: 'group1@g.us',
-          },
+          payload: { phase: 'startup' },
         }),
       );
     });

@@ -48,6 +48,7 @@ import { buildGroupProcessingConversationContext } from './group-processing-cont
 import { createGroupOutputBuffer } from './group-output-buffer.js';
 import { activeTurnUiCleanupByQueue } from './group-active-turn-cleanup.js';
 import { createGroupProcessingSessionCommandHandlers } from './group-processing-session-command-handlers.js';
+import { createGroupProcessingPersonResolver } from './group-person-identity.js';
 import {
   isFailoverEligibleError,
   isMissingProviderSessionError,
@@ -153,6 +154,17 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
     const defaultMemoryScope = memoryScopeForConversationKind(
       group.conversationKind,
     );
+    const rawMemoryUserId =
+      options.memoryContext?.userId ?? resolveMemoryUserId(missedMessages);
+    const resolveActionMemoryUserId = createGroupProcessingPersonResolver({
+      deps,
+      appId: turnAppId,
+      rawUserId: rawMemoryUserId,
+      group,
+      messages: missedMessages,
+      chatJid,
+      threadId: activeThreadId,
+    });
     const cmdResult = await handleSessionCommand({
       missedMessages,
       groupName: group.name,
@@ -167,7 +179,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
         chatJid,
         threadId: activeThreadId,
         defaultScope: defaultMemoryScope,
-        memoryUserId,
+        memoryUserId: resolveActionMemoryUserId,
         collectMemory: collectSessionMemory,
         deps,
         queueJid,
@@ -485,7 +497,8 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
     const finalizeStreamingOutput = outputBuffer.flushBufferedOutput;
     let output: GroupAgentRunResult = 'error';
     const handleAgentOutput = async (result: AgentOutput) => {
-      const isTurnCompleteMarker = isAgentTurnCompleteMarker(result);
+      const isTurnCompleteMarker =
+        agentOutputCallbacks.isAgentTurnCompleteMarker(result);
       const wasAwaitingResponseReceipt = awaitingResponseReceipt;
       if (
         awaitingResponseReceipt &&

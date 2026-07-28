@@ -45,6 +45,7 @@ import {
   RunAgentOptions,
 } from './agent-spawn-types.js';
 import { selectedMemoryIpcActionsFromToolRules } from '../shared/memory-ipc-actions.js';
+import { memoryAgentIdForWorkspaceFolder } from '../memory/app-memory-boundaries.js';
 import { agentIdForFolder } from '../domain/agent/agent-folder-id.js';
 import { conversationBoundAgentIdsForRoute } from '../application/core-tools/callable-agent-tools.js';
 import { resolveMcpCredentialEnvForAgent } from '../application/capability-secrets/mcp-secret-projection.js';

@@ -117,6 +117,7 @@ import {
 } from './runtime-services-async-task-recovery.js';
 import { wireInlineAgentLoopTools } from './inline-agent-loop-tools.js';
 import { createGroupSnapshotSync } from './runtime-services-group-snapshot-sync.js';
+import type { GroupProcessingDeps } from '../../runtime/group-processing-types.js';
 export { stopAsyncTaskRecoveryLoop } from './runtime-services-async-task-recovery.js';
 type RuntimeBootstrapRepository = RuntimeAppRepository & RuntimeJobRepository;
 type LiveTurnCommandWakeupSourceFactory = () =>
@@ -594,7 +595,7 @@ export async function startRuntimeServices(
   registerRuntimeMemoryReviewMessageAction(channelWiring, app);
   registerRuntimeObserverFeedbackMessageAction(channelWiring);
   registerRuntimeBrainDreamReviewMessageAction(channelWiring);
-  handleActiveControlCommand = async ({
+  async function handleActiveControlCommand({
     chatJid,
     queueJid,
     group,

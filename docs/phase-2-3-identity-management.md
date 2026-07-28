@@ -68,9 +68,9 @@ Storage and policy are implemented in:
 - [person-identity-service.ts](../apps/core/src/application/identity/person-identity-service.ts)
 - [person-identity-repository.postgres.ts](../apps/core/src/adapters/storage/postgres/repositories/person-identity-repository.postgres.ts)
 - [person-identity-mappers.postgres.ts](../apps/core/src/adapters/storage/postgres/repositories/person-identity-mappers.postgres.ts)
-- [0102_person_identity_management.sql](../apps/core/src/adapters/storage/postgres/schema/migrations/0102_person_identity_management.sql)
-- [0103_drop_legacy_user_alias_unique_index.sql](../apps/core/src/adapters/storage/postgres/schema/migrations/0103_drop_legacy_user_alias_unique_index.sql)
-- [0104_people_identity_query_indexes.sql](../apps/core/src/adapters/storage/postgres/schema/migrations/0104_people_identity_query_indexes.sql)
+- [0116_person_identity_management.sql](../apps/core/src/adapters/storage/postgres/schema/migrations/0116_person_identity_management.sql)
+- [0117_drop_legacy_user_alias_unique_index.sql](../apps/core/src/adapters/storage/postgres/schema/migrations/0117_drop_legacy_user_alias_unique_index.sql)
+- [0118_people_identity_query_indexes.sql](../apps/core/src/adapters/storage/postgres/schema/migrations/0118_people_identity_query_indexes.sql)
 
 ### 2. Runtime sender identity resolution
 
@@ -521,7 +521,7 @@ back to the API key's default app.
 
 Live merge verification then found migration drift: merge audit reads and
 writes include `result_json`, but the original identity migration omitted that
-column. Additive migration `0105_person_merge_audit_result.sql` repairs both
+column. Additive migration `0119_person_merge_audit_result.sql` repairs both
 fresh and already-applied migration chains. A migration-contract test now
 guards the schema/repository requirement before runtime verification.
 
@@ -798,7 +798,7 @@ and group sender identity resolution remains audit/authorization-only.
 The rebuilt linked CLI initially reported stale Postgres migrations because the
 app-scoped foreign-key migration had been edited after it was already recorded
 in the local database. The implementation keeps `0109` byte-stable and adds
-`0110_identity_memory_scope_cleanup.sql` for the historical group-memory
+`0122_identity_memory_scope_cleanup.sql` for the historical group-memory
 cleanup. After `npm run db:migrate`, Doctor passed with zero warnings, Slack
 and Telegram connected, and the runtime stayed online. Automated Slack writes
 from the ChatGPT connector are not a valid human Slack ingress test because

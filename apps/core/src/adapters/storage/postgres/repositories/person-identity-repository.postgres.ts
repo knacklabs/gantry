@@ -386,9 +386,6 @@ export class PostgresPersonIdentityRepository implements PersonIdentityRepositor
           'Merge preview is stale; run preview again before applying the merge.',
         );
       }
-      const aliasConflicts = preview.conflicts.filter(
-        (conflict) => conflict.type === 'alias',
-      );
       assertMergeConflicts(
         aliasConflicts.length,
         preview.conflicts.length - aliasConflicts.length,
