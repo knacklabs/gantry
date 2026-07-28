@@ -401,6 +401,7 @@ export function startControlServer(input: {
         providerId,
         chatAlias,
         settings: getRuntimeSettingsForConfig(),
+        modelCredentials: getRuntimeStorage().repositories.modelCredentials,
         appId,
       }),
     getActiveModelCredentialProviderIds: async (appId: AppId) => {

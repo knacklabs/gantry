@@ -1,8 +1,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
+import { readEnvFile } from '../env/file.js';
 import { readRuntimeStorageSettingsSnapshot } from './runtime-settings.js';
-import { settingsFilePath } from './runtime-home.js';
+import { envFilePath, settingsFilePath } from './runtime-home.js';
 import { runtimeEnvValueDynamic } from '../env/index.js';
 import {
   fleetRehearsalPlaintextPostgresHosts,
@@ -50,10 +51,41 @@ export function resolveRuntimeStorageConfigFromSettings(settings: {
   postgresUrlEnv?: string;
   postgresSchema?: string;
 }): RuntimeStorageConfig {
+  return resolveRuntimeStorageConfigWithEnv(settings, runtimeEnvValueDynamic);
+}
+
+export function resolveRuntimeStorageConfigForRuntimeHome(
+  runtimeHome: string,
+  settings: {
+    storage: {
+      postgres: {
+        urlEnv: string;
+        schema: string;
+      };
+    };
+  },
+): RuntimeStorageConfig {
+  const env = readEnvFile(envFilePath(runtimeHome));
+  return resolveRuntimeStorageConfigWithEnv(
+    {
+      postgresUrlEnv: settings.storage.postgres.urlEnv,
+      postgresSchema: settings.storage.postgres.schema,
+    },
+    (key) => process.env[key]?.trim() || env[key]?.trim() || '',
+  );
+}
+
+function resolveRuntimeStorageConfigWithEnv(
+  settings: {
+    postgresUrlEnv?: string;
+    postgresSchema?: string;
+  },
+  envValue: (key: string) => string,
+): RuntimeStorageConfig {
   const postgresUrlEnv = settings.postgresUrlEnv || 'GANTRY_DATABASE_URL';
-  const postgresUrl = runtimeEnvValueDynamic(postgresUrlEnv).trim() || null;
+  const postgresUrl = envValue(postgresUrlEnv).trim() || null;
   const postgresPlaintextHostAllowlist = fleetRehearsalPlaintextPostgresHosts({
-    GANTRY_FLEET_REHEARSAL_AUTO_SECRETS: runtimeEnvValueDynamic(
+    GANTRY_FLEET_REHEARSAL_AUTO_SECRETS: envValue(
       'GANTRY_FLEET_REHEARSAL_AUTO_SECRETS',
     ),
   });

@@ -124,6 +124,69 @@ it('rejects serialized provider upload bodies over 14 MiB before fetch', async (
 });
 
 describe('OpenAI chat batch transport', () => {
+  it('preserves GPT-5.6 cache-write usage and applies its batch price', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        Response.json({
+          id: 'batch-openai-cache-write',
+          status: 'completed',
+          output_file_id: 'file-output',
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          `${JSON.stringify({
+            custom_id: 'request-1',
+            response: {
+              status_code: 200,
+              body: {
+                choices: [{ message: { content: 'cached result' } }],
+                usage: {
+                  prompt_tokens: 100_000,
+                  completion_tokens: 100_000,
+                  prompt_tokens_details: {
+                    cached_tokens: 40_000,
+                    cache_write_tokens: 10_000,
+                  },
+                },
+              },
+            },
+          })}\n`,
+        ),
+      );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { createOpenAiChatBatchCapability } =
+      await import('@core/adapters/llm/openai-memory/openai-chat-batch.js');
+
+    await expect(
+      createOpenAiChatBatchCapability().fetchBatchResults({
+        appId: 'default' as never,
+        model: 'gpt-5.6-terra',
+        modelProfile: {
+          ...OPENAI_PROFILE,
+          alias: 'gpt-terra',
+          runnerModel: 'gpt-5.6-terra',
+        },
+        batchId: 'batch-openai-cache-write',
+      }),
+    ).resolves.toEqual([
+      {
+        customId: 'request-1',
+        text: 'cached result',
+        usage: {
+          input_tokens: 50_000,
+          output_tokens: 100_000,
+          cache_read_input_tokens: 40_000,
+          cache_creation_input_tokens: 10_000,
+          provider_reported_cost_usd: expect.closeTo(0.833125, 10),
+        },
+      },
+    ]);
+    expect(revokeMock).toHaveBeenCalledOnce();
+  });
+
   it('uploads, submits with correlation metadata, polls, downloads, and reconciles', async () => {
     const submissionEvents: string[] = [];
     const fetchMock = vi.fn(
@@ -279,7 +342,7 @@ describe('OpenAI chat batch transport', () => {
         customId: 'request-1',
         text: '{"answer":"ok"}',
         usage: {
-          input_tokens: 120,
+          input_tokens: 40,
           output_tokens: 20,
           cache_read_input_tokens: 80,
           provider_reported_cost_usd: expect.closeTo(0.00042, 10),

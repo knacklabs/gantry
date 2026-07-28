@@ -34,7 +34,7 @@ describe('formatPreviewWhy for an agent harness/route preview', () => {
         effectiveAlias: 'opus',
         source: 'agent main_agent harness deepagents',
         inherited: false,
-        model: { displayName: 'Opus 4.8', responseFamily: 'anthropic' },
+        model: { displayName: 'Opus 5', responseFamily: 'anthropic' },
       },
       why: [
         'agent main_agent uses deepagents harness on the anthropic endpoint',

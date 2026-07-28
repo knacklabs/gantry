@@ -211,43 +211,61 @@ export interface OpenedBrain {
 export async function openBrainFromHome(
   runtimeHome: string,
 ): Promise<OpenedBrain> {
-  process.env.GANTRY_HOME = runtimeHome;
-  const { initializeRuntimeStorage } =
-    await import('../adapters/storage/postgres/runtime-store.js');
-  const storage = await initializeRuntimeStorage();
-  const repository = new PostgresBrainRepository(storage.service.db);
   const settings = loadRuntimeSettings(runtimeHome);
-  const embeddings = settings.memory.embeddings;
-  const brain =
-    embeddings.enabled && embeddings.provider !== 'disabled'
-      ? new BrainService(repository, {
-          embedding: {
-            config: {
-              provider: embeddings.provider,
-              model: embeddings.model,
-              dimensions: embeddings.dimensions,
-            },
-            provider: createEmbeddingProvider(embeddings.provider, {
-              model: embeddings.model,
-              dimensions: embeddings.dimensions,
-              appId: DEFAULT_MEMORY_APP_ID as AppId,
-            }),
-          },
-        })
-      : new BrainService(repository);
-  return {
-    brain,
-    appId: DEFAULT_MEMORY_APP_ID,
-    reviews: storage.repositories.brainDreamReviews,
-    outboundDeliveries: storage.repositories.outboundDeliveries,
-    conversations: storage.repositories.conversations,
-    settings,
-    harvestEnabledConversations: Object.values(settings.conversations).filter(
-      (conversation) => conversation.brainHarvest,
-    ).length,
-    close: async () => {
-      await storage.runtimeEventNotifier.close().catch(() => {});
-      await storage.service.close().catch(() => {});
-    },
+  const credentialBrokerConfig = {
+    mode: settings.credentialBroker.mode,
+    gatewayBindHost: settings.credentialBroker.gateway.bindHost,
   };
+  const { acquireRuntimeStorageForRuntimeHome } =
+    await import('../adapters/storage/postgres/runtime-store.js');
+  const storageLease = await acquireRuntimeStorageForRuntimeHome(
+    runtimeHome,
+    settings,
+  );
+  const { storage } = storageLease;
+  try {
+    const repository = new PostgresBrainRepository(storage.service.db);
+    const embeddings = settings.memory.embeddings;
+    const brain =
+      embeddings.enabled && embeddings.provider !== 'disabled'
+        ? new BrainService(repository, {
+            embedding: {
+              config: {
+                provider: embeddings.provider,
+                model: embeddings.model,
+                dimensions: embeddings.dimensions,
+              },
+              provider: createEmbeddingProvider(embeddings.provider, {
+                model: embeddings.model,
+                dimensions: embeddings.dimensions,
+                appId: DEFAULT_MEMORY_APP_ID as AppId,
+                credentialBrokerConfig,
+              }),
+            },
+          })
+        : new BrainService(repository);
+    return {
+      brain,
+      appId: DEFAULT_MEMORY_APP_ID,
+      reviews: storage.repositories.brainDreamReviews,
+      outboundDeliveries: storage.repositories.outboundDeliveries,
+      conversations: storage.repositories.conversations,
+      settings,
+      harvestEnabledConversations: Object.values(settings.conversations).filter(
+        (conversation) => conversation.brainHarvest,
+      ).length,
+      close: () => storageLease.release().catch(() => undefined),
+    };
+  } catch (error) {
+    try {
+      await storageLease.release();
+    } catch (closeError) {
+      throw new AggregateError(
+        [error, closeError],
+        'Failed to open and close brain runtime storage',
+        { cause: closeError },
+      );
+    }
+    throw error;
+  }
 }

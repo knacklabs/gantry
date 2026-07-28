@@ -12,13 +12,6 @@ afterEach(() => {
 });
 
 async function loadPreflight(broker: AgentCredentialBroker | undefined) {
-  vi.doMock('@core/adapters/storage/postgres/runtime-store.js', () => ({
-    getRuntimeStorage: () => ({
-      repositories: {
-        modelCredentials: {},
-      },
-    }),
-  }));
   vi.doMock(
     '@core/adapters/credentials/agent-credential-broker-factory.js',
     () => ({
@@ -27,6 +20,8 @@ async function loadPreflight(broker: AgentCredentialBroker | undefined) {
   );
   return import('@core/adapters/llm/model-provider-preflight.js');
 }
+
+const modelCredentials = {} as never;
 
 function gatewayBroker(env: Record<string, string>): AgentCredentialBroker {
   return {
@@ -67,6 +62,7 @@ describe('model provider preflight', () => {
             mode: 'none',
           },
         },
+        modelCredentials,
       }),
     ).resolves.toMatchObject({
       ok: false,
@@ -91,6 +87,7 @@ describe('model provider preflight', () => {
             mode: 'gantry',
           },
         },
+        modelCredentials,
       }),
     ).resolves.toMatchObject({
       ok: true,
@@ -127,6 +124,7 @@ describe('model provider preflight', () => {
             mode: 'gantry',
           },
         },
+        modelCredentials,
       }),
     ).resolves.toMatchObject({
       ok: false,
@@ -149,6 +147,7 @@ describe('model provider preflight', () => {
             mode: 'gantry',
           },
         },
+        modelCredentials,
       }),
     ).resolves.toMatchObject({
       ok: false,

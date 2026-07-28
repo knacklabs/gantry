@@ -423,14 +423,25 @@ function openAiUsage(
       (usage.prompt_tokens_details as Record<string, unknown> | undefined)
         ?.cached_tokens,
     ) ?? 0;
+  const cacheWriteTokens =
+    finiteNumber(
+      (usage.prompt_tokens_details as Record<string, unknown> | undefined)
+        ?.cache_write_tokens,
+    ) ?? 0;
   const normalized = {
-    input_tokens: promptTokens,
+    input_tokens: Math.max(0, promptTokens - cachedTokens - cacheWriteTokens),
     output_tokens: finiteNumber(usage.completion_tokens) ?? 0,
     ...(cachedTokens ? { cache_read_input_tokens: cachedTokens } : {}),
+    ...(cacheWriteTokens
+      ? { cache_creation_input_tokens: cacheWriteTokens }
+      : {}),
   };
   return {
     ...normalized,
-    provider_reported_cost_usd: estimateChatBatchCostUsd(model, normalized),
+    provider_reported_cost_usd: estimateChatBatchCostUsd(model, {
+      ...normalized,
+      input_tokens: promptTokens,
+    }),
   };
 }
 

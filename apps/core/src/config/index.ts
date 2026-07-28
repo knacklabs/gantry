@@ -49,6 +49,7 @@ export {
 } from './settings/runtime-settings.js';
 export {
   resolveRuntimeBootstrapStorageConfigFromEnv,
+  resolveRuntimeStorageConfigForRuntimeHome,
   resolveRuntimeStorageConfig,
   resolveRuntimeStorageConfigFromSettings,
 } from './settings/storage.js';

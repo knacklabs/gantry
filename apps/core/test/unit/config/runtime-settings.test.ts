@@ -654,6 +654,80 @@ provider_accounts:
     expect(parsed.agent.recurringJobDefaultModel).toBe('opus-4.6');
   });
 
+  it('round-trips the new built-in aliases and enforces their workloads', () => {
+    const defaults = createDefaultRuntimeSettings();
+    expect(defaults.agent.oneTimeJobDefaultModel).toBe('');
+    expect(defaults.agent.recurringJobDefaultModel).toBe('');
+    expect(renderRuntimeSettingsYaml(defaults)).not.toContain(
+      'one_time_model:',
+    );
+    expect(renderRuntimeSettingsYaml(defaults)).not.toContain(
+      'recurring_model:',
+    );
+
+    const settings = createDefaultRuntimeSettings();
+    settings.agent.defaultModel = 'gpt-terra';
+    settings.agent.oneTimeJobDefaultModel = 'gpt-terra';
+    settings.agent.recurringJobDefaultModel = 'gpt-luna';
+    settings.memory.llm.models.extractor = 'gpt-luna';
+
+    const yaml = renderRuntimeSettingsYaml(settings);
+    expect(yaml).toContain('one_time_model: gpt-terra');
+    expect(yaml).toContain('recurring_model: gpt-luna');
+    expect(yaml).not.toContain('model_aliases:');
+    const parsed = parseRuntimeSettings(yaml);
+    expect(parsed.agent.defaultModel).toBe('gpt-terra');
+    expect(parsed.agent.oneTimeJobDefaultModel).toBe('gpt-terra');
+    expect(parsed.agent.recurringJobDefaultModel).toBe('gpt-luna');
+    expect(parsed.memory.llm.models.extractor).toBe('gpt-luna');
+
+    const valid = validateLoadedRuntimeSettings('/tmp/gantry-missing', parsed);
+    expect(valid.failure?.details.join('\n') ?? '').not.toContain(
+      'model is invalid',
+    );
+
+    parsed.agent.oneTimeJobDefaultModel = 'sonet';
+    parsed.agent.recurringJobDefaultModel = 'sonet';
+    const invalid = validateLoadedRuntimeSettings(
+      '/tmp/gantry-missing',
+      parsed,
+    );
+    expect(invalid.failure?.details).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining('agent.one_time_job_default_model is invalid'),
+        expect.stringContaining('agent.recurring_job_default_model is invalid'),
+      ]),
+    );
+  });
+
+  it('round-trips Sol and Opus 5 aliases while rejecting the raw Opus provider ID', () => {
+    const settings = createDefaultRuntimeSettings();
+    settings.agent.defaultModel = 'gpt-sol';
+    settings.agent.oneTimeJobDefaultModel = 'opus';
+    settings.agent.recurringJobDefaultModel = 'opus-5';
+
+    const yaml = renderRuntimeSettingsYaml(settings);
+    expect(yaml).not.toContain('model_aliases:');
+    const parsed = parseRuntimeSettings(yaml);
+    expect(parsed.agent.defaultModel).toBe('gpt-sol');
+    expect(parsed.agent.oneTimeJobDefaultModel).toBe('opus');
+    expect(parsed.agent.recurringJobDefaultModel).toBe('opus-5');
+
+    const valid = validateLoadedRuntimeSettings('/tmp/gantry-missing', parsed);
+    expect(valid.failure?.details.join('\n') ?? '').not.toContain(
+      'model is invalid',
+    );
+
+    parsed.agent.defaultModel = 'claude-opus-5';
+    const invalid = validateLoadedRuntimeSettings(
+      '/tmp/gantry-missing',
+      parsed,
+    );
+    expect(invalid.failure?.details.join('\n')).toContain(
+      'agent.default_model is invalid: Provider model ID "claude-opus-5" is not accepted here.',
+    );
+  });
+
   it('round-trips per-agent source status and mcp tool scope through settings.yaml', () => {
     const settings = createDefaultRuntimeSettings();
     settings.agents.main_agent = {
