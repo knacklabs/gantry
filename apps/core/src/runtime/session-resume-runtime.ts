@@ -503,28 +503,6 @@ export async function failRuntimeSessionRun(
   });
 }
 
-export async function buildApprovedSkillContextBlock(input: {
-  skillRepository?: SkillCatalogRepository;
-  skillArtifactStore?: SkillArtifactStore;
-  turnContext?: {
-    appId: string;
-    agentId: string;
-  };
-  enabledSkills?: readonly SkillCatalogItem[];
-}): Promise<string> {
-  if (input.enabledSkills) {
-    return buildApprovedSkillContextBlockFromSkills(input.enabledSkills);
-  }
-  if (!input.skillRepository || !input.turnContext) {
-    return '';
-  }
-  const skills = await input.skillRepository.listEnabledSkillsForAgent({
-    appId: input.turnContext.appId as never,
-    agentId: input.turnContext.agentId as never,
-  });
-  return buildApprovedSkillContextBlockFromSkills(skills);
-}
-
 export function buildApprovedSkillContextBlockFromSkills(
   skills: readonly SkillCatalogItem[],
 ): string {
