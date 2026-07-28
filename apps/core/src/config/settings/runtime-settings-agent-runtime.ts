@@ -214,6 +214,16 @@ function configuredAgentControlErrorsForModel(input: {
       );
     }
   }
+  if (
+    agent.effort !== undefined &&
+    agent.thinking?.mode === 'off' &&
+    resolved.entry.thinkingOffSupportedEffortLevels !== undefined &&
+    !resolved.entry.thinkingOffSupportedEffortLevels.includes(agent.effort)
+  ) {
+    errors.push(
+      `${input.subject}.effort ${agent.effort} is not supported by model ${model} when thinking is off; supported levels are ${resolved.entry.thinkingOffSupportedEffortLevels.join(', ')}.`,
+    );
+  }
   const supportsConfiguredThinking =
     resolved.entry.supportsThinking === true &&
     (route.value.engine !== DEEPAGENTS_ENGINE ||

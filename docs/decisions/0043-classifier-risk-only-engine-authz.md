@@ -23,8 +23,22 @@ critical → ASK (or hard-deny by rail). Codex RISK calibration lines are import
 verbatim (risk scoring is kept); the authorization half of the two-factor schema
 is dropped from the LLM.
 
+## Implementation Note — 2026-07-28
+
+The shipped coordinator resolves reviewed agent authority before classifier
+consultation. A request that reaches the classifier therefore maps low/medium
+risk to run-local `allow_once` and high/critical risk to human approval; a
+classifier error also requires approval and never auto-allows. The strict model
+schema contains `risk_level`, optional `risk_category`, and `reason`.
+
+Worker decision memory stores the derived classifier `allow`/`ask` together with
+the risk level/category and reason. Only a cached `allow` is reused. The
+versioned effect hash is parent-conversation scoped when that identity is
+present; human `Allow once` never enters the cache.
+
 ## Consequences
 Supersedes the two-factor LLM verdict described in the goal doc's fuller text
 (the goal doc's "Leaner target" section already flags this). Authorization stays
 a deterministic engine fact, not an LLM guess — simpler and more robust. The
-classifier prompt + verdict schema + its cache store only `risk_level`.
+classifier prompt and model verdict remain risk-only; the implementation note
+above records the additional host-derived fields stored in decision memory.

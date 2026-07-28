@@ -201,12 +201,15 @@ IAM (no cross-tenant read), and S3 public-access block.
 The per-agent browser **kill-switch** still applies: it disables `Browser` for any
 agent that must not depend on a (now durable) browser profile at all.
 
-## Worker Configuration (sandboxed agent child processes)
+## Worker Configuration (agent child processes)
 
 Each worker is one parent Node process that spawns a child runner process per
 active agent turn. Sessions are Postgres rows and cost nothing while idle; the
-configuration below bounds what an _active_ sandboxed child may consume and what
-the host must provide for the sandbox to exist at all.
+example below chooses optional `sandbox_runtime` defense-in-depth and bounds what
+an _active_ sandboxed child may consume. Set `provider: direct` when
+authorization plus the container/VM deployment boundary is the intended
+isolation. Both providers are supported in workstation and fleet deployments,
+including production.
 
 Recommended fleet worker desired state (settings; the process role itself is the
 deployment env `GANTRY_PROCESS_ROLE`, **not** a settings key):
@@ -220,7 +223,7 @@ runtime:
     max_job_runs: 4 # concurrent scheduled-job runners (per job worker)
     drain_deadline_ms: 120000
   sandbox:
-    provider: sandbox_runtime # whole-runner OS sandbox (bubblewrap on Linux)
+    provider: sandbox_runtime # optional whole-runner OS jail (bubblewrap on Linux)
     resource_limits:
       cpu_seconds: 900 # hard CPU budget per child runner
       memory_mb: 512 # hard memory cap per child runner
@@ -240,16 +243,18 @@ hostname. If multiple runtime processes share one machine, set the same
 `GANTRY_HOST_ID` for all of them so status and slot accounting describe one host.
 The local fleet compose file does this for the co-located rehearsal stack.
 
-Host/container requirements for `sandbox_runtime` on fleet workers:
+When a fleet worker selects `sandbox_runtime`, the host/container must satisfy
+these additional requirements. They do not apply to `direct` workers:
 
 - `bubblewrap` is in the worker image (`ops/docker/Dockerfile`).
 - Namespace creation inside Docker requires a user-namespace-capable seccomp
   profile on `docker run`; the default profile may block it. Raw Docker and
   compose rehearsal use `seccomp=unconfined`. ECS task definitions do not accept
-  that Docker security option, so ECS/EC2 fleet workers must run the Gantry
-  container with `privileged: true` before boot. Fleet production and fleet
-  rehearsal must set `provider: sandbox_runtime`, because the production
-  security gate rejects `direct`.
+  that Docker security option, so ECS/EC2 fleet workers that select
+  `sandbox_runtime` must run the Gantry container with `privileged: true` before
+  boot. Fleet production and rehearsal may instead select `direct`; the
+  production security gate requires strong secrets but does not choose the
+  confinement provider.
 - Container `--pids-limit` should exceed
   (`max_message_runs` + `max_job_runs`) × `max_processes`.
 - Disk: ≥ 20 GB for image, per-run temp workspaces, artifact cache, and bake

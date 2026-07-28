@@ -2,10 +2,10 @@ import { randomUUID } from 'node:crypto';
 
 import { getAgentCredentialInjection } from '../../application/credentials/agent-credential-service.js';
 import { createAgentCredentialBroker } from '../credentials/agent-credential-broker-factory.js';
-import { getRuntimeStorage } from '../storage/postgres/runtime-store.js';
 import type { AppId } from '../../domain/app/app.js';
 import type { AgentRunId } from '../../domain/events/events.js';
 import type { AgentCredentialBroker } from '../../domain/ports/agent-credential-broker.js';
+import type { ModelCredentialRepository } from '../../domain/ports/repositories.js';
 import {
   listModelCatalogEntries,
   resolveModelSelectionForWorkload,
@@ -33,6 +33,7 @@ export async function preflightModelProvider(input: {
   providerId: string;
   chatAlias?: string;
   settings: ModelProviderPreflightSettings;
+  modelCredentials?: ModelCredentialRepository;
   appId?: AppId;
 }): Promise<ModelProviderPreflightResult> {
   void input.runtimeHome;
@@ -75,12 +76,19 @@ export async function preflightModelProvider(input: {
       message: `${provider?.label ?? providerId} requires Gantry Model Gateway credentials.`,
     };
   }
+  if (!input.modelCredentials) {
+    return {
+      ok: false,
+      status: 'fail',
+      message: 'Gantry Model Gateway requires runtime credential storage.',
+    };
+  }
   const runId = `model-preflight:${randomUUID()}` as AgentRunId;
   let broker: AgentCredentialBroker | undefined;
   try {
     broker = await createAgentCredentialBroker({
       mode: settings.credentialBroker.mode,
-      modelCredentials: getRuntimeStorage().repositories.modelCredentials,
+      modelCredentials: input.modelCredentials,
       gatewayBindHost: settings.credentialBroker.gateway?.bindHost,
     });
     if (!broker) {

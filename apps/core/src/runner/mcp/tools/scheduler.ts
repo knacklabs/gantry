@@ -191,6 +191,7 @@ export function registerSchedulerTools(server: McpServer): void {
           {
             type: 'text' as const,
             text: formatModelCatalog({
+              workloads: ['one_time_job', 'recurring_job'],
               recommendation: args.workload
                 ? {
                     workload: args.workload,

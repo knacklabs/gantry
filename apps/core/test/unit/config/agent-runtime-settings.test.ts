@@ -345,6 +345,38 @@ describe('agent runtime settings', () => {
     ).not.toThrow();
   });
 
+  it.each(['xhigh', 'max'])(
+    'rejects Opus 5 effort %s when thinking is off',
+    (effort) => {
+      expect(() =>
+        parseRuntimeSettings(`agents:
+  main_agent:
+    name: Main
+    model: opus
+    effort: ${effort}
+    thinking: off
+`),
+      ).toThrow(
+        `agents.main_agent.effort ${effort} is not supported by model opus when thinking is off; supported levels are low, medium, high.`,
+      );
+    },
+  );
+
+  it.each(['low', 'medium', 'high'])(
+    'accepts Opus 5 effort %s when thinking is off',
+    (effort) => {
+      expect(() =>
+        parseRuntimeSettings(`agents:
+  main_agent:
+    name: Main
+    model: opus
+    effort: ${effort}
+    thinking: off
+`),
+      ).not.toThrow();
+    },
+  );
+
   it('validates controls against explicit job models', () => {
     const agent = {
       name: 'Main',

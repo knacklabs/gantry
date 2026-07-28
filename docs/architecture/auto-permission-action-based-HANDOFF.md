@@ -1,5 +1,10 @@
 # HANDOFF — Action-Based Auto-Permission (start here in a fresh session)
 
+> **Historical handoff — do not execute.** Later permission-engine and UX work
+> superseded this July 13 transition plan. Use `capability-management.md` and
+> the Current shipped contract in
+> `permission-engine-redesign-goal-prompt.md` for current behavior.
+
 You are resuming a single-cut rework of auto-permission. This file is the entry point.
 Read it, then execute the plan. Everything below is current as of 2026-07-13.
 

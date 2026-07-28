@@ -1231,8 +1231,115 @@ describe('control server runtime hardening', () => {
       );
       expect(response.status).toBe(200);
       const body = await response.json();
+      const nativeOpenAiModels = body.models.filter(
+        (model: { modelRoute?: { id?: string } }) =>
+          model.modelRoute?.id === 'openai',
+      );
+      expect(
+        nativeOpenAiModels.map(
+          (model: { aliases: string[] }) => model.aliases[0],
+        ),
+      ).toEqual([
+        'gpt',
+        'gpt-5.4',
+        'gpt-mini',
+        'gpt-terra',
+        'gpt-luna',
+        'gpt-sol',
+      ]);
+      for (const model of nativeOpenAiModels as Array<{
+        aliases: string[];
+        supportedWorkloads: string[];
+      }>) {
+        expect(model.supportedWorkloads, model.aliases[0]).toEqual([
+          'chat',
+          'one_time_job',
+          'recurring_job',
+          'memory_extractor',
+          'memory_dreaming',
+          'memory_consolidation',
+        ]);
+      }
       expect(body.models).toEqual(
         expect.arrayContaining([
+          expect.objectContaining({
+            displayName: 'GPT-5.6 Terra',
+            aliases: ['gpt-terra', 'gpt-5.6-terra'],
+            supportedWorkloads: [
+              'chat',
+              'one_time_job',
+              'recurring_job',
+              'memory_extractor',
+              'memory_dreaming',
+              'memory_consolidation',
+            ],
+            inputUsdPerMillionTokens: 2.5,
+            outputUsdPerMillionTokens: 15,
+          }),
+          expect.objectContaining({
+            displayName: 'GPT-5.6 Luna',
+            aliases: ['gpt-luna', 'gpt-5.6-luna'],
+            supportedWorkloads: [
+              'chat',
+              'one_time_job',
+              'recurring_job',
+              'memory_extractor',
+              'memory_dreaming',
+              'memory_consolidation',
+            ],
+            inputUsdPerMillionTokens: 1,
+            outputUsdPerMillionTokens: 6,
+          }),
+          expect.objectContaining({
+            displayName: 'GPT-5.6 Sol',
+            aliases: ['gpt-sol', 'gpt-5.6-sol'],
+            supportedWorkloads: [
+              'chat',
+              'one_time_job',
+              'recurring_job',
+              'memory_extractor',
+              'memory_dreaming',
+              'memory_consolidation',
+            ],
+            inputUsdPerMillionTokens: 5,
+            outputUsdPerMillionTokens: 30,
+          }),
+          expect.objectContaining({
+            displayName: 'Opus 5',
+            aliases: ['opus', 'opus-5'],
+            supportedWorkloads: ['chat', 'one_time_job', 'recurring_job'],
+            inputUsdPerMillionTokens: 5,
+            outputUsdPerMillionTokens: 25,
+            cacheSupport: expect.objectContaining({
+              prompt: expect.objectContaining({
+                minimumTokenThresholds: expect.arrayContaining([
+                  {
+                    modelFamily: 'claude-opus-5',
+                    tokens: 512,
+                  },
+                ]),
+              }),
+            }),
+          }),
+          expect.objectContaining({
+            displayName: 'Opus 4.8',
+            aliases: ['opus-4.8'],
+          }),
+          expect.objectContaining({
+            displayName: 'Grok 4.5',
+            aliases: ['grok', 'grok-4.5'],
+            supportedWorkloads: expect.arrayContaining([
+              'chat',
+              'one_time_job',
+              'recurring_job',
+            ]),
+            inputUsdPerMillionTokens: 2,
+            outputUsdPerMillionTokens: 6,
+          }),
+          expect.objectContaining({
+            displayName: 'Grok 4.3',
+            aliases: ['grok-4.3'],
+          }),
           expect.objectContaining({
             displayName: 'Kimi K2.6',
             aliases: expect.arrayContaining(['kimi', 'kimi-k2.6']),

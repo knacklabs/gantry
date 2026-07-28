@@ -2,7 +2,7 @@
 
 Master tracker for engineering goals. **Scan the board first**, then read the
 stage detail below it. Each goal links a detailed goal-prompt / audit / roadmap
-doc in this folder. Done-vs-pending reconciled against merged PRs 2026-07-22.
+doc in this folder. Done-vs-pending reconciled against merged PRs 2026-07-28.
 
 Every implementation cycle runs through the gantry-goal-pipeline (Codex
 implements, Claude orchestrates) with a mandatory Codex plan-validation pass on
@@ -36,7 +36,7 @@ reality; (5) type-system lies.
 
 | Goal | Progress | Active now | Blocked on |
 |---|---|---|---|
-| Permission engine redesign | design ✅ · plan ⏳ · build ⏳ | writing plan | fold in floor+promotion + simplification |
+| Permission engine redesign | shipped on `main` · follow-up hardening shipped | residual job/audit/E2E gaps below | no engine-build blocker |
 | Observer program | 1/6 shipped · 2/6 staged · 3/6 pending | land S2 + S3a | my verify → autoreview → merge |
 | Agent E2E merge gate | foundation + core rows shipped | many rows pending; matrix tracker itself behind | per-row, in progress |
 | Capability authoring | committed on `feature/capability-authoring` (13ae2e698), not merged | verify → review → merge | edits mcp-tool-proxy → blocks MCP hybrid |
@@ -45,26 +45,56 @@ reality; (5) type-system lies.
 
 **Pending / queued goals:** see the **Queued**, **Then**, and **Parked** sections
 below — those hold the authoritative order and readiness (do not duplicate them
-here). _(Permission floor+promotion is folded into the permission engine
+here). _(Permission floor+promotion shipped as part of the permission engine
 redesign; Fail-loud audit writes is unscoped — Parked, not queued.)_
 
 ---
 
 ## Active goals — stage detail
 
-### Permission engine redesign  ·  PENDING (design locked, unbuilt)
-Live git/sandbox pain root-caused to AUTHORIZATION (not sandbox). Design LOCKED:
-deterministic risk analyzer + decision memory + ask-once-genuine-risk. Design of
-record committed: `permission-engine-redesign-goal-prompt.md` + `git-permission-rca.md`.
+### Permission engine redesign  ·  SHIPPED
+The provider-neutral permission engine is implemented on `main`. The core landed
+through PERM-1–PERM-4, followed by production fixes in PERM-6–PERM-8 and the
+Gantry-native tool risk mapping. Design of record:
+`permission-engine-redesign-goal-prompt.md` + `git-permission-rca.md`.
 - [x] Root-cause RCA (git prompts = authorization; direct mode not the lever)
 - [x] Design locked (risk analyzer · decision memory · classifier shrinks · ask-once)
-- [ ] Network/FS investigation — Codex ran, **output unrecovered** (grill from code instead)
-- [>] Full implementation plan (grilling now)
-- [ ] Fable + Codex adversarial critique of the plan (security-critical)
-- [ ] Build via goal-pipeline (git deterministic-gate = slice #1)
+- [x] One host-side `coordinatePermissionDecision` authority with deterministic
+      hard floors before cache, classifier, or human approval
+- [x] Exact, prefix-stripped command decision view; versioned effect-key cache;
+      risk-only classifier; fail-closed malformed/error behavior
+- [x] Durable decision memory, learned trusted roots, durable allow-for-future
+      rules, expiry/revocation, and late/cancelled-response protection
+- [x] Worker, inline, job, subagent, MCP, and core-tool paths routed through the
+      host permission authority; optional classifier/cache coverage varies by
+      lane, and hermetic packaged-worker precedence proof landed
+- [x] Human-readable risk/provenance, indefinite interactive waits, finite
+      autonomous behavior, and durable prompt/cancellation recovery
+- [ ] Complete D-0008: an approved scheduled-job prompt currently releases the
+      old lease and queues a new run; resume-the-same-fenced-run and explicit
+      `controlApprovers` routing remain deferred
+- [ ] Complete canonical audit linkage: recorded decisions currently carry no
+      matched `PermissionRule` ids, and inline short-circuit allow/deny paths do
+      not consistently persist canonical `PermissionDecision` rows
+- [ ] Decide the canonical lifecycle for optional confinement: `SandboxLease` is
+      persisted but not created by the production runner path. This is
+      lifecycle/audit completeness for opt-in `sandbox_runtime`, not a blocker
+      for `direct`, fleet, or production use
+- [ ] For runs that select `sandbox_runtime`, complete D-0005 before adding
+      sandbox escape-as-a-new-action; escaped commands must not bypass
+      protected-path and credential rails
+- [>] Remaining proof work is tracked in `agent-e2e-test-matrix.md`: packaged
+      allow-once resume, run interruption, real command output round-trip,
+      co-resident agent grant isolation, and the required merge gate
+- [ ] Decide whether to finish or remove the unused `remembered_deny` and
+      `standing_grant` decision-memory kinds and their originally designed
+      management surfaces
+- [ ] Make decision-memory reads non-load-bearing. Cache writes already fail
+      open to the live decision, but a cache-read failure currently escapes the
+      coordinator
 - **Consolidation:** supersedes `permission-floor-and-promotion-goal-prompt.md`
-  and folds `permission-simplification-goal-prompt.md`; also fixes telemetry
-  (RunCommand command text) + `select:`-as-Bash misparse.
+  and folds `permission-simplification-goal-prompt.md`; telemetry now records
+  redacted command and decision reasons.
 
 ### Observer program  ·  IN PROGRESS (1 shipped, 2 staged, 3 pending)
 Curious Observer: harvest firehose → nightly dream → deterministic value floor +
