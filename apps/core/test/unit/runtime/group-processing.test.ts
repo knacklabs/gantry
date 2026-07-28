@@ -12,6 +12,7 @@ import { RUNTIME_EVENT_TYPES } from '@core/domain/events/runtime-event-types.js'
 import { buildProviderSessionAccessFingerprint } from '@core/runtime/provider-session-access-fingerprint.js';
 import { createAgentExecutionAdapterRegistry } from '@core/application/agent-execution/agent-execution-adapter-registry.js';
 import { stableSha256Json } from '@core/shared/stable-hash.js';
+import { createOperationCounter } from '../../harness/response-latency-harness.js';
 
 // ---------------------------------------------------------------------------
 // Mocks
@@ -1955,6 +1956,111 @@ describe('createGroupProcessor', () => {
   // =======================================================================
 
   describe('Postgres-authoritative session context', () => {
+    // LAT-3A baseline. Counts agent-memory hydrations per ordinary inbound turn
+    // at the real repository seam the runner calls (group-agent-runner.ts
+    // loadTurnContext -> ops().getAgentTurnContext). A hydration is any call
+    // that does not pass hydrateMemory: false, because the service gate is
+    // `input.hydrateMemory === false ? undefined : hydrate(...)` — omission
+    // hydrates (canonical-session-ops-service.ts).
+    //
+    // LAT_3A_HYDRATIONS_PER_TURN is 2 today: the runner's provisional read plus
+    // the promoted read inside prepareCompactionDeltaReplay. LAT-3A drops it to
+    // 1. This constant is the phase's whole measurement, so it lives here in one
+    // place rather than being spelled out in each assertion.
+    const LAT_3A_HYDRATIONS_PER_TURN = 2;
+
+    it('hydrates agent memory once per turn per the recorded baseline, at the repository seam', async () => {
+      const group = makeGroup({ requiresTrigger: false });
+      const { deps } = setupHappyPath({ group });
+      const operations = createOperationCounter();
+      const getAgentTurnContext = vi.fn(
+        async (input: {
+          hydrateMemory?: boolean;
+          promoteReadyProviderSession?: boolean;
+        }) => {
+          if (input.hydrateMemory !== false) {
+            operations.increment('memory_hydrate_calls');
+          }
+          return {
+            appId: 'app:test',
+            agentId: 'agent:test',
+            agentSessionId: 'agent-session:lat-3a-baseline',
+            agentSessionResetAt: null,
+            memoryContextBlock:
+              '<gantry_memory_context>LAT-3A baseline memory</gantry_memory_context>',
+          };
+        },
+      );
+      (deps.opsRepository as any).getAgentTurnContext = getAgentTurnContext;
+
+      const { processGroupMessages } = createGroupProcessor(deps);
+      await processGroupMessages('group1@g.us');
+
+      // Two READS is the shape LAT-3A preserves; only the hydration count moves.
+      expect(getAgentTurnContext).toHaveBeenCalledTimes(2);
+      expect(getAgentTurnContext.mock.calls[0]?.[0]).toEqual(
+        expect.objectContaining({ promoteReadyProviderSession: false }),
+      );
+      expect(getAgentTurnContext.mock.calls[1]?.[0]).toEqual(
+        expect.objectContaining({ promoteReadyProviderSession: true }),
+      );
+      expect(operations.get('memory_hydrate_calls')).toBe(
+        LAT_3A_HYDRATIONS_PER_TURN,
+      );
+    });
+
+    // LAT-3A: pins WHICH read's memory block reaches the model on the ordinary
+    // path, by making the two reads return DIFFERENT blocks. A test that gave
+    // both reads the same block would assert a constant equals itself and could
+    // never fail.
+    //
+    // Today the model sees the PROMOTED (second) read's block, which is why the
+    // second read has to hydrate. After LAT-3A the model sees the PROVISIONAL
+    // (first) read's carried block instead, and this assertion flips — that
+    // flip is the behaviour change, made explicit rather than hidden.
+    //
+    // Whether those two blocks are actually equal in production is a different
+    // claim (plan AC3) and cannot be proven here, because the mock supplies the
+    // block itself. It is proven against real Postgres in stage LAT-3A-3
+    // (assumption A-0036).
+    it('feeds the model the promoted read memory block on the ordinary path', async () => {
+      const group = makeGroup({ requiresTrigger: false });
+      const { deps } = setupHappyPath({ group });
+      const provisionalBlock =
+        '<gantry_memory_context>LAT-3A provisional read</gantry_memory_context>';
+      const promotedBlock =
+        '<gantry_memory_context>LAT-3A promoted read</gantry_memory_context>';
+      const getAgentTurnContext = vi.fn(
+        async (input: { promoteReadyProviderSession?: boolean }) => {
+          const promoted = input.promoteReadyProviderSession === true;
+          return {
+            appId: 'app:test',
+            agentId: 'agent:test',
+            agentSessionId: 'agent-session:lat-3a-passthrough',
+            agentSessionResetAt: null,
+            providerSessionId: promoted
+              ? 'provider-session:promoted'
+              : 'provider-session:provisional',
+            externalSessionId: 'claude-session-1',
+            providerSessionAccessFingerprint: EMPTY_ACCESS_FINGERPRINT,
+            memoryContextBlock: promoted ? promotedBlock : provisionalBlock,
+          };
+        },
+      );
+      (deps.opsRepository as any).getAgentTurnContext = getAgentTurnContext;
+
+      const { processGroupMessages } = createGroupProcessor(deps);
+      await processGroupMessages('group1@g.us');
+
+      // Both reads happened, and they returned genuinely different blocks, so
+      // the assertion below discriminates between them.
+      expect(getAgentTurnContext).toHaveBeenCalledTimes(2);
+      expect(provisionalBlock).not.toBe(promotedBlock);
+      expect(mockSpawnAgent.mock.calls[0][1]).toMatchObject({
+        memoryContextBlock: expect.stringContaining(promotedBlock),
+      });
+    });
+
     it('passes hydrated memory context with provider session resume id', async () => {
       const group = makeGroup({ requiresTrigger: false });
       const { deps } = setupHappyPath({ group });
