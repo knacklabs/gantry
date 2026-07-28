@@ -120,7 +120,7 @@ export function resolvePostgresPoolConfig(
 ): PoolConfig {
   const parsed = parsePostgresConnectionUrl(url);
   const sslMode = parsed.searchParams.get('sslmode')?.trim().toLowerCase();
-  const searchPathOptions = `-c search_path=${quotePostgresIdentifier(schema)},public`;
+  const searchPathOptions = `-c search_path=${quotePostgresIdentifier(schema)},public,extensions`;
   parsed.searchParams.set('options', searchPathOptions);
   const connectionString = parsed.toString();
   const isLocal = isLocalPostgresHost(

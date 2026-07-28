@@ -7,6 +7,7 @@ import {
   fallbackProviderAccountId,
   normalizeProviderId,
   providerIdForJid as resolveProviderIdForJid,
+  providerJidPrefix,
 } from '../../../../channels/provider-registry.js';
 import { agentIdForFolder as canonicalAgentIdForFolder } from '../../../../domain/agent/agent-folder-id.js';
 import * as pgSchema from '../schema/schema.js';
@@ -84,12 +85,19 @@ export function canonicalProviderThreadForIds<
   if (!input.conversationId || !input.threadId) return null;
   const conversationPrefix = 'conversation:';
   if (!input.conversationId.startsWith(conversationPrefix)) return null;
-  const providerJid = input.conversationId
+  const conversationTail = input.conversationId
     .slice(conversationPrefix.length)
     .trim();
+  const providerJid = providerJidFromConversationTail(conversationTail);
   if (!providerJid) return null;
-  const threadPrefix = `thread:${providerJid}:`;
-  if (!input.threadId.startsWith(threadPrefix)) return null;
+  const possibleThreadPrefixes =
+    conversationTail === providerJid
+      ? [`thread:${providerJid}:`]
+      : [`thread:${conversationTail}:`, `thread:${providerJid}:`];
+  const threadPrefix = possibleThreadPrefixes.find((prefix) =>
+    input.threadId!.startsWith(prefix),
+  );
+  if (!threadPrefix) return null;
   const externalThreadId = input.threadId.slice(threadPrefix.length).trim();
   if (!externalThreadId) return null;
   return {
@@ -104,6 +112,29 @@ export function canonicalProviderThreadForIds<
       externalThreadId,
     }),
   };
+}
+
+export function providerJidFromConversationTail(tail: string): string {
+  const normalized = tail.trim();
+  if (!normalized) return '';
+  if (isProviderJid(normalized)) {
+    return normalized;
+  }
+  const parts = normalized.split(':');
+  for (let index = 1; index < parts.length; index += 1) {
+    const candidate = parts.slice(index).join(':');
+    if (isProviderJid(candidate)) {
+      return candidate;
+    }
+  }
+  return normalized;
+}
+
+function isProviderJid(value: string): boolean {
+  const providerId = providerIdForJid(value, '');
+  if (!providerId) return false;
+  const jidPrefix = providerJidPrefix(providerId);
+  return jidPrefix ? value.startsWith(jidPrefix) : true;
 }
 
 export function json(value: unknown): string {

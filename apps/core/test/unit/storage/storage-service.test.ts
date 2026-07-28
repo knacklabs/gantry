@@ -48,6 +48,18 @@ describe('storage-service', () => {
     expect(config.max).toBeGreaterThanOrEqual(20);
   });
 
+  it('keeps Supabase extension types resolvable in the postgres search path', () => {
+    const config = resolvePostgresPoolConfig(
+      'postgres://user:pass@127.0.0.1:5432/gantry',
+      'gantry',
+    );
+
+    expect(config.options).toBe('-c search_path="gantry",public,extensions');
+    expect(config.connectionString).toContain(
+      'options=-c+search_path%3D%22gantry%22%2Cpublic%2Cextensions',
+    );
+  });
+
   it('uses the default runtime postgres pool size when unset', () => {
     expect(resolveRuntimePostgresPoolMax({})).toBe(20);
   });

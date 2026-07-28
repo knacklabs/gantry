@@ -24,10 +24,15 @@ import { logger } from '../../../../infrastructure/logging/logger.js';
 import { nowIso } from '../../../../shared/time/datetime.js';
 import * as pgSchema from '../schema/schema.js';
 import {
+  conversationIdForJid,
   canonicalProviderThreadForIds,
+  externalConversationIdForJid,
+  providerIdForJid,
+  providerJidFromConversationTail,
   type CanonicalDb,
   type CanonicalExecutor,
 } from './canonical-graph-repository.postgres.js';
+import { fallbackProviderAccountId } from '../../../../channels/provider-registry.js';
 import { PostgresEventBusPublisher } from './event-bus-outbox.postgres.js';
 import {
   type MessageLiveAdmissionInput,
@@ -85,6 +90,16 @@ function requiredId(value: unknown, name: string): string {
 function optionalId(value: unknown): string | null {
   const id = typeof value === 'string' ? value.trim() : '';
   return id || null;
+}
+
+function runtimeConversationKindForJid(
+  jid: string,
+): 'direct' | 'group' | 'channel' | 'service' | 'web' {
+  if (jid.startsWith('app:')) return 'service';
+  const externalConversationId = externalConversationIdForJid(jid);
+  if (externalConversationId.startsWith('-')) return 'group';
+  if (/^[dD][A-Z0-9]/.test(externalConversationId)) return 'direct';
+  return 'channel';
 }
 
 const RUNTIME_EVENT_BUS_SOURCE = 'gantry.runtime_events';
@@ -145,6 +160,12 @@ export class PostgresRuntimeEventRepository implements RuntimeEventRepository {
       conversationId,
       threadId,
     });
+    if (conversationId) {
+      await this.materializeRuntimeEventConversation(db, {
+        appId,
+        conversationId,
+      });
+    }
     if (providerThread) {
       await db
         .insert(pgSchema.conversationThreadsPostgres)
@@ -179,6 +200,50 @@ export class PostgresRuntimeEventRepository implements RuntimeEventRepository {
       })
       .returning();
     return this.eventFromRow(rows[0]!);
+  }
+
+  private async materializeRuntimeEventConversation(
+    db: CanonicalExecutor,
+    input: { appId: string; conversationId: string },
+  ): Promise<void> {
+    const conversationPrefix = 'conversation:';
+    if (!input.conversationId.startsWith(conversationPrefix)) return;
+    const conversationTail = input.conversationId
+      .slice(conversationPrefix.length)
+      .trim();
+    if (!conversationTail) return;
+    const jid = providerJidFromConversationTail(conversationTail);
+    if (!jid) return;
+    const providerId = providerIdForJid(jid);
+    const expectedFallbackProviderAccountId = fallbackProviderAccountId(
+      input.appId,
+      providerId,
+    );
+    const providerAccountId =
+      input.conversationId === conversationIdForJid(jid)
+        ? expectedFallbackProviderAccountId
+        : conversationTail.slice(0, -jid.length - 1).trim() ||
+          expectedFallbackProviderAccountId;
+    const externalConversationId = externalConversationIdForJid(jid);
+    await db
+      .insert(pgSchema.conversationsPostgres)
+      .values({
+        id: input.conversationId,
+        appId: input.appId,
+        providerAccountId,
+        externalRefJson: encodeJson({
+          kind: 'conversation',
+          value: externalConversationId,
+          jid,
+          providerId,
+          externalConversationId,
+          providerAccountId,
+        }),
+        kind: runtimeConversationKindForJid(jid),
+        title: jid,
+        updatedAt: currentIso(),
+      })
+      .onConflictDoNothing();
   }
 
   private async enqueueWebhookDeliveryIfNeeded(
