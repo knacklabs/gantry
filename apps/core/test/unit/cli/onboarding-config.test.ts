@@ -368,15 +368,15 @@ describe('persistOnboardingConfig', () => {
     expect(stableJson(parsedDocument)).toBe(stableJson(storedDocument));
   });
 
-  it('preserves an enabled provider with stored refs when no new token is supplied', async () => {
+  it('preserves the exact stored Slack refs when no new token is supplied', async () => {
     desiredSettings.providers.slack.enabled = true;
     desiredSettings.providerAccounts.slack_default = {
       agentId: 'main_agent',
       provider: 'slack',
       label: 'Slack Default',
       runtimeSecretRefs: {
-        bot_token: 'gantry-secret:SLACK_BOT_TOKEN',
-        app_token: 'gantry-secret:SLACK_APP_TOKEN',
+        bot_token: 'gantry-secret:SLACK_SLACK_DEFAULT_EXISTING_BOT_TOKEN',
+        app_token: 'gantry-secret:SLACK_SLACK_DEFAULT_EXISTING_APP_TOKEN',
       },
     };
     const { persistOnboardingConfig } =
@@ -385,6 +385,7 @@ describe('persistOnboardingConfig', () => {
     await persistOnboardingConfig({
       runtimeHome: '/tmp/gantry',
       primaryProvider: 'slack',
+      hasStoredSlackSecretRefs: true,
       agentHarness: 'auto',
       credentialMode: 'gantry',
       memoryEnabled: true,
@@ -395,8 +396,8 @@ describe('persistOnboardingConfig', () => {
     expect(events).toEqual(['loadDesired:gantry', 'write:gantry']);
     expect(settingsWrites.at(-1)).toMatchObject({
       slackEnabled: true,
-      slackBotRef: 'gantry-secret:SLACK_BOT_TOKEN',
-      slackAppRef: 'gantry-secret:SLACK_APP_TOKEN',
+      slackBotRef: 'gantry-secret:SLACK_SLACK_DEFAULT_EXISTING_BOT_TOKEN',
+      slackAppRef: 'gantry-secret:SLACK_SLACK_DEFAULT_EXISTING_APP_TOKEN',
     });
   });
 

@@ -326,12 +326,22 @@ function buildOnboardingSettings(input: {
       label: settings.providerAccounts.slack_default?.label || 'Slack Default',
       runtimeSecretRefs: {
         ...(settings.providerAccounts.slack_default?.runtimeSecretRefs || {}),
-        bot_token: gantryRuntimeSecretRef(
-          slackRuntimeSecretNameForAgent(settings.agent.name, 'BOT_TOKEN'),
-        ),
-        app_token: gantryRuntimeSecretRef(
-          slackRuntimeSecretNameForAgent(settings.agent.name, 'APP_TOKEN'),
-        ),
+        ...(hasSlackTokens
+          ? {
+              bot_token: gantryRuntimeSecretRef(
+                slackRuntimeSecretNameForAgent(
+                  settings.agent.name,
+                  'BOT_TOKEN',
+                ),
+              ),
+              app_token: gantryRuntimeSecretRef(
+                slackRuntimeSecretNameForAgent(
+                  settings.agent.name,
+                  'APP_TOKEN',
+                ),
+              ),
+            }
+          : {}),
       },
     };
   }
