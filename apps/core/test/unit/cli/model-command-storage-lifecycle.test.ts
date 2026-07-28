@@ -181,6 +181,29 @@ describe('model CLI storage lifecycle', () => {
     );
   });
 
+  it('reports a falsy storage cleanup rejection reason', async () => {
+    const runtimeHome = makeRuntimeHome();
+    const settings = loadRuntimeSettings(runtimeHome);
+    release.mockRejectedValueOnce(undefined);
+    const reported = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    await expect(
+      runWithModelCommandPreflight({
+        runtimeHome,
+        run: async (preflightProvider) => {
+          await preflightProvider(runtimeHome, 'openai', settings, 'gpt-terra');
+          return 7;
+        },
+      }),
+    ).resolves.toBe(7);
+
+    expect(release).toHaveBeenCalledOnce();
+    expect(reported).toHaveBeenCalledWith(
+      'Model command runtime storage cleanup failed:',
+      undefined,
+    );
+  });
+
   it('surfaces model command and storage cleanup failures together', async () => {
     const runtimeHome = makeRuntimeHome();
     const settings = loadRuntimeSettings(runtimeHome);
@@ -193,6 +216,68 @@ describe('model CLI storage lifecycle', () => {
         runtimeHome,
         run: async (preflightProvider) => {
           await preflightProvider(runtimeHome, 'openai', settings, 'gpt-terra');
+          throw commandError;
+        },
+      }),
+    ).rejects.toMatchObject({
+      name: 'AggregateError',
+      errors: [commandError, cleanupError],
+    });
+
+    expect(release).toHaveBeenCalledOnce();
+  });
+
+  it('releases storage after a synchronous model command failure', async () => {
+    const runtimeHome = makeRuntimeHome();
+    const settings = loadRuntimeSettings(runtimeHome);
+    const commandError = new Error('model command failed');
+    let finishPreflight!: () => void;
+    preflightModelProvider.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishPreflight = () =>
+            resolve({
+              ok: true,
+              status: 'pass' as const,
+              message: 'ok',
+            });
+        }),
+    );
+
+    const outcome = runWithModelCommandPreflight({
+      runtimeHome,
+      run: (preflightProvider) => {
+        void preflightProvider(runtimeHome, 'openai', settings, 'gpt-terra');
+        throw commandError;
+      },
+    }).then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+
+    await vi.waitFor(() => {
+      expect(preflightModelProvider).toHaveBeenCalledOnce();
+    });
+    expect(release).not.toHaveBeenCalled();
+
+    finishPreflight();
+
+    await expect(outcome).resolves.toBe(commandError);
+    expect(release).toHaveBeenCalledOnce();
+  });
+
+  it('surfaces synchronous model command and storage cleanup failures together', async () => {
+    const runtimeHome = makeRuntimeHome();
+    const settings = loadRuntimeSettings(runtimeHome);
+    const commandError = new Error('model command failed');
+    const cleanupError = new Error('storage cleanup failed');
+    release.mockRejectedValueOnce(cleanupError);
+
+    await expect(
+      runWithModelCommandPreflight({
+        runtimeHome,
+        run: (preflightProvider) => {
+          void preflightProvider(runtimeHome, 'openai', settings, 'gpt-terra');
           throw commandError;
         },
       }),

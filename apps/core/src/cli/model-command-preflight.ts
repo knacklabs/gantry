@@ -25,7 +25,8 @@ export async function runWithModelCommandPreflight(input: {
 }): Promise<number> {
   let storageLease: RuntimeStorageLease | undefined;
   let storageLeasePromise: Promise<RuntimeStorageLease> | undefined;
-  const preflightProvider =
+  const inFlightPreflights = new Set<Promise<ModelProviderPreflightResult>>();
+  const selectedPreflightProvider =
     input.preflightProvider ??
     (async (runtimeHome, providerId, settings, chatAlias) => {
       if (settings.credentialBroker.mode === 'gantry') {
@@ -43,25 +44,54 @@ export async function runWithModelCommandPreflight(input: {
         modelCredentials: storageLease?.storage.repositories.modelCredentials,
       });
     });
-  return input.run(preflightProvider).then(
-    async (result) => {
-      await storageLease?.release().then(undefined, (cleanupError: unknown) => {
-        console.error(
-          'Model command runtime storage cleanup failed:',
-          cleanupError,
-        );
-      });
-      return result;
-    },
-    async (error: unknown) => {
-      await storageLease?.release().then(undefined, (cleanupError: unknown) => {
-        throw new AggregateError(
-          [error, cleanupError],
-          'Model command failed and runtime storage cleanup also failed',
-          { cause: cleanupError },
-        );
-      });
-      throw error;
-    },
-  );
+  const preflightProvider: CliModelProviderPreflight = (...args) => {
+    const preflight = selectedPreflightProvider(...args);
+    inFlightPreflights.add(preflight);
+    void preflight.then(
+      () => inFlightPreflights.delete(preflight),
+      () => inFlightPreflights.delete(preflight),
+    );
+    return preflight;
+  };
+
+  const releaseStorageLease = async (): Promise<
+    { ok: true } | { ok: false; error: unknown }
+  > => {
+    await Promise.allSettled([...inFlightPreflights]);
+    const lease =
+      storageLease ??
+      (storageLeasePromise
+        ? await storageLeasePromise.then(
+            (resolvedLease) => resolvedLease,
+            () => undefined,
+          )
+        : undefined);
+    if (!lease) return { ok: true };
+    return lease.release().then(
+      () => ({ ok: true }) as const,
+      (error: unknown) => ({ ok: false, error }) as const,
+    );
+  };
+
+  try {
+    const result = await input.run(preflightProvider);
+    const cleanup = await releaseStorageLease();
+    if (!cleanup.ok) {
+      console.error(
+        'Model command runtime storage cleanup failed:',
+        cleanup.error,
+      );
+    }
+    return result;
+  } catch (error) {
+    const cleanup = await releaseStorageLease();
+    if (!cleanup.ok) {
+      throw new AggregateError(
+        [error, cleanup.error],
+        'Model command failed and runtime storage cleanup also failed',
+        { cause: error },
+      );
+    }
+    throw error;
+  }
 }
