@@ -22,6 +22,38 @@ import { ModelCredentialService } from '../../../application/model-credentials/m
 import { logger } from '../../../infrastructure/logging/logger.js';
 
 let runtime: StorageRuntime | null = null;
+let commandOwnedRuntime:
+  | { storage: StorageRuntime; activeLeases: number; closed: boolean }
+  | undefined;
+let commandRuntimeInitialization: Promise<StorageRuntime> | undefined;
+
+export interface RuntimeStorageLease {
+  storage: StorageRuntime;
+  owned: boolean;
+  release: () => Promise<void>;
+}
+
+async function closeStorageRuntimeResources(
+  storage: StorageRuntime,
+): Promise<void> {
+  const failures: unknown[] = [];
+  for (const close of [
+    () => storage.liveTurnCommandWakeupSource.close(),
+    () => storage.liveAdmissionWakeupSource.close(),
+    () => storage.runtimeEventNotifier.close(),
+    () => storage.service.close(),
+  ]) {
+    try {
+      await close();
+    } catch (error) {
+      failures.push(error);
+    }
+  }
+  if (failures.length === 1) throw failures[0];
+  if (failures.length > 1) {
+    throw new AggregateError(failures, 'Failed to close runtime storage');
+  }
+}
 
 /**
  * Discriminates genuine storage-unavailability failures (Postgres down/absent,
@@ -73,9 +105,77 @@ export async function initializeRuntimeStorage(
     });
     return nextRuntime;
   } catch (err) {
-    await nextRuntime.service.close();
+    try {
+      await closeStorageRuntimeResources(nextRuntime);
+    } catch (closeError) {
+      logger.warn(
+        { err: closeError },
+        'Runtime storage cleanup failed after initialization error',
+      );
+    }
     throw err;
   }
+}
+
+/**
+ * Acquires the process runtime storage without taking ownership from a caller
+ * that already initialized it. Command-scoped callers must release the lease;
+ * only a storage runtime created by this acquisition will be closed.
+ */
+export async function acquireRuntimeStorage(
+  options: StorageRuntimeOptions = {},
+): Promise<RuntimeStorageLease> {
+  if (commandOwnedRuntime && runtime === commandOwnedRuntime.storage) {
+    commandOwnedRuntime.activeLeases += 1;
+    return commandRuntimeLease(commandOwnedRuntime);
+  }
+  if (runtime) {
+    return {
+      storage: runtime,
+      owned: false,
+      release: async () => undefined,
+    };
+  }
+  commandRuntimeInitialization ??= (async () => {
+    const storage = await initializeRuntimeStorage(options);
+    commandOwnedRuntime = { storage, activeLeases: 0, closed: false };
+    return storage;
+  })();
+  try {
+    await commandRuntimeInitialization;
+  } finally {
+    commandRuntimeInitialization = undefined;
+  }
+  const ownedRuntime = commandOwnedRuntime;
+  if (!ownedRuntime) {
+    throw new Error('Command-owned runtime storage was not initialized');
+  }
+  ownedRuntime.activeLeases += 1;
+  return commandRuntimeLease(ownedRuntime);
+}
+
+function commandRuntimeLease(
+  owner: NonNullable<typeof commandOwnedRuntime>,
+): RuntimeStorageLease {
+  let released = false;
+  return {
+    storage: owner.storage,
+    owned: true,
+    release: async () => {
+      if (released) return;
+      released = true;
+      owner.activeLeases -= 1;
+      if (owner.activeLeases > 0) return;
+      if (commandOwnedRuntime === owner) commandOwnedRuntime = undefined;
+      if (owner.closed) return;
+      owner.closed = true;
+      if (runtime === owner.storage) {
+        runtime = null;
+        configurePendingInteractionDurability(null);
+      }
+      await closeStorageRuntimeResources(owner.storage);
+    },
+  };
 }
 
 export function getRuntimeStorage(): StorageRuntime {
@@ -192,11 +292,12 @@ export function getRuntimeBrowserProfileSnapshotRepository(): BrowserProfileSnap
 export async function closeRuntimeStorage(): Promise<void> {
   const existing = runtime;
   runtime = null;
+  if (commandOwnedRuntime?.storage === existing) {
+    commandOwnedRuntime.closed = true;
+    commandOwnedRuntime = undefined;
+  }
   configurePendingInteractionDurability(null);
-  await existing?.liveTurnCommandWakeupSource.close();
-  await existing?.liveAdmissionWakeupSource.close();
-  await existing?.runtimeEventNotifier.close();
-  await existing?.service.close();
+  if (existing) await closeStorageRuntimeResources(existing);
 }
 
 /** @internal test hook */

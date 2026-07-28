@@ -117,9 +117,10 @@ export async function runEmbeddingBackfillCommand(
   }
 
   process.env.GANTRY_HOME = runtimeHome;
-  const { initializeRuntimeStorage } =
+  const { acquireRuntimeStorage } =
     await import('../adapters/storage/postgres/runtime-store.js');
-  const storage = await initializeRuntimeStorage();
+  const storageLease = await acquireRuntimeStorage();
+  const { storage } = storageLease;
   try {
     const provider = createEmbeddingProvider(embeddings.provider, {
       model: embeddings.model,
@@ -151,7 +152,6 @@ export async function runEmbeddingBackfillCommand(
     p.log.error(`Memory embedding backfill failed: ${message}`);
     return 1;
   } finally {
-    await storage.runtimeEventNotifier.close().catch(() => {});
-    await storage.service.close().catch(() => {});
+    await storageLease.release().catch(() => {});
   }
 }
