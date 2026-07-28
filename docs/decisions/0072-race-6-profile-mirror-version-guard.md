@@ -35,59 +35,43 @@ logic can reason from state that disagrees with the store.
    `ProfileMirrorInput` into `writeProfileFileMirror`. The mirror stops being a
    content-only side effect and becomes a versioned projection.
 
-2. **Refuse out-of-order mirror writes, using a version marker inside the mirrored
-   file itself.** The mirrored file carries a single inert trailing marker line
-   recording the artifact version it was written from. `writeProfileFileMirror`
-   reads that marker and **skips** a write whose version is older — last-*writer*
-   no longer wins; highest-version wins. Writes are serialized per target path so
-   two concurrent mirrors cannot interleave between the read and the rename. A
-   skipped stale write is a normal outcome, not an error.
+2. **Serialize per target and skip an older version while a newer one is live.**
+   Mirror writes for one target are chained, so two concurrent mirrors can never
+   interleave. The chain carries the highest version applied during its lifetime,
+   and a write whose version is older than that is **skipped** — last-*writer* no
+   longer wins; highest-version wins. A skipped stale write is a normal outcome,
+   not an error. The version lives **only on the chain**: when the chain drains its
+   entry is removed and the version is forgotten, so the state is bounded by
+   construction — no cache, no cap, no eviction, nothing to leak.
 
-   The marker lives in the **same atomically renamed object as the content**, so
-   version and content can never disagree. Read rules: file missing ⇒ no recorded
-   version (proceed); file present without a marker ⇒ no recorded version (an
-   unversioned write legitimately clears the claim, because its content replaced
-   the marker); file present but **unreadable** ⇒ fail closed, abort this mirror
-   attempt (non-fatal to the caller) rather than silently disabling the guard.
+3. **Nothing is persisted. The mirror file gains no metadata.** A mirrored file
+   contains exactly the pre-existing managed header plus the caller's content.
 
-   *(Supersedes two earlier shapes review proved unsafe. A process-global `Map` is
-   unfixable — unbounded it leaks an entry per target for the process lifetime, and
-   bounding it with LRU eviction lets an evicted target accept an older version
-   again. A separate `.version` **sidecar** is also unsafe, because two files can
-   disagree: if the content rename succeeds and the sidecar write fails or the
-   process exits between them, a later older write reads a stale/absent marker and
-   overwrites newer content; mixing versioned and unversioned writes leaves the
-   marker describing content it no longer guards. Only a single atomic object
-   holds.)*
+   *(This supersedes four shapes review rejected in turn, and the reasoning is the
+   value here. A process-global `Map` cannot be both bounded and correct —
+   unbounded it leaks an entry per target for the process lifetime; bounded by LRU
+   it lets an evicted target accept an older version again. A separate `.version`
+   **sidecar** can disagree with the content it guards, because a content rename
+   that succeeds while the sidecar write fails leaves a later older write reading a
+   stale marker. A version marker **inside the file** is worse still: these mirrors
+   are **user-editable by design** — their own header says edits are imported or
+   approved — so a user appending a section below the marker leaves it mid-file,
+   where it reads back as profile content and can be imported into the durable
+   artifact. Reading the file to recover a marker also required no-follow/bounded
+   reads and a platform gate that broke mirroring on unsupported platforms. Each
+   attempt was defending a mechanism the actual bug never needed.)*
 
-3. **Scope: in-process ordering only — stated up front.** The mirror is a *local
-   convenience projection*; the durable artifact store remains the single source of
-   truth. Production mirrors are per-worker/container-local, so the realistic
-   interleaving is two concurrent updates inside one process, which this closes.
-   Cross-process *coordination* (locking or fencing a shared mirror path) remains
-   **out of scope** — no lease, no fencing token. The marker in §2 is colocated
-   durable state, not coordination; it happens to make the guard hold across
-   restarts and processes too, but nothing here depends on that. Mirror failures
-   stay non-fatal (they already route through `reportSideEffectError`); a stale or
-   skipped mirror must never fail the durable write.
-
-4. **Safe reads.** The marker read happens *after* the mirror directory safety
-   check, opens the target `O_RDONLY|O_NONBLOCK|O_NOFOLLOW`, requires a regular
-   file via `fstat`, and reads only the final 1 KiB. A workspace-controlled target
-   swapped for a FIFO, a device symlink, or a huge file therefore cannot hang or
-   exhaust memory. Plain `O_NOFOLLOW` (final component) is used deliberately rather
-   than darwin's `O_NOFOLLOW_ANY`, which rejects a symlink *anywhere* in the path
-   and so fails on ordinary files under macOS temp dirs (`/var` → `/private/var`);
-   the containing directory is validated separately.
-
-## Not a compatibility surface
-
-Pre-existing mirror file content is **not** an input this design accommodates
-(no-backward-compatibility policy). The mirror is a projection: every write
-replaces the file wholesale from the durable artifact, so any file written before
-this change is superseded on its next write and needs no migration, escaping, or
-format discriminator. The marker is the final line of every file we write, which
-is the only case the guard has to reason about.
+4. **Scope, and the accepted residual.** The mirror is a *local convenience
+   projection*; the durable artifact store is the single source of truth. The race
+   this closes — two concurrent updates inside one process — is the one the audit
+   reported and the only one a projection needs to handle. **Residual:** a caller
+   that commits a version and then delays past a whole competing update (long
+   enough for the chain to drain) can still write its older content, leaving one
+   stale mirror file until the next write re-projects it. That is accepted: the
+   durable store is unaffected, it self-heals, and every mechanism that closed it
+   cost more than it was worth. Cross-process coordination (lease, fencing token)
+   is explicitly out of scope. Mirror failures stay non-fatal via the caller's
+   existing `reportSideEffectError` path and must never fail the durable write.
 
 ## Consequences
 

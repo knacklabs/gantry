@@ -1,5 +1,4 @@
 import fs from 'fs';
-import { constants as fsConstants } from 'fs';
 import fsp from 'fs/promises';
 import type { FileHandle } from 'fs/promises';
 import { randomUUID } from 'node:crypto';
@@ -19,84 +18,12 @@ import { isValidWorkspaceFolder } from './workspace-folder-rules.js';
 export const PROFILE_MIRROR_HEADER =
   '<!-- Managed by Gantry. Direct edits are not active until imported or approved. -->';
 
-const mirrorWriteChainByTarget = new Map<string, Promise<void>>();
-
-const PROFILE_MIRROR_VERSION_TAIL_BYTES = 1024;
-
-// Tolerate a trailing line ending after the marker: these are human-facing
-// workspace files, and an editor or formatter appending the conventional final
-// newline must not silently disable the ordering guard.
-const PROFILE_MIRROR_MARKER_PATTERN =
-  /\r?\n<!-- gantry-profile-version: ([^\r\n]*?) -->\r?\n?$/;
-
-function parseProfileMirrorVersion(content: string): number | undefined {
-  const match = PROFILE_MIRROR_MARKER_PATTERN.exec(content);
-  const raw = match?.[1];
-  if (raw === undefined || raw === 'none') return undefined;
-  if (!/^(0|[1-9]\d*)$/.test(raw)) return undefined;
-  const version = Number(raw);
-  return Number.isSafeInteger(version) ? version : undefined;
+interface MirrorWriteChain {
+  tail: Promise<void>;
+  appliedVersion?: number;
 }
 
-async function readRecordedMirrorVersion(
-  targetPath: string,
-): Promise<number | undefined> {
-  let handle: FileHandle;
-  try {
-    handle = await fsp.open(targetPath, profileMirrorReadOpenFlags());
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
-    throw err;
-  }
-  try {
-    const stat = await handle.stat();
-    if (!stat.isFile()) {
-      throw new Error(
-        `Profile mirror target is not a regular file: ${targetPath}`,
-      );
-    }
-    const length = Math.min(stat.size, PROFILE_MIRROR_VERSION_TAIL_BYTES);
-    const position = stat.size - length;
-    const tail = Buffer.allocUnsafe(length);
-    let bytesRead = 0;
-    while (bytesRead < length) {
-      const result = await handle.read(
-        tail,
-        bytesRead,
-        length - bytesRead,
-        position + bytesRead,
-      );
-      if (result.bytesRead === 0) break;
-      bytesRead += result.bytesRead;
-    }
-    return parseProfileMirrorVersion(
-      tail.subarray(0, bytesRead).toString('utf-8'),
-    );
-  } finally {
-    await handle.close();
-  }
-}
-
-function profileMirrorReadOpenFlags(): number {
-  // O_NOFOLLOW guards the FINAL component, which is all we need here: the
-  // containing directory is validated separately by
-  // ensureSafeProfileMirrorDirectory. Do NOT use darwin's O_NOFOLLOW_ANY — it
-  // rejects a symlink anywhere in the path, and macOS temp dirs live under
-  // /var/folders where /var itself is a symlink to /private/var, so ordinary
-  // files fail with ELOOP.
-  if (process.platform === 'darwin' || process.platform === 'linux') {
-    return (
-      fsConstants.O_RDONLY | fsConstants.O_NONBLOCK | fsConstants.O_NOFOLLOW
-    );
-  }
-  throw new Error(
-    'Profile mirror version reads are unsupported on this platform',
-  );
-}
-
-export function stripProfileMirrorMarker(content: string): string {
-  return content.replace(PROFILE_MIRROR_MARKER_PATTERN, '');
-}
+const mirrorWriteChainByTarget = new Map<string, MirrorWriteChain>();
 
 export function stripProfileMirrorHeader(content: string): string {
   const normalized = content.replace(/^\uFEFF/, '');
@@ -176,21 +103,24 @@ export async function writeProfileFileMirror(input: {
   const dir = resolveProfileMirrorDir(input.agentFolder, input.runtimeHome);
   const mirrorFileName = profileMirrorFileName(input.fileName);
   const targetPath = path.resolve(dir, mirrorFileName);
-  const previousWrite =
-    mirrorWriteChainByTarget.get(targetPath) ?? Promise.resolve();
+  let chain = mirrorWriteChainByTarget.get(targetPath);
+  if (!chain) {
+    chain = { tail: Promise.resolve() };
+    mirrorWriteChainByTarget.set(targetPath, chain);
+  }
+  const previousWrite = chain.tail;
   const write = previousWrite.then(async () => {
     await ensureSafeProfileMirrorDirectory(dir);
-    const recordedVersion = await readRecordedMirrorVersion(targetPath);
     if (
       input.version !== undefined &&
-      recordedVersion !== undefined &&
-      input.version <= recordedVersion
+      chain.appliedVersion !== undefined &&
+      input.version <= chain.appliedVersion
     ) {
       logger.debug(
         {
           targetPath,
           version: input.version,
-          recordedVersion,
+          appliedVersion: chain.appliedVersion,
         },
         'skipping stale profile mirror write',
       );
@@ -202,16 +132,21 @@ export async function writeProfileFileMirror(input: {
       mirrorFileName,
       targetPath,
       content: input.content,
-      version: input.version,
     });
+    if (input.version !== undefined) {
+      chain.appliedVersion = input.version;
+    }
   });
   const settledWrite = write.then(
     () => undefined,
     () => undefined,
   );
-  mirrorWriteChainByTarget.set(targetPath, settledWrite);
+  chain.tail = settledWrite;
   void settledWrite.then(() => {
-    if (mirrorWriteChainByTarget.get(targetPath) === settledWrite) {
+    if (
+      mirrorWriteChainByTarget.get(targetPath) === chain &&
+      chain.tail === settledWrite
+    ) {
       mirrorWriteChainByTarget.delete(targetPath);
     }
   });
@@ -223,7 +158,6 @@ async function writeProfileFileMirrorAtomic(input: {
   mirrorFileName: string;
   targetPath: string;
   content: string;
-  version?: number;
 }): Promise<void> {
   const { dir, mirrorFileName, targetPath } = input;
   await ensureSafeProfileMirrorDirectory(dir);
@@ -232,9 +166,7 @@ async function writeProfileFileMirrorAtomic(input: {
     `.${mirrorFileName}.${process.pid}.${randomUUID()}.tmp`,
   );
   const body = stripProfileMirrorHeader(input.content);
-  const markerVersion = input.version ?? 'none';
-  const marker = `\n<!-- gantry-profile-version: ${markerVersion} -->`;
-  const rendered = `${PROFILE_MIRROR_HEADER}\n\n${body}${marker}`;
+  const rendered = `${PROFILE_MIRROR_HEADER}\n\n${body}`;
   let handle: FileHandle | null = null;
   try {
     handle = await fsp.open(tmpPath, 'wx', 0o600);
@@ -292,7 +224,7 @@ export function readProfileFileMirror(input: {
     runtimeHome: input.runtimeHome,
   });
   try {
-    return stripProfileMirrorMarker(fs.readFileSync(targetPath, 'utf-8'));
+    return fs.readFileSync(targetPath, 'utf-8');
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === 'ENOENT') return null;
     throw err;
