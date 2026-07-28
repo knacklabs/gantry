@@ -1,7 +1,12 @@
+import { isDeepStrictEqual } from 'node:util';
+
 import type { AppId } from '../../domain/app/app.js';
 import type { SettingsRevisionRepository } from '../../domain/ports/fleet-capability-state.js';
 import type { RuntimeLeasePort } from '../../domain/ports/runtime-lease.js';
-import { loadRuntimeSettings } from './runtime-settings.js';
+import {
+  loadRuntimeSettings,
+  saveRuntimeSettings,
+} from './runtime-settings.js';
 import { classifySettingsChanges } from './desired-state-service-helpers.js';
 import {
   importWorkstationSettings,
@@ -12,6 +17,7 @@ import type {
   SettingsDesiredStateOps,
   SettingsDesiredStateRepositories,
 } from './desired-state-service-types.js';
+import { resolveRuntimeHome, settingsFilePath } from './runtime-home.js';
 import type { RuntimeSettings } from './runtime-settings-types.js';
 
 export interface DesiredSettingsWriteStorage {
@@ -44,8 +50,14 @@ let storageProvider:
     }) => Promise<DesiredSettingsWriteStorage | undefined>)
   | undefined;
 
-const SETTINGS_MUTATION_REQUIRES_RUNTIME_STORAGE =
-  'Settings mutation requires runtime storage so settings_revisions can be durably appended.';
+interface DesiredSettingsWriteChain {
+  tail: Promise<void>;
+}
+
+const desiredSettingsWriteChainByTarget = new Map<
+  string,
+  DesiredSettingsWriteChain
+>();
 
 export function configureDesiredSettingsStorageProvider(
   provider:
@@ -55,6 +67,89 @@ export function configureDesiredSettingsStorageProvider(
     | undefined,
 ): void {
   storageProvider = provider;
+}
+
+function isSettingsRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function applySettingsSnapshotDelta(
+  previous: unknown,
+  desired: unknown,
+  current: unknown,
+): unknown {
+  if (isDeepStrictEqual(previous, desired)) return current;
+  if (
+    !isSettingsRecord(previous) ||
+    !isSettingsRecord(desired) ||
+    !isSettingsRecord(current)
+  ) {
+    return structuredClone(desired);
+  }
+
+  const rebased: Record<string, unknown> = { ...current };
+  for (const key of new Set([
+    ...Object.keys(previous),
+    ...Object.keys(desired),
+  ])) {
+    if (!(key in desired)) {
+      delete rebased[key];
+      continue;
+    }
+    if (!(key in previous)) {
+      rebased[key] = structuredClone(desired[key]);
+      continue;
+    }
+    rebased[key] = applySettingsSnapshotDelta(
+      previous[key],
+      desired[key],
+      current[key],
+    );
+  }
+  return rebased;
+}
+
+async function writeFileBackedDesiredRuntimeSettings(input: {
+  runtimeHome: string;
+  settings: RuntimeSettings;
+  previousSettings?: RuntimeSettings;
+}): Promise<DesiredRuntimeSettingsWriteResult> {
+  const targetPath = settingsFilePath(resolveRuntimeHome(input.runtimeHome));
+  let chain = desiredSettingsWriteChainByTarget.get(targetPath);
+  if (!chain) {
+    chain = { tail: Promise.resolve() };
+    desiredSettingsWriteChainByTarget.set(targetPath, chain);
+  }
+
+  const previousWrite = chain.tail;
+  const write = previousWrite.then(async () => {
+    const currentSettings = loadRuntimeSettings(input.runtimeHome);
+    const restartRequired = classifySettingsChanges(
+      input.previousSettings ?? currentSettings,
+      input.settings,
+    ).restartRequired;
+    const rebasedSettings = applySettingsSnapshotDelta(
+      input.previousSettings ?? currentSettings,
+      input.settings,
+      currentSettings,
+    ) as RuntimeSettings;
+    await saveRuntimeSettings(input.runtimeHome, rebasedSettings);
+    return { reconciled: false, restartRequired };
+  });
+  const settledWrite = write.then(
+    () => undefined,
+    () => undefined,
+  );
+  chain.tail = settledWrite;
+  void settledWrite.then(() => {
+    if (
+      desiredSettingsWriteChainByTarget.get(targetPath) === chain &&
+      chain.tail === settledWrite
+    ) {
+      desiredSettingsWriteChainByTarget.delete(targetPath);
+    }
+  });
+  return write;
 }
 
 /**
@@ -73,11 +168,13 @@ export async function writeDesiredRuntimeSettings(input: {
 }): Promise<DesiredRuntimeSettingsWriteResult> {
   const deploymentMode = input.settings.runtime.deploymentMode;
   if (!storageProvider) {
-    throw new Error(SETTINGS_MUTATION_REQUIRES_RUNTIME_STORAGE);
+    return writeFileBackedDesiredRuntimeSettings(input);
   }
   const storage = await storageProvider({ settings: input.settings });
   if (!storage) {
-    throw new Error(SETTINGS_MUTATION_REQUIRES_RUNTIME_STORAGE);
+    throw new Error(
+      'Settings mutation requires runtime storage so settings_revisions can be durably appended.',
+    );
   }
   if (!deploymentMode) {
     await storage.close?.();

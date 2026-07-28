@@ -4,68 +4,84 @@ confirmed_by: "Ravi"
 date: 2026-07-28
 ---
 
-# Delete the unlocked no-store settings write fallback
+# Serialize the file-is-the-store settings write
 
 ## Context
 
-`writeDesiredRuntimeSettings` (`apps/core/src/config/settings/desired-settings-writer.ts:73-84`)
+`writeDesiredRuntimeSettings` (`apps/core/src/config/settings/desired-settings-writer.ts:75-84`)
 has two paths. When a storage provider is configured it appends a durable
-`settings_revisions` row. When one is **not** configured it silently falls back to
-an unlocked read-modify-write: read the current settings, classify the change, then
-`saveRuntimeSettings`. Two concurrent writers on that path each read the same base
-and the second write drops the first's update. There is no lock and no version
-check.
+`settings_revisions` row. When one is **not** configured it reads the current
+settings, classifies the change, and calls `saveRuntimeSettings` — an **unlocked
+read-modify-write**. Two concurrent writers on that path each read the same base and
+the second write silently drops the first's update. There is no lock and no version
+check. That lost-update window is RACE-9.
 
-The provider is a **module-global** (`storageProvider`) set as a side effect of
-startup, in exactly two places:
+The provider is a module-global set at two entry points: the CLI
+(`apps/core/src/cli/index.ts:34`, at module load) and the control server
+(`apps/core/src/control/server/index.ts:281`, during startup).
 
-- `apps/core/src/cli/index.ts:34` — at module load, so every CLI command has it;
-- `apps/core/src/control/server/index.ts:281` — during control-server startup.
+### The no-provider path is a supported mode, not dead weight
 
-Client context (2026-07-28): those are the only real entry points — a personal
-runtime is driven through the **CLI**, and an organisation drives it through the
-**SDK/API**, i.e. the control server. Both configure the provider, and both files
-change rarely. So the fallback is not a path anyone actually needs; it is dead
-weight that happens to contain a lost-update race.
+An earlier draft of this decision proposed **deleting** the fallback and throwing,
+on the assumption that both real entry points always configure a provider so the
+path was unreachable. That was wrong, and the codebase says so explicitly
+(`apps/core/src/cli/group-helpers.ts:264-270`):
 
-The audit classified this as latent (the primary Postgres production path is
-unaffected) and recommended either removing the fallback from production wiring or
-adding file locking with versioned compare-and-swap.
+> *"Without a provider the file IS the store, and a file write is correct.
+> `reconciled: false` is therefore not an error condition; a genuine failure
+> surfaces as a throw and is caught below."*
+
+So `reconciled: false` is a deliberate signal that the write landed in the file with
+no database projection to reconcile, and production branches on it
+(`cli/group.ts:513`, `cli/group-remove-routeless.ts:98`, `cli/group-helpers.ts:279`).
+Attempting the deletion made **35 tests across 9 CLI/control files** fail, several of
+which assert behaviour that depends on `reconciled: false` — they were not merely
+unconfigured, they were exercising the mode on purpose. Deleting the path would have
+removed a documented behaviour and collapsed a result-shape distinction the CLI
+relies on.
 
 ## Decision
 
-**Delete the fallback and fail loudly.** When no storage provider is configured,
-`writeDesiredRuntimeSettings` throws instead of writing settings unlocked — the
-same shape as the error already raised a few lines below when the provider yields
-no storage (*"Settings mutation requires runtime storage so settings_revisions can
-be durably appended."*). A settings write with nowhere durable to record it is a
-programming error, not a mode to support.
+**Keep the file-is-the-store path and make it safe.** Serialize the
+read-modify-write so two concurrent writers cannot lose an update:
 
-Per the no-backward-compatibility policy there is no shim and no deprecation
-window. This follows RACE-8's precedent: the unsafe path stops existing rather than
-being made "safe enough", so the requirement is explicit at the call site instead
-of degrading silently.
+1. Serialize per settings file (keyed on the resolved `settings.yaml` path) so the
+   read → classify → save sequence cannot interleave with another writer's.
+2. Read the base **inside** the serialized section, and **rebase the caller's delta
+   onto it**. Serialization alone is not sufficient: each caller passes a *full*
+   settings snapshot built from its own earlier read, so a serialized second write
+   would still overwrite the first writer's key. Instead compute the delta between
+   the caller's `previousSettings` and its `settings`, and apply only that delta to
+   the freshly-read current file (`applySettingsSnapshotDelta`) — a three-way merge
+   that preserves concurrent changes to untouched keys while still honouring keys the
+   caller intentionally **deleted**.
+3. Leave the return contract untouched — `reconciled: false` still means "written to
+   the file, nothing to reconcile" — and leave the provider-configured path exactly
+   as it is.
 
-### Rejected alternatives
+   *Semantic note:* a caller's snapshot no longer wins wholesale; only its delta
+   applies. That is the point — wholesale wins are exactly how the update was lost —
+   but it is a real behaviour change for a caller that expected to overwrite keys it
+   never intended to touch.
 
-- **Serialize the fallback** (in-process mutex or file lock). Rejected: it keeps a
-  second, weaker write path alive forever and only helps single-process contention,
-  while the durable revision record — the actual authority — is still skipped.
-- **Re-order startup so the provider is configured earlier, then delete.** Rejected
-  as unnecessary: both real entry points already configure it before any settings
-  write, so no ordering change is required. Avoiding a boot-ordering change also
-  avoids the failure mode where settings writes begin throwing during startup.
+### Rejected alternative
+
+**Delete the fallback and throw** (an earlier accepted draft of this decision, now
+superseded). Rejected because the path is a documented supported mode: the file is
+the authority when no provider is configured, `reconciled: false` is load-bearing
+for CLI projection cleanup, and removing it broke 35 tests that deliberately exercise
+it. The correction is recorded here rather than silently dropped, because the wrong
+premise ("dead weight") is what made deletion look attractive.
 
 ## Consequences
 
-- **Touched:** `apps/core/src/config/settings/desired-settings-writer.ts` (fallback
-  branch deleted, throw added) and its unit tests. No change to the CLI, the
-  control server, or the Postgres path.
-- **Behavior change:** a caller that writes settings without a configured provider
-  now gets a clear error instead of a silent unlocked write. That is the point.
-- **Verification bar:** because this touches the settings write path, it is verified
-  by the full suite **and** a real deploy plus smoke (`gantry restart`, then confirm
-  settings reads/writes still work) before being called safe.
-- Any embedder or test that relied on the implicit no-store path must configure a
-  provider explicitly — visible as a thrown error, not a silent race.
+- **Touched:** `apps/core/src/config/settings/desired-settings-writer.ts` (serialize
+  the no-provider write) and its unit tests. No change to the CLI, the control
+  server, the provider-configured path, or the `reconciled` contract.
+- **Behavior:** unchanged for every caller except that concurrent no-provider writes
+  now queue instead of racing. No new failure mode, no new error.
+- **Scope of the guarantee:** in-process serialization. Cross-process contention on
+  one `settings.yaml` (for example a CLI command while the runtime is writing) is
+  **not** covered — that would need file locking, and it is out of scope here because
+  the CLI and control server both configure a provider and so do not use this path.
 - Closes RACE-9, the last of the audit's latent items.

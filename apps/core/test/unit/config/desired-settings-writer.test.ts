@@ -58,7 +58,13 @@ describe('writeDesiredRuntimeSettings', () => {
     expect(loadRuntimeSettings).not.toHaveBeenCalled();
   });
 
-  it('fails closed when a configured provider yields no storage', async () => {
+  it('fails closed instead of writing fleet settings to YAML without storage', async () => {
+    const saveRuntimeSettings = vi.fn();
+    vi.doMock('@core/config/settings/runtime-settings.js', () => ({
+      saveRuntimeSettings,
+      loadRuntimeSettings: vi.fn(),
+    }));
+
     const {
       configureDesiredSettingsStorageProvider,
       writeDesiredRuntimeSettings,
@@ -70,8 +76,99 @@ describe('writeDesiredRuntimeSettings', () => {
         runtimeHome: '/tmp/gantry-test',
         settings: { runtime: { deploymentMode: 'fleet' } } as never,
       }),
-    ).rejects.toThrow(
-      'Settings mutation requires runtime storage so settings_revisions can be durably appended.',
+    ).rejects.toThrow('Settings mutation requires runtime storage');
+    expect(saveRuntimeSettings).not.toHaveBeenCalled();
+  });
+
+  it('serializes file-backed writes per settings file without losing independent changes', async () => {
+    const runtimeHome = makeRuntimeHome();
+    const otherRuntimeHome = makeRuntimeHome();
+    const actualRuntimeSettings = await vi.importActual<
+      typeof import('@core/config/settings/runtime-settings.js')
+    >('@core/config/settings/runtime-settings.js');
+    const baseSettings = actualRuntimeSettings.loadRuntimeSettings(runtimeHome);
+    const otherBaseSettings =
+      actualRuntimeSettings.loadRuntimeSettings(otherRuntimeHome);
+    const firstSettings = structuredClone(baseSettings);
+    firstSettings.agent.name = 'First writer';
+    const secondSettings = structuredClone(baseSettings);
+    secondSettings.memory.dreaming.enabled =
+      !secondSettings.memory.dreaming.enabled;
+    const otherSettings = structuredClone(otherBaseSettings);
+    otherSettings.agent.name = 'Other runtime';
+    vi.resetModules();
+
+    let releaseFirstSave!: () => void;
+    const firstSaveBlocked = new Promise<void>((resolve) => {
+      releaseFirstSave = resolve;
+    });
+    const loadRuntimeSettings = vi.fn(
+      actualRuntimeSettings.loadRuntimeSettings,
+    );
+    const saveRuntimeSettings = vi.fn(
+      async (
+        saveRuntimeHome: string,
+        settings: Parameters<
+          typeof actualRuntimeSettings.saveRuntimeSettings
+        >[1],
+      ) => {
+        if (saveRuntimeSettings.mock.calls.length === 1) {
+          await firstSaveBlocked;
+        }
+        actualRuntimeSettings.saveRuntimeSettings(saveRuntimeHome, settings);
+      },
+    );
+    vi.doMock('@core/config/settings/runtime-settings.js', () => ({
+      ...actualRuntimeSettings,
+      loadRuntimeSettings,
+      saveRuntimeSettings,
+    }));
+
+    const {
+      configureDesiredSettingsStorageProvider,
+      writeDesiredRuntimeSettings,
+    } = await import('@core/config/settings/desired-settings-writer.js');
+    configureDesiredSettingsStorageProvider(undefined);
+
+    const firstWrite = writeDesiredRuntimeSettings({
+      runtimeHome,
+      settings: firstSettings,
+      previousSettings: baseSettings,
+    });
+    await vi.waitFor(() =>
+      expect(saveRuntimeSettings).toHaveBeenCalledTimes(1),
+    );
+    const secondWrite = writeDesiredRuntimeSettings({
+      runtimeHome,
+      settings: secondSettings,
+      previousSettings: baseSettings,
+    });
+    let otherWriteCompleted = false;
+    const otherWrite = writeDesiredRuntimeSettings({
+      runtimeHome: otherRuntimeHome,
+      settings: otherSettings,
+      previousSettings: otherBaseSettings,
+    }).then(() => {
+      otherWriteCompleted = true;
+    });
+
+    let sameFileLoadsBeforeRelease = 0;
+    try {
+      await vi.waitFor(() => expect(otherWriteCompleted).toBe(true));
+      sameFileLoadsBeforeRelease = loadRuntimeSettings.mock.calls.filter(
+        ([loadedRuntimeHome]) => loadedRuntimeHome === runtimeHome,
+      ).length;
+    } finally {
+      releaseFirstSave();
+      await Promise.all([firstWrite, secondWrite, otherWrite]);
+    }
+
+    expect(sameFileLoadsBeforeRelease).toBe(1);
+    const finalSettings =
+      actualRuntimeSettings.loadRuntimeSettings(runtimeHome);
+    expect(finalSettings.agent.name).toBe('First writer');
+    expect(finalSettings.memory.dreaming.enabled).toBe(
+      secondSettings.memory.dreaming.enabled,
     );
   });
 
@@ -125,46 +222,15 @@ describe('writeDesiredRuntimeSettings', () => {
     });
   });
 
-  it('throws without a provider and leaves the settings file absent', async () => {
-    const runtimeHome = makeRuntimeHome();
-    const {
-      configureDesiredSettingsStorageProvider,
-      writeDesiredRuntimeSettings,
-    } = await import('@core/config/settings/desired-settings-writer.js');
-    configureDesiredSettingsStorageProvider(undefined);
-    const settingsPath = path.join(runtimeHome, 'settings.yaml');
-
-    expect(fs.existsSync(settingsPath)).toBe(false);
-
-    await expect(
-      writeDesiredRuntimeSettings({
-        runtimeHome,
-        settings: { runtime: { deploymentMode: 'fleet' } } as never,
-      }),
-    ).rejects.toThrow(
-      'Settings mutation requires runtime storage so settings_revisions can be durably appended.',
-    );
-    expect(fs.existsSync(settingsPath)).toBe(false);
-  });
-
   it('returns restart-required classes for memory settings changes', async () => {
     const runtimeHome = makeRuntimeHome();
-    vi.doMock('@core/config/settings/settings-import-service.js', () => ({
-      importWorkstationSettings: vi.fn(async () => ({ revision: 9 })),
-    }));
     const { loadRuntimeSettings } =
       await import('@core/config/settings/runtime-settings.js');
     const {
       configureDesiredSettingsStorageProvider,
       writeDesiredRuntimeSettings,
     } = await import('@core/config/settings/desired-settings-writer.js');
-    configureDesiredSettingsStorageProvider(async () => ({
-      ops: {} as never,
-      repositories: {} as never,
-      settingsRevisions: {
-        getLatestSettingsRevision: vi.fn(async () => null),
-      } as never,
-    }));
+    configureDesiredSettingsStorageProvider(undefined);
     const previousSettings = loadRuntimeSettings(runtimeHome);
     const settings = structuredClone(previousSettings);
     settings.memory.dreaming.enabled = !settings.memory.dreaming.enabled;
@@ -175,27 +241,18 @@ describe('writeDesiredRuntimeSettings', () => {
         settings,
         previousSettings,
       }),
-    ).resolves.toEqual({ reconciled: true, restartRequired: ['memory'] });
+    ).resolves.toEqual({ reconciled: false, restartRequired: ['memory'] });
   });
 
   it('returns no restart-required classes for agent name changes', async () => {
     const runtimeHome = makeRuntimeHome();
-    vi.doMock('@core/config/settings/settings-import-service.js', () => ({
-      importWorkstationSettings: vi.fn(async () => ({ revision: 10 })),
-    }));
     const { loadRuntimeSettings } =
       await import('@core/config/settings/runtime-settings.js');
     const {
       configureDesiredSettingsStorageProvider,
       writeDesiredRuntimeSettings,
     } = await import('@core/config/settings/desired-settings-writer.js');
-    configureDesiredSettingsStorageProvider(async () => ({
-      ops: {} as never,
-      repositories: {} as never,
-      settingsRevisions: {
-        getLatestSettingsRevision: vi.fn(async () => null),
-      } as never,
-    }));
+    configureDesiredSettingsStorageProvider(undefined);
     const previousSettings = loadRuntimeSettings(runtimeHome);
     const settings = structuredClone(previousSettings);
     settings.agent.name = 'Renamed Agent';
@@ -206,7 +263,7 @@ describe('writeDesiredRuntimeSettings', () => {
         settings,
         previousSettings,
       }),
-    ).resolves.toEqual({ reconciled: true, restartRequired: [] });
+    ).resolves.toEqual({ reconciled: false, restartRequired: [] });
   });
 
   it('defaults settings revisions to the default app for CLI callers', async () => {
