@@ -37,7 +37,10 @@ import {
   RUNTIME_MEMORY_DREAMING_ENABLED,
   RUNTIME_MEMORY_ENABLED,
 } from '../config/index.js';
-import { getBrowserStatus } from '../runtime/browser-capability.js';
+import {
+  getBrowserStatus,
+  registerBrowserProfileLockLeasePort,
+} from '../runtime/browser-capability.js';
 import { startSettingsReloadWatcher } from '../runtime/settings-reload-watcher.js';
 import {
   createControlAgentSettingsPort,
@@ -82,6 +85,8 @@ export async function startGantryRuntime(
   options: StartGantryRuntimeOptions = {},
 ): Promise<void> {
   const mcpHostnameLookup = options.mcpHostnameLookup ?? defaultHostnameLookup;
+  const runtimeLease = { tryAcquire: tryAcquireRuntimeAdvisoryLease };
+  registerBrowserProfileLockLeasePort(runtimeLease);
 
   // Resolve the deployment-owned process role before preflight. Fleet workers
   // may start from an empty runtime home and must fetch settings_revisions from
@@ -118,7 +123,6 @@ export async function startGantryRuntime(
       close: () => Promise<void>;
     };
   } = {};
-  const runtimeLease = { tryAcquire: tryAcquireRuntimeAdvisoryLease };
   app.setChannelRuntime({
     hasChannel: channelWiring.hasChannel,
     supportsStreaming: channelWiring.supportsStreaming,

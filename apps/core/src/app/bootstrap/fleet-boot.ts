@@ -266,6 +266,7 @@ export async function startFleetSubsystems(input: {
     registerBrowserProfileSync({
       store: getRuntimeBrowserProfileArtifactStore(),
       repository: getRuntimeBrowserProfileSnapshotRepository(),
+      leases: input.leases,
       workerInstanceId,
     });
   };
