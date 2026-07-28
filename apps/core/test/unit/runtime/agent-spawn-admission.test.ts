@@ -16,7 +16,11 @@ const baseInput: AgentInput = {
 
 describe('agent spawn admission', () => {
   const opus = resolveModelSelection('opus');
+  const opus48 = resolveModelSelection('opus-4.8');
+  const opus47 = resolveModelSelection('opus-4.7');
   if (!opus.ok) throw new Error(opus.message);
+  if (!opus48.ok) throw new Error(opus48.message);
+  if (!opus47.ok) throw new Error(opus47.message);
   it('rejects inline pre-spawn admission with every worker-only capability named', () => {
     const error = validateAgentPreSpawnAdmission({
       agentRuntime: 'inline',
@@ -196,6 +200,52 @@ describe('agent spawn admission', () => {
           },
         }),
       ).toBe('thinking enabled mode is not supported by model opus.');
+    },
+  );
+
+  it.each([
+    { model: 'opus-4.8', modelEntry: opus48.entry },
+    { model: 'opus-4.7', modelEntry: opus47.entry },
+  ] as const)(
+    'preserves manual enabled thinking admission for pinned $model',
+    ({ model, modelEntry }) => {
+      expect(
+        validateAgentPreSpawnAdmission({
+          agentRuntime: 'worker',
+          agentEngine: DEFAULT_AGENT_ENGINE,
+          modelEntry,
+          sandboxProvider: 'direct',
+          securityEnv: {},
+          agentInput: {
+            ...baseInput,
+            model,
+            thinking: { mode: 'enabled' },
+          },
+        }),
+      ).toBeNull();
+    },
+  );
+
+  it.each([
+    { model: 'opus-4.8', modelEntry: opus48.entry },
+    { model: 'opus-4.7', modelEntry: opus47.entry },
+  ] as const)(
+    'rejects enabled thinking budget tokens for pinned $model',
+    ({ model, modelEntry }) => {
+      expect(
+        validateAgentPreSpawnAdmission({
+          agentRuntime: 'worker',
+          agentEngine: DEFAULT_AGENT_ENGINE,
+          modelEntry,
+          sandboxProvider: 'direct',
+          securityEnv: {},
+          agentInput: {
+            ...baseInput,
+            model,
+            thinking: { mode: 'enabled', budgetTokens: 4096 },
+          },
+        }),
+      ).toBe(`thinking.budget_tokens is not supported by model ${model}.`);
     },
   );
 
