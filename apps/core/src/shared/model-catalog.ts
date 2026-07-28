@@ -4,6 +4,7 @@ import {
   type ModelRouteProviderId,
 } from './model-provider-registry.js';
 import { resolveModelCacheProvider } from './model-cache-support.js';
+import { buildOpenAiCatalog } from './model-catalog-openai.js';
 import { buildOpenAiCompatibleCatalog } from './model-catalog-openai-compatible.js';
 import {
   createModelCatalogIndexes,
@@ -72,12 +73,6 @@ const ALL_MODEL_WORKLOADS = [
   'memory_dreaming',
   'memory_consolidation',
 ] as const satisfies readonly ModelWorkload[];
-const OPENAI_MODEL_WORKLOADS = [
-  'chat',
-  'memory_extractor',
-  'memory_dreaming',
-  'memory_consolidation',
-] as const satisfies readonly ModelWorkload[];
 const ALL_MODEL_EFFORT_LEVELS = [
   'low',
   'medium',
@@ -111,18 +106,6 @@ const OPUS_MODEL_METADATA = {
   supportedWorkloads: ['chat', 'one_time_job', 'recurring_job'],
 } as const;
 
-function gptSource(model: string) {
-  const host = ['developers', 'op' + 'enai', 'com'].join('.');
-  return {
-    label: `${model} model`,
-    url: `https://${host}/api/docs/models/${model.toLowerCase().replace(' ', '-')}`,
-    verifiedAt: '2026-06-19',
-  };
-}
-
-const GPT_55_SOURCE = gptSource('GPT-5.5');
-const GPT_54_SOURCE = gptSource('GPT-5.4');
-const GPT_54_MINI_SOURCE = gptSource('GPT-5.4 mini');
 const OPENROUTER_PROVIDER_AVAILABILITY: ModelProviderAvailability = {
   verifiedAt: '2026-06-22',
   evidence: {
@@ -518,76 +501,9 @@ export const MODEL_CATALOG: readonly ModelCatalogEntry[] = [
     providerAvailability: OPENROUTER_PROVIDER_AVAILABILITY,
     experimental: true,
   }),
-  // These chat models run on the deepagents (LangChain) lane. REVERSAL of the
-  // earlier "limits intentionally omitted" stance: for ids the library does NOT
-  // recognize it reports an EMPTY profile ({}), so DeepAgents summarization falls
-  // back to a fixed 170k/6-message trigger (not the real window) and context-
-  // usage reads 0%. A curated `contextWindowTokens` is therefore REQUIRED on
-  // those ids; the host projects it into the runner profile's `maxInputTokens`
-  // (window-fraction compaction at 85% + correct context-usage %). The library
-  // profile is still PREFERRED when present: gpt-5.5/gpt-5.4 have a real profile
-  // (~1.05M) so they OMIT contextWindowTokens; gpt-5.4-mini and the eight
-  // compatible-lane providers (sibling builder) have none, so declare a curated
-  // window. Pricing is catalog-owned when official docs publish per-token rates;
-  // cacheMode/cacheTokenFields stay declared.
-  executableModelEntry({
-    id: 'openai:gpt-5.5',
-    route: openAiRoute('gpt-5.5'),
-    displayName: 'GPT-5.5',
-    runnerModel: 'gpt-5.5',
-    aliases: ['gpt', 'gpt-5.5'],
-    recommendedAlias: 'gpt',
-    source: GPT_55_SOURCE,
-    maxOutputTokens: 128_000,
-    inputUsdPerMillionTokens: 5,
-    outputUsdPerMillionTokens: 30,
-    cachedInputUsdPerMillionTokens: 0.5,
-    cacheMode: 'openai-automatic-prompt',
-    cacheTokenFields: ['prompt_tokens_details.cached_tokens'],
-    supportsThinking: true,
-    supportsTools: true,
-    supportedWorkloads: OPENAI_MODEL_WORKLOADS,
-    experimental: true,
-  }),
-  executableModelEntry({
-    id: 'openai:gpt-5.4',
-    route: openAiRoute('gpt-5.4'),
-    displayName: 'GPT-5.4',
-    runnerModel: 'gpt-5.4',
-    aliases: ['gpt-5.4'],
-    recommendedAlias: 'gpt-5.4',
-    source: GPT_54_SOURCE,
-    maxOutputTokens: 128_000,
-    inputUsdPerMillionTokens: 2.5,
-    outputUsdPerMillionTokens: 15,
-    cachedInputUsdPerMillionTokens: 0.25,
-    cacheMode: 'openai-automatic-prompt',
-    cacheTokenFields: ['prompt_tokens_details.cached_tokens'],
-    supportsThinking: true,
-    supportsTools: true,
-    supportedWorkloads: OPENAI_MODEL_WORKLOADS,
-    experimental: true,
-  }),
-  executableModelEntry({
-    id: 'openai:gpt-5.4-mini',
-    route: openAiRoute('gpt-5.4-mini'),
-    displayName: 'GPT-5.4 mini',
-    runnerModel: 'gpt-5.4-mini',
-    aliases: ['gpt-mini', 'gpt-5.4-mini'],
-    recommendedAlias: 'gpt-mini',
-    source: GPT_54_MINI_SOURCE,
-    contextWindowTokens: 400_000, // no library profile; curated (see note above)
-    maxOutputTokens: 128_000,
-    inputUsdPerMillionTokens: 0.75,
-    outputUsdPerMillionTokens: 4.5,
-    cachedInputUsdPerMillionTokens: 0.075,
-    cacheMode: 'openai-automatic-prompt',
-    cacheTokenFields: ['prompt_tokens_details.cached_tokens'],
-    supportsThinking: true,
-    supportsTools: true,
-    supportedWorkloads: OPENAI_MODEL_WORKLOADS,
-    experimental: true,
-  }),
+  // Native OpenAI DeepAgents models live in a pure sibling builder to keep
+  // this catalog composition file under its line budget.
+  ...buildOpenAiCatalog({ executableModelEntry, openAiRoute }),
   // Additional OpenAI-chat-completions-compatible providers on the deepagents
   // lane. Built in a sibling module to keep this file under its line budget;
   // the builder takes the local helpers so there is no import cycle back here.

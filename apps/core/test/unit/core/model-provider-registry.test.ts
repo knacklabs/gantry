@@ -40,6 +40,32 @@ describe('model provider registry', () => {
     }
   });
 
+  it('routes Terra, Luna, and Grok 4.5 through existing provider credentials and DeepAgents execution', () => {
+    for (const [runnerModel, providerId] of [
+      ['gpt-5.6-terra', 'openai'],
+      ['gpt-5.6-luna', 'openai'],
+      ['grok-4.5', 'xai'],
+    ] as const) {
+      const entry = listModelCatalogEntries().find(
+        (candidate) => candidate.runnerModel === runnerModel,
+      );
+      const provider = getModelProviderDefinition(providerId);
+
+      expect(entry).toMatchObject({
+        credentialProfileRef: 'gantry-model-access',
+        modelRoute: { id: providerId, providerModelId: runnerModel },
+      });
+      expect(provider?.executionRoute).toEqual({
+        engine: 'deepagents',
+        executionProviderId: 'deepagents:langchain',
+        supportedCredentialModes: ['api_key'],
+      });
+      expect(provider?.credentialModes.map((mode) => mode.id)).toEqual([
+        'api_key',
+      ]);
+    }
+  });
+
   it('declares a single provider-derived execution route with credential mode constraints', () => {
     expect(getModelProviderDefinition('anthropic')?.executionRoute).toEqual({
       engine: 'anthropic_sdk',

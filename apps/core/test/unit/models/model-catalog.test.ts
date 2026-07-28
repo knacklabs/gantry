@@ -107,6 +107,230 @@ describe('model catalog resolution', () => {
     expect(findModelByRunnerModel('gpt-5.5')?.responseFamily).toBe('openai');
   });
 
+  it('registers GPT-5.6 Terra and Luna with official catalog metadata', () => {
+    for (const expected of [
+      {
+        aliases: ['gpt-terra', 'gpt-5.6-terra'],
+        id: 'openai:gpt-5.6-terra',
+        displayName: 'GPT-5.6 Terra',
+        runnerModel: 'gpt-5.6-terra',
+        inputUsdPerMillionTokens: 2.5,
+        cachedInputUsdPerMillionTokens: 0.25,
+        cacheWriteUsdPerMillionTokens: 3.125,
+        outputUsdPerMillionTokens: 15,
+        sourceUrl:
+          'https://developers.openai.com/api/docs/models/gpt-5.6-terra',
+      },
+      {
+        aliases: ['gpt-luna', 'gpt-5.6-luna'],
+        id: 'openai:gpt-5.6-luna',
+        displayName: 'GPT-5.6 Luna',
+        runnerModel: 'gpt-5.6-luna',
+        inputUsdPerMillionTokens: 1,
+        cachedInputUsdPerMillionTokens: 0.1,
+        cacheWriteUsdPerMillionTokens: 1.25,
+        outputUsdPerMillionTokens: 6,
+        sourceUrl: 'https://developers.openai.com/api/docs/models/gpt-5.6-luna',
+      },
+    ]) {
+      for (const alias of expected.aliases) {
+        expect(resolveModelSelection(alias)).toMatchObject({
+          ok: true,
+          alias,
+          runnerModel: expected.runnerModel,
+        });
+      }
+      expect(findModelByRunnerModel(expected.runnerModel)).toMatchObject({
+        id: expected.id,
+        displayName: expected.displayName,
+        aliases: expected.aliases,
+        recommendedAlias: expected.aliases[0],
+        source: {
+          url: expected.sourceUrl,
+          verifiedAt: '2026-07-28',
+        },
+        contextWindowTokens: 1_050_000,
+        maxOutputTokens: 128_000,
+        inputUsdPerMillionTokens: expected.inputUsdPerMillionTokens,
+        cachedInputUsdPerMillionTokens: expected.cachedInputUsdPerMillionTokens,
+        cacheWriteUsdPerMillionTokens: expected.cacheWriteUsdPerMillionTokens,
+        outputUsdPerMillionTokens: expected.outputUsdPerMillionTokens,
+        cacheMode: 'openai-automatic-prompt',
+        cacheTokenFields: ['prompt_tokens_details.cached_tokens'],
+        supportsThinking: true,
+        supportsTools: true,
+        supportedWorkloads: [
+          'chat',
+          'memory_extractor',
+          'memory_dreaming',
+          'memory_consolidation',
+        ],
+      });
+    }
+  });
+
+  it('preserves every native OpenAI catalog field across the sibling-module move', () => {
+    const capabilities = {
+      streaming: true,
+      toolUse: true,
+      mcpProjection: true,
+      browserProjection: true,
+      sandboxProjection: true,
+      providerSessionResume: true,
+      thinking: true,
+      tokenAccounting: true,
+      cacheAccounting: true,
+      structuredOutput: false,
+    };
+    const shared = {
+      responseFamily: 'openai',
+      credentialProfileRef: 'gantry-model-access',
+      cacheMode: 'openai-automatic-prompt',
+      cacheTokenFields: ['prompt_tokens_details.cached_tokens'],
+      supportsThinking: true,
+      supportsEffort: false,
+      supportedEffortLevels: ['low', 'medium', 'high', 'xhigh'],
+      supportsAdaptiveThinking: false,
+      supportsReasoningEffort: true,
+      supportsThinkingBudget: false,
+      supportsTools: true,
+      capabilities,
+      supportedWorkloads: [
+        'chat',
+        'memory_extractor',
+        'memory_dreaming',
+        'memory_consolidation',
+      ],
+      experimental: true,
+    };
+
+    expect(findModelByRunnerModel('gpt-5.5')).toEqual({
+      id: 'openai:gpt-5.5',
+      route: {
+        id: 'openai',
+        label: 'OpenAI',
+        providerModelId: 'gpt-5.5',
+      },
+      modelRoute: {
+        id: 'openai',
+        label: 'OpenAI',
+        providerModelId: 'gpt-5.5',
+      },
+      displayName: 'GPT-5.5',
+      runnerModel: 'gpt-5.5',
+      aliases: ['gpt', 'gpt-5.5'],
+      recommendedAlias: 'gpt',
+      source: {
+        label: 'GPT-5.5 model',
+        url: 'https://developers.openai.com/api/docs/models/gpt-5.5',
+        verifiedAt: '2026-06-19',
+      },
+      maxOutputTokens: 128_000,
+      inputUsdPerMillionTokens: 5,
+      outputUsdPerMillionTokens: 30,
+      cachedInputUsdPerMillionTokens: 0.5,
+      ...shared,
+    });
+    expect(findModelByRunnerModel('gpt-5.4')).toEqual({
+      id: 'openai:gpt-5.4',
+      route: {
+        id: 'openai',
+        label: 'OpenAI',
+        providerModelId: 'gpt-5.4',
+      },
+      modelRoute: {
+        id: 'openai',
+        label: 'OpenAI',
+        providerModelId: 'gpt-5.4',
+      },
+      displayName: 'GPT-5.4',
+      runnerModel: 'gpt-5.4',
+      aliases: ['gpt-5.4'],
+      recommendedAlias: 'gpt-5.4',
+      source: {
+        label: 'GPT-5.4 model',
+        url: 'https://developers.openai.com/api/docs/models/gpt-5.4',
+        verifiedAt: '2026-06-19',
+      },
+      maxOutputTokens: 128_000,
+      inputUsdPerMillionTokens: 2.5,
+      outputUsdPerMillionTokens: 15,
+      cachedInputUsdPerMillionTokens: 0.25,
+      ...shared,
+    });
+    expect(findModelByRunnerModel('gpt-5.4-mini')).toEqual({
+      id: 'openai:gpt-5.4-mini',
+      route: {
+        id: 'openai',
+        label: 'OpenAI',
+        providerModelId: 'gpt-5.4-mini',
+      },
+      modelRoute: {
+        id: 'openai',
+        label: 'OpenAI',
+        providerModelId: 'gpt-5.4-mini',
+      },
+      displayName: 'GPT-5.4 mini',
+      runnerModel: 'gpt-5.4-mini',
+      aliases: ['gpt-mini', 'gpt-5.4-mini'],
+      recommendedAlias: 'gpt-mini',
+      source: {
+        label: 'GPT-5.4 mini model',
+        url: 'https://developers.openai.com/api/docs/models/gpt-5.4-mini',
+        verifiedAt: '2026-06-19',
+      },
+      contextWindowTokens: 400_000,
+      maxOutputTokens: 128_000,
+      inputUsdPerMillionTokens: 0.75,
+      outputUsdPerMillionTokens: 4.5,
+      cachedInputUsdPerMillionTokens: 0.075,
+      ...shared,
+    });
+  });
+
+  it('promotes grok to Grok 4.5 while keeping the Grok 4.3 exact alias pinned', () => {
+    expect(resolveModelSelection('grok')).toMatchObject({
+      ok: true,
+      alias: 'grok',
+      runnerModel: 'grok-4.5',
+    });
+    expect(resolveModelSelection('grok-4.5')).toMatchObject({
+      ok: true,
+      alias: 'grok-4.5',
+      runnerModel: 'grok-4.5',
+    });
+    expect(resolveModelSelection('grok-4.3')).toMatchObject({
+      ok: true,
+      alias: 'grok-4.3',
+      runnerModel: 'grok-4.3',
+    });
+    expect(findModelByRunnerModel('grok-4.5')).toMatchObject({
+      id: 'xai:grok-4.5',
+      aliases: ['grok', 'grok-4.5'],
+      source: {
+        url: 'https://docs.x.ai/developers/models/grok-4.5',
+        verifiedAt: '2026-07-28',
+      },
+      contextWindowTokens: 500_000,
+      inputUsdPerMillionTokens: 2,
+      cachedInputUsdPerMillionTokens: 0.3,
+      outputUsdPerMillionTokens: 6,
+      cacheMode: 'openai-automatic-prompt',
+      cacheTokenFields: ['prompt_tokens_details.cached_tokens'],
+      supportsThinking: true,
+      supportsTools: true,
+      supportedWorkloads: [
+        'chat',
+        'one_time_job',
+        'recurring_job',
+        'memory_extractor',
+        'memory_dreaming',
+        'memory_consolidation',
+      ],
+    });
+    expect(findModelByRunnerModel('grok-4.5')?.maxOutputTokens).toBeUndefined();
+  });
+
   it('surfaces model reasoning and thinking capabilities', () => {
     const fable = resolveModelSelection('fable');
     const opus = resolveModelSelection('opus');
@@ -443,6 +667,9 @@ describe('model catalog resolution', () => {
       ['llama-3.1-8b-instant', 131_072],
       ['openai/gpt-oss-120b', 131_072],
       ['deepseek-v4-pro', 1_048_576],
+      ['gpt-5.6-terra', 1_050_000],
+      ['gpt-5.6-luna', 1_050_000],
+      ['grok-4.5', 500_000],
       ['grok-4.3', 256_000],
       ['grok-build-0.1', 256_000],
       ['Qwen/Qwen3-235B-A22B-fp8-tput', 40_960],
@@ -516,7 +743,7 @@ describe('model catalog resolution', () => {
     // Priced DeepAgents-lane providers show in/out per 1M.
     expect(rowFor(output, 'groq')).toContain('$0.59/$0.79');
     expect(rowFor(output, 'gemini')).toContain('$1.25/$10');
-    expect(rowFor(output, 'grok')).toContain('$1.25/$2.5');
+    expect(rowFor(output, 'grok')).toContain('$2/$6');
     expect(rowFor(output, 'gpt')).toContain('$5/$30');
     expect(rowFor(output, 'cerebras')).toContain('$0.35/$0.75');
     // SDK-lane Anthropic alias carries its declared price too.
@@ -1019,7 +1246,7 @@ describe('model usage normalization', () => {
     ['groq-oss', 'openai/gpt-oss-120b', true],
     ['deepseek', 'deepseek-v4-pro', true],
     ['deepseek-fast', 'deepseek-v4-flash', true],
-    ['grok', 'grok-4.3', true],
+    ['grok', 'grok-4.5', true],
     ['grok-fast', 'grok-build-0.1', true],
     ['together', 'meta-llama/Llama-3.3-70B-Instruct-Turbo', true],
     ['together-qwen', 'Qwen/Qwen3-235B-A22B-fp8-tput', true],

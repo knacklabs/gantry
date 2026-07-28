@@ -391,6 +391,32 @@ describe('DeepAgentsLangChainExecutionAdapter', () => {
     expect(prepared.env.GANTRY_DEEPAGENTS_MAX_INPUT_TOKENS).toBe('400000');
   });
 
+  it.each([
+    ['gpt-terra', 'openai', 'gpt-5.6-terra', '1050000'],
+    ['gpt-luna', 'openai', 'gpt-5.6-luna', '1050000'],
+    ['grok', 'xai', 'grok-4.5', '500000'],
+  ])(
+    'prepares %s through the existing %s DeepAgents route',
+    async (alias, providerId, runnerModel, contextWindow) => {
+      const adapter = new DeepAgentsLangChainExecutionAdapter();
+      const entry = catalogEntry(alias);
+      const prepared = await adapter.prepare(
+        prepareInput({
+          effectiveModel: entry.runnerModel,
+          effectiveModelEntry: entry,
+          modelCredentialProjection: projectionFor(providerId),
+        }),
+      );
+
+      expect(prepared.providerId).toBe('deepagents:langchain');
+      expect(prepared.env.GANTRY_DEEPAGENTS_MODEL_ID).toBe(runnerModel);
+      expect(prepared.env.GANTRY_DEEPAGENTS_MODEL_PROVIDER).toBe(providerId);
+      expect(prepared.env.GANTRY_DEEPAGENTS_MAX_INPUT_TOKENS).toBe(
+        contextWindow,
+      );
+    },
+  );
+
   it('omits the Postgres checkpointer for scheduled jobs', async () => {
     const adapter = new DeepAgentsLangChainExecutionAdapter();
     const prepared = await adapter.prepare(
