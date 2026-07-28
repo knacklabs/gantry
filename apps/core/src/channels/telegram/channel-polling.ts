@@ -75,6 +75,20 @@ export abstract class TelegramChannelPolling extends TelegramChannelState {
       });
     });
 
+    // onLost replays synchronously, so registration above may already have handled a
+    // loss and cleared pollingLease. Revalidate before falling through to the start
+    // path, or we would begin polling under a lease we no longer hold.
+    // Only applies when a lease was actually acquired; unleased polling (no runtime
+    // lease configured) is a supported mode and must still start.
+    if (lease && (this.pollingLease !== lease || !lease.isValid())) {
+      this.pollingStartInFlight = false;
+      logger.warn(
+        { leaseKey },
+        'Telegram polling lease was lost during acquisition; not starting poller',
+      );
+      return;
+    }
+
     if (this.isTelegramBotRunning()) {
       this.pollingStartInFlight = false;
       logger.info(

@@ -251,6 +251,20 @@ export async function connectProviderAccountChannels(input: {
         agentId,
       });
     } catch (err) {
+      // Publication happens after connect resolves, so a rejected connect is not in
+      // connectedChannels and nothing else can clean it up. A multi-step connect can
+      // already have started its inbound transport before failing (Slack starts the
+      // app before auth.test), so disconnect explicitly rather than leaking it.
+      await channel.disconnect().catch((disconnectErr: unknown) => {
+        input.logger.warn(
+          {
+            err: disconnectErr,
+            channel: input.provider.id,
+            providerAccountId,
+          },
+          'Failed to disconnect channel after a failed connect attempt',
+        );
+      });
       await providerInboundLease?.release();
       throw err;
     }
