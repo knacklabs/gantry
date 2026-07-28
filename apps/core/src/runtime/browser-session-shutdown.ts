@@ -39,7 +39,7 @@ export function hasBrowserLeaseLossTeardown(profileName: string): boolean {
 
 export function trackBrowserLeaseLossTeardown(
   session: BrowserProcessTarget,
-  teardown: Promise<boolean | undefined>,
+  teardown: Promise<boolean>,
 ): LeaseLossTeardown {
   const existing = leaseLossTeardowns.get(session.profileName);
   if (existing) return existing;

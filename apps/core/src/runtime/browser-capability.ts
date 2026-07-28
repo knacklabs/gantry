@@ -274,10 +274,10 @@ function registerLiveBrowserSession(session: BrowserSession): void {
       'Browser profile lease lost; stopping session without snapshot',
     );
     skipNextBrowserProfileSnapshot(session.profileName);
-    trackBrowserLeaseLossTeardown(
-      session,
-      shutdownLiveBrowserSession(session, { ownershipLost: true }),
-    );
+    const teardown = shutdownLiveBrowserSession(session, {
+      ownershipLost: true,
+    });
+    if (teardown) trackBrowserLeaseLossTeardown(session, teardown);
   });
   assertProfileLockValid(session.lock);
 }
@@ -605,10 +605,10 @@ export function getKnownBrowserStatus(
   return toRunningStatus(session);
 }
 
-async function shutdownLiveBrowserSession(
+function shutdownLiveBrowserSession(
   session: BrowserSession,
   options: { ownershipLost?: boolean } = {},
-): Promise<boolean | undefined> {
+): Promise<boolean> | undefined {
   if (sessions.get(session.profileName) !== session) return undefined;
   if (!sessions.delete(session.profileName)) return undefined;
   return shutdownBrowserSession(session, options);
@@ -675,7 +675,9 @@ export async function closeBrowser(
     }
   }
 
-  const exited = await shutdownLiveBrowserSession(session);
+  const teardown = shutdownLiveBrowserSession(session);
+  if (teardown) trackBrowserLeaseLossTeardown(session, teardown);
+  const exited = await teardown;
 
   return {
     closed: exited ?? true,

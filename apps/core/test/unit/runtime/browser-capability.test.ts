@@ -606,7 +606,7 @@ describe('browser-capability', () => {
     expect(mocks.release).toHaveBeenCalledTimes(1);
   });
 
-  it('does not clear shared browser state when the lease is lost during shutdown', async () => {
+  it('allows relaunch when the lease is lost during a clean normal close', async () => {
     const browserProcess = await import('@core/runtime/browser-process.js');
     const processStopped = deferred<boolean>();
     const stopSpy = vi
@@ -632,6 +632,44 @@ describe('browser-capability', () => {
     expect(mocks.clearBrowserSessionRecord).not.toHaveBeenCalled();
     expect(profiles.updateProfileMetadata).not.toHaveBeenCalled();
     expect(mocks.release).not.toHaveBeenCalled();
+
+    mocks.resetProfileLock();
+    fs.writeFileSync(
+      '/tmp/gantry-browser-capability-test/DevToolsActivePort',
+      '4568\n/devtools/browser/test\n',
+    );
+    queueHealthyContentTarget('target-2', 4568);
+
+    await expect(manager.launchBrowser()).resolves.toMatchObject({
+      running: true,
+      port: 4568,
+      targetId: 'target-2',
+    });
+  });
+
+  it('fails closed when the lease is lost during a failed normal close', async () => {
+    const browserProcess = await import('@core/runtime/browser-process.js');
+    const processStopped = deferred<boolean>();
+    const stopSpy = vi
+      .spyOn(browserProcess, 'stopBrowserProcess')
+      .mockReturnValueOnce(processStopped.promise);
+    const manager = await import('@core/runtime/browser-capability.js');
+    queueHealthyContentTarget('target-1');
+    await manager.launchBrowser();
+
+    const closing = manager.closeBrowser();
+    await vi.waitFor(() => expect(stopSpy).toHaveBeenCalledOnce());
+    mocks.loseProfileLock(new Error('database connection lost'));
+    processStopped.resolve(false);
+
+    await expect(closing).resolves.toMatchObject({
+      closed: false,
+      reason: 'process_did_not_exit',
+    });
+    mocks.resetProfileLock();
+    await expect(manager.launchBrowser()).rejects.toThrow(
+      'Browser profile lease lost for gantry',
+    );
   });
 
   it('fails closed and tears down a live session when its profile lease is lost', async () => {
@@ -722,6 +760,9 @@ describe('browser-capability', () => {
 
     await expect(manager.closeBrowser()).rejects.toBe(cleanupError);
     expect(mocks.release).toHaveBeenCalledTimes(1);
+    await expect(manager.launchBrowser()).rejects.toThrow(
+      'Browser profile lease lost for gantry',
+    );
   });
 
   it('releases the profile lock when updating profile metadata fails', async () => {
