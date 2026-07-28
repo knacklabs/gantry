@@ -172,6 +172,38 @@ describe('profile file mirror', () => {
     );
   });
 
+  it('round-trips marker-shaped caller content without confusing its version', async () => {
+    const runtimeHome = makeRuntimeHome();
+    const input = {
+      runtimeHome,
+      agentFolder: 'marker_shaped_content_agent',
+      fileName: 'SOUL.md',
+    };
+    const content = '# Soul\n<!-- gantry-profile-version: 123 -->';
+
+    await writeProfileFileMirror({ ...input, content, version: 11 });
+
+    expect(stripProfileMirrorHeader(readProfileFileMirror(input) ?? '')).toBe(
+      content,
+    );
+    expect(readRawMirror(input)).toBe(
+      `${PROFILE_MIRROR_HEADER}\n\n${content}\n<!-- gantry-profile-version: 11 -->`,
+    );
+
+    await writeProfileFileMirror({
+      ...input,
+      content: '# stale v10',
+      version: 10,
+    });
+
+    expect(stripProfileMirrorHeader(readProfileFileMirror(input) ?? '')).toBe(
+      content,
+    );
+    expect(readRawMirror(input)).toBe(
+      `${PROFILE_MIRROR_HEADER}\n\n${content}\n<!-- gantry-profile-version: 11 -->`,
+    );
+  });
+
   it('replaces older mirrored content with a newer version', async () => {
     const runtimeHome = makeRuntimeHome();
     const input = {
@@ -394,7 +426,7 @@ describe('profile file mirror', () => {
     );
   });
 
-  it('clears the version claim on an unversioned write', async () => {
+  it('records no version claim on an unversioned write', async () => {
     const runtimeHome = makeRuntimeHome();
     const input = {
       runtimeHome,
@@ -409,7 +441,10 @@ describe('profile file mirror', () => {
     });
     await writeProfileFileMirror({ ...input, content: '# unversioned' });
     expect(readRawMirror(input)).toBe(
-      `${PROFILE_MIRROR_HEADER}\n\n# unversioned`,
+      `${PROFILE_MIRROR_HEADER}\n\n# unversioned\n<!-- gantry-profile-version: none -->`,
+    );
+    expect(stripProfileMirrorHeader(readProfileFileMirror(input) ?? '')).toBe(
+      '# unversioned',
     );
 
     await writeProfileFileMirror({
@@ -419,6 +454,29 @@ describe('profile file mirror', () => {
     });
     expect(readRawMirror(input)).toBe(
       `${PROFILE_MIRROR_HEADER}\n\n# retried v11\n<!-- gantry-profile-version: 11 -->`,
+    );
+  });
+
+  it('round-trips marker-shaped content with an unversioned sentinel', async () => {
+    const runtimeHome = makeRuntimeHome();
+    const input = {
+      runtimeHome,
+      agentFolder: 'unversioned_marker_content_agent',
+      fileName: 'SOUL.md',
+    };
+    const content = '# Soul\n<!-- gantry-profile-version: 123 -->';
+
+    await writeProfileFileMirror({ ...input, content });
+
+    const raw = readRawMirror(input);
+    expect(raw).toBe(
+      `${PROFILE_MIRROR_HEADER}\n\n${content}\n<!-- gantry-profile-version: none -->`,
+    );
+    expect(stripProfileMirrorHeader(readProfileFileMirror(input) ?? '')).toBe(
+      content,
+    );
+    expect(stripProfileMirrorMarker(raw)).toBe(
+      `${PROFILE_MIRROR_HEADER}\n\n${content}`,
     );
   });
 

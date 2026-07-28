@@ -21,12 +21,13 @@ export const PROFILE_MIRROR_HEADER =
 const mirrorWriteChainByTarget = new Map<string, Promise<void>>();
 
 const PROFILE_MIRROR_MARKER_PATTERN =
-  /\r?\n<!-- gantry-profile-version: ([^\r\n]*) -->$/;
+  /\r?\n<!-- gantry-profile-version: ([^\r\n]*?) -->$/;
 
 function parseProfileMirrorVersion(content: string): number | undefined {
   const match = PROFILE_MIRROR_MARKER_PATTERN.exec(content);
   const raw = match?.[1];
-  if (raw === undefined || !/^(0|[1-9]\d*)$/.test(raw)) return undefined;
+  if (raw === undefined || raw === 'none') return undefined;
+  if (!/^(0|[1-9]\d*)$/.test(raw)) return undefined;
   const version = Number(raw);
   return Number.isSafeInteger(version) ? version : undefined;
 }
@@ -192,13 +193,9 @@ async function writeProfileFileMirrorAtomic(input: {
     dir,
     `.${mirrorFileName}.${process.pid}.${randomUUID()}.tmp`,
   );
-  const body = stripProfileMirrorHeader(
-    stripProfileMirrorMarker(input.content),
-  );
-  const marker =
-    input.version === undefined
-      ? ''
-      : `\n<!-- gantry-profile-version: ${input.version} -->`;
+  const body = stripProfileMirrorHeader(input.content);
+  const markerVersion = input.version ?? 'none';
+  const marker = `\n<!-- gantry-profile-version: ${markerVersion} -->`;
   const rendered = `${PROFILE_MIRROR_HEADER}\n\n${body}${marker}`;
   let handle: FileHandle | null = null;
   try {
