@@ -12,11 +12,15 @@ import type {
   BrowserProfileSnapshotRepository,
   UpsertBrowserProfileSnapshotResult,
 } from '../domain/ports/browser-profile-snapshot.js';
+import type { RuntimeLeasePort } from '../domain/ports/runtime-lease.js';
 import { logger } from '../infrastructure/logging/logger.js';
 import { isExcludedBrowserProfilePath } from '../shared/browser-profile-snapshot-exclude.js';
 import { hashBrowserProfileFileModel } from '../shared/browser-profile-hash.js';
 import { nowIso } from '../shared/time/datetime.js';
-import { acquireProfileLock } from './browser-profiles.js';
+import {
+  acquireProfileLock,
+  type BrowserProfileLock,
+} from './browser-profiles.js';
 
 /**
  * Snapshot quiescence acquire window. Finalize already closed the browser and
@@ -39,6 +43,7 @@ const SNAPSHOT_LOCK_TIMEOUT_MS = 250;
 export interface BrowserProfileSyncDeps {
   store: BrowserProfileArtifactStore & BrowserProfileArtifactMaterializer;
   repository: BrowserProfileSnapshotRepository;
+  leases: RuntimeLeasePort;
   workerInstanceId?: string;
 }
 
@@ -72,6 +77,7 @@ let coordinator: BrowserProfileSyncDeps | null = null;
  * The JOB path uses its own browserActivityCount diagnostic instead.
  */
 const profileActivity = new Set<string>();
+const snapshotsSkippedAfterLeaseLoss = new Set<string>();
 
 export function markBrowserProfileActivity(profileName: string): void {
   profileActivity.add(profileName);
@@ -80,6 +86,10 @@ export function markBrowserProfileActivity(profileName: string): void {
 /** Read-and-clear the activity flag for a profile. */
 export function consumeBrowserProfileActivity(profileName: string): boolean {
   return profileActivity.delete(profileName);
+}
+
+export function skipNextBrowserProfileSnapshot(profileName: string): void {
+  snapshotsSkippedAfterLeaseLoss.add(profileName);
 }
 
 export function registerBrowserProfileSync(
@@ -131,6 +141,12 @@ function writeSnapshotMarker(profileDir: string, contentHash: string): void {
   const tmp = `${target}.tmp`;
   fs.writeFileSync(tmp, JSON.stringify({ content_hash: contentHash }));
   fs.renameSync(tmp, target);
+}
+
+function assertSnapshotLockValid(lock: BrowserProfileLock): void {
+  if (!lock.isValid()) {
+    throw new Error(`Browser profile snapshot lease lost for ${lock.name}`);
+  }
 }
 
 /**
@@ -229,11 +245,19 @@ export async function snapshotBrowserProfile(
   | { status: 'stale'; contentHash: string }
 > {
   if (!coordinator) return { status: 'noop', reason: 'sync_disabled' };
+  if (snapshotsSkippedAfterLeaseLoss.delete(input.profileName)) {
+    logger.error(
+      { profileName: input.profileName },
+      'Skipped browser profile snapshot after profile lease loss',
+    );
+    return { status: 'noop', reason: 'lease_lost' };
+  }
 
-  let lock: { release: () => void };
+  let lock: BrowserProfileLock;
   try {
     lock = await acquireProfileLock(
       input.profileName,
+      coordinator.leases,
       SNAPSHOT_LOCK_TIMEOUT_MS,
     );
   } catch {
@@ -247,6 +271,14 @@ export async function snapshotBrowserProfile(
   }
 
   try {
+    if (snapshotsSkippedAfterLeaseLoss.delete(input.profileName)) {
+      logger.error(
+        { profileName: input.profileName },
+        'Skipped browser profile snapshot after profile lease loss',
+      );
+      return { status: 'noop', reason: 'lease_lost' };
+    }
+    assertSnapshotLockValid(lock);
     const files = await collectUserDataFiles(input.userDataDir);
     if (!files) return { status: 'noop', reason: 'no_state' };
     const contentHash = hashBrowserProfileFileModel(files);
@@ -255,6 +287,7 @@ export async function snapshotBrowserProfile(
       input.profileName,
     );
     if (existing && existing.contentHash === contentHash) {
+      assertSnapshotLockValid(lock);
       const result = await coordinator.repository.upsertBrowserProfileSnapshot({
         profileName: input.profileName,
         appId: input.appId ?? existing.appId,
@@ -280,14 +313,17 @@ export async function snapshotBrowserProfile(
       }
       // Bytes unchanged since the last snapshot: write no artifact bytes, but
       // advance the fencing metadata and keep the local marker in sync.
+      assertSnapshotLockValid(lock);
       writeSnapshotMarker(input.profileDir, contentHash);
       return { status: 'noop', reason: 'unchanged' };
     }
 
+    assertSnapshotLockValid(lock);
     const stored = await coordinator.store.putBrowserProfile({
       profileName: input.profileName,
       files,
     });
+    assertSnapshotLockValid(lock);
     const result: UpsertBrowserProfileSnapshotResult =
       await coordinator.repository.upsertBrowserProfileSnapshot({
         profileName: input.profileName,
@@ -313,10 +349,11 @@ export async function snapshotBrowserProfile(
       );
       return { status: 'stale', contentHash: stored.contentHash };
     }
+    assertSnapshotLockValid(lock);
     writeSnapshotMarker(input.profileDir, stored.contentHash);
     return { status: 'written', contentHash: stored.contentHash };
   } finally {
-    lock.release();
+    await lock.release();
   }
 }
 
