@@ -61,14 +61,21 @@ export abstract class TelegramChannelPolling extends TelegramChannelState {
       // the retry off it. Otherwise a reacquired lease can start a new poll while the
       // old shutdown is still in flight — two concurrent getUpdates, and the old stop
       // can clear the new poll's abort controller.
-      const stopped = this.isTelegramBotRunning()
-        ? Promise.resolve(this.bot?.stop()).catch((stopErr: unknown) => {
-            logger.warn(
-              { err: stopErr, leaseKey },
-              'Telegram poller stop failed after polling lease loss',
-            );
-          })
-        : Promise.resolve();
+      const previousRun = this.activePollingRun;
+      const stopped = (
+        this.isTelegramBotRunning()
+          ? Promise.resolve(this.bot?.stop()).catch((stopErr: unknown) => {
+              logger.warn(
+                { err: stopErr, leaseKey },
+                'Telegram poller stop failed after polling lease loss',
+              );
+            })
+          : Promise.resolve()
+      ).then(() =>
+        // stop() does not await the polling loop or in-flight middleware, so drain
+        // the retained run too before anyone may start a new one.
+        previousRun ? previousRun.then(() => undefined) : undefined,
+      );
       void stopped.then(() => {
         if (this.isStopping) return;
         this.schedulePollingRetry();
@@ -117,6 +124,14 @@ export abstract class TelegramChannelPolling extends TelegramChannelState {
       this.pollingStartInFlight = false;
       return;
     }
+
+    // Retained so a lease-loss teardown can await the polling loop itself, not just
+    // bot.stop() (which does not wait for it).
+    const activeRun = Promise.resolve(pollingRun).catch(() => undefined);
+    this.activePollingRun = activeRun;
+    void activeRun.then(() => {
+      if (this.activePollingRun === activeRun) this.activePollingRun = null;
+    });
 
     Promise.resolve(pollingRun)
       .then(() => {
