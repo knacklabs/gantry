@@ -13,6 +13,7 @@ import type {
 } from '@core/domain/ports/repositories.js';
 import type { AppId } from '@core/domain/app/app.js';
 import type { Job } from '@core/domain/types.js';
+import type { AgentAccessSnapshot } from '@core/application/agent-execution/agent-access-snapshot.js';
 import {
   semanticCapabilityInputSchema,
   type SemanticCapabilityDefinition,
@@ -221,6 +222,173 @@ function secretRepository(
 }
 
 describe('job readiness service', () => {
+  it('uses one access snapshot for tool policy and semantic catalog readiness', async () => {
+    const definition = {
+      appId: 'default',
+      id: 'tool:records',
+      name: 'capability:acme.records.append',
+      selectable: true,
+      status: 'active',
+      inputSchema: semanticCapabilityInputSchema(sheetsAppendDefinition),
+    };
+    const repository = toolRepository([]);
+    const accessSnapshot = {
+      appId: 'default',
+      agentId: 'agent:agent-one',
+      tools: {
+        activeBindings: [
+          {
+            binding: {
+              appId: 'default',
+              agentId: 'agent:agent-one',
+              toolId: 'tool:records',
+              status: 'active',
+            },
+            definition,
+          },
+        ],
+        appActiveDefinitions: [definition],
+      },
+      skills: { activeBindings: [], enabledDefinitions: [] },
+      mcp: { activeBindings: [], materializedServers: [] },
+    } as unknown as AgentAccessSnapshot;
+
+    const result = await evaluateJobReadiness({
+      job: makeJob({
+        access_requirements: [
+          {
+            target: {
+              kind: 'tool_rule',
+              rule: 'capability:acme.records.append',
+            },
+          },
+        ],
+      }),
+      appId: 'default',
+      agentId: 'agent:agent-one',
+      toolRepository: repository,
+      accessSnapshot,
+      workerImageInventory: ['acme.records.append'],
+      clock: { now: () => '2026-05-14T00:00:00.000Z' },
+    });
+
+    expect(result.ready).toBe(true);
+    expect(repository.listAgentToolBindings).not.toHaveBeenCalled();
+    expect(repository.listTools).not.toHaveBeenCalled();
+    expect(repository.getTool).not.toHaveBeenCalled();
+  });
+
+  it('uses snapshot MCP access while checking credentials live', async () => {
+    const record = {
+      definition: {
+        id: 'mcp:server-1',
+        appId: 'default',
+        name: 'records',
+        status: 'active',
+        credentialRefs: [
+          { name: 'GOOGLE_TOKEN_REF', target: 'env', key: 'TOKEN' },
+        ],
+      },
+      binding: {
+        appId: 'default',
+        agentId: 'agent:agent-one',
+        serverId: 'mcp:server-1',
+        status: 'active',
+      },
+    };
+    const listMaterializedServersForAgent = vi.fn(async () => []);
+    const repository = {
+      listMaterializedServersForAgent,
+    } as unknown as McpServerRepository;
+    const secrets = secretRepository({
+      GOOGLE_TOKEN_REF: 'secret-value',
+    });
+    const accessSnapshot = {
+      appId: 'default',
+      agentId: 'agent:agent-one',
+      tools: { activeBindings: [], appActiveDefinitions: [] },
+      skills: { activeBindings: [], enabledDefinitions: [] },
+      mcp: {
+        activeBindings: [record],
+        materializedServers: [record],
+      },
+    } as unknown as AgentAccessSnapshot;
+
+    const result = await evaluateJobReadiness({
+      job: makeJob({
+        access_requirements: [
+          { target: { kind: 'mcp_server', server: 'records' } },
+        ],
+      }),
+      appId: 'default',
+      agentId: 'agent:agent-one',
+      mcpServerRepository: repository,
+      capabilitySecretRepository: secrets,
+      accessSnapshot,
+      clock: { now: () => '2026-05-14T00:00:00.000Z' },
+    });
+
+    expect(result.ready).toBe(true);
+    expect(listMaterializedServersForAgent).not.toHaveBeenCalled();
+    expect(secrets.getSecret).toHaveBeenCalled();
+  });
+
+  it('keeps the live disabled-server diagnostic for snapshot MCP misses', async () => {
+    const listMaterializedServersForAgent = vi.fn(async () => []);
+    const getServerByName = vi.fn(async () => ({
+      id: 'mcp:server-1',
+      appId: 'default',
+      name: 'records',
+      status: 'disabled',
+    }));
+    const repository = {
+      listMaterializedServersForAgent,
+      getServerByName,
+    } as unknown as McpServerRepository;
+
+    const result = await evaluateJobReadiness({
+      job: makeJob({
+        access_requirements: [
+          { target: { kind: 'mcp_server', server: 'records' } },
+        ],
+      }),
+      appId: 'default',
+      agentId: 'agent:agent-one',
+      mcpServerRepository: repository,
+      accessSnapshot: {
+        appId: 'default',
+        agentId: 'agent:agent-one',
+        tools: { activeBindings: [], appActiveDefinitions: [] },
+        skills: { activeBindings: [], enabledDefinitions: [] },
+        mcp: { activeBindings: [], materializedServers: [] },
+      },
+      clock: { now: () => '2026-05-14T00:00:00.000Z' },
+    });
+
+    expect(result.setupState.blockers[0]?.message).toBe(
+      'Required MCP server is disabled: records.',
+    );
+    expect(listMaterializedServersForAgent).not.toHaveBeenCalled();
+    expect(getServerByName).toHaveBeenCalledOnce();
+  });
+
+  it('rejects an access snapshot owned by another agent', async () => {
+    await expect(
+      evaluateJobReadiness({
+        job: makeJob(),
+        appId: 'default',
+        agentId: 'agent:agent-one',
+        accessSnapshot: {
+          appId: 'default',
+          agentId: 'agent:other',
+          tools: { activeBindings: [], appActiveDefinitions: [] },
+          skills: { activeBindings: [], enabledDefinitions: [] },
+          mcp: { activeBindings: [], materializedServers: [] },
+        },
+      }),
+    ).rejects.toThrow('Job readiness access snapshot owner mismatch.');
+  });
+
   it('reports ready when declared requirements have durable bindings and browser state', async () => {
     const result = await evaluateJobReadiness({
       job: makeJob({

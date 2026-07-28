@@ -36,13 +36,11 @@ import {
   parseSemanticCapabilityRule,
   semanticCapabilityRule,
 } from '../../shared/semantic-capability-ids.js';
-import {
-  semanticCapabilityFromToolCatalogItem,
-  type SemanticCapabilityDefinition,
-} from '../../shared/semantic-capabilities.js';
+import type { SemanticCapabilityDefinition } from '../../shared/semantic-capabilities.js';
 import { stableSha256Json } from '../../shared/stable-hash.js';
 import { nowIso } from '../../shared/time/datetime.js';
 import {
+  catalogSemanticCapabilityDefinition,
   capabilityRequirementSetupAction,
   formatCapabilityRequirement,
   localCliCommandTemplatePermissionRule,
@@ -52,6 +50,10 @@ import {
   formatMissingGantrySecretsMessage,
   humanizeTechnicalIdentifier,
 } from '../../shared/user-visible-messages.js';
+import {
+  assertHostAccessSnapshot,
+  type AgentAccessSnapshot,
+} from '../agent-execution/agent-access-snapshot.js';
 export const SETUP_REQUIRED_PAUSE_REASON = 'Setup required';
 export interface JobReadinessBrowserStatus {
   hasState?: boolean;
@@ -73,6 +75,7 @@ export interface JobReadinessDeps {
   // or omitted inventory means "no image inventory declared" and is not enforced.
   workerImageInventory?: readonly string[];
   clock?: Clock;
+  accessSnapshot?: AgentAccessSnapshot;
 }
 export interface JobReadinessInput extends JobReadinessDeps {
   job: Pick<
@@ -98,6 +101,12 @@ export async function evaluateJobReadiness(
   const appId = input.appId ?? DEFAULT_JOB_RUNTIME_APP_ID;
   const agentId =
     input.agentId ?? agentIdForJobWorkspaceKey(input.job.workspace_key);
+  const accessSnapshot = assertHostAccessSnapshot({
+    accessSnapshot: input.accessSnapshot,
+    appId,
+    agentId,
+    subject: 'Job readiness',
+  });
   const blockers: JobSetupBlocker[] = [];
 
   const invalidWorkspaceBlocker = invalidWorkspaceConfigBlocker(input.job);
@@ -136,6 +145,7 @@ export async function evaluateJobReadiness(
       agentId,
       toolRepository: input.toolRepository,
       skillRepository: input.skillRepository,
+      accessSnapshot,
     });
   } catch (error) {
     if (!(error instanceof ApplicationError) || error.code !== 'FORBIDDEN') {
@@ -178,6 +188,7 @@ export async function evaluateJobReadiness(
         capabilityId: semanticCapabilityId,
         appId,
         repository: input.toolRepository,
+        accessSnapshot,
       });
       if (!capability) {
         blockers.push(
@@ -223,6 +234,7 @@ export async function evaluateJobReadiness(
             capabilityId: semanticCapabilityId,
             appId,
             repository: input.toolRepository,
+            accessSnapshot,
           }),
           agentId,
           broker: input.credentialBroker,
@@ -238,6 +250,7 @@ export async function evaluateJobReadiness(
         agentId,
         repository: input.mcpServerRepository,
         secrets: input.capabilitySecretRepository,
+        accessSnapshot,
       })),
     );
   } catch (error) {
@@ -638,35 +651,17 @@ async function semanticCapabilityCredentialBlocker(input: {
   return null;
 }
 
-async function catalogSemanticCapabilityDefinition(input: {
-  capabilityId: string;
-  appId: string;
-  repository?: ToolCatalogRepository;
-}): Promise<SemanticCapabilityDefinition | undefined> {
-  if (!input.repository || typeof input.repository.listTools !== 'function') {
-    return undefined;
-  }
-  const tools = await input.repository.listTools({
-    appId: input.appId as never,
-    statuses: ['active'],
-  });
-  for (const tool of tools) {
-    const capability = semanticCapabilityFromToolCatalogItem(tool);
-    if (capability?.capabilityId === input.capabilityId) return capability;
-  }
-  return undefined;
-}
-
 async function mcpReadinessBlockers(input: {
   requiredMcpServers: readonly string[];
   appId: string;
   agentId: string;
   repository?: McpServerRepository;
   secrets?: CapabilitySecretRepository;
+  accessSnapshot?: AgentAccessSnapshot;
 }): Promise<JobSetupBlocker[]> {
   const required = input.requiredMcpServers;
   if (required.length === 0) return [];
-  if (!input.repository) {
+  if (!input.repository && !input.accessSnapshot) {
     return required.map((requirement) => ({
       state: 'missing_capability',
       requirementType: 'mcp_server',
@@ -676,10 +671,12 @@ async function mcpReadinessBlockers(input: {
     }));
   }
   const blockers: JobSetupBlocker[] = [];
-  const materialized = await input.repository.listMaterializedServersForAgent({
-    appId: input.appId as never,
-    agentId: input.agentId as never,
-  });
+  const materialized = input.accessSnapshot
+    ? input.accessSnapshot.mcp.materializedServers
+    : await input.repository!.listMaterializedServersForAgent({
+        appId: input.appId as never,
+        agentId: input.agentId as never,
+      });
   for (const requirement of required) {
     const record = materialized.find(
       (candidate) =>
@@ -687,12 +684,14 @@ async function mcpReadinessBlockers(input: {
         candidate.definition.id === requirement,
     );
     if (!record) {
-      const definition = requirement.startsWith('mcp:')
-        ? await input.repository.getServer(requirement as McpServerId)
-        : await input.repository.getServerByName({
-            appId: input.appId as never,
-            name: requirement,
-          });
+      const definition = input.repository
+        ? requirement.startsWith('mcp:')
+          ? await input.repository.getServer(requirement as McpServerId)
+          : await input.repository.getServerByName({
+              appId: input.appId as never,
+              name: requirement,
+            })
+        : null;
       blockers.push({
         state: 'missing_capability',
         requirementType: 'mcp_server',

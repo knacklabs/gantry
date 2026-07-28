@@ -21,6 +21,12 @@ export async function resolveGroupAgentAccessContext(input: {
     input.deps,
     input.turnContext,
   );
+  const catalogSnapshot =
+    accessSnapshot ??
+    (await loadAgentAccessSnapshot(input.deps, input.catalogScope));
+  if (!catalogSnapshot) {
+    throw new Error('Agent access catalog scope is required.');
+  }
   const configuredToolPolicy =
     resolveTurnToolPolicyFromSnapshot(accessSnapshot);
   const selectedSkillContext =
@@ -29,21 +35,11 @@ export async function resolveGroupAgentAccessContext(input: {
     resolveTurnSemanticCapabilitiesFromSnapshot(accessSnapshot);
   const attachedMcpSourceIds =
     resolveTurnSelectedMcpServerIdsFromSnapshot(accessSnapshot);
-  const capabilityCatalog = accessSnapshot
-    ? await resolveTurnPromptCapabilityCatalogFromSnapshot(
-        accessSnapshot,
-        configuredToolPolicy.semanticCapabilities,
-      )
-    : await resolveTurnPromptCapabilityCatalogFromSnapshot(
-        {
-          appId: input.catalogScope.appId,
-          agentId: input.catalogScope.agentId,
-          tools: { activeBindings: [], appActiveDefinitions: [] },
-          skills: { activeBindings: [], enabledDefinitions: [] },
-          mcp: { activeBindings: [], materializedServers: [] },
-        },
-        configuredToolPolicy.semanticCapabilities,
-      );
+  const capabilityCatalog =
+    await resolveTurnPromptCapabilityCatalogFromSnapshot(
+      catalogSnapshot,
+      configuredToolPolicy.semanticCapabilities,
+    );
   const approvedSkillContextBlock = accessSnapshot
     ? buildApprovedSkillContextBlockFromSkills(
         accessSnapshot.skills.enabledDefinitions,

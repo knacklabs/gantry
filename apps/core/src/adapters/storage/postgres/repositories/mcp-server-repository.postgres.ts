@@ -287,31 +287,35 @@ export class PostgresMcpServerRepository implements McpServerRepository {
       active_bindings: unknown;
       materialized_servers: unknown;
     }>(sql`
+      WITH newest_bindings AS (
+        SELECT *
+        FROM agent_mcp_server_bindings
+        WHERE app_id = ${input.appId}
+          AND agent_id = ${input.agentId}
+        ORDER BY created_at DESC
+        LIMIT 500
+      )
       SELECT
         (
           SELECT COALESCE(jsonb_agg(jsonb_build_object(
             'binding', to_jsonb(b),
             'definition', CASE WHEN s.id IS NULL THEN NULL ELSE to_jsonb(s) END
           ) ORDER BY b.created_at DESC), '[]'::jsonb)
-          FROM agent_mcp_server_bindings b
+          FROM newest_bindings b
           LEFT JOIN mcp_servers s
             ON s.id = b.server_id
            AND s.app_id = ${input.appId}
-          WHERE b.app_id = ${input.appId}
-            AND b.agent_id = ${input.agentId}
-            AND b.status = 'active'
+          WHERE b.status = 'active'
         ) AS active_bindings,
         (
           SELECT COALESCE(jsonb_agg(jsonb_build_object(
             'binding', to_jsonb(b),
             'definition', to_jsonb(s)
           ) ORDER BY s.name), '[]'::jsonb)
-          FROM agent_mcp_server_bindings b
+          FROM newest_bindings b
           INNER JOIN mcp_servers s
             ON s.id = b.server_id
-          WHERE b.app_id = ${input.appId}
-            AND b.agent_id = ${input.agentId}
-            AND b.status = 'active'
+          WHERE b.status = 'active'
             AND s.app_id = ${input.appId}
             AND s.status = 'active'
         ) AS materialized_servers

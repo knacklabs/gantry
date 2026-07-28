@@ -1270,7 +1270,12 @@ describe('jobs/execution', () => {
       listAgentSkillAccessSnapshot: vi.fn(async () => ({
         activeBindings: [
           {
-            binding: { skillId: 'skill:release', status: 'active' },
+            binding: {
+              appId: 'default',
+              agentId: 'agent:scheduler_agent',
+              skillId: 'skill:release',
+              status: 'active',
+            },
             definition: {
               id: 'skill:release',
               appId: 'default',
@@ -1302,14 +1307,34 @@ describe('jobs/execution', () => {
       listAgentMcpAccessSnapshot: vi.fn(async () => ({
         activeBindings: [
           {
-            binding: { serverId: 'mcp:github', status: 'active' },
-            definition: { id: 'mcp:github', appId: 'default', name: 'github' },
+            binding: {
+              appId: 'default',
+              agentId: 'agent:scheduler_agent',
+              serverId: 'mcp:github',
+              status: 'active',
+            },
+            definition: {
+              id: 'mcp:github',
+              appId: 'default',
+              name: 'github',
+              status: 'active',
+            },
           },
         ],
         materializedServers: [
           {
-            binding: { serverId: 'mcp:github', status: 'active' },
-            definition: { id: 'mcp:github', appId: 'default', name: 'github' },
+            binding: {
+              appId: 'default',
+              agentId: 'agent:scheduler_agent',
+              serverId: 'mcp:github',
+              status: 'active',
+            },
+            definition: {
+              id: 'mcp:github',
+              appId: 'default',
+              name: 'github',
+              status: 'active',
+            },
           },
         ],
       })),
@@ -1325,6 +1350,7 @@ describe('jobs/execution', () => {
           id: 'tool:github-search',
           appId: 'default',
           name: 'capability:repo.search.repositories',
+          status: 'active',
           inputSchema: {
             format: 'gantry.semantic-capability.v1',
             schema: {
@@ -1352,15 +1378,22 @@ describe('jobs/execution', () => {
       listAgentToolAccessSnapshot: vi.fn(async () => ({
         activeBindings: [
           {
-            binding: { toolId: 'tool:github-search', status: 'active' },
+            binding: {
+              appId: 'default',
+              agentId: 'agent:scheduler_agent',
+              toolId: 'tool:github-search',
+              status: 'active',
+            },
             definition: await toolRepository.getTool('tool:github-search'),
           },
         ],
         appActiveDefinitions: await toolRepository.listTools(),
       })),
-      getTool: vi.fn(async () => ({
+      getTool: vi.fn(async (id: string) => ({
+        id,
         appId: 'default',
         name: 'capability:repo.search.repositories',
+        status: 'active',
         inputSchema: {
           format: 'gantry.semantic-capability.v1',
           schema: {
@@ -1815,27 +1848,70 @@ describe('jobs/execution', () => {
     });
   });
 
-  it('pauses after claim when final readiness fails before model spawn', async () => {
+  it('keeps final readiness aligned with the loaded access snapshot', async () => {
     const job = makeJob({
       schedule_type: 'interval',
       schedule_value: '60000',
-      access_requirements: [{ target: { kind: 'tool_rule', rule: 'Browser' } }],
+      access_requirements: [
+        { target: { kind: 'tool_rule', rule: 'Browser' } },
+        { target: { kind: 'mcp_server', server: 'records' } },
+      ],
       next_run: '2026-05-08T00:00:00.000Z',
     });
     const opsRepository = makeOpsRepository(job);
     const toolRepository = makeToolRepository(['Browser']);
-    toolRepository.listAgentToolBindings = vi
-      .fn()
-      .mockResolvedValueOnce([
-        {
-          toolId: 'Browser',
-          appId: 'default',
-          agentId: 'agent:scheduler_agent',
-          status: 'active',
-        },
-      ])
-      .mockResolvedValueOnce([]);
-    const runAgent = vi.fn();
+    const skillRepository = {
+      listEnabledSkillsForAgent: vi.fn(async () => []),
+      listAgentSkillBindings: vi.fn(async () => []),
+      getSkill: vi.fn(async () => null),
+      listAgentSkillAccessSnapshot: vi.fn(async () => ({
+        activeBindings: [],
+        enabledDefinitions: [],
+      })),
+    };
+    const mcpRecord = {
+      binding: {
+        appId: 'default',
+        agentId: 'agent:scheduler_agent',
+        serverId: 'mcp:records',
+        status: 'active',
+      },
+      definition: {
+        id: 'mcp:records',
+        appId: 'default',
+        name: 'records',
+        status: 'active',
+        credentialRefs: [],
+      },
+    };
+    const mcpServerRepository = {
+      listMaterializedServersForAgent: vi.fn(async () => [mcpRecord]),
+      listAgentBindings: vi.fn(async () => []),
+      getServer: vi.fn(async () => null),
+      getServerByName: vi.fn(async () => null),
+      listAgentMcpAccessSnapshot: vi.fn(async () => ({
+        activeBindings: [mcpRecord],
+        materializedServers: [mcpRecord],
+      })),
+    };
+    toolRepository.listAgentToolBindings.mockResolvedValue([
+      {
+        toolId: 'Browser',
+        appId: 'default',
+        agentId: 'agent:scheduler_agent',
+        status: 'active',
+      },
+    ]);
+    toolRepository.getTool.mockResolvedValue({
+      id: 'Browser',
+      appId: 'default',
+      name: 'Browser',
+      status: 'active',
+    });
+    const runAgent = vi.fn(async () => ({
+      status: 'success',
+      result: 'runtime flow completed',
+    }));
 
     await runJob(
       job,
@@ -1846,28 +1922,66 @@ describe('jobs/execution', () => {
         sendMessage: vi.fn(async () => undefined) as never,
         opsRepository: opsRepository as never,
         getToolRepository: () => toolRepository as never,
+        getSkillRepository: () => skillRepository as never,
+        getMcpServerRepository: () => mcpServerRepository as never,
         runAgent: runAgent as never,
       },
       'tg:scheduler',
     );
 
     expect(opsRepository.claimDueJobRunStart).toHaveBeenCalled();
-    expect(runAgent).not.toHaveBeenCalled();
-    expect(opsRepository.updateJob).toHaveBeenCalledWith(
-      job.id,
-      expect.objectContaining({
-        status: 'paused',
-        pause_reason: 'Setup required',
-        next_run: null,
-      }),
+    expect(toolRepository.listAgentToolAccessSnapshot).toHaveBeenCalledOnce();
+    expect(toolRepository.listAgentToolAccessSnapshot).toHaveBeenCalledWith({
+      appId: 'default',
+      agentId: 'agent:scheduler_agent',
+    });
+    expect(skillRepository.listAgentSkillAccessSnapshot).toHaveBeenCalledOnce();
+    expect(skillRepository.listAgentSkillAccessSnapshot).toHaveBeenCalledWith({
+      appId: 'default',
+      agentId: 'agent:scheduler_agent',
+    });
+    expect(
+      mcpServerRepository.listAgentMcpAccessSnapshot,
+    ).toHaveBeenCalledOnce();
+    expect(mcpServerRepository.listAgentMcpAccessSnapshot).toHaveBeenCalledWith(
+      {
+        appId: 'default',
+        agentId: 'agent:scheduler_agent',
+      },
     );
-    // The job still pauses for setup (asserted above); the claimed run records
-    // the setup-required terminal summary for this attempt.
-    expect(opsRepository.completeJobRun).toHaveBeenCalledWith(
-      expect.any(String),
-      'failed',
-      null,
-      expect.stringContaining('Setup required'),
+    expect(toolRepository.listAgentToolBindings).toHaveBeenCalledTimes(1);
+    expect(toolRepository.getTool).toHaveBeenCalledTimes(1);
+    expect(toolRepository.listTools).not.toHaveBeenCalled();
+    expect(skillRepository.listEnabledSkillsForAgent).toHaveBeenCalledTimes(1);
+    expect(skillRepository.listAgentSkillBindings).not.toHaveBeenCalled();
+    expect(skillRepository.getSkill).not.toHaveBeenCalled();
+    expect(
+      mcpServerRepository.listMaterializedServersForAgent,
+    ).toHaveBeenCalledTimes(1);
+    expect(mcpServerRepository.listAgentBindings).not.toHaveBeenCalled();
+    expect(mcpServerRepository.getServer).not.toHaveBeenCalled();
+    expect(mcpServerRepository.getServerByName).not.toHaveBeenCalled();
+    expect(
+      toolRepository.listAgentToolBindings.mock.invocationCallOrder[0],
+    ).toBeLessThan(
+      toolRepository.listAgentToolAccessSnapshot.mock.invocationCallOrder[0]!,
+    );
+    expect(
+      skillRepository.listEnabledSkillsForAgent.mock.invocationCallOrder[0],
+    ).toBeLessThan(
+      skillRepository.listAgentSkillAccessSnapshot.mock.invocationCallOrder[0]!,
+    );
+    expect(
+      mcpServerRepository.listMaterializedServersForAgent.mock
+        .invocationCallOrder[0],
+    ).toBeLessThan(
+      mcpServerRepository.listAgentMcpAccessSnapshot.mock
+        .invocationCallOrder[0]!,
+    );
+    expect(runAgent).toHaveBeenCalledOnce();
+    expect(opsRepository.updateJob).not.toHaveBeenCalledWith(
+      job.id,
+      expect.objectContaining({ status: 'paused' }),
     );
   });
 

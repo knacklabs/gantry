@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { resolveGroupAgentAccessContext } from '@core/runtime/group-agent-access-context.js';
 import { buildProviderSessionAccessFingerprint } from '@core/runtime/provider-session-access-fingerprint.js';
+import { resolveAgentPromptCapabilityCatalog } from '@core/application/agents/agent-prompt-capability-catalog.js';
 import type {
   McpServerRepository,
   SkillCatalogRepository,
@@ -177,6 +178,111 @@ describe('resolveGroupAgentAccessContext', () => {
           .promptRefs as string[]
       ).push('MUTATED.md');
     }).toThrow();
+
+    expect({
+      listAgentToolAccessSnapshot:
+        toolRepository.listAgentToolAccessSnapshot.mock.calls.length,
+      listAgentSkillAccessSnapshot:
+        skillRepository.listAgentSkillAccessSnapshot.mock.calls.length,
+      listAgentMcpAccessSnapshot:
+        mcpRepository.listAgentMcpAccessSnapshot.mock.calls.length,
+      listAgentToolBindings:
+        toolRepository.listAgentToolBindings.mock.calls.length,
+      getTool: toolRepository.getTool.mock.calls.length,
+      listTools: toolRepository.listTools.mock.calls.length,
+      listAgentSkillBindings:
+        skillRepository.listAgentSkillBindings.mock.calls.length,
+      listEnabledSkillsForAgent:
+        skillRepository.listEnabledSkillsForAgent.mock.calls.length,
+      getSkill: skillRepository.getSkill.mock.calls.length,
+      listAgentBindings: mcpRepository.listAgentBindings.mock.calls.length,
+      getServer: mcpRepository.getServer.mock.calls.length,
+    }).toEqual({
+      listAgentToolAccessSnapshot: 1,
+      listAgentSkillAccessSnapshot: 1,
+      listAgentMcpAccessSnapshot: 1,
+      listAgentToolBindings: 0,
+      getTool: 0,
+      listTools: 0,
+      listAgentSkillBindings: 0,
+      listEnabledSkillsForAgent: 0,
+      getSkill: 0,
+      listAgentBindings: 0,
+      getServer: 0,
+    });
+  });
+
+  it('loads catalog inventory without granting executable access when turn context is unavailable', async () => {
+    const catalogSkill = skill({
+      id: 'skill:catalog-only',
+      name: 'catalog-only',
+      description: 'Visible in the prompt catalog only.',
+    });
+    const catalogMcpServer = mcpServer({
+      id: 'mcp:catalog-only',
+      name: 'catalog-only',
+      displayName: 'Catalog-only MCP',
+      description: 'Visible in the prompt catalog only.',
+      status: 'active',
+    });
+    const toolRepository = toolRepositoryFixture({
+      selectedTool: tool({
+        id: 'tool:catalog-only',
+        name: 'capability:catalog.only',
+        displayName: 'Catalog-only tool',
+        inputSchema: {},
+      }),
+      broadTools: [],
+    });
+    const skillRepository = skillRepositoryFixture({
+      skills: [catalogSkill],
+    });
+    const mcpRepository = mcpRepositoryFixture({
+      servers: [catalogMcpServer],
+    });
+    const deps = {
+      getToolRepository: vi.fn(() => toolRepository as never),
+      getSkillRepository: vi.fn(() => skillRepository as never),
+      getMcpServerRepository: vi.fn(() => mcpRepository as never),
+      getAgentLockStatus: vi.fn(() => 'locked'),
+    } as Partial<GroupProcessingDeps> as GroupProcessingDeps;
+
+    const context = await resolveGroupAgentAccessContext({
+      deps,
+      turnContext: undefined,
+      catalogScope: { appId: APP_ID, agentId: AGENT_ID },
+      agentFolder: '/tmp/lat-2-catalog-only-agent',
+    });
+
+    expect(context.accessSnapshot).toBeUndefined();
+    expect(context.configuredToolPolicy).toEqual({
+      toolPolicyRules: undefined,
+      runtimeAccess: [],
+      semanticCapabilities: [],
+    });
+    expect(context.selectedSkillContext).toEqual({});
+    expect(context.semanticCapabilities).toEqual([]);
+    expect(context.attachedMcpSourceIds).toBeUndefined();
+    expect(context.approvedSkillContextBlock).toBe('');
+    expect(context.capabilityCatalog.readyActions).toEqual([]);
+    expect(context.capabilityCatalog.installedSkills).toEqual([
+      expect.objectContaining({
+        kind: 'skill',
+        stableRef: 'skill:catalog-only',
+      }),
+    ]);
+    expect(context.capabilityCatalog.connectedMcpSources).toEqual([
+      expect.objectContaining({
+        kind: 'mcp_source',
+        stableRef: 'mcp:catalog-only',
+      }),
+    ]);
+    expect(context.capabilityCatalog.digest).not.toBe(
+      resolveAgentPromptCapabilityCatalog({
+        appId: APP_ID,
+        agentId: AGENT_ID,
+      }).digest,
+    );
 
     expect({
       listAgentToolAccessSnapshot:

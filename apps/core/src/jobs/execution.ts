@@ -387,6 +387,7 @@ async function runActiveJob(
             agentId: executionAgentId,
             source: 'final_setup',
             runId,
+            accessSnapshot,
             publishRuntimeEvent,
           }));
           const browserPrelaunchSetup = finalReadinessPassed

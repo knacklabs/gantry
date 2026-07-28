@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
+import * as pgSchema from '@core/adapters/storage/postgres/schema/index.js';
 import { McpServerService } from '@core/application/mcp/mcp-server-service.js';
 import type { PostgresIntegrationRuntime } from '../harness/postgres-integration-runtime.js';
 import {
@@ -237,6 +238,67 @@ describe.runIf(hasPostgresIntegrationDatabase)(
         }),
       ).rejects.toThrow(/must be active/);
     });
+
+    it('applies the newest-500 binding boundary before active filtering', async () => {
+      const bindingCount = 501;
+      const createdAt = (index: number) =>
+        new Date(Date.UTC(2026, 0, 1, 0, 0, index)).toISOString();
+      const servers = Array.from({ length: bindingCount }, (_, index) => ({
+        id: `mcp:boundary:${index}`,
+        appId: 'app-one',
+        name: `boundary_${String(index).padStart(3, '0')}`,
+        status: 'active',
+        createdAt: createdAt(index),
+        updatedAt: createdAt(index),
+      }));
+      await runtime.service.db
+        .insert(pgSchema.mcpServersPostgres)
+        .values(servers);
+      await runtime.service.db
+        .insert(pgSchema.agentMcpServerBindingsPostgres)
+        .values(
+          servers.map((server, index) => ({
+            id: `agent-mcp-binding:agent:one:${server.id}`,
+            appId: 'app-one',
+            agentId: 'agent:one',
+            serverId: server.id,
+            status: index === bindingCount - 1 ? 'disabled' : 'active',
+            createdAt: createdAt(index),
+            updatedAt: createdAt(index),
+          })),
+        );
+
+      const snapshot =
+        await runtime.repositories.mcpServers.listAgentMcpAccessSnapshot({
+          appId: 'app-one' as never,
+          agentId: 'agent:one' as never,
+        });
+
+      expect(snapshot.activeBindings).toHaveLength(499);
+      expect(snapshot.materializedServers).toHaveLength(499);
+      expect(
+        snapshot.activeBindings.map((row) => String(row.binding.serverId)),
+      ).toEqual(
+        Array.from(
+          { length: 499 },
+          (_, index) => `mcp:boundary:${499 - index}`,
+        ),
+      );
+      expect(
+        snapshot.materializedServers.map((row) => row.definition.name),
+      ).toEqual(
+        Array.from(
+          { length: 499 },
+          (_, index) => `boundary_${String(index + 1).padStart(3, '0')}`,
+        ),
+      );
+      expect(
+        snapshot.activeBindings.map((row) => String(row.binding.serverId)),
+      ).not.toContain('mcp:boundary:0');
+      expect(
+        snapshot.activeBindings.map((row) => String(row.binding.serverId)),
+      ).not.toContain('mcp:boundary:500');
+    }, 30_000);
   },
 );
 
