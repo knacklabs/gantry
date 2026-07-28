@@ -53,12 +53,26 @@ export abstract class TelegramChannelPolling extends TelegramChannelState {
       if (this.pollingLease !== lease) return;
       this.pollingLease = null;
       if (this.isStopping) return;
-      if (this.isTelegramBotRunning()) this.bot?.stop();
       logger.warn(
         { err, leaseKey },
-        'Telegram polling lease connection was lost; scheduling retry',
+        'Telegram polling lease connection was lost; stopping poller before retry',
       );
-      this.schedulePollingRetry();
+      // bot.stop() is async and issues a final getUpdates before it settles, so chain
+      // the retry off it. Otherwise a reacquired lease can start a new poll while the
+      // old shutdown is still in flight — two concurrent getUpdates, and the old stop
+      // can clear the new poll's abort controller.
+      const stopped = this.isTelegramBotRunning()
+        ? Promise.resolve(this.bot?.stop()).catch((stopErr: unknown) => {
+            logger.warn(
+              { err: stopErr, leaseKey },
+              'Telegram poller stop failed after polling lease loss',
+            );
+          })
+        : Promise.resolve();
+      void stopped.then(() => {
+        if (this.isStopping) return;
+        this.schedulePollingRetry();
+      });
     });
 
     if (this.isTelegramBotRunning()) {

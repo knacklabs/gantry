@@ -2999,6 +2999,9 @@ describe('TelegramChannel', () => {
         const startSpy = vi.spyOn(currentBot(), 'start');
 
         lostHandlers[0]!(new Error('lease connection lost'));
+        // The retry is chained off bot.stop() settling, so flush microtasks before
+        // running the retry timer — it does not exist until the stop resolves.
+        await vi.advanceTimersByTimeAsync(0);
         vi.runOnlyPendingTimers();
         await vi.waitFor(() =>
           expect(runtimeLease.tryAcquire).toHaveBeenCalledTimes(2),
@@ -3044,8 +3047,13 @@ describe('TelegramChannel', () => {
 
         lostHandler?.(new Error('poll lease lost'));
 
+        // The retry is chained off bot.stop() settling, so it lands a microtask
+        // later. That the retry has NOT been scheduled yet is the ordering
+        // guarantee under test: a reacquired lease cannot start polling while the
+        // previous shutdown is still in flight.
         expect(stopSpy).toHaveBeenCalledOnce();
-        expect(scheduleRetrySpy).toHaveBeenCalledOnce();
+        expect(scheduleRetrySpy).not.toHaveBeenCalled();
+        await vi.waitFor(() => expect(scheduleRetrySpy).toHaveBeenCalledOnce());
         expect(stopSpy.mock.invocationCallOrder[0]).toBeLessThan(
           scheduleRetrySpy.mock.invocationCallOrder[0]!,
         );

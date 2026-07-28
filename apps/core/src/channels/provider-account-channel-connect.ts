@@ -208,6 +208,22 @@ export async function connectProviderAccountChannels(input: {
       }
     }
 
+    // onLost now replays synchronously, so a lease lost immediately after
+    // acquisition is already known here. Don't start connecting inbound without
+    // ownership — a slow or hanging connect would otherwise run unowned and could
+    // process inbound events, which is exactly what failing closed is meant to stop.
+    if (
+      providerInboundLease &&
+      (providerInboundLeaseLost || !providerInboundLease.isValid())
+    ) {
+      input.logger.warn(
+        { channel: input.provider.id, providerAccountId },
+        'Provider Account inbound lease already lost before connect; skipping channel',
+      );
+      await providerInboundLease.release();
+      continue;
+    }
+
     try {
       await channel.connect({
         inbound: providerInbound,
