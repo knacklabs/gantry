@@ -80,6 +80,17 @@ maybeDescribe('agent-e2e haiku turn (real model, behavioral)', () => {
       return await fn();
     } catch (err) {
       sawFailure = true;
+      // A rate-limited E2E key looks exactly like a runtime hang from the
+      // outside (typing forever, no reply). Name it in the assertion message
+      // so nobody bisects the runtime for a provider quota problem.
+      if (harness?.logs().includes('error_status=429')) {
+        throw new Error(
+          'Provider rate-limited the real-model turn (HTTP 429 rate_limit) — ' +
+            'this is an E2E_MODEL_API_KEY quota problem, not a runtime ' +
+            `regression. Original failure: ${(err as Error).message}`,
+          { cause: err },
+        );
+      }
       throw err;
     }
   }

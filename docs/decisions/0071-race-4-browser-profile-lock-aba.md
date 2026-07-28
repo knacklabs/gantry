@@ -80,7 +80,7 @@ This decision covers the **core**: lease-based ownership replacing the lockfile
 (which *removes the ABA class outright* — confirmed by review), release-last with
 `finally`, and loss **detection** with fail-closed behavior.
 
-**Deferred to RACE-4b (D-0013, D-0014):** loss *detection* is not the same as safe
+**Deferred to RACE-4b (D-0016, D-0017):** loss *detection* is not the same as safe
 *handoff*. A successor can acquire the freed lease while the previous Chrome is
 still shutting down, and a stale owner's in-flight snapshot upsert can commit after
 handoff. Closing those needs a **lease-generation fencing contract** — the new owner

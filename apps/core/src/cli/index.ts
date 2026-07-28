@@ -36,6 +36,7 @@ configureDesiredSettingsStorageProvider(async (input) => {
     getRuntimeStorage,
     initializeRuntimeStorage,
     isStorageUnavailableError,
+    tryAcquireRuntimeAdvisoryLease,
   } = await import('../adapters/storage/postgres/runtime-store.js');
   try {
     const storage = getRuntimeStorage();
@@ -44,6 +45,7 @@ configureDesiredSettingsStorageProvider(async (input) => {
       repositories: storage.repositories,
       settingsRevisions: storage.repositories.settingsRevisions,
       pool: storage.service.pool,
+      leases: { tryAcquire: tryAcquireRuntimeAdvisoryLease },
     };
   } catch {
     // CLI invocations usually run outside the runtime process.
@@ -57,6 +59,7 @@ configureDesiredSettingsStorageProvider(async (input) => {
       repositories: storage.repositories,
       settingsRevisions: storage.repositories.settingsRevisions,
       pool: storage.service.pool,
+      leases: { tryAcquire: tryAcquireRuntimeAdvisoryLease },
     };
   } catch (err) {
     if (!isStorageUnavailableError(err)) throw err;

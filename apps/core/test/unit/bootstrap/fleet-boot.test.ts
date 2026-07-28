@@ -8,6 +8,13 @@ const loadState = vi.hoisted(() => ({
   markSettingsNotLoaded: vi.fn(),
 }));
 const importMock = vi.hoisted(() => ({ importWorkstationSettings: vi.fn() }));
+const lease = vi.hoisted(() => {
+  const release = vi.fn(async () => {});
+  return {
+    release,
+    tryAcquire: vi.fn(async () => ({ release })),
+  };
+});
 const log = vi.hoisted(() => ({
   warn: vi.fn(),
   info: vi.fn(),
@@ -118,6 +125,7 @@ function revisionRow(revision: number): SettingsRevision {
 }
 
 const fakeApp = { loadState: async () => {} } as never;
+const leases = { tryAcquire: lease.tryAcquire };
 
 function bakeDependency(
   overrides: Partial<RuntimeDependency> = {},
@@ -144,6 +152,7 @@ describe('prepareFleetSettings', () => {
     loadState.markSettingsLoaded.mockClear();
     loadState.markSettingsNotLoaded.mockClear();
     importMock.importWorkstationSettings.mockClear();
+    lease.tryAcquire.mockClear();
     log.warn.mockClear();
     log.info.mockClear();
     log.error.mockClear();
@@ -155,6 +164,7 @@ describe('prepareFleetSettings', () => {
       appId: 'default' as never,
       runtimeHome: '/tmp/gantry-fleet',
       app: fakeApp,
+      leases,
     });
 
     expect(result).toEqual({ loaded: false, revision: null });
@@ -183,11 +193,37 @@ describe('prepareFleetSettings', () => {
       appId: 'default' as never,
       runtimeHome: '/tmp/gantry-fleet',
       app: fakeApp,
+      leases,
     });
 
     expect(result).toEqual({ loaded: true, revision: 9 });
-    expect(importMock.importWorkstationSettings).toHaveBeenCalledOnce();
+    expect(lease.tryAcquire).toHaveBeenCalledWith('settings-projector:default');
+    expect(importMock.importWorkstationSettings).toHaveBeenCalledWith(
+      expect.objectContaining({ projectionAuthority: 'revision' }),
+      expect.anything(),
+    );
     expect(loadState.markSettingsLoaded).toHaveBeenCalledOnce();
+  });
+
+  it('leaves a failed boot projection for forward correction', async () => {
+    latest.current = revisionRow(9);
+    const failure = new Error('projection failed');
+    importMock.importWorkstationSettings.mockRejectedValueOnce(failure);
+
+    await expect(
+      prepareFleetSettings({
+        appId: 'default' as never,
+        runtimeHome: '/tmp/gantry-fleet',
+        app: fakeApp,
+        leases,
+      }),
+    ).rejects.toBe(failure);
+
+    expect(importMock.importWorkstationSettings).toHaveBeenCalledWith(
+      expect.objectContaining({ projectionAuthority: 'revision' }),
+      expect.anything(),
+    );
+    expect(loadState.markSettingsLoaded).not.toHaveBeenCalled();
   });
 
   it('holds a boot revision that requires a newer settings reader', async () => {
@@ -205,6 +241,7 @@ describe('prepareFleetSettings', () => {
       appId: 'default' as never,
       runtimeHome: '/tmp/gantry-fleet',
       app: fakeApp,
+      leases,
     });
 
     expect(result).toEqual({ loaded: false, revision: 10 });
@@ -328,6 +365,7 @@ describe('startFleetSubsystems', () => {
       pool: {} as never,
       leases,
       sendMessage: async () => {},
+      leases,
       settingsLoaded: false,
       onSettingsReady,
     });
@@ -373,6 +411,7 @@ describe('startFleetSubsystems', () => {
       sendMessage: async () => {},
       bakeExecution: true,
       capabilityReconciliation: true,
+      leases,
       settingsLoaded: true,
     });
     try {
@@ -394,6 +433,7 @@ describe('startFleetSubsystems', () => {
       sendMessage: async () => {},
       bakeExecution: false,
       capabilityReconciliation: true,
+      leases,
       settingsLoaded: true,
     });
     try {
@@ -415,6 +455,7 @@ describe('startFleetSubsystems', () => {
       sendMessage: async () => {},
       bakeExecution: false,
       capabilityReconciliation: false,
+      leases,
       settingsLoaded: true,
     });
     try {
@@ -436,6 +477,7 @@ describe('startFleetSubsystems', () => {
       pool: {} as never,
       leases,
       sendMessage: async () => {},
+      leases,
       settingsLoaded: true,
       onSettingsReady,
     });

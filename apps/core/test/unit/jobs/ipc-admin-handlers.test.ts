@@ -21,6 +21,9 @@ async function loadAdminHandlers(runtimeHome: string) {
     return { ...actual, syncRuntimeSettingsFromProjection };
   });
   vi.doMock('@core/adapters/storage/postgres/runtime-store.js', () => ({
+    tryAcquireRuntimeAdvisoryLease: vi.fn(async () => ({
+      release: vi.fn(async () => {}),
+    })),
     getRuntimeRepositories: vi.fn(() => ({})),
     getRuntimeStorage: vi.fn(() => ({
       repositories: { pendingAccessRequests },

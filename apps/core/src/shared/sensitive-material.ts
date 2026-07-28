@@ -88,7 +88,10 @@ function looksLikeOpaqueSecretToken(raw: string): boolean {
   return (
     token.length >= 24 &&
     token.length <= 1024 &&
-    !token.includes('://') &&
+    // A bare `/` means this is a filesystem path/URL, not an opaque secret.
+    // Real base64 secrets needing `/` are caught by the specific REDACTION_RULES
+    // (sk-…, JWT, PEM, bearer); base64url tokens use `-_`, not `/`.
+    !token.includes('/') &&
     /[0-9]/.test(token) &&
     classes >= 3 &&
     shannonEntropy(token) >= 3.5
@@ -115,7 +118,12 @@ export function detectPotentialUnredactedSecret(text: string): string | null {
   const candidates = trimmed.match(CANDIDATE_TOKEN_PATTERN) || [];
   for (const token of candidates) {
     if (!looksLikeOpaqueSecretToken(token)) continue;
-    if (token.length >= 40 || HIGH_RISK_CONTEXT_PATTERN.test(trimmed)) {
+    // Never block on length alone — long paths/ids aren't secrets. Require real
+    // secret context nearby, or a high entropy floor that ordinary text won't hit.
+    if (
+      HIGH_RISK_CONTEXT_PATTERN.test(trimmed) ||
+      shannonEntropy(token) >= 4.0
+    ) {
       return 'high_entropy_credential_like_token';
     }
   }

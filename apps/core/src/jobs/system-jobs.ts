@@ -75,6 +75,7 @@ import {
   setObserverDigestGateway,
 } from './observer-digest-job.js';
 import { computeNextJobRun } from './schedule-math.js';
+import { preserveOperatorSystemJobEdits } from './system-job-reconcile.js';
 import { buildCanonicalJobLifecycleTarget } from './job-notification-routes.js';
 import { parseAgentThreadQueueKey } from '../shared/thread-queue-key.js';
 import { agentIdForJobWorkspaceKey } from '../application/jobs/job-tool-policy.js';
@@ -298,9 +299,7 @@ export async function registerSystemJobs(
         notification_routes: target.notificationRoutes,
       };
       await deps.opsRepository.upsertJob(
-        systemJob as unknown as Parameters<
-          SchedulerDependencies['opsRepository']['upsertJob']
-        >[0],
+        preserveOperatorSystemJobEdits(systemJob, existing),
       );
     }
   }
@@ -330,7 +329,7 @@ export async function registerSystemJobs(
         { schedule_type: 'cron', schedule_value: MEMORY_DREAMING_CRON },
         nowIso,
       );
-      await deps.opsRepository.upsertJob({
+      const brainDreamingJob = {
         id: BRAIN_DREAMING_JOB_ID,
         name: 'Brain Dreaming',
         prompt: BRAIN_DREAM_SYSTEM_PROMPT,
@@ -348,9 +347,10 @@ export async function registerSystemJobs(
         max_consecutive_failures: 3,
         execution_context: target.executionContext,
         notification_routes: target.notificationRoutes,
-      } as unknown as Parameters<
-        SchedulerDependencies['opsRepository']['upsertJob']
-      >[0]);
+      };
+      await deps.opsRepository.upsertJob(
+        preserveOperatorSystemJobEdits(brainDreamingJob, existing),
+      );
     }
   }
 
@@ -404,9 +404,7 @@ export async function registerSystemJobs(
         notification_routes: target.notificationRoutes,
       };
       await deps.opsRepository.upsertJob(
-        backfillJob as unknown as Parameters<
-          SchedulerDependencies['opsRepository']['upsertJob']
-        >[0],
+        preserveOperatorSystemJobEdits(backfillJob, existing),
       );
     }
 
@@ -454,9 +452,7 @@ export async function registerSystemJobs(
         notification_routes: target.notificationRoutes,
       };
       await deps.opsRepository.upsertJob(
-        brainBackfillJob as unknown as Parameters<
-          SchedulerDependencies['opsRepository']['upsertJob']
-        >[0],
+        preserveOperatorSystemJobEdits(brainBackfillJob, existingBrain),
       );
     }
   }

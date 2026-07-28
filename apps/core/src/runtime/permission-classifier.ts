@@ -5,6 +5,7 @@ import {
   isPermissionClassifierEligible,
   type PermissionClassifierRequestFamily,
 } from '../application/permissions/permission-classifier.js';
+import { gantryToolDefaultRisk } from '../application/permissions/gantry-tool-risk.js';
 import {
   PERMISSION_PROMOTION_ALLOW_THRESHOLD,
   type PermissionPromotionInput,
@@ -307,6 +308,22 @@ export async function consultPermissionClassifierBeforePrompt(
           workspaceRoot: input.workspaceRoot,
           reviewedMcpReadBindings: input.reviewedMcpReadBindings,
         });
+  // Gantry-native tools get a deterministic, config-free default risk rating
+  // instead of an LLM call: routine reads/mutations rate low/medium (auto), and
+  // authority/destructive/unknown tools rate high (ask). The truncated-input and
+  // YOLO-denylist safety gates above still win. Non-gantry tools return
+  // undefined here and keep the Bash / third-party-MCP / LLM path unchanged.
+  //
+  // Gated on the 'tool' family ONLY: this map rates tool EXECUTION risk. A
+  // tool's routine execution rating does NOT establish that granting durable
+  // authority (promotion) or approving a review is safe. isPermissionClassifier-
+  // Eligible already blocks non-'tool' families at the top of this function, so
+  // this is defense-in-depth: the gantry map can never auto-allow a non-'tool'
+  // request even if that eligibility gate is later broadened.
+  const gantryRisk =
+    inputTruncated || yoloDenylistMatch || input.requestFamily !== 'tool'
+      ? undefined
+      : gantryToolDefaultRisk(input.canonicalToolName);
   const classifierResult: PermissionClassifierResult = inputTruncated
     ? {
         risk_level: 'high',
@@ -317,7 +334,12 @@ export async function consultPermissionClassifierBeforePrompt(
       }
     : // prettier-ignore
       yoloDenylistMatch ? { risk_level: 'high', reason: `YOLO-mode denylist backstop matched "${yoloDenylistMatch.pattern}"; ask the user for explicit approval.`, latencyMs: 0 }
-      : !deterministicGate?.allowed && input.permissionMode === 'auto_strict'
+      : // The auto_strict deterministic-denial guard runs BEFORE the gantry
+        // verdict: the gantry map may only REDUCE prompts in normal auto mode,
+        // never turn a strict-mode denial into an allow. In auto_strict a gantry
+        // mutation (gate not allowed) still asks; gantry reads never reach here
+        // (rails birthright-allow them first).
+        !deterministicGate?.allowed && input.permissionMode === 'auto_strict'
           ? {
               risk_level: 'high',
               reason:
@@ -325,6 +347,8 @@ export async function consultPermissionClassifierBeforePrompt(
                 'Deterministic read-only proof was unavailable; ask the user.',
               latencyMs: 0,
             }
+      : gantryRisk
+          ? { risk_level: gantryRisk.risk_level, reason: gantryRisk.reason, latencyMs: 0 }
           : await (input.classifierConsult ?? consultPermissionClassifier)({
             appId: (input.appId ?? 'default') as AppId,
             agentIdentity: {

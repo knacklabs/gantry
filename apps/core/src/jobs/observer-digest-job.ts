@@ -15,6 +15,7 @@ import { MessageInsightFreshnessProbe } from '../brain/observer-evidence-freshne
 import { getRuntimeStorage } from '../adapters/storage/postgres/runtime-store.js';
 import { nowIso as currentIso } from '../shared/time/datetime.js';
 import { computeNextJobRun } from './schedule-math.js';
+import { preserveOperatorSystemJobEdits } from './system-job-reconcile.js';
 import { buildCanonicalJobLifecycleTarget } from './job-notification-routes.js';
 import { logger } from '../infrastructure/logging/logger.js';
 import type { ConversationRoute } from '../domain/types.js';
@@ -104,7 +105,10 @@ export async function registerObserverDigestJob(
     notification_routes: target.notificationRoutes,
   };
   await deps.opsRepository.upsertJob(
-    observerDigestJob as unknown as Parameters<
+    preserveOperatorSystemJobEdits(
+      observerDigestJob,
+      existing,
+    ) as unknown as Parameters<
       SchedulerDependencies['opsRepository']['upsertJob']
     >[0],
   );

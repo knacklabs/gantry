@@ -13,6 +13,9 @@ const pool = vi.hoisted(() => ({
 }));
 
 vi.mock('@core/adapters/storage/postgres/runtime-store.js', () => ({
+  tryAcquireRuntimeAdvisoryLease: vi.fn(async () => ({
+    release: vi.fn(async () => {}),
+  })),
   getRuntimeStorage: () => ({ service: { pool } }),
   getRuntimeRepositories: () => ({}),
   getRuntimeControlRepository: () => ({}),

@@ -324,9 +324,17 @@ async function resolvePermissionIpcDecisionTail(input: {
   // classifier actually produced is cached here (never a human allow_once —
   // those flow through requestPermissionApproval below and never reach this).
   // Skipped when effectHash is undefined (sanitized/truncated input).
+  //
+  // A hard-floor rail ASK makes the effect UNCACHEABLE in either direction, not
+  // just when it vetoes an allow: the rail fires precisely when the effect could
+  // not be bounded (e.g. a concealed/risk-sanitized input-gated birthright tool),
+  // so a verdict derived from input the human never saw must never be persisted
+  // and reused by a later concealed request.
+  // (subsumes the narrower railVetoedClassifierAllow case: that is an allow
+  // under railRequiresApproval, so this guard already covers it.)
   if (
     classifierDecision &&
-    !railVetoedClassifierAllow &&
+    !input.railRequiresApproval &&
     input.effectHash &&
     input.decisionMemory
   ) {

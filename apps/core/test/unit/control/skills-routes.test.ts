@@ -205,6 +205,9 @@ const skillArtifacts = {
 };
 
 vi.mock('@core/adapters/storage/postgres/runtime-store.js', () => ({
+  tryAcquireRuntimeAdvisoryLease: vi.fn(async () => ({
+    release: vi.fn(async () => {}),
+  })),
   getRuntimeControlRepository: () => controlRepo,
   getRuntimeRepositories: () => opsRepo,
   getRuntimeStorage: () => ({
