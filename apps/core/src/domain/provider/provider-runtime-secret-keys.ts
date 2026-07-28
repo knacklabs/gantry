@@ -45,7 +45,9 @@ export function slackRuntimeSecretNameForAgent(
     .replace(/[^A-Z0-9]+/g, '_')
     .replace(/^_+|_+$/g, '');
   if (!normalized) {
-    throw new Error('A non-empty Slack agent name is required for credential naming.');
+    throw new Error(
+      'A non-empty Slack agent name is required for credential naming.',
+    );
   }
   return `${normalized}_SLACK_${key}`;
 }
