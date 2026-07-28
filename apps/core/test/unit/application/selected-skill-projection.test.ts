@@ -50,6 +50,34 @@ describe('resolveSelectedSkillProjection', () => {
       'Selected skill "skill:projected" artifact integrity check failed',
     );
   });
+
+  it('fails closed when a snapshot-selected skill belongs to another agent', async () => {
+    await expect(
+      resolveSelectedSkillProjection({
+        selectedSkillIds: ['skill:projected'],
+        skillRepository: repository(skill(hashSkillBundle(bundle))),
+        skillArtifactStore: artifactStore(bundle),
+        skillContext: { appId: 'app:test', agentId: 'agent:test' },
+        accessSnapshot: {
+          appId: 'app:test',
+          agentId: 'agent:test',
+          tools: { activeBindings: [], appActiveDefinitions: [] },
+          skills: {
+            activeBindings: [],
+            enabledDefinitions: [
+              {
+                ...skill(hashSkillBundle(bundle)),
+                agentId: 'agent:other' as never,
+              },
+            ],
+          },
+          mcp: { activeBindings: [], materializedServers: [] },
+        },
+      }),
+    ).rejects.toThrow(
+      'Selected skill projection skill snapshot definition owner mismatch.',
+    );
+  });
 });
 
 function skill(contentHash: string): SkillCatalogItem {

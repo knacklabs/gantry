@@ -1,13 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { RuntimeAgentSessionRepository } from '@core/domain/repositories/ops-repo.js';
-import type { SkillArtifactStore } from '@core/domain/ports/skill-artifact-store.js';
-import type { SkillCatalogRepository } from '@core/domain/ports/repositories.js';
 import { createGroupAgentRunner } from '@core/runtime/group-agent-runner.js';
 import { currentLogContext } from '@core/infrastructure/logging/logger.js';
 import { buildProviderSessionAccessFingerprint } from '@core/runtime/provider-session-access-fingerprint.js';
 import { stableSha256Json } from '@core/shared/stable-hash.js';
 import {
-  buildApprovedSkillContextBlock,
+  buildApprovedSkillContextBlockFromSkills,
   createRuntimeResultSummaryAccumulator,
   completeSuccessfulRuntimeSessionRun,
   completeFailedRuntimeSessionRun,
@@ -565,65 +563,30 @@ describe('session-resume-runtime', () => {
     expect(runAgent).not.toHaveBeenCalled();
   });
 
-  it('renders installed skill metadata without reading full skill artifacts', async () => {
-    const skillRepository = {
-      listEnabledSkillsForAgent: vi.fn(async () => [
-        {
-          id: 'skill:release-writer',
-          appId: 'app-one',
-          agentId: 'agent-one',
-          name: 'release-writer',
-          description: 'Use for drafting release notes.',
-          source: 'admin_uploaded',
-          status: 'installed',
-          promptRefs: [],
-          toolIds: [],
-          workflowRefs: [],
-          storage: {
-            storageType: 'local-filesystem',
-            storageRef: 'skills/release-writer',
-            contentHash: 'sha256-frontmatter-revision',
-            sizeBytes: 1024,
-          },
-          createdAt: new Date(0).toISOString(),
-          updatedAt: new Date(0).toISOString(),
-        },
-      ]),
-    } as unknown as SkillCatalogRepository;
-    const skillArtifactStore = {
-      getSkillArtifact: vi.fn(async () => ({
-        assets: [
-          {
-            path: 'SKILL.md',
-            content: Buffer.from(
-              [
-                '---',
-                'name: release-writer',
-                'description: Use for drafting release notes.',
-                '---',
-                '# Release Writer',
-                'FULL BODY INSTRUCTIONS MUST NOT BE INJECTED',
-              ].join('\n'),
-            ),
-          },
-        ],
-      })),
-    } as unknown as SkillArtifactStore;
-
-    const block = await buildApprovedSkillContextBlock({
-      skillRepository,
-      skillArtifactStore,
-      turnContext: {
+  it('renders installed skill metadata without full skill artifacts', () => {
+    const block = buildApprovedSkillContextBlockFromSkills([
+      {
+        id: 'skill:release-writer',
         appId: 'app-one',
         agentId: 'agent-one',
+        name: 'release-writer',
+        description: 'Use for drafting release notes.',
+        source: 'admin_uploaded',
+        status: 'installed',
+        promptRefs: [],
+        toolIds: [],
+        workflowRefs: [],
+        storage: {
+          storageType: 'local-filesystem',
+          storageRef: 'skills/release-writer',
+          contentHash: 'sha256-frontmatter-revision',
+          sizeBytes: 1024,
+        },
+        createdAt: new Date(0).toISOString(),
+        updatedAt: new Date(0).toISOString(),
       },
-    });
+    ]);
 
-    expect(skillRepository.listEnabledSkillsForAgent).toHaveBeenCalledWith({
-      appId: 'app-one',
-      agentId: 'agent-one',
-    });
-    expect(skillArtifactStore.getSkillArtifact).not.toHaveBeenCalled();
     expect(block).toContain('[[INSTALLED_SKILLS_AVAILABLE_THIS_SESSION]]');
     expect(block).toContain('release-writer (skill:release-writer)');
     expect(block).toContain('description: Use for drafting release notes.');

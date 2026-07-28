@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { CapabilitySecretService } from '@core/application/capability-secrets/capability-secret-service.js';
+import { resolveMcpCredentialEnvForAgent } from '@core/application/capability-secrets/mcp-secret-projection.js';
 import { resolveSelectedSkillEnvForAgent } from '@core/application/capability-secrets/skill-secret-projection.js';
 import type {
   CapabilitySecret,
@@ -191,5 +192,70 @@ describe('CapabilitySecretService', () => {
     ).resolves.toEqual({
       env: {},
     });
+  });
+
+  it('fails closed when snapshot MCP credentials belong to another app', async () => {
+    const repository = new InMemoryCapabilitySecretRepository();
+
+    await expect(
+      resolveMcpCredentialEnvForAgent({
+        appId: 'default' as never,
+        agentId: 'agent:test' as never,
+        mcpServers: {} as never,
+        secrets: repository,
+        accessSnapshot: {
+          appId: 'default',
+          agentId: 'agent:test',
+          tools: { activeBindings: [], appActiveDefinitions: [] },
+          skills: { activeBindings: [], enabledDefinitions: [] },
+          mcp: {
+            activeBindings: [],
+            materializedServers: [
+              {
+                definition: {
+                  id: 'mcp:github',
+                  appId: 'app:other',
+                  name: 'github',
+                  status: 'active',
+                  transport: 'http',
+                  config: {
+                    transport: 'http',
+                    url: 'https://mcp.example.test/github',
+                  },
+                  allowedToolPatterns: [],
+                  autoApproveToolPatterns: [],
+                  credentialRefs: [
+                    {
+                      name: 'GITHUB_TOKEN',
+                      target: 'env',
+                      key: 'GITHUB_TOKEN',
+                    },
+                  ],
+                  networkHosts: [],
+                  createdSource: 'admin',
+                  riskClass: 'medium',
+                  createdAt: '2026-06-02T00:00:00.000Z',
+                  updatedAt: '2026-06-02T00:00:00.000Z',
+                },
+                binding: {
+                  id: 'binding:github',
+                  appId: 'default',
+                  agentId: 'agent:test',
+                  serverId: 'mcp:github',
+                  status: 'active',
+                  required: false,
+                  permissionPolicyIds: [],
+                  allowedToolPatterns: [],
+                  createdAt: '2026-06-02T00:00:00.000Z',
+                  updatedAt: '2026-06-02T00:00:00.000Z',
+                },
+              },
+            ],
+          },
+        },
+      }),
+    ).rejects.toThrow(
+      'MCP credential projection MCP materialized snapshot row owner mismatch.',
+    );
   });
 });

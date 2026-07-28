@@ -193,6 +193,7 @@ export class DeepAgentsLangChainExecutionAdapter implements AgentExecutionAdapte
       skillRepository: input.options?.skillRepository,
       skillArtifactStore: input.options?.skillArtifactStore,
       skillContext: input.options?.skillContext,
+      accessSnapshot: input.options?.accessSnapshot,
     });
     if (deepAgentSkills) {
       runnerInputPatch.deepAgentSkills = deepAgentSkills;

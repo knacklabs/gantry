@@ -1,13 +1,15 @@
 import type { GroupProcessingDeps } from './group-processing-types.js';
 import {
-  resolveTurnPromptCapabilityCatalog,
-  resolveTurnSemanticCapabilities,
-  resolveTurnSelectedMcpServerIds,
-  resolveTurnSelectedSkillContext,
-  resolveTurnToolPolicy,
+  loadAgentAccessSnapshot,
+  resolveTurnPromptCapabilityCatalogFromSnapshot,
+  resolveTurnSemanticCapabilitiesFromSnapshot,
+  resolveTurnSelectedMcpServerIdsFromSnapshot,
+  resolveTurnSelectedSkillContextFromSnapshot,
+  resolveTurnToolPolicyFromSnapshot,
 } from './group-run-context.js';
 import { resolveSpawnPromptAccessPreset } from './agent-spawn-prompt.js';
 import { buildProviderSessionAccessFingerprint } from './provider-session-access-fingerprint.js';
+import { buildApprovedSkillContextBlockFromSkills } from './session-resume-runtime.js';
 
 export async function resolveGroupAgentAccessContext(input: {
   deps: GroupProcessingDeps;
@@ -15,24 +17,34 @@ export async function resolveGroupAgentAccessContext(input: {
   catalogScope: { appId: string; agentId: string };
   agentFolder: string;
 }) {
-  // Preserve the original resolution order exactly: the initial three resolve
-  // together, then MCP server ids after (this extraction must be
-  // behavior-preserving, not a parallelization change).
-  const [configuredToolPolicy, selectedSkillContext, semanticCapabilities] =
-    await Promise.all([
-      resolveTurnToolPolicy(input.deps, input.turnContext),
-      resolveTurnSelectedSkillContext(input.deps, input.turnContext),
-      resolveTurnSemanticCapabilities(input.deps, input.turnContext),
-    ]);
-  const attachedMcpSourceIds = await resolveTurnSelectedMcpServerIds(
+  const accessSnapshot = await loadAgentAccessSnapshot(
     input.deps,
     input.turnContext,
   );
-  const capabilityCatalog = await resolveTurnPromptCapabilityCatalog(
-    input.deps,
-    input.catalogScope,
-    configuredToolPolicy.semanticCapabilities,
-  );
+  const catalogSnapshot =
+    accessSnapshot ??
+    (await loadAgentAccessSnapshot(input.deps, input.catalogScope));
+  if (!catalogSnapshot) {
+    throw new Error('Agent access catalog scope is required.');
+  }
+  const configuredToolPolicy =
+    resolveTurnToolPolicyFromSnapshot(accessSnapshot);
+  const selectedSkillContext =
+    resolveTurnSelectedSkillContextFromSnapshot(accessSnapshot);
+  const semanticCapabilities =
+    resolveTurnSemanticCapabilitiesFromSnapshot(accessSnapshot);
+  const attachedMcpSourceIds =
+    resolveTurnSelectedMcpServerIdsFromSnapshot(accessSnapshot);
+  const capabilityCatalog =
+    await resolveTurnPromptCapabilityCatalogFromSnapshot(
+      catalogSnapshot,
+      configuredToolPolicy.semanticCapabilities,
+    );
+  const approvedSkillContextBlock = accessSnapshot
+    ? buildApprovedSkillContextBlockFromSkills(
+        accessSnapshot.skills.enabledDefinitions,
+      )
+    : '';
   const lockStatus = input.deps.getAgentLockStatus?.(input.agentFolder);
   const accessPreset = resolveSpawnPromptAccessPreset(
     lockStatus === 'locked' || lockStatus === 'unknown' ? 'locked' : 'full',
@@ -53,6 +65,8 @@ export async function resolveGroupAgentAccessContext(input: {
     semanticCapabilities,
     attachedMcpSourceIds,
     capabilityCatalog,
+    approvedSkillContextBlock,
+    accessSnapshot,
     currentAccessFingerprint,
   };
 }

@@ -16,6 +16,7 @@ import {
   DEFAULT_LLM_PROFILE_ID,
   DEFAULT_PERMISSION_POLICY_ID,
 } from '@core/adapters/storage/postgres/seeds.js';
+import { measurePostgresOperations } from '../harness/response-latency-postgres.js';
 import type { AgentId } from '@core/domain/agent/agent.js';
 import type { AppId } from '@core/domain/app/app.js';
 import type {
@@ -827,6 +828,369 @@ maybeDescribe('Postgres domain repositories', () => {
         }),
       ]),
     );
+  });
+
+  it('loads materialized agent access snapshot surfaces with one query each', async () => {
+    const updatedAt = '2026-07-27T22:45:00.000Z';
+    const selectedToolId = 'tool:lat2-selected-error' as never;
+    const activeInventoryToolId = 'tool:lat2-app-active' as never;
+    const selectedSkillId = 'skill:lat2-selected' as never;
+    const staleSkillId = 'skill:lat2-stale' as never;
+    const activeServerId = 'mcp:lat2-active' as never;
+    const inactiveServerId = 'mcp:lat2-inactive' as never;
+    const foreignAppId = 'app:lat2-foreign' as AppId;
+    const foreignToolId = 'tool:lat2-foreign' as never;
+    const foreignSkillId = 'skill:lat2-foreign' as never;
+    const foreignServerId = 'mcp:lat2-foreign' as never;
+
+    await repositories.apps.saveApp({
+      id: foreignAppId,
+      slug: 'lat2-foreign',
+      name: 'LAT2 Foreign',
+      status: 'active',
+      createdAt: updatedAt,
+      updatedAt,
+    });
+
+    await repositories.tools.saveTool({
+      id: selectedToolId,
+      appId,
+      name: 'capability:lat2.selected.error',
+      kind: 'host',
+      provider: 'test',
+      displayName: 'LAT2 selected error',
+      description: 'Selected definition keeps current catalog status.',
+      category: 'productivity',
+      inputSchema: {},
+      outputSchema: {},
+      risk: 'low',
+      selectable: true,
+      status: 'error',
+      adapterRef: 'test',
+      createdAt: updatedAt,
+      updatedAt,
+    });
+    await repositories.tools.saveTool({
+      id: foreignToolId,
+      appId: foreignAppId,
+      name: 'capability:lat2.foreign',
+      kind: 'host',
+      provider: 'test',
+      displayName: 'LAT2 foreign',
+      description: 'Foreign app definition must not join.',
+      category: 'productivity',
+      inputSchema: {},
+      outputSchema: {},
+      risk: 'low',
+      selectable: true,
+      status: 'active',
+      adapterRef: 'test',
+      createdAt: updatedAt,
+      updatedAt,
+    });
+    await repositories.tools.saveTool({
+      id: activeInventoryToolId,
+      appId,
+      name: 'capability:lat2.inventory.active',
+      kind: 'host',
+      provider: 'test',
+      displayName: 'LAT2 inventory active',
+      description: 'App-wide active inventory definition.',
+      category: 'productivity',
+      inputSchema: {},
+      outputSchema: {},
+      risk: 'low',
+      selectable: true,
+      status: 'active',
+      adapterRef: 'test',
+      createdAt: updatedAt,
+      updatedAt,
+    });
+    await repositories.skills.saveSkill({
+      id: foreignSkillId,
+      appId: foreignAppId,
+      name: 'lat2-foreign',
+      description: 'Foreign app skill must not join.',
+      source: 'admin_uploaded',
+      status: 'installed',
+      promptRefs: ['SKILL.md'],
+      toolIds: [],
+      workflowRefs: [],
+      requiredEnvVars: [],
+      actionPermissions: [],
+      createdAt: updatedAt,
+      updatedAt,
+    });
+    await repositories.skills.saveSkill({
+      id: selectedSkillId,
+      appId,
+      agentId,
+      name: 'lat2-selected',
+      description: 'Installed selected skill.',
+      source: 'admin_uploaded',
+      status: 'installed',
+      promptRefs: ['SKILL.md'],
+      toolIds: [],
+      workflowRefs: [],
+      requiredEnvVars: [],
+      actionPermissions: [],
+      createdAt: updatedAt,
+      updatedAt,
+    });
+    await repositories.mcpServers.saveServer({
+      id: foreignServerId,
+      appId: foreignAppId,
+      name: 'lat2foreign',
+      displayName: 'LAT2 Foreign',
+      description: 'Foreign app MCP source must not join or materialize.',
+      status: 'active',
+      createdSource: 'admin',
+      riskClass: 'medium',
+      transport: 'http',
+      config: {
+        transport: 'http',
+        url: 'https://lat2foreign.example.test/mcp',
+      },
+      allowedToolPatterns: ['read_*'],
+      autoApproveToolPatterns: [],
+      credentialRefs: [],
+      networkHosts: ['lat2foreign.example.test:443'],
+      createdAt: updatedAt,
+      updatedAt,
+    });
+    await repositories.skills.saveSkill({
+      id: staleSkillId,
+      appId,
+      agentId,
+      name: 'lat2-stale',
+      description: 'Disabled selected skill.',
+      source: 'admin_uploaded',
+      status: 'disabled',
+      promptRefs: ['SKILL.md'],
+      toolIds: [],
+      workflowRefs: [],
+      requiredEnvVars: [],
+      actionPermissions: [],
+      createdAt: updatedAt,
+      updatedAt,
+    });
+    await repositories.mcpServers.saveServer({
+      id: activeServerId,
+      appId,
+      name: 'lat2active',
+      displayName: 'LAT2 Active',
+      description: 'Active materialized source.',
+      status: 'active',
+      createdSource: 'admin',
+      riskClass: 'medium',
+      transport: 'http',
+      config: { transport: 'http', url: 'https://lat2.example.test/mcp' },
+      allowedToolPatterns: ['read_*'],
+      autoApproveToolPatterns: [],
+      credentialRefs: [],
+      networkHosts: ['lat2.example.test:443'],
+      createdAt: updatedAt,
+      updatedAt,
+    });
+    await repositories.mcpServers.saveServer({
+      id: inactiveServerId,
+      appId,
+      name: 'lat2inactive',
+      displayName: 'LAT2 Inactive',
+      description: 'Inactive but same-app attached source.',
+      status: 'disabled',
+      createdSource: 'admin',
+      riskClass: 'medium',
+      transport: 'http',
+      config: {
+        transport: 'http',
+        url: 'https://lat2inactive.example.test/mcp',
+      },
+      allowedToolPatterns: ['read_*'],
+      autoApproveToolPatterns: [],
+      credentialRefs: [],
+      networkHosts: ['lat2inactive.example.test:443'],
+      createdAt: updatedAt,
+      updatedAt,
+    });
+    await repositories.agents.replaceAgentCapabilityBindings({
+      appId,
+      agentId,
+      toolBindings: [
+        {
+          id: `agent-tool-binding:${agentId}:${selectedToolId}` as never,
+          appId,
+          agentId,
+          toolId: selectedToolId,
+          status: 'active',
+          createdAt: updatedAt,
+          updatedAt,
+        },
+        {
+          id: `agent-tool-binding:${agentId}:${foreignToolId}` as never,
+          appId,
+          agentId,
+          toolId: foreignToolId,
+          status: 'active',
+          createdAt: updatedAt,
+          updatedAt,
+        },
+      ],
+      skillBindings: [
+        {
+          id: `agent-skill-binding:${agentId}:${selectedSkillId}` as never,
+          appId,
+          agentId,
+          skillId: selectedSkillId,
+          status: 'active',
+          createdAt: updatedAt,
+          updatedAt,
+        },
+        {
+          id: `agent-skill-binding:${agentId}:${staleSkillId}` as never,
+          appId,
+          agentId,
+          skillId: staleSkillId,
+          status: 'active',
+          createdAt: updatedAt,
+          updatedAt,
+        },
+        {
+          id: `agent-skill-binding:${agentId}:${foreignSkillId}` as never,
+          appId,
+          agentId,
+          skillId: foreignSkillId,
+          status: 'active',
+          createdAt: updatedAt,
+          updatedAt,
+        },
+      ],
+      mcpBindings: [
+        {
+          id: `agent-mcp-binding:${agentId}:${activeServerId}` as never,
+          appId,
+          agentId,
+          serverId: activeServerId,
+          status: 'active',
+          required: false,
+          permissionPolicyIds: [],
+          allowedToolPatterns: ['read_*'],
+          createdAt: updatedAt,
+          updatedAt,
+        },
+        {
+          id: `agent-mcp-binding:${agentId}:${inactiveServerId}` as never,
+          appId,
+          agentId,
+          serverId: inactiveServerId,
+          status: 'active',
+          required: false,
+          permissionPolicyIds: [],
+          allowedToolPatterns: ['read_*'],
+          createdAt: updatedAt,
+          updatedAt,
+        },
+        {
+          id: `agent-mcp-binding:${agentId}:${foreignServerId}` as never,
+          appId,
+          agentId,
+          serverId: foreignServerId,
+          status: 'active',
+          required: false,
+          permissionPolicyIds: [],
+          allowedToolPatterns: ['read_*'],
+          createdAt: updatedAt,
+          updatedAt,
+        },
+      ],
+      updatedAt,
+    });
+
+    let toolSnapshot:
+      | Awaited<
+          ReturnType<typeof repositories.tools.listAgentToolAccessSnapshot>
+        >
+      | undefined;
+    let skillSnapshot:
+      | Awaited<
+          ReturnType<typeof repositories.skills.listAgentSkillAccessSnapshot>
+        >
+      | undefined;
+    let mcpSnapshot:
+      | Awaited<
+          ReturnType<typeof repositories.mcpServers.listAgentMcpAccessSnapshot>
+        >
+      | undefined;
+    const measurement = await measurePostgresOperations(
+      service.pool,
+      async () => {
+        toolSnapshot = await repositories.tools.listAgentToolAccessSnapshot({
+          appId,
+          agentId,
+        });
+        skillSnapshot = await repositories.skills.listAgentSkillAccessSnapshot({
+          appId,
+          agentId,
+        });
+        mcpSnapshot = await repositories.mcpServers.listAgentMcpAccessSnapshot({
+          appId,
+          agentId,
+        });
+      },
+    );
+
+    expect(measurement.counts).toEqual({
+      postgres_statements: 3,
+      postgres_transactions: 0,
+    });
+    expect(toolSnapshot?.activeBindings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          binding: expect.objectContaining({ toolId: selectedToolId }),
+          definition: expect.objectContaining({
+            id: selectedToolId,
+            status: 'error',
+          }),
+        }),
+        expect.objectContaining({
+          binding: expect.objectContaining({ toolId: foreignToolId }),
+          definition: null,
+        }),
+      ]),
+    );
+    expect(toolSnapshot?.appActiveDefinitions.map((tool) => tool.id)).toContain(
+      activeInventoryToolId,
+    );
+    expect(
+      skillSnapshot?.activeBindings.map((row) => row.binding.skillId),
+    ).toEqual(
+      expect.arrayContaining([selectedSkillId, staleSkillId, foreignSkillId]),
+    );
+    expect(
+      skillSnapshot?.activeBindings.find(
+        (row) => row.binding.skillId === foreignSkillId,
+      )?.definition,
+    ).toBeNull();
+    expect(skillSnapshot?.enabledDefinitions.map((skill) => skill.id)).toEqual([
+      selectedSkillId,
+    ]);
+    expect(
+      mcpSnapshot?.activeBindings.map((row) => row.binding.serverId),
+    ).toEqual(
+      expect.arrayContaining([
+        activeServerId,
+        inactiveServerId,
+        foreignServerId,
+      ]),
+    );
+    expect(
+      mcpSnapshot?.activeBindings.find(
+        (row) => row.binding.serverId === foreignServerId,
+      )?.definition,
+    ).toBeNull();
+    expect(
+      mcpSnapshot?.materializedServers.map((row) => row.definition.id),
+    ).toEqual([activeServerId]);
   });
 
   it('inserts messages idempotently by provider redelivery key', async () => {

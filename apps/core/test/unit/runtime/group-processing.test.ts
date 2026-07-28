@@ -2188,6 +2188,63 @@ describe('createGroupProcessor', () => {
             updatedAt: new Date(0).toISOString(),
           },
         ]),
+        listAgentSkillAccessSnapshot: vi.fn(async () => ({
+          activeBindings: [
+            {
+              binding: {
+                id: 'binding:release-writer',
+                appId: 'app:test',
+                agentId: 'agent:test',
+                skillId: 'skill:release-writer',
+                status: 'active',
+                createdAt: new Date(0).toISOString(),
+                updatedAt: new Date(0).toISOString(),
+              },
+              definition: {
+                id: 'skill:release-writer',
+                appId: 'app:test',
+                agentId: 'agent:test',
+                name: 'release-writer',
+                description: 'Use for drafting release notes.',
+                source: 'admin_uploaded',
+                status: 'installed',
+                promptRefs: [],
+                toolIds: [],
+                workflowRefs: [],
+                storage: {
+                  storageType: 'local-filesystem',
+                  storageRef: 'skills/release-writer',
+                  contentHash: 'sha256-release-writer',
+                  sizeBytes: 1024,
+                },
+                createdAt: new Date(0).toISOString(),
+                updatedAt: new Date(0).toISOString(),
+              },
+            },
+          ],
+          enabledDefinitions: [
+            {
+              id: 'skill:release-writer',
+              appId: 'app:test',
+              agentId: 'agent:test',
+              name: 'release-writer',
+              description: 'Use for drafting release notes.',
+              source: 'admin_uploaded',
+              status: 'installed',
+              promptRefs: [],
+              toolIds: [],
+              workflowRefs: [],
+              storage: {
+                storageType: 'local-filesystem',
+                storageRef: 'skills/release-writer',
+                contentHash: 'sha256-release-writer',
+                sizeBytes: 1024,
+              },
+              createdAt: new Date(0).toISOString(),
+              updatedAt: new Date(0).toISOString(),
+            },
+          ],
+        })),
         listEnabledSkillsForAgent: vi.fn(async () => [
           {
             id: 'skill:release-writer',
@@ -2251,10 +2308,13 @@ describe('createGroupProcessor', () => {
 
       const memoryContextBlock = mockSpawnAgent.mock.calls[0][1]
         .memoryContextBlock as string;
-      expect(skillRepository.listEnabledSkillsForAgent).toHaveBeenCalledWith({
-        appId: 'app:test',
-        agentId: 'agent:test',
-      });
+      expect(skillRepository.listAgentSkillAccessSnapshot).toHaveBeenCalledWith(
+        {
+          appId: 'app:test',
+          agentId: 'agent:test',
+        },
+      );
+      expect(skillRepository.listEnabledSkillsForAgent).not.toHaveBeenCalled();
       expect(skillArtifactStore.getSkillArtifact).not.toHaveBeenCalled();
       expect(memoryContextBlock).toContain(
         '<gantry_memory_context>memory</gantry_memory_context>',

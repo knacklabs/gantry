@@ -5,6 +5,11 @@ import type { SkillCatalogRepository } from '../../domain/ports/repositories.js'
 import type { SkillCatalogItem } from '../../domain/skills/skills.js';
 import { isSkillMaterializableLocally } from '../../domain/skills/skills.js';
 import {
+  type AgentAccessSnapshot,
+  assertHostAccessSnapshot,
+} from '../agent-execution/agent-access-snapshot.js';
+
+import {
   formatSkillMaterializationCollision,
   skillMaterializationCollisions,
 } from '../../domain/skills/skill-identity.js';
@@ -41,6 +46,7 @@ export async function resolveSelectedSkillProjection(input: {
   skillRepository?: SkillCatalogRepository;
   skillArtifactStore?: SkillArtifactStore;
   skillContext?: { appId: string; agentId: string };
+  accessSnapshot?: AgentAccessSnapshot;
 }): Promise<SelectedSkillProjection | undefined> {
   const selectedSkillIds = uniqueStrings(input.selectedSkillIds ?? []);
   if (selectedSkillIds.length === 0) return undefined;
@@ -54,10 +60,18 @@ export async function resolveSelectedSkillProjection(input: {
     );
   }
 
-  const enabledSkills = await input.skillRepository.listEnabledSkillsForAgent({
-    appId: input.skillContext.appId as AppId,
-    agentId: input.skillContext.agentId as AgentId,
+  const accessSnapshot = assertHostAccessSnapshot({
+    accessSnapshot: input.accessSnapshot,
+    appId: input.skillContext.appId,
+    agentId: input.skillContext.agentId,
+    subject: 'Selected skill projection',
   });
+  const enabledSkills =
+    accessSnapshot?.skills.enabledDefinitions ??
+    (await input.skillRepository.listEnabledSkillsForAgent({
+      appId: input.skillContext.appId as AppId,
+      agentId: input.skillContext.agentId as AgentId,
+    }));
   const enabledById = new Map(
     enabledSkills.map((skill) => [String(skill.id), skill]),
   );

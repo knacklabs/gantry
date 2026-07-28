@@ -114,6 +114,7 @@ export async function executeResolvedDelegation(input: {
           skillRepository: context.deps.getSkillRepository?.(),
           skillArtifactStore: context.deps.getSkillArtifactStore?.(),
           skillContext: target.targetOwner,
+          accessSnapshot: target.accessSnapshot,
           mcpServerRepository: context.deps.getMcpServerRepository?.(),
           capabilitySecretRepository:
             context.deps.getCapabilitySecretRepository?.(),

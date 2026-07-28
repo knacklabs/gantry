@@ -549,6 +549,18 @@ class SpawnMcpRepository implements McpServerRepository {
     return [];
   }
 
+  async listAgentMcpAccessSnapshot(input: { appId: AppId; agentId: AgentId }) {
+    const materializedServers =
+      await this.listMaterializedServersForAgent(input);
+    return {
+      activeBindings: materializedServers.map((record) => ({
+        binding: record.binding,
+        definition: record.definition,
+      })),
+      materializedServers,
+    };
+  }
+
   async listMaterializedServersForAgent(input: {
     appId: AppId;
     agentId: AgentId;
@@ -603,11 +615,14 @@ class SpawnCapabilitySecretRepository implements CapabilitySecretRepository {
 }
 
 class SpawnSkillRepository {
+  listEnabledSkillsCalls = 0;
+
   constructor(
     private readonly requiredEnvVars: string[] = ['LINKEDIN_ACCESS_TOKEN'],
   ) {}
 
   async listEnabledSkillsForAgent() {
+    this.listEnabledSkillsCalls += 1;
     return [
       {
         id: 'skill:linkedin-posting',
@@ -3117,18 +3132,19 @@ describe('agent-spawn timeout behavior', () => {
     },
   );
 
-  it('materializes reviewed third-party stdio MCP servers for Anthropic SDK runner config', async () => {
+  it('materializes reviewed third-party stdio MCP servers for Anthropic SDK runner config from snapshot rows', async () => {
     vi.mocked(fs.existsSync).mockReturnValue(true);
     const rmSyncSpy = vi
       .spyOn(fs, 'rmSync')
       .mockImplementation(() => undefined);
-    const repository = new SpawnMcpRepository([
+    const mcpRecords = [
       mcpRecord({
         allowedToolPatterns: ['issues.*', 'search_*'],
         autoApproveToolPatterns: [],
         bindingAllowedToolPatterns: ['issues.*'],
       }),
-    ]);
+    ];
+    const repository = new SpawnMcpRepository(mcpRecords);
     const resultPromise = spawnTestAgent(
       testGroup,
       {
@@ -3157,6 +3173,19 @@ describe('agent-spawn timeout behavior', () => {
           GITHUB_TOKEN: 'gantry-secret-token',
         }),
         mcpContext: { appId: 'app-one', agentId: 'agent-one' },
+        accessSnapshot: {
+          appId: 'app-one',
+          agentId: 'agent-one',
+          tools: { activeBindings: [], appActiveDefinitions: [] },
+          skills: { activeBindings: [], enabledDefinitions: [] },
+          mcp: {
+            activeBindings: mcpRecords.map((record) => ({
+              binding: record.binding,
+              definition: record.definition,
+            })),
+            materializedServers: mcpRecords,
+          },
+        },
       },
     );
 
@@ -3181,11 +3210,7 @@ describe('agent-spawn timeout behavior', () => {
     expect(env.GANTRY_MCP_ALWAYS_ALLOWED_TOOLS_JSON).toBe(
       env.GANTRY_MCP_ALLOWED_TOOLS_JSON,
     );
-    expect(
-      repository.materializedInputs.filter((input) =>
-        input.serverIds?.includes('mcp:github' as never),
-      ).length,
-    ).toBe(3);
+    expect(repository.materializedInputs).toEqual([]);
     const mcpConfigWrite = vi
       .mocked(fs.writeFileSync)
       .mock.calls.find(([target]) => String(target).includes('/mcp-'));
@@ -3367,6 +3392,14 @@ describe('agent-spawn timeout behavior', () => {
 
   it('filters authority and loader env from selected skill secrets', async () => {
     vi.mocked(fs.existsSync).mockReturnValue(true);
+    const skillRepository = new SpawnSkillRepository([
+      'LINKEDIN_ACCESS_TOKEN',
+      'PATH',
+      'NODE_OPTIONS',
+      'LD_PRELOAD',
+      'NODE_EXTRA_CA_CERTS',
+      'GANTRY_IPC_AUTH_TOKEN',
+    ]);
     const resultPromise = spawnTestAgent(
       testGroup,
       {
@@ -3383,14 +3416,7 @@ describe('agent-spawn timeout behavior', () => {
       () => {},
       undefined,
       {
-        skillRepository: new SpawnSkillRepository([
-          'LINKEDIN_ACCESS_TOKEN',
-          'PATH',
-          'NODE_OPTIONS',
-          'LD_PRELOAD',
-          'NODE_EXTRA_CA_CERTS',
-          'GANTRY_IPC_AUTH_TOKEN',
-        ]) as any,
+        skillRepository: skillRepository as any,
         capabilitySecretRepository: new SpawnCapabilitySecretRepository({
           LINKEDIN_ACCESS_TOKEN: 'linkedin-token',
           PATH: '/malicious/bin',
@@ -3400,6 +3426,31 @@ describe('agent-spawn timeout behavior', () => {
           GANTRY_IPC_AUTH_TOKEN: 'skill-token',
         }),
         skillContext: { appId: 'app-one', agentId: 'agent-one' },
+        accessSnapshot: {
+          appId: 'app-one',
+          agentId: 'agent-one',
+          tools: { activeBindings: [], appActiveDefinitions: [] },
+          skills: {
+            activeBindings: [],
+            enabledDefinitions: [
+              {
+                id: 'skill:linkedin-posting',
+                appId: 'app-one',
+                agentId: 'agent-one',
+                name: 'linkedin-posting',
+                source: 'admin_uploaded',
+                status: 'installed',
+                promptRefs: [],
+                toolIds: [],
+                workflowRefs: [],
+                createdBy: 'test',
+                createdAt: new Date(0).toISOString(),
+                updatedAt: new Date(0).toISOString(),
+              },
+            ],
+          },
+          mcp: { activeBindings: [], materializedServers: [] },
+        },
       },
     );
     await vi.advanceTimersByTimeAsync(10);
@@ -3412,6 +3463,7 @@ describe('agent-spawn timeout behavior', () => {
       string
     >;
     expect(env.LINKEDIN_ACCESS_TOKEN).toBe('linkedin-token');
+    expect(skillRepository.listEnabledSkillsCalls).toBe(0);
     expect(env.PATH).not.toBe('/malicious/bin');
     expect(env.NODE_OPTIONS).toBeUndefined();
     expect(env.LD_PRELOAD).toBeUndefined();
