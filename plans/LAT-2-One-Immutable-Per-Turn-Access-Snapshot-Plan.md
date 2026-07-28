@@ -129,6 +129,11 @@ Allowed production write scope:
 - `apps/core/src/jobs/capability-readiness.ts`
 - `apps/core/src/jobs/capability-eligibility.ts`
 - `apps/core/src/application/jobs/job-readiness-service.ts`
+- `apps/core/src/application/jobs/job-tool-policy.ts`
+- `apps/core/src/application/jobs/job-capability-requirements.ts`, only to move
+  the semantic capability catalog resolver out of
+  `job-readiness-service.ts` and preserve its existing architecture line budget
+  without changing an allowlist.
 - `apps/core/src/jobs/ipc-agent-delegation-target.ts`
 - `apps/core/src/jobs/ipc-delegated-agent-execution.ts`
 - `apps/core/src/jobs/ipc-agent-task-lifecycle-handlers.ts`
@@ -182,6 +187,9 @@ Allowed test write scope:
   does not issue a second tool, skill-binding, MCP-binding, or MCP
   materialization read before spawning the runner, and readiness cannot observe
   a newer access revision than the runner snapshot.
+- The final execution regression proves each canonical tool, skill, and MCP
+  snapshot loader runs exactly once and that legacy tool-policy, skill-binding,
+  MCP-binding, and MCP-materialization repository paths are not called again.
 - The tool access query returns active binding rows plus nullable selected tool
   definitions and all app-wide active tool definitions in one SQL statement. It
   app-filters both joined selected tool rows and app-wide definitions, preserves
@@ -198,7 +206,9 @@ Allowed test write scope:
   aggregate projections before definition/status filtering. With 501 bindings
   where the newest binding is disabled, the snapshot exposes 499 active rows
   from the bounded newest-500 window rather than reaching back to the oldest
-  binding or returning an unbounded set.
+  binding or returning an unbounded set. The same regression pins
+  `activeBindings` in descending binding-created order and
+  `materializedServers` in server-name order.
 - Snapshot-derived outputs are value-equivalent to current outputs for:
   `toolPolicyRules`, `runtimeAccess`, semantic capabilities, selected skill ids,
   selected skill displays, approved skill context block, attached MCP source ids,
@@ -303,12 +313,16 @@ Implementation outline:
    call. Reuse its tool policy, selected active skill bindings for fleet
    capability requirements, and materialized MCP rows while retaining live
    checks for credentials, browser state, runtime dependencies, and active
-   worker inventory. Repository-backed readiness callers that do not already
-   own a snapshot keep their existing behavior.
+   worker inventory. The execution regression must assert the three canonical
+   snapshot loaders each run once and all legacy tool, skill-binding,
+   MCP-binding, and MCP-materialization readers remain unused after that load.
+   Repository-backed readiness callers that do not already own a snapshot keep
+   their existing behavior.
 10. Apply the historical newest-500 MCP binding window inside the one-statement
     snapshot query before both active-binding and materialized-server
     projections filter rows. Add a 501-binding Postgres regression with the
-    newest binding disabled.
+    newest binding disabled; assert descending binding-created order for
+    `activeBindings` and server-name order for `materializedServers`.
 11. When only `catalogScope` is available, load one scoped snapshot solely for
     capability-catalog inventory instead of projecting a synthetic empty
     catalog. Preserve empty turn-owned policy, selection, MCP attachment, and
@@ -494,6 +508,11 @@ Stage `LAT-2-AUTOREVIEW-FIXES`
   - `apps/core/src/jobs/execution.ts`
   - `apps/core/src/jobs/execution-readiness.ts`
   - `apps/core/src/application/jobs/job-readiness-service.ts`
+  - `apps/core/src/application/jobs/job-tool-policy.ts`
+  - `apps/core/src/application/jobs/job-capability-requirements.ts`, limited to
+    moving the semantic capability catalog resolver so
+    `job-readiness-service.ts` remains within its existing line budget without
+    an architecture allowlist change
   - `apps/core/src/jobs/capability-readiness.ts`
   - `apps/core/src/jobs/capability-eligibility.ts`
   - `apps/core/src/adapters/storage/postgres/repositories/mcp-server-repository.postgres.ts`
@@ -510,10 +529,14 @@ Stage `LAT-2-AUTOREVIEW-FIXES`
   - Final job readiness consumes the same snapshot-derived tool policy, selected
     skill bindings, and materialized MCP rows passed to the runner, while
     non-access readiness remains live.
-  - A focused job regression proves no duplicate tool, skill-binding,
-    MCP-binding, or MCP-materialization read occurs after snapshot load.
+  - A focused final execution regression proves each canonical tool, skill, and
+    MCP snapshot loader runs exactly once and no legacy tool-policy,
+    skill-binding, MCP-binding, or MCP-materialization read occurs after
+    snapshot load.
   - A 501-binding Postgres regression proves the newest-500 boundary is applied
-    before filtering to both MCP snapshot aggregates.
+    before filtering to both MCP snapshot aggregates, preserves
+    `activeBindings` descending binding-created order, and preserves
+    `materializedServers` server-name order.
   - A catalog-only regression proves missing `turnContext` still projects
     installed skills and connected MCP sources for `catalogScope` without
     populating turn-owned access fields.
@@ -558,6 +581,10 @@ Stage `LAT-2-AUTOREVIEW-FIXES`
   turn-owned access fields that were previously empty. Mitigation: use the
   fallback snapshot only for capability-catalog inventory and pin the other
   fields in a focused unit test.
+- Moving the semantic catalog resolver solely to satisfy the existing
+  `job-readiness-service.ts` line budget could become an unrelated refactor.
+  Mitigation: keep the move in `job-capability-requirements.ts`, preserve the
+  function contract byte-for-byte, and do not change architecture allowlists.
 
 ## Verify Plan
 
