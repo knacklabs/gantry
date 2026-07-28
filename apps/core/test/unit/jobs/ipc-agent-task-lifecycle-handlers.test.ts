@@ -7,10 +7,14 @@ import { PassThrough } from 'node:stream';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type {
+  AsyncTaskBacklogAdmissionInput,
+  AsyncTaskClaimInput,
   AsyncTaskCreateInput,
   AsyncTaskListFilter,
   AsyncTaskRecord,
   AsyncTaskRepository,
+  AsyncTaskScopedAdmissionInput,
+  AsyncTaskScopedAdmissionResult,
   AsyncTaskStatusCount,
   AsyncTaskTransitionInput,
 } from '@core/domain/ports/async-tasks.js';
@@ -90,6 +94,66 @@ class MemoryAsyncTaskRepository implements AsyncTaskRepository {
     };
     this.tasks.set(task.id, task);
     return task;
+  }
+
+  async createTaskWithBacklogAdmission(
+    input: AsyncTaskBacklogAdmissionInput,
+  ): Promise<AsyncTaskRecord | null> {
+    const backlog = [...this.tasks.values()].filter(
+      (task) =>
+        task.appId === input.task.appId &&
+        task.kind === input.task.kind &&
+        input.statuses.includes(task.status),
+    );
+    if (
+      backlog.length >= input.maxBacklogPerApp ||
+      backlog.filter((task) => task.agentId === input.task.agentId).length >=
+        input.maxBacklogPerAgent
+    ) {
+      return null;
+    }
+    return this.createTask(input.task);
+  }
+
+  async createTaskWithScopedAdmission(
+    input: AsyncTaskScopedAdmissionInput,
+  ): Promise<AsyncTaskScopedAdmissionResult> {
+    return {
+      task: await this.createTask(input.task),
+      admitted: true,
+      staleTasks: [],
+    };
+  }
+
+  async claimQueuedTask(
+    input: AsyncTaskClaimInput,
+  ): Promise<AsyncTaskRecord | null> {
+    const current = this.tasks.get(input.taskId);
+    if (!current || current.status !== 'queued') return null;
+    const running = [...this.tasks.values()].filter(
+      (task) =>
+        task.appId === current.appId &&
+        task.kind === current.kind &&
+        task.status === 'running',
+    );
+    if (
+      running.length >= input.maxRunningPerApp ||
+      running.filter((task) => task.agentId === current.agentId).length >=
+        input.maxRunningPerAgent
+    ) {
+      return null;
+    }
+    const claimed: AsyncTaskRecord = {
+      ...current,
+      status: 'running',
+      leaseToken: input.leaseToken,
+      fencingVersion: current.fencingVersion + 1,
+      heartbeatAt: input.now,
+      startedAt: input.now,
+      updatedAt: input.now,
+    };
+    this.tasks.set(claimed.id, claimed);
+    return claimed;
   }
 
   async getTask(taskId: string): Promise<AsyncTaskRecord | null> {

@@ -439,15 +439,14 @@ async function drainAsyncMcpTasks(repository: AsyncTaskRepository) {
       ) {
         continue;
       }
-      const claimed =
-        (await repository.claimQueuedTask?.({
-          taskId: execution.task.id,
-          leaseToken: randomUUID(),
-          now: nowIso(),
-          maxRunningPerApp: MAX_ACTIVE_ASYNC_MCP_PER_APP,
-          maxRunningPerAgent: MAX_ACTIVE_ASYNC_MCP_PER_AGENT,
-        })) ?? execution.task;
-      if (claimed.status !== 'running' && repository.claimQueuedTask) continue;
+      const claimed = await repository.claimQueuedTask({
+        taskId: execution.task.id,
+        leaseToken: randomUUID(),
+        now: nowIso(),
+        maxRunningPerApp: MAX_ACTIVE_ASYNC_MCP_PER_APP,
+        maxRunningPerAgent: MAX_ACTIVE_ASYNC_MCP_PER_AGENT,
+      });
+      if (!claimed) continue;
       pendingAsyncMcpExecutions.delete(execution.task.id);
       void executeAsyncMcpTask({ ...execution, task: claimed });
     }
