@@ -109,13 +109,17 @@ Allowed production write scope:
 - `apps/core/src/runtime/agent-spawn-types.ts`
 - `apps/core/src/runtime/session-resume-runtime.ts`
 - `apps/core/src/runtime/agent-spawn.ts`
+- `apps/core/src/runtime/agent-spawn-mcp-source-records.ts`
 - `apps/core/src/runtime/agent-spawn-selected-skill-env.ts`
 - `apps/core/src/runtime/agent-inline.ts`
 - `apps/core/src/app/bootstrap/inline-agent-loop-tools.ts`
+- `apps/core/src/app/bootstrap/inline-agent-task-lifecycle.ts`
 - `apps/core/src/app/bootstrap/runtime-services-async-task-recovery.ts`
 - `apps/core/src/jobs/execution.ts`
 - `apps/core/src/jobs/ipc-agent-delegation-target.ts`
+- `apps/core/src/jobs/ipc-delegated-agent-execution.ts`
 - `apps/core/src/jobs/ipc-agent-task-lifecycle-handlers.ts`
+- `apps/core/src/application/agent-execution/agent-access-snapshot.ts`
 - `apps/core/src/application/agent-execution/agent-execution-adapter.ts`
 - `apps/core/src/application/capability-secrets/skill-secret-projection.ts`
 - `apps/core/src/application/capability-secrets/mcp-secret-projection.ts`
@@ -125,6 +129,7 @@ Allowed production write scope:
 - `apps/core/src/application/mcp/mcp-authorized-servers.ts`
 - `apps/core/src/application/mcp/mcp-server-service.ts`
 - `apps/core/src/application/skills/selected-skill-projection.ts`
+- `apps/core/src/adapters/llm/inline-lane-dispatcher.ts`
 - `apps/core/src/adapters/llm/anthropic-claude-agent/claude-skill-materializer.ts`
 - `apps/core/src/adapters/llm/anthropic-claude-agent/execution-adapter.ts`
 - `apps/core/src/adapters/llm/deepagents-langchain/execution-adapter.ts`
@@ -362,18 +367,23 @@ Stage `LAT-2-WIRE-RUNTIME-CONSUMERS`
   - `apps/core/src/runtime/group-agent-runner.ts`
   - `apps/core/src/runtime/agent-spawn-types.ts`
   - `apps/core/src/runtime/agent-spawn.ts`
+  - `apps/core/src/runtime/agent-spawn-mcp-source-records.ts`
   - `apps/core/src/runtime/agent-spawn-selected-skill-env.ts`
   - `apps/core/src/runtime/agent-inline.ts`
   - `apps/core/src/app/bootstrap/inline-agent-loop-tools.ts`
+  - `apps/core/src/app/bootstrap/inline-agent-task-lifecycle.ts`
   - `apps/core/src/app/bootstrap/runtime-services-async-task-recovery.ts`
   - `apps/core/src/jobs/execution.ts`
   - `apps/core/src/jobs/ipc-agent-delegation-target.ts`
+  - `apps/core/src/jobs/ipc-delegated-agent-execution.ts`
   - `apps/core/src/jobs/ipc-agent-task-lifecycle-handlers.ts`
+  - `apps/core/src/application/agent-execution/agent-access-snapshot.ts`
   - `apps/core/src/application/agent-execution/agent-execution-adapter.ts`
   - `apps/core/src/application/skills/selected-skill-projection.ts`
   - `apps/core/src/application/capability-secrets/skill-secret-projection.ts`
   - `apps/core/src/application/capability-secrets/mcp-secret-projection.ts`
   - `apps/core/src/application/mcp/mcp-server-service.ts`
+  - `apps/core/src/adapters/llm/inline-lane-dispatcher.ts`
   - `apps/core/src/adapters/llm/anthropic-claude-agent/claude-skill-materializer.ts`
   - `apps/core/src/adapters/llm/anthropic-claude-agent/execution-adapter.ts`
   - `apps/core/src/adapters/llm/deepagents-langchain/execution-adapter.ts`
@@ -383,10 +393,11 @@ Stage `LAT-2-WIRE-RUNTIME-CONSUMERS`
 - Dependencies:
   - `LAT-2-MATERIALIZED-TOOLS-AND-SNAPSHOT`
 - Acceptance criteria:
-  - Main turns, jobs, recovered async delegation, inline task lifecycle access,
-    scheduler task-message policy, Anthropic worker/inline, and DeepAgents
-    worker/inline all consume snapshot-derived skill and MCP rows where they
-    previously reloaded access.
+  - Main turns, jobs, recovered async delegation, IPC delegation target and
+    delegated-agent execution, inline task lifecycle access and delegated-agent
+    execution, scheduler task-message policy, Anthropic worker/inline, and
+    DeepAgents worker/inline all consume one snapshot-derived skill and MCP row
+    set where they previously reloaded access.
   - `task_message` policy in `ipc-agent-task-lifecycle-handlers.ts` uses
     snapshot-derived policy for the execution owner and has focused test
     coverage.
