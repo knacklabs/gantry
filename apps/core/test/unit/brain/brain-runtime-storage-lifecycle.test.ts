@@ -2,6 +2,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const release = vi.hoisted(() => vi.fn(async () => undefined));
 const loadRuntimeSettings = vi.hoisted(() => vi.fn());
+const createEmbeddingProvider = vi.hoisted(() =>
+  vi.fn(() => ({
+    isEnabled: () => true,
+    validateConfiguration: () => undefined,
+    embedMany: vi.fn(),
+    embedOne: vi.fn(),
+  })),
+);
 const acquireRuntimeStorageForRuntimeHome = vi.hoisted(() =>
   vi.fn(async () => ({
     storage: {
@@ -22,6 +30,10 @@ vi.mock('@core/adapters/storage/postgres/runtime-store.js', () => ({
   getRuntimeStorage: vi.fn(),
 }));
 
+vi.mock('@core/memory/memory-embeddings.js', () => ({
+  createEmbeddingProvider,
+}));
+
 vi.mock('@core/config/settings/runtime-settings.js', async (importOriginal) => {
   const actual =
     await importOriginal<
@@ -38,6 +50,7 @@ import { createDefaultRuntimeSettings } from '@core/config/settings/runtime-sett
 
 beforeEach(() => {
   release.mockClear();
+  createEmbeddingProvider.mockClear();
   acquireRuntimeStorageForRuntimeHome.mockClear();
   loadRuntimeSettings.mockReset();
 });
@@ -96,5 +109,45 @@ describe('brain runtime storage lifecycle', () => {
 
     await expect(opened.close()).resolves.toBeUndefined();
     expect(release).toHaveBeenCalledOnce();
+  });
+
+  it('passes the requested runtime home broker config into brain embeddings', async () => {
+    const first = createDefaultRuntimeSettings();
+    first.memory.embeddings.enabled = true;
+    first.memory.embeddings.provider = 'openai';
+    first.credentialBroker.mode = 'none';
+    first.credentialBroker.gateway.bindHost = '127.0.0.1';
+    const second = createDefaultRuntimeSettings();
+    second.memory.embeddings.enabled = true;
+    second.memory.embeddings.provider = 'openai';
+    second.credentialBroker.mode = 'gantry';
+    second.credentialBroker.gateway.bindHost = '::1';
+    loadRuntimeSettings.mockReturnValueOnce(first).mockReturnValueOnce(second);
+
+    const openedFirst = await openBrainFromHome('/tmp/gantry-brain-home-a');
+    const openedSecond = await openBrainFromHome('/tmp/gantry-brain-home-b');
+    await openedFirst.close();
+    await openedSecond.close();
+
+    expect(createEmbeddingProvider).toHaveBeenNthCalledWith(
+      1,
+      'openai',
+      expect.objectContaining({
+        credentialBrokerConfig: {
+          mode: 'none',
+          gatewayBindHost: '127.0.0.1',
+        },
+      }),
+    );
+    expect(createEmbeddingProvider).toHaveBeenNthCalledWith(
+      2,
+      'openai',
+      expect.objectContaining({
+        credentialBrokerConfig: {
+          mode: 'gantry',
+          gatewayBindHost: '::1',
+        },
+      }),
+    );
   });
 });

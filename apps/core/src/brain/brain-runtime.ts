@@ -212,6 +212,10 @@ export async function openBrainFromHome(
   runtimeHome: string,
 ): Promise<OpenedBrain> {
   const settings = loadRuntimeSettings(runtimeHome);
+  const credentialBrokerConfig = {
+    mode: settings.credentialBroker.mode,
+    gatewayBindHost: settings.credentialBroker.gateway.bindHost,
+  };
   const { acquireRuntimeStorageForRuntimeHome } =
     await import('../adapters/storage/postgres/runtime-store.js');
   const storageLease = await acquireRuntimeStorageForRuntimeHome(
@@ -235,6 +239,7 @@ export async function openBrainFromHome(
                 model: embeddings.model,
                 dimensions: embeddings.dimensions,
                 appId: DEFAULT_MEMORY_APP_ID as AppId,
+                credentialBrokerConfig,
               }),
             },
           })

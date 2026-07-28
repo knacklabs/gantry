@@ -720,7 +720,7 @@ pinned `grok-4.3` alias remains available. Terra, Luna, Sol, and Grok 4.5 are
 available for chat and jobs. Displayed token prices are base rates and do not
 include long-context multipliers, cache-write rates, or provider server-tool
 fees. See
-[Credential Management](../architecture/credential-management.md#gpt-56-and-grok-45-aliases)
+[Credential Management](../architecture/credential-management.md#gpt-56-grok-45-and-claude-opus-5-aliases)
 for credential commands, official prices, thresholds, and source links.
 
 Use `client.models.defaults.get()` to inspect configured and effective chat,

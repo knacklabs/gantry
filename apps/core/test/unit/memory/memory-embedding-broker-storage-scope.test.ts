@@ -150,4 +150,23 @@ describe('memory embedding broker storage scope', () => {
       'Failed to close replaced embedding credential broker',
     );
   });
+
+  it('uses an explicit broker config instead of the process-global runtime home config', async () => {
+    const { createEmbeddingProvider } =
+      await import('@core/memory/memory-embeddings.js');
+
+    await expect(
+      createEmbeddingProvider('openai', {
+        model: 'text-embedding-3-small',
+        dimensions: 1536,
+        appId: 'default' as never,
+        credentialBrokerConfig: {
+          mode: 'none',
+          gatewayBindHost: '127.0.0.1',
+        },
+      }).validateReady?.(),
+    ).rejects.toThrow('Gantry Model Access is required for memory embeddings');
+
+    expect(createAgentCredentialBroker).not.toHaveBeenCalled();
+  });
 });

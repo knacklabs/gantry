@@ -100,6 +100,7 @@ interface EmbeddingProviderOptions {
   model?: string;
   dimensions?: number;
   appId?: AppId;
+  credentialBrokerConfig?: ReturnType<typeof getCredentialBrokerRuntimeConfig>;
 }
 
 const embeddingProviderFactories = new Map<
@@ -365,8 +366,9 @@ export class OpenAIEmbeddingClient implements EmbeddingProvider {
   }
 }
 
-function validateBrokeredEmbeddingConfiguration(): void {
-  const brokerConfig = getCredentialBrokerRuntimeConfig();
+function validateBrokeredEmbeddingConfiguration(
+  brokerConfig = getCredentialBrokerRuntimeConfig(),
+): void {
   if (brokerConfig.mode === 'gantry') return;
   throw new Error('Gantry Model Access is required for memory embeddings');
 }
@@ -383,6 +385,7 @@ function validateEmbeddingProviderDefinition(providerId: string): void {
 async function resolveBrokeredEmbeddingConnection(
   providerId: string,
   appId: AppId | undefined,
+  brokerConfig = getCredentialBrokerRuntimeConfig(),
 ) {
   validateEmbeddingProviderDefinition(providerId);
   if (!appId) {
@@ -390,7 +393,6 @@ async function resolveBrokeredEmbeddingConnection(
       'Memory embeddings require an app-scoped credential binding.',
     );
   }
-  const brokerConfig = getCredentialBrokerRuntimeConfig();
   if (brokerConfig.mode !== 'gantry') return null;
   const configKey = `${brokerConfig.mode}:${brokerConfig.gatewayBindHost}`;
   const storage = getRuntimeStorage();
@@ -556,11 +558,18 @@ for (const provider of listEmbeddingModelProviders()) {
         null,
         options?.model || MEMORY_EMBED_MODEL,
         () => {
-          validateBrokeredEmbeddingConfiguration();
+          validateBrokeredEmbeddingConfiguration(
+            options?.credentialBrokerConfig,
+          );
           validateEmbeddingProviderDefinition(provider.id);
         },
         DEFAULT_EMBEDDING_BASE_URL,
-        () => resolveBrokeredEmbeddingConnection(provider.id, options?.appId),
+        () =>
+          resolveBrokeredEmbeddingConnection(
+            provider.id,
+            options?.appId,
+            options?.credentialBrokerConfig,
+          ),
         options?.dimensions ?? MEMORY_EMBED_DIMENSIONS,
       ),
   );
@@ -577,7 +586,9 @@ if (
         null,
         options?.model || MEMORY_EMBED_MODEL,
         () => {
-          validateBrokeredEmbeddingConfiguration();
+          validateBrokeredEmbeddingConfiguration(
+            options?.credentialBrokerConfig,
+          );
           validateEmbeddingProviderDefinition(defaultEmbeddingProvider.id);
         },
         DEFAULT_EMBEDDING_BASE_URL,
@@ -585,6 +596,7 @@ if (
           resolveBrokeredEmbeddingConnection(
             defaultEmbeddingProvider.id,
             options?.appId,
+            options?.credentialBrokerConfig,
           ),
         options?.dimensions ?? MEMORY_EMBED_DIMENSIONS,
       ),
