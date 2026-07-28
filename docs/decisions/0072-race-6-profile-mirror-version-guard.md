@@ -35,20 +35,30 @@ logic can reason from state that disagrees with the store.
    `ProfileMirrorInput` into `writeProfileFileMirror`. The mirror stops being a
    content-only side effect and becomes a versioned projection.
 
-2. **Refuse out-of-order mirror writes, using state colocated with the target.**
-   The mirrored version is recorded in a small sidecar next to the mirror file, and
-   `writeProfileFileMirror` **skips** a write whose version is older than the
-   sidecar's — last-*writer* no longer wins; highest-version wins. Writes are also
-   serialized per target path so two concurrent mirrors for the same file cannot
-   interleave between the read and the rename. A skipped stale write is a normal
-   outcome, not an error.
+2. **Refuse out-of-order mirror writes, using a version marker inside the mirrored
+   file itself.** The mirrored file carries a single inert trailing marker line
+   recording the artifact version it was written from. `writeProfileFileMirror`
+   reads that marker and **skips** a write whose version is older — last-*writer*
+   no longer wins; highest-version wins. Writes are serialized per target path so
+   two concurrent mirrors cannot interleave between the read and the rename. A
+   skipped stale write is a normal outcome, not an error.
 
-   *(Supersedes a process-global `Map` of last-mirrored versions. Review showed
-   that shape is unfixable: unbounded it leaks an entry per target for the process
-   lifetime, and bounding it with LRU eviction silently drops the guarantee — an
-   evicted target accepts an older version again, which is the very bug this
-   closes. Version state belongs **with the target**, not in a cache: nothing to
-   grow, nothing to evict, and the guard survives restarts.)*
+   The marker lives in the **same atomically renamed object as the content**, so
+   version and content can never disagree. Read rules: file missing ⇒ no recorded
+   version (proceed); file present without a marker ⇒ no recorded version (an
+   unversioned write legitimately clears the claim, because its content replaced
+   the marker); file present but **unreadable** ⇒ fail closed, abort this mirror
+   attempt (non-fatal to the caller) rather than silently disabling the guard.
+
+   *(Supersedes two earlier shapes review proved unsafe. A process-global `Map` is
+   unfixable — unbounded it leaks an entry per target for the process lifetime, and
+   bounding it with LRU eviction lets an evicted target accept an older version
+   again. A separate `.version` **sidecar** is also unsafe, because two files can
+   disagree: if the content rename succeeds and the sidecar write fails or the
+   process exits between them, a later older write reads a stale/absent marker and
+   overwrites newer content; mixing versioned and unversioned writes leaves the
+   marker describing content it no longer guards. Only a single atomic object
+   holds.)*
 
 3. **Scope: in-process ordering only — stated up front.** The mirror is a *local
    convenience projection*; the durable artifact store remains the single source of

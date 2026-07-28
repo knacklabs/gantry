@@ -20,17 +20,30 @@ export const PROFILE_MIRROR_HEADER =
 
 const mirrorWriteChainByTarget = new Map<string, Promise<void>>();
 
-async function readMirroredVersion(
-  sidecarPath: string,
+const PROFILE_MIRROR_MARKER_PATTERN =
+  /\r?\n<!-- gantry-profile-version: ([^\r\n]*) -->$/;
+
+function parseProfileMirrorVersion(content: string): number | undefined {
+  const match = PROFILE_MIRROR_MARKER_PATTERN.exec(content);
+  const raw = match?.[1];
+  if (raw === undefined || !/^(0|[1-9]\d*)$/.test(raw)) return undefined;
+  const version = Number(raw);
+  return Number.isSafeInteger(version) ? version : undefined;
+}
+
+async function readRecordedMirrorVersion(
+  targetPath: string,
 ): Promise<number | undefined> {
   try {
-    const raw = (await fsp.readFile(sidecarPath, 'utf-8')).trim();
-    if (!/^(0|[1-9]\d*)$/.test(raw)) return undefined;
-    const version = Number(raw);
-    return Number.isSafeInteger(version) ? version : undefined;
-  } catch {
-    return undefined;
+    return parseProfileMirrorVersion(await fsp.readFile(targetPath, 'utf-8'));
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
+    throw err;
   }
+}
+
+export function stripProfileMirrorMarker(content: string): string {
+  return content.replace(PROFILE_MIRROR_MARKER_PATTERN, '');
 }
 
 export function stripProfileMirrorHeader(content: string): string {
@@ -111,11 +124,10 @@ export async function writeProfileFileMirror(input: {
   const dir = resolveProfileMirrorDir(input.agentFolder, input.runtimeHome);
   const mirrorFileName = profileMirrorFileName(input.fileName);
   const targetPath = path.resolve(dir, mirrorFileName);
-  const versionSidecarPath = path.join(dir, `.${mirrorFileName}.version`);
   const previousWrite =
     mirrorWriteChainByTarget.get(targetPath) ?? Promise.resolve();
   const write = previousWrite.then(async () => {
-    const recordedVersion = await readMirroredVersion(versionSidecarPath);
+    const recordedVersion = await readRecordedMirrorVersion(targetPath);
     if (
       input.version !== undefined &&
       recordedVersion !== undefined &&
@@ -125,7 +137,7 @@ export async function writeProfileFileMirror(input: {
         {
           targetPath,
           version: input.version,
-          recorded: recordedVersion,
+          recordedVersion,
         },
         'skipping stale profile mirror write',
       );
@@ -137,26 +149,8 @@ export async function writeProfileFileMirror(input: {
       mirrorFileName,
       targetPath,
       content: input.content,
+      version: input.version,
     });
-    if (input.version !== undefined) {
-      try {
-        await writeProfileMirrorVersionAtomic({
-          dir,
-          mirrorFileName,
-          sidecarPath: versionSidecarPath,
-          version: input.version,
-        });
-      } catch (err) {
-        logger.warn(
-          {
-            err,
-            targetPath,
-            version: input.version,
-          },
-          'failed to record profile mirror version',
-        );
-      }
-    }
   });
   const settledWrite = write.then(
     () => undefined,
@@ -171,35 +165,12 @@ export async function writeProfileFileMirror(input: {
   return write;
 }
 
-async function writeProfileMirrorVersionAtomic(input: {
-  dir: string;
-  mirrorFileName: string;
-  sidecarPath: string;
-  version: number;
-}): Promise<void> {
-  const tmpPath = path.join(
-    input.dir,
-    `.${input.mirrorFileName}.version.${process.pid}.${randomUUID()}.tmp`,
-  );
-  let handle: FileHandle | null = null;
-  try {
-    handle = await fsp.open(tmpPath, 'wx', 0o600);
-    await handle.writeFile(String(input.version), 'utf-8');
-    await handle.close();
-    handle = null;
-    await fsp.rename(tmpPath, input.sidecarPath);
-  } catch (err) {
-    if (handle) await handle.close().catch(() => undefined);
-    await fsp.rm(tmpPath, { force: true }).catch(() => undefined);
-    throw err;
-  }
-}
-
 async function writeProfileFileMirrorAtomic(input: {
   dir: string;
   mirrorFileName: string;
   targetPath: string;
   content: string;
+  version?: number;
 }): Promise<void> {
   const { dir, mirrorFileName, targetPath } = input;
   try {
@@ -221,8 +192,14 @@ async function writeProfileFileMirrorAtomic(input: {
     dir,
     `.${mirrorFileName}.${process.pid}.${randomUUID()}.tmp`,
   );
-  const body = stripProfileMirrorHeader(input.content);
-  const rendered = `${PROFILE_MIRROR_HEADER}\n\n${body}`;
+  const body = stripProfileMirrorHeader(
+    stripProfileMirrorMarker(input.content),
+  );
+  const marker =
+    input.version === undefined
+      ? ''
+      : `\n<!-- gantry-profile-version: ${input.version} -->`;
+  const rendered = `${PROFILE_MIRROR_HEADER}\n\n${body}${marker}`;
   let handle: FileHandle | null = null;
   try {
     handle = await fsp.open(tmpPath, 'wx', 0o600);
@@ -262,7 +239,7 @@ export function readProfileFileMirror(input: {
     runtimeHome: input.runtimeHome,
   });
   try {
-    return fs.readFileSync(targetPath, 'utf-8');
+    return stripProfileMirrorMarker(fs.readFileSync(targetPath, 'utf-8'));
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === 'ENOENT') return null;
     throw err;
