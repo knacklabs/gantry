@@ -802,7 +802,11 @@ describe('cli slack helpers', () => {
     mockRuntimeSecretStorage(runtimeHome);
 
     const { runSlackConnectCommand } = await import('@core/cli/slack.js');
-    const code = await runSlackConnectCommand(runtimeHome);
+    const code = await runSlackConnectCommand(
+      runtimeHome,
+      'recruiting_agent',
+      'Test',
+    );
 
     expect(code).toBe(0);
     const settings = loadRuntimeSettings(runtimeHome);
@@ -812,8 +816,8 @@ describe('cli slack helpers', () => {
     expect(
       settings.providerAccounts.slack_recruiting_agent.runtimeSecretRefs,
     ).toEqual({
-      bot_token: 'gantry-secret:DEFAULT_AGENT_SLACK_BOT_TOKEN',
-      app_token: 'gantry-secret:DEFAULT_AGENT_SLACK_APP_TOKEN',
+      bot_token: 'gantry-secret:TEST_SLACK_BOT_TOKEN',
+      app_token: 'gantry-secret:TEST_SLACK_APP_TOKEN',
     });
     expect(
       settings.conversations.slack_recruiting_agent_c0123456789.providerAccount,

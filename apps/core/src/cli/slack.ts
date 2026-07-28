@@ -623,7 +623,9 @@ export async function runSlackConnectCommand(
     );
   }
 
-  await Promise.all([botSecret.persist(), appSecret.persist()]);
+  if (!normalizedChatJid) {
+    await Promise.all([botSecret.persist(), appSecret.persist()]);
+  }
   const settings = loadRuntimeSettings(runtimeHome);
   const previousSettings = structuredClone(settings);
   settings.providers.slack.enabled = true;
