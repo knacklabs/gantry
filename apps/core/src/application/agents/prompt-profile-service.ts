@@ -314,6 +314,7 @@ export interface ProfileMirrorInput {
   agentFolder: string;
   fileName: string;
   content: string;
+  version?: number;
 }
 
 export interface PromptProfileServiceOptions {
