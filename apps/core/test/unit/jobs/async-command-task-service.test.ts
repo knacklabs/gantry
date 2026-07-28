@@ -14,10 +14,14 @@ import {
 import { asyncTaskChangeWaiterFor } from '@core/jobs/async-task-change-waiter.js';
 import type { StartDelegatedAgentTaskInput } from '@core/jobs/async-delegated-agent-task.js';
 import type {
+  AsyncTaskBacklogAdmissionInput,
+  AsyncTaskClaimInput,
   AsyncTaskCreateInput,
   AsyncTaskListFilter,
   AsyncTaskRecord,
   AsyncTaskRepository,
+  AsyncTaskScopedAdmissionInput,
+  AsyncTaskScopedAdmissionResult,
   AsyncTaskStatusCount,
   AsyncTaskTransitionInput,
 } from '@core/domain/ports/async-tasks.js';
@@ -50,6 +54,80 @@ class MemoryAsyncTaskRepository implements AsyncTaskRepository {
     };
     this.tasks.set(task.id, task);
     return task;
+  }
+
+  async createTaskWithBacklogAdmission(
+    input: AsyncTaskBacklogAdmissionInput,
+  ): Promise<AsyncTaskRecord | null> {
+    const backlog = [...this.tasks.values()].filter(
+      (task) =>
+        task.appId === input.task.appId &&
+        task.kind === input.task.kind &&
+        input.statuses.includes(task.status),
+    );
+    const agentBacklog = backlog.filter(
+      (task) => task.agentId === input.task.agentId,
+    );
+    if (
+      backlog.length >= input.maxBacklogPerApp ||
+      agentBacklog.length >= input.maxBacklogPerAgent
+    ) {
+      return null;
+    }
+    return this.createTask(input.task);
+  }
+
+  async createTaskWithScopedAdmission(
+    input: AsyncTaskScopedAdmissionInput,
+  ): Promise<AsyncTaskScopedAdmissionResult> {
+    const existing = [...this.tasks.values()].find(
+      (task) =>
+        task.appId === input.task.appId &&
+        task.agentId === input.task.agentId &&
+        task.kind === input.task.kind &&
+        task.conversationId === (input.task.conversationId ?? null) &&
+        task.threadId === (input.task.threadId ?? null) &&
+        input.activeStatuses.includes(task.status),
+    );
+    if (existing) {
+      return { task: existing, admitted: false, staleTasks: [] };
+    }
+    return {
+      task: await this.createTask(input.task),
+      admitted: true,
+      staleTasks: [],
+    };
+  }
+
+  async claimQueuedTask(
+    input: AsyncTaskClaimInput,
+  ): Promise<AsyncTaskRecord | null> {
+    const current = this.tasks.get(input.taskId);
+    if (!current || current.status !== 'queued') return null;
+    const running = [...this.tasks.values()].filter(
+      (task) =>
+        task.appId === current.appId &&
+        task.kind === current.kind &&
+        task.status === 'running',
+    );
+    if (
+      running.length >= input.maxRunningPerApp ||
+      running.filter((task) => task.agentId === current.agentId).length >=
+        input.maxRunningPerAgent
+    ) {
+      return null;
+    }
+    const claimed: AsyncTaskRecord = {
+      ...current,
+      status: 'running',
+      leaseToken: input.leaseToken,
+      fencingVersion: current.fencingVersion + 1,
+      heartbeatAt: input.now,
+      startedAt: input.now,
+      updatedAt: input.now,
+    };
+    this.tasks.set(claimed.id, claimed);
+    return claimed;
   }
 
   async getTask(taskId: string): Promise<AsyncTaskRecord | null> {
@@ -440,6 +518,70 @@ describe('AsyncCommandTaskService', () => {
         (task) => task.kind === 'async_command',
       ),
     ).toHaveLength(32);
+  });
+
+  it('admits concurrent async commands without exceeding the backlog cap', async () => {
+    const repository = new MemoryAsyncTaskRepository();
+    const service = new AsyncCommandTaskService(repository, {
+      run: async () => new Promise(() => undefined),
+    });
+
+    for (let index = 0; index < 31; index += 1) {
+      await expect(
+        service.start(
+          baseInput({
+            command: `npm test ${index}`,
+            allowedToolRules: ['RunCommand(npm test *)'],
+          }),
+        ),
+      ).resolves.toMatchObject({ ok: true });
+    }
+
+    const results = await Promise.all([
+      service.start(
+        baseInput({
+          command: 'npm test concurrent-one',
+          allowedToolRules: ['RunCommand(npm test *)'],
+        }),
+      ),
+      service.start(
+        baseInput({
+          command: 'npm test concurrent-two',
+          allowedToolRules: ['RunCommand(npm test *)'],
+        }),
+      ),
+    ]);
+
+    expect(results.filter((result) => result.ok)).toHaveLength(1);
+    expect(
+      [...repository.tasks.values()].filter(
+        (task) =>
+          task.agentId === 'agent-1' &&
+          task.kind === 'async_command' &&
+          ['queued', 'running', 'needs_attention'].includes(task.status),
+      ),
+    ).toHaveLength(32);
+  });
+
+  it('claims queued commands through the atomic repository operation', async () => {
+    const repository = new MemoryAsyncTaskRepository();
+    const claimQueuedTask = vi.spyOn(repository, 'claimQueuedTask');
+    const service = new AsyncCommandTaskService(repository, {
+      run: async () => new Promise(() => undefined),
+    });
+
+    const result = await service.start(baseInput());
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    await waitForStatus(repository, result.task.id, 'running');
+    expect(claimQueuedTask).toHaveBeenCalledWith(
+      expect.objectContaining({
+        taskId: result.task.id,
+        maxRunningPerApp: 4,
+        maxRunningPerAgent: 2,
+      }),
+    );
   });
 
   it('rejects delegated agent admission when the per-agent backlog is full', async () => {
@@ -1539,6 +1681,7 @@ describe('AsyncCommandTaskService', () => {
     if (!started.ok) return;
 
     await waitForStatus(repository, started.task.id, 'running');
+    await vi.waitFor(() => expect(callTool).toHaveBeenCalledOnce());
     resolveMcp();
 
     await waitForStatus(repository, started.task.id, 'completed');

@@ -22,8 +22,11 @@ import {
   formatMemoryWriteResponse,
 } from '@core/runner/mcp/formatting.js';
 import type {
+  AsyncTaskBacklogAdmissionInput,
+  AsyncTaskClaimInput,
   AsyncTaskCreateInput,
   AsyncTaskRecord,
+  AsyncTaskScopedAdmissionInput,
 } from '@core/domain/ports/async-tasks.js';
 import {
   loadAgentAccessSnapshot,
@@ -476,7 +479,33 @@ describe('inline core tool bootstrap', () => {
       }),
       listTasks: vi.fn(async () => []),
       countTasksByStatus: vi.fn(async () => []),
-      claimQueuedTask: vi.fn(async () => null),
+      createTaskWithBacklogAdmission: vi.fn(
+        async (input: AsyncTaskBacklogAdmissionInput) =>
+          repository.createTask(input.task),
+      ),
+      createTaskWithScopedAdmission: vi.fn(
+        async (input: AsyncTaskScopedAdmissionInput) => ({
+          task: await repository.createTask(input.task),
+          admitted: true,
+          staleTasks: [],
+        }),
+      ),
+      claimQueuedTask: vi.fn(async (input: AsyncTaskClaimInput) => {
+        const index = tasks.findIndex((task) => task.id === input.taskId);
+        const current = tasks[index];
+        if (!current || current.status !== 'queued') return null;
+        const claimed: AsyncTaskRecord = {
+          ...current,
+          status: 'running',
+          leaseToken: input.leaseToken,
+          fencingVersion: current.fencingVersion + 1,
+          heartbeatAt: input.now,
+          startedAt: input.now,
+          updatedAt: input.now,
+        };
+        tasks[index] = claimed;
+        return claimed;
+      }),
     };
     const listAgents = vi.fn(async () => [
       {
@@ -571,6 +600,33 @@ describe('inline core tool bootstrap', () => {
       }),
       listTasks: vi.fn(async () => []),
       countTasksByStatus: vi.fn(async () => []),
+      createTaskWithBacklogAdmission: vi.fn(
+        async (input: AsyncTaskBacklogAdmissionInput) =>
+          repository.createTask(input.task),
+      ),
+      createTaskWithScopedAdmission: vi.fn(
+        async (input: AsyncTaskScopedAdmissionInput) => ({
+          task: await repository.createTask(input.task),
+          admitted: true,
+          staleTasks: [],
+        }),
+      ),
+      claimQueuedTask: vi.fn(async (input: AsyncTaskClaimInput) => {
+        const index = tasks.findIndex((task) => task.id === input.taskId);
+        const current = tasks[index];
+        if (!current || current.status !== 'queued') return null;
+        const claimed: AsyncTaskRecord = {
+          ...current,
+          status: 'running',
+          leaseToken: input.leaseToken,
+          fencingVersion: current.fencingVersion + 1,
+          heartbeatAt: input.now,
+          startedAt: input.now,
+          updatedAt: input.now,
+        };
+        tasks[index] = claimed;
+        return claimed;
+      }),
     };
     const toolSnapshot = {
       activeBindings: [

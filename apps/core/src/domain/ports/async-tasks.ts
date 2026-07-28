@@ -175,13 +175,13 @@ export interface AsyncTaskClaimInput {
 
 export interface AsyncTaskRepository {
   createTask(input: AsyncTaskCreateInput): Promise<AsyncTaskRecord>;
-  createTaskWithBacklogAdmission?(
+  createTaskWithBacklogAdmission(
     input: AsyncTaskBacklogAdmissionInput,
   ): Promise<AsyncTaskRecord | null>;
-  createTaskWithScopedAdmission?(
+  createTaskWithScopedAdmission(
     input: AsyncTaskScopedAdmissionInput,
   ): Promise<AsyncTaskScopedAdmissionResult>;
-  claimQueuedTask?(input: AsyncTaskClaimInput): Promise<AsyncTaskRecord | null>;
+  claimQueuedTask(input: AsyncTaskClaimInput): Promise<AsyncTaskRecord | null>;
   getTask(taskId: string): Promise<AsyncTaskRecord | null>;
   listTasks(filter: AsyncTaskListFilter): Promise<AsyncTaskRecord[]>;
   countTasksByStatus(

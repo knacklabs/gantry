@@ -20,10 +20,10 @@ the same shape — it checks running capacity and then claims
 (`apps/core/src/jobs/async-command-task-drainer.ts:29-42`).
 
 The production Postgres adapter implements all three atomically
-(`adapters/storage/postgres/repositories/async-task-repository.postgres.ts`), so
-this is **not a live production race** — it is an *adapter-contract hazard*: the
-type system currently permits an implementation that gets the unsafe path, and
-nothing fails loudly when it does.
+(`apps/core/src/adapters/storage/postgres/repositories/async-task-repository.postgres.ts`),
+so this is **not a live production race** — it is an *adapter-contract hazard*:
+the type system currently permits an implementation that gets the unsafe path,
+and nothing fails loudly when it does.
 
 ## Decision
 
@@ -52,11 +52,12 @@ a net code reduction.
 
 ## Consequences
 
-- **Touched:** `domain/ports/async-tasks.ts` (three `?` removed),
-  `jobs/async-task-admission.ts` (fallback deleted),
-  `jobs/async-command-task-drainer.ts` (fallback deleted), and roughly seven test
-  doubles that implement the port and now need the three methods. The Postgres
-  adapter is **unchanged** — it already satisfies the contract.
+- **Touched:** `apps/core/src/domain/ports/async-tasks.ts` (three `?` removed),
+  `apps/core/src/jobs/async-task-admission.ts` (fallback deleted),
+  `apps/core/src/jobs/async-command-task-drainer.ts` (fallback deleted), and
+  roughly seven test doubles that implement the port and now need the three
+  methods. The Postgres adapter is **unchanged** — it already satisfies the
+  contract.
 - **Ripple is mechanical and test-only.** No production adapter changes, no schema
   change, no runtime behavior change on the Postgres path.
 - **Tradeoff accepted:** every future test double must supply atomic admission.

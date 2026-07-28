@@ -20,44 +20,13 @@ export async function createAdmittedAsyncTask(input: {
 }): Promise<
   { ok: true; task: AsyncTaskRecord } | { ok: false; message: string }
 > {
-  const task = input.repository.createTaskWithBacklogAdmission
-    ? await input.repository.createTaskWithBacklogAdmission({
-        task: input.task,
-        maxBacklogPerApp: MAX_BACKLOG_PER_APP,
-        maxBacklogPerAgent: MAX_BACKLOG_PER_AGENT,
-        statuses: BACKLOG_STATUSES,
-      })
-    : await createTaskWithLocalAdmission(input.repository, input.task);
-  return task ? { ok: true, task } : backlogFull();
-}
-
-async function createTaskWithLocalAdmission(
-  repository: AsyncTaskRepository,
-  task: AsyncTaskCreateInput,
-): Promise<AsyncTaskRecord | null> {
-  const [appCount, agentCount] = await Promise.all([
-    countBacklog(repository, { appId: task.appId, kind: task.kind }),
-    countBacklog(repository, {
-      appId: task.appId,
-      agentId: task.agentId,
-      kind: task.kind,
-    }),
-  ]);
-  if (appCount >= MAX_BACKLOG_PER_APP || agentCount >= MAX_BACKLOG_PER_AGENT) {
-    return null;
-  }
-  return repository.createTask(task);
-}
-
-async function countBacklog(
-  repository: AsyncTaskRepository,
-  filter: Parameters<AsyncTaskRepository['countTasksByStatus']>[0],
-): Promise<number> {
-  const counts = await repository.countTasksByStatus({
-    ...filter,
+  const task = await input.repository.createTaskWithBacklogAdmission({
+    task: input.task,
+    maxBacklogPerApp: MAX_BACKLOG_PER_APP,
+    maxBacklogPerAgent: MAX_BACKLOG_PER_AGENT,
     statuses: BACKLOG_STATUSES,
   });
-  return counts.reduce((sum, entry) => sum + entry.count, 0);
+  return task ? { ok: true, task } : backlogFull();
 }
 
 function backlogFull(): { ok: false; message: string } {
