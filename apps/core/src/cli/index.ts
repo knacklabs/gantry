@@ -406,7 +406,7 @@ async function runSetupCommand(
     }
     if (choice === 'add_conversation') {
       const { runAddConversationSetupSlice } =
-        await import('./setup-add-conversation.js');
+        await import('./setup-flow-core-steps.js');
       return runAddConversationSetupSlice(runtimeHome);
     }
     startStep = choice as OnboardingStep;

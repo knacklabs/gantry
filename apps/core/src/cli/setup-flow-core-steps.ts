@@ -6,7 +6,9 @@ import {
   resolveRuntimeHome,
 } from '../config/settings/runtime-home.js';
 import {
+  applyConversationInstallToSettings,
   ensureConfiguredAgent,
+  hasConversationInstallInSettings,
   loadDesiredRuntimeSettingsForWrite,
   noteRestartRequired,
   writeDesiredRuntimeSettings,
@@ -228,6 +230,27 @@ export async function runAddAgentSetupSlice(
   });
   noteRestartRequired(writeResult);
   return 0;
+}
+
+export async function runAddConversationSetupSlice(
+  runtimeHome: string,
+): Promise<number> {
+  const { runAddConversationSetupSlice: runSlice } =
+    await import('./setup-add-conversation.js');
+  return runSlice(runtimeHome, {
+    loadSettings: () =>
+      loadDesiredRuntimeSettingsForWrite({
+        runtimeHome,
+      }),
+    writeSettings: (input) =>
+      writeDesiredRuntimeSettings({
+        runtimeHome,
+        ...input,
+      }),
+    noteRestartRequired,
+    hasConversationInstallInSettings,
+    applyConversationInstallToSettings,
+  });
 }
 
 export async function runWelcomeStep(): Promise<FlowAction> {

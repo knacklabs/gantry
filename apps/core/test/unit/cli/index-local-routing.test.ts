@@ -360,7 +360,7 @@ describe('CLI local routing', () => {
       select,
       log: { error: vi.fn(), info: vi.fn(), warn: vi.fn(), success: vi.fn() },
     }));
-    vi.doMock('@core/cli/setup-add-conversation.js', () => ({
+    vi.doMock('@core/cli/setup-flow-core-steps.js', () => ({
       runAddConversationSetupSlice,
     }));
 

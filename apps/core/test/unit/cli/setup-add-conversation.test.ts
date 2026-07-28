@@ -119,6 +119,23 @@ function mockProviderValidation() {
   }));
 }
 
+async function setupDependencies(
+  settings: ReturnType<typeof createSettings>,
+  writeSettings: ReturnType<typeof vi.fn>,
+  noteRestartRequired = vi.fn(),
+) {
+  const helpers =
+    await import('@core/config/settings/conversation-install-settings.js');
+  return {
+    loadSettings: vi.fn(async () => settings),
+    writeSettings,
+    noteRestartRequired,
+    hasConversationInstallInSettings: helpers.hasConversationInstallInSettings,
+    applyConversationInstallToSettings:
+      helpers.applyConversationInstallToSettings,
+  };
+}
+
 describe('add conversation to existing agent setup slice', () => {
   it('writes one additive install and preserves provider secret refs', async () => {
     const settings = createSettings();
@@ -146,7 +163,14 @@ describe('add conversation to existing agent setup slice', () => {
 
     const { runAddConversationSetupSlice } =
       await import('@core/cli/setup-add-conversation.js');
-    const code = await runAddConversationSetupSlice('/tmp/gantry');
+    const code = await runAddConversationSetupSlice(
+      '/tmp/gantry',
+      await setupDependencies(
+        settings,
+        writeDesiredRuntimeSettings,
+        noteRestartRequired,
+      ),
+    );
 
     expect(code).toBe(0);
     expect(writeDesiredRuntimeSettings).toHaveBeenCalledTimes(1);
@@ -194,7 +218,10 @@ describe('add conversation to existing agent setup slice', () => {
 
     const { runAddConversationSetupSlice } =
       await import('@core/cli/setup-add-conversation.js');
-    const code = await runAddConversationSetupSlice('/tmp/gantry');
+    const code = await runAddConversationSetupSlice(
+      '/tmp/gantry',
+      await setupDependencies(settings, writeDesiredRuntimeSettings),
+    );
 
     expect(code).toBe(1);
     expect(writeDesiredRuntimeSettings).not.toHaveBeenCalled();
@@ -237,7 +264,10 @@ describe('add conversation to existing agent setup slice', () => {
 
     const { runAddConversationSetupSlice } =
       await import('@core/cli/setup-add-conversation.js');
-    const code = await runAddConversationSetupSlice('/tmp/gantry');
+    const code = await runAddConversationSetupSlice(
+      '/tmp/gantry',
+      await setupDependencies(settings, writeDesiredRuntimeSettings),
+    );
 
     expect(code).toBe(1);
     expect(writeDesiredRuntimeSettings).not.toHaveBeenCalled();

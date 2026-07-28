@@ -7,25 +7,63 @@ import {
   listConnectableChannelProviders,
   providerJidPrefix,
 } from '../channels/provider-registry.js';
-import {
-  applyConversationInstallToSettings,
-  hasConversationInstallInSettings,
-} from '../config/settings/conversation-install-settings.js';
-import {
-  loadDesiredRuntimeSettingsForWrite,
-  noteRestartRequired,
-  writeDesiredRuntimeSettings,
-} from '../config/settings/runtime-settings.js';
-import type {
-  RuntimeProviderAccountSettings,
-  RuntimeSettings,
-} from '../config/settings/runtime-settings-types.js';
-import type { Conversation } from '../domain/conversation/conversation.js';
+import { type Conversation } from '../domain/conversation/conversation.js';
 import type { ProviderAccount } from '../domain/provider/provider.js';
-import type { ChatAllowlistEntry } from '../config/settings/sender-allowlist.js';
 import { openRuntimeGroupDb } from './runtime-group-db.js';
 
 type MemoryScope = 'conversation' | 'user' | 'agent' | 'app';
+type SenderPolicy = {
+  allow: '*' | string[];
+  mode: 'trigger' | 'drop';
+};
+
+interface SetupProviderAccount {
+  agentId: string;
+  provider: string;
+  label: string;
+  status?: 'active' | 'disabled';
+  runtimeSecretRefs: Record<string, string>;
+  externalIdentityRef?: Record<string, string>;
+  config?: Record<string, string>;
+}
+
+interface SetupSettings {
+  providers: Record<string, { enabled: boolean }>;
+  providerAccounts: Record<string, SetupProviderAccount>;
+  agents: Record<string, { name: string }>;
+  conversations: Record<string, unknown>;
+}
+
+export interface AddConversationSetupDependencies<
+  TSettings extends SetupSettings,
+> {
+  loadSettings(): Promise<TSettings>;
+  writeSettings(input: {
+    settings: TSettings;
+    previousSettings: TSettings;
+    createdBy: string;
+  }): Promise<unknown>;
+  noteRestartRequired(result: unknown): void;
+  hasConversationInstallInSettings(input: {
+    settings: TSettings;
+    conversation: Pick<Conversation, 'id' | 'externalRef' | 'kind' | 'title'>;
+    providerAccountId: string;
+    agentFolder: string;
+  }): boolean;
+  applyConversationInstallToSettings(input: {
+    settings: TSettings;
+    conversation: Pick<Conversation, 'id' | 'externalRef' | 'kind' | 'title'>;
+    providerAccountId: string;
+    agentFolder: string;
+    controlApprovers: readonly string[];
+    now: string;
+    displayName?: string;
+    senderPolicy?: SenderPolicy;
+    memoryScope?: MemoryScope;
+    trigger?: string;
+    requiresTrigger?: boolean;
+  }): string;
+}
 
 interface ConversationChoice {
   externalId: string;
@@ -59,7 +97,7 @@ function conversationKindForManualId(
 
 function configuredProviderAccount(input: {
   id: string;
-  settings: RuntimeProviderAccountSettings;
+  settings: SetupProviderAccount;
   now: string;
 }): ProviderAccount {
   return {
@@ -113,7 +151,7 @@ function parseCsv(value: unknown): string[] {
   ];
 }
 
-async function chooseAgent(settings: RuntimeSettings): Promise<string | null> {
+async function chooseAgent(settings: SetupSettings): Promise<string | null> {
   const agentIds = Object.keys(settings.agents).sort();
   if (agentIds.length === 0) {
     p.log.error('No existing agents are configured.');
@@ -143,7 +181,7 @@ async function chooseAgent(settings: RuntimeSettings): Promise<string | null> {
   return String(manual).trim();
 }
 
-function providerAccountOptions(settings: RuntimeSettings, agentId: string) {
+function providerAccountOptions(settings: SetupSettings, agentId: string) {
   const connectable = new Set(
     listConnectableChannelProviders().map((provider) => provider.id),
   );
@@ -160,9 +198,9 @@ function providerAccountOptions(settings: RuntimeSettings, agentId: string) {
 }
 
 async function chooseProviderAccount(
-  settings: RuntimeSettings,
+  settings: SetupSettings,
   agentId: string,
-): Promise<[string, RuntimeProviderAccountSettings] | null> {
+): Promise<[string, SetupProviderAccount] | null> {
   const accounts = providerAccountOptions(settings, agentId);
   if (accounts.length === 0) {
     p.log.error(
@@ -250,7 +288,7 @@ async function chooseConversation(input: {
   };
 }
 
-async function promptSenderPolicy(): Promise<ChatAllowlistEntry | null> {
+async function promptSenderPolicy(): Promise<SenderPolicy | null> {
   const selected = await p.select({
     message: 'Sender policy',
     options: [
@@ -276,14 +314,17 @@ async function promptSenderPolicy(): Promise<ChatAllowlistEntry | null> {
   return { allow: parseCsv(allow), mode: 'drop' };
 }
 
-export async function runAddConversationSetupSlice(
+export async function runAddConversationSetupSlice<
+  TSettings extends SetupSettings,
+>(
   runtimeHome: string,
+  dependencies: AddConversationSetupDependencies<TSettings>,
 ): Promise<number> {
   p.note(
     'Reuse an existing agent and Provider Account. This flow will not ask for or overwrite credentials.',
     'Add conversation to existing agent',
   );
-  const settings = await loadDesiredRuntimeSettingsForWrite({ runtimeHome });
+  const settings = await dependencies.loadSettings();
   const agentId = await chooseAgent(settings);
   if (!agentId) return 1;
   const accountChoice = await chooseProviderAccount(settings, agentId);
@@ -317,7 +358,7 @@ export async function runAddConversationSetupSlice(
       now,
     });
     if (
-      hasConversationInstallInSettings({
+      dependencies.hasConversationInstallInSettings({
         settings,
         conversation,
         providerAccountId,
@@ -422,7 +463,7 @@ export async function runAddConversationSetupSlice(
     if (p.isCancel(save) || !save) return 1;
 
     const nextSettings = structuredClone(settings);
-    applyConversationInstallToSettings({
+    dependencies.applyConversationInstallToSettings({
       settings: nextSettings,
       conversation,
       providerAccountId,
@@ -435,13 +476,12 @@ export async function runAddConversationSetupSlice(
       trigger: String(trigger),
       requiresTrigger: Boolean(requiresTrigger),
     });
-    const result = await writeDesiredRuntimeSettings({
-      runtimeHome,
+    const result = await dependencies.writeSettings({
       settings: nextSettings,
       previousSettings: settings,
       createdBy: 'cli:setup-add-conversation',
     });
-    noteRestartRequired(result);
+    dependencies.noteRestartRequired(result);
     p.note(
       [
         `${String(displayName).trim()} is now installed for ${settings.agents[agentId]!.name}.`,
