@@ -75,6 +75,7 @@ describe('writeDesiredRuntimeSettings', () => {
       writeDesiredRuntimeSettings({
         runtimeHome: '/tmp/gantry-test',
         settings: { runtime: { deploymentMode: 'fleet' } } as never,
+        previousSettings: { runtime: { deploymentMode: 'fleet' } } as never,
       }),
     ).rejects.toThrow('Settings mutation requires runtime storage');
     expect(saveRuntimeSettings).not.toHaveBeenCalled();
@@ -172,11 +173,7 @@ describe('writeDesiredRuntimeSettings', () => {
     );
   });
 
-  it('keeps independent changes when callers omit previousSettings', async () => {
-    // previousSettings is optional. If the baseline were read inside the critical
-    // section it would sample the predecessor's result, so the second writer's
-    // unchanged keys would look like intentional reverts and would undo the first
-    // write. The baseline must be what the caller actually saw.
+  it('captures file-backed settings and baseline when enqueued', async () => {
     const runtimeHome = makeRuntimeHome();
     const actualRuntimeSettings = await vi.importActual<
       typeof import('@core/config/settings/runtime-settings.js')
@@ -184,9 +181,11 @@ describe('writeDesiredRuntimeSettings', () => {
     const baseSettings = actualRuntimeSettings.loadRuntimeSettings(runtimeHome);
     const firstSettings = structuredClone(baseSettings);
     firstSettings.agent.name = 'First writer';
+    const secondBaseline = structuredClone(baseSettings);
     const secondSettings = structuredClone(baseSettings);
     secondSettings.memory.dreaming.enabled =
       !secondSettings.memory.dreaming.enabled;
+    const expectedDreamingEnabled = secondSettings.memory.dreaming.enabled;
     vi.resetModules();
 
     let releaseFirstSave!: () => void;
@@ -217,10 +216,10 @@ describe('writeDesiredRuntimeSettings', () => {
     } = await import('@core/config/settings/desired-settings-writer.js');
     configureDesiredSettingsStorageProvider(undefined);
 
-    // Neither call passes previousSettings; both snapshots came from the same base.
     const firstWrite = writeDesiredRuntimeSettings({
       runtimeHome,
       settings: firstSettings,
+      previousSettings: baseSettings,
     });
     await vi.waitFor(() =>
       expect(saveRuntimeSettings).toHaveBeenCalledTimes(1),
@@ -228,16 +227,18 @@ describe('writeDesiredRuntimeSettings', () => {
     const secondWrite = writeDesiredRuntimeSettings({
       runtimeHome,
       settings: secondSettings,
+      previousSettings: secondBaseline,
     });
+    secondSettings.memory.dreaming.enabled =
+      baseSettings.memory.dreaming.enabled;
+    secondBaseline.agent.name = 'Mutated baseline';
     releaseFirstSave();
     await Promise.all([firstWrite, secondWrite]);
 
     const finalSettings =
       actualRuntimeSettings.loadRuntimeSettings(runtimeHome);
     expect(finalSettings.agent.name).toBe('First writer');
-    expect(finalSettings.memory.dreaming.enabled).toBe(
-      secondSettings.memory.dreaming.enabled,
-    );
+    expect(finalSettings.memory.dreaming.enabled).toBe(expectedDreamingEnabled);
   });
 
   it('appends settings revisions before applying local desired state', async () => {

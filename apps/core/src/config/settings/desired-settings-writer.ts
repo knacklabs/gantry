@@ -112,7 +112,7 @@ function applySettingsSnapshotDelta(
 async function writeFileBackedDesiredRuntimeSettings(input: {
   runtimeHome: string;
   settings: RuntimeSettings;
-  previousSettings?: RuntimeSettings;
+  previousSettings: RuntimeSettings;
 }): Promise<DesiredRuntimeSettingsWriteResult> {
   const targetPath = settingsFilePath(resolveRuntimeHome(input.runtimeHome));
   let chain = desiredSettingsWriteChainByTarget.get(targetPath);
@@ -121,24 +121,19 @@ async function writeFileBackedDesiredRuntimeSettings(input: {
     desiredSettingsWriteChainByTarget.set(targetPath, chain);
   }
 
-  // The delta must be measured against what the CALLER saw, so when no baseline is
-  // supplied it is read BEFORE enqueueing. Reading it inside the critical section
-  // would sample the state left by the predecessor write, and the caller's unchanged
-  // keys would then look like intentional reverts — silently undoing that
-  // predecessor's update, which is the very race this serialization exists to close.
-  const callerBaseline =
-    input.previousSettings ?? loadRuntimeSettings(input.runtimeHome);
+  const settingsSnapshot = structuredClone(input.settings);
+  const previousSettingsSnapshot = structuredClone(input.previousSettings);
 
   const previousWrite = chain.tail;
   const write = previousWrite.then(async () => {
     const currentSettings = loadRuntimeSettings(input.runtimeHome);
     const restartRequired = classifySettingsChanges(
-      callerBaseline,
-      input.settings,
+      previousSettingsSnapshot,
+      settingsSnapshot,
     ).restartRequired;
     const rebasedSettings = applySettingsSnapshotDelta(
-      callerBaseline,
-      input.settings,
+      previousSettingsSnapshot,
+      settingsSnapshot,
       currentSettings,
     ) as RuntimeSettings;
     await saveRuntimeSettings(input.runtimeHome, rebasedSettings);
@@ -170,7 +165,7 @@ async function writeFileBackedDesiredRuntimeSettings(input: {
 export async function writeDesiredRuntimeSettings(input: {
   runtimeHome: string;
   settings: RuntimeSettings;
-  previousSettings?: RuntimeSettings;
+  previousSettings: RuntimeSettings;
   appId?: AppId;
   createdBy?: string;
 }): Promise<DesiredRuntimeSettingsWriteResult> {
@@ -198,10 +193,8 @@ export async function writeDesiredRuntimeSettings(input: {
   }
   try {
     const appId = input.appId ?? ('default' as AppId);
-    const previousSettings =
-      input.previousSettings ?? loadRuntimeSettings(input.runtimeHome);
     const restartRequired = classifySettingsChanges(
-      previousSettings,
+      input.previousSettings,
       input.settings,
     ).restartRequired;
     await importWorkstationSettings(
@@ -210,7 +203,7 @@ export async function writeDesiredRuntimeSettings(input: {
         ops: storage.ops,
         repositories: storage.repositories,
         appId,
-        previousSettings,
+        previousSettings: input.previousSettings,
         revisionMirror: {
           settingsRevisions: storage.settingsRevisions,
           pool: storage.pool,
