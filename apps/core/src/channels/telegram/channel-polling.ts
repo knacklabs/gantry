@@ -93,6 +93,15 @@ export abstract class TelegramChannelPolling extends TelegramChannelState {
         { leaseKey },
         'Telegram polling lease was lost during acquisition; not starting poller',
       );
+      // onLost is optional on the port, so we can land here purely because
+      // isValid() went false with no handler having cleaned up. Recover ourselves in
+      // that case, or polling would stay stopped indefinitely. When a replayed loss
+      // handler already cleared the lease, leave its recovery alone.
+      if (this.pollingLease === lease) {
+        this.pollingLease = null;
+        await lease.release().catch(() => undefined);
+        if (!this.isStopping) this.schedulePollingRetry();
+      }
       return;
     }
 
