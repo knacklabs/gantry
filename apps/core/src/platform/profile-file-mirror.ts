@@ -18,8 +18,42 @@ import { isValidWorkspaceFolder } from './workspace-folder-rules.js';
 export const PROFILE_MIRROR_HEADER =
   '<!-- Managed by Gantry. Direct edits are not active until imported or approved. -->';
 
+// Bounds the ordering cache; eviction only degrades an idle target to unconditional writes.
+const MAX_TRACKED_MIRROR_TARGETS = 512;
 const lastMirroredVersionByTarget = new Map<string, number>();
 const mirrorWriteChainByTarget = new Map<string, Promise<void>>();
+
+function getLastMirroredVersion(targetPath: string): number | undefined {
+  const version = lastMirroredVersionByTarget.get(targetPath);
+  if (version === undefined) return undefined;
+  lastMirroredVersionByTarget.delete(targetPath);
+  lastMirroredVersionByTarget.set(targetPath, version);
+  return version;
+}
+
+function evictIdleMirrorTargets(): void {
+  while (lastMirroredVersionByTarget.size > MAX_TRACKED_MIRROR_TARGETS) {
+    let oldestIdleTarget: string | undefined;
+    for (const targetPath of lastMirroredVersionByTarget.keys()) {
+      if (!mirrorWriteChainByTarget.has(targetPath)) {
+        oldestIdleTarget = targetPath;
+        break;
+      }
+    }
+    if (oldestIdleTarget === undefined) return;
+    lastMirroredVersionByTarget.delete(oldestIdleTarget);
+  }
+}
+
+function recordLastMirroredVersion(targetPath: string, version: number): void {
+  lastMirroredVersionByTarget.delete(targetPath);
+  lastMirroredVersionByTarget.set(targetPath, version);
+  evictIdleMirrorTargets();
+}
+
+export function profileMirrorOrderingCacheSizeForTests(): number {
+  return lastMirroredVersionByTarget.size;
+}
 
 export function stripProfileMirrorHeader(content: string): string {
   const normalized = content.replace(/^\uFEFF/, '');
@@ -102,7 +136,7 @@ export async function writeProfileFileMirror(input: {
   const previousWrite =
     mirrorWriteChainByTarget.get(targetPath) ?? Promise.resolve();
   const write = previousWrite.then(async () => {
-    const lastMirroredVersion = lastMirroredVersionByTarget.get(targetPath);
+    const lastMirroredVersion = getLastMirroredVersion(targetPath);
     if (
       input.version !== undefined &&
       lastMirroredVersion !== undefined &&
@@ -126,7 +160,7 @@ export async function writeProfileFileMirror(input: {
       content: input.content,
     });
     if (input.version !== undefined) {
-      lastMirroredVersionByTarget.set(targetPath, input.version);
+      recordLastMirroredVersion(targetPath, input.version);
     }
   });
   const settledWrite = write.then(
@@ -137,6 +171,7 @@ export async function writeProfileFileMirror(input: {
   void settledWrite.then(() => {
     if (mirrorWriteChainByTarget.get(targetPath) === settledWrite) {
       mirrorWriteChainByTarget.delete(targetPath);
+      evictIdleMirrorTargets();
     }
   });
   return write;

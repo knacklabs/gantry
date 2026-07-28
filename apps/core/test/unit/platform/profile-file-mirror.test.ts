@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   PROFILE_MIRROR_HEADER,
+  profileMirrorOrderingCacheSizeForTests,
   readProfileFileMirror,
   profileMirrorPath,
   stripProfileMirrorHeader,
@@ -22,6 +23,22 @@ describe('profile file mirror', () => {
     );
     tempDirs.push(runtimeHome);
     return runtimeHome;
+  }
+
+  async function mirrorDistinctTargets(
+    runtimeHome: string,
+    prefix: string,
+    count: number,
+  ): Promise<void> {
+    for (let index = 0; index < count; index += 1) {
+      await writeProfileFileMirror({
+        runtimeHome,
+        agentFolder: `${prefix}_${index}`,
+        fileName: 'SOUL.md',
+        content: `# v${index}`,
+        version: index,
+      });
+    }
   }
 
   afterEach(() => {
@@ -239,6 +256,72 @@ describe('profile file mirror', () => {
     expect(stripProfileMirrorHeader(readProfileFileMirror(input) ?? '')).toBe(
       '# unversioned',
     );
+  });
+
+  it('bounds the profile mirror ordering cache', async () => {
+    const runtimeHome = makeRuntimeHome();
+
+    await mirrorDistinctTargets(runtimeHome, 'bounded_agent', 513);
+
+    expect(profileMirrorOrderingCacheSizeForTests()).toBe(512);
+  });
+
+  it('keeps the ordering guard for a recently used target', async () => {
+    const runtimeHome = makeRuntimeHome();
+    const recentInput = {
+      runtimeHome,
+      agentFolder: 'recently_used_agent',
+      fileName: 'SOUL.md',
+    };
+    await writeProfileFileMirror({
+      ...recentInput,
+      content: '# recent v11',
+      version: 11,
+    });
+
+    await mirrorDistinctTargets(runtimeHome, 'recent_fill_agent', 510);
+    await writeProfileFileMirror({
+      ...recentInput,
+      content: '# stale refresh',
+      version: 10,
+    });
+    await mirrorDistinctTargets(runtimeHome, 'recent_evict_agent', 2);
+
+    await writeProfileFileMirror({
+      ...recentInput,
+      content: '# stale after pressure',
+      version: 10,
+    });
+    expect(
+      stripProfileMirrorHeader(readProfileFileMirror(recentInput) ?? ''),
+    ).toBe('# recent v11');
+  });
+
+  it('writes an evicted idle target unconditionally', async () => {
+    const runtimeHome = makeRuntimeHome();
+    const idleInput = {
+      runtimeHome,
+      agentFolder: 'idle_evicted_agent',
+      fileName: 'SOUL.md',
+    };
+    await writeProfileFileMirror({
+      ...idleInput,
+      content: '# idle v11',
+      version: 11,
+    });
+
+    await mirrorDistinctTargets(runtimeHome, 'idle_fill_agent', 512);
+
+    await expect(
+      writeProfileFileMirror({
+        ...idleInput,
+        content: '# idle v10',
+        version: 10,
+      }),
+    ).resolves.toBeUndefined();
+    expect(
+      stripProfileMirrorHeader(readProfileFileMirror(idleInput) ?? ''),
+    ).toBe('# idle v10');
   });
 
   it('rejects symlinked agent mirror directories', async () => {
