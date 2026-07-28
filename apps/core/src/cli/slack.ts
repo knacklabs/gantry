@@ -34,7 +34,7 @@ import {
 } from '../platform/profile-file-mirror.js';
 import { planRuntimeSecretInput } from './runtime-secret-ref-prompt.js';
 import { providerAccountIdForAgent } from './provider-utils.js';
-import { slackRuntimeSecretNameForAgent } from '../domain/provider/provider-runtime-secret-keys.js';
+import { runtimeSecretNameForAgent } from '../domain/provider/provider-runtime-secret-keys.js';
 
 export interface SlackTokenValidation {
   ok: boolean;
@@ -537,7 +537,7 @@ export async function runSlackConnectCommand(
 
   const botSecret = await planRuntimeSecretInput({
     runtimeHome,
-    name: slackRuntimeSecretNameForAgent(credentialOwnerName, 'BOT_TOKEN'),
+    name: runtimeSecretNameForAgent('slack', credentialOwnerName, 'BOT_TOKEN'),
     value: botTokenInput,
     actor: 'cli:slack-connect',
     label: 'Slack bot token',
@@ -548,7 +548,7 @@ export async function runSlackConnectCommand(
   }
   const appSecret = await planRuntimeSecretInput({
     runtimeHome,
-    name: slackRuntimeSecretNameForAgent(credentialOwnerName, 'APP_TOKEN'),
+    name: runtimeSecretNameForAgent('slack', credentialOwnerName, 'APP_TOKEN'),
     value: appTokenInput,
     actor: 'cli:slack-connect',
     label: 'Slack app token',

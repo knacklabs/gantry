@@ -2,7 +2,7 @@ import {
   normalizeRuntimeSecretRefString,
   parseRuntimeSecretRefString,
 } from '../ports/runtime-secret-provider.js';
-import { createHash } from 'node:crypto';
+import { sha256Hex } from '../../shared/stable-hash.js';
 
 /**
  * Produces a stable, provider-account-scoped name for a runtime credential.
@@ -27,17 +27,18 @@ export function runtimeSecretNameForProviderAccount(
     .toUpperCase()
     .replace(/[^A-Z0-9]+/g, '_')
     .replace(/^_+|_+$/g, '');
-  const digest = createHash('sha256')
-    .update(`${providerId}\u0000${providerAccountId}\u0000${key}`)
-    .digest('hex')
+  const digest = sha256Hex(
+    `${providerId}\u0000${providerAccountId}\u0000${key}`,
+  )
     .slice(0, 10)
     .toUpperCase();
   return `${provider}_${account}_${digest}_${suffix}`.slice(0, 128);
 }
 
-export function slackRuntimeSecretNameForAgent(
+export function runtimeSecretNameForAgent(
+  providerId: string,
   agentName: string,
-  key: 'BOT_TOKEN' | 'APP_TOKEN',
+  key: string,
 ): string {
   const normalized = agentName
     .trim()
@@ -46,10 +47,21 @@ export function slackRuntimeSecretNameForAgent(
     .replace(/^_+|_+$/g, '');
   if (!normalized) {
     throw new Error(
-      'A non-empty Slack agent name is required for credential naming.',
+      `A non-empty ${providerId.trim() || 'provider'} agent name is required for credential naming.`,
     );
   }
-  return `${normalized}_SLACK_${key}`;
+  const provider = providerEnvPrefix(providerId);
+  const suffix = key
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+  if (!provider || !suffix) {
+    throw new Error(
+      'A non-empty provider and credential key are required for credential naming.',
+    );
+  }
+  return `${normalized}_${provider}_${suffix}`.slice(0, 128);
 }
 
 export function runtimeSecretKeyForEnv(

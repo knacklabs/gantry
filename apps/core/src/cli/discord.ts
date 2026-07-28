@@ -31,6 +31,7 @@ import {
 } from '../platform/profile-file-mirror.js';
 import { planRuntimeSecretInput } from './runtime-secret-ref-prompt.js';
 import { providerAccountIdForAgent } from './provider-utils.js';
+import { runtimeSecretNameForAgent } from '../domain/provider/provider-runtime-secret-keys.js';
 
 type DiscordChannelChoice =
   | { type: 'selected'; channel: DiscordDiscoveredChannel }
@@ -54,6 +55,7 @@ export async function registerDiscordMainGroup(options: {
   chatJid: string;
   displayName: string;
   agentId?: string;
+  runtimeSecretRefs?: Record<string, string>;
 }): Promise<{ folder: string; groupName: string }> {
   ensureRuntimeLayout(options.runtimeHome);
   const db = await openRuntimeGroupDb(options.runtimeHome);
@@ -86,10 +88,9 @@ export async function registerDiscordMainGroup(options: {
       requiresTrigger: false,
       agentConfig: existingGroup?.agentConfig,
     };
-    await db.setConversationRoute(options.chatJid, route);
     const settings = loadRuntimeSettings(options.runtimeHome);
     const previousSettings = structuredClone(settings);
-    ensureConfiguredConversationBinding(settings, {
+    const binding = ensureConfiguredConversationBinding(settings, {
       agentId: folder,
       agentName: groupName,
       agentFolder: folder,
@@ -98,11 +99,22 @@ export async function registerDiscordMainGroup(options: {
       trigger: route.trigger,
       requiresTrigger: false,
     });
+    if (options.runtimeSecretRefs) {
+      settings.providerAccounts[binding.providerConnectionId] = {
+        ...settings.providerAccounts[binding.providerConnectionId],
+        runtimeSecretRefs: {
+          ...settings.providerAccounts[binding.providerConnectionId]
+            ?.runtimeSecretRefs,
+          ...options.runtimeSecretRefs,
+        },
+      };
+    }
     await writeDesiredRuntimeSettings({
       runtimeHome: options.runtimeHome,
       settings,
       previousSettings,
     });
+    await db.setConversationRoute(options.chatJid, route);
     await new PromptProfileService({
       fileArtifactStore: () => db.getFileArtifactStore(),
       mirrorProfileFile: createProfileFileMirrorWriter(options.runtimeHome),
@@ -175,6 +187,8 @@ export async function runDiscordConnectCommand(
 ): Promise<number> {
   ensureRuntimeLayout(runtimeHome);
   const requestedAgentDisplayName = requestedAgentName?.trim();
+  const credentialOwnerName =
+    requestedAgentDisplayName || loadRuntimeSettings(runtimeHome).agent.name;
   p.note(
     [
       'Create or reuse a Discord application and bot.',
@@ -212,7 +226,11 @@ export async function runDiscordConnectCommand(
 
   const botSecret = await planRuntimeSecretInput({
     runtimeHome,
-    name: 'DISCORD_BOT_TOKEN',
+    name: runtimeSecretNameForAgent(
+      'discord',
+      credentialOwnerName,
+      'BOT_TOKEN',
+    ),
     value: credentials.botToken,
     actor: 'cli:discord-connect',
     label: 'Discord bot token',
@@ -220,7 +238,11 @@ export async function runDiscordConnectCommand(
   if (!botSecret) return 1;
   const applicationSecret = await planRuntimeSecretInput({
     runtimeHome,
-    name: 'DISCORD_APPLICATION_ID',
+    name: runtimeSecretNameForAgent(
+      'discord',
+      credentialOwnerName,
+      'APPLICATION_ID',
+    ),
     value: credentials.applicationId,
     actor: 'cli:discord-connect',
     label: 'Discord application ID',
@@ -271,6 +293,7 @@ export async function runDiscordConnectCommand(
       }
       return 1;
     }
+    await Promise.all([botSecret.persist(), applicationSecret.persist()]);
     const registered = await registerDiscordMainGroup({
       runtimeHome,
       chatJid: verified.chatJid,
@@ -279,6 +302,10 @@ export async function runDiscordConnectCommand(
         requestedAgentDisplayName ||
         currentSettings.agent.name,
       agentId: requestedAgentId,
+      runtimeSecretRefs: {
+        bot_token: botSecret.ref,
+        application_id: applicationSecret.ref,
+      },
     });
     registeredFolder = registered.folder;
     conversationRouteName = registered.groupName;
@@ -289,7 +316,9 @@ export async function runDiscordConnectCommand(
     );
   }
 
-  await Promise.all([botSecret.persist(), applicationSecret.persist()]);
+  if (channelChoice.type !== 'selected') {
+    await Promise.all([botSecret.persist(), applicationSecret.persist()]);
+  }
   const settings = loadRuntimeSettings(runtimeHome);
   const previousSettings = structuredClone(settings);
   const previousDiscordEnabled = settings.providers.discord?.enabled ?? false;

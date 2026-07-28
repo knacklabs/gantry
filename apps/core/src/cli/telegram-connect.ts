@@ -19,6 +19,7 @@ import {
 } from './telegram.js';
 import { planRuntimeSecretInput } from './runtime-secret-ref-prompt.js';
 import { providerAccountIdForAgent } from './provider-utils.js';
+import { runtimeSecretNameForAgent } from '../domain/provider/provider-runtime-secret-keys.js';
 
 type TelegramChatChoice =
   | {
@@ -194,6 +195,8 @@ export async function runTelegramConnectCommand(
 ): Promise<number> {
   ensureRuntimeLayout(runtimeHome);
   const requestedAgentDisplayName = requestedAgentName?.trim();
+  const credentialOwnerName =
+    requestedAgentDisplayName || loadRuntimeSettings(runtimeHome).agent.name;
   const env = readTelegramFromRuntimeEnv(runtimeHome);
   p.note(
     [
@@ -221,7 +224,11 @@ export async function runTelegramConnectCommand(
 
   const tokenSecret = await planRuntimeSecretInput({
     runtimeHome,
-    name: 'TELEGRAM_BOT_TOKEN',
+    name: runtimeSecretNameForAgent(
+      'telegram',
+      credentialOwnerName,
+      'BOT_TOKEN',
+    ),
     value: tokenInput,
     actor: 'cli:telegram-connect',
     label: 'Telegram bot token',
@@ -267,6 +274,7 @@ export async function runTelegramConnectCommand(
       if (access.nextAction) p.log.info(access.nextAction);
       return 1;
     }
+    await tokenSecret.persist();
 
     const registered = await registerTelegramMainGroup({
       runtimeHome,
@@ -276,6 +284,9 @@ export async function runTelegramConnectCommand(
         requestedAgentDisplayName ||
         currentSettings.agent.name,
       agentId: requestedAgentId,
+      runtimeSecretRefs: {
+        bot_token: tokenSecret.ref,
+      },
     });
     registeredFolder = registered.folder;
     conversationRouteName = registered.groupName;
@@ -285,7 +296,9 @@ export async function runTelegramConnectCommand(
     );
   }
 
-  await tokenSecret.persist();
+  if (!normalizedChatJid) {
+    await tokenSecret.persist();
+  }
   const settings = loadRuntimeSettings(runtimeHome);
   const previousSettings = structuredClone(settings);
   settings.providers.telegram.enabled = true;

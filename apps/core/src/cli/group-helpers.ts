@@ -377,10 +377,11 @@ export async function syncConfiguredConversationBinding(input: {
   displayName: string;
   trigger: string;
   requiresTrigger: boolean;
+  runtimeSecretRefs?: Record<string, string>;
 }): Promise<void> {
   const settings = loadRuntimeSettings(input.runtimeHome);
   const previousSettings = structuredClone(settings);
-  ensureConfiguredConversationBinding(settings, {
+  const binding = ensureConfiguredConversationBinding(settings, {
     agentId: input.agentId,
     agentName: input.agentName,
     agentFolder: input.agentFolder,
@@ -389,6 +390,16 @@ export async function syncConfiguredConversationBinding(input: {
     trigger: input.trigger,
     requiresTrigger: input.requiresTrigger,
   });
+  if (input.runtimeSecretRefs) {
+    settings.providerAccounts[binding.providerConnectionId] = {
+      ...settings.providerAccounts[binding.providerConnectionId],
+      runtimeSecretRefs: {
+        ...settings.providerAccounts[binding.providerConnectionId]
+          ?.runtimeSecretRefs,
+        ...input.runtimeSecretRefs,
+      },
+    };
+  }
   await writeDesiredRuntimeSettings({
     runtimeHome: input.runtimeHome,
     settings,

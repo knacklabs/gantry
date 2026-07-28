@@ -27,7 +27,7 @@ import {
 import { runPostgresMigrations } from '../postgres-migrate.js';
 import { storeRuntimeSecretInput } from './credentials.js';
 import { DEFAULT_AGENT_FOLDER } from './main-agent.js';
-import { slackRuntimeSecretNameForAgent } from '../domain/provider/provider-runtime-secret-keys.js';
+import { runtimeSecretNameForAgent } from '../domain/provider/provider-runtime-secret-keys.js';
 import {
   readOnboardingState,
   writeOnboardingState,
@@ -306,7 +306,18 @@ function buildOnboardingSettings(input: {
       runtimeSecretRefs: {
         ...(settings.providerAccounts.telegram_default?.runtimeSecretRefs ||
           {}),
-        bot_token: gantryRuntimeSecretRef('TELEGRAM_BOT_TOKEN'),
+        ...(hasTelegramBotToken ||
+        !settings.providerAccounts.telegram_default?.runtimeSecretRefs.bot_token
+          ? {
+              bot_token: gantryRuntimeSecretRef(
+                runtimeSecretNameForAgent(
+                  'telegram',
+                  settings.agent.name,
+                  'BOT_TOKEN',
+                ),
+              ),
+            }
+          : {}),
       },
     };
   }
@@ -329,13 +340,15 @@ function buildOnboardingSettings(input: {
         ...(hasSlackTokens
           ? {
               bot_token: gantryRuntimeSecretRef(
-                slackRuntimeSecretNameForAgent(
+                runtimeSecretNameForAgent(
+                  'slack',
                   settings.agent.name,
                   'BOT_TOKEN',
                 ),
               ),
               app_token: gantryRuntimeSecretRef(
-                slackRuntimeSecretNameForAgent(
+                runtimeSecretNameForAgent(
+                  'slack',
                   settings.agent.name,
                   'APP_TOKEN',
                 ),
@@ -372,7 +385,11 @@ async function storeOnboardingRuntimeSecrets(
   if (input.telegramBotToken?.trim()) {
     await storeRuntimeSecretInput({
       runtimeHome: input.runtimeHome,
-      name: 'TELEGRAM_BOT_TOKEN',
+      name: runtimeSecretNameForAgent(
+        'telegram',
+        runtimeSettings.agent.name,
+        'BOT_TOKEN',
+      ),
       value: input.telegramBotToken.trim(),
       actor: 'cli:onboarding',
       runtimeSettings,
@@ -383,7 +400,8 @@ async function storeOnboardingRuntimeSecrets(
     await Promise.all([
       storeRuntimeSecretInput({
         runtimeHome: input.runtimeHome,
-        name: slackRuntimeSecretNameForAgent(
+        name: runtimeSecretNameForAgent(
+          'slack',
           runtimeSettings.agent.name,
           'BOT_TOKEN',
         ),
@@ -393,7 +411,8 @@ async function storeOnboardingRuntimeSecrets(
       }),
       storeRuntimeSecretInput({
         runtimeHome: input.runtimeHome,
-        name: slackRuntimeSecretNameForAgent(
+        name: runtimeSecretNameForAgent(
+          'slack',
           runtimeSettings.agent.name,
           'APP_TOKEN',
         ),

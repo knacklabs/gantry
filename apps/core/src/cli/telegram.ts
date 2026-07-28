@@ -317,6 +317,7 @@ export async function registerTelegramMainGroup(options: {
   chatJid: string;
   displayName: string;
   agentId?: string;
+  runtimeSecretRefs?: Record<string, string>;
 }): Promise<{ folder: string; groupName: string }> {
   ensureRuntimeLayout(options.runtimeHome);
   const db = await openRuntimeGroupDb(options.runtimeHome);
@@ -350,7 +351,6 @@ export async function registerTelegramMainGroup(options: {
       requiresTrigger: false,
       agentConfig: existingGroup?.agentConfig,
     };
-    await db.setConversationRoute(options.chatJid, route);
     await syncConfiguredConversationBinding({
       runtimeHome: options.runtimeHome,
       agentId: folder,
@@ -360,7 +360,9 @@ export async function registerTelegramMainGroup(options: {
       displayName: options.displayName,
       trigger: route.trigger,
       requiresTrigger: false,
+      runtimeSecretRefs: options.runtimeSecretRefs,
     });
+    await db.setConversationRoute(options.chatJid, route);
 
     await new PromptProfileService({
       fileArtifactStore: () => db.getFileArtifactStore(),

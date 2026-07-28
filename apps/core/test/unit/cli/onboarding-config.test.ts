@@ -151,13 +151,13 @@ describe('persistOnboardingConfig', () => {
     expect(events).toEqual([
       'migrate:custom_schema',
       'loadDesired:custom_schema',
-      'secret:TELEGRAM_BOT_TOKEN:custom_schema',
+      'secret:DEFAULT_AGENT_TELEGRAM_BOT_TOKEN:custom_schema',
       'write:custom_schema',
     ]);
     expect(settingsWrites).toHaveLength(1);
     expect(settingsWrites[0]?.telegramEnabled).toBe(true);
     expect(settingsWrites[0]?.telegramBotRef).toBe(
-      'gantry-secret:TELEGRAM_BOT_TOKEN',
+      'gantry-secret:DEFAULT_AGENT_TELEGRAM_BOT_TOKEN',
     );
     expect(settingsWrites[0]?.previousSchema).toBe('gantry');
     expect(settingsWrites[0]?.agentHarness).toBe('deepagents');
@@ -419,7 +419,7 @@ describe('persistOnboardingConfig', () => {
     expect(events).toEqual(['loadDesired:gantry', 'write:gantry']);
     expect(settingsWrites.at(-1)).toMatchObject({
       telegramEnabled: true,
-      telegramBotRef: 'gantry-secret:TELEGRAM_BOT_TOKEN',
+      telegramBotRef: 'gantry-secret:DEFAULT_AGENT_TELEGRAM_BOT_TOKEN',
     });
   });
 
