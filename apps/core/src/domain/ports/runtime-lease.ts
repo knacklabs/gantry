@@ -1,4 +1,5 @@
 export interface RuntimeLease {
+  isValid: () => boolean;
   onLost?: (handler: (err: Error) => void) => void;
   release: () => Promise<void>;
 }

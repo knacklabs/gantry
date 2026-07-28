@@ -2968,13 +2968,14 @@ describe('TelegramChannel', () => {
       }
     });
 
-    it('retains a newly acquired lease when the poller is already running', async () => {
+    it('reacquires the lease after loss stops the running poller', async () => {
       vi.useFakeTimers();
       try {
         const lostHandlers: Array<(err: Error) => void> = [];
         const releases = [vi.fn().mockResolvedValue(undefined), vi.fn()];
         releases[1]!.mockResolvedValue(undefined);
         const leases = releases.map((release) => ({
+          isValid: vi.fn(() => true),
           release,
           onLost: vi.fn((handler: (err: Error) => void) => {
             lostHandlers.push(handler);
@@ -3003,11 +3004,52 @@ describe('TelegramChannel', () => {
           expect(runtimeLease.tryAcquire).toHaveBeenCalledTimes(2),
         );
 
-        expect(startSpy).not.toHaveBeenCalled();
+        expect(startSpy).toHaveBeenCalledOnce();
         expect(releases[1]).not.toHaveBeenCalled();
         expect(logger.warn).not.toHaveBeenCalledWith(
           'Telegram polling stopped unexpectedly',
         );
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('stops the bot before scheduling a retry after poll lease loss', async () => {
+      vi.useFakeTimers();
+      try {
+        let lostHandler: ((err: Error) => void) | undefined;
+        const lease = {
+          isValid: vi.fn(() => true),
+          release: vi.fn(async () => undefined),
+          onLost: vi.fn((handler: (err: Error) => void) => {
+            lostHandler = handler;
+          }),
+        };
+        const channel = new TelegramChannel(
+          'test-token',
+          createTestOpts({
+            runtimeLease: {
+              tryAcquire: vi.fn(async () => lease),
+            },
+          }),
+        );
+
+        await channel.connect();
+        await vi.waitFor(() => expect(lostHandler).toBeTypeOf('function'));
+        const stopSpy = vi.spyOn(currentBot(), 'stop');
+        const scheduleRetrySpy = vi.spyOn(
+          channel as any,
+          'schedulePollingRetry',
+        );
+
+        lostHandler?.(new Error('poll lease lost'));
+
+        expect(stopSpy).toHaveBeenCalledOnce();
+        expect(scheduleRetrySpy).toHaveBeenCalledOnce();
+        expect(stopSpy.mock.invocationCallOrder[0]).toBeLessThan(
+          scheduleRetrySpy.mock.invocationCallOrder[0]!,
+        );
+        await channel.disconnect();
       } finally {
         vi.useRealTimers();
       }

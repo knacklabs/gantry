@@ -118,6 +118,7 @@ export async function tryAcquireRuntimeAdvisoryLease(
 ): Promise<RuntimeLease | undefined> {
   const client = await getRuntimeStorage().service.pool.connect();
   let released = false;
+  let lostError: Error | undefined;
   try {
     const result = await client.query<{ acquired: boolean }>(
       'SELECT pg_try_advisory_lock(hashtextextended($1, 0)) AS acquired',
@@ -131,6 +132,7 @@ export async function tryAcquireRuntimeAdvisoryLease(
     const lostHandlers = new Set<(err: Error) => void>();
     const notifyLost = (err: Error) => {
       if (released) return;
+      lostError = err;
       released = true;
       for (const handler of [...lostHandlers]) handler(err);
       client.removeListener('error', notifyLost);
@@ -147,8 +149,10 @@ export async function tryAcquireRuntimeAdvisoryLease(
     client.once('error', notifyLost);
     client.once('end', notifyEnd);
     return {
+      isValid: () => !lostError && !released,
       onLost: (handler) => {
-        lostHandlers.add(handler);
+        if (lostError) handler(lostError);
+        else lostHandlers.add(handler);
       },
       release: async () => {
         if (released) return;

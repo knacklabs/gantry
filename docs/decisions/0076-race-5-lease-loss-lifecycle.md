@@ -15,10 +15,10 @@ can be **silently missed**:
   (`apps/core/src/domain/ports/runtime-lease.ts:1-6`) — no validity state.
 - The Postgres implementation fires the handler set that exists **at the moment of
   loss** and never replays: `notifyLost` sets `released = true` and iterates
-  `lostHandlers` (`adapters/storage/postgres/runtime-store.ts:131-135`), while a
+  `lostHandlers` (`apps/core/src/adapters/storage/postgres/runtime-store.ts:131-135`), while a
   later `onLost` call merely `.add()`s to the set
-  (`runtime-store.ts:149`). A handler registered *after* loss never fires.
-- `provider-account-channel-connect.ts` acquires the inbound lease (`:180-182`),
+  (`apps/core/src/adapters/storage/postgres/runtime-store.ts:149`). A handler registered *after* loss never fires.
+- `apps/core/src/channels/provider-account-channel-connect.ts` acquires the inbound lease (`:180-182`),
   **awaits `channel.connect(...)`** (`:201-204`), and only then registers the loss
   handler (`:209-211`). `connect` does real blocking work per provider — Slack
   `app.start()` + `auth.test()`, Discord gateway discovery + `gateway.connect()`,
@@ -26,14 +26,14 @@ can be **silently missed**:
   forever, and the channel is published as an active inbound owner anyway. Teardown
   on loss is also fire-and-forget (`:216`).
 - Telegram's poll-lease loss handler drops the lease reference and schedules a retry
-  but **never stops the running bot** (`channels/telegram/channel-polling.ts:52-60`,
-  versus the normal disconnect path at `telegram/disconnect.ts:101`), so two pollers
+  but **never stops the running bot** (`apps/core/src/channels/telegram/channel-polling.ts:52-60`,
+  versus the normal disconnect path at `apps/core/src/channels/telegram/disconnect.ts:101`), so two pollers
   can consume the same account.
 
 The fix shape already exists in this repo. RACE-4's browser-profile wrapper
 implements exactly the missing semantics — it stores `lostError`, exposes `isValid`,
 and immediately invokes a handler registered after loss
-(`runtime/browser-profiles.ts:241, 252-253`). This decision promotes that proven
+(`apps/core/src/runtime/browser-profiles.ts:241, 252-253`). This decision promotes that proven
 pattern into the port rather than inventing anything.
 
 ## Decision
@@ -41,7 +41,7 @@ pattern into the port rather than inventing anything.
 1. **Loss becomes replayable and queryable on the port.** `RuntimeLease` gains
    `isValid()`, and `onLost` replays to a late subscriber when the lease has already
    been lost. The Postgres implementation retains the loss error and answers both.
-   This is the `browser-profiles.ts` behaviour, moved to where every consumer gets it.
+   This is the `apps/core/src/runtime/browser-profiles.ts` behaviour, moved to where every consumer gets it.
 
 2. **Register before connect, verify after.** The inbound path registers the loss
    handler **immediately after acquisition**, before any `await`, and after
@@ -77,13 +77,13 @@ browser-profile ownership (`browser-profile-snapshot.ts:10/25`), so RACE-4b need
 
 ## Consequences
 
-- **Touched:** `domain/ports/runtime-lease.ts`, `adapters/storage/postgres/runtime-store.ts`,
-  `channels/provider-account-channel-connect.ts`,
-  `channels/telegram/channel-polling.ts`, their tests, and mechanical updates to lease
+- **Touched:** `apps/core/src/domain/ports/runtime-lease.ts`, `apps/core/src/adapters/storage/postgres/runtime-store.ts`,
+  `apps/core/src/channels/provider-account-channel-connect.ts`,
+  `apps/core/src/channels/telegram/channel-polling.ts`, their tests, and mechanical updates to lease
   fakes in tests that construct a lease literal.
 - **`isValid()` required on the port** means every lease fake must supply it — a
   compile error rather than a silent gap, matching RACE-8's precedent.
-- `runtime/browser-profiles.ts` keeps working unchanged; its local wrapper becomes
+- `apps/core/src/runtime/browser-profiles.ts` keeps working unchanged; its local wrapper becomes
   redundant with the port and can be simplified later (not in this slice, to keep the
   diff honest).
 - **Behaviour change:** an inbound channel whose lease was lost during `connect` is no

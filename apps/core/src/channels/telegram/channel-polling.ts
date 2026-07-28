@@ -53,6 +53,7 @@ export abstract class TelegramChannelPolling extends TelegramChannelState {
       if (this.pollingLease !== lease) return;
       this.pollingLease = null;
       if (this.isStopping) return;
+      if (this.isTelegramBotRunning()) this.bot?.stop();
       logger.warn(
         { err, leaseKey },
         'Telegram polling lease connection was lost; scheduling retry',

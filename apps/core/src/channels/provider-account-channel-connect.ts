@@ -172,6 +172,16 @@ export async function connectProviderAccountChannels(input: {
       input.inboundEnabled &&
       (!inboundKey || !attemptedInboundKeys.has(inboundKey));
     let providerInboundLease: RuntimeLease | undefined;
+    let providerInboundLeaseLost: Error | undefined;
+    let channelConnected = false;
+    let leaseLossTeardown: Promise<void> | undefined;
+    const disconnectAfterLeaseLoss = () =>
+      (leaseLossTeardown ??= channel.disconnect().catch((disconnectErr) => {
+        input.logger.warn(
+          { err: disconnectErr, channel: input.provider.id, providerAccountId },
+          'Failed to disconnect channel after provider account inbound lease loss',
+        );
+      }));
     if (providerInbound && inboundKey) attemptedInboundKeys.add(inboundKey);
     if (
       providerInbound &&
@@ -181,6 +191,15 @@ export async function connectProviderAccountChannels(input: {
         `${input.inboundLeasePrefix}:${input.provider.id}:${providerAccountId}`,
       );
       providerInbound = providerInboundLease !== undefined;
+      providerInboundLease?.onLost?.((err) => {
+        if (providerInboundLeaseLost) return;
+        providerInboundLeaseLost = err;
+        input.logger.warn(
+          { err, channel: input.provider.id, providerAccountId },
+          'Provider Account inbound lease lost; disconnecting channel',
+        );
+        if (channelConnected) return disconnectAfterLeaseLoss();
+      });
       if (!providerInbound) {
         input.logger.info(
           { channel: input.provider.id, providerAccountId },
@@ -190,6 +209,23 @@ export async function connectProviderAccountChannels(input: {
     }
 
     try {
+      await channel.connect({
+        inbound: providerInbound,
+        interactionCallbacks: providerInbound,
+      });
+      channelConnected = true;
+      if (
+        providerInboundLease &&
+        (providerInboundLeaseLost || !providerInboundLease.isValid())
+      ) {
+        await disconnectAfterLeaseLoss();
+        throw (
+          providerInboundLeaseLost ??
+          new Error(
+            `Provider Account inbound lease became invalid during connect: ${input.provider.id}/${providerAccountId}`,
+          )
+        );
+      }
       input.connectedChannels.push({
         channel,
         providerId: input.provider.id,
@@ -198,27 +234,11 @@ export async function connectProviderAccountChannels(input: {
         interactionCallbacks: providerInbound,
         agentId,
       });
-      await channel.connect({
-        inbound: providerInbound,
-        interactionCallbacks: providerInbound,
-      });
     } catch (err) {
       await providerInboundLease?.release();
       throw err;
     }
     if (!providerInboundLease) continue;
     input.connectedChannelLeases.push(providerInboundLease);
-    providerInboundLease.onLost?.((err) => {
-      input.logger.warn(
-        { err, channel: input.provider.id, providerAccountId },
-        'Provider Account inbound lease lost; disconnecting channel',
-      );
-      void channel.disconnect().catch((disconnectErr) => {
-        input.logger.warn(
-          { err: disconnectErr, channel: input.provider.id, providerAccountId },
-          'Failed to disconnect channel after provider account inbound lease loss',
-        );
-      });
-    });
   }
 }
