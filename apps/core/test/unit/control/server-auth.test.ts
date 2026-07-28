@@ -1234,6 +1234,45 @@ describe('control server runtime hardening', () => {
       expect(body.models).toEqual(
         expect.arrayContaining([
           expect.objectContaining({
+            displayName: 'GPT-5.6 Terra',
+            aliases: ['gpt-terra', 'gpt-5.6-terra'],
+            supportedWorkloads: [
+              'chat',
+              'memory_extractor',
+              'memory_dreaming',
+              'memory_consolidation',
+            ],
+            inputUsdPerMillionTokens: 2.5,
+            outputUsdPerMillionTokens: 15,
+          }),
+          expect.objectContaining({
+            displayName: 'GPT-5.6 Luna',
+            aliases: ['gpt-luna', 'gpt-5.6-luna'],
+            supportedWorkloads: [
+              'chat',
+              'memory_extractor',
+              'memory_dreaming',
+              'memory_consolidation',
+            ],
+            inputUsdPerMillionTokens: 1,
+            outputUsdPerMillionTokens: 6,
+          }),
+          expect.objectContaining({
+            displayName: 'Grok 4.5',
+            aliases: ['grok', 'grok-4.5'],
+            supportedWorkloads: expect.arrayContaining([
+              'chat',
+              'one_time_job',
+              'recurring_job',
+            ]),
+            inputUsdPerMillionTokens: 2,
+            outputUsdPerMillionTokens: 6,
+          }),
+          expect.objectContaining({
+            displayName: 'Grok 4.3',
+            aliases: ['grok-4.3'],
+          }),
+          expect.objectContaining({
             displayName: 'Kimi K2.6',
             aliases: expect.arrayContaining(['kimi', 'kimi-k2.6']),
             responseFamily: 'anthropic',

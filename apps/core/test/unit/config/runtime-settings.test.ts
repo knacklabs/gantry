@@ -654,6 +654,44 @@ provider_accounts:
     expect(parsed.agent.recurringJobDefaultModel).toBe('opus-4.6');
   });
 
+  it('round-trips the new built-in aliases and enforces their workloads', () => {
+    const settings = createDefaultRuntimeSettings();
+    settings.agent.defaultModel = 'gpt-terra';
+    settings.agent.oneTimeJobDefaultModel = 'grok';
+    settings.agent.recurringJobDefaultModel = 'grok-4.5';
+    settings.memory.llm.models.extractor = 'gpt-luna';
+
+    const yaml = renderRuntimeSettingsYaml(settings);
+    expect(yaml).not.toContain('model_aliases:');
+    const parsed = parseRuntimeSettings(yaml);
+    expect(parsed.agent.defaultModel).toBe('gpt-terra');
+    expect(parsed.agent.oneTimeJobDefaultModel).toBe('grok');
+    expect(parsed.agent.recurringJobDefaultModel).toBe('grok-4.5');
+    expect(parsed.memory.llm.models.extractor).toBe('gpt-luna');
+
+    const valid = validateLoadedRuntimeSettings('/tmp/gantry-missing', parsed);
+    expect(valid.failure?.details.join('\n') ?? '').not.toContain(
+      'model is invalid',
+    );
+
+    parsed.agent.oneTimeJobDefaultModel = 'gpt-terra';
+    parsed.agent.recurringJobDefaultModel = 'gpt-luna';
+    const invalid = validateLoadedRuntimeSettings(
+      '/tmp/gantry-missing',
+      parsed,
+    );
+    expect(invalid.failure?.details).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining(
+          'agent.one_time_job_default_model is invalid: Model alias "gpt-terra"',
+        ),
+        expect.stringContaining(
+          'agent.recurring_job_default_model is invalid: Model alias "gpt-luna"',
+        ),
+      ]),
+    );
+  });
+
   it('round-trips per-agent source status and mcp tool scope through settings.yaml', () => {
     const settings = createDefaultRuntimeSettings();
     settings.agents.main_agent = {

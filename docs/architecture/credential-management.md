@@ -126,8 +126,8 @@ with `purpose=model_runtime` through the Gantry Model Gateway; it is not bound
 to an individual agent, conversation, memory worker, subagent, or job. Agents,
 subagents, jobs, and memory workers select catalog model aliases only. Model
 credentials are configured once with `gantry credentials model set <provider>`
-for providers such as `anthropic`, `openrouter`, `openai`, `bedrock`, and
-`vertex`, then projected through the Gantry Model Gateway according to the
+for providers such as `anthropic`, `openrouter`, `openai`, `xai`, `bedrock`,
+and `vertex`, then projected through the Gantry Model Gateway according to the
 selected model provider or embedding provider. Each provider exposes explicit
 credential modes through the control API as `credentialModes`; Anthropic
 supports `api_key` and `claude_code_oauth`, OpenRouter and OpenAI use
@@ -152,12 +152,13 @@ compatible and otherwise fails before runner spawn:
 | -------------------- | ------------------- | ---------------------------------- | ------------------------------------------------------------- |
 | `anthropic` (Claude) | `anthropic_sdk`     | `anthropic_sdk`                    | `api_key` + `claude_code_oauth`                               |
 | `openai`             | `deepagents`        | `deepagents`                       | `api_key`                                                     |
+| `xai`                | `deepagents`        | `deepagents`                       | `api_key`                                                     |
 | `openrouter`         | `deepagents`        | `deepagents`                       | `api_key`                                                     |
 | `bedrock`            | `deepagents`        | `deepagents`                       | `aws_default_chain`, `bedrock_api_key_ref`, `bedrock_api_key` |
 | `vertex`             | `deepagents`        | `deepagents`                       | `google_adc`, `service_account_ref`, `service_account`        |
 
 Anthropic SDK is the only Claude OAuth/subscription lane and also runs Anthropic
-API-key models. DeepAgents is the OpenAI-compatible harness for OpenAI,
+API-key models. DeepAgents is the OpenAI-compatible harness for OpenAI, xAI,
 OpenRouter, Bedrock, and Vertex routes through the Gantry Model Gateway and
 cannot use Claude OAuth/subscription credentials. Bedrock `aws_default_chain`
 uses the host AWS credential chain to SigV4-sign requests to the regional
@@ -177,6 +178,58 @@ Anthropic SDK lane; the DeepAgents lane fails closed if it ever resolves one
 DeepAgents runner authority remains Gantry-owned and wrapped: raw `execute`, raw
 local filesystem access, raw `.mcp.json`, and raw provider credentials are not
 projected to the runner.
+
+### GPT-5.6 and Grok 4.5 aliases
+
+Configure Model Access through the existing secret flow, then select a catalog
+alias:
+
+```sh
+gantry credentials model set openai
+gantry credentials model set xai
+
+gantry model set chat gpt-terra
+gantry model set chat gpt-luna
+gantry model set chat grok
+```
+
+No API key belongs in `settings.yaml`. `gpt-terra` and `gpt-luna` support chat
+and the three memory workloads; they are intentionally not offered for
+one-time or recurring jobs. `grok` now selects Grok 4.5 for chat, memory, and
+jobs, while the pinned `grok-4.3` alias remains available.
+
+Official token prices below are USD per 1 million tokens. The catalog and CLI
+show the base input/output rates only; Gantry's current estimator does not
+calculate the long-context tiers or separate server-tool charges.
+
+| Alias       | Context / max output       | Base input | Cached input | Base output |
+| ----------- | -------------------------- | ---------: | -----------: | ----------: |
+| `gpt-terra` | 1,050,000 / 128,000 tokens |      $2.50 |        $0.25 |      $15.00 |
+| `gpt-luna`  | 1,050,000 / 128,000 tokens |      $1.00 |        $0.10 |       $6.00 |
+| `grok`      | 500,000 / not published    |      $2.00 |        $0.30 |       $6.00 |
+
+For GPT-5.6 Terra and Luna, a prompt over 272,000 input tokens bills the whole
+request at 2x the input rate and 1.5x the output rate. Prompt-cache writes cost
+1.25x uncached input: $3.125 for Terra and $1.25 for Luna per million tokens.
+See the official [Terra model card](https://developers.openai.com/api/docs/models/gpt-5.6-terra),
+[Luna model card](https://developers.openai.com/api/docs/models/gpt-5.6-luna),
+and [latest-model guide](https://developers.openai.com/api/docs/guides/latest-model).
+
+For Grok 4.5, the table is the short-context tier below 200,000 input tokens.
+At 200,000 or more input tokens, xAI bills the full request at $4.00 input,
+$0.60 cached input, and $12.00 output per million tokens. Server tools are
+additional: Web Search, X Search, and code execution cost $5 per 1,000 calls;
+attachment search costs $10 per 1,000 calls; collection/file search costs
+$2.50 per 1,000 calls. See xAI's official
+[Grok 4.5 model card](https://docs.x.ai/developers/models/grok-4.5) and
+[pricing](https://docs.x.ai/developers/pricing).
+
+Upstream, Terra and Luna accept reasoning effort from `none` through `max`;
+Gantry currently projects only its supported OpenAI effort levels and does not
+expose `max`. Grok 4.5 always reasons and supports `low`, `medium`, and `high`
+upstream, but Gantry does not currently expose xAI reasoning-effort selection.
+These are control-surface limits, not claims that the upstream models lack the
+capability.
 
 Host-side memory (extraction, dreaming, consolidation) has no engine selector
 either (the retired `memory.engine` key is rejected at settings validation). The

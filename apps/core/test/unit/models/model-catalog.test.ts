@@ -721,7 +721,7 @@ describe('model catalog resolution', () => {
     const output = formatModelCatalog({ defaults: { chat: 'opus' } });
     // Header carries the Context + Cost columns; Gemini Pro shows the 1M window.
     expect(output).toContain(
-      'Alias | Model | Response family | Route | Context | Cache | Cost (in/out per 1M) | Status',
+      'Alias | Model | Response family | Route | Context | Cache | Base cost (in/out per 1M) | Status',
     );
     expect(output).toMatch(/gemini \| Gemini 2\.5 Pro \|[^\n]*\| 1\.0M \|/);
     expect(output).toMatch(/groq \| Groq Llama 3\.3 70B[^\n]*\| 131K \|/);

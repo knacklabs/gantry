@@ -49,8 +49,12 @@ describe('model CLI command', () => {
     expect(output).toContain('Available model aliases');
     // The Context column sits between Route and Cache; Cost follows Cache.
     expect(output).toContain(
-      'Alias | Model | Response family | Route | Context | Cache | Cost (in/out per 1M) | Status',
+      'Alias | Model | Response family | Route | Context | Cache | Base cost (in/out per 1M) | Status',
     );
+    expect(output).toContain('gpt-terra | GPT-5.6 Terra');
+    expect(output).toContain('gpt-luna | GPT-5.6 Luna');
+    expect(output).toContain('grok | Grok 4.5');
+    expect(output).toContain('grok-4.3 | Grok 4.3');
     // Curated prices render in the new Cost column.
     expect(output).toMatch(
       /groq \| Groq Llama 3\.3 70B[^\n]*\| \$0\.59\/\$0\.79 \|/,
@@ -470,5 +474,29 @@ describe('model CLI command', () => {
     expect(output).toContain('Model status');
     expect(output).toContain('provider: openai (OpenAI)');
     logSpy.mockRestore();
+  });
+
+  it('shows the new aliases through status and why without changing gpt', async () => {
+    const runtimeHome = makeRuntimeHome();
+    const settings = loadRuntimeSettings(runtimeHome);
+    settings.agent.defaultModel = 'gpt-terra';
+    saveRuntimeSettings(runtimeHome, settings);
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+
+    await expect(runModelCommand(runtimeHome, ['status'])).resolves.toBe(0);
+    expect(logSpy.mock.calls.at(-1)?.[0]).toContain('GPT-5.6 Terra');
+
+    await expect(
+      runModelCommand(runtimeHome, ['why', 'gpt-luna']),
+    ).resolves.toBe(0);
+    expect(logSpy.mock.calls.at(-1)?.[0]).toContain('Why model gpt-luna');
+
+    await expect(runModelCommand(runtimeHome, ['why', 'grok'])).resolves.toBe(
+      0,
+    );
+    expect(logSpy.mock.calls.at(-1)?.[0]).toContain('Grok 4.5');
+
+    await expect(runModelCommand(runtimeHome, ['why', 'gpt'])).resolves.toBe(0);
+    expect(logSpy.mock.calls.at(-1)?.[0]).toContain('GPT-5.5');
   });
 });

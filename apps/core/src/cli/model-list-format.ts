@@ -245,8 +245,8 @@ export function formatModelList(
   const { configuredProviders, familyOrder } = availability;
   const hasAvailability = configuredProviders !== undefined;
   const header = hasAvailability
-    ? 'Alias | Model | Response family | Route | Context | Cache | Cost (in/out per 1M) | Availability | Status'
-    : 'Alias | Model | Response family | Route | Context | Cache | Cost (in/out per 1M) | Status';
+    ? 'Alias | Model | Response family | Route | Context | Cache | Base cost (in/out per 1M) | Availability | Status'
+    : 'Alias | Model | Response family | Route | Context | Cache | Base cost (in/out per 1M) | Status';
   const rows = [
     'Available model aliases',
     header,
