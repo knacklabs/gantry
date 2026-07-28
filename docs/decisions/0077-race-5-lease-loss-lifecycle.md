@@ -65,14 +65,14 @@ durable rejection of a stale owner's already-dispatched work, and does not prete
   and Discord interactions). A callback can also pass a precheck and stay queued while
   persistence runs async. Fencing dispatched events therefore needs the durable
   generation **plus** per-event-class conditional writes — a separate, larger task.
-- **No abort of an in-flight `connect`** (deferral **D-0018**). Ownership is checked
+- **No abort of an in-flight `connect`** (deferral **D-0020**). Ownership is checked
   immediately before and immediately after `channel.connect`, but a lease lost *during*
   it cannot stop the attempt: providers start their inbound transport partway through a
   multi-step connect (Slack `app.start()` before `auth.test()`, Discord
   `gateway.connect()`), so closing that window needs a cancellable/raced connect or
   inbound admission deferred until post-connect revalidation — a change to the channel
   connect contract, not a check.
-- **No confirmation of a failed loss teardown** (deferral **D-0019**). An unconfirmed
+- **No confirmation of a failed loss teardown** (deferral **D-0021**). An unconfirmed
   disconnect after loss is logged, not acted on; that is the same
   teardown-confirmation problem as RACE-4b and belongs with the fencing contract.
 
