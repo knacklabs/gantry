@@ -138,6 +138,63 @@ describe('connectProviderAccountChannels', () => {
     );
   });
 
+  it('degrades to outbound-only when the lease is already lost before connect', async () => {
+    // onLost replays synchronously, so the loss is known before connect. Losing
+    // inbound must not also cost the ability to SEND — the account should still
+    // connect outbound-only, as it does under ordinary lease contention.
+    const lossError = new Error('inbound lease lost before connect');
+    const lease = {
+      isValid: vi.fn(() => false),
+      onLost: vi.fn((handler: (err: Error) => void) => {
+        handler(lossError);
+      }),
+      release: vi.fn(async () => undefined),
+    };
+    const activeChannel = channel();
+    vi.mocked(activeChannel.connect).mockImplementation(async () => undefined);
+    const connectedChannels: Parameters<
+      typeof connectProviderAccountChannels
+    >[0]['connectedChannels'] = [];
+    const connectedChannelLeases: Parameters<
+      typeof connectProviderAccountChannels
+    >[0]['connectedChannelLeases'] = [];
+    const logger = { info: vi.fn(), warn: vi.fn() };
+
+    await connectProviderAccountChannels({
+      provider: provider(vi.fn(async () => activeChannel)),
+      appId: 'app-one',
+      runtimeSettings: {
+        providerAccounts: {
+          slack_one: {
+            provider: 'slack',
+            agentId: 'agent:one',
+            runtimeSecretRefs: { app_token: 'same', bot_token: 'same-bot' },
+          },
+        },
+        runtime: { deploymentMode: 'fleet' },
+      },
+      channelOpts: {
+        ...channelOpts(),
+        runtimeLease: { tryAcquire: vi.fn(async () => lease) },
+      },
+      inboundEnabled: true,
+      connectedChannels,
+      connectedChannelLeases,
+      inboundLeasePrefix: 'runtime:provider-inbound',
+      logger,
+    });
+
+    // Connected, but inbound disabled, and the dead lease released and not retained.
+    expect(activeChannel.connect).toHaveBeenCalledOnce();
+    expect(vi.mocked(activeChannel.connect).mock.calls[0]![0]).toMatchObject({
+      inbound: false,
+    });
+    expect(connectedChannels).toHaveLength(1);
+    expect(connectedChannelLeases).toEqual([]);
+    expect(lease.release).toHaveBeenCalledOnce();
+    expect(activeChannel.disconnect).not.toHaveBeenCalled();
+  });
+
   it('connects one inbound transport for provider accounts sharing secret refs', async () => {
     const channels = [channel(), channel()];
     const create = vi
