@@ -419,27 +419,28 @@ Always mention the migration impact.
         },
       ],
     };
+    const skill = {
+      id: 'skill:release',
+      appId: 'app:test',
+      name: 'release-writer',
+      source: 'admin_uploaded',
+      status: 'installed',
+      promptRefs: [],
+      toolIds: [],
+      workflowRefs: [],
+      storage: {
+        storageType: 'object-store',
+        storageRef: 'skill-release',
+        contentHash: hashSkillBundle(skillBundle),
+        sizeBytes: skillContent.length,
+      },
+      createdAt: new Date(0).toISOString(),
+      updatedAt: new Date(0).toISOString(),
+    };
     const skillRepository = {
-      listEnabledSkillsForAgent: vi.fn(async () => [
-        {
-          id: 'skill:release',
-          appId: 'app:test',
-          name: 'release-writer',
-          source: 'admin_uploaded',
-          status: 'installed',
-          promptRefs: [],
-          toolIds: [],
-          workflowRefs: [],
-          storage: {
-            storageType: 'object-store',
-            storageRef: 'skill-release',
-            contentHash: hashSkillBundle(skillBundle),
-            sizeBytes: skillContent.length,
-          },
-          createdAt: new Date(0).toISOString(),
-          updatedAt: new Date(0).toISOString(),
-        },
-      ]),
+      listEnabledSkillsForAgent: vi.fn(async () => {
+        throw new Error('unexpected enabled skill read');
+      }),
     };
     const skillArtifactStore = {
       getSkillArtifact: vi.fn(async () => skillBundle),
@@ -469,6 +470,16 @@ Always mention the migration impact.
       skillRepository,
       skillArtifactStore,
       skillContext: { appId: 'app:test', agentId: 'agent:test' },
+      accessSnapshot: {
+        appId: 'app:test',
+        agentId: 'agent:test',
+        tools: { activeBindings: [], appActiveDefinitions: [] },
+        skills: {
+          activeBindings: [],
+          enabledDefinitions: [skill],
+        },
+        mcp: { activeBindings: [], materializedServers: [] },
+      },
     });
     const lane = createDeepAgentsInlineAgentLoopLane({
       databaseUrl: 'postgres://gantry:test@localhost:5432/gantry',
@@ -477,10 +488,7 @@ Always mention the migration impact.
 
     await lane(input);
 
-    expect(skillRepository.listEnabledSkillsForAgent).toHaveBeenCalledWith({
-      appId: 'app:test',
-      agentId: 'agent:test',
-    });
+    expect(skillRepository.listEnabledSkillsForAgent).not.toHaveBeenCalled();
     expect(skillArtifactStore.getSkillArtifact).toHaveBeenCalledWith(
       'skill-release',
     );

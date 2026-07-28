@@ -4,6 +4,7 @@ import {
   type ConfiguredAgentToolPolicy,
 } from './configured-agent-tools.js';
 import { resolveAgentToolRuntimePolicyFromSnapshot } from '../application/agents/agent-tool-runtime-rules.js';
+import type { AgentAccessSnapshot } from '../application/agent-execution/agent-access-snapshot.js';
 import type {
   AgentMcpAccessSnapshot,
   AgentSkillAccessSnapshot,
@@ -23,14 +24,6 @@ import {
   semanticCapabilityFromToolCatalogItem,
   type SemanticCapabilityDefinition,
 } from '../shared/semantic-capabilities.js';
-
-export interface AgentAccessSnapshot {
-  appId: string;
-  agentId: string;
-  tools: AgentToolAccessSnapshot;
-  skills: AgentSkillAccessSnapshot;
-  mcp: AgentMcpAccessSnapshot;
-}
 
 export function memoryScopeForConversationKind(
   conversationKind?: string,

@@ -3,6 +3,7 @@ import path from 'path';
 import type { SkillArtifactStore } from '../../../domain/ports/skill-artifact-store.js';
 import type { SkillCatalogRepository } from '../../../domain/ports/repositories.js';
 import { materializedSkillDirectoryNameFor } from '../../../domain/skills/skills.js';
+import type { AgentAccessSnapshot } from '../../../application/agent-execution/agent-access-snapshot.js';
 import type { DeepAgentSkillProjection } from '../../../application/agent-execution/agent-execution-adapter.js';
 import {
   resolveSelectedSkillProjection,
@@ -24,6 +25,7 @@ export async function resolveDeepAgentSkillProjection(input: {
   skillRepository?: SkillCatalogRepository;
   skillArtifactStore?: SkillArtifactStore;
   skillContext?: { appId: string; agentId: string };
+  accessSnapshot?: AgentAccessSnapshot;
   nowIso?: () => string;
 }): Promise<DeepAgentSkillProjection | undefined> {
   const selectedSkillIds = uniqueStrings(input.selectedSkillIds ?? []);
@@ -33,6 +35,7 @@ export async function resolveDeepAgentSkillProjection(input: {
     skillRepository: input.skillRepository,
     skillArtifactStore: input.skillArtifactStore,
     skillContext: input.skillContext,
+    accessSnapshot: input.accessSnapshot,
   });
   if (!projection) return undefined;
 

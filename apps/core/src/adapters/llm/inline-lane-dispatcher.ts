@@ -6,6 +6,7 @@ import type { HostnameLookup } from '../../domain/network/public-address-policy.
 import type { AgentFailureMetadata } from '../../domain/ports/async-tasks.js';
 import type { SkillArtifactStore } from '../../domain/ports/skill-artifact-store.js';
 import type { SkillCatalogRepository } from '../../domain/ports/repositories.js';
+import type { AgentAccessSnapshot } from '../../application/agent-execution/agent-access-snapshot.js';
 import type {
   AgentControlThinking,
   ConversationRoute,
@@ -93,6 +94,7 @@ export interface AdapterInlineAgentLoopLaneInput {
   skillRepository?: SkillCatalogRepository;
   skillArtifactStore?: SkillArtifactStore;
   skillContext?: { appId: string; agentId: string };
+  accessSnapshot?: AgentAccessSnapshot;
   runtimeDataDir: string;
   maxTurns?: number;
   effort?: InlineAgentEffort;

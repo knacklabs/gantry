@@ -216,6 +216,50 @@ describe('DeepAgentsLangChainExecutionAdapter', () => {
     expect(prepared.env.GANTRY_DEEPAGENTS_MAX_INPUT_TOKENS).toBeUndefined();
   });
 
+  it('uses snapshot skill rows for DeepAgents projection without rereading enabled skills', async () => {
+    const repo = {
+      listEnabledSkillsForAgent: vi.fn(async () => {
+        throw new Error('unexpected enabled skill read');
+      }),
+    } as Partial<SkillCatalogRepository> as SkillCatalogRepository;
+    const artifacts = skillArtifactStore();
+    const adapter = new DeepAgentsLangChainExecutionAdapter();
+
+    const prepared = await adapter.prepare(
+      prepareInput({
+        input: {
+          prompt: 'hello',
+          chatJid: 'tg:test',
+          attachedSkillSourceIds: ['skill:release'],
+        },
+        options: {
+          skillRepository: repo,
+          skillArtifactStore: artifacts,
+          skillContext: {
+            appId: 'app:test',
+            agentId: 'agent:test',
+          },
+          accessSnapshot: {
+            appId: 'app:test',
+            agentId: 'agent:test',
+            tools: { activeBindings: [], appActiveDefinitions: [] },
+            skills: {
+              activeBindings: [],
+              enabledDefinitions: [installedSkill()],
+            },
+            mcp: { activeBindings: [], materializedServers: [] },
+          },
+        },
+      }),
+    );
+
+    expect(repo.listEnabledSkillsForAgent).not.toHaveBeenCalled();
+    expect(prepared.runnerInputPatch?.deepAgentSkills).toMatchObject({
+      selectedSkillIds: ['skill:release'],
+      skillCount: 1,
+    });
+  });
+
   it('projects prompt cache keys only for provider-declared support', async () => {
     const adapter = new DeepAgentsLangChainExecutionAdapter();
 

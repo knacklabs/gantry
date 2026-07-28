@@ -40,10 +40,11 @@ import {
   type PermissionClassifierRuntimeConfig,
 } from '../../runtime/permission-classifier.js';
 import {
-  resolveTurnSelectedMcpServerIds,
-  resolveTurnSelectedSkillContext,
-  resolveTurnSemanticCapabilities,
-  resolveTurnToolPolicy,
+  loadAgentAccessSnapshot,
+  resolveTurnSemanticCapabilitiesFromSnapshot,
+  resolveTurnSelectedMcpServerIdsFromSnapshot,
+  resolveTurnSelectedSkillContextFromSnapshot,
+  resolveTurnToolPolicyFromSnapshot,
 } from '../../runtime/group-run-context.js';
 import { createCoreToolRegistry } from '../../runtime/core-tools/registry.js';
 import { createCoreToolSchemas } from '../../runtime/core-tools/schemas.js';
@@ -680,54 +681,55 @@ export function wireInlineAgentLoopTools(input: {
           const turnContext = laneInput.input.appId
             ? { appId: laneInput.input.appId, agentId }
             : undefined;
-          const [toolPolicy, selectedSkills, semanticCapabilities] =
-            await Promise.all([
-              resolveTurnToolPolicy(input, turnContext),
-              resolveTurnSelectedSkillContext(input, turnContext),
-              resolveTurnSemanticCapabilities(input, turnContext),
-            ]);
+          const accessSnapshot = await loadAgentAccessSnapshot(
+            input,
+            turnContext,
+          );
+          const toolPolicy = resolveTurnToolPolicyFromSnapshot(accessSnapshot);
+          const selectedSkills =
+            resolveTurnSelectedSkillContextFromSnapshot(accessSnapshot);
+          const semanticCapabilities =
+            resolveTurnSemanticCapabilitiesFromSnapshot(accessSnapshot);
           return {
             toolPolicyRules: toolPolicy.toolPolicyRules,
             runtimeAccess: toolPolicy.runtimeAccess,
             attachedSkillSourceIds: selectedSkills.ids,
             selectedSkillDisplays: selectedSkills.displays,
-            attachedMcpSourceIds: await resolveTurnSelectedMcpServerIds(
-              input,
-              turnContext,
-            ),
+            attachedMcpSourceIds:
+              resolveTurnSelectedMcpServerIdsFromSnapshot(accessSnapshot),
             semanticCapabilities,
+            accessSnapshot,
           };
         },
-        buildRunOptions: async (agentId) => ({
-          credentialBroker: await input.app.getCredentialBroker(),
-          skillRepository: input.getSkillRepository?.(),
-          skillArtifactStore: input.getSkillArtifactStore?.(),
-          skillContext: laneInput.input.appId
+        buildRunOptions: async (agentId, runAccess) => {
+          const skillContext = laneInput.input.appId
             ? {
                 appId: laneInput.input.appId,
                 agentId,
               }
-            : undefined,
-          mcpServerRepository: input.getMcpServerRepository?.(),
-          capabilitySecretRepository: input.getCapabilitySecretRepository?.(),
-          mcpContext: laneInput.input.appId
-            ? {
-                appId: laneInput.input.appId,
-                agentId,
-              }
-            : undefined,
-          mcpHostnameLookup: input.mcpHostnameLookup,
-          mcpDnsValidationCache: input.getMcpDnsValidationCache?.(),
-          publishRuntimeEvent: input.publishRuntimeEvent,
-          executionAdapter:
-            input.executionAdapter ?? input.app.executionAdapter,
-          executionAdapters:
-            input.executionAdapters ?? input.app.executionAdapters,
-          runnerSandboxProvider: input.app.runnerSandboxProvider,
-          asyncTaskRepositoryAvailable: Boolean(
-            input.getAsyncTaskRepository?.(),
-          ),
-        }),
+            : undefined;
+          return {
+            credentialBroker: await input.app.getCredentialBroker(),
+            skillRepository: input.getSkillRepository?.(),
+            skillArtifactStore: input.getSkillArtifactStore?.(),
+            skillContext,
+            accessSnapshot: runAccess.accessSnapshot,
+            mcpServerRepository: input.getMcpServerRepository?.(),
+            capabilitySecretRepository: input.getCapabilitySecretRepository?.(),
+            mcpContext: skillContext,
+            mcpHostnameLookup: input.mcpHostnameLookup,
+            mcpDnsValidationCache: input.getMcpDnsValidationCache?.(),
+            publishRuntimeEvent: input.publishRuntimeEvent,
+            executionAdapter:
+              input.executionAdapter ?? input.app.executionAdapter,
+            executionAdapters:
+              input.executionAdapters ?? input.app.executionAdapters,
+            runnerSandboxProvider: input.app.runnerSandboxProvider,
+            asyncTaskRepositoryAvailable: Boolean(
+              input.getAsyncTaskRepository?.(),
+            ),
+          };
+        },
       }),
     ...(input.publishRuntimeEvent
       ? {

@@ -204,6 +204,18 @@ function makeToolRepository(toolNames: string[]) {
         status: 'active',
       })),
     ),
+    listAgentToolAccessSnapshot: vi.fn(async () => ({
+      activeBindings: toolNames.map((toolName) => ({
+        binding: {
+          toolId: toolName,
+          appId: 'default',
+          agentId: 'agent:scheduler_agent',
+          status: 'active',
+        },
+        definition: toolFor(toolName),
+      })),
+      appActiveDefinitions: toolNames.map((toolName) => toolFor(toolName)),
+    })),
     getTool: vi.fn(async (toolId: string) => toolFor(toolId)),
   };
 }
@@ -1223,34 +1235,7 @@ describe('jobs/execution', () => {
         onProcess: () => {},
         sendMessage: vi.fn(async () => undefined) as never,
         opsRepository: opsRepository as never,
-        getToolRepository: () =>
-          ({
-            listTools: vi.fn(async () => [
-              {
-                id: 'tool:Browser',
-                appId: 'default',
-                name: 'Browser',
-                kind: 'browser',
-                provider: 'gantry',
-                displayName: 'Browser',
-                category: 'web',
-                risk: 'medium',
-                selectable: true,
-                status: 'active',
-                adapterRef: 'Browser',
-                createdAt: '2026-05-08T00:00:00.000Z',
-                updatedAt: '2026-05-08T00:00:00.000Z',
-              },
-            ]),
-            listAgentToolBindings: vi.fn(async () => [
-              { toolId: 'tool:Browser', status: 'active' },
-            ]),
-            getTool: vi.fn(async () => ({
-              id: 'tool:Browser',
-              appId: 'default',
-              name: 'Browser',
-            })),
-          }) as never,
+        getToolRepository: () => makeToolRepository(['Browser']) as never,
         runAgent: runAgent as never,
       },
       'tg:scheduler',
@@ -1282,6 +1267,27 @@ describe('jobs/execution', () => {
         { skillId: 'skill:release', status: 'active' },
         { skillId: 'skill:draft', status: 'inactive' },
       ]),
+      listAgentSkillAccessSnapshot: vi.fn(async () => ({
+        activeBindings: [
+          {
+            binding: { skillId: 'skill:release', status: 'active' },
+            definition: {
+              id: 'skill:release',
+              appId: 'default',
+              name: 'release',
+              status: 'installed',
+            },
+          },
+        ],
+        enabledDefinitions: [
+          {
+            id: 'skill:release',
+            appId: 'default',
+            name: 'release',
+            status: 'installed',
+          },
+        ],
+      })),
       getSkill: vi.fn(async (id: string) =>
         id === 'skill:release'
           ? { id, appId: 'default', name: 'release', status: 'installed' }
@@ -1293,6 +1299,20 @@ describe('jobs/execution', () => {
         { serverId: 'mcp:github', status: 'active' },
         { serverId: 'mcp:legacy', status: 'inactive' },
       ]),
+      listAgentMcpAccessSnapshot: vi.fn(async () => ({
+        activeBindings: [
+          {
+            binding: { serverId: 'mcp:github', status: 'active' },
+            definition: { id: 'mcp:github', appId: 'default', name: 'github' },
+          },
+        ],
+        materializedServers: [
+          {
+            binding: { serverId: 'mcp:github', status: 'active' },
+            definition: { id: 'mcp:github', appId: 'default', name: 'github' },
+          },
+        ],
+      })),
       getServer: vi.fn(async (id: string) =>
         id === 'mcp:github'
           ? { id, appId: 'default', name: 'github' }
@@ -1329,6 +1349,15 @@ describe('jobs/execution', () => {
       listAgentToolBindings: vi.fn(async () => [
         { toolId: 'tool:github-search', status: 'active' },
       ]),
+      listAgentToolAccessSnapshot: vi.fn(async () => ({
+        activeBindings: [
+          {
+            binding: { toolId: 'tool:github-search', status: 'active' },
+            definition: await toolRepository.getTool('tool:github-search'),
+          },
+        ],
+        appActiveDefinitions: await toolRepository.listTools(),
+      })),
       getTool: vi.fn(async () => ({
         appId: 'default',
         name: 'capability:repo.search.repositories',
@@ -1390,15 +1419,16 @@ describe('jobs/execution', () => {
       'tg:scheduler',
     );
 
-    expect(skillRepository.listAgentSkillBindings).toHaveBeenCalledWith({
+    expect(skillRepository.listAgentSkillAccessSnapshot).toHaveBeenCalledWith({
       appId: 'default',
       agentId: 'agent:scheduler_agent',
     });
-    expect(mcpServerRepository.listAgentBindings).toHaveBeenCalledWith({
-      appId: 'default',
-      agentId: 'agent:scheduler_agent',
-      limit: 500,
-    });
+    expect(mcpServerRepository.listAgentMcpAccessSnapshot).toHaveBeenCalledWith(
+      {
+        appId: 'default',
+        agentId: 'agent:scheduler_agent',
+      },
+    );
     expect(runAgent).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({
@@ -1831,14 +1861,13 @@ describe('jobs/execution', () => {
         next_run: null,
       }),
     );
-    // Readiness preflight surfaces the missing requirement as an autonomous
-    // not-on-allowlist denial: no approver, so the run is a dead-end (failed);
-    // the job still pauses for setup (asserted above).
+    // The job still pauses for setup (asserted above); the claimed run records
+    // the setup-required terminal summary for this attempt.
     expect(opsRepository.completeJobRun).toHaveBeenCalledWith(
       expect.any(String),
       'failed',
       null,
-      expect.stringContaining('Missing tool access requirement before run'),
+      expect.stringContaining('Setup required'),
     );
   });
 

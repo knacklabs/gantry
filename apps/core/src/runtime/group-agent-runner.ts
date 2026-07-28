@@ -12,7 +12,6 @@ import type {
 import { memoryScopeForConversationKind } from './group-run-context.js';
 import {
   resolveSingleNonSelfSenderId,
-  buildApprovedSkillContextBlock,
   buildRuntimeRunOptions,
   completeFailedRuntimeSessionRun,
   completeSuccessfulRuntimeSessionRun,
@@ -354,11 +353,6 @@ export function createGroupAgentRunner(input: {
       }
       await onOutput?.(output);
     };
-    const approvedSkillContextBlock = await buildApprovedSkillContextBlock({
-      skillRepository: deps.getSkillRepository?.(),
-      skillArtifactStore: deps.getSkillArtifactStore?.(),
-      turnContext,
-    });
     const {
       configuredToolPolicy,
       selectedSkillContext,
@@ -366,6 +360,8 @@ export function createGroupAgentRunner(input: {
       attachedMcpSourceIds,
       capabilityCatalog,
       currentAccessFingerprint,
+      approvedSkillContextBlock,
+      accessSnapshot,
     } = await resolveGroupAgentAccessContext({
       deps,
       turnContext,
@@ -494,6 +490,7 @@ export function createGroupAgentRunner(input: {
         conversationRoutes: deps.getConversationRoutes?.() ?? {},
         turnContext,
       });
+      if (accessSnapshot) runOptions.accessSnapshot = accessSnapshot;
       const expireTurnProviderSession = async (
         reason: string,
       ): Promise<boolean> => {

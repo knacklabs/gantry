@@ -25,6 +25,45 @@ import {
 
 const runtimeHomes: string[] = [];
 
+function toolRepositoryForRules(
+  rules:
+    | readonly string[]
+    | ((input: { agentId: string }) => readonly string[]),
+) {
+  const listAgentToolAccessSnapshot = vi.fn(
+    async (input: { agentId: string }) => {
+      const names = typeof rules === 'function' ? rules(input) : rules;
+      return {
+        activeBindings: names.map((name, index) => ({
+          binding: {
+            status: 'active',
+            toolId: `tool:${index}`,
+          },
+          definition: {
+            appId: 'app:test',
+            name,
+          },
+        })),
+        appActiveDefinitions: [],
+      };
+    },
+  );
+  return {
+    listAgentToolAccessSnapshot,
+    listTools: async () => [],
+    listAgentToolBindings: async (input: { agentId: string }) =>
+      (await listAgentToolAccessSnapshot(input)).activeBindings.map(
+        (row) => row.binding,
+      ),
+    getTool: async (toolId: string) => {
+      const index = Number(toolId.split(':').at(-1) ?? 0);
+      const names =
+        typeof rules === 'function' ? rules({ agentId: '' }) : rules;
+      return { appId: 'app:test', name: names[index] ?? names[0] };
+    },
+  };
+}
+
 class MemoryAsyncTaskRepository implements AsyncTaskRepository {
   readonly tasks = new Map<string, AsyncTaskRecord>();
 
@@ -448,15 +487,7 @@ describe('agent task lifecycle IPC handlers', () => {
     const deps = {
       getAsyncTaskRepository: () => repository,
       getToolRepository: () =>
-        ({
-          listAgentToolBindings: async () => [
-            { status: 'active', toolId: 'tool:permission-rule:test' },
-          ],
-          getTool: async () => ({
-            appId: 'app:test',
-            name: 'RunCommand(echo *)',
-          }),
-        }) as never,
+        toolRepositoryForRules(['RunCommand(echo *)']) as never,
       runnerSandboxProvider: fakeEnforcingSandboxProvider({
         onStart: (options) => {
           expect(options).toMatchObject({
@@ -695,15 +726,7 @@ describe('agent task lifecycle IPC handlers', () => {
     const deps = {
       getAsyncTaskRepository: () => repository,
       getToolRepository: () =>
-        ({
-          listAgentToolBindings: async () => [
-            { status: 'active', toolId: 'tool:delegation' },
-          ],
-          getTool: async () => ({
-            appId: 'app:test',
-            name: 'AgentDelegation',
-          }),
-        }) as never,
+        toolRepositoryForRules(['AgentDelegation']) as never,
       runnerSandboxProvider: fakeEnforcingSandboxProvider(),
     };
     registerAsyncCommandSandboxPolicy({
@@ -831,15 +854,7 @@ describe('agent task lifecycle IPC handlers', () => {
     const deps = {
       getAsyncTaskRepository: () => repository,
       getToolRepository: () =>
-        ({
-          listAgentToolBindings: async () => [
-            { status: 'active', toolId: 'tool:permission-rule:test' },
-          ],
-          getTool: async () => ({
-            appId: 'app:test',
-            name: 'RunCommand(echo *)',
-          }),
-        }) as never,
+        toolRepositoryForRules(['RunCommand(echo *)']) as never,
       runnerSandboxProvider: fakeEnforcingSandboxProvider(),
     };
     registerAsyncCommandSandboxPolicy({
@@ -976,6 +991,26 @@ describe('agent task lifecycle IPC handlers', () => {
               ? [{ status: 'active', toolId: 'tool:file-read' }]
               : []),
           ],
+          listAgentToolAccessSnapshot: async (query: { agentId: string }) => {
+            const rows = [
+              {
+                binding: { status: 'active', toolId: 'tool:delegation' },
+                definition: { appId: 'app:test', name: 'AgentDelegation' },
+              },
+              ...(query.agentId === 'agent:reviewer' && reviewerFileReadActive
+                ? [
+                    {
+                      binding: {
+                        status: 'active',
+                        toolId: 'tool:file-read',
+                      },
+                      definition: { appId: 'app:test', name: 'FileRead' },
+                    },
+                  ]
+                : []),
+            ];
+            return { activeBindings: rows, appActiveDefinitions: [] };
+          },
           getTool: async (toolId: string) => ({
             appId: 'app:test',
             name: toolId === 'tool:file-read' ? 'FileRead' : 'AgentDelegation',
@@ -1168,6 +1203,12 @@ describe('agent task lifecycle IPC handlers', () => {
       expect.any(Function),
       expect.any(Object),
     );
+    expect(runAgent.mock.lastCall?.[4]).toMatchObject({
+      accessSnapshot: {
+        appId: 'app:test',
+        agentId: 'agent:reviewer',
+      },
+    });
     await vi.waitFor(() => expect(sendMessage).toHaveBeenCalledTimes(2));
     expect(sendMessage).toHaveBeenNthCalledWith(
       1,
@@ -1378,16 +1419,7 @@ describe('agent task lifecycle IPC handlers', () => {
     const deps = {
       getAsyncTaskRepository: () => repository,
       getToolRepository: () =>
-        ({
-          listTools: async () => [],
-          listAgentToolBindings: async () => [
-            { status: 'active', toolId: 'tool:delegation' },
-          ],
-          getTool: async () => ({
-            appId: 'app:test',
-            name: 'AgentDelegation',
-          }),
-        }) as never,
+        toolRepositoryForRules(['AgentDelegation']) as never,
       runnerSandboxProvider: fakeEnforcingSandboxProvider(),
       runAgent,
     };
@@ -1468,15 +1500,7 @@ describe('agent task lifecycle IPC handlers', () => {
     const deps = {
       getAsyncTaskRepository: () => repository,
       getToolRepository: () =>
-        ({
-          listAgentToolBindings: async () => [
-            { status: 'active', toolId: 'tool:permission-rule:test' },
-          ],
-          getTool: async () => ({
-            appId: 'app:test',
-            name: 'RunCommand(echo *)',
-          }),
-        }) as never,
+        toolRepositoryForRules(['RunCommand(echo *)']) as never,
       runnerSandboxProvider: fakeEnforcingSandboxProvider(),
     };
     registerAsyncCommandSandboxPolicy({
@@ -1546,13 +1570,10 @@ describe('agent task lifecycle IPC handlers', () => {
       fencingVersion: 1,
       now: new Date().toISOString(),
     });
+    const toolRepository = toolRepositoryForRules([]);
     const deps = {
       getAsyncTaskRepository: () => repository,
-      getToolRepository: () =>
-        ({
-          listTools: async () => [],
-          listAgentToolBindings: async () => [],
-        }) as never,
+      getToolRepository: () => toolRepository as never,
       runnerSandboxProvider: fakeEnforcingSandboxProvider(),
     };
     registerAsyncCommandSandboxPolicy({
@@ -1589,6 +1610,10 @@ describe('agent task lifecycle IPC handlers', () => {
       ok: false,
       code: 'forbidden',
       error: 'task_message requires AgentDelegation access.',
+    });
+    expect(toolRepository.listAgentToolAccessSnapshot).toHaveBeenCalledWith({
+      appId: 'app:test',
+      agentId: 'agent:main_agent',
     });
     expect(
       repository.tasks.get('task_delegate')?.privateCorrelationJson,

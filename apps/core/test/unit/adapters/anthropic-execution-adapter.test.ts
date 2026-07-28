@@ -289,6 +289,53 @@ describe('AnthropicClaudeAgentExecutionAdapter', () => {
     expect(artifacts.getSkillArtifact).toHaveBeenCalledWith('skill-release');
   });
 
+  it('uses snapshot skill rows for Claude artifact projection without rereading enabled skills', async () => {
+    mockMaterializeClaudeRuntime.mockClear();
+    const repo = {
+      listEnabledSkillsForAgent: vi.fn(async () => {
+        throw new Error('unexpected enabled skill read');
+      }),
+    } as Partial<SkillCatalogRepository> as SkillCatalogRepository;
+    const artifacts = {
+      getSkillArtifact: vi.fn(async () => installedSkillBundle),
+    } as Partial<SkillArtifactStore> as SkillArtifactStore;
+    const adapter = new AnthropicClaudeAgentExecutionAdapter();
+
+    await adapter.prepare(
+      prepareInput({
+        input: {
+          prompt: 'hello',
+          chatJid: 'tg:test',
+          attachedSkillSourceIds: ['skill:release'],
+        },
+        options: {
+          skillRepository: repo,
+          skillArtifactStore: artifacts,
+          skillContext: {
+            appId: 'app:test',
+            agentId: 'agent:test',
+          },
+          accessSnapshot: {
+            appId: 'app:test',
+            agentId: 'agent:test',
+            tools: { activeBindings: [], appActiveDefinitions: [] },
+            skills: {
+              activeBindings: [],
+              enabledDefinitions: [installedSkill()],
+            },
+            mcp: { activeBindings: [], materializedServers: [] },
+          },
+        },
+      }),
+    );
+
+    const skillSource =
+      mockMaterializeClaudeRuntime.mock.calls[0]?.[0].skillSource;
+    await skillSource.listSkills({ enabledSkillIds: ['skill:release'] });
+    expect(repo.listEnabledSkillsForAgent).not.toHaveBeenCalled();
+    expect(artifacts.getSkillArtifact).toHaveBeenCalledWith('skill-release');
+  });
+
   it('passes an empty SDK skill allowlist when no skills are selected', async () => {
     mockMaterializeClaudeRuntime.mockClear();
     const adapter = new AnthropicClaudeAgentExecutionAdapter();
