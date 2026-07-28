@@ -26,6 +26,10 @@ import type {
   AsyncTaskTransitionInput,
 } from '@core/domain/ports/async-tasks.js';
 import { isAsyncTaskTerminal } from '@core/domain/ports/async-tasks.js';
+import {
+  exerciseAsyncTaskRepositoryContract,
+  expectAsyncTaskRepositoryContract,
+} from '../../harness/async-task-repository-contract.js';
 
 class MemoryAsyncTaskRepository implements AsyncTaskRepository {
   readonly tasks = new Map<string, AsyncTaskRecord>();
@@ -547,90 +551,23 @@ describe('AsyncCommandTaskService', () => {
     ).toHaveLength(32);
   });
 
-  it('admits concurrent async commands without exceeding the backlog cap', async () => {
+  it('satisfies the async task repository concurrency contract', async () => {
     const repository = new MemoryAsyncTaskRepository();
-    const service = new AsyncCommandTaskService(repository, {
-      run: async () => new Promise(() => undefined),
-    });
 
-    for (let index = 0; index < 31; index += 1) {
-      await expect(
-        service.start(
-          baseInput({
-            command: `npm test ${index}`,
-            allowedToolRules: ['RunCommand(npm test *)'],
-          }),
-        ),
-      ).resolves.toMatchObject({ ok: true });
-    }
-
-    const results = await Promise.all([
-      service.start(
-        baseInput({
-          command: 'npm test concurrent-one',
-          allowedToolRules: ['RunCommand(npm test *)'],
-        }),
-      ),
-      service.start(
-        baseInput({
-          command: 'npm test concurrent-two',
-          allowedToolRules: ['RunCommand(npm test *)'],
-        }),
-      ),
-    ]);
-
-    expect(results.filter((result) => result.ok)).toHaveLength(1);
-    expect(
-      [...repository.tasks.values()].filter(
-        (task) =>
-          task.agentId === 'agent-1' &&
-          task.kind === 'async_command' &&
-          ['queued', 'running', 'needs_attention'].includes(task.status),
-      ),
-    ).toHaveLength(32);
+    await expectAsyncTaskRepositoryContract({ repository });
   });
 
   it('a non-atomic admission over-admits, proving the concurrency check has teeth', async () => {
     const repository = new NonAtomicAdmissionRepository();
-    const service = new AsyncCommandTaskService(repository, {
-      run: async () => new Promise(() => undefined),
-    });
+    const evidence = await exerciseAsyncTaskRepositoryContract({ repository });
 
-    for (let index = 0; index < 31; index += 1) {
-      await expect(
-        service.start(
-          baseInput({
-            command: `npm test ${index}`,
-            allowedToolRules: ['RunCommand(npm test *)'],
-          }),
-        ),
-      ).resolves.toMatchObject({ ok: true });
-    }
-
-    const results = await Promise.all([
-      service.start(
-        baseInput({
-          command: 'npm test concurrent-one',
-          allowedToolRules: ['RunCommand(npm test *)'],
-        }),
-      ),
-      service.start(
-        baseInput({
-          command: 'npm test concurrent-two',
-          allowedToolRules: ['RunCommand(npm test *)'],
-        }),
-      ),
-    ]);
-
-    expect(results.filter((result) => result.ok)).toHaveLength(2);
-    expect(
-      [...repository.tasks.values()].filter(
-        (task) =>
-          task.agentId === 'agent-1' &&
-          task.kind === 'async_command' &&
-          ['queued', 'running', 'needs_attention'].includes(task.status),
-      ),
-    ).toHaveLength(33);
+    expect(evidence.admissions.filter(Boolean)).toHaveLength(2);
+    expect(evidence.backlog).toHaveLength(4);
+    await expect(
+      expectAsyncTaskRepositoryContract({
+        repository: new NonAtomicAdmissionRepository(),
+      }),
+    ).rejects.toThrow();
   });
 
   it('claims queued commands through the atomic repository operation', async () => {
