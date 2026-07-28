@@ -2,7 +2,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type {
   BrowserProfileSnapshot,
@@ -96,6 +96,14 @@ function createRuntimeLeasePort(): RuntimeLeasePort {
       };
     },
   };
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((innerResolve) => {
+    resolve = innerResolve;
+  });
+  return { promise, resolve };
 }
 
 describe('browser-profile-sync', () => {
@@ -238,6 +246,77 @@ describe('browser-profile-sync', () => {
 
     expect(skipped).toEqual({ status: 'noop', reason: 'lease_lost' });
     expect(await repository.getBrowserProfileSnapshot('p')).toBeNull();
+  });
+
+  it('skips a waiting snapshot when lease loss is marked before its lock is acquired', async () => {
+    const acquireStarted = deferred<void>();
+    const allowAcquire = deferred<void>();
+    const release = vi.fn();
+    leases = {
+      tryAcquire: async () => {
+        acquireStarted.resolve();
+        await allowAcquire.promise;
+        return { release };
+      },
+    };
+    registerBrowserProfileSync({ store, repository, leases });
+    await seedUserData(userDataDir, { 'Local State': 'unsafe' });
+
+    const snapshot = snapshotBrowserProfile({
+      profileName: 'waiting-profile',
+      profileDir,
+      userDataDir,
+    });
+    await acquireStarted.promise;
+    skipNextBrowserProfileSnapshot('waiting-profile');
+    allowAcquire.resolve();
+
+    await expect(snapshot).resolves.toEqual({
+      status: 'noop',
+      reason: 'lease_lost',
+    });
+    expect(release).toHaveBeenCalledOnce();
+    expect(
+      await repository.getBrowserProfileSnapshot('waiting-profile'),
+    ).toBeNull();
+  });
+
+  it('aborts publication when its own snapshot lease becomes invalid', async () => {
+    let loseLease!: (err: Error) => void;
+    leases = {
+      tryAcquire: async () => ({
+        release: vi.fn(),
+        onLost: (handler) => {
+          loseLease = handler;
+        },
+      }),
+    };
+    const snapshotRead = deferred<BrowserProfileSnapshot | null>();
+    const getSnapshot = vi
+      .spyOn(repository, 'getBrowserProfileSnapshot')
+      .mockReturnValueOnce(snapshotRead.promise);
+    const upsertSnapshot = vi.spyOn(repository, 'upsertBrowserProfileSnapshot');
+    const putArtifact = vi.spyOn(store, 'putBrowserProfile');
+    registerBrowserProfileSync({ store, repository, leases });
+    await seedUserData(userDataDir, { 'Local State': 'unsafe' });
+
+    const snapshot = snapshotBrowserProfile({
+      profileName: 'invalid-profile',
+      profileDir,
+      userDataDir,
+    });
+    await vi.waitFor(() => expect(getSnapshot).toHaveBeenCalledOnce());
+    loseLease(new Error('database connection lost'));
+    snapshotRead.resolve(null);
+
+    await expect(snapshot).rejects.toThrow(
+      'Browser profile snapshot lease lost for invalid-profile',
+    );
+    expect(putArtifact).not.toHaveBeenCalled();
+    expect(upsertSnapshot).not.toHaveBeenCalled();
+    await expect(
+      fs.access(path.join(profileDir, 'snapshot.json')),
+    ).rejects.toThrow();
   });
 
   it('restore no-ops with no stored snapshot', async () => {

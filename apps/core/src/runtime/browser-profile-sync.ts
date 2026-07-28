@@ -17,7 +17,10 @@ import { logger } from '../infrastructure/logging/logger.js';
 import { isExcludedBrowserProfilePath } from '../shared/browser-profile-snapshot-exclude.js';
 import { hashBrowserProfileFileModel } from '../shared/browser-profile-hash.js';
 import { nowIso } from '../shared/time/datetime.js';
-import { acquireProfileLock } from './browser-profiles.js';
+import {
+  acquireProfileLock,
+  type BrowserProfileLock,
+} from './browser-profiles.js';
 
 /**
  * Snapshot quiescence acquire window. Finalize already closed the browser and
@@ -140,6 +143,12 @@ function writeSnapshotMarker(profileDir: string, contentHash: string): void {
   fs.renameSync(tmp, target);
 }
 
+function assertSnapshotLockValid(lock: BrowserProfileLock): void {
+  if (!lock.isValid()) {
+    throw new Error(`Browser profile snapshot lease lost for ${lock.name}`);
+  }
+}
+
 /**
  * Walk the live `user-data/` tree into the artifact file model, dropping caches
  * and host-local junk per {@link isExcludedBrowserProfilePath}. Preserves modes
@@ -244,7 +253,7 @@ export async function snapshotBrowserProfile(
     return { status: 'noop', reason: 'lease_lost' };
   }
 
-  let lock: { release: () => void | Promise<void> };
+  let lock: BrowserProfileLock;
   try {
     lock = await acquireProfileLock(
       input.profileName,
@@ -262,6 +271,14 @@ export async function snapshotBrowserProfile(
   }
 
   try {
+    if (snapshotsSkippedAfterLeaseLoss.delete(input.profileName)) {
+      logger.error(
+        { profileName: input.profileName },
+        'Skipped browser profile snapshot after profile lease loss',
+      );
+      return { status: 'noop', reason: 'lease_lost' };
+    }
+    assertSnapshotLockValid(lock);
     const files = await collectUserDataFiles(input.userDataDir);
     if (!files) return { status: 'noop', reason: 'no_state' };
     const contentHash = hashBrowserProfileFileModel(files);
@@ -270,6 +287,7 @@ export async function snapshotBrowserProfile(
       input.profileName,
     );
     if (existing && existing.contentHash === contentHash) {
+      assertSnapshotLockValid(lock);
       const result = await coordinator.repository.upsertBrowserProfileSnapshot({
         profileName: input.profileName,
         appId: input.appId ?? existing.appId,
@@ -295,14 +313,17 @@ export async function snapshotBrowserProfile(
       }
       // Bytes unchanged since the last snapshot: write no artifact bytes, but
       // advance the fencing metadata and keep the local marker in sync.
+      assertSnapshotLockValid(lock);
       writeSnapshotMarker(input.profileDir, contentHash);
       return { status: 'noop', reason: 'unchanged' };
     }
 
+    assertSnapshotLockValid(lock);
     const stored = await coordinator.store.putBrowserProfile({
       profileName: input.profileName,
       files,
     });
+    assertSnapshotLockValid(lock);
     const result: UpsertBrowserProfileSnapshotResult =
       await coordinator.repository.upsertBrowserProfileSnapshot({
         profileName: input.profileName,
@@ -328,6 +349,7 @@ export async function snapshotBrowserProfile(
       );
       return { status: 'stale', contentHash: stored.contentHash };
     }
+    assertSnapshotLockValid(lock);
     writeSnapshotMarker(input.profileDir, stored.contentHash);
     return { status: 'written', contentHash: stored.contentHash };
   } finally {

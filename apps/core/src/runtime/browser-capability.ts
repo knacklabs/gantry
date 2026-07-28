@@ -36,6 +36,13 @@ import {
   restoreBrowserProfileBeforeLaunch,
   skipNextBrowserProfileSnapshot,
 } from './browser-profile-sync.js';
+import {
+  ensureLeaseLossProcessStopped,
+  finishBrowserLeaseLossTeardown,
+  hasBrowserLeaseLossTeardown,
+  shutdownBrowserSession,
+  trackBrowserLeaseLossTeardown,
+} from './browser-session-shutdown.js';
 import type { RuntimeLeasePort } from '../domain/ports/runtime-lease.js';
 
 export const DEFAULT_BROWSER_PROFILE_NAME = 'gantry';
@@ -60,7 +67,6 @@ interface BrowserSession {
 
 const sessions = new Map<string, BrowserSession>();
 const pendingLaunches = new Map<string, Promise<BrowserSessionStatus>>();
-const leaseLossTeardowns = new Map<string, Promise<void>>();
 let profileLockLeases: RuntimeLeasePort | undefined;
 
 export function registerBrowserProfileLockLeasePort(
@@ -262,23 +268,18 @@ function registerLiveBrowserSession(session: BrowserSession): void {
   assertProfileLockValid(session.lock);
   sessions.set(session.profileName, session);
   session.lock.onLost((err) => {
-    if (leaseLossTeardowns.has(session.profileName)) return;
+    if (hasBrowserLeaseLossTeardown(session.profileName)) return;
     logger.error(
       { err, profileName: session.profileName, pid: session.pid },
       'Browser profile lease lost; stopping session without snapshot',
     );
     skipNextBrowserProfileSnapshot(session.profileName);
-    const teardown = shutdownLiveBrowserSession(session).then(
-      () => undefined,
-      (cleanupError) => {
-        logger.error(
-          { err: cleanupError, profileName: session.profileName },
-          'Failed to clean up browser session after profile lease loss',
-        );
-      },
+    trackBrowserLeaseLossTeardown(
+      session,
+      shutdownLiveBrowserSession(session, { ownershipLost: true }),
     );
-    leaseLossTeardowns.set(session.profileName, teardown);
   });
+  assertProfileLockValid(session.lock);
 }
 
 async function recoverPersistedBrowserSession(input: {
@@ -340,7 +341,12 @@ async function recoverPersistedBrowserSession(input: {
     keepAliveTimer: null,
     headless: false,
   };
-  registerLiveBrowserSession(session);
+  try {
+    registerLiveBrowserSession(session);
+  } catch (err) {
+    await ensureLeaseLossProcessStopped(session);
+    throw err;
+  }
   touchSession(session);
   logger.info(
     { profileName: input.profileName, pid: record.pid, port: record.port },
@@ -375,7 +381,7 @@ export async function launchBrowser(
   opts: LaunchBrowserOptions = {},
 ): Promise<BrowserSessionStatus> {
   const profileName = resolveProfileName(opts.profileName);
-  if (leaseLossTeardowns.has(profileName)) {
+  if (hasBrowserLeaseLossTeardown(profileName)) {
     throw profileLeaseLostError(profileName);
   }
   const keepAliveMs = resolveBrowserKeepAliveMs(opts.keepAliveMs);
@@ -430,7 +436,7 @@ async function launchBrowserInner(
   if (existing) {
     await closeUnhealthySession(profileName, existing);
   }
-  if (leaseLossTeardowns.has(profileName))
+  if (hasBrowserLeaseLossTeardown(profileName))
     throw profileLeaseLostError(profileName);
 
   const lock = await acquireProfileLock(profileName, getProfileLockLeases());
@@ -601,22 +607,11 @@ export function getKnownBrowserStatus(
 
 async function shutdownLiveBrowserSession(
   session: BrowserSession,
+  options: { ownershipLost?: boolean } = {},
 ): Promise<boolean | undefined> {
   if (sessions.get(session.profileName) !== session) return undefined;
   if (!sessions.delete(session.profileName)) return undefined;
-  if (session.keepAliveTimer) clearTimeout(session.keepAliveTimer);
-  session.keepAliveTimer = null;
-  const exited = await stopBrowserProcess(session);
-  try {
-    clearBrowserSessionRecord(createProfile(session.profileName));
-    updateProfileMetadata(session.profileName, {
-      last_used: nowIso(),
-      cdp_port: undefined,
-    });
-  } finally {
-    await session.lock.release();
-  }
-  return exited;
+  return shutdownBrowserSession(session, options);
 }
 
 export async function closeBrowser(
@@ -624,13 +619,11 @@ export async function closeBrowser(
 ): Promise<{ closed: boolean; reason?: string; elapsedMs?: number }> {
   const startedAt = currentTimeMs();
   const normalized = resolveProfileName(profileName);
-  const leaseLossTeardown = leaseLossTeardowns.get(normalized);
-  if (leaseLossTeardown) {
-    await leaseLossTeardown;
-    leaseLossTeardowns.delete(normalized);
+  const leaseLossExited = await finishBrowserLeaseLossTeardown(normalized);
+  if (leaseLossExited !== undefined) {
     return {
-      closed: true,
-      reason: 'lease_lost',
+      closed: leaseLossExited,
+      reason: leaseLossExited ? 'lease_lost' : 'process_did_not_exit',
       elapsedMs: currentTimeMs() - startedAt,
     };
   }

@@ -107,6 +107,7 @@ vi.mock('@core/shared/chrome-executable.js', () => ({
 
 vi.mock('@core/runtime/browser-profiles.js', () => ({
   acquireProfileLock: vi.fn(async () => ({
+    name: 'gantry',
     isValid: mocks.isProfileLockValid,
     onLost: mocks.onProfileLockLost,
     release: mocks.release,
@@ -625,15 +626,10 @@ describe('browser-capability', () => {
     await vi.waitFor(() =>
       expect(manager.getKnownBrowserStatus().running).toBe(false),
     );
-    await vi.waitFor(() =>
-      expect(mocks.clearBrowserSessionRecord).toHaveBeenCalled(),
-    );
-    expect(profiles.updateProfileMetadata).toHaveBeenCalledWith('gantry', {
-      last_used: expect.any(String),
-      cdp_port: undefined,
-    });
+    expect(mocks.clearBrowserSessionRecord).not.toHaveBeenCalled();
+    expect(profiles.updateProfileMetadata).not.toHaveBeenCalled();
     expect(mocks.skipNextBrowserProfileSnapshot).toHaveBeenCalledWith('gantry');
-    expect(mocks.release).toHaveBeenCalledOnce();
+    expect(mocks.release).not.toHaveBeenCalled();
 
     const termCalls = killSpy.mock.calls.filter(
       ([pid, signal]) => pid === status.pid && signal === 'SIGTERM',
@@ -647,6 +643,25 @@ describe('browser-capability', () => {
         ([pid, signal]) => pid === status.pid && signal === 'SIGTERM',
       ),
     ).toHaveLength(termCalls);
+  });
+
+  it('keeps a lease-lost profile closed when process termination is unconfirmed', async () => {
+    const browserProcess = await import('@core/runtime/browser-process.js');
+    vi.spyOn(browserProcess, 'stopBrowserProcess').mockResolvedValue(false);
+    const manager = await import('@core/runtime/browser-capability.js');
+    queueHealthyContentTarget('target-1');
+    await manager.launchBrowser();
+
+    mocks.loseProfileLock(new Error('database connection lost'));
+
+    await expect(manager.closeBrowser()).resolves.toMatchObject({
+      closed: false,
+      reason: 'process_did_not_exit',
+    });
+    await expect(manager.launchBrowser()).rejects.toThrow(
+      'Browser profile lease lost for gantry',
+    );
+    expect(mocks.clearBrowserSessionRecord).not.toHaveBeenCalled();
   });
 
   it('releases the profile lock when clearing the session record fails', async () => {
@@ -729,6 +744,46 @@ describe('browser-capability', () => {
       pid: adopted.pid,
       targetId: 'persisted-target',
     });
+  });
+
+  it('stops an adopted persisted browser when its lease is lost during recovery', async () => {
+    const adopted = new EventEmitter() as EventEmitter & {
+      pid: number;
+      unref: ReturnType<typeof vi.fn>;
+    };
+    adopted.pid = 7779;
+    adopted.unref = vi.fn();
+    mocks.processes.set(adopted.pid, adopted);
+    mocks.commandLines.set(
+      adopted.pid,
+      '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome --user-data-dir=/tmp/gantry-browser-capability-test --remote-debugging-port=5681',
+    );
+    fs.writeFileSync(
+      '/tmp/gantry-browser-capability-test/browser-session.json',
+      JSON.stringify({
+        pid: adopted.pid,
+        port: 5681,
+        targetId: 'persisted-target',
+        startedAt: '2026-04-29T00:00:00.000Z',
+        lastUsedAt: '2026-04-29T00:01:00.000Z',
+        headless: false,
+      }),
+    );
+    existsSyncSpy.mockImplementation((filePath) =>
+      String(filePath).endsWith('/browser-session.json'),
+    );
+    mocks.fetch.mockImplementationOnce(async () => {
+      mocks.loseProfileLock(new Error('database connection lost'));
+      return cdpResponse({ Browser: 'Chrome' });
+    });
+
+    const manager = await import('@core/runtime/browser-capability.js');
+
+    await expect(manager.launchBrowser()).rejects.toThrow(
+      'Browser profile lease lost for gantry',
+    );
+    expect(killSpy).toHaveBeenCalledWith(adopted.pid, 'SIGTERM');
+    expect(mocks.processes.has(adopted.pid)).toBe(false);
   });
 
   it('refuses to adopt a non-visible persisted browser session', async () => {
