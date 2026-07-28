@@ -2,6 +2,14 @@ import { z } from 'zod';
 
 export const JobAgentTaskSchema = z
   .object({
+    observability: z
+      .object({
+        traceparent: z
+          .string()
+          .regex(/^00-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$/iu),
+      })
+      .strict()
+      .optional(),
     responseSchema: z
       .record(z.string(), z.unknown())
       .refine((schema) => schema.type === 'object', {

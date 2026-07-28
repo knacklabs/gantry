@@ -993,12 +993,23 @@ describe('contracts package', () => {
       ],
     });
     const agentTask = {
+      observability: {
+        traceparent:
+          '00-0123456789abcdef0123456789abcdef-0123456789abcdef-01',
+      },
       responseSchema: { type: 'object' as const, properties: {} },
       executionPolicy: { totalTimeoutMs: 30_000 },
     };
     expect(
       CreateJobRequestSchema.parse({ ...sdkCreatePayload, agentTask }),
     ).toMatchObject({ agentTask });
+    expectInvalid(CreateJobRequestSchema, {
+      ...sdkCreatePayload,
+      agentTask: {
+        ...agentTask,
+        observability: { traceparent: 'not-a-traceparent' },
+      },
+    });
     expectInvalid(CreateJobRequestSchema, {
       ...sdkCreatePayload,
       agentTask: {

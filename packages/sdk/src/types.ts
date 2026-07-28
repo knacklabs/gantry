@@ -12,6 +12,20 @@ export type RequestOptions = {
   contentType?: string;
   accept?: string;
   signal?: AbortSignal;
+  traceparent?: string;
+};
+
+export type LlmRequestOptions = {
+  traceparent?: string;
+};
+
+export type TraceRequestOptions = {
+  traceparent?: string;
+};
+
+export type TransportResponse<T> = {
+  body: T;
+  headers: Readonly<Record<string, string | undefined>>;
 };
 
 export type RuntimeEventEnvelope = {

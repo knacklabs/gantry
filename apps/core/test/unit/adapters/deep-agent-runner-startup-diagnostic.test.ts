@@ -79,6 +79,22 @@ async function* fakeLangGraphEvents(): AsyncIterable<LangGraphStreamEvent> {
   };
 }
 
+async function* fakeStructuredLangGraphEvents(): AsyncIterable<LangGraphStreamEvent> {
+  yield {
+    event: 'on_chat_model_stream',
+    data: {
+      chunk: {
+        content: 'intermediate text',
+        usage_metadata: { input_tokens: 11, output_tokens: 3 },
+      },
+    },
+  };
+  yield {
+    event: 'on_chain_end',
+    data: { output: { structuredResponse: { answer: 'verified' } } },
+  };
+}
+
 async function* fakeTaskLifecycleEvents(): AsyncIterable<LangGraphStreamEvent> {
   yield buildGantryTaskLifecycleStreamEvent({
     kind: 'progress',
@@ -225,6 +241,48 @@ describe('runDeepAgentTurn startup diagnostics', () => {
     expect(serialized).not.toContain('secret memory text');
     expect(serialized).not.toContain('http://127.0.0.1:4545/openai');
     expect(serialized).not.toContain('gtw_secret_token');
+  });
+
+  it('returns structured output from the DeepAgents worker without streaming partial text', async () => {
+    mocks.buildRunnerModel.mockResolvedValueOnce({
+      model: {
+        profile: { maxInputTokens: 8192, structuredOutput: true },
+      },
+      endpointFamily: 'openai',
+      modelId: 'gpt-test',
+    });
+    mocks.createDeepAgent.mockReturnValueOnce({
+      streamEvents: vi.fn(() => fakeStructuredLangGraphEvents()),
+    });
+    const { runDeepAgentTurn } =
+      await import('@core/adapters/llm/deepagents-langchain/runner/deep-agent-runner.js');
+    const frames: unknown[] = [];
+
+    const turn = await runDeepAgentTurn({
+      agentInput: input({
+        responseSchema: {
+          type: 'object',
+          properties: { answer: { type: 'string' } },
+          required: ['answer'],
+        },
+      }),
+      provider: 'openai',
+      modelId: 'gpt-test',
+      newSessionId: 'session-one',
+      includeMemoryContext: false,
+      emit: (frame) => frames.push(frame),
+    });
+
+    expect(mocks.createDeepAgent).toHaveBeenCalledWith(
+      expect.objectContaining({ responseFormat: expect.anything() }),
+    );
+    expect(frames).toEqual([]);
+    expect(turn.terminalResult).toBe('{"answer":"verified"}');
+    expect(turn.text).toBe('{"answer":"verified"}');
+    expect(turn.terminalUsage).toMatchObject({
+      inputTokens: 11,
+      outputTokens: 3,
+    });
   });
 
   it('passes Gantry lifecycle context into DeepAgents stream normalization', async () => {

@@ -214,6 +214,10 @@ describe('direct LLM control routes', () => {
     expect(res.statusCode).toBe(200);
     expect(res.headers['content-type']).toBe('application/json');
     expect(res.headers['x-request-id']).toBe('req_1');
+    expect(res.headers['x-gantry-request-id']).toMatch(/^[0-9a-f-]{36}$/u);
+    expect(res.headers['x-gantry-model-alias']).toBe('sonnet');
+    expect(res.headers['x-gantry-model-route']).toBe('anthropic');
+    expect(res.headers['x-gantry-provider']).toBe('anthropic');
     expect(res.headers.authorization).toBeUndefined();
     expect(res.body()).toBe('{"id":"msg_1"}');
 
@@ -302,6 +306,23 @@ describe('direct LLM control routes', () => {
         statusCode: 200,
       }),
     );
+  });
+
+  it('rejects provider model identifiers even when cataloged as aliases', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    const res = new TestResponse();
+    await handleLlmRoutes(
+      request({ body: { model: 'gpt-5.5', messages: [] } }),
+      res as unknown as ServerResponse,
+      context({}),
+      '/llm/v1/chat/completions',
+    );
+    expect(res.statusCode).toBe(400);
+    expect(JSON.parse(res.body())).toMatchObject({
+      error: { code: 'INVALID_MODEL' },
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -418,6 +439,10 @@ describe('direct LLM control routes', () => {
         ],
         response_format: { type: 'json_object' },
         reasoning_effort: 'medium',
+        metadata: {
+          correlation_id: 'scrape:run-1:task-1',
+          task_type: 'manipal.scrape.normalization.full',
+        },
       },
     });
     const res = new TestResponse();
@@ -446,6 +471,13 @@ describe('direct LLM control routes', () => {
     expect(upstreamBody.tools[0].type).toBe('function');
     expect(upstreamBody.response_format).toEqual({ type: 'json_object' });
     expect(upstreamBody.reasoning_effort).toBe('medium');
+    expect(upstreamBody.metadata).toBeUndefined();
+    expect(requestLogs).toContainEqual(
+      expect.objectContaining({
+        correlationId: 'scrape:run-1:task-1',
+        taskType: 'manipal.scrape.normalization.full',
+      }),
+    );
   });
 
   it.each([

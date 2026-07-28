@@ -1,5 +1,11 @@
 # @gantry/sdk
 
+## Unreleased
+
+- Added typed `client.llm.chatCompletions()` support with safe request, model
+  alias, route, and provider correlation metadata.
+- Added HTTP status codes to `GantryError` for reliable retry classification.
+
 ## 0.5.0
 
 - Added app-owned agent selection and canonical `executionContext` to session

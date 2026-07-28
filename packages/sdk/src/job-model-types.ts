@@ -398,6 +398,7 @@ export interface CreateJobInput {
 }
 
 export interface JobAgentTask {
+  observability?: { traceparent: string };
   responseSchema?: { type: 'object' } & Record<string, unknown>;
   callerResolvedTools?: {
     tools: Array<{

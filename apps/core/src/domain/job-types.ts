@@ -24,6 +24,7 @@ export interface JobNotificationRoute {
 }
 
 export interface JobAgentTask {
+  observability?: { traceparent: string };
   responseSchema?: Record<string, unknown>;
   callerResolvedTools?: {
     tools: Array<{

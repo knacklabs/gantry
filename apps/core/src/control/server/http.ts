@@ -12,6 +12,8 @@ export type ControlRequestLogEntry = {
   appId?: string;
   modelAlias?: string;
   modelRouteId?: string;
+  correlationId?: string;
+  taskType?: string;
   requestBodyBytes?: number;
   responseBodyBytes?: number;
   clientDisconnected?: boolean;

@@ -3,10 +3,12 @@ import type { FileData, FilesystemPermission } from 'deepagents';
 import { HumanMessage } from '@langchain/core/messages';
 import type { BaseMessage } from '@langchain/core/messages';
 import type { StructuredToolInterface } from '@langchain/core/tools';
+import { ProviderStrategy, ToolStrategy } from 'langchain';
 
 import {
   buildRunnerModel,
   type OpenRouterProviderPreferences,
+  type ResolvedRunnerModel,
 } from './model-factory.js';
 import {
   applyCachePromptControl,
@@ -235,6 +237,14 @@ export async function runDeepAgentTurn(input: {
       () =>
         createDeepAgent({
           model: resolved.model,
+          ...(input.agentInput.responseSchema
+            ? {
+                responseFormat: responseFormatForSchema(
+                  input.agentInput.responseSchema,
+                  resolved.model,
+                ),
+              }
+            : {}),
           backend: (config) => new StateBackend(config),
           ...(input.checkpointer ? { checkpointer: input.checkpointer } : {}),
           permissions: hasProjectedSkills
@@ -276,6 +286,7 @@ export async function runDeepAgentTurn(input: {
       threadId: input.threadId,
       currentFiles: hasProjectedSkills ? skillProjection?.files : undefined,
     });
+    let structuredResponse: unknown;
     const events = startupTiming.measure('streamIteratorMs', () =>
       agent.streamEvents(
         {
@@ -296,7 +307,9 @@ export async function runDeepAgentTurn(input: {
       'streamNormalizeMs',
       () =>
         normalizeDeepAgentStream({
-          events,
+          events: captureStructuredResponse(events, (value) => {
+            structuredResponse = value;
+          }),
           newSessionId: input.newSessionId,
           modelId: resolved.modelId,
           modelProfile: { maxInputTokens: profile.maxInputTokens },
@@ -310,7 +323,12 @@ export async function runDeepAgentTurn(input: {
             threadId: input.agentInput.threadId,
             actor: 'deepagents',
           },
-          emit: input.emit,
+          emit: (frame) => {
+            if (input.agentInput.responseSchema && !frame.runtimeEventOnly) {
+              return;
+            }
+            input.emit(frame);
+          },
           onFirstEvent: (eventName) => {
             startupTiming.markFirstLangGraphEvent(eventName);
             logElapsed(`First LangGraph event (${eventName})`);
@@ -326,7 +344,12 @@ export async function runDeepAgentTurn(input: {
         }),
     );
     logElapsed('Stream normalized');
-    const text = normalized.text;
+    const terminalResult = input.agentInput.responseSchema
+      ? serializeStructuredResponse(structuredResponse)
+      : normalized.terminalResult;
+    const text = input.agentInput.responseSchema
+      ? (terminalResult ?? '')
+      : normalized.text;
     const startupRuntimeEvents = [
       buildDeepAgentStartupDiagnosticEvent({
         agentInput: input.agentInput,
@@ -354,13 +377,57 @@ export async function runDeepAgentTurn(input: {
 
     return {
       text,
-      terminalResult: normalized.terminalResult,
+      terminalResult,
       terminalUsage: normalized.terminalUsage,
       terminalContextUsage: normalized.terminalContextUsage,
       startupRuntimeEvents,
     };
   } finally {
     await connected.close().catch(() => {});
+  }
+}
+
+async function* captureStructuredResponse(
+  events: AsyncIterable<LangGraphStreamEvent>,
+  capture: (value: unknown) => void,
+): AsyncIterable<LangGraphStreamEvent> {
+  for await (const event of events) {
+    const output = event.data?.output;
+    if (
+      output &&
+      typeof output === 'object' &&
+      'structuredResponse' in output &&
+      output.structuredResponse !== undefined
+    ) {
+      capture(output.structuredResponse);
+    }
+    yield event;
+  }
+}
+
+function responseFormatForSchema(
+  schema: Record<string, unknown>,
+  { profile: { structuredOutput } }: ResolvedRunnerModel['model'],
+) {
+  const name = 'gantry_structured_output';
+  const normalized = { ...schema, name, title: name };
+  return structuredOutput === true
+    ? ProviderStrategy.fromSchema(normalized)
+    : ToolStrategy.fromSchema(normalized);
+}
+
+function serializeStructuredResponse(value: unknown): string {
+  if (value === undefined) {
+    throw new Error('DeepAgents structured output did not return a response.');
+  }
+  try {
+    return JSON.stringify(value);
+  } catch (error) {
+    const detail = error instanceof Error ? ` ${error.message}` : '';
+    throw new Error(
+      `DeepAgents structured output could not be serialized.${detail}`,
+      { cause: error },
+    );
   }
 }
 
