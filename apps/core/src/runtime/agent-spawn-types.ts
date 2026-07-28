@@ -33,6 +33,7 @@ import type {
 import type { AgentExecutionAdapterRegistry } from '../application/agent-execution/agent-execution-adapter-registry.js';
 import type { SemanticCapabilityDefinition } from '../shared/semantic-capabilities.js';
 import type { RunnerStartupHostPhaseTimings } from './agent-spawn-startup-timing.js';
+import type { AgentAccessSnapshot } from '../application/agent-execution/agent-access-snapshot.js';
 import type {
   RunnerSandboxProvider,
   RunnerSandboxSpawnInput,
@@ -155,6 +156,7 @@ export interface RunAgentOptions {
     appId: string;
     agentId: string;
   };
+  accessSnapshot?: AgentAccessSnapshot;
   mcpServerRepository?: McpServerRepository;
   capabilitySecretRepository?: CapabilitySecretRepository;
   mcpContext?: {

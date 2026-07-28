@@ -89,6 +89,7 @@ export function createDeepAgentsInlineAgentLoopLane(input: {
       skillRepository: laneInput.skillRepository,
       skillArtifactStore: laneInput.skillArtifactStore,
       skillContext: laneInput.skillContext,
+      accessSnapshot: laneInput.accessSnapshot,
     });
     const hasProjectedSkills = Boolean(skillProjection);
     const backend = (config: { state: unknown; store?: BaseStore }) =>

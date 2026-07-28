@@ -9,6 +9,10 @@ import { humanizeTechnicalIdentifier } from '../shared/user-visible-messages.js'
 import { WORKER_STALE_AFTER_MS } from '../shared/worker-heartbeat.js';
 import { resolveRequiredCapabilities } from './capability-eligibility.js';
 import { fleetMissingRequiredCapabilities } from './capability-starvation.js';
+import {
+  assertHostAccessSnapshot,
+  type AgentAccessSnapshot,
+} from '../application/agent-execution/agent-access-snapshot.js';
 
 /**
  * Fleet-wide capability readiness for scheduled jobs (fleet mode only).
@@ -42,8 +46,18 @@ export interface FleetCapabilityReadinessResult {
  */
 export async function evaluateFleetCapabilityReadiness(
   deps: FleetCapabilityReadinessDeps,
-  input: { appId: string; agentId: string },
+  input: {
+    appId: string;
+    agentId: string;
+    accessSnapshot?: AgentAccessSnapshot;
+  },
 ): Promise<FleetCapabilityReadinessResult> {
+  const accessSnapshot = assertHostAccessSnapshot({
+    accessSnapshot: input.accessSnapshot,
+    appId: input.appId,
+    agentId: input.agentId,
+    subject: 'Fleet capability readiness',
+  });
   if (deps.deploymentMode !== 'fleet' || !deps.workerRegistry) {
     return {
       satisfiable: true,
@@ -57,7 +71,7 @@ export async function evaluateFleetCapabilityReadiness(
       skills: deps.skills,
       runtimeDependencies: deps.runtimeDependencies,
     },
-    input,
+    { ...input, accessSnapshot },
   );
   if (required.length === 0) {
     return {

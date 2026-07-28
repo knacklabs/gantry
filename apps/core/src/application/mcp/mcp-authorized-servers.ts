@@ -1,4 +1,7 @@
-import type { McpServerRepository } from '../../domain/ports/repositories.js';
+import type {
+  AgentMcpAccessSnapshot,
+  McpServerRepository,
+} from '../../domain/ports/repositories.js';
 
 // Discovery is not authorization: every ACTIVE bound MCP server is a projected
 // source (inventory-only connects included), regardless of which mcp__ tool
@@ -24,6 +27,19 @@ export async function authorizedMcpServerIdsForAgent(input: {
   );
   return activeBindings.flatMap((binding, index) => {
     const server = servers[index];
+    if (!server || server.appId !== input.appId) return [];
+    return [String(binding.serverId)];
+  });
+}
+
+export function authorizedMcpServerIdsFromSnapshot(input: {
+  appId: string;
+  activeRows: AgentMcpAccessSnapshot['activeBindings'];
+}): string[] {
+  return input.activeRows.flatMap((row) => {
+    const binding = row.binding;
+    if (binding.status !== 'active') return [];
+    const server = row.definition;
     if (!server || server.appId !== input.appId) return [];
     return [String(binding.serverId)];
   });

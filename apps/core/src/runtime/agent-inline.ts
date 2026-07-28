@@ -9,6 +9,7 @@ import {
   McpServerService,
   type MaterializedMcpCapability,
 } from '../application/mcp/mcp-server-service.js';
+import { assertHostAccessSnapshot } from '../application/agent-execution/agent-access-snapshot.js';
 import { resolveMcpCredentialEnvForAgent } from '../application/capability-secrets/mcp-secret-projection.js';
 import { logger } from '../infrastructure/logging/logger.js';
 import { ensurePrivateDirSync } from '../shared/private-fs.js';
@@ -109,6 +110,7 @@ export interface InlineAgentLoopLaneInput {
   skillRepository?: RunAgentOptions['skillRepository'];
   skillArtifactStore?: RunAgentOptions['skillArtifactStore'];
   skillContext?: RunAgentOptions['skillContext'];
+  accessSnapshot?: RunAgentOptions['accessSnapshot'];
   runtimeDataDir: string;
   maxTurns?: number;
   effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
@@ -470,6 +472,7 @@ async function executeInlineRun(input: {
         skillRepository: input.options.skillRepository,
         skillArtifactStore: input.options.skillArtifactStore,
         skillContext: input.options.skillContext,
+        accessSnapshot: input.options.accessSnapshot,
         runtimeDataDir: input.runtimeDataDir,
         maxTurns: input.maxTurns,
         effort: input.effort,
@@ -504,12 +507,25 @@ async function listInlineMcpSourceRecords(
   const serverIds = input.attachedMcpSourceIds ?? [];
   if (
     serverIds.length === 0 ||
-    !options.mcpServerRepository ||
     !options.mcpContext?.appId ||
     !options.mcpContext.agentId
   ) {
     return [];
   }
+  const accessSnapshot = assertHostAccessSnapshot({
+    accessSnapshot: options.accessSnapshot,
+    appId: options.mcpContext.appId,
+    agentId: options.mcpContext.agentId,
+    subject: 'Inline MCP projection',
+  });
+  const snapshotRecords = accessSnapshot?.mcp.materializedServers;
+  if (snapshotRecords) {
+    const selectedServerIds = new Set(serverIds);
+    return snapshotRecords.filter((record) =>
+      selectedServerIds.has(String(record.definition.id)),
+    );
+  }
+  if (!options.mcpServerRepository) return [];
   return options.mcpServerRepository.listMaterializedServersForAgent({
     appId: options.mcpContext.appId as never,
     agentId: options.mcpContext.agentId as never,
@@ -538,6 +554,12 @@ async function materializeInlineMcpServers(
     )
     .map(({ definition }) => definition.id);
   if (serverIds.length === 0) return [];
+  const accessSnapshot = assertHostAccessSnapshot({
+    accessSnapshot: options.accessSnapshot,
+    appId: options.mcpContext.appId,
+    agentId: options.mcpContext.agentId,
+    subject: 'Inline MCP materialization',
+  });
   const credentialEnv = options.capabilitySecretRepository
     ? await resolveMcpCredentialEnvForAgent({
         appId: options.mcpContext.appId as never,
@@ -545,6 +567,7 @@ async function materializeInlineMcpServers(
         serverIds,
         mcpServers: options.mcpServerRepository,
         secrets: options.capabilitySecretRepository,
+        accessSnapshot,
       })
     : {};
   const capabilities = await new McpServerService(
@@ -559,6 +582,7 @@ async function materializeInlineMcpServers(
     agentId: options.mcpContext.agentId as never,
     serverIds,
     credentialEnv,
+    accessSnapshot,
   });
   return capabilities.flatMap((capability) => {
     const allowedToolNames = intersectInlineMcpToolScopes(

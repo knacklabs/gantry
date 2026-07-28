@@ -69,6 +69,10 @@ import {
 import { formatGeneratedRuntimePathPermissionError } from './generated-runtime-path-error.js';
 import { writeRunnerMcpConfigFile } from './agent-spawn-mcp-config.js';
 import { withStdioMcpEgressEnv } from './agent-spawn-mcp-egress-env.js';
+import {
+  accessSnapshotForSpawnMcpProjection,
+  resolveSpawnMcpSourceRecords,
+} from './agent-spawn-mcp-source-records.js';
 import { publishRunnerHostStartupDiagnosticFromSpawn } from './agent-spawn-startup-diagnostic.js';
 import { resolveSelectedSkillEnvForSpawn } from './agent-spawn-selected-skill-env.js';
 import { configureSpawnAsyncCommandSandboxPolicy } from './async-command-sandbox-policy.js';
@@ -327,17 +331,12 @@ async function spawnAgentWithContext(
     let projectedMcpSourceIds: string[] = [];
     let effectiveRuntimeAccess = input.runtimeAccess ?? [];
     await hostStartup.measureAsync('mcpProjectionMs', async () => {
-      const mcpSourceRecords =
-        options?.mcpServerRepository &&
-        options.mcpContext?.appId &&
-        options.mcpContext.agentId &&
-        attachedMcpSourceIds.length > 0
-          ? await options.mcpServerRepository.listMaterializedServersForAgent({
-              appId: options.mcpContext.appId as never,
-              agentId: options.mcpContext.agentId as never,
-              serverIds: attachedMcpSourceIds as never,
-            })
-          : [];
+      const accessSnapshot = accessSnapshotForSpawnMcpProjection(options);
+      const mcpSourceRecords = await resolveSpawnMcpSourceRecords({
+        attachedMcpSourceIds,
+        options,
+        accessSnapshot,
+      });
       selectedMcpServerNames = uniqueStrings([
         ...mcpSourceRecords.map((record) => record.definition.name),
         ...attachedMcpSourceIds.map((sourceId) =>
@@ -371,7 +370,9 @@ async function spawnAgentWithContext(
                 serverIds: projectedMcpSourceIds as never,
                 mcpServers: options.mcpServerRepository,
                 secrets: options.capabilitySecretRepository,
+                accessSnapshot,
               }),
+              accessSnapshot,
             })
           : [];
       effectiveRuntimeAccess = attachMcpSourceNetworkHosts(

@@ -17,6 +17,7 @@ export function resolveSelectedSkillEnvForSpawn(input: {
         skills: options.skillRepository,
         secrets: options.capabilitySecretRepository,
         runtimeAccess: input.effectiveRuntimeAccess,
+        accessSnapshot: options.accessSnapshot,
       })
     : Promise.resolve({ env: {} });
 }

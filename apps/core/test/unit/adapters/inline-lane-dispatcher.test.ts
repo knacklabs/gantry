@@ -80,6 +80,36 @@ describe('inline lane dispatcher', () => {
     expect(claudeLane).not.toHaveBeenCalled();
   });
 
+  it('passes the typed access snapshot through to provider lanes', async () => {
+    const accessSnapshot = {
+      appId: 'default',
+      agentId: 'agent:reviewer',
+      tools: { activeBindings: [], appActiveDefinitions: [] },
+      skills: { activeBindings: [], enabledDefinitions: [] },
+      mcp: { activeBindings: [], materializedServers: [] },
+    };
+    const deepAgentsLane = vi.fn(async () => ({
+      status: 'success' as const,
+      result: 'deep',
+    }));
+    const dispatcher = createInlineAgentLoopLaneDispatcher({
+      claudeLane: vi.fn(),
+      deepAgentsLane,
+      createCoreTools: () => ({ tools: [] }) as never,
+      getEgressDenylist: () => [],
+    });
+    const input = {
+      ...laneInput(DEEPAGENTS_ENGINE),
+      accessSnapshot,
+    };
+
+    await dispatcher(input);
+
+    expect(deepAgentsLane.mock.calls[0]?.[0].accessSnapshot).toBe(
+      accessSnapshot,
+    );
+  });
+
   it('returns a valid structured response without another model call', async () => {
     const claudeLane = vi.fn(async () => ({
       status: 'success' as const,

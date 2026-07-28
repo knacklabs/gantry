@@ -37,7 +37,10 @@ import {
   buildAsyncCommandEnv,
   runSandboxedAsyncCommand,
 } from './async-command-sandbox-runner.js';
-import { resolveTurnToolPolicy } from '../runtime/group-run-context.js';
+import {
+  loadAgentAccessSnapshot,
+  resolveTurnToolPolicyFromSnapshot,
+} from '../runtime/group-run-context.js';
 import { createCoreTaskLifecycleBackend } from '../application/core-tools/task-lifecycle.js';
 import { delegatedTaskAgentInScope } from './async-command-task-helpers.js';
 import { resolveDelegatedAgentTarget } from './ipc-agent-delegation-target.js';
@@ -552,7 +555,9 @@ const taskMessageHandler: TaskHandler = async (context) => {
     return;
   }
   const { sandboxPolicy: _sandboxPolicy, ...scopedTaskOwner } = scope;
-  const toolPolicy = await resolveTurnToolPolicy(context.deps, scopedTaskOwner);
+  const toolPolicy = resolveTurnToolPolicyFromSnapshot(
+    await loadAgentAccessSnapshot(context.deps, scopedTaskOwner),
+  );
   if (!toolPolicy.toolPolicyRules?.includes('AgentDelegation')) {
     reject('task_message requires AgentDelegation access.', 'forbidden');
     return;

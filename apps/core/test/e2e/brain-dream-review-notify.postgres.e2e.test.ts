@@ -184,26 +184,23 @@ maybeDescribe('brain dream review owner-DM notification (T6)', () => {
     page: BrainPage,
     notify: ReturnType<typeof createBrainReviewNotifier>,
   ): Promise<string> {
+    let createdReviewId: string | undefined;
     await applyBrainDreamOperations({
       brain,
       repository,
       reviews,
-      notify,
+      notify: async (review) => {
+        createdReviewId = review.id;
+        return notify(review);
+      },
       appId: APP_ID,
       runId: 'notify-run',
       page,
       evidencePages: [page],
       ops: [{ action: 'delete_page', page_id: page.id }],
     });
-    const review = (
-      await reviews.listPendingBrainDreamReviews({ appId: APP_ID, limit: 50 })
-    ).find(
-      (r) =>
-        r.action === 'delete_page' &&
-        (r.canonicalOp as { pageId?: string }).pageId === page.id,
-    );
-    expect(review).toBeDefined();
-    return review!.id;
+    expect(createdReviewId).toBeDefined();
+    return createdReviewId!;
   }
 
   async function deliveryCount(): Promise<number> {
