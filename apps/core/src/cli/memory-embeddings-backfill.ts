@@ -128,6 +128,10 @@ export async function runEmbeddingBackfillCommand(
       model: embeddings.model,
       dimensions: embeddings.dimensions,
       appId: DEFAULT_MEMORY_APP_ID as AppId,
+      credentialBrokerConfig: {
+        mode: settings.credentialBroker.mode,
+        gatewayBindHost: settings.credentialBroker.gateway.bindHost,
+      },
     });
     const result = await runEmbeddingBackfill({
       db: storage.service.db,
