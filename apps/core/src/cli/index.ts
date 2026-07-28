@@ -362,6 +362,10 @@ async function runSetupCommand(
           label: 'Add another agent',
         },
         {
+          value: 'add_conversation',
+          label: 'Add conversation to existing agent',
+        },
+        {
           value: 'channel',
           label: 'Chat channel',
         },
@@ -399,6 +403,11 @@ async function runSetupCommand(
       const { runAddAgentSetupSlice } =
         await import('./setup-flow-core-steps.js');
       return runAddAgentSetupSlice(runtimeHome);
+    }
+    if (choice === 'add_conversation') {
+      const { runAddConversationSetupSlice } =
+        await import('./setup-add-conversation.js');
+      return runAddConversationSetupSlice(runtimeHome);
     }
     startStep = choice as OnboardingStep;
     const nextState = createInitialState(runtimeHome);
