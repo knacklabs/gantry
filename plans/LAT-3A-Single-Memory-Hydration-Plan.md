@@ -4,8 +4,8 @@ Issue: `LAT-3A`
 Branch: `perf/phase3a-single-memory-hydration`
 Base: `origin/main` @ `55ddfca7c`
 Program: MyClaw Response-Latency Refactor, Phase 3A
-Governing decision: `docs/decisions/0076-lat-3a-single-memory-hydration-per-turn.md`
-Sign-off: `docs/decisions/0077-client-signoff.md`
+Governing decision: `docs/decisions/0077-lat-3a-single-memory-hydration-per-turn.md`
+Sign-off: `docs/decisions/0078-client-signoff.md`
 
 ## Problem
 
@@ -67,7 +67,7 @@ reproduces at `55ddfca7c` on three of four paths, so no Forge signal was
 raised. The one correction needed is to the handover itself, not the phase: the
 goal prompt's instruction to "hydrate exactly once against the final promoted
 context" is wrong for the pending-delta path, where the model consumes the
-provisional context. That is resolved in decision 0076 and corrected in
+provisional context. That is resolved in decision 0077 and corrected in
 `docs/architecture/messaging-hotpath-and-liveness-goal-prompt.md`.
 
 ## Scope / Non-goals
@@ -90,13 +90,13 @@ Plus tests, and wiring `memory_hydrate_calls` to the real
 - `HydrateAgentContextService`, the memory recall query, its scoring, or its
   250 ms `first_visible` lexical-only timeout.
 - The scheduled-job hydrating call at `apps/core/src/jobs/execution.ts:324-335`
-  — deferred as **D-0018** with a revisit trigger. A job is not an inbound turn
+  — deferred as **D-0020** with a revisit trigger. A job is not an inbound turn
   and sits outside this program's primary metric.
 - The non-hydrating control (`group-session-command-state.ts`), recovery
   (`live-recovery-coordinator.ts`), and inline-task
   (`inline-agent-task-lifecycle.ts`) callers — already correct.
 - Carrying an expected session identity from admission into the runner. Named
-  by the roadmap, **explicitly rejected** in decision 0076; see the Decisions section.
+  by the roadmap, **explicitly rejected** in decision 0077; see the Decisions section.
 - Durable memory, session, admission, cursor, provider-account, or app
   isolation authority boundaries.
 - Settings, schema, migrations, public API, SDK, CLI, permission surfaces.
@@ -238,7 +238,7 @@ Considered and rejected — recorded in the Decisions section:
 
 ## Decisions
 
-- `docs/decisions/0076-lat-3a-single-memory-hydration-per-turn.md` — **the
+- `docs/decisions/0077-lat-3a-single-memory-hydration-per-turn.md` — **the
   governing record.** Fixes the invariant against the model-visible context;
   enumerates all four exit paths; picks provisional-read-reuse over
   non-hydrating-provisional; names the fence; requires the equivalence test;
@@ -247,12 +247,12 @@ Considered and rejected — recorded in the Decisions section:
   one `runGroupAgent` call, so an in-runner comparison covers the entire reuse
   window. That rejection drops the production write scope from six files to
   two.
-- `docs/decisions/0077-client-signoff.md` — LAT-3A sign-off. Needed its own
+- `docs/decisions/0078-client-signoff.md` — LAT-3A sign-off. Needed its own
   record because `record_signoff.py` resolves the highest-numbered
   `NNNN-client-signoff.md` and would otherwise inherit LAT-2's 0072.
-- Deferral **D-0018** — the scheduled-job hydrating path, with a revisit
+- Deferral **D-0020** — the scheduled-job hydrating path, with a revisit
   trigger.
-- Deferral **D-0019** — whether the `first_visible` recall timeout behaves
+- Deferral **D-0021** — whether the `first_visible` recall timeout behaves
   differently under one hydration, with a revisit trigger.
 
 No further new decisions. Everything else follows from 0076, the existing
@@ -266,11 +266,11 @@ stays inside runtime, touching no adapter or port contract).
 | Runtime behavior | **Changed** | Hydration count per inbound turn drops from 2 to 1 on three of four paths; the model-visible context is assembled from two reads on two of them. |
 | API | **Unchanged by design** | No control handler, SDK contract, or port signature is touched; `loadTurnContext` is a local closure, not an exported contract. |
 | Data / schema | **Unchanged by design** | No migration, no new column, no changed write. Fewer reads only; every write path is untouched. |
-| CLI / ops | **Unchanged by design** | No command, setting, or `settings.yaml` key. Decision 0076 forbids a rollout flag, so there is nothing to operate. |
+| CLI / ops | **Unchanged by design** | No command, setting, or `settings.yaml` key. Decision 0077 forbids a rollout flag, so there is nothing to operate. |
 | UI | **N-A** | No user-visible surface; the turn's rendered output is byte-identical by AC2. |
 | Docs | **Changed** | Decisions 0076 and 0077 added; the goal prompt's A4 plan-validation section corrected at source (its instruction was wrong for the pending-delta path). |
 | Tests | **Changed** | Real-seam `memory_hydrate_calls` wiring, the exactly-once assertion, the promoted-vs-non-promoted equivalence test, and fence-mismatch/reset/compaction/delta-replay coverage. |
-| Deferred | **Deferred** | Scheduled-job hydration (D-0018) and the `first_visible` recall-timeout question (D-0019), both with revisit triggers in `plans/deferrals.md`. |
+| Deferred | **Deferred** | Scheduled-job hydration (D-0020) and the `first_visible` recall-timeout question (D-0021), both with revisit triggers in `plans/deferrals.md`. |
 
 ## Task Decomposition
 
@@ -323,7 +323,7 @@ skip/default), `session-continuity.postgres.integration.test.ts` (reset/resume).
 - **A second hydration-only field is added to the return type later**, and
   someone extends the overlay by copy-paste instead of rethinking it. Today the
   overlay is safe precisely because `memoryContextBlock` is the *only*
-  hydration-derived field. Mitigation: decision 0076 records that this must be
+  hydration-derived field. Mitigation: decision 0077 records that this must be
   revisited, not extended, if a second such field appears; the equivalence test
   pins the current shape. **Tripwire:** if review flags the two-read assembly as
   a maintainability risk more than once, escalate per WORKFLOW.md Recurring
@@ -338,7 +338,7 @@ skip/default), `session-continuity.postgres.integration.test.ts` (reset/resume).
 - **The pending-delta path is subtle** and its provisional context is
   model-visible. A careless "make the provisional read non-hydrating" would ship
   a memory-less turn. This is the trap the handover walked into; the per-path
-  table in Technical Approach and decision 0076 exist to stop it recurring.
+  table in Technical Approach and decision 0077 exist to stop it recurring.
 - **Measurement is unit-level.** Removing one repository fan-out is a real but
   modest saving; AC6 requires stating plainly what did not improve rather than
   implying a large end-to-end win.

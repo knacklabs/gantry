@@ -350,7 +350,7 @@ semantics already established for provider-session writes at
 `canonical-session-repository.postgres.ts:454-475`; on fence mismatch the
 carried block is discarded and that read re-hydrates.
 
-Decision 0076 also REJECTS this section's suggestion to carry the *admission*
+Decision 0077 also REJECTS this section's suggestion to carry the *admission*
 session identity forward as the fenced expected id. The memory block is only
 reused between the runner's provisional read and the model-visible read taken
 inside `prepareCompactionDeltaReplay`, both within one `runGroupAgent` call, so
