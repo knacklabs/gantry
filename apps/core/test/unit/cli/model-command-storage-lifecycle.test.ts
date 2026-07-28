@@ -30,6 +30,7 @@ vi.mock('@core/adapters/llm/model-provider-preflight.js', () => ({
 }));
 
 import { runModelCommand } from '@core/cli/model.js';
+import { runWithModelCommandPreflight } from '@core/cli/model-command-preflight.js';
 import {
   loadRuntimeSettings,
   saveRuntimeSettings,
@@ -153,6 +154,53 @@ describe('model CLI storage lifecycle', () => {
 
     expect(acquireRuntimeStorageForRuntimeHome).toHaveBeenCalledOnce();
     expect(preflightModelProvider).toHaveBeenCalledTimes(2);
+    expect(release).toHaveBeenCalledOnce();
+  });
+
+  it('keeps a successful model command result when storage cleanup fails', async () => {
+    const runtimeHome = makeRuntimeHome();
+    const settings = loadRuntimeSettings(runtimeHome);
+    const cleanupError = new Error('storage cleanup failed');
+    release.mockRejectedValueOnce(cleanupError);
+    const reported = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    await expect(
+      runWithModelCommandPreflight({
+        runtimeHome,
+        run: async (preflightProvider) => {
+          await preflightProvider(runtimeHome, 'openai', settings, 'gpt-terra');
+          return 7;
+        },
+      }),
+    ).resolves.toBe(7);
+
+    expect(release).toHaveBeenCalledOnce();
+    expect(reported).toHaveBeenCalledWith(
+      'Model command runtime storage cleanup failed:',
+      cleanupError,
+    );
+  });
+
+  it('surfaces model command and storage cleanup failures together', async () => {
+    const runtimeHome = makeRuntimeHome();
+    const settings = loadRuntimeSettings(runtimeHome);
+    const commandError = new Error('model command failed');
+    const cleanupError = new Error('storage cleanup failed');
+    release.mockRejectedValueOnce(cleanupError);
+
+    await expect(
+      runWithModelCommandPreflight({
+        runtimeHome,
+        run: async (preflightProvider) => {
+          await preflightProvider(runtimeHome, 'openai', settings, 'gpt-terra');
+          throw commandError;
+        },
+      }),
+    ).rejects.toMatchObject({
+      name: 'AggregateError',
+      errors: [commandError, cleanupError],
+    });
+
     expect(release).toHaveBeenCalledOnce();
   });
 

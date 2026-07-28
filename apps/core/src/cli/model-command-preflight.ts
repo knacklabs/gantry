@@ -43,9 +43,25 @@ export async function runWithModelCommandPreflight(input: {
         modelCredentials: storageLease?.storage.repositories.modelCredentials,
       });
     });
-  try {
-    return await input.run(preflightProvider);
-  } finally {
-    await storageLease?.release();
-  }
+  return input.run(preflightProvider).then(
+    async (result) => {
+      await storageLease?.release().then(undefined, (cleanupError: unknown) => {
+        console.error(
+          'Model command runtime storage cleanup failed:',
+          cleanupError,
+        );
+      });
+      return result;
+    },
+    async (error: unknown) => {
+      await storageLease?.release().then(undefined, (cleanupError: unknown) => {
+        throw new AggregateError(
+          [error, cleanupError],
+          'Model command failed and runtime storage cleanup also failed',
+          { cause: cleanupError },
+        );
+      });
+      throw error;
+    },
+  );
 }
