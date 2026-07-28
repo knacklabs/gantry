@@ -347,6 +347,35 @@ export function normalizeRuntimeSecretRefs(input: {
   );
 }
 
+function conversationTopology(settings: RuntimeSettings): unknown {
+  return Object.fromEntries(
+    Object.entries(settings.conversations)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([conversationKey, conversation]) => [
+        conversationKey,
+        {
+          providerAccount:
+            conversation.providerAccount ?? conversation.providerConnection,
+          externalId: conversation.externalId,
+          kind: conversation.kind,
+          installedAgents: Object.fromEntries(
+            Object.entries(conversation.installedAgents)
+              .sort(([left], [right]) => left.localeCompare(right))
+              .map(([agentKey, install]) => [
+                agentKey,
+                {
+                  agentId: install.agentId,
+                  providerAccountId: install.providerAccountId,
+                  threadId: install.threadId,
+                  status: install.status,
+                },
+              ]),
+          ),
+        },
+      ]),
+  );
+}
+
 export function classifySettingsChanges(
   before: RuntimeSettings,
   after: RuntimeSettings,
@@ -367,12 +396,19 @@ export function classifySettingsChanges(
   if (providerTopologyChanged) {
     restartRequired.push('providers');
   }
-  if (
-    !providerTopologyChanged &&
-    (!jsonEqual(before.conversations, after.conversations) ||
-      !jsonEqual(before.bindings, after.bindings))
-  ) {
-    liveApplied.push('conversation_policies');
+  if (!providerTopologyChanged) {
+    const conversationTopologyChanged = !jsonEqual(
+      conversationTopology(before),
+      conversationTopology(after),
+    );
+    if (conversationTopologyChanged) {
+      restartRequired.push('conversations');
+    } else if (
+      !jsonEqual(before.conversations, after.conversations) ||
+      !jsonEqual(before.bindings, after.bindings)
+    ) {
+      liveApplied.push('conversation_policies');
+    }
   }
   if (!jsonEqual(before.agent, after.agent)) {
     liveApplied.push('agent_defaults');
