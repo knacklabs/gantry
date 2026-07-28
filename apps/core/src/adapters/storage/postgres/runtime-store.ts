@@ -417,10 +417,22 @@ export async function closeRuntimeStorage(): Promise<void> {
   if (existing) await closeStorageRuntimeResources(existing);
 }
 
-/** @internal test hook */
-export function _setRuntimeStorageForTest(nextRuntime: StorageRuntime): void {
+/**
+ * @internal test hook
+ *
+ * Pass `scope` to install the storage AS the storage for a specific runtime
+ * home, so a home-scoped caller (a CLI command) reuses it instead of opening a
+ * second runtime against a schema it has not migrated. Without `scope` the
+ * scope stays unknown and any explicit home is rejected — the invariant
+ * asserted by 'rejects an explicit runtime home when service-owned storage
+ * scope is unknown'.
+ */
+export function _setRuntimeStorageForTest(
+  nextRuntime: StorageRuntime,
+  scope?: StorageRuntimeOptions,
+): void {
   runtime = nextRuntime;
-  runtimeScopeKey = 'process-runtime';
+  runtimeScopeKey = scope ? runtimeStorageScopeKey(scope) : 'process-runtime';
   const workerCoordination = nextRuntime.repositories?.workerCoordination;
   configurePendingInteractionDurability(
     workerCoordination

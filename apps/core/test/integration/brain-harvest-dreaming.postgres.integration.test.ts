@@ -58,8 +58,10 @@ maybeDescribe('brain harvest and dreaming postgres integration', () => {
   }, 60_000);
 
   afterAll(async () => {
-    await closeRuntimeStorage().catch(() => undefined);
+    // Drop the schema while the pool is still alive: closeRuntimeStorage ends
+    // the pool this harness owns, so cleanup() must run first.
     await runtime.cleanup();
+    await closeRuntimeStorage().catch(() => undefined);
   });
 
   it('harvests opted-in channel pages and dreams grounded additive facts', async () => {

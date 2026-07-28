@@ -15,6 +15,8 @@ import { BrainService } from '@core/brain/brain-service.js';
 import { runBrainEmbeddingBackfill } from '@core/brain/brain-embedding-backfill.js';
 import { processMemoryRequest } from '@core/memory/memory-ipc.js';
 import { runBrainCommand } from '@core/cli/brain.js';
+import { storageRuntimeOptionsForRuntimeHome } from '@core/adapters/storage/postgres/factory.js';
+import { loadRuntimeSettings } from '@core/config/settings/runtime-settings.js';
 import type { EmbeddingProvider } from '@core/memory/memory-embeddings.js';
 
 import {
@@ -62,8 +64,10 @@ maybeDescribe('company brain postgres core', () => {
   }, 60_000);
 
   afterAll(async () => {
-    await closeRuntimeStorage().catch(() => undefined);
+    // Drop the schema while the pool is still alive: closeRuntimeStorage ends
+    // the pool this harness owns, so cleanup() must run first.
     await runtime.cleanup();
+    await closeRuntimeStorage().catch(() => undefined);
   });
 
   it('creates pages, entities, edges, and the vector index', async () => {
@@ -209,6 +213,18 @@ Dana works at Knacklabs.`,
       process.env.GANTRY_BOOTSTRAP_SETTINGS_IF_MISSING = '1';
 
       const before = await brain.status('default');
+      // Claim the CLI's home scope so runBrainCommand reuses this already
+      // migrated storage. Built with the same helper the CLI uses, so the scope
+      // keys match by construction — the bootstrapped settings resolve schema
+      // 'gantry', not the harness schema, so a second runtime would open an
+      // unmigrated schema.
+      _setRuntimeStorageForTest(
+        runtime.storageRuntime,
+        storageRuntimeOptionsForRuntimeHome(
+          runtimeHome,
+          loadRuntimeSettings(runtimeHome),
+        ),
+      );
       expect(await runBrainCommand(runtimeHome, ['import', fixtureDir])).toBe(
         0,
       );
@@ -278,6 +294,14 @@ Dana works at Knacklabs.`,
       process.env.GANTRY_HOME = runtimeHome;
       process.env.GANTRY_BOOTSTRAP_SETTINGS_IF_MISSING = '1';
 
+      // Claim the CLI's home scope (see the import test above).
+      _setRuntimeStorageForTest(
+        runtime.storageRuntime,
+        storageRuntimeOptionsForRuntimeHome(
+          runtimeHome,
+          loadRuntimeSettings(runtimeHome),
+        ),
+      );
       // Bootstrapped settings have no verified owner → the notifier reports
       // delivered:false → the CLI must exit NON-zero, not print a false success.
       const code = await runBrainCommand(runtimeHome, [
