@@ -116,10 +116,12 @@ export async function runEmbeddingBackfillCommand(
     return 1;
   }
 
-  process.env.GANTRY_HOME = runtimeHome;
-  const { acquireRuntimeStorage } =
+  const { acquireRuntimeStorageForRuntimeHome } =
     await import('../adapters/storage/postgres/runtime-store.js');
-  const storageLease = await acquireRuntimeStorage();
+  const storageLease = await acquireRuntimeStorageForRuntimeHome(
+    runtimeHome,
+    settings,
+  );
   const { storage } = storageLease;
   try {
     const provider = createEmbeddingProvider(embeddings.provider, {

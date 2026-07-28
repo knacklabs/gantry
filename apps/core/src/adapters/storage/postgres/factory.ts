@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import path from 'node:path';
 
 import {
@@ -13,6 +14,7 @@ import {
   GANTRY_HOME,
   createDefaultRuntimeSettings,
   getRuntimeSettingsForConfig,
+  resolveRuntimeStorageConfigForRuntimeHome,
   resolveRuntimeStorageConfig,
   resolveRuntimeStorageConfigFromSettings,
   type RuntimeSettings,
@@ -82,6 +84,7 @@ export interface StorageRuntime {
 }
 
 export interface StorageRuntimeOptions {
+  runtimeHome?: string;
   storageConfig?: ResolvedStorageConfig;
   runtimeSettings?: RuntimeSettings;
   loadSessionAppMemoryItems?: (input: {
@@ -98,6 +101,38 @@ export interface StorageRuntimeOptions {
       subject: Record<string, unknown>;
     }>
   >;
+}
+
+export function storageRuntimeOptionsForRuntimeHome(
+  runtimeHome: string,
+  runtimeSettings: RuntimeSettings,
+): StorageRuntimeOptions {
+  return {
+    runtimeHome,
+    runtimeSettings,
+    storageConfig: resolveRuntimeStorageConfigForRuntimeHome(
+      runtimeHome,
+      runtimeSettings,
+    ),
+  };
+}
+
+export function runtimeStorageScopeKey(
+  options: StorageRuntimeOptions = {},
+): string {
+  const runtimeHome =
+    options.runtimeHome ?? (process.env.GANTRY_HOME?.trim() || GANTRY_HOME);
+  const storageConfig =
+    options.storageConfig ??
+    resolveStorageConfigFromSettings(options.runtimeSettings) ??
+    resolveStorageConfigFromRuntime();
+  return createHash('sha256')
+    .update(path.resolve(runtimeHome))
+    .update('\0')
+    .update(storageConfig.postgresUrl ?? '')
+    .update('\0')
+    .update(storageConfig.postgresSchema)
+    .digest('hex');
 }
 
 export function resolveStorageConfigFromRuntime(): ResolvedStorageConfig {

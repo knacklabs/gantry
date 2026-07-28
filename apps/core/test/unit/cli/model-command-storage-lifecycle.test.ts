@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const modelCredentials = { kind: 'model-credentials' };
 const release = vi.hoisted(() => vi.fn(async () => undefined));
-const acquireRuntimeStorage = vi.hoisted(() =>
+const acquireRuntimeStorageForRuntimeHome = vi.hoisted(() =>
   vi.fn(async () => ({
     storage: { repositories: { modelCredentials } },
     owned: true,
@@ -22,7 +22,7 @@ const preflightModelProvider = vi.hoisted(() =>
 );
 
 vi.mock('@core/adapters/storage/postgres/runtime-store.js', () => ({
-  acquireRuntimeStorage,
+  acquireRuntimeStorageForRuntimeHome,
 }));
 
 vi.mock('@core/adapters/llm/model-provider-preflight.js', () => ({
@@ -46,7 +46,7 @@ function makeRuntimeHome(): string {
 }
 
 beforeEach(() => {
-  acquireRuntimeStorage.mockClear();
+  acquireRuntimeStorageForRuntimeHome.mockClear();
   preflightModelProvider.mockClear();
   release.mockClear();
 });
@@ -73,7 +73,7 @@ describe('model CLI storage lifecycle', () => {
 
       await expect(runModelCommand(runtimeHome, args)).resolves.toBe(0);
 
-      expect(acquireRuntimeStorage).toHaveBeenCalledOnce();
+      expect(acquireRuntimeStorageForRuntimeHome).toHaveBeenCalledOnce();
       expect(preflightModelProvider).toHaveBeenCalled();
       expect(
         preflightModelProvider.mock.calls.every(
@@ -109,7 +109,7 @@ describe('model CLI storage lifecycle', () => {
       ]),
     ).resolves.toBe(0);
 
-    expect(acquireRuntimeStorage).toHaveBeenCalledOnce();
+    expect(acquireRuntimeStorageForRuntimeHome).toHaveBeenCalledOnce();
     expect(preflightModelProvider).toHaveBeenCalledWith(
       expect.objectContaining({ modelCredentials }),
     );
@@ -128,7 +128,7 @@ describe('model CLI storage lifecycle', () => {
       runModelCommand(runtimeHome, ['set', 'jobs', 'inherit']),
     ).resolves.toBe(0);
 
-    expect(acquireRuntimeStorage).toHaveBeenCalledOnce();
+    expect(acquireRuntimeStorageForRuntimeHome).toHaveBeenCalledOnce();
     expect(preflightModelProvider).toHaveBeenCalledWith(
       expect.objectContaining({ modelCredentials }),
     );
@@ -140,7 +140,7 @@ describe('model CLI storage lifecycle', () => {
     const settings = loadRuntimeSettings(runtimeHome);
     settings.agent.defaultModel = 'gpt-sol';
     saveRuntimeSettings(runtimeHome, settings);
-    acquireRuntimeStorage.mockImplementationOnce(async () => {
+    acquireRuntimeStorageForRuntimeHome.mockImplementationOnce(async () => {
       await new Promise<void>((resolve) => setImmediate(resolve));
       return {
         storage: { repositories: { modelCredentials } },
@@ -151,7 +151,7 @@ describe('model CLI storage lifecycle', () => {
 
     await expect(runModelCommand(runtimeHome, ['doctor'])).resolves.toBe(0);
 
-    expect(acquireRuntimeStorage).toHaveBeenCalledOnce();
+    expect(acquireRuntimeStorageForRuntimeHome).toHaveBeenCalledOnce();
     expect(preflightModelProvider).toHaveBeenCalledTimes(2);
     expect(release).toHaveBeenCalledOnce();
   });
@@ -174,7 +174,7 @@ describe('model CLI storage lifecycle', () => {
 
       await runModelCommand(runtimeHome, args);
 
-      expect(acquireRuntimeStorage).not.toHaveBeenCalled();
+      expect(acquireRuntimeStorageForRuntimeHome).not.toHaveBeenCalled();
       expect(release).not.toHaveBeenCalled();
     },
   );

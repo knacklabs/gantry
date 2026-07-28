@@ -1,17 +1,20 @@
 import {
   preflightModelProvider,
   type ModelProviderPreflightResult,
-  type ModelProviderPreflightSettings,
 } from '../adapters/llm/model-provider-preflight.js';
 import {
-  acquireRuntimeStorage,
+  acquireRuntimeStorageForRuntimeHome,
   type RuntimeStorageLease,
 } from '../adapters/storage/postgres/runtime-store.js';
+
+type RuntimeSettings = Parameters<
+  typeof acquireRuntimeStorageForRuntimeHome
+>[1];
 
 export type CliModelProviderPreflight = (
   runtimeHome: string,
   providerId: string,
-  settings: ModelProviderPreflightSettings,
+  settings: RuntimeSettings,
   chatAlias?: string,
 ) => Promise<ModelProviderPreflightResult>;
 
@@ -26,7 +29,10 @@ export async function runWithModelCommandPreflight(input: {
     input.preflightProvider ??
     (async (runtimeHome, providerId, settings, chatAlias) => {
       if (settings.credentialBroker.mode === 'gantry') {
-        storageLeasePromise ??= acquireRuntimeStorage();
+        storageLeasePromise ??= acquireRuntimeStorageForRuntimeHome(
+          runtimeHome,
+          settings,
+        );
         storageLease = await storageLeasePromise;
       }
       return preflightModelProvider({

@@ -211,14 +211,16 @@ export interface OpenedBrain {
 export async function openBrainFromHome(
   runtimeHome: string,
 ): Promise<OpenedBrain> {
-  process.env.GANTRY_HOME = runtimeHome;
-  const { acquireRuntimeStorage } =
+  const settings = loadRuntimeSettings(runtimeHome);
+  const { acquireRuntimeStorageForRuntimeHome } =
     await import('../adapters/storage/postgres/runtime-store.js');
-  const storageLease = await acquireRuntimeStorage();
+  const storageLease = await acquireRuntimeStorageForRuntimeHome(
+    runtimeHome,
+    settings,
+  );
   const { storage } = storageLease;
   try {
     const repository = new PostgresBrainRepository(storage.service.db);
-    const settings = loadRuntimeSettings(runtimeHome);
     const embeddings = settings.memory.embeddings;
     const brain =
       embeddings.enabled && embeddings.provider !== 'disabled'
