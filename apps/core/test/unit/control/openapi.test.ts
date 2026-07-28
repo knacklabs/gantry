@@ -717,6 +717,12 @@ describe('control OpenAPI documentation', () => {
     expect(
       spec.paths['/v1/people/{personId}/aliases/{aliasId}']?.delete.parameters,
     ).toContainEqual(expect.objectContaining({ name: 'appId', in: 'query' }));
+    expect(spec.paths['/v1/people/{personId}']?.get.parameters).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: 'personId', in: 'path' }),
+        expect.objectContaining({ name: 'appId', in: 'query' }),
+      ]),
+    );
     expect(spec.paths['/v1/people/{personId}/merge']?.post).toMatchObject({
       requestBody: {
         content: {

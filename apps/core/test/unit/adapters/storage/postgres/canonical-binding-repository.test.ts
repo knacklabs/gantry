@@ -657,6 +657,94 @@ describe('canonical binding repository route projection', () => {
     });
   });
 
+  it('persists and restores app-session identity metadata across route reload', async () => {
+    const providerAccountId = 'provider-account:app';
+    const routeKey = makeAgentThreadQueueKey(
+      'app:app-one:conv-1',
+      'agent:main_agent',
+      undefined,
+      providerAccountId,
+    );
+    const conversationId = `conversation:${providerAccountId}:app:app-one:conv-1`;
+    const insertedRows: Array<Record<string, unknown>> = [];
+    const conflictUpdates: Array<Record<string, unknown>> = [];
+    const tx = {
+      insert: vi.fn(() => ({
+        values: (value: Record<string, unknown>) => {
+          insertedRows.push(value);
+          return {
+            onConflictDoUpdate: vi.fn(
+              async (update: { set: Record<string, unknown> }) => {
+                conflictUpdates.push(update.set);
+              },
+            ),
+          };
+        },
+      })),
+    } as any;
+    const db = {
+      transaction: vi.fn(async (callback: any) => callback(tx)),
+    } as any;
+    const repo = new PostgresCanonicalBindingRepository(db);
+    (repo as any).graph = {
+      ensureConversation: vi.fn(async () => conversationId),
+      ensureAgent: vi.fn(async () => 'agent:main_agent'),
+      getConversationInstallationId: vi.fn(async () => providerAccountId),
+    };
+
+    await repo.saveConversationRoute(routeKey, {
+      name: 'App Session',
+      folder: 'main_agent',
+      conversationId,
+      trigger: '@main',
+      added_at: '2026-06-01T00:00:00.000Z',
+      requiresTrigger: false,
+      conversationKind: 'dm',
+      providerAccountId,
+      senderIdentityEvidenceType: 'web_user',
+      systemSenderIds: ['sdk'],
+    } as ConversationRoute);
+
+    expect(insertedRows).toHaveLength(1);
+    expect(
+      JSON.parse(insertedRows[0]!.memorySubjectJson as string).route,
+    ).toMatchObject({
+      trigger: '@main',
+      requiresTrigger: false,
+      senderIdentityEvidenceType: 'web_user',
+      systemSenderIds: ['sdk'],
+    });
+    expect(
+      JSON.parse(conflictUpdates[0]!.memorySubjectJson as string).route,
+    ).toMatchObject({
+      senderIdentityEvidenceType: 'web_user',
+      systemSenderIds: ['sdk'],
+    });
+
+    vi.spyOn(repo, 'listConversationRoutes').mockResolvedValue([
+      {
+        ...insertedRows[0],
+        threadId: null,
+        conversationExternalRefJson: JSON.stringify({
+          jid: 'app:app-one:conv-1',
+        }),
+        conversationKind: 'direct',
+      } as any,
+    ]);
+    const routes = await new CanonicalBindingOpsService(
+      repo,
+    ).getAllConversationRoutes();
+
+    expect(routes[routeKey]).toMatchObject({
+      folder: 'main_agent',
+      conversationId,
+      providerAccountId,
+      conversationKind: 'dm',
+      senderIdentityEvidenceType: 'web_user',
+      systemSenderIds: ['sdk'],
+    });
+  });
+
   it('preserves direct and channel route kind for memory scope after restart', () => {
     const directRow = {
       id: 'conversation-route:tg:5759865942',

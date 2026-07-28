@@ -101,4 +101,26 @@ describe('person identity migration contract', () => {
 
     expect(migration).toContain('ADD COLUMN IF NOT EXISTS result_json jsonb');
   });
+
+  it('cleans non-person memory user ids before adding the app-scoped memory foreign key', () => {
+    const migration = fs.readFileSync(
+      path.join(
+        ROOT,
+        'apps/core/src/adapters/storage/postgres/schema/migrations/0121_identity_app_scoped_person_foreign_keys.sql',
+      ),
+      'utf8',
+    );
+    const cleanup = migration.indexOf(
+      "WHERE subject_type <> 'user'\n  AND user_id IS NOT NULL",
+    );
+    const memoryForeignKey = migration.indexOf(
+      'ADD CONSTRAINT memory_items_app_user_fk',
+    );
+
+    expect(cleanup).toBeGreaterThanOrEqual(0);
+    expect(memoryForeignKey).toBeGreaterThan(cleanup);
+    expect(migration).toContain('SET user_id = NULL');
+    expect(migration).toContain('FOREIGN KEY (app_id, user_id)');
+    expect(migration).toContain('REFERENCES users (app_id, id)');
+  });
 });

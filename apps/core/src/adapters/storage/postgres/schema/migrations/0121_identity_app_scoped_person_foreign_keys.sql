@@ -13,6 +13,14 @@ ALTER TABLE conversation_participants
 ALTER TABLE memory_items
   DROP CONSTRAINT IF EXISTS memory_items_user_id_users_id_fk;
 
+-- Group/channel/common rows may carry historical denormalized user_id values
+-- that are not personal-memory owners. Clear them before enforcing the
+-- app-scoped person foreign key.
+UPDATE memory_items
+SET user_id = NULL
+WHERE subject_type <> 'user'
+  AND user_id IS NOT NULL;
+
 ALTER TABLE memory_items
   ADD CONSTRAINT memory_items_app_user_fk
   FOREIGN KEY (app_id, user_id)

@@ -72,9 +72,7 @@ function routeMemorySubject(
     conversationId,
     route: {
       conversationId,
-      trigger: group.trigger,
-      requiresTrigger: group.requiresTrigger ?? true,
-      ...(group.agentConfig ? { agentConfig: group.agentConfig } : {}),
+      ...route,
     },
   };
 }
@@ -303,6 +301,9 @@ export function bindingRowToGroup(
   const folder =
     folderForAgentId(normalizedRowAgentId as AgentId) ?? row.agentId;
   const agentConfig = routeSubject.route?.agentConfig;
+  const senderIdentityEvidenceType =
+    routeSubject.route?.senderIdentityEvidenceType;
+  const systemSenderIds = routeSubject.route?.systemSenderIds;
   const conversationKind =
     row.conversationKind === 'direct' || row.conversationKind === 'dm'
       ? 'dm'
@@ -319,6 +320,8 @@ export function bindingRowToGroup(
       conversationKind,
       providerAccountId,
       ...(agentConfig ? { agentConfig } : {}),
+      ...(senderIdentityEvidenceType ? { senderIdentityEvidenceType } : {}),
+      ...(systemSenderIds?.length ? { systemSenderIds } : {}),
     },
   };
 }
