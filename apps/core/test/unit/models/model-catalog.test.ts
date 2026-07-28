@@ -20,7 +20,10 @@ import {
   formatCostPerMillion,
   formatModelCatalog,
 } from '@core/shared/model-catalog-format.js';
-import { normalizeModelUsage } from '@core/shared/model-usage.js';
+import {
+  estimateUsageCostUsd,
+  normalizeModelUsage,
+} from '@core/shared/model-usage.js';
 
 function rowFor(text: string, alias: string): string {
   const line = text.split('\n').find((row) => row.startsWith(`${alias} |`));
@@ -180,7 +183,10 @@ describe('model catalog resolution', () => {
         cacheWriteUsdPerMillionTokens: expected.cacheWriteUsdPerMillionTokens,
         outputUsdPerMillionTokens: expected.outputUsdPerMillionTokens,
         cacheMode: 'openai-automatic-prompt',
-        cacheTokenFields: ['prompt_tokens_details.cached_tokens'],
+        cacheTokenFields: [
+          'prompt_tokens_details.cached_tokens',
+          'prompt_tokens_details.cache_write_tokens',
+        ],
         supportsThinking: true,
         supportsTools: true,
         supportedWorkloads: [
@@ -223,7 +229,10 @@ describe('model catalog resolution', () => {
       cacheWriteUsdPerMillionTokens: 6.25,
       outputUsdPerMillionTokens: 30,
       cacheMode: 'openai-automatic-prompt',
-      cacheTokenFields: ['prompt_tokens_details.cached_tokens'],
+      cacheTokenFields: [
+        'prompt_tokens_details.cached_tokens',
+        'prompt_tokens_details.cache_write_tokens',
+      ],
       supportsThinking: true,
       supportsTools: true,
       supportedWorkloads: [
@@ -1308,6 +1317,52 @@ describe('model usage normalization', () => {
       cacheProvider: 'anthropic',
       cacheStatus: 'partial',
     });
+  });
+
+  it.each([
+    ['gpt-5.6-terra', 16.6625],
+    ['gpt-5.6-luna', 6.665],
+    ['gpt-5.6-sol', 33.325],
+  ])(
+    'accounts for %s cache writes at the catalog write rate',
+    (model, expectedCostUsd) => {
+      const usage = normalizeModelUsage({
+        message: {
+          usage: {
+            prompt_tokens: 1_000_000,
+            completion_tokens: 1_000_000,
+            prompt_tokens_details: {
+              cached_tokens: 400_000,
+              cache_write_tokens: 100_000,
+            },
+          },
+        },
+        fallbackModel: model,
+      });
+
+      expect(usage).toMatchObject({
+        cacheReadTokens: 400_000,
+        cacheWriteTokens: 100_000,
+        totalBillableInputTokens: 600_000,
+        cacheProvider: 'openai',
+        cacheStatus: 'partial',
+      });
+      expect(usage?.estimatedCostUsd).toBeCloseTo(expectedCostUsd, 6);
+    },
+  );
+
+  it('keeps cache writes at ordinary input pricing without a catalog write rate', () => {
+    const entry = findModelByRunnerModel('gpt-5.5');
+
+    expect(
+      estimateUsageCostUsd(entry, {
+        inputTokens: 1_000_000,
+        outputTokens: 0,
+        cacheReadTokens: 400_000,
+        cacheWriteTokens: 100_000,
+        cacheProvider: 'openai',
+      }),
+    ).toBeCloseTo(3.2, 6);
   });
 
   it('estimates DeepAgents-lane cost from catalog price for the raw usage branch', () => {

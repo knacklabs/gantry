@@ -43,6 +43,10 @@ const OPENAI_MODEL_WORKLOADS = [
 const OPENAI_CACHE_TOKEN_FIELDS = [
   'prompt_tokens_details.cached_tokens',
 ] as const;
+const GPT_5_6_CACHE_TOKEN_FIELDS = [
+  ...OPENAI_CACHE_TOKEN_FIELDS,
+  'prompt_tokens_details.cache_write_tokens',
+] as const;
 const OPENAI_PROVIDER_ID = ['op', 'enai'].join('');
 const OPENAI_CACHE_MODE =
   `${OPENAI_PROVIDER_ID}-automatic-prompt` as ModelCatalogEntry['cacheMode'];
@@ -140,7 +144,7 @@ export function buildOpenAiCatalog(deps: {
       cachedInputUsdPerMillionTokens: 0.25,
       cacheWriteUsdPerMillionTokens: 3.125,
       cacheMode: OPENAI_CACHE_MODE,
-      cacheTokenFields: OPENAI_CACHE_TOKEN_FIELDS,
+      cacheTokenFields: GPT_5_6_CACHE_TOKEN_FIELDS,
       supportsThinking: true,
       supportsTools: true,
       supportedWorkloads: OPENAI_MODEL_WORKLOADS,
@@ -161,7 +165,7 @@ export function buildOpenAiCatalog(deps: {
       cachedInputUsdPerMillionTokens: 0.1,
       cacheWriteUsdPerMillionTokens: 1.25,
       cacheMode: OPENAI_CACHE_MODE,
-      cacheTokenFields: OPENAI_CACHE_TOKEN_FIELDS,
+      cacheTokenFields: GPT_5_6_CACHE_TOKEN_FIELDS,
       supportsThinking: true,
       supportsTools: true,
       supportedWorkloads: OPENAI_MODEL_WORKLOADS,
@@ -182,7 +186,7 @@ export function buildOpenAiCatalog(deps: {
       cachedInputUsdPerMillionTokens: 0.5,
       cacheWriteUsdPerMillionTokens: 6.25,
       cacheMode: OPENAI_CACHE_MODE,
-      cacheTokenFields: OPENAI_CACHE_TOKEN_FIELDS,
+      cacheTokenFields: GPT_5_6_CACHE_TOKEN_FIELDS,
       supportsThinking: true,
       supportsTools: true,
       supportedWorkloads: OPENAI_MODEL_WORKLOADS,

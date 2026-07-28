@@ -714,12 +714,12 @@ entries with pinned official catalog data can also expose static
 API job creation rejects raw provider model IDs unless they are registered
 catalog aliases.
 
-Current OpenAI/xAI aliases include `gpt-terra` (`gpt-5.6-terra`),
-`gpt-luna` (`gpt-5.6-luna`), and `grok` (`grok-4.5`). The pinned
-`grok-4.3` alias remains available. Terra and Luna are chat/memory models, so
-job selection rejects them; Grok 4.5 is job-eligible. Displayed token prices
-are base rates and do not include long-context multipliers, cache-write rates,
-or provider server-tool fees. See
+Current OpenAI/xAI aliases include `gpt-terra` (`gpt-5.6-terra`), `gpt-luna`
+(`gpt-5.6-luna`), `gpt-sol` (`gpt-5.6-sol`), and `grok` (`grok-4.5`). The
+pinned `grok-4.3` alias remains available. Terra, Luna, Sol, and Grok 4.5 are
+available for chat and jobs. Displayed token prices are base rates and do not
+include long-context multipliers, cache-write rates, or provider server-tool
+fees. See
 [Credential Management](../architecture/credential-management.md#gpt-56-and-grok-45-aliases)
 for credential commands, official prices, thresholds, and source links.
 

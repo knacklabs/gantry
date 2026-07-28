@@ -401,6 +401,7 @@ export const MODEL_PROVIDER_DEFINITIONS = [
         minimumTokenThresholds: [{ modelFamily: 'openai', tokens: 1024 }],
         usageFields: {
           readTokens: 'prompt_tokens_details.cached_tokens',
+          writeTokens: 'prompt_tokens_details.cache_write_tokens',
         },
       },
       response: {
@@ -436,7 +437,6 @@ const MODEL_ROUTE_PROVIDERS = MODEL_PROVIDER_DEFINITIONS.filter(
 const EMBEDDING_MODEL_PROVIDERS = MODEL_PROVIDER_DEFINITIONS.filter(
   (provider) => provider.embeddingProvider,
 );
-
 export type ModelProviderId = (typeof MODEL_PROVIDER_DEFINITIONS)[number]['id'];
 export type ModelRouteProviderId = Extract<
   (typeof MODEL_PROVIDER_DEFINITIONS)[number],

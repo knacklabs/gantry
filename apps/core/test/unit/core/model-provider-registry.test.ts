@@ -231,6 +231,7 @@ describe('model provider registry', () => {
         requestControl: 'provider_automatic_prefix',
         usageFields: {
           readTokens: 'prompt_tokens_details.cached_tokens',
+          writeTokens: 'prompt_tokens_details.cache_write_tokens',
         },
       },
       response: { mode: 'none', enabledByDefault: false },
