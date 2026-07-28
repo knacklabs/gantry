@@ -131,7 +131,7 @@ export function providerJidFromConversationTail(tail: string): string {
 }
 
 function isProviderJid(value: string): boolean {
-  const providerId = providerIdForJid(value, '');
+  const providerId = resolveProviderIdForJid(value, '');
   if (!providerId) return false;
   const jidPrefix = providerJidPrefix(providerId);
   return jidPrefix ? value.startsWith(jidPrefix) : true;
