@@ -30,6 +30,7 @@ import { isAsyncTaskTerminal } from '@core/domain/ports/async-tasks.js';
 class MemoryAsyncTaskRepository implements AsyncTaskRepository {
   readonly tasks = new Map<string, AsyncTaskRecord>();
   readonly listFilters: AsyncTaskListFilter[] = [];
+  private backlogAdmissionTail: Promise<void> = Promise.resolve();
 
   async createTask(input: AsyncTaskCreateInput): Promise<AsyncTaskRecord> {
     const task: AsyncTaskRecord = {
@@ -59,22 +60,29 @@ class MemoryAsyncTaskRepository implements AsyncTaskRepository {
   async createTaskWithBacklogAdmission(
     input: AsyncTaskBacklogAdmissionInput,
   ): Promise<AsyncTaskRecord | null> {
-    const backlog = [...this.tasks.values()].filter(
-      (task) =>
-        task.appId === input.task.appId &&
-        task.kind === input.task.kind &&
-        input.statuses.includes(task.status),
+    let releaseAdmission: () => void = () => undefined;
+    const previousAdmission = this.backlogAdmissionTail;
+    this.backlogAdmissionTail = new Promise<void>(
+      (resolve) => (releaseAdmission = resolve),
     );
-    const agentBacklog = backlog.filter(
-      (task) => task.agentId === input.task.agentId,
-    );
-    if (
-      backlog.length >= input.maxBacklogPerApp ||
-      agentBacklog.length >= input.maxBacklogPerAgent
-    ) {
-      return null;
+
+    await previousAdmission;
+    try {
+      const backlog = backlogForAdmission(this.tasks, input);
+      const agentBacklog = backlog.filter(
+        (task) => task.agentId === input.task.agentId,
+      );
+      await yieldAtAdmissionSeam();
+      if (
+        backlog.length >= input.maxBacklogPerApp ||
+        agentBacklog.length >= input.maxBacklogPerAgent
+      ) {
+        return null;
+      }
+      return this.createTask(input.task);
+    } finally {
+      releaseAdmission();
     }
-    return this.createTask(input.task);
   }
 
   async createTaskWithScopedAdmission(
@@ -210,6 +218,25 @@ class MemoryAsyncTaskRepository implements AsyncTaskRepository {
     };
     this.tasks.set(next.id, next);
     return next;
+  }
+}
+
+class NonAtomicAdmissionRepository extends MemoryAsyncTaskRepository {
+  override async createTaskWithBacklogAdmission(
+    input: AsyncTaskBacklogAdmissionInput,
+  ): Promise<AsyncTaskRecord | null> {
+    const backlog = backlogForAdmission(this.tasks, input);
+    const agentBacklog = backlog.filter(
+      (task) => task.agentId === input.task.agentId,
+    );
+    await yieldAtAdmissionSeam();
+    if (
+      backlog.length >= input.maxBacklogPerApp ||
+      agentBacklog.length >= input.maxBacklogPerAgent
+    ) {
+      return null;
+    }
+    return this.createTask(input.task);
   }
 }
 
@@ -561,6 +588,49 @@ describe('AsyncCommandTaskService', () => {
           ['queued', 'running', 'needs_attention'].includes(task.status),
       ),
     ).toHaveLength(32);
+  });
+
+  it('a non-atomic admission over-admits, proving the concurrency check has teeth', async () => {
+    const repository = new NonAtomicAdmissionRepository();
+    const service = new AsyncCommandTaskService(repository, {
+      run: async () => new Promise(() => undefined),
+    });
+
+    for (let index = 0; index < 31; index += 1) {
+      await expect(
+        service.start(
+          baseInput({
+            command: `npm test ${index}`,
+            allowedToolRules: ['RunCommand(npm test *)'],
+          }),
+        ),
+      ).resolves.toMatchObject({ ok: true });
+    }
+
+    const results = await Promise.all([
+      service.start(
+        baseInput({
+          command: 'npm test concurrent-one',
+          allowedToolRules: ['RunCommand(npm test *)'],
+        }),
+      ),
+      service.start(
+        baseInput({
+          command: 'npm test concurrent-two',
+          allowedToolRules: ['RunCommand(npm test *)'],
+        }),
+      ),
+    ]);
+
+    expect(results.filter((result) => result.ok)).toHaveLength(2);
+    expect(
+      [...repository.tasks.values()].filter(
+        (task) =>
+          task.agentId === 'agent-1' &&
+          task.kind === 'async_command' &&
+          ['queued', 'running', 'needs_attention'].includes(task.status),
+      ),
+    ).toHaveLength(33);
   });
 
   it('claims queued commands through the atomic repository operation', async () => {
@@ -2697,6 +2767,22 @@ describe('AsyncCommandTaskService', () => {
     });
   });
 });
+
+function backlogForAdmission(
+  tasks: Map<string, AsyncTaskRecord>,
+  input: AsyncTaskBacklogAdmissionInput,
+): AsyncTaskRecord[] {
+  return [...tasks.values()].filter(
+    (task) =>
+      task.appId === input.task.appId &&
+      task.kind === input.task.kind &&
+      input.statuses.includes(task.status),
+  );
+}
+
+function yieldAtAdmissionSeam(): Promise<void> {
+  return Promise.resolve();
+}
 
 async function waitForStatus(
   repository: MemoryAsyncTaskRepository,
