@@ -65,6 +65,11 @@ export function trackBrowserLeaseLossTeardown(
     ),
   };
   leaseLossTeardowns.set(session.profileName, tracked);
+  tracked.outcome.then(({ exited }) => {
+    if (exited && leaseLossTeardowns.get(session.profileName) === tracked) {
+      leaseLossTeardowns.delete(session.profileName);
+    }
+  });
   return tracked;
 }
 
@@ -110,7 +115,7 @@ export async function shutdownBrowserSession(
   if (session.keepAliveTimer) clearTimeout(session.keepAliveTimer);
   session.keepAliveTimer = null;
   const exited = await stopBrowserProcess(session);
-  if (options.ownershipLost) return exited;
+  if (options.ownershipLost || !session.lock.isValid()) return exited;
   try {
     clearBrowserSessionRecord(createProfile(session.profileName));
     updateProfileMetadata(session.profileName, {

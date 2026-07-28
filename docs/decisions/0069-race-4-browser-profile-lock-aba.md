@@ -67,6 +67,29 @@ advisory lock), the same primitive RACE-2 used for settings projection.
    `sessions.delete` has already dropped the only reference that could release it).
    This half was reviewed clean under the lockfile design and carries over unchanged.
 
+3. **Detect lease loss and fail closed.** The loss handler is registered
+   *synchronously* at acquire (registering after an `await` can miss a loss that
+   never replays); the lock exposes `isValid()`/`onLost`; on loss the worker stops
+   driving the browser, performs no ownership-scoped shared-state cleanup (a
+   successor may already own it), and never reports an unconfirmed teardown as
+   success.
+
+## Scope split (RACE-4 core vs RACE-4b)
+
+This decision covers the **core**: lease-based ownership replacing the lockfile
+(which *removes the ABA class outright* — confirmed by review), release-last with
+`finally`, and loss **detection** with fail-closed behavior.
+
+**Deferred to RACE-4b (D-0013, D-0014):** loss *detection* is not the same as safe
+*handoff*. A successor can acquire the freed lease while the previous Chrome is
+still shutting down, and a stale owner's in-flight snapshot upsert can commit after
+handoff. Closing those needs a **lease-generation fencing contract** — the new owner
+must quarantine/confirm-stop the previous generation, and snapshot publication needs
+a generation CAS (or must share the advisory-lock session) — plus generation-scoped
+snapshot suppression instead of a process-global per-profile marker. That is a
+deeper design than the ownership migration, shares its fencing-token shape with
+RACE-5, and is tracked separately so the core can land.
+
 ## Consequences
 
 - **Touched:** `apps/core/src/runtime/browser-profiles.ts` (lease-based acquire,

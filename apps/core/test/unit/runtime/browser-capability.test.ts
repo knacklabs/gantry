@@ -606,6 +606,34 @@ describe('browser-capability', () => {
     expect(mocks.release).toHaveBeenCalledTimes(1);
   });
 
+  it('does not clear shared browser state when the lease is lost during shutdown', async () => {
+    const browserProcess = await import('@core/runtime/browser-process.js');
+    const processStopped = deferred<boolean>();
+    const stopSpy = vi
+      .spyOn(browserProcess, 'stopBrowserProcess')
+      .mockReturnValueOnce(processStopped.promise);
+    const manager = await import('@core/runtime/browser-capability.js');
+    const profiles = await import('@core/runtime/browser-profiles.js');
+    queueHealthyContentTarget('target-1');
+    await manager.launchBrowser();
+    mocks.clearBrowserSessionRecord.mockClear();
+    vi.mocked(profiles.updateProfileMetadata).mockClear();
+    mocks.release.mockClear();
+
+    const closing = manager.closeBrowser();
+    await vi.waitFor(() => expect(stopSpy).toHaveBeenCalledOnce());
+    mocks.loseProfileLock(new Error('database connection lost'));
+    processStopped.resolve(true);
+
+    await expect(closing).resolves.toMatchObject({
+      closed: true,
+      reason: 'terminated',
+    });
+    expect(mocks.clearBrowserSessionRecord).not.toHaveBeenCalled();
+    expect(profiles.updateProfileMetadata).not.toHaveBeenCalled();
+    expect(mocks.release).not.toHaveBeenCalled();
+  });
+
   it('fails closed and tears down a live session when its profile lease is lost', async () => {
     const manager = await import('@core/runtime/browser-capability.js');
     const profiles = await import('@core/runtime/browser-profiles.js');
@@ -631,18 +659,35 @@ describe('browser-capability', () => {
     expect(mocks.skipNextBrowserProfileSnapshot).toHaveBeenCalledWith('gantry');
     expect(mocks.release).not.toHaveBeenCalled();
 
-    const termCalls = killSpy.mock.calls.filter(
-      ([pid, signal]) => pid === status.pid && signal === 'SIGTERM',
-    ).length;
-    await expect(manager.closeBrowser()).resolves.toMatchObject({
-      closed: true,
-      reason: 'lease_lost',
-    });
     expect(
       killSpy.mock.calls.filter(
         ([pid, signal]) => pid === status.pid && signal === 'SIGTERM',
       ),
-    ).toHaveLength(termCalls);
+    ).toHaveLength(1);
+  });
+
+  it('allows relaunch after a lease-lost browser process exits cleanly', async () => {
+    const manager = await import('@core/runtime/browser-capability.js');
+    queueHealthyContentTarget('target-1');
+    const status = await manager.launchBrowser();
+
+    mocks.loseProfileLock(new Error('database connection lost'));
+
+    await vi.waitFor(() => expect(mocks.processes.has(status.pid)).toBe(false));
+    mocks.resetProfileLock();
+    fs.writeFileSync(
+      '/tmp/gantry-browser-capability-test/DevToolsActivePort',
+      '4568\n/devtools/browser/test\n',
+    );
+    queueHealthyContentTarget('target-2', 4568);
+
+    await vi.waitFor(async () => {
+      await expect(manager.launchBrowser()).resolves.toMatchObject({
+        running: true,
+        port: 4568,
+        targetId: 'target-2',
+      });
+    });
   });
 
   it('keeps a lease-lost profile closed when process termination is unconfirmed', async () => {
