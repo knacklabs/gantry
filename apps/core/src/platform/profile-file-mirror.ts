@@ -20,7 +20,13 @@ export const PROFILE_MIRROR_HEADER =
 
 interface MirrorWriteChain {
   tail: Promise<void>;
+  // Highest version SUCCESSFULLY written by this chain.
   appliedVersion?: number;
+  // Highest version ever ENQUEUED on this chain, recorded synchronously at call
+  // time. Tracked separately from appliedVersion so that a newer write which
+  // FAILS still blocks an older write queued behind it — otherwise appliedVersion
+  // stays unset and the stale write is let through.
+  highestSeenVersion?: number;
 }
 
 const mirrorWriteChainByTarget = new Map<string, MirrorWriteChain>();
@@ -108,23 +114,37 @@ export async function writeProfileFileMirror(input: {
     chain = { tail: Promise.resolve() };
     mirrorWriteChainByTarget.set(targetPath, chain);
   }
+  if (input.version !== undefined) {
+    chain.highestSeenVersion =
+      chain.highestSeenVersion === undefined
+        ? input.version
+        : Math.max(chain.highestSeenVersion, input.version);
+  }
   const previousWrite = chain.tail;
   const write = previousWrite.then(async () => {
     await ensureSafeProfileMirrorDirectory(dir);
-    if (
-      input.version !== undefined &&
-      chain.appliedVersion !== undefined &&
-      input.version <= chain.appliedVersion
-    ) {
-      logger.debug(
-        {
-          targetPath,
-          version: input.version,
-          appliedVersion: chain.appliedVersion,
-        },
-        'skipping stale profile mirror write',
-      );
-      return;
+    if (input.version !== undefined) {
+      // Below a newer version already queued (even if that one failed), or at/below
+      // one already written. `<` on highestSeen leaves an equal-version retry after
+      // a failed write free to proceed.
+      const belowHighestSeen =
+        chain.highestSeenVersion !== undefined &&
+        input.version < chain.highestSeenVersion;
+      const alreadyApplied =
+        chain.appliedVersion !== undefined &&
+        input.version <= chain.appliedVersion;
+      if (belowHighestSeen || alreadyApplied) {
+        logger.debug(
+          {
+            targetPath,
+            version: input.version,
+            appliedVersion: chain.appliedVersion,
+            highestSeenVersion: chain.highestSeenVersion,
+          },
+          'skipping stale profile mirror write',
+        );
+        return;
+      }
     }
 
     await writeProfileFileMirrorAtomic({

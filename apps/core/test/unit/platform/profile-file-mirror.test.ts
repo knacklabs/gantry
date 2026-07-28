@@ -228,6 +228,56 @@ describe('profile file mirror', () => {
     expect(readRawMirror(input)).toBe(`${PROFILE_MIRROR_HEADER}\n\n# v10`);
   });
 
+  it('still blocks an older queued write when the newer write fails', async () => {
+    const runtimeHome = makeRuntimeHome();
+    const input = {
+      runtimeHome,
+      agentFolder: 'failed_newer_agent',
+      fileName: 'SOUL.md',
+    };
+    // Establish a v12 mirror, then keep the chain alive for the failing v13.
+    const rename = fsp.rename.bind(fsp);
+    let releaseFirstRename!: () => void;
+    const firstRenameBlocked = new Promise<void>((resolve) => {
+      releaseFirstRename = resolve;
+    });
+    const renameSpy = vi
+      .spyOn(fsp, 'rename')
+      .mockImplementationOnce(async (...args) => {
+        await firstRenameBlocked;
+        await rename(...args);
+      })
+      .mockImplementationOnce(async () => {
+        throw new Error('v13 rename failed');
+      });
+
+    const v12 = writeProfileFileMirror({
+      ...input,
+      content: '# v12',
+      version: 12,
+    });
+    await vi.waitFor(() => expect(renameSpy).toHaveBeenCalledTimes(1));
+    const v13 = writeProfileFileMirror({
+      ...input,
+      content: '# v13',
+      version: 13,
+    });
+    const v10 = writeProfileFileMirror({
+      ...input,
+      content: '# stale v10',
+      version: 10,
+    });
+
+    releaseFirstRename();
+    await v12;
+    await expect(v13).rejects.toThrow('v13 rename failed');
+    await v10;
+
+    // v13 failed, so appliedVersion is still 12 — but v10 must not be allowed
+    // through on the strength of that, or it would regress the mirror.
+    expect(readRawMirror(input)).toBe(`${PROFILE_MIRROR_HEADER}\n\n# v12`);
+  });
+
   it('allows a versionless call to write while the target chain is active', async () => {
     const runtimeHome = makeRuntimeHome();
     const input = {
