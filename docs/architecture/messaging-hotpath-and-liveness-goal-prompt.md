@@ -326,10 +326,29 @@ non-pending path loads again with promotion enabled
 memory hydration is the default after every repository lookup, that can hydrate
 memory twice in the runner, not merely once after admission
 (`apps/core/src/adapters/storage/postgres/services/canonical-session-ops-service.ts:194-225`).
-Correct A4 by carrying the admission session identity as an expected/fenced
-identity, keeping the runner's final provider-session refresh, setting
-`hydrateMemory:false` on pre-promotion/provisional reads, and hydrating memory
-exactly once against the final promoted context.
+**CORRECTED 2026-07-28 by accepted decision
+`0077-lat-3a-single-memory-hydration-per-turn` — read that record, not this
+paragraph, before implementing A4.** The instruction previously given here
+("set `hydrateMemory:false` on pre-promotion/provisional reads, and hydrate
+memory exactly once against the final promoted context") is WRONG for one
+path. `prepareCompactionDeltaReplay` has four exit paths, and the
+model-visible context differs per path: on the pending-delta path the model
+consumes the **provisional** context (`replayTurnContext`), while the later
+promoted read inside `markApplied` only extracts identifiers for
+`markProviderSessionDeltaReplay` and never reaches the model. "The final
+promoted context" is therefore not the model-visible context on that path, and
+making the provisional read non-hydrating there would ship a turn with no
+memory.
+
+Decision 0077 restates the invariant against the **model-visible** context —
+memory hydrates exactly once per turn, and that one hydration is the one whose
+`memoryContextBlock` reaches the model. It keeps the provisional read as the
+single hydration (it is the only read that occurs on all four paths), issues
+every later read with `hydrateMemory:false`, and carries the block forward
+under the `expectedAgentSessionId`/`expectedAgentSessionResetAt` fence already
+established for provider-session writes at
+`canonical-session-repository.postgres.ts:454-475`; on fence mismatch the
+carried block is discarded and the model-visible context re-hydrates.
 
 ### 5. A5 gateway audit — LATENCY CLAIM TRUE; FIRE-AND-FORGET REJECTED
 
