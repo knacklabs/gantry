@@ -34,6 +34,11 @@ export interface JobAgentTask {
     maxInteractions: number;
     interactionTimeoutMs: number;
   };
+  delegatedCompletionGate?: {
+    toolName: string;
+    taskKeys: string[];
+    maxNoProgressContinuations: number;
+  };
   executionPolicy: { totalTimeoutMs: number };
   modelControls?: {
     effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max';

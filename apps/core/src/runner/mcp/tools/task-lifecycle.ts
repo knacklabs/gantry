@@ -15,7 +15,11 @@ import {
   threadId,
 } from '../context.js';
 import { formatTaskFailureLines } from '../formatting.js';
-import { waitForTaskResponse, writeIpcFile } from '../ipc.js';
+import {
+  type TaskResponseEnvelope,
+  waitForTaskResponse,
+  writeIpcFile,
+} from '../ipc.js';
 import { makeIpcId } from '../ipc-ids.js';
 
 const TASK_TOOL_TIMEOUT_MS = 20_000;
@@ -27,13 +31,15 @@ const todoItemSchema = z.object({
   note: z.string().max(500).optional(),
 });
 
-export async function submitTaskLifecycleRequest(input: {
+type TaskLifecycleRequestInput = {
   type: string;
   payload: Record<string, unknown>;
-  timeoutMessage: string;
-  fallbackError: string;
   responseTimeoutMs?: number;
-}) {
+};
+
+export async function submitTaskLifecycleDataRequest(
+  input: TaskLifecycleRequestInput,
+): Promise<TaskResponseEnvelope | null> {
   const taskId = makeIpcId(input.type.replaceAll('_', '-'));
   writeIpcFile(TASKS_DIR, {
     type: input.type,
@@ -60,10 +66,19 @@ export async function submitTaskLifecycleRequest(input: {
     authThreadId: threadId,
     timestamp: nowIso(),
   });
-  const response = await waitForTaskResponse(
+  return waitForTaskResponse(
     taskId,
     input.responseTimeoutMs ?? TASK_TOOL_TIMEOUT_MS,
   );
+}
+
+export async function submitTaskLifecycleRequest(
+  input: TaskLifecycleRequestInput & {
+    timeoutMessage: string;
+    fallbackError: string;
+  },
+) {
+  const response = await submitTaskLifecycleDataRequest(input);
   if (!response) {
     return {
       content: [{ type: 'text' as const, text: input.timeoutMessage }],

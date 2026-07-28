@@ -14,3 +14,7 @@
 - After a live SDK result, keep the message stream open only when caller input
   is already buffered for the next turn. Otherwise close the stream so the
   runner exits and the host can publish `run.completed` for SDK consumers.
+- An opt-in delegated completion gate is caller input at the same result
+  boundary: request its decision before closing, buffer an approved
+  continuation through `SteeringDeliveryGate`, and close normally only after
+  the caller accepts completion.

@@ -31,6 +31,14 @@ export const JobAgentTaskSchema = z
       })
       .strict()
       .optional(),
+    delegatedCompletionGate: z
+      .object({
+        toolName: z.string().min(1).max(80),
+        taskKeys: z.array(z.string().min(1).max(80)).min(1).max(32),
+        maxNoProgressContinuations: z.number().int().positive().max(10),
+      })
+      .strict()
+      .optional(),
     executionPolicy: z
       .object({
         totalTimeoutMs: z

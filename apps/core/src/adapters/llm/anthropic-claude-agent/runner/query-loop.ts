@@ -18,6 +18,7 @@ import {
   shouldClose,
 } from './ipc-input.js';
 import { SteeringDeliveryGate } from './steering-delivery-gate.js';
+import { DelegatedCompletionGate } from '../../../../runner/delegated-completion-gate.js';
 import { log } from './logging.js';
 import { writeOutput } from './output.js';
 import {
@@ -179,6 +180,9 @@ export async function runQuery(
     log(`Piping IPC message at turn boundary (${text.length} chars)`);
     stream.pushContent(text);
   });
+  const completionGate = agentInput.delegatedCompletionGate
+    ? new DelegatedCompletionGate(agentInput.delegatedCompletionGate)
+    : undefined;
   const emitInteractionBoundary = () => {
     writeOutput({
       status: 'success',
@@ -641,6 +645,10 @@ export async function runQuery(
           fallbackModel: configuredModel,
         });
         const contextUsage = await readContextUsage(sdkQuery);
+        const completionDecision = await completionGate?.check();
+        if (completionDecision?.decision === 'continue') {
+          steeringGate.accept(completionDecision.message);
+        }
         const continuedByFollowup = steeringGate.pendingCount() > 0;
         writeOutput({
           status: 'success',

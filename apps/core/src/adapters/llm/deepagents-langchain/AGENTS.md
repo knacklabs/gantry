@@ -320,6 +320,10 @@ newSessionId, sessionInit:true}` so the host persists the provider session
   the just-finished turn carries `continuedByFollowup` (the SINGLE marker for
   that turn — there is no separate continuation-only frame). The host delivery is
   engine-neutral, so no host code branches on engine.
+- Opt-in delegated scheduled tasks run the caller completion check at that same
+  boundary. A `continue` decision starts another turn in the same worker and
+  carries the previous completion attempt; `accept` keeps the existing terminal
+  path.
 - Session-store durability (`runner/session-store.ts`): live session continuity
   uses LangChain's official Postgres checkpointer (`PostgresSaver`) with
   `thread_id === sessionId`, not raw `{role,text}` message history, SQLite, a

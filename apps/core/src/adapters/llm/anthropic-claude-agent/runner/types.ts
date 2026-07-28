@@ -60,6 +60,11 @@ export interface AgentRunnerInput {
     | { mode: 'on'; budgetTokens?: number };
   responseSchema?: Record<string, unknown>;
   callerResolvedTools?: import('../../../../domain/types.js').CallerResolvedToolsConfig;
+  delegatedCompletionGate?: {
+    toolName: string;
+    maxNoProgressContinuations: number;
+    interactionTimeoutMs: number;
+  };
   maxOutputTokens?: number;
 }
 

@@ -59,10 +59,6 @@ export function createCallerResolvedToolHandler(input: {
       maxLen: 80,
     });
     const definition = config?.tools.find((tool) => tool.name === toolName);
-    if (!config || !sessionId || !toolName || !definition) {
-      reject('Caller-resolved tool is not declared by this run.', 'forbidden');
-      return;
-    }
     const parentTaskId = toTrimmedString(context.data.parentTaskId, {
       maxLen: 160,
     });
@@ -73,6 +69,22 @@ export function createCallerResolvedToolHandler(input: {
       (typeof parentTask?.privateCorrelationJson.taskKey === 'string'
         ? parentTask.privateCorrelationJson.taskKey
         : null) ?? 'parent';
+    const completionGate = job?.agent_task?.delegatedCompletionGate;
+    const isCompletionGate = Boolean(
+      parentTaskId &&
+      completionGate &&
+      completionGate.toolName === toolName &&
+      completionGate.taskKeys.includes(taskKey),
+    );
+    if (
+      !config ||
+      !sessionId ||
+      !toolName ||
+      (!definition && !isCompletionGate)
+    ) {
+      reject('Caller-resolved tool is not declared by this run.', 'forbidden');
+      return;
+    }
     const budget = job?.agent_task?.interactionBudget;
     const budgetKey = `${scope.appId}:${context.data.runId}`;
     const used = callerToolBudgets.get(budgetKey) ?? {
@@ -83,13 +95,18 @@ export function createCallerResolvedToolHandler(input: {
     const scopeLimit =
       budget?.scopes[taskKey] ?? budget?.maxTotal ?? config.maxInteractions;
     const totalLimit = budget?.maxTotal ?? config.maxInteractions;
-    if (used.total >= totalLimit || scopeUsed >= scopeLimit) {
-      reject('Caller-resolved tool budget exhausted.', 'tool_budget_exhausted');
-      return;
+    if (!isCompletionGate) {
+      if (used.total >= totalLimit || scopeUsed >= scopeLimit) {
+        reject(
+          'Caller-resolved tool budget exhausted.',
+          'tool_budget_exhausted',
+        );
+        return;
+      }
+      used.total += 1;
+      used.scopes.set(taskKey, scopeUsed + 1);
+      callerToolBudgets.set(budgetKey, used);
     }
-    used.total += 1;
-    used.scopes.set(taskKey, scopeUsed + 1);
-    callerToolBudgets.set(budgetKey, used);
     const interactionId = `interaction_${randomUUID()}`;
     try {
       for (const activity of callerMcpActivity(

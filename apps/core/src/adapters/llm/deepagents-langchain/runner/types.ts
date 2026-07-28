@@ -42,6 +42,11 @@ export interface DeepAgentRunnerInput {
   effort?: AgentControlEffort;
   configuredThinking?: AgentControlThinking;
   maxOutputTokens?: number;
+  delegatedCompletionGate?: {
+    toolName: string;
+    maxNoProgressContinuations: number;
+    interactionTimeoutMs: number;
+  };
   deepAgentCheckpointer?: DeepAgentCheckpointerConfig;
   deepAgentSkills?: DeepAgentSkillProjection;
   modelCredentialEnv?: Record<string, string>;

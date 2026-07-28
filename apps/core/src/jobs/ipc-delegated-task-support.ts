@@ -96,6 +96,25 @@ export async function createInheritedDelegatedAgentRunner(input: {
     timeoutMs,
   }) => {
     const runAgent = context.deps.runAgent ?? spawnAgent;
+    const taskKey =
+      typeof task.privateCorrelationJson.taskKey === 'string'
+        ? task.privateCorrelationJson.taskKey
+        : undefined;
+    const completionGate = parentJob?.agent_task?.delegatedCompletionGate;
+    const delegatedCompletionGate =
+      taskKey &&
+      completionGate &&
+      completionGate.taskKeys.includes(taskKey) &&
+      parentJob?.agent_task?.callerResolvedTools &&
+      parentJob.session_id
+        ? {
+            toolName: completionGate.toolName,
+            maxNoProgressContinuations:
+              completionGate.maxNoProgressContinuations,
+            interactionTimeoutMs:
+              parentJob.agent_task.callerResolvedTools.interactionTimeoutMs,
+          }
+        : undefined;
     let latestResult: string | null = null;
     let processHandlePersisted: Promise<void> | null = null;
     const output = await runAgent(
@@ -137,6 +156,7 @@ export async function createInheritedDelegatedAgentRunner(input: {
               },
             }
           : {}),
+        ...(delegatedCompletionGate ? { delegatedCompletionGate } : {}),
       },
       (proc) => {
         if (proc.pid) {

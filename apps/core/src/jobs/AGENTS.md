@@ -32,6 +32,10 @@
   Keep those policies generic: applications own domain task keys, timeouts, and
   tool definitions, while Gantry enforces their declared ceilings and emits
   durable interaction/result events.
+- Caller-defined jobs may opt selected delegated task keys into a generic
+  pre-completion gate. Reuse the existing caller-resolved interaction and
+  active-runner continuation paths; do not reopen terminal tasks. Gate checks
+  are lifecycle control and do not consume the model-facing tool budget.
 - `task_wait` waits on durable delegated-task rows and the task-change signal;
   it must never ask the model to poll. Keyed delegated tasks are idempotent
   within their parent job run so replay cannot create duplicate children.

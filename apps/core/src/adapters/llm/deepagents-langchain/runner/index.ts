@@ -35,6 +35,7 @@ import {
 import type { DeepAgentRunnerInput } from './types.js';
 import { nowMs } from '../../../../shared/time/datetime.js';
 import { RunScopedToolSuccessLedger } from '../../../../runner/tool-gate-core.js';
+import { DelegatedCompletionGate } from '../../../../runner/delegated-completion-gate.js';
 
 function log(message: string): void {
   if (process.env.GANTRY_RUNNER_LOG === '1') {
@@ -112,33 +113,52 @@ async function runScheduled(agentInput: DeepAgentRunnerInput): Promise<void> {
   try {
     const maxInputTokens = resolveMaxInputTokens();
     const openRouterProviderRouting = resolveOpenRouterProviderRouting();
-    const turn = await runDeepAgentTurn({
-      agentInput,
-      provider: resolveModelProvider(),
-      modelId: resolveModelId(),
-      ...(maxInputTokens !== undefined ? { maxInputTokens } : {}),
-      ...(openRouterProviderRouting ? { openRouterProviderRouting } : {}),
-      newSessionId: diagnosticSessionId,
-      includeMemoryContext: true,
-      emit,
-      log,
-      // Long-running tool calls mark heartbeat activity so the scheduled run's
-      // lease stays alive instead of being flagged idle mid-tool.
-      onToolStart: (toolName) => heartbeat.recordToolActivity(toolName),
-    });
-    // The single terminal frame (usage/contextUsage) is emitted by the caller so
-    // there is exactly one terminal marker per turn (the normalizer streams
-    // deltas only).
-    emit({
-      status: 'success',
-      result: turn.terminalResult,
-      newSessionId: diagnosticSessionId,
-      ...(turn.terminalUsage ? { usage: turn.terminalUsage } : {}),
-      ...(turn.terminalContextUsage
-        ? { contextUsage: turn.terminalContextUsage }
-        : {}),
-      ...runtimeEventsForTurn(turn),
-    });
+    const completionGate = agentInput.delegatedCompletionGate
+      ? new DelegatedCompletionGate(agentInput.delegatedCompletionGate)
+      : undefined;
+    const toolSuccessLedger = new RunScopedToolSuccessLedger();
+    let turnInput = agentInput;
+    for (;;) {
+      const turn = await runDeepAgentTurn({
+        agentInput: turnInput,
+        provider: resolveModelProvider(),
+        modelId: resolveModelId(),
+        ...(maxInputTokens !== undefined ? { maxInputTokens } : {}),
+        ...(openRouterProviderRouting ? { openRouterProviderRouting } : {}),
+        newSessionId: diagnosticSessionId,
+        includeMemoryContext: turnInput === agentInput,
+        toolSuccessLedger,
+        emit,
+        log,
+        // Long-running tool calls mark heartbeat activity so the scheduled run's
+        // lease stays alive instead of being flagged idle mid-tool.
+        onToolStart: (toolName) => heartbeat.recordToolActivity(toolName),
+      });
+      const completionDecision = await completionGate?.check();
+      const continuedByFollowup = completionDecision?.decision === 'continue';
+      // The single terminal frame (usage/contextUsage) is emitted by the caller
+      // so there is exactly one terminal marker per turn.
+      emit({
+        status: 'success',
+        result: turn.terminalResult,
+        newSessionId: diagnosticSessionId,
+        ...(continuedByFollowup ? { continuedByFollowup: true } : {}),
+        ...(turn.terminalUsage ? { usage: turn.terminalUsage } : {}),
+        ...(turn.terminalContextUsage
+          ? { contextUsage: turn.terminalContextUsage }
+          : {}),
+        ...runtimeEventsForTurn(turn),
+      });
+      if (!continuedByFollowup) break;
+      turnInput = {
+        ...agentInput,
+        prompt: [
+          completionDecision.message,
+          'Previous completion attempt:',
+          turn.terminalResult ?? '(no prior result)',
+        ].join('\n\n'),
+      };
+    }
     heartbeat.stop();
   } catch (err) {
     heartbeat.stop();
