@@ -35,21 +35,31 @@ logic can reason from state that disagrees with the store.
    `ProfileMirrorInput` into `writeProfileFileMirror`. The mirror stops being a
    content-only side effect and becomes a versioned projection.
 
-2. **Refuse out-of-order mirror writes.** `writeProfileFileMirror` tracks the last
-   version successfully mirrored per target path and **skips** a write whose
-   version is older than what was already mirrored — last-*writer* no longer wins;
-   highest-version wins. Writes are also serialized per target path so two
-   concurrent mirrors for the same file cannot interleave between the check and
-   the rename. A skipped stale write is a normal outcome, not an error.
+2. **Refuse out-of-order mirror writes, using state colocated with the target.**
+   The mirrored version is recorded in a small sidecar next to the mirror file, and
+   `writeProfileFileMirror` **skips** a write whose version is older than the
+   sidecar's — last-*writer* no longer wins; highest-version wins. Writes are also
+   serialized per target path so two concurrent mirrors for the same file cannot
+   interleave between the read and the rename. A skipped stale write is a normal
+   outcome, not an error.
+
+   *(Supersedes a process-global `Map` of last-mirrored versions. Review showed
+   that shape is unfixable: unbounded it leaks an entry per target for the process
+   lifetime, and bounding it with LRU eviction silently drops the guarantee — an
+   evicted target accepts an older version again, which is the very bug this
+   closes. Version state belongs **with the target**, not in a cache: nothing to
+   grow, nothing to evict, and the guard survives restarts.)*
 
 3. **Scope: in-process ordering only — stated up front.** The mirror is a *local
    convenience projection*; the durable artifact store remains the single source of
    truth. Production mirrors are per-worker/container-local, so the realistic
    interleaving is two concurrent updates inside one process, which this closes.
-   Cross-process ordering of a *shared* mirror path is explicitly **out of scope**:
-   if a deployment ever shares one workspace directory between processes, that is a
-   separate decision, not a gap in this one. Mirror failures stay non-fatal (they
-   already route through `reportSideEffectError`); a stale or skipped mirror must
+   Cross-process *coordination* (locking or fencing a shared mirror path) remains
+   **out of scope** — no lease, no fencing token. The sidecar in §2 is colocated
+   durable state, not coordination; it happens to make the guard hold across
+   restarts and processes too, but nothing here depends on that. Mirror failures
+   stay non-fatal (they already route through `reportSideEffectError`); a stale or
+   skipped mirror must
    never fail the durable write.
 
 ## Consequences

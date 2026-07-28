@@ -7,7 +7,6 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   PROFILE_MIRROR_HEADER,
-  profileMirrorOrderingCacheSizeForTests,
   readProfileFileMirror,
   profileMirrorPath,
   stripProfileMirrorHeader,
@@ -23,6 +22,20 @@ describe('profile file mirror', () => {
     );
     tempDirs.push(runtimeHome);
     return runtimeHome;
+  }
+
+  function versionSidecarPath(input: {
+    runtimeHome: string;
+    agentFolder: string;
+    fileName: string;
+  }): string {
+    const targetPath = profileMirrorPath(input.agentFolder, input.fileName, {
+      runtimeHome: input.runtimeHome,
+    });
+    return path.join(
+      path.dirname(targetPath),
+      `.${path.basename(targetPath)}.version`,
+    );
   }
 
   async function mirrorDistinctTargets(
@@ -156,6 +169,7 @@ describe('profile file mirror', () => {
     expect(stripProfileMirrorHeader(readProfileFileMirror(input) ?? '')).toBe(
       '# v11',
     );
+    expect(fs.readFileSync(versionSidecarPath(input), 'utf-8')).toBe('11');
   });
 
   it('replaces older mirrored content with a newer version', async () => {
@@ -172,6 +186,78 @@ describe('profile file mirror', () => {
     expect(stripProfileMirrorHeader(readProfileFileMirror(input) ?? '')).toBe(
       '# v11',
     );
+    expect(fs.readFileSync(versionSidecarPath(input), 'utf-8')).toBe('11');
+  });
+
+  it('writes the first version when no sidecar exists', async () => {
+    const runtimeHome = makeRuntimeHome();
+    const input = {
+      runtimeHome,
+      agentFolder: 'fresh_agent',
+      fileName: 'SOUL.md',
+    };
+
+    expect(fs.existsSync(versionSidecarPath(input))).toBe(false);
+    await writeProfileFileMirror({
+      ...input,
+      content: '# first version',
+      version: 11,
+    });
+
+    expect(stripProfileMirrorHeader(readProfileFileMirror(input) ?? '')).toBe(
+      '# first version',
+    );
+    expect(fs.readFileSync(versionSidecarPath(input), 'utf-8')).toBe('11');
+  });
+
+  it('treats a corrupt sidecar as having no recorded version', async () => {
+    const runtimeHome = makeRuntimeHome();
+    const input = {
+      runtimeHome,
+      agentFolder: 'corrupt_sidecar_agent',
+      fileName: 'SOUL.md',
+    };
+    const sidecarPath = versionSidecarPath(input);
+    fs.mkdirSync(path.dirname(sidecarPath), { recursive: true });
+    fs.writeFileSync(sidecarPath, 'not-a-version', 'utf-8');
+
+    await expect(
+      writeProfileFileMirror({
+        ...input,
+        content: '# recovered',
+        version: 10,
+      }),
+    ).resolves.toBeUndefined();
+
+    expect(stripProfileMirrorHeader(readProfileFileMirror(input) ?? '')).toBe(
+      '# recovered',
+    );
+    expect(fs.readFileSync(sidecarPath, 'utf-8')).toBe('10');
+  });
+
+  it('treats an unreadable sidecar as having no recorded version', async () => {
+    const runtimeHome = makeRuntimeHome();
+    const input = {
+      runtimeHome,
+      agentFolder: 'unreadable_sidecar_agent',
+      fileName: 'SOUL.md',
+    };
+    vi.spyOn(fsp, 'readFile').mockRejectedValueOnce(
+      Object.assign(new Error('permission denied'), { code: 'EACCES' }),
+    );
+
+    await expect(
+      writeProfileFileMirror({
+        ...input,
+        content: '# recovered',
+        version: 10,
+      }),
+    ).resolves.toBeUndefined();
+
+    expect(stripProfileMirrorHeader(readProfileFileMirror(input) ?? '')).toBe(
+      '# recovered',
+    );
+    expect(fs.readFileSync(versionSidecarPath(input), 'utf-8')).toBe('10');
   });
 
   it('serializes overlapping writes to the same target', async () => {
@@ -211,10 +297,11 @@ describe('profile file mirror', () => {
     releaseFirstRename();
     await Promise.all([older, newer]);
 
-    expect(renameSpy).toHaveBeenCalledTimes(2);
+    expect(renameSpy).toHaveBeenCalledTimes(4);
     expect(stripProfileMirrorHeader(readProfileFileMirror(input) ?? '')).toBe(
       '# v11',
     );
+    expect(fs.readFileSync(versionSidecarPath(input), 'utf-8')).toBe('11');
   });
 
   it('does not record a version when its write fails', async () => {
@@ -231,20 +318,55 @@ describe('profile file mirror', () => {
     await expect(writeProfileFileMirror(input)).rejects.toThrow(
       'rename failed',
     );
+    expect(fs.existsSync(versionSidecarPath(input))).toBe(false);
     await expect(writeProfileFileMirror(input)).resolves.toBeUndefined();
 
     expect(stripProfileMirrorHeader(readProfileFileMirror(input) ?? '')).toBe(
       '# retry v11',
     );
+    expect(fs.readFileSync(versionSidecarPath(input), 'utf-8')).toBe('11');
   });
 
-  it('continues to write unversioned mirrors unconditionally', async () => {
+  it('does not fail the mirror when recording its version fails', async () => {
+    const runtimeHome = makeRuntimeHome();
+    const input = {
+      runtimeHome,
+      agentFolder: 'sidecar_failure_agent',
+      fileName: 'SOUL.md',
+    };
+    const sidecarPath = versionSidecarPath(input);
+    const rename = fsp.rename.bind(fsp);
+    vi.spyOn(fsp, 'rename').mockImplementation(async (source, destination) => {
+      if (destination === sidecarPath) {
+        throw new Error('sidecar rename failed');
+      }
+      await rename(source, destination);
+    });
+
+    await expect(
+      writeProfileFileMirror({
+        ...input,
+        content: '# published',
+        version: 11,
+      }),
+    ).resolves.toBeUndefined();
+
+    expect(stripProfileMirrorHeader(readProfileFileMirror(input) ?? '')).toBe(
+      '# published',
+    );
+    expect(fs.existsSync(sidecarPath)).toBe(false);
+  });
+
+  it('writes unversioned mirrors without creating or changing a sidecar', async () => {
     const runtimeHome = makeRuntimeHome();
     const input = {
       runtimeHome,
       agentFolder: 'unversioned_agent',
       fileName: 'SOUL.md',
     };
+
+    await writeProfileFileMirror({ ...input, content: '# first unversioned' });
+    expect(fs.existsSync(versionSidecarPath(input))).toBe(false);
 
     await writeProfileFileMirror({
       ...input,
@@ -256,72 +378,33 @@ describe('profile file mirror', () => {
     expect(stripProfileMirrorHeader(readProfileFileMirror(input) ?? '')).toBe(
       '# unversioned',
     );
+    expect(fs.readFileSync(versionSidecarPath(input), 'utf-8')).toBe('11');
   });
 
-  it('bounds the profile mirror ordering cache', async () => {
+  it('keeps the ordering guard after many other targets are mirrored', async () => {
     const runtimeHome = makeRuntimeHome();
-
-    await mirrorDistinctTargets(runtimeHome, 'bounded_agent', 513);
-
-    expect(profileMirrorOrderingCacheSizeForTests()).toBe(512);
-  });
-
-  it('keeps the ordering guard for a recently used target', async () => {
-    const runtimeHome = makeRuntimeHome();
-    const recentInput = {
+    const input = {
       runtimeHome,
-      agentFolder: 'recently_used_agent',
+      agentFolder: 'guarded_agent',
       fileName: 'SOUL.md',
     };
     await writeProfileFileMirror({
-      ...recentInput,
-      content: '# recent v11',
+      ...input,
+      content: '# guarded v11',
       version: 11,
     });
 
-    await mirrorDistinctTargets(runtimeHome, 'recent_fill_agent', 510);
+    await mirrorDistinctTargets(runtimeHome, 'other_agent', 600);
     await writeProfileFileMirror({
-      ...recentInput,
-      content: '# stale refresh',
+      ...input,
+      content: '# stale v10',
       version: 10,
     });
-    await mirrorDistinctTargets(runtimeHome, 'recent_evict_agent', 2);
 
-    await writeProfileFileMirror({
-      ...recentInput,
-      content: '# stale after pressure',
-      version: 10,
-    });
-    expect(
-      stripProfileMirrorHeader(readProfileFileMirror(recentInput) ?? ''),
-    ).toBe('# recent v11');
-  });
-
-  it('writes an evicted idle target unconditionally', async () => {
-    const runtimeHome = makeRuntimeHome();
-    const idleInput = {
-      runtimeHome,
-      agentFolder: 'idle_evicted_agent',
-      fileName: 'SOUL.md',
-    };
-    await writeProfileFileMirror({
-      ...idleInput,
-      content: '# idle v11',
-      version: 11,
-    });
-
-    await mirrorDistinctTargets(runtimeHome, 'idle_fill_agent', 512);
-
-    await expect(
-      writeProfileFileMirror({
-        ...idleInput,
-        content: '# idle v10',
-        version: 10,
-      }),
-    ).resolves.toBeUndefined();
-    expect(
-      stripProfileMirrorHeader(readProfileFileMirror(idleInput) ?? ''),
-    ).toBe('# idle v10');
+    expect(stripProfileMirrorHeader(readProfileFileMirror(input) ?? '')).toBe(
+      '# guarded v11',
+    );
+    expect(fs.readFileSync(versionSidecarPath(input), 'utf-8')).toBe('11');
   });
 
   it('rejects symlinked agent mirror directories', async () => {

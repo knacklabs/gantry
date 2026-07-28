@@ -18,41 +18,19 @@ import { isValidWorkspaceFolder } from './workspace-folder-rules.js';
 export const PROFILE_MIRROR_HEADER =
   '<!-- Managed by Gantry. Direct edits are not active until imported or approved. -->';
 
-// Bounds the ordering cache; eviction only degrades an idle target to unconditional writes.
-const MAX_TRACKED_MIRROR_TARGETS = 512;
-const lastMirroredVersionByTarget = new Map<string, number>();
 const mirrorWriteChainByTarget = new Map<string, Promise<void>>();
 
-function getLastMirroredVersion(targetPath: string): number | undefined {
-  const version = lastMirroredVersionByTarget.get(targetPath);
-  if (version === undefined) return undefined;
-  lastMirroredVersionByTarget.delete(targetPath);
-  lastMirroredVersionByTarget.set(targetPath, version);
-  return version;
-}
-
-function evictIdleMirrorTargets(): void {
-  while (lastMirroredVersionByTarget.size > MAX_TRACKED_MIRROR_TARGETS) {
-    let oldestIdleTarget: string | undefined;
-    for (const targetPath of lastMirroredVersionByTarget.keys()) {
-      if (!mirrorWriteChainByTarget.has(targetPath)) {
-        oldestIdleTarget = targetPath;
-        break;
-      }
-    }
-    if (oldestIdleTarget === undefined) return;
-    lastMirroredVersionByTarget.delete(oldestIdleTarget);
+async function readMirroredVersion(
+  sidecarPath: string,
+): Promise<number | undefined> {
+  try {
+    const raw = (await fsp.readFile(sidecarPath, 'utf-8')).trim();
+    if (!/^(0|[1-9]\d*)$/.test(raw)) return undefined;
+    const version = Number(raw);
+    return Number.isSafeInteger(version) ? version : undefined;
+  } catch {
+    return undefined;
   }
-}
-
-function recordLastMirroredVersion(targetPath: string, version: number): void {
-  lastMirroredVersionByTarget.delete(targetPath);
-  lastMirroredVersionByTarget.set(targetPath, version);
-  evictIdleMirrorTargets();
-}
-
-export function profileMirrorOrderingCacheSizeForTests(): number {
-  return lastMirroredVersionByTarget.size;
 }
 
 export function stripProfileMirrorHeader(content: string): string {
@@ -133,20 +111,21 @@ export async function writeProfileFileMirror(input: {
   const dir = resolveProfileMirrorDir(input.agentFolder, input.runtimeHome);
   const mirrorFileName = profileMirrorFileName(input.fileName);
   const targetPath = path.resolve(dir, mirrorFileName);
+  const versionSidecarPath = path.join(dir, `.${mirrorFileName}.version`);
   const previousWrite =
     mirrorWriteChainByTarget.get(targetPath) ?? Promise.resolve();
   const write = previousWrite.then(async () => {
-    const lastMirroredVersion = getLastMirroredVersion(targetPath);
+    const recordedVersion = await readMirroredVersion(versionSidecarPath);
     if (
       input.version !== undefined &&
-      lastMirroredVersion !== undefined &&
-      input.version <= lastMirroredVersion
+      recordedVersion !== undefined &&
+      input.version <= recordedVersion
     ) {
       logger.debug(
         {
           targetPath,
           version: input.version,
-          lastMirroredVersion,
+          recorded: recordedVersion,
         },
         'skipping stale profile mirror write',
       );
@@ -160,7 +139,23 @@ export async function writeProfileFileMirror(input: {
       content: input.content,
     });
     if (input.version !== undefined) {
-      recordLastMirroredVersion(targetPath, input.version);
+      try {
+        await writeProfileMirrorVersionAtomic({
+          dir,
+          mirrorFileName,
+          sidecarPath: versionSidecarPath,
+          version: input.version,
+        });
+      } catch (err) {
+        logger.warn(
+          {
+            err,
+            targetPath,
+            version: input.version,
+          },
+          'failed to record profile mirror version',
+        );
+      }
     }
   });
   const settledWrite = write.then(
@@ -171,10 +166,33 @@ export async function writeProfileFileMirror(input: {
   void settledWrite.then(() => {
     if (mirrorWriteChainByTarget.get(targetPath) === settledWrite) {
       mirrorWriteChainByTarget.delete(targetPath);
-      evictIdleMirrorTargets();
     }
   });
   return write;
+}
+
+async function writeProfileMirrorVersionAtomic(input: {
+  dir: string;
+  mirrorFileName: string;
+  sidecarPath: string;
+  version: number;
+}): Promise<void> {
+  const tmpPath = path.join(
+    input.dir,
+    `.${input.mirrorFileName}.version.${process.pid}.${randomUUID()}.tmp`,
+  );
+  let handle: FileHandle | null = null;
+  try {
+    handle = await fsp.open(tmpPath, 'wx', 0o600);
+    await handle.writeFile(String(input.version), 'utf-8');
+    await handle.close();
+    handle = null;
+    await fsp.rename(tmpPath, input.sidecarPath);
+  } catch (err) {
+    if (handle) await handle.close().catch(() => undefined);
+    await fsp.rm(tmpPath, { force: true }).catch(() => undefined);
+    throw err;
+  }
 }
 
 async function writeProfileFileMirrorAtomic(input: {
