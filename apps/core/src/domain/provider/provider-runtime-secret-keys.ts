@@ -2,6 +2,38 @@ import {
   normalizeRuntimeSecretRefString,
   parseRuntimeSecretRefString,
 } from '../ports/runtime-secret-provider.js';
+import { createHash } from 'node:crypto';
+
+/**
+ * Produces a stable, provider-account-scoped name for a runtime credential.
+ * The digest prevents two account ids that normalize to the same readable
+ * component from silently sharing a secret.
+ */
+export function runtimeSecretNameForProviderAccount(
+  providerId: string,
+  providerAccountId: string,
+  key: string,
+): string {
+  const provider = providerEnvPrefix(providerId);
+  const account =
+    providerAccountId
+      .trim()
+      .toUpperCase()
+      .replace(/[^A-Z0-9]+/g, '_')
+      .replace(/^_+|_+$/g, '')
+      .slice(0, 72) || 'DEFAULT';
+  const suffix = key
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+  const digest = createHash('sha256')
+    .update(`${providerId}\u0000${providerAccountId}\u0000${key}`)
+    .digest('hex')
+    .slice(0, 10)
+    .toUpperCase();
+  return `${provider}_${account}_${digest}_${suffix}`.slice(0, 128);
+}
 
 export function runtimeSecretKeyForEnv(
   providerId: string,

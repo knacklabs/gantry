@@ -27,6 +27,7 @@ import {
 import { runPostgresMigrations } from '../postgres-migrate.js';
 import { storeRuntimeSecretInput } from './credentials.js';
 import { DEFAULT_AGENT_FOLDER } from './main-agent.js';
+import { runtimeSecretNameForProviderAccount } from '../domain/provider/provider-runtime-secret-keys.js';
 import {
   readOnboardingState,
   writeOnboardingState,
@@ -325,8 +326,20 @@ function buildOnboardingSettings(input: {
       label: settings.providerAccounts.slack_default?.label || 'Slack Default',
       runtimeSecretRefs: {
         ...(settings.providerAccounts.slack_default?.runtimeSecretRefs || {}),
-        bot_token: gantryRuntimeSecretRef('SLACK_BOT_TOKEN'),
-        app_token: gantryRuntimeSecretRef('SLACK_APP_TOKEN'),
+        bot_token: gantryRuntimeSecretRef(
+          runtimeSecretNameForProviderAccount(
+            'slack',
+            'slack_default',
+            'BOT_TOKEN',
+          ),
+        ),
+        app_token: gantryRuntimeSecretRef(
+          runtimeSecretNameForProviderAccount(
+            'slack',
+            'slack_default',
+            'APP_TOKEN',
+          ),
+        ),
       },
     };
   }
@@ -368,14 +381,22 @@ async function storeOnboardingRuntimeSecrets(
     await Promise.all([
       storeRuntimeSecretInput({
         runtimeHome: input.runtimeHome,
-        name: 'SLACK_BOT_TOKEN',
+        name: runtimeSecretNameForProviderAccount(
+          'slack',
+          'slack_default',
+          'BOT_TOKEN',
+        ),
         value: input.slackBotToken.trim(),
         actor: 'cli:onboarding',
         runtimeSettings,
       }),
       storeRuntimeSecretInput({
         runtimeHome: input.runtimeHome,
-        name: 'SLACK_APP_TOKEN',
+        name: runtimeSecretNameForProviderAccount(
+          'slack',
+          'slack_default',
+          'APP_TOKEN',
+        ),
         value: input.slackAppToken.trim(),
         actor: 'cli:onboarding',
         runtimeSettings,
