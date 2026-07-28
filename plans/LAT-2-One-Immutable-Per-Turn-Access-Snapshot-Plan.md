@@ -348,7 +348,7 @@ Rejected broader approach:
 
 ## Decisions
 
-- `docs/decisions/0071-client-signoff.md` records the accepted LAT-2 client
+- `docs/decisions/0072-client-signoff.md` records the accepted LAT-2 client
   signoff, bounded phase scope, red-first operation-count requirement, durable
   authority invariants, and explicit non-goals.
 - No new technical decisions. The plan uses existing accepted decisions:
