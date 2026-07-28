@@ -98,16 +98,35 @@ over making the provisional read non-hydrating because the provisional read is
 the only read that happens on all four paths, so reusing it needs no extra
 repository round trip and no restructuring of the delta branches.
 
-**The fence.** Carrying a memory block across reads is permitted only while
-the agent session identity is unchanged. `expectedAgentSessionId` and
-`expectedAgentSessionResetAt` are carried from admission through the live-turn
-scope into the runner, reusing the existing field names and comparison
-semantics already established at `canonical-session-repository.postgres.ts:454-475`
-rather than inventing a second fence vocabulary. On mismatch the carried block
-is **discarded and the model-visible context hydrates itself** — the turn
-degrades to today's behavior rather than proceeding with memory from a session
-that no longer exists. Fail-safe, not fail-closed: a reset must not drop the
-user's turn, and it must not leak the previous session's memory either.
+**The fence, and why it is narrower than the roadmap suggested.** Carrying a
+memory block across reads is permitted only while the agent session identity is
+unchanged. The comparison is `agentSessionId` plus `agentSessionResetAt`,
+matching the field names and semantics already established for provider-session
+writes at `canonical-session-repository.postgres.ts:454-475` rather than
+inventing a second fence vocabulary. On mismatch the carried block is
+**discarded and that read re-hydrates** — one extra read on a rare reset race
+is the correct price, and the turn degrades to today's behavior rather than
+proceeding with memory from a session that no longer exists. Fail-safe, not
+fail-closed: a reset must not drop the user's turn, and it must not leak the
+previous session's memory either.
+
+The roadmap and the goal prompt both suggested carrying the **admission**
+session identity forward as the fenced expected id. That is REJECTED as
+unnecessary for this invariant. The memory block is only ever reused between
+the runner's provisional read (`group-agent-runner.ts:158`) and the
+model-visible read taken microseconds later inside
+`prepareCompactionDeltaReplay` — both inside one `runGroupAgent` call. An
+in-runner provisional-versus-final comparison therefore covers the entire reuse
+window. Threading `expectedAgentSessionId`/`expectedAgentSessionResetAt` from
+admission would add plumbing across `live-execution.ts`, the live-turn port
+types, `group-processing-types.ts`, and `group-processing.ts` to detect a
+reset in a window where no memory block is being carried. If a reset lands
+between admission and the provisional read, the provisional read simply
+observes the new session and hydrates the correct memory for it. Admission-to-
+runner session drift is a real but SEPARATE property, already partly held by
+the existing expected-id fence on provider-session writes
+(`group-agent-runner.ts:249-250`); it is not this phase's concern and must not
+be smuggled in under a latency task.
 
 **Value equivalence is proven, not assumed.** Promotion mutates provider-session
 rows only; it does not touch `memory_items` or `agent_session_digests`.
@@ -115,11 +134,12 @@ LAT-3A must land an equivalence test asserting `memoryContextBlock` is
 identical between a promoted and a non-promoted read of the same unchanged
 session, so the reuse rests on a test rather than on this argument.
 
-**Scope boundaries.** LAT-3A changes the inbound interactive turn only:
-`group-agent-runner.ts`, `group-agent-runner-compaction-delta.ts`, the
-live-turn scope/queue payload types that carry the fenced identity, and the
-`memory_hydrate_calls` wiring at the real `GroupProcessingRepository.getAgentTurnContext`
-seam.
+**Scope boundaries.** LAT-3A changes two production files only:
+`apps/core/src/runtime/group-agent-runner.ts` (the `loadTurnContext` closure
+gains a hydration argument) and
+`apps/core/src/runtime/group-agent-runner-compaction-delta.ts` (each later read
+becomes non-hydrating and takes the fenced carry). No port, scope, or
+queue-payload type changes, because the fence is in-runner.
 
 LAT-3A does **not** change: the admission call's arguments or semantics;
 `HydrateAgentContextService` itself; the memory recall query, its 250 ms

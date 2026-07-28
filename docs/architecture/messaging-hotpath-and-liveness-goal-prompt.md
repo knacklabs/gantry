@@ -345,10 +345,20 @@ memory hydrates exactly once per turn, and that one hydration is the one whose
 `memoryContextBlock` reaches the model. It keeps the provisional read as the
 single hydration (it is the only read that occurs on all four paths), issues
 every later read with `hydrateMemory:false`, and carries the block forward
-under the `expectedAgentSessionId`/`expectedAgentSessionResetAt` fence already
-established for provider-session writes at
+under an `agentSessionId` + `agentSessionResetAt` comparison matching the
+semantics already established for provider-session writes at
 `canonical-session-repository.postgres.ts:454-475`; on fence mismatch the
-carried block is discarded and the model-visible context re-hydrates.
+carried block is discarded and that read re-hydrates.
+
+Decision 0076 also REJECTS this section's suggestion to carry the *admission*
+session identity forward as the fenced expected id. The memory block is only
+reused between the runner's provisional read and the model-visible read taken
+inside `prepareCompactionDeltaReplay`, both within one `runGroupAgent` call, so
+an in-runner comparison covers the whole reuse window. Threading an expected id
+from admission would add plumbing across `live-execution.ts`, the live-turn
+port types, and `group-processing*.ts` to fence a window in which no memory
+block is carried. Admission-to-runner session drift is a real but separate
+property and is not part of this phase.
 
 ### 5. A5 gateway audit — LATENCY CLAIM TRUE; FIRE-AND-FORGET REJECTED
 
