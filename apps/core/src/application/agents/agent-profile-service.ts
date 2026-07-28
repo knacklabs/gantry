@@ -247,6 +247,7 @@ export class AgentProfileService {
           agentFolder: input.agentFolder,
           fileName: PROFILE_FILE_NAMES[input.kind],
           content: input.content,
+          version: artifact.version,
         });
       } catch (error) {
         await this.reportSideEffectError({
