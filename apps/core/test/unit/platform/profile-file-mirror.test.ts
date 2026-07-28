@@ -252,6 +252,36 @@ describe('profile file mirror', () => {
     );
   });
 
+  it('keeps the ordering guard when a final newline was appended', async () => {
+    const runtimeHome = makeRuntimeHome();
+    const input = {
+      runtimeHome,
+      agentFolder: 'newline_normalized_agent',
+      fileName: 'SOUL.md',
+    };
+    const targetPath = profileMirrorPath(input.agentFolder, input.fileName, {
+      runtimeHome,
+    });
+    fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+    // An editor or formatter appending the conventional final newline must not
+    // disable the guard.
+    fs.writeFileSync(
+      targetPath,
+      `${PROFILE_MIRROR_HEADER}\n\n# v11\n<!-- gantry-profile-version: 11 -->\n`,
+      'utf-8',
+    );
+
+    await writeProfileFileMirror({
+      ...input,
+      content: '# stale v10',
+      version: 10,
+    });
+
+    expect(readRawMirror(input)).toBe(
+      `${PROFILE_MIRROR_HEADER}\n\n# v11\n<!-- gantry-profile-version: 11 -->\n`,
+    );
+  });
+
   it('writes the first version when the target is missing', async () => {
     const runtimeHome = makeRuntimeHome();
     const input = {

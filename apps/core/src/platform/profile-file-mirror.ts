@@ -23,8 +23,11 @@ const mirrorWriteChainByTarget = new Map<string, Promise<void>>();
 
 const PROFILE_MIRROR_VERSION_TAIL_BYTES = 1024;
 
+// Tolerate a trailing line ending after the marker: these are human-facing
+// workspace files, and an editor or formatter appending the conventional final
+// newline must not silently disable the ordering guard.
 const PROFILE_MIRROR_MARKER_PATTERN =
-  /\r?\n<!-- gantry-profile-version: ([^\r\n]*?) -->$/;
+  /\r?\n<!-- gantry-profile-version: ([^\r\n]*?) -->\r?\n?$/;
 
 function parseProfileMirrorVersion(content: string): number | undefined {
   const match = PROFILE_MIRROR_MARKER_PATTERN.exec(content);

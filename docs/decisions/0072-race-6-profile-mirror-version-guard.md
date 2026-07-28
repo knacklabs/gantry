@@ -65,12 +65,29 @@ logic can reason from state that disagrees with the store.
    truth. Production mirrors are per-worker/container-local, so the realistic
    interleaving is two concurrent updates inside one process, which this closes.
    Cross-process *coordination* (locking or fencing a shared mirror path) remains
-   **out of scope** — no lease, no fencing token. The sidecar in §2 is colocated
+   **out of scope** — no lease, no fencing token. The marker in §2 is colocated
    durable state, not coordination; it happens to make the guard hold across
    restarts and processes too, but nothing here depends on that. Mirror failures
    stay non-fatal (they already route through `reportSideEffectError`); a stale or
-   skipped mirror must
-   never fail the durable write.
+   skipped mirror must never fail the durable write.
+
+4. **Safe reads.** The marker read happens *after* the mirror directory safety
+   check, opens the target `O_RDONLY|O_NONBLOCK|O_NOFOLLOW`, requires a regular
+   file via `fstat`, and reads only the final 1 KiB. A workspace-controlled target
+   swapped for a FIFO, a device symlink, or a huge file therefore cannot hang or
+   exhaust memory. Plain `O_NOFOLLOW` (final component) is used deliberately rather
+   than darwin's `O_NOFOLLOW_ANY`, which rejects a symlink *anywhere* in the path
+   and so fails on ordinary files under macOS temp dirs (`/var` → `/private/var`);
+   the containing directory is validated separately.
+
+## Not a compatibility surface
+
+Pre-existing mirror file content is **not** an input this design accommodates
+(no-backward-compatibility policy). The mirror is a projection: every write
+replaces the file wholesale from the durable artifact, so any file written before
+this change is superseded on its next write and needs no migration, escaping, or
+format discriminator. The marker is the final line of every file we write, which
+is the only case the guard has to reason about.
 
 ## Consequences
 
