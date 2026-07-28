@@ -35,6 +35,21 @@ export function runtimeSecretNameForProviderAccount(
   return `${provider}_${account}_${digest}_${suffix}`.slice(0, 128);
 }
 
+export function slackRuntimeSecretNameForAgent(
+  agentName: string,
+  key: 'BOT_TOKEN' | 'APP_TOKEN',
+): string {
+  const normalized = agentName
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+  if (!normalized) {
+    throw new Error('A non-empty Slack agent name is required for credential naming.');
+  }
+  return `${normalized}_SLACK_${key}`;
+}
+
 export function runtimeSecretKeyForEnv(
   providerId: string,
   envKey: string,

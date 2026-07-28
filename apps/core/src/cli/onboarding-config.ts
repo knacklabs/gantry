@@ -27,7 +27,7 @@ import {
 import { runPostgresMigrations } from '../postgres-migrate.js';
 import { storeRuntimeSecretInput } from './credentials.js';
 import { DEFAULT_AGENT_FOLDER } from './main-agent.js';
-import { runtimeSecretNameForProviderAccount } from '../domain/provider/provider-runtime-secret-keys.js';
+import { slackRuntimeSecretNameForAgent } from '../domain/provider/provider-runtime-secret-keys.js';
 import {
   readOnboardingState,
   writeOnboardingState,
@@ -327,18 +327,10 @@ function buildOnboardingSettings(input: {
       runtimeSecretRefs: {
         ...(settings.providerAccounts.slack_default?.runtimeSecretRefs || {}),
         bot_token: gantryRuntimeSecretRef(
-          runtimeSecretNameForProviderAccount(
-            'slack',
-            'slack_default',
-            'BOT_TOKEN',
-          ),
+          slackRuntimeSecretNameForAgent(settings.agent.name, 'BOT_TOKEN'),
         ),
         app_token: gantryRuntimeSecretRef(
-          runtimeSecretNameForProviderAccount(
-            'slack',
-            'slack_default',
-            'APP_TOKEN',
-          ),
+          slackRuntimeSecretNameForAgent(settings.agent.name, 'APP_TOKEN'),
         ),
       },
     };
@@ -381,9 +373,8 @@ async function storeOnboardingRuntimeSecrets(
     await Promise.all([
       storeRuntimeSecretInput({
         runtimeHome: input.runtimeHome,
-        name: runtimeSecretNameForProviderAccount(
-          'slack',
-          'slack_default',
+        name: slackRuntimeSecretNameForAgent(
+          runtimeSettings.agent.name,
           'BOT_TOKEN',
         ),
         value: input.slackBotToken.trim(),
@@ -392,9 +383,8 @@ async function storeOnboardingRuntimeSecrets(
       }),
       storeRuntimeSecretInput({
         runtimeHome: input.runtimeHome,
-        name: runtimeSecretNameForProviderAccount(
-          'slack',
-          'slack_default',
+        name: slackRuntimeSecretNameForAgent(
+          runtimeSettings.agent.name,
           'APP_TOKEN',
         ),
         value: input.slackAppToken.trim(),

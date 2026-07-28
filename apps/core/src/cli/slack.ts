@@ -34,6 +34,7 @@ import {
 } from '../platform/profile-file-mirror.js';
 import { planRuntimeSecretInput } from './runtime-secret-ref-prompt.js';
 import { providerAccountIdForAgent } from './provider-utils.js';
+import { slackRuntimeSecretNameForAgent } from '../domain/provider/provider-runtime-secret-keys.js';
 
 export interface SlackTokenValidation {
   ok: boolean;
@@ -375,6 +376,7 @@ export async function registerSlackMainGroup(options: {
   conversationDisplayName?: string;
   approverIds?: string[];
   agentId?: string;
+  runtimeSecretRefs?: Record<string, string>;
 }): Promise<{ folder: string; groupName: string }> {
   ensureRuntimeLayout(options.runtimeHome);
   const db = await openRuntimeGroupDb(options.runtimeHome);
@@ -409,11 +411,9 @@ export async function registerSlackMainGroup(options: {
       requiresTrigger: true,
       agentConfig: existingGroup?.agentConfig,
     };
-    await db.setConversationRoute(options.chatJid, route);
-
     const settings = loadRuntimeSettings(options.runtimeHome);
     const previousSettings = structuredClone(settings);
-    ensureConfiguredConversationBinding(settings, {
+    const binding = ensureConfiguredConversationBinding(settings, {
       agentId: folder,
       agentName: groupName,
       agentFolder: folder,
@@ -423,11 +423,22 @@ export async function registerSlackMainGroup(options: {
       requiresTrigger: true,
       approverIds: options.approverIds,
     });
+    if (options.runtimeSecretRefs) {
+      settings.providerAccounts[binding.providerConnectionId] = {
+        ...settings.providerAccounts[binding.providerConnectionId],
+        runtimeSecretRefs: {
+          ...settings.providerAccounts[binding.providerConnectionId]
+            .runtimeSecretRefs,
+          ...options.runtimeSecretRefs,
+        },
+      };
+    }
     await writeDesiredRuntimeSettings({
       runtimeHome: options.runtimeHome,
       settings,
       previousSettings,
     });
+    await db.setConversationRoute(options.chatJid, route);
 
     await new PromptProfileService({
       fileArtifactStore: () => db.getFileArtifactStore(),
@@ -469,6 +480,8 @@ export async function runSlackConnectCommand(
 ): Promise<number> {
   ensureRuntimeLayout(runtimeHome);
   const requestedAgentDisplayName = requestedAgentName?.trim();
+  const credentialOwnerName =
+    requestedAgentDisplayName || loadRuntimeSettings(runtimeHome).agent.name;
   const env = readEnvFile(envFilePath(runtimeHome));
   p.note(
     [
@@ -524,7 +537,7 @@ export async function runSlackConnectCommand(
 
   const botSecret = await planRuntimeSecretInput({
     runtimeHome,
-    name: 'SLACK_BOT_TOKEN',
+    name: slackRuntimeSecretNameForAgent(credentialOwnerName, 'BOT_TOKEN'),
     value: botTokenInput,
     actor: 'cli:slack-connect',
     label: 'Slack bot token',
@@ -535,7 +548,7 @@ export async function runSlackConnectCommand(
   }
   const appSecret = await planRuntimeSecretInput({
     runtimeHome,
-    name: 'SLACK_APP_TOKEN',
+    name: slackRuntimeSecretNameForAgent(credentialOwnerName, 'APP_TOKEN'),
     value: appTokenInput,
     actor: 'cli:slack-connect',
     label: 'Slack app token',
@@ -582,6 +595,11 @@ export async function runSlackConnectCommand(
     }
     conversationDisplayName = access.chatTitle || normalizedChatJid;
 
+    // Persist the operator-selected source before settings validation. The
+    // registration write below receives these final refs, so it never falls
+    // back to legacy global env:SLACK_* references.
+    await Promise.all([botSecret.persist(), appSecret.persist()]);
+
     const registered = await registerSlackMainGroup({
       runtimeHome,
       chatJid: normalizedChatJid,
@@ -592,6 +610,10 @@ export async function runSlackConnectCommand(
       conversationDisplayName,
       approverIds,
       agentId: requestedAgentId,
+      runtimeSecretRefs: {
+        bot_token: botSecret.ref,
+        app_token: appSecret.ref,
+      },
     });
     registeredFolder = registered.folder;
     conversationRouteName = registered.groupName;

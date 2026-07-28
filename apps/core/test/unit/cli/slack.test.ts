@@ -688,13 +688,13 @@ describe('cli slack helpers', () => {
     expect(code).toBe(0);
     expect(storeRuntimeSecretInput).toHaveBeenCalledWith({
       runtimeHome,
-      name: 'SLACK_BOT_TOKEN',
+      name: 'DEFAULT_AGENT_SLACK_BOT_TOKEN',
       value: 'xoxb-valid-token',
       actor: 'cli:slack-connect',
     });
     expect(storeRuntimeSecretInput).toHaveBeenCalledWith({
       runtimeHome,
-      name: 'SLACK_APP_TOKEN',
+      name: 'DEFAULT_AGENT_SLACK_APP_TOKEN',
       value: 'xapp-valid-token',
       actor: 'cli:slack-connect',
     });
@@ -812,8 +812,8 @@ describe('cli slack helpers', () => {
     expect(
       settings.providerAccounts.slack_recruiting_agent.runtimeSecretRefs,
     ).toEqual({
-      bot_token: 'gantry-secret:SLACK_BOT_TOKEN',
-      app_token: 'gantry-secret:SLACK_APP_TOKEN',
+      bot_token: 'gantry-secret:DEFAULT_AGENT_SLACK_BOT_TOKEN',
+      app_token: 'gantry-secret:DEFAULT_AGENT_SLACK_APP_TOKEN',
     });
     expect(
       settings.conversations.slack_recruiting_agent_c0123456789.providerAccount,
