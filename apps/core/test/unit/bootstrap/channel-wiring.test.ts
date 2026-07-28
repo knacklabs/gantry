@@ -33,6 +33,7 @@ const runtimeStoreMock = vi.hoisted(() => ({
 }));
 const runtimeLeaseMock = vi.hoisted(() => ({
   tryAcquire: vi.fn(async () => ({
+    isValid: () => true,
     onLost: vi.fn(),
     release: vi.fn(async () => undefined),
   })),
@@ -1237,6 +1238,7 @@ describe('createChannelWiring', () => {
     const app = makeApp();
     const channel = makeChannel();
     const lease = {
+      isValid: () => true,
       onLost: vi.fn(),
       release: vi.fn(async () => undefined),
     };
