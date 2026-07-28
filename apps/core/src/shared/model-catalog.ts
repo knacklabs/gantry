@@ -165,7 +165,6 @@ export interface ModelCatalogEntry {
   supportedEffortLevels: readonly ModelEffortLevel[];
   thinkingOffSupportedEffortLevels?: readonly ModelEffortLevel[];
   supportsAdaptiveThinking: boolean;
-  supportsManualThinking: boolean;
   supportsReasoningEffort: boolean;
   supportsThinkingBudget: boolean;
   supportsTools?: boolean;
@@ -308,7 +307,6 @@ export function executableModelEntry(input: {
   supportedEffortLevels?: readonly ModelEffortLevel[];
   thinkingOffSupportedEffortLevels?: readonly ModelEffortLevel[];
   supportsAdaptiveThinking?: boolean;
-  supportsManualThinking?: boolean;
   supportsThinkingBudget?: boolean;
   supportsTools?: boolean;
   supportedWorkloads: readonly ModelWorkload[];
@@ -335,8 +333,6 @@ export function executableModelEntry(input: {
       input.supportedEffortLevels ??
       (supportsReasoningEffort ? REASONING_EFFORT_LEVELS : []),
     supportsAdaptiveThinking: input.supportsAdaptiveThinking ?? false,
-    supportsManualThinking:
-      input.supportsManualThinking ?? input.supportsThinkingBudget ?? false,
     supportsReasoningEffort,
     supportsThinkingBudget: input.supportsThinkingBudget ?? false,
     capabilities: {
@@ -403,7 +399,6 @@ export const MODEL_CATALOG: readonly ModelCatalogEntry[] = [
     supportedEffortLevels: ALL_MODEL_EFFORT_LEVELS,
     thinkingOffSupportedEffortLevels: ['low', 'medium', 'high'],
     supportsAdaptiveThinking: true,
-    supportsManualThinking: false,
   }),
   executableModelEntry({
     id: 'anthropic:opus-4.8',
@@ -416,7 +411,6 @@ export const MODEL_CATALOG: readonly ModelCatalogEntry[] = [
     ...OPUS_MODEL_METADATA,
     supportedEffortLevels: ALL_MODEL_EFFORT_LEVELS,
     supportsAdaptiveThinking: true,
-    supportsManualThinking: true,
   }),
   executableModelEntry({
     id: 'anthropic:opus-4.7',
@@ -429,7 +423,6 @@ export const MODEL_CATALOG: readonly ModelCatalogEntry[] = [
     ...OPUS_MODEL_METADATA,
     supportedEffortLevels: ALL_MODEL_EFFORT_LEVELS,
     supportsAdaptiveThinking: true,
-    supportsManualThinking: true,
   }),
   executableModelEntry({
     id: 'anthropic:opus-4.6',

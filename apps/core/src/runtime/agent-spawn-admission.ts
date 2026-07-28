@@ -80,16 +80,9 @@ function agentControlAdmissionError(input: {
   }
   if (
     agentInput.thinking?.mode === 'enabled' &&
-    !modelEntry.supportsManualThinking
-  ) {
-    return `thinking enabled mode is not supported by model ${model}.`;
-  }
-  if (
-    agentInput.thinking?.mode === 'enabled' &&
-    agentInput.thinking.budgetTokens !== undefined &&
     !modelEntry.supportsThinkingBudget
   ) {
-    return `thinking.budget_tokens is not supported by model ${model}.`;
+    return `thinking enabled mode is not supported by model ${model}.`;
   }
   if (
     agentInput.configuredThinking !== undefined &&

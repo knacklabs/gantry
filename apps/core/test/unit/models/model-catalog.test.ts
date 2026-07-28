@@ -282,7 +282,6 @@ describe('model catalog resolution', () => {
       supportedEffortLevels: ['low', 'medium', 'high', 'xhigh', 'max'],
       thinkingOffSupportedEffortLevels: ['low', 'medium', 'high'],
       supportsAdaptiveThinking: true,
-      supportsManualThinking: false,
       supportsReasoningEffort: false,
       supportsTools: true,
       supportedWorkloads: ['chat', 'one_time_job', 'recurring_job'],
@@ -318,7 +317,6 @@ describe('model catalog resolution', () => {
       supportsEffort: false,
       supportedEffortLevels: ['low', 'medium', 'high', 'xhigh'],
       supportsAdaptiveThinking: false,
-      supportsManualThinking: false,
       supportsReasoningEffort: true,
       supportsThinkingBudget: false,
       supportsTools: true,
@@ -464,7 +462,6 @@ describe('model catalog resolution', () => {
   it('surfaces model reasoning and thinking capabilities', () => {
     const fable = resolveModelSelection('fable');
     const opus = resolveModelSelection('opus');
-    const opus48 = resolveModelSelection('opus-4.8');
     const opus47 = resolveModelSelection('opus-4.7');
     const opus46 = resolveModelSelection('opus-4.6');
     const sonnet = resolveModelSelection('sonnet');
@@ -474,7 +471,6 @@ describe('model catalog resolution', () => {
     if (
       !fable.ok ||
       !opus.ok ||
-      !opus48.ok ||
       !opus47.ok ||
       !opus46.ok ||
       !sonnet.ok ||
@@ -495,7 +491,6 @@ describe('model catalog resolution', () => {
       supportsEffort: true,
       supportedEffortLevels: ['low', 'medium', 'high', 'xhigh', 'max'],
       supportsAdaptiveThinking: true,
-      supportsManualThinking: false,
       supportsReasoningEffort: false,
       supportsThinkingBudget: false,
     });
@@ -503,24 +498,19 @@ describe('model catalog resolution', () => {
       supportsEffort: true,
       supportedEffortLevels: ['low', 'medium', 'high', 'xhigh', 'max'],
       supportsAdaptiveThinking: true,
-      supportsManualThinking: false,
       supportsReasoningEffort: false,
       supportsThinkingBudget: false,
     });
-    for (const entry of [opus48.entry, opus47.entry]) {
-      expect(entry).toMatchObject({
-        supportedEffortLevels: ['low', 'medium', 'high', 'xhigh', 'max'],
-        supportsAdaptiveThinking: true,
-        supportsManualThinking: true,
-        supportsThinkingBudget: false,
-      });
-    }
+    expect(opus47.entry).toMatchObject({
+      supportedEffortLevels: ['low', 'medium', 'high', 'xhigh', 'max'],
+      supportsAdaptiveThinking: true,
+      supportsThinkingBudget: false,
+    });
     for (const entry of [opus46.entry, sonnet.entry]) {
       expect(entry).toMatchObject({
         supportsEffort: true,
         supportedEffortLevels: ['low', 'medium', 'high', 'max'],
         supportsAdaptiveThinking: true,
-        supportsManualThinking: true,
         supportsReasoningEffort: false,
         supportsThinkingBudget: true,
       });
@@ -529,7 +519,6 @@ describe('model catalog resolution', () => {
       supportsEffort: false,
       supportedEffortLevels: [],
       supportsAdaptiveThinking: false,
-      supportsManualThinking: false,
       supportsReasoningEffort: false,
       supportsThinkingBudget: false,
     });
@@ -537,7 +526,6 @@ describe('model catalog resolution', () => {
       supportsEffort: false,
       supportedEffortLevels: ['low', 'medium', 'high', 'xhigh'],
       supportsAdaptiveThinking: false,
-      supportsManualThinking: false,
       supportsReasoningEffort: true,
       supportsThinkingBudget: false,
     });

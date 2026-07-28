@@ -18,9 +18,13 @@ describe('agent spawn admission', () => {
   const opus = resolveModelSelection('opus');
   const opus48 = resolveModelSelection('opus-4.8');
   const opus47 = resolveModelSelection('opus-4.7');
+  const opus46 = resolveModelSelection('opus-4.6');
+  const sonnet = resolveModelSelection('sonnet');
   if (!opus.ok) throw new Error(opus.message);
   if (!opus48.ok) throw new Error(opus48.message);
   if (!opus47.ok) throw new Error(opus47.message);
+  if (!opus46.ok) throw new Error(opus46.message);
+  if (!sonnet.ok) throw new Error(sonnet.message);
   it('rejects inline pre-spawn admission with every worker-only capability named', () => {
     const error = validateAgentPreSpawnAdmission({
       agentRuntime: 'inline',
@@ -204,11 +208,13 @@ describe('agent spawn admission', () => {
   );
 
   it.each([
-    { model: 'opus-4.8', modelEntry: opus48.entry },
-    { model: 'opus-4.7', modelEntry: opus47.entry },
+    { model: 'opus-4.8', modelEntry: opus48.entry, budgetTokens: undefined },
+    { model: 'opus-4.8', modelEntry: opus48.entry, budgetTokens: 4096 },
+    { model: 'opus-4.7', modelEntry: opus47.entry, budgetTokens: undefined },
+    { model: 'opus-4.7', modelEntry: opus47.entry, budgetTokens: 4096 },
   ] as const)(
-    'preserves manual enabled thinking admission for pinned $model',
-    ({ model, modelEntry }) => {
+    'rejects manual enabled thinking for adaptive-only pinned $model with budget $budgetTokens',
+    ({ model, modelEntry, budgetTokens }) => {
       expect(
         validateAgentPreSpawnAdmission({
           agentRuntime: 'worker',
@@ -219,18 +225,18 @@ describe('agent spawn admission', () => {
           agentInput: {
             ...baseInput,
             model,
-            thinking: { mode: 'enabled' },
+            thinking: { mode: 'enabled', budgetTokens },
           },
         }),
-      ).toBeNull();
+      ).toBe(`thinking enabled mode is not supported by model ${model}.`);
     },
   );
 
   it.each([
-    { model: 'opus-4.8', modelEntry: opus48.entry },
-    { model: 'opus-4.7', modelEntry: opus47.entry },
+    { model: 'opus-4.6', modelEntry: opus46.entry },
+    { model: 'sonnet', modelEntry: sonnet.entry },
   ] as const)(
-    'rejects enabled thinking budget tokens for pinned $model',
+    'accepts manual enabled thinking budget admission for $model',
     ({ model, modelEntry }) => {
       expect(
         validateAgentPreSpawnAdmission({
@@ -245,7 +251,7 @@ describe('agent spawn admission', () => {
             thinking: { mode: 'enabled', budgetTokens: 4096 },
           },
         }),
-      ).toBe(`thinking.budget_tokens is not supported by model ${model}.`);
+      ).toBeNull();
     },
   );
 
