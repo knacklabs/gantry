@@ -1258,6 +1258,39 @@ describe('control server runtime hardening', () => {
             outputUsdPerMillionTokens: 6,
           }),
           expect.objectContaining({
+            displayName: 'GPT-5.6 Sol',
+            aliases: ['gpt-sol', 'gpt-5.6-sol'],
+            supportedWorkloads: [
+              'chat',
+              'memory_extractor',
+              'memory_dreaming',
+              'memory_consolidation',
+            ],
+            inputUsdPerMillionTokens: 5,
+            outputUsdPerMillionTokens: 30,
+          }),
+          expect.objectContaining({
+            displayName: 'Opus 5',
+            aliases: ['opus', 'opus-5'],
+            supportedWorkloads: ['chat', 'one_time_job', 'recurring_job'],
+            inputUsdPerMillionTokens: 5,
+            outputUsdPerMillionTokens: 25,
+            cacheSupport: expect.objectContaining({
+              prompt: expect.objectContaining({
+                minimumTokenThresholds: expect.arrayContaining([
+                  {
+                    modelFamily: 'claude-opus-5',
+                    tokens: 512,
+                  },
+                ]),
+              }),
+            }),
+          }),
+          expect.objectContaining({
+            displayName: 'Opus 4.8',
+            aliases: ['opus-4.8'],
+          }),
+          expect.objectContaining({
             displayName: 'Grok 4.5',
             aliases: ['grok', 'grok-4.5'],
             supportedWorkloads: expect.arrayContaining([

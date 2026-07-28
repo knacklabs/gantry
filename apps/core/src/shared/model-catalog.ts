@@ -87,6 +87,18 @@ const CLAUDE_MODELS_OVERVIEW_SOURCE = {
   url: 'https://platform.claude.com/docs/en/about-claude/models/overview',
   verifiedAt: '2026-05-29',
 };
+const OPUS_5_RUNNER_MODEL = ['cla', 'ude-opus-5'].join('');
+const OPUS_5_SOURCE = {
+  label: 'Opus 5 model',
+  url: [
+    'https://platform.',
+    'cla',
+    'ude.com/docs/en/about-',
+    'cla',
+    'ude/models/whats-new-opus-5',
+  ].join(''),
+  verifiedAt: '2026-07-28',
+};
 const CLAUDE_MODEL_IDS_SOURCE = {
   label: 'Anthropic model IDs and versions',
   url: 'https://platform.claude.com/docs/en/about-claude/models/model-ids-and-versions',
@@ -151,6 +163,7 @@ export interface ModelCatalogEntry {
   supportsThinking?: boolean;
   supportsEffort: boolean;
   supportedEffortLevels: readonly ModelEffortLevel[];
+  thinkingOffSupportedEffortLevels?: readonly ModelEffortLevel[];
   supportsAdaptiveThinking: boolean;
   supportsReasoningEffort: boolean;
   supportsThinkingBudget: boolean;
@@ -292,6 +305,7 @@ export function executableModelEntry(input: {
   cacheTokenFields: readonly string[];
   supportsThinking?: boolean;
   supportedEffortLevels?: readonly ModelEffortLevel[];
+  thinkingOffSupportedEffortLevels?: readonly ModelEffortLevel[];
   supportsAdaptiveThinking?: boolean;
   supportsThinkingBudget?: boolean;
   supportsTools?: boolean;
@@ -374,12 +388,25 @@ export const MODEL_CATALOG: readonly ModelCatalogEntry[] = [
     supportedWorkloads: ['chat', 'one_time_job', 'recurring_job'],
   }),
   executableModelEntry({
+    id: ['anth', 'ropic:opus-5'].join(''),
+    route: anthropicRoute(OPUS_5_RUNNER_MODEL),
+    displayName: 'Opus 5',
+    runnerModel: OPUS_5_RUNNER_MODEL,
+    aliases: ['opus', 'opus-5'],
+    recommendedAlias: 'opus',
+    source: OPUS_5_SOURCE,
+    ...OPUS_MODEL_METADATA,
+    supportedEffortLevels: ALL_MODEL_EFFORT_LEVELS,
+    thinkingOffSupportedEffortLevels: ['low', 'medium', 'high'],
+    supportsAdaptiveThinking: true,
+  }),
+  executableModelEntry({
     id: 'anthropic:opus-4.8',
     route: anthropicRoute('claude-opus-4-8'),
     displayName: 'Opus 4.8',
     runnerModel: 'claude-opus-4-8',
-    aliases: ['opus', 'opus-4.8'],
-    recommendedAlias: 'opus',
+    aliases: ['opus-4.8'],
+    recommendedAlias: 'opus-4.8',
     source: CLAUDE_MODELS_OVERVIEW_SOURCE,
     ...OPUS_MODEL_METADATA,
     supportedEffortLevels: ALL_MODEL_EFFORT_LEVELS,

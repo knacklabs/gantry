@@ -139,4 +139,83 @@ describe('agent spawn admission', () => {
       }),
     ).toBe('thinking.budget_tokens is not supported by model opus-no-budget.');
   });
+
+  it.each(['xhigh', 'max'] as const)(
+    'rejects Opus 5 effort %s with thinking off before provider invocation',
+    (effort) => {
+      expect(
+        validateAgentPreSpawnAdmission({
+          agentRuntime: 'worker',
+          agentEngine: DEFAULT_AGENT_ENGINE,
+          modelEntry: opus.entry,
+          sandboxProvider: 'direct',
+          securityEnv: {},
+          agentInput: {
+            ...baseInput,
+            effort,
+            configuredThinking: { mode: 'off' },
+          },
+        }),
+      ).toBe(
+        `effort ${effort} is not supported by model opus when thinking is off; supported levels are low, medium, high.`,
+      );
+    },
+  );
+
+  it('allows an authoritative adaptive conversation thinking override over configured off plus max', () => {
+    expect(
+      validateAgentPreSpawnAdmission({
+        agentRuntime: 'worker',
+        agentEngine: DEFAULT_AGENT_ENGINE,
+        modelEntry: opus.entry,
+        sandboxProvider: 'direct',
+        securityEnv: {},
+        agentInput: {
+          ...baseInput,
+          thinking: { mode: 'adaptive', effort: 'high' },
+          effort: 'max',
+          configuredThinking: { mode: 'off' },
+        },
+      }),
+    ).toBeNull();
+  });
+
+  it.each([undefined, 4096] as const)(
+    'rejects an enabled Opus 5 conversation thinking override with budget %s',
+    (budgetTokens) => {
+      expect(
+        validateAgentPreSpawnAdmission({
+          agentRuntime: 'worker',
+          agentEngine: DEFAULT_AGENT_ENGINE,
+          modelEntry: opus.entry,
+          sandboxProvider: 'direct',
+          securityEnv: {},
+          agentInput: {
+            ...baseInput,
+            thinking: { mode: 'enabled', budgetTokens },
+          },
+        }),
+      ).toBe('thinking enabled mode is not supported by model opus.');
+    },
+  );
+
+  it.each(['low', 'medium', 'high'] as const)(
+    'accepts Opus 5 effort %s with thinking off before provider invocation',
+    (effort) => {
+      expect(
+        validateAgentPreSpawnAdmission({
+          agentRuntime: 'worker',
+          agentEngine: DEFAULT_AGENT_ENGINE,
+          modelEntry: opus.entry,
+          sandboxProvider: 'direct',
+          securityEnv: {},
+          agentInput: {
+            ...baseInput,
+            effort,
+            configuredThinking: { mode: 'off' },
+          },
+        }),
+      ).toBeNull();
+    },
+  );
 });

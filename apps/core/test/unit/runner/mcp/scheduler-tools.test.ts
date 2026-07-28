@@ -78,7 +78,9 @@ describe('scheduler MCP tools', () => {
     const response = await tools.get('scheduler_list_models')!();
     const text = response.content[0].text;
 
-    expect(text).toContain('Opus 4.8');
+    expect(text).toContain('Opus 5');
+    expect(text).toContain('opus | Opus 5');
+    expect(text).toContain('opus-5 | Opus 5');
     expect(text).toContain('opus-4.8 | Opus 4.8');
     expect(text).toContain('Kimi K2.6');
     expect(text).toContain('kimi-2.6 | Kimi K2.6');
@@ -88,6 +90,7 @@ describe('scheduler MCP tools', () => {
     expect(text).toContain('grok-4.3 | Grok 4.3');
     expect(text).not.toContain('GPT-5.6 Terra');
     expect(text).not.toContain('GPT-5.6 Luna');
+    expect(text).not.toContain('GPT-5.6 Sol');
     expect(text).toContain('Base cost (in/out per 1M)');
     expect(text).toContain('Response family');
 

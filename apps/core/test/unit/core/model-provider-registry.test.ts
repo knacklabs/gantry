@@ -40,10 +40,11 @@ describe('model provider registry', () => {
     }
   });
 
-  it('routes Terra, Luna, and Grok 4.5 through existing provider credentials and DeepAgents execution', () => {
+  it('routes Terra, Luna, Sol, and Grok 4.5 through existing provider credentials and DeepAgents execution', () => {
     for (const [runnerModel, providerId] of [
       ['gpt-5.6-terra', 'openai'],
       ['gpt-5.6-luna', 'openai'],
+      ['gpt-5.6-sol', 'openai'],
       ['grok-4.5', 'xai'],
     ] as const) {
       const entry = listModelCatalogEntries().find(
@@ -64,6 +65,20 @@ describe('model provider registry', () => {
         'api_key',
       ]);
     }
+  });
+
+  it('routes Opus 5 through the existing Anthropic credential profile', () => {
+    const entry = listModelCatalogEntries().find(
+      (candidate) => candidate.runnerModel === 'claude-opus-5',
+    );
+
+    expect(entry).toMatchObject({
+      credentialProfileRef: 'gantry-model-access',
+      modelRoute: {
+        id: 'anthropic',
+        providerModelId: 'claude-opus-5',
+      },
+    });
   });
 
   it('declares a single provider-derived execution route with credential mode constraints', () => {
@@ -170,6 +185,9 @@ describe('model provider registry', () => {
           mode: 'anthropic_cache_control',
           automatic: false,
           requestControl: 'cache_control_blocks',
+          minimumTokenThresholds: expect.arrayContaining([
+            { modelFamily: 'claude-opus-5', tokens: 512 },
+          ]),
         },
         response: { mode: 'none', enabledByDefault: false },
       },

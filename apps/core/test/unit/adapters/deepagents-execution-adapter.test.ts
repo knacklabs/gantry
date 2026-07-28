@@ -394,6 +394,7 @@ describe('DeepAgentsLangChainExecutionAdapter', () => {
   it.each([
     ['gpt-terra', 'openai', 'gpt-5.6-terra', '1050000'],
     ['gpt-luna', 'openai', 'gpt-5.6-luna', '1050000'],
+    ['gpt-sol', 'openai', 'gpt-5.6-sol', '1050000'],
     ['grok', 'xai', 'grok-4.5', '500000'],
   ])(
     'prepares %s through the existing %s DeepAgents route',

@@ -53,14 +53,16 @@ describe('model CLI command', () => {
     );
     expect(output).toContain('gpt-terra | GPT-5.6 Terra');
     expect(output).toContain('gpt-luna | GPT-5.6 Luna');
+    expect(output).toContain('gpt-sol | GPT-5.6 Sol');
     expect(output).toContain('grok | Grok 4.5');
     expect(output).toContain('grok-4.3 | Grok 4.3');
     // Curated prices render in the new Cost column.
     expect(output).toMatch(
       /groq \| Groq Llama 3\.3 70B[^\n]*\| \$0\.59\/\$0\.79 \|/,
     );
+    expect(output).toContain('opus | Opus 5');
+    expect(output).toContain('opus-5 | Opus 5');
     expect(output).toContain('opus-4.8 | Opus 4.8');
-    expect(output).toContain('Opus 4.8');
     expect(output).toContain('kimi-2.6 | Kimi K2.6');
     expect(output).toContain('glm-5.2 | GLM 5.2');
     // Curated windows render in the new Context column (Gemini Pro = 1.0M,
@@ -498,5 +500,20 @@ describe('model CLI command', () => {
 
     await expect(runModelCommand(runtimeHome, ['why', 'gpt'])).resolves.toBe(0);
     expect(logSpy.mock.calls.at(-1)?.[0]).toContain('GPT-5.5');
+
+    await expect(
+      runModelCommand(runtimeHome, ['why', 'gpt-sol']),
+    ).resolves.toBe(0);
+    expect(logSpy.mock.calls.at(-1)?.[0]).toContain('GPT-5.6 Sol');
+
+    await expect(runModelCommand(runtimeHome, ['why', 'opus'])).resolves.toBe(
+      0,
+    );
+    expect(logSpy.mock.calls.at(-1)?.[0]).toContain('Opus 5');
+
+    await expect(
+      runModelCommand(runtimeHome, ['why', 'opus-4.8']),
+    ).resolves.toBe(0);
+    expect(logSpy.mock.calls.at(-1)?.[0]).toContain('Opus 4.8');
   });
 });

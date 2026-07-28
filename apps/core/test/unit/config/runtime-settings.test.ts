@@ -692,6 +692,34 @@ provider_accounts:
     );
   });
 
+  it('round-trips Sol and Opus 5 aliases while rejecting the raw Opus provider ID', () => {
+    const settings = createDefaultRuntimeSettings();
+    settings.agent.defaultModel = 'gpt-sol';
+    settings.agent.oneTimeJobDefaultModel = 'opus';
+    settings.agent.recurringJobDefaultModel = 'opus-5';
+
+    const yaml = renderRuntimeSettingsYaml(settings);
+    expect(yaml).not.toContain('model_aliases:');
+    const parsed = parseRuntimeSettings(yaml);
+    expect(parsed.agent.defaultModel).toBe('gpt-sol');
+    expect(parsed.agent.oneTimeJobDefaultModel).toBe('opus');
+    expect(parsed.agent.recurringJobDefaultModel).toBe('opus-5');
+
+    const valid = validateLoadedRuntimeSettings('/tmp/gantry-missing', parsed);
+    expect(valid.failure?.details.join('\n') ?? '').not.toContain(
+      'model is invalid',
+    );
+
+    parsed.agent.defaultModel = 'claude-opus-5';
+    const invalid = validateLoadedRuntimeSettings(
+      '/tmp/gantry-missing',
+      parsed,
+    );
+    expect(invalid.failure?.details.join('\n')).toContain(
+      'agent.default_model is invalid: Provider model ID "claude-opus-5" is not accepted here.',
+    );
+  });
+
   it('round-trips per-agent source status and mcp tool scope through settings.yaml', () => {
     const settings = createDefaultRuntimeSettings();
     settings.agents.main_agent = {

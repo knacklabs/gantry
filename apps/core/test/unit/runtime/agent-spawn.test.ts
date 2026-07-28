@@ -1414,7 +1414,7 @@ describe('agent-spawn timeout behavior', () => {
       string,
       string
     >;
-    expect(env.ANTHROPIC_MODEL).toBe('claude-opus-4-8');
+    expect(env.ANTHROPIC_MODEL).toBe('claude-opus-5');
   });
 
   it('prefers job-level model override over group model', async () => {
@@ -1508,7 +1508,7 @@ describe('agent-spawn timeout behavior', () => {
       string,
       string
     >;
-    expect(env.ANTHROPIC_MODEL).toBe('claude-opus-4-8');
+    expect(env.ANTHROPIC_MODEL).toBe('claude-opus-5');
     expect(env.ANTHROPIC_BASE_URL).toBeUndefined();
     expect(env.ANTHROPIC_AUTH_TOKEN).toBeUndefined();
     expect(env.ANTHROPIC_API_KEY).toBeUndefined();

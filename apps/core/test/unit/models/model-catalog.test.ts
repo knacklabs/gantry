@@ -47,6 +47,12 @@ describe('model catalog resolution', () => {
     expect(resolveModelSelection('Opus 4.8')).toMatchObject({
       ok: true,
       alias: 'opus-4.8',
+      runnerModel: 'claude-opus-4-8',
+    });
+    expect(resolveModelSelection('opus')).toMatchObject({
+      ok: true,
+      alias: 'opus',
+      runnerModel: 'claude-opus-5',
     });
     expect(resolveModelSelection('fable')).toMatchObject({
       ok: true,
@@ -167,6 +173,95 @@ describe('model catalog resolution', () => {
         ],
       });
     }
+  });
+
+  it('registers GPT-5.6 Sol and Claude Opus 5 with official catalog metadata', () => {
+    for (const alias of ['gpt-sol', 'gpt-5.6-sol']) {
+      expect(resolveModelSelection(alias)).toMatchObject({
+        ok: true,
+        alias,
+        runnerModel: 'gpt-5.6-sol',
+      });
+    }
+    expect(resolveModelSelection('gpt-5.6')).toMatchObject({
+      ok: false,
+      reason: 'raw-provider-id',
+    });
+    expect(findModelByRunnerModel('gpt-5.6-sol')).toMatchObject({
+      id: 'openai:gpt-5.6-sol',
+      displayName: 'GPT-5.6 Sol',
+      aliases: ['gpt-sol', 'gpt-5.6-sol'],
+      recommendedAlias: 'gpt-sol',
+      source: {
+        url: 'https://developers.openai.com/api/docs/models/gpt-5.6-sol',
+        verifiedAt: '2026-07-28',
+      },
+      contextWindowTokens: 1_050_000,
+      maxOutputTokens: 128_000,
+      inputUsdPerMillionTokens: 5,
+      cachedInputUsdPerMillionTokens: 0.5,
+      cacheWriteUsdPerMillionTokens: 6.25,
+      outputUsdPerMillionTokens: 30,
+      cacheMode: 'openai-automatic-prompt',
+      cacheTokenFields: ['prompt_tokens_details.cached_tokens'],
+      supportsThinking: true,
+      supportsTools: true,
+      supportedWorkloads: [
+        'chat',
+        'memory_extractor',
+        'memory_dreaming',
+        'memory_consolidation',
+      ],
+    });
+
+    for (const alias of ['opus', 'opus-5']) {
+      expect(resolveModelSelection(alias)).toMatchObject({
+        ok: true,
+        alias,
+        runnerModel: 'claude-opus-5',
+      });
+    }
+    expect(resolveModelSelection('opus-4.8')).toMatchObject({
+      ok: true,
+      alias: 'opus-4.8',
+      runnerModel: 'claude-opus-4-8',
+    });
+    expect(findModelByRunnerModel('claude-opus-5')).toMatchObject({
+      id: 'anthropic:opus-5',
+      displayName: 'Opus 5',
+      aliases: ['opus', 'opus-5'],
+      recommendedAlias: 'opus',
+      source: {
+        url: 'https://platform.claude.com/docs/en/about-claude/models/whats-new-opus-5',
+        verifiedAt: '2026-07-28',
+      },
+      contextWindowTokens: 1_000_000,
+      maxOutputTokens: 128_000,
+      inputUsdPerMillionTokens: 5,
+      cachedInputUsdPerMillionTokens: 0.5,
+      cacheWriteUsdPerMillionTokens: 6.25,
+      outputUsdPerMillionTokens: 25,
+      cacheMode: 'anthropic-prompt',
+      cacheTokenFields: [
+        'cache_creation_input_tokens',
+        'cache_read_input_tokens',
+      ],
+      supportsThinking: true,
+      supportsEffort: true,
+      supportedEffortLevels: ['low', 'medium', 'high', 'xhigh', 'max'],
+      thinkingOffSupportedEffortLevels: ['low', 'medium', 'high'],
+      supportsAdaptiveThinking: true,
+      supportsReasoningEffort: false,
+      supportsTools: true,
+      supportedWorkloads: ['chat', 'one_time_job', 'recurring_job'],
+    });
+    expect(
+      resolveModelCacheSupport(findModelByRunnerModel('claude-opus-5')!).prompt
+        .minimumTokenThresholds,
+    ).toContainEqual({
+      modelFamily: 'claude-opus-5',
+      tokens: 512,
+    });
   });
 
   it('preserves every native OpenAI catalog field across the sibling-module move', () => {
@@ -553,7 +648,8 @@ describe('model catalog resolution', () => {
   });
 
   it('resolves catalog aliases without accepting raw runner IDs', () => {
-    expect(resolveRunnerModel('opus')).toBe('claude-opus-4-8');
+    expect(resolveRunnerModel('opus')).toBe('claude-opus-5');
+    expect(resolveRunnerModel('opus 5')).toBe('claude-opus-5');
     expect(resolveRunnerModel('opus 4.8')).toBe('claude-opus-4-8');
     expect(resolveRunnerModel('opus 4.7')).toBe('claude-opus-4-7');
     expect(resolveRunnerModel('claude-sonnet-4-6')).toBeUndefined();
@@ -562,6 +658,10 @@ describe('model catalog resolution', () => {
   });
 
   it('rejects raw provider model IDs from user-facing alias resolution', () => {
+    expect(resolveModelSelection('claude-opus-5')).toMatchObject({
+      ok: false,
+      reason: 'raw-provider-id',
+    });
     expect(resolveModelSelection('claude-opus-4-7')).toMatchObject({
       ok: false,
       reason: 'raw-provider-id',
@@ -669,6 +769,7 @@ describe('model catalog resolution', () => {
       ['deepseek-v4-pro', 1_048_576],
       ['gpt-5.6-terra', 1_050_000],
       ['gpt-5.6-luna', 1_050_000],
+      ['gpt-5.6-sol', 1_050_000],
       ['grok-4.5', 500_000],
       ['grok-4.3', 256_000],
       ['grok-build-0.1', 256_000],
@@ -1226,8 +1327,11 @@ describe('model usage normalization', () => {
   });
 
   it('finds entries by runner ID, provider model ID, and alias', () => {
-    expect(findModelByRunnerModel('claude-opus-4-8')?.recommendedAlias).toBe(
+    expect(findModelByRunnerModel('claude-opus-5')?.recommendedAlias).toBe(
       'opus',
+    );
+    expect(findModelByRunnerModel('claude-opus-4-8')?.recommendedAlias).toBe(
+      'opus-4.8',
     );
     expect(findModelByRunnerModel('claude-opus-4-7')?.recommendedAlias).toBe(
       'opus-4.7',

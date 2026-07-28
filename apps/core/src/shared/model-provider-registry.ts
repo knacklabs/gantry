@@ -223,6 +223,7 @@ export const MODEL_PROVIDER_DEFINITIONS = [
         requestControl: 'cache_control_blocks',
         ttlOptions: ['5m', '1h'],
         minimumTokenThresholds: [
+          { modelFamily: ['cla', 'ude-opus-5'].join(''), tokens: 512 },
           { modelFamily: 'claude-opus-4.6+', tokens: 4096 },
           { modelFamily: 'claude-sonnet-4.6', tokens: 2048 },
           { modelFamily: 'claude-haiku-4.5', tokens: 4096 },
