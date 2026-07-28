@@ -2060,6 +2060,148 @@ describe('createGroupProcessor', () => {
       });
     });
 
+    it('re-hydrates instead of carrying memory when the session reset fence changes', async () => {
+      const group = makeGroup({ requiresTrigger: false });
+      const { deps } = setupHappyPath({ group });
+      const provisionalBlock =
+        '<gantry_memory_context>LAT-3A pre-reset memory A</gantry_memory_context>';
+      const mismatchedBlock =
+        '<gantry_memory_context>LAT-3A non-hydrating reset read B</gantry_memory_context>';
+      const rehydratedBlock =
+        '<gantry_memory_context>LAT-3A post-reset memory C</gantry_memory_context>';
+      const getAgentTurnContext = vi
+        .fn()
+        .mockResolvedValueOnce({
+          appId: 'app:test',
+          agentId: 'agent:test',
+          agentSessionId: 'agent-session:lat-3a-reset-fence',
+          agentSessionResetAt: 'T1',
+          memoryContextBlock: provisionalBlock,
+        })
+        .mockResolvedValueOnce({
+          appId: 'app:test',
+          agentId: 'agent:test',
+          agentSessionId: 'agent-session:lat-3a-reset-fence',
+          agentSessionResetAt: 'T2',
+          memoryContextBlock: mismatchedBlock,
+        })
+        .mockResolvedValueOnce({
+          appId: 'app:test',
+          agentId: 'agent:test',
+          agentSessionId: 'agent-session:lat-3a-reset-fence',
+          agentSessionResetAt: 'T2',
+          memoryContextBlock: rehydratedBlock,
+        });
+      (deps.opsRepository as any).getAgentTurnContext = getAgentTurnContext;
+
+      const { processGroupMessages } = createGroupProcessor(deps);
+      await processGroupMessages('group1@g.us');
+
+      expect(getAgentTurnContext).toHaveBeenCalledTimes(3);
+      expect(getAgentTurnContext.mock.calls[1]?.[0]).toEqual(
+        expect.objectContaining({ hydrateMemory: false }),
+      );
+      expect(getAgentTurnContext.mock.calls[2]?.[0]?.hydrateMemory).not.toBe(
+        false,
+      );
+      const modelMemoryBlock = mockSpawnAgent.mock.calls[0][1]
+        .memoryContextBlock as string;
+      expect(modelMemoryBlock).toContain(rehydratedBlock);
+      expect(modelMemoryBlock).not.toContain(provisionalBlock);
+      expect(modelMemoryBlock).not.toContain(mismatchedBlock);
+    });
+
+    it('re-hydrates instead of carrying memory when the agent session fence changes', async () => {
+      const group = makeGroup({ requiresTrigger: false });
+      const { deps } = setupHappyPath({ group });
+      const provisionalBlock =
+        '<gantry_memory_context>LAT-3A prior session memory A</gantry_memory_context>';
+      const mismatchedBlock =
+        '<gantry_memory_context>LAT-3A non-hydrating next session read B</gantry_memory_context>';
+      const rehydratedBlock =
+        '<gantry_memory_context>LAT-3A next session memory C</gantry_memory_context>';
+      const getAgentTurnContext = vi
+        .fn()
+        .mockResolvedValueOnce({
+          appId: 'app:test',
+          agentId: 'agent:test',
+          agentSessionId: 'agent-session:lat-3a-before-new',
+          agentSessionResetAt: 'T1',
+          memoryContextBlock: provisionalBlock,
+        })
+        .mockResolvedValueOnce({
+          appId: 'app:test',
+          agentId: 'agent:test',
+          agentSessionId: 'agent-session:lat-3a-after-new',
+          agentSessionResetAt: 'T1',
+          memoryContextBlock: mismatchedBlock,
+        })
+        .mockResolvedValueOnce({
+          appId: 'app:test',
+          agentId: 'agent:test',
+          agentSessionId: 'agent-session:lat-3a-after-new',
+          agentSessionResetAt: 'T1',
+          memoryContextBlock: rehydratedBlock,
+        });
+      (deps.opsRepository as any).getAgentTurnContext = getAgentTurnContext;
+
+      const { processGroupMessages } = createGroupProcessor(deps);
+      await processGroupMessages('group1@g.us');
+
+      expect(getAgentTurnContext).toHaveBeenCalledTimes(3);
+      expect(getAgentTurnContext.mock.calls[1]?.[0]).toEqual(
+        expect.objectContaining({ hydrateMemory: false }),
+      );
+      expect(getAgentTurnContext.mock.calls[2]?.[0]?.hydrateMemory).not.toBe(
+        false,
+      );
+      const modelMemoryBlock = mockSpawnAgent.mock.calls[0][1]
+        .memoryContextBlock as string;
+      expect(modelMemoryBlock).toContain(rehydratedBlock);
+      expect(modelMemoryBlock).not.toContain(provisionalBlock);
+      expect(modelMemoryBlock).not.toContain(mismatchedBlock);
+    });
+
+    it('carries provisional memory with one hydration when the session fence matches', async () => {
+      const group = makeGroup({ requiresTrigger: false });
+      const { deps } = setupHappyPath({ group });
+      const provisionalBlock =
+        '<gantry_memory_context>LAT-3A matching provisional memory A</gantry_memory_context>';
+      const laterBlock =
+        '<gantry_memory_context>LAT-3A matching non-hydrating read B</gantry_memory_context>';
+      const getAgentTurnContext = vi
+        .fn()
+        .mockResolvedValueOnce({
+          appId: 'app:test',
+          agentId: 'agent:test',
+          agentSessionId: 'agent-session:lat-3a-matching-fence',
+          agentSessionResetAt: 'T1',
+          memoryContextBlock: provisionalBlock,
+        })
+        .mockResolvedValueOnce({
+          appId: 'app:test',
+          agentId: 'agent:test',
+          agentSessionId: 'agent-session:lat-3a-matching-fence',
+          agentSessionResetAt: 'T1',
+          memoryContextBlock: laterBlock,
+        });
+      (deps.opsRepository as any).getAgentTurnContext = getAgentTurnContext;
+
+      const { processGroupMessages } = createGroupProcessor(deps);
+      await processGroupMessages('group1@g.us');
+
+      expect(getAgentTurnContext).toHaveBeenCalledTimes(2);
+      expect(
+        getAgentTurnContext.mock.calls.filter(
+          ([input]) => input.hydrateMemory !== false,
+        ),
+      ).toHaveLength(1);
+      const modelMemoryBlock = mockSpawnAgent.mock.calls[0][1]
+        .memoryContextBlock as string;
+      expect(modelMemoryBlock).toContain(provisionalBlock);
+      expect(modelMemoryBlock).not.toContain(laterBlock);
+    });
+
     it('passes hydrated memory context with provider session resume id', async () => {
       const group = makeGroup({ requiresTrigger: false });
       const { deps } = setupHappyPath({ group });
