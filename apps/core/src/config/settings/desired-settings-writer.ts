@@ -121,15 +121,23 @@ async function writeFileBackedDesiredRuntimeSettings(input: {
     desiredSettingsWriteChainByTarget.set(targetPath, chain);
   }
 
+  // The delta must be measured against what the CALLER saw, so when no baseline is
+  // supplied it is read BEFORE enqueueing. Reading it inside the critical section
+  // would sample the state left by the predecessor write, and the caller's unchanged
+  // keys would then look like intentional reverts — silently undoing that
+  // predecessor's update, which is the very race this serialization exists to close.
+  const callerBaseline =
+    input.previousSettings ?? loadRuntimeSettings(input.runtimeHome);
+
   const previousWrite = chain.tail;
   const write = previousWrite.then(async () => {
     const currentSettings = loadRuntimeSettings(input.runtimeHome);
     const restartRequired = classifySettingsChanges(
-      input.previousSettings ?? currentSettings,
+      callerBaseline,
       input.settings,
     ).restartRequired;
     const rebasedSettings = applySettingsSnapshotDelta(
-      input.previousSettings ?? currentSettings,
+      callerBaseline,
       input.settings,
       currentSettings,
     ) as RuntimeSettings;

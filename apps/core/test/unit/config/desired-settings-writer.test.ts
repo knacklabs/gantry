@@ -172,6 +172,74 @@ describe('writeDesiredRuntimeSettings', () => {
     );
   });
 
+  it('keeps independent changes when callers omit previousSettings', async () => {
+    // previousSettings is optional. If the baseline were read inside the critical
+    // section it would sample the predecessor's result, so the second writer's
+    // unchanged keys would look like intentional reverts and would undo the first
+    // write. The baseline must be what the caller actually saw.
+    const runtimeHome = makeRuntimeHome();
+    const actualRuntimeSettings = await vi.importActual<
+      typeof import('@core/config/settings/runtime-settings.js')
+    >('@core/config/settings/runtime-settings.js');
+    const baseSettings = actualRuntimeSettings.loadRuntimeSettings(runtimeHome);
+    const firstSettings = structuredClone(baseSettings);
+    firstSettings.agent.name = 'First writer';
+    const secondSettings = structuredClone(baseSettings);
+    secondSettings.memory.dreaming.enabled =
+      !secondSettings.memory.dreaming.enabled;
+    vi.resetModules();
+
+    let releaseFirstSave!: () => void;
+    const firstSaveBlocked = new Promise<void>((resolve) => {
+      releaseFirstSave = resolve;
+    });
+    const saveRuntimeSettings = vi.fn(
+      async (
+        saveRuntimeHome: string,
+        settings: Parameters<
+          typeof actualRuntimeSettings.saveRuntimeSettings
+        >[1],
+      ) => {
+        if (saveRuntimeSettings.mock.calls.length === 1) {
+          await firstSaveBlocked;
+        }
+        actualRuntimeSettings.saveRuntimeSettings(saveRuntimeHome, settings);
+      },
+    );
+    vi.doMock('@core/config/settings/runtime-settings.js', () => ({
+      ...actualRuntimeSettings,
+      saveRuntimeSettings,
+    }));
+
+    const {
+      configureDesiredSettingsStorageProvider,
+      writeDesiredRuntimeSettings,
+    } = await import('@core/config/settings/desired-settings-writer.js');
+    configureDesiredSettingsStorageProvider(undefined);
+
+    // Neither call passes previousSettings; both snapshots came from the same base.
+    const firstWrite = writeDesiredRuntimeSettings({
+      runtimeHome,
+      settings: firstSettings,
+    });
+    await vi.waitFor(() =>
+      expect(saveRuntimeSettings).toHaveBeenCalledTimes(1),
+    );
+    const secondWrite = writeDesiredRuntimeSettings({
+      runtimeHome,
+      settings: secondSettings,
+    });
+    releaseFirstSave();
+    await Promise.all([firstWrite, secondWrite]);
+
+    const finalSettings =
+      actualRuntimeSettings.loadRuntimeSettings(runtimeHome);
+    expect(finalSettings.agent.name).toBe('First writer');
+    expect(finalSettings.memory.dreaming.enabled).toBe(
+      secondSettings.memory.dreaming.enabled,
+    );
+  });
+
   it('appends settings revisions before applying local desired state', async () => {
     const importWorkstationSettings = vi.fn(async () => ({ revision: 7 }));
     vi.doMock('@core/config/settings/settings-import-service.js', () => ({
