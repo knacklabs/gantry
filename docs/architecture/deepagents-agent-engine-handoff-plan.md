@@ -144,7 +144,7 @@ Required error copy:
 - OpenAI-compatible route with Anthropic SDK: `Model <alias> uses an OpenAI-compatible route, which is not supported by Anthropic SDK. Choose Auto, DeepAgents, or an Anthropic-compatible model.`
 - Claude OAuth with DeepAgents: `DeepAgents cannot use Claude OAuth/subscription credentials. Choose Anthropic SDK or configure Claude API-key Model Access.`
 - Missing credential: `Setup required: configure <provider> Model Access before using <alias> with <harness>.`
-- Unsafe sandbox: `DeepAgents requires an enforcing sandbox before shell or filesystem tools can be enabled in this deployment mode.`
+- Missing authority: `DeepAgents shell and filesystem tools require matching Gantry-owned RunCommand or File capability authority.`
 - Raw DeepAgents tool blocked: `DeepAgents raw tool authority is disabled. Use Gantry-approved tools or request the required capability.`
 
 ## Target User-Visible Evidence Receipt

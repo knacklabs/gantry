@@ -36,6 +36,24 @@ mode; Gantry adheres — no production override, no per-command media-gating.
    sandboxed approval NEVER implicitly authorizes an unsandboxed retry; managed
    denied-read constraints (`~/.ssh`, `~/.aws`) stay non-escapable.
 
+## Implementation Note — 2026-07-28
+
+The shipped worker order adds an exact classifier-cache stage after
+deterministic rails and before classifier consultation. The cache is scoped by
+the parent conversation when present, shared by its threads, and reuses only a
+classifier `allow`; human `Allow once` is never reusable. Learned trusted roots
+and `Allow for future` rules are agent-owned durable authority, not
+conversation-local grants. Inline/core lanes share the host coordinator's hard
+precedence but do not all provide the optional cache/classifier stages.
+
+`direct` remains selectable in workstation, production, and fleet deployments,
+but it provides no inner SDK or Gantry OS confinement. Its deployment
+host/container/VM is the OS boundary. `sandbox_runtime` remains optional
+defense-in-depth for deployments that require whole-runner confinement.
+`direct` alone does not establish isolation between mutually untrusted tenants
+sharing one container; that topology must select and prove an appropriate
+tenant-isolation boundary.
+
 ## Consequences
 - `direct` mode drops the Anthropic SDK Seatbelt entirely (Chromium + the
   mach-register class run); the host-side credential/protected-path rail is the

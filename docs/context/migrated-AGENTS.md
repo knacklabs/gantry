@@ -1,5 +1,13 @@
 # Gantry
 
+> **Archived migration context (2026-07-22).** This file preserves an older
+> repository-instruction snapshot and is not a current architecture or runtime
+> contract. In particular, its permission, classifier, YOLO, and SDK-sandbox
+> descriptions may be superseded. Use
+> [`docs/architecture/capability-management.md`](../architecture/capability-management.md),
+> [`docs/architecture/runtime-components.md`](../architecture/runtime-components.md),
+> and the accepted permission decisions for current behavior.
+
 ## What This Repo Is
 
 Gantry is a provider-neutral and channel-neutral agent runtime platform.

@@ -81,10 +81,11 @@ Expected cleanup-search interpretation:
   active Bash policy should fail closed when a protected path is an action
   target, while preserving explicitly safe text-payload flows such as issue or
   PR bodies.
-- SDK Bash/file/MCP subprocess protection should be visible as
-  `sandbox.filesystem.denyWrite` entries sourced from
-  `GANTRY_PROTECTED_FILESYSTEM_PATHS_JSON`; direct scheduler scripts should
-  fail closed until an equivalent OS sandbox runner exists.
+- protected-path protection must remain visible in deterministic host-side
+  policy tests. `direct` must not rely on an inner SDK sandbox;
+  `sandbox_runtime` additionally projects protected paths into the outer OS
+  jail. Direct scheduler scripts that bypass the canonical permission boundary
+  should still fail closed until an equivalent guarded runner exists.
 
 Clean-cut session continuity cleanup must also verify that unsupported legacy
 continuity paths did not return:
