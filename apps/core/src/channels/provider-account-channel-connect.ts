@@ -259,16 +259,9 @@ export async function connectProviderAccountChannels(input: {
       // connectedChannels and nothing else can clean it up. A multi-step connect can
       // already have started its inbound transport before failing (Slack starts the
       // app before auth.test), so disconnect explicitly rather than leaking it.
-      await channel.disconnect().catch((disconnectErr: unknown) => {
-        input.logger.warn(
-          {
-            err: disconnectErr,
-            channel: input.provider.id,
-            providerAccountId,
-          },
-          'Failed to disconnect channel after a failed connect attempt',
-        );
-      });
+      // Route through the memoized lease-loss teardown so a connect that rejects
+      // *because* the lease was lost disconnects once, not twice.
+      await disconnectAfterLeaseLoss();
       await providerInboundLease?.release();
       throw err;
     }
