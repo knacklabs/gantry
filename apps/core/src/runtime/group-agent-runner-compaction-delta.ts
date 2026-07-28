@@ -35,6 +35,7 @@ export async function prepareCompactionDeltaReplay(input: {
   turnContext: TurnContext;
   loadTurnContext: (
     promoteReadyProviderSession: boolean,
+    hydrateMemory?: boolean,
   ) => Promise<TurnContext>;
   repository: GroupProcessingRepository;
   executionProviderId: ExecutionProviderId;
@@ -47,6 +48,25 @@ export async function prepareCompactionDeltaReplay(input: {
   block: string;
   markApplied?: (repository: GroupProcessingRepository) => Promise<void>;
 }> {
+  // The provisional read already paid for hydration; carry its block forward
+  // while the session is provably the same one.
+  const fencedFinalContext = async (promote: boolean): Promise<TurnContext> => {
+    const provisional = input.turnContext;
+    const next = await input.loadTurnContext(promote, false);
+    if (
+      next &&
+      provisional &&
+      next.agentSessionId === provisional.agentSessionId &&
+      (next.agentSessionResetAt ?? null) ===
+        (provisional.agentSessionResetAt ?? null)
+    ) {
+      return { ...next, memoryContextBlock: provisional.memoryContextBlock };
+    }
+    // Session changed under us: the carried block belongs to a session that no
+    // longer exists. Pay for one hydration rather than leak it.
+    return input.loadTurnContext(promote, true);
+  };
+
   const pending = input.turnContext?.compactionDeltaReplay;
   if (input.maintenanceProviderSession) {
     return { turnContext: input.turnContext, block: '' };
@@ -56,7 +76,7 @@ export async function prepareCompactionDeltaReplay(input: {
     pending?.status !== 'pending'
   ) {
     return {
-      turnContext: await input.loadTurnContext(true),
+      turnContext: await fencedFinalContext(true),
       block: '',
     };
   }
@@ -98,7 +118,7 @@ export async function prepareCompactionDeltaReplay(input: {
         provider: input.executionProviderId,
         externalSessionId,
       });
-      return { turnContext: await input.loadTurnContext(false), block: '' };
+      return { turnContext: await fencedFinalContext(false), block: '' };
     }
   }
 
@@ -111,7 +131,7 @@ export async function prepareCompactionDeltaReplay(input: {
     turnContext: replayTurnContext,
     block: deltaBlock(messages),
     markApplied: async (repository) => {
-      const promoted = await input.loadTurnContext(true);
+      const promoted = await input.loadTurnContext(true, false);
       if (
         !promoted?.providerSessionId ||
         !promoted.externalSessionId ||

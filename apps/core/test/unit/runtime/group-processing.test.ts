@@ -1967,7 +1967,7 @@ describe('createGroupProcessor', () => {
     // the promoted read inside prepareCompactionDeltaReplay. LAT-3A drops it to
     // 1. This constant is the phase's whole measurement, so it lives here in one
     // place rather than being spelled out in each assertion.
-    const LAT_3A_HYDRATIONS_PER_TURN = 2;
+    const LAT_3A_HYDRATIONS_PER_TURN = 1;
 
     it('hydrates agent memory once per turn per the recorded baseline, at the repository seam', async () => {
       const group = makeGroup({ requiresTrigger: false });
@@ -2014,16 +2014,15 @@ describe('createGroupProcessor', () => {
     // both reads the same block would assert a constant equals itself and could
     // never fail.
     //
-    // Today the model sees the PROMOTED (second) read's block, which is why the
-    // second read has to hydrate. After LAT-3A the model sees the PROVISIONAL
-    // (first) read's carried block instead, and this assertion flips — that
-    // flip is the behaviour change, made explicit rather than hidden.
+    // After LAT-3A the model sees the PROVISIONAL (first) read's carried block
+    // instead of the promoted read's block. This is the behaviour change, made
+    // explicit rather than hidden.
     //
     // Whether those two blocks are actually equal in production is a different
     // claim (plan AC3) and cannot be proven here, because the mock supplies the
     // block itself. It is proven against real Postgres in stage LAT-3A-3
     // (assumption A-0036).
-    it('feeds the model the promoted read memory block on the ordinary path', async () => {
+    it('feeds the model the carried provisional memory block on the ordinary path', async () => {
       const group = makeGroup({ requiresTrigger: false });
       const { deps } = setupHappyPath({ group });
       const provisionalBlock =
@@ -2057,7 +2056,7 @@ describe('createGroupProcessor', () => {
       expect(getAgentTurnContext).toHaveBeenCalledTimes(2);
       expect(provisionalBlock).not.toBe(promotedBlock);
       expect(mockSpawnAgent.mock.calls[0][1]).toMatchObject({
-        memoryContextBlock: expect.stringContaining(promotedBlock),
+        memoryContextBlock: expect.stringContaining(provisionalBlock),
       });
     });
 
@@ -5396,6 +5395,9 @@ describe('createGroupProcessor', () => {
         memoryUserId: 'user1@s.whatsapp.net',
         hydrationMode: 'first_visible',
         promoteReadyProviderSession: true,
+        // LAT-3A: the promoted read no longer hydrates — it carries the
+        // provisional read's memory block behind the session fence instead.
+        hydrateMemory: false,
         query: 'hello',
       });
     });
