@@ -349,7 +349,7 @@ export function normalizeRuntimeSecretRefs(input: {
 
 function conversationTopology(settings: RuntimeSettings): unknown {
   return Object.fromEntries(
-    Object.entries(settings.conversations)
+    Object.entries(settings.conversations ?? {})
       .sort(([left], [right]) => left.localeCompare(right))
       .map(([conversationKey, conversation]) => [
         conversationKey,
@@ -359,7 +359,7 @@ function conversationTopology(settings: RuntimeSettings): unknown {
           externalId: conversation.externalId,
           kind: conversation.kind,
           installedAgents: Object.fromEntries(
-            Object.entries(conversation.installedAgents)
+            Object.entries(conversation.installedAgents ?? {})
               .sort(([left], [right]) => left.localeCompare(right))
               .map(([agentKey, install]) => [
                 agentKey,
