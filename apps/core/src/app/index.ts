@@ -123,7 +123,6 @@ export async function startGantryRuntime(
       close: () => Promise<void>;
     };
   } = {};
-  const runtimeLease = { tryAcquire: tryAcquireRuntimeAdvisoryLease };
   app.setChannelRuntime({
     hasChannel: channelWiring.hasChannel,
     supportsStreaming: channelWiring.supportsStreaming,

@@ -108,10 +108,6 @@ import {
 } from '@core/app/bootstrap/fleet-boot.js';
 import type { RuntimeDependency } from '@core/domain/ports/fleet-capability-state.js';
 
-const leases = {
-  tryAcquire: async () => ({ release: async () => {} }),
-};
-
 function revisionRow(revision: number): SettingsRevision {
   return {
     appId: 'default',

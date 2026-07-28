@@ -30,7 +30,6 @@ import type { RuntimeLeasePort } from '../../domain/ports/runtime-lease.js';
 import { isDraining } from './draining-state.js';
 import type { SkillArtifactMaterializer } from '../../domain/ports/skill-artifact-store.js';
 import type { ToolchainArtifactMaterializer } from '../../domain/ports/toolchain-artifact-store.js';
-import type { RuntimeLeasePort } from '../../domain/ports/runtime-lease.js';
 import { logger } from '../../infrastructure/logging/logger.js';
 import {
   startToolchainBakeSubsystem,
