@@ -635,7 +635,15 @@ export async function closeBrowser(
   const session = sessions.get(normalized);
   if (!session) {
     const profile = createProfile(normalized);
-    const lock = await acquireProfileLock(normalized, getProfileLockLeases());
+    // SHARED: stopping a stray process is cleanup, not a new ownership epoch.
+    // Advancing the generation here would invalidate a legitimate owner's
+    // pending snapshot. Exclusion against a launch is unchanged.
+    const lock = await acquireProfileLock(
+      normalized,
+      getProfileLockLeases(),
+      undefined,
+      { shared: true },
+    );
     try {
       assertProfileLockValid(lock);
       const record = readBrowserSessionRecord(profile);

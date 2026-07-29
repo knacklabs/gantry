@@ -59,6 +59,45 @@ Scope boundaries, all confirmed by Ravi at the sign-off grill (2026-07-29):
   no fence check, because neither has a known stale-write sink and no deferral asks
   for one. Stated choice, not an oversight.
 
+## Amendment (2026-07-29): ownership vs shared acquisition
+
+Branch autoreview found the first cut of the fence was weaker than this record
+claimed. The snapshot CAS compared the incoming generation only against the
+**stored row**, so a stale owner still won whenever the row was behind: A owns
+generation 1 and releases, B acquires 2 and starts using the profile, and A's
+delayed generation-1 write lands while the row is still 0 — accepted.
+
+Fencing against `runtime_lease_generations` was impossible as built, because the
+snapshot path acquires the **same** lease key and therefore bumps the very
+counter it would check. `RuntimeLeasePort` now distinguishes:
+
+- **ownership** acquisition (default) — advances the generation; a new epoch.
+- **shared** acquisition — takes the same advisory lock, so mutual exclusion is
+  unchanged, but reports the current generation without advancing it.
+
+The snapshot path acquires shared, and the upsert is guarded against the latest
+issued generation for the profile's lease key. The guard is applied inside one
+`INSERT ... SELECT ... WHERE ... ON CONFLICT ... WHERE` statement so it covers
+the INSERT path too — guarding only the conflict path would let a stale owner
+publish the first row — and so a concurrent acquisition cannot slip between a
+read and the write.
+
+Rejected here: holding ownership from launch through snapshot (blocks handoff for
+a whole browser session, the stall RACE-4 fixed) and giving snapshots a separate
+lease key (that would drop the exclusion which stops snapshotting a browser
+mid-relaunch).
+
+## Accepted risk: mixed-version deployments
+
+An old binary's upsert ignores `snapshot_lease_generation`, so during a rolling
+deploy it can overwrite a fenced row on the old (fence, timestamp) rule while
+leaving the generation label untouched — stale content then reads as the newer
+generation. **Accepted by fiat** (Ravi, 2026-07-29) under this repo's
+no-backcompat policy and today's effectively single-instance runtime. Deploy
+expectation: restart workers together for this migration rather than relying on
+a mixed-version window. If the fleet ever runs genuinely concurrent versions,
+this needs a database-enforced guard instead.
+
 ## Consequences
 
 - One migration adding the generation table. No change to `run_leases`, so the

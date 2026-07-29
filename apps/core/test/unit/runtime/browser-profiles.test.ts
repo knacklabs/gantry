@@ -65,7 +65,7 @@ describe('browser-profiles', () => {
     const lock = await mod.acquireProfileLock(' Lease-Test ', { tryAcquire });
 
     expect(tryAcquire).toHaveBeenCalledOnce();
-    expect(tryAcquire).toHaveBeenCalledWith('browser-profile:lease-test');
+    expect(tryAcquire).toHaveBeenCalledWith('browser-profile:lease-test', {});
     expect(lock.name).toBe('lease-test');
     await lock.release();
     expect(release).toHaveBeenCalledOnce();

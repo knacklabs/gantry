@@ -48,6 +48,14 @@ export interface UpsertBrowserProfileSnapshotInput {
    * existed also read as 0, so the first real generation supersedes them.
    */
   snapshotLeaseGeneration?: number;
+  /**
+   * Lease key whose LATEST ISSUED generation this write must not be older than
+   * (e.g. `browser-profile:<name>`). Without it the guard can only compare
+   * against the stored row, which lets a stale owner win whenever the row is
+   * behind — A owns generation 1, releases, B acquires 2 and starts, and A's
+   * delayed write lands while the row is still 0.
+   */
+  leaseKey?: string;
   snapshottedAt?: string;
   now?: string;
 }
@@ -65,7 +73,13 @@ export type UpsertBrowserProfileSnapshotResult =
        * snapshot.
        */
       status: 'stale';
-      current: BrowserProfileSnapshot;
+      /**
+       * The row that beat this write, or `null` when the write was rejected by
+       * the latest-issued-generation guard before any row existed — a stale
+       * owner writing after a successor acquired the lease but before it
+       * published.
+       */
+      current: BrowserProfileSnapshot | null;
     };
 
 /**

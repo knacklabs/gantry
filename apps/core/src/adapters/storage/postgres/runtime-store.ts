@@ -17,7 +17,10 @@ import type { BrowserProfileSnapshotRepository } from '../../../domain/ports/bro
 import { evaluatePostgresStorageCapabilities } from './readiness.js';
 import type { PostgresControlPlaneRepository } from './repositories/control-plane-repository.postgres.js';
 import type { RuntimeEventExchange } from '../../../application/runtime-events/runtime-event-exchange.js';
-import type { RuntimeLease } from '../../../domain/ports/runtime-lease.js';
+import type {
+  RuntimeLease,
+  RuntimeLeaseAcquireOptions,
+} from '../../../domain/ports/runtime-lease.js';
 import type { WorkerCoordinationRepository } from '../../../domain/ports/worker-coordination.js';
 import { configurePendingInteractionDurability } from '../../../application/interactions/pending-interaction-durability.js';
 import { ModelCredentialService } from '../../../application/model-credentials/model-credential-service.js';
@@ -322,6 +325,7 @@ export async function getConfiguredModelProvidersForApp(
 
 export async function tryAcquireRuntimeAdvisoryLease(
   key: string,
+  options: RuntimeLeaseAcquireOptions = {},
 ): Promise<RuntimeLease | undefined> {
   const client = await getRuntimeStorage().service.pool.connect();
   let released = false;
@@ -343,10 +347,17 @@ export async function tryAcquireRuntimeAdvisoryLease(
     // Fails closed: if this throws, the catch below releases the connection
     // (dropping the advisory lock with it) and no lease is returned. An
     // unfenced lease is worse than no lease.
+    // SHARED reads the current generation; OWNERSHIP advances it. Both hold the
+    // same advisory lock, so exclusion is identical — only the epoch differs.
     const generationResult = await client.query<{
       generation: string | number;
     }>(
-      `INSERT INTO runtime_lease_generations (lease_key, generation, holder, updated_at)
+      options.shared
+        ? `SELECT COALESCE(
+             (SELECT generation FROM runtime_lease_generations WHERE lease_key = $1),
+             0
+           ) AS generation, $2::text AS holder`
+        : `INSERT INTO runtime_lease_generations (lease_key, generation, holder, updated_at)
        VALUES ($1, 1, $2, now())
        ON CONFLICT (lease_key) DO UPDATE
          SET generation = runtime_lease_generations.generation + 1,
@@ -360,7 +371,10 @@ export async function tryAcquireRuntimeAdvisoryLease(
     // node-postgres returns bigint as a string to avoid precision loss.
     const rawGeneration = generationResult.rows[0]?.generation;
     const generation = Number(rawGeneration);
-    if (!Number.isSafeInteger(generation) || generation < 1) {
+    // A shared acquisition may legitimately report 0 (nobody has ever owned this
+    // key); an ownership acquisition must always yield at least 1.
+    const minimumGeneration = options.shared ? 0 : 1;
+    if (!Number.isSafeInteger(generation) || generation < minimumGeneration) {
       throw new Error(
         `Runtime advisory lease generation bump returned no usable generation for ${key}: ${String(rawGeneration)}`,
       );

@@ -306,6 +306,11 @@ export async function snapshotBrowserProfile(
       input.profileName,
       coordinator.leases,
       SNAPSHOT_LOCK_TIMEOUT_MS,
+      // SHARED: taking a snapshot is not a new ownership epoch. Bumping here
+      // would inflate the counter this snapshot is fenced against, and would
+      // hand a stale owner a generation newer than the successor that
+      // displaced it. Exclusion against a launching browser is unchanged.
+      { shared: true },
     );
   } catch {
     // Lock held by a live Chrome relaunch (or contended). Skip rather than
@@ -346,6 +351,7 @@ export async function snapshotBrowserProfile(
         snapshotRunId: input.snapshotRunId ?? null,
         snapshotFencingVersion: input.snapshotFencingVersion ?? 0,
         snapshotLeaseGeneration: ownedGeneration,
+        leaseKey: lock.leaseKey,
         snapshottedAt: nowIso(),
       });
       if (result.status === 'stale') {
@@ -353,7 +359,7 @@ export async function snapshotBrowserProfile(
           {
             profileName: input.profileName,
             incomingFence: input.snapshotFencingVersion ?? 0,
-            currentFence: result.current.snapshotFencingVersion,
+            currentFence: result.current?.snapshotFencingVersion ?? null,
           },
           'Dropped stale browser profile snapshot metadata update',
         );
@@ -384,6 +390,7 @@ export async function snapshotBrowserProfile(
         snapshotRunId: input.snapshotRunId ?? null,
         snapshotFencingVersion: input.snapshotFencingVersion ?? 0,
         snapshotLeaseGeneration: ownedGeneration,
+        leaseKey: lock.leaseKey,
         snapshottedAt: nowIso(),
       });
 
@@ -392,7 +399,7 @@ export async function snapshotBrowserProfile(
         {
           profileName: input.profileName,
           incomingFence: input.snapshotFencingVersion ?? 0,
-          currentFence: result.current.snapshotFencingVersion,
+          currentFence: result.current?.snapshotFencingVersion ?? null,
         },
         'Dropped stale browser profile snapshot (a newer snapshot already exists)',
       );

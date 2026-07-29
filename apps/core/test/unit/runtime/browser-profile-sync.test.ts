@@ -242,6 +242,35 @@ describe('browser-profile-sync', () => {
     expect(after.status).toBe('written');
   });
 
+  it('takes a SHARED lock so snapshotting does not advance the ownership generation', async () => {
+    // If the snapshot bumped the counter it is fenced against, every snapshot
+    // would inflate the epoch and a stale owner could end up with a generation
+    // newer than the successor that displaced it.
+    let issued = 5;
+    const counting: RuntimeLeasePort = {
+      tryAcquire: async (_key, options) => {
+        if (!options?.shared) issued += 1; // ownership advances the epoch
+        return {
+          generation: issued,
+          isValid: () => true,
+          release: async () => undefined,
+        };
+      },
+    };
+    registerBrowserProfileSync({ store, repository, leases: counting });
+    await seedUserData(userDataDir, { 'Local State': 'shared-lock' });
+
+    const result = await snapshotBrowserProfile({
+      profileName: 'shared-lock-profile',
+      profileDir,
+      userDataDir,
+      snapshotLeaseGeneration: 5,
+    });
+
+    expect(result.status).toBe('written');
+    expect(issued).toBe(5);
+  });
+
   it('a stale owner loses to its successor even though it snapshots LAST', async () => {
     // The rule this stage exists for: the fence is the generation carried OUT
     // of the session that produced the bytes. The stale owner snapshots last,

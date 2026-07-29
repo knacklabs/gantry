@@ -640,6 +640,23 @@ describe('browser-capability', () => {
     expect(mocks.fetch).not.toHaveBeenCalled();
   });
 
+  it('takes the stray-process cleanup lock SHARED so it cannot advance the epoch', async () => {
+    // With the equality fence, an ownership bump here would REJECT a legitimate
+    // owner's pending snapshot: cleanup must not count as a new epoch.
+    const manager = await import('@core/runtime/browser-capability.js');
+    const profiles = await import('@core/runtime/browser-profiles.js');
+    vi.mocked(profiles.acquireProfileLock).mockClear();
+
+    await manager.closeBrowser();
+
+    expect(profiles.acquireProfileLock).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.anything(),
+      undefined,
+      { shared: true },
+    );
+  });
+
   it('returns idempotent success when closing an already stopped browser', async () => {
     const manager = await import('@core/runtime/browser-capability.js');
 

@@ -263,6 +263,172 @@ maybeDescribe('Browser profile snapshot store (0079)', () => {
       expect(sameGenHigherFence.status).toBe('written');
     });
 
+    it('rejects a stale generation against the LATEST ISSUED generation, even with no row yet', async () => {
+      // The hole branch autoreview found: A owns generation 1 and releases; B
+      // acquires generation 2 and starts using the profile but has not
+      // published yet, so the row is absent (or still 0). A row-relative guard
+      // would accept A's delayed write. The issued generation must reject it.
+      const repo = browserProfileSnapshots;
+      const profileName = 'c-kai-issued-fence';
+      const leaseKey = `browser-profile:${profileName}`;
+      await service.pool.query(
+        `INSERT INTO runtime_lease_generations (lease_key, generation, holder, updated_at)
+         VALUES ($1, 2, 'test', now())
+         ON CONFLICT (lease_key) DO UPDATE SET generation = 2`,
+        [leaseKey],
+      );
+
+      // No row exists yet: this is the INSERT path, which must be guarded too.
+      const stale = await repo.upsertBrowserProfileSnapshot({
+        profileName,
+        contentHash: hash('s'),
+        storageRef: `browser-profiles/${profileName}/stale`,
+        sizeBytes: 1,
+        snapshotLeaseGeneration: 1,
+        leaseKey,
+        snapshottedAt: '2026-06-13T00:00:00.000Z',
+        now: '2026-06-13T00:00:00.000Z',
+      });
+      expect(stale.status).toBe('stale');
+      expect(await repo.getBrowserProfileSnapshot(profileName)).toBeNull();
+    });
+
+    it('serializes the fence against a concurrent generation bump', async () => {
+      // MVCC: a scalar subquery would only see the statement snapshot, so a
+      // successor committing a bump mid-write could stay invisible and the
+      // stale write would publish. The upsert takes a ROW LOCK on the
+      // generation, so a concurrent bump must wait for it.
+      const repo = browserProfileSnapshots;
+      const profileName = 'c-kai-concurrent';
+      const leaseKey = `browser-profile:${profileName}`;
+      await service.pool.query(
+        `INSERT INTO runtime_lease_generations (lease_key, generation, holder, updated_at)
+         VALUES ($1, 1, 'test', now())
+         ON CONFLICT (lease_key) DO UPDATE SET generation = 1`,
+        [leaseKey],
+      );
+
+      // Hold an exclusive lock on the generation row from another connection,
+      // simulating a successor's bump in flight.
+      const blocker = await service.pool.connect();
+      await blocker.query('BEGIN');
+      await blocker.query(
+        'SELECT generation FROM runtime_lease_generations WHERE lease_key = $1 FOR UPDATE',
+        [leaseKey],
+      );
+
+      let settled = false;
+      const writing = repo
+        .upsertBrowserProfileSnapshot({
+          profileName,
+          contentHash: hash('v'),
+          storageRef: `browser-profiles/${profileName}/concurrent`,
+          sizeBytes: 1,
+          snapshotLeaseGeneration: 1,
+          leaseKey,
+          snapshottedAt: '2026-06-13T03:00:00.000Z',
+          now: '2026-06-13T03:00:00.000Z',
+        })
+        .then((result) => {
+          settled = true;
+          return result;
+        });
+
+      // The write must NOT complete while the generation row is locked.
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      expect(settled).toBe(false);
+
+      // The successor commits its bump to generation 2 and releases the lock.
+      await blocker.query(
+        'UPDATE runtime_lease_generations SET generation = 2 WHERE lease_key = $1',
+        [leaseKey],
+      );
+      await blocker.query('COMMIT');
+      blocker.release();
+
+      // Now unblocked, the writer sees the COMMITTED generation 2 and its
+      // generation-1 token is stale.
+      const result = await writing;
+      expect(result.status).toBe('stale');
+      expect(await repo.getBrowserProfileSnapshot(profileName)).toBeNull();
+    }, 20_000);
+
+    it('rejects a generation that was never issued', async () => {
+      // A corrupted or mismatched token must not write an arbitrarily high
+      // durable fence: that would block every legitimate owner until the
+      // counter caught up.
+      const repo = browserProfileSnapshots;
+      const profileName = 'c-kai-issued-future';
+      const leaseKey = `browser-profile:${profileName}`;
+      await service.pool.query(
+        `INSERT INTO runtime_lease_generations (lease_key, generation, holder, updated_at)
+         VALUES ($1, 2, 'test', now())
+         ON CONFLICT (lease_key) DO UPDATE SET generation = 2`,
+        [leaseKey],
+      );
+
+      const unissued = await repo.upsertBrowserProfileSnapshot({
+        profileName,
+        contentHash: hash('u'),
+        storageRef: `browser-profiles/${profileName}/future`,
+        sizeBytes: 1,
+        snapshotLeaseGeneration: 999,
+        leaseKey,
+        snapshottedAt: '2026-06-13T02:00:00.000Z',
+        now: '2026-06-13T02:00:00.000Z',
+      });
+
+      expect(unissued.status).toBe('stale');
+      expect(await repo.getBrowserProfileSnapshot(profileName)).toBeNull();
+    });
+
+    it('accepts the successor at the latest issued generation', async () => {
+      const repo = browserProfileSnapshots;
+      const profileName = 'c-kai-issued-ok';
+      const leaseKey = `browser-profile:${profileName}`;
+      await service.pool.query(
+        `INSERT INTO runtime_lease_generations (lease_key, generation, holder, updated_at)
+         VALUES ($1, 2, 'test', now())
+         ON CONFLICT (lease_key) DO UPDATE SET generation = 2`,
+        [leaseKey],
+      );
+
+      const successor = await repo.upsertBrowserProfileSnapshot({
+        profileName,
+        contentHash: hash('t'),
+        storageRef: `browser-profiles/${profileName}/ok`,
+        sizeBytes: 1,
+        snapshotLeaseGeneration: 2,
+        leaseKey,
+        snapshottedAt: '2026-06-13T01:00:00.000Z',
+        now: '2026-06-13T01:00:00.000Z',
+      });
+      expect(successor.status).toBe('written');
+      // Assert the RETURNED snapshot, not just the re-read: the write path maps
+      // raw SQL rows itself, so a mapping slip would surface only here.
+      if (successor.status === 'written') {
+        expect(successor.snapshot).toMatchObject({
+          profileName,
+          contentHash: hash('t'),
+          storageRef: `browser-profiles/${profileName}/ok`,
+          sizeBytes: 1,
+          snapshotLeaseGeneration: 2,
+        });
+        // Types matter here: raw pg returns bigints as strings and timestamps
+        // as Date objects, so assert the decoded shapes explicitly.
+        expect(typeof successor.snapshot.sizeBytes).toBe('number');
+        expect(typeof successor.snapshot.snapshotLeaseGeneration).toBe(
+          'number',
+        );
+        expect(typeof successor.snapshot.snapshottedAt).toBe('string');
+        expect(successor.snapshot.snapshottedAt).toContain('T');
+        expect(typeof successor.snapshot.createdAt).toBe('string');
+      }
+      expect(
+        (await repo.getBrowserProfileSnapshot(profileName))?.contentHash,
+      ).toBe(hash('t'));
+    });
+
     it('supersedes a pre-upgrade row with no generation, without any backfill', async () => {
       // Upgrade path: rows written before this column existed read as 0.
       const repo = browserProfileSnapshots;
