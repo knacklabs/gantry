@@ -472,6 +472,7 @@ export async function runJob(
                 jobId: currentJob.id,
                 jobName: currentJob.name,
                 runId,
+                ...(currentJob.agent_task?.observability ?? {}),
                 runLeaseToken: leaseContext.lease.leaseToken,
                 runLeaseFencingVersion: leaseContext.lease.fencingVersion,
                 jobModelUseKind,

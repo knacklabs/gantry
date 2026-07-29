@@ -195,6 +195,80 @@ describe('@gantry/sdk transport', () => {
     ).resolves.toEqual({ sessionId: 'session-1' });
   });
 
+  it('invokes chat completions and preserves Gantry routing metadata', async () => {
+    const port = await listen((req, res) => {
+      const chunks: Buffer[] = [];
+      req.on('data', (chunk) => chunks.push(Buffer.from(chunk)));
+      req.on('end', () => {
+        expect(req.method).toBe('POST');
+        expect(req.url).toBe('/llm/v1/chat/completions');
+        expect(req.headers.traceparent).toBe(
+          '00-0123456789abcdef0123456789abcdef-0123456789abcdef-01',
+        );
+        expect(
+          JSON.parse(Buffer.concat(chunks).toString('utf8')),
+        ).toMatchObject({
+          model: 'configured-alias',
+          messages: [{ role: 'user', content: 'return json' }],
+        });
+        res.writeHead(200, {
+          'content-type': 'application/json',
+          'x-gantry-request-id': 'gantry-request-1',
+          'x-gantry-model-alias': 'configured-alias',
+          'x-gantry-model-route': 'provider-route',
+          'x-gantry-provider': 'provider',
+        });
+        res.end(
+          JSON.stringify({
+            id: 'response-1',
+            object: 'chat.completion',
+            created: 1,
+            model: 'provider-model',
+            choices: [
+              {
+                index: 0,
+                message: { role: 'assistant', content: '{"ok":true}' },
+                finish_reason: 'stop',
+              },
+            ],
+            usage: {
+              prompt_tokens: 3,
+              completion_tokens: 2,
+              total_tokens: 5,
+            },
+          }),
+        );
+      });
+    });
+    const client = new GantryClient({
+      apiKey: 'test-key',
+      baseUrl: `http://127.0.0.1:${port}`,
+    });
+
+    await expect(
+      client.llm.chatCompletions(
+        {
+          model: 'configured-alias',
+          messages: [{ role: 'user', content: 'return json' }],
+        },
+        {
+          traceparent:
+            '00-0123456789abcdef0123456789abcdef-0123456789abcdef-01',
+        },
+      ),
+    ).resolves.toMatchObject({
+      gantryRequestId: 'gantry-request-1',
+      modelAlias: 'configured-alias',
+      modelRoute: 'provider-route',
+      provider: 'provider',
+      response: {
+        id: 'response-1',
+        model: 'provider-model',
+        usage: { prompt_tokens: 3, completion_tokens: 2, total_tokens: 5 },
+      },
+    });
+  });
+
   it('sends idempotency and bounded queue policy for a session message', async () => {
     const port = await listen((req, res) => {
       const chunks: Buffer[] = [];

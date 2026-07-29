@@ -95,6 +95,21 @@ describe('agent spawn admission', () => {
     ).toBeNull();
   });
 
+  it('allows response schemas for the DeepAgents worker runtime', () => {
+    expect(
+      validateAgentPreSpawnAdmission({
+        agentRuntime: 'worker',
+        agentEngine: DEEPAGENTS_ENGINE,
+        sandboxProvider: 'direct',
+        securityEnv: {},
+        agentInput: {
+          ...baseInput,
+          responseSchema: { type: 'object' },
+        },
+      }),
+    ).toBeNull();
+  });
+
   it('names unsupported control fields and models before provider invocation', () => {
     expect(
       validateAgentPreSpawnAdmission({

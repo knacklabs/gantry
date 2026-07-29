@@ -63,6 +63,10 @@ endpoints on the running runtime:
 - `client.usage` — `query`
 - `client.models` — `list`, `defaults.get`, `defaults.update`, `preview`, and
   scoped-admin `credentials.list`, `credentials.set`, `credentials.disable`
+- `client.llm.chatCompletions` — provider-neutral text/image structured
+  generation through a registered model alias. Requires `llm:invoke` and
+  returns safe Gantry request, alias, route, and provider correlation metadata
+  alongside the typed upstream response.
 - `client.agents` — admin read and profile-file read/write plus `skills`, `mcpServers`, `conversationInstalls`
 - `client.skills` — install and list skills
 - `client.mcpServers` — catalog of MCP servers

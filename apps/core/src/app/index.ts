@@ -36,6 +36,7 @@ import {
 } from '../config/index.js';
 import { getBrowserStatus } from '../runtime/browser-capability.js';
 import { startSettingsReloadWatcher } from '../runtime/settings-reload-watcher.js';
+import { activateRuntimeModelAliases } from '../config/settings/runtime-settings.js';
 import {
   prepareFleetSettings,
   startFleetSubsystems,
@@ -232,6 +233,7 @@ export async function startGantryRuntime(
         settingsRevisions: storage.repositories.settingsRevisions,
         settingsRevisionPool: storage.service.pool,
       });
+  activateRuntimeModelAliases(runtimeSettings);
   let fleetSubsystems: FleetSubsystems | undefined;
   const browserToolModulePath = [
     '..',

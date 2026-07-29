@@ -3,6 +3,7 @@ import path from 'node:path';
 
 import {
   RuntimeSettings,
+  activateRuntimeModelAliases,
   loadRuntimeSettings,
 } from '../../config/settings/runtime-settings.js';
 import {
@@ -121,6 +122,9 @@ export async function runStartup(
     );
     return revisionSettings;
   })();
+  if (runtimeSettings.modelAliases) {
+    activateRuntimeModelAliases(runtimeSettings);
+  }
   if (
     resolved.settingsAuthority === 'file' &&
     runtimeSettings.desiredState &&

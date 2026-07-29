@@ -1,6 +1,3 @@
-import http from 'node:http';
-import https from 'node:https';
-import { URL } from 'node:url';
 import type {
   ConversationDiscoveryInput,
   ConversationInstallInput,
@@ -20,17 +17,19 @@ import type {
   RuntimeEventListResponse,
   RuntimeEventQuery,
   RuntimeEventStreamOptions,
-  SseEvent,
+  TraceRequestOptions,
 } from './types.js';
 import { runtimeEventQuery } from './runtime-event-query.js';
 import type * as OpenApi from './openapi-types.js';
-import { parseSessionSseEvent } from './session-events.js';
 import { createIngressesClient } from './ingresses.js';
 import { querySuffix } from './query-string.js';
 export type { RuntimeSettingsResponse } from './settings.js';
 import * as mcpServerClients from './mcp-servers.js';
 import { jobListQuery } from './job-list-query.js';
 import { createModelsClient } from './models.js';
+import { createLlmClient } from './llm.js';
+import { Transport } from './transport.js';
+export type { GantryError } from './transport.js';
 import type {
   CreateJobInput,
   CreateJobResponse,
@@ -69,213 +68,18 @@ export type {
 } from './job-model-types.js';
 export type * from './openapi-types.js';
 
-export interface GantryError extends Error {
-  code: string;
-  details?: Record<string, unknown> | null;
-  requestId?: string;
-  retryable?: boolean;
-  restartRequired?: boolean;
-  nextAction?: string;
-}
-function toError(input: unknown): GantryError {
-  const fallback = new Error('Gantry request failed') as GantryError;
-  fallback.code = 'UNKNOWN_ERROR';
-  if (
-    input &&
-    typeof input === 'object' &&
-    'error' in input &&
-    input.error &&
-    typeof input.error === 'object'
-  ) {
-    const error = input.error as Record<string, unknown>;
-    const next = new Error(
-      String(error.message || 'Gantry request failed'),
-    ) as GantryError;
-    next.code = String(error.code || 'UNKNOWN_ERROR');
-    next.details =
-      error.details && typeof error.details === 'object'
-        ? (error.details as Record<string, unknown>)
-        : null;
-    next.requestId =
-      typeof error.requestId === 'string' ? error.requestId : undefined;
-    next.retryable =
-      typeof error.retryable === 'boolean' ? error.retryable : undefined;
-    next.restartRequired =
-      typeof error.restartRequired === 'boolean'
-        ? error.restartRequired
-        : undefined;
-    next.nextAction =
-      typeof error.nextAction === 'string' ? error.nextAction : undefined;
-    return next;
-  }
-  return fallback;
-}
-
-function parseJsonBody(raw: string): unknown {
-  if (!raw.trim()) return {};
-  try {
-    return JSON.parse(raw);
-  } catch {
-    const error = new Error(
-      'Gantry returned a non-JSON response',
-    ) as GantryError;
-    error.code = 'INVALID_RESPONSE';
-    throw error;
-  }
-}
-
-class Transport {
-  private readonly apiKey: string;
-  private readonly baseUrl: URL;
-  private readonly socketPath?: string;
-  private readonly timeoutMs: number;
-
-  constructor(options: ClientOptions) {
-    this.apiKey = options.apiKey;
-    this.baseUrl = new URL(options.baseUrl || 'http://127.0.0.1:3939');
-    this.socketPath = options.socketPath;
-    this.timeoutMs = options.timeoutMs ?? 60_000;
-  }
-
-  request<T>(options: RequestOptions): Promise<T> {
-    const url = new URL(options.path, this.baseUrl);
-    const mod = url.protocol === 'https:' ? https : http;
-    const body =
-      options.body === undefined
-        ? undefined
-        : options.body instanceof Uint8Array
-          ? options.body
-          : JSON.stringify(options.body);
-    const headers: Record<string, string> = {
-      authorization: `Bearer ${this.apiKey}`,
-      accept: options.accept || 'application/json',
-    };
-    if (body) {
-      headers['content-type'] =
-        options.contentType ||
-        (options.body instanceof Uint8Array
-          ? 'application/octet-stream'
-          : 'application/json');
-    }
-    return new Promise<T>((resolve, reject) => {
-      const req = mod.request(
-        {
-          protocol: url.protocol,
-          hostname: this.socketPath ? undefined : url.hostname,
-          port: this.socketPath ? undefined : url.port,
-          path: `${url.pathname}${url.search}`,
-          socketPath: this.socketPath,
-          method: options.method,
-          headers,
-        },
-        (res) => {
-          const chunks: Buffer[] = [];
-          res.on('data', (chunk) => chunks.push(Buffer.from(chunk)));
-          res.on('end', () => {
-            const raw = Buffer.concat(chunks).toString('utf8');
-            let parsed: unknown = {};
-            try {
-              parsed = parseJsonBody(raw);
-            } catch (error) {
-              reject(error);
-              return;
-            }
-            if ((res.statusCode || 500) >= 400) {
-              reject(toError(parsed));
-              return;
-            }
-            resolve(parsed as T);
-          });
-        },
-      );
-      req.setTimeout(this.timeoutMs, () => {
-        req.destroy(new Error('Gantry request timed out'));
-      });
-      req.on('error', reject);
-      if (options.signal) {
-        options.signal.addEventListener(
-          'abort',
-          () => req.destroy(new Error('Gantry request aborted')),
-          { once: true },
-        );
-      }
-      if (body) req.write(body);
-      req.end();
-    });
-  }
-
-  async *stream(
-    pathname: string,
-    signal?: AbortSignal,
-  ): AsyncIterable<SseEvent> {
-    const url = new URL(pathname, this.baseUrl);
-    const mod = url.protocol === 'https:' ? https : http;
-    const req = mod.request({
-      protocol: url.protocol,
-      hostname: this.socketPath ? undefined : url.hostname,
-      port: this.socketPath ? undefined : url.port,
-      path: `${url.pathname}${url.search}`,
-      socketPath: this.socketPath,
-      method: 'GET',
-      headers: {
-        authorization: `Bearer ${this.apiKey}`,
-        accept: 'text/event-stream',
-      },
-    });
-    if (signal) {
-      signal.addEventListener(
-        'abort',
-        () => req.destroy(new Error('Gantry stream aborted')),
-        { once: true },
-      );
-    }
-    const response = await new Promise<http.IncomingMessage>(
-      (resolve, reject) => {
-        req.on('response', resolve);
-        req.on('error', reject);
-        req.end();
-      },
-    );
-    if ((response.statusCode || 500) >= 400) {
-      const chunks: Buffer[] = [];
-      for await (const chunk of response) {
-        chunks.push(Buffer.from(chunk));
-      }
-      throw toError(parseJsonBody(Buffer.concat(chunks).toString('utf8')));
-    }
-    let buffer = '';
-    for await (const chunk of response) {
-      buffer += chunk.toString();
-      while (true) {
-        const delimiter = buffer.indexOf('\n\n');
-        if (delimiter < 0) break;
-        const block = buffer.slice(0, delimiter);
-        buffer = buffer.slice(delimiter + 2);
-        const lines = block.split('\n');
-        const idLine = lines.find((line) => line.startsWith('id: '));
-        const eventLine = lines.find((line) => line.startsWith('event: '));
-        const dataLine = lines.find((line) => line.startsWith('data: '));
-        if (!idLine || !eventLine || !dataLine) continue;
-        yield parseSessionSseEvent({
-          eventId: Number(idLine.slice(4).trim()),
-          eventType: eventLine.slice(7).trim(),
-          data: JSON.parse(dataLine.slice(6)),
-        });
-      }
-    }
-  }
-}
-
 export class GantryClient {
   private readonly transport: Transport;
   private readonly request = <T>(options: RequestOptions) =>
     this.transport.request<T>(options);
   readonly ingresses: ReturnType<typeof createIngressesClient>;
+  readonly llm: ReturnType<typeof createLlmClient>;
   readonly models: ReturnType<typeof createModelsClient>;
 
   constructor(options: ClientOptions) {
     this.transport = new Transport(options);
     this.ingresses = createIngressesClient(this.transport);
+    this.llm = createLlmClient(this.transport);
     this.models = createModelsClient(this.transport);
   }
 
@@ -379,11 +183,12 @@ export class GantryClient {
   };
 
   readonly jobs = {
-    create: (input: CreateJobInput) =>
+    create: (input: CreateJobInput, options?: TraceRequestOptions) =>
       this.transport.request<CreateJobResponse>({
         method: 'POST',
         path: '/v1/jobs',
         body: input,
+        ...(options?.traceparent ? { traceparent: options.traceparent } : {}),
       }),
     list: (input?: ListJobsInput) =>
       this.transport.request<OpenApi.ListJobsResponse>({

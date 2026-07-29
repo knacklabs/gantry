@@ -47,6 +47,7 @@ export interface DeepAgentRunnerInput {
     maxNoProgressContinuations: number;
     interactionTimeoutMs: number;
   };
+  responseSchema?: Record<string, unknown>;
   deepAgentCheckpointer?: DeepAgentCheckpointerConfig;
   deepAgentSkills?: DeepAgentSkillProjection;
   modelCredentialEnv?: Record<string, string>;

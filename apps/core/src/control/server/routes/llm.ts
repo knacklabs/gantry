@@ -44,6 +44,10 @@ const BLOCKED_LOOPBACK_RESPONSE_HEADERS = new Set([
   'connection',
   'set-cookie',
   'transfer-encoding',
+  'x-gantry-model-alias',
+  'x-gantry-model-route',
+  'x-gantry-provider',
+  'x-gantry-request-id',
 ]);
 
 type ResolvedLlmRequest = {
@@ -53,6 +57,8 @@ type ResolvedLlmRequest = {
   alias: string;
   provider: ModelProviderDefinition;
   tail: string;
+  correlationId?: string;
+  taskType?: string;
 };
 
 export async function handleLlmRoutes(
@@ -84,6 +90,10 @@ export async function handleLlmRoutes(
   if (!resolved) return true;
 
   const apiRequestId = randomUUID();
+  res.setHeader('x-gantry-request-id', apiRequestId);
+  res.setHeader('x-gantry-model-alias', resolved.alias);
+  res.setHeader('x-gantry-model-route', resolved.entry.modelRoute.id);
+  res.setHeader('x-gantry-provider', resolved.provider.id);
   let broker: AgentCredentialBroker | undefined;
   let injectionIssued = false;
   let statusCode = 502;
@@ -173,6 +183,10 @@ export async function handleLlmRoutes(
       appId: auth.appId,
       modelAlias: resolved.alias,
       modelRouteId: resolved.entry.modelRoute.id,
+      ...(resolved.correlationId
+        ? { correlationId: resolved.correlationId }
+        : {}),
+      ...(resolved.taskType ? { taskType: resolved.taskType } : {}),
       requestBodyBytes: resolved.body.byteLength,
       ...(responseBodyBytes !== undefined ? { responseBodyBytes } : {}),
       ...(clientDisconnected ? { clientDisconnected: true } : {}),
@@ -235,6 +249,15 @@ function resolveLlmRequest(
     sendError(res, 400, 'INVALID_MODEL', resolution.message);
     return null;
   }
+  if (resolution.alias === resolution.entry.modelRoute.providerModelId) {
+    sendError(
+      res,
+      400,
+      'INVALID_MODEL',
+      'Direct LLM callers must use an application-facing model alias',
+    );
+    return null;
+  }
   const provider = getModelProviderDefinition(resolution.entry.modelRoute.id);
   if (!provider) {
     sendError(res, 400, 'INVALID_MODEL', 'Model provider is not registered');
@@ -245,6 +268,9 @@ function resolveLlmRequest(
     sendError(res, 400, 'INVALID_MODEL', compatibilityError);
     return null;
   }
+  const metadata =
+    endpoint === 'chat_completions' ? stringMetadata(body.metadata) : {};
+  if (endpoint === 'chat_completions') delete body.metadata;
   body.model = resolution.entry.modelRoute.providerModelId;
   return {
     endpoint,
@@ -252,6 +278,10 @@ function resolveLlmRequest(
     entry: resolution.entry,
     alias: resolution.alias,
     provider,
+    ...(metadata.correlation_id
+      ? { correlationId: metadata.correlation_id }
+      : {}),
+    ...(metadata.task_type ? { taskType: metadata.task_type } : {}),
     tail:
       endpoint === 'messages'
         ? '/v1/messages'
@@ -259,6 +289,15 @@ function resolveLlmRequest(
           ? '/v1/messages/count_tokens'
           : chatCompletionsTail(provider),
   };
+}
+
+function stringMetadata(value: unknown): Record<string, string> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>).filter(
+      (entry): entry is [string, string] => typeof entry[1] === 'string',
+    ),
+  );
 }
 
 function parseBody(

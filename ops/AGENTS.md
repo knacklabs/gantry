@@ -14,3 +14,6 @@
 - ECS task definitions must inject secret environment variables with `secrets` entries backed by Secrets Manager ARNs; keep plaintext `environment` entries to non-secret deployment knobs such as `GANTRY_PROCESS_ROLE`.
 - ECS deployment role layouts are `api-only`, `chat-only`, `jobs-only`, and `all`; the control service may attach the control/API target group, and the live-worker service may attach the webhook ingress target group.
 - Normalize executable shell scripts copied into Linux images during the image build; Windows worktrees may present tracked LF files as CRLF and make their shebang unexecutable.
+- Container settings importers must write the revision for `GANTRY_APP_ID` and
+  use the same settings import service as the runtime; do not populate an
+  application-scoped deployment through the default app revision.
