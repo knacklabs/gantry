@@ -32,7 +32,9 @@ type ControlResponseMode = Exclude<RuntimeResponseMode, 'sse'> | 'sse';
 export type SessionAppRecord = {
   sessionId: string;
   appId: string;
+  agentId: string;
   conversationId: string;
+  canonicalConversationId: string;
   conversationJid: string;
   workspaceKey: string;
   title?: string | null;
@@ -247,14 +249,12 @@ export class SessionInteractionModule {
     limit: number;
   }): Promise<{ runs: unknown[] }> {
     const appSession = await this.requireSession(input);
-    const session = await this.deps.repositories.agentSessions.getAgentSession(
-      appSession.sessionId as never,
-    );
-    if (!session) return { runs: [] };
-    const runs = await this.deps.repositories.agentRuns.listAgentRunsBySession({
-      sessionId: session.id,
-      limit: input.limit,
-    });
+    const runs =
+      await this.deps.repositories.agentRuns.listAgentRunsByConversation({
+        appId: appSession.appId as never,
+        conversationId: appSession.canonicalConversationId as never,
+        limit: input.limit,
+      });
     return { runs };
   }
 
@@ -341,7 +341,9 @@ export class SessionInteractionModule {
         threadId,
       },
       actor: 'sdk',
+      agentId: session.agentId as never,
       sessionId: session.sessionId as never,
+      conversationId: session.canonicalConversationId as never,
       threadId: threadId ? (threadId as never) : undefined,
       correlationId: input.correlationId ?? null,
       responseMode,
@@ -463,10 +465,12 @@ export class SessionInteractionModule {
     });
     const event = await this.deps.runtimeEvents.publish({
       appId: session.appId as never,
+      agentId: session.agentId as never,
       eventType: input.eventType,
       payload: input.payload,
       actor: 'agent',
       sessionId: session.sessionId as never,
+      conversationId: session.canonicalConversationId as never,
       threadId: threadId ? (threadId as never) : undefined,
       correlationId: route?.correlationId ?? null,
       responseMode: route?.responseMode ?? session.defaultResponseMode,
@@ -511,7 +515,7 @@ export class SessionInteractionModule {
   ): RuntimeEventFilter {
     return {
       appId: session.appId as never,
-      sessionId: session.sessionId as never,
+      conversationId: session.canonicalConversationId as never,
       afterEventId:
         input.afterEventId && input.afterEventId > 0
           ? (input.afterEventId as never)

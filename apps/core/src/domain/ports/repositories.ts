@@ -315,6 +315,11 @@ export interface AgentRunRepository {
     sessionId: AgentSessionId;
     limit?: number;
   }): Promise<AgentRun[]>;
+  listAgentRunsByConversation(input: {
+    appId: string;
+    conversationId: string;
+    limit?: number;
+  }): Promise<AgentRun[]>;
 }
 
 export interface RuntimeEventRepository {

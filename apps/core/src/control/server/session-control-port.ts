@@ -11,7 +11,9 @@ function adaptAppSession(session: RuntimeAppSession) {
   return {
     sessionId: session.sessionId,
     appId: session.appId,
+    agentId: session.agentId,
     conversationId: session.conversationId,
+    canonicalConversationId: session.canonicalConversationId,
     conversationJid: session.chatJid,
     workspaceKey: session.workspaceKey,
     title: session.title,

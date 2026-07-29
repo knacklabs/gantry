@@ -592,8 +592,11 @@ export class PostgresRuntimeRepositoryBundle
     } as never);
     await this.options.runtimeEvents.publish({
       appId: session.appId,
+      agentId: session.agentId,
       runId: runId as never,
       sessionId: session.id,
+      conversationId: session.conversationId,
+      threadId: session.threadId,
       eventType: RUNTIME_EVENT_TYPES.RUN_STARTED,
       actor: 'runtime',
       // Resolved-run diagnostics for the live lane: the inherited agent engine
@@ -651,8 +654,11 @@ export class PostgresRuntimeRepositoryBundle
     });
     await this.options.runtimeEvents.publish({
       appId: run.appId,
+      agentId: run.agentId,
       runId: run.id,
       sessionId: run.sessionId,
+      conversationId: run.conversationId,
+      threadId: run.threadId,
       eventType:
         input.status === 'completed'
           ? RUNTIME_EVENT_TYPES.RUN_COMPLETED

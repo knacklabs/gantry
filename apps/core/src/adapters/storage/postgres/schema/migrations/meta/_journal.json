@@ -792,6 +792,13 @@
       "when": 1784924400000,
       "tag": "0115_brain_dream_review_lifecycle",
       "breakpoints": true
+    },
+    {
+      "idx": 116,
+      "version": "7",
+      "when": 1784928000000,
+      "tag": "0116_session_observability_index",
+      "breakpoints": true
     }
   ]
 }

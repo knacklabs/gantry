@@ -83,6 +83,13 @@ vi.mock('@core/adapters/storage/postgres/runtime-store.js', () => ({
           state.listRunInputs.push(input);
           return (state.runs.get(input.sessionId) ?? []).slice(0, input.limit);
         }),
+        listAgentRunsByConversation: vi.fn(async (input: any) => {
+          state.listRunInputs.push(input);
+          return (state.runs.get(input.conversationId) ?? []).slice(
+            0,
+            input.limit,
+          );
+        }),
       },
       messages: {
         listRecentMessages: vi.fn(async () => []),
@@ -111,23 +118,25 @@ describe('session control runs integration', () => {
       sessionId: 'session:edge',
       id: 'session:edge',
       appId: 'app-one',
+      agentId: 'agent-one',
       conversationId: 'conversation-edge',
+      canonicalConversationId: 'conversation-edge',
       chatJid: 'app:app-one:conversation-edge',
       workspaceKey: 'app_scope_session_edge',
       defaultResponseMode: 'sse',
       defaultWebhookId: null,
     });
-    state.runs.set('session:edge', [
+    state.runs.set('conversation-edge', [
       {
         id: 'run:latest',
         appId: 'app-one',
-        agentSessionId: 'session:edge',
+        sessionId: 'runtime-session:edge',
         status: 'completed',
       },
       {
         id: 'run:older',
         appId: 'app-one',
-        agentSessionId: 'session:edge',
+        sessionId: 'runtime-session:edge',
         status: 'completed',
       },
     ]);
@@ -150,7 +159,7 @@ describe('session control runs integration', () => {
       expect(response.status).toBe(200);
       expect(body.runs.map((run: any) => run.id)).toEqual(['run:latest']);
       expect(state.listRunInputs).toEqual([
-        { sessionId: 'session:edge', limit: 1 },
+        { appId: 'app-one', conversationId: 'conversation-edge', limit: 1 },
       ]);
     } finally {
       await server.close();
@@ -162,7 +171,9 @@ describe('session control runs integration', () => {
       sessionId: 'session:other-app',
       id: 'session:other-app',
       appId: 'app-two',
+      agentId: 'agent-two',
       conversationId: 'conversation-other',
+      canonicalConversationId: 'conversation-other',
       chatJid: 'app:app-two:conversation-other',
       workspaceKey: 'app_scope_session_other',
       defaultResponseMode: 'sse',
