@@ -652,8 +652,7 @@ export async function closeBrowser(
       const record = readBrowserSessionRecord(profile);
       if (!record) {
         return {
-          // No record: no provenance for these bytes, so no snapshot may claim
-          // a generation.
+          // No record: no provenance, so no generation may be claimed.
           closed: true,
           reason: 'not_running',
           elapsedMs: currentTimeMs() - startedAt,
@@ -685,12 +684,10 @@ export async function closeBrowser(
         };
       }
       return {
-        // The producing generation comes from DURABLE LOCAL provenance, never
-        // from the lease key's current value: the issued generation may belong
-        // to a different worker that has since owned and released this profile,
-        // and using it would relabel these stale local bytes as current.
-        // Undefined when the record predates the field — the caller then has no
-        // provenance and must not publish a snapshot.
+        // DURABLE LOCAL provenance, never the lease's current value: that may
+        // belong to another worker that has since owned and released this
+        // profile, and would relabel these stale bytes as current. Undefined
+        // for pre-existing records — no provenance, so no snapshot.
         leaseGeneration: record.leaseGeneration,
         closed: true,
         reason: shouldTerminate ? 'terminated' : 'already_stopped',
