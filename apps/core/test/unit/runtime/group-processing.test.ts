@@ -5347,6 +5347,78 @@ describe('createGroupProcessor', () => {
   });
 
   // =======================================================================
+  // Decision 0080: authoritative second pending-message fetch
+  // =======================================================================
+
+  describe('decision 0080 authoritative second pending-message fetch', () => {
+    // If you are here to "optimise away the double fetch", read
+    // docs/decisions/0080-lat-3b-retain-authoritative-second-fetch.md first
+    // and satisfy its three reopen conditions; do not delete this test.
+    it('costs exactly one repository call for an ordinary queued turn', async () => {
+      const group = makeGroup({ requiresTrigger: false });
+      const { deps } = setupHappyPath({
+        group,
+        messages: [
+          makeMessage({
+            id: 'execution-message',
+            content: 'ordinary queued turn',
+          }),
+        ],
+      });
+
+      const { processGroupMessages } = createGroupProcessor(deps);
+      await processGroupMessages('group1@g.us', { queued: true });
+
+      // One call is expected because MAX_MESSAGES_PER_PROMPT (10) is far
+      // below the shipped MESSAGE_FETCH_PAGE_SIZE (200), so replay returns
+      // after its first page. If that ratio ever inverts, this failing loudly
+      // is the intended signal, not test brittleness.
+      expect(mockGetMessagesSince).toHaveBeenCalledTimes(1);
+      expect(mockSpawnAgent).toHaveBeenCalledOnce();
+    });
+
+    // If you are here to "optimise away the double fetch", read
+    // docs/decisions/0080-lat-3b-retain-authoritative-second-fetch.md first
+    // and satisfy its three reopen conditions; do not delete this test.
+    // SCOPE NOTE: this suite can only observe the GROUP PROCESSOR's fetch.
+    // Admission's earlier fetch lives in message-loop.ts:505-518 and is covered
+    // by message-loop.test.ts. Asserting "two fetches happened" from here would
+    // require the test to call the repository itself and then count its own
+    // call — arithmetic on the fixture, not evidence about production. So this
+    // suite proves the half it can actually see: the processor reads
+    // independently, at execution time.
+    it('issues its own read at execution time using the queue cursor', async () => {
+      const executionMessage = makeMessage({
+        id: 'execution-only',
+        content: 'group processor authoritative body',
+        timestamp: '1700000002',
+      });
+      const group = makeGroup({ requiresTrigger: false });
+      const { deps } = setupHappyPath({ group });
+      deps.getCursor = vi.fn().mockReturnValue('cursor-before');
+      mockGetMessagesSince.mockResolvedValue([executionMessage]);
+      mockFormatConversationContextMessages.mockImplementation(
+        ({ currentMessages }: { currentMessages: NewMessage[] }) =>
+          currentMessages.map((message) => message.content).join(' | '),
+      );
+
+      const { processGroupMessages } = createGroupProcessor(deps);
+      await processGroupMessages('group1@g.us', { queued: true });
+
+      // It reads the cursor itself and fetches from it, rather than consuming a
+      // snapshot handed to it. That independence is what decision 0080 keeps.
+      expect(deps.getCursor).toHaveBeenCalled();
+      expect(mockGetMessagesSince.mock.calls[0]?.[1]).toBe('cursor-before');
+      expect(mockSpawnAgent.mock.calls[0][1]).toMatchObject({
+        prompt: 'group processor authoritative body',
+      });
+    });
+
+    // The real unchanged-cursor mid-turn tripwire lives in message-loop.test.ts,
+    // where admission and the queued group run both execute their production reads.
+  });
+
+  // =======================================================================
   // Integration: cursor management end-to-end
   // =======================================================================
 
