@@ -267,16 +267,14 @@ function assertProfileLockValid(lock: BrowserProfileLock): void {
 function registerLiveBrowserSession(session: BrowserSession): void {
   assertProfileLockValid(session.lock);
   sessions.set(session.profileName, session);
-  session.lock.onLost((err) => {
-    if (hasBrowserLeaseLossTeardown(session.profileName)) return;
+  const { profileName, lock } = session;
+  lock.onLost((err) => {
+    if (hasBrowserLeaseLossTeardown(profileName)) return;
     logger.error(
-      { err, profileName: session.profileName, pid: session.pid },
+      { err, profileName, pid: session.pid },
       'Browser profile lease lost; stopping session without snapshot',
     );
-    skipNextBrowserProfileSnapshot(
-      session.profileName,
-      session.lock.generation,
-    );
+    skipNextBrowserProfileSnapshot(profileName, lock.generation);
     const teardown = shutdownLiveBrowserSession(session, {
       ownershipLost: true,
     });
@@ -622,11 +620,6 @@ export async function closeBrowser(
   closed: boolean;
   reason?: string;
   elapsedMs?: number;
-  /**
-   * Ownership generation of the session that was just closed, so the caller can
-   * fence its snapshot with the epoch those bytes were produced under. Absent
-   * when no live session of ours was closed — there is then no epoch to claim.
-   */
   leaseGeneration?: number;
 }> {
   const startedAt = currentTimeMs();
@@ -687,11 +680,7 @@ export async function closeBrowser(
     }
   }
 
-  // Read the generation from the SESSION being closed, before teardown, so it
-  // is bound to this session immutably. Re-reading profile-wide state at
-  // snapshot time would let a successor's generation be attributed to this
-  // owner's stale bytes.
-  const leaseGeneration = session.lock.generation;
+  const leaseGeneration = session.lock.generation; // bound before teardown
   const teardown = shutdownLiveBrowserSession(session);
   if (teardown) trackBrowserLeaseLossTeardown(session, teardown);
   const exited = await teardown;
