@@ -1,16 +1,17 @@
 {
   "files": {
     "migrated-AGENTS.md": {
-      "sha256": "86b16dea688a4ae3e8773c36ebd6784b73474168f2818cf5539dcb948b559d17",
+      "sha256": "e5a6ea2645b5f9e255aa7a85d4a3b8086c28b9ceb5ec2e1d4a68946f7eda10c7",
       "added": "2026-07-22T11:07:16+00:00",
       "status": "harvested",
       "outputs": [
+        "docs/decisions/0002-symphony-forge-adoption.md",
         "docs/decisions/0003-early-stage-no-backcompat.md",
-        "docs/decisions/0004-gantry-naming-and-public-repo.md",
-        "docs/decisions/0002-symphony-forge-adoption.md"
+        "docs/decisions/0004-gantry-naming-and-public-repo.md"
       ],
       "notes": "Product facts already canonical in docs/product/BRIEF.md; architecture rules canonical across docs/architecture/ (capability-management, current-verification-commands, codebase-refactor-principles, components) and 31 existing docs/decisions/ records; execution/orchestration standards superseded per 0002. Two previously unrecorded choices extracted as 0003 and 0004.",
-      "marked_at": "2026-07-22T11:10:14+00:00"
+      "marked_at": "2026-07-28T18:30:13+00:00",
+      "updated": "2026-07-28T18:29:56+00:00"
     },
     "migrated-CLAUDE.md": {
       "sha256": "6cb5f0cc5d4896ef69d73c98983c710869fc01e5141a0de1601e4a8918e6f675",

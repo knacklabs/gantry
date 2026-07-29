@@ -8,6 +8,34 @@ Use Node `>=24 <26` for local development, CI, and runtime deployments. The pack
 npm install
 ```
 
+## Postgres Migration Generation
+
+Change the TypeScript schema first, then let Drizzle create the SQL, snapshot,
+and journal entry with a timestamp filename:
+
+```bash
+npm run db:migrations:generate -- --name <short_description>
+```
+
+For data moves, extensions, or DDL Drizzle cannot generate, create a tracked
+empty migration and write the SQL there:
+
+```bash
+npm run db:migrations:custom -- --name <short_description>
+```
+
+Review every generated SQL file before committing it. After rebasing a branch
+that overlaps another schema change, run generation again and resolve any
+conflict Drizzle reports. Check migration history locally with:
+
+```bash
+npm run db:migrations:check
+```
+
+CI runs both the history check and a no-op generation check. It fails when the
+TypeScript schema would generate migration changes that were not committed.
+Runtime and deployment migration application remain `npm run db:migrate`.
+
 ## CI Runner Topology
 
 Every workflow defaults `GITHUB_TOKEN` contents access to read-only, with

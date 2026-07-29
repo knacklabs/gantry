@@ -60,6 +60,12 @@ jobs:
       - name: Architecture check
         run: npm run check:architecture
 
+      - name: Drizzle migration check
+        run: |
+          npm run db:migrations:check
+          npm run db:migrations:generate -- --name ci_schema_drift
+          test -z "$(git status --porcelain -- apps/core/src/adapters/storage/postgres/schema/migrations)"
+
       - name: Typecheck
         run: npm run typecheck
 

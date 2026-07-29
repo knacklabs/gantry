@@ -85,6 +85,20 @@ python3 .agents/scripts/record_review_from_json.py --aspect quality --input /tmp
 python3 .agents/scripts/pr_ready.py
 ```
 
+## Postgres Migration Workflow
+
+Keep the TypeScript schema and generated migration metadata in sync. From the
+repo root, generate timestamp-prefixed SQL with:
+
+```bash
+npm run db:migrations:generate -- --name "short_description"
+```
+
+Use `db:migrations:custom` only for data moves or SQL Drizzle cannot generate;
+review generated SQL, run `npm run db:migrations:check`, and regenerate after
+rebasing overlapping schema work. The full workflow and CI drift check live in
+`docs/architecture/current-verification-commands.md`.
+
 ## Hard Gates
 
 A task is not PR-ready until all of these exist:
