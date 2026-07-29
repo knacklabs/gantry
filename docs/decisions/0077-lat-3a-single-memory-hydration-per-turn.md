@@ -110,6 +110,32 @@ proceeding with memory from a session that no longer exists. Fail-safe, not
 fail-closed: a reset must not drop the user's turn, and it must not leak the
 previous session's memory either.
 
+The same revalidation is applied on the pending-compaction-delta path before
+committing to the replay, because that path feeds the provisional context
+straight to the model. On mismatch the replay is dropped entirely — a pending
+delta belongs to a session that no longer exists — and the context re-hydrates.
+
+**What the fence does and does not guarantee.** It guarantees the carried block
+is consistent with an agent session observed **at fence time**: no carry
+survives an `agentSessionId` or `agentSessionResetAt` change detected up to that
+point. It does **not** eliminate the window between the last context read and
+the model call. A `/new` landing inside that window still puts the previous
+session's block in front of the model.
+
+That residual window is **pre-existing and universal** — every path on `main`
+has it today, including the ordinary path, because any read-then-use sequence
+does. LAT-3A neither introduces nor widens it, and materially narrows it on the
+pending-delta path, which previously spanned `getDeltaMessages` plus the degrade
+writes and now spans only the function return. Closing it properly needs a fence
+or serialization protocol valid through model-call commitment, entangled with
+the runner, the live-turn lease, and the model-invocation boundary, and it would
+serialize resets against long-running generations. That is cycle-sized work,
+SPLIT OUT as deferral **D-0022** with a revisit trigger per WORKFLOW.md
+Recurring Findings, rather than patched a third time here.
+
+This paragraph exists because an earlier draft of this record asserted reset
+isolation flatly, and review was right to call that an overclaim.
+
 The roadmap and the goal prompt both suggested carrying the **admission**
 session identity forward as the fenced expected id. That is REJECTED as
 unnecessary for this invariant. The memory block is only ever reused between

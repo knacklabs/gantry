@@ -484,6 +484,162 @@ describe('session-resume-runtime', () => {
     },
   );
 
+  it('drops pending-delta replay when the session resets before the model call', async () => {
+    const provisionalBlock =
+      '<gantry_memory_context>LAT-3A pending replay before reset</gantry_memory_context>';
+    const revalidationBlock =
+      '<gantry_memory_context>LAT-3A pending replay non-hydrating revalidation</gantry_memory_context>';
+    const resetBlock =
+      '<gantry_memory_context>LAT-3A pending replay after reset</gantry_memory_context>';
+    const getAgentTurnContext = vi
+      .fn()
+      .mockResolvedValueOnce({
+        appId: 'default',
+        agentId: 'agent:main_agent',
+        agentSessionId: 'S1',
+        agentSessionResetAt: 'T1',
+        latestProviderSessionReady: true,
+        readyProviderSessionId: 'provider-session:ready',
+        readyExternalSessionId: 'provider-session:ready',
+        compactionDeltaReplay: {
+          status: 'pending',
+          baseCursor: 'cursor:base',
+          lockedAt: new Date().toISOString(),
+        },
+        memoryContextBlock: provisionalBlock,
+      })
+      .mockResolvedValueOnce({
+        appId: 'default',
+        agentId: 'agent:main_agent',
+        agentSessionId: 'S1',
+        agentSessionResetAt: 'T2',
+        memoryContextBlock: revalidationBlock,
+      })
+      .mockResolvedValueOnce({
+        appId: 'default',
+        agentId: 'agent:main_agent',
+        agentSessionId: 'S1',
+        agentSessionResetAt: 'T2',
+        memoryContextBlock: resetBlock,
+      });
+    const getContextMessagesSince = vi.fn(async () => [
+      {
+        id: '2',
+        chat_jid: 'tg:chat',
+        sender: 'user-1',
+        content: 'pending replay message',
+        timestamp: '2026-04-28T00:00:02.000Z',
+        is_from_me: false,
+      },
+    ]);
+    const { runner, runAgent } = createCompactionPathRunner({
+      getAgentTurnContext,
+      getContextMessagesSince,
+    });
+
+    await expect(
+      runner(
+        {
+          name: 'Main',
+          folder: 'main_agent',
+          added_at: new Date(0).toISOString(),
+        },
+        'hello',
+        'tg:chat',
+        'tg:chat',
+      ),
+    ).resolves.toBe('success');
+
+    const modelMemoryBlock = runAgent.mock.calls[0][1]
+      .memoryContextBlock as string;
+    expect(modelMemoryBlock).toContain(resetBlock);
+    expect(modelMemoryBlock).not.toContain(provisionalBlock);
+    expect(modelMemoryBlock).not.toContain('<gantry_compaction_delta>');
+    expect(getAgentTurnContext.mock.calls[1][0].hydrateMemory).toBe(false);
+    expect(getAgentTurnContext.mock.calls[2][0].hydrateMemory).toBe(true);
+  });
+
+  it('keeps pending-delta replay with one hydration when the session identity matches', async () => {
+    const provisionalBlock =
+      '<gantry_memory_context>LAT-3A pending replay matching provisional</gantry_memory_context>';
+    const revalidationBlock =
+      '<gantry_memory_context>LAT-3A pending replay matching revalidation</gantry_memory_context>';
+    const markAppliedBlock =
+      '<gantry_memory_context>LAT-3A pending replay matching mark applied</gantry_memory_context>';
+    const getAgentTurnContext = vi
+      .fn()
+      .mockResolvedValueOnce({
+        appId: 'default',
+        agentId: 'agent:main_agent',
+        agentSessionId: 'S1',
+        agentSessionResetAt: 'T1',
+        latestProviderSessionReady: true,
+        readyProviderSessionId: 'provider-session:ready',
+        readyExternalSessionId: 'provider-session:ready',
+        compactionDeltaReplay: {
+          status: 'pending',
+          baseCursor: 'cursor:base',
+          lockedAt: new Date().toISOString(),
+        },
+        memoryContextBlock: provisionalBlock,
+      })
+      .mockResolvedValueOnce({
+        appId: 'default',
+        agentId: 'agent:main_agent',
+        agentSessionId: 'S1',
+        agentSessionResetAt: 'T1',
+        memoryContextBlock: revalidationBlock,
+      })
+      .mockResolvedValueOnce({
+        appId: 'default',
+        agentId: 'agent:main_agent',
+        agentSessionId: 'S1',
+        agentSessionResetAt: 'T1',
+        providerSessionId: 'provider-session:ready',
+        externalSessionId: 'provider-session:ready',
+        memoryContextBlock: markAppliedBlock,
+      });
+    const getContextMessagesSince = vi.fn(async () => [
+      {
+        id: '2',
+        chat_jid: 'tg:chat',
+        sender: 'user-1',
+        content: 'pending replay message',
+        timestamp: '2026-04-28T00:00:02.000Z',
+        is_from_me: false,
+      },
+    ]);
+    const { runner, runAgent } = createCompactionPathRunner({
+      getAgentTurnContext,
+      getContextMessagesSince,
+    });
+
+    await expect(
+      runner(
+        {
+          name: 'Main',
+          folder: 'main_agent',
+          added_at: new Date(0).toISOString(),
+        },
+        'hello',
+        'tg:chat',
+        'tg:chat',
+      ),
+    ).resolves.toBe('success');
+
+    const modelMemoryBlock = runAgent.mock.calls[0][1]
+      .memoryContextBlock as string;
+    expect(modelMemoryBlock).toContain(provisionalBlock);
+    expect(modelMemoryBlock).toContain('<gantry_compaction_delta>');
+    expect(modelMemoryBlock).not.toContain(revalidationBlock);
+    expect(modelMemoryBlock).not.toContain(markAppliedBlock);
+    expect(
+      getAgentTurnContext.mock.calls.filter(
+        ([input]) => input.hydrateMemory !== false,
+      ),
+    ).toHaveLength(1);
+  });
+
   it('injects compacted-session transcript delta before resumed turn', async () => {
     const markProviderSessionDeltaReplay = vi.fn();
     const accessFingerprint = EMPTY_ACCESS_FINGERPRINT;
@@ -624,13 +780,13 @@ describe('session-resume-runtime', () => {
     expect(runAgent.mock.calls[0][1].memoryContextBlock).not.toContain(
       promotedBlock,
     );
-    expect(getAgentTurnContext).toHaveBeenCalledTimes(2);
+    expect(getAgentTurnContext).toHaveBeenCalledTimes(3);
     expect(
       getAgentTurnContext.mock.calls.filter(
         ([input]) => input.hydrateMemory !== false,
       ),
     ).toHaveLength(1);
-    expect(getAgentTurnContext.mock.calls[1]?.[0]).toEqual(
+    expect(getAgentTurnContext.mock.calls[2]?.[0]).toEqual(
       expect.objectContaining({
         promoteReadyProviderSession: true,
         hydrateMemory: false,

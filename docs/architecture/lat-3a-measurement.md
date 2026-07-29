@@ -60,6 +60,8 @@ which is out of scope here.
 
 - Total `getAgentTurnContext` reads on the normal turn remain 2. Only the
   hydration flag on the later read changed.
+- Pending-delta replay now adds one non-hydrating identity read before the
+  model call, taking that path from 1 pre-model read to 2. Hydrations stay at 1.
 - A fence mismatch adds a third `getAgentTurnContext` read so the new session
   can be hydrated safely. That exceptional path performs two hydrations: the
   provisional one and the replacement hydration.

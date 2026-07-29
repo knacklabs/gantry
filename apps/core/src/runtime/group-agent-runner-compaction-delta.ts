@@ -122,6 +122,21 @@ export async function prepareCompactionDeltaReplay(input: {
     }
   }
 
+  // A reset between the provisional read and the model call would put the old
+  // session's memory in front of the model, and the pending delta would belong
+  // to a session that no longer exists. Revalidate before committing to the
+  // replay. (markApplied runs after the model call and cannot catch this.)
+  const current = await input.loadTurnContext(false, false);
+  if (
+    !current ||
+    !input.turnContext ||
+    current.agentSessionId !== input.turnContext.agentSessionId ||
+    (current.agentSessionResetAt ?? null) !==
+      (input.turnContext.agentSessionResetAt ?? null)
+  ) {
+    return { turnContext: await input.loadTurnContext(false, true), block: '' };
+  }
+
   const replayTurnContext = {
     ...input.turnContext,
     providerSessionId,
