@@ -144,6 +144,148 @@ maybeDescribe('Browser profile snapshot store (0079)', () => {
     });
   });
 
+  describe('profile-lease generation fence (FENCE-1-b)', () => {
+    const hash = (c: string) => `sha256:${c.repeat(64)}`;
+    const write = (
+      repo: BrowserProfileSnapshotRepository,
+      profileName: string,
+      c: string,
+      fields: {
+        snapshotLeaseGeneration?: number;
+        snapshotFencingVersion?: number;
+        snapshottedAt: string;
+      },
+    ) =>
+      repo.upsertBrowserProfileSnapshot({
+        profileName,
+        contentHash: hash(c),
+        storageRef: `browser-profiles/${profileName}/${c.repeat(64)}`,
+        sizeBytes: 1,
+        now: fields.snapshottedAt,
+        ...fields,
+      });
+
+    it('a higher generation wins and a lower one is rejected without mutating', async () => {
+      const repo = browserProfileSnapshots;
+      const profileName = 'c-kai-gen-basic';
+
+      const successor = await write(repo, profileName, 'a', {
+        snapshotLeaseGeneration: 2,
+        snapshottedAt: '2026-06-12T00:00:00.000Z',
+      });
+      expect(successor.status).toBe('written');
+
+      const stale = await write(repo, profileName, 'b', {
+        snapshotLeaseGeneration: 1,
+        snapshottedAt: '2026-06-12T00:01:00.000Z',
+      });
+      expect(stale.status).toBe('stale');
+
+      const row = await repo.getBrowserProfileSnapshot(profileName);
+      expect(row?.contentHash).toBe(hash('a'));
+      expect(row?.snapshotLeaseGeneration).toBe(2);
+    });
+
+    it('a stale owner does NOT win on a fresher timestamp', async () => {
+      // The whole point of the fence: the stale owner's Chrome kept writing
+      // after handoff, so its clock is newer but its generation is older.
+      const repo = browserProfileSnapshots;
+      const profileName = 'c-kai-gen-clock';
+
+      await write(repo, profileName, 'c', {
+        snapshotLeaseGeneration: 5,
+        snapshottedAt: '2026-06-12T01:00:00.000Z',
+      });
+      const staleButNewer = await write(repo, profileName, 'd', {
+        snapshotLeaseGeneration: 4,
+        snapshottedAt: '2026-06-12T09:00:00.000Z',
+      });
+
+      expect(staleButNewer.status).toBe('stale');
+      expect(
+        (await repo.getBrowserProfileSnapshot(profileName))?.contentHash,
+      ).toBe(hash('c'));
+    });
+
+    it('the generation outranks a higher run fencing version', async () => {
+      // Two independent sequences: a big run fence must not rescue an old
+      // profile-lease generation.
+      const repo = browserProfileSnapshots;
+      const profileName = 'c-kai-gen-outranks';
+
+      await write(repo, profileName, 'e', {
+        snapshotLeaseGeneration: 3,
+        snapshotFencingVersion: 1,
+        snapshottedAt: '2026-06-12T02:00:00.000Z',
+      });
+      const olderGenerationHigherRunFence = await write(
+        repo,
+        profileName,
+        'f',
+        {
+          snapshotLeaseGeneration: 2,
+          snapshotFencingVersion: 99,
+          snapshottedAt: '2026-06-12T02:05:00.000Z',
+        },
+      );
+
+      expect(olderGenerationHigherRunFence.status).toBe('stale');
+      expect(
+        (await repo.getBrowserProfileSnapshot(profileName))?.contentHash,
+      ).toBe(hash('e'));
+    });
+
+    it('within one generation the pre-existing run-fence rule still applies', async () => {
+      const repo = browserProfileSnapshots;
+      const profileName = 'c-kai-gen-tiebreak';
+
+      await write(repo, profileName, 'g', {
+        snapshotLeaseGeneration: 2,
+        snapshotFencingVersion: 5,
+        snapshottedAt: '2026-06-12T03:00:00.000Z',
+      });
+      const sameGenLowerFence = await write(repo, profileName, 'h', {
+        snapshotLeaseGeneration: 2,
+        snapshotFencingVersion: 4,
+        snapshottedAt: '2026-06-12T03:05:00.000Z',
+      });
+      expect(sameGenLowerFence.status).toBe('stale');
+
+      const sameGenHigherFence = await write(repo, profileName, 'i', {
+        snapshotLeaseGeneration: 2,
+        snapshotFencingVersion: 6,
+        snapshottedAt: '2026-06-12T03:06:00.000Z',
+      });
+      expect(sameGenHigherFence.status).toBe('written');
+    });
+
+    it('supersedes a pre-upgrade row with no generation, without any backfill', async () => {
+      // Upgrade path: rows written before this column existed read as 0.
+      const repo = browserProfileSnapshots;
+      const profileName = 'c-kai-gen-upgrade';
+
+      const legacy = await write(repo, profileName, 'j', {
+        snapshotFencingVersion: 42,
+        snapshottedAt: '2026-06-12T04:00:00.000Z',
+      });
+      expect(legacy.status).toBe('written');
+      expect(
+        (await repo.getBrowserProfileSnapshot(profileName))
+          ?.snapshotLeaseGeneration,
+      ).toBe(0);
+
+      const firstFenced = await write(repo, profileName, 'k', {
+        snapshotLeaseGeneration: 1,
+        snapshotFencingVersion: 1,
+        snapshottedAt: '2026-06-12T04:01:00.000Z',
+      });
+      expect(firstFenced.status).toBe('written');
+      expect(
+        (await repo.getBrowserProfileSnapshot(profileName))?.contentHash,
+      ).toBe(hash('k'));
+    });
+  });
+
   describe('snapshot → restore across two simulated workers', () => {
     it('worker A snapshots; worker B restores the same bytes', async () => {
       const artifactRoot = await fs.mkdtemp(

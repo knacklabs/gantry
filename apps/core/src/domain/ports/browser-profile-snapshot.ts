@@ -8,6 +8,11 @@ export interface BrowserProfileSnapshot {
   snapshotWorkerInstanceId: string | null;
   snapshotRunId: string | null;
   snapshotFencingVersion: number;
+  /**
+   * Ownership generation of the PROFILE LEASE under which these bytes were
+   * produced. Dominant fence: see UpsertBrowserProfileSnapshotInput.
+   */
+  snapshotLeaseGeneration: number;
   snapshottedAt: string;
   createdAt: string;
   updatedAt: string;
@@ -28,6 +33,21 @@ export interface UpsertBrowserProfileSnapshotInput {
    * the workstation single-process path that has no lease fence.
    */
   snapshotFencingVersion?: number;
+  /**
+   * Ownership generation of the profile lease held when the snapshotted bytes
+   * were produced (issued by runtime_lease_generations, see
+   * `RuntimeLease.generation`). This is the DOMINANT fence — a lower generation
+   * loses even with a newer `snapshottedAt`, which is how a stale owner whose
+   * Chrome kept writing after handoff is rejected.
+   *
+   * Must be the generation captured when profile ownership BEGAN (restore,
+   * before launch), never one acquired at snapshot time: a stale owner taking a
+   * fresh lock at snapshot time would get a HIGHER generation and win.
+   *
+   * Defaults to 0 for callers with no profile lease; rows written before this
+   * existed also read as 0, so the first real generation supersedes them.
+   */
+  snapshotLeaseGeneration?: number;
   snapshottedAt?: string;
   now?: string;
 }
@@ -36,11 +56,13 @@ export type UpsertBrowserProfileSnapshotResult =
   | { status: 'written'; snapshot: BrowserProfileSnapshot }
   | {
       /**
-       * The monotonic last-writer-wins guard rejected the write: an existing row
-       * for this profile has a fencing version higher than the incoming one, or
-       * an equal fencing version with a snapshotted_at that is newer. The stale
-       * writer (e.g. a recovered-from worker whose lease was reclaimed at a
-       * higher fence) must drop its snapshot.
+       * The monotonic last-writer-wins guard rejected the write. Ordering is
+       * lexicographic on (lease generation, fencing version, snapshotted_at):
+       * an existing row wins on a higher profile-lease generation, or an equal
+       * generation with a higher fencing version, or an equal pair with a newer
+       * snapshotted_at. The stale writer (a previous profile-lease generation,
+       * or a recovered-from worker at a lower run fence) must drop its
+       * snapshot.
        */
       status: 'stale';
       current: BrowserProfileSnapshot;
@@ -57,10 +79,10 @@ export interface BrowserProfileSnapshotRepository {
     profileName: string,
   ): Promise<BrowserProfileSnapshot | null>;
   /**
-   * Monotonic last-writer-wins upsert keyed on (snapshotFencingVersion,
-   * snapshottedAt): the write applies only when the incoming pair is not older
-   * than the stored row. Returns `stale` (without mutating) when a newer
-   * snapshot already exists.
+   * Monotonic last-writer-wins upsert ordered on (snapshotLeaseGeneration,
+   * snapshotFencingVersion, snapshottedAt): the write applies only when the
+   * incoming triple is not older than the stored row. Returns `stale` (without
+   * mutating) when a newer snapshot already exists.
    */
   upsertBrowserProfileSnapshot(
     input: UpsertBrowserProfileSnapshotInput,

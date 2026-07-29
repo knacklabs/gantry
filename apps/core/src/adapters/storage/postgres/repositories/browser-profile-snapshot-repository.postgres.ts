@@ -25,6 +25,7 @@ function toSnapshot(row: BrowserProfileRow): BrowserProfileSnapshot {
     snapshotWorkerInstanceId: row.snapshotWorkerInstanceId ?? null,
     snapshotRunId: row.snapshotRunId ?? null,
     snapshotFencingVersion: row.snapshotFencingVersion ?? 0,
+    snapshotLeaseGeneration: row.snapshotLeaseGeneration ?? 0,
     snapshottedAt: row.snapshottedAt,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
@@ -52,15 +53,21 @@ export class PostgresBrowserProfileSnapshotRepository implements BrowserProfileS
     const now = input.now ?? nowIso();
     const snapshottedAt = input.snapshottedAt ?? now;
     const fencingVersion = input.snapshotFencingVersion ?? 0;
+    const leaseGeneration = input.snapshotLeaseGeneration ?? 0;
     const table = pgSchema.browserProfilesPostgres;
 
-    // Monotonic last-writer-wins guard. The conflict update applies only when
-    // the incoming snapshot is NOT older than the stored row: a strictly higher
-    // fencing version always wins; an equal fencing version wins only when the
-    // incoming snapshotted_at is not older. A stale recovered-from writer (lower
-    // fence) is rejected. `.returning()` yields a row only when the insert or
-    // the guarded update actually applied; an empty result means the guard
-    // rejected the write.
+    // Monotonic last-writer-wins guard, ordered lexicographically on
+    // (lease generation, fencing version, snapshotted_at).
+    //
+    // The PROFILE LEASE generation dominates: it is the epoch under which these
+    // bytes were produced, so a stale owner loses even when its clock is newer.
+    // A lower generation can never win on a fresher snapshotted_at — that is the
+    // whole point. Within one generation the pre-existing rule is unchanged (run
+    // fencing version, then timestamp), so rows from before this column existed
+    // (generation 0 on both sides) behave exactly as they did.
+    //
+    // `.returning()` yields a row only when the insert or the guarded update
+    // actually applied; an empty result means the guard rejected the write.
     const written = await this.db
       .insert(table)
       .values({
@@ -73,6 +80,7 @@ export class PostgresBrowserProfileSnapshotRepository implements BrowserProfileS
         snapshotWorkerInstanceId: input.snapshotWorkerInstanceId ?? null,
         snapshotRunId: input.snapshotRunId ?? null,
         snapshotFencingVersion: fencingVersion,
+        snapshotLeaseGeneration: leaseGeneration,
         snapshottedAt,
         createdAt: now,
         updatedAt: now,
@@ -88,14 +96,21 @@ export class PostgresBrowserProfileSnapshotRepository implements BrowserProfileS
           snapshotWorkerInstanceId: input.snapshotWorkerInstanceId ?? null,
           snapshotRunId: input.snapshotRunId ?? null,
           snapshotFencingVersion: fencingVersion,
+          snapshotLeaseGeneration: leaseGeneration,
           snapshottedAt,
           updatedAt: now,
         },
         setWhere: sql`(
-          ${fencingVersion} > ${table.snapshotFencingVersion}
+          ${leaseGeneration} > ${table.snapshotLeaseGeneration}
           OR (
-            ${fencingVersion} = ${table.snapshotFencingVersion}
-            AND ${snapshottedAt} >= ${table.snapshottedAt}
+            ${leaseGeneration} = ${table.snapshotLeaseGeneration}
+            AND (
+              ${fencingVersion} > ${table.snapshotFencingVersion}
+              OR (
+                ${fencingVersion} = ${table.snapshotFencingVersion}
+                AND ${snapshottedAt} >= ${table.snapshottedAt}
+              )
+            )
           )
         )`,
       })
