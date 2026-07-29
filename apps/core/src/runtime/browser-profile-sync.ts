@@ -291,6 +291,12 @@ export async function snapshotBrowserProfile(
   // overwrite profile-wide state between this owner's close and its snapshot,
   // and the snapshot-time lock would hand a stale owner a HIGHER generation.
   // 0 when the caller held no profile lease at all.
+  // 0 when the caller has no provenance for these bytes. That is SAFE rather
+  // than silent: the repository's exact-issued-generation guard rejects the
+  // write and the 'stale' branch below logs it. What must never happen is
+  // claiming a generation these bytes did not have — see the stray-session
+  // path in browser-capability, which reads provenance from the durable
+  // session record instead of the lease's current value.
   const ownedGeneration = input.snapshotLeaseGeneration ?? 0;
   if (snapshotSuppressedForGeneration(input.profileName, ownedGeneration)) {
     logger.error(

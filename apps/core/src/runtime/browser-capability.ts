@@ -242,7 +242,10 @@ function touchSession(session: BrowserSession): void {
     last_used: new Date(session.lastUsedAt).toISOString(),
     cdp_port: session.port,
   });
-  writeBrowserSessionRecord(profile, session);
+  writeBrowserSessionRecord(profile, {
+    ...session,
+    leaseGeneration: session.lock.generation,
+  });
 
   if (session.keepAliveTimer) clearTimeout(session.keepAliveTimer);
   session.keepAliveTimer = setTimeout(() => {
@@ -649,7 +652,8 @@ export async function closeBrowser(
       const record = readBrowserSessionRecord(profile);
       if (!record) {
         return {
-          leaseGeneration: lock.generation,
+          // No record: no provenance for these bytes, so no snapshot may claim
+          // a generation.
           closed: true,
           reason: 'not_running',
           elapsedMs: currentTimeMs() - startedAt,
@@ -674,18 +678,20 @@ export async function closeBrowser(
       });
       if (!shouldTerminate && isPidAlive(record.pid)) {
         return {
-          leaseGeneration: lock.generation,
+          leaseGeneration: record.leaseGeneration,
           closed: false,
           reason: 'pid_not_owned_by_browser_profile',
           elapsedMs: currentTimeMs() - startedAt,
         };
       }
       return {
-        // Holding the SHARED lock proves nobody owns this profile right now, so
-        // the currently issued generation IS the epoch that produced the bytes
-        // on disk. Returning nothing here would snapshot as generation 0 and be
-        // silently rejected by the exact-issued-generation guard.
-        leaseGeneration: lock.generation,
+        // The producing generation comes from DURABLE LOCAL provenance, never
+        // from the lease key's current value: the issued generation may belong
+        // to a different worker that has since owned and released this profile,
+        // and using it would relabel these stale local bytes as current.
+        // Undefined when the record predates the field — the caller then has no
+        // provenance and must not publish a snapshot.
+        leaseGeneration: record.leaseGeneration,
         closed: true,
         reason: shouldTerminate ? 'terminated' : 'already_stopped',
         elapsedMs: currentTimeMs() - startedAt,
