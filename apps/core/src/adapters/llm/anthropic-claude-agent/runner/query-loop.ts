@@ -419,7 +419,9 @@ export async function runQuery(
           heartbeat.recordToolActivity(toolName),
         recordPermissionApprovalContext: permissionApprovalContext.record,
       }),
-      settingSources: [],
+      // Load only the per-run CLAUDE_CONFIG_DIR settings so Claude discovers
+      // Gantry-materialized skills without reading workspace configuration.
+      settingSources: ['user'],
       mcpServers: capabilities.mcpServers,
       strictMcpConfig: true,
       includePartialMessages: true,
