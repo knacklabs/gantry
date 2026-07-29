@@ -649,6 +649,7 @@ export async function closeBrowser(
       const record = readBrowserSessionRecord(profile);
       if (!record) {
         return {
+          leaseGeneration: lock.generation,
           closed: true,
           reason: 'not_running',
           elapsedMs: currentTimeMs() - startedAt,
@@ -673,12 +674,18 @@ export async function closeBrowser(
       });
       if (!shouldTerminate && isPidAlive(record.pid)) {
         return {
+          leaseGeneration: lock.generation,
           closed: false,
           reason: 'pid_not_owned_by_browser_profile',
           elapsedMs: currentTimeMs() - startedAt,
         };
       }
       return {
+        // Holding the SHARED lock proves nobody owns this profile right now, so
+        // the currently issued generation IS the epoch that produced the bytes
+        // on disk. Returning nothing here would snapshot as generation 0 and be
+        // silently rejected by the exact-issued-generation guard.
+        leaseGeneration: lock.generation,
         closed: true,
         reason: shouldTerminate ? 'terminated' : 'already_stopped',
         elapsedMs: currentTimeMs() - startedAt,

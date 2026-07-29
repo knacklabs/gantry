@@ -640,6 +640,17 @@ describe('browser-capability', () => {
     expect(mocks.fetch).not.toHaveBeenCalled();
   });
 
+  it('returns the lease generation when cleaning up a stray session', async () => {
+    // Without this the finalizer snapshots as generation 0, which the exact
+    // issued-generation guard rejects — silently dropping the cleaned-up state.
+    const manager = await import('@core/runtime/browser-capability.js');
+
+    const closed = await manager.closeBrowser();
+
+    expect(closed).toMatchObject({ closed: true, reason: 'not_running' });
+    expect(typeof closed.leaseGeneration).toBe('number');
+  });
+
   it('takes the stray-process cleanup lock SHARED so it cannot advance the epoch', async () => {
     // With the equality fence, an ownership bump here would REJECT a legitimate
     // owner's pending snapshot: cleanup must not count as a new epoch.
