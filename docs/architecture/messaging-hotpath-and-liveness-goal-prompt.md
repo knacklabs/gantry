@@ -309,9 +309,11 @@ unchanged; otherwise it must fetch the tail/current window. If the queue cannot
 provide that fence cheaply, retain the authoritative second fetch. A3 should be
 split from this cycle unless that cursor contract is designed and tested.
 
-**SETTLED 2026-07-29 by decision
-`0080-lat-3b-retain-authoritative-second-fetch` — the conditional above resolved
-to "retain the authoritative second fetch". Do not implement A3.**
+**RESOLVED 2026-07-29 by decision
+`0080-lat-3b-retain-authoritative-second-fetch` (`status: proposed` — acceptance
+is a human gate, so this resolution is provisional until accepted). The
+conditional above resolves to "retain the authoritative second fetch". Do not
+implement A3.**
 
 Two measurements closed it. First, the prize is one SQL statement: the replay
 returns after its first page at the shipped defaults (`MAX_MESSAGES_PER_PROMPT`
