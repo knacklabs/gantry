@@ -130,7 +130,7 @@ writes and now spans only the function return. Closing it properly needs a fence
 or serialization protocol valid through model-call commitment, entangled with
 the runner, the live-turn lease, and the model-invocation boundary, and it would
 serialize resets against long-running generations. That is cycle-sized work,
-SPLIT OUT as deferral **D-0022** with a revisit trigger per WORKFLOW.md
+SPLIT OUT as deferral **D-0024** with a revisit trigger per WORKFLOW.md
 Recurring Findings, rather than patched a third time here.
 
 This paragraph exists because an earlier draft of this record asserted reset
@@ -212,6 +212,12 @@ plan-validation §4, whose "hydrate exactly once against the final promoted
 context" instruction is wrong for the pending-compaction-delta path. That doc
 is edited in this task to match this decision.
 
-Out of scope and deferred with a revisit trigger: the scheduled-job hydrating
-call (`jobs/execution.ts:324-335`), which is the same waste on a path that is
-not latency-critical.
+Out of scope, each deferred with a revisit trigger:
+
+- **D-0022** — the scheduled-job hydrating call (`jobs/execution.ts:324-335`),
+  the same waste on a path that is not latency-critical.
+- **D-0023** — whether the `first_visible` recall timeout behaves differently
+  under a single hydration.
+- **D-0024** — the residual TOCTOU window between the last context read and the
+  model call, split out per WORKFLOW.md Recurring Findings after the same class
+  surfaced twice.
