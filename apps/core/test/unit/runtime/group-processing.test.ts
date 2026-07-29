@@ -5351,6 +5351,26 @@ describe('createGroupProcessor', () => {
   // =======================================================================
 
   describe('decision 0080 authoritative second pending-message fetch', () => {
+    // This suite mocks @core/config, so the behavioural test below runs against
+    // mocked limits. That alone would leave decision 0080's premise pinned to a
+    // fixture rather than to production. This check closes that gap by reading
+    // the REAL module: the shipped cap must stay below the shipped page size,
+    // which is the property that makes the second fetch a single statement.
+    //
+    // If someone raises MAX_MESSAGES_PER_PROMPT to or past
+    // MESSAGE_FETCH_PAGE_SIZE, the replay starts paging, the "one repository
+    // call" premise expires, and decision 0080 must be revisited. This fails
+    // then — against shipped values, not mocked ones.
+    it('keeps the shipped prompt cap below the shipped page size', async () => {
+      const realConfig = await vi.importActual<
+        typeof import('@core/config/index.js')
+      >('@core/config/index.js');
+
+      expect(realConfig.MAX_MESSAGES_PER_PROMPT).toBeLessThan(
+        realConfig.MESSAGE_FETCH_PAGE_SIZE,
+      );
+    });
+
     // If you are here to "optimise away the double fetch", read
     // docs/decisions/0080-lat-3b-retain-authoritative-second-fetch.md first
     // and satisfy its three reopen conditions; do not delete this test.
