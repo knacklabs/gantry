@@ -4,7 +4,7 @@ import {
   toGroupMessageCursor,
 } from '../shared/message-cursor.js';
 import { logger } from '../infrastructure/logging/logger.js';
-import { MessageSendOptions } from '../domain/types.js';
+import { MessageSendOptions, NewMessage } from '../domain/types.js';
 import {
   createSerializedAgentOutputCallbacks,
   isAgentTurnCompleteMarker,
@@ -50,6 +50,8 @@ import { collectPendingMessagesSince } from './pending-message-replay.js';
 import { buildGroupProcessingConversationContext } from './group-processing-context.js';
 import { createGroupOutputBuffer } from './group-output-buffer.js';
 import { activeTurnUiCleanupByQueue } from './group-active-turn-cleanup.js';
+import { randomUUID } from 'node:crypto';
+import { nowIso } from '../shared/time/datetime.js';
 import { createGroupProcessingSessionCommandHandlers } from './group-processing-session-command-handlers.js';
 import {
   isFailoverEligibleError,
@@ -487,6 +489,32 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
       buildMessageOptions,
       sendMessageToChannel,
       applyDeliverySettlement,
+      getStreamedTranscriptDeliveryStatus: () =>
+        streamedTranscriptDeliveryStatus,
+      persistCompletedStreamedGeneration: async (text, deliveryStatus) => {
+        const timestamp = nowIso();
+        const message: NewMessage = {
+          id: `streamed-outbound:${randomUUID()}`,
+          chat_jid: chatJid,
+          sender: 'gantry',
+          sender_name: 'Gantry',
+          content: text.trim(),
+          timestamp,
+          is_from_me: true,
+          is_bot_message: true,
+          thread_id: activeThreadId,
+          delivery_status: deliveryStatus,
+          delivered_at: timestamp,
+        };
+        await ops()
+          .storeMessage(message)
+          .catch((err: unknown) =>
+            logger.warn(
+              { err, group: group.name },
+              'Failed to persist streamed assistant generation',
+            ),
+          );
+      },
       log: logger,
     });
     const finalizeStreamingOutput = outputBuffer.flushBufferedOutput;
@@ -700,15 +728,11 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
       });
     } else {
       const finalization = await finalizeGroupAgentUserVisibleOutput({
-        streamedTranscriptDeliveryStatus,
         boundedTranscript: outputBuffer.transcriptSnapshot(),
-        chatJid,
-        activeThreadId,
         outputSentToUser,
         sawRawOutput,
         groupName: group.name,
         warn: (metadata, message) => logger.warn(metadata, message),
-        storeMessage: (message) => ops().storeMessage(message),
         buildMessageOptions,
         sendMessageToChannel: async (text, options) =>
           settleDeliveryAttempt(() => sendMessageToChannel(text, options), {

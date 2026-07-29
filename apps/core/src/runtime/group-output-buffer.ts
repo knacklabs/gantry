@@ -37,6 +37,11 @@ export function createGroupOutputBuffer(input: {
     settlement: DeliverySettlement,
     options: { streamed: boolean; terminal: boolean },
   ) => void;
+  getStreamedTranscriptDeliveryStatus: () => 'none' | 'sent' | 'partially_sent';
+  persistCompletedStreamedGeneration?: (
+    text: string,
+    deliveryStatus: 'sent' | 'partially_sent',
+  ) => Promise<void>;
   log: RuntimeLogger;
 }) {
   const userVisibleTranscript = createRuntimeResultSummaryAccumulator();
@@ -82,6 +87,15 @@ export function createGroupOutputBuffer(input: {
         return 'not_delivered' as const;
       });
       input.applyDeliverySettlement(settlement, { streamed: true, terminal });
+      if (done) {
+        const deliveryStatus = input.getStreamedTranscriptDeliveryStatus();
+        if (deliveryStatus !== 'none') {
+          await input.persistCompletedStreamedGeneration?.(
+            text,
+            deliveryStatus,
+          );
+        }
+      }
     } else {
       const messageOptions = await input.buildMessageOptions();
       const settlement = await settleDeliveryAttempt(

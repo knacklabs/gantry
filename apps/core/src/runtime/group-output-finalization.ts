@@ -1,22 +1,15 @@
-import { randomUUID } from 'node:crypto';
-
-import type { MessageSendOptions, NewMessage } from '../domain/types.js';
+import type { MessageSendOptions } from '../domain/types.js';
 import type { DeliverySettlement } from '../jobs/delivery.js';
-import { nowIso } from '../shared/time/datetime.js';
 
 const NO_VISIBLE_OUTPUT_FALLBACK_MESSAGE =
   'I finished that run but did not generate a user-visible reply. Please send your message again.';
 
 export async function finalizeGroupAgentUserVisibleOutput(input: {
-  streamedTranscriptDeliveryStatus: 'none' | 'sent' | 'partially_sent';
   boundedTranscript: string | null;
-  chatJid: string;
-  activeThreadId?: string;
   outputSentToUser: boolean;
   sawRawOutput: boolean;
   groupName: string;
   warn: (metadata: Record<string, unknown>, message: string) => void;
-  storeMessage: (message: NewMessage) => Promise<unknown>;
   buildMessageOptions: () =>
     | MessageSendOptions
     | undefined
@@ -32,36 +25,6 @@ export async function finalizeGroupAgentUserVisibleOutput(input: {
   let outputSentToUser = input.outputSentToUser;
   let terminalSettlement: DeliverySettlement = 'sent';
   const transcriptText = input.boundedTranscript?.trim() ?? '';
-
-  if (input.streamedTranscriptDeliveryStatus !== 'none') {
-    if (transcriptText) {
-      const deliveryStatus =
-        input.streamedTranscriptDeliveryStatus === 'sent'
-          ? 'sent'
-          : 'partially_sent';
-      const transcriptMessage: NewMessage = {
-        id: `streamed-outbound:${randomUUID()}`,
-        chat_jid: input.chatJid,
-        sender: 'gantry',
-        sender_name: 'Gantry',
-        content: transcriptText,
-        timestamp: nowIso(),
-        is_from_me: true,
-        is_bot_message: true,
-        thread_id: input.activeThreadId,
-        delivery_status: deliveryStatus,
-        delivered_at: nowIso(),
-      };
-      await input
-        .storeMessage(transcriptMessage)
-        .catch((err: unknown) =>
-          input.warn(
-            { err, group: input.groupName },
-            'Failed to persist streamed assistant transcript',
-          ),
-        );
-    }
-  }
 
   if (outputSentToUser) {
     return { outputSentToUser, terminalSettlement };
