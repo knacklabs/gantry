@@ -28,13 +28,13 @@ problem does not reproduce. The problem DOES reproduce on `origin/main`
 @ `55ddfca7c`: the runner hydrates agent memory twice on three of the four
 `prepareCompactionDeltaReplay` exit paths. No signal was raised. The evidence
 and the corrected contract are recorded in
-`docs/decisions/0077-lat-3a-single-memory-hydration-per-turn.md`, and the
+`docs/decisions/0078-lat-3a-single-memory-hydration-per-turn.md`, and the
 sign-off grill verdict is in `.factory/grills/signoff.json`.
 
 ## Decision
 
 Proceed with LAT-3A planning and implementation as the bounded single-memory-
-hydration phase, under the invariant and fence recorded in decision 0077.
+hydration phase, under the invariant and fence recorded in decision 0078.
 
 LAT-3A authorizes a red-first operation-count assertion wired to the real
 `GroupProcessingRepository.getAgentTurnContext` seam, an equivalence test for

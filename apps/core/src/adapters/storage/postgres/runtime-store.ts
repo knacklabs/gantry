@@ -325,6 +325,7 @@ export async function tryAcquireRuntimeAdvisoryLease(
 ): Promise<RuntimeLease | undefined> {
   const client = await getRuntimeStorage().service.pool.connect();
   let released = false;
+  let lostError: Error | undefined;
   try {
     const result = await client.query<{ acquired: boolean }>(
       'SELECT pg_try_advisory_lock(hashtextextended($1, 0)) AS acquired',
@@ -338,6 +339,7 @@ export async function tryAcquireRuntimeAdvisoryLease(
     const lostHandlers = new Set<(err: Error) => void>();
     const notifyLost = (err: Error) => {
       if (released) return;
+      lostError = err;
       released = true;
       for (const handler of [...lostHandlers]) handler(err);
       client.removeListener('error', notifyLost);
@@ -354,8 +356,10 @@ export async function tryAcquireRuntimeAdvisoryLease(
     client.once('error', notifyLost);
     client.once('end', notifyEnd);
     return {
+      isValid: () => !lostError && !released,
       onLost: (handler) => {
-        lostHandlers.add(handler);
+        if (lostError) handler(lostError);
+        else lostHandlers.add(handler);
       },
       release: async () => {
         if (released) return;
@@ -413,10 +417,22 @@ export async function closeRuntimeStorage(): Promise<void> {
   if (existing) await closeStorageRuntimeResources(existing);
 }
 
-/** @internal test hook */
-export function _setRuntimeStorageForTest(nextRuntime: StorageRuntime): void {
+/**
+ * @internal test hook
+ *
+ * Pass `scope` to install the storage AS the storage for a specific runtime
+ * home, so a home-scoped caller (a CLI command) reuses it instead of opening a
+ * second runtime against a schema it has not migrated. Without `scope` the
+ * scope stays unknown and any explicit home is rejected — the invariant
+ * asserted by 'rejects an explicit runtime home when service-owned storage
+ * scope is unknown'.
+ */
+export function _setRuntimeStorageForTest(
+  nextRuntime: StorageRuntime,
+  scope?: StorageRuntimeOptions,
+): void {
   runtime = nextRuntime;
-  runtimeScopeKey = 'process-runtime';
+  runtimeScopeKey = scope ? runtimeStorageScopeKey(scope) : 'process-runtime';
   const workerCoordination = nextRuntime.repositories?.workerCoordination;
   configurePendingInteractionDurability(
     workerCoordination
