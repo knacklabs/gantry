@@ -75,6 +75,10 @@ export async function closeBrowserAfterJobRun(input: {
           userDataDir: profile.userDataDir,
           snapshotRunId: input.snapshotRunId ?? null,
           snapshotFencingVersion: input.snapshotFencingVersion ?? 0,
+          // Bound to the session just closed, not re-read from shared state.
+          snapshotLeaseGeneration: (
+            closed as { leaseGeneration?: number } | undefined
+          )?.leaseGeneration,
         });
       }
     }

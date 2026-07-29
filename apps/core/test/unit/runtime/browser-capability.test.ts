@@ -793,7 +793,10 @@ describe('browser-capability', () => {
     );
     expect(mocks.clearBrowserSessionRecord).not.toHaveBeenCalled();
     expect(profiles.updateProfileMetadata).not.toHaveBeenCalled();
-    expect(mocks.skipNextBrowserProfileSnapshot).toHaveBeenCalledWith('gantry');
+    expect(mocks.skipNextBrowserProfileSnapshot).toHaveBeenCalledWith(
+      'gantry',
+      expect.any(Number),
+    );
     expect(mocks.release).not.toHaveBeenCalled();
 
     expect(

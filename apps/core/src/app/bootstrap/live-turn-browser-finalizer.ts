@@ -58,7 +58,9 @@ function resolveConversationRouteFolder(
 
 export function buildLiveTurnBrowserFinalizer(deps: {
   getConversationRoutes: () => Record<string, { folder: string }>;
-  closeBrowserSession?: (profileName: string) => Promise<unknown>;
+  closeBrowserSession?: (
+    profileName: string,
+  ) => Promise<{ leaseGeneration?: number } | unknown>;
   closeBrowserToolBackends?: (profileName: string) => Promise<void>;
   warn: WarnLog;
 }): LiveTurnBrowserFinalizer {
@@ -79,7 +81,9 @@ export function buildLiveTurnBrowserFinalizer(deps: {
     try {
       if (!isBrowserProfileSyncEnabled()) return;
       await deps.closeBrowserToolBackends?.(profileName);
-      await deps.closeBrowserSession?.(profileName);
+      const closed = (await deps.closeBrowserSession?.(profileName)) as
+        | { leaseGeneration?: number }
+        | undefined;
       const profile = getProfile(profileName);
       if (!profile) return;
       await snapshotBrowserProfile({
@@ -88,6 +92,8 @@ export function buildLiveTurnBrowserFinalizer(deps: {
         userDataDir: profile.userDataDir,
         snapshotRunId: input.runId ?? null,
         snapshotFencingVersion: input.fencingVersion ?? 0,
+        // Bound to the session just closed, not re-read from shared state.
+        snapshotLeaseGeneration: closed?.leaseGeneration,
       });
     } catch (err) {
       deps.warn(

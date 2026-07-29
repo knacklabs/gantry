@@ -25,7 +25,11 @@ const maybeDescribe = process.env.GANTRY_TEST_DATABASE_URL
   ? describe
   : describe.skip;
 const leases = {
-  tryAcquire: async () => ({ release: async () => {} }),
+  tryAcquire: async () => ({
+    generation: 1,
+    isValid: () => true,
+    release: async () => {},
+  }),
 };
 
 maybeDescribe('Browser profile snapshot store (0079)', () => {
