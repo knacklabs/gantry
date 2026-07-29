@@ -239,17 +239,26 @@ maybeDescribe('agent-e2e haiku turn (real model, behavioral)', () => {
         evidence.events.push(...events);
 
         evidence.phase('verify');
-        // Run-lane evidence (executionProviderId) is NOT asserted yet: the
-        // session events feed filters run.* events and GET /sessions/{id}/runs
-        // maps the control-session id into agent-session id space, so it has
-        // always returned [] for app sessions — matrix row pins that API fix.
-        // The streamed durable reply above IS the composed turn proof.
+        const persistedMessage = await api.waitForPersistedAssistantMessage(
+          sessionId,
+          { timeoutMs: 30_000 },
+        );
+        const runs = await api.listRuns(sessionId);
+        expect(runs.length, 'session run is visible').toBeGreaterThan(0);
+        expect(runs[0]).not.toHaveProperty('executionProviderId');
+        expect(runs[0]).not.toHaveProperty('providerSessionId');
+        expect(runs[0]).not.toHaveProperty('workerId');
+        expect(
+          events.some((event) => event.eventType === 'run.started'),
+          'run.started is visible in the session event feed',
+        ).toBe(true);
 
         // Durable persisted reply row exists. NO assertion on reply phrasing.
         expect(
           reply,
           'durable assistant reply (event-sourced app channel)',
         ).toBeDefined();
+        expect(persistedMessage).toBeDefined();
 
         // Usage evidence when surfaced: alias/provider consistent with haiku
         // on anthropic (covers alias or full runner model id).

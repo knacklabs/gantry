@@ -1,4 +1,5 @@
 import type { AgentControlOverrides, NewMessage } from '../../domain/types.js';
+import { AgentRunResponseSchema } from '@gantry/contracts';
 import type {
   RuntimeEvent,
   RuntimeEventFilter,
@@ -255,7 +256,7 @@ export class SessionInteractionModule {
         conversationId: appSession.canonicalConversationId as never,
         limit: input.limit,
       });
-    return { runs };
+    return { runs: runs.map((run) => AgentRunResponseSchema.parse(run)) };
   }
 
   async acceptMessage(input: {

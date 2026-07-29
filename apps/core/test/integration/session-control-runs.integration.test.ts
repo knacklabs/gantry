@@ -130,14 +130,28 @@ describe('session control runs integration', () => {
       {
         id: 'run:latest',
         appId: 'app-one',
+        agentId: 'agent-one',
+        configVersionId: 'config:agent-one:1',
         sessionId: 'runtime-session:edge',
+        conversationId: 'conversation-edge',
+        llmProfileId: 'llm:default',
+        permissionDecisionIds: [],
+        cause: 'message',
         status: 'completed',
+        createdAt: '2026-07-29T00:00:00.000Z',
       },
       {
         id: 'run:older',
         appId: 'app-one',
+        agentId: 'agent-one',
+        configVersionId: 'config:agent-one:1',
         sessionId: 'runtime-session:edge',
+        conversationId: 'conversation-edge',
+        llmProfileId: 'llm:default',
+        permissionDecisionIds: [],
+        cause: 'message',
         status: 'completed',
+        createdAt: '2026-07-28T00:00:00.000Z',
       },
     ]);
 
