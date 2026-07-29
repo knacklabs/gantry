@@ -19,8 +19,19 @@ import {
 import { listTelegramRecentChats } from '@core/cli/telegram-chat-discovery.js';
 import { makeAgentThreadQueueKey } from '@core/shared/thread-queue-key.js';
 import { resolveGroupSelector } from '@core/cli/group-helpers.js';
+import { runtimeSecretNameForAgent } from '@core/domain/provider/provider-runtime-secret-keys.js';
 
 const groupsStore = vi.hoisted(() => new Map<string, any>());
+const defaultTelegramBotSecretName = runtimeSecretNameForAgent(
+  'telegram',
+  'main_agent',
+  'BOT_TOKEN',
+);
+const test2TelegramBotSecretName = runtimeSecretNameForAgent(
+  'telegram',
+  'test2',
+  'BOT_TOKEN',
+);
 const fileArtifacts = vi.hoisted(() => new Map<string, string>());
 const fileArtifactStore = vi.hoisted(() => ({
   async listFileArtifacts(input: any) {
@@ -543,7 +554,7 @@ describe('cli telegram helpers', () => {
     expect(code).toBe(0);
     expect(storeRuntimeSecretInput).toHaveBeenCalledWith({
       runtimeHome,
-      name: 'TELEGRAM_BOT_TOKEN',
+      name: defaultTelegramBotSecretName,
       value: 'telegram-token',
       actor: 'cli:telegram-connect',
     });
@@ -628,7 +639,7 @@ describe('cli telegram helpers', () => {
     );
     expect(storeRuntimeSecretInput).toHaveBeenCalledWith({
       runtimeHome,
-      name: 'TELEGRAM_BOT_TOKEN',
+      name: defaultTelegramBotSecretName,
       value: 'telegram-token',
       actor: 'cli:telegram-connect',
     });
@@ -637,9 +648,31 @@ describe('cli telegram helpers', () => {
   it('telegram connect enables session admin commands for an explicitly entered sender', async () => {
     vi.resetModules();
     const runtimeHome = makeRuntimeHome();
+    const existingSettings = loadRuntimeSettings(runtimeHome);
+    existingSettings.agents.main_agent = {
+      name: 'Default Agent',
+      folder: 'main_agent',
+      bindings: {},
+      sources: { skills: [], mcpServers: [], tools: [] },
+      capabilities: [],
+      accessPreset: 'full',
+    };
+    existingSettings.providerAccounts.telegram_default = {
+      agentId: 'main_agent',
+      provider: 'telegram',
+      label: 'Telegram Default',
+      runtimeSecretRefs: {
+        bot_token: `gantry-secret:${defaultTelegramBotSecretName}`,
+      },
+    };
+    saveRuntimeSettings(runtimeHome, existingSettings);
     const select = vi.fn(async () => 'tg:-100123');
     const text = vi.fn(async () => '5759865942');
-    mockRuntimeSecretStorage(runtimeHome);
+    const storeRuntimeSecretInput = mockRuntimeSecretStorage(runtimeHome);
+    const registerTelegramMainGroup = vi.fn(async () => ({
+      groupName: 'Test 2',
+      folder: 'test2',
+    }));
 
     vi.doMock('@clack/prompts', () => ({
       isCancel: () => false,
@@ -678,10 +711,7 @@ describe('cli telegram helpers', () => {
         return trimmed.startsWith('tg:') ? trimmed : `tg:${trimmed}`;
       }),
       readTelegramFromRuntimeEnv: vi.fn(() => ({ token: '' })),
-      registerTelegramMainGroup: vi.fn(async () => ({
-        groupName: 'Default Agent',
-        folder: 'main_agent',
-      })),
+      registerTelegramMainGroup,
       validateTelegramBotToken: vi.fn(async () => ({
         ok: true,
         message: 'ok',
@@ -696,13 +726,31 @@ describe('cli telegram helpers', () => {
 
     const { runTelegramConnectCommand } =
       await import('@core/cli/telegram-connect.js');
-    const code = await runTelegramConnectCommand(runtimeHome);
+    const code = await runTelegramConnectCommand(
+      runtimeHome,
+      'test2',
+      'Test 2',
+    );
 
     expect(code).toBe(0);
+    expect(storeRuntimeSecretInput).toHaveBeenCalledWith({
+      runtimeHome,
+      name: test2TelegramBotSecretName,
+      value: 'telegram-token',
+      actor: 'cli:telegram-connect',
+    });
+    expect(registerTelegramMainGroup).toHaveBeenCalledWith(
+      expect.objectContaining({
+        agentId: 'test2',
+        runtimeSecretRefs: {
+          bot_token: `gantry-secret:${test2TelegramBotSecretName}`,
+        },
+      }),
+    );
     const settings = loadRuntimeSettings(runtimeHome);
     expect(settings.providers.telegram.enabled).toBe(true);
     const conversation = Object.values(settings.conversations).find(
-      (entry) => entry.providerConnection === 'telegram_default',
+      (entry) => entry.providerConnection === 'telegram_test2',
     );
     expect(conversation?.senderPolicy.allow).toBe('*');
     expect(conversation?.controlApprovers).toEqual(['5759865942']);
