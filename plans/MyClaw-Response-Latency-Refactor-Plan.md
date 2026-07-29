@@ -114,13 +114,29 @@ must re-resolve the current runner/admission/session paths and design the exact
 final-turn context fence that permits one memory hydration without losing reset,
 promotion, compaction, or resumed-session correctness.
 
-### Phase 3B - Cursor-Fenced Pending Replay Reuse
+### Phase 3B - Cursor-Fenced Pending Replay Reuse — CLOSED BY MEASUREMENT
 
-Branch: `perf/cursor-fenced-replay`
+Branch: `perf/phase3b-cursor-fenced-replay`
 
-Reuse a preloaded pending replay only when cursor, queue identity,
-conversation/thread/provider scope, replay ids, and replay cursor are
-internally consistent. Mismatch falls back to the authoritative load.
+**Do not implement. Read
+`docs/decisions/0080-lat-3b-retain-authoritative-second-fetch.md` before
+reopening this.**
+
+Original scope: reuse a preloaded pending replay only when cursor, queue
+identity, conversation/thread/provider scope, replay ids, and replay cursor are
+internally consistent, falling back to the authoritative load on mismatch.
+
+Measured at `106f7d72b` and rejected. The double fetch is real, but the second
+fetch costs exactly ONE repository call and ONE SQL statement per turn (the
+replay returns after its first page at the shipped defaults), and reusing the
+admission snapshot would DROP inbound messages arriving between admission and
+execution — the cursor advances on consumption, not arrival, so cursor equality
+cannot prove no-new-messages, and no cheap signal can. The second fetch is an
+authoritative later read by design, and the group processor depends on its
+`hasMore` to requeue.
+
+Decision 0080 records the numbers, the reasoning, and the exact conditions that
+would reopen it.
 
 ### Phase 4A - One Inbound Envelope Transaction
 

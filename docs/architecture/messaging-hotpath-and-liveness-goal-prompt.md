@@ -309,6 +309,23 @@ unchanged; otherwise it must fetch the tail/current window. If the queue cannot
 provide that fence cheaply, retain the authoritative second fetch. A3 should be
 split from this cycle unless that cursor contract is designed and tested.
 
+**SETTLED 2026-07-29 by decision
+`0080-lat-3b-retain-authoritative-second-fetch` — the conditional above resolved
+to "retain the authoritative second fetch". Do not implement A3.**
+
+Two measurements closed it. First, the prize is one SQL statement: the replay
+returns after its first page at the shipped defaults (`MAX_MESSAGES_PER_PROMPT`
+10 vs `MESSAGE_FETCH_PAGE_SIZE` 200) and `getMessagesSince` issues a single
+`listMessages`. Second, and decisively, the fence cannot be built cheaply at
+all — **the queue cursor advances on consumption, not on arrival**, so a message
+landing between admission and execution does not move it. "Cursor unchanged"
+therefore does not imply "no new messages", and detecting new arrivals requires
+the very query the reuse removes. Reuse would silently drop mid-turn messages,
+and would also break the group processor's `hasMore` requeue and its use of
+`responseSchema` / `agentControls`.
+
+Decision 0080 carries the numbers and the exact conditions that would reopen it.
+
 ### 4. A4 context/memory hydration — PARTIAL; ADMISSION CALL MUST STAY
 
 The admission-side `hydrateMemory:false` call is load-bearing: it resolves the
