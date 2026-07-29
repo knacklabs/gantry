@@ -96,8 +96,14 @@ maybeDescribe('observer insight emission postgres integration', () => {
   }, 60_000);
 
   afterAll(async () => {
-    await closeRuntimeStorage().catch(() => undefined);
-    await runtime.cleanup();
+    // Drop the schema while the pool is still alive: closeRuntimeStorage ends
+    // the pool this harness owns, so cleanup() must run first. The finally
+    // still resets module state if the schema drop throws.
+    try {
+      await runtime.cleanup();
+    } finally {
+      await closeRuntimeStorage().catch(() => undefined);
+    }
   });
 
   it('applies floors and semantic dedup, persists structured evidence, and keeps unavailable retries cursor-safe', async () => {
