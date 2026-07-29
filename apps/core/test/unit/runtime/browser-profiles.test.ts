@@ -57,6 +57,7 @@ describe('browser-profiles', () => {
     const mod = await import('@core/runtime/browser-profiles.js');
     const release = vi.fn(async () => {});
     const tryAcquire = vi.fn(async () => ({
+      generation: 1,
       isValid: () => true,
       release,
     }));
@@ -64,7 +65,7 @@ describe('browser-profiles', () => {
     const lock = await mod.acquireProfileLock(' Lease-Test ', { tryAcquire });
 
     expect(tryAcquire).toHaveBeenCalledOnce();
-    expect(tryAcquire).toHaveBeenCalledWith('browser-profile:lease-test');
+    expect(tryAcquire).toHaveBeenCalledWith('browser-profile:lease-test', {});
     expect(lock.name).toBe('lease-test');
     await lock.release();
     expect(release).toHaveBeenCalledOnce();
@@ -85,6 +86,7 @@ describe('browser-profiles', () => {
     });
     const release = vi.fn(async () => {});
     const acquired = Promise.resolve({
+      generation: 1,
       isValid: () => true,
       onLost,
       release,
@@ -142,7 +144,7 @@ describe('browser-profiles', () => {
     const mod = await import('@core/runtime/browser-profiles.js');
     const release = vi.fn(async () => {});
     const lock = await mod.acquireProfileLock('idempotent-release', {
-      tryAcquire: async () => ({ isValid: () => true, release }),
+      tryAcquire: async () => ({ generation: 1, isValid: () => true, release }),
     });
 
     await Promise.all([lock.release(), lock.release()]);

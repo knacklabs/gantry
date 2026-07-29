@@ -2975,6 +2975,7 @@ describe('TelegramChannel', () => {
         const releases = [vi.fn().mockResolvedValue(undefined), vi.fn()];
         releases[1]!.mockResolvedValue(undefined);
         const leases = releases.map((release) => ({
+          generation: 1,
           isValid: vi.fn(() => true),
           release,
           onLost: vi.fn((handler: (err: Error) => void) => {
@@ -3022,6 +3023,7 @@ describe('TelegramChannel', () => {
       try {
         let lostHandler: ((err: Error) => void) | undefined;
         const lease = {
+          generation: 1,
           isValid: vi.fn(() => true),
           release: vi.fn(async () => undefined),
           onLost: vi.fn((handler: (err: Error) => void) => {

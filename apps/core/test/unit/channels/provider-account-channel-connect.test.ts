@@ -57,6 +57,7 @@ describe('connectProviderAccountChannels', () => {
     let lostHandler: ((err: Error) => void) | undefined;
     let leaseValid = true;
     const lease = {
+      generation: 1,
       isValid: vi.fn(() => leaseValid),
       onLost: vi.fn((handler: (err: Error) => void) => {
         lostHandler = handler;
@@ -144,6 +145,7 @@ describe('connectProviderAccountChannels', () => {
     // connect outbound-only, as it does under ordinary lease contention.
     const lossError = new Error('inbound lease lost before connect');
     const lease = {
+      generation: 1,
       isValid: vi.fn(() => false),
       onLost: vi.fn((handler: (err: Error) => void) => {
         handler(lossError);
