@@ -1,3 +1,5 @@
+import fs from 'node:fs';
+
 import { describe, expect, it, vi } from 'vitest';
 
 vi.hoisted(() => {
@@ -9,6 +11,7 @@ vi.hoisted(() => {
 
 import { usageEventIdForMessage } from '@core/adapters/llm/anthropic-claude-agent/runner/query-usage-event-id.js';
 import { recordSuccessfulToolUse } from '@core/adapters/llm/anthropic-claude-agent/runner/query-loop.js';
+import { createPermissionApprovalContextChannel } from '@core/adapters/llm/anthropic-claude-agent/runner/tool-permission-gate.js';
 import { canonicalGantryToolRuleName } from '@core/shared/gantry-tool-facades.js';
 import { RunScopedToolSuccessLedger } from '@core/runner/tool-gate-core.js';
 
@@ -30,6 +33,23 @@ describe('Claude query loop usage event IDs', () => {
 });
 
 describe('Claude query loop declarative tool names', () => {
+  it('does not pass allowedTools while retaining canUseTool in SDK query options', () => {
+    const source = fs.readFileSync(
+      new URL(
+        '../../../src/adapters/llm/anthropic-claude-agent/runner/query-loop.ts',
+        import.meta.url,
+      ),
+      'utf8',
+    );
+    const queryOptions = source.slice(
+      source.indexOf('const sdkQuery = query({'),
+      source.indexOf('const sdkQueryIteratorMs'),
+    );
+
+    expect(queryOptions).not.toMatch(/\n\s*allowedTools:/);
+    expect(queryOptions).toMatch(/\n\s*canUseTool:/);
+  });
+
   it('canonicalizes first-party Gantry MCP names to bare rule names', () => {
     expect(canonicalGantryToolRuleName('mcp__gantry__send_message')).toBe(
       'send_message',
@@ -101,5 +121,115 @@ describe('Claude query loop declarative tool success ledger', () => {
     );
 
     expect(ledger.hasSuccess('send_message')).toBe(true);
+  });
+});
+
+describe('Claude query loop permission approval context', () => {
+  it.each([
+    [
+      'classifier',
+      'Permission allowed (decided by: auto_classifier; risk: low)',
+    ],
+    ['human', 'Permission allowed (decided by: owner)'],
+  ])(
+    'returns %s provenance as model-visible additionalContext',
+    async (_label, provenance) => {
+      const channel = createPermissionApprovalContextChannel();
+      channel.record('tool-use-1', provenance);
+
+      await expect(
+        channel.postToolUse(
+          {
+            hook_event_name: 'PostToolUse',
+            tool_name: 'Bash',
+            tool_input: { command: 'npm test' },
+            tool_response: 'ok',
+            tool_use_id: 'tool-use-1',
+          } as never,
+          'tool-use-1',
+          { signal: new AbortController().signal },
+        ),
+      ).resolves.toEqual({
+        continue: true,
+        hookSpecificOutput: {
+          hookEventName: 'PostToolUse',
+          additionalContext: provenance,
+        },
+      });
+    },
+  );
+
+  it('adds no context for a silent birthright allow', async () => {
+    const channel = createPermissionApprovalContextChannel();
+
+    await expect(
+      channel.postToolUse(
+        {
+          hook_event_name: 'PostToolUse',
+          tool_name: 'mcp__gantry__render_table',
+          tool_input: {},
+          tool_response: 'rendered',
+          tool_use_id: 'tool-use-birthright',
+        } as never,
+        'tool-use-birthright',
+        { signal: new AbortController().signal },
+      ),
+    ).resolves.toEqual({ continue: true });
+  });
+
+  it('removes approval context after the matching tool result', async () => {
+    const channel = createPermissionApprovalContextChannel();
+    channel.record(
+      'tool-use-1',
+      'Permission allowed (decided by: auto_classifier; risk: low)',
+    );
+    const hookInput = {
+      hook_event_name: 'PostToolUse',
+      tool_name: 'Bash',
+      tool_input: { command: 'npm test' },
+      tool_response: 'ok',
+      tool_use_id: 'tool-use-1',
+    } as const;
+
+    await channel.postToolUse(hookInput as never, 'tool-use-1', {
+      signal: new AbortController().signal,
+    });
+
+    await expect(
+      channel.postToolUse(hookInput as never, 'tool-use-1', {
+        signal: new AbortController().signal,
+      }),
+    ).resolves.toEqual({ continue: true });
+  });
+
+  it('surfaces and consumes approval context when an allowed tool fails', async () => {
+    const channel = createPermissionApprovalContextChannel();
+    const provenance = 'Permission allowed (decided by: owner)';
+    channel.record('tool-use-failed', provenance);
+    const hookInput = {
+      hook_event_name: 'PostToolUseFailure',
+      tool_name: 'Bash',
+      tool_input: { command: 'npm test' },
+      tool_use_id: 'tool-use-failed',
+      error: 'command failed',
+    } as const;
+
+    await expect(
+      channel.postToolUse(hookInput as never, 'tool-use-failed', {
+        signal: new AbortController().signal,
+      }),
+    ).resolves.toEqual({
+      continue: true,
+      hookSpecificOutput: {
+        hookEventName: 'PostToolUseFailure',
+        additionalContext: provenance,
+      },
+    });
+
+    await expect(
+      channel.postToolUse(hookInput as never, 'tool-use-failed', {
+        signal: new AbortController().signal,
+      }),
+    ).resolves.toEqual({ continue: true });
   });
 });

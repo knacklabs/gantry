@@ -16,6 +16,10 @@ import type {
 } from '@core/domain/tools/tools.js';
 import { persistentPermissionToolId } from '@core/shared/agent-tool-references.js';
 import {
+  adminMcpToolIdForFullName,
+  isDurableGantryMcpToolFullName,
+} from '@core/shared/admin-mcp-tools.js';
+import {
   appendLiveToolRules,
   readLiveToolRules,
 } from '@core/shared/live-tool-rules.js';
@@ -718,6 +722,62 @@ describe('PermissionManagementService', () => {
     expect(mirrorAgentToolRulesToSettings).not.toHaveBeenCalled();
   });
 
+  it('creates a catalog row when a human grants a newly durable Gantry tool', async () => {
+    const service = new PermissionManagementService({
+      now: () => '2026-05-15T12:00:00.000Z',
+    });
+    const saveTool = vi.fn(async () => undefined);
+    const saveAgentToolBinding = vi.fn(async () => undefined);
+    const mirrorAgentToolRulesToSettings = vi.fn(async () => undefined);
+
+    const persisted = await service.applyPersistentToolRuleGrant({
+      appId: 'app:test' as never,
+      agentId: 'agent:test' as never,
+      sourceAgentFolder: 'main_agent',
+      updates: [
+        {
+          type: 'addRules',
+          behavior: 'allow',
+          rules: [{ toolName: 'mcp__gantry__task_cancel' }],
+        },
+      ],
+      toolRepository: {
+        getTool: vi.fn(async () => null),
+        listTools: vi.fn(async () => []),
+        saveTool,
+        saveAgentToolBinding,
+        disableAgentToolBinding: vi.fn(async () => null),
+        listAgentToolBindings: vi.fn(async () => []),
+        listAgentToolBindingsForAgents: vi.fn(),
+      },
+      mirrorAgentToolRulesToSettings,
+    });
+
+    expect(persisted).toEqual(['mcp__gantry__task_cancel']);
+    expect(saveTool).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: persistentPermissionToolId('app:test', 'mcp__gantry__task_cancel'),
+        name: 'mcp__gantry__task_cancel',
+        displayName: 'Task Cancel',
+        risk: 'high',
+      }),
+    );
+    expect(saveAgentToolBinding).toHaveBeenCalledWith(
+      expect.objectContaining({
+        toolId: persistentPermissionToolId(
+          'app:test',
+          'mcp__gantry__task_cancel',
+        ),
+        status: 'active',
+      }),
+    );
+    expect(mirrorAgentToolRulesToSettings).toHaveBeenCalledWith(
+      'main_agent',
+      ['mcp__gantry__task_cancel'],
+      { appId: 'app:test' },
+    );
+  });
+
   it('revokes a current-agent persistent tool grant and mirrors settings removal', async () => {
     const { repository, saveDecision } = permissionRepository();
     const service = new PermissionManagementService({
@@ -767,14 +827,70 @@ describe('PermissionManagementService', () => {
     expect(decision.actionPreview).toContain('revoke FileRead');
   });
 
-  it('revokes exact scheduler MCP grants through the scheduler catalog binding', async () => {
+  it('revokes legacy fixed-ID grants for Gantry tools that are no longer grantable', async () => {
     const service = new PermissionManagementService({
       now: () => '2026-05-15T12:00:00.000Z',
     });
+
+    for (const toolName of ['service_restart', 'admin_permission_revoke']) {
+      const fullName = `mcp__gantry__${toolName}`;
+      expect(isDurableGantryMcpToolFullName(fullName)).toBe(false);
+      const tool: ToolCatalogItem = {
+        ...toolItem(fullName),
+        id: `tool:${fullName}` as never,
+        name: fullName,
+      };
+      const binding = activeBinding(tool);
+      const disableAgentToolBinding = vi.fn(async () => ({
+        ...binding,
+        status: 'disabled' as const,
+      }));
+      const mirrorAgentToolRulesToSettings = vi.fn(async () => undefined);
+
+      const result = await service.revokePersistentToolRuleGrant({
+        appId: 'app:test' as never,
+        agentId: 'agent:test' as never,
+        sourceAgentFolder: 'main_agent',
+        toolName: fullName,
+        toolRepository: {
+          getTool: vi.fn(async () => null),
+          listTools: vi.fn(async () => []),
+          saveTool: vi.fn(),
+          saveAgentToolBinding: vi.fn(),
+          disableAgentToolBinding,
+          listAgentToolBindings: vi.fn(async () => [binding]),
+          listAgentToolBindingsForAgents: vi.fn(),
+        },
+        mirrorAgentToolRulesToSettings,
+      });
+
+      expect(result).toEqual({
+        revokedRule: fullName,
+        toolId: `tool:${fullName}`,
+      });
+      expect(disableAgentToolBinding).toHaveBeenCalledWith({
+        appId: 'app:test',
+        agentId: 'agent:test',
+        toolId: `tool:${fullName}`,
+        updatedAt: '2026-05-15T12:00:00.000Z',
+      });
+      expect(mirrorAgentToolRulesToSettings).toHaveBeenCalledWith(
+        'main_agent',
+        [fullName],
+        { appId: 'app:test', mode: 'remove' },
+      );
+    }
+  });
+
+  it('revokes a seeded scheduler grant through its fixed catalog ID', async () => {
+    const service = new PermissionManagementService({
+      now: () => '2026-05-15T12:00:00.000Z',
+    });
+    const rule = 'mcp__gantry__scheduler_run_now';
     const tool: ToolCatalogItem = {
-      ...toolItem('mcp__gantry__scheduler_run_now'),
-      id: 'tool:mcp__gantry__scheduler_run_now' as never,
-      name: 'mcp__gantry__scheduler_run_now',
+      ...toolItem(rule),
+      id: adminMcpToolIdForFullName(rule) as never,
+      name: rule,
     };
     const binding = activeBinding(tool);
     const disableAgentToolBinding = vi.fn(async () => ({
@@ -787,10 +903,10 @@ describe('PermissionManagementService', () => {
       appId: 'app:test' as never,
       agentId: 'agent:test' as never,
       sourceAgentFolder: 'main_agent',
-      toolName: 'mcp__gantry__scheduler_run_now',
+      toolName: rule,
       toolRepository: {
         getTool: vi.fn(async (toolId: string) =>
-          toolId === 'tool:mcp__gantry__scheduler_run_now' ? tool : null,
+          toolId === tool.id ? tool : null,
         ),
         listTools: vi.fn(async () => [tool]),
         saveTool: vi.fn(),
@@ -803,18 +919,81 @@ describe('PermissionManagementService', () => {
     });
 
     expect(result).toEqual({
-      revokedRule: 'mcp__gantry__scheduler_run_now',
-      toolId: 'tool:mcp__gantry__scheduler_run_now',
+      revokedRule: rule,
+      toolId: adminMcpToolIdForFullName(rule),
     });
     expect(disableAgentToolBinding).toHaveBeenCalledWith({
       appId: 'app:test',
       agentId: 'agent:test',
-      toolId: 'tool:mcp__gantry__scheduler_run_now',
+      toolId: adminMcpToolIdForFullName(rule),
       updatedAt: '2026-05-15T12:00:00.000Z',
     });
     expect(mirrorAgentToolRulesToSettings).toHaveBeenCalledWith(
       'main_agent',
-      ['mcp__gantry__scheduler_run_now'],
+      [rule],
+      { appId: 'app:test', mode: 'remove' },
+    );
+  });
+
+  it('revokes an app-scoped grant for a newly durable Gantry tool', async () => {
+    const service = new PermissionManagementService({
+      now: () => '2026-05-15T12:00:00.000Z',
+    });
+    const tool: ToolCatalogItem = {
+      ...toolItem('mcp__gantry__scheduler_resume_job'),
+      name: 'mcp__gantry__scheduler_resume_job',
+    };
+    const binding = activeBinding(tool);
+    const disableAgentToolBinding = vi.fn(async () => ({
+      ...binding,
+      status: 'disabled' as const,
+    }));
+    const mirrorAgentToolRulesToSettings = vi.fn(async () => undefined);
+
+    const result = await service.revokePersistentToolRuleGrant({
+      appId: 'app:test' as never,
+      agentId: 'agent:test' as never,
+      sourceAgentFolder: 'main_agent',
+      toolName: 'mcp__gantry__scheduler_resume_job',
+      toolRepository: {
+        getTool: vi.fn(async (toolId: string) =>
+          toolId ===
+          persistentPermissionToolId(
+            'app:test',
+            'mcp__gantry__scheduler_resume_job',
+          )
+            ? tool
+            : null,
+        ),
+        listTools: vi.fn(async () => [tool]),
+        saveTool: vi.fn(),
+        saveAgentToolBinding: vi.fn(),
+        disableAgentToolBinding,
+        listAgentToolBindings: vi.fn(async () => [binding]),
+        listAgentToolBindingsForAgents: vi.fn(),
+      },
+      mirrorAgentToolRulesToSettings,
+    });
+
+    expect(result).toEqual({
+      revokedRule: 'mcp__gantry__scheduler_resume_job',
+      toolId: persistentPermissionToolId(
+        'app:test',
+        'mcp__gantry__scheduler_resume_job',
+      ),
+    });
+    expect(disableAgentToolBinding).toHaveBeenCalledWith({
+      appId: 'app:test',
+      agentId: 'agent:test',
+      toolId: persistentPermissionToolId(
+        'app:test',
+        'mcp__gantry__scheduler_resume_job',
+      ),
+      updatedAt: '2026-05-15T12:00:00.000Z',
+    });
+    expect(mirrorAgentToolRulesToSettings).toHaveBeenCalledWith(
+      'main_agent',
+      ['mcp__gantry__scheduler_resume_job'],
       { appId: 'app:test', mode: 'remove' },
     );
   });

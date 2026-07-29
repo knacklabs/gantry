@@ -49,6 +49,10 @@ export const ids = {
   conversation: id('conversationId', 'Conversation id.'),
   file: id('filePath', 'Skill-relative file path.'),
   ingress: id('ingressId', 'Ingress id.'),
+  interaction: id(
+    'interactionId',
+    'Pending interaction id (the permission request id from the interactions list).',
+  ),
   job: id('jobId', 'Job id.'),
   memory: id('memoryId', 'Memory item id.'),
   modelCredentialProvider: id('providerId', 'Model credential provider id.'),

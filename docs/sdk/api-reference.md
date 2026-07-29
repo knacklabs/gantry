@@ -116,7 +116,7 @@ desired-state endpoints below.
 
 Fleet deployments distribute configuration as a versioned, typed JSON settings
 document through the control API instead of a file each worker watches
-([Settings Authority](../decisions/2026-06-11-settings-authority.md)). Both
+([Settings Authority](../decisions/0025-settings-authority.md)). Both
 surfaces — the workstation `settings.yaml` auto-importer and this API — run the
 same schema validation and produce the same document-path-level errors.
 
@@ -705,13 +705,23 @@ workloads. Each `ModelRecord` carries an `executionRoutes` array
 (`{ harness, executionProviderId }`) that is read-only diagnostic. The active
 API exposes `agentHarness` as the public selector and keeps
 `executionProviderId` internal/read-only diagnostic. The 2026-06-14 harness contract in
-[`docs/decisions/2026-06-14-agent-harness-selection.md`](../decisions/2026-06-14-agent-harness-selection.md)
+[`docs/decisions/0028-agent-harness-selection.md`](../decisions/0028-agent-harness-selection.md)
 defines the agent-level `agentHarness` (`auto`, `anthropic_sdk`, or
-`deepagents`) and the `settings.yaml` key `agent_harness`. DeepAgents-lane entries omit the static
-`contextWindowTokens`/`maxOutputTokens` limits because those are reported at
-runtime from the engine's model profile.
+`deepagents`) and the `settings.yaml` key `agent_harness`. DeepAgents-lane
+entries normally use limits reported at runtime by the engine's model profile;
+entries with pinned official catalog data can also expose static
+`contextWindowTokens`/`maxOutputTokens`.
 API job creation rejects raw provider model IDs unless they are registered
 catalog aliases.
+
+Current OpenAI/xAI aliases include `gpt-terra` (`gpt-5.6-terra`), `gpt-luna`
+(`gpt-5.6-luna`), `gpt-sol` (`gpt-5.6-sol`), and `grok` (`grok-4.5`). The
+pinned `grok-4.3` alias remains available. Terra, Luna, Sol, and Grok 4.5 are
+available for chat and jobs. Displayed token prices are base rates and do not
+include long-context multipliers, cache-write rates, or provider server-tool
+fees. See
+[Credential Management](../architecture/credential-management.md#gpt-56-grok-45-and-claude-opus-5-aliases)
+for credential commands, official prices, thresholds, and source links.
 
 Use `client.models.defaults.get()` to inspect configured and effective chat,
 job, and memory LLM defaults. Use `client.models.defaults.update()` or

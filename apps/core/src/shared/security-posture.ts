@@ -47,7 +47,12 @@ export function resolveRuntimeSecurityPosture(
     production,
     remoteControl,
     requiresProductionSecrets: production || remoteControl || remoteDeployment,
-    requiresEnforcingSandbox: production || remoteControl || remoteDeployment,
+    // Two-axis model (decision 0040): the user chooses the sandbox provider;
+    // Gantry does NOT force `sandbox_runtime` in production/remote. Authorization
+    // (permission engine + classifier + credential rail) is the control; the OS
+    // jail is opt-in. Kept as a field (a control-server consumer reads it) but no
+    // longer mandates confinement.
+    requiresEnforcingSandbox: false,
   };
 }
 

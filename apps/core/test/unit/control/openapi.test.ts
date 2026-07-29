@@ -17,6 +17,7 @@ import { handleGuidedActionRoutes } from '@core/control/server/routes/guided-act
 import { handleJobRoutes } from '@core/control/server/routes/jobs.js';
 import { handleLlmRoutes } from '@core/control/server/routes/llm.js';
 import { handleMemoryRoutes } from '@core/control/server/routes/memory.js';
+import { handleObserverRoutes } from '@core/control/server/routes/observer.js';
 import { handleMcpServerRoutes } from '@core/control/server/routes/mcp-servers.js';
 import { handleModelRoutes } from '@core/control/server/routes/models.js';
 import { handleOpenApiRoutes } from '@core/control/server/routes/openapi.js';
@@ -103,8 +104,15 @@ const expectedControlRoutes = [
   'DELETE /v1/memory/{memoryId}',
   'PATCH /v1/memory/{memoryId}',
   'GET /v1/memory/dreaming/status',
+  'GET /v1/memory/reviews',
+  'GET /v1/memory/reviews/{reviewId}',
   'POST /v1/memory/dreaming/trigger',
+  'POST /v1/memory/reviews/{reviewId}/decision',
   'POST /v1/memory/search',
+  'GET /v1/observer/insights',
+  'GET /v1/observer/status',
+  'POST /v1/observer/preview',
+  'GET /v1/observer/deliveries',
   'GET /v1/models',
   'GET /v1/models/defaults',
   'PATCH /v1/models/defaults',
@@ -121,6 +129,8 @@ const expectedControlRoutes = [
   'GET /v1/runs/{runId}/events',
   'GET /v1/sessions/{sessionId}',
   'GET /v1/sessions/{sessionId}/events',
+  'GET /v1/sessions/{sessionId}/interactions',
+  'POST /v1/sessions/{sessionId}/interactions/{interactionId}/respond',
   'GET /v1/sessions/{sessionId}/messages',
   'POST /v1/sessions/{sessionId}/messages',
   'GET /v1/sessions/{sessionId}/runs',
@@ -279,6 +289,7 @@ async function isRecognizedByRuntime(method: string, pathname: string) {
     () => handleSessionRoutes(req, res, ctx, url, pathname),
     () => handleProviderConversationRoutes(req, res, ctx, url, pathname),
     () => handleMemoryRoutes(req, res, ctx, url, pathname),
+    () => handleObserverRoutes(req, res, ctx, url, pathname),
     () => handleBrainRoutes(req, res, ctx, url, pathname),
     () => handleModelRoutes(req, res, ctx, pathname),
     () => handleCredentialRoutes(req, res, ctx, pathname),
@@ -301,6 +312,42 @@ async function isRecognizedByRuntime(method: string, pathname: string) {
 describe('control OpenAPI documentation', () => {
   it('keeps the OpenAPI route inventory in sync with the control API surface', () => {
     expect(documentedRoutes()).toEqual(expectedControlRoutes);
+  });
+
+  it('documents observer insight type filtering and structured evidence', () => {
+    const spec = getGantryOpenApiDocument();
+
+    expect(spec.paths['/v1/observer/insights']?.get.parameters).toContainEqual(
+      expect.objectContaining({
+        name: 'type',
+        schema: {
+          type: 'string',
+          enum: [
+            'commitment',
+            'contradiction',
+            'open_question',
+            'stale_fact',
+            'decision_without_owner',
+            'duplicated_work',
+            'repetition',
+          ],
+        },
+      }),
+    );
+    expect(
+      spec.components.schemas.ProactiveInsight.properties.evidenceRefs,
+    ).toEqual({
+      type: 'array',
+      items: {
+        type: 'object',
+        required: ['conversationId', 'messageId', 'ts'],
+        properties: {
+          conversationId: { type: 'string' },
+          messageId: { type: 'string' },
+          ts: { type: 'string' },
+        },
+      },
+    });
   });
 
   it('accepts MCP source operation scopes in agent access documents', () => {

@@ -19,9 +19,11 @@ import {
   defaultTriggerForAgentName,
   displayAgentName,
   defaultAgentNameFromSettings,
+  isDefaultAgentLastRoute,
   normalizeDefaultAgentName,
 } from './main-agent.js';
 import { RuntimeGroupDb } from './runtime-group-db.js';
+import { removeRoutelessAgent } from './group-remove-routeless.js';
 import { runAccess } from './group-access.js';
 import { runHarness } from './group-harness.js';
 import { runList } from './group-list.js';
@@ -40,6 +42,7 @@ import {
 import {
   allocateGroupFolder,
   conversationIdsForProvider,
+  disableRemovedAgentProjection,
   ensureGroupFiles,
   findConversationIdForAgent,
   formatAgentHarnessLine,
@@ -47,6 +50,7 @@ import {
   loadDatabase,
   normalizeGroupAddSelector,
   pruneAgentSenderPolicyOverride,
+  pruneDesiredStateAgent,
   resolveGroupSelector,
   seedTelegramControlApproverForAgent,
   usage,
@@ -413,29 +417,36 @@ async function runRemove(runtimeHome: string, args: string[]): Promise<number> {
       return 1;
     }
     if (!resolved.found) {
+      const routelessExit = await removeRoutelessAgent({
+        runtimeHome,
+        settings: loadRuntimeSettings(runtimeHome),
+        groups,
+        selector,
+        assumeYes: parsed.assumeYes,
+      });
+      if (routelessExit !== null) return routelessExit;
       p.log.error(`No agent found for selector "${selector.trim()}".`);
       return 1;
     }
     const found = resolved.found;
-    const routeKey = found.jid;
-    const { chatJid } = parseAgentThreadQueueKey(routeKey);
-
+    // Refuse the default agent's last route: the runtime re-seeds it otherwise.
+    if (isDefaultAgentLastRoute(groups, found.group.folder)) {
+      p.log.error(
+        `${found.group.folder} is the default agent and must keep at least one route; it cannot be removed.`,
+      );
+      return 1;
+    }
     if (!parsed.assumeYes) {
       if (!isInteractiveTerminal()) {
         p.log.error(
           'Refusing destructive removal in non-interactive mode without --yes.',
         );
-        p.log.info(
-          'Next action: rerun with `--yes` (and `--delete-folder` if you want to remove files too).',
-        );
+        p.log.info('Next action: rerun with `--yes`.');
         return 1;
       }
 
-      const folderPath = path.join(runtimeHome, 'agents', found.group.folder);
       const decision = await p.select({
-        message: parsed.deleteFolder
-          ? `Remove ${found.group.name} (${found.jid}) and delete folder ${folderPath}?`
-          : `Remove ${found.group.name} (${found.jid}) from the database?`,
+        message: `Remove ${found.group.name} (${found.jid})?`,
         options: [
           { label: 'Yes, remove it', value: 'yes' },
           { label: 'No, cancel', value: 'no' },
@@ -448,7 +459,7 @@ async function runRemove(runtimeHome: string, args: string[]): Promise<number> {
     }
 
     try {
-      await db.deleteConversationRoute(routeKey);
+      await db.deleteConversationRoute(found.jid);
       await db.deleteSession(found.group.folder);
     } catch (err) {
       p.log.error(`Could not remove agent from database: ${errorMessage(err)}`);
@@ -457,7 +468,7 @@ async function runRemove(runtimeHome: string, args: string[]): Promise<number> {
 
     const policyPrune = await pruneAgentSenderPolicyOverride(
       runtimeHome,
-      chatJid,
+      parseAgentThreadQueueKey(found.jid).chatJid,
       found.group.folder,
     );
     if (policyPrune.error) {
@@ -470,26 +481,50 @@ async function runRemove(runtimeHome: string, args: string[]): Promise<number> {
       );
     }
 
-    if (parsed.deleteFolder) {
-      const folderPath = path.join(runtimeHome, 'agents', found.group.folder);
-      try {
-        if (fs.existsSync(folderPath)) {
-          fs.rmSync(folderPath, { recursive: true, force: false });
-        }
-      } catch (err) {
-        p.log.warn(
-          `Agent removed from database, but folder cleanup failed: ${folderPath}. Details: ${errorMessage(err)}`,
-        );
-        return 1;
-      }
+    // Route deletion alone is not durable -- reconciliation re-imports the
+    // agent from desired state. Drop the definition once its last route is gone.
+    const remainingRoutes = Object.entries(
+      await db.getAllConversationRoutes(),
+    ).filter(([, group]) => group.folder === found.group.folder).length;
+    const desiredPrune = await pruneDesiredStateAgent({
+      runtimeHome,
+      folder: found.group.folder,
+      remainingRoutes,
+    });
+    if (desiredPrune.error) {
+      // Fail loudly: reporting success would tell automation the removal
+      // persisted when the next reload will bring the agent back.
+      p.log.error(
+        `Removal did not persist: ${found.group.folder} still exists in desired state (${desiredPrune.error}). It will be recreated on the next reload.`,
+      );
+      return 1;
+    }
+    if (desiredPrune.keptForDelegates?.length) {
+      // Retained because other agents delegate to it.
+      p.log.warn(
+        `Route removed, but agent ${found.group.folder} is retained in desired state: still referenced as a delegate by ${desiredPrune.keptForDelegates.join(', ')}.`,
+      );
+      p.log.info(
+        'Next action: remove those delegate references first if you want the agent fully deleted. The agent folder was left untouched.',
+      );
+      return 0;
+    }
+    if (desiredPrune.pruned) {
+      if (desiredPrune.reconciled)
+        await disableRemovedAgentProjection(found.group.folder);
+      const accounts = desiredPrune.providerAccountsPruned;
+      p.log.info(
+        `Removed agent ${found.group.folder} from desired state${
+          accounts > 0 ? ` (and ${accounts} orphaned provider account(s))` : ''
+        }.`,
+      );
+    } else if (remainingRoutes > 0) {
+      p.log.info(
+        `Agent ${found.group.folder} kept in desired state: ${remainingRoutes} route(s) still bound.`,
+      );
     }
 
     p.log.success(`Removed agent ${found.group.name} (${found.jid}).`);
-    if (!parsed.deleteFolder) {
-      p.log.info(
-        `Agent folder preserved at ${path.join(runtimeHome, 'agents', found.group.folder)}. Use --delete-folder to remove it.`,
-      );
-    }
     return 0;
   } finally {
     await db?.close();

@@ -45,7 +45,7 @@ Anthropic **writing-tools-for-agents** best practices:
 The Claude Tool Search is a Claude-lane optimization; DeepAgents has NO
 equivalent. The durable answer is a RUNTIME-AGNOSTIC tool-awareness layer both
 lanes share, with lane-specific optimizations on top. The shared seam is the
-system-prompt assembly (`application/agents/prompt-profile-service.ts`, the
+system-prompt assembly (`apps/core/src/application/agents/prompt-profile-service.ts`, the
 `CAPABILITY_GUIDANCE` section, budget 1500; note memory: the live agent prompt
 is OPERATING_GUIDANCE_BLOCK, CAPABILITY_GUIDANCE may be underused) — BOTH lanes
 compile through it.

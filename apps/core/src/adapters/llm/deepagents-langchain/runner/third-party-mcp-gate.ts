@@ -2,13 +2,7 @@ import { tool } from '@langchain/core/tools';
 import type { StructuredToolInterface } from '@langchain/core/tools';
 
 import {
-  ToolExecutionClassifier,
-  ToolExecutionPolicyService,
-} from '../../../../shared/tool-execution-policy-service.js';
-import {
   evaluateNeutralToolPreChecks,
-  evaluateNeutralToolPolicy,
-  LOCKED_ACCESS_PRESET_DENY_REASON,
   type NeutralToolGateContext,
 } from '../../../../runner/tool-gate-core.js';
 import {
@@ -36,6 +30,7 @@ export interface ThirdPartyMcpGateConfig {
   gateContext: NeutralToolGateContext;
   permissionEnv: PermissionIpcRuntimeEnv;
   lockedAccessPreset: boolean;
+  signal?: AbortSignal;
 }
 
 export function wrapThirdPartyMcpToolsWithGate(
@@ -43,19 +38,13 @@ export function wrapThirdPartyMcpToolsWithGate(
   serverName: string,
   config: ThirdPartyMcpGateConfig,
 ): StructuredToolInterface[] {
-  const classifier = new ToolExecutionClassifier();
-  const policy = new ToolExecutionPolicyService();
-  return tools.map((underlying) =>
-    wrapOne(underlying, serverName, config, classifier, policy),
-  );
+  return tools.map((underlying) => wrapOne(underlying, serverName, config));
 }
 
 function wrapOne(
   underlying: StructuredToolInterface,
   serverName: string,
   config: ThirdPartyMcpGateConfig,
-  classifier: ToolExecutionClassifier,
-  policy: ToolExecutionPolicyService,
 ): StructuredToolInterface {
   const gatedFunc = async (input: unknown): Promise<unknown> => {
     const toolName = canonicalThirdPartyMcpToolName(
@@ -76,22 +65,6 @@ function wrapOne(
       return denyMessage(preChecks.reason);
     }
 
-    const decision = evaluateNeutralToolPolicy({
-      classifier,
-      policy,
-      toolName,
-      toolInput: input,
-      context: config.gateContext,
-      allowedToolRules: config.configuredAllowedTools,
-    });
-    if (decision.status === 'allow') {
-      return invokeUnderlying(underlying, input);
-    }
-
-    if (config.lockedAccessPreset) {
-      return denyMessage(LOCKED_ACCESS_PRESET_DENY_REASON);
-    }
-
     const approval = await requestPermissionApprovalViaIpc(
       config.permissionEnv,
       {
@@ -100,10 +73,9 @@ function wrapOne(
         agentFolder: config.workspaceFolder,
         targetJid: config.permissionEnv.chatJid || undefined,
         toolName,
-        decisionReason: decision.reason,
-        closestRule: decision.closestRule,
         toolInput: input,
         threadId: config.gateContext.threadId,
+        ...(config.signal ? { signal: config.signal } : {}),
       },
     );
     if (approval.approved) {

@@ -1,4 +1,5 @@
 # Ponytail Whole-Repository Audit — 2026-07-14
+<!-- doc-references: frozen 2026-07-22 (decision 0036) -->
 
 ## Outcome
 

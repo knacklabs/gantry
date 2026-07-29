@@ -55,6 +55,11 @@ export const DEFAULT_BROWSER_USAGE_MAX_ACTIONS_PER_WINDOW = 120;
 export const DEFAULT_BROWSER_USAGE_MAX_CONCURRENT_PER_SITE = 1;
 export const DEFAULT_RUNTIME_SANDBOX_PROVIDER = 'direct';
 export const DEFAULT_RUNTIME_DEPLOYMENT_MODE = 'workstation';
+// Per-process /llm/v1/* admission defaults: enough headroom for ordinary SDK
+// parallelism while bounding simultaneous body buffers and provider sockets.
+export const DEFAULT_LLM_GLOBAL_MAX_IN_FLIGHT = 32;
+export const DEFAULT_LLM_PER_APP_KEY_MAX_IN_FLIGHT = 8;
+export const DEFAULT_LIVE_ADMISSION_BACKLOG = 100;
 
 export function getDefaultRuntimeSandboxSettings(): RuntimeSandboxSettings {
   return {
@@ -166,6 +171,7 @@ export function createDefaultRuntimeSettings(): RuntimeSettings {
       maxMessageRuns: 3,
       maxJobRuns: 4,
       maxMessageBacklog: 0,
+      maxLiveAdmissionBacklog: DEFAULT_LIVE_ADMISSION_BACKLOG,
       maxTaskBacklog: 0,
       maxRetries: 5,
       baseRetryMs: 5000,
@@ -173,6 +179,10 @@ export function createDefaultRuntimeSettings(): RuntimeSettings {
     },
     liveTurns: {
       enabled: true,
+    },
+    llmAdmission: {
+      globalMaxInFlight: DEFAULT_LLM_GLOBAL_MAX_IN_FLIGHT,
+      perAppKeyMaxInFlight: DEFAULT_LLM_PER_APP_KEY_MAX_IN_FLIGHT,
     },
     sandbox: getDefaultRuntimeSandboxSettings(),
     artifactStore: {
@@ -199,6 +209,7 @@ export function createDefaultRuntimeSettings(): RuntimeSettings {
     egress: {
       denylist: [],
     },
+    trustedRoots: [],
     autoMode: {},
   };
   return {
@@ -231,6 +242,9 @@ export function createDefaultRuntimeSettings(): RuntimeSettings {
         captureContent: true,
         sampleRate: 1,
       },
+    },
+    observer: {
+      enabled: false,
     },
     modelFamilies: {},
     modelAliases: {},

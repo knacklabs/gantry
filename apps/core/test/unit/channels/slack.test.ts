@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import fs from 'fs';
+import os from 'node:os';
+import path from 'node:path';
 
 const defaultSlackPermissionApproverIds = vi.hoisted(() => new Set<string>());
 const currentControlAllowlist = vi.hoisted(() => ({
@@ -35,9 +37,11 @@ vi.mock('@core/infrastructure/logging/logger.js', () => ({
   updateLogContext: vi.fn(),
 }));
 
+const slackWorkspace = vi.hoisted(() => ({ root: '' }));
+
 vi.mock('@core/platform/workspace-folder.js', () => ({
   resolveWorkspaceFolderPath: vi.fn(
-    (folder: string) => `/tmp/test-groups/${folder}`,
+    (folder: string) => `${slackWorkspace.root}/${folder}`,
   ),
 }));
 
@@ -684,6 +688,9 @@ describe('Slack channel', () => {
     savedGantryHome = process.env.GANTRY_HOME;
     delete process.env.GANTRY_HOME;
     defaultSlackPermissionApproverIds.clear();
+    slackWorkspace.root = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'slack-channel-'),
+    );
   });
 
   afterEach(() => {
@@ -692,6 +699,8 @@ describe('Slack channel', () => {
     configurePendingInteractionDurability(null);
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+    fs.rmSync(slackWorkspace.root, { recursive: true, force: true });
   });
 
   it('createSlackChannel returns null when tokens are missing', async () => {
@@ -1044,13 +1053,6 @@ describe('Slack channel', () => {
         providerAccountId: 'slack_beta',
       },
     });
-    const mkdirSpy = vi.spyOn(fs, 'mkdirSync').mockReturnValue(undefined);
-    vi.spyOn(fs, 'lstatSync').mockReturnValue({
-      isDirectory: () => true,
-      isSymbolicLink: () => false,
-    } as any);
-    vi.spyOn(fs, 'chmodSync').mockReturnValue(undefined);
-    const writeSpy = vi.spyOn(fs, 'writeFileSync').mockReturnValue(undefined);
     vi.stubGlobal(
       'fetch',
       vi.fn().mockResolvedValue({
@@ -1088,20 +1090,20 @@ describe('Slack channel', () => {
         attachments: [
           expect.objectContaining({
             externalId: 'F123',
-            storageRef: 'attachments/report.pdf',
+            storageRef: expect.stringMatching(
+              /^attachments\/[a-f0-9]{16}-report\.pdf$/,
+            ),
           }),
         ],
       }),
     );
-    expect(mkdirSpy).toHaveBeenCalledWith(
-      '/tmp/test-groups/slack_sales/attachments',
-      { recursive: true, mode: 0o700 },
-    );
-    expect(writeSpy).toHaveBeenCalledWith(
-      '/tmp/test-groups/slack_sales/attachments/report.pdf',
-      expect.any(Buffer),
-      { mode: 0o600 },
-    );
+    const storageRef =
+      opts.onMessage.mock.calls[0][1].attachments[0].storageRef;
+    expect(
+      fs.readFileSync(
+        path.join(slackWorkspace.root, 'slack_sales', ...storageRef.split('/')),
+      ),
+    ).toEqual(Buffer.alloc(8));
   });
 
   it('leaves ambiguous shared Slack inbound messages unscoped for account fanout', async () => {
@@ -2476,13 +2478,6 @@ describe('Slack channel', () => {
           providerAccountId: 'slack_default',
         },
     });
-    const mkdirSpy = vi.spyOn(fs, 'mkdirSync').mockReturnValue(undefined);
-    vi.spyOn(fs, 'lstatSync').mockReturnValue({
-      isDirectory: () => true,
-      isSymbolicLink: () => false,
-    } as any);
-    vi.spyOn(fs, 'chmodSync').mockReturnValue(undefined);
-    const writeSpy = vi.spyOn(fs, 'writeFileSync').mockReturnValue(undefined);
     vi.stubGlobal(
       'fetch',
       vi.fn().mockResolvedValue({
@@ -2520,21 +2515,21 @@ describe('Slack channel', () => {
         attachments: [
           expect.objectContaining({
             externalId: 'F123',
-            storageRef: 'attachments/report.pdf',
+            storageRef: expect.stringMatching(
+              /^attachments\/[a-f0-9]{16}-report\.pdf$/,
+            ),
           }),
         ],
       }),
     );
     expect(opts.onMessage.mock.calls[0][1].content).not.toContain('/tmp/');
-    expect(mkdirSpy).toHaveBeenCalledWith(
-      '/tmp/test-groups/slack_ops/attachments',
-      { recursive: true, mode: 0o700 },
-    );
-    expect(writeSpy).toHaveBeenCalledWith(
-      '/tmp/test-groups/slack_ops/attachments/report.pdf',
-      expect.any(Buffer),
-      { mode: 0o600 },
-    );
+    const storageRef =
+      opts.onMessage.mock.calls[0][1].attachments[0].storageRef;
+    expect(
+      fs.readFileSync(
+        path.join(slackWorkspace.root, 'slack_ops', ...storageRef.split('/')),
+      ),
+    ).toEqual(Buffer.alloc(8));
   });
 
   it('does not download Slack attachments through a different provider account route', async () => {
@@ -2672,13 +2667,6 @@ describe('Slack channel', () => {
         providerAccountId: 'slack_default',
       },
     });
-    const mkdirSpy = vi.spyOn(fs, 'mkdirSync').mockReturnValue(undefined);
-    vi.spyOn(fs, 'lstatSync').mockReturnValue({
-      isDirectory: () => true,
-      isSymbolicLink: () => false,
-    } as any);
-    vi.spyOn(fs, 'chmodSync').mockReturnValue(undefined);
-    const writeSpy = vi.spyOn(fs, 'writeFileSync').mockReturnValue(undefined);
     vi.stubGlobal(
       'fetch',
       vi.fn().mockResolvedValue({
@@ -2712,17 +2700,21 @@ describe('Slack channel', () => {
     const message = opts.onMessage.mock.calls[0][1];
     expect(message.thread_id).toBe('1710000000.000100');
     expect(message.attachments[0]).toEqual(
-      expect.objectContaining({ storageRef: 'attachments/report.pdf' }),
+      expect.objectContaining({
+        storageRef: expect.stringMatching(
+          /^attachments\/[a-f0-9]{16}-report\.pdf$/,
+        ),
+      }),
     );
-    expect(mkdirSpy).toHaveBeenCalledWith(
-      '/tmp/test-groups/slack_ops/attachments',
-      { recursive: true, mode: 0o700 },
-    );
-    expect(writeSpy).toHaveBeenCalledWith(
-      '/tmp/test-groups/slack_ops/attachments/report.pdf',
-      expect.any(Buffer),
-      { mode: 0o600 },
-    );
+    expect(
+      fs.readFileSync(
+        path.join(
+          slackWorkspace.root,
+          'slack_ops',
+          ...message.attachments[0].storageRef.split('/'),
+        ),
+      ),
+    ).toEqual(Buffer.alloc(8));
   });
 
   it('does not download Slack attachments for multiple exact thread route folders', async () => {
@@ -2853,13 +2845,6 @@ describe('Slack channel', () => {
         providerAccountId: 'slack_default',
       },
     });
-    const mkdirSpy = vi.spyOn(fs, 'mkdirSync').mockReturnValue(undefined);
-    vi.spyOn(fs, 'lstatSync').mockReturnValue({
-      isDirectory: () => true,
-      isSymbolicLink: () => false,
-    } as any);
-    vi.spyOn(fs, 'chmodSync').mockReturnValue(undefined);
-    const writeSpy = vi.spyOn(fs, 'writeFileSync').mockReturnValue(undefined);
     vi.stubGlobal(
       'fetch',
       vi.fn().mockResolvedValue({
@@ -2896,27 +2881,30 @@ describe('Slack channel', () => {
       expect.objectContaining({
         thread_id: '1710000000.000111',
         attachments: [
-          expect.objectContaining({ storageRef: 'attachments/report.pdf' }),
+          expect.objectContaining({
+            storageRef: expect.stringMatching(
+              /^attachments\/[a-f0-9]{16}-report\.pdf$/,
+            ),
+          }),
         ],
       }),
     );
-    expect(mkdirSpy).toHaveBeenCalledWith(
-      '/tmp/test-groups/slack_thread/attachments',
-      { recursive: true, mode: 0o700 },
-    );
-    expect(writeSpy).toHaveBeenCalledWith(
-      '/tmp/test-groups/slack_thread/attachments/report.pdf',
-      expect.any(Buffer),
-      { mode: 0o600 },
-    );
+    const storageRef =
+      opts.onMessage.mock.calls[0][1].attachments[0].storageRef;
+    expect(
+      fs.readFileSync(
+        path.join(
+          slackWorkspace.root,
+          'slack_thread',
+          ...storageRef.split('/'),
+        ),
+      ),
+    ).toEqual(Buffer.alloc(8));
   });
 
-  it('resets Slack attachment file mode when overwriting buffered downloads', async () => {
-    vi.spyOn(fs, 'lstatSync').mockReturnValue({
-      isSymbolicLink: () => false,
-    } as any);
-    const writeSpy = vi.spyOn(fs, 'writeFileSync').mockReturnValue(undefined);
-    const chmodSpy = vi.spyOn(fs, 'chmodSync').mockReturnValue(undefined);
+  it('writes buffered Slack downloads through the real writer', async () => {
+    const workspaceRoot = path.join(slackWorkspace.root, 'slack_buffered');
+    fs.mkdirSync(path.join(workspaceRoot, 'attachments'), { recursive: true });
 
     await expect(
       writeSlackAttachmentResponse(
@@ -2925,29 +2913,23 @@ describe('Slack channel', () => {
           body: null,
           arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer,
         } as unknown as Response,
-        '/tmp/test-groups/slack_ops/attachments/report.pdf',
+        workspaceRoot,
+        'attachments/report.pdf',
       ),
     ).resolves.toBe(true);
 
-    expect(writeSpy).toHaveBeenCalledWith(
-      '/tmp/test-groups/slack_ops/attachments/report.pdf',
-      expect.any(Buffer),
-      { mode: 0o600 },
+    const attachmentPath = path.join(
+      workspaceRoot,
+      'attachments',
+      'report.pdf',
     );
-    expect(chmodSpy).toHaveBeenCalledWith(
-      '/tmp/test-groups/slack_ops/attachments/report.pdf',
-      0o600,
-    );
+    expect(fs.readFileSync(attachmentPath)).toEqual(Buffer.from([1, 2, 3]));
+    expect(fs.statSync(attachmentPath).mode & 0o777).toBe(0o600);
   });
 
-  it('resets Slack attachment file mode when overwriting streamed downloads', async () => {
-    vi.spyOn(fs, 'lstatSync').mockReturnValue({
-      isSymbolicLink: () => false,
-    } as any);
-    const openSpy = vi.spyOn(fs, 'openSync').mockReturnValue(123);
-    const writeSpy = vi.spyOn(fs, 'writeSync').mockReturnValue(2);
-    const closeSpy = vi.spyOn(fs, 'closeSync').mockReturnValue(undefined);
-    const chmodSpy = vi.spyOn(fs, 'chmodSync').mockReturnValue(undefined);
+  it('writes streamed Slack downloads through the real writer', async () => {
+    const workspaceRoot = path.join(slackWorkspace.root, 'slack_streamed');
+    fs.mkdirSync(path.join(workspaceRoot, 'attachments'), { recursive: true });
     const reader = {
       read: vi
         .fn()
@@ -2961,21 +2943,18 @@ describe('Slack channel', () => {
           headers: { get: () => null },
           body: { getReader: () => reader },
         } as unknown as Response,
-        '/tmp/test-groups/slack_ops/attachments/report.pdf',
+        workspaceRoot,
+        'attachments/report.pdf',
       ),
     ).resolves.toBe(true);
 
-    expect(openSpy).toHaveBeenCalledWith(
-      '/tmp/test-groups/slack_ops/attachments/report.pdf',
-      'w',
-      0o600,
+    const attachmentPath = path.join(
+      workspaceRoot,
+      'attachments',
+      'report.pdf',
     );
-    expect(writeSpy).toHaveBeenCalledWith(123, expect.any(Buffer));
-    expect(closeSpy).toHaveBeenCalledWith(123);
-    expect(chmodSpy).toHaveBeenCalledWith(
-      '/tmp/test-groups/slack_ops/attachments/report.pdf',
-      0o600,
-    );
+    expect(fs.readFileSync(attachmentPath)).toEqual(Buffer.from([1, 2]));
+    expect(fs.statSync(attachmentPath).mode & 0o777).toBe(0o600);
   });
 
   it('sends threaded Slack messages with thread_ts', async () => {
@@ -3252,6 +3231,110 @@ describe('Slack channel', () => {
       runId: 'run-1',
     });
     expect(appRef.current.client.chat.postEphemeral).not.toHaveBeenCalled();
+  });
+
+  async function invokeSlackReviewAction(
+    outcome: {
+      state: string;
+      receipt: string;
+      replacementText?: string;
+      clearActions?: boolean;
+    },
+    decision: 'approve' | 'reject' | 'edit' = 'approve',
+  ) {
+    const onMessageAction = vi.fn(async () => outcome);
+    const opts = {
+      ...createOptsWithApproverHook(['U_APPROVER']),
+      onMessageAction,
+    };
+    const channel = new SlackChannel('xoxb-token', 'xapp-token', opts as any);
+    await channel.connect();
+    const actionHandler = appRef.current.actionHandlers.get(
+      'gantry_message_action',
+    );
+    const ack = vi.fn();
+    await actionHandler({
+      ack,
+      action: {
+        value: JSON.stringify({
+          kind: 'memory_review_decision',
+          reviewId: 'mrv_abc',
+          decision,
+        }),
+      },
+      body: {
+        channel: { id: 'C1234567890' },
+        user: { id: 'U_APPROVER' },
+        message: { ts: '1710000000.100201', thread_ts: '1710000000.000111' },
+      },
+    });
+    return { ack, onMessageAction };
+  }
+
+  it('rebuilds the shared Slack message as a receipt with no buttons on applied', async () => {
+    const { ack, onMessageAction } = await invokeSlackReviewAction({
+      state: 'applied',
+      receipt: 'Memory review approved.',
+    });
+    expect(ack).toHaveBeenCalled();
+    expect(onMessageAction).toHaveBeenCalledWith({
+      kind: 'memory_review_decision',
+      conversationJid: 'sl:C1234567890',
+      providerAccountId: 'slack_default',
+      threadId: '1710000000.000111',
+      userId: 'U_APPROVER',
+      reviewId: 'mrv_abc',
+      decision: 'approve',
+      label: '',
+    });
+    const call = appRef.current.client.chat.update.mock.calls[0]?.[0];
+    expect(call).toMatchObject({
+      channel: 'C1234567890',
+      ts: '1710000000.100201',
+      text: 'Memory review approved.',
+    });
+    // Blocks are rebuilt (receipt section) with no actions block — buttons gone.
+    expect(call.blocks).toEqual([
+      {
+        type: 'section',
+        text: { type: 'mrkdwn', text: 'Memory review approved.' },
+      },
+    ]);
+    expect(appRef.current.client.chat.postEphemeral).not.toHaveBeenCalled();
+  });
+
+  it('delivers the reply-command ephemerally and leaves the shared Slack message intact on edit', async () => {
+    await invokeSlackReviewAction(
+      {
+        state: 'needs_input',
+        receipt: 'Reply to edit this review.',
+        replacementText: 'edit memory review mrv_abc: ',
+      },
+      'edit',
+    );
+    expect(appRef.current.client.chat.update).not.toHaveBeenCalled();
+    const ephemeral =
+      appRef.current.client.chat.postEphemeral.mock.calls[0]?.[0];
+    expect(ephemeral).toMatchObject({
+      channel: 'C1234567890',
+      user: 'U_APPROVER',
+    });
+    expect(ephemeral.text).toContain('edit memory review mrv_abc:');
+  });
+
+  it('delivers a denial ephemerally and leaves the shared Slack message intact', async () => {
+    await invokeSlackReviewAction(
+      { state: 'denied', receipt: 'Not authorized to decide this review.' },
+      'approve',
+    );
+    expect(appRef.current.client.chat.update).not.toHaveBeenCalled();
+    const ephemeral =
+      appRef.current.client.chat.postEphemeral.mock.calls[0]?.[0];
+    expect(ephemeral).toMatchObject({
+      channel: 'C1234567890',
+      user: 'U_APPROVER',
+      text: 'Not authorized to decide this review.',
+    });
   });
 
   it('does not render Slack live stop action buttons', async () => {
@@ -4803,8 +4886,79 @@ describe('Slack channel', () => {
     );
   });
 
+  it('settles a runner-cancelled Slack prompt and rejects a later persistent approval', async () => {
+    const channel = new SlackChannel(
+      'xoxb-token',
+      'xapp-token',
+      createOptsWithApproverHook(['U_APPROVER']) as any,
+    );
+    await channel.connect();
+    const request = {
+      requestId: 'perm-runner-cancelled',
+      appId: 'default',
+      sourceAgentFolder: 'slack_main',
+      targetJid: 'sl:C123',
+      toolName: 'Bash',
+      decisionOptions: ['allow_persistent_rule', 'cancel'] as const,
+    };
+    const repository = configureSlackPermissionRequest(request);
+    const approvalPromise = channel.requestPermissionApproval(
+      'sl:C123',
+      request,
+    );
+    await vi.waitFor(() =>
+      expect(repository.bindPendingPermissionPrompt).toHaveBeenCalledTimes(2),
+    );
+    const persistentAction = latestSlackPermissionActionValue(
+      'gantry_perm_decision_allow_persistent_rule',
+    );
+
+    await expect(
+      channel.cancelPendingPermission({
+        requestId: request.requestId,
+        appId: request.appId,
+        sourceAgentFolder: request.sourceAgentFolder,
+        reason: 'Permission request cancelled.',
+      }),
+    ).resolves.toBe('settled');
+    await expect(approvalPromise).resolves.toMatchObject({
+      approved: false,
+      mode: 'cancel',
+      decidedBy: 'runtime',
+      reason: 'Permission request cancelled.',
+    });
+
+    const respond = vi.fn().mockResolvedValue({});
+    await appRef.current.actionHandlers.get(
+      'gantry_perm_decision_allow_persistent_rule',
+    )?.({
+      ack: vi.fn().mockResolvedValue(undefined),
+      respond,
+      body: {
+        channel: { id: 'C123' },
+        response_url: 'https://hooks.slack.test/actions/late-persistent',
+        user: { id: 'U_APPROVER', name: 'Approver' },
+      },
+      action: { value: JSON.stringify(persistentAction) },
+    });
+
+    expect(respond).toHaveBeenCalledWith(
+      expect.objectContaining({
+        replace_original: true,
+        text: expect.stringMatching(/^Canceled:/),
+      }),
+    );
+    expect(repository.claimPendingPermissionCallback).toHaveBeenCalledOnce();
+    expect(repository.claimPendingPermissionCallback).toHaveBeenCalledWith({
+      claim: expect.objectContaining({
+        intent: expect.objectContaining({ mode: 'cancel' }),
+      }),
+    });
+  });
+
   it('preserves the winner when timeout fires after another callback claimed', async () => {
     vi.useFakeTimers();
+    vi.stubEnv('GANTRY_AUTONOMOUS_PERMISSION_TIMEOUT_MS', '300000');
     const channel = new SlackChannel(
       'xoxb-token',
       'xapp-token',
@@ -4815,6 +4969,7 @@ describe('Slack channel', () => {
       requestId: 'perm-timeout-claim-race',
       sourceAgentFolder: 'slack_main',
       toolName: 'Bash',
+      permissionLane: 'autonomous' as const,
     };
     const raceRepository = configureSlackPermissionRequest(request);
     const approvalPromise = channel.requestPermissionApproval(
@@ -5800,6 +5955,83 @@ describe('Slack channel', () => {
     expect(answer.answeredBy).toBe('Alice');
   });
 
+  it('settles a runner-cancelled Slack question and rejects a late answer', async () => {
+    defaultSlackPermissionApproverIds.add('U123');
+    const channel = new SlackChannel(
+      'xoxb-token',
+      'xapp-token',
+      createOptsWithApproverHook(['U123']) as any,
+    );
+    await channel.connect();
+    const request = {
+      requestId: 'userq-runner-cancelled',
+      sourceAgentFolder: 'slack_main',
+      targetJid: 'sl:C1234567890',
+      questions: [
+        {
+          header: 'Continue',
+          question: 'Continue?',
+          options: [
+            { label: 'Yes', description: 'Proceed' },
+            { label: 'No', description: 'Wait' },
+          ],
+          multiSelect: false,
+        },
+      ],
+    };
+    const answerPromise = requestSlackUserAnswer(
+      channel,
+      'sl:C1234567890',
+      request,
+    );
+    await flushSlackPromptRegistration();
+    const lateAction = latestSlackUserQuestionActionValue(
+      'gantry_userq_select',
+      0,
+    );
+
+    await expect(
+      channel.cancelPendingQuestion({
+        requestId: request.requestId,
+        sourceAgentFolder: request.sourceAgentFolder,
+        reason: 'Question cancelled. Nothing changed.',
+      }),
+    ).resolves.toBe('settled');
+    await expect(answerPromise).resolves.toEqual({
+      requestId: request.requestId,
+      answers: {},
+    });
+    expect(
+      answerPromise.repository.resolvePendingInteraction,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: 'cancelled',
+        resolution: {
+          answers: {},
+          reason: 'Question cancelled. Nothing changed.',
+        },
+      }),
+    );
+    expect(appRef.current.client.chat.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: expect.stringContaining('Question cancelled'),
+      }),
+    );
+
+    const actionHandler = slackActionHandler('gantry_userq_select_0');
+    await actionHandler?.({
+      ack: vi.fn().mockResolvedValue(undefined),
+      body: {
+        channel: { id: 'C1234567890' },
+        user: { id: 'U123', name: 'Alice' },
+      },
+      action: { value: JSON.stringify(lateAction) },
+    });
+    expect(
+      answerPromise.repository.resolvePendingInteraction,
+    ).toHaveBeenCalledTimes(1);
+  });
+
   it('resolves Slack user question from the Other free-text modal', async () => {
     defaultSlackPermissionApproverIds.add('U123');
     const channel = new SlackChannel(
@@ -6086,6 +6318,48 @@ describe('Slack channel', () => {
       completedQuestionIndexes: [0],
     });
     vi.useRealTimers();
+  });
+
+  it('does not schedule an interactive sentinel Slack question timer', async () => {
+    vi.useFakeTimers();
+    vi.stubEnv('GANTRY_INTERACTIVE_PERMISSION_TIMEOUT_MS', '0');
+    const channel = new SlackChannel(
+      'xoxb-token',
+      'xapp-token',
+      createOptsWithApproverHook(['U_APPROVER']) as any,
+    );
+    await channel.connect();
+
+    const answer = requestSlackUserAnswer(channel, 'sl:C1234567890', {
+      requestId: 'userq-interactive-no-timeout',
+      sourceAgentFolder: 'slack_main',
+      permissionLane: 'interactive',
+      questions: [
+        {
+          header: 'Continue',
+          question: 'Continue?',
+          options: [{ label: 'Yes', description: 'Proceed' }],
+          multiSelect: false,
+        },
+      ],
+    } as import('@core/domain/types.js').UserQuestionRequest & {
+      permissionLane: 'interactive';
+    });
+    await flushSlackPromptRegistration();
+
+    const questions = (channel as any).pendingUserQuestions as Map<string, any>;
+    const pending = [...questions.values()][0];
+    expect(pending.timer).toBeUndefined();
+    await vi.advanceTimersByTimeAsync(24 * 60 * 60_000);
+    expect(questions.size).toBe(1);
+
+    questions.clear();
+    pending.resolve({ selected: 'Yes', answeredBy: 'Alice' });
+    await expect(answer).resolves.toMatchObject({
+      answers: { 'Continue?': 'Yes' },
+      answeredBy: 'Alice',
+    });
+    await channel.disconnect();
   });
 
   it('cleans up pending Slack user-question prompts on disconnect', async () => {
@@ -7175,6 +7449,7 @@ describe('Slack channel', () => {
 
   it('resolves an ephemeral Slack permission prompt on timeout without message mutation', async () => {
     vi.useFakeTimers();
+    vi.stubEnv('GANTRY_AUTONOMOUS_PERMISSION_TIMEOUT_MS', '300000');
     const channel = new SlackChannel(
       'xoxb-token',
       'xapp-token',
@@ -7189,6 +7464,7 @@ describe('Slack channel', () => {
         requestId: 'req-timeout',
         sourceAgentFolder: 'test',
         toolName: 'shell',
+        permissionLane: 'autonomous',
       },
     );
     await flushSlackPromptRegistration();
@@ -7205,8 +7481,72 @@ describe('Slack channel', () => {
     vi.useRealTimers();
   });
 
+  it('does not schedule an interactive sentinel Slack permission timer', async () => {
+    vi.useFakeTimers();
+    vi.stubEnv('GANTRY_INTERACTIVE_PERMISSION_TIMEOUT_MS', '0');
+    const channel = new SlackChannel(
+      'xoxb-token',
+      'xapp-token',
+      createOptsWithApproverHook(['U_APPROVER']) as any,
+    );
+    await channel.connect();
+
+    const approval = requestSlackPermissionApproval(channel, 'sl:C1234567890', {
+      requestId: 'req-interactive-no-timeout',
+      sourceAgentFolder: 'test',
+      toolName: 'shell',
+      permissionLane: 'interactive',
+    });
+    await flushSlackPromptRegistration();
+
+    const prompts = (channel as any).pendingPermissionPrompts as Map<
+      string,
+      any
+    >;
+    const pending = [...prompts.values()][0];
+    expect(pending.timer).toBeUndefined();
+    await vi.advanceTimersByTimeAsync(24 * 60 * 60_000);
+    expect(prompts.size).toBe(1);
+
+    prompts.clear();
+    pending.resolve({ approved: false, mode: 'cancel', decidedBy: 'system' });
+    await approval;
+    await channel.disconnect();
+  });
+
+  it('uses the supplied finite timeout for a lane-less Slack permission', async () => {
+    vi.useFakeTimers();
+    const channel = new SlackChannel(
+      'xoxb-token',
+      'xapp-token',
+      createOptsWithApproverHook(['U_APPROVER']) as any,
+    );
+    await channel.connect();
+
+    const approval = requestSlackPermissionApproval(channel, 'sl:C1234567890', {
+      requestId: 'req-lane-less-fallback',
+      sourceAgentFolder: 'test',
+      toolName: 'shell',
+    });
+    await flushSlackPromptRegistration();
+
+    const prompts = (channel as any).pendingPermissionPrompts as Map<
+      string,
+      any
+    >;
+    const pending = [...prompts.values()][0];
+    expect(pending.timer).toBeDefined();
+
+    clearTimeout(pending.timer);
+    prompts.clear();
+    pending.resolve({ approved: false, mode: 'cancel', decidedBy: 'system' });
+    await approval;
+    await channel.disconnect();
+  });
+
   it('resolves the Slack waiter after retryable timeout claims exhaust bounded retries', async () => {
     vi.useFakeTimers();
+    vi.stubEnv('GANTRY_AUTONOMOUS_PERMISSION_TIMEOUT_MS', '300000');
     const channel = new SlackChannel(
       'xoxb-token',
       'xapp-token',
@@ -7217,6 +7557,7 @@ describe('Slack channel', () => {
       requestId: 'req-timeout-retryable',
       sourceAgentFolder: 'test',
       toolName: 'shell',
+      permissionLane: 'autonomous' as const,
     };
     const repository = configureSlackPermissionRequest(request);
     repository.claimPendingPermissionCallback.mockRejectedValue(
@@ -7243,6 +7584,7 @@ describe('Slack channel', () => {
 
   it('resolves permission prompt once even if timeout is reached later', async () => {
     vi.useFakeTimers();
+    vi.stubEnv('GANTRY_AUTONOMOUS_PERMISSION_TIMEOUT_MS', '300000');
     defaultSlackPermissionApproverIds.add('U_APPROVER');
     const channel = new SlackChannel(
       'xoxb-token',
@@ -7258,6 +7600,7 @@ describe('Slack channel', () => {
         requestId: 'req-1',
         sourceAgentFolder: 'test',
         toolName: 'shell',
+        permissionLane: 'autonomous',
       },
     );
     await flushSlackPromptRegistration();

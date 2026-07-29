@@ -1,5 +1,9 @@
 # Goal Prompt: Permission Management Simplification
 
+> **Historical goal record.** This work was folded into and superseded by the
+> shipped permission-engine redesign. Use `capability-management.md` and the
+> Current shipped contract in `permission-engine-redesign-goal-prompt.md`.
+
 ## Objective (user vision, 2026-07-16)
 
 Users just use agents, install skills, and add MCP servers. Commands underneath

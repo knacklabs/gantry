@@ -30,6 +30,10 @@ import {
   validateTransportConfig,
 } from './mcp-server-policy.js';
 import type { HostnameLookup } from '../../domain/network/public-address-policy.js';
+import {
+  type AgentAccessSnapshot,
+  assertHostAccessSnapshot,
+} from '../agent-execution/agent-access-snapshot.js';
 import { reviewedMcpToolPatterns } from '../../shared/mcp-tool-scope.js';
 import {
   materializeMcpRecord,
@@ -391,12 +395,22 @@ export class McpServerService {
     agentId: AgentId;
     serverIds?: readonly McpServerId[];
     credentialEnv?: Record<string, string>;
+    accessSnapshot?: AgentAccessSnapshot;
   }): Promise<MaterializedMcpCapability[]> {
     if (input.serverIds && input.serverIds.length === 0) {
       return [];
     }
+    const accessSnapshot = assertHostAccessSnapshot({
+      accessSnapshot: input.accessSnapshot,
+      appId: input.appId,
+      agentId: input.agentId,
+      subject: 'MCP materialization',
+    });
+    const selectedIds = input.serverIds ? new Set(input.serverIds) : undefined;
     const records =
-      await this.mcpServers.listMaterializedServersForAgent(input);
+      accessSnapshot?.mcp.materializedServers.filter(
+        (record) => !selectedIds || selectedIds.has(record.definition.id),
+      ) ?? (await this.mcpServers.listMaterializedServersForAgent(input));
     const settled = await Promise.allSettled(
       records.map((record) =>
         this.materializeOne(record, input.credentialEnv ?? {}),

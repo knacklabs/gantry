@@ -15,6 +15,7 @@ import {
   skillCapabilityId,
   toolchainCapabilityId,
 } from '@core/jobs/worker-capability-reconciler.js';
+import type { AgentAccessSnapshot } from '@core/application/agent-execution/agent-access-snapshot.js';
 
 function skillsRepo(
   bindings: Array<{ skillId: string; status: 'active' | 'disabled' }>,
@@ -150,6 +151,48 @@ describe('resolveRequiredCapabilities', () => {
     );
     expect(result).toEqual(
       [skillCapabilityId('s1'), toolchainCapabilityId('sha256:h1')].sort(),
+    );
+  });
+
+  it('uses snapshot skill selections while keeping runtime dependencies live', async () => {
+    const skills = skillsRepo([{ skillId: 'stale', status: 'active' }]);
+    const accessSnapshot = {
+      appId: 'default',
+      agentId: 'agent:a',
+      tools: { activeBindings: [], appActiveDefinitions: [] },
+      skills: {
+        activeBindings: [
+          {
+            binding: {
+              appId: 'default',
+              agentId: 'agent:a',
+              skillId: 'selected',
+              status: 'active',
+            },
+            definition: null,
+          },
+        ],
+        enabledDefinitions: [],
+      },
+      mcp: { activeBindings: [], materializedServers: [] },
+    } as unknown as AgentAccessSnapshot;
+
+    const result = await resolveRequiredCapabilities(
+      {
+        deploymentMode: 'fleet',
+        skills,
+        runtimeDependencies: depsRepo([
+          dep({ manifestHash: 'sha256:h1', requestedByAgentId: 'agent:a' }),
+        ]),
+      },
+      { appId: 'default', agentId: 'agent:a', accessSnapshot },
+    );
+
+    expect(result).toEqual(
+      [
+        skillCapabilityId('selected'),
+        toolchainCapabilityId('sha256:h1'),
+      ].sort(),
     );
   });
 

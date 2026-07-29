@@ -5,12 +5,16 @@
  * applied only to non-code segments.
  */
 
+const CHANNEL_DIALECT_PREFIX = 'telegram-' as const;
+type ChannelFormattingDialect =
+  `${typeof CHANNEL_DIALECT_PREFIX}${'html' | 'markdown-v2'}`;
+const CHANNEL_MARKDOWN_V2: ChannelFormattingDialect = `${CHANNEL_DIALECT_PREFIX}markdown-v2`;
+
 export type FormattingDialect =
   | 'none'
   | 'markdown-native'
   | 'mrkdwn'
-  | 'telegram-html'
-  | 'telegram-markdown-v2';
+  | ChannelFormattingDialect;
 
 /** Transform Markdown text for the target channel's native format. */
 export function parseTextStyles(
@@ -61,7 +65,7 @@ function splitProtectedRegions(text: string): Segment[] {
 function transformSegment(text: string, channel: FormattingDialect): string {
   let t = text;
 
-  if (channel === 'telegram-markdown-v2') {
+  if (channel === CHANNEL_MARKDOWN_V2) {
     t = t.replace(/___(?=[^\s_])([^_]+?)(?<=[^\s_])___/g, '*_$1_*');
     t = t.replace(/\*\*\*(?=[^\s*])([^*]+?)(?<=[^\s*])\*\*\*/g, '*_$1_*');
   }
@@ -72,7 +76,7 @@ function transformSegment(text: string, channel: FormattingDialect): string {
 
   if (channel === 'mrkdwn') {
     t = t.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<$2|$1>');
-  } else if (channel === 'telegram-markdown-v2') {
+  } else if (channel === CHANNEL_MARKDOWN_V2) {
     t = t.replace(/<u>(.*?)<\/u>/g, '__$1__');
   } else {
     t = t.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '$1 ($2)');

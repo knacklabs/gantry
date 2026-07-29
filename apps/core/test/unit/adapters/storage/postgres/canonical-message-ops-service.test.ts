@@ -56,6 +56,18 @@ function flattenSqlShape(value: unknown, seen = new Set<object>()): string {
   ].join(' ');
 }
 
+function liveAdmissionSelectMock() {
+  return vi.fn(() => ({
+    from: vi.fn(() => ({
+      where: vi.fn(() => ({
+        limit: vi.fn(async () => []),
+        then: (resolve: (rows: Array<{ count: number }>) => void) =>
+          resolve([{ count: 0 }]),
+      })),
+    })),
+  }));
+}
+
 describe('CanonicalMessageOpsService', () => {
   it('does not pass an after boundary for an empty group cursor', async () => {
     const listInboundMessages = vi.fn().mockResolvedValue([]);
@@ -918,7 +930,8 @@ describe('CanonicalMessageOpsService', () => {
   it('uses live admission provider account before ensuring conversation scope', async () => {
     const insertedValues: unknown[] = [];
     const tx = {
-      select: vi.fn(),
+      execute: vi.fn(async () => undefined),
+      select: liveAdmissionSelectMock(),
       insert: vi.fn(() => ({
         values: vi.fn((values: unknown) => {
           insertedValues.push(values);
@@ -993,7 +1006,8 @@ describe('CanonicalMessageOpsService', () => {
   it('agent-qualifies live admission work item identity and queue jid', async () => {
     const insertedValues: unknown[] = [];
     const tx = {
-      select: vi.fn(),
+      execute: vi.fn(async () => undefined),
+      select: liveAdmissionSelectMock(),
       insert: vi.fn(() => ({
         values: vi.fn((values: unknown) => {
           insertedValues.push(values);
@@ -1102,7 +1116,8 @@ describe('CanonicalMessageOpsService', () => {
   it('stamps the internal control provider account for providerless app-session admission', async () => {
     const insertedValues: unknown[] = [];
     const tx = {
-      select: vi.fn(),
+      execute: vi.fn(async () => undefined),
+      select: liveAdmissionSelectMock(),
       insert: vi.fn(() => ({
         values: vi.fn((values: unknown) => {
           insertedValues.push(values);
@@ -1180,7 +1195,8 @@ describe('CanonicalMessageOpsService', () => {
   it('reuses an existing conversation installation for providerless live admission', async () => {
     const insertedValues: unknown[] = [];
     const tx = {
-      select: vi.fn(),
+      execute: vi.fn(async () => undefined),
+      select: liveAdmissionSelectMock(),
       insert: vi.fn(() => ({
         values: vi.fn((values: unknown) => {
           insertedValues.push(values);
@@ -1426,5 +1442,31 @@ describe('CanonicalMessageOpsService', () => {
     expect(
       JSON.stringify(notifyLiveAdmissionWorkItem.mock.calls),
     ).not.toContain('sensitive body');
+  });
+
+  it('does not publish a wakeup for overloaded admission', async () => {
+    const notifyLiveAdmissionWorkItem = vi.fn(async () => {});
+    const service = new CanonicalMessageOpsService(
+      {
+        saveMessage: vi.fn(async () => ({ outcome: 'overloaded' as const })),
+      } as unknown as PostgresCanonicalMessageRepository,
+      { notifyLiveAdmissionWorkItem },
+    );
+
+    await expect(
+      service.storeMessageWithLiveAdmission(
+        {
+          id: 'provider-message-overloaded',
+          chat_jid: 'tg:one',
+          provider: 'telegram',
+          sender: '42',
+          sender_name: 'Ravi',
+          content: 'canonical but not admitted',
+          timestamp: '2026-05-06T00:00:01.000Z',
+        },
+        { appId: 'default' },
+      ),
+    ).resolves.toEqual({ outcome: 'overloaded' });
+    expect(notifyLiveAdmissionWorkItem).not.toHaveBeenCalled();
   });
 });

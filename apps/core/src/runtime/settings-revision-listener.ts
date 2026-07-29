@@ -3,10 +3,12 @@ import type {
   SettingsRevision,
   SettingsRevisionRepository,
 } from '../domain/ports/fleet-capability-state.js';
+import type { RuntimeLeasePort } from '../domain/ports/runtime-lease.js';
 import type {
   SettingsDesiredStateOps,
   SettingsDesiredStateRepositories,
 } from '../config/settings/desired-state-service.js';
+import type { EffectiveControlRuntimeSettings } from '../application/control-plane/control-plane-storage-model.js';
 import {
   CURRENT_SETTINGS_READER_VERSION,
   importWorkstationSettings,
@@ -17,6 +19,7 @@ import {
   markSettingsLoaded,
   markSettingsNotLoaded,
 } from './settings-load-state.js';
+import { withSettingsProjectorLease } from '../domain/ports/settings-projector-lease.js';
 
 export interface SettingsRevisionSkewAlert {
   appId: string;
@@ -29,6 +32,7 @@ export interface SettingsRevisionListenerDeps {
   appId: AppId;
   runtimeHome: string;
   settingsRevisions: SettingsRevisionRepository;
+  leases: RuntimeLeasePort;
   ops: SettingsDesiredStateOps;
   repositories: SettingsDesiredStateRepositories;
   wakeupSource: SettingsRevisionWakeupSource;
@@ -38,13 +42,15 @@ export interface SettingsRevisionListenerDeps {
   readerVersion?: number;
   onSkewAlert?: (alert: SettingsRevisionSkewAlert) => void;
   /**
-   * Invoked exactly once, after the FIRST revision is applied by this listener.
-   * Fleet boot uses it to release services held while no desired state existed
+   * Invoked for the FIRST revision until it succeeds, then never again. Fleet
+   * boot uses it to release services held while no desired state existed
    * (scheduler job claiming, capability subsystems). Never fired on skew-hold.
-   * Errors are logged, not thrown — a failed deferred start must not poison
-   * the applied revision.
+   * A failed deferred start keeps the revision pending so the listener retries
+   * the callback before marking settings loaded.
    */
-  onFirstRevisionApplied?: () => Promise<void> | void;
+  onFirstRevisionApplied?: (
+    settings: EffectiveControlRuntimeSettings,
+  ) => Promise<void> | void;
   logWarn?: (context: Record<string, unknown>, message: string) => void;
   logInfo?: (context: Record<string, unknown>, message: string) => void;
   setIntervalFn?: typeof setInterval;
@@ -111,6 +117,10 @@ export class SettingsRevisionListener {
 
   /** Trigger one apply pass, coalescing overlapping wakeups. */
   wake(): void {
+    this.runApply(true);
+  }
+
+  private runApply(retryOnFailure: boolean): void {
     if (this.stopped) return;
     if (this.inFlight) {
       this.rerunRequested = true;
@@ -118,14 +128,18 @@ export class SettingsRevisionListener {
     }
     this.inFlight = this.applyLatest()
       .then(() => undefined)
-      .catch((err) =>
-        this.deps.logWarn?.({ err }, 'Settings revision apply failed'),
-      )
+      .catch((err) => {
+        this.deps.logWarn?.({ err }, 'Settings revision apply failed');
+        markSettingsNotLoaded();
+        if (retryOnFailure && !this.stopped) {
+          this.rerunRequested = true;
+        }
+      })
       .finally(() => {
         this.inFlight = null;
         if (this.rerunRequested && !this.stopped) {
           this.rerunRequested = false;
-          this.wake();
+          this.runApply(false);
         }
       });
   }
@@ -148,12 +162,25 @@ export class SettingsRevisionListener {
     if (latest.revision <= this.appliedRevision) {
       return { result: 'unchanged' };
     }
-    if (latest.minReaderVersion > this.readerVersion) {
-      this.holdForSkew(latest);
-      return { result: 'held', revision: latest.revision };
-    }
-    await this.applyRevision(latest);
-    return { result: 'applied', revision: latest.revision };
+    return withSettingsProjectorLease(
+      this.deps.leases,
+      this.deps.appId,
+      async () => {
+        const head =
+          await this.deps.settingsRevisions.getLatestSettingsRevision(
+            this.deps.appId,
+          );
+        if (!head || head.revision <= this.appliedRevision) {
+          return { result: 'unchanged' };
+        }
+        if (head.minReaderVersion > this.readerVersion) {
+          this.holdForSkew(head);
+          return { result: 'held', revision: head.revision };
+        }
+        await this.applyRevision(head);
+        return { result: 'applied', revision: head.revision };
+      },
+    );
   }
 
   /** Revision number currently applied (0 before any apply). */
@@ -189,23 +216,17 @@ export class SettingsRevisionListener {
         ops: this.deps.ops,
         repositories: this.deps.repositories,
         appId: this.deps.appId,
+        projectionAuthority: 'revision',
         reloadRuntimeState: this.deps.reloadRuntimeState,
       },
       settings,
     );
     const previousRevision = this.appliedRevision;
-    this.appliedRevision = revision.revision;
     if (previousRevision === 0) {
-      markSettingsLoaded();
-      try {
-        await this.deps.onFirstRevisionApplied?.();
-      } catch (err) {
-        this.deps.logWarn?.(
-          { err, revision: revision.revision },
-          'First-revision start hook failed; held services may need a restart',
-        );
-      }
+      await this.deps.onFirstRevisionApplied?.(settings);
     }
+    this.appliedRevision = revision.revision;
+    markSettingsLoaded();
     this.deps.logInfo?.(
       { appId: revision.appId, revision: revision.revision },
       'Applied settings revision',

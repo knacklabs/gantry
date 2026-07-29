@@ -44,6 +44,7 @@ import { runClaudeInlineAgentLoopLane } from '@core/adapters/llm/anthropic-claud
 import { createInlineToolActivity } from '@core/adapters/llm/inline-lane-tool-activity.js';
 import { InMemoryInlineRunnerControlPort } from '@core/runtime/agent-inline.js';
 import { DEFAULT_AGENT_ENGINE } from '@core/shared/agent-engine.js';
+import { hashSkillBundle } from '@core/shared/skill-artifact-helpers.js';
 
 function laneInput(overrides: Record<string, unknown> = {}) {
   const gatewayBaseUrlKey = ['ANTHROPIC', 'BASE_URL'].join('_');
@@ -158,6 +159,17 @@ describe('Claude inline lane', () => {
       },
     }));
     const base = laneInput();
+    const skillBundle = {
+      assets: [
+        {
+          path: 'SKILL.md',
+          contentType: 'text/markdown',
+          content: Buffer.from(
+            '---\\nname: ATS_Skills\\ndescription: ATS workflow\\n---\\n# ATS',
+          ),
+        },
+      ],
+    };
 
     await runClaudeInlineAgentLoopLane(
       laneInput({
@@ -180,7 +192,7 @@ describe('Claude inline lane', () => {
               storage: {
                 storageType: 'local-filesystem',
                 storageRef: 'skills/ATS_Skills',
-                contentHash: 'sha256:test',
+                contentHash: hashSkillBundle(skillBundle),
                 sizeBytes: 128,
               },
               createdAt: new Date(0).toISOString(),
@@ -189,17 +201,7 @@ describe('Claude inline lane', () => {
           ]),
         },
         skillArtifactStore: {
-          getSkillArtifact: vi.fn(async () => ({
-            assets: [
-              {
-                path: 'SKILL.md',
-                contentType: 'text/markdown',
-                content: Buffer.from(
-                  '---\\nname: ATS_Skills\\ndescription: ATS workflow\\n---\\n# ATS',
-                ),
-              },
-            ],
-          })),
+          getSkillArtifact: vi.fn(async () => skillBundle),
         },
       }),
     );

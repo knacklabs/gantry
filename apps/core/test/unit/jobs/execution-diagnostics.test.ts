@@ -86,6 +86,54 @@ describe('execution diagnostics', () => {
     ]);
   });
 
+  it('keeps explicit human and user allow_once approvals transient', () => {
+    for (const decidedBy of ['human', 'user:approver']) {
+      const diagnostics = createJobRunDiagnostics();
+
+      updateDiagnosticsFromRuntimeEvent(
+        diagnostics,
+        RUNTIME_EVENT_TYPES.JOB_TOOL_ACTIVITY,
+        {
+          phase: 'permission_allowed',
+          tool: 'Bash',
+          mode: 'allow_once',
+          decidedBy,
+          ok: true,
+        },
+      );
+
+      expect(diagnostics.transientPermissionApprovals).toEqual([
+        {
+          toolName: 'Bash',
+          mode: 'allow_once',
+        },
+      ]);
+    }
+  });
+
+  it('does not classify reviewed-rule allow_once approvals as transient', () => {
+    for (const provenance of [
+      { decidedBy: 'reviewed_rule' },
+      { decided_by: 'reviewed_rule' },
+    ]) {
+      const diagnostics = createJobRunDiagnostics();
+
+      updateDiagnosticsFromRuntimeEvent(
+        diagnostics,
+        RUNTIME_EVENT_TYPES.JOB_TOOL_ACTIVITY,
+        {
+          phase: 'permission_allowed',
+          tool: 'Bash',
+          mode: 'allow_once',
+          ok: true,
+          ...provenance,
+        },
+      );
+
+      expect(diagnostics.transientPermissionApprovals).toEqual([]);
+    }
+  });
+
   it('aggregates startup diagnostics with sanitized count and timing fields', () => {
     const diagnostics = createJobRunDiagnostics();
 

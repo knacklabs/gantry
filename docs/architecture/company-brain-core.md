@@ -36,4 +36,4 @@ Verification for this slice:
 - `npm run test:unit -- apps/core/test/unit/brain/`
 - `npm run test:integration:postgres -- apps/core/test/integration/brain-core.postgres.integration.test.ts`
 - `npm run test:integration:postgres -- apps/core/test/integration/brain-harvest-dreaming.postgres.integration.test.ts`
-- `python3 .codex/scripts/check_architecture.py`
+- `python3 scripts/check_architecture.py`

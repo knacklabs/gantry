@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { ConversationRoute } from '@core/domain/types.js';
 import type { AgentInput } from '@core/runtime/agent-spawn-types.js';
+import '@core/channels/register-builtins.js';
 import {
   compileSpawnSystemPrompt,
   resolveSpawnPromptAccessPreset,

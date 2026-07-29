@@ -34,7 +34,7 @@ describe('job tool access requirements', () => {
     ]);
   });
 
-  it('rejects raw browser and broad wildcard tool access requirement rules', () => {
+  it('rejects projected and host-private browser tools plus broad wildcards', () => {
     expect(() =>
       normalizeToolAccessRequirements([
         'mcp__browser' + '_' + 'backend' + '__navigate',
@@ -174,12 +174,28 @@ describe('job tool access requirements', () => {
     expect(delegationAction).toContain('"kind":"tool"');
     expect(delegationAction).toContain('"name":"AgentDelegation"');
 
-    const adminAction = toolAccessRequirementRecoveryAction(
+    for (const toolName of [
+      'mcp__gantry__scheduler_upsert_job',
+      'mcp__gantry__scheduler_update_job',
+      'mcp__gantry__scheduler_delete_job',
+      'mcp__gantry__scheduler_pause_job',
+      'mcp__gantry__scheduler_resume_job',
+    ]) {
+      const action = toolAccessRequirementRecoveryAction(toolName);
+      expect(action, toolName).toContain('"kind":"tool"');
+      expect(action, toolName).toContain(`"name":"${toolName}"`);
+    }
+
+    for (const toolName of [
+      'mcp__gantry__mcp_call_tool',
+      'mcp__gantry__delegate_task',
       'mcp__gantry__request_settings_update',
-    );
-    expect(adminAction).toContain('"kind":"tool"');
-    expect(adminAction).toContain(
-      '"name":"mcp__gantry__request_settings_update"',
-    );
+      'mcp__gantry__memory_review_decision',
+    ]) {
+      expect(
+        toolAccessRequirementRecoveryAction(toolName),
+        toolName,
+      ).not.toContain('"kind":"tool"');
+    }
   });
 });

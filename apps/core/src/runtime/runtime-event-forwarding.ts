@@ -3,6 +3,7 @@ import {
   isRuntimeEventType,
   RUNTIME_EVENT_TYPES,
 } from '../domain/events/runtime-event-types.js';
+import { logger } from '../infrastructure/logging/logger.js';
 import type { AgentOutput } from './agent-spawn.js';
 
 export { RUNTIME_EVENT_TYPES };
@@ -64,7 +65,6 @@ export async function forwardRuntimeEvents(input: {
       payload: event.payload,
     });
     if (input.forwardedKeys.has(eventKey)) continue;
-    input.forwardedKeys.add(eventKey);
     try {
       await publishRuntimeEvent({
         appId: appId as never,
@@ -84,10 +84,24 @@ export async function forwardRuntimeEvents(input: {
         responseMode: event.responseMode ?? 'none',
         payload: event.payload,
       });
-    } catch {
+      // Mark forwarded only after a successful publish so a failed event
+      // remains retriable on a later forwarding pass in the same turn.
+      input.forwardedKeys.add(eventKey);
+    } catch (error) {
       // Runtime events are observability/audit breadcrumbs. They must not
       // fail a user-visible turn when storage is temporarily unhealthy or
-      // schema drift is being repaired.
+      // schema drift is being repaired. The key is intentionally NOT added,
+      // so a later forwarding pass can retry this event.
+      logger.warn(
+        {
+          error,
+          eventType: event.eventType,
+          conversationId: event.conversationId ?? input.chatJid,
+          runId: event.runId ?? input.runId,
+          agentId: event.agentId ?? input.turnAgentId,
+        },
+        'Failed to persist forwarded runtime event; will remain retriable',
+      );
     }
   }
 }

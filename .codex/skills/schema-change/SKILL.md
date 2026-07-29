@@ -15,7 +15,7 @@ Use this skill when a task changes Postgres schema files, migrations, repositori
 4. Use `settings-control-plane` when the database state mirrors `settings.yaml` desired state, and state whether Postgres is source of truth or projection.
 5. Do not add migration compatibility commands, automatic old-state import flows, or cleanup shims unless a decision record explicitly approves them.
 6. Add or update repository/storage tests that exercise reads, writes, and failure behavior for the changed schema.
-7. Run the smallest relevant repository tests plus `python3 .codex/scripts/check_task_completion.py` before final handoff when possible.
+7. Run the smallest relevant repository tests plus `python3 .agents/scripts/verify.py` before final handoff when possible.
 
 ## Evidence To Provide
 

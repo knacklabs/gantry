@@ -1,0 +1,14 @@
+{
+  "artifact": "roadmap",
+  "phase": "handoff",
+  "recorded_by": "forge roadmap import --input <json>",
+  "generated_by": ["docs-decomposer", "human"],
+  "required": {
+    "generated_by": "str",
+    "items": "list"
+  },
+  "optional": {
+    "epics": "list"
+  },
+  "item_fields_note": "items: key+title required; optional story, acceptance_criteria (list), epic, skill (frontend|backend|fullstack), order, depends_on (list of story keys — edges must resolve; drives `forge roadmap parallel`). epics: id+title required; optional objective, source_refs. assignee/status are grooming/lifecycle state — never set by import."
+}

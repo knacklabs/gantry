@@ -8,7 +8,7 @@ Public durable `agentHarness` / `agent_harness` values are `auto`,
 `anthropic_sdk`, and `deepagents`; `executionProviderId` stays internal/read-only
 diagnostic detail. Claude OAuth/subscription is
 Anthropic-SDK-only. This is an **approved provider-boundary path**
-(`.codex/architecture-map.json` + `architecture_rules.py`): DeepAgents /
+(`scripts/architecture-map.json` + `architecture_rules.py`): DeepAgents /
 LangChain / `@langchain/openrouter` imports and `OPENAI_`/`ANTHROPIC_` env keys
 live only here.
 
@@ -187,13 +187,14 @@ named LangChain tool in `gantry-shell-tool.ts` (NOT `execute`/`ls`/`read_file`/e
 into `tools` ONLY when `GANTRY_DEEPAGENTS_SHELL_ENABLED==='1'` (host flag) AND a
 resolved `RunCommand(...)` rule is present (`shouldProjectGantryShellTool`). The
 host sets that flag from `deepAgentsShellEnabledEnv` (= the pre-spawn guard's
-allowed path: engine deepagents + RunCommand rule + enforcing `sandbox_runtime`);
-the guard fails the spawn closed under `direct`/production-without-sandbox. The
+allowed path: engine deepagents + a matching RunCommand rule); the sandbox
+provider is independent, so both `direct` and `sandbox_runtime` are supported. The
 tool shapes `{ command }` into a `Bash` policy request, runs the SAME neutral gate
 as the third-party MCP tools (pre-checks → `evaluateNeutralToolPolicy` → durable
 `requestPermissionApprovalViaIpc`), then on allow `spawn`s a child of the
-already-sandboxed runner (inherits OS protected-path denies + the runner's
-egress-proxy env). NEVER swap in a deepagents execution backend (it throws when
+selected runner. `sandbox_runtime` adds OS confinement; `direct` relies on
+authorization plus the deployment boundary. Both inherit the runner's
+egress-proxy env. NEVER swap in a deepagents execution backend (it throws when
 `permissions` is combined with an execution backend, and does not enforce
 `permissions` on `execute`).
 

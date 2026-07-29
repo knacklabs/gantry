@@ -390,6 +390,9 @@ export function classifySettingsChanges(
   if (!jsonEqual(before.observability, after.observability)) {
     restartRequired.push('observability');
   }
+  if (!jsonEqual(before.observer, after.observer)) {
+    restartRequired.push('observer');
+  }
 
   return {
     liveApplied: [...new Set(liveApplied)].sort(),

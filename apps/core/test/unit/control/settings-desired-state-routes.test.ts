@@ -69,6 +69,7 @@ vi.mock('@core/config/settings/runtime-settings-parser.js', async () => {
 });
 
 import { handleSettingsRoutes } from '@core/control/server/routes/settings.js';
+import { settingsToRevisionDocument } from '@core/config/settings/settings-import-service.js';
 
 type TestResponse = ServerResponse & {
   body: string;
@@ -446,6 +447,16 @@ function mockContext(
     triggerRateLimiter: { consume: () => true },
     getRuntimeSettings: () => internalSettings,
     getInternalRuntimeSettings: () => internalSettings,
+    settingsImport: {
+      serializeRevisionDocument: (settings) =>
+        settingsToRevisionDocument(settings as RuntimeSettings),
+      importWorkstation: async (deps, settings) => {
+        workstationImports.push({ deps, settings });
+        return workstationImportOutcome.current;
+      },
+      importFleet: async () => importOutcome.current,
+      classifyImportError: () => null,
+    },
     getDefaultModelConfig: () => ({ source: 'test' }),
     getModelDefaults: () =>
       ({ defaults: {} }) as ReturnType<ControlRouteContext['getModelDefaults']>,

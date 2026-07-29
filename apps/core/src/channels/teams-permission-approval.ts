@@ -8,7 +8,7 @@ import type {
 } from '../domain/types.js';
 import { logger } from '../infrastructure/logging/logger.js';
 import { incrementOperationalError } from '../shared/operational-error-counters.js';
-import { PERMISSION_APPROVAL_TIMEOUT_MS } from '../shared/permission-timeout.js';
+import { resolveInteractionSettlementDelayMs } from './interaction-settlement.js';
 import { buildTeamsApprovalAdaptiveCard } from './teams-cards.js';
 import { permissionDecisionOptions } from './permission-interaction.js';
 import { bindTeamsPermissionPromptMessage } from './teams-prompt-binding.js';
@@ -22,6 +22,7 @@ export async function requestTeamsPermissionApproval(input: {
   connected: boolean;
   jid: string;
   request: PermissionApprovalRequest;
+  timeoutMs: number;
   onPromptDelivered?: (messageId: string) => void;
   sdkClient: TeamsSdkClient;
   pendingPermissionPrompts: Map<string, PendingTeamsPermissionPrompt>;
@@ -76,16 +77,15 @@ export async function requestTeamsPermissionApproval(input: {
       ? ('batch' as const)
       : ('individual' as const),
   };
+  let settlementDelayMs: number | undefined;
   const timeoutPermissionPrompt = async (): Promise<void> => {
     let result = await input.settleTimeout(callback.providerAlias);
     if (result === 'settled') return;
     if (result === 'already_decided') return;
     if (result === 'retryable') {
-      const firstDelay = Math.floor(PERMISSION_APPROVAL_TIMEOUT_MS / 3);
-      for (const delayMs of [
-        firstDelay,
-        PERMISSION_APPROVAL_TIMEOUT_MS - firstDelay,
-      ]) {
+      const retryWindowMs = settlementDelayMs ?? 0;
+      const firstDelay = Math.floor(retryWindowMs / 3);
+      for (const delayMs of [firstDelay, retryWindowMs - firstDelay]) {
         await new Promise<void>((resolve) => {
           const timer = setTimeout(resolve, delayMs);
           timer.unref?.();
@@ -127,9 +127,21 @@ export async function requestTeamsPermissionApproval(input: {
     });
     const messageId = sent.externalMessageId;
     const decision = new Promise<PermissionApprovalDecision>((resolve) => {
-      const timer = setTimeout(() => {
-        void timeoutPermissionPrompt();
-      }, PERMISSION_APPROVAL_TIMEOUT_MS);
+      const { expiresAt } = input.request as PermissionApprovalRequest & {
+        expiresAt?: unknown;
+      };
+      settlementDelayMs = resolveInteractionSettlementDelayMs({
+        expiresAt,
+        permissionLane: input.request.permissionLane,
+        fallbackTimeoutMs: input.timeoutMs,
+      });
+      let timer!: ReturnType<typeof setTimeout>;
+      if (settlementDelayMs !== undefined) {
+        timer = setTimeout(() => {
+          void timeoutPermissionPrompt();
+        }, settlementDelayMs);
+        timer.unref?.();
+      }
       input.pendingPermissionPrompts.set(callback.providerAlias, {
         callback,
         conversationId,

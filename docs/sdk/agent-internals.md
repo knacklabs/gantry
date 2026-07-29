@@ -35,7 +35,7 @@ for an SDK consumer:
 
 The preset is an operator setting, not an SDK call; the SDK contract is unchanged
 whether an agent is `full` or `locked`. See
-[Locked Preset](../decisions/2026-06-11-locked-preset.md).
+[Locked Preset](../decisions/0024-locked-preset.md).
 
 ## Auto-permission mode
 

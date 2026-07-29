@@ -1,6 +1,7 @@
 import {
   RICH_INTERACTION_NATIVE_FALLBACK_TEXT,
   type RichInteractionRequest,
+  type UserQuestionCancellation,
   type UserQuestionRequest,
   type UserQuestionResponse,
 } from '../../domain/types.js';
@@ -31,6 +32,9 @@ interface UserQuestionSurfaceLike {
     kind: 'permission' | 'question',
     request: UserQuestionRequest,
   ) => void;
+  cancelPendingQuestion?: (
+    cancellation: UserQuestionCancellation,
+  ) => Promise<'settled' | 'already_decided' | 'retryable' | 'not_found'>;
 }
 
 interface AgentTodoSurfaceLike {
@@ -85,14 +89,73 @@ export function createUserQuestionResponder(input: {
   requestUserAnswer: (
     request: UserQuestionRequest,
   ) => Promise<UserQuestionResponse>;
+  cancelUserQuestion: (
+    cancellation: UserQuestionCancellation,
+  ) => Promise<'settled' | 'queued' | 'not_found'>;
   clear: () => void;
 } {
   const userQuestionResponseCache = new Map<string, UserQuestionResponse>();
+  const cancelledQuestionKeys = new Set<string>();
+  const queuedCancellations = new Map<string, UserQuestionCancellation>();
+  const activeCancellationHandlers = new Map<
+    string,
+    NonNullable<UserQuestionSurfaceLike['cancelPendingQuestion']>
+  >();
+  const activeCancellationTargets = new Map<string, string>();
+
+  const questionScopeKey = (
+    request: Pick<
+      UserQuestionRequest,
+      'appId' | 'sourceAgentFolder' | 'requestId'
+    >,
+  ): string =>
+    JSON.stringify([
+      request.appId || 'default',
+      request.sourceAgentFolder,
+      request.requestId,
+    ]);
+
+  async function settleQueuedCancellation(
+    cancellation: UserQuestionCancellation,
+  ): Promise<'settled' | 'queued'> {
+    const key = questionScopeKey(cancellation);
+    const cancel = activeCancellationHandlers.get(key);
+    if (!cancel) return 'queued';
+    const result = await cancel(cancellation);
+    if (result === 'settled' || result === 'already_decided') {
+      queuedCancellations.delete(key);
+      return 'settled';
+    }
+    // The durable IPC directory owns retries; a local timer can race it and cannot survive restart.
+    return 'queued';
+  }
+
+  async function settleQueuedCancellationSafely(
+    cancellation: UserQuestionCancellation,
+  ): Promise<'settled' | 'queued'> {
+    const key = questionScopeKey(cancellation);
+    const targetJid = activeCancellationTargets.get(key);
+    try {
+      return await settleQueuedCancellation(cancellation);
+    } catch (err) {
+      input.interactionLifecycle.logger.error({
+        err,
+        targetJid,
+        requestId: cancellation.requestId,
+        message: 'Target channel user question cancellation failed',
+      });
+      return 'queued';
+    }
+  }
 
   async function dispatchUserAnswer(
     request: UserQuestionRequest,
     onPromptDelivered?: (messageId: string, questionIndex?: number) => void,
   ): Promise<UserQuestionResponse> {
+    const key = questionScopeKey(request);
+    if (queuedCancellations.delete(key)) {
+      return { requestId: request.requestId, answers: {} };
+    }
     if (!request.targetJid) {
       return { requestId: request.requestId, answers: {} };
     }
@@ -105,29 +168,43 @@ export function createUserQuestionResponder(input: {
       return { requestId: request.requestId, answers: {} };
     }
     try {
-      const response = await questionSurface.requestUserAnswer(
-        request.targetJid,
-        request,
-        (messageId, questionIndex) => {
-          input.interactionLifecycle.resetStreaming?.(request.targetJid!, {
-            providerAccountId: request.providerAccountId,
-            threadId: request.threadId,
-          });
-          if (questionIndex === undefined) {
-            onPromptDelivered?.(messageId);
-            return;
-          }
-          const deliveredIndexes =
-            questionSurface.questionIndexesForDeliveredPrompt?.(
-              request,
-              questionIndex,
-            ) ?? [questionIndex];
-          deliveredIndexes.forEach((index) =>
-            onPromptDelivered?.(messageId, index),
-          );
-        },
-      );
-      return response;
+      const cancelPendingQuestion = (cancellation: UserQuestionCancellation) =>
+        questionSurface.cancelPendingQuestion?.(cancellation) ??
+        Promise.resolve('not_found' as const);
+      activeCancellationHandlers.set(key, cancelPendingQuestion);
+      activeCancellationTargets.set(key, request.targetJid);
+      try {
+        return await questionSurface.requestUserAnswer(
+          request.targetJid,
+          request,
+          (messageId, questionIndex) => {
+            input.interactionLifecycle.resetStreaming?.(request.targetJid!, {
+              providerAccountId: request.providerAccountId,
+              threadId: request.threadId,
+            });
+            const cancellation = queuedCancellations.get(key);
+            if (cancellation) {
+              void settleQueuedCancellationSafely(cancellation);
+            }
+            if (questionIndex === undefined) {
+              onPromptDelivered?.(messageId);
+              return;
+            }
+            const deliveredIndexes =
+              questionSurface.questionIndexesForDeliveredPrompt?.(
+                request,
+                questionIndex,
+              ) ?? [questionIndex];
+            deliveredIndexes.forEach((index) =>
+              onPromptDelivered?.(messageId, index),
+            );
+          },
+        );
+      } finally {
+        activeCancellationHandlers.delete(key);
+        activeCancellationTargets.delete(key);
+        queuedCancellations.delete(key);
+      }
     } catch (err) {
       if (err instanceof DurableInteractionPersistenceError) {
         questionSurface.dropPendingInteraction?.('question', request);
@@ -146,18 +223,39 @@ export function createUserQuestionResponder(input: {
   async function requestUserAnswer(
     request: UserQuestionRequest,
   ): Promise<UserQuestionResponse> {
-    const requestKey = `${request.targetJid}:${request.requestId}`;
+    const requestKey = questionScopeKey(request);
     const cached = userQuestionResponseCache.get(requestKey);
     if (cached) return cached;
     const response = await dispatchUserAnswer(request);
-    userQuestionResponseCache.set(requestKey, response);
+    if (cancelledQuestionKeys.delete(requestKey)) {
+      userQuestionResponseCache.delete(requestKey);
+    } else {
+      userQuestionResponseCache.set(requestKey, response);
+    }
     return response;
+  }
+
+  async function cancelUserQuestion(
+    cancellation: UserQuestionCancellation,
+  ): Promise<'settled' | 'queued' | 'not_found'> {
+    const key = questionScopeKey(cancellation);
+    queuedCancellations.set(key, cancellation);
+    cancelledQuestionKeys.add(key);
+    userQuestionResponseCache.delete(key);
+    const cancel = activeCancellationHandlers.get(key);
+    if (!cancel) return 'queued';
+    return settleQueuedCancellationSafely(cancellation);
   }
 
   return {
     requestUserAnswer,
+    cancelUserQuestion,
     clear: () => {
       userQuestionResponseCache.clear();
+      cancelledQuestionKeys.clear();
+      queuedCancellations.clear();
+      activeCancellationHandlers.clear();
+      activeCancellationTargets.clear();
     },
   };
 }

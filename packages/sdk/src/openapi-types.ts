@@ -90,6 +90,24 @@ export type GetRunResponse = JsonResponse<'getRun', 200>;
 export type QueryUsageQuery = Query<'queryUsage'>;
 export type QueryUsageResponse = JsonResponse<'queryUsage', 200>;
 
+export type GetObserverStatusQuery = Query<'getObserverStatus'>;
+export type ObserverStatusResponse = JsonResponse<'getObserverStatus', 200>;
+export type ListObserverInsightsQuery = Query<'listObserverInsights'>;
+export type ObserverInsightListResponse = JsonResponse<
+  'listObserverInsights',
+  200
+>;
+export type PreviewObserverDigestQuery = Query<'previewObserverDigest'>;
+export type ObserverDigestPreviewResponse = JsonResponse<
+  'previewObserverDigest',
+  200
+>;
+export type ListObserverDeliveriesQuery = Query<'listObserverDeliveries'>;
+export type ObserverDigestDeliveryListResponse = JsonResponse<
+  'listObserverDeliveries',
+  200
+>;
+
 export type ListProvidersResponse = JsonResponse<'listProviders', 200>;
 export type CreateProviderAccountResponse = JsonResponse<
   'createProviderAccount',
@@ -182,6 +200,15 @@ export type SearchMemoryResponse = JsonResponse<'searchMemory', 200>;
 export type ListMemoryResponse = JsonResponse<'listMemory', 200>;
 export type PatchMemoryResponse = JsonResponse<'patchMemory', 200>;
 export type DeleteMemoryResponse = JsonResponse<'deleteMemory', 200>;
+export type ListMemoryReviewsQuery = Query<'listMemoryReviews'>;
+export type ListMemoryReviewsResponse = JsonResponse<'listMemoryReviews', 200>;
+export type GetMemoryReviewQuery = Query<'getMemoryReview'>;
+export type GetMemoryReviewResponse = JsonResponse<'getMemoryReview', 200>;
+export type DecideMemoryReviewRequest = JsonRequest<'decideMemoryReview'>;
+export type DecideMemoryReviewResponse = JsonResponse<
+  'decideMemoryReview',
+  200
+>;
 export type TriggerMemoryDreamingRequest = JsonRequest<'triggerMemoryDreaming'>;
 export type MemorySubjectType = NonNullable<
   TriggerMemoryDreamingRequest['subjectType']

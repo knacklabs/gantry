@@ -5,17 +5,20 @@
 import os from 'node:os';
 import path from 'node:path';
 
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   assertIsolatedRuntimeTarget,
   realRuntimeHome,
+  startRuntimeHarness,
 } from '../../agent-e2e/harness/runtime-harness.js';
 
 const SAFE_DB_URL = 'postgres://user:pass@127.0.0.1:5432/gantry_e2e_abc123';
 const SAFE_HOME = path.join(os.tmpdir(), 'gantry-agent-e2e-guard-test');
 
 describe('agent-e2e runtime harness isolation guard', () => {
+  afterEach(() => vi.unstubAllEnvs());
+
   it('accepts a disposable home + per-run database', () => {
     expect(() =>
       assertIsolatedRuntimeTarget({
@@ -64,5 +67,24 @@ describe('agent-e2e runtime harness isolation guard', () => {
         databaseUrl: 'not a url',
       }),
     ).toThrow(/not a valid URL/);
+  });
+
+  it('refuses the real runtime home through harness startup before spawning', async () => {
+    vi.stubEnv('GANTRY_TEST_DATABASE_URL', SAFE_DB_URL);
+
+    await expect(
+      startRuntimeHarness({ runtimeHome: realRuntimeHome() }),
+    ).rejects.toThrow(/live runtime home/);
+  });
+
+  it('refuses the live database through harness startup before spawning', async () => {
+    vi.stubEnv(
+      'GANTRY_TEST_DATABASE_URL',
+      'postgres://user:pass@127.0.0.1:5432/gantry',
+    );
+
+    await expect(
+      startRuntimeHarness({ runtimeHome: SAFE_HOME }),
+    ).rejects.toThrow(/live `gantry` database/);
   });
 });

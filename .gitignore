@@ -14,6 +14,8 @@ logs/
 .claude/*
 !.claude/skills/
 !.claude/skills/**
+!.claude/CLAUDE.md
+!.claude/settings.json
 .codex/goals/*
 .codex/sessions/*
 .codex/archived_sessions/*
@@ -34,7 +36,9 @@ apps/core/groups/global/*
 # Temp files
 .tmp/
 .tmp-*
-plans/
+plans/active/
+plans/completed/
+plans/debt/
 __pycache__/
 *.pyc
 *.pyo
@@ -63,3 +67,16 @@ agents-sdk-docs
 /.cocoindex_code/
 .codex-wt-*
 .env.e2e
+
+# local skill-plugin clone, not part of this repo
+i-have-adhd/
+
+# Project-local gstack store: projects/ committed, machine noise not
+.gstack/sessions/
+.gstack/analytics/
+.gstack/cdp-profile/
+.gstack/tmp/
+.gstack/.*
+.gstack/**/brain-cache/
+.gstack/**/timeline.jsonl
+.gstack/slug-cache/

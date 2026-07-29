@@ -33,6 +33,7 @@ const runtimeStoreMock = vi.hoisted(() => ({
 }));
 const runtimeLeaseMock = vi.hoisted(() => ({
   tryAcquire: vi.fn(async () => ({
+    isValid: () => true,
     onLost: vi.fn(),
     release: vi.fn(async () => undefined),
   })),
@@ -403,6 +404,308 @@ describe('createChannelWiring', () => {
     });
     expect(missingReset).not.toHaveBeenCalled();
   });
+
+  it('routes a claimed question cancellation to the active channel waiter', async () => {
+    let resolveAnswer!: (response: {
+      requestId: string;
+      answers: Record<string, string | string[]>;
+    }) => void;
+    const requestUserAnswer = vi.fn(
+      async (
+        _jid: string,
+        request: UserQuestionRequest,
+        onPromptDelivered?: (messageId: string, questionIndex?: number) => void,
+      ) => {
+        onPromptDelivered?.('question-prompt-1');
+        return new Promise<{
+          requestId: string;
+          answers: Record<string, string | string[]>;
+        }>((resolve) => {
+          resolveAnswer = resolve;
+        });
+      },
+    );
+    const cancelPendingQuestion = vi.fn(async (cancellation) => {
+      resolveAnswer({ requestId: cancellation.requestId, answers: {} });
+      return 'settled' as const;
+    });
+    const responder = createUserQuestionResponder({
+      findBoundChannel: () => ({}),
+      asUserQuestionSurface: () => ({
+        requestUserAnswer,
+        cancelPendingQuestion,
+      }),
+      interactionLifecycle: {
+        logger: { debug: vi.fn(), error: vi.fn() },
+      },
+    });
+    const request: UserQuestionRequest = {
+      requestId: 'question-cancel-active',
+      appId: 'default',
+      sourceAgentFolder: 'main_agent',
+      targetJid: 'tg:team',
+      questions: [],
+    };
+    const answer = responder.requestUserAnswer(request);
+
+    await expect(
+      responder.cancelUserQuestion({
+        requestId: request.requestId,
+        appId: request.appId,
+        sourceAgentFolder: request.sourceAgentFolder,
+        reason: 'Question cancelled. Nothing changed.',
+      }),
+    ).resolves.toBe('settled');
+    await expect(answer).resolves.toEqual({
+      requestId: request.requestId,
+      answers: {},
+    });
+    expect(cancelPendingQuestion).toHaveBeenCalledWith({
+      requestId: request.requestId,
+      appId: request.appId,
+      sourceAgentFolder: request.sourceAgentFolder,
+      reason: 'Question cancelled. Nothing changed.',
+    });
+  });
+
+  it('does not dispatch a question that was cancelled before channel delivery', async () => {
+    const requestUserAnswer = vi.fn(
+      async (_jid: string, request: UserQuestionRequest) => ({
+        requestId: request.requestId,
+        answers: { Choice: 'A' },
+      }),
+    );
+    const responder = createUserQuestionResponder({
+      findBoundChannel: () => ({}),
+      asUserQuestionSurface: () => ({ requestUserAnswer }),
+      interactionLifecycle: {
+        logger: { debug: vi.fn(), error: vi.fn() },
+      },
+    });
+    const request: UserQuestionRequest = {
+      requestId: 'question-cancel-before-dispatch',
+      appId: 'default',
+      sourceAgentFolder: 'main_agent',
+      targetJid: 'tg:team',
+      questions: [],
+    };
+
+    await expect(
+      responder.cancelUserQuestion({
+        requestId: request.requestId,
+        appId: request.appId,
+        sourceAgentFolder: request.sourceAgentFolder,
+        reason: 'Question cancelled. Nothing changed.',
+      }),
+    ).resolves.toBe('queued');
+    await expect(responder.requestUserAnswer(request)).resolves.toEqual({
+      requestId: request.requestId,
+      answers: {},
+    });
+    expect(requestUserAnswer).not.toHaveBeenCalled();
+  });
+
+  it('settles an aborted question through the normal channel-wiring facade', async () => {
+    let resolveAnswer!: (response: {
+      requestId: string;
+      answers: Record<string, string | string[]>;
+    }) => void;
+    const cancelPendingQuestion = vi.fn(async (cancellation) => {
+      resolveAnswer({ requestId: cancellation.requestId, answers: {} });
+      return 'settled' as const;
+    });
+    const questionChannel = makeChannel({
+      ownsJid: vi.fn((jid: string) => jid === 'tg:group'),
+      requestUserAnswer: vi.fn(
+        async (
+          _jid: string,
+          _request: UserQuestionRequest,
+          onPromptDelivered?: (
+            messageId: string,
+            questionIndex?: number,
+          ) => void,
+        ) => {
+          onPromptDelivered?.('question-prompt-normal-wiring');
+          return new Promise<{
+            requestId: string;
+            answers: Record<string, string | string[]>;
+          }>((resolve) => {
+            resolveAnswer = resolve;
+          });
+        },
+      ),
+      cancelPendingQuestion,
+    });
+    const wiring = createChannelWiring(
+      makeApp({ 'tg:group': { name: 'Group', folder: 'group' } }),
+      {
+        providerIds: [
+          makeProvider(
+            'telegram',
+            vi.fn(() => questionChannel),
+          ),
+        ],
+      },
+    );
+    await wiring.connectEnabledChannels(
+      makeRuntimeSettings({ telegram: true, slack: false }),
+    );
+    const request: UserQuestionRequest = {
+      requestId: 'question-normal-wiring-cancel',
+      appId: 'default',
+      sourceAgentFolder: 'group',
+      targetJid: 'tg:group',
+      questions: [],
+    };
+    const answer = wiring.requestUserAnswer(request);
+
+    await expect(
+      wiring.cancelUserQuestion({
+        requestId: request.requestId,
+        appId: request.appId,
+        sourceAgentFolder: request.sourceAgentFolder,
+        reason: 'Question cancelled. Nothing changed.',
+      }),
+    ).resolves.toBe('settled');
+    await expect(answer).resolves.toEqual({
+      requestId: request.requestId,
+      answers: {},
+    });
+    expect(cancelPendingQuestion).toHaveBeenCalledWith({
+      requestId: request.requestId,
+      appId: request.appId,
+      sourceAgentFolder: request.sourceAgentFolder,
+      reason: 'Question cancelled. Nothing changed.',
+    });
+  });
+
+  it('catches a throwing question handler and leaves retry ownership to the durable directory', async () => {
+    vi.useFakeTimers();
+    const unhandledRejection = vi.fn();
+    process.on('unhandledRejection', unhandledRejection);
+    let resolveAnswer!: (response: {
+      requestId: string;
+      answers: Record<string, string | string[]>;
+    }) => void;
+    const cancellationFailure = new Error('question cancellation unavailable');
+    const cancelPendingQuestion = vi
+      .fn()
+      .mockRejectedValue(cancellationFailure);
+    const logger = { debug: vi.fn(), error: vi.fn() };
+    const responder = createUserQuestionResponder({
+      findBoundChannel: () => ({}),
+      asUserQuestionSurface: () => ({
+        requestUserAnswer: vi.fn(async (_jid, request, onPromptDelivered) => {
+          onPromptDelivered?.('question-prompt-retry');
+          return new Promise<{
+            requestId: string;
+            answers: Record<string, string | string[]>;
+          }>((resolve) => {
+            resolveAnswer = resolve;
+          });
+        }),
+        cancelPendingQuestion,
+      }),
+      interactionLifecycle: { logger },
+    });
+    const request: UserQuestionRequest = {
+      requestId: 'question-cancel-retry',
+      appId: 'default',
+      sourceAgentFolder: 'main_agent',
+      targetJid: 'tg:team',
+      questions: [],
+    };
+
+    try {
+      const answer = responder.requestUserAnswer(request);
+      await expect(
+        responder.cancelUserQuestion({
+          requestId: request.requestId,
+          appId: request.appId,
+          sourceAgentFolder: request.sourceAgentFolder,
+          reason: 'Question cancelled.',
+        }),
+      ).resolves.toBe('queued');
+
+      expect(logger.error).toHaveBeenCalledWith(
+        expect.objectContaining({
+          err: cancellationFailure,
+          targetJid: 'tg:team',
+          requestId: request.requestId,
+          message: 'Target channel user question cancellation failed',
+        }),
+      );
+      await vi.advanceTimersByTimeAsync(1_500);
+      expect(cancelPendingQuestion).toHaveBeenCalledOnce();
+      resolveAnswer({ requestId: request.requestId, answers: {} });
+      await expect(answer).resolves.toEqual({
+        requestId: request.requestId,
+        answers: {},
+      });
+      await Promise.resolve();
+      expect(unhandledRejection).not.toHaveBeenCalled();
+    } finally {
+      responder.clear();
+      process.off('unhandledRejection', unhandledRejection);
+      vi.useRealTimers();
+    }
+  });
+
+  it.each([
+    ['retryable', 'queued'],
+    ['not_found', 'queued'],
+    ['settled', 'settled'],
+    ['already_decided', 'settled'],
+  ] as const)(
+    'maps question result %s to %s without starting a local retry',
+    async (channelResult, cancellationResult) => {
+      vi.useFakeTimers();
+      let resolveAnswer!: (response: {
+        requestId: string;
+        answers: Record<string, string | string[]>;
+      }) => void;
+      const cancelPendingQuestion = vi.fn(async () => channelResult);
+      const responder = createUserQuestionResponder({
+        findBoundChannel: () => ({}),
+        asUserQuestionSurface: () => ({
+          requestUserAnswer: vi.fn(async (_jid, request, onPromptDelivered) => {
+            onPromptDelivered?.('question-prompt');
+            return new Promise<{
+              requestId: string;
+              answers: Record<string, string | string[]>;
+            }>((resolve) => {
+              resolveAnswer = resolve;
+            });
+          }),
+          cancelPendingQuestion,
+        }),
+        interactionLifecycle: {
+          logger: { debug: vi.fn(), error: vi.fn() },
+        },
+      });
+      const cancellation = {
+        requestId: `question-${channelResult}`,
+        appId: 'default',
+        sourceAgentFolder: 'main_agent',
+        reason: 'Question cancelled.',
+      };
+      const answer = responder.requestUserAnswer({
+        ...cancellation,
+        targetJid: 'tg:team',
+        questions: [],
+      });
+
+      await expect(responder.cancelUserQuestion(cancellation)).resolves.toBe(
+        cancellationResult,
+      );
+      await vi.advanceTimersByTimeAsync(1_500);
+      expect(cancelPendingQuestion).toHaveBeenCalledOnce();
+      resolveAnswer({ requestId: cancellation.requestId, answers: {} });
+      await answer;
+      responder.clear();
+      vi.useRealTimers();
+    },
+  );
 
   it('drops a shadowing question waiter before rethrowing its persistence error', async () => {
     const events: string[] = [];
@@ -935,6 +1238,7 @@ describe('createChannelWiring', () => {
     const app = makeApp();
     const channel = makeChannel();
     const lease = {
+      isValid: () => true,
       onLost: vi.fn(),
       release: vi.fn(async () => undefined),
     };

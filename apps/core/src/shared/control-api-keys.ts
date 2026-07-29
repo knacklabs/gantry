@@ -6,6 +6,7 @@ import { isStrongProductionSecret } from './secret-strength.js';
 export type Scope =
   | 'sessions:read'
   | 'sessions:write'
+  | 'approvals:write'
   | 'jobs:read'
   | 'jobs:write'
   | 'providers:read'
@@ -40,6 +41,7 @@ export type ApiKeyRecord = {
 export const CONTROL_API_SCOPES: readonly Scope[] = [
   'sessions:read',
   'sessions:write',
+  'approvals:write',
   'jobs:read',
   'jobs:write',
   'providers:read',

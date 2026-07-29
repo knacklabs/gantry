@@ -18,6 +18,7 @@ describe('browser-profiles', () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     vi.restoreAllMocks();
     while (roots.length > 0) {
       const root = roots.pop();
@@ -47,61 +48,105 @@ describe('browser-profiles', () => {
     expect(found?.metadata.last_used).toBeTruthy();
   });
 
-  it('acquires and releases locks', async () => {
+  it('acquires the normalized profile lease and releases it', async () => {
     const root = makeTmpRoot(roots);
     vi.doMock('@core/config/index.js', () => ({
       DATA_DIR: root,
     }));
 
     const mod = await import('@core/runtime/browser-profiles.js');
-    mod.createProfile('lock-test');
+    const release = vi.fn(async () => {});
+    const tryAcquire = vi.fn(async () => ({
+      isValid: () => true,
+      release,
+    }));
 
-    const lock = await mod.acquireProfileLock('lock-test', 1000);
-    expect(fs.existsSync(lock.lockPath)).toBe(true);
+    const lock = await mod.acquireProfileLock(' Lease-Test ', { tryAcquire });
 
-    await expect(mod.acquireProfileLock('lock-test', 250)).rejects.toThrow(
+    expect(tryAcquire).toHaveBeenCalledOnce();
+    expect(tryAcquire).toHaveBeenCalledWith('browser-profile:lease-test');
+    expect(lock.name).toBe('lease-test');
+    await lock.release();
+    expect(release).toHaveBeenCalledOnce();
+  });
+
+  it('registers lease loss before resolving and exposes invalid ownership', async () => {
+    const root = makeTmpRoot(roots);
+    vi.doMock('@core/config/index.js', () => ({
+      DATA_DIR: root,
+    }));
+
+    const mod = await import('@core/runtime/browser-profiles.js');
+    let loseLease: ((err: Error) => void) | undefined;
+    const registrationOrder: string[] = [];
+    const onLost = vi.fn((handler: (err: Error) => void) => {
+      registrationOrder.push('registered');
+      loseLease = handler;
+    });
+    const release = vi.fn(async () => {});
+    const acquired = Promise.resolve({
+      isValid: () => true,
+      onLost,
+      release,
+    });
+    const acquiring = mod.acquireProfileLock('loss-observed', {
+      tryAcquire: () => {
+        void acquired.then(() =>
+          queueMicrotask(() => registrationOrder.push('after-acquire')),
+        );
+        return acquired;
+      },
+    });
+
+    const lock = await acquiring;
+    expect(registrationOrder).toEqual(['registered', 'after-acquire']);
+    expect(onLost).toHaveBeenCalledOnce();
+    const observedLoss = vi.fn();
+    lock.onLost(observedLoss);
+
+    const loss = new Error('lease connection lost');
+    loseLease?.(loss);
+
+    expect(lock.isValid()).toBe(false);
+    expect(observedLoss).toHaveBeenCalledWith(loss);
+    await Promise.all([lock.release(), lock.release()]);
+    expect(release).toHaveBeenCalledOnce();
+  });
+
+  it('retries a held lease and fails closed after the bounded wait', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1_000);
+    const root = makeTmpRoot(roots);
+    vi.doMock('@core/config/index.js', () => ({
+      DATA_DIR: root,
+    }));
+
+    const mod = await import('@core/runtime/browser-profiles.js');
+    const tryAcquire = vi.fn(async () => undefined);
+    const acquiring = mod.acquireProfileLock('held-lease', { tryAcquire }, 125);
+    const rejection = expect(acquiring).rejects.toThrow(
       /Timed out acquiring profile lock/,
     );
 
-    lock.release();
-    expect(fs.existsSync(lock.lockPath)).toBe(false);
-
-    const second = await mod.acquireProfileLock('lock-test', 1000);
-    second.release();
+    await vi.runAllTimersAsync();
+    await rejection;
+    expect(tryAcquire.mock.calls.length).toBeGreaterThan(1);
   });
 
-  it('does not steal a stale-mtime lock while the recorded pid is alive', async () => {
+  it('releases an acquired lease at most once', async () => {
     const root = makeTmpRoot(roots);
     vi.doMock('@core/config/index.js', () => ({
       DATA_DIR: root,
     }));
 
     const mod = await import('@core/runtime/browser-profiles.js');
-    mod.createProfile('live-lock');
-    const lock = await mod.acquireProfileLock('live-lock', 1000);
-    const old = new Date(Date.now() - 20 * 60 * 1000);
-    fs.utimesSync(lock.lockPath, old, old);
+    const release = vi.fn(async () => {});
+    const lock = await mod.acquireProfileLock('idempotent-release', {
+      tryAcquire: async () => ({ isValid: () => true, release }),
+    });
 
-    await expect(mod.acquireProfileLock('live-lock', 250)).rejects.toThrow(
-      /Timed out acquiring profile lock/,
-    );
-    lock.release();
-  });
+    await Promise.all([lock.release(), lock.release()]);
 
-  it('only releases the lock file owned by the same token', async () => {
-    const root = makeTmpRoot(roots);
-    vi.doMock('@core/config/index.js', () => ({
-      DATA_DIR: root,
-    }));
-
-    const mod = await import('@core/runtime/browser-profiles.js');
-    mod.createProfile('token-lock');
-    const first = await mod.acquireProfileLock('token-lock', 1000);
-    fs.rmSync(first.lockPath, { force: true });
-    const second = await mod.acquireProfileLock('token-lock', 1000);
-
-    first.release();
-    expect(fs.existsSync(second.lockPath)).toBe(true);
-    second.release();
+    expect(release).toHaveBeenCalledOnce();
   });
 });

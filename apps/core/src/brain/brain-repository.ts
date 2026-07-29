@@ -64,6 +64,13 @@ export interface BrainDreamDecisionWrite {
 
 export interface BrainRepository {
   getPageBySlug(appId: string, slug: string): Promise<BrainPage | null>;
+  // By-id reads used by destructive-review target resolution + snapshot capture
+  // (T2) and, later, drift revalidation (T3/T4).
+  getPageById(appId: string, pageId: string): Promise<BrainPage | null>;
+  getEntityById(appId: string, entityId: string): Promise<BrainEntity | null>;
+  getEdgeById(appId: string, edgeId: string): Promise<BrainEdge | null>;
+  listEdgesForEntity(appId: string, entityId: string): Promise<BrainEdge[]>;
+  countPageEmbeddings(appId: string, pageId: string): Promise<number>;
   upsertPage(
     input: BrainPageWrite,
   ): Promise<{ page: BrainPage; created: boolean }>;

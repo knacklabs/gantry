@@ -1,10 +1,11 @@
-import type { CanUseTool } from '@anthropic-ai/claude-agent-sdk';
+import type { CanUseTool, HookCallback } from '@anthropic-ai/claude-agent-sdk';
 import { denyMemoryBoundaryToolUse } from '../../../../shared/memory-boundary.js';
 import { denyProtectedCapabilityToolUse } from './protected-capability-guard.js';
 import { requestPermissionApproval } from './permission-callback.js';
 import type {
   AgentRunnerInput,
   AgentRunnerToolAttemptOutput,
+  PermissionDecision,
   RunnerCapabilitiesForPermission,
 } from './types.js';
 import { WORKSPACE_FOLDER_OPTION_KEY } from './types.js';
@@ -29,7 +30,7 @@ import {
 import { sandboxBlockedRuntimeEvents } from './sandbox-events.js';
 import { decideSdkSandboxNetworkAccess } from './sdk-sandbox-network-gate.js';
 import { readExternalMcpAllowedTools } from './external-mcp-tool-rules.js';
-import { applyBashTrustEnv } from './bash-trust-env.js';
+import { applyBashTrustEnvWithProvenance } from './bash-trust-env.js';
 import { log } from './logging.js';
 import { writeOutput } from './output.js';
 import { RUNTIME_EVENT_TYPES } from '../../../../domain/events/runtime-event-types.js';
@@ -41,8 +42,8 @@ import {
 import { waitOnlyBashMonitoringDenial } from './wait-only-bash-guard.js';
 import { forceBackgroundNativeAgentInput } from './native-agent-tool-input.js';
 import { denyNonPromptableAutonomousRecovery } from './autonomous-permission-recovery.js';
-import { publicCapabilityAllowedToolRules } from '../../../../shared/agent-tool-references.js';
 import { evaluateYoloModeDenylist } from '../../../../shared/yolo-mode-policy.js';
+import { formatPermissionDeniedMessage } from '../../../../shared/permission-decision-message.js';
 type ApprovalInput = Parameters<typeof requestPermissionApproval>[0];
 const WORKSPACE_FOLDER_KEY = WORKSPACE_FOLDER_OPTION_KEY as keyof ApprovalInput;
 const RAW_REQ = /^(Agent|AskUserQuestion|TodoWrite)$/;
@@ -60,7 +61,41 @@ interface CreateCanUseToolCallbackInput {
   getNewSessionId: () => string | undefined;
   emitInteractionBoundary: () => void;
   recordToolActivity: (toolName: string) => void;
+  recordPermissionApprovalContext?: (
+    toolUseID: string,
+    additionalContext: string,
+  ) => void;
 }
+
+export function createPermissionApprovalContextChannel() {
+  const pending = new Map<string, string>();
+  const postToolUse: HookCallback = async (hookInput, toolUseID) => {
+    if (
+      hookInput.hook_event_name !== 'PostToolUse' &&
+      hookInput.hook_event_name !== 'PostToolUseFailure'
+    ) {
+      return { continue: true };
+    }
+    const key = hookInput.tool_use_id || toolUseID;
+    const additionalContext = key ? pending.get(key) : undefined;
+    if (key) pending.delete(key);
+    return additionalContext
+      ? {
+          continue: true,
+          hookSpecificOutput: {
+            hookEventName: hookInput.hook_event_name,
+            additionalContext,
+          },
+        }
+      : { continue: true };
+  };
+  return {
+    record: (toolUseID: string, context: string) =>
+      pending.set(toolUseID, context),
+    postToolUse,
+  };
+}
+
 export function createCanUseToolCallback(
   input: CreateCanUseToolCallbackInput,
 ): CanUseTool {
@@ -69,9 +104,15 @@ export function createCanUseToolCallback(
   const toolExecutionPolicy = new ToolExecutionPolicyService();
   const liveApprovedRules = new Set<string>();
   const skillActionCapabilities = readRunnerSkillActionCapabilities();
+  // PERM-2 Task F: the agent's configured allowedTools and the composed
+  // capability-profile allowedTools no longer fold into the worker-side policy
+  // rules. Folding them let a tool merely present on the SDK allowedTools
+  // surface mint a policy `allow` here, parallel to (and skipping) the host
+  // coordinator. The only standing-allow authority is the coordinator's
+  // reviewed selected-rule path and decision-memory (both host-side); the
+  // worker keeps only live host-approved rules and in-session operator
+  // approvals so every tool still crosses the coordinator once.
   const currentAllowedToolRules = (): string[] => [
-    ...(input.agentInput.allowedTools ?? []),
-    ...publicCapabilityAllowedToolRules(input.capabilities.allowedTools),
     ...readLiveToolRules({
       ipcDir: process.env.GANTRY_IPC_DIR,
       runHandle: process.env.GANTRY_AGENT_RUN_HANDLE,
@@ -79,7 +120,6 @@ export function createCanUseToolCallback(
     ...liveApprovedRules,
   ];
   const currentAutonomousAllowedToolRules = (): string[] => [
-    ...(input.agentInput.allowedTools ?? []),
     ...(input.agentInput.isScheduledJob ? ['RunCommand(date *)'] : []),
     ...readExternalMcpAllowedTools(),
     ...readLiveToolRules({
@@ -94,27 +134,6 @@ export function createCanUseToolCallback(
   // instructing a hidden request tool.
   const capabilityRequestToolsHidden =
     lockedAccessPreset || input.agentInput.hideAuthorityTools === true;
-  const denyLockedToolUse = (toolName: string) => {
-    const message =
-      'capability not provisioned: this agent runs with a locked access preset and cannot request new tools, skills, MCP servers, or permissions. Provision the capability before the run.';
-    log(`Permission auto-denied by locked access preset: tool=${toolName}`);
-    emitJobToolActivity(
-      input.agentInput,
-      input.getNewSessionId,
-      'deny',
-      toolName,
-      {
-        ok: false,
-        reason: message,
-        decision: 'denied_by_profile',
-      },
-    );
-    return {
-      behavior: 'deny' as const,
-      message,
-      interrupt: false,
-    };
-  };
   return async (toolName, rawToolInput, permissionOpts) => {
     input.recordToolActivity(toolName);
     emitJobToolActivity(
@@ -209,12 +228,24 @@ export function createCanUseToolCallback(
         interrupt: false,
       };
     }
-    const trustInput = () =>
-      applyBashTrustEnv(
-        toolName,
-        toolInput,
-        input.agentInput.toolNetworkEnv ?? {},
-      );
+    const trustedInput = applyBashTrustEnvWithProvenance(
+      toolName,
+      toolInput,
+      input.agentInput.toolNetworkEnv ?? {},
+    );
+    const trustInput = () => trustedInput.toolInput;
+    const requestPermissionApprovalWithTrustProvenance = (
+      approvalInput: ApprovalInput,
+    ) =>
+      requestPermissionApproval({
+        ...approvalInput,
+        toolInput: trustedInput.toolInput,
+        ...(trustedInput.hostInjectedCommandPrefix
+          ? {
+              hostInjectedCommandPrefix: trustedInput.hostInjectedCommandPrefix,
+            }
+          : {}),
+      });
     const sdkApprovalPrincipal =
       permissionOpts.agentID?.trim() ||
       input.agentInput.agentId ||
@@ -238,7 +269,9 @@ export function createCanUseToolCallback(
       toolInput,
       denylist: input.agentInput.egressDenylist ?? [],
     });
-    if (sandboxNetworkAccessDecision) return sandboxNetworkAccessDecision;
+    if (sandboxNetworkAccessDecision?.behavior === 'deny') {
+      return sandboxNetworkAccessDecision;
+    }
 
     if (toolName === 'Agent') {
       const modelDenial = validateAgentToolInput(toolInput, currentModel);
@@ -358,13 +391,6 @@ export function createCanUseToolCallback(
         autonomousAllowedToolRules: currentAutonomousAllowedToolRules(),
         capabilityRequestToolsHidden,
       });
-      if (toolDecision.status === 'allow' && !yoloDenylistReason) {
-        log(`Autonomous run allowed tool ${toolName}: ${toolDecision.reason}`);
-        return allowToolUse(toolDecision.reason);
-      }
-      if (lockedAccessPreset) {
-        return denyLockedToolUse(toolName);
-      }
       if (permissionOpts.signal.aborted) {
         return {
           behavior: 'deny' as const,
@@ -377,7 +403,9 @@ export function createCanUseToolCallback(
         : toolDecision.recoveryAction;
       const recoveryMessage =
         yoloDenylistReason ??
-        `${toolDecision.reason} Recovery: ${toolDecision.recoveryAction}`;
+        (toolDecision.recoveryAction
+          ? `${toolDecision.reason} Recovery: ${toolDecision.recoveryAction}`
+          : toolDecision.reason);
       const nonPromptableDenial = denyNonPromptableAutonomousRecovery({
         agentInput: input.agentInput,
         getNewSessionId: input.getNewSessionId,
@@ -417,7 +445,7 @@ export function createCanUseToolCallback(
       const suggestions = yoloDenylistReason
         ? undefined
         : permissionPlan.suggestions;
-      const decision = await requestPermissionApproval({
+      const decision = await requestPermissionApprovalWithTrustProvenance({
         appId: input.agentInput.appId,
         agentId: input.agentInput.agentId,
         targetJid: input.agentInput.chatJid,
@@ -444,6 +472,7 @@ export function createCanUseToolCallback(
           ? ['allow_once', 'allow_persistent_rule', 'cancel']
           : ['allow_once', 'cancel'],
         threadId: input.agentInput.threadId,
+        signal: permissionOpts.signal,
         [WORKSPACE_FOLDER_KEY]: input.workspaceFolder,
       } as unknown as ApprovalInput);
       if (decision.approved) {
@@ -459,14 +488,13 @@ export function createCanUseToolCallback(
           input.getNewSessionId,
           'permission_allowed',
           toolName,
-          {
-            ok: true,
-            mode: decision.mode,
-            decided_by: decision.decidedBy ?? null,
-          },
+          permissionAllowedActivityPayload(decision),
         );
-        log(
-          `Autonomous run permission approved for tool ${toolName} by ${decision.decidedBy || 'unknown'}`,
+        logPermissionApproval(toolName, decision, 'Autonomous run permission');
+        recordPermissionApprovalContext(
+          input,
+          permissionOpts.toolUseID,
+          decision,
         );
         return {
           behavior: 'allow' as const,
@@ -506,26 +534,11 @@ export function createCanUseToolCallback(
       };
     }
 
-    if (
-      !yoloDenylistReason &&
-      input.capabilities.alwaysAllowedTools.includes(toolName)
-    ) {
-      return allowToolUse('always_allowed');
-    }
     const currentToolDecision = toolExecutionPolicy.evaluate({
       request: toolExecutionRequest,
       allowedToolRules: currentAllowedToolRules(),
       capabilityRequestToolsHidden,
     });
-    if (currentToolDecision.status === 'allow' && !yoloDenylistReason) {
-      log(
-        `Permission allowed for tool ${toolName}: ${currentToolDecision.reason}`,
-      );
-      return allowToolUse(currentToolDecision.reason);
-    }
-    if (lockedAccessPreset) {
-      return denyLockedToolUse(toolName);
-    }
     if (permissionOpts.signal.aborted) {
       return {
         behavior: 'deny' as const,
@@ -559,7 +572,7 @@ export function createCanUseToolCallback(
     const suggestions = yoloDenylistReason
       ? undefined
       : permissionPlan.suggestions;
-    const decision = await requestPermissionApproval({
+    const decision = await requestPermissionApprovalWithTrustProvenance({
       appId: input.agentInput.appId,
       agentId: input.agentInput.agentId,
       targetJid: input.agentInput.chatJid,
@@ -582,6 +595,7 @@ export function createCanUseToolCallback(
       semanticCapabilityDefinitions:
         permissionPlan.semanticCapabilityDefinitions,
       threadId: input.agentInput.threadId,
+      signal: permissionOpts.signal,
       [WORKSPACE_FOLDER_KEY]: input.workspaceFolder,
     } as unknown as ApprovalInput);
     if (decision.approved) {
@@ -597,14 +611,13 @@ export function createCanUseToolCallback(
         input.getNewSessionId,
         'permission_allowed',
         toolName,
-        {
-          ok: true,
-          mode: decision.mode,
-          decided_by: decision.decidedBy ?? null,
-        },
+        permissionAllowedActivityPayload(decision),
       );
-      log(
-        `Permission approved for tool ${toolName} by ${decision.decidedBy || 'unknown'}`,
+      logPermissionApproval(toolName, decision, 'Permission');
+      recordPermissionApprovalContext(
+        input,
+        permissionOpts.toolUseID,
+        decision,
       );
       return {
         behavior: 'allow' as const,
@@ -633,11 +646,71 @@ export function createCanUseToolCallback(
     );
     return {
       behavior: 'deny' as const,
-      message: `Permission denied: ${reason}`,
+      message: formatPermissionDeniedMessage(decision, reason),
       interrupt: false,
       ...(decision.decisionClassification
         ? { decisionClassification: decision.decisionClassification as never }
         : {}),
     };
   };
+}
+
+const SILENT_ALLOW_DECIDERS = new Set([
+  'birthright',
+  'deterministic_read_only',
+]);
+
+function permissionAllowedActivityPayload(
+  decision: PermissionDecision,
+): Record<string, unknown> {
+  const provenanceMessage = formatPermissionAllowedMessage(decision);
+  return {
+    ok: true,
+    mode: decision.mode,
+    ...(decision.decidedBy ? { decided_by: decision.decidedBy } : {}),
+    ...(decision.risk_level ? { risk_level: decision.risk_level } : {}),
+    ...(decision.risk_category
+      ? { risk_category: decision.risk_category }
+      : {}),
+    ...(provenanceMessage
+      ? { reason: provenanceMessage }
+      : decision.reason
+        ? { reason: decision.reason }
+        : {}),
+  };
+}
+
+function formatPermissionAllowedMessage(
+  decision: PermissionDecision,
+): string | undefined {
+  if (decision.decidedBy && SILENT_ALLOW_DECIDERS.has(decision.decidedBy)) {
+    return undefined;
+  }
+  if (!decision.decidedBy && !decision.risk_level) return undefined;
+  return formatPermissionDeniedMessage(decision, '')
+    .replace(/^Permission denied/, 'Permission allowed')
+    .replace(/: $/, '');
+}
+
+function logPermissionApproval(
+  toolName: string,
+  decision: PermissionDecision,
+  prefix: string,
+): void {
+  const provenanceMessage = formatPermissionAllowedMessage(decision);
+  log(
+    provenanceMessage
+      ? `${prefix} for tool ${toolName}: ${provenanceMessage}`
+      : `${prefix} approved for tool ${toolName}`,
+  );
+}
+
+function recordPermissionApprovalContext(
+  input: CreateCanUseToolCallbackInput,
+  toolUseID: string | undefined,
+  decision: PermissionDecision,
+): void {
+  const additionalContext = formatPermissionAllowedMessage(decision);
+  if (!toolUseID || !additionalContext) return;
+  input.recordPermissionApprovalContext?.(toolUseID, additionalContext);
 }

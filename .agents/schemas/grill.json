@@ -1,0 +1,22 @@
+{
+  "artifact": "grill",
+  "phase": "handover gates (pre-signoff, pre-roadmap-import)",
+  "recorded_by": "record_grill_from_json.py --gate signoff|epics",
+  "generated_by": ["griller"],
+  "required": {
+    "generated_by": "str",
+    "gate": "str",
+    "verdict": "str",
+    "gaps": "list",
+    "contradictions": "list",
+    "resolutions": "list"
+  },
+  "optional": {
+    "open_items": "list",
+    "summary": "str",
+    "questions_asked": "int",
+    "issue": "str",
+    "input_sha256": "str"
+  },
+  "verdict_note": "verdict: pass | blocked. pass requires zero unresolved blocking gaps/contradictions — every entry in gaps/contradictions must have a matching resolution (a doc edit or decision record) or be explicitly parked in open_items as non-blocking."
+}

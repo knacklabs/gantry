@@ -40,6 +40,10 @@ import {
   clearMcpToolProxyInventoryCache,
   McpToolProxy,
 } from '@core/application/mcp/mcp-tool-proxy.js';
+import {
+  semanticCapabilityInputSchema,
+  type SemanticCapabilityDefinition,
+} from '@core/shared/semantic-capabilities.js';
 
 import {
   createPostgresIntegrationRuntime,
@@ -74,8 +78,9 @@ const APP_ID = 'app-mcp-hot-path';
 const OTHER_APP_ID = 'app-mcp-distractor';
 const HOT_AGENT_ID = 'agent-mcp-hot-path';
 const HOT_SERVER_ID = 'mcp-hot-server-3';
-const HOT_SERVER_NAME = 'server_000001';
+const HOT_SERVER_NAME = 'server_000003';
 const HOT_TOOL_NAME = 'tool_001';
+const HOT_CAPABILITY_ID = 'mcp.hot-tool.read';
 
 type QueryCase = {
   name: string;
@@ -179,13 +184,6 @@ function planVerdict(input: {
         ? 'acceptable_evidence'
         : 'follow_up_required',
   };
-}
-
-function emptyToolRepository() {
-  return {
-    listAgentToolBindings: async () => [],
-    getTool: async () => null,
-  } as never;
 }
 
 maybeDescribe('Postgres MCP inventory and audit plans', () => {
@@ -371,6 +369,55 @@ maybeDescribe('Postgres MCP inventory and audit plans', () => {
        FROM generate_series(1, $1::integer) AS series(n)`,
       [OTHER_BINDING_COUNT, OTHER_APP_ID, DISTRACTOR_SERVER_COUNT, now],
     );
+
+    const hotServer = await runtime.repositories.mcpServers.getServerByName({
+      appId: APP_ID as never,
+      name: HOT_SERVER_NAME,
+    });
+    expect(hotServer?.id).toBe(HOT_SERVER_ID);
+    const reviewedCapability: SemanticCapabilityDefinition = {
+      capabilityId: HOT_CAPABILITY_ID,
+      displayName: 'MCP hot-path tool read',
+      category: 'mcp',
+      risk: 'read',
+      can: `Call ${HOT_TOOL_NAME} on ${HOT_SERVER_NAME}.`,
+      cannot: 'Call any other MCP tool.',
+      credentialSource: 'none',
+      implementationBindings: [
+        {
+          kind: 'mcp_pattern',
+          mcpServer: HOT_SERVER_NAME,
+          mcpToolPatterns: [HOT_TOOL_NAME],
+        },
+      ],
+      preflight: { kind: 'none' },
+    };
+    const hotToolId = `tool:capability:${HOT_CAPABILITY_ID}` as never;
+    await runtime.repositories.tools.saveTool({
+      id: hotToolId,
+      appId: APP_ID as never,
+      name: `capability:${HOT_CAPABILITY_ID}`,
+      kind: 'host',
+      provider: 'gantry',
+      displayName: reviewedCapability.displayName,
+      category: 'mcp',
+      inputSchema: semanticCapabilityInputSchema(reviewedCapability),
+      risk: 'low',
+      selectable: true,
+      status: 'active',
+      adapterRef: `capability/${HOT_CAPABILITY_ID}`,
+      createdAt: now as never,
+      updatedAt: now as never,
+    });
+    await runtime.repositories.tools.saveAgentToolBinding({
+      id: `agent-tool-binding:${HOT_AGENT_ID}:${hotToolId}` as never,
+      appId: APP_ID as never,
+      agentId: HOT_AGENT_ID as never,
+      toolId: hotToolId,
+      status: 'active',
+      createdAt: now as never,
+      updatedAt: now as never,
+    });
 
     await runtime.service.pool.query(
       `INSERT INTO ${auditTable} (
@@ -739,7 +786,7 @@ maybeDescribe('Postgres MCP inventory and audit plans', () => {
         ],
       });
     const proxy = new McpToolProxy(runtime.repositories.mcpServers, {
-      tools: emptyToolRepository(),
+      tools: runtime.repositories.tools,
       liveToolRules: [
         `mcp__${HOT_SERVER_NAME}__${HOT_TOOL_NAME}`,
         `mcp__${HOT_SERVER_NAME}__tool_002`,
@@ -775,6 +822,19 @@ maybeDescribe('Postgres MCP inventory and audit plans', () => {
     });
     const describeMs = elapsedMs(describeStartedAt);
 
+    await expect(
+      proxy.callTool({
+        appId: APP_ID as never,
+        agentId: HOT_AGENT_ID as never,
+        serverName: HOT_SERVER_NAME,
+        toolName: 'tool_002',
+      }),
+    ).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+      message: expect.stringContaining(`mcp__${HOT_SERVER_NAME}__tool_002`),
+    });
+    expect(mcpSdkMocks.client.callTool).not.toHaveBeenCalled();
+
     const callStartedAt = process.hrtime.bigint();
     await proxy.callTool({
       appId: APP_ID as never,
@@ -797,6 +857,21 @@ maybeDescribe('Postgres MCP inventory and audit plans', () => {
       });
       warmInventorySamples.push(elapsedMs(startedAt));
     }
+
+    const proxyAuditResult = await runtime.service.pool.query<{
+      audit_events_written: number;
+    }>(
+      `SELECT COUNT(*)::int AS audit_events_written
+       FROM ${auditTable}
+       WHERE app_id = $1
+         AND agent_id = $2
+         AND actor_id = $3`,
+      [APP_ID, HOT_AGENT_ID, 'mcp-tool-proxy'],
+    );
+    const proxyAuditEventsWritten = Number(
+      proxyAuditResult.rows[0]?.audit_events_written ?? 0,
+    );
+    expect(proxyAuditEventsWritten).toBe(4);
 
     const repositoryTiming = {
       queryElapsedMs: timingSummary(
@@ -864,7 +939,7 @@ maybeDescribe('Postgres MCP inventory and audit plans', () => {
             0,
             mcpSdkMocks.client.listTools.mock.calls.length - 3,
           ),
-          auditEventsWritten: 2,
+          auditEventsWritten: proxyAuditEventsWritten,
           outputSchemaFromCachedDetail: true,
           rawArgumentsIncluded: false,
         },

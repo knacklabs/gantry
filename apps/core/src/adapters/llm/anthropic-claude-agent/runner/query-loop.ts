@@ -2,7 +2,6 @@ import {
   query,
   type EffortLevel,
   type HookInput,
-  type PostToolUseHookInput,
   type ThinkingConfig,
 } from '@anthropic-ai/claude-agent-sdk';
 import { randomUUID } from 'node:crypto';
@@ -22,11 +21,8 @@ import { SteeringDeliveryGate } from './steering-delivery-gate.js';
 import { log } from './logging.js';
 import { writeOutput } from './output.js';
 import {
-  buildSdkFilesystemSandbox,
   normalizeFilesystemSandboxPaths,
   readLocalCliCredentialDirectories,
-  readProtectedFilesystemSandboxPaths,
-  requireSdkSandboxEgressProxyPort,
 } from './filesystem-sandbox.js';
 import { createSafetyPreToolUseHook } from './protected-capability-hook.js';
 import {
@@ -66,7 +62,10 @@ import {
   shouldPrefixVisibleBoundary,
   topLevelAssistantText,
 } from './sdk-message-output.js';
-import { createCanUseToolCallback } from './tool-permission-gate.js';
+import {
+  createCanUseToolCallback,
+  createPermissionApprovalContextChannel,
+} from './tool-permission-gate.js';
 import {
   decideClaudeSdkToolSearch,
   toolSearchStartupRuntimeEvent,
@@ -80,39 +79,13 @@ import {
 } from '../../../../runner/tool-gate-core.js';
 import { canonicalGantryToolRuleName } from '../../../../shared/gantry-tool-facades.js';
 import { emitJobToolActivity } from './tool-permission-events.js';
+import { recordSuccessfulToolUse } from './query-tool-success-ledger.js';
+
+export { recordSuccessfulToolUse } from './query-tool-success-ledger.js';
 
 interface RunQueryOptions {
   enableIpcFollowups?: boolean;
   persistSdkSession?: boolean;
-}
-
-function toolResponseIsError(response: unknown): boolean {
-  if (Array.isArray(response)) return response.some(toolResponseIsError);
-  if (!response || typeof response !== 'object') return false;
-  const value = response as {
-    is_error?: unknown;
-    isError?: unknown;
-    status?: unknown;
-    error?: unknown;
-    content?: unknown;
-  };
-  return (
-    value.is_error === true ||
-    value.isError === true ||
-    value.status === 'error' ||
-    Boolean(value.error) ||
-    toolResponseIsError(value.content)
-  );
-}
-
-export function recordSuccessfulToolUse(
-  hookInput: Pick<PostToolUseHookInput, 'tool_name' | 'tool_response'>,
-  toolSuccessLedger: RunScopedToolSuccessLedger,
-): void {
-  if (toolResponseIsError(hookInput.tool_response)) return;
-  toolSuccessLedger.recordSuccess(
-    canonicalGantryToolRuleName(hookInput.tool_name),
-  );
 }
 
 function localCliCredentialDirectoriesFromRuntimeAccess(
@@ -149,6 +122,7 @@ export async function runQuery(
   const toolSuccessLedger = agentInput.toolRules?.length
     ? new RunScopedToolSuccessLedger()
     : undefined;
+  const permissionApprovalContext = createPermissionApprovalContextChannel();
   const declarativePreToolUse = toolSuccessLedger
     ? async (hookInput: {
         hook_event_name: string;
@@ -281,22 +255,13 @@ export async function runQuery(
   const additionalDirectories = [
     ...new Set([...extraDirs, ...localCliCredentialDirectories]),
   ].sort();
-  const protectedFilesystemPaths = readProtectedFilesystemSandboxPaths();
-  const protectedFilesystemDenyReadPaths = protectedFilesystemPaths.denyRead;
-  const protectedFilesystemDenyWritePaths = [
-    ...protectedFilesystemPaths.denyWrite,
-    ...localCliCredentialDirectories,
-  ];
-  const sdkFilesystemSandbox =
-    process.env.GANTRY_SANDBOX_RUNTIME_PROXY === '1'
-      ? undefined
-      : buildSdkFilesystemSandbox(protectedFilesystemDenyWritePaths, {
-          denyReadPaths: protectedFilesystemDenyReadPaths,
-          denyWritePaths: protectedFilesystemDenyWritePaths,
-          httpProxyPort: requireSdkSandboxEgressProxyPort(
-            process.env.GANTRY_EGRESS_PROXY_URL,
-          ),
-        });
+  // Two-axis model (decision 0040): `direct` = authorization is the whole control
+  // (permission engine + classifier + host-side credential/protected-path rail);
+  // no inner SDK Seatbelt, so Chromium's Mach-port register (and the whole class)
+  // runs. `sandbox_runtime` confinement is the runner OS sandbox
+  // (runner-sandbox-provider), which is applied out-of-band — this SDK-level
+  // filesystem Seatbelt is never the confinement layer, so it is dropped.
+  const sdkFilesystemSandbox = undefined;
   const workspaceFolder = agentInput.workspaceFolder;
   const enabledSdkSkills = readClaudeSdkSkillNamesFromEnv();
   const isolatedSdkEnv: Record<string, string | undefined> = {
@@ -370,6 +335,20 @@ export async function runQuery(
       `(reason=${toolSearchDecision.reason} tools=${toolSearchDecision.availableToolCount} ` +
       `mcpServers=${toolSearchDecision.mcpServerCount} bytes=${toolSearchDecision.serializedToolConfigBytes})`,
   );
+  const postToolUseHook = async (
+    hookInput: HookInput,
+    toolUseID: string | undefined,
+    hookOptions: { signal: AbortSignal },
+  ) => {
+    if (hookInput.hook_event_name === 'PostToolUse' && toolSuccessLedger) {
+      recordSuccessfulToolUse(hookInput, toolSuccessLedger);
+    }
+    return permissionApprovalContext.postToolUse(
+      hookInput,
+      toolUseID,
+      hookOptions,
+    );
+  };
   const sdkQuery = query({
     prompt: stream,
     options: {
@@ -391,9 +370,11 @@ export async function runQuery(
       },
       skills: enabledSdkSkills,
       tools: [...capabilities.availableTools],
-      allowedTools: [...capabilities.allowedTools],
       disallowedTools: [...capabilities.disallowedTools],
       env: isolatedSdkEnv,
+      // Without this the subprocess's own stderr is lost and startup failures
+      // surface only as "Claude Code process exited with code 1".
+      stderr: (data: string) => log(`[claude-code stderr] ${data}`),
       ...(claudeCodeExecutable
         ? { pathToClaudeCodeExecutable: claudeCodeExecutable }
         : {}),
@@ -418,22 +399,16 @@ export async function runQuery(
             timeout: 5,
           },
         ],
-        ...(toolSuccessLedger
-          ? {
-              PostToolUse: [
-                {
-                  hooks: [
-                    async (hookInput: HookInput) => {
-                      if (hookInput.hook_event_name === 'PostToolUse') {
-                        recordSuccessfulToolUse(hookInput, toolSuccessLedger);
-                      }
-                      return { continue: true as const };
-                    },
-                  ],
-                },
-              ],
-            }
-          : {}),
+        PostToolUse: [
+          {
+            hooks: [postToolUseHook],
+          },
+        ],
+        PostToolUseFailure: [
+          {
+            hooks: [postToolUseHook],
+          },
+        ],
       },
       canUseTool: createCanUseToolCallback({
         agentInput,
@@ -447,6 +422,7 @@ export async function runQuery(
         emitInteractionBoundary,
         recordToolActivity: (toolName) =>
           heartbeat.recordToolActivity(toolName),
+        recordPermissionApprovalContext: permissionApprovalContext.record,
       }),
       // Load only the per-run CLAUDE_CONFIG_DIR settings so Claude discovers
       // Gantry-materialized skills without reading workspace configuration.
@@ -502,7 +478,14 @@ export async function runQuery(
         message.type === 'system'
           ? `system/${(message as { subtype?: string }).subtype}`
           : message.type;
-      log(`[msg #${messageCount}] type=${msgType}`);
+      // api_retry/auth errors carry the reason in the payload; without it a
+      // failing turn logs an undiagnosable retry loop.
+      const errorDetail = (
+        message as { error?: unknown; error_status?: unknown }
+      ).error_status
+        ? ` error_status=${String((message as { error_status?: unknown }).error_status)} error=${String((message as { error?: unknown }).error ?? '')}`
+        : '';
+      log(`[msg #${messageCount}] type=${msgType}${errorDetail}`);
       if (!firstSdkMessageLogged) {
         firstSdkMessageLogged = true;
         firstSdkEventMs = elapsedMs();

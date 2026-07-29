@@ -18,6 +18,7 @@ import {
 import { invalidateSenderAllowlistCache } from '../platform/sender-allowlist.js';
 import type { AppId } from '../domain/app/app.js';
 import type { SettingsRevisionRepository } from '../domain/ports/fleet-capability-state.js';
+import type { RuntimeLeasePort } from '../domain/ports/runtime-lease.js';
 
 export interface SettingsReloadWatcherOptions {
   runtimeHome: string;
@@ -27,6 +28,7 @@ export interface SettingsReloadWatcherOptions {
   appId?: AppId;
   settingsRevisions?: SettingsRevisionRepository;
   settingsRevisionPool?: SettingsRevisionMirror['pool'];
+  leases?: RuntimeLeasePort;
   pollIntervalMs?: number;
 }
 
@@ -141,6 +143,7 @@ export function startSettingsReloadWatcher(
             expectedRevision: !matchesLatestRevision
               ? latestRevision
               : undefined,
+            leases: options.leases,
           },
           settings,
         );

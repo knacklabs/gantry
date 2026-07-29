@@ -1,4 +1,5 @@
 # PR #237 validation
+<!-- doc-references: frozen 2026-07-22 (decision 0036) -->
 
 Date: 2026-07-20  
 PR: #237, `develop` -> `main`  

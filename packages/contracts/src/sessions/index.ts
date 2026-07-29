@@ -38,6 +38,63 @@ export const ResumeSessionRequestSchema = z
   .strict();
 export type ResumeSessionRequest = z.infer<typeof ResumeSessionRequestSchema>;
 
+// Exactly three decisions by product decision: no timed grants.
+export const SessionInteractionDecisionSchema = z.enum([
+  'allow_once',
+  'allow_future',
+  'deny',
+]);
+export type SessionInteractionDecision = z.infer<
+  typeof SessionInteractionDecisionSchema
+>;
+
+export const SessionPendingInteractionSchema = z
+  .object({
+    id: z.string(),
+    kind: z.enum(['permission', 'question']),
+    createdAt: IsoDateTimeSchema,
+    expiresAt: IsoDateTimeSchema,
+    runId: z.string().nullable(),
+    toolName: z.string().nullable(),
+    summary: z.string().nullable(),
+    questions: z.array(z.string()).nullable(),
+    options: z.array(SessionInteractionDecisionSchema),
+  })
+  .strict();
+export type SessionPendingInteraction = z.infer<
+  typeof SessionPendingInteractionSchema
+>;
+
+export const SessionInteractionListResponseSchema = z
+  .object({
+    interactions: z.array(SessionPendingInteractionSchema),
+  })
+  .strict();
+export type SessionInteractionListResponse = z.infer<
+  typeof SessionInteractionListResponseSchema
+>;
+
+export const RespondSessionInteractionRequestSchema = z
+  .object({
+    decision: SessionInteractionDecisionSchema,
+  })
+  .strict();
+export type RespondSessionInteractionRequest = z.infer<
+  typeof RespondSessionInteractionRequestSchema
+>;
+
+export const RespondSessionInteractionResponseSchema = z
+  .object({
+    status: z.literal('resolved'),
+    interactionId: z.string(),
+    decision: SessionInteractionDecisionSchema,
+    decidedBy: z.string(),
+  })
+  .strict();
+export type RespondSessionInteractionResponse = z.infer<
+  typeof RespondSessionInteractionResponseSchema
+>;
+
 export const ProviderSessionResponseSchema = z
   .object({
     provider: z.string().optional(),

@@ -9,6 +9,13 @@ import { afterAll, afterEach, describe, expect, it } from 'vitest';
 
 import { DeepAgentSessionStore } from '@core/adapters/llm/deepagents-langchain/runner/session-store.js';
 import { ensureDeepAgentsCheckpointSchema } from '@core/adapters/llm/deepagents-langchain/checkpoint-setup.js';
+import { coordinatePermissionDecision } from '@core/runtime/permission-decision-coordinator.js';
+import {
+  createIpcAuthEnvelope,
+  getIpcResponseSigningPrivateKey,
+} from '@core/runtime/ipc-auth.js';
+import { writePermissionIpcResponse } from '@core/runtime/ipc-interaction-handler.js';
+import { parsePermissionIpcRequest } from '@core/runtime/ipc-parsing.js';
 
 // Spawns the real DeepAgents (LangChain) runner against a local fake model
 // gateway that returns canned OpenAI chat-completions SSE. No real network: the
@@ -518,6 +525,9 @@ async function runRunner(input: {
         GANTRY_APP_ID: 'default',
         GANTRY_AGENT_ID: 'agent:main_agent',
         GANTRY_CHAT_JID: String(input.stdin.chatJid ?? 'tg:group'),
+        GANTRY_PERMISSION_LANE: input.stdin.isScheduledJob
+          ? 'autonomous'
+          : 'interactive',
         GANTRY_WORKSPACE_KEY: String(input.stdin.workspaceFolder ?? 'group'),
         GANTRY_MEMORY_DEFAULT_SCOPE: 'group',
         GANTRY_INTERACTIVE_PERMISSION_TIMEOUT_MS: '1500',
@@ -560,6 +570,7 @@ async function runRunner(input: {
 const tempRoots: string[] = [];
 const checkpointSchemas: string[] = [];
 let checkpointCounter = 0;
+const SHELL_PERMISSION_REQUEST_WAIT_MS = 30_000;
 // Stub MCP servers must resolve @modelcontextprotocol/sdk from the repo
 // node_modules, so the temp tree lives under the repo (not os.tmpdir()).
 const REPO_TMP_BASE = path.resolve(__dirname, '../.tmp-deepagents-int');
@@ -591,6 +602,67 @@ function makeTempRoot(): TempRoot {
     gantryServerPath,
     mcpConfigPath,
   };
+}
+
+async function approveNextShellRequestViaHostCoordinator(input: {
+  temp: TempRoot;
+  responseKeyId: string;
+}) {
+  const requestDir = path.join(
+    input.temp.workspaceIpcDir,
+    'permission-requests',
+  );
+  const startedAt = Date.now();
+  let rawRequest: Record<string, unknown> | undefined;
+  while (Date.now() - startedAt < SHELL_PERMISSION_REQUEST_WAIT_MS) {
+    const requestFile = fs.existsSync(requestDir)
+      ? fs.readdirSync(requestDir).find((entry) => entry.endsWith('.json'))
+      : undefined;
+    if (requestFile) {
+      rawRequest = JSON.parse(
+        fs.readFileSync(path.join(requestDir, requestFile), 'utf-8'),
+      ) as Record<string, unknown>;
+      break;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  if (!rawRequest) throw new Error('Timed out waiting for shell permission');
+
+  const request = parsePermissionIpcRequest(rawRequest, 'group');
+  const decision = await coordinatePermissionDecision({
+    request,
+    reviewedRuleDecision: {
+      status: 'allow',
+      reason: 'Host reviewed RunCommand(echo *) rule matched.',
+      audit: {
+        category: 'tool_execution',
+        origin: 'host',
+        toolKind: 'bash',
+        toolName: request.toolName,
+        mutationIntent: 'execute',
+      },
+      matchedRule: 'RunCommand(echo *)',
+    },
+    tail: async () => {
+      throw new Error('Reviewed host rule should decide before the tail');
+    },
+  });
+  const privateKey = getIpcResponseSigningPrivateKey(
+    'group',
+    request.threadId,
+    input.responseKeyId,
+  );
+  writePermissionIpcResponse(
+    input.temp.ipcDir,
+    'group',
+    {
+      ...decision,
+      requestId: request.requestId,
+      responseNonce: request.responseNonce,
+    },
+    privateKey,
+  );
+  return { decision, request };
 }
 
 async function expectCheckpointExists(
@@ -1209,10 +1281,9 @@ maybeDescribe('DeepAgents (LangChain) runner boundary integration', () => {
   }, 120_000);
 
   // Phase 4: under GANTRY_DEEPAGENTS_SHELL_ENABLED='1' + a RunCommand rule, the
-  // model sees a gated `RunCommand` shell tool. A command that the scoped rule
-  // allows runs without a permission prompt (policy match), executes inside the
-  // runner process, and the run completes — proving the tool is projected and
-  // gated, and the command actually executed.
+  // model sees a gated `RunCommand` shell tool. The worker sends the decision
+  // over signed IPC and the host coordinator applies the reviewed scoped rule;
+  // the command then executes inside the runner process.
   it('projects a gated RunCommand shell tool under sandbox-enabled flag + RunCommand rule and runs an allowed command', async () => {
     const gateway = await startNamedToolForcingGateway(
       'RunCommand',
@@ -1220,6 +1291,14 @@ maybeDescribe('DeepAgents (LangChain) runner boundary integration', () => {
     );
     const temp = makeTempRoot();
     const requestDir = path.join(temp.workspaceIpcDir, 'permission-requests');
+    const auth = createIpcAuthEnvelope('group', undefined, {
+      appId: 'default',
+      agentId: 'agent:main_agent',
+    });
+    let hostDecision:
+      | Awaited<ReturnType<typeof approveNextShellRequestViaHostCoordinator>>
+      | undefined;
+    let hostDecisionPromise: Promise<void> | undefined;
     try {
       const result = await runRunner({
         stdin: {
@@ -1236,16 +1315,35 @@ maybeDescribe('DeepAgents (LangChain) runner boundary integration', () => {
           // Host projects this only on the allowed path (deepagents + RunCommand
           // rule + sandbox_runtime). Setting it here simulates that projection.
           GANTRY_DEEPAGENTS_SHELL_ENABLED: '1',
+          GANTRY_IPC_AUTH_TOKEN: auth.authToken,
+          GANTRY_IPC_RESPONSE_VERIFY_KEY: auth.responseVerifyKey,
+          GANTRY_IPC_RESPONSE_KEY_ID: auth.responseKeyId,
+        },
+        onSpawn: () => {
+          hostDecisionPromise = approveNextShellRequestViaHostCoordinator({
+            temp,
+            responseKeyId: auth.responseKeyId,
+          }).then((result) => {
+            hostDecision = result;
+          });
         },
       });
+      await hostDecisionPromise;
 
       expect(result.code).toBe(0);
-      // No permission-request file: the scoped rule allowed the command, so the
-      // gate did not need to prompt the host.
       const requestFiles = fs.existsSync(requestDir)
         ? fs.readdirSync(requestDir).filter((file) => file.endsWith('.json'))
         : [];
-      expect(requestFiles.length).toBe(0);
+      expect(requestFiles).toHaveLength(1);
+      expect(hostDecision?.request).toMatchObject({
+        toolName: 'RunCommand',
+        toolInput: { command: 'echo gantry-shell-ran' },
+      });
+      expect(hostDecision?.decision).toMatchObject({
+        approved: true,
+        mode: 'allow_once',
+        decidedBy: 'reviewed_rule',
+      });
       // The second upstream turn carries the tool result back to the model; the
       // executed command's stdout is in the request body.
       expect(gateway.requests.length).toBeGreaterThanOrEqual(2);

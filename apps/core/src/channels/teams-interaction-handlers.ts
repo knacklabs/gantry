@@ -2,6 +2,7 @@ import type {
   PermissionApprovalDecision,
   PermissionApprovalRequest,
   PermissionApprovalDecisionMode,
+  UserQuestionCancellation,
   UserQuestionRequest,
   UserQuestionResponse,
 } from '../domain/types.js';
@@ -31,6 +32,12 @@ import {
   type TeamsUserQuestionSubmit,
 } from './teams-user-question.js';
 import { readTeamsPermissionDecision } from './teams-permission-submit.js';
+import {
+  matchesQuestionCancellation,
+  RUNNER_CANCELLED_QUESTION_REASON,
+  settlePendingQuestionCancellation,
+  type InteractionCancellationResult,
+} from './interaction-settlement.js';
 import {
   teamsConversationIdFromJid,
   type PendingTeamsPermissionPrompt,
@@ -153,6 +160,7 @@ export async function resolvePendingTeamsUserQuestion(
   context: TeamsInteractionContext,
   providerAlias: string,
   response: UserQuestionResponse,
+  emptyReceiptText = 'No answer was recorded for the question.',
 ): Promise<void> {
   const pending = context.pendingUserQuestions.get(providerAlias);
   if (!pending || pending.settled) return;
@@ -163,7 +171,7 @@ export async function resolvePendingTeamsUserQuestion(
   const answered = Object.keys(response.answers).length > 0;
   const receiptText = answered
     ? formatTeamsUserQuestionReceipt(pending.request, response)
-    : 'No answer was recorded for the question.';
+    : emptyReceiptText;
   if (context.sdkClient.updateAdaptiveCard && pending.messageId) {
     try {
       await context.sdkClient.updateAdaptiveCard({
@@ -191,6 +199,32 @@ export async function resolvePendingTeamsUserQuestion(
       'Failed to send Teams user question receipt',
     );
   }
+}
+
+export async function cancelPendingTeamsQuestion(
+  context: TeamsInteractionContext,
+  cancellation: UserQuestionCancellation,
+): Promise<InteractionCancellationResult> {
+  const aliases = [...context.pendingUserQuestions]
+    .filter(([, pending]) =>
+      matchesQuestionCancellation(pending.request, cancellation),
+    )
+    .map(([providerAlias]) => providerAlias);
+  if (aliases.length === 0) return 'not_found';
+  const settled = await settlePendingQuestionCancellation(cancellation);
+  if (settled !== 'settled') return settled;
+  const reason = cancellation.reason ?? RUNNER_CANCELLED_QUESTION_REASON;
+  for (const providerAlias of aliases) {
+    const pending = context.pendingUserQuestions.get(providerAlias);
+    if (!pending) continue;
+    await resolvePendingTeamsUserQuestion(
+      context,
+      providerAlias,
+      { requestId: pending.request.requestId, answers: {} },
+      reason,
+    );
+  }
+  return 'settled';
 }
 
 export async function handleTeamsPermissionDecision(input: {

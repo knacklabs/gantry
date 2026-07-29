@@ -236,6 +236,40 @@ describe('runner sandbox provider', () => {
     (child as unknown as { emit(name: string): void }).emit('exit');
   });
 
+  it('keeps generated sandbox_runtime config byte-identical across direct SDK env changes', () => {
+    const provider = createRunnerSandboxProvider({
+      provider: 'sandbox_runtime',
+      resourceLimits: {
+        cpuSeconds: 0,
+        memoryMb: 0,
+        maxProcesses: 0,
+      },
+    });
+    provider.start(baseInput);
+    const baseline = String(vi.mocked(fs.writeFileSync).mock.calls.at(-1)?.[1]);
+    const envKeys = [
+      'GANTRY_PROTECTED_FILESYSTEM_PATHS_JSON',
+      'GANTRY_PROTECTED_FILESYSTEM_DENY_READ_PATHS_JSON',
+      'GANTRY_PROTECTED_FILESYSTEM_DENY_WRITE_PATHS_JSON',
+      'GANTRY_LOCAL_CLI_CREDENTIAL_DIRS_JSON',
+    ] as const;
+    const originalEnv = envKeys.map((key) => [key, process.env[key]] as const);
+
+    try {
+      for (const key of envKeys)
+        process.env[key] = JSON.stringify(['/changed']);
+      provider.start(baseInput);
+      expect(String(vi.mocked(fs.writeFileSync).mock.calls.at(-1)?.[1])).toBe(
+        baseline,
+      );
+    } finally {
+      for (const [key, value] of originalEnv) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+    }
+  });
+
   it('allows macOS FSEvents for sandboxed runner file watches', () => {
     const provider = createRunnerSandboxProvider({
       provider: 'sandbox_runtime',

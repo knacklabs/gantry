@@ -19,10 +19,14 @@ import {
 } from '@core/config/settings/runtime-settings.js';
 import { listSlackRecentChats } from '@core/cli/slack-chat-discovery.js';
 import { makeAgentThreadQueueKey } from '@core/shared/thread-queue-key.js';
+import { isDefaultAgentLastRoute } from '@core/cli/main-agent.js';
 import {
   pruneAgentSenderPolicyOverride,
+  pruneDesiredStateAgent,
+  resolveRoutelessAgentFolder,
   resolveGroupSelector,
 } from '@core/cli/group-helpers.js';
+import { agentIdForFolder } from '@core/domain/agent/agent-folder-id.js';
 
 const groupsStore = vi.hoisted(() => new Map<string, any>());
 const fileArtifacts = vi.hoisted(() => new Map<string, string>());
@@ -143,6 +147,56 @@ function mockRuntimeSecretStorage(runtimeHome: string) {
     storeRuntimeSecretInput,
   }));
   return storeRuntimeSecretInput;
+}
+
+// Mock the dynamic runtime-store import used by disableRemovedAgentProjection so
+// the projection-cleanup step is observable without a live Postgres.
+function mockRuntimeStoreDisableAgent(
+  impl: (input: any) => any = async () => ({ id: 'row' }),
+) {
+  const disableAgent = vi.fn(impl);
+  vi.doMock('@core/adapters/storage/postgres/runtime-store.js', () => ({
+    initializeRuntimeStorage: vi.fn(async () => undefined),
+    closeRuntimeStorage: vi.fn(async () => undefined),
+    getRuntimeStorage: () => ({ repositories: { agents: { disableAgent } } }),
+  }));
+  return disableAgent;
+}
+
+// Force the desired-state write to report a durable settings-revision append
+// (`reconciled: true`) while still persisting to the on-disk settings file, so
+// the projection-cleanup step runs. Without a storage provider the real writer
+// returns `reconciled: false`; tests that omit this helper exercise that path.
+function mockReconciledDesiredWrite() {
+  vi.doMock(
+    '@core/config/settings/runtime-settings.js',
+    async (importOriginal) => {
+      const actual =
+        await importOriginal<
+          typeof import('@core/config/settings/runtime-settings.js')
+        >();
+      return {
+        ...actual,
+        writeDesiredRuntimeSettings: vi.fn(async (input: any) => {
+          actual.saveRuntimeSettings(input.runtimeHome, input.settings);
+          return { reconciled: true, restartRequired: [] };
+        }),
+      };
+    },
+  );
+}
+
+function clackLogMock() {
+  const warn = vi.fn();
+  vi.doMock('@clack/prompts', () => ({
+    isCancel: () => false,
+    select: vi.fn(),
+    text: vi.fn(),
+    note: vi.fn(),
+    spinner: vi.fn(() => ({ start: vi.fn(), stop: vi.fn() })),
+    log: { info: vi.fn(), success: vi.fn(), error: vi.fn(), warn },
+  }));
+  return { warn };
 }
 
 describe('cli slack helpers', () => {
@@ -1182,5 +1236,633 @@ describe('cli slack helpers', () => {
       expect.objectContaining({ agent: 'researcher' }),
     ]);
     expect(updated.agents.main_agent.bindings).toEqual({});
+  });
+
+  it('removes the agent from desired state once its last route is gone', async () => {
+    const runtimeHome = makeRuntimeHome();
+    const settings = loadRuntimeSettings(runtimeHome);
+    settings.agents.doomed = {
+      name: 'Doomed',
+      folder: 'doomed',
+      bindings: {},
+      capabilities: [],
+      delegates: [],
+      sources: { skills: [], mcpServers: [], tools: [] },
+      accessPreset: 'full',
+    } as (typeof settings.agents)['doomed'];
+    settings.agents.keeper = {
+      ...settings.agents.doomed,
+      name: 'Keeper',
+      folder: 'keeper',
+    };
+    saveRuntimeSettings(runtimeHome, settings);
+
+    // Still bound elsewhere -> the definition must survive.
+    await expect(
+      pruneDesiredStateAgent({
+        runtimeHome,
+        folder: 'doomed',
+        remainingRoutes: 1,
+      }),
+    ).resolves.toEqual({ pruned: false, providerAccountsPruned: 0 });
+    expect(loadRuntimeSettings(runtimeHome).agents.doomed).toBeDefined();
+
+    // Last route gone -> definition removed, so reconcile cannot resurrect it.
+    await expect(
+      pruneDesiredStateAgent({
+        runtimeHome,
+        folder: 'doomed',
+        remainingRoutes: 0,
+      }),
+    ).resolves.toEqual({
+      pruned: true,
+      providerAccountsPruned: 0,
+      reconciled: false,
+    });
+    expect(loadRuntimeSettings(runtimeHome).agents.doomed).toBeUndefined();
+
+    // Other agents are untouched.
+    expect(loadRuntimeSettings(runtimeHome).agents.keeper).toBeDefined();
+  });
+
+  it('prunes the removed route from desired state while retaining a multi-route agent', async () => {
+    // Mirrors runRemove's order: the route/binding prune runs first, then the
+    // agent prune declines because another route remains. The removed route
+    // must not survive in desired state, or reconciliation recreates it.
+    const runtimeHome = makeRuntimeHome();
+    const settings = loadRuntimeSettings(runtimeHome);
+    settings.providerAccounts.slack_default = {
+      provider: 'slack',
+      agentId: 'multi',
+      label: 'slack',
+      runtimeSecretRefs: {},
+    } as (typeof settings.providerAccounts)['slack_default'];
+    settings.agents.multi = {
+      name: 'Multi',
+      folder: 'multi',
+      bindings: {
+        multi_first: {
+          jid: 'sl:C0000000001',
+          provider: 'slack',
+          providerAccountId: 'slack_default',
+          name: 'First',
+          trigger: '',
+          addedAt: '2026-01-01T00:00:00.000Z',
+          requiresTrigger: false,
+        },
+      },
+      sources: { skills: [], mcpServers: [], tools: [] },
+      capabilities: [],
+      delegates: [],
+      accessPreset: 'full',
+    } as (typeof settings.agents)['multi'];
+    settings.bindings.multi_first = {
+      agent: 'multi',
+      conversation: 'slack_default_c0000000001',
+      installKey: 'multi',
+      trigger: '',
+      addedAt: '2026-01-01T00:00:00.000Z',
+      requiresTrigger: false,
+      memoryScope: 'conversation',
+    } as (typeof settings.bindings)['multi_first'];
+    settings.conversations.slack_default_c0000000001 = {
+      providerAccount: 'slack_default',
+      externalId: 'C0000000001',
+      kind: 'channel',
+      displayName: 'First',
+      senderPolicy: { allow: '*', mode: 'trigger' },
+      controlApprovers: [],
+      installedAgents: {
+        multi: {
+          agentId: 'multi',
+          providerAccountId: 'slack_default',
+          status: 'active',
+          addedAt: '2026-01-01T00:00:00.000Z',
+          memoryScope: 'conversation',
+        },
+      },
+    } as (typeof settings.conversations)['slack_default_c0000000001'];
+    saveRuntimeSettings(runtimeHome, settings);
+
+    await pruneAgentSenderPolicyOverride(
+      runtimeHome,
+      'sl:C0000000001',
+      'multi',
+    );
+    const agentPrune = await pruneDesiredStateAgent({
+      runtimeHome,
+      folder: 'multi',
+      remainingRoutes: 1,
+    });
+
+    const updated = loadRuntimeSettings(runtimeHome);
+    // Agent retained (another route remains) ...
+    expect(agentPrune.pruned).toBe(false);
+    expect(updated.agents.multi).toBeDefined();
+    // ... but the removed route leaves no desired-state trace to resurrect it.
+    expect(updated.bindings.multi_first).toBeUndefined();
+    expect(updated.agents.multi.bindings.multi_first).toBeUndefined();
+    expect(updated.conversations.slack_default_c0000000001).toBeUndefined();
+  });
+
+  it('resolves a route-less agent so it can be addressed for removal', () => {
+    const runtimeHome = makeRuntimeHome();
+    const settings = loadRuntimeSettings(runtimeHome);
+    settings.agents.orphan = {
+      name: 'Orphan',
+      folder: 'orphan',
+      bindings: {},
+      capabilities: [],
+      delegates: [],
+      sources: { skills: [], mcpServers: [], tools: [] },
+      accessPreset: 'full',
+    } as (typeof settings.agents)['orphan'];
+    settings.agents.routed = {
+      ...settings.agents.orphan,
+      name: 'Routed',
+      folder: 'routed',
+    };
+    saveRuntimeSettings(runtimeHome, settings);
+    const reloaded = loadRuntimeSettings(runtimeHome);
+    const routedKey = makeAgentThreadQueueKey('sl:C1', 'agent:routed');
+    const groups = {
+      [routedKey]: {
+        name: 'Routed',
+        folder: 'routed',
+        trigger: '',
+        added_at: '2026-04-24T00:00:00.000Z',
+      },
+    };
+
+    // Route-less agent resolves by both surfaced forms.
+    expect(
+      resolveRoutelessAgentFolder({
+        settings: reloaded,
+        groups,
+        selector: 'agent:orphan',
+      }),
+    ).toBe('orphan');
+    expect(
+      resolveRoutelessAgentFolder({
+        settings: reloaded,
+        groups,
+        selector: 'orphan',
+      }),
+    ).toBe('orphan');
+
+    // An agent that still owns routes belongs to the route-scoped path.
+    expect(
+      resolveRoutelessAgentFolder({
+        settings: reloaded,
+        groups,
+        selector: 'agent:routed',
+      }),
+    ).toBeNull();
+
+    // Unknown selectors stay unknown.
+    expect(
+      resolveRoutelessAgentFolder({
+        settings: reloaded,
+        groups,
+        selector: 'agent:nope',
+      }),
+    ).toBeNull();
+
+    // Inherited Object properties are not configured agents.
+    for (const reserved of ['constructor', 'toString', '__proto__']) {
+      expect(
+        resolveRoutelessAgentFolder({
+          settings: reloaded,
+          groups,
+          selector: reserved,
+        }),
+        `${reserved} must not resolve as an agent`,
+      ).toBeNull();
+    }
+  });
+
+  it('removes a route-less agent from desired state so a reload cannot restore it', async () => {
+    const runtimeHome = makeRuntimeHome();
+    const settings = loadRuntimeSettings(runtimeHome);
+    settings.agents.orphan = {
+      name: 'Orphan',
+      folder: 'orphan',
+      bindings: {},
+      capabilities: [],
+      delegates: [],
+      sources: { skills: [], mcpServers: [], tools: [] },
+      accessPreset: 'full',
+    } as (typeof settings.agents)['orphan'];
+    settings.providerAccounts.orphan_account = {
+      provider: 'slack',
+      agentId: 'orphan',
+      label: 'orphan',
+      runtimeSecretRefs: {},
+    } as (typeof settings.providerAccounts)['orphan_account'];
+    saveRuntimeSettings(runtimeHome, settings);
+
+    const result = await pruneDesiredStateAgent({
+      runtimeHome,
+      folder: 'orphan',
+      remainingRoutes: 0,
+    });
+
+    expect(result.error).toBeUndefined();
+    expect(result.pruned).toBe(true);
+    expect(result.providerAccountsPruned).toBe(1);
+
+    // Re-reading is what a reload/reconcile does: the agent must be gone.
+    const updated = loadRuntimeSettings(runtimeHome);
+    expect(updated.agents.orphan).toBeUndefined();
+    expect(updated.providerAccounts.orphan_account).toBeUndefined();
+  });
+
+  it('flags the default agent last route but allows removing one of several', () => {
+    const one = {
+      [makeAgentThreadQueueKey('sl:C1', 'agent:main_agent')]: {
+        name: 'M',
+        folder: 'main_agent',
+        trigger: '',
+        added_at: '2026-04-24T00:00:00.000Z',
+      },
+    };
+    expect(isDefaultAgentLastRoute(one, 'main_agent')).toBe(true);
+
+    const two = {
+      ...one,
+      [makeAgentThreadQueueKey('sl:C2', 'agent:main_agent')]: {
+        name: 'M',
+        folder: 'main_agent',
+        trigger: '',
+        added_at: '2026-04-24T00:00:00.000Z',
+      },
+    };
+    expect(isDefaultAgentLastRoute(two, 'main_agent')).toBe(false);
+
+    // Non-default agents are never flagged.
+    expect(isDefaultAgentLastRoute(one, 'other')).toBe(false);
+  });
+
+  it('refuses to remove the default agent (main_agent) from desired state', async () => {
+    const runtimeHome = makeRuntimeHome();
+    const settings = loadRuntimeSettings(runtimeHome);
+    settings.agents.main_agent = {
+      name: 'Main',
+      folder: 'main_agent',
+      bindings: {},
+      capabilities: [],
+      delegates: [],
+      sources: { skills: [], mcpServers: [], tools: [] },
+      accessPreset: 'full',
+    } as (typeof settings.agents)['main_agent'];
+    saveRuntimeSettings(runtimeHome, settings);
+
+    const result = await pruneDesiredStateAgent({
+      runtimeHome,
+      folder: 'main_agent',
+      remainingRoutes: 0,
+    });
+
+    expect(result.pruned).toBe(false);
+    expect(result.keptAsDefault).toBe(true);
+    expect(loadRuntimeSettings(runtimeHome).agents.main_agent).toBeDefined();
+  });
+
+  it('retains a route-less agent that others still delegate to', async () => {
+    const runtimeHome = makeRuntimeHome();
+    const settings = loadRuntimeSettings(runtimeHome);
+    settings.agents.helper = {
+      name: 'Helper',
+      folder: 'helper',
+      bindings: {},
+      capabilities: [],
+      delegates: [],
+      sources: { skills: [], mcpServers: [], tools: [] },
+      accessPreset: 'full',
+    } as (typeof settings.agents)['helper'];
+    settings.agents.boss = {
+      ...settings.agents.helper,
+      name: 'Boss',
+      folder: 'boss',
+      delegates: ['helper'],
+    };
+    saveRuntimeSettings(runtimeHome, settings);
+
+    const result = await pruneDesiredStateAgent({
+      runtimeHome,
+      folder: 'helper',
+      remainingRoutes: 0,
+    });
+
+    expect(result.pruned).toBe(false);
+    expect(result.keptForDelegates).toEqual(['boss']);
+    expect(loadRuntimeSettings(runtimeHome).agents.helper).toBeDefined();
+  });
+
+  it('never leaves a provider account pointing at the removed agent', () => {
+    const runtimeHome = makeRuntimeHome();
+    const settings = loadRuntimeSettings(runtimeHome);
+    settings.agents.doomed = {
+      name: 'Doomed',
+      folder: 'doomed',
+      bindings: {},
+      capabilities: [],
+      delegates: [],
+      sources: { skills: [], mcpServers: [], tools: [] },
+      accessPreset: 'full',
+    } as (typeof settings.agents)['doomed'];
+    settings.providerAccounts.doomed_account = {
+      provider: 'slack',
+      agentId: 'doomed',
+      label: 'doomed',
+      runtimeSecretRefs: {},
+    } as (typeof settings.providerAccounts)['doomed_account'];
+    settings.conversations.doomed_conversation = {
+      providerAccount: 'doomed_account',
+      externalId: 'C999',
+      kind: 'channel',
+      displayName: 'doomed',
+      senderPolicy: { allow: '*', mode: 'trigger' },
+      controlApprovers: [],
+      installedAgents: {
+        doomed: {
+          agentId: 'doomed',
+          providerAccountId: 'doomed_account',
+          status: 'active',
+          addedAt: '2026-01-01T00:00:00.000Z',
+          memoryScope: 'conversation',
+        },
+      },
+    } as (typeof settings.conversations)['doomed_conversation'];
+    saveRuntimeSettings(runtimeHome, settings);
+
+    return expect(
+      (async () => {
+        await pruneDesiredStateAgent({
+          runtimeHome,
+          folder: 'doomed',
+          remainingRoutes: 0,
+        });
+        const updated = loadRuntimeSettings(runtimeHome);
+        return {
+          agent: updated.agents.doomed,
+          account: updated.providerAccounts.doomed_account,
+          conversation: updated.conversations.doomed_conversation,
+          danglingAccounts: Object.values(updated.providerAccounts).filter(
+            (account) => account.agentId === 'doomed',
+          ).length,
+        };
+      })(),
+    ).resolves.toEqual({
+      agent: undefined,
+      account: undefined,
+      conversation: undefined,
+      danglingAccounts: 0,
+    });
+  });
+
+  it('disables the projected agents row after a route-bearing last-route removal', async () => {
+    const runtimeHome = makeRuntimeHome();
+    const settings = loadRuntimeSettings(runtimeHome);
+    settings.providerAccounts.slack_doomed = {
+      provider: 'slack',
+      agentId: 'doomed',
+      label: 'slack',
+      runtimeSecretRefs: {},
+    } as (typeof settings.providerAccounts)['slack_doomed'];
+    settings.agents.doomed = {
+      name: 'Doomed',
+      folder: 'doomed',
+      bindings: {
+        doomed_b: {
+          jid: 'sl:C0000000009',
+          provider: 'slack',
+          providerAccountId: 'slack_doomed',
+          name: 'Doomed',
+          trigger: '',
+          addedAt: '2026-01-01T00:00:00.000Z',
+          requiresTrigger: false,
+        },
+      },
+      sources: { skills: [], mcpServers: [], tools: [] },
+      capabilities: [],
+      delegates: [],
+      accessPreset: 'full',
+    } as (typeof settings.agents)['doomed'];
+    settings.bindings.doomed_b = {
+      agent: 'doomed',
+      conversation: 'slack_doomed_c9',
+      installKey: 'doomed',
+      trigger: '',
+      addedAt: '2026-01-01T00:00:00.000Z',
+      requiresTrigger: false,
+      memoryScope: 'conversation',
+    } as (typeof settings.bindings)['doomed_b'];
+    settings.conversations.slack_doomed_c9 = {
+      providerAccount: 'slack_doomed',
+      externalId: 'C0000000009',
+      kind: 'channel',
+      displayName: 'Doomed',
+      senderPolicy: { allow: '*', mode: 'trigger' },
+      controlApprovers: [],
+      installedAgents: {
+        doomed: {
+          agentId: 'doomed',
+          providerAccountId: 'slack_doomed',
+          status: 'active',
+          addedAt: '2026-01-01T00:00:00.000Z',
+          memoryScope: 'conversation',
+        },
+      },
+    } as (typeof settings.conversations)['slack_doomed_c9'];
+    saveRuntimeSettings(runtimeHome, settings);
+    const routeKey = makeAgentThreadQueueKey('sl:C0000000009', 'agent:doomed');
+    groupsStore.set(routeKey, {
+      name: 'Doomed',
+      folder: 'doomed',
+      trigger: '',
+      added_at: '2026-04-24T00:00:00.000Z',
+    });
+
+    mockReconciledDesiredWrite();
+    clackLogMock();
+    const disableAgent = mockRuntimeStoreDisableAgent();
+    const { runAgentCommand } = await import('@core/cli/group.js');
+    const code = await runAgentCommand(runtimeHome, [
+      'remove',
+      routeKey,
+      '--yes',
+    ]);
+
+    expect(code).toBe(0);
+    expect(loadRuntimeSettings(runtimeHome).agents.doomed).toBeUndefined();
+    expect(disableAgent).toHaveBeenCalledTimes(1);
+    expect(disableAgent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        appId: 'default',
+        agentId: agentIdForFolder('doomed'),
+      }),
+    );
+  });
+
+  it('disables the projected agents row after a route-less removal', async () => {
+    const runtimeHome = makeRuntimeHome();
+    const settings = loadRuntimeSettings(runtimeHome);
+    settings.agents.orphan = {
+      name: 'Orphan',
+      folder: 'orphan',
+      bindings: {},
+      capabilities: [],
+      delegates: [],
+      sources: { skills: [], mcpServers: [], tools: [] },
+      accessPreset: 'full',
+    } as (typeof settings.agents)['orphan'];
+    saveRuntimeSettings(runtimeHome, settings);
+
+    mockReconciledDesiredWrite();
+    clackLogMock();
+    const disableAgent = mockRuntimeStoreDisableAgent();
+    const { runAgentCommand } = await import('@core/cli/group.js');
+    const code = await runAgentCommand(runtimeHome, [
+      'remove',
+      'orphan',
+      '--yes',
+    ]);
+
+    expect(code).toBe(0);
+    expect(loadRuntimeSettings(runtimeHome).agents.orphan).toBeUndefined();
+    expect(disableAgent).toHaveBeenCalledTimes(1);
+    expect(disableAgent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        appId: 'default',
+        agentId: agentIdForFolder('orphan'),
+      }),
+    );
+  });
+
+  it('does not disable a projected row when the desired-state write is file-only', async () => {
+    const runtimeHome = makeRuntimeHome();
+    const settings = loadRuntimeSettings(runtimeHome);
+    settings.agents.orphan = {
+      name: 'Orphan',
+      folder: 'orphan',
+      bindings: {},
+      capabilities: [],
+      delegates: [],
+      sources: { skills: [], mcpServers: [], tools: [] },
+      accessPreset: 'full',
+    } as (typeof settings.agents)['orphan'];
+    saveRuntimeSettings(runtimeHome, settings);
+
+    // Use the real writer (no mockReconciledDesiredWrite): with no storage
+    // provider it returns reconciled:false (file-only), so no DB projection
+    // exists to clean. doUnmock guards against a reconciled mock leaking in from
+    // an earlier test via the shared doMock registry.
+    vi.doUnmock('@core/config/settings/runtime-settings.js');
+    clackLogMock();
+    const disableAgent = mockRuntimeStoreDisableAgent();
+    const { runAgentCommand } = await import('@core/cli/group.js');
+    const code = await runAgentCommand(runtimeHome, [
+      'remove',
+      'orphan',
+      '--yes',
+    ]);
+
+    expect(code).toBe(0);
+    expect(loadRuntimeSettings(runtimeHome).agents.orphan).toBeUndefined();
+    expect(disableAgent).not.toHaveBeenCalled();
+  });
+
+  it('does not disable a projected row when the agent is retained for delegates', async () => {
+    const runtimeHome = makeRuntimeHome();
+    const settings = loadRuntimeSettings(runtimeHome);
+    settings.agents.helper = {
+      name: 'Helper',
+      folder: 'helper',
+      bindings: {},
+      capabilities: [],
+      delegates: [],
+      sources: { skills: [], mcpServers: [], tools: [] },
+      accessPreset: 'full',
+    } as (typeof settings.agents)['helper'];
+    settings.agents.boss = {
+      ...settings.agents.helper,
+      name: 'Boss',
+      folder: 'boss',
+      delegates: ['helper'],
+    };
+    saveRuntimeSettings(runtimeHome, settings);
+
+    clackLogMock();
+    const disableAgent = mockRuntimeStoreDisableAgent();
+    const { runAgentCommand } = await import('@core/cli/group.js');
+    const code = await runAgentCommand(runtimeHome, [
+      'remove',
+      'helper',
+      '--yes',
+    ]);
+
+    expect(code).toBe(1);
+    expect(disableAgent).not.toHaveBeenCalled();
+  });
+
+  it('does not disable a projected row when refusing the default agent', async () => {
+    const runtimeHome = makeRuntimeHome();
+    const settings = loadRuntimeSettings(runtimeHome);
+    settings.agents.main_agent = {
+      name: 'Main',
+      folder: 'main_agent',
+      bindings: {},
+      capabilities: [],
+      delegates: [],
+      sources: { skills: [], mcpServers: [], tools: [] },
+      accessPreset: 'full',
+    } as (typeof settings.agents)['main_agent'];
+    saveRuntimeSettings(runtimeHome, settings);
+
+    clackLogMock();
+    const disableAgent = mockRuntimeStoreDisableAgent();
+    const { runAgentCommand } = await import('@core/cli/group.js');
+    const code = await runAgentCommand(runtimeHome, [
+      'remove',
+      'main_agent',
+      '--yes',
+    ]);
+
+    expect(code).toBe(1);
+    expect(disableAgent).not.toHaveBeenCalled();
+  });
+
+  it('still succeeds and warns when the projection disable fails (best-effort)', async () => {
+    const runtimeHome = makeRuntimeHome();
+    const settings = loadRuntimeSettings(runtimeHome);
+    settings.agents.orphan = {
+      name: 'Orphan',
+      folder: 'orphan',
+      bindings: {},
+      capabilities: [],
+      delegates: [],
+      sources: { skills: [], mcpServers: [], tools: [] },
+      accessPreset: 'full',
+    } as (typeof settings.agents)['orphan'];
+    saveRuntimeSettings(runtimeHome, settings);
+
+    mockReconciledDesiredWrite();
+    const disableAgent = mockRuntimeStoreDisableAgent(async () => {
+      throw new Error('storage offline');
+    });
+    const { warn } = clackLogMock();
+    const { runAgentCommand } = await import('@core/cli/group.js');
+    const code = await runAgentCommand(runtimeHome, [
+      'remove',
+      'orphan',
+      '--yes',
+    ]);
+
+    expect(code).toBe(0);
+    expect(disableAgent).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalled();
+    // Desired-state removal is durable regardless of the mirror write.
+    expect(loadRuntimeSettings(runtimeHome).agents.orphan).toBeUndefined();
   });
 });

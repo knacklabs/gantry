@@ -1,4 +1,5 @@
 # Permission durable-storage simplification — plan validation
+<!-- doc-references: frozen 2026-07-22 (decision 0036) -->
 
 Date: 2026-07-18  
 Validated checkout: `fix/capability-permission-durable-record` at `94043cdc3`  

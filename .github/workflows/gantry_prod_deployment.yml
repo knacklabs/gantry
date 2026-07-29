@@ -1,5 +1,8 @@
 name: Gantry Prod Deployment
 
+permissions:
+  contents: read
+
 on:
   workflow_dispatch:
   push:
@@ -13,7 +16,6 @@ env:
   ECS_SERVICE: kl-aws-aps1-prod-ecs-ats-gantry-reagent-service
   TASK_NAME: kl-aws-aps1-prod-task_definition-ats-gantry-reagent
   CONTAINER_NAME: kl-aws-aps1-prod-task_definition-ats-gantry-reagent-container
-
 
 jobs:
   deploy:

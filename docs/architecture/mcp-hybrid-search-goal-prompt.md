@@ -49,7 +49,7 @@ commits (both touch mcp-tool-proxy — avoid concurrent edits).
   acquire-first signaling (honest, ties to receipts), and R5's cold multi-server
   inventory fetch + bounded concurrency.
 - Semantic path reuses memory's embedding-cache store
-  (`memory/memory-embedding-cache-store.ts` PostgresEmbeddingCacheStore) — do
+  (`apps/core/src/memory/memory-embedding-cache-store.ts` PostgresEmbeddingCacheStore) — do
   not reimplement caching.
 
 ## Cache-safety / scope

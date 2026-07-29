@@ -22,7 +22,12 @@ import {
   splitSlackTextByCodeUnits,
 } from './text-limits.js';
 import { nowIso } from '../../shared/time/datetime.js';
-import { slackMessageActionBlocks } from './message-action-affordances.js';
+import {
+  slackMessageActionBlocks,
+  slackReviewMessageBlocks,
+} from './message-action-affordances.js';
+import { slackObserverDigestBlocks } from './observer-digest-affordances.js';
+import { slackBrainReviewBlocks } from './brain-review-affordances.js';
 import { slackThreadTsFromThreadId } from './thread-ts.js';
 import {
   handleSlackThreadProgressStatus,
@@ -43,6 +48,27 @@ type SlackDeliveryLogger = {
   warn(metadata: Record<string, unknown>, message: string): void;
 };
 function slackActionBlocks(text: string, options: MessageSendOptions) {
+  if (options.observerDigestView) {
+    return slackObserverDigestBlocks(options.observerDigestView, {
+      ...(options.providerAccountId
+        ? { providerAccountId: options.providerAccountId }
+        : {}),
+    });
+  }
+  if (options.reviewMessageView) {
+    return slackReviewMessageBlocks(options.reviewMessageView, {
+      ...(options.providerAccountId
+        ? { providerAccountId: options.providerAccountId }
+        : {}),
+    });
+  }
+  if (options.brainReviewView) {
+    return slackBrainReviewBlocks(options.brainReviewView, {
+      ...(options.providerAccountId
+        ? { providerAccountId: options.providerAccountId }
+        : {}),
+    });
+  }
   return options.actionAffordances
     ? slackMessageActionBlocks(text, options.actionAffordances, {
         providerAccountId: options.providerAccountId,
@@ -635,29 +661,6 @@ export async function sendSlackProgressUpdate(input: {
     'Progress lifecycle slack edited existing message',
   );
 }
-
-export async function waitForSlackUserQuestionSelection(input: {
-  pendingKey: string;
-  pendingState: PendingUserQuestionState;
-  pendingUserQuestions: Map<string, PendingUserQuestionState>;
-  timeoutMs: number;
-  finalizeTimedOut: (pending: PendingUserQuestionState) => Promise<void>;
-}): Promise<{ selected: string | string[]; answeredBy?: string }> {
-  return new Promise((resolve) => {
-    const timer = setTimeout(() => {
-      const timedOut = input.pendingUserQuestions.get(input.pendingKey);
-      if (!timedOut) return;
-      void input.finalizeTimedOut(timedOut);
-    }, input.timeoutMs);
-
-    input.pendingUserQuestions.set(input.pendingKey, {
-      ...input.pendingState,
-      timer,
-      resolve,
-    });
-  });
-}
-
 export function loadPersistedSlackProgress(
   botToken: string,
   activeProgress: Map<string, ActiveProgressState>,

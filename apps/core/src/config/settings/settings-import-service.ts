@@ -2,6 +2,8 @@ import type { Pool } from 'pg';
 
 import type { AppId } from '../../domain/app/app.js';
 import type { SettingsRevisionRepository } from '../../domain/ports/fleet-capability-state.js';
+import type { RuntimeLeasePort } from '../../domain/ports/runtime-lease.js';
+import { withSettingsProjectorLease } from '../../domain/ports/settings-projector-lease.js';
 import { SettingsDesiredStateService } from './desired-state-service.js';
 import type {
   SettingsDesiredStateOps,
@@ -34,7 +36,7 @@ import { migrateLegacyAgentBindings } from './settings-revision-legacy-bindings.
  * applied) by an older worker until it is upgraded (ADR-3 skew safety contract).
  * Bump this whenever a settings-schema change would break older readers.
  */
-export const CURRENT_SETTINGS_READER_VERSION = 14;
+export const CURRENT_SETTINGS_READER_VERSION = 15;
 
 export interface SettingsImportValidationResult {
   ok: boolean;
@@ -92,14 +94,22 @@ export class SettingsRevisionConflictError extends Error {
   }
 }
 
-/**
- * The single validation path shared by every settings mutation surface (YAML
- * watcher auto-import, CLI `settings import`, and the control-API desired-state
- * update). Schema/path-level validation runs through `validateLoadedRuntimeSettings`
- * and capability-reference validation runs through the desired-state service, so
- * the workstation file and the fleet revision produce identical errors (ADR-3:
- * one mutation path, one validation, no authority fork).
- */
+export class SettingsIncompatibleReaderError extends Error {
+  constructor(
+    readonly revision: number,
+    readonly minReaderVersion: number,
+    readonly readerVersion: number,
+  ) {
+    super(
+      `Settings revision ${revision} requires settings reader version ` +
+        `${minReaderVersion}; this runtime supports ${readerVersion}. ` +
+        'Upgrade Gantry before applying this revision.',
+    );
+    this.name = 'SettingsIncompatibleReaderError';
+  }
+}
+
+/** Shared validation for YAML, CLI, and control API settings mutations. */
 export async function validateSettingsForImport(
   deps: SettingsImportServiceDeps,
   settings: RuntimeSettings,
@@ -122,14 +132,7 @@ export async function validateSettingsForImport(
   return { ok: errors.length === 0, settings, errors };
 }
 
-/**
- * Workstation import: validate, then write `settings.yaml` and reconcile through
- * the existing desired-state apply path. When a required revision mirror is
- * provided, append the `settings_revisions` row before mutating local runtime
- * projection. Fleet authority is the revision log; a failed local projection can
- * be retried from that committed revision without accepting an uncommitted file
- * change.
- */
+/** Validate, append any required revision, then project the settings. */
 export async function importWorkstationSettings(
   deps: SettingsImportServiceDeps & {
     previousSettings?: RuntimeSettings;
@@ -137,6 +140,8 @@ export async function importWorkstationSettings(
     revisionMirror?: SettingsRevisionMirror;
     revisionMirrorRequired?: boolean;
     expectedRevision?: number | null;
+    leases?: RuntimeLeasePort;
+    projectionAuthority?: 'file' | 'revision';
   },
   settings: RuntimeSettings,
 ): Promise<WorkstationSettingsImportOutcome> {
@@ -147,6 +152,14 @@ export async function importWorkstationSettings(
     throw new Error(
       'Settings mutation requires previous settings and a settings revision mirror for stale revision protection.',
     );
+  }
+  if (deps.revisionMirrorRequired && !deps.leases) {
+    throw new Error(
+      'Settings mutation requires a runtime lease port for serialized projection.',
+    );
+  }
+  if (deps.projectionAuthority !== 'revision' && !deps.previousSettings) {
+    throw new Error('File-authority import requires previous settings.');
   }
   const validation = await validateSettingsForImport(deps, settings);
   if (!validation.ok) {
@@ -198,16 +211,14 @@ export async function importWorkstationSettings(
       latest &&
       revisionDocumentMatchesSettings(latest.settingsDocument, revisionSettings)
     ) {
-      await applyRuntimeSettingsDesiredState({
-        runtimeHome: deps.runtimeHome,
-        settings: revisionSettings,
-        ops: deps.ops,
-        repositories: deps.repositories,
-        appId: deps.appId,
-        previousSettings: deps.previousSettings,
-        reloadRuntimeState: deps.reloadRuntimeState,
+      await projectRequiredSettingsRevision({
+        deps,
+        appId,
+        revisionMirror: deps.revisionMirror,
+        leases: deps.leases!,
+        targetRevision: latest.revision,
+        targetSettings: revisionSettings,
       });
-      activateRuntimeModelAliases(revisionSettings);
       return { status: 'no_op' };
     }
     await validateProjectionPreconditions({
@@ -240,16 +251,14 @@ export async function importWorkstationSettings(
     if (outcome.status === 'conflict') {
       throw new SettingsRevisionConflictError(outcome);
     }
-    const appliedSettings = await applyRuntimeSettingsDesiredState({
-      runtimeHome: deps.runtimeHome,
-      settings: revisionSettings,
-      ops: deps.ops,
-      repositories: deps.repositories,
-      appId: deps.appId,
-      previousSettings: deps.previousSettings,
-      reloadRuntimeState: deps.reloadRuntimeState,
+    await projectRequiredSettingsRevision({
+      deps,
+      appId,
+      revisionMirror: deps.revisionMirror,
+      leases: deps.leases!,
+      targetRevision: outcome.revision,
+      targetSettings: revisionSettings,
     });
-    activateRuntimeModelAliases(appliedSettings);
     return { status: 'revision_created', revision: outcome.revision };
   }
   const appliedSettings = await applyRuntimeSettingsDesiredState({
@@ -258,6 +267,7 @@ export async function importWorkstationSettings(
     ops: deps.ops,
     repositories: deps.repositories,
     appId: deps.appId,
+    forwardCorrected: deps.projectionAuthority === 'revision',
     previousSettings: deps.previousSettings,
     reloadRuntimeState: deps.reloadRuntimeState,
   });
@@ -323,6 +333,52 @@ export async function importWorkstationSettings(
     );
     return { status: 'applied_no_revision' };
   }
+}
+
+async function projectRequiredSettingsRevision(input: {
+  deps: SettingsImportServiceDeps & {
+    previousSettings?: RuntimeSettings;
+    reloadRuntimeState?: () => Promise<void>;
+  };
+  appId: AppId;
+  revisionMirror: SettingsRevisionMirror;
+  leases: RuntimeLeasePort;
+  targetRevision: number;
+  targetSettings: RuntimeSettings;
+}): Promise<RuntimeSettings> {
+  return withSettingsProjectorLease(input.leases, input.appId, async () => {
+    const head =
+      await input.revisionMirror.settingsRevisions.getLatestSettingsRevision(
+        input.appId,
+      );
+    if (!head || head.revision < input.targetRevision) {
+      throw new Error(
+        `Settings projection revision ${input.targetRevision} is not present at the current head`,
+      );
+    }
+    const projectsTarget = head.revision === input.targetRevision;
+    if (head.minReaderVersion > CURRENT_SETTINGS_READER_VERSION) {
+      throw new SettingsIncompatibleReaderError(
+        head.revision,
+        head.minReaderVersion,
+        CURRENT_SETTINGS_READER_VERSION,
+      );
+    }
+    const settings = projectsTarget
+      ? input.targetSettings
+      : settingsFromRevisionDocument(head.settingsDocument);
+    const appliedSettings = await applyRuntimeSettingsDesiredState({
+      runtimeHome: input.deps.runtimeHome,
+      settings,
+      ops: input.deps.ops,
+      repositories: input.deps.repositories,
+      appId: input.appId,
+      forwardCorrected: true,
+      reloadRuntimeState: input.deps.reloadRuntimeState,
+    });
+    activateRuntimeModelAliases(appliedSettings);
+    return appliedSettings;
+  });
 }
 
 export type FleetImportOutcome =
@@ -533,6 +589,7 @@ function buildRevisionDocument(
     },
     permissions: snakeRecord(settings.permissions),
     observability: snakeRecord(settings.observability),
+    observer: snakeRecord(settings.observer),
     model_aliases: mapRecord(settings.modelAliases, snakeRecord),
     limits: mapRecord(settings.limits.providers, snakeRecord),
     model_families: settings.modelFamilies,

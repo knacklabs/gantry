@@ -1,6 +1,8 @@
 import {
   createStorageRuntime,
   createRuntimeBrowserProfileArtifactStore,
+  runtimeStorageScopeKey,
+  storageRuntimeOptionsForRuntimeHome,
   type StorageRuntimeOptions,
   type RuntimeOpsRepositories,
   type StorageRuntime,
@@ -22,6 +24,50 @@ import { ModelCredentialService } from '../../../application/model-credentials/m
 import { logger } from '../../../infrastructure/logging/logger.js';
 
 let runtime: StorageRuntime | null = null;
+let runtimeScopeKey: string | undefined;
+let commandOwnedRuntime:
+  | {
+      storage: StorageRuntime;
+      scopeKey: string;
+      activeLeases: number;
+      closed: boolean;
+      released: Promise<void>;
+      resolveReleased: () => void;
+      rejectReleased: (error: unknown) => void;
+      closePromise?: Promise<void>;
+    }
+  | undefined;
+let commandRuntimeInitialization:
+  | { scopeKey: string; promise: Promise<StorageRuntime> }
+  | undefined;
+
+export interface RuntimeStorageLease {
+  storage: StorageRuntime;
+  owned: boolean;
+  release: () => Promise<void>;
+}
+
+async function closeStorageRuntimeResources(
+  storage: StorageRuntime,
+): Promise<void> {
+  const failures: unknown[] = [];
+  for (const close of [
+    () => storage.liveTurnCommandWakeupSource.close(),
+    () => storage.liveAdmissionWakeupSource.close(),
+    () => storage.runtimeEventNotifier.close(),
+    () => storage.service.close(),
+  ]) {
+    try {
+      await close();
+    } catch (error) {
+      failures.push(error);
+    }
+  }
+  if (failures.length === 1) throw failures[0];
+  if (failures.length > 1) {
+    throw new AggregateError(failures, 'Failed to close runtime storage');
+  }
+}
 
 /**
  * Discriminates genuine storage-unavailability failures (Postgres down/absent,
@@ -57,6 +103,7 @@ export function isStorageUnavailableError(err: unknown): boolean {
 export async function initializeRuntimeStorage(
   options: StorageRuntimeOptions = {},
 ): Promise<StorageRuntime> {
+  const nextScopeKey = runtimeStorageScopeKey(options);
   const nextRuntime = createStorageRuntime(undefined, options);
   try {
     await nextRuntime.service.assertMigrationsCurrent();
@@ -66,6 +113,7 @@ export async function initializeRuntimeStorage(
       throw new Error([failure.summary, ...failure.details].join('\n'));
     }
     runtime = nextRuntime;
+    runtimeScopeKey = nextScopeKey;
     configurePendingInteractionDurability({
       repository: nextRuntime.repositories.workerCoordination,
       liveTurns: nextRuntime.repositories.liveTurns,
@@ -73,9 +121,168 @@ export async function initializeRuntimeStorage(
     });
     return nextRuntime;
   } catch (err) {
-    await nextRuntime.service.close();
+    try {
+      await closeStorageRuntimeResources(nextRuntime);
+    } catch (closeError) {
+      logger.warn(
+        { err: closeError },
+        'Runtime storage cleanup failed after initialization error',
+      );
+    }
     throw err;
   }
+}
+
+/**
+ * Acquires the process runtime storage without taking ownership from a caller
+ * that already initialized it. Command-scoped callers must release the lease;
+ * only a storage runtime created by this acquisition will be closed.
+ */
+export async function acquireRuntimeStorage(
+  options: StorageRuntimeOptions = {},
+): Promise<RuntimeStorageLease> {
+  if (
+    runtime &&
+    (!commandOwnedRuntime || runtime !== commandOwnedRuntime.storage)
+  ) {
+    return {
+      storage: runtime,
+      owned: false,
+      release: async () => undefined,
+    };
+  }
+  return acquireRuntimeStorageForScope(
+    runtimeStorageScopeKey(options),
+    options,
+  );
+}
+
+export async function acquireRuntimeStorageForRuntimeHome(
+  runtimeHome: string,
+  runtimeSettings: Parameters<typeof storageRuntimeOptionsForRuntimeHome>[1],
+): Promise<RuntimeStorageLease> {
+  const options = storageRuntimeOptionsForRuntimeHome(
+    runtimeHome,
+    runtimeSettings,
+  );
+  const scopeKey = runtimeStorageScopeKey(options);
+  return acquireRuntimeStorageForScope(scopeKey, options);
+}
+
+async function acquireRuntimeStorageForScope(
+  scopeKey: string,
+  options: StorageRuntimeOptions,
+): Promise<RuntimeStorageLease> {
+  while (true) {
+    const ownedRuntime = commandOwnedRuntime;
+    if (ownedRuntime && runtime === ownedRuntime.storage) {
+      if (ownedRuntime.scopeKey === scopeKey) {
+        ownedRuntime.activeLeases += 1;
+        return commandRuntimeLease(ownedRuntime);
+      }
+      await ownedRuntime.released;
+      continue;
+    }
+    if (ownedRuntime?.closed && runtime === null) {
+      await ownedRuntime.closePromise;
+      continue;
+    }
+    if (runtime) {
+      if (runtimeScopeKey !== scopeKey) {
+        throw new Error(
+          'Runtime storage is already initialized for a different runtime home',
+        );
+      }
+      return {
+        storage: runtime,
+        owned: false,
+        release: async () => undefined,
+      };
+    }
+    const initialization = commandRuntimeInitialization;
+    if (initialization) {
+      if (initialization.scopeKey === scopeKey) {
+        await initialization.promise;
+        continue;
+      }
+      try {
+        await initialization.promise;
+      } catch {
+        // The caller that started initialization receives the original error.
+      }
+      continue;
+    }
+    let resolveReleased: () => void = () => undefined;
+    let rejectReleased: (error: unknown) => void = () => undefined;
+    const released = new Promise<void>((resolve, reject) => {
+      resolveReleased = resolve;
+      rejectReleased = reject;
+    });
+    void released.catch(() => undefined);
+    const promise = (async () => {
+      const storage = await initializeRuntimeStorage(options);
+      commandOwnedRuntime = {
+        storage,
+        scopeKey,
+        activeLeases: 0,
+        closed: false,
+        released,
+        resolveReleased,
+        rejectReleased,
+      };
+      return storage;
+    })();
+    commandRuntimeInitialization = { scopeKey, promise };
+    try {
+      await promise;
+    } finally {
+      if (commandRuntimeInitialization?.promise === promise) {
+        commandRuntimeInitialization = undefined;
+      }
+    }
+  }
+}
+
+function commandRuntimeLease(
+  owner: NonNullable<typeof commandOwnedRuntime>,
+): RuntimeStorageLease {
+  let released = false;
+  return {
+    storage: owner.storage,
+    owned: true,
+    release: async () => {
+      if (released) return;
+      released = true;
+      owner.activeLeases -= 1;
+      if (owner.activeLeases > 0) return;
+      await closeCommandOwnedRuntime(owner);
+    },
+  };
+}
+
+function closeCommandOwnedRuntime(
+  owner: NonNullable<typeof commandOwnedRuntime>,
+): Promise<void> {
+  if (owner.closePromise) return owner.closePromise;
+  owner.closed = true;
+  if (runtime === owner.storage) {
+    runtime = null;
+    runtimeScopeKey = undefined;
+    configurePendingInteractionDurability(null);
+  }
+  const closePromise = (async () => {
+    try {
+      await closeStorageRuntimeResources(owner.storage);
+      owner.resolveReleased();
+    } catch (error) {
+      owner.rejectReleased(error);
+      throw error;
+    } finally {
+      if (commandOwnedRuntime === owner) commandOwnedRuntime = undefined;
+    }
+  })();
+  owner.closePromise = closePromise;
+  return closePromise;
 }
 
 export function getRuntimeStorage(): StorageRuntime {
@@ -118,6 +325,7 @@ export async function tryAcquireRuntimeAdvisoryLease(
 ): Promise<RuntimeLease | undefined> {
   const client = await getRuntimeStorage().service.pool.connect();
   let released = false;
+  let lostError: Error | undefined;
   try {
     const result = await client.query<{ acquired: boolean }>(
       'SELECT pg_try_advisory_lock(hashtextextended($1, 0)) AS acquired',
@@ -131,6 +339,7 @@ export async function tryAcquireRuntimeAdvisoryLease(
     const lostHandlers = new Set<(err: Error) => void>();
     const notifyLost = (err: Error) => {
       if (released) return;
+      lostError = err;
       released = true;
       for (const handler of [...lostHandlers]) handler(err);
       client.removeListener('error', notifyLost);
@@ -147,8 +356,10 @@ export async function tryAcquireRuntimeAdvisoryLease(
     client.once('error', notifyLost);
     client.once('end', notifyEnd);
     return {
+      isValid: () => !lostError && !released,
       onLost: (handler) => {
-        lostHandlers.add(handler);
+        if (lostError) handler(lostError);
+        else lostHandlers.add(handler);
       },
       release: async () => {
         if (released) return;
@@ -191,17 +402,37 @@ export function getRuntimeBrowserProfileSnapshotRepository(): BrowserProfileSnap
 
 export async function closeRuntimeStorage(): Promise<void> {
   const existing = runtime;
+  const ownedRuntime =
+    commandOwnedRuntime?.storage === existing ||
+    (existing === null && commandOwnedRuntime?.closed)
+      ? commandOwnedRuntime
+      : undefined;
+  if (ownedRuntime) {
+    await closeCommandOwnedRuntime(ownedRuntime);
+    return;
+  }
   runtime = null;
+  runtimeScopeKey = undefined;
   configurePendingInteractionDurability(null);
-  await existing?.liveTurnCommandWakeupSource.close();
-  await existing?.liveAdmissionWakeupSource.close();
-  await existing?.runtimeEventNotifier.close();
-  await existing?.service.close();
+  if (existing) await closeStorageRuntimeResources(existing);
 }
 
-/** @internal test hook */
-export function _setRuntimeStorageForTest(nextRuntime: StorageRuntime): void {
+/**
+ * @internal test hook
+ *
+ * Pass `scope` to install the storage AS the storage for a specific runtime
+ * home, so a home-scoped caller (a CLI command) reuses it instead of opening a
+ * second runtime against a schema it has not migrated. Without `scope` the
+ * scope stays unknown and any explicit home is rejected — the invariant
+ * asserted by 'rejects an explicit runtime home when service-owned storage
+ * scope is unknown'.
+ */
+export function _setRuntimeStorageForTest(
+  nextRuntime: StorageRuntime,
+  scope?: StorageRuntimeOptions,
+): void {
   runtime = nextRuntime;
+  runtimeScopeKey = scope ? runtimeStorageScopeKey(scope) : 'process-runtime';
   const workerCoordination = nextRuntime.repositories?.workerCoordination;
   configurePendingInteractionDurability(
     workerCoordination

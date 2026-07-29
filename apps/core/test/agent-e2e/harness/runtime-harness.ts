@@ -41,6 +41,8 @@ export type RuntimeHarnessMode = 'local-process' | 'docker';
 export interface RuntimeHarnessOptions {
   /** Scopes carried by the run's generated control API key. */
   scopes?: string[];
+  /** Optional fresh, non-existent home path; the harness creates/removes it. */
+  runtimeHome?: string;
   /** Selected via AGENT_E2E_RUNTIME_MODE by default; local-process otherwise. */
   mode?: RuntimeHarnessMode;
   /** docker mode: image ref/digest (default env AGENT_E2E_RUNTIME_IMAGE). */
@@ -179,10 +181,15 @@ async function createRunDatabase(adminUrl: string): Promise<{
     await client.query(`CREATE DATABASE ${quoteIdent(databaseName)}`);
   });
   const databaseUrl = perRunDatabaseUrl(adminUrl, databaseName);
-  await withAdminClient(databaseUrl, async (client) => {
-    await client.query('CREATE EXTENSION IF NOT EXISTS vector');
-    await client.query('CREATE EXTENSION IF NOT EXISTS pg_trgm');
-  });
+  try {
+    await withAdminClient(databaseUrl, async (client) => {
+      await client.query('CREATE EXTENSION IF NOT EXISTS vector');
+      await client.query('CREATE EXTENSION IF NOT EXISTS pg_trgm');
+    });
+  } catch (error) {
+    await dropRunDatabase(adminUrl, databaseName).catch(() => undefined);
+    throw error;
+  }
   return { databaseName, databaseUrl };
 }
 
@@ -235,17 +242,44 @@ export async function startRuntimeHarness(
       ? 'docker'
       : 'local-process');
   const adminUrl = requireAdminDatabaseUrl();
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'gantry-agent-e2e-'));
+  const requestedHome = options.runtimeHome?.trim();
+  const guardedHome = requestedHome
+    ? path.resolve(requestedHome)
+    : path.join(os.tmpdir(), 'gantry-agent-e2e-isolation-probe');
 
-  // Guard the admin URL before any connection, and the per-run URL after.
-  assertIsolatedRuntimeTarget({ runtimeHome: home, databaseUrl: adminUrl });
-  const { databaseName, databaseUrl } = await createRunDatabase(adminUrl);
-  assertIsolatedRuntimeTarget({ runtimeHome: home, databaseUrl });
+  // Refuse an explicit real home or live admin DB before creating a temp home,
+  // connecting to Postgres, or spawning a runtime.
+  assertIsolatedRuntimeTarget({
+    runtimeHome: guardedHome,
+    databaseUrl: adminUrl,
+  });
+  const port = await pickFreePort();
+  const home = requestedHome
+    ? guardedHome
+    : fs.mkdtempSync(path.join(os.tmpdir(), 'gantry-agent-e2e-'));
+  if (requestedHome) {
+    fs.mkdirSync(home, { mode: 0o700 });
+  }
+
+  // Guard the generated per-run URL before handing it to the runtime.
+  let databaseName: string | undefined;
+  let databaseUrl: string | undefined;
+  try {
+    const database = await createRunDatabase(adminUrl);
+    databaseName = database.databaseName;
+    databaseUrl = database.databaseUrl;
+    assertIsolatedRuntimeTarget({ runtimeHome: home, databaseUrl });
+  } catch (error) {
+    if (databaseName) {
+      await dropRunDatabase(adminUrl, databaseName).catch(() => undefined);
+    }
+    fs.rmSync(home, { recursive: true, force: true });
+    throw error;
+  }
 
   const apiKey = randomBytes(32).toString('hex');
   const secretEncryptionKey = randomBytes(32).toString('base64');
   const ipcAuthSecret = randomBytes(32).toString('hex');
-  const port = await pickFreePort();
   const baseUrl = `http://127.0.0.1:${port}`;
   const controlKeysJson = JSON.stringify([
     {
@@ -276,6 +310,9 @@ export async function startRuntimeHarness(
     GANTRY_CONTROL_API_KEYS_JSON: controlKeysJson,
     GANTRY_IPC_AUTH_SECRET: ipcAuthSecret,
     SECRET_ENCRYPTION_KEY: secretEncryptionKey,
+    // Debug so live runner/subprocess stderr (streamed at logger.debug)
+    // reaches the harness log; only the failure dump ever surfaces it.
+    LOG_LEVEL: 'debug',
     // NODE_ENV deliberately NOT set in local-process mode: the security
     // posture stays local (the docker image pins NODE_ENV=production itself).
     ...options.env,

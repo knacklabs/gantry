@@ -1,4 +1,10 @@
 # Media-render goal-prompt plan validation
+<!-- doc-references: frozen 2026-07-22 (decision 0036) -->
+
+> **Historical validation snapshot.** Runtime and SDK-sandbox observations in
+> this report describe the validated 2026-07-20 tree, not current behavior.
+> Current `direct` execution has no inner SDK sandbox; optional
+> `sandbox_runtime` provides the outer execution jail.
 
 Date: 2026-07-20
 

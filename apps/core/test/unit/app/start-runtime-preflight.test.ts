@@ -89,6 +89,7 @@ vi.mock('@core/config/index.js', () => ({
 }));
 vi.mock('@core/runtime/browser-capability.js', () => ({
   getBrowserStatus: vi.fn(),
+  registerBrowserProfileLockLeasePort: vi.fn(),
 }));
 vi.mock('@core/runtime/settings-reload-watcher.js', () => ({
   startSettingsReloadWatcher: vi.fn(() => ({ close: vi.fn() })),

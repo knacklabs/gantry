@@ -45,8 +45,10 @@ describe('FilesystemRunnerControlPort', () => {
       'memory-requests',
       'memory-responses',
       'messages',
+      'permission-cancellations',
       'permission-requests',
       'permission-responses',
+      'question-cancellations',
       'rich-interactions',
       'task-responses',
       'tasks',
@@ -82,12 +84,11 @@ describe('FilesystemRunnerControlPort', () => {
       'request-1.json',
       claim.claimedPath,
     );
-    const archivedPath = path.join(
-      ipcBaseDir,
-      'errors',
-      'main_agent-request-1.json',
-    );
-    expect(fs.existsSync(archivedPath)).toBe(true);
+    expect(fs.readdirSync(path.join(ipcBaseDir, 'errors'))).toEqual([
+      expect.stringMatching(
+        /^\d+-[0-9a-f-]{36}-main_agent-messages-request-1\.json$/,
+      ),
+    ]);
 
     fs.writeFileSync(requestPath, '{}');
     const deletedClaim = port.claimRequest(
@@ -111,9 +112,11 @@ describe('FilesystemRunnerControlPort', () => {
     ).toThrow();
 
     expect(fs.readdirSync(messagesDir)).toEqual([]);
-    expect(
-      fs.existsSync(path.join(ipcBaseDir, 'errors', 'main_agent-bad.json')),
-    ).toBe(true);
+    expect(fs.readdirSync(path.join(ipcBaseDir, 'errors'))).toEqual([
+      expect.stringMatching(
+        /^\d+-[0-9a-f-]{36}-main_agent-messages-bad\.json$/,
+      ),
+    ]);
   });
 
   it('writes continuation input through the current local IPC path', async () => {

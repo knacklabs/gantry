@@ -128,6 +128,13 @@ const telegramProvider: Provider = {
   isGroupJid: (jid: string) => jid.startsWith('tg:-'),
   canStreamToJid: (jid: string) => jid.startsWith('tg:-'),
   formatting: 'telegram-markdown-v2',
+  promptPresentation: {
+    label: 'Telegram',
+    formattingDescription: 'Telegram renders a limited HTML subset',
+    maxMessageGuidance: 'hard message length cap 4096 characters',
+    attachmentGuidance:
+      'outbound workspace file attachments are capped at 25MB',
+  },
   isEnabled: (settings) => isChannelEnabled(settings, 'telegram'),
   create: createTelegramBuiltInChannel,
   setup: {
@@ -144,6 +151,13 @@ const slackProvider: Provider = {
   folderPrefix: 'slack_',
   isGroupJid: () => true,
   formatting: 'mrkdwn',
+  promptPresentation: {
+    label: 'Slack',
+    formattingDescription: 'Slack renders mrkdwn',
+    maxMessageGuidance: 'keep single messages under 4000 characters',
+    attachmentGuidance:
+      'outbound workspace file attachments are capped at 25MB',
+  },
   isEnabled: (settings) => isChannelEnabled(settings, 'slack'),
   create: createSlackBuiltInChannel,
   setup: {
@@ -161,6 +175,12 @@ const teamsProvider: Provider = {
   folderPrefix: 'teams_',
   isGroupJid: (jid: string) => jid.startsWith('teams:'),
   formatting: 'markdown-native',
+  promptPresentation: {
+    label: 'Microsoft Teams',
+    formattingDescription: 'Teams renders basic HTML',
+    attachmentGuidance:
+      'outbound workspace file attachments are capped at 25MB',
+  },
   isEnabled: (settings) => isChannelEnabled(settings, 'teams'),
   create: createTeamsBuiltInChannel,
   setup: {
@@ -178,6 +198,13 @@ const discordProvider: Provider = {
   folderPrefix: 'discord_',
   isGroupJid: (jid: string) => jid.startsWith('dc:'),
   formatting: 'markdown-native',
+  promptPresentation: {
+    label: 'Discord',
+    formattingDescription: 'Discord renders markdown',
+    maxMessageGuidance: 'hard message length cap 2000 characters',
+    attachmentGuidance:
+      'outbound workspace file attachments are capped at 25MB',
+  },
   isEnabled: (settings) => isChannelEnabled(settings, 'discord'),
   create: createDiscordBuiltInChannel,
   setup: {
@@ -195,6 +222,13 @@ const appProvider: Provider = {
   folderPrefix: 'app_',
   isGroupJid: () => true,
   formatting: 'none',
+  promptPresentation: {
+    label: 'embedded app',
+    formattingDescription: 'Markdown renders natively',
+    maxMessageGuidance: 'no hard message length cap',
+    attachmentGuidance:
+      'outbound workspace file attachments are capped at 25MB',
+  },
   isEnabled: () => true,
   create: createAppBuiltInChannel,
   setup: {

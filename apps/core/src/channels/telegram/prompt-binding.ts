@@ -8,6 +8,7 @@ import type {
   PermissionCallbackScope,
 } from '../../domain/types.js';
 import { logger } from '../../infrastructure/logging/logger.js';
+import { resolveInteractionSettlementDelayMs } from '../interaction-settlement.js';
 import { permissionDecisionOptions } from '../permission-interaction.js';
 
 type PendingTelegramPermission = {
@@ -22,7 +23,7 @@ type PendingTelegramPermission = {
   request: PermissionApprovalRequest;
   chatId: string;
   messageId: number;
-  timer: ReturnType<typeof setTimeout>;
+  timer?: ReturnType<typeof setTimeout>;
   resolve: (decision: PermissionApprovalDecision) => void;
 };
 
@@ -51,9 +52,9 @@ export async function registerAndBindTelegramPermissionPrompt(input: {
   chatId: string;
   messageId: number;
   callback: PendingTelegramPermission['callback'];
-  timeoutMs: number;
+  fallbackTimeoutMs: number;
   pendingPrompts: Map<string, PendingTelegramPermission>;
-  onTimeout: () => void;
+  onTimeout: (retryWindowMs: number) => void;
   onPromptDelivered?: (messageId: string) => void;
   sanitizeErrorMessage: (err: unknown) => string;
 }): Promise<{ decision: Promise<PermissionApprovalDecision> }> {
@@ -61,7 +62,18 @@ export async function registerAndBindTelegramPermissionPrompt(input: {
   const decision = new Promise<PermissionApprovalDecision>((resolve) => {
     resolveDecision = resolve;
   });
-  const timer = setTimeout(input.onTimeout, input.timeoutMs);
+  const { expiresAt } = input.request as PermissionApprovalRequest & {
+    expiresAt?: unknown;
+  };
+  const settlementDelayMs = resolveInteractionSettlementDelayMs({
+    expiresAt,
+    permissionLane: input.request.permissionLane,
+    fallbackTimeoutMs: input.fallbackTimeoutMs,
+  });
+  const timer =
+    settlementDelayMs !== undefined
+      ? setTimeout(() => input.onTimeout(settlementDelayMs), settlementDelayMs)
+      : undefined;
   const livePending = {
     callback: input.callback,
     sourceAgentFolder: input.request.sourceAgentFolder,

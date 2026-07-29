@@ -26,7 +26,6 @@ import {
 import { resolvePackageRootFromSourceDir } from '../platform/package-root.js';
 import {
   computeBrowserIpcAuthToken,
-  createIpcAuthEnvelope,
   computeMemoryIpcAuthToken,
   registerBrowserIpcAuthorization,
   revokeBrowserIpcAuthorization,
@@ -40,14 +39,12 @@ import { executeRunnerProcess } from './agent-spawn-process.js';
 import { applyAgentEgressNoProxyEnv } from '../shared/no-proxy.js';
 import { buildToolNetworkEnv } from '../shared/tool-network-env.js';
 import { closeEgressGateway, ensureEgressGateway } from './egress-gateway.js';
-import { resolveConversationBrowserProfile } from '../shared/browser-profile-scope.js';
 import {
   AgentInput,
   AgentOutput,
   RunAgentOptions,
 } from './agent-spawn-types.js';
 import { selectedMemoryIpcActionsFromToolRules } from '../shared/memory-ipc-actions.js';
-import { isCanonicalBrowserCapabilityRule } from '../shared/agent-tool-references.js';
 import { agentIdForFolder } from '../domain/agent/agent-folder-id.js';
 import { conversationBoundAgentIdsForRoute } from '../application/core-tools/callable-agent-tools.js';
 import { resolveMcpCredentialEnvForAgent } from '../application/capability-secrets/mcp-secret-projection.js';
@@ -65,18 +62,17 @@ import {
   writeProtectedFilesystemEnv,
 } from './agent-spawn-runtime-policy.js';
 import {
-  resolveAgentSpawnLogContext,
-  stripIncompleteRunLeaseIdentity,
-} from './agent-spawn-identity.js';
-import {
   getConfiguredModelProvidersForApp,
   getRuntimeFileArtifactStore,
   getRuntimeStorage,
 } from '../adapters/storage/postgres/runtime-store.js';
-import { effectiveYoloModeSettings } from '../shared/yolo-mode-policy.js';
 import { formatGeneratedRuntimePathPermissionError } from './generated-runtime-path-error.js';
 import { writeRunnerMcpConfigFile } from './agent-spawn-mcp-config.js';
 import { withStdioMcpEgressEnv } from './agent-spawn-mcp-egress-env.js';
+import {
+  accessSnapshotForSpawnMcpProjection,
+  resolveSpawnMcpSourceRecords,
+} from './agent-spawn-mcp-source-records.js';
 import { publishRunnerHostStartupDiagnosticFromSpawn } from './agent-spawn-startup-diagnostic.js';
 import { resolveSelectedSkillEnvForSpawn } from './agent-spawn-selected-skill-env.js';
 import { configureSpawnAsyncCommandSandboxPolicy } from './async-command-sandbox-policy.js';
@@ -103,28 +99,27 @@ import {
   prepareAgentSpawn,
   prepareWorkerAuthorityProjection,
 } from './agent-spawn-preparation.js';
+import { setupPermissionRunRestriction } from './agent-spawn-permission-run-restriction.js';
 import { resolveSpawnExecutionAdapter } from './agent-spawn-execution-adapter.js';
+import {
+  resolveAgentSpawnLogContext,
+  stripIncompleteRunLeaseIdentity,
+} from './agent-spawn-identity.js';
 import { createRunnerTempDirectories } from './agent-spawn-temp-directories.js';
+import {
+  agentPersonasById,
+  projectSpawnRunnerInput,
+} from './agent-spawn-input-projection.js';
+import { createSpawnAgent } from './agent-spawn-entry.js';
 export { writeGroupsSnapshot } from './agent-spawn-snapshots.js';
 export type { AvailableGroup } from './agent-spawn-types.js';
 export type { AgentInput, AgentOutput } from './agent-spawn-types.js';
-export async function spawnAgent(
-  group: ConversationRoute,
-  input: AgentInput,
-  onProcess: (proc: ChildProcess, runHandle: string) => void,
-  onOutput: ((output: AgentOutput) => Promise<void>) | undefined,
-  options: RunAgentOptions,
-): Promise<AgentOutput> {
-  const spawnInput = stripIncompleteRunLeaseIdentity(input);
-  return runSpawnWithLogContext(
-    {
-      ...resolveAgentSpawnLogContext(group, input, options?.correlationRunId),
-      onOutput,
-    },
-    (turnTracker) =>
-      spawnAgentWithContext(group, spawnInput, onProcess, options, turnTracker),
-  );
-}
+export const spawnAgent = createSpawnAgent({
+  runWithLogContext: runSpawnWithLogContext,
+  resolveLogContext: resolveAgentSpawnLogContext,
+  stripIncompleteRunLeaseIdentity,
+  spawnWithContext: spawnAgentWithContext,
+});
 async function spawnAgentWithContext(
   group: ConversationRoute,
   input: AgentInput,
@@ -195,12 +190,7 @@ async function spawnAgentWithContext(
   }
   const agentIdentifier = group.folder.toLowerCase().replace(/_/g, '-');
   const credentials = host.getHostRuntimeCredentialEnv;
-  const personasByAgentId = Object.fromEntries(
-    Object.entries(runtimeSettings.agents ?? {}).map(([folder, agent]) => [
-      String(agentIdForFolder(folder)),
-      agent.persona,
-    ]),
-  );
+  const personasByAgentId = agentPersonasById(runtimeSettings.agents);
   const { accessPreset, hideAuthorityTools, callableAgentManifest } =
     await prepareWorkerAuthorityProjection({
       agentInput: input,
@@ -235,28 +225,16 @@ async function spawnAgentWithContext(
     fileArtifactStore: () => getRuntimeFileArtifactStore(),
     measureAsync: (name, fn) => hostStartup.measureAsync(name, fn),
   });
-  const browserProfileName = resolveConversationBrowserProfile({
-    agentId: group.folder,
-    workspaceKey: group.folder,
-    conversationId: input.chatJid,
-  });
-  const trustedToolPolicyRules = input.toolPolicyRules;
-  const browserIpcEnabled = (trustedToolPolicyRules ?? []).some(
-    isCanonicalBrowserCapabilityRule,
-  );
-  // hideAuthorityTools comes from prepareWorkerAuthorityProjection above
-  // (same three conditions).
+  const { runnerInput, browserIpcEnabled, trustedToolPolicyRules } =
+    projectSpawnRunnerInput({
+      agentInput: input,
+      workspaceFolder: group.folder,
+      callableAgentManifest,
+      hideAuthorityTools,
+      compiledSystemPrompt,
+      permissions: runtimeSettings.permissions,
+    });
   const egressSettings = runtimeSettings.permissions.egress;
-  const runnerInput: RunnerAgentInput = {
-    ...input,
-    allowedTools: trustedToolPolicyRules,
-    callableAgentManifest,
-    browserProfileName,
-    hideAuthorityTools,
-    compiledSystemPrompt,
-    yoloMode: effectiveYoloModeSettings(runtimeSettings.permissions.yoloMode),
-    egressDenylist: egressSettings.denylist,
-  };
   const hostRuntime = host.prepareHostRuntimeContext(group);
   const adapterResolution = resolveSpawnExecutionAdapter(
     resolvedModel.value.executionProviderId,
@@ -271,10 +249,8 @@ async function spawnAgentWithContext(
   let egressGateway:
     | Awaited<ReturnType<typeof ensureEgressGateway>>
     | undefined;
-  const ipcAuth = createIpcAuthEnvelope(group.folder, input.threadId, {
-    appId: input.appId || 'default',
-    agentId: input.agentId,
-  });
+  const { ipcAuth, unregisterPermissionRunRestriction } =
+    setupPermissionRunRestriction(group.folder, input, hideAuthorityTools);
   let hostCredentials: Awaited<ReturnType<typeof credentials>> | undefined;
   let preparedExecution:
     | Awaited<ReturnType<typeof executionAdapter.prepare>>
@@ -355,17 +331,12 @@ async function spawnAgentWithContext(
     let projectedMcpSourceIds: string[] = [];
     let effectiveRuntimeAccess = input.runtimeAccess ?? [];
     await hostStartup.measureAsync('mcpProjectionMs', async () => {
-      const mcpSourceRecords =
-        options?.mcpServerRepository &&
-        options.mcpContext?.appId &&
-        options.mcpContext.agentId &&
-        attachedMcpSourceIds.length > 0
-          ? await options.mcpServerRepository.listMaterializedServersForAgent({
-              appId: options.mcpContext.appId as never,
-              agentId: options.mcpContext.agentId as never,
-              serverIds: attachedMcpSourceIds as never,
-            })
-          : [];
+      const accessSnapshot = accessSnapshotForSpawnMcpProjection(options);
+      const mcpSourceRecords = await resolveSpawnMcpSourceRecords({
+        attachedMcpSourceIds,
+        options,
+        accessSnapshot,
+      });
       selectedMcpServerNames = uniqueStrings([
         ...mcpSourceRecords.map((record) => record.definition.name),
         ...attachedMcpSourceIds.map((sourceId) =>
@@ -399,7 +370,9 @@ async function spawnAgentWithContext(
                 serverIds: projectedMcpSourceIds as never,
                 mcpServers: options.mcpServerRepository,
                 secrets: options.capabilitySecretRepository,
+                accessSnapshot,
               }),
+              accessSnapshot,
             })
           : [];
       effectiveRuntimeAccess = attachMcpSourceNetworkHosts(
@@ -577,6 +550,7 @@ async function spawnAgentWithContext(
       agentAccessPreset: accessPreset,
       deploymentMode: getDeploymentMode(),
       permissionMode: input.permissionMode ?? 'ask',
+      permissionLane: input.isScheduledJob ? 'autonomous' : 'interactive',
       turnIntentSummary: input.prompt,
       permissionTimeoutMs: PERMISSION_APPROVAL_TIMEOUT_MS,
       egressProxyUrl: egressGateway.proxyUrl,
@@ -618,7 +592,7 @@ async function spawnAgentWithContext(
       brokerProfile: projectedCredentials.brokerProfile,
       brokerApplied: projectedCredentials.brokerApplied,
       mcpServerNames: allMcpCapabilities.map((capability) => capability.name),
-      browserProfileName,
+      browserProfileName: runnerInput.browserProfileName!,
       preparedRuntimeDetails: preparedExecution.runtimeDetails,
       effectiveModel,
       effectiveModelSource,
@@ -800,6 +774,7 @@ async function spawnAgentWithContext(
     });
     return output;
   } finally {
+    unregisterPermissionRunRestriction();
     cleanupRunnerTempDir(runnerTempDir, logger.warn.bind(logger));
     if (browserIpcEnabled) {
       revokeBrowserIpcAuthorization({

@@ -7,11 +7,15 @@ import {
   ATTR_PROMPT,
   TRACE_CONTENT_MAX_CHARS,
   boundedContent,
+  childContextFor,
   getTurnSpan,
   initTracing,
   parseOtlpHeaders,
+  registerDelegationToolSpan,
+  settleDelegationToolSpan,
   shutdownTracing,
   startTurnSpan,
+  tracer,
   tracingEnabled,
 } from '@core/infrastructure/observability/tracing.js';
 import { createSpawnTurnTracker } from '@core/infrastructure/observability/spawn-turn-tracker.js';
@@ -150,6 +154,83 @@ describe('observability tracing', () => {
     );
     expect(childSpan.attributes['gantry.parent_run_id']).toBe('run-parent');
     expect(rootSpan.parentSpanContext).toBeUndefined();
+  });
+
+  it('parents the matching delegated task under its tool span', () => {
+    const exporter = new InMemorySpanExporter();
+    initTracing(
+      { enabled: true, captureContent: false, sampleRate: 1 },
+      exporter,
+    );
+    const parent = startTurnSpan({
+      runId: 'run-parent',
+      agentName: 'Parent Agent',
+    });
+    const parentSpan = getTurnSpan('run-parent')!;
+    const toolSpan = tracer()!.startSpan(
+      'execute_tool delegate_task',
+      { attributes: { 'gen_ai.operation.name': 'execute_tool' } },
+      childContextFor(parentSpan),
+    );
+    registerDelegationToolSpan({
+      runId: 'run-parent',
+      callId: 'delegate-call',
+      objective: 'delegated work',
+      span: toolSpan,
+    });
+    settleDelegationToolSpan({
+      runId: 'run-parent',
+      callId: 'delegate-call',
+      taskId: 'task_delegated',
+    });
+    toolSpan.end();
+
+    const delegated = createSpawnTurnTracker(
+      'Delegated Agent',
+      {
+        runId: 'run-delegated',
+        parentRunId: 'run-parent',
+        parentTaskId: 'task_delegated',
+        prompt: 'delegated work',
+      },
+      undefined,
+    );
+    delegated.finish({ status: 'success', result: 'done' });
+
+    const unrelated = createSpawnTurnTracker(
+      'Unrelated Child',
+      {
+        runId: 'run-unrelated',
+        parentRunId: 'run-parent',
+        prompt: 'more work',
+      },
+      undefined,
+    );
+    unrelated.finish({ status: 'success', result: 'done' });
+    parent.end('success');
+
+    const spans = exporter.getFinishedSpans();
+    const finishedParentSpan = spans.find(
+      (span) => span.attributes['gantry.run_id'] === 'run-parent',
+    )!;
+    const finishedToolSpan = spans.find(
+      (span) => span.name === 'execute_tool delegate_task',
+    )!;
+    const delegatedSpan = spans.find(
+      (span) => span.attributes['gantry.run_id'] === 'run-delegated',
+    )!;
+    const unrelatedSpan = spans.find(
+      (span) => span.attributes['gantry.run_id'] === 'run-unrelated',
+    )!;
+    expect(finishedToolSpan.parentSpanContext?.spanId).toBe(
+      finishedParentSpan.spanContext().spanId,
+    );
+    expect(delegatedSpan.parentSpanContext?.spanId).toBe(
+      finishedToolSpan.spanContext().spanId,
+    );
+    expect(unrelatedSpan.parentSpanContext?.spanId).toBe(
+      finishedParentSpan.spanContext().spanId,
+    );
   });
 
   it('does not capture turn content when captureContent is false', () => {

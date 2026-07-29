@@ -1,4 +1,3 @@
-import { agentIdForFolder } from '../../domain/agent/agent-folder-id.js';
 import { FileArtifactNotFoundError } from '../../domain/file-artifacts/file-artifact.js';
 import { PROMPT_PROFILE_VIRTUAL_SCOPE } from '../../domain/file-artifacts/protected-virtual-path.js';
 import type { FileArtifactStore } from '../../domain/ports/file-artifact-store.js';
@@ -7,7 +6,6 @@ import {
   type AgentPersona,
 } from '../../shared/agent-persona.js';
 import {
-  DEFAULT_RELATIONSHIP_MODE,
   resolveAgentRelationshipMode,
   type AgentRelationshipMode,
 } from '../../shared/agent-relationship-mode.js';
@@ -18,6 +16,24 @@ import {
 } from './agent-prompt-capability-guidance.js';
 import { isValidPromptAgentFolder } from './prompt-profile-folder.js';
 import type { AgentPromptCapabilityCatalog } from './agent-prompt-capability-catalog.js';
+import {
+  AGENTS_FILENAME,
+  defaultAgentsPromptMarkdown,
+  defaultSoulPromptMarkdown,
+  promptProfileAgentIdForFolder,
+  promptProfileAgentsPath,
+  promptProfileSoulPath,
+  SOUL_FILENAME,
+} from './prompt-profile-defaults.js';
+
+export {
+  defaultAgentsPromptMarkdown,
+  defaultSoulPromptMarkdown,
+  PROFILE_FILE_NAMES,
+  promptProfileAgentIdForFolder,
+  promptProfileAgentsPath,
+  promptProfileSoulPath,
+} from './prompt-profile-defaults.js';
 
 type PromptSectionName =
   | 'RUNTIME_RULES'
@@ -27,10 +43,8 @@ type PromptSectionName =
   | 'OPERATING_GUIDANCE'
   | 'AGENT_INSTRUCTIONS';
 
-const AGENTS_FILENAME = 'AGENTS.md';
 const PROMPT_PROFILE_SCOPE = PROMPT_PROFILE_VIRTUAL_SCOPE;
 const DEFAULT_PROMPT_PROFILE_APP_ID = 'default';
-const SOUL_FILENAME = 'SOUL.md';
 const SOUL_SOURCE = 'gantry://soul';
 const PERSONA_SOURCE = 'gantry://persona';
 const CAPABILITY_GUIDANCE_SOURCE = 'gantry://capability-guidance';
@@ -253,11 +267,31 @@ export interface PromptModelIdentity {
 // NOT vary turn-to-turn within one session; per-turn facts (time, speaker)
 // belong to the dynamic tail or the message payload instead.
 export interface PromptRuntimeContext {
-  chatJid?: string;
-  conversationKind?: 'dm' | 'channel';
+  channelContextLine?: string;
   workspacePath?: string;
   // Present only for scheduled job runs.
   job?: { id?: string; name?: string };
+}
+
+type ChannelPromptPresentationRenderer = (
+  chatJid: string | undefined,
+  conversationKind: 'dm' | 'channel' | undefined,
+) => string | undefined;
+
+let channelPromptPresentationRenderer: ChannelPromptPresentationRenderer = () =>
+  undefined;
+
+export function registerChannelPromptPresentationRenderer(
+  renderer: ChannelPromptPresentationRenderer,
+): void {
+  channelPromptPresentationRenderer = renderer;
+}
+
+export function renderChannelPromptPresentationLine(
+  chatJid: string | undefined,
+  conversationKind: 'dm' | 'channel' | undefined,
+): string | undefined {
+  return channelPromptPresentationRenderer(chatJid, conversationKind);
 }
 
 export interface CompilePromptProfileOptions {
@@ -280,6 +314,7 @@ export interface ProfileMirrorInput {
   agentFolder: string;
   fileName: string;
   content: string;
+  version?: number;
 }
 
 export interface PromptProfileServiceOptions {
@@ -329,36 +364,6 @@ function truncateDeterministically(content: string, budget: number): string {
   return content.slice(0, budget).trimEnd();
 }
 
-// ponytail: jid prefixes and per-channel caps mirror the channel adapters
-// (tg: TELEGRAM_MESSAGE_MAX_LENGTH 4096, sl: SLACK_FALLBACK_CHUNK_MAX_LENGTH
-// 4000, dc: DISCORD_MESSAGE_MAX_LENGTH 2000, 25MB =
-// MAX_MESSAGE_FILE_ATTACHMENT_BYTES); not imported so the prompt compiler
-// stays free of channel-adapter dependencies.
-function channelContextLine(
-  chatJid: string | undefined,
-  conversationKind: 'dm' | 'channel' | undefined,
-): string | undefined {
-  if (!chatJid) return undefined;
-  const kind =
-    conversationKind === 'dm'
-      ? 'direct message'
-      : conversationKind === 'channel'
-        ? 'group conversation'
-        : 'conversation';
-  const attachments = 'outbound workspace file attachments are capped at 25MB';
-  if (chatJid.startsWith('tg:'))
-    return `- Channel: Telegram ${kind}. Telegram renders a limited HTML subset; hard message length cap 4096 characters; ${attachments}.`;
-  if (chatJid.startsWith('sl:'))
-    return `- Channel: Slack ${kind}. Slack renders mrkdwn; keep single messages under 4000 characters; ${attachments}.`;
-  if (chatJid.startsWith('dc:'))
-    return `- Channel: Discord ${kind}. Discord renders markdown; hard message length cap 2000 characters; ${attachments}.`;
-  if (chatJid.startsWith('teams:'))
-    return `- Channel: Microsoft Teams ${kind}. Teams renders basic HTML; ${attachments}.`;
-  if (chatJid.startsWith('app:'))
-    return `- Channel: embedded app ${kind}. Markdown renders natively; no hard message length cap; ${attachments}.`;
-  return `- Channel: ${kind}; ${attachments}.`;
-}
-
 function runtimeContextLines(options: CompilePromptProfileOptions): string[] {
   const lines: string[] = [];
   if (options.modelIdentity) {
@@ -369,8 +374,7 @@ function runtimeContextLines(options: CompilePromptProfileOptions): string[] {
   }
   const context = options.runtimeContext;
   if (!context) return lines;
-  const channel = channelContextLine(context.chatJid, context.conversationKind);
-  if (channel) lines.push(channel);
+  if (context.channelContextLine) lines.push(context.channelContextLine);
   if (context.workspacePath) {
     lines.push(
       `- Workspace root: ${context.workspacePath}. Durable outputs belong under media/ inside the workspace; tmp paths are ephemeral and may not survive between runs.`,
@@ -767,123 +771,6 @@ export class PromptProfileService {
     return output.trim();
   }
 }
-
-export const promptProfileAgentIdForFolder = (agentFolder: string): string =>
-  agentIdForFolder(agentFolder);
-
-export function defaultAgentsPromptMarkdown(
-  agentName: string,
-  relationshipMode: AgentRelationshipMode = DEFAULT_RELATIONSHIP_MODE,
-  accessPreset: PromptAccessPreset = 'full',
-): string {
-  const displayName = agentName.trim() || 'Agent';
-  const mode = resolveAgentRelationshipMode(relationshipMode);
-  const modeLine =
-    mode === 'organization'
-      ? `You are ${displayName}, a work-focused agent for this conversation. Stay on the task, keep approvers in the loop, and follow policy first.`
-      : `You are ${displayName}, the agent for this conversation. Be a proactive companion while keeping private context private.`;
-  const howToLines =
-    accessPreset === 'locked'
-      ? [
-          // No scheduler line: scheduler_* tools are not mounted for locked
-          // agents, so the default profile must not describe them.
-          'How you get things done:',
-          '- For non-trivial live work, first send one short natural acknowledgement with send_message before starting tools or investigation; for multi-step work, use todo_update instead of repeated generic progress messages; use render_* rich UI tools for structured status, facts, lists, tables, forms, media, or progress; use ask_user_question for genuine either/or decisions the user must make.',
-          '- Work only with the tools and knowledge currently available in this session.',
-          '',
-          'When something blocks you:',
-          '- If a request cannot be done with the available tools, say so plainly and offer what you can do instead.',
-          '- Never mention internal capability, approval, or permission machinery to the user.',
-          '',
-        ]
-      : [
-          'How you get things done:',
-          '- For non-trivial live work, first send one short natural acknowledgement with send_message before starting tools or investigation; for multi-step work, use todo_update instead of repeated generic progress messages; use render_* rich UI tools for structured status, facts, lists, tables, forms, media, or progress; use ask_user_question for genuine either/or decisions the user must make.',
-          '- Request reviewed access with request_access (target.kind=capability for durable access, target.kind=tool for exact Gantry tools such as AgentDelegation, target.kind=run_command with temporaryOnly for a scoped one-off command).',
-          '- Add capabilities with request_skill_install, request_skill_proposal, request_skill_dependency_install, or request_mcp_server; bind and restart with register_agent and service_restart.',
-          '- Manage recurring work with the scheduler_* tools (for example scheduler_upsert_job, scheduler_run_now, scheduler_list_jobs).',
-          '- To change your own SOUL.md or AGENTS.md profile, use request_agent_profile_update; never edit them through the generic file tool.',
-          '- Never edit settings, install dependencies, or change local skill/MCP config directly; route changes through the reviewed tools.',
-          '',
-          'When something blocks you, follow the ladder:',
-          '- Diagnose the real blocker, then classify it (missing action, missing setup, or policy block).',
-          '- Request the matching permission or setup through the right tool above.',
-          '- Act once granted, then summarize the user-facing result in plain words.',
-          '',
-        ];
-  return [
-    `# ${displayName}`,
-    '',
-    modeLine,
-    'Keep responses clear, concise, and directly actionable.',
-    '',
-    'Rules:',
-    '- Be explicit when an action fails and what to do next.',
-    '- Ask for clarification when intent is ambiguous.',
-    '- Never expose secrets unless explicitly requested.',
-    '',
-    ...howToLines,
-  ].join('\n');
-}
-
-export function defaultSoulPromptMarkdown(
-  agentName: string,
-  relationshipMode: AgentRelationshipMode = DEFAULT_RELATIONSHIP_MODE,
-): string {
-  const displayName = agentName.trim() || 'Agent';
-  const mode = resolveAgentRelationshipMode(relationshipMode);
-  const relationshipLine =
-    mode === 'organization'
-      ? '- You are an employee-like teammate: work-focused, approver-aware, and policy-first.'
-      : '- You are a companion-like helper: proactive and personable, but privacy-first.';
-  return [
-    '# Soul - Who You Are',
-    '',
-    '## Personality',
-    '- You are sharp, direct, and genuinely helpful.',
-    relationshipLine,
-    '- Have strong opinions. Do not hedge when a clear answer exists.',
-    "- Be concise. If one sentence works, use one sentence. Respect the user's time.",
-    '- Lead with the answer, not the preamble.',
-    '',
-    '## Voice',
-    '- Write like a smart colleague, not a customer-support bot.',
-    '- Be proactive. Suggest ideas, spot problems, and take initiative.',
-    "- Match the user's energy. Casual when they are casual, precise when they need precision.",
-    '- When explaining discovered work, scheduled jobs, permissions, or tool use, speak in user intent and outcome first. Do not expose file paths, script names, tool names, scheduler IDs, run IDs, memory source, or protocol details unless the user asks for details.',
-    '- Prefer to ask one decision-blocking question at a time instead of batching every missing detail.',
-    '- When a decision is needed, ask the smallest plain-language question that unblocks the task. Keep implementation evidence behind "Details" or omit it.',
-    '- For migrated jobs, describe what the job will do, where results go, what permission or account is needed, and what happens next. You own figuring out source files, tools, scripts, and runtime mechanics.',
-    '- Suggest the durable fix proactively: a scheduled job for recurring or time-based requests, a skill for repeated procedures, a durable capability when you keep asking for the same permission, and Credential Center setup when a secret is missing (entered outside chat, never in chat).',
-    '',
-    '## Boundaries',
-    '- Private context stays private. Never expose secrets or internal details.',
-    '- Ask before taking external actions such as sending messages, posting, or pushing code.',
-    '- When uncertain, say so. Do not present guesses as facts.',
-    '',
-    '## Continuity Boundary',
-    '- Your personality lives here.',
-    '- Durable facts, user preferences, task state, and open commitments do not live here.',
-    '- Use query-retrieved memory context and memory_search for remembered context.',
-    '',
-    '## Identity',
-    `- **Name:** ${displayName}`,
-    '',
-  ].join('\n');
-}
-
-export function promptProfileAgentsPath(agentFolder: string): string {
-  return `${agentFolder}/${AGENTS_FILENAME}`;
-}
-
-export function promptProfileSoulPath(agentFolder: string): string {
-  return `${agentFolder}/${SOUL_FILENAME}`;
-}
-
-export const PROFILE_FILE_NAMES = {
-  soul: SOUL_FILENAME,
-  agents: AGENTS_FILENAME,
-} as const;
 
 // Re-exported from the domain layer (single source of truth) for existing
 // importers of this module.

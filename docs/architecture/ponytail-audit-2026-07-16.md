@@ -1,4 +1,5 @@
 # Ponytail Legacy and Backward-Compatibility Audit — 2026-07-16
+<!-- doc-references: frozen 2026-07-22 (decision 0036) -->
 
 ## Outcome
 

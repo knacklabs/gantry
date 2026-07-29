@@ -11,23 +11,18 @@ import {
 } from './agent-output-callbacks.js';
 import * as progress from './progress-updates.js';
 import { finalizeGroupAgentUserVisibleOutput } from './group-output-finalization.js';
-import { formatMessages } from '../messaging/router.js';
 import type { AgentOutput } from './agent-spawn.js';
 import { handleSessionCommand } from '../session/session-commands.js';
 import type {
   GroupProcessOptions,
   GroupProcessingDeps,
 } from './group-processing-types.js';
-import { getGroupMemoryStatus } from './group-memory-commands.js';
-import { runDreamingForGroup } from './memory-dreaming-runner.js';
 import { settleDeliveryAttempt } from '../jobs/delivery.js';
 import { resolveMemoryUserId } from './session-resume-runtime.js';
 import { firstThreadQueueId } from '../shared/thread-queue-key.js';
-import { createRuntimeModelStatusAccess } from './model-status-store.js';
 import { getConfiguredModelProvidersForApp } from '../adapters/storage/postgres/runtime-store.js';
 import { resolveGroupProcessingRouteContext } from './command-override-route-key.js';
 import { memoryScopeForConversationKind } from './group-run-context.js';
-import { getGroupBrowserStatus } from './group-browser-status.js';
 import {
   handleFailure,
   resetGroupStreamingForTurn,
@@ -35,11 +30,6 @@ import {
   shouldSendTurnFinalProgress,
   waitOutput,
 } from './group-processing-flow.js';
-import {
-  createAdvanceCursorHandler,
-  createSaveProcedureHandler,
-  createSenderCommandPolicy,
-} from './group-session-command-state.js';
 import { groupTurnHasRequiredTrigger } from './group-trigger-policy.js';
 import {
   createResponseProgressSenders,
@@ -51,7 +41,6 @@ import {
   createGroupAgentRunner,
   type GroupAgentRunResult,
 } from './group-agent-runner.js';
-import { createSessionCommandAgentRunners } from './group-session-command-runner.js';
 import {
   isModelAccessAuthFailure,
   sendModelAccessAuthFailureNotice,
@@ -68,6 +57,8 @@ import {
 } from './failover-eligibility.js';
 let streamingGenerationCounter = 0;
 const PERMISSION_BACKGROUND_DEMOTE_MS = 120_000;
+const PROVIDER_FAILOVER_EXHAUSTED_MESSAGE =
+  "The AI provider is unavailable and your message couldn't be processed after several retries. Please try again shortly.";
 type ProgressHeartbeat = ReturnType<typeof startGroupProgressHeartbeats>;
 export function createGroupProcessor(deps: GroupProcessingDeps) {
   const collectSessionMemory = deps.collectSessionMemory;
@@ -165,52 +156,32 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
     const defaultMemoryScope = memoryScopeForConversationKind(
       group.conversationKind,
     );
-    const modelStatus = createRuntimeModelStatusAccess(
-      group.folder,
-      activeThreadId,
-    );
-    const senderCommandPolicy = createSenderCommandPolicy({
-      chatJid,
-      group,
-      triggerPattern: config.getTriggerPattern(group.trigger),
-    });
     const cmdResult = await handleSessionCommand({
       missedMessages,
       groupName: group.name,
       triggerPattern: config.getTriggerPattern(group.trigger),
       timezone: config.TIMEZONE,
-      deps: {
-        sendMessage: (text, options) =>
-          sendMessageToChannel(text, buildMessageOptions(options?.threadId)),
+      deps: createGroupProcessingSessionCommandHandlers({
+        ops,
+        appId: turnAppId,
+        defaultModel: config.getDefaultModelConfig('interactive', group.folder)
+          .model,
+        group,
+        chatJid,
+        threadId: activeThreadId,
+        defaultScope: defaultMemoryScope,
+        memoryUserId,
+        collectMemory: collectSessionMemory,
+        deps,
+        queueJid,
+        missedMessages,
+        runAgent,
+        processOptions: options,
+        commandOverrideRouteKey,
         setTyping: setTurnTyping,
-        ...createSessionCommandAgentRunners({
-          runAgent,
-          group,
-          chatJid,
-          queueJid,
-          memoryUserId,
-          activeThreadId,
-          missedMessages,
-          existingRunId: options.existingRunId,
-          existingRunLeaseToken: options.existingRunLeaseToken,
-          existingRunLeaseWorkerInstanceId:
-            options.existingRunLeaseWorkerInstanceId,
-          existingRunLeaseFencingVersion:
-            options.existingRunLeaseFencingVersion,
-        }),
-        closeStdin: () => deps.queue.closeStdin(queueJid),
-        compactionScopeKey: queueJid,
-        advanceCursor: createAdvanceCursorHandler({
-          queueJid,
-          setCursor: deps.setCursor,
-          saveState: deps.saveState,
-          warn: (err) =>
-            logger.warn(
-              { group: group.name, err },
-              'Failed to persist session command cursor',
-            ),
-        }),
-        formatMessages,
+        sendMessage: sendMessageToChannel,
+        buildMessageOptions,
+        triggerPattern: config.getTriggerPattern(group.trigger),
         getDefaultModel: () =>
           config.getDefaultModelConfig('interactive', group.folder).model,
         getJobModelDefaults: () => ({
@@ -223,83 +194,10 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
           getConfiguredModelProvidersForApp(turnAppId),
         getModelFamilyOrder: () =>
           config.getRuntimeSettingsForConfig().modelFamilies,
-        getGroupModelOverride: () => group.agentConfig?.model,
-        setGroupModelOverride: async (value) =>
-          deps.setGroupModelOverride(commandOverrideRouteKey, value),
-        getModelStatus: modelStatus.getStatus,
-        getBrowserStatus: () => getGroupBrowserStatus({ group, chatJid }),
-        updateModelStatusSelection: modelStatus.updateSelection,
-        getGroupThinkingOverride: () => group.agentConfig?.thinking,
-        setGroupThinkingOverride: (value) =>
-          deps.setGroupThinkingOverride(commandOverrideRouteKey, value),
-        getGroupPermissionModeOverride: () => group.agentConfig?.permissionMode,
         getDefaultPermissionMode: () =>
           config.getSelectedAgentPermissionMode(group.folder),
-        setGroupPermissionModeOverride: (value) =>
-          deps.setGroupPermissionModeOverride(commandOverrideRouteKey, value),
-        ...createGroupProcessingSessionCommandHandlers({
-          ops,
-          appId: turnAppId,
-          defaultModel: config.getDefaultModelConfig(
-            'interactive',
-            group.folder,
-          ).model,
-          group,
-          chatJid,
-          threadId: activeThreadId ?? null,
-          defaultScope: defaultMemoryScope,
-          memoryUserId,
-          collectMemory: collectSessionMemory,
-          deps,
-        }),
-        clearCurrentSession: () =>
-          deps.clearSession(group.folder, activeThreadId, {
-            appId: turnAppId,
-            conversationJid: chatJid,
-            providerAccountId: group.providerAccountId,
-            conversationKind: group.conversationKind,
-            memoryUserId,
-          }),
-        stopCurrentRun: () => deps.queue.stopGroup?.(queueJid) ?? false,
-        runMemoryDreaming: () =>
-          runDreamingForGroup({
-            folder: group.folder,
-            conversationId: chatJid,
-            userId: memoryUserId,
-            activeThreadId,
-            defaultScope: defaultMemoryScope,
-          }),
-        getMemoryStatus: async () => {
-          const memory = config.getRuntimeSettingsForConfig().memory;
-          return getGroupMemoryStatus(
-            {
-              folder: group.folder,
-              conversationId: chatJid,
-              userId: memoryUserId,
-              threadId: activeThreadId,
-              defaultScope: defaultMemoryScope,
-            },
-            {
-              memoryEnabled: memory.enabled,
-              embeddings:
-                memory.enabled &&
-                memory.embeddings.enabled &&
-                memory.embeddings.provider !== 'disabled'
-                  ? 'configured'
-                  : 'disabled',
-            },
-          );
-        },
-        saveProcedure: createSaveProcedureHandler({
-          folder: group.folder,
-          conversationId: chatJid,
-          userId: memoryUserId,
-          defaultScope: defaultMemoryScope,
-          threadId: activeThreadId,
-          isAdminWrite: true,
-        }),
-        ...senderCommandPolicy,
-      },
+        getMemorySettings: () => config.getRuntimeSettingsForConfig().memory,
+      }),
     });
     if (cmdResult.handled) {
       if (replay.hasMore) deps.queue.enqueueMessageCheck(queueJid);
@@ -662,11 +560,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
           await setTypingState(false);
         }
         startNextStreamingMessage();
-        // A completed assistant turn used to keep the host runner alive until
-        // IDLE_TIMEOUT (30 minutes by default). That let inactive Slack
-        // threads consume every interactive slot. Session state is durable, so
-        // close the warm runner now; a later user message will resume it.
-        deps.queue.closeStdin(queueJid);
+        resetIdleTimer();
       }
       if (result.status === 'error') {
         hadError = true;
@@ -743,6 +637,54 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
     }
     let resultOk = true;
     if (output === 'error' || hadError) {
+      // A provider-infra failure (failover-eligible or missing-provider-session)
+      // is only "exhausted" once the queue has burned all its retries
+      // (options.finalRetry). Before that, a transient 429/502 must keep the
+      // normal rollback -> retry path so the provider gets time to recover;
+      // dropping it on the FIRST error silently loses the user's turn.
+      const failoverExhausted =
+        options.finalRetry === true &&
+        (isFailoverEligibleError(lastAgentError) ||
+          isMissingProviderSessionError(lastAgentError));
+      // ponytail: interim guard against silent turn loss. The durable fix is a
+      // dead-letter re-drive of the dropped turn (issue #285). Until then, when
+      // failover is exhausted we stop the replay storm by preserving the cursor
+      // (below) AND surface an error + user-visible notice. We only CONSUME the
+      // turn once the user was actually informed; if the notice fails to deliver
+      // (channel down), we fall through to rollback->retry so the turn isn't
+      // silently dropped. The remaining edge (channel still down after the queue
+      // retry cap is exhausted) is covered by the durable dead-letter re-drive (#285).
+      let failureNoticeDelivered = false;
+      if (failoverExhausted && !outputSentToUser) {
+        logger.error(
+          { group: group.name, error: lastAgentError },
+          'Provider failover exhausted after retries; dropping turn to stop replay storm, notifying user',
+        );
+        const noticeOptions = buildMessageOptions();
+        const noticeSettlement = await settleDeliveryAttempt(
+          () =>
+            sendMessageToChannel(
+              PROVIDER_FAILOVER_EXHAUSTED_MESSAGE,
+              noticeOptions,
+            ),
+          {
+            scope: 'runtime-provider-failover-exhausted',
+            target: chatJid,
+          },
+        ).catch((err) => {
+          logger.error(
+            { err, group: group.name },
+            'Failed to send provider failover exhausted notice',
+          );
+          return 'not_delivered' as const;
+        });
+        failureNoticeDelivered = noticeSettlement !== 'not_delivered';
+        applyDeliverySettlement(noticeSettlement, {
+          streamed: false,
+          terminal: true,
+        });
+      }
+      const userInformed = outputSentToUser || failureNoticeDelivered;
       resultOk = await handleFailure({
         outputSentToUser,
         groupName: group.name,
@@ -750,10 +692,10 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
         previousCursor,
         deps,
         acknowledgeFailedTurn:
-          options.finalRetry === true && !deps.queue.isShuttingDown?.(),
-        preserveCursor:
-          isFailoverEligibleError(lastAgentError) ||
-          isMissingProviderSessionError(lastAgentError),
+          options.finalRetry === true &&
+          !deps.queue.isShuttingDown?.() &&
+          (!failoverExhausted || userInformed),
+        preserveCursor: failoverExhausted && userInformed,
         logger,
       });
     } else {

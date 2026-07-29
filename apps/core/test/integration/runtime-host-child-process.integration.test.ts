@@ -174,6 +174,8 @@ describe('host child-process runtime smoke', () => {
         this.compileSystemPrompt = async () => 'compiled host smoke prompt';
       }
       return {
+        registerChannelPromptPresentationRenderer: vi.fn(),
+        renderChannelPromptPresentationLine: vi.fn(() => undefined),
         PromptProfileService: MockPromptProfileService,
         promptProfileAgentIdForFolder: (folder: string) => `agent:${folder}`,
       };

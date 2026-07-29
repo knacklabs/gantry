@@ -1,5 +1,36 @@
 import type { SemanticCapabilityDefinition } from '../shared/semantic-capabilities.js';
 import type { PermissionMode } from '../shared/permission-mode.js';
+import type { ReviewMessageView } from './review-message-view.js';
+import type { MessageActionAffordance } from './message-actions.js';
+import type { ObserverDigestMessageView } from './observer-digest-view.js';
+import type { BrainReviewCardView } from './brain-review-card.js';
+
+export type {
+  MessageActionAffordanceKind,
+  MemoryReviewActionDecision,
+  BrainDreamReviewActionDecision,
+  MessageActionAffordance,
+  MessageActionCallbackInput,
+  MemoryReviewMessageActionInput,
+  ObserverFeedbackMessageActionInput,
+  BrainDreamReviewMessageActionInput,
+  MessageActionOutcome,
+  OnMessageAction,
+  OnMemoryReviewMessageAction,
+  OnObserverFeedbackMessageAction,
+  OnBrainDreamReviewMessageAction,
+} from './message-actions.js';
+export type {
+  ReviewMessageView,
+  ReviewMessageSide,
+  ReviewMessageEvidence,
+  ReviewMessageAffordance,
+} from './review-message-view.js';
+export type {
+  ObserverDigestMessageView,
+  ObserverDigestInsightView,
+  ObserverFeedbackAffordance,
+} from './observer-digest-view.js';
 
 export type {
   Job,
@@ -121,6 +152,15 @@ export interface NewMessageAttachment {
 }
 
 // --- Channel capability ports ---
+export type PermissionRiskLevel = 'low' | 'medium' | 'high' | 'critical';
+export type PermissionRiskCategory =
+  | 'destructive'
+  | 'privileged'
+  | 'secret'
+  | 'network'
+  | 'filesystem'
+  | 'benign';
+
 export interface PermissionApprovalRequest {
   requestId: string;
   appId?: string;
@@ -141,6 +181,8 @@ export interface PermissionApprovalRequest {
   responseKeyId?: string;
   decisionPolicy?: 'control_allowlist' | 'same_channel';
   unattended?: boolean;
+  permissionLane?: 'interactive' | 'autonomous';
+  expiresAt?: string;
   senderId?: string;
   turnIntentSummary?: string;
   toolName: string;
@@ -151,23 +193,41 @@ export interface PermissionApprovalRequest {
   displayName?: string;
   description?: string;
   decisionReason?: string;
+  risk_level?: PermissionRiskLevel;
+  risk_category?: PermissionRiskCategory;
   closestRule?: {
     rule: string;
     reason: string;
   };
   blockedPath?: string;
   toolInput?: Record<string, unknown>;
+  hostInjectedCommandPrefix?: string;
+  /** 16K-limit sanitize of the same input; the permission DECISION layers
+   *  (rails + effect-key) evaluate this fuller view, not the 500-char display
+   *  `toolInput`. Set alongside `toolInput` in ipc-parsing. */
+  classifierToolInput?: Record<string, unknown>;
   toolInputSanitized?: boolean;
   toolInputSanitizedPaths?: string[];
   semanticCapabilityDefinitions?: Record<string, SemanticCapabilityDefinition>;
   suggestions?: PermissionApprovalUpdate[];
   decisionOptions?: PermissionApprovalDecisionMode[];
+  /** Learned-root ask-once (PERM-2 Task G): the persistent-rule option means
+   *  "remember this folder", so it approves without a tool-rule suggestion. */
+  trustedRootLearn?: boolean;
   promotionHintCount?: number;
   interaction?: InteractionDescriptor;
   permissionBatch?: {
     requestIds: string[];
     rows: string[];
   };
+}
+
+export interface PermissionApprovalCancellation {
+  requestId: string;
+  appId?: string;
+  sourceAgentFolder: string;
+  threadId?: string;
+  reason?: string;
 }
 
 export type PermissionApprovalDecisionMode =
@@ -241,6 +301,8 @@ export interface PermissionApprovalDecision {
   mode?: PermissionApprovalDecisionMode;
   decidedBy?: string;
   reason?: string;
+  risk_level?: PermissionRiskLevel;
+  risk_category?: PermissionRiskCategory;
   updatedPermissions?: PermissionApprovalUpdate[];
   decisionClassification?: 'user_temporary' | 'user_permanent' | 'user_reject';
   batchDecision?: 'review_each';
@@ -266,6 +328,8 @@ export interface UserQuestionRequest {
   appId?: string;
   agentId?: string;
   providerAccountId?: string;
+  permissionLane?: 'interactive' | 'autonomous';
+  expiresAt?: string;
   jobId?: string;
   runId?: string;
   runLeaseToken?: string;
@@ -290,6 +354,14 @@ export interface UserQuestionResponse {
   requestId: string;
   answers: Record<string, string | string[]>;
   answeredBy?: string;
+}
+
+export interface UserQuestionCancellation {
+  requestId: string;
+  appId?: string;
+  sourceAgentFolder: string;
+  threadId?: string;
+  reason?: string;
 }
 
 export type InteractionSeverity =
@@ -436,53 +508,25 @@ export interface ProgressUpdateOptions {
   actionAffordances?: MessageActionAffordance[];
 }
 
-export type MessageActionAffordanceKind =
-  | 'scheduler_run_now'
-  | 'scheduler_pause_job'
-  | 'live_turn_stop';
-
-export type MessageActionAffordance =
-  | {
-      kind: 'scheduler_run_now' | 'scheduler_pause_job';
-      label: string;
-      jobId: string;
-      runId?: string | null;
-    }
-  | {
-      kind: 'live_turn_stop';
-      label: string;
-      actionToken: string;
-    };
-
-export type MessageActionCallbackInput =
-  | {
-      kind: 'live_turn_stop';
-      conversationJid: string;
-      providerAccountId?: string;
-      threadId?: string;
-      userId?: string;
-      actionToken?: string;
-    }
-  | {
-      kind: 'scheduler_run_now';
-      conversationJid: string;
-      providerAccountId?: string;
-      threadId?: string;
-      userId?: string;
-      jobId: string;
-      runId?: string | null;
-    };
-
-export type OnMessageAction = (
-  input: MessageActionCallbackInput,
-) => Promise<void>;
-
 export interface MessageSendOptions {
   threadId?: string;
   providerAccountId?: string;
   agentId?: string;
   actionAffordances?: MessageActionAffordance[];
   files?: MessageFileAttachment[];
+  /** When set, channels with native support render this as a compact-structured
+   * memory-review message (per-channel native blocks/card) with the decision
+   * buttons. Channels without native buttons fall back to `text`. */
+  reviewMessageView?: ReviewMessageView;
+  /** When set, channels with native support render the observer digest as one
+   * message of up to 3 insight groups, each with its four `observer_feedback`
+   * buttons. Channels without native buttons fall back to `text`. */
+  observerDigestView?: ObserverDigestMessageView;
+  /** When set, channels with native support render the destructive-proposal
+   * review card (headline + detail) with its Approve/Reject
+   * `brain_dream_review_decision` buttons. Channels without native buttons fall
+   * back to `text`. */
+  brainReviewView?: BrainReviewCardView;
 }
 
 export interface MessageFileAttachment {
@@ -600,6 +644,12 @@ export interface InteractionSurface {
     kind: 'permission' | 'question',
     request: PermissionApprovalRequest | UserQuestionRequest,
   ): void;
+  cancelPendingPermission?(
+    request: PermissionApprovalCancellation,
+  ): Promise<'settled' | 'already_decided' | 'retryable' | 'not_found'>;
+  cancelPendingQuestion?(
+    request: UserQuestionCancellation,
+  ): Promise<'settled' | 'already_decided' | 'retryable' | 'not_found'>;
 }
 
 export interface RichInteractionSurface {

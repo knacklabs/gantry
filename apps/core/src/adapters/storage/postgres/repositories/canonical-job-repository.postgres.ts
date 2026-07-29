@@ -619,6 +619,29 @@ export class PostgresCanonicalJobRepository {
       .limit(limit);
   }
 
+  async listLatestJobRunsByJobIds(
+    jobIds: readonly string[],
+  ): Promise<CanonicalRunRecord[]> {
+    if (jobIds.length === 0) return [];
+    return this.db
+      .selectDistinctOn(
+        [pgSchema.agentRunsPostgres.jobId],
+        canonicalRunProjection,
+      )
+      .from(pgSchema.agentRunsPostgres)
+      .where(
+        and(
+          inArray(pgSchema.agentRunsPostgres.jobId, jobIds),
+          isNull(pgSchema.agentRunsPostgres.sessionId),
+        ),
+      )
+      .orderBy(
+        pgSchema.agentRunsPostgres.jobId,
+        sql`${pgSchema.agentRunsPostgres.startedAt} DESC NULLS LAST`,
+        desc(pgSchema.agentRunsPostgres.createdAt),
+      );
+  }
+
   private async listRunsForOwnerApp(
     ownerAppId: string,
     limit: number,

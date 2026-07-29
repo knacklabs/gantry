@@ -4,6 +4,7 @@ import {
   type PromptModelIdentity,
   type PromptProfileServiceOptions,
   promptProfileAgentIdForFolder,
+  renderChannelPromptPresentationLine,
 } from '../application/agents/prompt-profile-service.js';
 import type { ConversationRoute } from '../domain/types.js';
 import { logger } from '../infrastructure/logging/logger.js';
@@ -58,10 +59,10 @@ export async function compileSpawnSystemPrompt(input: {
         mcpInventoryToolsMounted: input.mcpInventoryToolsMounted,
         ...(input.modelIdentity ? { modelIdentity: input.modelIdentity } : {}),
         runtimeContext: {
-          chatJid: input.agentInput.chatJid,
-          ...(input.group.conversationKind
-            ? { conversationKind: input.group.conversationKind }
-            : {}),
+          channelContextLine: renderChannelPromptPresentationLine(
+            input.agentInput.chatJid,
+            input.group.conversationKind,
+          ),
           ...(() => {
             try {
               return {

@@ -977,4 +977,136 @@ describe('cli telegram helpers', () => {
     expect(result.error).toContain('ambiguous');
     expect(result.error).toContain('folder/agent selector');
   });
+
+  it('resolves the canonical agent:<folder> id surfaced by status and jobs', () => {
+    const firstRouteKey = makeAgentThreadQueueKey(
+      'tg:123',
+      'agent:first_agent',
+    );
+    const secondRouteKey = makeAgentThreadQueueKey(
+      'tg:456',
+      'agent:second_agent',
+    );
+    const groups = {
+      [firstRouteKey]: {
+        name: 'First',
+        folder: 'first_agent',
+        trigger: '',
+        added_at: '2026-04-24T00:00:00.000Z',
+      },
+      [secondRouteKey]: {
+        name: 'Second',
+        folder: 'second_agent',
+        trigger: '',
+        added_at: '2026-04-24T00:00:00.000Z',
+      },
+    };
+
+    const byAgentId = resolveGroupSelector(groups, 'agent:second_agent');
+    expect(byAgentId.error).toBeUndefined();
+    expect(byAgentId.found?.jid).toBe(secondRouteKey);
+    expect(byAgentId.found?.group.folder).toBe('second_agent');
+
+    // Same agent, reachable by folder and by full route JID.
+    expect(resolveGroupSelector(groups, 'second_agent').found?.jid).toBe(
+      secondRouteKey,
+    );
+    expect(resolveGroupSelector(groups, secondRouteKey).found?.jid).toBe(
+      secondRouteKey,
+    );
+
+    // agent:<folder> is agent-only: unknown ids do not fall back to anything.
+    const unknown = resolveGroupSelector(groups, 'agent:missing_agent');
+    expect(unknown.found).toBeNull();
+    expect(unknown.error).toBeUndefined();
+  });
+
+  it('refuses a multi-route agent id rather than silently picking one route', () => {
+    const routeA = makeAgentThreadQueueKey('tg:123', 'agent:multi_agent');
+    const routeB = makeAgentThreadQueueKey('tg:456', 'agent:multi_agent');
+    const groups = {
+      [routeA]: {
+        name: 'Multi',
+        folder: 'multi_agent',
+        trigger: '',
+        added_at: '2026-04-24T00:00:00.000Z',
+      },
+      [routeB]: {
+        name: 'Multi',
+        folder: 'multi_agent',
+        trigger: '',
+        added_at: '2026-04-24T00:00:00.000Z',
+      },
+    };
+
+    const result = resolveGroupSelector(groups, 'agent:multi_agent');
+    expect(result.found).toBeNull();
+    expect(result.error).toContain('2 routes');
+    // The error must name every route so the user can pick one.
+    expect(result.error).toContain(routeA);
+    expect(result.error).toContain(routeB);
+
+    // Each route remains individually addressable by its exact JID.
+    expect(resolveGroupSelector(groups, routeA).found?.jid).toBe(routeA);
+    expect(resolveGroupSelector(groups, routeB).found?.jid).toBe(routeB);
+  });
+
+  it('keeps exact route-JID precedence, with agent:<folder> addressing the other agent', () => {
+    const collidingJid = 'tg:999';
+    const otherRouteKey = makeAgentThreadQueueKey('tg:123', 'agent:tg:999');
+    const groups = {
+      [collidingJid]: {
+        name: 'Direct route',
+        folder: 'direct_route',
+        trigger: '',
+        added_at: '2026-04-24T00:00:00.000Z',
+      },
+      [otherRouteKey]: {
+        name: 'Other',
+        folder: collidingJid,
+        trigger: '',
+        added_at: '2026-04-24T00:00:00.000Z',
+      },
+    };
+
+    // Exact route key wins -- and stays addressable.
+    const byJid = resolveGroupSelector(groups, collidingJid);
+    expect(byJid.error).toBeUndefined();
+    expect(byJid.found?.jid).toBe(collidingJid);
+    expect(byJid.found?.group.folder).toBe('direct_route');
+
+    // The agent whose FOLDER collides is reachable via its canonical id.
+    const byAgentId = resolveGroupSelector(groups, `agent:${collidingJid}`);
+    expect(byAgentId.error).toBeUndefined();
+    expect(byAgentId.found?.jid).toBe(otherRouteKey);
+    expect(byAgentId.found?.group.folder).toBe(collidingJid);
+  });
+
+  it('does not flag a collision when the colliding folder is the same agent', () => {
+    // One agent owning several routes, where its folder equals one route key,
+    // is an alias — not a cross-agent collision — and must still resolve.
+    const selfJid = 'tg:999';
+    const secondRoute = makeAgentThreadQueueKey('tg:123', 'agent:tg:999');
+    const result = resolveGroupSelector(
+      {
+        [selfJid]: {
+          name: 'Same agent',
+          folder: selfJid,
+          trigger: '',
+          added_at: '2026-04-24T00:00:00.000Z',
+        },
+        [secondRoute]: {
+          name: 'Same agent',
+          folder: selfJid,
+          trigger: '',
+          added_at: '2026-04-24T00:00:00.000Z',
+        },
+      },
+      selfJid,
+    );
+
+    expect(result.error).toBeUndefined();
+    expect(result.found?.jid).toBe(selfJid);
+    expect(result.found?.group.folder).toBe(selfJid);
+  });
 });

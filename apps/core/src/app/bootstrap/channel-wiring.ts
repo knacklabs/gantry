@@ -1,7 +1,6 @@
 import { RuntimeSettings } from '../../config/settings/runtime-settings.js';
 import { logger } from '../../infrastructure/logging/logger.js';
 import {
-  GroupDiscoverySource,
   MessageDeliveryResult,
   MessageSendOptions,
   PermissionApprovalRequest,
@@ -33,7 +32,6 @@ import { RuntimeSecretConversationMembershipValidator } from '../../channels/con
 import type { AppId } from '../../domain/app/app.js';
 import {
   asAgentTodoSurface,
-  asGroupDiscoverySource,
   asMessageReactionSink,
   asPermissionApprovalSurface,
   asProgressSink,
@@ -86,6 +84,7 @@ import {
 } from '../../channels/provider-account-channel-connect.js';
 import { createPermissionApprovalRequester } from '../../channels/permission-approval-requester.js';
 import * as routeProviderAccount from './channel-wiring-route-provider-account.js';
+import { syncChannelGroups } from './channel-wiring-group-sync.js';
 const PROVIDER_INBOUND_LEASE_PREFIX = 'runtime:provider-inbound';
 type AccountOpts = { providerAccountId?: string };
 type BoundChannel = BoundProviderAccountChannel['channel'];
@@ -269,7 +268,6 @@ export function createChannelWiring(
       });
     }
   }
-
   const hasConnectedChannels = (): boolean => connectedChannels.length > 0;
   function describeDestinationJid(jid: string) {
     const provider = providerForJid(jid);
@@ -690,12 +688,6 @@ export function createChannelWiring(
     if (!reactionSink) return;
     await reactionSink.addReaction(jid, ref, emoji);
   }
-  async function syncGroups(force: boolean): Promise<void> {
-    const syncSources = connectedChannels
-      .map((bound) => asGroupDiscoverySource(bound.channel))
-      .filter((source): source is GroupDiscoverySource => source !== undefined);
-    await Promise.all(syncSources.map((source) => source.syncGroups(force)));
-  }
   async function disconnectChannels(): Promise<void> {
     const drained = await persistenceQueue.waitForIdle(5_000);
     if (!drained) {
@@ -730,14 +722,22 @@ export function createChannelWiring(
     setRetryTailRecoveryEnqueue,
     setDurableOutboundAttemptFactory,
     setMessageActionHandler: messageActionRouter.set,
+    setMemoryReviewMessageActionHandler:
+      messageActionRouter.setMemoryReviewHandler,
+    setObserverFeedbackMessageActionHandler:
+      messageActionRouter.setObserverFeedbackHandler,
+    setBrainDreamReviewMessageActionHandler:
+      messageActionRouter.setBrainDreamReviewHandler,
     sendStreamingChunk,
     resetStreaming: streamReset.resetStreaming,
     setTyping,
     sendProgressUpdate,
     addReaction,
-    syncGroups,
+    syncGroups: (force) => syncChannelGroups(connectedChannels, force),
     requestPermissionApproval,
+    cancelPermissionApproval: requestPermissionApproval.cancel,
     requestUserAnswer: userQuestionResponder.requestUserAnswer,
+    cancelUserQuestion: userQuestionResponder.cancelUserQuestion,
     renderAgentTodo: agentTodoRenderer,
     renderRichInteraction: richInteractionRenderer,
     hydrateConversationContext: (request) =>

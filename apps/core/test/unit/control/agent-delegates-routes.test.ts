@@ -447,6 +447,13 @@ function mockContext(scopes: string[]): ControlRouteContext {
       },
     ],
     getInternalRuntimeSettings: () => fallbackSettings,
+    agentSettings: {
+      decodeRevisionDocument: settingsFromRevisionDocument,
+      defaultSettings: createDefaultRuntimeSettings,
+      serializeRevisionDocument: (settings) =>
+        settingsToRevisionDocument(settings as RuntimeSettings),
+      writeAgentHarnessSetting: async () => undefined,
+    },
   } as ControlRouteContext;
 }
 

@@ -6,7 +6,9 @@ export const MEMORY_EMBEDDING_BACKFILL_SYSTEM_PROMPT =
 export const BRAIN_EMBEDDING_BACKFILL_SYSTEM_PROMPT =
   '__system:brain_embedding_backfill';
 export const BRAIN_DREAM_SYSTEM_PROMPT = '__system:brain_dream';
+export const OBSERVER_DIGEST_SYSTEM_PROMPT = '__system:observer_digest';
 export const MEMORY_DREAMING_JOB_ID_PREFIX = 'system:dreaming:';
+export const OBSERVER_DIGEST_JOB_ID_PREFIX = 'system:observer-digest:';
 export const MEMORY_EMBEDDING_BACKFILL_JOB_ID = 'system:embedding-backfill';
 export const BRAIN_EMBEDDING_BACKFILL_JOB_ID =
   'system:brain-embedding-backfill';
@@ -33,6 +35,12 @@ export function isTrustedSystemJob(job: {
   if (
     job.id === BRAIN_EMBEDDING_BACKFILL_JOB_ID &&
     job.prompt === BRAIN_EMBEDDING_BACKFILL_SYSTEM_PROMPT
+  ) {
+    return true;
+  }
+  if (
+    job.id.startsWith(OBSERVER_DIGEST_JOB_ID_PREFIX) &&
+    job.prompt === OBSERVER_DIGEST_SYSTEM_PROMPT
   ) {
     return true;
   }

@@ -2,12 +2,10 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import {
-  LocalSkillArtifactStore,
-  hashSkillBundle,
-} from '@core/adapters/artifacts/skills/local-skill-artifact-store.js';
+import { LocalSkillArtifactStore } from '@core/adapters/artifacts/skills/local-skill-artifact-store.js';
+import { hashSkillBundle } from '@core/shared/skill-artifact-helpers.js';
 
 describe('LocalSkillArtifactStore', () => {
   let tempRoot = '';
@@ -43,7 +41,9 @@ describe('LocalSkillArtifactStore', () => {
     });
 
     expect(stored.storageType).toBe('local-filesystem');
-    expect(stored.storageRef).toBe('skills/Uploaded-One');
+    expect(stored.storageRef).toBe(
+      `apps/app%3Aone/skills/skill%3AUploaded%20One/${stored.contentHash.replace(':', '%3A')}`,
+    );
     expect(stored.storageRef.endsWith('.json')).toBe(false);
     expect(stored.sizeBytes).toBe(
       Buffer.byteLength('# Uploaded\n') + Buffer.byteLength('context\n'),
@@ -69,6 +69,67 @@ describe('LocalSkillArtifactStore', () => {
       loaded.assets.find((asset) => asset.path === 'SKILL.md'),
     ).toMatchObject({ contentType: 'text/markdown' });
     expect(hashSkillBundle(loaded)).toBe(stored.contentHash);
+  });
+
+  it('isolates same-named skill bytes by app', async () => {
+    const store = new LocalSkillArtifactStore(tempRoot);
+    const first = await store.putSkillArtifact({
+      appId: 'app/first',
+      skillId: 'skill:shared',
+      skillName: 'Shared',
+      bundle: {
+        assets: [{ path: 'SKILL.md', content: Buffer.from('# First') }],
+      },
+    });
+    const second = await store.putSkillArtifact({
+      appId: 'app-first',
+      skillId: 'skill:shared',
+      skillName: 'Shared',
+      bundle: {
+        assets: [{ path: 'SKILL.md', content: Buffer.from('# Second') }],
+      },
+    });
+
+    expect(first.storageRef).not.toBe(second.storageRef);
+    expect(first.storageRef).toMatch(
+      /^apps\/app%2Ffirst\/skills\/skill%3Ashared\//,
+    );
+    expect(second.storageRef).toMatch(
+      /^apps\/app-first\/skills\/skill%3Ashared\//,
+    );
+    expect(
+      readAsset(await store.getSkillArtifact(first.storageRef), 'SKILL.md'),
+    ).toBe('# First');
+    expect(
+      readAsset(await store.getSkillArtifact(second.storageRef), 'SKILL.md'),
+    ).toBe('# Second');
+  });
+
+  it('does not rewrite an already-published content hash directory', async () => {
+    const store = new LocalSkillArtifactStore(tempRoot);
+    const input = {
+      appId: 'app:one',
+      skillId: 'skill:unchanged',
+      skillName: 'unchanged',
+      bundle: {
+        assets: [{ path: 'SKILL.md', content: Buffer.from('# Unchanged') }],
+      },
+    };
+    const first = await store.putSkillArtifact(input);
+    const skillPath = path.join(resolveRef(first.storageRef), 'SKILL.md');
+    const inode = fs.statSync(skillPath).ino;
+    const writeSpy = vi.spyOn(fs, 'writeFileSync');
+
+    try {
+      const second = await store.putSkillArtifact(input);
+
+      expect(second).toEqual(first);
+      expect(writeSpy).not.toHaveBeenCalled();
+      expect(fs.statSync(skillPath).ino).toBe(inode);
+      expect(fs.readFileSync(skillPath, 'utf-8')).toBe('# Unchanged');
+    } finally {
+      writeSpy.mockRestore();
+    }
   });
 
   it('keeps content hashes deterministic over normalized paths and bytes', () => {

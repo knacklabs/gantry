@@ -11,15 +11,22 @@ import {
 } from '../../adapters/storage/postgres/runtime-store.js';
 import {
   ARTIFACTS_DIR,
+  createDefaultRuntimeSettings,
   getRuntimeSettingsForConfig,
+  loadRuntimeSettings,
 } from '../../config/index.js';
 import {
   CURRENT_SETTINGS_READER_VERSION,
+  importFleetSettingsRevision,
   importWorkstationSettings,
+  SettingsRevisionConflictError,
+  SettingsStaleMutationError,
   settingsFromRevisionDocument,
+  settingsToRevisionDocument,
 } from '../../config/settings/settings-import-service.js';
 import { PostgresSettingsRevisionWakeupSource } from '../../config/settings/settings-revision-notify.js';
 import type { AppId } from '../../domain/app/app.js';
+import type { RuntimeLeasePort } from '../../domain/ports/runtime-lease.js';
 import { isDraining } from './draining-state.js';
 import type { SkillArtifactMaterializer } from '../../domain/ports/skill-artifact-store.js';
 import type { ToolchainArtifactMaterializer } from '../../domain/ports/toolchain-artifact-store.js';
@@ -39,8 +46,98 @@ import {
 } from '../../runtime/settings-load-state.js';
 import { SettingsRevisionListener } from '../../runtime/settings-revision-listener.js';
 import type { RuntimeApp } from './runtime-app.js';
+import type {
+  ControlAgentSettingsPort,
+  ControlSettingsImportPort,
+  EffectiveControlRuntimeSettings,
+} from '../../application/control-plane/control-plane-storage-model.js';
+import { withSettingsProjectorLease } from '../../domain/ports/settings-projector-lease.js';
 
 const SEED_COMMAND = 'gantry settings import --file settings.yaml';
+
+export function createControlAgentSettingsPort(
+  leases?: RuntimeLeasePort,
+): ControlAgentSettingsPort {
+  return {
+    decodeRevisionDocument: settingsFromRevisionDocument,
+    defaultSettings: createDefaultRuntimeSettings,
+    serializeRevisionDocument: (settings) =>
+      settingsToRevisionDocument(
+        settings as ReturnType<typeof settingsFromRevisionDocument>,
+      ),
+    writeAgentHarnessSetting: async (input) => {
+      const storage = getRuntimeStorage();
+      const settings = loadRuntimeSettings(input.runtimeHome);
+      const previousSettings = structuredClone(settings);
+      const existing = settings.agents[input.folder];
+      settings.agents[input.folder] = {
+        ...existing,
+        name: input.name,
+        folder: input.folder,
+        bindings: existing?.bindings ?? {},
+        sources: existing?.sources ?? { skills: [], mcpServers: [], tools: [] },
+        capabilities: existing?.capabilities ?? [],
+        accessPreset: existing?.accessPreset ?? 'full',
+        agentHarness: input.agentHarness,
+      };
+      await importWorkstationSettings(
+        {
+          runtimeHome: input.runtimeHome,
+          ops: storage.ops,
+          repositories: storage.repositories,
+          appId: input.appId,
+          previousSettings,
+          revisionMirror: {
+            settingsRevisions: storage.repositories.settingsRevisions,
+            pool: storage.service.pool,
+            createdBy: 'control-api:agent-harness',
+          },
+          revisionMirrorRequired: true,
+          leases,
+        },
+        settings,
+      );
+    },
+  };
+}
+
+export function createControlSettingsImportPort(
+  leases?: RuntimeLeasePort,
+): ControlSettingsImportPort {
+  return {
+    serializeRevisionDocument: (settings) =>
+      settingsToRevisionDocument(
+        settings as ReturnType<typeof settingsFromRevisionDocument>,
+      ),
+    importWorkstation: (deps, settings) =>
+      importWorkstationSettings(
+        {
+          ...(deps as unknown as Parameters<
+            typeof importWorkstationSettings
+          >[0]),
+          leases,
+        },
+        settings as ReturnType<typeof settingsFromRevisionDocument>,
+      ),
+    importFleet: (deps, settings, options) =>
+      importFleetSettingsRevision(
+        deps as unknown as Parameters<typeof importFleetSettingsRevision>[0],
+        settings as ReturnType<typeof settingsFromRevisionDocument>,
+        options,
+      ),
+    classifyImportError: (error) => {
+      if (error instanceof SettingsStaleMutationError) return { kind: 'stale' };
+      if (error instanceof SettingsRevisionConflictError) {
+        return {
+          kind: 'conflict',
+          expectedRevision: error.expectedRevision,
+          actualRevision: error.actualRevision,
+        };
+      }
+      return null;
+    },
+  };
+}
 
 export interface FleetSettingsResult {
   loaded: boolean;
@@ -58,57 +155,61 @@ export async function prepareFleetSettings(input: {
   appId: AppId;
   runtimeHome: string;
   app: RuntimeApp;
+  leases: RuntimeLeasePort;
 }): Promise<FleetSettingsResult> {
   const storage = getRuntimeStorage();
-  const latest =
-    await storage.repositories.settingsRevisions.getLatestSettingsRevision(
-      input.appId,
-    );
-  if (!latest) {
-    markSettingsNotLoaded();
-    logger.warn(
-      { appId: input.appId, seedCommand: SEED_COMMAND },
-      `Fleet worker has no settings revision yet; /readyz stays red until ` +
-        `desired state is seeded. Run: ${SEED_COMMAND}`,
-    );
-    return { loaded: false, revision: null };
-  }
-  if (latest.minReaderVersion > CURRENT_SETTINGS_READER_VERSION) {
-    markSettingsNotLoaded();
-    logger.error(
+  return withSettingsProjectorLease(input.leases, input.appId, async () => {
+    const latest =
+      await storage.repositories.settingsRevisions.getLatestSettingsRevision(
+        input.appId,
+      );
+    if (!latest) {
+      markSettingsNotLoaded();
+      logger.warn(
+        { appId: input.appId, seedCommand: SEED_COMMAND },
+        `Fleet worker has no settings revision yet; /readyz stays red until ` +
+          `desired state is seeded. Run: ${SEED_COMMAND}`,
+      );
+      return { loaded: false, revision: null };
+    }
+    if (latest.minReaderVersion > CURRENT_SETTINGS_READER_VERSION) {
+      markSettingsNotLoaded();
+      logger.error(
+        {
+          appId: input.appId,
+          revision: latest.revision,
+          minReaderVersion: latest.minReaderVersion,
+          readerVersion: CURRENT_SETTINGS_READER_VERSION,
+        },
+        'Fleet settings revision requires a newer reader version; holding boot ' +
+          'until this worker is upgraded',
+      );
+      return { loaded: false, revision: latest.revision };
+    }
+    const settings = settingsFromRevisionDocument(latest.settingsDocument);
+    // Apply through the single shared import path (validate → write settings.yaml
+    // → reconcile → reload runtime state), the same path the watcher and CLI use.
+    // Writing settings.yaml here is an internal loader reuse so the existing
+    // `loadRuntimeSettings` path can read fleet desired state; the file is NOT the
+    // fleet wire contract (the typed document in `settings_revisions` is).
+    await importWorkstationSettings(
       {
+        runtimeHome: input.runtimeHome,
+        ops: storage.ops,
+        repositories: storage.repositories,
         appId: input.appId,
-        revision: latest.revision,
-        minReaderVersion: latest.minReaderVersion,
-        readerVersion: CURRENT_SETTINGS_READER_VERSION,
+        projectionAuthority: 'revision',
+        reloadRuntimeState: () => input.app.loadState(),
       },
-      'Fleet settings revision requires a newer reader version; holding boot ' +
-        'until this worker is upgraded',
+      settings,
     );
-    return { loaded: false, revision: latest.revision };
-  }
-  const settings = settingsFromRevisionDocument(latest.settingsDocument);
-  // Apply through the single shared import path (validate → write settings.yaml
-  // → reconcile → reload runtime state), the same path the watcher and CLI use.
-  // Writing settings.yaml here is an internal loader reuse so the existing
-  // `loadRuntimeSettings` path can read fleet desired state; the file is NOT the
-  // fleet wire contract (the typed document in `settings_revisions` is).
-  await importWorkstationSettings(
-    {
-      runtimeHome: input.runtimeHome,
-      ops: storage.ops,
-      repositories: storage.repositories,
-      appId: input.appId,
-      reloadRuntimeState: () => input.app.loadState(),
-    },
-    settings,
-  );
-  markSettingsLoaded();
-  logger.info(
-    { appId: input.appId, revision: latest.revision },
-    'Loaded fleet settings from revision',
-  );
-  return { loaded: true, revision: latest.revision };
+    markSettingsLoaded();
+    logger.info(
+      { appId: input.appId, revision: latest.revision },
+      'Loaded fleet settings from revision',
+    );
+    return { loaded: true, revision: latest.revision };
+  });
 }
 
 export interface FleetSubsystems {
@@ -133,6 +234,7 @@ export async function startFleetSubsystems(input: {
   appId: AppId;
   runtimeHome: string;
   pool: Pool;
+  leases: RuntimeLeasePort;
   /** Best-effort delivery for bake outcome notices to the approval conversation. */
   sendMessage: (conversationJid: string, text: string) => Promise<void>;
   /**
@@ -148,7 +250,9 @@ export async function startFleetSubsystems(input: {
   /** Whether a settings revision was applied at boot (prepareFleetSettings). */
   settingsLoaded: boolean;
   /** Released once, with the held subsystems, on the first applied revision. */
-  onSettingsReady?: () => Promise<void> | void;
+  onSettingsReady?: (
+    settings: EffectiveControlRuntimeSettings,
+  ) => Promise<void> | void;
 }): Promise<FleetSubsystems> {
   const storage = getRuntimeStorage();
   const workerInstanceId = currentWorkerInstanceId() ?? `fleet-${process.pid}`;
@@ -162,6 +266,7 @@ export async function startFleetSubsystems(input: {
     registerBrowserProfileSync({
       store: getRuntimeBrowserProfileArtifactStore(),
       repository: getRuntimeBrowserProfileSnapshotRepository(),
+      leases: input.leases,
       workerInstanceId,
     });
   };
@@ -218,6 +323,7 @@ export async function startFleetSubsystems(input: {
     appId: input.appId,
     runtimeHome: input.runtimeHome,
     settingsRevisions: storage.repositories.settingsRevisions,
+    leases: input.leases,
     ops: storage.ops,
     repositories: storage.repositories,
     wakeupSource: new PostgresSettingsRevisionWakeupSource(
@@ -225,7 +331,7 @@ export async function startFleetSubsystems(input: {
       (context, message) => logger.warn(context, message),
     ),
     reloadRuntimeState: () => input.app.loadState(),
-    onFirstRevisionApplied: async () => {
+    onFirstRevisionApplied: async (settings) => {
       // No-op when everything already started at boot (settingsLoaded).
       if (capabilitySubsystemsStarted) return;
       // A revision NOTIFY can land mid-drain, after shutdown stopped the
@@ -235,7 +341,7 @@ export async function startFleetSubsystems(input: {
       if (isDraining()) return;
       registerBrowserSync();
       await startCapabilitySubsystems();
-      await input.onSettingsReady?.();
+      await input.onSettingsReady?.(settings);
       logger.info(
         'First settings revision applied; held fleet services started',
       );

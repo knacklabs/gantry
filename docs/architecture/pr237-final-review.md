@@ -1,4 +1,5 @@
 # PR 237 final branch review (develop vs main)
+<!-- doc-references: frozen 2026-07-22 (decision 0036) -->
 
 Date: 2026-07-21. Reviewer: independent Codex xhigh, read-only, adversarial.
 Basis: mcp-skill-acquisition-alignment-goal-prompt.md R4.
@@ -48,4 +49,3 @@ Unpinned behaviors: pattern projection, pattern/source-scope intersection, activ
 R1 deletion sweep found no dangling production references; remaining removed-surface names are historical descriptions in the three governing review documents. `git diff --check origin/main...HEAD` passed; test suites were not executed during this read-only review.
 
 **Overall verdict: REWORK**
-

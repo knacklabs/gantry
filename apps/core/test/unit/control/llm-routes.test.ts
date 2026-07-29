@@ -5,7 +5,11 @@ import { Readable, Writable } from 'node:stream';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { RuntimeApp } from '@core/app/bootstrap/runtime-app.js';
-import { handleLlmRoutes } from '@core/control/server/routes/llm.js';
+import { createDefaultRuntimeSettings } from '@core/config/settings/runtime-settings-defaults.js';
+import {
+  getLlmConcurrencyAdmissionSnapshotForTest,
+  handleLlmRoutes,
+} from '@core/control/server/routes/llm.js';
 import {
   configureControlRequestLogSink,
   type ControlRequestLogEntry,
@@ -57,7 +61,15 @@ class TestResponse extends Writable {
 let restoreLogSink: () => void = () => undefined;
 let requestLogs: ControlRequestLogEntry[] = [];
 
+function expectNoActiveLlmAdmissions(): void {
+  expect(getLlmConcurrencyAdmissionSnapshotForTest()).toEqual({
+    globalInFlight: 0,
+    perAppKeyInFlight: {},
+  });
+}
+
 beforeEach(() => {
+  expectNoActiveLlmAdmissions();
   requestLogs = [];
   restoreLogSink = configureControlRequestLogSink((entry) => {
     requestLogs.push(entry);
@@ -88,12 +100,46 @@ function request(input: {
   return req;
 }
 
-function apiKey(scopes: Scope[] = ['llm:invoke'], maxTokens?: number) {
-  return {
-    kid: 'llm-key',
-    tokenHash: createHash('sha256').update(TOKEN).digest(),
-    scopes: new Set(scopes),
+function trackedRequest(input: {
+  body?: unknown;
+  token?: string;
+  onBodyRead: () => void;
+}): IncomingMessage {
+  const raw = JSON.stringify(input.body ?? {});
+  let started = false;
+  const req = new Readable({
+    read() {
+      if (!started) {
+        started = true;
+        input.onBodyRead();
+      }
+      this.push(raw);
+      this.push(null);
+    },
+  }) as unknown as IncomingMessage;
+  req.method = 'POST';
+  req.headers = {
+    authorization: `Bearer ${input.token ?? TOKEN}`,
+    'content-type': 'application/json',
+  };
+  return req;
+}
+
+function apiKey(
+  scopes: Scope[] = ['llm:invoke'],
+  maxTokens?: number,
+  identity?: { appId: string; kid: string; token: string },
+) {
+  const resolved = identity ?? {
     appId: 'app-one',
+    kid: 'llm-key',
+    token: TOKEN,
+  };
+  return {
+    kid: resolved.kid,
+    tokenHash: createHash('sha256').update(resolved.token).digest(),
+    scopes: new Set(scopes),
+    appId: resolved.appId,
     ...(maxTokens !== undefined ? { maxTokens } : {}),
   };
 }
@@ -135,13 +181,22 @@ function context(input: {
   scopes?: Scope[];
   consume?: boolean;
   maxTokens?: number;
+  identity?: { appId: string; kid: string; token: string };
+  admissionLimits?: {
+    globalMaxInFlight: number;
+    perAppKeyMaxInFlight: number;
+  };
 }): ControlRouteContext {
+  const settings = createDefaultRuntimeSettings();
+  if (input.admissionLimits) {
+    settings.runtime.llmAdmission = input.admissionLimits;
+  }
   return {
     app: {
       getCredentialBroker: async () => input.broker,
     } as RuntimeApp,
     runtimeHome: '/tmp/gantry',
-    keys: [apiKey(input.scopes, input.maxTokens)],
+    keys: [apiKey(input.scopes, input.maxTokens, input.identity)],
     processRole: 'all',
     liveExecution: true,
     roleReadinessRequirements: {
@@ -160,7 +215,8 @@ function context(input: {
       consume: vi.fn(() => input.consume ?? true),
     },
     getRuntimeSettings: () => ({}) as never,
-    getInternalRuntimeSettings: () => ({}) as never,
+    getInternalRuntimeSettings: () => settings as never,
+    getEffectiveRuntimeSettings: () => settings as never,
     getDefaultModelConfig: () => ({ source: 'test' }),
     getModelDefaults: () => ({ defaults: {} }) as never,
     patchModelDefaults: async () => ({ ok: true }),
@@ -178,6 +234,68 @@ function context(input: {
 }
 
 describe('direct LLM control routes', () => {
+  it('admits only the global and per-app/key limits before reading request bodies', async () => {
+    const gatewayBroker = broker();
+    let releaseUpstream!: () => void;
+    const upstreamBarrier = new Promise<void>((resolve) => {
+      releaseUpstream = resolve;
+    });
+    const fetchMock = vi.fn(async () => {
+      await upstreamBarrier;
+      return new Response('{"id":"msg_barrier"}', { status: 200 });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const keyA = { appId: 'app-one', kid: 'key-a', token: 'token-a' };
+    const keyB = { appId: 'app-two', kid: 'key-b', token: 'token-b' };
+    const identities = [keyA, keyA, keyA, keyB, keyB];
+    const bodyReads = identities.map(() => 0);
+    const responses = identities.map(() => new TestResponse());
+    const routes = identities.map((identity, index) =>
+      handleLlmRoutes(
+        trackedRequest({
+          body: { model: 'sonnet' },
+          token: identity.token,
+          onBodyRead: () => {
+            bodyReads[index] += 1;
+          },
+        }),
+        responses[index] as unknown as ServerResponse,
+        context({
+          broker: gatewayBroker,
+          identity,
+          admissionLimits: {
+            globalMaxInFlight: 3,
+            perAppKeyMaxInFlight: 2,
+          },
+        }),
+        '/llm/v1/messages',
+      ),
+    );
+
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
+    expect(bodyReads).toEqual([1, 1, 0, 1, 0]);
+    expect(responses.map((response) => response.statusCode)).toEqual([
+      0, 0, 429, 0, 429,
+    ]);
+    for (const index of [2, 4]) {
+      expect(JSON.parse(responses[index]!.body())).toMatchObject({
+        error: { code: 'TOO_MANY_CONCURRENT_LLM_REQUESTS' },
+      });
+    }
+    expect(getLlmConcurrencyAdmissionSnapshotForTest()).toEqual({
+      globalInFlight: 3,
+      perAppKeyInFlight: {
+        'app-one:key-a': 2,
+        'app-two:key-b': 1,
+      },
+    });
+
+    releaseUpstream();
+    await Promise.all(routes);
+    expectNoActiveLlmAdmissions();
+  });
+
   it('forwards Anthropic Messages requests through an API-key-scoped gateway token', async () => {
     const gatewayBroker = broker();
     const fetchMock = vi.fn(
@@ -525,6 +643,65 @@ describe('direct LLM control routes', () => {
     expect(gatewayBroker.getInjection).not.toHaveBeenCalled();
   });
 
+  it('releases admission after malformed JSON', async () => {
+    const gatewayBroker = broker();
+    const res = new TestResponse();
+
+    await handleLlmRoutes(
+      request({ body: '{' }),
+      res as unknown as ServerResponse,
+      context({
+        broker: gatewayBroker,
+        admissionLimits: {
+          globalMaxInFlight: 1,
+          perAppKeyMaxInFlight: 1,
+        },
+      }),
+      '/llm/v1/messages',
+    );
+
+    expect(res.statusCode).toBe(400);
+    expect(JSON.parse(res.body())).toMatchObject({
+      error: { code: 'INVALID_JSON' },
+    });
+    expectNoActiveLlmAdmissions();
+  });
+
+  it('releases admission when the client disconnects while sending the body', async () => {
+    const gatewayBroker = broker();
+    let bodyReadStarted = false;
+    const req = new Readable({
+      read() {
+        bodyReadStarted = true;
+      },
+    }) as unknown as IncomingMessage;
+    req.method = 'POST';
+    req.headers = {
+      authorization: `Bearer ${TOKEN}`,
+      'content-type': 'application/json',
+    };
+    const res = new TestResponse();
+
+    const route = handleLlmRoutes(
+      req,
+      res as unknown as ServerResponse,
+      context({
+        broker: gatewayBroker,
+        admissionLimits: {
+          globalMaxInFlight: 1,
+          perAppKeyMaxInFlight: 1,
+        },
+      }),
+      '/llm/v1/messages',
+    );
+    await vi.waitFor(() => expect(bodyReadStarted).toBe(true));
+    expect(getLlmConcurrencyAdmissionSnapshotForTest().globalInFlight).toBe(1);
+
+    req.emit('aborted');
+    await expect(route).rejects.toMatchObject({ code: 'REQUEST_ABORTED' });
+    expectNoActiveLlmAdmissions();
+  });
+
   it('returns a shaped unavailable error when gateway setup fails', async () => {
     const gatewayBroker = broker();
     vi.mocked(gatewayBroker.getInjection).mockRejectedValueOnce(
@@ -550,13 +727,18 @@ describe('direct LLM control routes', () => {
     expect(requestLogs).toContainEqual(
       expect.objectContaining({ statusCode: 503, modelAlias: 'sonnet' }),
     );
+    expectNoActiveLlmAdmissions();
   });
 
-  it('returns a shaped unavailable error when the gateway fetch fails', async () => {
+  it('releases admission when the upstream request times out', async () => {
     const gatewayBroker = broker();
     vi.stubGlobal(
       'fetch',
-      vi.fn().mockRejectedValue(new Error('fetch failed')),
+      vi.fn().mockRejectedValue(
+        Object.assign(new Error('upstream timed out'), {
+          name: 'TimeoutError',
+        }),
+      ),
     );
     const res = new TestResponse();
 
@@ -577,6 +759,52 @@ describe('direct LLM control routes', () => {
     expect(requestLogs).toContainEqual(
       expect.objectContaining({ statusCode: 502, modelAlias: 'sonnet' }),
     );
+    expectNoActiveLlmAdmissions();
+  });
+
+  it('holds admission until a streamed response completes', async () => {
+    const gatewayBroker = broker();
+    let completeStream!: () => void;
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(Buffer.from('data: first\n\n'));
+        completeStream = () => controller.close();
+      },
+    });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        Promise.resolve(
+          new Response(body, {
+            status: 200,
+            headers: { 'content-type': 'text/event-stream' },
+          }),
+        ),
+      ),
+    );
+    const res = new TestResponse();
+
+    const route = handleLlmRoutes(
+      request({ body: { model: 'gpt', stream: true } }),
+      res as unknown as ServerResponse,
+      context({
+        broker: gatewayBroker,
+        admissionLimits: {
+          globalMaxInFlight: 1,
+          perAppKeyMaxInFlight: 1,
+        },
+      }),
+      '/llm/v1/chat/completions',
+    );
+    await vi.waitFor(() => expect(res.body()).toBe('data: first\n\n'));
+    expect(getLlmConcurrencyAdmissionSnapshotForTest()).toEqual({
+      globalInFlight: 1,
+      perAppKeyInFlight: { 'app-one:llm-key': 1 },
+    });
+
+    completeStream();
+    await expect(route).resolves.toBe(true);
+    expectNoActiveLlmAdmissions();
   });
 
   it('ends a failed gateway stream without appending a JSON error', async () => {
@@ -621,6 +849,7 @@ describe('direct LLM control routes', () => {
     expect(requestLogs).toContainEqual(
       expect.objectContaining({ statusCode: 502, modelAlias: 'gpt' }),
     );
+    expectNoActiveLlmAdmissions();
   });
 
   it('aborts the gateway and preserves cleanup when the client disconnects mid-stream', async () => {
@@ -671,6 +900,7 @@ describe('direct LLM control routes', () => {
       }),
     );
     expect(gatewayBroker.revokeInjection).toHaveBeenCalledOnce();
+    expectNoActiveLlmAdmissions();
   });
 
   it('preserves request-caused gateway setup errors as 4xx responses', async () => {

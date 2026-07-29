@@ -1,0 +1,36 @@
+#!/bin/sh
+#
+# Portable Symphony Forge launcher.
+# Supports Linux, macOS, and Windows Git Bash.
+
+set -eu
+
+HERE="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+FORGE_SCRIPT="$HERE/.agents/scripts/forge.py"
+
+[ -f "$FORGE_SCRIPT" ] || {
+  echo "[FAIL] Forge script not found: $FORGE_SCRIPT" >&2
+  exit 1
+}
+
+if command -v python3 >/dev/null 2>&1 &&
+   python3 -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 1)' \
+     >/dev/null 2>&1; then
+  exec python3 "$FORGE_SCRIPT" "$@"
+fi
+
+if command -v python >/dev/null 2>&1 &&
+   python -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 1)' \
+     >/dev/null 2>&1; then
+  exec python "$FORGE_SCRIPT" "$@"
+fi
+
+if command -v py >/dev/null 2>&1 &&
+   py -3 -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 1)' \
+     >/dev/null 2>&1; then
+  exec py -3 "$FORGE_SCRIPT" "$@"
+fi
+
+echo "[FAIL] Python 3.10 or newer was not found." >&2
+echo "Install Python 3 and ensure python3, python, or py -3 is available." >&2
+exit 127

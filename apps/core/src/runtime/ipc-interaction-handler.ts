@@ -13,6 +13,7 @@ import {
   protectOwnerReadonlyFileSync,
   writePrivateFileSync,
 } from '../shared/private-fs.js';
+import { buildPermissionResponseSignaturePayload } from '../shared/ipc-signing.js';
 import { IpcDeps } from './ipc-domain-types.js';
 
 export async function processPermissionIpcRequest(
@@ -75,22 +76,10 @@ export function writePermissionIpcResponse(
   const responsePath = path.join(responseDir, `${decision.requestId}.json`);
   if (fs.existsSync(responsePath)) return;
   const tmpPath = `${responsePath}.tmp`;
-  const payload = withSignature(privateKeyPem, {
-    requestId: decision.requestId,
-    ...(decision.responseNonce
-      ? { responseNonce: decision.responseNonce }
-      : {}),
-    approved: decision.approved,
-    ...(decision.mode ? { mode: decision.mode } : {}),
-    ...(decision.decidedBy ? { decidedBy: decision.decidedBy } : {}),
-    ...(decision.reason ? { reason: decision.reason } : {}),
-    ...(decision.updatedPermissions
-      ? { updatedPermissions: decision.updatedPermissions }
-      : {}),
-    ...(decision.decisionClassification
-      ? { decisionClassification: decision.decisionClassification }
-      : {}),
-  });
+  const payload = withSignature(
+    privateKeyPem,
+    buildPermissionResponseSignaturePayload(decision),
+  );
   if (!payload) return;
   writePrivateFileSync(tmpPath, JSON.stringify(payload, null, 2));
   if (fs.existsSync(responsePath)) {

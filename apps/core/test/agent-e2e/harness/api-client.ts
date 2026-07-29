@@ -145,6 +145,87 @@ export class AgentE2EApiClient {
     sessionId: string,
     options: { afterEventId?: number; timeoutMs?: number } = {},
   ): Promise<{ terminal: SessionEvent; events: SessionEvent[] }> {
+    const { match, events } = await this.waitForSessionEvent(
+      sessionId,
+      (event) => TERMINAL_RUN_EVENT_TYPES.has(event.eventType),
+      { ...options, description: 'terminal run event' },
+    );
+    return { terminal: match, events };
+  }
+
+  /**
+   * Poll until a durable assistant reply exists for the session. The app
+   * channel is event-sourced: replies arrive as session.message.outbound
+   * events or as session.message.streaming events whose terminal chunk has
+   * done=true — both persisted runtime_events rows (the delivery record for
+   * API sessions). Live sessions keep the run open after replying, so
+   * run.completed is NOT the completion signal; a run FAILURE event before
+   * the reply is fatal.
+   */
+  async waitForDurableAssistantReply(
+    sessionId: string,
+    options: { timeoutMs?: number } = {},
+  ): Promise<{ reply: Record<string, unknown>; events: SessionEvent[] }> {
+    const timeoutMs = options.timeoutMs ?? 120_000;
+    const deadline = Date.now() + timeoutMs;
+    const events: SessionEvent[] = [];
+    let cursor = 0;
+    // The terminal streaming chunk carries only the sanitizer's REMAINING
+    // delta (usually empty when everything already streamed), so the reply
+    // text must be accumulated across the done=false chunks.
+    let streamedText = '';
+    while (Date.now() < deadline) {
+      const page = await this.listEvents(sessionId, cursor);
+      for (const event of page) {
+        events.push(event);
+        cursor = Math.max(cursor, event.eventId);
+        if (
+          TERMINAL_RUN_EVENT_TYPES.has(event.eventType) &&
+          event.eventType !== 'run.completed'
+        ) {
+          throw new Error(
+            `run ended ${event.eventType} before a durable reply ` +
+              `(payload: ${JSON.stringify(event.payload).slice(0, 300)})`,
+          );
+        }
+        const payload = (event.payload ?? {}) as {
+          text?: unknown;
+          done?: unknown;
+        };
+        const hasText =
+          typeof payload.text === 'string' && payload.text.trim().length > 0;
+        if (event.eventType === 'session.message.outbound' && hasText) {
+          return { reply: payload as Record<string, unknown>, events };
+        }
+        if (event.eventType === 'session.message.streaming') {
+          if (hasText) streamedText += payload.text as string;
+          if (payload.done === true && streamedText.trim().length > 0) {
+            return { reply: { text: streamedText, done: true }, events };
+          }
+        }
+      }
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+    throw new Error(
+      `No durable assistant reply for session ${sessionId} ` +
+        `within ${timeoutMs}ms ` +
+        `(events: ${events.map((event) => event.eventType).join(', ') || 'none'})`,
+    );
+  }
+
+  /**
+   * Poll events until `predicate` matches (a 202 on the message POST is
+   * accepted-not-done). Returns every event observed plus the match.
+   */
+  async waitForSessionEvent(
+    sessionId: string,
+    predicate: (event: SessionEvent) => boolean,
+    options: {
+      afterEventId?: number;
+      timeoutMs?: number;
+      description?: string;
+    } = {},
+  ): Promise<{ match: SessionEvent; events: SessionEvent[] }> {
     const timeoutMs = options.timeoutMs ?? 120_000;
     const deadline = Date.now() + timeoutMs;
     const events: SessionEvent[] = [];
@@ -154,14 +235,15 @@ export class AgentE2EApiClient {
       for (const event of page) {
         events.push(event);
         cursor = Math.max(cursor, event.eventId);
-        if (TERMINAL_RUN_EVENT_TYPES.has(event.eventType)) {
-          return { terminal: event, events };
+        if (predicate(event)) {
+          return { match: event, events };
         }
       }
       await new Promise((resolve) => setTimeout(resolve, 500));
     }
     throw new Error(
-      `No terminal run event for session ${sessionId} within ${timeoutMs}ms ` +
+      `No ${options.description ?? 'matching'} event for session ` +
+        `${sessionId} within ${timeoutMs}ms ` +
         `(saw: ${events.map((event) => event.eventType).join(', ') || 'none'})`,
     );
   }

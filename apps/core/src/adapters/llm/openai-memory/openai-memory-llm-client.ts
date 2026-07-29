@@ -20,6 +20,7 @@ import {
   hasGatewayMemoryAccess,
   resolveGatewayMemoryInjection,
 } from './memory-gateway-injection.js';
+import { createOpenAiChatBatchCapability } from './openai-chat-batch.js';
 
 /**
  * Route-aware memory LLM client for the OpenAI response family. It speaks the
@@ -32,6 +33,7 @@ export function createOpenAiMemoryLlmClient(): MemoryLlmClient {
   return {
     isConfigured: hasGatewayMemoryAccess,
     query: runOpenAiMemoryQuery,
+    batch: createOpenAiChatBatchCapability(),
   };
 }
 
@@ -132,6 +134,7 @@ async function runWithGantryGateway(opts: MemoryLlmQueryOpts): Promise<string> {
       opts.onUsage,
       parsed.usage,
       provider.cacheSupport.prompt.usageFields.readTokens,
+      provider.cacheSupport.prompt.usageFields.writeTokens,
     );
     return readCompletionText(parsed).trim();
   } finally {
@@ -171,6 +174,7 @@ function reportUsage(
   onUsage: MemoryLlmQueryOpts['onUsage'],
   usage: ChatCompletionResponse['usage'],
   cacheReadField: string | undefined,
+  cacheWriteField: string | undefined,
 ): void {
   if (!onUsage || !usage) return;
   const promptTokens = readNumberField(usage, 'prompt_tokens') ?? 0;
@@ -181,14 +185,20 @@ function reportUsage(
   const cachedTokens = cacheReadField
     ? (readNumberField(usage, cacheReadField) ?? 0)
     : 0;
-  // The cached count is a SUBSET of prompt_tokens, but the canonical
-  // MemoryLlmUsage treats input_tokens and cache_read_input_tokens as disjoint
-  // (cf. anthropic memory-query.ts). Subtract the cached portion so the two do
-  // not double-count; floor at 0 in case of inconsistent upstream counts.
+  const cacheWriteTokens = cacheWriteField
+    ? (readNumberField(usage, cacheWriteField) ?? 0)
+    : 0;
+  // Cache reads and writes are SUBSETS of prompt_tokens, but the canonical
+  // MemoryLlmUsage treats its three input token fields as disjoint (cf.
+  // anthropic memory-query.ts). Subtract both portions so they do not
+  // double-count; floor at 0 in case of inconsistent upstream counts.
   const normalized: MemoryLlmUsage = {
-    input_tokens: Math.max(0, promptTokens - cachedTokens),
+    input_tokens: Math.max(0, promptTokens - cachedTokens - cacheWriteTokens),
     output_tokens: readNumberField(usage, 'completion_tokens') ?? 0,
     ...(cachedTokens ? { cache_read_input_tokens: cachedTokens } : {}),
+    ...(cacheWriteTokens
+      ? { cache_creation_input_tokens: cacheWriteTokens }
+      : {}),
   };
   onUsage(normalized);
 }

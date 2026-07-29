@@ -486,6 +486,30 @@ describe('ConversationMessageIngressModule', () => {
     expect(accepted.enqueue.durableAdmissionCreated).toBe(true);
   });
 
+  it('does not notify or report durable work for overloaded admission', async () => {
+    const notifyLiveAdmissionWorkItem = vi.fn();
+    const { module } = makeModule({
+      liveAdmissionAppId: 'default',
+      ops: { notifyLiveAdmissionWorkItem },
+      runtimeEvents: {
+        publishWithLiveAdmissionMessage: vi.fn(async () => ({
+          event: { eventId: 77 },
+          liveAdmissionResult: { outcome: 'overloaded' },
+        })),
+      },
+    });
+
+    const accepted = await module.acceptMessage({
+      appId: 'app-one',
+      invocationId: 'invocation-overloaded',
+      conversationId: 'conversation:tg:-100',
+      message: 'Run this',
+    });
+
+    expect(notifyLiveAdmissionWorkItem).not.toHaveBeenCalled();
+    expect(accepted.enqueue.durableAdmissionCreated).toBe(false);
+  });
+
   it('uses the resolved agent route for live admission and enqueue', async () => {
     const publishWithLiveAdmissionMessage = vi.fn(async (_event, admission) => {
       expect(admission).toMatchObject({

@@ -1,8 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
 import {
-  DEEPAGENTS_ENFORCING_SANDBOX_REQUIRED_MESSAGE,
-  deepAgentsEnforcingSandboxGuard,
   deepAgentsFilesystemToolsEnabled,
   deepAgentsShellFilesystemGuard,
   deepAgentsShellToolEnabled,
@@ -75,78 +73,7 @@ describe('deepAgentsShellFilesystemGuard', () => {
     });
   });
 
-  describe('deepAgentsEnforcingSandboxGuard (the operative gate)', () => {
-    it('ALLOWS shell under sandbox_runtime + safe local posture (returns null)', () => {
-      expect(
-        deepAgentsEnforcingSandboxGuard({
-          engine: DEEPAGENTS_ENGINE,
-          toolPolicyRules: ['RunCommand(npm test)'],
-          securityEnv: SAFE_LOCAL_ENV,
-          sandboxProvider: 'sandbox_runtime',
-        }),
-      ).toBeNull();
-    });
-
-    it('ALLOWS shell under sandbox_runtime even with production posture (the OS sandbox is enforcing)', () => {
-      expect(
-        deepAgentsEnforcingSandboxGuard({
-          engine: DEEPAGENTS_ENGINE,
-          toolPolicyRules: ['FileWrite'],
-          securityEnv: PRODUCTION_ENV,
-          sandboxProvider: 'sandbox_runtime',
-        }),
-      ).toBeNull();
-    });
-
-    it('BLOCKS shell under direct mode (non-enforcing) with the EXACT enforcing-sandbox copy — local posture', () => {
-      expect(
-        deepAgentsEnforcingSandboxGuard({
-          engine: DEEPAGENTS_ENGINE,
-          toolPolicyRules: ['RunCommand(npm test)'],
-          securityEnv: SAFE_LOCAL_ENV,
-          sandboxProvider: 'direct',
-        }),
-      ).toBe(DEEPAGENTS_ENFORCING_SANDBOX_REQUIRED_MESSAGE);
-      expect(DEEPAGENTS_ENFORCING_SANDBOX_REQUIRED_MESSAGE).toBe(
-        'DeepAgents requires an enforcing sandbox before shell or filesystem tools can be enabled in this deployment mode.',
-      );
-    });
-
-    it('BLOCKS shell when the sandbox provider is undefined (fail closed)', () => {
-      expect(
-        deepAgentsEnforcingSandboxGuard({
-          engine: DEEPAGENTS_ENGINE,
-          toolPolicyRules: ['RunCommand(npm test)'],
-          securityEnv: SAFE_LOCAL_ENV,
-          sandboxProvider: undefined,
-        }),
-      ).toBe(DEEPAGENTS_ENFORCING_SANDBOX_REQUIRED_MESSAGE);
-    });
-
-    it('does not apply when no shell/fs authority is requested', () => {
-      expect(
-        deepAgentsEnforcingSandboxGuard({
-          engine: DEEPAGENTS_ENGINE,
-          toolPolicyRules: ['WebSearch'],
-          securityEnv: PRODUCTION_ENV,
-          sandboxProvider: 'direct',
-        }),
-      ).toBeNull();
-    });
-
-    it('does not apply to the default (Anthropic SDK) engine', () => {
-      expect(
-        deepAgentsEnforcingSandboxGuard({
-          engine: DEFAULT_AGENT_ENGINE,
-          toolPolicyRules: ['RunCommand(npm test)'],
-          securityEnv: PRODUCTION_ENV,
-          sandboxProvider: 'direct',
-        }),
-      ).toBeNull();
-    });
-  });
-
-  describe('combined guard truth table', () => {
+  describe('combined guard truth table (two-axis model: sandbox provider never gates)', () => {
     it('deepagents + RunCommand rule + sandbox_runtime -> null (allowed)', () => {
       expect(
         deepAgentsShellFilesystemGuard({
@@ -158,7 +85,7 @@ describe('deepAgentsShellFilesystemGuard', () => {
       ).toBeNull();
     });
 
-    it('deepagents + RunCommand rule + direct -> tier-2 enforcing-sandbox copy (FAIL CLOSED)', () => {
+    it('deepagents + RunCommand rule + direct -> null (authorization is the control)', () => {
       expect(
         deepAgentsShellFilesystemGuard({
           engine: DEEPAGENTS_ENGINE,
@@ -166,10 +93,10 @@ describe('deepAgentsShellFilesystemGuard', () => {
           securityEnv: SAFE_LOCAL_ENV,
           sandboxProvider: 'direct',
         }),
-      ).toBe(DEEPAGENTS_ENFORCING_SANDBOX_REQUIRED_MESSAGE);
+      ).toBeNull();
     });
 
-    it('deepagents + RunCommand rule + production-without-sandbox -> blocked (FAIL CLOSED)', () => {
+    it('deepagents + RunCommand rule + production posture + direct -> null (allowed)', () => {
       expect(
         deepAgentsShellFilesystemGuard({
           engine: DEEPAGENTS_ENGINE,
@@ -177,7 +104,18 @@ describe('deepAgentsShellFilesystemGuard', () => {
           securityEnv: PRODUCTION_ENV,
           sandboxProvider: 'direct',
         }),
-      ).toBe(DEEPAGENTS_ENFORCING_SANDBOX_REQUIRED_MESSAGE);
+      ).toBeNull();
+    });
+
+    it('deepagents + RunCommand rule + undefined sandbox provider -> null (allowed)', () => {
+      expect(
+        deepAgentsShellFilesystemGuard({
+          engine: DEEPAGENTS_ENGINE,
+          toolPolicyRules: ['RunCommand(npm test)'],
+          securityEnv: SAFE_LOCAL_ENV,
+          sandboxProvider: undefined,
+        }),
+      ).toBeNull();
     });
 
     it('deepagents + NO shell/fs rule -> null (no shell requested, no block)', () => {
@@ -215,7 +153,7 @@ describe('deepAgentsShellFilesystemGuard', () => {
       ).toBe(true);
     });
 
-    it('false under direct mode (guard would block the spawn anyway)', () => {
+    it('true for deepagents + RunCommand rule under direct mode too (two-axis: provider does not gate)', () => {
       expect(
         deepAgentsShellToolEnabled({
           engine: DEEPAGENTS_ENGINE,
@@ -223,7 +161,7 @@ describe('deepAgentsShellFilesystemGuard', () => {
           securityEnv: SAFE_LOCAL_ENV,
           sandboxProvider: 'direct',
         }),
-      ).toBe(false);
+      ).toBe(true);
     });
 
     it('false for filesystem-only authority (the shell tool is shell, not FS)', () => {
@@ -272,7 +210,7 @@ describe('deepAgentsShellFilesystemGuard', () => {
       ).toBe(true);
     });
 
-    it('false under direct mode', () => {
+    it('true under direct mode too (two-axis: provider does not gate)', () => {
       expect(
         deepAgentsFilesystemToolsEnabled({
           engine: DEEPAGENTS_ENGINE,
@@ -280,7 +218,7 @@ describe('deepAgentsShellFilesystemGuard', () => {
           securityEnv: SAFE_LOCAL_ENV,
           sandboxProvider: 'direct',
         }),
-      ).toBe(false);
+      ).toBe(true);
     });
 
     it('false for the default (Anthropic SDK) engine', () => {

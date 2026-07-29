@@ -21,7 +21,7 @@ ALREADY EXISTS (reuse, zero build):
   renderer, defaults all live (`runtime-settings-parser.ts:800`,
   `runtime-settings-artifact-store-renderer.ts`).
 - Shared S3 client constructor passes endpoint + forcePathStyle
-  (`adapters/artifacts/skills/s3-artifact-client.ts`) — MinIO ALREADY
+  (`apps/core/src/adapters/artifacts/skills/s3-artifact-client.ts`) — MinIO ALREADY
   supported and rehearsed: `ops/docker/docker-compose.fleet.yml` runs
   `http://minio:9000` path-style with AWS*\* env creds; `entrypoint.sh` seeds
   bucket/region from `GANTRY_ARTIFACT*\*`.

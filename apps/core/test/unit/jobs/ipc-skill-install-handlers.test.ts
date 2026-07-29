@@ -93,6 +93,22 @@ class MemorySkillRepository implements SkillCatalogRepository {
     );
   }
 
+  async listAgentSkillAccessSnapshot(input: {
+    appId: string;
+    agentId: string;
+  }) {
+    const activeBindings = (await this.listAgentSkillBindings(input)).filter(
+      (binding) => binding.status === 'active',
+    );
+    return {
+      activeBindings: activeBindings.map((binding) => ({
+        binding,
+        definition: this.skills.get(binding.skillId) ?? null,
+      })),
+      enabledDefinitions: await this.listEnabledSkillsForAgent(input),
+    };
+  }
+
   async listAgentSkillBindingsForAgents(input: {
     appId: string;
     agentIds: readonly string[];

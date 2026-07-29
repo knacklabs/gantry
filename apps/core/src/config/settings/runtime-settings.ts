@@ -22,6 +22,7 @@ import { renderRuntimeSettingsYaml } from './runtime-settings-renderer.js';
 import { modelAliasesToCatalogEntries } from './runtime-settings-model-aliases-parser.js';
 import {
   readRuntimeMemorySettingsSnapshot,
+  readRuntimeObserverSettingsSnapshot,
   readRuntimeStorageSettingsSnapshot,
 } from './runtime-settings-snapshots.js';
 import {
@@ -30,7 +31,6 @@ import {
 } from './runtime-settings-validation.js';
 import type {
   RuntimeSettings,
-  AgentRuntime,
   RuntimeSettingsValidationResult,
 } from './runtime-settings-types.js';
 import { validateReadableAgentToolRule } from '../../shared/agent-tool-references.js';
@@ -90,6 +90,7 @@ export type {
   RuntimeMemoryLlmModels,
   RuntimeMemorySettings,
   RuntimeMemorySettingsSnapshot,
+  RuntimeObserverSettings,
   AgentRuntime,
   RuntimeSettings,
   RuntimeSettingsValidationFailure,
@@ -107,6 +108,7 @@ export {
   getProviderManagedMemoryDefaults,
   parseRuntimeSettings,
   readRuntimeMemorySettingsSnapshot,
+  readRuntimeObserverSettingsSnapshot,
   readRuntimeStorageSettingsSnapshot,
 };
 

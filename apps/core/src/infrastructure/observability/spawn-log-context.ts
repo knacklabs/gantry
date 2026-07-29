@@ -7,6 +7,7 @@ import {
 interface SpawnLogTurnInput {
   runId?: string;
   parentRunId?: string;
+  parentTaskId?: string;
   appId?: string;
   agentId?: string;
   chatJid?: string;

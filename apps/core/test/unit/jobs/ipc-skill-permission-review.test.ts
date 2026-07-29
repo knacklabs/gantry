@@ -2,16 +2,26 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { startSkillPermissionReview } from '@core/jobs/ipc-skill-permission-review.js';
 import { skillNameForReceipt } from '@core/jobs/skill-install-assets.js';
-import { withSkillMaterializationLock } from '@core/shared/skill-install-lock.js';
+import {
+  skillMaterializationLockKey,
+  withSkillMaterializationLock,
+} from '@core/shared/skill-install-lock.js';
 import { materializedSkillDirectoryNameFor } from '@core/domain/skills/skills.js';
 
 describe('skill permission review install sequence', () => {
+  it('composes lock keys from app id and lowercased materialized name', () => {
+    expect(skillMaterializationLockKey('app:one', 'Demo-Skill')).toBe(
+      'app:one:demo-skill',
+    );
+  });
+
   it('holds the materialization lock across install, bind failure, and rollback', async () => {
     const rawReason = 'RAW_SKILL_REVIEW_SENTINEL: bind failed';
     const order: string[] = [];
-    const key = materializedSkillDirectoryNameFor(
-      skillNameForReceipt([], 'demo-skill'),
-    ).toLowerCase();
+    const key = skillMaterializationLockKey(
+      'app:test',
+      materializedSkillDirectoryNameFor(skillNameForReceipt([], 'demo-skill')),
+    );
     const rollbackInstalledSkillBinding = vi.fn(async () => {
       order.push('rollback');
     });

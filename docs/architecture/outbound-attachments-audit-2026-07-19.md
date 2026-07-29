@@ -1,4 +1,5 @@
 # Outbound attachment delivery audit — 2026-07-19
+<!-- doc-references: frozen 2026-07-22 (decision 0036) -->
 
 Trigger: live incident — agent rendered an MP4, chat showed "- Attachment
 unavailable." with no log line. Read-only audit of the full outbound path.

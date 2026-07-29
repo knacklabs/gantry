@@ -72,6 +72,7 @@ import { assertSafeExecutionProviderId } from '../../../../domain/sessions/execu
 import type { ExternalRef } from '../../../../shared/ids/branded-id.js';
 import * as pgSchema from '../schema/schema.js';
 import {
+  CANONICAL_APP_ID,
   jsonb,
   type CanonicalDb,
 } from './canonical-graph-repository.postgres.js';
@@ -102,6 +103,9 @@ import { PostgresSettingsRevisionRepository } from './settings-revision-reposito
 import { PostgresAsyncTaskRepository } from './async-task-repository.postgres.js';
 import { PostgresPatternCandidateRepository } from './pattern-candidate-repository.postgres.js';
 import { PostgresProactiveSurfacingRepository } from './proactive-surfacing-repository.postgres.js';
+import { PostgresObserverInsightRepository } from './observer-insight-repository.postgres.js';
+import { PostgresBrainDreamReviewRepository } from './brain-dream-review-repository.postgres.js';
+import { PostgresChatBatchRepository } from './chat-batch-repository.postgres.js';
 import type {
   RuntimeDependencyRepository,
   SettingsRevisionRepository,
@@ -109,9 +113,14 @@ import type {
 } from '../../../../domain/ports/fleet-capability-state.js';
 import type { AsyncTaskRepository } from '../../../../domain/ports/async-tasks.js';
 import type { PatternCandidateRepository } from '../../../../domain/ports/pattern-candidates.js';
+import type { ObserverInsightRepository } from '../../../../domain/ports/observer-insights.js';
+import type { BrainDreamReviewRepository } from '../../../../brain/brain-dream-review-repository.js';
+import type { ChatBatchRepository } from '../../../../domain/ports/chat-batches.js';
 import type { PermissionPromotionRepository } from '../../../../domain/ports/permission-promotion.js';
+import type { PermissionDecisionMemoryRepository } from '../../../../domain/ports/permission-decision-memory.js';
 import type { GroupJoinOnboardingRepository } from '../../../../domain/ports/group-join-onboarding.js';
 import { PostgresPermissionPromotionRepository } from './permission-promotion-repository.postgres.js';
+import { PostgresPermissionDecisionMemoryRepository } from './permission-decision-memory-repository.postgres.js';
 import { PostgresGroupJoinOnboardingRepository } from './group-join-onboarding-repository.postgres.js';
 export interface PostgresDomainRepositoryBundle {
   apps: AppRepository;
@@ -143,7 +152,11 @@ export interface PostgresDomainRepositoryBundle {
   asyncTasks: AsyncTaskRepository;
   patternCandidates: PatternCandidateRepository;
   proactiveSurfacing: PostgresProactiveSurfacingRepository;
+  observerInsights: ObserverInsightRepository;
+  brainDreamReviews: BrainDreamReviewRepository;
+  chatBatches: ChatBatchRepository;
   permissionPromotions: PermissionPromotionRepository;
+  permissionDecisionMemory: PermissionDecisionMemoryRepository;
   groupJoinOnboarding: GroupJoinOnboardingRepository;
 }
 type JsonRecord = Record<string, unknown>;
@@ -1056,6 +1069,20 @@ export class PostgresConversationRepository implements ConversationRepository {
 }
 export class PostgresMessageRepository implements MessageRepository {
   constructor(private readonly db: CanonicalDb) {}
+  async listConversationIdsForJid(jid: string): Promise<Conversation['id'][]> {
+    const c = pgSchema.conversationsPostgres;
+    const rows = await this.db
+      .select({ id: c.id })
+      .from(c)
+      .where(
+        and(
+          eq(c.appId, CANONICAL_APP_ID),
+          eq(sql<string>`${c.externalRefJson}::jsonb->>'jid'`, jid),
+        ),
+      )
+      .orderBy(asc(c.id));
+    return rows.map((row) => row.id as Conversation['id']);
+  }
   async getMessage(id: Message['id']): Promise<Message | null> {
     const m = pgSchema.messagesPostgres;
     const rows = await this.db.select().from(m).where(eq(m.id, id)).limit(1);
@@ -1718,7 +1745,10 @@ export class PostgresSandboxRepository implements SandboxRepository {
 export function createPostgresDomainRepositories(
   db: CanonicalDb,
   _pool?: Pool,
-  options: { liveTurnCommandNotifier?: LiveTurnCommandNotifier } = {},
+  options: {
+    liveTurnCommandNotifier?: LiveTurnCommandNotifier;
+    maxLiveAdmissionBacklog?: number;
+  } = {},
 ): PostgresDomainRepositoryBundle {
   return {
     apps: new PostgresAppRepository(db),
@@ -1732,7 +1762,11 @@ export function createPostgresDomainRepositories(
     providerSessions: new PostgresProviderSessionRepository(db),
     agentSessionSummaries: new PostgresAgentSessionSummaryRepository(db),
     agentRuns: new PostgresAgentRunRepository(db),
-    runtimeEvents: new PostgresRuntimeEventRepository(db),
+    runtimeEvents: new PostgresRuntimeEventRepository(
+      db,
+      undefined,
+      options.maxLiveAdmissionBacklog,
+    ),
     tools: new PostgresToolCatalogRepository(db),
     skills: new PostgresSkillCatalogRepository(db),
     capabilitySecrets: new PostgresCapabilitySecretRepository(db),
@@ -1749,13 +1783,20 @@ export function createPostgresDomainRepositories(
     liveTurns: new PostgresLiveTurnRepository(
       db,
       options.liveTurnCommandNotifier,
+      options.maxLiveAdmissionBacklog,
     ),
     runtimeDependencies: new PostgresRuntimeDependencyRepository(db),
     settingsRevisions: new PostgresSettingsRevisionRepository(db),
     asyncTasks: new PostgresAsyncTaskRepository(db),
     patternCandidates: new PostgresPatternCandidateRepository(db),
     proactiveSurfacing: new PostgresProactiveSurfacingRepository(db),
+    observerInsights: new PostgresObserverInsightRepository(db),
+    brainDreamReviews: new PostgresBrainDreamReviewRepository(db),
+    chatBatches: new PostgresChatBatchRepository(db),
     permissionPromotions: new PostgresPermissionPromotionRepository(db),
+    permissionDecisionMemory: new PostgresPermissionDecisionMemoryRepository(
+      db,
+    ),
     groupJoinOnboarding: new PostgresGroupJoinOnboardingRepository(db),
   };
 }

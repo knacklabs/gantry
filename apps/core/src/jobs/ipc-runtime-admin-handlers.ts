@@ -14,6 +14,7 @@ import { validateLoadedRuntimeSettings } from '../config/settings/runtime-settin
 import {
   getRuntimeRepositories,
   getRuntimeStorage,
+  tryAcquireRuntimeAdvisoryLease,
 } from '../adapters/storage/postgres/runtime-store.js';
 import { SettingsDesiredStateService } from '../config/settings/desired-state-service.js';
 import { importWorkstationSettings } from '../config/settings/settings-import-service.js';
@@ -439,6 +440,7 @@ export const requestSettingsUpdateHandler: TaskHandler = async (context) => {
             logWarn: (context, warning) => logger.warn(context, warning),
           },
           revisionMirrorRequired: true,
+          leases: { tryAcquire: tryAcquireRuntimeAdvisoryLease },
         },
         parsed,
       );

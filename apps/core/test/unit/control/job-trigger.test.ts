@@ -134,6 +134,7 @@ const opsRepo = {
   upsertJob: vi.fn(async (job) => ({ job, created: true })),
   listJobs: vi.fn(async () => []),
   listJobRuns: vi.fn(async () => []),
+  listLatestJobRunsByJobIds: vi.fn(async () => new Map()),
   listRecentJobEvents: vi.fn(async () => []),
   updateJob: vi.fn(async () => undefined),
 };
@@ -141,6 +142,9 @@ const opsRepo = {
 let runtimeToolRepository: unknown;
 
 vi.mock('@core/adapters/storage/postgres/runtime-store.js', () => ({
+  tryAcquireRuntimeAdvisoryLease: vi.fn(async () => ({
+    release: vi.fn(async () => {}),
+  })),
   getRuntimeControlRepository: () => controlRepo,
   getRuntimeEventExchange: () => runtimeEvents,
   getRuntimeRepositories: () => opsRepo,
@@ -392,13 +396,13 @@ describe('control job trigger', () => {
           source: 'system default',
           workload: 'recurring_job',
           model: {
-            displayName: 'Opus 4.8',
+            displayName: 'Opus 5',
             responseFamily: 'anthropic',
             modelRoute: {
               id: 'anthropic',
               label: 'Anthropic',
               metadata: {
-                providerModelId: 'claude-opus-4-8',
+                providerModelId: 'claude-opus-5',
               },
             },
           },
@@ -514,7 +518,7 @@ describe('control job trigger', () => {
         modelAlias: 'opus',
         modelSource: 'system default',
         model: {
-          displayName: 'Opus 4.8',
+          displayName: 'Opus 5',
         },
         runtimeContext: {
           executionContext: {
@@ -2009,7 +2013,7 @@ describe('control job trigger', () => {
               explicit: false,
             },
             model: expect.objectContaining({
-              displayName: 'Opus 4.8',
+              displayName: 'Opus 5',
             }),
             toolAccess: expect.objectContaining({
               inheritedAgentTools: [],
@@ -2073,7 +2077,7 @@ describe('control job trigger', () => {
           explicit: false,
         },
         model: expect.objectContaining({
-          displayName: 'Opus 4.8',
+          displayName: 'Opus 5',
         }),
         toolAccess: expect.objectContaining({
           inheritedAgentTools: [],

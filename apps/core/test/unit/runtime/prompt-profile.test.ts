@@ -17,9 +17,11 @@ import {
   LOCKED_OPERATING_GUIDANCE_BLOCK,
   OPERATING_GUIDANCE_BLOCK,
   PromptProfileService,
+  renderChannelPromptPresentationLine,
 } from '@core/application/agents/prompt-profile-service.js';
 import type { AgentPromptCapabilityCatalog } from '@core/application/agents/agent-prompt-capability-catalog.js';
 import { renderCapabilityGuidancePrompt } from '@core/application/agents/agent-prompt-capability-guidance.js';
+import '@core/channels/register-builtins.js';
 
 const loggerSpies = vi.hoisted(() => ({
   info: vi.fn(),
@@ -573,8 +575,10 @@ describe('PromptProfileService', () => {
         provider: 'Anthropic API',
       },
       runtimeContext: {
-        chatJid: 'tg:12345',
-        conversationKind: 'dm',
+        channelContextLine: renderChannelPromptPresentationLine(
+          'tg:12345',
+          'dm',
+        ),
         workspacePath: '/data/agents/team',
       },
     });
@@ -599,8 +603,10 @@ describe('PromptProfileService', () => {
     const prompt = await service.compileSystemPrompt({
       agentFolder: 'team',
       runtimeContext: {
-        chatJid: 'sl:C123',
-        conversationKind: 'channel',
+        channelContextLine: renderChannelPromptPresentationLine(
+          'sl:C123',
+          'channel',
+        ),
         workspacePath: '/data/agents/team',
         job: { id: 'job-1', name: 'Daily digest' },
       },
@@ -613,6 +619,21 @@ describe('PromptProfileService', () => {
       '- This run executes scheduled job "Daily digest" (job-1). Job runs are quiet until terminal: deliver one final outcome report; do not send interim progress messages.',
     );
     expect(prompt).not.toContain('New user messages may arrive mid-run');
+  });
+
+  it('keeps channel prompt presentation byte-identical to the previous path', () => {
+    const before = [
+      '- Channel: Telegram direct message. Telegram renders a limited HTML subset; hard message length cap 4096 characters; outbound workspace file attachments are capped at 25MB.',
+      '- Channel: Slack group conversation. Slack renders mrkdwn; keep single messages under 4000 characters; outbound workspace file attachments are capped at 25MB.',
+      '- Channel: conversation; outbound workspace file attachments are capped at 25MB.',
+    ];
+    const after = [
+      renderChannelPromptPresentationLine('tg:12345', 'dm'),
+      renderChannelPromptPresentationLine('sl:C123', 'channel'),
+      renderChannelPromptPresentationLine('other:123', undefined),
+    ];
+
+    expect(after).toEqual(before);
   });
 
   it('maps casual controls to reviewed tools and one-line progress', async () => {

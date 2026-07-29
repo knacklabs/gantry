@@ -4,6 +4,7 @@ import {
   buildPermissionPromptParts,
   decisionForMode,
   firstPersistentRule,
+  formatPermissionPromptPartsText,
   formatPermissionPromptText,
   formatPermissionReceiptText,
   normalizePermissionAction,
@@ -26,6 +27,105 @@ function requestWithSuggestions(
 }
 
 describe('permission interaction', () => {
+  it('labels the generic MCP passthrough as access to any connected server', () => {
+    const text = formatPermissionPromptText(
+      {
+        requestId: 'permission_123',
+        sourceAgentFolder: 'main_agent',
+        toolName: 'mcp__gantry__mcp_call_tool',
+        suggestions: [
+          {
+            type: 'addRules',
+            behavior: 'allow',
+            destination: 'session',
+            rules: [{ toolName: 'mcp__gantry__mcp_call_tool' }],
+          },
+        ],
+      },
+      60_000,
+    );
+
+    expect(text).toContain('MCP Call Tool (any connected server)');
+  });
+
+  it('renders request risk exactly once in plain-text and structured prompt paths', () => {
+    const request: PermissionApprovalRequest = {
+      ...requestWithSuggestions([]),
+      toolInput: { command: 'rm -rf ./generated' },
+      risk_level: 'high',
+      risk_category: 'destructive',
+    };
+
+    const prompts = [
+      formatPermissionPromptText(request, 60_000),
+      formatPermissionPromptPartsText(
+        buildPermissionPromptParts(request, 60_000),
+      ),
+    ];
+
+    for (const prompt of prompts) {
+      expect(prompt.match(/^Risk:.*$/gm)).toEqual(['Risk: high — destructive']);
+    }
+  });
+
+  it('renders only the risk level when no category was derived', () => {
+    const request: PermissionApprovalRequest = {
+      ...requestWithSuggestions([]),
+      risk_level: 'high',
+    };
+
+    const prompts = [
+      formatPermissionPromptText(request, 60_000),
+      formatPermissionPromptPartsText(
+        buildPermissionPromptParts(request, 60_000),
+      ),
+    ];
+
+    for (const prompt of prompts) {
+      expect(prompt.match(/^Risk:.*$/gm)).toEqual(['Risk: high']);
+      expect(prompt).not.toContain('benign');
+    }
+  });
+
+  it('uses the semantic risk as the category when classifier risk has only a level', () => {
+    const request: PermissionApprovalRequest = {
+      ...requestWithSuggestions([
+        {
+          type: 'addRules',
+          behavior: 'allow',
+          rules: [{ toolName: 'capability:acme.records.append' }],
+        },
+      ]),
+      risk_level: 'high',
+      semanticCapabilityDefinitions: {
+        'acme.records.append': {
+          capabilityId: 'acme.records.append',
+          displayName: 'Acme records append',
+          category: 'acme',
+          risk: 'write',
+          can: 'Append records through reviewed Acme access.',
+          cannot: 'Delete records or change account settings.',
+          credentialSource: 'configured_access',
+          implementationBindings: [
+            { kind: 'tool_rule', rule: 'RunCommand(acme records append *)' },
+          ],
+          preflight: { kind: 'none' },
+        },
+      },
+    };
+
+    const prompts = [
+      formatPermissionPromptText(request, 60_000),
+      formatPermissionPromptPartsText(
+        buildPermissionPromptParts(request, 60_000),
+      ),
+    ];
+
+    for (const prompt of prompts) {
+      expect(prompt.match(/^Risk:.*$/gm)).toEqual(['Risk: high — Write']);
+    }
+  });
+
   it('renders a compact permission batch with batch actions', () => {
     const batch = createPermissionBatchRequest(
       [
@@ -1426,7 +1526,7 @@ describe('permission interaction', () => {
     expect(receipt).not.toContain('perm-abc-123');
   });
 
-  it('omits sensitive details instead of showing redaction markers in accepted receipts', () => {
+  it('shows the command with the secret span masked in accepted receipts', () => {
     const receipt = formatPermissionReceiptText(
       'perm-abc-123',
       {
@@ -1446,7 +1546,9 @@ describe('permission interaction', () => {
     );
 
     expect(receipt).toContain('Allowed once: Command');
-    expect(receipt).not.toContain('REDACTED');
+    // The secret span is masked but the rest of the command stays visible.
+    expect(receipt).toContain('curl https://api.example.com');
+    expect(receipt).toContain('[REDACTED_SECRET]');
     expect(receipt).not.toContain('abcdefghijklmnopqrstuvwxyz123456');
     expect(receipt).not.toContain('Request ID');
     expect(receipt).not.toContain('perm-abc-123');

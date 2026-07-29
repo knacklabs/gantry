@@ -7,6 +7,18 @@ import {
 } from '../permission-interaction.js';
 
 import { TelegramChannelPrompts } from './channel-prompts.js';
+import {
+  TELEGRAM_BRAIN_REVIEW_CALLBACK_PATTERN,
+  TELEGRAM_BRAIN_REVIEW_DECISION_BY_CODE,
+  TELEGRAM_REVIEW_CALLBACK_PATTERN,
+  TELEGRAM_REVIEW_DECISION_BY_CODE,
+} from './message-action-affordances.js';
+import {
+  parseTelegramObserverCallback,
+  telegramObserverDigestMessage,
+  truncateTelegramCallbackAnswer,
+} from './observer-digest-message.js';
+import { withObserverDigestEditLock } from '../observer-digest-edit-lock.js';
 import { resolveDurableTelegramPermissionCallback } from './permission-callback.js';
 import {
   TELEGRAM_PERMISSION_CALLBACK_PATTERN,
@@ -293,6 +305,246 @@ export abstract class TelegramChannelConnect extends TelegramChannelPrompts {
           actionToken: data.slice('lt:stop:'.length),
         });
         await ctx.answerCallbackQuery({ text: 'Stopping current run.' });
+        return;
+      }
+
+      const reviewMatch = TELEGRAM_REVIEW_CALLBACK_PATTERN.exec(data);
+      if (reviewMatch) {
+        const decision = TELEGRAM_REVIEW_DECISION_BY_CODE[reviewMatch[1]];
+        const reviewId = reviewMatch[2];
+        const callbackMessage = ctx.callbackQuery?.message as
+          | {
+              chat?: { id?: number | string };
+              message_thread_id?: number;
+            }
+          | undefined;
+        const chatId =
+          callbackMessage?.chat?.id?.toString() ||
+          ctx.chat?.id?.toString() ||
+          '';
+        if (!chatId) return;
+        // The review message is SHARED. Route first, then split by terminality:
+        // authority + the stale veto live in the host handler we dispatch to.
+        const outcome = await this.opts.onMessageAction?.({
+          kind: 'memory_review_decision',
+          conversationJid: `tg:${chatId}`,
+          ...(this.opts.providerAccountId
+            ? { providerAccountId: this.opts.providerAccountId }
+            : {}),
+          threadId:
+            typeof callbackMessage?.message_thread_id === 'number'
+              ? String(callbackMessage.message_thread_id)
+              : undefined,
+          userId: ctx.from?.id?.toString(),
+          reviewId,
+          decision,
+          label: '',
+        });
+        if (!outcome) {
+          await ctx.answerCallbackQuery();
+          return;
+        }
+        const terminal =
+          outcome.state === 'applied' ||
+          outcome.state === 'stale' ||
+          outcome.state === 'invalid';
+        if (terminal) {
+          // Ack is best-effort: an expired/failed callback query must NOT stop
+          // the finalize — the shared message + its live keyboard have to come
+          // down now that the review is resolved.
+          await ctx
+            .answerCallbackQuery({ text: outcome.receipt })
+            .catch((err: unknown) =>
+              logger.debug(
+                { reviewId, err: this.sanitizeErrorMessage(err) },
+                'Failed to ack Telegram memory review callback',
+              ),
+            );
+          await ctx
+            .editMessageText(outcome.receipt, {
+              reply_markup: { inline_keyboard: [] },
+            })
+            .catch((err: unknown) =>
+              logger.debug(
+                { reviewId, err: this.sanitizeErrorMessage(err) },
+                'Failed to update Telegram memory review message',
+              ),
+            );
+        } else {
+          // denied / edit: private alert to the clicker; leave the shared
+          // message + keyboard intact for legitimate approvers. A failed
+          // private ack shouldn't throw out of the handler.
+          const text = outcome.replacementText
+            ? `${outcome.receipt}\n\n${outcome.replacementText}`
+            : outcome.receipt;
+          await ctx
+            .answerCallbackQuery({ text, show_alert: true })
+            .catch((err: unknown) =>
+              logger.debug(
+                { reviewId, err: this.sanitizeErrorMessage(err) },
+                'Failed to ack Telegram memory review callback',
+              ),
+            );
+        }
+        return;
+      }
+
+      const brainReviewMatch =
+        TELEGRAM_BRAIN_REVIEW_CALLBACK_PATTERN.exec(data);
+      if (brainReviewMatch) {
+        const decision =
+          TELEGRAM_BRAIN_REVIEW_DECISION_BY_CODE[brainReviewMatch[1]];
+        const reviewId = brainReviewMatch[2];
+        const callbackMessage = ctx.callbackQuery?.message as
+          | {
+              chat?: { id?: number | string };
+              message_thread_id?: number;
+            }
+          | undefined;
+        const chatId =
+          callbackMessage?.chat?.id?.toString() ||
+          ctx.chat?.id?.toString() ||
+          '';
+        if (!chatId) return;
+        // Owner-only authority + drift/at-most-once vetoes live in the host
+        // handler; route first, then split by terminality like memory review.
+        const outcome = await this.opts.onMessageAction?.({
+          kind: 'brain_dream_review_decision',
+          conversationJid: `tg:${chatId}`,
+          ...(this.opts.providerAccountId
+            ? { providerAccountId: this.opts.providerAccountId }
+            : {}),
+          threadId:
+            typeof callbackMessage?.message_thread_id === 'number'
+              ? String(callbackMessage.message_thread_id)
+              : undefined,
+          userId: ctx.from?.id?.toString(),
+          reviewId,
+          decision,
+        });
+        if (!outcome) {
+          await ctx.answerCallbackQuery();
+          return;
+        }
+        const terminal =
+          outcome.state === 'applied' ||
+          outcome.state === 'stale' ||
+          outcome.state === 'invalid';
+        if (terminal) {
+          await ctx
+            .answerCallbackQuery({ text: outcome.receipt })
+            .catch((err: unknown) =>
+              logger.debug(
+                { reviewId, err: this.sanitizeErrorMessage(err) },
+                'Failed to ack Telegram brain review callback',
+              ),
+            );
+          await ctx
+            .editMessageText(outcome.receipt, {
+              reply_markup: { inline_keyboard: [] },
+            })
+            .catch((err: unknown) =>
+              logger.debug(
+                { reviewId, err: this.sanitizeErrorMessage(err) },
+                'Failed to update Telegram brain review message',
+              ),
+            );
+        } else {
+          // denied: private alert to the clicker; shared card + keyboard intact.
+          const text = outcome.replacementText
+            ? `${outcome.receipt}\n\n${outcome.replacementText}`
+            : outcome.receipt;
+          await ctx
+            .answerCallbackQuery({ text, show_alert: true })
+            .catch((err: unknown) =>
+              logger.debug(
+                { reviewId, err: this.sanitizeErrorMessage(err) },
+                'Failed to ack Telegram brain review callback',
+              ),
+            );
+        }
+        return;
+      }
+
+      const observer = parseTelegramObserverCallback({
+        data,
+        callbackMessage: ctx.callbackQuery?.message,
+        fallbackChatId: ctx.chat?.id,
+      });
+      if (observer) {
+        const { action, insightId, localDay, chatId, threadId } = observer;
+        if (!chatId) return;
+        const messageId = ctx.callbackQuery?.message?.message_id;
+        // Serialize concurrent clicks on THIS digest message so the later one
+        // rebuilds from the earlier's committed state (no resurrected buttons).
+        await withObserverDigestEditLock(
+          `tg:${chatId}:${messageId ?? ''}`,
+          async () => {
+            const outcome = await this.opts.onMessageAction?.({
+              kind: 'observer_feedback',
+              conversationJid: `tg:${chatId}`,
+              ...(this.opts.providerAccountId
+                ? { providerAccountId: this.opts.providerAccountId }
+                : {}),
+              ...(threadId ? { threadId } : {}),
+              userId: ctx.from?.id?.toString() ?? '',
+              insightId,
+              action,
+              localDay,
+            });
+            if (!outcome) {
+              await ctx.answerCallbackQuery();
+              return;
+            }
+            if (outcome.state === 'applied' && outcome.observerDigestView) {
+              // One insight settled: rebuild the WHOLE digest (acted insight's row
+              // gone + marker; the other insights keep their live buttons). Ack is
+              // best-effort so an expired callback query can't block the edit.
+              const rendered = telegramObserverDigestMessage(
+                outcome.observerDigestView,
+              );
+              await ctx
+                .answerCallbackQuery({
+                  text: truncateTelegramCallbackAnswer(outcome.receipt),
+                })
+                .catch((err: unknown) =>
+                  logger.debug(
+                    { insightId, err: this.sanitizeErrorMessage(err) },
+                    'Failed to ack Telegram observer feedback callback',
+                  ),
+                );
+              await ctx
+                .editMessageText(rendered.text, {
+                  parse_mode: 'HTML',
+                  link_preview_options: { is_disabled: true },
+                  reply_markup: rendered.reply_markup,
+                })
+                .catch((err: unknown) =>
+                  logger.debug(
+                    { insightId, err: this.sanitizeErrorMessage(err) },
+                    'Failed to rebuild Telegram observer digest message',
+                  ),
+                );
+            } else {
+              // denied / stale / invalid: private alert to the clicker; the shared
+              // digest keeps every live button intact.
+              const text = outcome.replacementText
+                ? `${outcome.receipt}\n\n${outcome.replacementText}`
+                : outcome.receipt;
+              await ctx
+                .answerCallbackQuery({
+                  text: truncateTelegramCallbackAnswer(text),
+                  show_alert: true,
+                })
+                .catch((err: unknown) =>
+                  logger.debug(
+                    { insightId, err: this.sanitizeErrorMessage(err) },
+                    'Failed to ack Telegram observer feedback callback',
+                  ),
+                );
+            }
+          },
+        );
         return;
       }
 

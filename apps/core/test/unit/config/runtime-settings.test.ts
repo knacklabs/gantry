@@ -11,6 +11,7 @@ import {
   loadRuntimeSettings,
   mirrorAgentToolRulesToRuntimeSettings,
   parseRuntimeSettings,
+  readRuntimeObserverSettingsSnapshot,
   saveRuntimeSettings,
   withRuntimeModelAliases,
 } from '@core/config/settings/runtime-settings.js';
@@ -653,6 +654,80 @@ provider_accounts:
     expect(parsed.agent.recurringJobDefaultModel).toBe('opus-4.6');
   });
 
+  it('round-trips the new built-in aliases and enforces their workloads', () => {
+    const defaults = createDefaultRuntimeSettings();
+    expect(defaults.agent.oneTimeJobDefaultModel).toBe('');
+    expect(defaults.agent.recurringJobDefaultModel).toBe('');
+    expect(renderRuntimeSettingsYaml(defaults)).not.toContain(
+      'one_time_model:',
+    );
+    expect(renderRuntimeSettingsYaml(defaults)).not.toContain(
+      'recurring_model:',
+    );
+
+    const settings = createDefaultRuntimeSettings();
+    settings.agent.defaultModel = 'gpt-terra';
+    settings.agent.oneTimeJobDefaultModel = 'gpt-terra';
+    settings.agent.recurringJobDefaultModel = 'gpt-luna';
+    settings.memory.llm.models.extractor = 'gpt-luna';
+
+    const yaml = renderRuntimeSettingsYaml(settings);
+    expect(yaml).toContain('one_time_model: gpt-terra');
+    expect(yaml).toContain('recurring_model: gpt-luna');
+    expect(yaml).not.toContain('model_aliases:');
+    const parsed = parseRuntimeSettings(yaml);
+    expect(parsed.agent.defaultModel).toBe('gpt-terra');
+    expect(parsed.agent.oneTimeJobDefaultModel).toBe('gpt-terra');
+    expect(parsed.agent.recurringJobDefaultModel).toBe('gpt-luna');
+    expect(parsed.memory.llm.models.extractor).toBe('gpt-luna');
+
+    const valid = validateLoadedRuntimeSettings('/tmp/gantry-missing', parsed);
+    expect(valid.failure?.details.join('\n') ?? '').not.toContain(
+      'model is invalid',
+    );
+
+    parsed.agent.oneTimeJobDefaultModel = 'sonet';
+    parsed.agent.recurringJobDefaultModel = 'sonet';
+    const invalid = validateLoadedRuntimeSettings(
+      '/tmp/gantry-missing',
+      parsed,
+    );
+    expect(invalid.failure?.details).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining('agent.one_time_job_default_model is invalid'),
+        expect.stringContaining('agent.recurring_job_default_model is invalid'),
+      ]),
+    );
+  });
+
+  it('round-trips Sol and Opus 5 aliases while rejecting the raw Opus provider ID', () => {
+    const settings = createDefaultRuntimeSettings();
+    settings.agent.defaultModel = 'gpt-sol';
+    settings.agent.oneTimeJobDefaultModel = 'opus';
+    settings.agent.recurringJobDefaultModel = 'opus-5';
+
+    const yaml = renderRuntimeSettingsYaml(settings);
+    expect(yaml).not.toContain('model_aliases:');
+    const parsed = parseRuntimeSettings(yaml);
+    expect(parsed.agent.defaultModel).toBe('gpt-sol');
+    expect(parsed.agent.oneTimeJobDefaultModel).toBe('opus');
+    expect(parsed.agent.recurringJobDefaultModel).toBe('opus-5');
+
+    const valid = validateLoadedRuntimeSettings('/tmp/gantry-missing', parsed);
+    expect(valid.failure?.details.join('\n') ?? '').not.toContain(
+      'model is invalid',
+    );
+
+    parsed.agent.defaultModel = 'claude-opus-5';
+    const invalid = validateLoadedRuntimeSettings(
+      '/tmp/gantry-missing',
+      parsed,
+    );
+    expect(invalid.failure?.details.join('\n')).toContain(
+      'agent.default_model is invalid: Provider model ID "claude-opus-5" is not accepted here.',
+    );
+  });
+
   it('round-trips per-agent source status and mcp tool scope through settings.yaml', () => {
     const settings = createDefaultRuntimeSettings();
     settings.agents.main_agent = {
@@ -758,6 +833,7 @@ provider_accounts:
       maxMessageRuns: 3,
       maxJobRuns: 4,
       maxMessageBacklog: 0,
+      maxLiveAdmissionBacklog: 100,
       maxTaskBacklog: 0,
       maxRetries: 5,
       baseRetryMs: 5000,
@@ -768,6 +844,7 @@ provider_accounts:
       maxMessageRuns: 6,
       maxJobRuns: 2,
       maxMessageBacklog: 7,
+      maxLiveAdmissionBacklog: 11,
       maxTaskBacklog: 9,
       maxRetries: 1,
       baseRetryMs: 250,
@@ -779,6 +856,7 @@ provider_accounts:
     expect(yaml).toContain('max_message_runs: 6');
     expect(yaml).toContain('max_job_runs: 2');
     expect(yaml).toContain('max_message_backlog: 7');
+    expect(yaml).toContain('max_live_admission_backlog: 11');
     expect(yaml).toContain('max_task_backlog: 9');
     expect(yaml).toContain('max_retries: 1');
     expect(yaml).toContain('base_retry_ms: 250');
@@ -805,6 +883,179 @@ quoted_decimal: "0.5"
     });
     expect(quoteYamlString('171.222')).toBe('171.222');
     expect(quoteYamlString('1.2.3')).toBe('1.2.3');
+  });
+
+  it('defaults observer off and omits the default block', () => {
+    const settings = createDefaultRuntimeSettings();
+    expect(settings.observer).toEqual({ enabled: false });
+
+    const yaml = renderRuntimeSettingsYaml(settings);
+    expect(yaml).not.toContain('observer:');
+    expect(parseRuntimeSettings(yaml).observer).toEqual(settings.observer);
+  });
+
+  it('parses, renders, and snapshots observer owner settings', () => {
+    const settings = createDefaultRuntimeSettings();
+    settings.observer = {
+      enabled: true,
+      owner: { recipient: 'U123', conversation: 'owner_dm' },
+    };
+
+    const yaml = renderRuntimeSettingsYaml(settings);
+    expect(yaml).toContain('observer:');
+    expect(yaml).toContain('recipient: U123');
+    expect(yaml).toContain('conversation: owner_dm');
+    expect(parseRuntimeSettings(yaml).observer).toEqual(settings.observer);
+
+    const runtimeHome = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'gantry-observer-settings-'),
+    );
+    try {
+      saveRuntimeSettings(runtimeHome, settings);
+      expect(readRuntimeObserverSettingsSnapshot(runtimeHome)).toEqual(
+        settings.observer,
+      );
+    } finally {
+      fs.rmSync(runtimeHome, { recursive: true, force: true });
+    }
+  });
+
+  it('requires the observer owner to be a verified DM approver', () => {
+    const settings = createDefaultRuntimeSettings();
+    settings.providers.telegram = { enabled: true };
+    settings.providerAccounts.telegram_owner = {
+      agentId: 'main_agent',
+      provider: 'telegram',
+      label: 'Owner Telegram',
+      runtimeSecretRefs: { bot_token: 'env:TELEGRAM_BOT_TOKEN' },
+    };
+    settings.conversations.owner_dm = {
+      providerAccount: 'telegram_owner',
+      externalId: '42',
+      kind: 'dm',
+      displayName: 'Owner DM',
+      senderPolicy: { allow: '*', mode: 'trigger' },
+      controlApprovers: ['someone-else'],
+      installedAgents: {},
+    };
+    settings.observer = {
+      enabled: true,
+      owner: { recipient: '42', conversation: 'owner_dm' },
+    };
+
+    const result = validateLoadedRuntimeSettings(
+      '/tmp/gantry-observer-owner',
+      settings,
+    );
+    expect(result.failure?.details.join('\n')).toContain(
+      'observer.owner.recipient must be a verified control approver of the owner conversation.',
+    );
+  });
+
+  it('rejects malformed observer settings', () => {
+    for (const [yaml, error] of [
+      ['observer: true\n', /observer must be a mapping/],
+      [
+        'observer:\n  enabled: "true"\n',
+        /observer\.enabled must be true\/false/,
+      ],
+      [
+        'observer:\n  owner:\n    recipient: U123\n',
+        /observer\.owner\.conversation must be a non-empty string/,
+      ],
+      [
+        'observer:\n  owner:\n    recipient: U123\n    conversation: owner_dm\n    role: admin\n',
+        /observer\.owner\.role is not supported/,
+      ],
+    ] as const) {
+      expect(() => parseRuntimeSettings(yaml)).toThrow(error);
+    }
+  });
+
+  it('defaults observer delivery off and absent', () => {
+    const settings = createDefaultRuntimeSettings();
+    expect(settings.observer.delivery).toBeUndefined();
+    expect(renderRuntimeSettingsYaml(settings)).not.toContain('delivery:');
+  });
+
+  it('parses and round-trips observer delivery settings', () => {
+    const yaml = [
+      'observer:',
+      '  enabled: true',
+      '  owner:',
+      '    recipient: U123',
+      '    conversation: owner_dm',
+      '  delivery:',
+      '    enabled: true',
+      '    timezone: "Asia/Kolkata"',
+      '    send_at: "09:00"',
+      '    quiet_hours:',
+      '      start: "21:00"',
+      '      end: "08:00"',
+      '    max_insights: 2',
+      '',
+    ].join('\n');
+    const parsed = parseRuntimeSettings(yaml).observer;
+    expect(parsed.delivery).toEqual({
+      enabled: true,
+      timezone: 'Asia/Kolkata',
+      sendAt: '09:00',
+      quietHours: { start: '21:00', end: '08:00' },
+      maxInsights: 2,
+    });
+
+    const settings = createDefaultRuntimeSettings();
+    settings.observer = parsed;
+    const rendered = renderRuntimeSettingsYaml(settings);
+    expect(rendered).toContain('  delivery:');
+    expect(rendered).toContain('    send_at: "09:00"');
+    expect(parseRuntimeSettings(rendered).observer).toEqual(parsed);
+  });
+
+  it('defaults delivery.enabled false and max_insights 3 when the block is present', () => {
+    const parsed = parseRuntimeSettings(
+      'observer:\n  enabled: true\n  delivery:\n    timezone: "UTC"\n',
+    ).observer;
+    expect(parsed.delivery).toEqual({
+      enabled: false,
+      timezone: 'UTC',
+      maxInsights: 3,
+    });
+  });
+
+  it('rejects malformed observer delivery settings', () => {
+    for (const [yaml, error] of [
+      [
+        'observer:\n  enabled: true\n  delivery:\n    enabled: true\n    timezone: "Not/AZone"\n    send_at: "09:00"\n',
+        /observer\.delivery\.timezone must be a valid IANA time zone/,
+      ],
+      [
+        'observer:\n  enabled: true\n  delivery:\n    enabled: true\n    timezone: "UTC"\n    send_at: "9:00"\n',
+        /observer\.delivery\.send_at must be a 24-hour HH:mm time/,
+      ],
+      [
+        'observer:\n  enabled: true\n  delivery:\n    timezone: "UTC"\n    quiet_hours:\n      start: "25:00"\n      end: "08:00"\n',
+        /observer\.delivery\.quiet_hours\.start must be a 24-hour HH:mm time/,
+      ],
+      [
+        'observer:\n  enabled: true\n  delivery:\n    timezone: "UTC"\n    max_insights: 4\n',
+        /observer\.delivery\.max_insights must be an integer between 1 and 3/,
+      ],
+      [
+        'observer:\n  enabled: true\n  delivery:\n    enabled: true\n    send_at: "09:00"\n',
+        /observer\.delivery\.timezone is required when observer\.delivery\.enabled is true/,
+      ],
+      [
+        'observer:\n  enabled: true\n  delivery:\n    enabled: true\n    timezone: "UTC"\n',
+        /observer\.delivery\.send_at is required when observer\.delivery\.enabled is true/,
+      ],
+      [
+        'observer:\n  enabled: true\n  delivery:\n    timezone: "UTC"\n    role: admin\n',
+        /observer\.delivery\.role is not supported/,
+      ],
+    ] as const) {
+      expect(() => parseRuntimeSettings(yaml)).toThrow(error);
+    }
   });
 
   it('defaults observability tracing and omits the default block', () => {
@@ -1141,6 +1392,7 @@ quoted_decimal: "0.5"
     expect(settings.permissions.egress).toEqual({
       denylist: [],
     });
+    expect(settings.permissions.trustedRoots).toEqual([]);
     expect(settings.permissions.autoMode).toEqual({});
 
     settings.permissions.yoloMode = {
@@ -1151,6 +1403,7 @@ quoted_decimal: "0.5"
     settings.permissions.egress = {
       denylist: ['api.linkedin.com', '*.blocked.example.com'],
     };
+    settings.permissions.trustedRoots = ['/opt/workdir'];
     settings.permissions.autoMode = { model: 'sonnet' };
 
     const yaml = renderRuntimeSettingsYaml(settings);
@@ -1158,12 +1411,25 @@ quoted_decimal: "0.5"
     expect(yaml).toContain('yolo_mode:');
     expect(yaml).toContain('egress:');
     expect(yaml).toContain('auto_mode:');
+    expect(yaml).toContain('trusted_roots: ["/opt/workdir"]');
     expect(yaml).toContain('model: sonnet');
     expect(yaml).toContain('npm run nuke');
     expect(yaml).toContain('api.linkedin.com');
 
     const parsed = parseRuntimeSettings(yaml);
     expect(parsed.permissions).toEqual(settings.permissions);
+  });
+
+  it('rejects non-canonical trusted roots', () => {
+    for (const root of ['relative/path', '/opt/workdir/../outside']) {
+      expect(() =>
+        parseRuntimeSettings(`permissions:
+  trusted_roots: ["${root}"]
+`),
+      ).toThrow(
+        'permissions.trusted_roots[0] must be a normalized absolute path',
+      );
+    }
   });
 
   it('rejects unsupported YOLO-mode permission keys', () => {
@@ -1297,6 +1563,15 @@ quoted_decimal: "0.5"
     max_task_backlog: -1
 `),
     ).toThrow('runtime.queue.max_task_backlog must be a non-negative integer');
+
+    expect(() =>
+      parseRuntimeSettings(`runtime:
+  queue:
+    max_live_admission_backlog: 0
+`),
+    ).toThrow(
+      'runtime.queue.max_live_admission_backlog must be a positive integer',
+    );
   });
 
   it('rejects unsupported runtime sandbox keys', () => {

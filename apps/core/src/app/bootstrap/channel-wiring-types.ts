@@ -1,7 +1,11 @@
 import type {
   MessageDeliveryResult,
   MessageActionCallbackInput,
+  OnMemoryReviewMessageAction,
+  OnObserverFeedbackMessageAction,
+  OnBrainDreamReviewMessageAction,
   MessageSendOptions,
+  PermissionApprovalCancellation,
   PermissionApprovalDecision,
   PermissionApprovalRequest,
   ProgressUpdateOptions,
@@ -9,6 +13,7 @@ import type {
   StreamingChunkOptions,
   UserQuestionRequest,
   UserQuestionResponse,
+  UserQuestionCancellation,
 } from '../../domain/types.js';
 import type { RuntimeSettings } from '../../config/settings/runtime-settings.js';
 import type {
@@ -180,6 +185,15 @@ export interface ChannelWiring {
   setMessageActionHandler: (
     handler: ((input: MessageActionCallbackInput) => Promise<void>) | undefined,
   ) => void;
+  setMemoryReviewMessageActionHandler: (
+    handler: OnMemoryReviewMessageAction | undefined,
+  ) => void;
+  setObserverFeedbackMessageActionHandler: (
+    handler: OnObserverFeedbackMessageAction | undefined,
+  ) => void;
+  setBrainDreamReviewMessageActionHandler: (
+    handler: OnBrainDreamReviewMessageAction | undefined,
+  ) => void;
   sendStreamingChunk: (
     jid: string,
     rawText: string,
@@ -206,9 +220,15 @@ export interface ChannelWiring {
   requestPermissionApproval: (
     request: PermissionApprovalRequest,
   ) => Promise<PermissionApprovalDecision>;
+  cancelPermissionApproval: (
+    cancellation: PermissionApprovalCancellation,
+  ) => Promise<'settled' | 'queued' | 'not_found'>;
   requestUserAnswer: (
     request: UserQuestionRequest,
   ) => Promise<UserQuestionResponse>;
+  cancelUserQuestion: (
+    cancellation: UserQuestionCancellation,
+  ) => Promise<'settled' | 'queued' | 'not_found'>;
   renderAgentTodo: (
     jid: string,
     render: AgentTodoRender,

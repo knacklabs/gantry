@@ -241,6 +241,7 @@ export interface RuntimeQueueSettings {
   maxMessageRuns: number;
   maxJobRuns: number;
   maxMessageBacklog: number;
+  maxLiveAdmissionBacklog: number;
   maxTaskBacklog: number;
   maxRetries: number;
   baseRetryMs: number;
@@ -249,6 +250,11 @@ export interface RuntimeQueueSettings {
 
 export interface RuntimeLiveTurnsSettings {
   enabled: boolean;
+}
+
+export interface RuntimeLlmAdmissionSettings {
+  globalMaxInFlight: number;
+  perAppKeyMaxInFlight: number;
 }
 
 export type RuntimeSandboxProvider = 'direct' | 'sandbox_runtime';
@@ -275,6 +281,7 @@ export interface RuntimeArtifactStoreSettings {
 export interface RuntimeProcessSettings {
   queue: RuntimeQueueSettings;
   liveTurns: RuntimeLiveTurnsSettings;
+  llmAdmission: RuntimeLlmAdmissionSettings;
   sandbox: RuntimeSandboxSettings;
   artifactStore: RuntimeArtifactStoreSettings;
   deploymentMode: RuntimeDeploymentMode;
@@ -305,6 +312,7 @@ export interface RuntimeBrowserSettings {
 export interface RuntimePermissionSettings {
   yoloMode: YoloModeSettings;
   egress: EgressSettings;
+  trustedRoots: string[];
   autoMode: {
     model?: string;
   };
@@ -331,6 +339,29 @@ export interface RuntimeObservabilitySettings {
     sampleRate: number;
     environment?: string;
   };
+}
+
+export interface RuntimeObserverDeliverySettings {
+  enabled: boolean;
+  // Required (validated) when enabled; otherwise the process TIMEZONE is inherited.
+  timezone?: string;
+  // "HH:mm" 24-hour; required (validated) when enabled.
+  sendAt?: string;
+  // Optional "HH:mm" window; may cross midnight.
+  quietHours?: {
+    start: string;
+    end: string;
+  };
+  maxInsights: number;
+}
+
+export interface RuntimeObserverSettings {
+  enabled: boolean;
+  owner?: {
+    recipient: string;
+    conversation: string;
+  };
+  delivery?: RuntimeObserverDeliverySettings;
 }
 
 export interface RuntimeCustomModelAliasSource {
@@ -381,6 +412,7 @@ export interface RuntimeSettings {
   // Absent/empty -> no caps. Restart-owned; no DB projection.
   limits: RuntimeLimitSettings;
   observability: RuntimeObservabilitySettings;
+  observer: RuntimeObserverSettings;
   // Optional per-family member-order override for model families. Maps a family
   // alias to a list of member aliases OR provider ids in preference order;
   // absent/empty -> the hardcoded MODEL_FAMILIES order. Unknown tokens are

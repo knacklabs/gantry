@@ -3812,6 +3812,20 @@ conversations:
       restartRequired: ['observability'],
     });
   });
+
+  it('classifies observer changes as restart-required', () => {
+    const before = createDefaultRuntimeSettings();
+    const after = createDefaultRuntimeSettings();
+    after.observer = {
+      enabled: true,
+      owner: { recipient: 'U123', conversation: 'owner_dm' },
+    };
+
+    expect(classifySettingsChanges(before, after)).toEqual({
+      liveApplied: [],
+      restartRequired: ['observer'],
+    });
+  });
 });
 
 describe('reconcile preserves agent-installed bindings', () => {

@@ -5,11 +5,19 @@ import type { SkillCatalogRepository } from '../../domain/ports/repositories.js'
 import type { SkillCatalogItem } from '../../domain/skills/skills.js';
 import { isSkillMaterializableLocally } from '../../domain/skills/skills.js';
 import {
+  type AgentAccessSnapshot,
+  assertHostAccessSnapshot,
+} from '../agent-execution/agent-access-snapshot.js';
+
+import {
   formatSkillMaterializationCollision,
   skillMaterializationCollisions,
 } from '../../domain/skills/skill-identity.js';
 import type { SkillActionPermission } from '../../domain/skills/skill-action-permissions.js';
-import { normalizeSkillAssetPath } from '../../shared/skill-artifact-helpers.js';
+import {
+  hashSkillBundle,
+  normalizeSkillAssetPath,
+} from '../../shared/skill-artifact-helpers.js';
 
 export interface SelectedSkillProjectionAsset {
   path: string;
@@ -38,6 +46,7 @@ export async function resolveSelectedSkillProjection(input: {
   skillRepository?: SkillCatalogRepository;
   skillArtifactStore?: SkillArtifactStore;
   skillContext?: { appId: string; agentId: string };
+  accessSnapshot?: AgentAccessSnapshot;
 }): Promise<SelectedSkillProjection | undefined> {
   const selectedSkillIds = uniqueStrings(input.selectedSkillIds ?? []);
   if (selectedSkillIds.length === 0) return undefined;
@@ -51,10 +60,18 @@ export async function resolveSelectedSkillProjection(input: {
     );
   }
 
-  const enabledSkills = await input.skillRepository.listEnabledSkillsForAgent({
-    appId: input.skillContext.appId as AppId,
-    agentId: input.skillContext.agentId as AgentId,
+  const accessSnapshot = assertHostAccessSnapshot({
+    accessSnapshot: input.accessSnapshot,
+    appId: input.skillContext.appId,
+    agentId: input.skillContext.agentId,
+    subject: 'Selected skill projection',
   });
+  const enabledSkills =
+    accessSnapshot?.skills.enabledDefinitions ??
+    (await input.skillRepository.listEnabledSkillsForAgent({
+      appId: input.skillContext.appId as AppId,
+      agentId: input.skillContext.agentId as AgentId,
+    }));
   const enabledById = new Map(
     enabledSkills.map((skill) => [String(skill.id), skill]),
   );
@@ -135,6 +152,17 @@ async function projectSkillArtifact(input: {
   if (!assets.some((asset) => asset.path === 'SKILL.md')) {
     throw new Error(
       `Selected skill "${input.skill.id}" artifact must include SKILL.md.`,
+    );
+  }
+  // Intentional (decision 0066 §4, no-legacy): hashSkillBundle's framing changed,
+  // so skills installed before RACE-1 will mismatch here until re-hashed or
+  // reinstalled. This is handled operationally at rollout, not by an in-code
+  // compat/versioned-hash path — a skill is an executable bundle, so a stale
+  // digest must fail closed rather than run.
+  const actualContentHash = hashSkillBundle(bundle);
+  if (actualContentHash !== input.skill.storage.contentHash) {
+    throw new Error(
+      `Selected skill "${input.skill.id}" artifact integrity check failed: expected ${input.skill.storage.contentHash}, got ${actualContentHash}.`,
     );
   }
   return {

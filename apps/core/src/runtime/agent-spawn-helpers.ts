@@ -92,6 +92,7 @@ export function buildBaseRunnerEnv(input: {
   agentAccessPreset: string;
   deploymentMode: string;
   permissionMode: NonNullable<AgentInput['permissionMode']>;
+  permissionLane: 'interactive' | 'autonomous';
   turnIntentSummary: string;
   permissionTimeoutMs: number;
   egressProxyUrl: string;
@@ -167,6 +168,7 @@ export function buildBaseRunnerEnv(input: {
     GANTRY_DEPLOYMENT_MODE: input.deploymentMode,
     GANTRY_PERMISSION_MODE:
       input.permissionMode === 'auto_strict' ? 'auto' : input.permissionMode,
+    GANTRY_PERMISSION_LANE: input.permissionLane,
     GANTRY_TURN_INTENT_SUMMARY: input.turnIntentSummary.slice(0, 1_500),
     GANTRY_INTERACTIVE_PERMISSION_TIMEOUT_MS: String(input.permissionTimeoutMs),
     GANTRY_PERMISSION_TIMEOUT_MS: String(input.permissionTimeoutMs),

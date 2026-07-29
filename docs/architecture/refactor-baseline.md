@@ -7,7 +7,7 @@ runtime refactor phases start deleting and replacing active runtime paths.
 
 - Commit: `d18ba5f08a6496c462d27edf36773cb8a88cc4fe`
 - Measured tree: current checkout working tree at T0 implementation time.
-- Method: `python3 .codex/scripts/check_refactor_line_delta.py --baseline`
+- Method: `python3 scripts/check_refactor_line_delta.py --baseline`
 - Counted paths: `apps/core/src`
 - Counted extensions: `.cjs`, `.js`, `.mjs`, `.ts`, `.tsx`
 - Bucketing: root files under `apps/core/src`, and otherwise immediate child
@@ -42,7 +42,7 @@ runtime refactor phases start deleting and replacing active runtime paths.
 The LOCAL-35 phase-progress gate is:
 
 ```bash
-python3 .codex/scripts/check_refactor_line_delta.py --check-diff --baseline-file docs/architecture/refactor-baseline.md
+python3 scripts/check_refactor_line_delta.py --check-diff --baseline-file docs/architecture/refactor-baseline.md
 ```
 
 It reads the commit above as the T0 phase baseline, counts net added/deleted
@@ -54,7 +54,7 @@ The final PR or overall deletion-budget gate is still explicit and compares
 against the branch base:
 
 ```bash
-python3 .codex/scripts/check_refactor_line_delta.py --check-diff --base-ref origin/main
+python3 scripts/check_refactor_line_delta.py --check-diff --base-ref origin/main
 ```
 
 Use the branch-base gate when validating the whole refactor line budget, not

@@ -6,6 +6,11 @@ import type {
 } from '../domain/types.js';
 import type { SchedulerSendMessage } from './delivery.js';
 import { sendJobNotification } from './delivery.js';
+import type { MemoryReviewCreatedNotification } from './memory-dreaming-job-outcome.js';
+import {
+  reviewMessageFallbackText,
+  type ReviewMessageView,
+} from '../memory/review-message-view.js';
 import { formatRunStatusMessage } from './status-formatting.js';
 import {
   isMemoryDreamingSystemJob,
@@ -20,7 +25,7 @@ import {
 
 type TerminalRunStatus = Extract<
   JobRunStatus,
-  'completed' | 'failed' | 'timeout' | 'dead_lettered'
+  'paused' | 'completed' | 'failed' | 'timeout' | 'dead_lettered'
 >;
 
 export type JobNotificationLifecycleUpdateResult =
@@ -121,6 +126,7 @@ export async function notifySchedulerTerminalRunState(input: {
   pauseReason: string | null;
   durationMs?: number;
   sendMessage: SchedulerSendMessage;
+  memoryReviewNotification?: MemoryReviewCreatedNotification;
   updateLifecycleNotification?: (input: {
     job: Job;
     runId: string;
@@ -134,6 +140,18 @@ export async function notifySchedulerTerminalRunState(input: {
     parseAutonomousToolDenial(input.summary)
   ) {
     return false;
+  }
+  // A review-created run sends the actual review card + Approve/Reject/Edit
+  // buttons as a fresh terminal message. It deliberately bypasses the
+  // lifecycle-update edit path (which would replace an existing progress
+  // message with plain text and drop the buttons).
+  if (input.memoryReviewNotification) {
+    return sendMemoryReviewNotification({
+      job: input.job,
+      runId: input.runId,
+      notification: input.memoryReviewNotification,
+      sendMessage: input.sendMessage,
+    });
   }
   const summaryMessage =
     compactMemoryDreamingTerminalMessage(input) ??
@@ -168,6 +186,45 @@ export async function notifySchedulerTerminalRunState(input: {
     phase: 'summary',
     runId: input.runId,
     actionAffordances,
+    sendMessage: input.sendMessage,
+  });
+}
+
+function reviewDecisionAffordances(
+  view: ReviewMessageView,
+): MessageActionAffordance[] {
+  return view.affordances.map((affordance) => ({
+    kind: 'memory_review_decision',
+    label: affordance.label,
+    reviewId: affordance.reviewId,
+    decision: affordance.decision,
+  }));
+}
+
+/**
+ * Send the compact-structured review as a provider-native terminal notification.
+ * The per-channel adapters render `reviewMessageView` as native blocks/card with
+ * the three decision buttons; channels without native buttons fall back to the
+ * plain `text` (compact structure + explicit reply-command). `actionAffordances`
+ * carries the same buttons so they survive the durable-outbox path too.
+ */
+async function sendMemoryReviewNotification(input: {
+  job: Job;
+  runId: string;
+  notification: MemoryReviewCreatedNotification;
+  sendMessage: SchedulerSendMessage;
+}): Promise<boolean> {
+  const view = input.notification.reviewMessageView;
+  // reviewMessageFallbackText already folds in the "＋N more pending" line from
+  // view.morePendingCount, so the text fallback and native cards stay in sync.
+  const text = reviewMessageFallbackText(view);
+  return sendJobNotification({
+    job: input.job,
+    text,
+    phase: 'summary',
+    runId: input.runId,
+    actionAffordances: reviewDecisionAffordances(view),
+    reviewMessageView: view,
     sendMessage: input.sendMessage,
   });
 }

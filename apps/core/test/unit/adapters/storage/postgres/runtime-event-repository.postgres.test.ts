@@ -334,7 +334,6 @@ describe('PostgresRuntimeEventRepository', () => {
       }),
     );
   });
-
   it('materializes account-scoped conversation threads with the real provider jid', async () => {
     const db = new FakeDrizzleDb();
     const repository = createRepository(db);

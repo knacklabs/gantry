@@ -176,7 +176,14 @@ export function updateDiagnosticsFromRuntimeEvent(
         stringValue(payload.recovery_action) ?? matchingWait?.recoveryAction,
     };
   }
-  if (phase === 'permission_allowed' && tool && mode === 'allow_once') {
+  const decidedBy =
+    stringValue(payload.decidedBy) ?? stringValue(payload.decided_by);
+  if (
+    phase === 'permission_allowed' &&
+    tool &&
+    mode === 'allow_once' &&
+    decidedBy !== 'reviewed_rule'
+  ) {
     const matchingWait =
       diagnostics.lastPermissionWait?.toolName === tool
         ? diagnostics.lastPermissionWait

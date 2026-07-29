@@ -84,6 +84,7 @@ import type {
 import { resolveAgentToolReference } from '../../domain/tools/agent-tool-catalog-references.js';
 import { nowIso } from '../../shared/time/datetime.js';
 import { makeAgentThreadQueueKey } from '../../shared/thread-queue-key.js';
+import { validateDesiredStateCapabilityReferences } from './desired-state-capability-validation.js';
 
 export class SettingsDesiredStateService {
   private readonly appId: AppId;
@@ -718,119 +719,11 @@ export class SettingsDesiredStateService {
   async validateCapabilityReferences(
     settings: RuntimeSettings,
   ): Promise<string[]> {
-    const errors: string[] = [];
-    const serverIds = new Set<string>();
-    for (const agent of Object.values(settings.agents)) {
-      for (const source of agent.sources.mcpServers) {
-        if (source.status === 'disabled') continue;
-        serverIds.add(source.id);
-      }
-    }
-    const servers = await loadMcpServersById(
-      this.deps.repositories.mcpServers,
-      [...serverIds],
-    );
-    const catalogSemanticCapabilityDefinitions =
-      semanticCapabilityDefinitionsFromCatalogTools(
-        await this.deps.repositories.tools.listTools({
-          appId: this.appId,
-          statuses: ['active'],
-        }),
-      );
-    errors.push(
-      ...(await inlineAgentRuntimeCapabilityErrors({
-        appId: this.appId,
-        settings,
-        repositories: this.deps.repositories,
-        servers,
-        catalogSemanticCapabilityDefinitions,
-      })),
-    );
-    for (const [folder, agent] of Object.entries(settings.agents)) {
-      const activeSkillSources = agent.sources.skills.filter(
-        (source) => source.status !== 'disabled',
-      );
-      const resolvedSkills = await resolveConfiguredSkillReferences({
-        repository: this.deps.repositories.skills,
-        appId: this.appId,
-        agentId: agentIdForFolder(folder),
-        references: activeSkillSources.map((source) => source.id),
-      });
-      const [skillCollision] = skillMaterializationCollisions(
-        selectedSkillsFromResolvedSkillReferences(
-          activeSkillSources.map((source) => source.id),
-          resolvedSkills,
-        ),
-      );
-      if (skillCollision) {
-        errors.push(
-          `agents.${folder}.sources.skills contains ${formatSkillMaterializationCollisionFragment(skillCollision)}`,
-        );
-      }
-      const skillActionDefinitionsForAgent = skillActionDefinitionsForSkills([
-        ...resolvedSkills.skills.values(),
-      ]);
-      const skillActionDefinitions = {
-        ...catalogSemanticCapabilityDefinitions,
-        ...semanticCapabilityDefinitionsById(skillActionDefinitionsForAgent),
-      };
-      const normalizedCapabilities = normalizeConfiguredCapabilities({
-        capabilities: agent.capabilities,
-      }).capabilities;
-      for (const capability of [
-        ...new Set(normalizedCapabilities.map((item) => item.id)),
-      ]) {
-        const toolReference = settingsCapabilityToToolReference({
-          id: capability,
-          version: 'builtin',
-        });
-        const resolved = await resolveAgentToolReference({
-          repository: this.deps.repositories.tools,
-          appId: this.appId,
-          reference: toolReference,
-          semanticCapabilityDefinitions: skillActionDefinitions,
-        });
-        if (resolved.error) {
-          errors.push(
-            `agents.${folder}.capabilities contains unavailable capability ${capability}: ${resolved.error}`,
-          );
-        }
-      }
-      for (const skillId of [
-        ...new Set(activeSkillSources.map((source) => source.id)),
-      ]) {
-        const skill = resolvedSkills.skills.get(skillId);
-        const resolutionError = resolvedSkills.errors.get(skillId);
-        if (!skill || resolutionError) {
-          errors.push(
-            `agents.${folder}.sources.skills contains ${resolutionError ?? `unavailable skill: ${skillId}`}`,
-          );
-        } else if (!skill.storage) {
-          errors.push(
-            `agents.${folder}.sources.skills references skill without artifact storage: ${skillId}`,
-          );
-        }
-      }
-      for (const serverId of [
-        ...new Set(
-          agent.sources.mcpServers
-            .filter((source) => source.status !== 'disabled')
-            .map((source) => source.id),
-        ),
-      ]) {
-        const server = servers.get(serverId);
-        if (
-          !server ||
-          server.appId !== this.appId ||
-          server.status !== 'active'
-        ) {
-          errors.push(
-            `agents.${folder}.sources.mcp_servers contains unavailable MCP server: ${serverId}`,
-          );
-        }
-      }
-    }
-    return errors.sort();
+    return validateDesiredStateCapabilityReferences({
+      appId: this.appId,
+      deps: this.deps,
+      settings,
+    });
   }
 
   private async replaceCapabilities(

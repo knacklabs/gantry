@@ -188,6 +188,9 @@ export const liveAdmissionWorkItemsPostgres = pgTable(
     idempotencyUnique: uniqueIndex(
       'uq_live_admission_work_items_idempotency',
     ).on(table.idempotencyKey),
+    activeByAppIdx: index('idx_live_admission_work_items_active_by_app')
+      .on(table.appId)
+      .where(sql`${table.state} IN ('queued', 'claimed', 'deferred')`),
     queuedFifoIdx: index('idx_live_admission_work_items_queued_fifo')
       .on(table.appId, table.createdAt, table.id)
       .where(sql`${table.state} = 'queued'`),

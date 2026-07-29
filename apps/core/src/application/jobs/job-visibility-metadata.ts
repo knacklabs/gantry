@@ -202,7 +202,7 @@ export async function buildJobVisibilityMetadata(input: {
 
 export async function buildJobListVisibilityMetadata(input: {
   jobs: Job[];
-  ops?: Pick<RuntimeJobRepository, 'listJobRuns'>;
+  ops?: Pick<RuntimeJobRepository, 'listLatestJobRunsByJobIds'>;
   toolRepository?: ToolCatalogRepository;
   skillRepository?: SkillCatalogRepository;
   appId?: string;
@@ -239,7 +239,8 @@ export async function buildJobListVisibilityMetadata(input: {
         const inheritedTools = await loadInheritedTools(appId, agentId);
         const effectiveAllowedTools = mergeUnique(inheritedTools);
         const staleness = schedulerJobStaleness(job, nowMs);
-        const runs = latestRunsByJobId.get(job.id) ?? [];
+        const latestRun = latestRunsByJobId.get(job.id);
+        const runs = latestRun ? [latestRun] : [];
         const setup = setupMetadataForJob(job);
         const health = buildJobHealth({
           job,
@@ -293,19 +294,10 @@ export async function buildJobListVisibilityMetadata(input: {
 
 async function loadLatestRunsByJobId(
   jobs: readonly Job[],
-  ops: Pick<RuntimeJobRepository, 'listJobRuns'> | undefined,
-): Promise<Map<string, JobRun[]>> {
+  ops: Pick<RuntimeJobRepository, 'listLatestJobRunsByJobIds'> | undefined,
+): Promise<Map<string, JobRun>> {
   if (!ops || jobs.length === 0) return new Map();
-  return new Map(
-    await Promise.all(
-      jobs.map(
-        async (job): Promise<[string, JobRun[]]> => [
-          job.id,
-          await ops.listJobRuns(job.id, 1),
-        ],
-      ),
-    ),
-  );
+  return ops.listLatestJobRunsByJobIds(jobs.map((job) => job.id));
 }
 
 function promptPreview(prompt: string): string {

@@ -126,8 +126,8 @@ with `purpose=model_runtime` through the Gantry Model Gateway; it is not bound
 to an individual agent, conversation, memory worker, subagent, or job. Agents,
 subagents, jobs, and memory workers select catalog model aliases only. Model
 credentials are configured once with `gantry credentials model set <provider>`
-for providers such as `anthropic`, `openrouter`, `openai`, `bedrock`, and
-`vertex`, then projected through the Gantry Model Gateway according to the
+for providers such as `anthropic`, `openrouter`, `openai`, `xai`, `bedrock`,
+and `vertex`, then projected through the Gantry Model Gateway according to the
 selected model provider or embedding provider. Each provider exposes explicit
 credential modes through the control API as `credentialModes`; Anthropic
 supports `api_key` and `claude_code_oauth`, OpenRouter and OpenAI use
@@ -141,7 +141,7 @@ and mode metadata.
 
 The active credential modes follow from the model's provider and selected
 agent harness. The agent harness contract is recorded in
-`docs/decisions/2026-06-14-agent-harness-selection.md`. `agentHarness` is
+`docs/decisions/0028-agent-harness-selection.md`. `agentHarness` is
 durable user/admin intent with values `auto`, `anthropic_sdk`, and
 `deepagents`; in `settings.yaml`, the key is `agent_harness`. `auto` derives the
 internal execution lane from the model provider, while explicit
@@ -152,12 +152,13 @@ compatible and otherwise fails before runner spawn:
 | -------------------- | ------------------- | ---------------------------------- | ------------------------------------------------------------- |
 | `anthropic` (Claude) | `anthropic_sdk`     | `anthropic_sdk`                    | `api_key` + `claude_code_oauth`                               |
 | `openai`             | `deepagents`        | `deepagents`                       | `api_key`                                                     |
+| `xai`                | `deepagents`        | `deepagents`                       | `api_key`                                                     |
 | `openrouter`         | `deepagents`        | `deepagents`                       | `api_key`                                                     |
 | `bedrock`            | `deepagents`        | `deepagents`                       | `aws_default_chain`, `bedrock_api_key_ref`, `bedrock_api_key` |
 | `vertex`             | `deepagents`        | `deepagents`                       | `google_adc`, `service_account_ref`, `service_account`        |
 
 Anthropic SDK is the only Claude OAuth/subscription lane and also runs Anthropic
-API-key models. DeepAgents is the OpenAI-compatible harness for OpenAI,
+API-key models. DeepAgents is the OpenAI-compatible harness for OpenAI, xAI,
 OpenRouter, Bedrock, and Vertex routes through the Gantry Model Gateway and
 cannot use Claude OAuth/subscription credentials. Bedrock `aws_default_chain`
 uses the host AWS credential chain to SigV4-sign requests to the regional
@@ -177,6 +178,81 @@ Anthropic SDK lane; the DeepAgents lane fails closed if it ever resolves one
 DeepAgents runner authority remains Gantry-owned and wrapped: raw `execute`, raw
 local filesystem access, raw `.mcp.json`, and raw provider credentials are not
 projected to the runner.
+
+### GPT-5.6, Grok 4.5, and Claude Opus 5 aliases
+
+Configure Model Access through the existing secret flow, then select a catalog
+alias:
+
+```sh
+gantry credentials model set openai
+gantry credentials model set xai
+gantry credentials model set anthropic
+
+gantry model set chat gpt-terra
+gantry model set chat gpt-luna
+gantry model set chat gpt-sol
+gantry model set chat grok
+gantry model set chat opus
+```
+
+No API key belongs in `settings.yaml`. The GPT-5.6 aliases support chat,
+memory, one-time job, and recurring-job workloads. `grok` now selects Grok 4.5 for
+chat, memory, and jobs, while
+the pinned `grok-4.3` alias remains available. `opus` now selects Claude Opus
+5 for chat and jobs, while `opus-4.8` remains pinned to Claude Opus 4.8.
+
+Official token prices below are USD per 1 million tokens. The catalog and CLI
+show the base input/output rates only; Gantry's current estimator does not
+calculate the long-context tiers or separate server-tool charges.
+
+| Alias       | Context / max output       | Base input | Cached input | Base output |
+| ----------- | -------------------------- | ---------: | -----------: | ----------: |
+| `gpt-terra` | 1,050,000 / 128,000 tokens |      $2.50 |        $0.25 |      $15.00 |
+| `gpt-luna`  | 1,050,000 / 128,000 tokens |      $1.00 |        $0.10 |       $6.00 |
+| `gpt-sol`   | 1,050,000 / 128,000 tokens |      $5.00 |        $0.50 |      $30.00 |
+| `grok`      | 500,000 / not published    |      $2.00 |        $0.30 |       $6.00 |
+| `opus`      | 1,000,000 / 128,000 tokens |      $5.00 |        $0.50 |      $25.00 |
+
+Base rates shown. OpenAI prompts over 272K input tokens are billed at 2x input
+and 1.5x output for the full request; cache writes cost 1.25x uncached input.
+Those writes are $3.125 for Terra, $1.25 for Luna, and $6.25 for Sol per
+million tokens. GPT-5.6 Sol base rates are $5 input, $0.50 cached input, and
+$30 output per 1M tokens.
+See the official [Terra model card](https://developers.openai.com/api/docs/models/gpt-5.6-terra),
+[Luna model card](https://developers.openai.com/api/docs/models/gpt-5.6-luna),
+[Sol model card](https://developers.openai.com/api/docs/models/gpt-5.6-sol),
+and [latest-model guide](https://developers.openai.com/api/docs/guides/latest-model).
+
+For Grok 4.5, the table is the short-context tier below 200,000 input tokens.
+At 200,000 or more input tokens, xAI bills the full request at $4.00 input,
+$0.60 cached input, and $12.00 output per million tokens. Server tools are
+additional: Web Search, X Search, and code execution cost $5 per 1,000 calls;
+attachment search costs $10 per 1,000 calls; collection/file search costs
+$2.50 per 1,000 calls. See xAI's official
+[Grok 4.5 model card](https://docs.x.ai/developers/models/grok-4.5) and
+[pricing](https://docs.x.ai/developers/pricing).
+
+Base rates shown. Claude Opus 5 uses $5 input and $25 output per 1M tokens;
+prompt-cache writes are $6.25 for 5 minutes or $10 for 1 hour, and cache hits
+are $0.50 per 1M tokens. See Anthropic's official
+[Opus 5 overview](https://platform.claude.com/docs/en/about-claude/models/whats-new-opus-5),
+[model overview](https://platform.claude.com/docs/en/about-claude/models/overview),
+[pricing](https://docs.anthropic.com/en/docs/about-claude/pricing), and
+[context-window guide](https://docs.anthropic.com/en/docs/build-with-claude/context-windows).
+
+Upstream, Terra, Luna, and Sol accept reasoning effort from `none` through
+`max`; Gantry currently projects only its supported OpenAI effort levels and
+does not expose `max`. Grok 4.5 always reasons and supports `low`, `medium`,
+and `high` upstream, but Gantry does not currently expose xAI
+reasoning-effort selection. Claude Opus 5 uses adaptive thinking through
+Gantry's existing Anthropic effort controls. These are control-surface limits,
+not claims that the upstream models lack the capability.
+
+Gantry cost estimates currently use base token rates and are not billing
+records. This model-catalog update does not add tier-aware pricing, Claude Opus
+5 Fast mode, batch pricing, regional or data-residency pricing, or a new
+provider path.
 
 Host-side memory (extraction, dreaming, consolidation) has no engine selector
 either (the retired `memory.engine` key is rejected at settings validation). The
@@ -209,10 +285,14 @@ authority environment keys unless a future capability explicitly models that
 behavior.
 
 Selected `local_cli` capabilities project credential paths and network host
-metadata only through typed runtime access. Credential directories are mounted
-into the SDK as additional readable directories and are also added to
-`sandbox.filesystem.denyWrite`; they are intentionally not added to
-`denyRead`. Declared network hosts are not durable `SandboxNetworkAccess`
+metadata only through typed runtime access. Credential directories are exposed
+to the runner as additional readable directories for reviewed local-CLI
+commands, while explicit credential/protected-path checks remain host-side
+authorization rails. In `direct`, Gantry does not configure a Claude SDK
+filesystem sandbox, so these checks must not be described as OS-level
+`denyRead` or `denyWrite` confinement. When `sandbox_runtime` is selected, its
+outer whole-runner profile adds filesystem confinement around the same
+projection. Declared network hosts are not durable `SandboxNetworkAccess`
 authority. For scheduled jobs, Gantry may suppress a parentless SDK network
 prompt only when it arrives immediately after the same principal's approved
 Bash invocation, that command matches the reviewed local CLI command template,
@@ -601,32 +681,43 @@ credential handoff. Bash tools, MCP stdio subprocesses, browser tools, and
 skills do not receive model provider tokens. Host-owned scheduler scripts are
 not supported.
 
-The SDK process receives sandbox policy and model credentials as separate
+The runner receives protected-path metadata and model credentials as separate
 adapter projections. Approved tool calls receive a separate `toolNetworkEnv`
 projection for the Gantry loopback egress proxy and neutral TLS aliases; future
 execution adapters such as Deep Agents must consume that same neutral contract
-instead of reusing model credentials for tool egress. Protected filesystem paths
-are passed through
-`GANTRY_PROTECTED_FILESYSTEM_DENY_READ_PATHS_JSON` and
-`GANTRY_PROTECTED_FILESYSTEM_DENY_WRITE_PATHS_JSON` and become Claude SDK
-`sandbox.filesystem.denyRead` and `sandbox.filesystem.denyWrite` entries;
-reviewed local CLI credential directories are also passed through
-`GANTRY_LOCAL_CLI_CREDENTIAL_DIRS_JSON` so the SDK can mount them for reads
-while still denying writes. Model credentials remain only in the private SDK env
-handoff. Do not use MCP stdio env, browser env, or any future scheduler script
-env to carry sandbox authority or provider credentials.
+instead of reusing model credentials for tool egress.
+
+`GANTRY_PROTECTED_FILESYSTEM_DENY_READ_PATHS_JSON`,
+`GANTRY_PROTECTED_FILESYSTEM_DENY_WRITE_PATHS_JSON`, and
+`GANTRY_LOCAL_CLI_CREDENTIAL_DIRS_JSON` carry host/runner policy metadata; they
+are not authority by themselves. In `direct`, the Anthropic SDK receives no
+inner sandbox configuration. Gantry's coordinator and deterministic
+credential/protected-path rails decide declared tool requests, while the
+deployment host account, container, or VM is the OS boundary. If
+`sandbox_runtime` is selected, the outer runner sandbox additionally enforces
+filesystem policy for the runner and its children. Model credentials remain
+only in the private SDK env handoff. Do not use MCP stdio env, browser env, or
+any future scheduler script env to carry sandbox authority or provider
+credentials.
 
 ## Permission Boundary
 
 Credential injection is not permission approval. Agent actions must still pass
-through `ToolExecutionPolicyService` and the permission/capability binding
-checks before credentials are injected or used for a tool/API action.
+through the host permission coordinator: hard restrictions, reviewed
+agent-owned capability/rule evaluation, and deterministic safety rails run
+before credentials are injected or used for a tool/API action. The classifier
+may assess residual action risk, but it never grants durable credential
+authority.
 
 ```mermaid
 flowchart LR
-  Runtime["Runtime agent run"] --> Policy["ToolExecutionPolicyService"]
+  Runtime["Runtime agent run"] --> Coordinator["Host permission coordinator"]
+  Coordinator --> Rails["Deterministic rails"]
+  Coordinator --> Policy["Reviewed agent capability or rule"]
   Policy --> CapabilitySecrets["Capability Credentials"]
   CapabilitySecrets --> CapabilityEnv["Selected skill/MCP/tool env"]
+  Coordinator --> Human["Durable human approval when required"]
+  Runtime --> Sandbox["Optional sandbox_runtime confinement"]
   Runtime --> Broker["Gantry Model Gateway"]
   Broker --> ModelInjection["Private model SDK credential handoff"]
   Runtime --> Secrets["RuntimeSecretProvider"]

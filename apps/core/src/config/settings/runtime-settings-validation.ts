@@ -221,6 +221,30 @@ export function validateLoadedRuntimeSettings(
     }
   }
 
+  const observerOwner = settings.observer.owner;
+  if (observerOwner) {
+    const ownerConversation =
+      settings.conversations[observerOwner.conversation];
+    if (!ownerConversation) {
+      details.push(
+        `observer.owner.conversation references unknown conversation ${observerOwner.conversation}.`,
+      );
+    } else if (
+      ownerConversation.kind !== 'dm' &&
+      ownerConversation.kind !== 'direct'
+    ) {
+      details.push(
+        'observer.owner.conversation must reference a dm or direct conversation.',
+      );
+    } else if (
+      !ownerConversation.controlApprovers.includes(observerOwner.recipient)
+    ) {
+      details.push(
+        'observer.owner.recipient must be a verified control approver of the owner conversation.',
+      );
+    }
+  }
+
   for (const [agentId, agent] of Object.entries(settings.agents)) {
     details.push(
       ...configuredAgentControlConstraintErrors({

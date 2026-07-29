@@ -11,7 +11,10 @@ import type { ModelRouteId } from '../../shared/model-catalog.js';
 
 export type CredentialBrokerProfile = 'none' | 'gantry';
 export type AgentCredentialProvider = 'native' | 'openrouter' | (string & {});
-export type AgentCredentialPurpose = 'model_runtime' | 'tool_capability';
+export type AgentCredentialPurpose =
+  | 'model_runtime'
+  | 'model_batch'
+  | 'tool_capability';
 
 export const MODEL_RUNTIME_CREDENTIAL_IDENTIFIER = 'gantry-model-access';
 export const MODEL_RUNTIME_CREDENTIAL_NAME = 'Gantry Model Access';
@@ -29,6 +32,8 @@ export interface AgentCredentialBrokerBinding {
   threadId?: ConversationThreadId;
   modelCredentialProviderId?: ModelCredentialProvider;
   modelRouteId?: ModelRouteId;
+  modelBatchRequestCount?: number;
+  modelBatchId?: string;
   agentIdentifier?: string;
   agentName?: string;
 }

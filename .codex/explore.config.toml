@@ -1,0 +1,13 @@
+# NOTE: codex resolves overlay profiles from $CODEX_HOME — run with
+# CODEX_HOME=$PWD/.codex (or copy this file to ~/.codex/) for the profile
+# to be found.
+# Exploration profile for CODEX-NATIVE sessions: `codex --profile explore`
+# (gpt-5.6-terra @ high, read-only). From Claude the path is /codex:rescue
+# --model gpt-5.6-terra --effort high; raw codex exec is hook-blocked.
+# Planning-phase codebase exploration is NEVER done by Claude Code itself
+# (role split, harness.yaml): it runs on the mid GPT-5.6 tier at high effort —
+# thorough reading without flagship cost. Overlays config.toml; only the
+# differing keys live here.
+model = "gpt-5.6-terra"
+model_reasoning_effort = "high"
+sandbox_mode = "read-only"

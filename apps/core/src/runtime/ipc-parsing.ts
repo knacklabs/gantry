@@ -17,14 +17,26 @@ import { parseSemanticCapabilityDefinitionsRecord } from '../shared/semantic-cap
 import { isPlainObject, toTrimmedString } from '../shared/object.js';
 import {
   validateBrowserIpcAuthRequest,
+  validateInteractionIpcAuthRequest,
   validateIpcAuthRequest,
   validateMemoryIpcAuthRequest,
 } from './ipc-auth-validation.js';
 import { parseInteractionDescriptor } from './ipc-interaction-descriptor-parsing.js';
+import {
+  parsePermissionCancellationIpcRequest,
+  parsePermissionLifecycle,
+  parseQuestionCancellationIpcRequest,
+} from './ipc-parsing-permission-lifecycle.js';
+export {
+  parsePermissionCancellationIpcRequest,
+  parseQuestionCancellationIpcRequest,
+};
+import { stripShellCommandEnvPrefix } from './ipc-shell-command-prefix.js';
 import { sanitizeIpcToolInput } from './ipc-tool-input-sanitization.js';
 import { PERMISSION_CLASSIFIER_MAX_STRING_LENGTH } from './permission-classifier-prompt.js';
 
 const IPC_REQUEST_ID_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/;
+const HOST_INJECTED_COMMAND_PREFIX_MAX_LENGTH = 65_536;
 export type ParsedPermissionIpcRequest = PermissionApprovalRequest & {
   classifierToolInput?: Record<string, unknown>;
   toolInputRedactedPaths?: string[];
@@ -309,11 +321,8 @@ export function parsePermissionIpcRequest(
   sourceAgentFolder: string,
 ): ParsedPermissionIpcRequest {
   if (!isPlainObject(raw)) throw new Error('Invalid permission IPC payload');
-  const binding = validateIpcAuthRequest(
-    raw,
-    sourceAgentFolder,
-    'permission IPC',
-  );
+  // prettier-ignore
+  const binding = validateInteractionIpcAuthRequest(raw, sourceAgentFolder, 'permission IPC');
   const appId = binding.appId;
   if (!appId) {
     throw new Error('permission IPC context.appId is required');
@@ -400,17 +409,28 @@ export function parsePermissionIpcRequest(
   }
   const targetJid = payloadTargetJid ?? contextTargetJid;
   const subagentType = toTrimmedString(raw.subagentType, { maxLen: 200 });
+  const hostInjectedCommandPrefix = toTrimmedString(
+    raw.hostInjectedCommandPrefix,
+    { maxLen: HOST_INJECTED_COMMAND_PREFIX_MAX_LENGTH },
+  );
+  // The signed runner payload carries the exact prefix it injected. Strip only
+  // that byte-for-byte prefix; legacy producers and mismatches stay unchanged.
+  const decisionToolInput = stripShellCommandEnvPrefix(
+    toolName,
+    raw.toolInput,
+    hostInjectedCommandPrefix,
+  );
   const {
     toolInput,
     altered: toolInputSanitized,
     alteredPaths: toolInputSanitizedPaths,
-  } = sanitizeIpcToolInput(raw.toolInput);
+  } = sanitizeIpcToolInput(decisionToolInput);
   const {
     toolInput: classifierToolInput,
     redactedPaths: toolInputRedactedPaths,
     truncatedPaths: toolInputTruncatedPaths,
   } = sanitizeIpcToolInput(
-    raw.toolInput,
+    decisionToolInput,
     PERMISSION_CLASSIFIER_MAX_STRING_LENGTH,
   );
   const suggestions = parsePermissionApprovalUpdates(raw.suggestions);
@@ -419,6 +439,7 @@ export function parsePermissionIpcRequest(
   const decisionOptions = parsePermissionDecisionOptions(raw.decisionOptions);
   const closestRule = parseClosestPermissionRule(raw.closestRule);
   const interaction = parseInteractionDescriptor(raw.interaction);
+  const permissionLifecycle = parsePermissionLifecycle(raw);
   return {
     requestId,
     appId,
@@ -435,6 +456,7 @@ export function parsePermissionIpcRequest(
     ...(binding.authThreadId ? { threadId: binding.authThreadId } : {}),
     ...(binding.responseKeyId ? { responseKeyId: binding.responseKeyId } : {}),
     ...(raw.unattended === true ? { unattended: true } : {}),
+    ...permissionLifecycle,
     ...(senderId ? { senderId } : {}),
     ...(intent ? { turnIntentSummary: intent } : {}),
     toolName,
@@ -448,6 +470,7 @@ export function parsePermissionIpcRequest(
     ...(closestRule ? { closestRule } : {}),
     ...(blockedPath ? { blockedPath } : {}),
     ...(toolInput ? { toolInput } : {}),
+    ...(hostInjectedCommandPrefix ? { hostInjectedCommandPrefix } : {}),
     ...(toolInputSanitized ? { toolInputSanitized: true } : {}),
     ...(toolInputSanitizedPaths.length > 0 ? { toolInputSanitizedPaths } : {}),
     ...(classifierToolInput ? { classifierToolInput } : {}),
@@ -459,12 +482,13 @@ export function parsePermissionIpcRequest(
     ...(interaction ? { interaction } : {}),
   };
 }
+
 export function parseUserQuestionIpcRequest(
   raw: unknown,
   sourceAgentFolder: string,
 ): UserQuestionRequest {
   if (!isPlainObject(raw)) throw new Error('Invalid user question IPC payload');
-  const binding = validateIpcAuthRequest(
+  const binding = validateInteractionIpcAuthRequest(
     raw,
     sourceAgentFolder,
     'user question IPC',
@@ -605,6 +629,7 @@ export function parseUserQuestionIpcRequest(
     ...(appId ? { appId } : {}),
     ...(agentId ? { agentId } : {}),
     ...(providerAccountId ? { providerAccountId } : {}),
+    ...parsePermissionLifecycle(raw),
     ...(jobId ? { jobId } : {}),
     ...(runId ? { runId } : {}),
     ...(runLeaseToken ? { runLeaseToken } : {}),

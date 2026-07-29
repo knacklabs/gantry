@@ -2,11 +2,9 @@ import { randomUUID } from 'node:crypto';
 
 import {
   type AsyncTaskCreateInput,
-  type AgentFailureMetadata,
-  type AsyncTaskKind,
   type AsyncTaskRecord,
+  type AsyncTaskKind,
   type AsyncTaskRepository,
-  type AsyncTaskStatus,
   type PublicAsyncTaskDto,
   isAsyncTaskTerminal,
   toPublicAsyncTaskDto,
@@ -20,7 +18,6 @@ import {
   ToolExecutionClassifier,
   ToolExecutionPolicyService,
 } from '../shared/tool-execution-policy-service.js';
-import type { RunnerSandboxResourceLimits } from '../shared/runner-sandbox-provider.js';
 import { sanitizeOutboundLlmText } from '../shared/sensitive-material.js';
 import { nowIso } from '../shared/time/datetime.js';
 import {
@@ -36,7 +33,6 @@ import {
   taskTimestampMs,
   terminateProcessHandle,
   truncate,
-  type AsyncCommandOutputSnapshot,
 } from './async-command-task-helpers.js';
 import {
   cancelledReceipt,
@@ -52,7 +48,6 @@ import type {
   AsyncCommandTaskServiceOptions,
   PendingAsyncTaskExecution,
 } from './async-command-task-queue-types.js';
-import { drainQueuedAsyncTasks } from './async-command-task-drainer.js';
 import { asyncCommandPrivateCorrelation } from './async-task-execution-payload.js';
 import { recoverQueuedAsyncTasks } from './async-command-queue-recovery.js';
 import { createAdmittedAsyncTask } from './async-task-admission.js';
@@ -64,105 +59,37 @@ import {
   markCallableAgentAsyncFallback,
 } from './async-delegated-agent-follow-up.js';
 import { DELEGATED_TASK_LIST_PREVIEW_LIMIT } from '../shared/delegated-task-result-policy.js';
+import type {
+  AsyncCommandLaunchControl,
+  AsyncCommandProcessHandle,
+  AsyncCommandRunner,
+  AsyncCommandRunnerResult,
+  StartAsyncCommandTaskInput,
+  StartAsyncCommandTaskResult,
+} from './async-command-task-types.js';
+import {
+  delegatedAgentFailureResult,
+  delegatedCompletion,
+  drainQueuedCommandTasks,
+  isAgentFacingTask,
+  recoverPendingDelegatedAgentFollowUps,
+  type RecoverPendingDelegatedAgentFollowUpsInput,
+} from './async-command-task-leaves.js';
 
-const MAX_ACTIVE_ASYNC_COMMANDS_PER_APP = 4;
-const MAX_ACTIVE_ASYNC_COMMANDS_PER_AGENT = 2;
+export type {
+  AsyncCommandLaunchControl,
+  AsyncCommandProcessHandle,
+  AsyncCommandRunner,
+  AsyncCommandRunnerResult,
+  StartAsyncCommandTaskInput,
+  StartAsyncCommandTaskResult,
+} from './async-command-task-types.js';
+
 const ASYNC_TASK_HEARTBEAT_MS = 15_000;
 export const ASYNC_TASK_STALE_AFTER_MS = 60_000;
 
-export interface AsyncCommandLaunchControl {
-  directory: string;
-  pidFile: string;
-  pgidFile: string;
-  readyFile: string;
-  continueFile: string;
-}
-
-export interface AsyncCommandRunnerResult {
-  outputSummary?: string | null;
-  errorSummary?: string | null;
-  failure?: AgentFailureMetadata;
-}
-
-export interface AsyncCommandProcessHandle {
-  pid: number;
-  processGroupId?: number | null;
-  detached: boolean;
-  platform: NodeJS.Platform;
-  ownerPid: number;
-  startedAt: string;
-  processStartId?: string;
-}
-export interface AsyncCommandRunner {
-  run(input: {
-    command: string;
-    cwd?: string;
-    signal: AbortSignal;
-    appId: string;
-    agentId: string;
-    conversationId: string;
-    threadId?: string | null;
-    parentRunId?: string | null;
-    parentJobId?: string | null;
-    protectedReadPaths?: readonly string[];
-    protectedWritePaths?: readonly string[];
-    allowedNetworkHosts?: readonly string[];
-    egressProxyUrl?: string;
-    resourceLimits?: RunnerSandboxResourceLimits;
-    onProcessStarted?: (
-      handle: AsyncCommandProcessHandle,
-    ) => Promise<void> | void;
-    onOutputSnapshot?: (snapshot: AsyncCommandOutputSnapshot) => unknown;
-    launchControl?: AsyncCommandLaunchControl;
-  }): Promise<AsyncCommandRunnerResult>;
-}
-export interface StartAsyncCommandTaskInput {
-  appId: string;
-  agentId: string;
-  conversationId: string;
-  providerAccountId?: string | null;
-  threadId?: string | null;
-  parentRunId?: string | null;
-  parentTaskId?: string | null;
-  parentJobId?: string | null;
-  parentJobRunId?: string | null;
-  command: string;
-  cwd?: string;
-  protectedReadPaths?: readonly string[];
-  protectedWritePaths?: readonly string[];
-  allowedNetworkHosts?: readonly string[];
-  egressProxyUrl?: string;
-  resourceLimits?: RunnerSandboxResourceLimits;
-  allowedToolRules: readonly string[];
-  memoryBlock?: string;
-  isScheduledJob?: boolean;
-}
-
-export type StartAsyncCommandTaskResult =
-  | { ok: true; task: PublicAsyncTaskDto }
-  | { ok: false; message: string };
-
 export class AsyncCommandTaskService {
-  static delegatedAgentFailureResult(
-    output: {
-      result: string | null;
-      error?: string;
-      failure?: AgentFailureMetadata;
-    },
-    latestResult: string | null,
-    attemptedAction: string,
-  ): AsyncCommandRunnerResult {
-    const partialResult = output.result ?? latestResult;
-    return {
-      outputSummary: partialResult,
-      errorSummary: output.error ?? 'Delegated agent run failed.',
-      failure: output.failure ?? {
-        type: 'execution',
-        attemptedAction,
-        partialResult,
-      },
-    };
-  }
+  static readonly delegatedAgentFailureResult = delegatedAgentFailureResult;
   private readonly active = new Map<string, AbortController>();
   private readonly pending = new Map<string, PendingAsyncTaskExecution>();
   private readonly taskChanges;
@@ -748,72 +675,23 @@ export class AsyncCommandTaskService {
     }
   }
   private async drainQueuedTasks(): Promise<void> {
-    await drainQueuedAsyncTasks({
+    await drainQueuedCommandTasks({
       repository: this.repository,
       pending: this.pending,
       active: this.active,
-      limits: {
-        perApp: MAX_ACTIVE_ASYNC_COMMANDS_PER_APP,
-        perAgent: MAX_ACTIVE_ASYNC_COMMANDS_PER_AGENT,
-      },
       executeCommand: (task, command, input, controller, launchControl) =>
         this.execute(task, command, input, controller, launchControl),
     });
   }
 
-  async recoverPendingDelegatedAgentFollowUps(input: {
-    appId: string;
-    agentId?: string;
-    limit?: number;
-  }): Promise<number> {
+  async recoverPendingDelegatedAgentFollowUps(
+    input: RecoverPendingDelegatedAgentFollowUpsInput,
+  ): Promise<number> {
     if (!this.completionMessageRepository) return 0;
-    const tasks = await this.repository.listTasks({
+    return recoverPendingDelegatedAgentFollowUps({
+      repository: this.repository,
+      completionMessageRepository: this.completionMessageRepository,
       ...input,
-      kind: 'delegated_agent',
-      statuses: ['completed', 'failed', 'cancelled', 'timed_out'],
-      order: 'newest_first',
-      limit: input.limit ?? 100,
     });
-    let delivered = 0;
-    for (const task of tasks) {
-      if (
-        await deliverPendingCallableAgentFollowUp({
-          task,
-          repository: this.repository,
-          messageRepository: this.completionMessageRepository,
-        }).catch(() => false)
-      ) {
-        delivered += 1;
-      }
-    }
-    return delivered;
   }
-}
-
-function isAgentFacingTask(task: AsyncTaskRecord): boolean {
-  return task.kind !== 'session_compaction';
-}
-
-function delegatedCompletion(task: AsyncTaskRecord): {
-  taskId: string;
-  status: Extract<
-    AsyncTaskStatus,
-    'completed' | 'cancelled' | 'timed_out' | 'failed'
-  >;
-  result: string;
-  error?: string;
-} {
-  const status = task.status;
-  if (!isAsyncTaskTerminal(status)) {
-    throw new Error(`Delegated task ${task.id} is not terminal.`);
-  }
-  return {
-    taskId: task.id,
-    status: status as Extract<
-      AsyncTaskStatus,
-      'completed' | 'cancelled' | 'timed_out' | 'failed'
-    >,
-    result: task.outputSummary || `delegated task ${status}`,
-    ...(task.errorSummary ? { error: task.errorSummary } : {}),
-  };
 }

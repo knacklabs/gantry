@@ -267,6 +267,29 @@ describe('SessionInteractionModule', () => {
     });
   });
 
+  it('does not notify or report durable work for overloaded admission', async () => {
+    const notifyLiveAdmissionWorkItem = vi.fn();
+    const { module } = makeModule({
+      liveAdmissionAppId: 'default',
+      ops: { notifyLiveAdmissionWorkItem },
+      runtimeEvents: {
+        publishWithLiveAdmissionMessage: vi.fn(async () => ({
+          event: { eventId: 1001 },
+          liveAdmissionResult: { outcome: 'overloaded' },
+        })),
+      },
+    });
+
+    const accepted = await module.acceptMessage({
+      appId: 'app-one',
+      sessionId: 'session-1',
+      message: 'hello from sdk',
+    });
+
+    expect(notifyLiveAdmissionWorkItem).not.toHaveBeenCalled();
+    expect(accepted.enqueue.durableAdmissionCreated).toBe(false);
+  });
+
   it('rejects response schemas for worker runtimes before persistence or durable admission', async () => {
     const getConfiguredAgentRuntime = vi.fn(() => 'worker' as const);
     const publishWithLiveAdmissionMessage = vi.fn();

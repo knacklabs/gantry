@@ -115,7 +115,7 @@ Each phase has: **goal**, **scope**, **exit criteria**, **deletion target**, **a
 
 **Scope:**
 
-- Run `python3 .codex/scripts/check_refactor_line_delta.py --baseline` and record per-directory line counts in `docs/architecture/refactor-baseline.md`.
+- Run `python3 scripts/check_refactor_line_delta.py --baseline` and record per-directory line counts in `docs/architecture/refactor-baseline.md`.
 - Verify every code anchor in §8 is current. Update if stale. Fail the phase if more than 20% are stale — that means the codebase has shifted enough to re-plan.
 - Keep the CI/factory check live: PRs labelled `refactor` must show non-positive net runtime source line delta.
 

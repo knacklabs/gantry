@@ -1,7 +1,7 @@
 name = "docs-decomposer"
 description = "High-reasoning decomposition agent that converts approved plans and in-repo docs into bounded Linear-ready task graphs."
 model = "gpt-5.5"
-model_reasoning_effort = "medium"
+model_reasoning_effort = "high"
 sandbox_mode = "read-only"
 nickname_candidates = ["Mapper", "Breaker", "Graph"]
 developer_instructions = """

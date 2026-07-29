@@ -199,6 +199,8 @@ vi.mock('@core/runtime/agent-spawn-layout.js', () => ({
 
 // Mock prompt-profile
 vi.mock('@core/application/agents/prompt-profile-service.js', () => ({
+  registerChannelPromptPresentationRenderer: vi.fn(),
+  renderChannelPromptPresentationLine: vi.fn(() => undefined),
   PromptProfileService: vi.fn(function PromptProfileService() {
     return {
       compileSystemPrompt: vi.fn(() => ''),
@@ -236,12 +238,12 @@ vi.mock('@core/runtime/egress-gateway.js', () => ({
   ensureEgressGateway: (...args: unknown[]) => mockEnsureEgressGateway(...args),
 }));
 
-// DeepAgents shell/filesystem pre-spawn guard runs with its REAL implementation:
-// shell/filesystem authority that is not confined by an enforcing sandbox fails
-// closed with the enforcing-sandbox copy, while shell/filesystem authority under
-// `sandbox_runtime` is allowed (the runner projects the gated shell tool). The
-// per-test sandbox provider is driven by the runtime-settings mock + the passed
-// runnerSandboxProvider, so no guard mock seam is needed.
+// DeepAgents shell/filesystem projection runs with its REAL implementation.
+// Two-axis model (decision 0040): the sandbox provider does NOT gate shell or
+// filesystem tool projection — authorization is the control in both `direct`
+// and `sandbox_runtime` modes, so shell/filesystem authority is allowed under
+// either provider. The per-test sandbox provider is driven by the
+// runtime-settings mock + the passed runnerSandboxProvider.
 
 // Create a controllable fake ChildProcess
 function createFakeProcess() {
@@ -286,7 +288,6 @@ import {
 } from '@core/config/index.js';
 import { getConfiguredModelProvidersForApp } from '@core/adapters/storage/postgres/runtime-store.js';
 import { DirectRunnerSandboxProvider } from '@core/adapters/sandbox/runner-sandbox-provider.js';
-import { DEEPAGENTS_ENFORCING_SANDBOX_REQUIRED_MESSAGE } from '@core/runtime/deepagents-shell-filesystem-guard.js';
 import { spawn } from 'child_process';
 import fs from 'fs';
 import type { ConversationRoute } from '@core/domain/types.js';
@@ -325,6 +326,7 @@ import type {
 } from '@core/shared/runner-sandbox-provider.js';
 import type { RunAgentOptions } from '@core/runtime/agent-spawn-types.js';
 import { SANDBOX_RUNTIME_MODEL_GATEWAY_HOST } from '@core/runtime/agent-spawn-runtime-policy.js';
+import { permissionRunRestriction } from '@core/runtime/permission-decision-coordinator.js';
 import {
   processPermissionIpcRequest,
   processUserQuestionIpcRequest,
@@ -547,6 +549,18 @@ class SpawnMcpRepository implements McpServerRepository {
     return [];
   }
 
+  async listAgentMcpAccessSnapshot(input: { appId: AppId; agentId: AgentId }) {
+    const materializedServers =
+      await this.listMaterializedServersForAgent(input);
+    return {
+      activeBindings: materializedServers.map((record) => ({
+        binding: record.binding,
+        definition: record.definition,
+      })),
+      materializedServers,
+    };
+  }
+
   async listMaterializedServersForAgent(input: {
     appId: AppId;
     agentId: AgentId;
@@ -601,11 +615,14 @@ class SpawnCapabilitySecretRepository implements CapabilitySecretRepository {
 }
 
 class SpawnSkillRepository {
+  listEnabledSkillsCalls = 0;
+
   constructor(
     private readonly requiredEnvVars: string[] = ['LINKEDIN_ACCESS_TOKEN'],
   ) {}
 
   async listEnabledSkillsForAgent() {
+    this.listEnabledSkillsCalls += 1;
     return [
       {
         id: 'skill:linkedin-posting',
@@ -1126,18 +1143,27 @@ describe('agent-spawn timeout behavior', () => {
     } as never);
 
     const resultPromise = spawnTestAgent(testGroup, testInput, () => {});
+    await vi.advanceTimersByTimeAsync(10);
+    const env = vi.mocked(spawn).mock.calls.at(-1)?.[2]?.env as Record<
+      string,
+      string
+    >;
+    const restrictionKey = {
+      sourceAgentFolder: testGroup.folder,
+      responseKeyId: env.GANTRY_IPC_RESPONSE_KEY_ID,
+    };
+    expect(permissionRunRestriction(restrictionKey)).toEqual({
+      hideAuthorityTools: true,
+    });
     emitOutputMarker(fakeProc, { status: 'success', result: 'started' });
     await vi.advanceTimersByTimeAsync(10);
     fakeProc.emit('close', 0);
     await vi.advanceTimersByTimeAsync(10);
     await resultPromise;
 
-    const env = vi.mocked(spawn).mock.calls.at(-1)?.[2]?.env as Record<
-      string,
-      string
-    >;
     expect(env.GANTRY_AGENT_ACCESS_PRESET).toBe('locked');
     expect(env.GANTRY_NO_PERMISSION_TOOLS).toBe('1');
+    expect(permissionRunRestriction(restrictionKey)).toBeUndefined();
   });
 
   it('projects the full access preset for a default agent', async () => {
@@ -1388,7 +1414,7 @@ describe('agent-spawn timeout behavior', () => {
       string,
       string
     >;
-    expect(env.ANTHROPIC_MODEL).toBe('claude-opus-4-8');
+    expect(env.ANTHROPIC_MODEL).toBe('claude-opus-5');
   });
 
   it('prefers job-level model override over group model', async () => {
@@ -1446,6 +1472,9 @@ describe('agent-spawn timeout behavior', () => {
       'oneTimeJob',
       'test-group',
     );
+    const env = vi.mocked(spawn).mock.calls.at(-1)?.[2]?.env;
+    expect(env?.GANTRY_JOB_ID).toBeUndefined();
+    expect(env?.GANTRY_PERMISSION_LANE).toBe('autonomous');
   });
 
   it('projects provider models through Gantry gateway env only when broker supplies a run token', async () => {
@@ -1479,7 +1508,7 @@ describe('agent-spawn timeout behavior', () => {
       string,
       string
     >;
-    expect(env.ANTHROPIC_MODEL).toBe('claude-opus-4-8');
+    expect(env.ANTHROPIC_MODEL).toBe('claude-opus-5');
     expect(env.ANTHROPIC_BASE_URL).toBeUndefined();
     expect(env.ANTHROPIC_AUTH_TOKEN).toBeUndefined();
     expect(env.ANTHROPIC_API_KEY).toBeUndefined();
@@ -1696,6 +1725,7 @@ describe('agent-spawn timeout behavior', () => {
     });
     const env = vi.mocked(spawn).mock.calls.at(-1)?.[2]?.env;
     expect(env?.GANTRY_PERMISSION_MODE).toBe('auto');
+    expect(env?.GANTRY_PERMISSION_LANE).toBe('interactive');
     expect(env?.GANTRY_TURN_INTENT_SUMMARY).toBe('Hello');
   });
 
@@ -3102,18 +3132,19 @@ describe('agent-spawn timeout behavior', () => {
     },
   );
 
-  it('materializes reviewed third-party stdio MCP servers for Anthropic SDK runner config', async () => {
+  it('materializes reviewed third-party stdio MCP servers for Anthropic SDK runner config from snapshot rows', async () => {
     vi.mocked(fs.existsSync).mockReturnValue(true);
     const rmSyncSpy = vi
       .spyOn(fs, 'rmSync')
       .mockImplementation(() => undefined);
-    const repository = new SpawnMcpRepository([
+    const mcpRecords = [
       mcpRecord({
         allowedToolPatterns: ['issues.*', 'search_*'],
         autoApproveToolPatterns: [],
         bindingAllowedToolPatterns: ['issues.*'],
       }),
-    ]);
+    ];
+    const repository = new SpawnMcpRepository(mcpRecords);
     const resultPromise = spawnTestAgent(
       testGroup,
       {
@@ -3142,6 +3173,19 @@ describe('agent-spawn timeout behavior', () => {
           GITHUB_TOKEN: 'gantry-secret-token',
         }),
         mcpContext: { appId: 'app-one', agentId: 'agent-one' },
+        accessSnapshot: {
+          appId: 'app-one',
+          agentId: 'agent-one',
+          tools: { activeBindings: [], appActiveDefinitions: [] },
+          skills: { activeBindings: [], enabledDefinitions: [] },
+          mcp: {
+            activeBindings: mcpRecords.map((record) => ({
+              binding: record.binding,
+              definition: record.definition,
+            })),
+            materializedServers: mcpRecords,
+          },
+        },
       },
     );
 
@@ -3166,11 +3210,7 @@ describe('agent-spawn timeout behavior', () => {
     expect(env.GANTRY_MCP_ALWAYS_ALLOWED_TOOLS_JSON).toBe(
       env.GANTRY_MCP_ALLOWED_TOOLS_JSON,
     );
-    expect(
-      repository.materializedInputs.filter((input) =>
-        input.serverIds?.includes('mcp:github' as never),
-      ).length,
-    ).toBe(3);
+    expect(repository.materializedInputs).toEqual([]);
     const mcpConfigWrite = vi
       .mocked(fs.writeFileSync)
       .mock.calls.find(([target]) => String(target).includes('/mcp-'));
@@ -3352,6 +3392,14 @@ describe('agent-spawn timeout behavior', () => {
 
   it('filters authority and loader env from selected skill secrets', async () => {
     vi.mocked(fs.existsSync).mockReturnValue(true);
+    const skillRepository = new SpawnSkillRepository([
+      'LINKEDIN_ACCESS_TOKEN',
+      'PATH',
+      'NODE_OPTIONS',
+      'LD_PRELOAD',
+      'NODE_EXTRA_CA_CERTS',
+      'GANTRY_IPC_AUTH_TOKEN',
+    ]);
     const resultPromise = spawnTestAgent(
       testGroup,
       {
@@ -3368,14 +3416,7 @@ describe('agent-spawn timeout behavior', () => {
       () => {},
       undefined,
       {
-        skillRepository: new SpawnSkillRepository([
-          'LINKEDIN_ACCESS_TOKEN',
-          'PATH',
-          'NODE_OPTIONS',
-          'LD_PRELOAD',
-          'NODE_EXTRA_CA_CERTS',
-          'GANTRY_IPC_AUTH_TOKEN',
-        ]) as any,
+        skillRepository: skillRepository as any,
         capabilitySecretRepository: new SpawnCapabilitySecretRepository({
           LINKEDIN_ACCESS_TOKEN: 'linkedin-token',
           PATH: '/malicious/bin',
@@ -3385,6 +3426,31 @@ describe('agent-spawn timeout behavior', () => {
           GANTRY_IPC_AUTH_TOKEN: 'skill-token',
         }),
         skillContext: { appId: 'app-one', agentId: 'agent-one' },
+        accessSnapshot: {
+          appId: 'app-one',
+          agentId: 'agent-one',
+          tools: { activeBindings: [], appActiveDefinitions: [] },
+          skills: {
+            activeBindings: [],
+            enabledDefinitions: [
+              {
+                id: 'skill:linkedin-posting',
+                appId: 'app-one',
+                agentId: 'agent-one',
+                name: 'linkedin-posting',
+                source: 'admin_uploaded',
+                status: 'installed',
+                promptRefs: [],
+                toolIds: [],
+                workflowRefs: [],
+                createdBy: 'test',
+                createdAt: new Date(0).toISOString(),
+                updatedAt: new Date(0).toISOString(),
+              },
+            ],
+          },
+          mcp: { activeBindings: [], materializedServers: [] },
+        },
       },
     );
     await vi.advanceTimersByTimeAsync(10);
@@ -3397,6 +3463,7 @@ describe('agent-spawn timeout behavior', () => {
       string
     >;
     expect(env.LINKEDIN_ACCESS_TOKEN).toBe('linkedin-token');
+    expect(skillRepository.listEnabledSkillsCalls).toBe(0);
     expect(env.PATH).not.toBe('/malicious/bin');
     expect(env.NODE_OPTIONS).toBeUndefined();
     expect(env.LD_PRELOAD).toBeUndefined();
@@ -4332,8 +4399,10 @@ describe('agent-spawn timeout behavior', () => {
     expect(env.HTTPS_PROXY).toBe('http://127.0.0.1:18080/');
     expect(env.NODE_USE_ENV_PROXY).toBe('1');
     expect(env.HTTP_PROXY).not.toContain('aoc_');
+    // No shell rule requested, so the shell flag stays off; filesystem facades
+    // are always projected for a DeepAgents run (two-axis model — direct too).
     expect(env.GANTRY_DEEPAGENTS_SHELL_ENABLED).toBeUndefined();
-    expect(env.GANTRY_DEEPAGENTS_FILESYSTEM_ENABLED).toBeUndefined();
+    expect(env.GANTRY_DEEPAGENTS_FILESYSTEM_ENABLED).toBe('1');
     const runnerInput = JSON.parse(String(writeSpy.mock.calls[0]?.[0]));
     expect(runnerInput.toolNetworkEnv.HTTP_PROXY).toBe(
       'http://127.0.0.1:18080/',
@@ -4341,11 +4410,11 @@ describe('agent-spawn timeout behavior', () => {
     expect(runnerInput.modelCredentialEnv?.HTTP_PROXY).toBeUndefined();
   });
 
-  it('A9: blocks a deepagents shell run under direct mode with the enforcing-sandbox copy (FAIL CLOSED)', async () => {
-    // Default mocked runtime sandbox provider is 'direct' (non-enforcing), so a
-    // DeepAgents run requesting shell authority fails closed before spawn — no
-    // shell tool can be projected without an enforcing OS sandbox.
-    const result = await spawnTestAgent(
+  it('A9: allows a deepagents shell run under direct mode and projects GANTRY_DEEPAGENTS_SHELL_ENABLED (two-axis)', async () => {
+    // Default mocked runtime sandbox provider is 'direct'. Two-axis model
+    // (decision 0040): the sandbox provider does not gate shell projection —
+    // the spawn proceeds and the shell-enabled flag is projected.
+    const resultPromise = spawnTestAgent(
       testGroup,
       {
         ...testInput,
@@ -4354,25 +4423,24 @@ describe('agent-spawn timeout behavior', () => {
       },
       () => {},
       undefined,
-      {
-        executionAdapter: {
-          id: 'deepagents:langchain',
-          prepare: vi.fn(async () => {
-            throw new Error('should not prepare: guard must fire first');
-          }),
-        },
-      },
+      { executionAdapter: testDeepAgentsExecutionAdapter },
     );
+    await vi.advanceTimersByTimeAsync(10);
+    fakeProc.emit('close', 0);
+    await vi.advanceTimersByTimeAsync(10);
+    await resultPromise;
 
-    expect(result).toMatchObject({
-      status: 'error',
-      error: DEEPAGENTS_ENFORCING_SANDBOX_REQUIRED_MESSAGE,
-    });
-    expect(spawn).not.toHaveBeenCalled();
+    expect(spawn).toHaveBeenCalled();
+    const env = vi.mocked(spawn).mock.calls.at(-1)?.[2]?.env as Record<
+      string,
+      string
+    >;
+    expect(env.GANTRY_DEEPAGENTS_SHELL_ENABLED).toBe('1');
+    expect(env.GANTRY_DEEPAGENTS_FILESYSTEM_ENABLED).toBe('1');
   });
 
-  it('A9: blocks a deepagents filesystem run under direct mode with the enforcing-sandbox copy (FAIL CLOSED)', async () => {
-    const result = await spawnTestAgent(
+  it('A9: allows a deepagents filesystem run under direct mode (two-axis)', async () => {
+    const resultPromise = spawnTestAgent(
       testGroup,
       {
         ...testInput,
@@ -4381,21 +4449,20 @@ describe('agent-spawn timeout behavior', () => {
       },
       () => {},
       undefined,
-      {
-        executionAdapter: {
-          id: 'deepagents:langchain',
-          prepare: vi.fn(async () => {
-            throw new Error('should not prepare: guard must fire first');
-          }),
-        },
-      },
+      { executionAdapter: testDeepAgentsExecutionAdapter },
     );
+    await vi.advanceTimersByTimeAsync(10);
+    fakeProc.emit('close', 0);
+    await vi.advanceTimersByTimeAsync(10);
+    await resultPromise;
 
-    expect(result).toMatchObject({
-      status: 'error',
-      error: DEEPAGENTS_ENFORCING_SANDBOX_REQUIRED_MESSAGE,
-    });
-    expect(spawn).not.toHaveBeenCalled();
+    expect(spawn).toHaveBeenCalled();
+    const env = vi.mocked(spawn).mock.calls.at(-1)?.[2]?.env as Record<
+      string,
+      string
+    >;
+    expect(env.GANTRY_DEEPAGENTS_FILESYSTEM_ENABLED).toBe('1');
+    expect(env.GANTRY_DEEPAGENTS_SHELL_ENABLED).toBeUndefined();
   });
 
   it('A9: allows a deepagents shell run under sandbox_runtime and projects GANTRY_DEEPAGENTS_SHELL_ENABLED', async () => {

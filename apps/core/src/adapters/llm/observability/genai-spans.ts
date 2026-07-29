@@ -7,20 +7,50 @@ import {
   ATTR_COMPLETION,
   ATTR_PROMPT,
   boundedContent,
-  boundedJsonArray,
   MAX_ATTRIBUTE_CHARS,
   TRACE_CONTENT_MAX_CHARS,
   childContextFor,
   contentCaptureEnabled,
   getTurnSpan,
+  registerDelegationToolSpan,
+  registerTurnSpanEndCallback,
+  settleDelegationToolSpan,
   tracer,
 } from '../../../infrastructure/observability/tracing.js';
 import {
   createSseAccumulator,
-  createSseFrameSplitter,
-  isOpenAiUsageOnlyFrame,
+  type SseAccumulatorResult,
+  type SseToolCall,
   type SseStreamKind,
 } from './sse-accumulator.js';
+import {
+  createSseFrameSplitter,
+  isOpenAiUsageOnlyFrame,
+} from './sse-frame-splitter.js';
+import {
+  ATTR_INPUT_MESSAGES,
+  ATTR_OUTPUT_MESSAGES,
+  MAX_TOOL_CALLS,
+  numeric,
+  promptMessages,
+  providerNameFor,
+  providerSystemFor,
+  responseAssistantMessages,
+  responseToolCalls,
+  setMessageAttributes,
+  setNormalizedUsageAttributes,
+  setUsageAttributes,
+  type ToolCall,
+} from './genai-message-attributes.js';
+import {
+  failPendingToolSpans,
+  finishPendingToolSpans,
+  pendingToolsByRun,
+  startPendingToolSpans,
+  streamedToolCalls,
+} from './genai-tool-spans.js';
+
+let pendingTracer: ReturnType<typeof tracer>;
 
 export interface GatewayCallTokenContext {
   appId?: unknown;
@@ -44,6 +74,7 @@ export interface GatewayCallObservation {
   // a plain-JSON error body back, which the frame-aligned tap must not touch.
   streamTapFor: (
     contentType: string | null | undefined,
+    status?: number,
   ) => GatewayStreamTap | undefined;
   finish: (input: {
     status: number;
@@ -91,143 +122,6 @@ const INJECT_STREAM_USAGE_PROVIDERS = new Set(['openai']);
 
 // gen_ai.system identifies the PROVIDER (semconv well-known values where
 // they exist); `kind` is only the wire format used for parsing.
-const PROVIDER_SYSTEM_MAP: Record<string, string> = {
-  anthropic: 'anthropic',
-  openai: 'openai',
-  bedrock: 'aws.bedrock',
-  vertex: 'gcp.vertex_ai',
-  gemini: 'gcp.gemini',
-};
-
-function providerSystemFor(providerId: string): string {
-  return PROVIDER_SYSTEM_MAP[providerId] ?? providerId;
-}
-
-function numeric(value: unknown): number | undefined {
-  return typeof value === 'number' && Number.isFinite(value)
-    ? value
-    : undefined;
-}
-
-function promptJson(request: Record<string, unknown>): string | undefined {
-  const messages = Array.isArray(request.messages)
-    ? (request.messages as Record<string, unknown>[])
-    : [];
-  // Walk from the end (most recent messages) under a raw-char budget so a
-  // request with millions of tiny messages never materializes millions of
-  // entries — the serializer's 32k output limit is enforced afterwards.
-  const entries: { role: string; content: string }[] = [];
-  let budget = MAX_ATTRIBUTE_CHARS;
-  for (let index = messages.length - 1; index >= 0 && budget > 0; index -= 1) {
-    const message = messages[index];
-    if (message === null || typeof message !== 'object') continue;
-    const role = typeof message.role === 'string' ? message.role : 'unknown';
-    const content =
-      typeof message.content === 'string'
-        ? message.content
-        : JSON.stringify(message.content ?? '');
-    const entry = { role, content: boundedContent(content) };
-    entries.push(entry);
-    budget -= entry.content.length + 32;
-  }
-  entries.reverse();
-  const system = request.system;
-  if (typeof system === 'string') {
-    entries.unshift({ role: 'system', content: boundedContent(system) });
-  } else if (Array.isArray(system)) {
-    entries.unshift({
-      role: 'system',
-      content: boundedContent(JSON.stringify(system)),
-    });
-  }
-  return entries.length > 0 ? boundedJsonArray(entries) : undefined;
-}
-
-function completionJson(content: string): string {
-  return boundedJsonArray([
-    { role: 'assistant', content: boundedContent(content) },
-  ]);
-}
-
-function responseCompletionText(
-  kind: SseStreamKind | undefined,
-  response: Record<string, unknown>,
-): string | undefined {
-  if (kind === 'anthropic' && Array.isArray(response.content)) {
-    // Accumulate only up to the trace budget — joining every block of an
-    // unbounded provider response would allocate freely on the hot path.
-    let text = '';
-    for (const block of response.content as Record<string, unknown>[]) {
-      if (block.type === 'text' && typeof block.text === 'string') {
-        text += block.text;
-        if (text.length > TRACE_CONTENT_MAX_CHARS) {
-          return text.slice(0, TRACE_CONTENT_MAX_CHARS + 1);
-        }
-      }
-    }
-    return text || boundedContent(JSON.stringify(response.content));
-  }
-  if (kind === 'openai') {
-    const choice = (
-      response.choices as Record<string, unknown>[] | undefined
-    )?.[0];
-    const message = choice?.message as { content?: unknown } | undefined;
-    if (typeof message?.content === 'string') return message.content;
-  }
-  return undefined;
-}
-
-function setUsageAttributes(span: Span, usage: Record<string, unknown>): void {
-  const input = numeric(usage.input_tokens) ?? numeric(usage.prompt_tokens);
-  const output =
-    numeric(usage.output_tokens) ?? numeric(usage.completion_tokens);
-  if (input !== undefined) {
-    span.setAttribute('gen_ai.usage.input_tokens', input);
-  }
-  if (output !== undefined) {
-    span.setAttribute('gen_ai.usage.output_tokens', output);
-  }
-  const total = numeric(usage.total_tokens);
-  if (total !== undefined) {
-    span.setAttribute('gen_ai.usage.total_tokens', total);
-  }
-  const cacheRead = numeric(usage.cache_read_input_tokens);
-  if (cacheRead !== undefined) {
-    span.setAttribute('gen_ai.usage.cache_read_input_tokens', cacheRead);
-  }
-  const cacheWrite = numeric(usage.cache_creation_input_tokens);
-  if (cacheWrite !== undefined) {
-    span.setAttribute('gen_ai.usage.cache_creation_input_tokens', cacheWrite);
-  }
-  const details = usage.prompt_tokens_details as
-    | Record<string, unknown>
-    | undefined;
-  const cached = numeric(details?.cached_tokens);
-  if (cached !== undefined) {
-    span.setAttribute('gen_ai.usage.cached_tokens', cached);
-  }
-}
-
-function setNormalizedUsageAttributes(
-  span: Span,
-  usage: NormalizedModelUsage,
-): void {
-  span.setAttribute('gen_ai.usage.input_tokens', usage.inputTokens);
-  span.setAttribute('gen_ai.usage.output_tokens', usage.outputTokens);
-  if (usage.cacheReadTokens > 0) {
-    span.setAttribute(
-      'gen_ai.usage.cache_read_input_tokens',
-      usage.cacheReadTokens,
-    );
-  }
-  if (usage.cacheWriteTokens > 0) {
-    span.setAttribute(
-      'gen_ai.usage.cache_creation_input_tokens',
-      usage.cacheWriteTokens,
-    );
-  }
-}
-
 function injectIncludeUsage(
   request: Record<string, unknown>,
 ): Buffer | undefined {
@@ -258,6 +152,10 @@ export function observeGatewayCall(input: {
 }): GatewayCallObservation | undefined {
   const activeTracer = tracer();
   if (!activeTracer) return undefined;
+  if (pendingTracer !== activeTracer) {
+    pendingTracer = activeTracer;
+    pendingToolsByRun.clear();
+  }
   let startedSpan: Span | undefined;
   try {
     let request: Record<string, unknown> = {};
@@ -284,6 +182,9 @@ export function observeGatewayCall(input: {
 
     const runId =
       input.token.runId === undefined ? undefined : String(input.token.runId);
+    if (runId) {
+      finishPendingToolSpans(runId, kind, request, captureContent);
+    }
     const parent = runId ? getTurnSpan(runId) : undefined;
     // Span names bypass the attribute length limit; model comes from an
     // untrusted request body.
@@ -292,6 +193,7 @@ export function observeGatewayCall(input: {
       {
         attributes: {
           'gen_ai.operation.name': 'chat',
+          'gen_ai.provider.name': providerNameFor(input.providerId),
           'gen_ai.system': providerSystemFor(input.providerId),
           ...(requestModel ? { 'gen_ai.request.model': requestModel } : {}),
           ...(numeric(request.max_tokens) !== undefined
@@ -343,8 +245,16 @@ export function observeGatewayCall(input: {
       }
     }
     if (captureContent) {
-      const prompt = promptJson(request);
-      if (prompt) span.setAttribute(ATTR_PROMPT, prompt);
+      const messages = promptMessages(request);
+      if (messages.length > 0) {
+        setMessageAttributes(
+          span,
+          ATTR_PROMPT,
+          ATTR_INPUT_MESSAGES,
+          messages,
+          kind,
+        );
+      }
     }
 
     const accumulator =
@@ -353,6 +263,39 @@ export function observeGatewayCall(input: {
         : undefined;
     let tapUsed = false;
     let sawFirstChunk = false;
+    let streamStatus: number | undefined;
+    const earlyRegisteredToolCallIds = new Set<string>();
+
+    const registerCompletedStreamToolCalls = () => {
+      if (!accumulator?.takeToolCallsReady()) return;
+      if (
+        !runId ||
+        streamStatus === undefined ||
+        streamStatus < 200 ||
+        streamStatus >= 300
+      ) {
+        return;
+      }
+      const streamed = accumulator.result();
+      if (streamed.errorMessage) return;
+      const liveParent = getTurnSpan(runId);
+      if (!liveParent) return;
+      const complete = streamedToolCalls(kind, streamed).filter(
+        (call) => call.complete && !earlyRegisteredToolCallIds.has(call.id),
+      );
+      if (complete.length === 0) return;
+      startPendingToolSpans({
+        runId,
+        parent: liveParent,
+        activeTracer,
+        toolCalls: complete,
+        captureContent,
+      });
+      const pending = pendingToolsByRun.get(runId);
+      for (const call of complete) {
+        if (pending?.has(call.id)) earlyRegisteredToolCallIds.add(call.id);
+      }
+    };
 
     const markFirstChunk = () => {
       if (!sawFirstChunk) {
@@ -377,6 +320,7 @@ export function observeGatewayCall(input: {
             markFirstChunk();
             try {
               accumulator?.push(chunk);
+              registerCompletedStreamToolCalls();
             } catch {
               // fail-open
             }
@@ -385,6 +329,7 @@ export function observeGatewayCall(input: {
           flush: () => {
             try {
               accumulator?.push(Buffer.from('\n\n'));
+              registerCompletedStreamToolCalls();
             } catch {
               // fail-open
             }
@@ -401,6 +346,7 @@ export function observeGatewayCall(input: {
         const out: string[] = [];
         for (const frame of frames) {
           accumulator.pushFrame(frame);
+          registerCompletedStreamToolCalls();
           if (!isOpenAiUsageOnlyFrame(frame)) out.push(`${frame}\n\n`);
         }
         if (splitter.overflowed()) {
@@ -439,15 +385,33 @@ export function observeGatewayCall(input: {
         span.setAttribute('http.response.status_code', result.status);
         let usage: Record<string, unknown> | undefined;
         let responseModel: string | undefined;
-        let completionText: string | undefined;
-        let finishReason: string | undefined;
+        let assistantMessages: Record<string, unknown>[] = [];
+        let toolCalls: ToolCall[] = [];
+        let finishReasons: string[] = [];
         let streamErrorMessage: string | undefined;
         if (tapUsed && accumulator) {
           const streamed = accumulator.result();
           usage = streamed.usage;
           responseModel = streamed.model;
-          completionText = streamed.completionText;
-          finishReason = streamed.finishReason;
+          toolCalls = streamedToolCalls(kind, streamed);
+          if (streamed.assistantMessages) {
+            assistantMessages = streamed.assistantMessages;
+          } else if (streamed.assistantMessage) {
+            assistantMessages = [streamed.assistantMessage];
+          } else if (streamed.completionText) {
+            assistantMessages = [
+              {
+                role: 'assistant',
+                content: streamed.completionText,
+                ...(streamed.finishReason
+                  ? { finish_reason: streamed.finishReason }
+                  : {}),
+              },
+            ];
+          }
+          finishReasons =
+            streamed.finishReasons ??
+            (streamed.finishReason ? [streamed.finishReason] : []);
           streamErrorMessage = streamed.errorMessage;
         } else if (
           result.responseJson &&
@@ -460,18 +424,23 @@ export function observeGatewayCall(input: {
               : undefined;
           responseModel =
             typeof response.model === 'string' ? response.model : undefined;
-          completionText = captureContent
-            ? responseCompletionText(kind, response)
-            : undefined;
-          finishReason =
-            typeof response.stop_reason === 'string'
-              ? response.stop_reason
-              : typeof (
-                    response.choices as Record<string, unknown>[] | undefined
-                  )?.[0]?.finish_reason === 'string'
-                ? ((response.choices as Record<string, unknown>[])[0]
-                    .finish_reason as string)
-                : undefined;
+          assistantMessages = captureContent
+            ? responseAssistantMessages(kind, response)
+            : [];
+          toolCalls = responseToolCalls(kind, response);
+          if (typeof response.stop_reason === 'string') {
+            finishReasons = [response.stop_reason];
+          } else {
+            finishReasons = (
+              (response.choices as Record<string, unknown>[] | undefined) ?? []
+            )
+              .slice(0, MAX_TOOL_CALLS)
+              .flatMap((choice) =>
+                typeof choice.finish_reason === 'string'
+                  ? [choice.finish_reason]
+                  : [],
+              );
+          }
           if (typeof response.id === 'string') {
             span.setAttribute('gen_ai.response.id', response.id);
           }
@@ -479,10 +448,10 @@ export function observeGatewayCall(input: {
         if (responseModel) {
           span.setAttribute('gen_ai.response.model', responseModel);
         }
-        if (finishReason) {
-          span.setAttribute('gen_ai.response.finish_reasons', [finishReason]);
+        if (finishReasons.length > 0) {
+          span.setAttribute('gen_ai.response.finish_reasons', finishReasons);
         }
-        if (usage) setUsageAttributes(span, usage);
+        if (usage) setUsageAttributes(span, usage, kind);
         const normalized =
           result.normalizedUsage ??
           (usage
@@ -491,16 +460,24 @@ export function observeGatewayCall(input: {
                 fallbackModel: responseModel ?? requestModel,
               })
             : undefined);
-        if (normalized) setNormalizedUsageAttributes(span, normalized);
+        if (normalized) {
+          setNormalizedUsageAttributes(span, normalized, kind, usage);
+        }
         if (typeof normalized?.estimatedCostUsd === 'number') {
           span.setAttribute('gen_ai.usage.cost', normalized.estimatedCostUsd);
         }
-        if (captureContent && completionText) {
-          span.setAttribute(ATTR_COMPLETION, completionJson(completionText));
+        if (captureContent && assistantMessages.length > 0) {
+          setMessageAttributes(
+            span,
+            ATTR_COMPLETION,
+            ATTR_OUTPUT_MESSAGES,
+            assistantMessages,
+            kind,
+          );
         }
-        // streamErrorMessage is provider-sourced and may echo request
-        // content; with content capture off, record a stable label instead.
-        // result.errorMessage is host/gateway-sourced (timeouts, statusText).
+        // Provider and transport errors can arrive after valid-looking tool
+        // fragments. Only a successful terminal tool-call response means a
+        // tool execution could actually follow on the next request.
         const providerError = streamErrorMessage
           ? captureContent
             ? boundedContent(streamErrorMessage)
@@ -509,6 +486,32 @@ export function observeGatewayCall(input: {
         const errorMessage = result.errorMessage
           ? boundedContent(result.errorMessage)
           : providerError;
+        if (runId && errorMessage && earlyRegisteredToolCallIds.size > 0) {
+          failPendingToolSpans(runId, earlyRegisteredToolCallIds);
+        }
+        const liveParent = runId ? getTurnSpan(runId) : undefined;
+        const completeToolCalls = toolCalls.filter(
+          (call) => call.complete && !earlyRegisteredToolCallIds.has(call.id),
+        );
+        if (
+          runId &&
+          liveParent &&
+          result.status >= 200 &&
+          result.status < 300 &&
+          !errorMessage &&
+          completeToolCalls.length > 0
+        ) {
+          startPendingToolSpans({
+            runId,
+            parent: liveParent,
+            activeTracer,
+            toolCalls: completeToolCalls,
+            captureContent,
+          });
+        }
+        // streamErrorMessage is provider-sourced and may echo request
+        // content; with content capture off, record a stable label instead.
+        // result.errorMessage is host/gateway-sourced (timeouts, statusText).
         if (result.status >= 400 || errorMessage) {
           span.setStatus({ code: SpanStatusCode.ERROR, message: errorMessage });
           if (errorMessage) {
@@ -530,7 +533,7 @@ export function observeGatewayCall(input: {
     return {
       requestBody,
       isStreaming,
-      streamTapFor: (contentType) => {
+      streamTapFor: (contentType, status) => {
         // Media types are case-insensitive (e.g. Text/Event-Stream).
         if (
           !isStreaming ||
@@ -538,6 +541,7 @@ export function observeGatewayCall(input: {
         ) {
           return undefined;
         }
+        if (status !== undefined) streamStatus = status;
         cachedTap ??= buildStreamTap();
         return cachedTap;
       },

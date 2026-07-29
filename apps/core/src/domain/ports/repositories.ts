@@ -247,6 +247,12 @@ export interface MessageRepository {
     after?: string;
     limit?: number;
   }): Promise<Message[]>;
+  /**
+   * All conversation row ids for a chat jid. One jid can map to multiple rows
+   * (legacy-shaped plus account-qualified) until the Phase-8 restamp; readers
+   * that only know the jid must union across them.
+   */
+  listConversationIdsForJid(jid: string): Promise<ConversationId[]>;
 }
 
 export interface AgentSessionRepository {
@@ -392,6 +398,10 @@ export interface ToolCatalogRepository {
     appId: AppId;
     agentId: AgentId;
   }): Promise<AgentToolBinding[]>;
+  listAgentToolAccessSnapshot(input: {
+    appId: AppId;
+    agentId: AgentId;
+  }): Promise<AgentToolAccessSnapshot>;
   listAgentToolBindingsForAgents(input: {
     appId: AppId;
     agentIds: readonly AgentId[];
@@ -410,6 +420,14 @@ export interface ToolCatalogRepository {
     appId: AppId;
     agentIds: readonly AgentId[];
   }): Promise<AgentToolSource[]>;
+}
+
+export interface AgentToolAccessSnapshot {
+  activeBindings: ReadonlyArray<{
+    binding: AgentToolBinding;
+    definition: ToolCatalogItem | null;
+  }>;
+  appActiveDefinitions: readonly ToolCatalogItem[];
 }
 
 export interface SkillCatalogRepository {
@@ -431,6 +449,10 @@ export interface SkillCatalogRepository {
     appId: AppId;
     agentId: AgentId;
   }): Promise<AgentSkillBinding[]>;
+  listAgentSkillAccessSnapshot(input: {
+    appId: AppId;
+    agentId: AgentId;
+  }): Promise<AgentSkillAccessSnapshot>;
   listAgentSkillBindingsForAgents(input: {
     appId: AppId;
     agentIds: readonly AgentId[];
@@ -439,6 +461,14 @@ export interface SkillCatalogRepository {
     appId: AppId;
     agentId: AgentId;
   }): Promise<SkillCatalogItem[]>;
+}
+
+export interface AgentSkillAccessSnapshot {
+  activeBindings: ReadonlyArray<{
+    binding: AgentSkillBinding;
+    definition: SkillCatalogItem | null;
+  }>;
+  enabledDefinitions: readonly SkillCatalogItem[];
 }
 
 export interface CapabilitySecretRepository {
@@ -517,6 +547,10 @@ export interface McpServerRepository {
     limit?: number;
     cursor?: string;
   }): Promise<AgentMcpServerBinding[]>;
+  listAgentMcpAccessSnapshot(input: {
+    appId: AppId;
+    agentId: AgentId;
+  }): Promise<AgentMcpAccessSnapshot>;
   listAgentBindingsForAgents(input: {
     appId: AppId;
     agentIds: readonly AgentId[];
@@ -534,6 +568,14 @@ export interface McpServerRepository {
     limit?: number;
     cursor?: string;
   }): Promise<McpServerAuditEvent[]>;
+}
+
+export interface AgentMcpAccessSnapshot {
+  activeBindings: ReadonlyArray<{
+    binding: AgentMcpServerBinding;
+    definition: McpServerDefinition | null;
+  }>;
+  materializedServers: readonly MaterializedMcpServer[];
 }
 
 export interface PermissionRepository {

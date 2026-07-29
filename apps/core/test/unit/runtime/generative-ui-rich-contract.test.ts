@@ -4,6 +4,8 @@ import { fileURLToPath } from 'node:url';
 
 import { describe, expect, it } from 'vitest';
 
+import { ALL_GANTRY_MCP_TOOL_NAMES } from '@core/shared/admin-mcp-tools.js';
+
 const repoRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   '../../../../..',
@@ -71,11 +73,10 @@ describe('generative UI rich interaction contract', () => {
   });
 
   it('registers rich render tools separately from send_message', () => {
-    const toolSurface = read('apps/core/src/runner/gantry-mcp-tool-surface.ts');
     const messagingTools = read('apps/core/src/runner/mcp/tools/messaging.ts');
 
     for (const toolName of richToolNames) {
-      expect(toolSurface).toContain(`'${toolName}'`);
+      expect(ALL_GANTRY_MCP_TOOL_NAMES).toContain(toolName);
       expect(messagingTools).toContain(`'${toolName}'`);
     }
 

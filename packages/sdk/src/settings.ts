@@ -81,11 +81,19 @@ export type RuntimeSettingsResponse = {
         enabled: boolean;
       };
     };
+    observer: {
+      enabled: boolean;
+      owner?: {
+        recipient: string;
+        conversation: string;
+      };
+    };
     runtime: {
       queue: {
         maxMessageRuns: number;
         maxJobRuns: number;
         maxMessageBacklog: number;
+        maxLiveAdmissionBacklog: number;
         maxTaskBacklog: number;
         maxRetries: number;
         baseRetryMs: number;

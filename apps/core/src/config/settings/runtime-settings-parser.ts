@@ -23,6 +23,8 @@ import {
   DEFAULT_AGENT_NAME,
   DEFAULT_AGENT_SESSION_MAX_MEMORY_CONTEXT_CHARS,
   DEFAULT_AGENT_SESSION_MEMORY_ITEM_LIMIT,
+  DEFAULT_LLM_GLOBAL_MAX_IN_FLIGHT,
+  DEFAULT_LLM_PER_APP_KEY_MAX_IN_FLIGHT,
   DEFAULT_MODEL_GATEWAY_BIND_HOST,
   DEFAULT_STORAGE_POSTGRES_SCHEMA,
   DEFAULT_STORAGE_POSTGRES_URL_ENV,
@@ -46,6 +48,7 @@ import { parseBrowserSettings } from './runtime-settings-browser-parser.js';
 import { parsePermissionSettings } from './runtime-settings-permissions-parser.js';
 import { parseLimitsSettings } from './runtime-settings-limits-parser.js';
 import { parseObservabilitySettings } from './runtime-settings-observability-parser.js';
+import { parseObserverSettings } from './runtime-settings-observer-parser.js';
 import { parseModelFamilies } from './runtime-settings-model-families-parser.js';
 import {
   modelAliasesToCatalogEntries,
@@ -598,6 +601,7 @@ function parseRuntimeProcessSettings(raw: unknown): RuntimeProcessSettings {
       maxMessageRuns: 3,
       maxJobRuns: 4,
       maxMessageBacklog: 0,
+      maxLiveAdmissionBacklog: 100,
       maxTaskBacklog: 0,
       maxRetries: 5,
       baseRetryMs: 5000,
@@ -605,6 +609,10 @@ function parseRuntimeProcessSettings(raw: unknown): RuntimeProcessSettings {
     },
     liveTurns: {
       enabled: true,
+    },
+    llmAdmission: {
+      globalMaxInFlight: DEFAULT_LLM_GLOBAL_MAX_IN_FLIGHT,
+      perAppKeyMaxInFlight: DEFAULT_LLM_PER_APP_KEY_MAX_IN_FLIGHT,
     },
     sandbox: getDefaultRuntimeSandboxSettings(),
     artifactStore: {
@@ -621,12 +629,13 @@ function parseRuntimeProcessSettings(raw: unknown): RuntimeProcessSettings {
     if (
       key !== 'queue' &&
       key !== 'live_turns' &&
+      key !== 'llm_admission' &&
       key !== 'sandbox' &&
       key !== 'artifact_store' &&
       key !== 'deployment_mode'
     ) {
       throw new Error(
-        `runtime.${key} is not supported. Configure runtime.queue.*, runtime.live_turns.*, runtime.sandbox.*, runtime.artifact_store.*, or runtime.deployment_mode.`,
+        `runtime.${key} is not supported. Configure runtime.queue.*, runtime.live_turns.*, runtime.llm_admission.*, runtime.sandbox.*, runtime.artifact_store.*, or runtime.deployment_mode.`,
       );
     }
   }
@@ -645,13 +654,14 @@ function parseRuntimeProcessSettings(raw: unknown): RuntimeProcessSettings {
       key !== 'max_message_runs' &&
       key !== 'max_job_runs' &&
       key !== 'max_message_backlog' &&
+      key !== 'max_live_admission_backlog' &&
       key !== 'max_task_backlog' &&
       key !== 'max_retries' &&
       key !== 'base_retry_ms' &&
       key !== 'drain_deadline_ms'
     ) {
       throw new Error(
-        `runtime.queue.${key} is not supported. Configure max_message_runs, max_job_runs, max_message_backlog, max_task_backlog, max_retries, base_retry_ms, or drain_deadline_ms.`,
+        `runtime.queue.${key} is not supported. Configure max_message_runs, max_job_runs, max_message_backlog, max_live_admission_backlog, max_task_backlog, max_retries, base_retry_ms, or drain_deadline_ms.`,
       );
     }
   }
@@ -669,6 +679,23 @@ function parseRuntimeProcessSettings(raw: unknown): RuntimeProcessSettings {
     if (key !== 'enabled') {
       throw new Error(
         `runtime.live_turns.${key} is not supported. Configure enabled.`,
+      );
+    }
+  }
+  const llmAdmissionRaw = map.llm_admission;
+  if (
+    llmAdmissionRaw !== undefined &&
+    (typeof llmAdmissionRaw !== 'object' ||
+      llmAdmissionRaw === null ||
+      Array.isArray(llmAdmissionRaw))
+  ) {
+    throw new Error('runtime.llm_admission must be a mapping');
+  }
+  const llmAdmission = (llmAdmissionRaw || {}) as Record<string, unknown>;
+  for (const key of Object.keys(llmAdmission)) {
+    if (key !== 'global_max_in_flight' && key !== 'per_app_key_max_in_flight') {
+      throw new Error(
+        `runtime.llm_admission.${key} is not supported. Configure global_max_in_flight or per_app_key_max_in_flight.`,
       );
     }
   }
@@ -744,6 +771,11 @@ function parseRuntimeProcessSettings(raw: unknown): RuntimeProcessSettings {
         'runtime.queue.max_message_backlog',
         defaults.queue.maxMessageBacklog,
       ),
+      maxLiveAdmissionBacklog: parsePositiveIntegerValue(
+        queue.max_live_admission_backlog,
+        'runtime.queue.max_live_admission_backlog',
+        defaults.queue.maxLiveAdmissionBacklog,
+      ),
       maxTaskBacklog: parseNonNegativeIntegerValue(
         queue.max_task_backlog,
         'runtime.queue.max_task_backlog',
@@ -770,6 +802,18 @@ function parseRuntimeProcessSettings(raw: unknown): RuntimeProcessSettings {
         liveTurns.enabled,
         'runtime.live_turns.enabled',
         defaults.liveTurns.enabled,
+      ),
+    },
+    llmAdmission: {
+      globalMaxInFlight: parsePositiveIntegerValue(
+        llmAdmission.global_max_in_flight,
+        'runtime.llm_admission.global_max_in_flight',
+        defaults.llmAdmission.globalMaxInFlight,
+      ),
+      perAppKeyMaxInFlight: parsePositiveIntegerValue(
+        llmAdmission.per_app_key_max_in_flight,
+        'runtime.llm_admission.per_app_key_max_in_flight',
+        defaults.llmAdmission.perAppKeyMaxInFlight,
       ),
     },
     sandbox: {
@@ -958,11 +1002,12 @@ export function parseRuntimeSettingsObject(
       key !== 'permissions' &&
       key !== 'limits' &&
       key !== 'observability' &&
+      key !== 'observer' &&
       key !== 'model_families' &&
       key !== 'model_aliases'
     ) {
       throw new Error(
-        `${key} is not supported. Supported root keys are defaults, desired_state, providers, provider_accounts, conversations, agents, storage, agent, model_access, memory, runtime, browser, permissions, limits, observability, model_families, and model_aliases.`,
+        `${key} is not supported. Supported root keys are defaults, desired_state, providers, provider_accounts, conversations, agents, storage, agent, model_access, memory, runtime, browser, permissions, limits, observability, observer, model_families, and model_aliases.`,
       );
     }
   }
@@ -1008,6 +1053,7 @@ export function parseRuntimeSettingsObject(
     const permissions = parsePermissionSettings(root.permissions);
     const limits = parseLimitsSettings(root.limits);
     const observability = parseObservabilitySettings(root.observability);
+    const observer = parseObserverSettings(root.observer);
 
     return {
       desiredState,
@@ -1026,6 +1072,7 @@ export function parseRuntimeSettingsObject(
       permissions,
       limits,
       observability,
+      observer,
       modelFamilies,
       modelAliases,
     };

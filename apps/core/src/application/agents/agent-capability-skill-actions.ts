@@ -1,6 +1,9 @@
 import type { AgentId } from '../../domain/agent/agent.js';
 import type { AppId } from '../../domain/app/app.js';
-import type { SkillCatalogRepository } from '../../domain/ports/repositories.js';
+import type {
+  AgentSkillAccessSnapshot,
+  SkillCatalogRepository,
+} from '../../domain/ports/repositories.js';
 import type {
   AgentSkillBinding,
   SkillCatalogItem,
@@ -51,6 +54,30 @@ export async function skillActionDefinitionsForBindings(input: {
     (skill): skill is SkillCatalogItem =>
       !!skill && skill.appId === input.appId && isSkillUsableForBinding(skill),
   );
+  return skillActionSemanticCapabilitiesForSkills(skills);
+}
+
+export function skillActionDefinitionsFromSnapshot(input: {
+  appId: AppId;
+  activeRows: AgentSkillAccessSnapshot['activeBindings'];
+}): Record<string, SemanticCapabilityDefinition> {
+  const seen = new Set<string>();
+  const skills: SkillCatalogItem[] = [];
+  for (const row of input.activeRows) {
+    const binding = row.binding;
+    if (binding.status !== 'active') continue;
+    const skill = row.definition;
+    if (
+      !skill ||
+      skill.appId !== input.appId ||
+      !isSkillUsableForBinding(skill) ||
+      seen.has(String(skill.id))
+    ) {
+      continue;
+    }
+    seen.add(String(skill.id));
+    skills.push(skill);
+  }
   return skillActionSemanticCapabilitiesForSkills(skills);
 }
 

@@ -125,10 +125,10 @@ contract exists.
   `RunnerSandboxSpawnInput`, emitted by `buildSandboxRuntimeConfig`
   (`runner-sandbox-provider.ts:226-267`; warm template currently pins
   `allowLocalBinding: false` at `:21-26,160-178`). SCOPE: this governs the
-  OUTER `sandbox_runtime` boundary ONLY. The direct Anthropic SDK sandbox
-  ALREADY sets `allowLocalBinding: true` for every SDK run
-  (`filesystem-sandbox.ts:68-91`) — do NOT restate "non-media runs keep it
-  false" as a global truth; the claim and its test are outer-srt-only.
+  OUTER `sandbox_runtime` boundary ONLY. `direct` has no inner SDK sandbox, so
+  local-binding sandbox configuration does not apply there; authorization plus
+  the deployment boundary remain its controls. Do NOT restate "non-media runs
+  keep it false" as a global truth; the claim and its test are outer-srt-only.
   `configd` mach lookup may be added globally (recorded as a deliberate
   read-only policy expansion) since it is benign for all Apple-networking
   binaries.
@@ -230,7 +230,7 @@ contract exists.
 
 ### Stage 4 — provider-neutral selected skill (durable desired-state write)
 
-- Install `media-render/SKILL.md` via `SkillService.installSkill`
+- Install the planned media-render skill manifest via `SkillService.installSkill`
   (`skill-service.ts:37-104`) — idempotent by materialization identity, writes
   the artifact, returns the AUTHORITATIVE generated `skill:<uuid>`. Both
   provider projections require selected durable ids
@@ -279,12 +279,12 @@ contract exists.
    (provisioner records the smoke result).
 2. **Direct-mode gate, owned by Stage 3, BEFORE selection/advertisement**: a
    real direct Anthropic-SDK agent renders a playable MP4 on this host before
-   the direct/Anthropic lane advertises the capability. The tree passes no
-   repo-owned mach-lookup list to the SDK sandbox, so the srt proof predicts
-   nothing here — until recorded, the direct lane is honest-unavailable while
-   srt stays available.
+   the direct/Anthropic lane advertises the capability. Direct has no inner SDK
+   sandbox, so this gate validates the direct toolchain and environment rather
+   than a Mach-lookup policy. The srt proof predicts nothing about that lane.
 3. A `sandbox_runtime` DeepAgents render is its own Stage-3 gate if that lane
-   is claimed; direct DeepAgents stays fail-closed (unchanged).
+   is claimed; direct DeepAgents must be separately proven before that lane is
+   advertised, but is not rejected merely for lacking an OS jail.
 
 ## Ponytail collision plan (validated against the live worktree)
 
