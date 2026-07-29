@@ -19,8 +19,15 @@ awaited metadata write + its 34-line queue handler die"
 Measurement at `98f40dce6` (signal `S-0001-f4d3`) shows the observation holds
 but the naive remedy does not.
 
-**The inbound path runs 28 SQL statements before admission wake** on the normal
-explicit-provider-account, no-thread, no-attachment route:
+**Persisting one inbound envelope costs 28 SQL statements** on the normal
+explicit-provider-account, no-thread, no-attachment route — metadata write,
+message graph write, participants, message and part, and admission enqueue,
+measured with the window held open until the persistence queue drains.
+
+(An earlier draft said "before admission wake". That boundary is not observed by
+the measurement, so the wording was corrected to name the quantity actually
+counted — the total persistence cost of one inbound message, which is what this
+phase reduces.)
 
 | Phase | Statements | Tables |
 | --- | ---: | --- |
@@ -72,8 +79,9 @@ and `isGroup` carried into it from the ingress envelope. The paired metadata
 invocation is then deleted, because its work is exactly what the surviving call
 now performs.
 
-Expected: **28 → 19 statements** on the measured route, a 32% reduction, plus
-one atomic visibility point instead of ten durability boundaries.
+Expected: **28 → 19 statements** to persist one inbound envelope on the measured
+route, a 32% reduction, plus one atomic visibility point instead of ten
+durability boundaries.
 
 **Explicitly out of scope, unchanged:**
 
