@@ -5355,25 +5355,58 @@ describe('createGroupProcessor', () => {
     // docs/decisions/0080-lat-3b-retain-authoritative-second-fetch.md first
     // and satisfy its three reopen conditions; do not delete this test.
     it('costs exactly one repository call for an ordinary queued turn', async () => {
+      // The backlog must EXCEED the prompt cap, and the fake must honour the
+      // `limit` argument. Otherwise the replay loop stops on "batch smaller
+      // than the page" for trivial reasons and the assertion below would hold
+      // under ANY configuration — pinning nothing.
+      //
+      // This suite's config mock (top of file) uses MAX_MESSAGES_PER_PROMPT 10
+      // and MESSAGE_FETCH_PAGE_SIZE 50 — the same cap-below-page relationship
+      // as the shipped 10/200, which is the property that matters.
+      //
+      // With 11 messages available, collectPendingMessagesSince asks for a
+      // page, gets 11, accepts 10, and returns immediately because the
+      // accepted slice is shorter than the batch
+      // (pending-message-replay.ts:66-68). One call.
+      //
+      // Verified sensitive: inverting the mock to cap 50 / page 5 makes this
+      // assertion fail with 3 calls instead of 1. That is the intended loud
+      // signal if decision 0080's one-statement premise ever expires, and it
+      // only works because the backlog is deep enough to page.
+      const backlog = Array.from({ length: 11 }, (_, index) =>
+        makeMessage({
+          id: `backlog-${index}`,
+          content: `backlog message ${index}`,
+          timestamp: `${1700000000 + index}`,
+        }),
+      );
       const group = makeGroup({ requiresTrigger: false });
-      const { deps } = setupHappyPath({
-        group,
-        messages: [
-          makeMessage({
-            id: 'execution-message',
-            content: 'ordinary queued turn',
-          }),
-        ],
-      });
+      const { deps } = setupHappyPath({ group });
+      let served = 0;
+      mockGetMessagesSince.mockImplementation(
+        async (
+          _jid: string,
+          _cursor: string,
+          limit?: number,
+        ): Promise<NewMessage[]> => {
+          const page = backlog.slice(
+            served,
+            served + (limit ?? backlog.length),
+          );
+          served += page.length;
+          return page;
+        },
+      );
 
       const { processGroupMessages } = createGroupProcessor(deps);
       await processGroupMessages('group1@g.us', { queued: true });
 
-      // One call is expected because MAX_MESSAGES_PER_PROMPT (10) is far
-      // below the shipped MESSAGE_FETCH_PAGE_SIZE (200), so replay returns
-      // after its first page. If that ratio ever inverts, this failing loudly
-      // is the intended signal, not test brittleness.
       expect(mockGetMessagesSince).toHaveBeenCalledTimes(1);
+      // Proves the fake actually honoured a page size big enough to expose
+      // paging, rather than accidentally returning a short batch.
+      expect(mockGetMessagesSince.mock.calls[0]?.[2]).toBeGreaterThan(
+        backlog.length,
+      );
       expect(mockSpawnAgent).toHaveBeenCalledOnce();
     });
 
