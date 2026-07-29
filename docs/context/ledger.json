@@ -5,11 +5,12 @@
       "added": "2026-07-22T11:07:16+00:00",
       "status": "harvested",
       "outputs": [
+        "docs/decisions/0002-symphony-forge-adoption.md",
         "docs/decisions/0003-early-stage-no-backcompat.md",
         "docs/decisions/0004-gantry-naming-and-public-repo.md"
       ],
-      "notes": "Re-mark after the file changed in #338. The delta is 8 lines only: an 'archived migration context / not a current contract' banner pointing readers at docs/architecture/capability-management.md, runtime-components.md and the accepted permission decisions. No new facts, decisions or requirements were introduced, so the original harvest (0003, 0004) still covers this file's content; the banner reinforces that its permission/classifier/YOLO/SDK-sandbox text is superseded.",
-      "marked_at": "2026-07-29T02:28:24+00:00",
+      "notes": "Re-staled by PR #338, which added only an archival banner marking this file as a superseded migration snapshot and pointing at docs/architecture/capability-management.md, runtime-components.md, and the accepted permission decisions. Its substance was already harvested into decisions 0002/0003/0004; the banner is itself the resolution, so there is no new decision to extract. Marked during LAT-3B because pending context blocks plan save; unrelated to that phase's scope.",
+      "marked_at": "2026-07-29T03:56:07+00:00",
       "updated": "2026-07-28T19:09:02+00:00"
     },
     "migrated-CLAUDE.md": {

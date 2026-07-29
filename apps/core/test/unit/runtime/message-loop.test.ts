@@ -10,10 +10,29 @@ const mockIsSenderControlAllowed = vi.fn();
 const mockIsTriggerAllowed = vi.fn();
 const mockExtractSessionCommand = vi.fn();
 const mockIsSessionCommandAllowed = vi.fn();
+const mockHandleSessionCommand = vi.fn();
 const mockFormatMessages = vi.fn();
+const mockFormatConversationContextMessages = vi.fn();
+const mockFormatOutboundForChannel = vi.fn();
+const mockIsSenderAllowed = vi.fn();
+const mockShouldDropMessage = vi.fn();
+const mockShouldLogDenied = vi.fn();
+const mockRunGroupAgent = vi.fn();
 
 vi.mock('@core/config/index.js', () => ({
+  ASSISTANT_NAME: 'Andy',
+  IDLE_TIMEOUT: 1_800_000,
+  MEMORY_MAINTENANCE_MAX_PENDING: 5_000,
   getTriggerPattern: (...args: unknown[]) => mockGetTriggerPattern(...args),
+  getRuntimeSettingsForConfig: () => ({
+    memory: {
+      enabled: true,
+      embeddings: { enabled: false, provider: 'disabled' },
+    },
+  }),
+  getDefaultModelConfig: () => ({ model: undefined }),
+  getSelectedAgentHarness: () => 'auto',
+  getSelectedAgentPermissionMode: () => 'ask',
   MAX_MESSAGES_PER_PROMPT: 10,
   MESSAGE_FETCH_PAGE_SIZE: 50,
   TIMEZONE: 'UTC',
@@ -27,22 +46,39 @@ vi.mock('@core/platform/sender-allowlist.js', () => ({
   isSenderControlAllowed: (...args: unknown[]) =>
     mockIsSenderControlAllowed(...args),
   isTriggerAllowed: (...args: unknown[]) => mockIsTriggerAllowed(...args),
+  isSenderAllowed: (...args: unknown[]) => mockIsSenderAllowed(...args),
+  shouldDropMessage: (...args: unknown[]) => mockShouldDropMessage(...args),
+  shouldLogDenied: (...args: unknown[]) => mockShouldLogDenied(...args),
 }));
 vi.mock('@core/session/session-commands.js', () => ({
   extractSessionCommand: (...args: unknown[]) =>
     mockExtractSessionCommand(...args),
   isSessionCommandAllowed: (...args: unknown[]) =>
     mockIsSessionCommandAllowed(...args),
+  handleSessionCommand: (...args: unknown[]) =>
+    mockHandleSessionCommand(...args),
 }));
 vi.mock('@core/messaging/router.js', () => ({
   formatMessages: (...args: unknown[]) => mockFormatMessages(...args),
+  formatConversationContextMessages: (...args: unknown[]) =>
+    mockFormatConversationContextMessages(...args),
+  formatOutboundForChannel: (...args: unknown[]) =>
+    mockFormatOutboundForChannel(...args),
 }));
 vi.mock('@core/infrastructure/logging/logger.js', () => ({
   logger: {
     debug: vi.fn(),
     info: vi.fn(),
     warn: vi.fn(),
+    error: vi.fn(),
+    updateLogContext: vi.fn(),
   },
+  redactString: (value: string) => value,
+  withLogContext: (_context: unknown, callback: () => unknown) => callback(),
+  updateLogContext: vi.fn(),
+}));
+vi.mock('@core/runtime/group-agent-runner.js', () => ({
+  createGroupAgentRunner: () => mockRunGroupAgent,
 }));
 
 import {
@@ -50,6 +86,7 @@ import {
   processLiveAdmissionWorkItem,
   recoverPendingMessages,
 } from '@core/runtime/message-loop.js';
+import type { GroupProcessingDeps } from '@core/runtime/group-processing-types.js';
 import { logger } from '@core/infrastructure/logging/logger.js';
 import {
   decodeGroupMessageCursor,
@@ -59,6 +96,9 @@ import {
 import { makeAgentThreadQueueKey } from '@core/shared/thread-queue-key.js';
 import { ConversationRoute } from '@core/domain/types.js';
 import type { LiveAdmissionWorkItem } from '@core/domain/ports/live-turns.js';
+
+const { createGroupProcessor } =
+  await import('@core/runtime/group-processing.js');
 
 function makeDeps(overrides: Partial<MessageLoopDeps> = {}): MessageLoopDeps & {
   enqueued: string[];
@@ -198,9 +238,16 @@ beforeEach(() => {
   mockIsSenderExplicitlyAllowed.mockReturnValue(false);
   mockIsSenderControlAllowed.mockReturnValue(false);
   mockIsTriggerAllowed.mockReturnValue(true);
+  mockIsSenderAllowed.mockReturnValue(true);
+  mockShouldDropMessage.mockReturnValue(false);
+  mockShouldLogDenied.mockReturnValue(true);
   mockExtractSessionCommand.mockReturnValue(null);
   mockIsSessionCommandAllowed.mockReturnValue(false);
+  mockHandleSessionCommand.mockResolvedValue({ handled: false });
   mockFormatMessages.mockReturnValue('formatted messages');
+  mockFormatConversationContextMessages.mockReturnValue('formatted messages');
+  mockFormatOutboundForChannel.mockImplementation((raw: string) => raw);
+  mockRunGroupAgent.mockResolvedValue('success');
 });
 
 afterEach(() => {
@@ -601,6 +648,131 @@ describe('recoverPendingMessages', () => {
 
     expect(mockGetMessagesSince).toHaveBeenCalledOnce();
     expect(deps.enqueued).toEqual([threadRouteKey]);
+  });
+});
+
+// =======================================================================
+// Decision 0080: authoritative second pending-message fetch
+// =======================================================================
+
+describe('decision 0080 authoritative second pending-message fetch', () => {
+  // If you are here to "optimise away the double fetch", read
+  // docs/decisions/0080-lat-3b-retain-authoritative-second-fetch.md first
+  // and satisfy its three reopen conditions; do not delete this test.
+  //
+  // Under replay reuse the queued run would skip its production fetch, so
+  // midTurn would be silently dropped even though the cursor stayed unchanged.
+  it('admission and the queued run each fetch, and the later read is what feeds the turn', async () => {
+    const sinceCursor = 'unchanged-cursor';
+    const earlier = {
+      ...makePendingMessage(1),
+      content: 'present at admission',
+    };
+    const midTurn = {
+      ...makePendingMessage(2),
+      content: 'distinctive mid-turn arrival',
+    };
+    mockGetMessagesSince
+      .mockResolvedValueOnce([earlier])
+      .mockResolvedValueOnce([earlier, midTurn]);
+
+    const group = {
+      name: 'Team',
+      folder: 'team',
+      trigger: '@Andy',
+      added_at: '2024-01-01T00:00:00.000Z',
+      requiresTrigger: false,
+    };
+    const groupDeps = {
+      channelRuntime: {
+        hasChannel: vi.fn().mockReturnValue(true),
+        supportsStreaming: vi.fn().mockReturnValue(false),
+        supportsProgress: vi.fn().mockReturnValue(false),
+        sendMessage: vi.fn().mockResolvedValue(undefined),
+        sendStreamingChunk: vi.fn().mockResolvedValue(false),
+        resetStreaming: vi.fn(),
+        setTyping: vi.fn().mockResolvedValue(undefined),
+        sendProgressUpdate: vi.fn().mockResolvedValue(undefined),
+      },
+      getConversationRoutes: vi.fn().mockReturnValue({
+        'group@g.us': group,
+      }),
+      getGroup: vi.fn().mockReturnValue(group),
+      clearSession: vi.fn(),
+      getCursor: vi.fn().mockReturnValue(sinceCursor),
+      setCursor: vi.fn(),
+      saveState: vi.fn(),
+      setGroupModelOverride: vi.fn(),
+      setGroupThinkingOverride: vi.fn(),
+      setGroupPermissionModeOverride: vi.fn(),
+      getAvailableGroups: vi.fn().mockReturnValue([]),
+      getRegisteredJids: vi.fn().mockReturnValue(new Set<string>()),
+      opsRepository: {
+        getAllJobs: vi.fn().mockReturnValue([]),
+        getMessagesSince: (...args: unknown[]) => mockGetMessagesSince(...args),
+        getRecentJobRuns: vi.fn().mockReturnValue([]),
+        listRecentJobEvents: vi.fn().mockReturnValue([]),
+        getAllChats: vi.fn().mockResolvedValue([]),
+        storeMessage: vi.fn().mockResolvedValue(undefined),
+        getRecentTopLevelMessagesBefore: vi.fn().mockResolvedValue([]),
+        getFirstThreadMessages: vi.fn().mockResolvedValue([]),
+        getLatestThreadMessages: vi.fn().mockResolvedValue([]),
+        expireProviderSession: vi.fn(),
+        setSession: vi.fn(),
+        updateAgentRunProviderMetadata: vi.fn().mockResolvedValue(undefined),
+      },
+      queue: {
+        enqueueMessageCheck: vi.fn(),
+        closeStdin: vi.fn(),
+        notifyIdle: vi.fn(),
+        registerProcess: vi.fn(),
+      },
+      runnerSandboxProvider: {
+        id: 'direct' as const,
+        enforcing: false,
+        start: vi.fn(),
+      },
+      getSelectedAgentHarness: vi.fn(() => 'auto' as const),
+    } as unknown as GroupProcessingDeps;
+    mockFormatConversationContextMessages.mockImplementation(
+      ({ currentMessages }) =>
+        (currentMessages as Array<{ content: string }>)
+          .map((message) => message.content)
+          .join(' | '),
+    );
+
+    const { processGroupMessages } = createGroupProcessor(groupDeps);
+    let queuedRun: Promise<boolean> | undefined;
+    const enqueueMessageCheck = vi.fn((queueJid: string) => {
+      queuedRun = processGroupMessages(queueJid, { queued: true });
+      return true;
+    });
+    const admissionDeps = makeDeps({
+      getOrRecoverCursor: () => sinceCursor,
+      queue: {
+        sendMessage: vi.fn(() => false),
+        enqueueMessageCheck,
+        closeStdin: vi.fn(),
+      },
+    });
+
+    await expect(
+      processLiveAdmissionWorkItem(admissionDeps, makeAdmissionItem()),
+    ).resolves.toBe('completed');
+    expect(enqueueMessageCheck).toHaveBeenCalledOnce();
+    expect(enqueueMessageCheck).toHaveBeenCalledWith('group@g.us');
+    expect(queuedRun).toBeDefined();
+    await queuedRun;
+
+    expect(mockGetMessagesSince).toHaveBeenCalledTimes(2);
+    expect(mockGetMessagesSince.mock.calls.map((call) => call[1])).toEqual([
+      sinceCursor,
+      sinceCursor,
+    ]);
+    expect(mockRunGroupAgent).toHaveBeenCalledOnce();
+    expect(mockRunGroupAgent.mock.calls[0]?.[1]).toBe(
+      'present at admission | distinctive mid-turn arrival',
+    );
   });
 });
 
