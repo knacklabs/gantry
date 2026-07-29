@@ -86,6 +86,17 @@ export function buildLiveTurnBrowserFinalizer(deps: {
         | undefined;
       const profile = getProfile(profileName);
       if (!profile) return;
+      // No provenance means we cannot say which ownership epoch produced these
+      // bytes. Publishing anyway would collapse "unknown" into generation 0,
+      // which the repository ACCEPTS while the durable counter is still 0 —
+      // letting a stale pre-upgrade directory overwrite a real snapshot.
+      if (closed?.leaseGeneration === undefined) {
+        deps.warn(
+          { queueJid: input.queueJid, profileName },
+          'Skipped live-turn browser snapshot: no lease generation provenance',
+        );
+        return;
+      }
       await snapshotBrowserProfile({
         profileName,
         profileDir: profile.dir,
