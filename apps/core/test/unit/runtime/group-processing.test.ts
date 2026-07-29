@@ -5347,6 +5347,131 @@ describe('createGroupProcessor', () => {
   });
 
   // =======================================================================
+  // Decision 0080: authoritative second pending-message fetch
+  // =======================================================================
+
+  describe('decision 0080 authoritative second pending-message fetch', () => {
+    // This suite mocks @core/config, so the behavioural test below runs against
+    // mocked limits. That alone would leave decision 0080's premise pinned to a
+    // fixture rather than to production. This check closes that gap by reading
+    // the REAL module: the shipped cap must stay below the shipped page size,
+    // which is the property that makes the second fetch a single statement.
+    //
+    // If someone raises MAX_MESSAGES_PER_PROMPT to or past
+    // MESSAGE_FETCH_PAGE_SIZE, the replay starts paging, the "one repository
+    // call" premise expires, and decision 0080 must be revisited. This fails
+    // then — against shipped values, not mocked ones.
+    it('keeps the shipped prompt cap below the shipped page size', async () => {
+      const realConfig = await vi.importActual<
+        typeof import('@core/config/index.js')
+      >('@core/config/index.js');
+
+      expect(realConfig.MAX_MESSAGES_PER_PROMPT).toBeLessThan(
+        realConfig.MESSAGE_FETCH_PAGE_SIZE,
+      );
+    });
+
+    // If you are here to "optimise away the double fetch", read
+    // docs/decisions/0080-lat-3b-retain-authoritative-second-fetch.md first
+    // and satisfy its three reopen conditions; do not delete this test.
+    it('costs exactly one repository call for an ordinary queued turn', async () => {
+      // The backlog must EXCEED the prompt cap, and the fake must honour the
+      // `limit` argument. Otherwise the replay loop stops on "batch smaller
+      // than the page" for trivial reasons and the assertion below would hold
+      // under ANY configuration — pinning nothing.
+      //
+      // This suite's config mock (top of file) uses MAX_MESSAGES_PER_PROMPT 10
+      // and MESSAGE_FETCH_PAGE_SIZE 50 — the same cap-below-page relationship
+      // as the shipped 10/200, which is the property that matters.
+      //
+      // With 11 messages available, collectPendingMessagesSince asks for a
+      // page, gets 11, accepts 10, and returns immediately because the
+      // accepted slice is shorter than the batch
+      // (pending-message-replay.ts:66-68). One call.
+      //
+      // Verified sensitive: inverting the mock to cap 50 / page 5 makes this
+      // assertion fail with 3 calls instead of 1. That is the intended loud
+      // signal if decision 0080's one-statement premise ever expires, and it
+      // only works because the backlog is deep enough to page.
+      const backlog = Array.from({ length: 11 }, (_, index) =>
+        makeMessage({
+          id: `backlog-${index}`,
+          content: `backlog message ${index}`,
+          timestamp: `${1700000000 + index}`,
+        }),
+      );
+      const group = makeGroup({ requiresTrigger: false });
+      const { deps } = setupHappyPath({ group });
+      let served = 0;
+      mockGetMessagesSince.mockImplementation(
+        async (
+          _jid: string,
+          _cursor: string,
+          limit?: number,
+        ): Promise<NewMessage[]> => {
+          const page = backlog.slice(
+            served,
+            served + (limit ?? backlog.length),
+          );
+          served += page.length;
+          return page;
+        },
+      );
+
+      const { processGroupMessages } = createGroupProcessor(deps);
+      await processGroupMessages('group1@g.us', { queued: true });
+
+      expect(mockGetMessagesSince).toHaveBeenCalledTimes(1);
+      // Proves the fake actually honoured a page size big enough to expose
+      // paging, rather than accidentally returning a short batch.
+      expect(mockGetMessagesSince.mock.calls[0]?.[2]).toBeGreaterThan(
+        backlog.length,
+      );
+      expect(mockSpawnAgent).toHaveBeenCalledOnce();
+    });
+
+    // If you are here to "optimise away the double fetch", read
+    // docs/decisions/0080-lat-3b-retain-authoritative-second-fetch.md first
+    // and satisfy its three reopen conditions; do not delete this test.
+    // SCOPE NOTE: this suite can only observe the GROUP PROCESSOR's fetch.
+    // Admission's earlier fetch lives in message-loop.ts:505-518 and is covered
+    // by message-loop.test.ts. Asserting "two fetches happened" from here would
+    // require the test to call the repository itself and then count its own
+    // call — arithmetic on the fixture, not evidence about production. So this
+    // suite proves the half it can actually see: the processor reads
+    // independently, at execution time.
+    it('issues its own read at execution time using the queue cursor', async () => {
+      const executionMessage = makeMessage({
+        id: 'execution-only',
+        content: 'group processor authoritative body',
+        timestamp: '1700000002',
+      });
+      const group = makeGroup({ requiresTrigger: false });
+      const { deps } = setupHappyPath({ group });
+      deps.getCursor = vi.fn().mockReturnValue('cursor-before');
+      mockGetMessagesSince.mockResolvedValue([executionMessage]);
+      mockFormatConversationContextMessages.mockImplementation(
+        ({ currentMessages }: { currentMessages: NewMessage[] }) =>
+          currentMessages.map((message) => message.content).join(' | '),
+      );
+
+      const { processGroupMessages } = createGroupProcessor(deps);
+      await processGroupMessages('group1@g.us', { queued: true });
+
+      // It reads the cursor itself and fetches from it, rather than consuming a
+      // snapshot handed to it. That independence is what decision 0080 keeps.
+      expect(deps.getCursor).toHaveBeenCalled();
+      expect(mockGetMessagesSince.mock.calls[0]?.[1]).toBe('cursor-before');
+      expect(mockSpawnAgent.mock.calls[0][1]).toMatchObject({
+        prompt: 'group processor authoritative body',
+      });
+    });
+
+    // The real unchanged-cursor mid-turn tripwire lives in message-loop.test.ts,
+    // where admission and the queued group run both execute their production reads.
+  });
+
+  // =======================================================================
   // Integration: cursor management end-to-end
   // =======================================================================
 
