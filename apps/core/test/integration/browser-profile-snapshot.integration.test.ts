@@ -421,7 +421,12 @@ maybeDescribe('Browser profile snapshot store (0079)', () => {
           'number',
         );
         expect(typeof successor.snapshot.snapshottedAt).toBe('string');
-        expect(successor.snapshot.snapshottedAt).toContain('T');
+        // Both paths must agree on format; the repo stores Postgres text form.
+        const readBack = await repo.getBrowserProfileSnapshot(profileName);
+        expect(successor.snapshot.snapshottedAt).toBe(readBack?.snapshottedAt);
+        expect(new Date(successor.snapshot.snapshottedAt).toISOString()).toBe(
+          '2026-06-13T01:00:00.000Z',
+        );
         expect(typeof successor.snapshot.createdAt).toBe('string');
       }
       expect(
