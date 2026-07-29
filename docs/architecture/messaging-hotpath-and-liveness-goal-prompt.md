@@ -310,8 +310,7 @@ provide that fence cheaply, retain the authoritative second fetch. A3 should be
 split from this cycle unless that cursor contract is designed and tested.
 
 **RESOLVED 2026-07-29 by decision
-`0080-lat-3b-retain-authoritative-second-fetch` (`status: proposed` — acceptance
-is a human gate, so this resolution is provisional until accepted). The
+`0080-lat-3b-retain-authoritative-second-fetch` (accepted). The
 conditional above resolves to "retain the authoritative second fetch". Do not
 implement A3.**
 
