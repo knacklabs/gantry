@@ -10,6 +10,8 @@ import type {
   ExecutionProviderId,
   ProviderSessionId,
 } from '@core/domain/sessions/sessions.js';
+import { _setRuntimeStorageForTest } from '@core/adapters/storage/postgres/runtime-store.js';
+import { AppMemoryService } from '@core/memory/app-memory-service.js';
 
 import {
   createPostgresIntegrationRuntime,
@@ -69,9 +71,12 @@ maybeDescribe('Postgres memory continuity', () => {
     runtime = await createPostgresIntegrationRuntime({
       schemaPrefix: 'session_continuity',
     });
+    _setRuntimeStorageForTest(runtime.storageRuntime);
+    AppMemoryService.resetForTest();
   }, 60_000);
 
   afterAll(async () => {
+    AppMemoryService.resetForTest();
     await runtime.cleanup();
   });
 
@@ -271,6 +276,87 @@ maybeDescribe('Postgres memory continuity', () => {
         }),
       }),
     });
+  });
+
+  it('hydrates identical non-empty memory before and during provider-session promotion', async () => {
+    const workspaceFolder = 'group-session-memory-promotion';
+    const chatJid = 'tg:group-session-memory-promotion';
+    const sessionId = 'provider-session:test:memory-promotion';
+    const memoryMarker = 'LAT-3A promotion invariant memory item';
+
+    await runtime.sessionOps.setSession(workspaceFolder, sessionId, null, {
+      executionProviderId: TEST_EXECUTION_PROVIDER_ID,
+      chatJid,
+      conversationKind: 'channel',
+    });
+    const active = await runtime.ops.getAgentTurnContext({
+      agentFolder: workspaceFolder,
+      executionProviderId: TEST_EXECUTION_PROVIDER_ID,
+      conversationJid: chatJid,
+      conversationKind: 'channel',
+      threadId: null,
+      hydrateMemory: false,
+    });
+    await expect(
+      runtime.sessionOps.markProviderSessionMaintenance({
+        providerSessionId: sessionId,
+        agentSessionId: active.agentSessionId,
+        provider: TEST_EXECUTION_PROVIDER_ID,
+        externalSessionId: sessionId,
+        compactionBaseCursor: 'cursor:memory-promotion',
+      }),
+    ).resolves.toBe(true);
+    await runtime.sessionOps.finishProviderSessionMaintenance({
+      providerSessionId: sessionId,
+      agentSessionId: active.agentSessionId,
+      provider: TEST_EXECUTION_PROVIDER_ID,
+      externalSessionId: sessionId,
+      status: 'ready',
+    });
+
+    const savedMemory = await AppMemoryService.getInstance().save({
+      appId: active.appId,
+      agentId: active.agentId,
+      groupId: workspaceFolder,
+      channelId: `conversation:${chatJid}`,
+      subjectType: 'channel',
+      kind: 'fact',
+      key: 'lat-3a-promotion-invariant',
+      value: memoryMarker,
+      source: 'session-continuity-integration-test',
+      confidence: 1,
+    });
+    expect(savedMemory.value).toBe(memoryMarker);
+
+    const nonPromoted = await runtime.ops.getAgentTurnContext({
+      agentFolder: workspaceFolder,
+      executionProviderId: TEST_EXECUTION_PROVIDER_ID,
+      conversationJid: chatJid,
+      conversationKind: 'channel',
+      threadId: null,
+      hydrateMemory: true,
+      hydrationMode: 'full',
+      promoteReadyProviderSession: false,
+    });
+    const promoted = await runtime.ops.getAgentTurnContext({
+      agentFolder: workspaceFolder,
+      executionProviderId: TEST_EXECUTION_PROVIDER_ID,
+      conversationJid: chatJid,
+      conversationKind: 'channel',
+      threadId: null,
+      hydrateMemory: true,
+      hydrationMode: 'full',
+      promoteReadyProviderSession: true,
+    });
+
+    expect(nonPromoted.agentSessionId).toBe(active.agentSessionId);
+    expect(promoted.agentSessionId).toBe(active.agentSessionId);
+    expect(
+      nonPromoted.memoryContextBlock?.trim(),
+      'the fixture must exercise real memory_items recall',
+    ).toBeTruthy();
+    expect(nonPromoted.memoryContextBlock).toContain(memoryMarker);
+    expect(promoted.memoryContextBlock).toBe(nonPromoted.memoryContextBlock);
   });
 
   it('releases stale maintenance compact locks before turn context and head writes', async () => {
