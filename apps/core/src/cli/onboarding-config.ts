@@ -312,7 +312,7 @@ function buildOnboardingSettings(input: {
               bot_token: gantryRuntimeSecretRef(
                 runtimeSecretNameForAgent(
                   'telegram',
-                  settings.agent.name,
+                  DEFAULT_AGENT_FOLDER,
                   'BOT_TOKEN',
                 ),
               ),
@@ -342,14 +342,14 @@ function buildOnboardingSettings(input: {
               bot_token: gantryRuntimeSecretRef(
                 runtimeSecretNameForAgent(
                   'slack',
-                  settings.agent.name,
+                  DEFAULT_AGENT_FOLDER,
                   'BOT_TOKEN',
                 ),
               ),
               app_token: gantryRuntimeSecretRef(
                 runtimeSecretNameForAgent(
                   'slack',
-                  settings.agent.name,
+                  DEFAULT_AGENT_FOLDER,
                   'APP_TOKEN',
                 ),
               ),
@@ -387,7 +387,7 @@ async function storeOnboardingRuntimeSecrets(
       runtimeHome: input.runtimeHome,
       name: runtimeSecretNameForAgent(
         'telegram',
-        runtimeSettings.agent.name,
+        DEFAULT_AGENT_FOLDER,
         'BOT_TOKEN',
       ),
       value: input.telegramBotToken.trim(),
@@ -402,7 +402,7 @@ async function storeOnboardingRuntimeSecrets(
         runtimeHome: input.runtimeHome,
         name: runtimeSecretNameForAgent(
           'slack',
-          runtimeSettings.agent.name,
+          DEFAULT_AGENT_FOLDER,
           'BOT_TOKEN',
         ),
         value: input.slackBotToken.trim(),
@@ -413,7 +413,7 @@ async function storeOnboardingRuntimeSecrets(
         runtimeHome: input.runtimeHome,
         name: runtimeSecretNameForAgent(
           'slack',
-          runtimeSettings.agent.name,
+          DEFAULT_AGENT_FOLDER,
           'APP_TOKEN',
         ),
         value: input.slackAppToken.trim(),

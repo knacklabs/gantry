@@ -10,8 +10,29 @@ import {
   loadRuntimeSettings,
   saveRuntimeSettings,
 } from '@core/config/settings/runtime-settings.js';
+import { runtimeSecretNameForAgent } from '@core/domain/provider/provider-runtime-secret-keys.js';
 
 const groupsStore = vi.hoisted(() => new Map<string, any>());
+const defaultDiscordBotSecretName = runtimeSecretNameForAgent(
+  'discord',
+  'main_agent',
+  'BOT_TOKEN',
+);
+const defaultDiscordApplicationSecretName = runtimeSecretNameForAgent(
+  'discord',
+  'main_agent',
+  'APPLICATION_ID',
+);
+const test2DiscordBotSecretName = runtimeSecretNameForAgent(
+  'discord',
+  'test2',
+  'BOT_TOKEN',
+);
+const test2DiscordApplicationSecretName = runtimeSecretNameForAgent(
+  'discord',
+  'test2',
+  'APPLICATION_ID',
+);
 
 vi.mock('@core/cli/runtime-group-db.js', () => ({
   openRuntimeGroupDb: async () => ({
@@ -119,13 +140,13 @@ describe('cli discord helpers', () => {
     expect(code).toBe(0);
     expect(storeRuntimeSecretInput).toHaveBeenCalledWith({
       runtimeHome,
-      name: 'DEFAULT_AGENT_DISCORD_BOT_TOKEN',
+      name: defaultDiscordBotSecretName,
       value: 'discord-token',
       actor: 'cli:discord-connect',
     });
     expect(storeRuntimeSecretInput).toHaveBeenCalledWith({
       runtimeHome,
-      name: 'DEFAULT_AGENT_DISCORD_APPLICATION_ID',
+      name: defaultDiscordApplicationSecretName,
       value: '123456789',
       actor: 'cli:discord-connect',
     });
@@ -137,8 +158,8 @@ describe('cli discord helpers', () => {
     expect(settings.providerAccounts.discord_default).toMatchObject({
       provider: 'discord',
       runtimeSecretRefs: {
-        bot_token: 'gantry-secret:DEFAULT_AGENT_DISCORD_BOT_TOKEN',
-        application_id: 'gantry-secret:DEFAULT_AGENT_DISCORD_APPLICATION_ID',
+        bot_token: `gantry-secret:${defaultDiscordBotSecretName}`,
+        application_id: `gantry-secret:${defaultDiscordApplicationSecretName}`,
       },
     });
   });
@@ -210,8 +231,8 @@ describe('cli discord helpers', () => {
       provider: 'discord',
       label: 'Discord Default',
       runtimeSecretRefs: {
-        bot_token: 'gantry-secret:DEFAULT_AGENT_DISCORD_BOT_TOKEN',
-        application_id: 'gantry-secret:DEFAULT_AGENT_DISCORD_APPLICATION_ID',
+        bot_token: `gantry-secret:${defaultDiscordBotSecretName}`,
+        application_id: `gantry-secret:${defaultDiscordApplicationSecretName}`,
       },
     };
     saveRuntimeSettings(runtimeHome, existingSettings);
@@ -233,7 +254,7 @@ describe('cli discord helpers', () => {
     );
     expect(storeRuntimeSecretInput).toHaveBeenCalledWith({
       runtimeHome,
-      name: 'TEST_2_DISCORD_BOT_TOKEN',
+      name: test2DiscordBotSecretName,
       value: 'discord-token',
       actor: 'cli:discord-connect',
     });
@@ -244,8 +265,8 @@ describe('cli discord helpers', () => {
       loadRuntimeSettings(runtimeHome).providerAccounts.discord_test2
         .runtimeSecretRefs,
     ).toEqual({
-      bot_token: 'gantry-secret:TEST_2_DISCORD_BOT_TOKEN',
-      application_id: 'gantry-secret:TEST_2_DISCORD_APPLICATION_ID',
+      bot_token: `gantry-secret:${test2DiscordBotSecretName}`,
+      application_id: `gantry-secret:${test2DiscordApplicationSecretName}`,
     });
   });
 });

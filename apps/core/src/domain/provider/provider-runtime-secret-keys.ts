@@ -37,17 +37,17 @@ export function runtimeSecretNameForProviderAccount(
 
 export function runtimeSecretNameForAgent(
   providerId: string,
-  agentName: string,
+  agentId: string,
   key: string,
 ): string {
-  const normalized = agentName
+  const normalized = agentId
     .trim()
     .toUpperCase()
     .replace(/[^A-Z0-9]+/g, '_')
     .replace(/^_+|_+$/g, '');
   if (!normalized) {
     throw new Error(
-      `A non-empty ${providerId.trim() || 'provider'} agent name is required for credential naming.`,
+      `A non-empty ${providerId.trim() || 'provider'} agent id is required for credential naming.`,
     );
   }
   const provider = providerEnvPrefix(providerId);
@@ -61,7 +61,18 @@ export function runtimeSecretNameForAgent(
       'A non-empty provider and credential key are required for credential naming.',
     );
   }
-  return `${normalized}_${provider}_${suffix}`.slice(0, 128);
+  const digest = sha256Hex(`${providerId}\u0000${agentId}\u0000${key}`)
+    .slice(0, 10)
+    .toUpperCase();
+  const tail = `_${provider}_${digest}_${suffix}`;
+  if (tail.length >= 128) {
+    throw new Error(
+      'Provider and credential key are too long for a runtime secret name.',
+    );
+  }
+  const owner =
+    normalized.slice(0, 128 - tail.length).replace(/_+$/g, '') || 'AGENT';
+  return `${owner}${tail}`;
 }
 
 export function runtimeSecretKeyForEnv(

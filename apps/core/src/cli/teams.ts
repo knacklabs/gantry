@@ -246,8 +246,7 @@ export async function runTeamsConnectCommand(
 ): Promise<number> {
   ensureRuntimeLayout(runtimeHome);
   const requestedAgentDisplayName = requestedAgentName?.trim();
-  const credentialOwnerName =
-    requestedAgentDisplayName || loadRuntimeSettings(runtimeHome).agent.name;
+  const credentialOwnerId = requestedAgentId?.trim() || DEFAULT_AGENT_FOLDER;
   p.note(
     [
       'Create or reuse a Microsoft Entra app for Teams Graph discovery.',
@@ -302,7 +301,7 @@ export async function runTeamsConnectCommand(
 
   const clientIdSecret = await planRuntimeSecretInput({
     runtimeHome,
-    name: runtimeSecretNameForAgent('teams', credentialOwnerName, 'CLIENT_ID'),
+    name: runtimeSecretNameForAgent('teams', credentialOwnerId, 'CLIENT_ID'),
     value: credentials.clientId,
     actor: 'cli:teams-connect',
     label: 'Teams client ID',
@@ -315,7 +314,7 @@ export async function runTeamsConnectCommand(
     runtimeHome,
     name: runtimeSecretNameForAgent(
       'teams',
-      credentialOwnerName,
+      credentialOwnerId,
       'CLIENT_SECRET',
     ),
     value: credentials.clientSecret,
@@ -328,7 +327,7 @@ export async function runTeamsConnectCommand(
   }
   const tenantIdSecret = await planRuntimeSecretInput({
     runtimeHome,
-    name: runtimeSecretNameForAgent('teams', credentialOwnerName, 'TENANT_ID'),
+    name: runtimeSecretNameForAgent('teams', credentialOwnerId, 'TENANT_ID'),
     value: credentials.tenantId,
     actor: 'cli:teams-connect',
     label: 'Teams tenant ID',

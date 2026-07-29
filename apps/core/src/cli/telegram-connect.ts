@@ -195,8 +195,7 @@ export async function runTelegramConnectCommand(
 ): Promise<number> {
   ensureRuntimeLayout(runtimeHome);
   const requestedAgentDisplayName = requestedAgentName?.trim();
-  const credentialOwnerName =
-    requestedAgentDisplayName || loadRuntimeSettings(runtimeHome).agent.name;
+  const credentialOwnerId = requestedAgentId?.trim() || DEFAULT_AGENT_FOLDER;
   const env = readTelegramFromRuntimeEnv(runtimeHome);
   p.note(
     [
@@ -224,11 +223,7 @@ export async function runTelegramConnectCommand(
 
   const tokenSecret = await planRuntimeSecretInput({
     runtimeHome,
-    name: runtimeSecretNameForAgent(
-      'telegram',
-      credentialOwnerName,
-      'BOT_TOKEN',
-    ),
+    name: runtimeSecretNameForAgent('telegram', credentialOwnerId, 'BOT_TOKEN'),
     value: tokenInput,
     actor: 'cli:telegram-connect',
     label: 'Telegram bot token',

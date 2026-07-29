@@ -480,8 +480,7 @@ export async function runSlackConnectCommand(
 ): Promise<number> {
   ensureRuntimeLayout(runtimeHome);
   const requestedAgentDisplayName = requestedAgentName?.trim();
-  const credentialOwnerName =
-    requestedAgentDisplayName || loadRuntimeSettings(runtimeHome).agent.name;
+  const credentialOwnerId = requestedAgentId?.trim() || DEFAULT_AGENT_FOLDER;
   const env = readEnvFile(envFilePath(runtimeHome));
   p.note(
     [
@@ -537,7 +536,7 @@ export async function runSlackConnectCommand(
 
   const botSecret = await planRuntimeSecretInput({
     runtimeHome,
-    name: runtimeSecretNameForAgent('slack', credentialOwnerName, 'BOT_TOKEN'),
+    name: runtimeSecretNameForAgent('slack', credentialOwnerId, 'BOT_TOKEN'),
     value: botTokenInput,
     actor: 'cli:slack-connect',
     label: 'Slack bot token',
@@ -548,7 +547,7 @@ export async function runSlackConnectCommand(
   }
   const appSecret = await planRuntimeSecretInput({
     runtimeHome,
-    name: runtimeSecretNameForAgent('slack', credentialOwnerName, 'APP_TOKEN'),
+    name: runtimeSecretNameForAgent('slack', credentialOwnerId, 'APP_TOKEN'),
     value: appTokenInput,
     actor: 'cli:slack-connect',
     label: 'Slack app token',

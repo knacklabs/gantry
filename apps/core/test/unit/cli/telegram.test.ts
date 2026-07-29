@@ -19,8 +19,19 @@ import {
 import { listTelegramRecentChats } from '@core/cli/telegram-chat-discovery.js';
 import { makeAgentThreadQueueKey } from '@core/shared/thread-queue-key.js';
 import { resolveGroupSelector } from '@core/cli/group-helpers.js';
+import { runtimeSecretNameForAgent } from '@core/domain/provider/provider-runtime-secret-keys.js';
 
 const groupsStore = vi.hoisted(() => new Map<string, any>());
+const defaultTelegramBotSecretName = runtimeSecretNameForAgent(
+  'telegram',
+  'main_agent',
+  'BOT_TOKEN',
+);
+const test2TelegramBotSecretName = runtimeSecretNameForAgent(
+  'telegram',
+  'test2',
+  'BOT_TOKEN',
+);
 const fileArtifacts = vi.hoisted(() => new Map<string, string>());
 const fileArtifactStore = vi.hoisted(() => ({
   async listFileArtifacts(input: any) {
@@ -543,7 +554,7 @@ describe('cli telegram helpers', () => {
     expect(code).toBe(0);
     expect(storeRuntimeSecretInput).toHaveBeenCalledWith({
       runtimeHome,
-      name: 'DEFAULT_AGENT_TELEGRAM_BOT_TOKEN',
+      name: defaultTelegramBotSecretName,
       value: 'telegram-token',
       actor: 'cli:telegram-connect',
     });
@@ -628,7 +639,7 @@ describe('cli telegram helpers', () => {
     );
     expect(storeRuntimeSecretInput).toHaveBeenCalledWith({
       runtimeHome,
-      name: 'DEFAULT_AGENT_TELEGRAM_BOT_TOKEN',
+      name: defaultTelegramBotSecretName,
       value: 'telegram-token',
       actor: 'cli:telegram-connect',
     });
@@ -651,7 +662,7 @@ describe('cli telegram helpers', () => {
       provider: 'telegram',
       label: 'Telegram Default',
       runtimeSecretRefs: {
-        bot_token: 'gantry-secret:DEFAULT_AGENT_TELEGRAM_BOT_TOKEN',
+        bot_token: `gantry-secret:${defaultTelegramBotSecretName}`,
       },
     };
     saveRuntimeSettings(runtimeHome, existingSettings);
@@ -724,7 +735,7 @@ describe('cli telegram helpers', () => {
     expect(code).toBe(0);
     expect(storeRuntimeSecretInput).toHaveBeenCalledWith({
       runtimeHome,
-      name: 'TEST_2_TELEGRAM_BOT_TOKEN',
+      name: test2TelegramBotSecretName,
       value: 'telegram-token',
       actor: 'cli:telegram-connect',
     });
@@ -732,7 +743,7 @@ describe('cli telegram helpers', () => {
       expect.objectContaining({
         agentId: 'test2',
         runtimeSecretRefs: {
-          bot_token: 'gantry-secret:TEST_2_TELEGRAM_BOT_TOKEN',
+          bot_token: `gantry-secret:${test2TelegramBotSecretName}`,
         },
       }),
     );

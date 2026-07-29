@@ -187,8 +187,7 @@ export async function runDiscordConnectCommand(
 ): Promise<number> {
   ensureRuntimeLayout(runtimeHome);
   const requestedAgentDisplayName = requestedAgentName?.trim();
-  const credentialOwnerName =
-    requestedAgentDisplayName || loadRuntimeSettings(runtimeHome).agent.name;
+  const credentialOwnerId = requestedAgentId?.trim() || DEFAULT_AGENT_FOLDER;
   p.note(
     [
       'Create or reuse a Discord application and bot.',
@@ -226,11 +225,7 @@ export async function runDiscordConnectCommand(
 
   const botSecret = await planRuntimeSecretInput({
     runtimeHome,
-    name: runtimeSecretNameForAgent(
-      'discord',
-      credentialOwnerName,
-      'BOT_TOKEN',
-    ),
+    name: runtimeSecretNameForAgent('discord', credentialOwnerId, 'BOT_TOKEN'),
     value: credentials.botToken,
     actor: 'cli:discord-connect',
     label: 'Discord bot token',
@@ -240,7 +235,7 @@ export async function runDiscordConnectCommand(
     runtimeHome,
     name: runtimeSecretNameForAgent(
       'discord',
-      credentialOwnerName,
+      credentialOwnerId,
       'APPLICATION_ID',
     ),
     value: credentials.applicationId,

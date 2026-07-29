@@ -38,24 +38,36 @@ describe('runtimeSecretNameForProviderAccount', () => {
     );
   });
 
-  it('uses the agent display name for Slack credential names', () => {
-    expect(runtimeSecretNameForAgent('slack', 'Test', 'BOT_TOKEN')).toBe(
-      'TEST_SLACK_BOT_TOKEN',
-    );
-    expect(runtimeSecretNameForAgent('slack', 'Test', 'APP_TOKEN')).toBe(
-      'TEST_SLACK_APP_TOKEN',
-    );
+  it('uses the stable agent id for readable Slack credential names', () => {
+    expect(
+      runtimeSecretNameForAgent('slack', 'recruiting_agent', 'BOT_TOKEN'),
+    ).toMatch(/^RECRUITING_AGENT_SLACK_[A-F0-9]{10}_BOT_TOKEN$/);
+    expect(
+      runtimeSecretNameForAgent('slack', 'recruiting_agent', 'APP_TOKEN'),
+    ).toMatch(/^RECRUITING_AGENT_SLACK_[A-F0-9]{10}_APP_TOKEN$/);
   });
 
   it('creates isolated credential names for every channel provider', () => {
-    expect(runtimeSecretNameForAgent('telegram', 'Test 2', 'BOT_TOKEN')).toBe(
-      'TEST_2_TELEGRAM_BOT_TOKEN',
+    expect(runtimeSecretNameForAgent('telegram', 'test2', 'BOT_TOKEN')).toMatch(
+      /^TEST2_TELEGRAM_[A-F0-9]{10}_BOT_TOKEN$/,
     );
     expect(
-      runtimeSecretNameForAgent('discord', 'Test 2', 'APPLICATION_ID'),
-    ).toBe('TEST_2_DISCORD_APPLICATION_ID');
-    expect(runtimeSecretNameForAgent('teams', 'Test 2', 'CLIENT_SECRET')).toBe(
-      'TEST_2_TEAMS_CLIENT_SECRET',
+      runtimeSecretNameForAgent('discord', 'test2', 'APPLICATION_ID'),
+    ).toMatch(/^TEST2_DISCORD_[A-F0-9]{10}_APPLICATION_ID$/);
+    expect(
+      runtimeSecretNameForAgent('teams', 'test2', 'CLIENT_SECRET'),
+    ).toMatch(/^TEST2_TEAMS_[A-F0-9]{10}_CLIENT_SECRET$/);
+  });
+
+  it('does not collide for distinct agent ids with the same readable form', () => {
+    expect(runtimeSecretNameForAgent('slack', 'ops-a', 'BOT_TOKEN')).not.toBe(
+      runtimeSecretNameForAgent('slack', 'ops_a', 'BOT_TOKEN'),
+    );
+  });
+
+  it('does not collide when duplicate display names receive suffixed ids', () => {
+    expect(runtimeSecretNameForAgent('slack', 'test', 'BOT_TOKEN')).not.toBe(
+      runtimeSecretNameForAgent('slack', 'test_2', 'BOT_TOKEN'),
     );
   });
 
