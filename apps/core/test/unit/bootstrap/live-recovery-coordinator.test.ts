@@ -73,7 +73,7 @@ describe('live-turn host lease acquisition', () => {
 
   it('acquires the single live-turn host lease by default', async () => {
     const runtimeSettings = createDefaultRuntimeSettings();
-    const lease = { isValid: () => true, release: vi.fn() };
+    const lease = { generation: 1, isValid: () => true, release: vi.fn() };
     const tryAcquire = vi.fn(async () => lease);
 
     const manager = startLiveRecoveryCoordinatorLeaseAcquisition({
@@ -91,7 +91,7 @@ describe('live-turn host lease acquisition', () => {
 
   it('does not crash when another runtime owns live turns: stands by and takes over after release', async () => {
     const runtimeSettings = createDefaultRuntimeSettings();
-    const lease = { isValid: () => true, release: vi.fn() };
+    const lease = { generation: 1, isValid: () => true, release: vi.fn() };
     const tryAcquire = vi
       .fn<[], Promise<typeof lease | undefined>>()
       .mockResolvedValueOnce(undefined) // contended: another runtime owns it
@@ -157,6 +157,7 @@ describe('live-turn host lease acquisition', () => {
   it('stop() releases the lease once held (drain handoff)', async () => {
     const runtimeSettings = createDefaultRuntimeSettings();
     const lease = {
+      generation: 1,
       isValid: () => true,
       release: vi.fn(async () => undefined),
     };
@@ -177,6 +178,7 @@ describe('live-turn host lease acquisition', () => {
   it('replays onAcquired when the lease was already held before onTransition registration', async () => {
     const runtimeSettings = createDefaultRuntimeSettings();
     const lease = {
+      generation: 1,
       isValid: () => true,
       release: vi.fn(async () => undefined),
     };
@@ -203,6 +205,7 @@ describe('live-turn host lease acquisition', () => {
     // Shared singleton lease: first acquirer wins until it releases.
     let held = false;
     const makeLease = () => ({
+      generation: 1,
       isValid: () => true,
       release: vi.fn(async () => {
         held = false;
@@ -262,6 +265,7 @@ describe('live-turn host lease acquisition', () => {
     const runtimeSettings = createDefaultRuntimeSettings();
     const lostHandlers: Array<(err: Error) => void> = [];
     const firstLease = {
+      generation: 1,
       isValid: () => true,
       onLost: (handler: (err: Error) => void) => {
         lostHandlers.push(handler);
@@ -269,6 +273,7 @@ describe('live-turn host lease acquisition', () => {
       release: vi.fn(async () => undefined),
     };
     const secondLease = {
+      generation: 1,
       isValid: () => true,
       release: vi.fn(async () => undefined),
     };

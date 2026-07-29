@@ -108,6 +108,7 @@ vi.mock('@core/shared/chrome-executable.js', () => ({
 vi.mock('@core/runtime/browser-profiles.js', () => ({
   acquireProfileLock: vi.fn(async () => ({
     name: 'gantry',
+    generation: 1,
     isValid: mocks.isProfileLockValid,
     onLost: mocks.onProfileLockLost,
     release: mocks.release,

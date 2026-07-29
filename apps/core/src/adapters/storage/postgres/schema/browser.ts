@@ -47,6 +47,17 @@ export const browserProfilesPostgres = pgTable(
     snapshotFencingVersion: integer('snapshot_fencing_version')
       .notNull()
       .default(0),
+    // Ownership generation of the PROFILE LEASE under which these bytes were
+    // produced, issued by runtime_lease_generations. Distinct from
+    // snapshot_fencing_version above, which counts a RUN's reclaim epoch: two
+    // independent sequences must never share one column or the comparison picks
+    // wrong winners. Rows written before this column existed read as 0 and are
+    // superseded by the first real generation, so no backfill is needed.
+    snapshotLeaseGeneration: bigint('snapshot_lease_generation', {
+      mode: 'number',
+    })
+      .notNull()
+      .default(0),
     snapshottedAt: timestamp('snapshotted_at', {
       withTimezone: true,
       mode: 'string',

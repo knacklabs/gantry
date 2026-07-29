@@ -8,11 +8,47 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { writeEnvFile } from '@core/config/env/file.js';
 import { createDefaultRuntimeSettings } from '@core/config/settings/runtime-settings.js';
 
-function makeLeaseClient() {
+/**
+ * Stands in for the durable runtime_lease_generations table. Held OUTSIDE the
+ * client so it survives `vi.resetModules()` + a fresh client, which is how the
+ * durability test simulates a process restart: a process-local counter would
+ * reset to 1 here and fail.
+ */
+function makeGenerationTable() {
+  const rows = new Map<string, number>();
+  return {
+    rows,
+    bump(leaseKey: string): number {
+      const next = (rows.get(leaseKey) ?? 0) + 1;
+      rows.set(leaseKey, next);
+      return next;
+    },
+  };
+}
+
+type GenerationTable = ReturnType<typeof makeGenerationTable>;
+
+function makeLeaseClient(
+  generations: GenerationTable = makeGenerationTable(),
+  options: { failGenerationBump?: boolean; generationRows?: unknown[] } = {},
+) {
   return Object.assign(new EventEmitter(), {
-    query: vi.fn(async (sql: string) => ({
-      rows: sql.includes('pg_try_advisory_lock') ? [{ acquired: true }] : [],
-    })),
+    generations,
+    query: vi.fn(async (sql: string, params?: unknown[]) => {
+      if (sql.includes('pg_try_advisory_lock'))
+        return { rows: [{ acquired: true }] };
+      if (sql.includes('runtime_lease_generations')) {
+        if (options.failGenerationBump) {
+          throw new Error('generation bump failed');
+        }
+        if (options.generationRows) return { rows: options.generationRows };
+        const leaseKey = String((params ?? [])[0]);
+        // node-postgres returns bigint as a string; mirror that so the
+        // production Number() conversion is exercised as written.
+        return { rows: [{ generation: String(generations.bump(leaseKey)) }] };
+      }
+      return { rows: [] };
+    }),
     release: vi.fn(),
   });
 }
@@ -577,7 +613,159 @@ describe('tryAcquireRuntimeAdvisoryLease', () => {
     await lease?.release();
 
     expect(lease?.isValid()).toBe(false);
-    expect(client.query).toHaveBeenCalledTimes(2);
+    // lock + generation bump + unlock
+    expect(client.query).toHaveBeenCalledTimes(3);
     expect(client.release).toHaveBeenCalledOnce();
+  });
+
+  it('issues a strictly increasing generation per lease key', async () => {
+    const generations = makeGenerationTable();
+    const { module } = await loadRuntimeStore(makeLeaseClient(generations));
+    await module.initializeRuntimeStorage();
+
+    const first = await module.tryAcquireRuntimeAdvisoryLease('runtime:gen');
+    await first?.release();
+    const second = await module.tryAcquireRuntimeAdvisoryLease('runtime:gen');
+    await second?.release();
+
+    expect(first?.generation).toBe(1);
+    expect(second?.generation).toBe(2);
+    expect(second!.generation).toBeGreaterThan(first!.generation);
+  });
+
+  it('keeps the generation increasing across a process restart', async () => {
+    // The generation table outlives the module + client, exactly as the real
+    // table outlives a process. A process-local counter would restart at 1.
+    const generations = makeGenerationTable();
+    const before = await loadRuntimeStore(makeLeaseClient(generations));
+    await before.module.initializeRuntimeStorage();
+    const first =
+      await before.module.tryAcquireRuntimeAdvisoryLease('runtime:restart');
+    await first?.release();
+
+    vi.resetModules();
+    const after = await loadRuntimeStore(makeLeaseClient(generations));
+    await after.module.initializeRuntimeStorage();
+    const second =
+      await after.module.tryAcquireRuntimeAdvisoryLease('runtime:restart');
+
+    expect(first?.generation).toBe(1);
+    expect(second?.generation).toBe(2);
+  });
+
+  it('tracks generations separately per lease key', async () => {
+    const generations = makeGenerationTable();
+    const { module } = await loadRuntimeStore(makeLeaseClient(generations));
+    await module.initializeRuntimeStorage();
+
+    const a = await module.tryAcquireRuntimeAdvisoryLease('runtime:key-a');
+    const b = await module.tryAcquireRuntimeAdvisoryLease('runtime:key-b');
+
+    expect(a?.generation).toBe(1);
+    expect(b?.generation).toBe(1);
+  });
+
+  it('fails closed and releases the connection when the generation bump throws', async () => {
+    const client = makeLeaseClient(makeGenerationTable(), {
+      failGenerationBump: true,
+    });
+    const { module } = await loadRuntimeStore(client);
+    await module.initializeRuntimeStorage();
+
+    await expect(
+      module.tryAcquireRuntimeAdvisoryLease('runtime:bump-throws'),
+    ).rejects.toThrow('generation bump failed');
+    // The connection must go back to the pool, which drops the advisory lock —
+    // The connection must be DESTROYED, not just returned to the pool: pg
+    // advisory locks are session-scoped, so a plain release() hands a still-
+    // locked session back and wedges the key for every other session.
+    expect(client.release).toHaveBeenCalledOnce();
+    expect(client.release).toHaveBeenCalledWith(expect.any(Error));
+  });
+
+  it('destroys the connection even when the bump throws a non-Error', async () => {
+    // A plain release() here would return a session that still holds the lock.
+    const client = makeLeaseClient(makeGenerationTable());
+    client.query.mockImplementation(async (sql: string) => {
+      if (sql.includes('pg_try_advisory_lock'))
+        return { rows: [{ acquired: true }] };
+      if (sql.includes('runtime_lease_generations')) throw 'not-an-error';
+      return { rows: [] };
+    });
+    const { module } = await loadRuntimeStore(client);
+    await module.initializeRuntimeStorage();
+
+    await expect(
+      module.tryAcquireRuntimeAdvisoryLease('runtime:bump-non-error'),
+    ).rejects.toBe('not-an-error');
+    expect(client.release).toHaveBeenCalledWith(expect.any(Error));
+  });
+
+  it('fails closed rather than issuing an unfenced lease when the bump returns no row', async () => {
+    const client = makeLeaseClient(makeGenerationTable(), {
+      generationRows: [],
+    });
+    const { module } = await loadRuntimeStore(client);
+    await module.initializeRuntimeStorage();
+
+    await expect(
+      module.tryAcquireRuntimeAdvisoryLease('runtime:bump-empty'),
+    ).rejects.toThrow('no usable generation');
+    expect(client.release).toHaveBeenCalledOnce();
+    expect(client.release).toHaveBeenCalledWith(expect.any(Error));
+  });
+
+  it('destroys the connection when the lock query itself throws', async () => {
+    // The lock may already have been taken server-side before a cancellation or
+    // result-delivery failure, so "the query threw" does not mean "no lock".
+    // Returning that session to the pool would strand an untracked lock.
+    const client = makeLeaseClient(makeGenerationTable());
+    client.query.mockImplementation(async (sql: string) => {
+      if (sql.includes('pg_try_advisory_lock')) {
+        throw new Error('connection terminated during lock');
+      }
+      return { rows: [] };
+    });
+    const { module } = await loadRuntimeStore(client);
+    await module.initializeRuntimeStorage();
+
+    await expect(
+      module.tryAcquireRuntimeAdvisoryLease('runtime:lock-throws'),
+    ).rejects.toThrow('connection terminated during lock');
+    expect(client.release).toHaveBeenCalledWith(expect.any(Error));
+  });
+
+  it('returns the connection WITHOUT destroying it when the lock itself is refused', async () => {
+    // No lock was taken, so there is nothing to drop — destroying here would
+    // churn pool connections on ordinary contention.
+    const client = makeLeaseClient(makeGenerationTable());
+    client.query.mockImplementation(async (sql: string) =>
+      sql.includes('pg_try_advisory_lock')
+        ? { rows: [{ acquired: false }] }
+        : { rows: [] },
+    );
+    const { module } = await loadRuntimeStore(client);
+    await module.initializeRuntimeStorage();
+
+    await expect(
+      module.tryAcquireRuntimeAdvisoryLease('runtime:refused'),
+    ).resolves.toBeUndefined();
+    expect(client.release).toHaveBeenCalledWith();
+  });
+
+  it('still permits the next acquisition after a normal release', async () => {
+    // RACE-4 shipped a permanent-launch-block twice from fail-closed guards.
+    const generations = makeGenerationTable();
+    const { module } = await loadRuntimeStore(makeLeaseClient(generations));
+    await module.initializeRuntimeStorage();
+
+    const first =
+      await module.tryAcquireRuntimeAdvisoryLease('runtime:reacquire');
+    await first?.release();
+    const second =
+      await module.tryAcquireRuntimeAdvisoryLease('runtime:reacquire');
+
+    expect(second).toBeDefined();
+    expect(second?.isValid()).toBe(true);
   });
 });
