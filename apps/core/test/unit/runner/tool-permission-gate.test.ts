@@ -683,6 +683,46 @@ describe('createCanUseToolCallback', () => {
     expect(permissionMock.requestPermissionApproval).toHaveBeenCalledTimes(1);
   });
 
+  it.each(['mcp__gantry__mcp_call_tool', 'mcp__gantry__async_mcp_call'])(
+    'passes %s to host-side target authorization without requesting wrapper approval',
+    async (toolName) => {
+      const decision = await makeCallback()(
+        toolName,
+        {
+          serverName: 'ats-mcp-bearer',
+          toolName: 'ats_list_positions',
+          arguments: {},
+        },
+        makePermissionOptions({ displayName: toolName }) as never,
+      );
+
+      expect(decision).toEqual({
+        behavior: 'allow',
+        updatedInput: {
+          serverName: 'ats-mcp-bearer',
+          toolName: 'ats_list_positions',
+          arguments: {},
+        },
+      });
+      expect(permissionMock.requestPermissionApproval).not.toHaveBeenCalled();
+    },
+  );
+
+  it('does not treat a non-Gantry MCP tool as a host-authorized dispatcher', async () => {
+    permissionMock.requestPermissionApproval.mockResolvedValueOnce({
+      approved: false,
+      reason: 'Denied by operator',
+    });
+    const decision = await makeCallback()(
+      'mcp__third_party__mcp_call_tool',
+      { serverName: 'ats-mcp-bearer', toolName: 'ats_list_positions' },
+      makePermissionOptions({ displayName: 'mcp_call_tool' }) as never,
+    );
+
+    expect(decision).toEqual(expect.objectContaining({ behavior: 'deny' }));
+    expect(permissionMock.requestPermissionApproval).toHaveBeenCalledTimes(1);
+  });
+
   it('denies wait-only Bash monitoring instead of asking for permission', async () => {
     const canUseTool = makeCallback();
     const result = await canUseTool(
