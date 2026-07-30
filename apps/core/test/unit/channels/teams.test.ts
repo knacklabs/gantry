@@ -831,6 +831,52 @@ describe('TeamsChannel adapter scaffold', () => {
     });
   });
 
+  it('carries registered Teams conversation identity without metadata', async () => {
+    const opts = makeOpts();
+    vi.mocked(opts.conversationRoutes).mockReturnValue({
+      'teams:19:latency@thread.v2': {
+        name: 'Teams Latency',
+        folder: 'main_agent',
+        trigger: '@Main',
+        added_at: '2026-07-29T00:00:00.000Z',
+        providerAccountId: 'teams_default',
+      },
+    });
+    const sdkClient: TeamsSdkClient = {
+      start: vi.fn(async () => {}),
+      stop: vi.fn(async () => {}),
+      sendMessage: vi.fn(async () => ({})),
+    };
+    const channel = new TeamsChannel(
+      {
+        clientId: 'client-id',
+        clientSecret: 'client-secret',
+        tenantId: 'tenant-id',
+      },
+      opts,
+      sdkClient,
+    );
+
+    await channel.ingestMessage({
+      conversationId: '19:latency@thread.v2',
+      id: 'activity-1',
+      text: 'hello from Teams',
+      from: { id: 'user-1', name: 'Ravi' },
+      timestamp: '2026-07-29T00:00:00.000Z',
+      conversationName: 'Teams Latency',
+      conversationType: 'channel',
+    });
+
+    expect(opts.onChatMetadata).not.toHaveBeenCalled();
+    expect(opts.onMessage).toHaveBeenCalledWith(
+      'teams:19:latency@thread.v2',
+      expect.objectContaining({
+        name: 'Teams Latency',
+        isGroup: true,
+      }),
+    );
+  });
+
   it('hydrates Teams attachment-only context messages with provider metadata only', async () => {
     const sdkClient: TeamsSdkClient = {
       start: vi.fn(async () => {}),

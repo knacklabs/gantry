@@ -308,7 +308,7 @@ describe('connectProviderAccountChannels', () => {
     );
   });
 
-  it('fans out shared inbound chat metadata to every matching provider account', async () => {
+  it('persists standalone provider-account channel-connect metadata without a message', async () => {
     let firstOnChatMetadata: ChannelOpts['onChatMetadata'] | undefined;
     const opts = channelOpts();
     const create = vi.fn<Provider['create']>(async (channelCreateOpts) => {
@@ -370,6 +370,7 @@ describe('connectProviderAccountChannels', () => {
       true,
       { providerAccountId: 'slack_two' },
     );
+    expect(opts.onMessage).not.toHaveBeenCalled();
   });
 
   it('does not fan out messages already scoped by the inbound transport', async () => {

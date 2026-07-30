@@ -761,7 +761,29 @@ describe('Slack channel', () => {
     });
   });
 
-  it('records metadata only for unregistered Slack conversations', async () => {
+  it('persists standalone metadata for Slack group discovery without a message', async () => {
+    const opts = createOpts();
+    const channel = new SlackChannel('xoxb-token', 'xapp-token', opts as any);
+    await channel.connect();
+    appRef.current.client.conversations.list.mockResolvedValueOnce({
+      channels: [{ id: 'C_DISCOVERED', name: 'discovered-team' }],
+      response_metadata: { next_cursor: '' },
+    });
+
+    await channel.syncGroups(true);
+
+    expect(opts.onChatMetadata).toHaveBeenCalledWith(
+      'sl:C_DISCOVERED',
+      expect.any(String),
+      'discovered-team',
+      'slack',
+      true,
+      { providerAccountId: 'slack_default' },
+    );
+    expect(opts.onMessage).not.toHaveBeenCalled();
+  });
+
+  it('persists standalone metadata for unregistered Slack group messages', async () => {
     const opts = createOpts();
     const channel = new SlackChannel('xoxb-token', 'xapp-token', opts as any);
     await channel.connect();
@@ -883,10 +905,13 @@ describe('Slack channel', () => {
       },
     });
 
+    expect(opts.onChatMetadata).not.toHaveBeenCalled();
     expect(opts.onMessage).toHaveBeenCalledWith(
       'sl:C123',
       expect.objectContaining({
         chat_jid: 'sl:C123',
+        name: 'ops',
+        isGroup: true,
         sender: 'U123',
         sender_name: 'Alice',
         content: 'hello',
@@ -1416,6 +1441,35 @@ describe('Slack channel', () => {
         external_message_id: 'trigger-1',
       }),
     );
+  });
+
+  it('persists standalone metadata for unrouted Slack slash commands without a message', async () => {
+    const opts = createOpts();
+    const channel = new SlackChannel('xoxb-token', 'xapp-token', opts as any);
+    await channel.connect();
+
+    const handler = appRef.current.commandHandlers.get('/gantry');
+    expect(handler).toBeDefined();
+    await handler!({
+      ack: vi.fn(),
+      command: {
+        channel_id: 'C_UNROUTED',
+        user_id: 'U123',
+        user_name: 'alice',
+        text: 'status',
+        trigger_id: 'trigger-unrouted',
+      },
+    });
+
+    expect(opts.onChatMetadata).toHaveBeenCalledWith(
+      'sl:C_UNROUTED',
+      expect.any(String),
+      'ops',
+      'slack',
+      true,
+      { providerAccountId: 'slack_default' },
+    );
+    expect(opts.onMessage).not.toHaveBeenCalled();
   });
 
   it('delivers /gantry slash commands for a single agent-qualified route', async () => {

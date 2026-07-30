@@ -1240,7 +1240,7 @@ describe('TelegramChannel', () => {
   });
 
   describe('group join onboarding', () => {
-    it('prompts a registered control DM when an approver adds the bot', async () => {
+    it('persists standalone metadata for Telegram group-join onboarding without a message', async () => {
       const { opts, coordinator } = createGroupJoinOnboardingOpts();
       const channel = new TelegramChannel('test-token', opts);
       await channel.connect();
@@ -1255,6 +1255,7 @@ describe('TelegramChannel', () => {
         true,
         { providerAccountId: 'telegram_default' },
       );
+      expect(opts.onMessage).not.toHaveBeenCalled();
       expect(coordinator.recordPrompt).toHaveBeenCalledWith({
         providerAccountId: 'telegram_default',
         chatJid: 'tg:-1001234',
@@ -1507,19 +1508,14 @@ describe('TelegramChannel', () => {
       const ctx = createTextCtx({ text: 'Hello everyone' });
       await triggerTextMessage(ctx);
 
-      expect(opts.onChatMetadata).toHaveBeenCalledWith(
-        'tg:100200300',
-        expect.any(String),
-        'Test Group',
-        'telegram',
-        true,
-        { providerAccountId: 'telegram_default' },
-      );
+      expect(opts.onChatMetadata).not.toHaveBeenCalled();
       expect(opts.onMessage).toHaveBeenCalledWith(
         'tg:100200300',
         expect.objectContaining({
           id: '1',
           chat_jid: 'tg:100200300',
+          name: 'Test Group',
+          isGroup: true,
           sender: '99001',
           sender_name: 'Alice',
           content: 'Hello everyone',
@@ -1601,7 +1597,7 @@ describe('TelegramChannel', () => {
       );
     });
 
-    it('only emits metadata for unregistered chats', async () => {
+    it('persists standalone metadata for unregistered Telegram group text', async () => {
       const opts = createTestOpts();
       const channel = new TelegramChannel('test-token', opts);
       await channel.connect();
@@ -1762,7 +1758,7 @@ describe('TelegramChannel', () => {
       );
     });
 
-    it('uses sender name as chat name for private chats', async () => {
+    it('carries sender name as chat name for private chats', async () => {
       const opts = createTestOpts({
         conversationRoutes: vi.fn(() => ({
           'tg:100200300': {
@@ -1783,17 +1779,16 @@ describe('TelegramChannel', () => {
       });
       await triggerTextMessage(ctx);
 
-      expect(opts.onChatMetadata).toHaveBeenCalledWith(
+      expect(opts.onMessage).toHaveBeenCalledWith(
         'tg:100200300',
-        expect.any(String),
-        'Alice', // Private chats use sender name
-        'telegram',
-        false,
-        { providerAccountId: 'telegram_default' },
+        expect.objectContaining({
+          name: 'Alice',
+          isGroup: false,
+        }),
       );
     });
 
-    it('uses chat title as name for group chats', async () => {
+    it('carries chat title as name for group chats', async () => {
       const opts = createTestOpts();
       const channel = new TelegramChannel('test-token', opts);
       await channel.connect();
@@ -1805,13 +1800,12 @@ describe('TelegramChannel', () => {
       });
       await triggerTextMessage(ctx);
 
-      expect(opts.onChatMetadata).toHaveBeenCalledWith(
+      expect(opts.onMessage).toHaveBeenCalledWith(
         'tg:100200300',
-        expect.any(String),
-        'Project Team',
-        'telegram',
-        true,
-        { providerAccountId: 'telegram_default' },
+        expect.objectContaining({
+          name: 'Project Team',
+          isGroup: true,
+        }),
       );
     });
 
@@ -2065,6 +2059,14 @@ describe('TelegramChannel', () => {
       await vi.waitFor(() => expect(opts.onMessage).toHaveBeenCalled());
 
       expect(currentBot().api.getFile).toHaveBeenCalledWith('large_id');
+      expect(opts.onChatMetadata).toHaveBeenCalledWith(
+        'tg:100200300',
+        expect.any(String),
+        undefined,
+        'telegram',
+        true,
+        { providerAccountId: 'telegram_default' },
+      );
       expect(opts.onMessage).toHaveBeenCalledWith(
         'tg:100200300',
         expect.objectContaining({

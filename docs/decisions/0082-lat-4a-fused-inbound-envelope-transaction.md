@@ -83,6 +83,71 @@ Expected: **28 → 19 statements** to persist one inbound envelope on the measur
 route, a 32% reduction, plus one atomic visibility point instead of ten
 durability boundaries.
 
+**Provider-neutral, not Telegram-only.** Gantry is a provider-neutral and
+channel-neutral runtime (`docs/product/BRIEF.md`), so this fix applies to EVERY
+ingress that pairs a metadata write with a message write, not to whichever
+provider happened to be measured first. Five paired sites exist and all are in
+scope:
+
+| Path | Provider |
+| --- | --- |
+| `channels/telegram/text-message-handler.ts:106` | Telegram text |
+| `channels/telegram/media-ingestion.ts:49` | Telegram media — **NOT converted, see below** |
+| `channels/slack/channel-message-ingest.ts:113` | Slack |
+| `channels/discord.ts:571,575` | Discord |
+| `channels/teams.ts:439` | Teams |
+
+The duplicate-skip rule and the name/isGroup carry are expressed ONCE in a
+shared channel-layer helper rather than copied five times, so a sixth provider
+inherits the behaviour instead of re-implementing it. Per-provider control flow
+(drop logging, early returns, media handling) stays with each adapter.
+
+**Telegram media is deferred, not done (D-0025).** It was converted and then
+reverted before merge. With the fusion applied it ran `ensureConversation`
+exactly once and issued 13 statements, yet left NO conversation row — while the
+same fixture shape works for Telegram text, Slack and Teams. The likeliest
+explanation is that the fused transaction rolled back and took the conversation
+row with it, where previously the metadata write committed independently and
+survived. That is a genuine consequence of fusing and it is not understood well
+enough to ship. Measured before/after for the other three is uniform:
+
+| Provider | Before | After | Saved |
+| --- | ---: | ---: | ---: |
+| Telegram text | 28 | 19 | 9 |
+| Slack | 29 | 20 | 9 |
+| Teams | 28 | 19 | 9 |
+| Telegram media | 22 | 22 | 0 — deferred |
+
+The saving is exactly nine statements per provider, which is the duplicate
+`ensureConversation`. Note the totals differ per provider: a single shared
+expected count would have been wrong for two of the four, so the tests carry
+per-provider measured numbers.
+
+**Discord uses the adapter-seam fallback, not mocked integration coverage.**
+`DiscordChannel.connect` wires inbound dispatch through its WebSocket gateway
+(`channels/discord.ts:140-149`), and `MESSAGE_CREATE` reaches the private
+message handler only from that dispatch (`channels/discord.ts:530-550`).
+Driving it locally therefore requires replacing the WebSocket and REST
+transport. LAT-4A-3 does not label that an integration test: the registered
+paired-message shape is covered at the Discord unit adapter seam, including
+the `onMessage` identity and absence of a standalone metadata call. No Discord
+Postgres statement count was observed or added to the expectation table.
+
+**Standalone metadata sites stay untouched** — they never pair with a message:
+Slack group discovery (`channel-delivery-helpers.ts:763`), Slack slash commands
+(`slash-command-ingest.ts:36`), Telegram group-join onboarding
+(`group-join-onboarding.ts:31`), and provider-account channel connect
+(`provider-account-channel-connect.ts:117,127`).
+
+**A trap found while implementing, recorded so it is not repeated.** The skip
+cannot be narrowed to group chats. `onMessage` refuses an unregistered DIRECT
+message with no configured binding
+(`channel-persistence-handlers.ts:130-141`), so no envelope follows for those
+either, and gating the metadata write on `isGroup` deletes their conversation
+row outright — measured as `ensureConversation` dropping to zero calls on that
+path. The correct rule is: write standalone metadata whenever the chat has no
+registered route, regardless of kind.
+
 **Explicitly out of scope, unchanged:**
 
 - The six standalone metadata paths above. They never persist a message, so
