@@ -53,6 +53,24 @@ client's same-day direction to keep the measured 30/50 limits.
   limits. Hydration stays single-scope — channel background on a thread turn
   comes from local storage only. With decision 0090 making persistence
   store-always, local channel history is complete going forward.
+- **Canonical coverage protocol for the paginated full-range chain** (formed
+  during implementation across four adversarial review rounds; supersedes
+  LAT-5A's single-page wording for Slack threads): because partial pages
+  with cursors are documented Slack behaviour, the full-range
+  `conversations.replies` request follows its own cursor until ten
+  hydratable replies are collected, the cursor runs out, or a commented
+  four-page cap. `exhausted: true` requires ALL of — the chain terminated
+  uncapped; its final page carries no completion-contradicting signals
+  (`has_more` falsy, no usable cursor); and no hydratable tail-window row is
+  absent from the chain's collected set (any unseen tail row, older OR
+  newer, is contradiction evidence). Tail windows never confer exhaustion.
+  Bias rule: a false COMPLETE poisons the durable record permanently
+  (hydration suppressed forever); a false INCOMPLETE costs one more
+  hydration — so every ambiguity resolves to incomplete. A reviewer position
+  that the FIRST page must remain sole authority was considered and
+  rejected: it makes every multi-page thread permanently incomplete,
+  defeating 5B's purpose, and a first page's own blank cursor can lie in
+  exactly the same way.
 - Tests pinned to 10/9-shaped values flip to 50-shaped values; the first-10 +
   latest-39 selection tests return.
 - Rejected: keeping the 10-message window (an unmeasured number from the
