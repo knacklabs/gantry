@@ -22,11 +22,13 @@ export async function tryNativeStreamStart(input: {
   threadId: string | undefined;
   text: string;
 }): Promise<string | undefined> {
-  if (!input.app) return undefined;
+  // Slack's native streaming endpoint only accepts replies in an existing thread.
+  // Root-channel turns use the normal postMessage fallback instead.
+  if (!input.app || !input.threadId) return undefined;
   try {
     const result = (await input.app.client.apiCall('chat.startStream', {
       channel: input.channelId,
-      ...(input.threadId ? { thread_ts: input.threadId } : {}),
+      thread_ts: input.threadId,
       markdown_text: input.text,
     })) as { ok?: boolean; ts?: string; stream_ts?: string };
     if (!result.ok) return undefined;

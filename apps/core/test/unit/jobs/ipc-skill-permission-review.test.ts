@@ -180,6 +180,58 @@ describe('skill permission review install sequence', () => {
     );
   });
 
+  it('settles a denied skill review when the Slack receipt cannot be delivered', async () => {
+    const requestPermissionApproval = vi.fn(async () => ({
+      approved: false,
+      reason: 'approval prompt could not be delivered',
+    }));
+    const reject = vi.fn();
+    const logError = vi.fn();
+
+    await new Promise<void>((resolve) => {
+      startSkillPermissionReview({
+        deps: {
+          requestPermissionApproval,
+          sendMessage: vi.fn(async () => {
+            throw new Error('No channel for JID: sl:C123');
+          }),
+        },
+        responder: { acceptData: vi.fn(), reject },
+        logError,
+        service: {
+          installMaterializationCollisionForAgent: vi.fn(async () => null),
+        } as never,
+        syncApprovedCapabilitySettings: vi.fn(async () => undefined),
+        appId: 'app:test',
+        agentId: 'agent:test',
+        sourceAgentFolder: 'main_agent',
+        targetJid: 'sl:C123',
+        providerAccountId: 'slack_default',
+        skill: { name: 'demo-skill' },
+        assets: [],
+        fileSummaries: [],
+        skillMarkdownPreview: {
+          path: 'SKILL.md',
+          content: '',
+          truncated: false,
+        },
+        totalSizeBytes: 0,
+        reason: 'test install',
+        requestToolName: 'request_skill_install',
+        onSettled: resolve,
+      } as never);
+    });
+
+    expect(reject).toHaveBeenCalledWith(
+      expect.stringContaining('demo-skill'),
+      'permission_denied',
+    );
+    expect(logError).toHaveBeenCalledWith(
+      expect.objectContaining({ targetJid: 'sl:C123' }),
+      'Skill review outcome could not be delivered to the channel',
+    );
+  });
+
   it('rejects an install-time materialization collision before asking for approval', async () => {
     const collisionMessage =
       'Skill "demo-skill" cannot be installed: it materializes to the same runtime directory "demo-skill" as the currently selected skill legacy (skill:legacy). Rename the skill or unselect the colliding skill first.';

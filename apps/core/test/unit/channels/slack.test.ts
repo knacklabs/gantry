@@ -625,9 +625,10 @@ function requestSlackUserAnswer(
 }
 
 function latestSlackPermissionActionValue(actionId: string) {
-  const blocks = vi
-    .mocked(appRef.current.client.chat.postEphemeral)
-    .mock.calls.at(-1)?.[0]?.blocks as Array<{
+  const promptCall = vi
+    .mocked(appRef.current.client.chat.postMessage)
+    .mock.calls.at(-1)?.[0];
+  const blocks = promptCall?.blocks as Array<{
     type?: string;
     elements?: Array<{ action_id?: string; value?: string }>;
   }>;
@@ -5228,14 +5229,21 @@ describe('Slack channel', () => {
       },
     });
     await flushSlackPromptRegistration();
-    const postCall = vi
+    const privateDetailsCall = vi
       .mocked(appRef.current.client.chat.postEphemeral)
       .mock.calls.at(-1)?.[0];
-    expect(postCall?.user).toBe('U_APPROVER');
-    expect(postCall?.thread_ts).toBe('1711111111.000100');
-    expect(postCall?.text).toContain(
+    expect(privateDetailsCall?.user).toBe('U_APPROVER');
+    expect(privateDetailsCall?.thread_ts).toBe('1711111111.000100');
+    expect(privateDetailsCall?.text).toContain(
       'Approval applies to the parent conversation.',
     );
+    expect(JSON.stringify(privateDetailsCall?.blocks || [])).not.toContain(
+      'git status --short',
+    );
+    const postCall = vi
+      .mocked(appRef.current.client.chat.postMessage)
+      .mock.calls.at(-1)?.[0];
+    expect(postCall?.thread_ts).toBe('1711111111.000100');
     expect(JSON.stringify(postCall?.blocks || [])).not.toContain(
       'git status --short',
     );
@@ -5306,7 +5314,9 @@ describe('Slack channel', () => {
     );
     expect(respond).toHaveBeenCalledWith({ delete_original: true });
     expect(appRef.current.client.chat.update).not.toHaveBeenCalled();
-    expect(appRef.current.client.chat.postMessage).not.toHaveBeenCalled();
+    expect(appRef.current.client.chat.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ channel: 'C123' }),
+    );
   });
 
   it('opens durable Slack permission full-view payloads after channel restart', async () => {
@@ -5377,7 +5387,7 @@ describe('Slack channel', () => {
     );
   });
 
-  it('replaces an approved Slack ephemeral through response_url when removal fails', async () => {
+  it('replaces an approved Slack permission card through response_url when removal fails', async () => {
     const channel = new SlackChannel(
       'xoxb-token',
       'xapp-token',
@@ -5421,7 +5431,9 @@ describe('Slack channel', () => {
         text: expect.stringContaining('Allowed once:'),
       }),
     );
-    expect(appRef.current.client.chat.postMessage).not.toHaveBeenCalled();
+    expect(appRef.current.client.chat.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ channel: 'C123' }),
+    );
   });
 
   it('routes recovered Slack clicks through application orchestrator transport hooks', async () => {
@@ -6058,7 +6070,7 @@ describe('Slack channel', () => {
     });
   });
 
-  it('leaves a Slack permission ephemeral stale without response_url and posts no receipt', async () => {
+  it('leaves a Slack permission card stale without response_url and posts no receipt', async () => {
     const channel = new SlackChannel(
       'xoxb-token',
       'xapp-token',
@@ -6098,7 +6110,9 @@ describe('Slack channel', () => {
     expect(respond).not.toHaveBeenCalled();
     expect(appRef.current.client.chat.delete).not.toHaveBeenCalled();
     expect(appRef.current.client.chat.update).not.toHaveBeenCalled();
-    expect(appRef.current.client.chat.postMessage).not.toHaveBeenCalled();
+    expect(appRef.current.client.chat.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ channel: 'C123' }),
+    );
 
     const retryRespond = vi.fn().mockResolvedValue({});
     await appRef.current.actionHandlers.get('gantry_perm_decision_cancel')?.({
@@ -6246,7 +6260,7 @@ describe('Slack channel', () => {
     await expect(secondApproval).resolves.toMatchObject({ approved: false });
   });
 
-  it('posts Slack approval prompts ephemerally to approvers', async () => {
+  it('posts a durable, neutral Slack approval card and private details to approvers', async () => {
     defaultSlackPermissionApproverIds.add('U_APPROVER');
     const channel = new SlackChannel(
       'xoxb-token',
@@ -6264,7 +6278,15 @@ describe('Slack channel', () => {
     expect(appRef.current.client.chat.postEphemeral).toHaveBeenCalledWith(
       expect.objectContaining({ channel: 'C123', user: 'U_APPROVER' }),
     );
-    expect(appRef.current.client.chat.postMessage).not.toHaveBeenCalled();
+    expect(appRef.current.client.chat.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        channel: 'C123',
+        text: 'Approval required from a configured approver. Only configured approvers can decide this action.',
+        blocks: expect.arrayContaining([
+          expect.objectContaining({ type: 'actions' }),
+        ]),
+      }),
+    );
     const actionHandler = appRef.current.actionHandlers.get(
       'gantry_perm_decision_allow_once',
     );
@@ -6417,7 +6439,8 @@ describe('Slack channel', () => {
       channel.requestPermissionApproval('sl:C123', batch, onPromptDelivered),
     ).resolves.toMatchObject({ approved: false });
 
-    expect(appRef.current.client.chat.postEphemeral).toHaveBeenCalledOnce();
+    expect(appRef.current.client.chat.postEphemeral).not.toHaveBeenCalled();
+    expect(appRef.current.client.chat.postMessage).toHaveBeenCalledOnce();
     expect(bindPendingPermissionPrompt).toHaveBeenCalledTimes(2);
     expect(onPromptDelivered).not.toHaveBeenCalled();
     expect((channel as any).pendingPermissionPrompts.size).toBe(0);
@@ -6498,7 +6521,7 @@ describe('Slack channel', () => {
     );
   });
 
-  it('scopes Slack ephemeral permission prompts to this account approvers', async () => {
+  it('scopes Slack private permission details to this account approvers', async () => {
     const base = createOpts({ default: [], agents: {} });
     const channel = new SlackChannel('xoxb-token', 'xapp-token', {
       ...base,
@@ -6543,7 +6566,9 @@ describe('Slack channel', () => {
     expect(appRef.current.client.chat.postEphemeral).not.toHaveBeenCalledWith(
       expect.objectContaining({ user: 'U_OTHER_ACCOUNT' }),
     );
-    expect(appRef.current.client.chat.postMessage).not.toHaveBeenCalled();
+    expect(appRef.current.client.chat.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ channel: 'C123' }),
+    );
 
     await channel.disconnect();
     await expect(approvalPromise).resolves.toEqual(
@@ -6621,7 +6646,7 @@ describe('Slack channel', () => {
     );
     await flushSlackPromptRegistration();
     const actionsBlock =
-      appRef.current.client.chat.postEphemeral.mock.calls[0]?.[0].blocks.find(
+      appRef.current.client.chat.postMessage.mock.calls[0]?.[0].blocks.find(
         (block: any) => block.type === 'actions',
       );
     expect(actionsBlock.elements[0].value).toContain(
@@ -7401,7 +7426,9 @@ describe('Slack channel', () => {
       },
     );
 
-    await channel.sendStreamingChunk('sl:C1234567890', 'hello');
+    await channel.sendStreamingChunk('sl:C1234567890', 'hello', {
+      threadId: '1710000000.111222',
+    });
 
     const apiCallCalls = vi.mocked(appRef.current.client.apiCall).mock.calls;
     const startCalls = apiCallCalls.filter(
@@ -7412,6 +7439,26 @@ describe('Slack channel', () => {
     );
     expect(startCalls).toHaveLength(1);
     expect(appendCalls).toHaveLength(0);
+  });
+
+  it('falls back to a regular message rather than starting a root-channel native stream', async () => {
+    const channel = new SlackChannel(
+      'xoxb-token',
+      'xapp-token',
+      createOpts() as any,
+    );
+    await channel.connect();
+
+    await channel.sendStreamingChunk('sl:C1234567890', 'hello');
+
+    expect(vi.mocked(appRef.current.client.apiCall)).not.toHaveBeenCalledWith(
+      'chat.startStream',
+      expect.anything(),
+    );
+    expect(appRef.current.client.chat.postMessage).toHaveBeenCalledWith({
+      channel: 'C1234567890',
+      text: 'hello',
+    });
   });
 
   it('splits native Slack stream append payloads to <=12000 chars', async () => {
@@ -7439,9 +7486,12 @@ describe('Slack channel', () => {
 
     const nowSpy = vi.spyOn(Date, 'now');
     nowSpy.mockReturnValueOnce(1000).mockReturnValueOnce(2200);
+    const threadId = '1710000000.000100';
 
-    await channel.sendStreamingChunk('sl:C1234567890', 'seed');
-    await channel.sendStreamingChunk('sl:C1234567890', 'x'.repeat(13050));
+    await channel.sendStreamingChunk('sl:C1234567890', 'seed', { threadId });
+    await channel.sendStreamingChunk('sl:C1234567890', 'x'.repeat(13050), {
+      threadId,
+    });
 
     const appendCalls = vi
       .mocked(appRef.current.client.apiCall)
@@ -7485,10 +7535,14 @@ describe('Slack channel', () => {
     try {
       const nowSpy = vi.spyOn(Date, 'now');
       nowSpy.mockReturnValueOnce(1000).mockReturnValueOnce(2200);
+      const threadId = '1710000000.000100';
 
-      await channel.sendStreamingChunk('sl:C1234567890', 'seed');
+      await channel.sendStreamingChunk('sl:C1234567890', 'seed', {
+        threadId,
+      });
       const flushPromise = channel.sendStreamingChunk('sl:C1234567890', 'x', {
         done: true,
+        threadId,
       });
 
       await Promise.resolve();
@@ -7549,14 +7603,16 @@ describe('Slack channel', () => {
 
     const nowSpy = vi.spyOn(Date, 'now');
     nowSpy.mockReturnValueOnce(1000).mockReturnValueOnce(2200);
+    const threadId = '1710000000.000100';
 
-    await channel.sendStreamingChunk('sl:C1234567890', 'seed');
+    await channel.sendStreamingChunk('sl:C1234567890', 'seed', { threadId });
 
     const delivered = await channel.sendStreamingChunk(
       'sl:C1234567890',
       'x'.repeat(13050),
       {
         done: true,
+        threadId,
       },
     );
 
@@ -7688,8 +7744,9 @@ describe('Slack channel', () => {
 
     const nowSpy = vi.spyOn(Date, 'now');
     nowSpy.mockReturnValueOnce(1000).mockReturnValueOnce(2200);
+    const threadId = '1710000000.000100';
 
-    await channel.sendStreamingChunk('sl:C1234567890', 'seed');
+    await channel.sendStreamingChunk('sl:C1234567890', 'seed', { threadId });
 
     const delta = 'snake_case *literal* ~literal~';
     const delivered = await channel.sendStreamingChunk(
@@ -7697,6 +7754,7 @@ describe('Slack channel', () => {
       delta,
       {
         done: true,
+        threadId,
       },
     );
 
@@ -7748,12 +7806,14 @@ describe('Slack channel', () => {
 
     const nowSpy = vi.spyOn(Date, 'now');
     nowSpy.mockReturnValueOnce(1000).mockReturnValueOnce(2200);
+    const threadId = '1710000000.000100';
 
-    await channel.sendStreamingChunk('sl:C1234567890', 'seed');
+    await channel.sendStreamingChunk('sl:C1234567890', 'seed', { threadId });
 
     await expect(
       channel.sendStreamingChunk('sl:C1234567890', 'x'.repeat(13050), {
         done: true,
+        threadId,
       }),
     ).rejects.toMatchObject({
       name: 'PartialSlackNativeStreamAppendDeliveryError',
@@ -7806,11 +7866,14 @@ describe('Slack channel', () => {
       .mockReturnValueOnce(1000)
       .mockReturnValueOnce(2200)
       .mockReturnValueOnce(3400);
+    const threadId = '1710000000.000100';
 
-    await channel.sendStreamingChunk('sl:C1234567890', 'seed');
+    await channel.sendStreamingChunk('sl:C1234567890', 'seed', { threadId });
 
     await expect(
-      channel.sendStreamingChunk('sl:C1234567890', 'x'.repeat(13050)),
+      channel.sendStreamingChunk('sl:C1234567890', 'x'.repeat(13050), {
+        threadId,
+      }),
     ).rejects.toMatchObject({
       name: 'PartialSlackNativeStreamAppendDeliveryError',
       partialMessageDelivery: true,
@@ -7821,6 +7884,7 @@ describe('Slack channel', () => {
 
     await channel.sendStreamingChunk('sl:C1234567890', 'y', {
       done: true,
+      threadId,
     });
 
     const appendCalls = vi
@@ -7865,10 +7929,11 @@ describe('Slack channel', () => {
       .mockReturnValueOnce(1000)
       .mockReturnValueOnce(1200)
       .mockReturnValueOnce(2200);
+    const threadId = '1710000000.000100';
 
-    await channel.sendStreamingChunk('sl:C1234567890', 'A');
-    await channel.sendStreamingChunk('sl:C1234567890', 'B');
-    await channel.sendStreamingChunk('sl:C1234567890', 'C');
+    await channel.sendStreamingChunk('sl:C1234567890', 'A', { threadId });
+    await channel.sendStreamingChunk('sl:C1234567890', 'B', { threadId });
+    await channel.sendStreamingChunk('sl:C1234567890', 'C', { threadId });
 
     const apiCallCalls = vi.mocked(appRef.current.client.apiCall).mock.calls;
     const startCalls = apiCallCalls.filter(
@@ -7907,9 +7972,12 @@ describe('Slack channel', () => {
 
     const nowSpy = vi.spyOn(Date, 'now');
     nowSpy.mockReturnValueOnce(1000).mockReturnValueOnce(2200);
+    const threadId = '1710000000.000100';
 
-    await channel.sendStreamingChunk('sl:C1234567890', 'Hello');
-    await channel.sendStreamingChunk('sl:C1234567890', ' world');
+    await channel.sendStreamingChunk('sl:C1234567890', 'Hello', { threadId });
+    await channel.sendStreamingChunk('sl:C1234567890', ' world', {
+      threadId,
+    });
 
     expect(appRef.current.client.chat.postMessage).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -8344,8 +8412,10 @@ describe('Slack channel', () => {
       },
     );
 
+    const threadId = '1710000000.000100';
     await channel.sendStreamingChunk('sl:C1234567890', 'old', {
       generation: 1,
+      threadId,
     });
 
     channel.resetStreaming('sl:C1234567890');
@@ -8354,12 +8424,14 @@ describe('Slack channel', () => {
 
     await channel.sendStreamingChunk('sl:C1234567890', 'stale', {
       generation: 1,
+      threadId,
     });
 
     expect(vi.mocked(appRef.current.client.apiCall)).not.toHaveBeenCalled();
 
     await channel.sendStreamingChunk('sl:C1234567890', 'fresh', {
       generation: 2,
+      threadId,
     });
 
     expect(vi.mocked(appRef.current.client.apiCall)).toHaveBeenCalledWith(
