@@ -100,4 +100,32 @@ describe('mcp__gantry__file', () => {
       handleFileToolAction({ action: 'read', path: 'notes/today.md' }),
     ).resolves.toContain('That file action was rejected:');
   });
+
+  it('returns structured utf8 read content from host IPC', async () => {
+    const writeIpcFile = vi.fn();
+    const waitForTaskResponse = vi.fn(async () => ({
+      ok: true,
+      data: {
+        ok: true,
+        content: {
+          encoding: 'utf8',
+          text: '# ATS Skills\nRead this file.',
+          offset: 0,
+          bytesReturned: 28,
+          totalBytes: 28,
+          truncated: false,
+        },
+      },
+    }));
+    vi.doMock('@core/runner/mcp/ipc.js', () => ({
+      writeIpcFile,
+      waitForTaskResponse,
+    }));
+    const { handleFileToolAction } =
+      await import('@core/runner/mcp/tools/file.js');
+
+    await expect(
+      handleFileToolAction({ action: 'read', path: 'attachments/skills.md' }),
+    ).resolves.toBe('# ATS Skills\nRead this file.');
+  });
 });
