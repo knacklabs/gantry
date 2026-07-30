@@ -5,6 +5,7 @@ import { logger } from '../infrastructure/logging/logger.js';
 import type {
   ConversationContextHydrationRequest,
   ConversationContextHydrationResult,
+  HydrationRequestObservation,
 } from './channel-provider.js';
 import { nowIso } from '../shared/time/datetime.js';
 import {
@@ -49,22 +50,23 @@ export async function hydrateTeamsConversationContext(
   }
 
   try {
-    const rawMessages = request.threadId
+    const fetch = request.threadId
       ? await hydrateTeamsThreadMessages({
           request,
           conversationId,
           limit,
           sdkClient,
         })
-      : await sdkClient.listChannelMessages!({
+      : await hydrateTeamsChannelMessages({
+          request,
           conversationId,
-          beforeMessageId: request.latestMessage.external_message_id,
           limit,
+          sdkClient,
         });
     const messages = normalizeTeamsContextMessages(
       request.conversationJid,
       request.threadId || undefined,
-      rawMessages,
+      fetch.messages,
       limit,
       botUserId,
     );
@@ -78,7 +80,32 @@ export async function hydrateTeamsConversationContext(
       },
       'Teams context hydration completed',
     );
-    return { providerId: 'teams', attempted: true, messages };
+    return {
+      providerId: 'teams',
+      attempted: true,
+      messages,
+      coverage: {
+        requestedLatestMessage: {
+          ...(request.latestMessage.external_message_id !== undefined
+            ? {
+                externalMessageId: request.latestMessage.external_message_id,
+              }
+            : {}),
+          timestamp: request.latestMessage.timestamp,
+        },
+        scope: request.threadId ? 'thread' : 'channel',
+        requests: fetch.requests,
+        completeness: { kind: 'request_bounded' },
+        deliveredMessageCount: messages.length,
+        threadRoot: request.threadId
+          ? messages.some(
+              (message) => message.external_message_id === request.threadId,
+            )
+            ? 'included'
+            : 'missing'
+          : 'not_applicable',
+      },
+    };
   } catch (err) {
     logger.debug(
       {
@@ -99,18 +126,55 @@ export async function hydrateTeamsConversationContext(
   }
 }
 
+async function hydrateTeamsChannelMessages(input: {
+  request: ConversationContextHydrationRequest;
+  conversationId: string;
+  limit: number;
+  sdkClient: TeamsSdkClient;
+}): Promise<{
+  messages: TeamsContextMessage[];
+  requests: HydrationRequestObservation[];
+}> {
+  const messages = await input.sdkClient.listChannelMessages!({
+    conversationId: input.conversationId,
+    beforeMessageId: input.request.latestMessage.external_message_id,
+    limit: input.limit,
+  });
+  return {
+    messages,
+    requests: [
+      {
+        role: 'channel',
+        limit: input.limit,
+        effectiveBounds: {
+          ...(input.request.latestMessage.external_message_id
+            ? { cursor: input.request.latestMessage.external_message_id }
+            : {}),
+        },
+        rawMessageCount: messages.length,
+        pagination: { kind: 'request_bounded' },
+      },
+    ],
+  };
+}
+
 async function hydrateTeamsThreadMessages(input: {
   request: ConversationContextHydrationRequest;
   conversationId: string;
   limit: number;
   sdkClient: TeamsSdkClient;
-}): Promise<TeamsContextMessage[]> {
-  const rootMessage = input.sdkClient.getChannelMessage
+}): Promise<{
+  messages: TeamsContextMessage[];
+  requests: HydrationRequestObservation[];
+}> {
+  const rootFetch = input.sdkClient.getChannelMessage
     ? await fetchTeamsThreadRootMessage(input)
     : null;
+  const rootMessage = rootFetch?.message ?? null;
+  const requests = rootFetch ? [rootFetch.observation] : [];
   const replyLimit = Math.max(0, input.limit - (rootMessage ? 1 : 0));
   if (replyLimit <= 0 || !input.sdkClient.listChannelMessageReplies) {
-    return rootMessage ? [rootMessage] : [];
+    return { messages: rootMessage ? [rootMessage] : [], requests };
   }
   const replies = await input.sdkClient.listChannelMessageReplies({
     conversationId: input.conversationId,
@@ -118,19 +182,46 @@ async function hydrateTeamsThreadMessages(input: {
     beforeMessageId: input.request.latestMessage.external_message_id,
     limit: replyLimit,
   });
-  return rootMessage ? [rootMessage, ...replies] : replies;
+  requests.push({
+    role: 'thread',
+    limit: replyLimit,
+    effectiveBounds: {
+      ...(input.request.latestMessage.external_message_id
+        ? { cursor: input.request.latestMessage.external_message_id }
+        : {}),
+    },
+    rawMessageCount: replies.length,
+    pagination: { kind: 'request_bounded' },
+  });
+  return {
+    messages: rootMessage ? [rootMessage, ...replies] : replies,
+    requests,
+  };
 }
 
 async function fetchTeamsThreadRootMessage(input: {
   request: ConversationContextHydrationRequest;
   conversationId: string;
   sdkClient: TeamsSdkClient;
-}): Promise<TeamsContextMessage | null> {
+}): Promise<{
+  message: TeamsContextMessage | null;
+  observation: HydrationRequestObservation;
+}> {
   try {
-    return await input.sdkClient.getChannelMessage!({
+    const message = await input.sdkClient.getChannelMessage!({
       conversationId: input.conversationId,
       messageId: input.request.threadId!,
     });
+    return {
+      message,
+      observation: {
+        role: 'thread_root',
+        limit: 1,
+        effectiveBounds: {},
+        rawMessageCount: 1,
+        pagination: { kind: 'request_bounded' },
+      },
+    };
   } catch (err) {
     logger.debug(
       {
@@ -141,7 +232,16 @@ async function fetchTeamsThreadRootMessage(input: {
       },
       'Teams thread root message hydration failed',
     );
-    return null;
+    return {
+      message: null,
+      observation: {
+        role: 'thread_root',
+        limit: 1,
+        effectiveBounds: {},
+        rawMessageCount: 0,
+        pagination: { kind: 'request_bounded' },
+      },
+    };
   }
 }
 

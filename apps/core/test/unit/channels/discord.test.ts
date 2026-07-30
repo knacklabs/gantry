@@ -1302,6 +1302,34 @@ describe('DiscordChannel', () => {
         ],
       }),
     ]);
+    expect(result.coverage).toEqual({
+      requestedLatestMessage: {
+        externalMessageId: 'message-4',
+        timestamp: '2026-06-22T00:00:04.000Z',
+      },
+      scope: 'channel',
+      requests: [
+        {
+          role: 'channel',
+          limit: 3,
+          effectiveBounds: { cursor: 'message-4' },
+          rawMessageCount: 3,
+          pagination: { kind: 'request_bounded' },
+        },
+      ],
+      completeness: { kind: 'request_bounded' },
+      deliveredMessageCount: 2,
+      threadRoot: 'not_applicable',
+    });
+    expect(
+      result.messages?.map(({ external_message_id, content }) => ({
+        external_message_id,
+        content,
+      })),
+    ).toEqual([
+      { external_message_id: 'message-2', content: 'report attached' },
+      { external_message_id: 'message-3', content: '' },
+    ]);
     fetchMock.mockRestore();
   });
 
@@ -1660,6 +1688,199 @@ describe('DiscordChannel', () => {
         }),
       ]),
     );
+    expect(result.coverage).toEqual({
+      requestedLatestMessage: {
+        externalMessageId: 'message-100',
+        timestamp: '2026-06-22T00:01:40.000Z',
+      },
+      scope: 'thread',
+      requests: [
+        {
+          role: 'thread',
+          limit: 39,
+          effectiveBounds: { cursor: 'message-100' },
+          rawMessageCount: 39,
+          pagination: { kind: 'request_bounded' },
+        },
+        {
+          role: 'thread_root',
+          limit: 1,
+          effectiveBounds: {},
+          rawMessageCount: 1,
+          pagination: { kind: 'request_bounded' },
+        },
+        {
+          role: 'thread_first_replies',
+          limit: 10,
+          effectiveBounds: { cursor: 'thread-1' },
+          rawMessageCount: 10,
+          pagination: { kind: 'request_bounded' },
+        },
+      ],
+      completeness: { kind: 'request_bounded' },
+      deliveredMessageCount: 50,
+      threadRoot: 'included',
+    });
+    fetchMock.mockRestore();
+  });
+
+  it('omits Discord coverage when the first-replies request fails', async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation(async (input) => {
+        const url = String(input);
+        if (
+          url ===
+          'https://discord.com/api/v10/channels/thread-1/messages?limit=39&before=message-100'
+        ) {
+          return jsonResponse([
+            {
+              id: 'message-99',
+              channel_id: 'thread-1',
+              content: 'latest reply',
+              timestamp: '2026-06-22T00:01:39.000Z',
+              author: { id: 'user-2', username: 'Maya' },
+            },
+          ]);
+        }
+        if (
+          url ===
+          'https://discord.com/api/v10/channels/thread-1/messages/thread-1'
+        ) {
+          return jsonResponse({
+            id: 'thread-1',
+            channel_id: 'thread-1',
+            content: 'thread starter',
+            timestamp: '2026-06-22T00:00:01.000Z',
+            author: { id: 'user-1', username: 'Ravi' },
+          });
+        }
+        if (
+          url ===
+          'https://discord.com/api/v10/channels/thread-1/messages?after=thread-1&limit=10'
+        ) {
+          return new Response('{}', { status: 500 });
+        }
+        if (url === 'https://discord.com/api/v10/channels/thread-1') {
+          return jsonResponse({
+            id: 'thread-1',
+            type: 11,
+            parent_id: 'parent-1',
+          });
+        }
+        return new Response('{}', { status: 404 });
+      });
+    const channel = new DiscordChannel('bot-token', 'app-id', opts());
+
+    const result = await channel.hydrateConversationContext({
+      conversationJid: 'dc:parent-1',
+      threadId: 'thread-1',
+      latestMessage: {
+        id: 'current',
+        timestamp: '2026-06-22T00:01:40.000Z',
+        external_message_id: 'message-100',
+        thread_id: 'thread-1',
+      },
+      limits: { channelMessages: 30, threadMessages: 50 },
+    });
+
+    expect(
+      result.messages?.map((message) => message.external_message_id),
+    ).toEqual(['thread-1', 'message-99']);
+    expect(result).not.toHaveProperty('coverage');
+    fetchMock.mockRestore();
+  });
+
+  it('reports missing when the Discord thread root is filtered by normalization', async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation(async (input) => {
+        const url = String(input);
+        if (
+          url ===
+          'https://discord.com/api/v10/channels/thread-1/messages?limit=2&before=message-3'
+        ) {
+          return jsonResponse([
+            {
+              id: 'message-2',
+              channel_id: 'thread-1',
+              content: 'kept reply',
+              timestamp: '2026-06-22T00:00:02.000Z',
+              author: { id: 'user-2', username: 'Maya' },
+            },
+            {
+              id: 'message-empty',
+              channel_id: 'thread-1',
+              content: '   ',
+              timestamp: '2026-06-22T00:00:01.000Z',
+              author: { id: 'user-3', username: 'Isha' },
+            },
+          ]);
+        }
+        if (
+          url ===
+          'https://discord.com/api/v10/channels/thread-1/messages/thread-1'
+        ) {
+          return jsonResponse({
+            id: 'thread-1',
+            channel_id: 'thread-1',
+            content: '   ',
+            timestamp: '2026-06-22T00:00:00.000Z',
+            author: { id: 'user-root', username: 'Root' },
+          });
+        }
+        if (url === 'https://discord.com/api/v10/channels/thread-1') {
+          return jsonResponse({
+            id: 'thread-1',
+            type: 11,
+            parent_id: 'parent-1',
+          });
+        }
+        return new Response('{}', { status: 404 });
+      });
+    const channel = new DiscordChannel('bot-token', 'app-id', opts());
+
+    const result = await channel.hydrateConversationContext({
+      conversationJid: 'dc:parent-1',
+      threadId: 'thread-1',
+      latestMessage: {
+        id: 'current',
+        timestamp: '2026-06-22T00:00:03.000Z',
+        external_message_id: 'message-3',
+        thread_id: 'thread-1',
+      },
+      limits: { channelMessages: 30, threadMessages: 2 },
+    });
+
+    expect(result.messages).toEqual([
+      expect.objectContaining({ external_message_id: 'message-2' }),
+    ]);
+    expect(result.coverage).toEqual({
+      requestedLatestMessage: {
+        externalMessageId: 'message-3',
+        timestamp: '2026-06-22T00:00:03.000Z',
+      },
+      scope: 'thread',
+      requests: [
+        {
+          role: 'thread',
+          limit: 2,
+          effectiveBounds: { cursor: 'message-3' },
+          rawMessageCount: 2,
+          pagination: { kind: 'request_bounded' },
+        },
+        {
+          role: 'thread_root',
+          limit: 1,
+          effectiveBounds: {},
+          rawMessageCount: 1,
+          pagination: { kind: 'request_bounded' },
+        },
+      ],
+      completeness: { kind: 'request_bounded' },
+      deliveredMessageCount: 1,
+      threadRoot: 'missing',
+    });
     fetchMock.mockRestore();
   });
 
@@ -1720,6 +1941,50 @@ describe('DiscordChannel', () => {
         thread_id: 'thread-1',
       }),
     ]);
+    expect(result.coverage?.requests).toEqual([
+      {
+        role: 'thread',
+        limit: 2,
+        effectiveBounds: { cursor: 'message-3' },
+        rawMessageCount: 1,
+        pagination: { kind: 'request_bounded' },
+      },
+      {
+        role: 'thread_root',
+        limit: 1,
+        effectiveBounds: {},
+        rawMessageCount: 0,
+        pagination: { kind: 'request_bounded' },
+      },
+    ]);
+    expect(result.coverage?.threadRoot).toBe('missing');
+    fetchMock.mockRestore();
+  });
+
+  it('omits Discord coverage when the history request fails', async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(new Response('{}', { status: 500 }));
+    const channel = new DiscordChannel('bot-token', 'app-id', opts());
+
+    const result = await channel.hydrateConversationContext({
+      conversationJid: 'dc:channel-1',
+      latestMessage: {
+        id: 'current',
+        timestamp: '2026-06-22T00:00:04.000Z',
+        external_message_id: 'message-4',
+      },
+      limits: { channelMessages: 3, threadMessages: 50 },
+    });
+
+    expect(result).toEqual({
+      providerId: 'discord',
+      attempted: true,
+      failed: true,
+      reason: 'provider_error',
+      messages: [],
+    });
+    expect(result).not.toHaveProperty('coverage');
     fetchMock.mockRestore();
   });
 

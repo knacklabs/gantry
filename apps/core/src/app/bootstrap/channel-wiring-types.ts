@@ -39,8 +39,10 @@ import type {
   AgentTodoRender,
 } from '../../domain/ports/task-lifecycle.js';
 import type {
+  ConversationContextHydrationCoverage,
   ConversationContextHydrationRequest,
   ConversationContextHydrationResult,
+  HydrationRequestObservation,
 } from '../../channels/channel-provider.js';
 import type { BrainChannelHarvestTap } from '../../brain/brain-channel-harvest.js';
 
@@ -263,6 +265,8 @@ export interface ChannelWiring {
 }
 
 export type {
+  ConversationContextHydrationCoverage,
   ConversationContextHydrationRequest,
   ConversationContextHydrationResult,
+  HydrationRequestObservation,
 };
