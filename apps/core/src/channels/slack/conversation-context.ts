@@ -5,6 +5,7 @@ import { logger } from '../../infrastructure/logging/logger.js';
 import type {
   ConversationContextHydrationRequest,
   ConversationContextHydrationResult,
+  HydrationRequestObservation,
 } from '../channel-provider.js';
 import type { SlackMessageLike } from './channel-state.js';
 
@@ -16,6 +17,17 @@ interface SlackHydratedMessagesResponse {
   response_metadata?: {
     next_cursor?: string;
   };
+}
+
+interface SlackHydratedMessagesFetch {
+  response: SlackHydratedMessagesResponse;
+  requests: HydrationRequestObservation[];
+  fullRangeResponse: SlackHydratedMessagesResponse;
+}
+
+interface SlackThreadTailFetch {
+  response: SlackHydratedMessagesResponse;
+  requests: HydrationRequestObservation[];
 }
 
 type SlackHydratedFile = NonNullable<SlackMessageLike['files']>[number] & {
@@ -71,12 +83,13 @@ export async function hydrateSlackConversationContext(
   }
 
   try {
-    const response = await fetchSlackMessages(
+    const fetch = await fetchSlackMessages(
       request,
       deps.app,
       parsed.channelId,
       limit,
     );
+    const { response } = fetch;
     if (response.ok === false) {
       return failedSlackHydration(request, response.error || 'provider_error');
     }
@@ -99,7 +112,37 @@ export async function hydrateSlackConversationContext(
       },
       'Slack context hydration completed',
     );
-    return { providerId: 'slack', attempted: true, messages };
+    return {
+      providerId: 'slack',
+      attempted: true,
+      messages,
+      coverage: {
+        requestedLatestMessage: {
+          ...(request.latestMessage.external_message_id !== undefined
+            ? {
+                externalMessageId: request.latestMessage.external_message_id,
+              }
+            : {}),
+          timestamp: request.latestMessage.timestamp,
+        },
+        scope: request.threadId ? 'thread' : 'channel',
+        requests: fetch.requests,
+        completeness: {
+          kind: 'server_confirmed',
+          exhausted:
+            !fetch.fullRangeResponse.has_more &&
+            !hasUsableSlackCursor(fetch.fullRangeResponse),
+        },
+        deliveredMessageCount: messages.length,
+        threadRoot: request.threadId
+          ? messages.some(
+              (message) => message.external_message_id === request.threadId,
+            )
+            ? 'included'
+            : 'missing'
+          : 'not_applicable',
+      },
+    };
   } catch (err) {
     logger.debug(
       {
@@ -125,17 +168,22 @@ async function fetchSlackMessages(
   app: App,
   channel: string,
   limit: number,
-): Promise<SlackHydratedMessagesResponse> {
+): Promise<SlackHydratedMessagesFetch> {
   const latest = slackLatestCursor(request.latestMessage);
   if (request.threadId) {
     return fetchSlackThreadMessages(request, app, channel, limit, latest);
   }
-  return (await app.client.conversations.history({
+  const response = (await app.client.conversations.history({
     channel,
     latest,
     inclusive: false,
     limit,
   })) as SlackHydratedMessagesResponse;
+  return {
+    response,
+    requests: [slackRequestObservation('channel', limit, latest, response)],
+    fullRangeResponse: response,
+  };
 }
 
 async function fetchSlackThreadMessages(
@@ -144,7 +192,7 @@ async function fetchSlackThreadMessages(
   channel: string,
   limit: number,
   latest: string | undefined,
-): Promise<SlackHydratedMessagesResponse> {
+): Promise<SlackHydratedMessagesFetch> {
   const first = (await app.client.conversations.replies({
     channel,
     ts: request.threadId!,
@@ -152,11 +200,14 @@ async function fetchSlackThreadMessages(
     inclusive: false,
     limit,
   })) as SlackHydratedMessagesResponse;
-  if (first.ok === false) return first;
+  const requests = [slackRequestObservation('thread', limit, latest, first)];
+  if (first.ok === false) {
+    return { response: first, requests, fullRangeResponse: first };
+  }
 
   const messages = [...(first.messages || [])];
   const cursor = first.response_metadata?.next_cursor?.trim();
-  let tailResponse: SlackHydratedMessagesResponse | null = null;
+  let tailResponse: SlackThreadTailFetch | null = null;
   const tailLimit = slackThreadTailFetchLimit(limit);
   if (cursor && tailLimit > 0) {
     tailResponse = await fetchSlackThreadTailWindow({
@@ -166,15 +217,26 @@ async function fetchSlackThreadMessages(
       latest,
       limit: tailLimit,
     });
-    if (tailResponse.ok === false) return tailResponse;
-    messages.push(...(tailResponse.messages || []));
+    requests.push(...tailResponse.requests);
+    if (tailResponse.response.ok === false) {
+      return {
+        response: tailResponse.response,
+        requests,
+        fullRangeResponse: first,
+      };
+    }
+    messages.push(...(tailResponse.response.messages || []));
   }
 
   return {
-    ...first,
-    messages,
-    response_metadata:
-      tailResponse?.response_metadata || first.response_metadata,
+    response: {
+      ...first,
+      messages,
+      response_metadata:
+        tailResponse?.response.response_metadata || first.response_metadata,
+    },
+    requests,
+    fullRangeResponse: first,
   };
 }
 
@@ -184,24 +246,35 @@ async function fetchSlackThreadTailWindow(input: {
   threadId: string;
   latest: string | undefined;
   limit: number;
-}): Promise<SlackHydratedMessagesResponse> {
+}): Promise<SlackThreadTailFetch> {
   const latestSeconds = Number(input.latest);
   if (!Number.isFinite(latestSeconds)) {
-    return { ok: true, messages: [] };
+    return { response: { ok: true, messages: [] }, requests: [] };
   }
 
   let lookbackSeconds = THREAD_TAIL_INITIAL_LOOKBACK_SECONDS;
   let response: SlackHydratedMessagesResponse = { ok: true, messages: [] };
+  const requests: HydrationRequestObservation[] = [];
   for (let attempt = 0; attempt < THREAD_TAIL_WINDOW_ATTEMPTS; attempt += 1) {
+    const oldest = slackTailWindowOldest(latestSeconds, lookbackSeconds);
     response = (await input.app.client.conversations.replies({
       channel: input.channel,
       ts: input.threadId,
       latest: input.latest,
-      oldest: slackTailWindowOldest(latestSeconds, lookbackSeconds),
+      oldest,
       inclusive: false,
       limit: input.limit,
     })) as SlackHydratedMessagesResponse;
-    if (response.ok === false) return response;
+    requests.push(
+      slackRequestObservation(
+        'thread_tail',
+        input.limit,
+        input.latest,
+        response,
+        oldest,
+      ),
+    );
+    if (response.ok === false) return { response, requests };
 
     if (
       slackTailWindowIsDense(
@@ -238,7 +311,36 @@ async function fetchSlackThreadTailWindow(input: {
 
     break;
   }
-  return response;
+  return { response, requests };
+}
+
+function slackRequestObservation(
+  role: 'channel' | 'thread' | 'thread_tail',
+  limit: number,
+  cursor: string | undefined,
+  response: SlackHydratedMessagesResponse,
+  oldest?: string,
+): HydrationRequestObservation {
+  return {
+    role,
+    limit,
+    effectiveBounds: {
+      ...(cursor ? { cursor } : {}),
+      ...(oldest ? { oldest } : {}),
+    },
+    rawMessageCount: (response.messages || []).length,
+    pagination: {
+      kind: 'server_confirmed',
+      hasMore: Boolean(response.has_more),
+      hadCursor: hasUsableSlackCursor(response),
+    },
+  };
+}
+
+function hasUsableSlackCursor(
+  response: SlackHydratedMessagesResponse,
+): boolean {
+  return Boolean(response.response_metadata?.next_cursor?.trim());
 }
 
 function slackLatestCursor(
