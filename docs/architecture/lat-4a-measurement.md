@@ -1,6 +1,6 @@
 # LAT-4A Inbound Envelope Measurement
 
-Decision 0082 removes one duplicate `ensureConversation` from each converted
+Decision 0085 removes one duplicate `ensureConversation` from each converted
 paired metadata-and-message ingress. The measured reduction is uniform even
 though provider totals differ.
 
@@ -11,8 +11,8 @@ though provider totals differ.
 | Telegram text  |           28 |           19 |            9 | Converted and measured on real Postgres                                                                                                                                             |
 | Slack          |           29 |           20 |            9 | Converted and measured on real Postgres                                                                                                                                             |
 | Teams          |           28 |           19 |            9 | Converted and measured on real Postgres                                                                                                                                             |
-| Discord        | Not measured | Not measured | Not measured | Converted, adapter-unit covered. No callable ingress seam to drive from an integration test, so the number is genuinely unmeasured rather than pending a rerun. Deferred as D-0026. |
-| Telegram media |           22 |           22 |            0 | Reverted and deferred as D-0025                                                                                                                                                     |
+| Discord        | Not measured | Not measured | Not measured | Converted, adapter-unit covered. No callable ingress seam to drive from an integration test, so the number is genuinely unmeasured rather than pending a rerun. Deferred as D-0028. |
+| Telegram media |           22 |           22 |            0 | Reverted and deferred as D-0027                                                                                                                                                     |
 
 For every converted provider that has a completed before/after measurement, the
 delta is exactly **-9 statements**. Those nine statements are the duplicate
@@ -21,7 +21,7 @@ delta is exactly **-9 statements**. Those nine statements are the duplicate
 Telegram media is deliberately not counted as converted. Its fused run invoked
 `ensureConversation` once and issued 13 statements but left no conversation
 row. The conversion was reverted, its supported result remains 22 statements,
-and root-cause work is deferred as D-0025.
+and root-cause work is deferred as D-0027.
 
 Discord cannot be driven through its production ingress without a live gateway:
 `DiscordChannel.connect` wires inbound delivery to a private WebSocket dispatch
@@ -52,8 +52,8 @@ The roadmap scoped "all eligible admissions in one serialized transaction".
 Delivered for single-route; NOT delivered for multi-route, where each route
 still gets its own `storeMessageWithLiveAdmission` call that commits and
 notifies independently. Branch autoreview caught this as a P1 against the
-patch's own stated guarantee, and it is deferred as D-0027 rather than
+patch's own stated guarantee, and it is deferred as D-0029 rather than
 implemented untested against the durable admission queue.
 
 Anyone reading "one inbound envelope transaction" should read it as
-"one per route", not "one per message", until D-0027 lands.
+"one per route", not "one per message", until D-0029 lands.

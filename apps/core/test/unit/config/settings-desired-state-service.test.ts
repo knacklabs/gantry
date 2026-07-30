@@ -3826,6 +3826,78 @@ conversations:
       restartRequired: ['observer'],
     });
   });
+
+  it('classifies conversation install topology additions as restart-required', () => {
+    const before = createDefaultRuntimeSettings();
+    const after = structuredClone(before);
+    after.providerAccounts.slack_ops = {
+      agentId: 'main_agent',
+      provider: 'slack',
+      label: 'Slack Ops',
+      runtimeSecretRefs: {
+        bot_token: 'gantry-secret:MAIN_SLACK_BOT_TOKEN',
+        app_token: 'gantry-secret:MAIN_SLACK_APP_TOKEN',
+      },
+    };
+    before.providerAccounts = structuredClone(after.providerAccounts);
+    after.conversations.slack_ops_incidents = {
+      providerAccount: 'slack_ops',
+      externalId: 'C12345678',
+      kind: 'channel',
+      displayName: 'incidents',
+      senderPolicy: { allow: '*', mode: 'trigger' },
+      controlApprovers: ['U12345678'],
+      installedAgents: {
+        main_agent: {
+          agentId: 'main_agent',
+          providerAccountId: 'slack_ops',
+          status: 'active',
+          addedAt: '2026-07-28T00:00:00.000Z',
+          memoryScope: 'conversation',
+          trigger: '@Main',
+          requiresTrigger: true,
+        },
+      },
+    };
+
+    expect(classifySettingsChanges(before, after)).toEqual({
+      liveApplied: [],
+      restartRequired: ['conversations'],
+    });
+  });
+
+  it('keeps conversation policy-only changes live-applied', () => {
+    const before = createDefaultRuntimeSettings();
+    before.conversations.slack_ops_incidents = {
+      providerAccount: 'slack_ops',
+      externalId: 'C12345678',
+      kind: 'channel',
+      displayName: 'incidents',
+      senderPolicy: { allow: '*', mode: 'trigger' },
+      controlApprovers: ['U12345678'],
+      installedAgents: {
+        main_agent: {
+          agentId: 'main_agent',
+          providerAccountId: 'slack_ops',
+          status: 'active',
+          addedAt: '2026-07-28T00:00:00.000Z',
+          memoryScope: 'conversation',
+          trigger: '@Main',
+          requiresTrigger: true,
+        },
+      },
+    };
+    const after = structuredClone(before);
+    after.conversations.slack_ops_incidents.controlApprovers = ['U87654321'];
+    after.conversations.slack_ops_incidents.installedAgents[
+      'main_agent'
+    ]!.requiresTrigger = false;
+
+    expect(classifySettingsChanges(before, after)).toEqual({
+      liveApplied: ['conversation_policies'],
+      restartRequired: [],
+    });
+  });
 });
 
 describe('reconcile preserves agent-installed bindings', () => {

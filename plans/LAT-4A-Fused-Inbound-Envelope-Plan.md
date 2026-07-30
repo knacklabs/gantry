@@ -4,8 +4,8 @@ Issue: `LAT-4A`
 Branch: `perf/phase4a-inbound-envelope-persistence`
 Base: `origin/main` @ `98f40dce6`
 Program: MyClaw Response-Latency Refactor, Phase 4A
-Governing decision: `docs/decisions/0082-lat-4a-fused-inbound-envelope-transaction.md`
-Sign-off: `docs/decisions/0083-client-signoff.md`
+Governing decision: `docs/decisions/0085-lat-4a-fused-inbound-envelope-transaction.md`
+Sign-off: `docs/decisions/0086-client-signoff.md`
 Signal: `S-0001-f4d3` (contradiction) — raised and resolved before planning
 
 ## Problem
@@ -103,16 +103,16 @@ not a constraint; the deterministic message and admission ids must be preserved.
 
 Wrapping both existing `ensureConversation` calls in one `BEGIN`. It is the
 literal reading of "one transaction", it is a smaller diff, and it buys nothing
-measurable — 0 statements, 0 round trips. Recorded in decision 0082 so the
+measurable — 0 statements, 0 round trips. Recorded in decision 0085 so the
 cheaper-looking option is not re-proposed.
 
 ## Decisions
 
-- `docs/decisions/0082-lat-4a-fused-inbound-envelope-transaction.md` — the
+- `docs/decisions/0085-lat-4a-fused-inbound-envelope-transaction.md` — the
   governing record: the 28-statement breakdown, why fusion alone is worthless,
   the two traps (title/kind regression, six standalone paths), and the explicit
   boundary between deleting a redundant call and deleting the upserts inside it.
-- `docs/decisions/0083-client-signoff.md` — sign-off for the sharpened scope.
+- `docs/decisions/0086-client-signoff.md` — sign-off for the sharpened scope.
 
 No further new decisions.
 

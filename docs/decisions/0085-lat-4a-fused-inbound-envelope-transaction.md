@@ -83,7 +83,7 @@ independently, the first can become visible before the second commits, and a
 failure on the second leaves a partially persisted envelope. Batching them needs
 a new repository operation across the durable admission path, with its own
 correctness and measurement burden — that is a phase, not a tail on this one.
-Deferred as **D-0027**. Do not read "one inbound envelope transaction" as
+Deferred as **D-0029**. Do not read "one inbound envelope transaction" as
 covering multi-route until that lands.
 
 Within that transaction, `ensureConversation` is invoked **once**, with `name`
@@ -114,7 +114,7 @@ shared channel-layer helper rather than copied five times, so a sixth provider
 inherits the behaviour instead of re-implementing it. Per-provider control flow
 (drop logging, early returns, media handling) stays with each adapter.
 
-**Telegram media is deferred, not done (D-0025).** It was converted and then
+**Telegram media is deferred, not done (D-0027).** It was converted and then
 reverted before merge. With the fusion applied it ran `ensureConversation`
 exactly once and issued 13 statements, yet left NO conversation row — while the
 same fixture shape works for Telegram text, Slack and Teams. The likeliest

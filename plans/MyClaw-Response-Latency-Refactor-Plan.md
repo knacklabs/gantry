@@ -114,14 +114,13 @@ must re-resolve the current runner/admission/session paths and design the exact
 final-turn context fence that permits one memory hydration without losing reset,
 promotion, compaction, or resumed-session correctness.
 
-### Phase 3B - Cursor-Fenced Pending Replay Reuse — CLOSED BY MEASUREMENT (pending acceptance of decision 0080)
+### Phase 3B - Cursor-Fenced Pending Replay Reuse — CLOSED BY MEASUREMENT
 
 Branch: `perf/phase3b-cursor-fenced-replay`
 
 **Do not implement. Read
 `docs/decisions/0080-lat-3b-retain-authoritative-second-fetch.md` before
-reopening this. That record is `status: proposed` — acceptance is a human
-gate, and this entry is provisional until it is accepted.**
+reopening this. That record is accepted.**
 
 Original scope: reuse a preloaded pending replay only when cursor, queue
 identity, conversation/thread/provider scope, replay ids, and replay cursor are

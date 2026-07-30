@@ -68,13 +68,23 @@ export async function closeBrowserAfterJobRun(input: {
       isBrowserProfileSyncEnabled()
     ) {
       const profile = getProfile(profileName);
-      if (profile) {
+      const closedGeneration = (
+        closed as { leaseGeneration?: number } | undefined
+      )?.leaseGeneration;
+      if (profile && closedGeneration === undefined) {
+        input.logger.warn(
+          { jobId: input.currentJob.id, profileName },
+          'Skipped job browser snapshot: no lease generation provenance',
+        );
+      } else if (profile) {
         await snapshotBrowserProfile({
           profileName,
           profileDir: profile.dir,
           userDataDir: profile.userDataDir,
           snapshotRunId: input.snapshotRunId ?? null,
           snapshotFencingVersion: input.snapshotFencingVersion ?? 0,
+          // Bound to the session just closed, not re-read from shared state.
+          snapshotLeaseGeneration: closedGeneration,
         });
       }
     }

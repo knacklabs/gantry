@@ -27,6 +27,14 @@ export interface BrowserProfile {
 
 export interface BrowserProfileLock {
   name: string;
+  /** Lease key this lock holds, for fencing writes against its generation. */
+  leaseKey: string;
+  /**
+   * Ownership generation of the underlying runtime lease: the epoch this holder
+   * owns the profile for. Carried into the snapshot fence so a stale owner's
+   * late write loses to its successor.
+   */
+  generation: number;
   lockPath?: string;
   isValid: () => boolean;
   onLost: (handler: (err: Error) => void) => void;
@@ -226,6 +234,7 @@ export async function acquireProfileLock(
   name: string,
   leases: RuntimeLeasePort,
   timeoutMs = PROFILE_LOCK_TIMEOUT_MS,
+  options: { shared?: boolean } = {},
 ): Promise<BrowserProfileLock> {
   const normalized = assertProfileName(name);
   const leaseKey = `browser-profile:${normalized}`;
@@ -236,7 +245,7 @@ export async function acquireProfileLock(
   const started = currentTimeMs();
 
   while (true) {
-    const lease = await leases.tryAcquire(leaseKey);
+    const lease = await leases.tryAcquire(leaseKey, options);
     if (lease) {
       let lostError: Error | undefined;
       let released = false;
@@ -246,9 +255,25 @@ export async function acquireProfileLock(
         lostError = err;
         for (const handler of lostHandlers) handler(err);
       });
+      // tsc does not cover apps/core/test/**, so a test lease fake can omit
+      // `generation` and silently yield undefined. Fail loudly rather than
+      // fencing with 0, which would look correct and protect nothing.
+      // Shared holders may legitimately see 0 (nobody has owned this profile).
+      const minimumGeneration = options.shared ? 0 : 1;
+      if (
+        !Number.isSafeInteger(lease.generation) ||
+        lease.generation < minimumGeneration
+      ) {
+        await lease.release().catch(() => undefined);
+        throw new Error(
+          `Runtime lease for ${leaseKey} carried no usable generation: ${String(lease.generation)}`,
+        );
+      }
       let releasePromise: Promise<void> | undefined;
       return {
         name: normalized,
+        leaseKey,
+        generation: lease.generation,
         isValid: () => !lostError && !released,
         onLost: (handler) => {
           if (lostError) handler(lostError);

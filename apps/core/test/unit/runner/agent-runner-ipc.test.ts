@@ -1595,7 +1595,7 @@ describe('agent-runner IPC lifecycle', () => {
       expect(call?.settings?.skillOverrides).toEqual(
         SDK_NATIVE_SKILL_OVERRIDES,
       );
-      expect(call?.settingSources).toEqual([]);
+      expect(call?.settingSources).toEqual(['user']);
       expect(call?.strictMcpConfig).toBe(true);
       expect(call?.skills).toEqual([
         'gantry-admin',

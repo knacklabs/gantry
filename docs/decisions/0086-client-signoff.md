@@ -22,11 +22,11 @@ The two-phase inbound write reproduces at 28 SQL statements, but transaction
 fusion alone saves zero statements and zero round trips. The measured win is
 deleting the duplicated `ensureConversation` on the paired path by carrying
 name and isGroup into the surviving call. Evidence and constraints are recorded
-in `docs/decisions/0082-lat-4a-fused-inbound-envelope-transaction.md`.
+in `docs/decisions/0085-lat-4a-fused-inbound-envelope-transaction.md`.
 
 ## Decision
 
-Proceed with LAT-4A under the sharpened scope in decision 0082: one transaction
+Proceed with LAT-4A under the sharpened scope in decision 0085: one transaction
 for the paired inbound path, `ensureConversation` invoked once with name and
 isGroup carried in, the paired metadata invocation deleted, admissions notified
 after commit.

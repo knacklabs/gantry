@@ -8,7 +8,7 @@ export interface InboundConversationIdentity {
 
 /**
  * One rule, shared by every provider ingress that pairs a metadata write with a
- * message write (LAT-4A, decision 0082).
+ * message write (LAT-4A, decision 0085).
  *
  * Before LAT-4A each ingress wrote conversation metadata AND then persisted a
  * message whose own `ensureConversation` redid the same seven-table graph write

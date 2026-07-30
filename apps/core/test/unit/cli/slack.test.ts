@@ -27,8 +27,29 @@ import {
   resolveGroupSelector,
 } from '@core/cli/group-helpers.js';
 import { agentIdForFolder } from '@core/domain/agent/agent-folder-id.js';
+import { runtimeSecretNameForAgent } from '@core/domain/provider/provider-runtime-secret-keys.js';
 
 const groupsStore = vi.hoisted(() => new Map<string, any>());
+const defaultSlackBotSecretName = runtimeSecretNameForAgent(
+  'slack',
+  'main_agent',
+  'BOT_TOKEN',
+);
+const defaultSlackAppSecretName = runtimeSecretNameForAgent(
+  'slack',
+  'main_agent',
+  'APP_TOKEN',
+);
+const recruitingSlackBotSecretName = runtimeSecretNameForAgent(
+  'slack',
+  'recruiting_agent',
+  'BOT_TOKEN',
+);
+const recruitingSlackAppSecretName = runtimeSecretNameForAgent(
+  'slack',
+  'recruiting_agent',
+  'APP_TOKEN',
+);
 const fileArtifacts = vi.hoisted(() => new Map<string, string>());
 const fileArtifactState = vi.hoisted(() => ({ failWrites: false }));
 const fileArtifactStore = vi.hoisted(() => ({
@@ -688,13 +709,13 @@ describe('cli slack helpers', () => {
     expect(code).toBe(0);
     expect(storeRuntimeSecretInput).toHaveBeenCalledWith({
       runtimeHome,
-      name: 'SLACK_BOT_TOKEN',
+      name: defaultSlackBotSecretName,
       value: 'xoxb-valid-token',
       actor: 'cli:slack-connect',
     });
     expect(storeRuntimeSecretInput).toHaveBeenCalledWith({
       runtimeHome,
-      name: 'SLACK_APP_TOKEN',
+      name: defaultSlackAppSecretName,
       value: 'xapp-valid-token',
       actor: 'cli:slack-connect',
     });
@@ -802,7 +823,11 @@ describe('cli slack helpers', () => {
     mockRuntimeSecretStorage(runtimeHome);
 
     const { runSlackConnectCommand } = await import('@core/cli/slack.js');
-    const code = await runSlackConnectCommand(runtimeHome);
+    const code = await runSlackConnectCommand(
+      runtimeHome,
+      'recruiting_agent',
+      'Test',
+    );
 
     expect(code).toBe(0);
     const settings = loadRuntimeSettings(runtimeHome);
@@ -812,8 +837,8 @@ describe('cli slack helpers', () => {
     expect(
       settings.providerAccounts.slack_recruiting_agent.runtimeSecretRefs,
     ).toEqual({
-      bot_token: 'gantry-secret:SLACK_BOT_TOKEN',
-      app_token: 'gantry-secret:SLACK_APP_TOKEN',
+      bot_token: `gantry-secret:${recruitingSlackBotSecretName}`,
+      app_token: `gantry-secret:${recruitingSlackAppSecretName}`,
     });
     expect(
       settings.conversations.slack_recruiting_agent_c0123456789.providerAccount,

@@ -31,7 +31,7 @@ import {
 } from '../harness/postgres-integration-runtime.js';
 import { measurePostgresOperations } from '../harness/response-latency-postgres.js';
 
-// Decision 0082 baseline: stage LAT-4A-2 flips these to 19 and once.
+// Decision 0085 baseline: stage LAT-4A-2 flips these to 19 and once.
 //
 // WHAT THIS MEASURES, precisely: every SQL statement issued to persist ONE
 // inbound envelope — the metadata write, the message graph write, participants,
@@ -43,7 +43,7 @@ import { measurePostgresOperations } from '../harness/response-latency-postgres.
 // observed here, so a count that stopped at it would be asserting a boundary it
 // never sees. The quantity below is the one LAT-4A actually reduces — the total
 // persistence cost of an inbound message — and it is well-defined and
-// deterministic. Decision 0082 and the plan's AC1 use this same wording.
+// deterministic. Decision 0085 and the plan's AC1 use this same wording.
 // Per-provider, because the saving does NOT land on a shared number: each
 // ingress has its own baseline shape (media skips work text does, Slack does
 // slightly more). What IS uniform is the DELTA — every provider drops exactly
@@ -51,7 +51,7 @@ import { measurePostgresOperations } from '../harness/response-latency-postgres.
 //
 // Measured on real Postgres, before and after, by stashing the src change:
 //   Telegram text   28 -> 19
-//   Telegram media  22 -> 22 (NOT converted — see decision 0082)
+//   Telegram media  22 -> 22 (NOT converted — see decision 0085)
 //   Slack           29 -> 20
 //   Teams           28 -> 19
 // A single shared constant would have been wrong for two of the four.
@@ -390,7 +390,7 @@ describe.runIf(hasPostgresIntegrationDatabase)(
         me: { username: 'gantry_latency_bot' },
       } as Parameters<typeof handleTelegramTextMessage>[0]['ctx'];
 
-      // Decision 0082: shared persistence rejects this unregistered direct
+      // Decision 0085: shared persistence rejects this unregistered direct
       // message, so standalone metadata is its only conversation write.
       const ensureConversation = vi.spyOn(
         PostgresCanonicalGraphRepository.prototype,
