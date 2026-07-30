@@ -831,6 +831,52 @@ describe('TeamsChannel adapter scaffold', () => {
     });
   });
 
+  it('carries registered Teams conversation identity without metadata', async () => {
+    const opts = makeOpts();
+    vi.mocked(opts.conversationRoutes).mockReturnValue({
+      'teams:19:latency@thread.v2': {
+        name: 'Teams Latency',
+        folder: 'main_agent',
+        trigger: '@Main',
+        added_at: '2026-07-29T00:00:00.000Z',
+        providerAccountId: 'teams_default',
+      },
+    });
+    const sdkClient: TeamsSdkClient = {
+      start: vi.fn(async () => {}),
+      stop: vi.fn(async () => {}),
+      sendMessage: vi.fn(async () => ({})),
+    };
+    const channel = new TeamsChannel(
+      {
+        clientId: 'client-id',
+        clientSecret: 'client-secret',
+        tenantId: 'tenant-id',
+      },
+      opts,
+      sdkClient,
+    );
+
+    await channel.ingestMessage({
+      conversationId: '19:latency@thread.v2',
+      id: 'activity-1',
+      text: 'hello from Teams',
+      from: { id: 'user-1', name: 'Ravi' },
+      timestamp: '2026-07-29T00:00:00.000Z',
+      conversationName: 'Teams Latency',
+      conversationType: 'channel',
+    });
+
+    expect(opts.onChatMetadata).not.toHaveBeenCalled();
+    expect(opts.onMessage).toHaveBeenCalledWith(
+      'teams:19:latency@thread.v2',
+      expect.objectContaining({
+        name: 'Teams Latency',
+        isGroup: true,
+      }),
+    );
+  });
+
   it('hydrates Teams attachment-only context messages with provider metadata only', async () => {
     const sdkClient: TeamsSdkClient = {
       start: vi.fn(async () => {}),
@@ -929,6 +975,34 @@ describe('TeamsChannel adapter scaffold', () => {
           }),
         ],
       }),
+    ]);
+    expect(result.coverage).toEqual({
+      requestedLatestMessage: {
+        externalMessageId: 'activity-4',
+        timestamp: '2026-04-30T00:00:04.000Z',
+      },
+      scope: 'channel',
+      requests: [
+        {
+          role: 'channel',
+          limit: 3,
+          effectiveBounds: { cursor: 'activity-4' },
+          rawMessageCount: 3,
+          pagination: { kind: 'request_bounded' },
+        },
+      ],
+      completeness: { kind: 'request_bounded' },
+      deliveredMessageCount: 2,
+      threadRoot: 'not_applicable',
+    });
+    expect(
+      result.messages?.map(({ external_message_id, content }) => ({
+        external_message_id,
+        content,
+      })),
+    ).toEqual([
+      { external_message_id: 'activity-1', content: '' },
+      { external_message_id: 'activity-2', content: 'report attached' },
     ]);
   });
 
@@ -1103,6 +1177,90 @@ describe('TeamsChannel adapter scaffold', () => {
     ]);
   });
 
+  it('reports request-bounded Teams thread coverage after normalization filters a reply', async () => {
+    const sdkClient: TeamsSdkClientWithRoot = {
+      start: vi.fn(async () => {}),
+      stop: vi.fn(async () => {}),
+      sendMessage: vi.fn(async () => ({ externalMessageId: 'teams-msg-1' })),
+      getChannelMessage: vi.fn(async () => ({
+        conversationId: '19:abc@thread.v2',
+        id: 'root-message',
+        text: 'thread root',
+        from: { id: 'user-root', name: 'Root User' },
+        timestamp: '2026-04-30T00:00:00.000Z',
+      })),
+      listChannelMessageReplies: vi.fn(async () => [
+        {
+          conversationId: '19:abc@thread.v2',
+          id: 'reply-empty',
+          text: '   ',
+          from: { id: 'user-1', name: 'Ravi' },
+          timestamp: '2026-04-30T00:00:01.000Z',
+        },
+        {
+          conversationId: '19:abc@thread.v2',
+          id: 'reply-2',
+          text: 'kept reply',
+          senderId: 'user-2',
+          senderName: 'Maya',
+          timestamp: '2026-04-30T00:00:02.000Z',
+        },
+      ]),
+    };
+    const channel = new TeamsChannel(
+      {
+        clientId: 'client-id',
+        clientSecret: 'client-secret',
+        tenantId: 'tenant-id',
+      },
+      makeOpts(),
+      sdkClient,
+    );
+
+    const result = await channel.hydrateConversationContext({
+      conversationJid: 'teams:19:abc@thread.v2',
+      threadId: 'root-message',
+      latestMessage: {
+        id: 'current',
+        timestamp: '2026-04-30T00:00:04.000Z',
+        external_message_id: 'reply-4',
+        thread_id: 'root-message',
+      },
+      limits: { channelMessages: 30, threadMessages: 3 },
+    });
+
+    expect(result.messages).toEqual([
+      expect.objectContaining({ external_message_id: 'root-message' }),
+      expect.objectContaining({ external_message_id: 'reply-2' }),
+    ]);
+    expect(result.coverage).toEqual({
+      requestedLatestMessage: {
+        externalMessageId: 'reply-4',
+        timestamp: '2026-04-30T00:00:04.000Z',
+      },
+      scope: 'thread',
+      requests: [
+        {
+          role: 'thread_root',
+          limit: 1,
+          effectiveBounds: {},
+          rawMessageCount: 1,
+          pagination: { kind: 'request_bounded' },
+        },
+        {
+          role: 'thread',
+          limit: 2,
+          effectiveBounds: { cursor: 'reply-4' },
+          rawMessageCount: 2,
+          pagination: { kind: 'request_bounded' },
+        },
+      ],
+      completeness: { kind: 'request_bounded' },
+      deliveredMessageCount: 2,
+      threadRoot: 'included',
+    });
+  });
+
   it('hydrates Teams reply chains through replies when the root SDK method is absent', async () => {
     const sdkClient: TeamsSdkClient = {
       start: vi.fn(async () => {}),
@@ -1173,6 +1331,16 @@ describe('TeamsChannel adapter scaffold', () => {
         sender_name: 'Gantry',
       }),
     ]);
+    expect(result.coverage?.requests).toEqual([
+      {
+        role: 'thread',
+        limit: 3,
+        effectiveBounds: { cursor: 'reply-4' },
+        rawMessageCount: 2,
+        pagination: { kind: 'request_bounded' },
+      },
+    ]);
+    expect(result.coverage?.threadRoot).toBe('missing');
   });
 
   it('hydrates Teams reply chains when the thread root fetch fails', async () => {
@@ -1228,6 +1396,62 @@ describe('TeamsChannel adapter scaffold', () => {
         reply_to_message_id: 'root-message',
       }),
     ]);
+    expect(result.coverage?.requests).toEqual([
+      {
+        role: 'thread_root',
+        limit: 1,
+        effectiveBounds: {},
+        rawMessageCount: 0,
+        pagination: { kind: 'request_bounded' },
+      },
+      {
+        role: 'thread',
+        limit: 3,
+        effectiveBounds: { cursor: 'reply-4' },
+        rawMessageCount: 1,
+        pagination: { kind: 'request_bounded' },
+      },
+    ]);
+    expect(result.coverage?.threadRoot).toBe('missing');
+  });
+
+  it('omits Teams coverage when the history request fails', async () => {
+    const sdkClient: TeamsSdkClient = {
+      start: vi.fn(async () => {}),
+      stop: vi.fn(async () => {}),
+      sendMessage: vi.fn(async () => ({ externalMessageId: 'teams-msg-1' })),
+      listChannelMessages: vi.fn(async () => {
+        throw new Error('history unavailable');
+      }),
+    };
+    const channel = new TeamsChannel(
+      {
+        clientId: 'client-id',
+        clientSecret: 'client-secret',
+        tenantId: 'tenant-id',
+      },
+      makeOpts(),
+      sdkClient,
+    );
+
+    const result = await channel.hydrateConversationContext({
+      conversationJid: 'teams:19:abc@thread.v2',
+      latestMessage: {
+        id: 'current',
+        timestamp: '2026-04-30T00:00:04.000Z',
+        external_message_id: 'activity-4',
+      },
+      limits: { channelMessages: 3, threadMessages: 50 },
+    });
+
+    expect(result).toEqual({
+      providerId: 'teams',
+      attempted: true,
+      failed: true,
+      reason: 'provider_error',
+      messages: [],
+    });
+    expect(result).not.toHaveProperty('coverage');
   });
 
   it('routes Teams live stop card actions through the neutral message action callback', async () => {

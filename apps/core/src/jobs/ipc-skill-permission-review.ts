@@ -217,14 +217,14 @@ async function completeSkillPermissionReview(
   );
   await notifyLifecycle(input.onApproved);
   const action = 'Installed';
-  await input.deps.sendMessage(
+  await sendSkillReviewOutcome(
+    input,
     input.targetJid,
     skillApprovalMessage(
       action,
       installedSkill.name,
       installedSkill.requiredEnvVars,
     ),
-    skillReviewMessageOptions(input),
   );
   input.responder.acceptData(
     skillApprovalMessage(
@@ -273,12 +273,39 @@ async function rejectSkillRequestFromPermission(
     name: input.skill.name,
     reason,
   });
-  await input.deps.sendMessage(
-    input.targetJid,
-    message,
-    skillReviewMessageOptions(input),
-  );
+  await sendSkillReviewOutcome(input, input.targetJid, message);
   input.responder.reject(message, 'permission_denied');
+}
+
+/**
+ * The IPC response is the source of truth for the requesting agent. The
+ * channel receipt is additional, so a stale route must not turn an approved
+ * or rejected review into a generic workflow failure.
+ */
+async function sendSkillReviewOutcome(
+  input: Parameters<typeof startSkillPermissionReview>[0],
+  targetJid: string,
+  message: string,
+): Promise<void> {
+  try {
+    await input.deps.sendMessage(
+      targetJid,
+      message,
+      skillReviewMessageOptions(input),
+    );
+  } catch (err) {
+    input.logError?.(
+      {
+        appId: input.appId,
+        agentId: input.agentId,
+        skillName: input.skill.name,
+        targetJid,
+        providerAccountId: input.providerAccountId,
+        err,
+      },
+      'Skill review outcome could not be delivered to the channel',
+    );
+  }
 }
 
 function skillReviewInteraction(

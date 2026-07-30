@@ -9,6 +9,64 @@ import {
 import { renderRuntimeSettingsYaml } from '@core/config/settings/runtime-settings-renderer.js';
 
 describe('exportCurrentDesiredState', () => {
+  it('loads conversation threads in bounded batches during settings export', async () => {
+    let activeThreadQueries = 0;
+    let maximumActiveThreadQueries = 0;
+    const conversations = Array.from({ length: 17 }, (_, index) => ({
+      id: `conversation:slack:${index}`,
+      providerAccountId: 'slack-default',
+      externalRef: { value: `C${index}` },
+      kind: 'channel',
+      title: `Channel ${index}`,
+      status: 'active',
+    }));
+    const deps = {
+      ops: { getAllConversationRoutes: vi.fn(async () => ({})) },
+      repositories: {
+        agents: { listAgents: vi.fn(async () => []) },
+        tools: {
+          listAgentToolBindingsForAgents: vi.fn(async () => []),
+          listAgentToolSourcesForAgents: vi.fn(async () => []),
+          listTools: vi.fn(async () => []),
+        },
+        skills: {
+          listAgentSkillBindingsForAgents: vi.fn(async () => []),
+          listSkills: vi.fn(async () => []),
+        },
+        mcpServers: { listAgentBindingsForAgents: vi.fn(async () => []) },
+        providerAccounts: {
+          listProviderAccounts: vi.fn(async () => []),
+          listConversationInstalls: vi.fn(async () => []),
+        },
+        conversations: {
+          listConversations: vi.fn(async () => conversations),
+          listThreads: vi.fn(async () => {
+            activeThreadQueries += 1;
+            maximumActiveThreadQueries = Math.max(
+              maximumActiveThreadQueries,
+              activeThreadQueries,
+            );
+            await new Promise((resolve) => setTimeout(resolve, 5));
+            activeThreadQueries -= 1;
+            return [];
+          }),
+          listConversationApproversForConversations: vi.fn(async () => []),
+        },
+      },
+    };
+
+    await exportCurrentDesiredState({
+      deps: deps as any,
+      appId: 'app-one' as never,
+      settings: createDefaultRuntimeSettings(),
+    });
+
+    expect(deps.repositories.conversations.listThreads).toHaveBeenCalledTimes(
+      conversations.length,
+    );
+    expect(maximumActiveThreadQueries).toBeLessThanOrEqual(4);
+  });
+
   it('does not export internal app/control approval routes to settings', async () => {
     const settings = {
       providers: {},

@@ -183,6 +183,8 @@ export class PostgresCanonicalMessageRepository {
     const conversationId = await this.graph.ensureConversation(
       msg.chat_jid,
       {
+        name: msg.name,
+        isGroup: msg.isGroup,
         timestamp: msg.timestamp,
         channel: providerId,
         providerAccountId,

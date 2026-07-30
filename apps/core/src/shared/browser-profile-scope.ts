@@ -41,7 +41,7 @@ export function resolveConversationBrowserProfile(input: {
   const conversation = (input.conversationId || '').trim();
   // The default profile is deliberately shared across accounts: it is the
   // no-conversation workspace CLI and manual use expect to be one stable
-  // browser (decision 0085).
+  // browser (decision 0092).
   if (!conversation) return DEFAULT_BROWSER_PROFILE_NAME;
   // Verbatim, not trimmed: trimming would collapse two distinct account ids
   // that differ only by surrounding whitespace onto one profile, which is the

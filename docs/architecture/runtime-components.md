@@ -279,7 +279,9 @@ state, delivering provider output, writing files, or finalizing jobs.
 
 Important permission boundaries:
 
-- Sender allowlist controls whether a channel sender can interact with, trigger, or be dropped by the runtime.
+- Sender allowlist is trigger-only: every non-self/bot inbound message on a
+  registered route that reaches persistence is stored, while only allowed
+  senders may trigger the agent.
 - Control allowlist controls slash commands, runtime administration, and session commands. A broad sender allowlist does not grant control permissions.
 - No conversation is inherently privileged; sender policy, selected capabilities,
   and conversation control approvers determine runtime administration.

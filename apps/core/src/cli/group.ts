@@ -709,7 +709,7 @@ async function runPolicy(runtimeHome: string, args: string[]): Promise<number> {
 
     conversation.senderPolicy = {
       allow: parsed.allow!,
-      mode: parsed.mode ?? conversation.senderPolicy.mode,
+      mode: 'trigger',
     };
     await writeDesiredRuntimeSettings({
       runtimeHome,
@@ -759,7 +759,7 @@ async function runPolicyDefault(
       if (!conversation) continue;
       conversation.senderPolicy = {
         allow,
-        mode: parsed.mode ?? conversation.senderPolicy.mode,
+        mode: 'trigger',
       };
     }
     await writeDesiredRuntimeSettings({

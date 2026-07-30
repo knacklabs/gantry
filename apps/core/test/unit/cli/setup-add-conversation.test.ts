@@ -35,18 +35,26 @@ afterEach(() => {
   vi.doUnmock('@core/cli/runtime-group-db.js');
 });
 
-function mockPrompts(options: { confirmSave?: boolean } = {}) {
+function mockPrompts(
+  options: {
+    confirmSave?: boolean;
+    senderPolicy?: 'all' | 'listed';
+  } = {},
+) {
   const select = vi.fn(async ({ message }: { message: string }) => {
     if (message === 'Choose an existing agent') return 'main_agent';
     if (message === 'Choose the Provider Account to reuse') return 'slack_ops';
     if (message === 'Choose a conversation to install') return 'C12345678';
-    if (message === 'Sender policy') return 'all';
+    if (message === 'Sender policy') return options.senderPolicy ?? 'all';
     if (message === 'Memory scope') return 'conversation';
     return '__cancel';
   });
   const text = vi.fn(async ({ message }: { message: string }) => {
     if (message === 'Conversation display name') return 'incident-room';
     if (message.startsWith('Conversation approver')) return 'U12345678';
+    if (message === 'Allowed sender user IDs (comma-separated)') {
+      return 'U12345678,U87654321';
+    }
     if (message === 'Trigger phrase') return '@Ops';
     return '';
   });
@@ -147,7 +155,7 @@ describe('add conversation to existing agent setup slice', () => {
       restartRequired: ['conversations'],
     }));
     const noteRestartRequired = vi.fn();
-    mockPrompts();
+    const prompts = mockPrompts({ senderPolicy: 'listed' });
     mockProviderValidation();
     vi.doMock('@core/config/settings/runtime-settings.js', () => ({
       loadDesiredRuntimeSettingsForWrite: vi.fn(async () => settings),
@@ -183,6 +191,10 @@ describe('add conversation to existing agent setup slice', () => {
     expect(conversation).toMatchObject({
       providerAccount: 'slack_ops',
       externalId: 'C12345678',
+      senderPolicy: {
+        allow: ['U12345678', 'U87654321'],
+        mode: 'trigger',
+      },
       controlApprovers: ['U12345678'],
       installedAgents: {
         main_agent: {
@@ -196,6 +208,23 @@ describe('add conversation to existing agent setup slice', () => {
     });
     expect(noteRestartRequired).toHaveBeenCalledWith(
       expect.objectContaining({ restartRequired: ['conversations'] }),
+    );
+    expect(prompts.select).toHaveBeenCalledWith(
+      expect.objectContaining({
+        options: expect.arrayContaining([
+          expect.objectContaining({
+            value: 'listed',
+            label:
+              "Only listed senders can trigger the agent (everyone's messages are recorded)",
+          }),
+        ]),
+      }),
+    );
+    expect(prompts.note).toHaveBeenCalledWith(
+      expect.stringContaining(
+        "Sender policy: everyone's messages are recorded; only U12345678, U87654321 can trigger the agent",
+      ),
+      'Review conversation install',
     );
   });
 

@@ -15,7 +15,6 @@ const mockFormatMessages = vi.fn();
 const mockFormatConversationContextMessages = vi.fn();
 const mockFormatOutboundForChannel = vi.fn();
 const mockIsSenderAllowed = vi.fn();
-const mockShouldDropMessage = vi.fn();
 const mockShouldLogDenied = vi.fn();
 const mockRunGroupAgent = vi.fn();
 
@@ -47,7 +46,6 @@ vi.mock('@core/platform/sender-allowlist.js', () => ({
     mockIsSenderControlAllowed(...args),
   isTriggerAllowed: (...args: unknown[]) => mockIsTriggerAllowed(...args),
   isSenderAllowed: (...args: unknown[]) => mockIsSenderAllowed(...args),
-  shouldDropMessage: (...args: unknown[]) => mockShouldDropMessage(...args),
   shouldLogDenied: (...args: unknown[]) => mockShouldLogDenied(...args),
 }));
 vi.mock('@core/session/session-commands.js', () => ({
@@ -239,7 +237,6 @@ beforeEach(() => {
   mockIsSenderControlAllowed.mockReturnValue(false);
   mockIsTriggerAllowed.mockReturnValue(true);
   mockIsSenderAllowed.mockReturnValue(true);
-  mockShouldDropMessage.mockReturnValue(false);
   mockShouldLogDenied.mockReturnValue(true);
   mockExtractSessionCommand.mockReturnValue(null);
   mockIsSessionCommandAllowed.mockReturnValue(false);

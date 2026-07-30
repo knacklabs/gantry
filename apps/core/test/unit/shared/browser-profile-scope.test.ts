@@ -59,7 +59,7 @@ describe('browser profile scope', () => {
   });
 
   it('leaves the no-conversation default profile shared across accounts', () => {
-    // Deliberate boundary (decision 0085): the CLI/manual browser stays one
+    // Deliberate boundary (decision 0092): the CLI/manual browser stays one
     // stable profile you can log into by hand.
     const a = resolveConversationBrowserProfile({
       agentId: FOLDER,

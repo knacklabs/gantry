@@ -116,6 +116,8 @@ export interface ConversationRoute {
 export interface NewMessage {
   id: string;
   chat_jid: string;
+  name?: string;
+  isGroup?: boolean;
   provider?: string;
   providerAccountId?: string;
   agentId?: string;

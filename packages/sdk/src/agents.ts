@@ -19,7 +19,7 @@ export type AgentAdminBoundConversation = {
   displayName?: string;
   senderPolicy?: {
     allow: '*' | string[];
-    mode: 'trigger' | 'drop';
+    mode: 'trigger';
   };
   requiresTrigger?: boolean;
   trigger?: string;

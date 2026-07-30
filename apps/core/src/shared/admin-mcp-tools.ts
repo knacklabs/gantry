@@ -129,6 +129,16 @@ export const DURABLE_GRANT_EXCLUDED_DISPATCHERS = [
   'async_run_command',
 ] as const;
 
+// These dispatchers are intentionally never durable grants: their concrete
+// target determines the authority required. The MCP variants are safe to pass
+// through a runner-side permission gate because the host resolves and checks
+// their exact target before executing it. async_run_command has no equivalent
+// host-side target authorization, so it is deliberately excluded.
+export const HOST_AUTHORIZED_MCP_PROXY_DISPATCHERS = [
+  'mcp_call_tool',
+  'async_mcp_call',
+] as const;
+
 // Delegation dispatchers start or steer another agent's work. An exact grant
 // cannot bound the tools or commands that delegated agent may use.
 export const DELEGATION_DISPATCHERS = [
@@ -209,6 +219,9 @@ const DECISION_ACTOR_GANTRY_MCP_TOOL_NAME_SET = new Set<string>(
 const DURABLE_GRANT_EXCLUDED_DISPATCHER_SET = new Set<string>(
   DURABLE_GRANT_EXCLUDED_DISPATCHERS,
 );
+const HOST_AUTHORIZED_MCP_PROXY_DISPATCHER_SET = new Set<string>(
+  HOST_AUTHORIZED_MCP_PROXY_DISPATCHERS,
+);
 const DELEGATION_DISPATCHER_SET = new Set<string>(DELEGATION_DISPATCHERS);
 const ALL_GANTRY_MCP_TOOL_NAME_SET = new Set<string>(ALL_GANTRY_MCP_TOOL_NAMES);
 const GANTRY_MCP_TOOL_FULL_NAME_PATTERN = /^mcp__gantry__([a-z][a-z0-9_]*)$/;
@@ -274,6 +287,15 @@ export function isDurableGrantExcludedDispatcherFullName(
   const toolName = parseExactGantryMcpToolName(value);
   return (
     toolName !== null && DURABLE_GRANT_EXCLUDED_DISPATCHER_SET.has(toolName)
+  );
+}
+
+export function isHostAuthorizedMcpProxyDispatcherFullName(
+  value: string,
+): boolean {
+  const toolName = parseExactGantryMcpToolName(value);
+  return (
+    toolName !== null && HOST_AUTHORIZED_MCP_PROXY_DISPATCHER_SET.has(toolName)
   );
 }
 
