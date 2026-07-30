@@ -602,6 +602,82 @@ describe('createGroupProcessor', () => {
       expect(mockFormatConversationContextMessages).not.toHaveBeenCalled();
     });
 
+    it('allows an untagged continuation in a trigger-owned Slack thread', async () => {
+      const group = makeGroup({
+        requiresTrigger: true,
+        trigger: 'Andy',
+      });
+      const reply = makeMessage({
+        chat_jid: 'sl:C123',
+        content: 'yes, continue with that',
+        thread_id: '1710000000.000100',
+        reply_to_message_id: 'root-message',
+      });
+      const root = makeMessage({
+        id: 'root-message',
+        chat_jid: 'sl:C123',
+        content: '@Andy please help',
+        thread_id: '1710000000.000100',
+      });
+      const { deps } = setupHappyPath({ group, messages: [reply] });
+      (deps.getCursor as ReturnType<typeof vi.fn>).mockReturnValue(
+        '1700000000::root-message',
+      );
+      mockGetMessagesSince.mockImplementation(
+        (_chatJid, cursor, _limit, options) =>
+          cursor === '' && options?.threadId === '1710000000.000100'
+            ? [root]
+            : [reply],
+      );
+      mockIsTriggerAllowed.mockReturnValue(true);
+
+      const { processGroupMessages } = createGroupProcessor(deps);
+      const result = await processGroupMessages(
+        'sl:C123::thread:1710000000.000100',
+      );
+
+      expect(result).toBe(true);
+      expect(mockSpawnAgent).toHaveBeenCalled();
+    });
+
+    it('keeps an untagged human Slack thread trigger-gated', async () => {
+      const group = makeGroup({
+        requiresTrigger: true,
+        trigger: 'Andy',
+      });
+      const reply = makeMessage({
+        chat_jid: 'sl:C123',
+        content: 'can someone look at this?',
+        thread_id: '1710000000.000100',
+        reply_to_message_id: 'root-message',
+      });
+      const root = makeMessage({
+        id: 'root-message',
+        chat_jid: 'sl:C123',
+        content: 'human thread root',
+        thread_id: '1710000000.000100',
+      });
+      const { deps } = setupHappyPath({ group, messages: [reply] });
+      (deps.getCursor as ReturnType<typeof vi.fn>).mockReturnValue(
+        '1700000000::root-message',
+      );
+      mockGetMessagesSince.mockImplementation(
+        (_chatJid, cursor, _limit, options) =>
+          cursor === '' && options?.threadId === '1710000000.000100'
+            ? [root]
+            : [reply],
+      );
+      mockIsTriggerAllowed.mockReturnValue(true);
+
+      const { processGroupMessages } = createGroupProcessor(deps);
+      const result = await processGroupMessages(
+        'sl:C123::thread:1710000000.000100',
+      );
+
+      expect(result).toBe(true);
+      expect(mockSpawnAgent).not.toHaveBeenCalled();
+    });
+
     it('requeues when a no-trigger replay fills the bounded pending replay', async () => {
       const group = makeGroup({
         requiresTrigger: true,
@@ -5257,6 +5333,26 @@ describe('createGroupProcessor', () => {
         'group1@g.us',
         'Agent reply text',
         { threadId: 'latest-thread' },
+      );
+    });
+
+    it('uses a Slack channel root timestamp when legacy ingress omitted thread metadata', async () => {
+      const messages = [
+        makeMessage({
+          chat_jid: 'sl:C123',
+          external_message_id: '1710000000.000100',
+          thread_id: '',
+        }),
+      ];
+      const { deps, channel } = setupHappyPath({ messages });
+
+      const { processGroupMessages } = createGroupProcessor(deps);
+      await processGroupMessages('sl:C123');
+
+      expect(channel.sendMessage).toHaveBeenCalledWith(
+        'sl:C123',
+        'Agent reply text',
+        { threadId: '1710000000.000100' },
       );
     });
 

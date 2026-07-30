@@ -6968,7 +6968,9 @@ describe('Slack channel', () => {
       },
     );
 
-    await channel.sendStreamingChunk('sl:C1234567890', 'hello');
+    await channel.sendStreamingChunk('sl:C1234567890', 'hello', {
+      threadId: '1710000000.111222',
+    });
 
     const apiCallCalls = vi.mocked(appRef.current.client.apiCall).mock.calls;
     const startCalls = apiCallCalls.filter(
@@ -6979,6 +6981,26 @@ describe('Slack channel', () => {
     );
     expect(startCalls).toHaveLength(1);
     expect(appendCalls).toHaveLength(0);
+  });
+
+  it('falls back to a regular message rather than starting a root-channel native stream', async () => {
+    const channel = new SlackChannel(
+      'xoxb-token',
+      'xapp-token',
+      createOpts() as any,
+    );
+    await channel.connect();
+
+    await channel.sendStreamingChunk('sl:C1234567890', 'hello');
+
+    expect(vi.mocked(appRef.current.client.apiCall)).not.toHaveBeenCalledWith(
+      'chat.startStream',
+      expect.anything(),
+    );
+    expect(appRef.current.client.chat.postMessage).toHaveBeenCalledWith({
+      channel: 'C1234567890',
+      text: 'hello',
+    });
   });
 
   it('splits native Slack stream append payloads to <=12000 chars', async () => {
@@ -7006,9 +7028,12 @@ describe('Slack channel', () => {
 
     const nowSpy = vi.spyOn(Date, 'now');
     nowSpy.mockReturnValueOnce(1000).mockReturnValueOnce(2200);
+    const threadId = '1710000000.000100';
 
-    await channel.sendStreamingChunk('sl:C1234567890', 'seed');
-    await channel.sendStreamingChunk('sl:C1234567890', 'x'.repeat(13050));
+    await channel.sendStreamingChunk('sl:C1234567890', 'seed', { threadId });
+    await channel.sendStreamingChunk('sl:C1234567890', 'x'.repeat(13050), {
+      threadId,
+    });
 
     const appendCalls = vi
       .mocked(appRef.current.client.apiCall)
@@ -7052,10 +7077,14 @@ describe('Slack channel', () => {
     try {
       const nowSpy = vi.spyOn(Date, 'now');
       nowSpy.mockReturnValueOnce(1000).mockReturnValueOnce(2200);
+      const threadId = '1710000000.000100';
 
-      await channel.sendStreamingChunk('sl:C1234567890', 'seed');
+      await channel.sendStreamingChunk('sl:C1234567890', 'seed', {
+        threadId,
+      });
       const flushPromise = channel.sendStreamingChunk('sl:C1234567890', 'x', {
         done: true,
+        threadId,
       });
 
       await Promise.resolve();
@@ -7116,14 +7145,16 @@ describe('Slack channel', () => {
 
     const nowSpy = vi.spyOn(Date, 'now');
     nowSpy.mockReturnValueOnce(1000).mockReturnValueOnce(2200);
+    const threadId = '1710000000.000100';
 
-    await channel.sendStreamingChunk('sl:C1234567890', 'seed');
+    await channel.sendStreamingChunk('sl:C1234567890', 'seed', { threadId });
 
     const delivered = await channel.sendStreamingChunk(
       'sl:C1234567890',
       'x'.repeat(13050),
       {
         done: true,
+        threadId,
       },
     );
 
@@ -7255,8 +7286,9 @@ describe('Slack channel', () => {
 
     const nowSpy = vi.spyOn(Date, 'now');
     nowSpy.mockReturnValueOnce(1000).mockReturnValueOnce(2200);
+    const threadId = '1710000000.000100';
 
-    await channel.sendStreamingChunk('sl:C1234567890', 'seed');
+    await channel.sendStreamingChunk('sl:C1234567890', 'seed', { threadId });
 
     const delta = 'snake_case *literal* ~literal~';
     const delivered = await channel.sendStreamingChunk(
@@ -7264,6 +7296,7 @@ describe('Slack channel', () => {
       delta,
       {
         done: true,
+        threadId,
       },
     );
 
@@ -7315,12 +7348,14 @@ describe('Slack channel', () => {
 
     const nowSpy = vi.spyOn(Date, 'now');
     nowSpy.mockReturnValueOnce(1000).mockReturnValueOnce(2200);
+    const threadId = '1710000000.000100';
 
-    await channel.sendStreamingChunk('sl:C1234567890', 'seed');
+    await channel.sendStreamingChunk('sl:C1234567890', 'seed', { threadId });
 
     await expect(
       channel.sendStreamingChunk('sl:C1234567890', 'x'.repeat(13050), {
         done: true,
+        threadId,
       }),
     ).rejects.toMatchObject({
       name: 'PartialSlackNativeStreamAppendDeliveryError',
@@ -7373,11 +7408,14 @@ describe('Slack channel', () => {
       .mockReturnValueOnce(1000)
       .mockReturnValueOnce(2200)
       .mockReturnValueOnce(3400);
+    const threadId = '1710000000.000100';
 
-    await channel.sendStreamingChunk('sl:C1234567890', 'seed');
+    await channel.sendStreamingChunk('sl:C1234567890', 'seed', { threadId });
 
     await expect(
-      channel.sendStreamingChunk('sl:C1234567890', 'x'.repeat(13050)),
+      channel.sendStreamingChunk('sl:C1234567890', 'x'.repeat(13050), {
+        threadId,
+      }),
     ).rejects.toMatchObject({
       name: 'PartialSlackNativeStreamAppendDeliveryError',
       partialMessageDelivery: true,
@@ -7388,6 +7426,7 @@ describe('Slack channel', () => {
 
     await channel.sendStreamingChunk('sl:C1234567890', 'y', {
       done: true,
+      threadId,
     });
 
     const appendCalls = vi
@@ -7432,10 +7471,11 @@ describe('Slack channel', () => {
       .mockReturnValueOnce(1000)
       .mockReturnValueOnce(1200)
       .mockReturnValueOnce(2200);
+    const threadId = '1710000000.000100';
 
-    await channel.sendStreamingChunk('sl:C1234567890', 'A');
-    await channel.sendStreamingChunk('sl:C1234567890', 'B');
-    await channel.sendStreamingChunk('sl:C1234567890', 'C');
+    await channel.sendStreamingChunk('sl:C1234567890', 'A', { threadId });
+    await channel.sendStreamingChunk('sl:C1234567890', 'B', { threadId });
+    await channel.sendStreamingChunk('sl:C1234567890', 'C', { threadId });
 
     const apiCallCalls = vi.mocked(appRef.current.client.apiCall).mock.calls;
     const startCalls = apiCallCalls.filter(
@@ -7474,9 +7514,12 @@ describe('Slack channel', () => {
 
     const nowSpy = vi.spyOn(Date, 'now');
     nowSpy.mockReturnValueOnce(1000).mockReturnValueOnce(2200);
+    const threadId = '1710000000.000100';
 
-    await channel.sendStreamingChunk('sl:C1234567890', 'Hello');
-    await channel.sendStreamingChunk('sl:C1234567890', ' world');
+    await channel.sendStreamingChunk('sl:C1234567890', 'Hello', { threadId });
+    await channel.sendStreamingChunk('sl:C1234567890', ' world', {
+      threadId,
+    });
 
     expect(appRef.current.client.chat.postMessage).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -7911,8 +7954,10 @@ describe('Slack channel', () => {
       },
     );
 
+    const threadId = '1710000000.000100';
     await channel.sendStreamingChunk('sl:C1234567890', 'old', {
       generation: 1,
+      threadId,
     });
 
     channel.resetStreaming('sl:C1234567890');
@@ -7921,12 +7966,14 @@ describe('Slack channel', () => {
 
     await channel.sendStreamingChunk('sl:C1234567890', 'stale', {
       generation: 1,
+      threadId,
     });
 
     expect(vi.mocked(appRef.current.client.apiCall)).not.toHaveBeenCalled();
 
     await channel.sendStreamingChunk('sl:C1234567890', 'fresh', {
       generation: 2,
+      threadId,
     });
 
     expect(vi.mocked(appRef.current.client.apiCall)).toHaveBeenCalledWith(
