@@ -46,11 +46,13 @@ client's same-day direction to keep the measured 30/50 limits.
   **oldest channel lines first, then oldest thread lines**
   (`apps/core/src/messaging/router.ts:123`) — accepted boundary: background
   yields to the active conversation. Not a new knob.
-- Slack's provider hydration derives its thread fetch shape from the supplied
-  limit (root retained, tail `limit-1`), so restoring 50 restores 50/49
-  requests automatically; hydration stays single-scope — channel background on
-  a thread turn comes from local storage only. With decision 0090 making
-  persistence store-always, local channel history is complete going forward.
+- Slack's provider hydration mirrors the SAME selection shape: root
+  (identified by the requested thread id, never positionally) + first 10
+  non-root replies + latest 39 non-root replies, with a latest-only fallback
+  when the root is absent and a bounded tail formula for small parameterized
+  limits. Hydration stays single-scope — channel background on a thread turn
+  comes from local storage only. With decision 0090 making persistence
+  store-always, local channel history is complete going forward.
 - Tests pinned to 10/9-shaped values flip to 50-shaped values; the first-10 +
   latest-39 selection tests return.
 - Rejected: keeping the 10-message window (an unmeasured number from the
