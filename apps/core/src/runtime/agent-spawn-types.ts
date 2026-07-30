@@ -56,6 +56,8 @@ export type AgentToolRule =
     };
 
 export interface AgentInput {
+  /** Exact queue key of this turn; the browser activity marker is keyed by it. */
+  turnQueueKey?: string;
   prompt: string;
   appId?: string;
   agentId?: string;
@@ -69,6 +71,8 @@ export interface AgentInput {
   memoryReviewerIsControlApprover?: boolean;
   persona?: AgentPersona;
   browserProfileName?: string;
+  /** Per-turn browser credential the host maps to this turn's profile. */
+  browserTurnToken?: string;
   toolPolicyRules?: string[];
   toolRules?: AgentToolRule[];
   toolAccessRequirements?: string[];

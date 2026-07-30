@@ -66,6 +66,10 @@ export function buildLiveTurnBrowserFinalizer(deps: {
 }): LiveTurnBrowserFinalizer {
   return async (input) => {
     const { chatJid } = parseThreadQueueKey(input.queueJid);
+    // The account is already IN the queue key — it was built from the same
+    // route the resolver would read, so this is the same fact from a cheaper
+    // place, not a second source of truth.
+    const { providerAccountId } = parseAgentThreadQueueKey(input.queueJid);
     const folder = resolveConversationRouteFolder(
       deps.getConversationRoutes(),
       input.queueJid,
@@ -75,8 +79,9 @@ export function buildLiveTurnBrowserFinalizer(deps: {
       agentId: folder,
       workspaceKey: folder,
       conversationId: chatJid,
+      providerAccountId: providerAccountId ?? null,
     });
-    const used = consumeBrowserProfileActivity(profileName);
+    const used = consumeBrowserProfileActivity(profileName, input.queueJid);
     if (!used) return;
     try {
       if (!isBrowserProfileSyncEnabled()) return;

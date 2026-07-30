@@ -70,6 +70,8 @@ export function buildBaseRunnerEnv(input: {
   workspaceIpcDir: string;
   ipcInputDir: string;
   ipcAuthToken: string;
+  /** Per-turn browser credential; adapter-independent so every runner gets it. */
+  browserTurnToken?: string;
   chatJid: string;
   providerAccountId?: string;
   jobId?: string;
@@ -126,6 +128,9 @@ export function buildBaseRunnerEnv(input: {
     GANTRY_IPC_DIR: input.workspaceIpcDir,
     GANTRY_IPC_INPUT_DIR: input.ipcInputDir,
     GANTRY_IPC_AUTH_TOKEN: input.ipcAuthToken,
+    ...(input.browserTurnToken
+      ? { GANTRY_BROWSER_TURN_TOKEN: input.browserTurnToken }
+      : {}),
     GANTRY_CHAT_JID: input.chatJid,
     ...(input.providerAccountId
       ? { GANTRY_PROVIDER_ACCOUNT_ID: input.providerAccountId }

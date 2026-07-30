@@ -77,13 +77,23 @@ const SNAPSHOT_MARKER_FILE = 'snapshot.json';
 let coordinator: BrowserProfileSyncDeps | null = null;
 
 /**
- * Per-profile "the browser was actually used this turn" flag. Set by the IPC
- * browser handler when it processes a browser action; consumed (read + cleared)
- * by the live finalize snapshot trigger. In-memory and bounded by the number of
- * distinct profile names a worker touches between finalizes; cleared on consume.
- * The JOB path uses its own browserActivityCount diagnostic instead.
+ * "The browser was actually used this turn" flag, keyed by profile AND turn.
+ *
+ * Set by the IPC browser handler when it processes a browser action; consumed
+ * (read + cleared) by the live finalize snapshot trigger. Threads of one
+ * conversation and account deliberately SHARE a profile, so keying by profile
+ * alone lets one thread's finalize consume a sibling's marker — the sibling
+ * then skips its snapshot and that browser work is lost. The queue key makes
+ * the marker belong to the turn that produced it.
+ *
+ * In-memory and bounded by (profiles x turns) touched between finalizes;
+ * cleared on consume. The JOB path uses its own browserActivityCount instead.
  */
 const profileActivity = new Set<string>();
+
+function activityKey(profileName: string, queueKey: string): string {
+  return `${profileName}\n${queueKey}`;
+}
 /**
  * profileName -> the lease generation that LOST the profile. A snapshot at that
  * generation (or older) is suppressed; a later owner at a higher generation is
@@ -92,13 +102,19 @@ const profileActivity = new Set<string>();
  */
 const snapshotsSkippedAfterLeaseLoss = new Map<string, number>();
 
-export function markBrowserProfileActivity(profileName: string): void {
-  profileActivity.add(profileName);
+export function markBrowserProfileActivity(
+  profileName: string,
+  queueKey: string,
+): void {
+  profileActivity.add(activityKey(profileName, queueKey));
 }
 
-/** Read-and-clear the activity flag for a profile. */
-export function consumeBrowserProfileActivity(profileName: string): boolean {
-  return profileActivity.delete(profileName);
+/** Read-and-clear THIS turn's activity flag; a sibling turn's is untouched. */
+export function consumeBrowserProfileActivity(
+  profileName: string,
+  queueKey: string,
+): boolean {
+  return profileActivity.delete(activityKey(profileName, queueKey));
 }
 
 export function skipNextBrowserProfileSnapshot(
