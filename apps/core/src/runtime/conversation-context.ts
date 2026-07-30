@@ -2,10 +2,9 @@ import type { NewMessage } from '../domain/types.js';
 import type { RuntimeMessageRepository } from '../domain/repositories/ops-repo.js';
 
 const CHANNEL_CONTEXT_LIMIT = 30;
-const THREAD_CONTEXT_LIMIT = 10;
-const THREAD_CONTEXT_ROOT_MESSAGE_COUNT = 1;
-const THREAD_CONTEXT_RECENT_REPLY_COUNT =
-  THREAD_CONTEXT_LIMIT - THREAD_CONTEXT_ROOT_MESSAGE_COUNT;
+const THREAD_CONTEXT_LIMIT = 50;
+const THREAD_LONG_FIRST_REPLIES = 10;
+const THREAD_LONG_LATEST_REPLIES = 39;
 
 export const CONVERSATION_CONTEXT_LIMITS = {
   channelMessages: CHANNEL_CONTEXT_LIMIT,
@@ -103,14 +102,16 @@ function selectThreadContext(input: {
     input.repository.getFirstThreadMessages(
       input.conversationJid,
       input.threadId,
-      THREAD_CONTEXT_ROOT_MESSAGE_COUNT,
+      THREAD_LONG_FIRST_REPLIES + 1,
       { providerAccountId: input.providerAccountId },
     ),
     input.repository.getLatestThreadMessages(
       input.conversationJid,
       input.threadId,
       input.latestMessage,
-      THREAD_CONTEXT_LIMIT,
+      // Rooted selection may over-fetch one row; rootless selection needs every
+      // excluded current message budgeted because no separate root fills a slot.
+      THREAD_CONTEXT_LIMIT + input.currentMessages.length,
       { providerAccountId: input.providerAccountId },
     ),
   ]).then(([firstMessages, latestMessages]) => {
@@ -136,12 +137,15 @@ function selectThreadContext(input: {
     const nonRootMessages = root
       ? combined.filter((message) => messageKey(message) !== messageKey(root))
       : combined;
-    const recentMessages = nonRootMessages.slice(
-      -(root ? THREAD_CONTEXT_RECENT_REPLY_COUNT : THREAD_CONTEXT_LIMIT),
+    const firstReplies = root
+      ? nonRootMessages.slice(0, THREAD_LONG_FIRST_REPLIES)
+      : [];
+    const latestReplies = nonRootMessages.slice(
+      -(root ? THREAD_LONG_LATEST_REPLIES : THREAD_CONTEXT_LIMIT),
     );
     return {
       messages: dedupeMessages(
-        root ? [root, ...recentMessages] : recentMessages,
+        root ? [root, ...firstReplies, ...latestReplies] : latestReplies,
       ),
       rootPresent,
     };
