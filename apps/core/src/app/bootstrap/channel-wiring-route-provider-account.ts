@@ -5,6 +5,7 @@ import { resolveConversationRoute } from './runtime-app-routes.js';
 type ProviderAccountBoundChannel = {
   providerId: string;
   providerAccountId: string;
+  agentId: string;
   inboundProviderAccountIds?: string[];
   interactionCallbacks?: boolean;
   channel: { ownsJid(jid: string): boolean };
@@ -72,7 +73,23 @@ export function findBoundChannelForRequest<
     jid,
     targetProviderAccountId,
   );
-  if (!targetProviderAccountId || !exact) return exact;
+  if (!targetProviderAccountId) return exact;
+  if (!exact) {
+    const targetAgentId =
+      request?.agentId ??
+      (request?.sourceAgentFolder
+        ? agentIdForFolder(request.sourceAgentFolder)
+        : undefined);
+    if (!targetAgentId) return undefined;
+
+    // A persisted route can outlive a provider-account rename or rotation.
+    // Recover only when the request agent has exactly one live account that
+    // owns this JID; never guess between accounts or agents.
+    const agentMatches = channels.filter(
+      (bound) => bound.agentId === targetAgentId && bound.channel.ownsJid(jid),
+    );
+    return agentMatches.length === 1 ? agentMatches[0]!.channel : undefined;
+  }
   const target = channels.find(
     (bound) =>
       bound.providerAccountId === targetProviderAccountId &&
