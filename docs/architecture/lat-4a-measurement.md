@@ -45,3 +45,15 @@ to the expectation table.
 The gain demonstrated here is narrower: nine fewer SQL statements on every
 measured converted ingress, while preserving conversation identity, standalone
 metadata paths, multi-route admission, and notify-after-commit ordering.
+
+## Multi-route is NOT covered
+
+The roadmap scoped "all eligible admissions in one serialized transaction".
+Delivered for single-route; NOT delivered for multi-route, where each route
+still gets its own `storeMessageWithLiveAdmission` call that commits and
+notifies independently. Branch autoreview caught this as a P1 against the
+patch's own stated guarantee, and it is deferred as D-0027 rather than
+implemented untested against the durable admission queue.
+
+Anyone reading "one inbound envelope transaction" should read it as
+"one per route", not "one per message", until D-0027 lands.

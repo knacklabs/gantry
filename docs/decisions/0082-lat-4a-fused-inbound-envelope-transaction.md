@@ -71,8 +71,20 @@ decision rather than a refactor:
 
 Fuse the **paired** inbound path — the one where a message actually follows —
 into a single transaction that persists conversation graph state, the message
-and its part, participants, and all eligible admissions, notifying admissions
-**after commit**.
+and its part, participants, and its admission, notifying **after commit**.
+
+**Scope correction, made after review rather than glossed.** The roadmap's
+wording is "all eligible admissions in one serialized transaction". This
+decision delivers that for the SINGLE-route path, which is the measured win. It
+does NOT deliver it for MULTI-ROUTE messages: those still call
+`storeMessageWithLiveAdmission` once per route
+(`channel-persistence-handlers.ts:182`), so each admission commits and notifies
+independently, the first can become visible before the second commits, and a
+failure on the second leaves a partially persisted envelope. Batching them needs
+a new repository operation across the durable admission path, with its own
+correctness and measurement burden — that is a phase, not a tail on this one.
+Deferred as **D-0027**. Do not read "one inbound envelope transaction" as
+covering multi-route until that lands.
 
 Within that transaction, `ensureConversation` is invoked **once**, with `name`
 and `isGroup` carried into it from the ingress envelope. The paired metadata
