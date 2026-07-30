@@ -23,8 +23,9 @@ export interface HydrationRequestObservation {
     | 'thread_root'
     | 'thread_first_replies';
   limit: number;
-  /** What was ACTUALLY sent to the provider, not the inbound source fields.
-   *  Slack: derived ts cursor; Discord/Teams: before-message id; tails: oldest. */
+  /** What was ACTUALLY sent to the provider, not the inbound source fields —
+   *  e.g. a derived timestamp cursor or a before-message id; tail windows
+   *  carry their oldest bound. */
   effectiveBounds: { cursor?: string; oldest?: string };
   rawMessageCount: number;
   /** This request's own pagination signals, untranslated. */

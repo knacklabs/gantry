@@ -47,7 +47,7 @@ hydrated-through cursor.
 
 **And no adapter can currently report actual coverage.**
 `ConversationContextHydrationResult` exposes only `attempted`, skipped/failed
-reason, and messages (`domain/ports/conversation-context-hydration.ts:17`). Slack
+reason, and messages (`apps/core/src/domain/ports/conversation-context-hydration.ts:17`). Slack
 alone receives `has_more` and `response_metadata.next_cursor` internally and uses
 them only for in-memory tail requests (`slack/conversation-context.ts:11,102,157`).
 Discord receives a bare page and requests with `before`
@@ -107,7 +107,7 @@ capability the roadmap's "actual coverage" rule depends on.
 
 **Provider-neutral by shape, not Slack-shaped with others bolted on.** The
 coverage fields live on the shared `ConversationContextHydrationResult`
-(`domain/ports/conversation-context-hydration.ts`), and the capability difference
+(`apps/core/src/domain/ports/conversation-context-hydration.ts`), and the capability difference
 is expressed as DATA — a completeness *kind* the adapter reports — not as
 Slack-specific optional fields that other adapters leave undefined. Designing
 around `has_more`/`next_cursor` and special-casing the rest would make Slack the
