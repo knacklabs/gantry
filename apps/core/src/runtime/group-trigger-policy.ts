@@ -37,7 +37,7 @@ export async function groupTurnHasRequiredTrigger(input: {
     return false;
   }
 
-  // A mention owns its Slack/provider thread, not the entire conversation.
+  // A mention owns its provider thread, not the entire conversation.
   // This lets a user continue an agent-started thread naturally while keeping
   // unrelated human threads trigger-gated.
   const rootCandidates = await continuation.messageRepository.getMessagesSince(
