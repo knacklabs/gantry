@@ -948,7 +948,7 @@ describe('Slack channel', () => {
       expect.objectContaining({
         chat_jid: 'sl:C123',
         content: '@Ops list projects',
-        thread_id: undefined,
+        thread_id: '1710000000.000100',
       }),
     );
   });
@@ -1024,7 +1024,7 @@ describe('Slack channel', () => {
       expect.objectContaining({
         content: '@Ops list projects',
         providerAccountId: 'slack_default',
-        thread_id: undefined,
+        thread_id: '1710000000.000100',
       }),
     );
   });
@@ -1276,7 +1276,7 @@ describe('Slack channel', () => {
       expect.objectContaining({
         chat_jid: 'sl:C123',
         content: 'hello',
-        thread_id: undefined,
+        thread_id: '1710000000.000100',
       }),
     );
   });
@@ -1318,7 +1318,7 @@ describe('Slack channel', () => {
       expect.objectContaining({
         chat_jid: 'sl:C123',
         content: '@Ops status',
-        thread_id: undefined,
+        thread_id: '1710000000.000100',
       }),
     );
   });
@@ -1360,7 +1360,7 @@ describe('Slack channel', () => {
       expect.objectContaining({
         chat_jid: 'sl:C123',
         content: '@Ops status',
-        thread_id: undefined,
+        thread_id: '1710000000.000100',
       }),
     );
   });
@@ -1401,7 +1401,7 @@ describe('Slack channel', () => {
       expect.objectContaining({
         chat_jid: 'sl:C123',
         content: '@Ops status',
-        thread_id: undefined,
+        thread_id: '1710000000.000100',
       }),
     );
   });
@@ -1669,7 +1669,7 @@ describe('Slack channel', () => {
       'sl:C123',
       expect.objectContaining({
         external_message_id: '1710000000.000100',
-        thread_id: undefined,
+        thread_id: '1710000000.000100',
         content: '@Ops list projects',
         reply_to_message_id: undefined,
       }),
@@ -2940,7 +2940,7 @@ describe('Slack channel', () => {
     );
   });
 
-  it('does not synthesize root threads for unrelated top-level channel chatter', async () => {
+  it('normalizes unrelated top-level channel chatter to its root thread', async () => {
     const opts = createOpts();
     opts.conversationRoutes.mockReturnValue({
       [makeAgentThreadQueueKey('sl:C123', null, null, 'slack_default')]: {
@@ -2967,7 +2967,7 @@ describe('Slack channel', () => {
       'sl:C123',
       expect.objectContaining({
         external_message_id: '1710000000.000100',
-        thread_id: undefined,
+        thread_id: '1710000000.000100',
       }),
     );
   });
@@ -3226,7 +3226,7 @@ describe('Slack channel', () => {
     });
 
     const message = opts.onMessage.mock.calls[0][1];
-    expect(message.thread_id).toBeUndefined();
+    expect(message.thread_id).toBe('1710000000.000100');
     expect(message.attachments[0]).toEqual(
       expect.objectContaining({
         storageRef: expect.stringMatching(

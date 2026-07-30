@@ -61,15 +61,6 @@ const PROVIDER_FAILOVER_EXHAUSTED_MESSAGE =
   "The AI provider is unavailable and your message couldn't be processed after several retries. Please try again shortly.";
 type ProgressHeartbeat = ReturnType<typeof startGroupProgressHeartbeats>;
 
-function slackChannelRootThreadId(
-  chatJid: string,
-  externalMessageId: string | null | undefined,
-): string | undefined {
-  if (!/^sl:[CG][A-Z0-9]+$/i.test(chatJid)) return undefined;
-  const threadId = externalMessageId?.trim();
-  return /^\d+\.\d+$/.test(threadId ?? '') ? threadId : undefined;
-}
-
 export function createGroupProcessor(deps: GroupProcessingDeps) {
   const collectSessionMemory = deps.collectSessionMemory;
   const ops = () => {
@@ -121,7 +112,6 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
     const activeThreadId = firstThreadQueueId(
       threadId,
       latestMessage.thread_id,
-      slackChannelRootThreadId(chatJid, latestMessage.external_message_id),
     );
     let firstProgressNotified = false;
     const notifyFirstProgress = async () => {

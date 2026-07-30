@@ -37,6 +37,15 @@ function escapeRegex(str: string): string {
 function leadingBotMentionPattern(botUserId: string): RegExp {
   return new RegExp(`^<@${escapeRegex(botUserId)}>[,:]?\\s*`);
 }
+
+function canonicalSlackThreadId(input: {
+  event: SlackMessageLike;
+  isGroupConversation: boolean;
+}): string | undefined {
+  if (input.event.thread_ts) return input.event.thread_ts;
+  return input.isGroupConversation ? input.event.ts : undefined;
+}
+
 function dedupeRouteAliases(matches: SlackRouteMatch[]): SlackRouteMatch[] {
   const byIdentity = new Map<
     string,
@@ -200,7 +209,7 @@ export async function ingestSlackMessage(input: {
       : enriched.attachments;
   const sender = event.user || 'unknown';
   const senderName = await input.resolveUserName(event.user);
-  const threadId = event.thread_ts;
+  const threadId = canonicalSlackThreadId({ event, isGroupConversation });
   await input.opts.onMessage(jid, {
     id: event.ts,
     chat_jid: jid,

@@ -5336,7 +5336,7 @@ describe('createGroupProcessor', () => {
       );
     });
 
-    it('uses a Slack channel root timestamp when legacy ingress omitted thread metadata', async () => {
+    it('does not infer provider-specific root threads in generic runtime', async () => {
       const messages = [
         makeMessage({
           chat_jid: 'sl:C123',
@@ -5352,7 +5352,6 @@ describe('createGroupProcessor', () => {
       expect(channel.sendMessage).toHaveBeenCalledWith(
         'sl:C123',
         'Agent reply text',
-        { threadId: '1710000000.000100' },
       );
     });
 
