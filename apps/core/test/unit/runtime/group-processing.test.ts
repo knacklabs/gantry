@@ -6,7 +6,10 @@ import {
   encodeGroupMessageCursor,
 } from '@core/shared/message-cursor.js';
 import type { AgentOutput } from '@core/runtime/agent-spawn-types.js';
-import type { GroupProcessingDeps } from '@core/runtime/group-processing-types.js';
+import type {
+  ConversationContextHydrationCoverage,
+  GroupProcessingDeps,
+} from '@core/runtime/group-processing-types.js';
 import { PartialMessageDeliveryError } from '@core/domain/messages/partial-delivery.js';
 import { RUNTIME_EVENT_TYPES } from '@core/domain/events/runtime-event-types.js';
 import { buildProviderSessionAccessFingerprint } from '@core/runtime/provider-session-access-fingerprint.js';
@@ -5844,6 +5847,119 @@ describe('createGroupProcessor', () => {
       expect(query).toContain('stored hydrated root');
       expect(query).toContain('stored hydrated reply');
       expect(query).toContain('use the topic context');
+    });
+
+    it('keeps persistence, context, prompt, and telemetry identical when hydration adds coverage', async () => {
+      const group = makeGroup({
+        folder: 'my-group',
+        providerAccountId: 'slack_account_2',
+        requiresTrigger: false,
+        conversationKind: 'channel',
+      });
+      const current = makeMessage({
+        id: 'current',
+        chat_jid: 'sl:C123',
+        external_message_id: '1710000004.000000',
+        content: '@Andy use the covered thread context',
+        thread_id: '1710000000.000000',
+        timestamp: '2024-01-01T00:04:00.000Z',
+      });
+      const hydratedRoot = makeMessage({
+        id: 'hydrated-root',
+        chat_jid: 'sl:C123',
+        external_message_id: '1710000000.000000',
+        content: 'covered thread root',
+        thread_id: '1710000000.000000',
+        timestamp: '2024-01-01T00:01:00.000Z',
+      });
+      const hydratedReply = makeMessage({
+        id: 'hydrated-reply',
+        chat_jid: 'sl:C123',
+        external_message_id: '1710000002.000000',
+        content: 'covered thread reply',
+        thread_id: '1710000000.000000',
+        timestamp: '2024-01-01T00:02:00.000Z',
+      });
+      const coverage: ConversationContextHydrationCoverage = {
+        requestedLatestMessage: {
+          externalMessageId: '1710000004.000000',
+          timestamp: '2024-01-01T00:04:00.000Z',
+        },
+        scope: 'thread',
+        requests: [
+          {
+            role: 'thread',
+            limit: 50,
+            effectiveBounds: { cursor: '1710000004.000000' },
+            rawMessageCount: 2,
+            pagination: {
+              kind: 'server_confirmed',
+              hasMore: false,
+              hadCursor: false,
+            },
+          },
+        ],
+        completeness: { kind: 'server_confirmed', exhausted: true },
+        deliveredMessageCount: 2,
+        threadRoot: 'included',
+      };
+
+      const runVariant = async (withCoverage: boolean) => {
+        vi.clearAllMocks();
+        const channel = makeChannel({
+          hydrateConversationContext: vi.fn().mockResolvedValue({
+            providerId: 'slack',
+            attempted: true,
+            messages: [hydratedRoot, hydratedReply],
+            ...(withCoverage ? { coverage } : {}),
+          }),
+        });
+        const { deps } = setupHappyPath({ group, messages: [current] });
+        deps.channelRuntime = channel;
+        (deps.opsRepository as any).getAgentTurnContext = vi
+          .fn()
+          .mockResolvedValue(undefined);
+        (deps.opsRepository as any).getRecentTopLevelMessagesBefore = vi
+          .fn()
+          .mockResolvedValue([]);
+        (deps.opsRepository as any).getFirstThreadMessages = vi
+          .fn()
+          .mockResolvedValueOnce([])
+          .mockResolvedValue([hydratedRoot]);
+        (deps.opsRepository as any).getLatestThreadMessages = vi
+          .fn()
+          .mockResolvedValueOnce([current])
+          .mockResolvedValue([hydratedRoot, hydratedReply, current]);
+
+        const { processGroupMessages } = createGroupProcessor(deps);
+        await processGroupMessages('sl:C123::thread:1710000000.000000');
+
+        return structuredClone({
+          persistedMessages: (deps.opsRepository as any).storeMessage.mock
+            .calls,
+          contextPacket: mockFormatConversationContextMessages.mock.calls,
+          prompt: mockSpawnAgent.mock.calls[0][1].prompt,
+          telemetry: {
+            debug: mockLogger.debug.mock.calls,
+            info: mockLogger.info.mock.calls,
+            warn: mockLogger.warn.mock.calls,
+            error: mockLogger.error.mock.calls,
+          },
+        });
+      };
+
+      const withoutCoverage = await runVariant(false);
+      const withCoverage = await runVariant(true);
+
+      expect(withCoverage.persistedMessages).toEqual(
+        withoutCoverage.persistedMessages,
+      );
+      expect(withCoverage.contextPacket).toEqual(withoutCoverage.contextPacket);
+      expect(withCoverage.prompt).toEqual(withoutCoverage.prompt);
+      expect(withCoverage.telemetry).toEqual(withoutCoverage.telemetry);
+      expect(JSON.stringify(withCoverage.telemetry)).not.toContain(
+        '"coverage"',
+      );
     });
 
     it('skips hydrated self and bot messages before persistence and rebuilt context', async () => {

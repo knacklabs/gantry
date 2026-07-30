@@ -995,6 +995,15 @@ describe('TeamsChannel adapter scaffold', () => {
       deliveredMessageCount: 2,
       threadRoot: 'not_applicable',
     });
+    expect(
+      result.messages?.map(({ external_message_id, content }) => ({
+        external_message_id,
+        content,
+      })),
+    ).toEqual([
+      { external_message_id: 'activity-1', content: '' },
+      { external_message_id: 'activity-2', content: 'report attached' },
+    ]);
   });
 
   it('only marks configured Teams self bot history as bot messages', async () => {

@@ -1845,6 +1845,29 @@ describe('createChannelWiring', () => {
     expect(findBoundChannel).toHaveBeenCalledWith('sl:C123', 'slack_beta');
   });
 
+  it('returns the exact unsupported result without coverage for a hookless channel', async () => {
+    const result = await hydrateChannelConversationContext(
+      {
+        conversationJid: 'tg:-100123',
+        latestMessage: {
+          id: 'current',
+          timestamp: '2026-01-01T00:00:00.000Z',
+        },
+        limits: { channelMessages: 30, threadMessages: 50 },
+      },
+      vi.fn(() => ({})),
+      () => 'telegram',
+    );
+
+    expect(result).toEqual({
+      providerId: 'telegram',
+      attempted: false,
+      skipped: true,
+      reason: 'unsupported',
+    });
+    expect('coverage' in result).toBe(false);
+  });
+
   it('resets the routed Provider Account channel after an IPC approval prompt', async () => {
     const app = makeApp({
       [makeAgentThreadQueueKey(

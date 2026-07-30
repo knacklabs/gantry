@@ -1321,6 +1321,15 @@ describe('DiscordChannel', () => {
       deliveredMessageCount: 2,
       threadRoot: 'not_applicable',
     });
+    expect(
+      result.messages?.map(({ external_message_id, content }) => ({
+        external_message_id,
+        content,
+      })),
+    ).toEqual([
+      { external_message_id: 'message-2', content: 'report attached' },
+      { external_message_id: 'message-3', content: '' },
+    ]);
     fetchMock.mockRestore();
   });
 

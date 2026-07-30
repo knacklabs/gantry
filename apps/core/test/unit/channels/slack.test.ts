@@ -1920,6 +1920,17 @@ describe('Slack channel', () => {
       deliveredMessageCount: 1,
       threadRoot: 'not_applicable',
     });
+    expect(
+      result.messages?.map(({ external_message_id, content }) => ({
+        external_message_id,
+        content,
+      })),
+    ).toEqual([
+      {
+        external_message_id: '1710000000.000100',
+        content: 'first',
+      },
+    ]);
   });
 
   it('hydrates edited top-level Slack history messages with current text', async () => {
