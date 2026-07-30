@@ -2386,7 +2386,11 @@ describe('Slack channel', () => {
         ],
         response_metadata: { next_cursor: 'thread-page-2' },
       })
-      .mockResolvedValueOnce({
+      // Default (not Once): the tail loop widens its lookback across several
+      // sparse attempts; every attempt sees the same blank-cursor tail page so
+      // the FINAL tail response still carries the blank cursor the naive
+      // metadata-merge read would mistake for exhaustion.
+      .mockResolvedValue({
         ok: true,
         messages: [
           {
@@ -2460,33 +2464,36 @@ describe('Slack channel', () => {
       kind: 'server_confirmed',
       exhausted: false,
     });
-    expect(result.coverage?.requests).toEqual([
-      {
-        role: 'thread',
-        limit: 12,
-        effectiveBounds: { cursor: '1710000003.000400' },
-        rawMessageCount: 2,
-        pagination: {
-          kind: 'server_confirmed',
-          hasMore: false,
-          hadCursor: true,
-        },
+    const requests = result.coverage?.requests ?? [];
+    expect(requests[0]).toEqual({
+      role: 'thread',
+      limit: 12,
+      effectiveBounds: { cursor: '1710000003.000400' },
+      rawMessageCount: 2,
+      pagination: {
+        kind: 'server_confirmed',
+        hasMore: false,
+        hadCursor: true,
       },
-      {
+    });
+    // The widening tail loop makes several sparse attempts; each is its own
+    // observation. None of them may influence exhaustion — that is decided by
+    // the full-range request above, whose cursor is still usable.
+    expect(requests.length).toBeGreaterThan(1);
+    for (const tail of requests.slice(1)) {
+      expect(tail).toMatchObject({
         role: 'thread_tail',
-        limit: 1,
-        effectiveBounds: {
-          cursor: '1710000003.000400',
-          oldest: '1709996403.000400',
-        },
+        limit: 11,
         rawMessageCount: 1,
         pagination: {
           kind: 'server_confirmed',
           hasMore: false,
           hadCursor: false,
         },
-      },
-    ]);
+      });
+      expect(tail.effectiveBounds.cursor).toBe('1710000003.000400');
+      expect(tail.effectiveBounds.oldest).toBeDefined();
+    }
   });
 
   it('reports a missing Slack thread root when normalization filters it out', async () => {
@@ -2739,18 +2746,18 @@ describe('Slack channel', () => {
     );
     expect(result.coverage).toMatchObject({
       completeness: { kind: 'server_confirmed', exhausted: false },
-      deliveredMessageCount: 50,
+      deliveredMessageCount: 10,
       threadRoot: 'included',
       requests: [
         {
           role: 'thread',
-          limit: 50,
+          limit: 10,
           effectiveBounds: { cursor: '1710000091.000100' },
           rawMessageCount: 50,
         },
         {
           role: 'thread_tail',
-          limit: 39,
+          limit: 9,
           effectiveBounds: {
             cursor: '1710000091.000100',
             oldest: tailWindowCall.oldest,
