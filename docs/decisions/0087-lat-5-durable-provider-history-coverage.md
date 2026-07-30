@@ -105,6 +105,27 @@ durable record, its migration, the claim and the generation on top. Each is
 reviewable alone, and if 5B stalls on the schema, 5A has still landed the
 capability the roadmap's "actual coverage" rule depends on.
 
+**Provider-neutral by shape, not Slack-shaped with others bolted on.** The
+coverage fields live on the shared `ConversationContextHydrationResult`
+(`domain/ports/conversation-context-hydration.ts`), and the capability difference
+is expressed as DATA — a completeness *kind* the adapter reports — not as
+Slack-specific optional fields that other adapters leave undefined. Designing
+around `has_more`/`next_cursor` and special-casing the rest would make Slack the
+implicit reference implementation and force every future provider to be described
+in Slack's terms. A fourth provider that gains a history hook inherits the shape
+and reports whichever kind it can honestly support.
+
+**Telegram and every other hookless provider are correctly out of scope, and
+this is not an omission.** Only Slack, Discord and Teams implement
+`hydrateConversationContext` (`slack/channel-state.ts:655`, `discord.ts:216`,
+`teams.ts:234`). Everything else falls through to
+`{ attempted: false, skipped: true, reason: 'unsupported' }`
+(`channel-wiring-conversation-context.ts:28-36`) and makes NO provider request,
+so there is no repeated call to remove and nothing a coverage record could
+avoid. Adding coverage state for them would be dead rows. If Telegram ever gains
+a history hook it picks up the same port and the same coverage semantics without
+further design.
+
 **Discord and Teams get the weaker claim, explicitly labelled.** Their coverage
 is recorded as *request-bounded* ("the bounded window was requested and the
 provider returned fewer than requested"), never as Slack's server-confirmed
@@ -153,6 +174,20 @@ made.
 
 Postgres-backed, so the disposable Postgres lane is required and a missing
 `GANTRY_TEST_DATABASE_URL` is a blocker rather than a pass.
+
+**A boundary found while investigating a live report, worth stating because it
+limits what this phase can promise.** Coverage records what the PROVIDER
+returned; it cannot repair history the runtime never stored locally. When a
+conversation's sender allowlist is in `drop` mode and a sender is not on it,
+every route is filtered out and the handler returns BEFORE persisting
+(`channel-persistence-handlers.ts:148-170`), so that message is never written at
+all. The context query itself filters only on conversation, thread scope and
+direction — there is no sender filter — so a stored message is always eligible
+for the window regardless of author. The hole is therefore at write time and is
+permanent: no history hydration, watermark or larger window recovers it. This is
+provider-neutral and affects Telegram exactly as much as Slack. It is NOT in
+LAT-5's scope; it is recorded so nobody reads "durable history coverage" as a
+promise that the agent sees everything humans see in the channel.
 
 Accepted risk: a coverage record that is wrong in the optimistic direction
 silently truncates conversation history for the model — worse than the latency it
