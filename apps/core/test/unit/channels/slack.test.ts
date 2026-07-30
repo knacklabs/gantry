@@ -625,9 +625,10 @@ function requestSlackUserAnswer(
 }
 
 function latestSlackPermissionActionValue(actionId: string) {
-  const blocks = vi
-    .mocked(appRef.current.client.chat.postEphemeral)
-    .mock.calls.at(-1)?.[0]?.blocks as Array<{
+  const promptCall = vi
+    .mocked(appRef.current.client.chat.postMessage)
+    .mock.calls.at(-1)?.[0];
+  const blocks = promptCall?.blocks as Array<{
     type?: string;
     elements?: Array<{ action_id?: string; value?: string }>;
   }>;
@@ -4297,14 +4298,21 @@ describe('Slack channel', () => {
       },
     });
     await flushSlackPromptRegistration();
-    const postCall = vi
+    const privateDetailsCall = vi
       .mocked(appRef.current.client.chat.postEphemeral)
       .mock.calls.at(-1)?.[0];
-    expect(postCall?.user).toBe('U_APPROVER');
-    expect(postCall?.thread_ts).toBe('1711111111.000100');
-    expect(postCall?.text).toContain(
+    expect(privateDetailsCall?.user).toBe('U_APPROVER');
+    expect(privateDetailsCall?.thread_ts).toBe('1711111111.000100');
+    expect(privateDetailsCall?.text).toContain(
       'Approval applies to the parent conversation.',
     );
+    expect(JSON.stringify(privateDetailsCall?.blocks || [])).not.toContain(
+      'git status --short',
+    );
+    const postCall = vi
+      .mocked(appRef.current.client.chat.postMessage)
+      .mock.calls.at(-1)?.[0];
+    expect(postCall?.thread_ts).toBe('1711111111.000100');
     expect(JSON.stringify(postCall?.blocks || [])).not.toContain(
       'git status --short',
     );
@@ -4375,7 +4383,9 @@ describe('Slack channel', () => {
     );
     expect(respond).toHaveBeenCalledWith({ delete_original: true });
     expect(appRef.current.client.chat.update).not.toHaveBeenCalled();
-    expect(appRef.current.client.chat.postMessage).not.toHaveBeenCalled();
+    expect(appRef.current.client.chat.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ channel: 'C123' }),
+    );
   });
 
   it('opens durable Slack permission full-view payloads after channel restart', async () => {
@@ -4446,7 +4456,7 @@ describe('Slack channel', () => {
     );
   });
 
-  it('replaces an approved Slack ephemeral through response_url when removal fails', async () => {
+  it('replaces an approved Slack permission card through response_url when removal fails', async () => {
     const channel = new SlackChannel(
       'xoxb-token',
       'xapp-token',
@@ -4490,7 +4500,9 @@ describe('Slack channel', () => {
         text: expect.stringContaining('Allowed once:'),
       }),
     );
-    expect(appRef.current.client.chat.postMessage).not.toHaveBeenCalled();
+    expect(appRef.current.client.chat.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ channel: 'C123' }),
+    );
   });
 
   it('routes recovered Slack clicks through application orchestrator transport hooks', async () => {
@@ -5127,7 +5139,7 @@ describe('Slack channel', () => {
     });
   });
 
-  it('leaves a Slack permission ephemeral stale without response_url and posts no receipt', async () => {
+  it('leaves a Slack permission card stale without response_url and posts no receipt', async () => {
     const channel = new SlackChannel(
       'xoxb-token',
       'xapp-token',
@@ -5167,7 +5179,9 @@ describe('Slack channel', () => {
     expect(respond).not.toHaveBeenCalled();
     expect(appRef.current.client.chat.delete).not.toHaveBeenCalled();
     expect(appRef.current.client.chat.update).not.toHaveBeenCalled();
-    expect(appRef.current.client.chat.postMessage).not.toHaveBeenCalled();
+    expect(appRef.current.client.chat.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ channel: 'C123' }),
+    );
 
     const retryRespond = vi.fn().mockResolvedValue({});
     await appRef.current.actionHandlers.get('gantry_perm_decision_cancel')?.({
@@ -5315,7 +5329,7 @@ describe('Slack channel', () => {
     await expect(secondApproval).resolves.toMatchObject({ approved: false });
   });
 
-  it('posts Slack approval prompts ephemerally to approvers', async () => {
+  it('posts a durable, neutral Slack approval card and private details to approvers', async () => {
     defaultSlackPermissionApproverIds.add('U_APPROVER');
     const channel = new SlackChannel(
       'xoxb-token',
@@ -5333,7 +5347,15 @@ describe('Slack channel', () => {
     expect(appRef.current.client.chat.postEphemeral).toHaveBeenCalledWith(
       expect.objectContaining({ channel: 'C123', user: 'U_APPROVER' }),
     );
-    expect(appRef.current.client.chat.postMessage).not.toHaveBeenCalled();
+    expect(appRef.current.client.chat.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        channel: 'C123',
+        text: 'Approval required from a configured approver. Only configured approvers can decide this action.',
+        blocks: expect.arrayContaining([
+          expect.objectContaining({ type: 'actions' }),
+        ]),
+      }),
+    );
     const actionHandler = appRef.current.actionHandlers.get(
       'gantry_perm_decision_allow_once',
     );
@@ -5486,7 +5508,8 @@ describe('Slack channel', () => {
       channel.requestPermissionApproval('sl:C123', batch, onPromptDelivered),
     ).resolves.toMatchObject({ approved: false });
 
-    expect(appRef.current.client.chat.postEphemeral).toHaveBeenCalledOnce();
+    expect(appRef.current.client.chat.postEphemeral).not.toHaveBeenCalled();
+    expect(appRef.current.client.chat.postMessage).toHaveBeenCalledOnce();
     expect(bindPendingPermissionPrompt).toHaveBeenCalledTimes(2);
     expect(onPromptDelivered).not.toHaveBeenCalled();
     expect((channel as any).pendingPermissionPrompts.size).toBe(0);
@@ -5567,7 +5590,7 @@ describe('Slack channel', () => {
     );
   });
 
-  it('scopes Slack ephemeral permission prompts to this account approvers', async () => {
+  it('scopes Slack private permission details to this account approvers', async () => {
     const base = createOpts({ default: [], agents: {} });
     const channel = new SlackChannel('xoxb-token', 'xapp-token', {
       ...base,
@@ -5612,7 +5635,9 @@ describe('Slack channel', () => {
     expect(appRef.current.client.chat.postEphemeral).not.toHaveBeenCalledWith(
       expect.objectContaining({ user: 'U_OTHER_ACCOUNT' }),
     );
-    expect(appRef.current.client.chat.postMessage).not.toHaveBeenCalled();
+    expect(appRef.current.client.chat.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ channel: 'C123' }),
+    );
 
     await channel.disconnect();
     await expect(approvalPromise).resolves.toEqual(
@@ -5690,7 +5715,7 @@ describe('Slack channel', () => {
     );
     await flushSlackPromptRegistration();
     const actionsBlock =
-      appRef.current.client.chat.postEphemeral.mock.calls[0]?.[0].blocks.find(
+      appRef.current.client.chat.postMessage.mock.calls[0]?.[0].blocks.find(
         (block: any) => block.type === 'actions',
       );
     expect(actionsBlock.elements[0].value).toContain(
