@@ -1,4 +1,6 @@
 import type { NewMessage } from '../domain/types.js';
+import type { ChannelOpts } from './channel-provider.js';
+import { applyInboundConversationIdentity } from './inbound-conversation-identity.js';
 import { logger } from '../infrastructure/logging/logger.js';
 import type {
   ConversationContextHydrationRequest,
@@ -231,4 +233,39 @@ export function teamsMessageAttachments(
         : undefined,
     externalId: attachment.id,
   }));
+}
+
+/**
+ * LAT-4A: resolve the inbound conversation identity for a Teams message,
+ * writing standalone metadata only when no message envelope will follow.
+ * Lives here rather than in teams.ts to keep that file inside its size budget.
+ */
+export async function resolveTeamsInboundIdentity(input: {
+  opts: Pick<
+    ChannelOpts,
+    'conversationRoutes' | 'onChatMetadata' | 'providerAccountId'
+  >;
+  jid: string;
+  timestamp: string;
+  conversationName?: string;
+  threadId?: string | null;
+  isGroup: boolean;
+}): Promise<Pick<NewMessage, 'name' | 'isGroup'>> {
+  return applyInboundConversationIdentity({
+    conversationRoutes: input.opts.conversationRoutes(),
+    chatJid: input.jid,
+    threadId: input.threadId,
+    providerAccountId: input.opts.providerAccountId,
+    name: input.conversationName,
+    isGroup: input.isGroup,
+    writeMetadata: () =>
+      input.opts.onChatMetadata(
+        input.jid,
+        input.timestamp,
+        input.conversationName,
+        'teams',
+        input.isGroup,
+        { providerAccountId: input.opts.providerAccountId },
+      ),
+  });
 }

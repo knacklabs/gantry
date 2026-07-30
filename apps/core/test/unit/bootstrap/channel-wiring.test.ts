@@ -1535,8 +1535,26 @@ describe('createChannelWiring', () => {
     expect(
       storeMessageWithLiveAdmission.mock.calls.map((call) => call[1]),
     ).toEqual([
-      expect.objectContaining({ agentId: 'agent:alpha' }),
-      expect.objectContaining({ agentId: 'agent:beta' }),
+      {
+        appId: 'app-one',
+        agentId: 'agent:alpha',
+        providerAccountId: 'telegram_default',
+        triggerDecision: {
+          source: 'channel_persistence',
+          requiresTrigger: false,
+          conversationKind: 'channel',
+        },
+      },
+      {
+        appId: 'app-one',
+        agentId: 'agent:beta',
+        providerAccountId: 'telegram_default',
+        triggerDecision: {
+          source: 'channel_persistence',
+          requiresTrigger: true,
+          conversationKind: 'channel',
+        },
+      },
     ]);
   });
 

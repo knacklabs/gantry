@@ -924,6 +924,66 @@ describe('DiscordChannel', () => {
     vi.restoreAllMocks();
   });
 
+  it('covers the registered Discord paired-message shape at the adapter seam', async () => {
+    let socket!: FakeWebSocket;
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async () =>
+      jsonResponse({ url: 'wss://gateway.discord.test' }),
+    );
+    const onMessage = vi.fn();
+    const onChatMetadata = vi.fn();
+    const channel = new DiscordChannel(
+      'bot-token',
+      'app-id',
+      opts({
+        providerAccountId: 'discord_default',
+        conversationRoutes: () => ({
+          'dc:channel-1': {
+            name: 'Discord Latency',
+            folder: 'main_agent',
+            trigger: '@Main',
+            added_at: '2026-07-29T00:00:00.000Z',
+            providerAccountId: 'discord_default',
+          },
+        }),
+        onMessage,
+        onChatMetadata,
+      }),
+      (url) => {
+        socket = new FakeWebSocket(url);
+        return socket;
+      },
+    );
+
+    await channel.connect();
+    socket.receive({ op: 10, d: { heartbeat_interval: 60_000 } });
+    socket.receive({ op: 0, t: 'READY', s: 1, d: { user: { id: 'bot-1' } } });
+    socket.receive({
+      op: 0,
+      t: 'MESSAGE_CREATE',
+      s: 2,
+      d: {
+        id: 'message-2',
+        channel_id: 'channel-1',
+        content: 'hello',
+        timestamp: '2026-07-29T00:00:00.000Z',
+        author: { id: 'user-1', username: 'Ravi' },
+      },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(onChatMetadata).not.toHaveBeenCalled();
+    expect(onMessage).toHaveBeenCalledTimes(1);
+    expect(onMessage).toHaveBeenCalledWith(
+      'dc:channel-1',
+      expect.objectContaining({
+        name: 'Discord Latency',
+        isGroup: true,
+      }),
+    );
+    await channel.disconnect();
+    vi.restoreAllMocks();
+  });
+
   it('routes live Discord attachment-only messages with metadata only', async () => {
     let socket!: FakeWebSocket;
     vi.spyOn(globalThis, 'fetch').mockImplementation(async () =>
