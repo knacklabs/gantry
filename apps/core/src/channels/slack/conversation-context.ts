@@ -22,7 +22,7 @@ type SlackHydratedFile = NonNullable<SlackMessageLike['files']>[number] & {
   size?: number;
 };
 
-const THREAD_LONG_FIRST_REPLIES = 10;
+const THREAD_LONG_FIRST_REPLIES = 0;
 const THREAD_TAIL_INITIAL_LOOKBACK_SECONDS = 60 * 60;
 const THREAD_TAIL_MAX_LOOKBACK_SECONDS = 7 * 24 * 60 * 60;
 const THREAD_TAIL_MIN_LOOKBACK_SECONDS = 1;
@@ -272,10 +272,7 @@ function slackTailWindowIsDense(
 }
 
 function slackThreadTailFetchLimit(limit: number): number {
-  return Math.max(
-    0,
-    limit - 1 - Math.min(THREAD_LONG_FIRST_REPLIES, Math.max(0, limit - 1)),
-  );
+  return Math.max(0, limit - 1);
 }
 
 function slackTailWindowOldest(

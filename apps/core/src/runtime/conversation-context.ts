@@ -2,9 +2,9 @@ import type { NewMessage } from '../domain/types.js';
 import type { RuntimeMessageRepository } from '../domain/repositories/ops-repo.js';
 
 const CHANNEL_CONTEXT_LIMIT = 30;
-const THREAD_CONTEXT_LIMIT = 50;
-const THREAD_LONG_FIRST_REPLIES = 10;
-const THREAD_LONG_LATEST_REPLIES = 39;
+const THREAD_CONTEXT_LIMIT = 10;
+const THREAD_LONG_FIRST_REPLIES = 0;
+const THREAD_LONG_LATEST_REPLIES = 9;
 
 export const CONVERSATION_CONTEXT_LIMITS = {
   channelMessages: CHANNEL_CONTEXT_LIMIT,

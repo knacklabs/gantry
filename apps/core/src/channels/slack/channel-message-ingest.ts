@@ -91,7 +91,6 @@ export async function ingestSlackSlashCommand(input: {
 
 export async function ingestSlackMessage(input: {
   event: SlackMessageLike;
-  options?: { forceOwnedTopLevel?: boolean };
   opts: SlackIngestOpts;
   botUserId: string | null;
   resolveChannelName: (channelId: string) => Promise<string>;
@@ -201,15 +200,7 @@ export async function ingestSlackMessage(input: {
       : enriched.attachments;
   const sender = event.user || 'unknown';
   const senderName = await input.resolveUserName(event.user);
-  const ownsTopLevelMessage =
-    input.options?.forceOwnedTopLevel ||
-    (group
-      ? group.requiresTrigger === false ||
-        buildTriggerPattern(triggerForRoute(group)).test(content.trim())
-      : false);
-  const threadId =
-    event.thread_ts ||
-    (isGroupConversation && ownsTopLevelMessage ? event.ts : undefined);
+  const threadId = event.thread_ts;
   await input.opts.onMessage(jid, {
     id: event.ts,
     chat_jid: jid,

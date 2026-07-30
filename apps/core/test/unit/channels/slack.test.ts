@@ -947,7 +947,7 @@ describe('Slack channel', () => {
       expect.objectContaining({
         chat_jid: 'sl:C123',
         content: '@Ops list projects',
-        thread_id: '1710000000.000100',
+        thread_id: undefined,
       }),
     );
   });
@@ -1023,7 +1023,7 @@ describe('Slack channel', () => {
       expect.objectContaining({
         content: '@Ops list projects',
         providerAccountId: 'slack_default',
-        thread_id: '1710000000.000100',
+        thread_id: undefined,
       }),
     );
   });
@@ -1280,7 +1280,7 @@ describe('Slack channel', () => {
     );
   });
 
-  it('starts a Slack thread for top-level multi-agent messages with one trigger', async () => {
+  it('keeps top-level multi-agent mentions in channel scope', async () => {
     const opts = createOpts();
     opts.conversationRoutes.mockReturnValue({
       [makeAgentThreadQueueKey('sl:C123', 'agent:ops', null, 'slack_default')]:
@@ -1317,7 +1317,7 @@ describe('Slack channel', () => {
       expect.objectContaining({
         chat_jid: 'sl:C123',
         content: '@Ops status',
-        thread_id: '1710000000.000100',
+        thread_id: undefined,
       }),
     );
   });
@@ -1400,7 +1400,7 @@ describe('Slack channel', () => {
       expect.objectContaining({
         chat_jid: 'sl:C123',
         content: '@Ops status',
-        thread_id: '1710000000.000100',
+        thread_id: undefined,
       }),
     );
   });
@@ -1643,7 +1643,7 @@ describe('Slack channel', () => {
     expect(opts.onMessage).not.toHaveBeenCalled();
   });
 
-  it('normalizes top-level Slack channel messages as their own thread root', async () => {
+  it('normalizes top-level Slack channel messages without a thread id', async () => {
     const opts = createOpts();
     opts.conversationRoutes.mockReturnValue({
       [makeAgentThreadQueueKey('sl:C123', null, null, 'slack_default')]: {
@@ -1668,7 +1668,7 @@ describe('Slack channel', () => {
       'sl:C123',
       expect.objectContaining({
         external_message_id: '1710000000.000100',
-        thread_id: '1710000000.000100',
+        thread_id: undefined,
         content: '@Ops list projects',
         reply_to_message_id: undefined,
       }),
@@ -2288,7 +2288,7 @@ describe('Slack channel', () => {
         external_message_id: '1710000091.000100',
         thread_id: '1710000000.000100',
       },
-      limits: { channelMessages: 30, threadMessages: 50 },
+      limits: { channelMessages: 30, threadMessages: 10 },
     });
 
     expect(appRef.current.client.conversations.replies).toHaveBeenCalledTimes(
@@ -2301,7 +2301,7 @@ describe('Slack channel', () => {
         ts: '1710000000.000100',
         latest: '1710000091.000100',
         inclusive: false,
-        limit: 50,
+        limit: 10,
       },
     );
     expect(appRef.current.client.conversations.replies).toHaveBeenNthCalledWith(
@@ -2312,30 +2312,26 @@ describe('Slack channel', () => {
         latest: '1710000091.000100',
         inclusive: false,
         oldest: expect.any(String),
-        limit: 39,
+        limit: 9,
       },
     );
     const tailWindowCall =
       appRef.current.client.conversations.replies.mock.calls[1]?.[0];
     expect(Number(tailWindowCall.oldest)).toBeCloseTo(1709996491.0001, 5);
     expect(tailWindowCall).not.toHaveProperty('cursor');
-    expect(result.messages).toHaveLength(50);
+    expect(result.messages).toHaveLength(10);
     expect(
       result.messages?.map((message) => message.external_message_id),
     ).toEqual([
       '1710000000.000100',
       ...Array.from(
-        { length: 10 },
-        (_, index) => `17100000${String(index + 1).padStart(2, '0')}.000100`,
-      ),
-      ...Array.from(
-        { length: 39 },
-        (_, index) => `1710000${String(index + 51).padStart(3, '0')}.000100`,
+        { length: 9 },
+        (_, index) => `1710000${String(index + 81).padStart(3, '0')}.000100`,
       ),
     ]);
     expect(
       new Set(result.messages?.map((message) => message.external_message_id)),
-    ).toHaveProperty('size', 50);
+    ).toHaveProperty('size', 10);
     expect(result.messages?.at(-1)).toEqual(
       expect.objectContaining({
         external_message_id: '1710000089.000100',
@@ -2390,7 +2386,7 @@ describe('Slack channel', () => {
         external_message_id: '1710000091.000100',
         thread_id: '1710000000.000100',
       },
-      limits: { channelMessages: 30, threadMessages: 50 },
+      limits: { channelMessages: 30, threadMessages: 10 },
     });
 
     expect(appRef.current.client.conversations.replies).toHaveBeenCalledTimes(
@@ -2408,12 +2404,8 @@ describe('Slack channel', () => {
     ).toEqual([
       '1710000000.000100',
       ...Array.from(
-        { length: 10 },
-        (_, index) => `17100000${String(index + 1).padStart(2, '0')}.000100`,
-      ),
-      ...Array.from(
-        { length: 39 },
-        (_, index) => `1710000${String(index + 52).padStart(3, '0')}.000100`,
+        { length: 9 },
+        (_, index) => `1710000${String(index + 82).padStart(3, '0')}.000100`,
       ),
     ]);
   });
@@ -2752,7 +2744,7 @@ describe('Slack channel', () => {
     });
 
     const message = opts.onMessage.mock.calls[0][1];
-    expect(message.thread_id).toBe('1710000000.000100');
+    expect(message.thread_id).toBeUndefined();
     expect(message.attachments[0]).toEqual(
       expect.objectContaining({
         storageRef: expect.stringMatching(
