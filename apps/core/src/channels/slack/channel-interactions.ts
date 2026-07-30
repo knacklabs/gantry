@@ -78,13 +78,9 @@ export abstract class SlackChannelInteractions extends SlackChannelState {
         this.isLikelyGroupConversation(channelId),
     });
   }
-  protected async ingestSlackMessage(
-    event: SlackMessageLike,
-    options: { forceOwnedTopLevel?: boolean } = {},
-  ): Promise<void> {
+  protected async ingestSlackMessage(event: SlackMessageLike): Promise<void> {
     await ingestSlackMessageEvent({
       event,
-      options,
       opts: this.opts,
       botUserId: this.botUserId,
       resolveChannelName: (channelId) => this.resolveChannelName(channelId),
@@ -273,9 +269,7 @@ export abstract class SlackChannelInteractions extends SlackChannelState {
         await this.ingestSlackMessage(args.event as SlackMessageLike);
       });
       this.app.event('app_mention', async (args: any) => {
-        await this.ingestSlackMessage(args.event as SlackMessageLike, {
-          forceOwnedTopLevel: true,
-        });
+        await this.ingestSlackMessage(args.event as SlackMessageLike);
       });
       this.app.command('/gantry', async (args: any) => {
         await args.ack();

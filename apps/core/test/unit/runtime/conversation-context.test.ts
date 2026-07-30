@@ -142,14 +142,14 @@ describe('buildConversationContextPacket', () => {
     expect(repository.getFirstThreadMessages).toHaveBeenCalledWith(
       'grp:1',
       'thread-1',
-      11,
+      1,
       { providerAccountId: 'acct-1' },
     );
     expect(repository.getLatestThreadMessages).toHaveBeenCalledWith(
       'grp:1',
       'thread-1',
       current,
-      50,
+      10,
       { providerAccountId: 'acct-1' },
     );
     expect(packet.activeThreadContext.map((message) => message.id)).toEqual([
@@ -214,9 +214,10 @@ describe('buildConversationContextPacket', () => {
     expect(packet.metadata.activeThreadRootPresent).toBe(true);
   });
 
-  it('does not mark a full before-or-at thread window complete after excluding the current message', async () => {
+  it('marks a complete thread window after retaining the root and latest replies', async () => {
     const threadMessages = sequence(50, (index) => ({
-      id: index === 50 ? 'current' : `thread-${index}`,
+      id: `thread-${index}`,
+      external_message_id: index === 1 ? 'thread-1' : undefined,
       thread_id: 'thread-1',
       content: index === 50 ? '@Gantry summarize' : `thread ${index}`,
     }));
@@ -225,8 +226,10 @@ describe('buildConversationContextPacket', () => {
       getRecentTopLevelMessagesBefore: vi.fn().mockResolvedValue([]),
       getFirstThreadMessages: vi
         .fn()
-        .mockResolvedValue(threadMessages.slice(0, 11)),
-      getLatestThreadMessages: vi.fn().mockResolvedValue(threadMessages),
+        .mockResolvedValue(threadMessages.slice(0, 1)),
+      getLatestThreadMessages: vi
+        .fn()
+        .mockResolvedValue(threadMessages.slice(-10)),
     };
 
     const packet = await buildConversationContextPacket({
@@ -241,21 +244,23 @@ describe('buildConversationContextPacket', () => {
       'grp:1',
       'thread-1',
       current,
-      50,
+      10,
       { providerAccountId: undefined },
     );
-    expect(packet.activeThreadContext).toHaveLength(49);
-    expect(packet.activeThreadContext.map((message) => message.id)).toEqual(
-      Array.from({ length: 49 }, (_, index) => `thread-${index + 1}`),
-    );
+    expect(packet.activeThreadContext).toHaveLength(10);
+    expect(packet.activeThreadContext.map((message) => message.id)).toEqual([
+      'thread-1',
+      ...Array.from({ length: 9 }, (_, index) => `thread-${index + 41}`),
+    ]);
     expect(packet.activeThreadContext).not.toContain(current);
-    expect(packet.metadata.activeThreadCount).toBe(49);
-    expect(packet.metadata.activeThreadWindowComplete).toBe(false);
+    expect(packet.metadata.activeThreadCount).toBe(10);
+    expect(packet.metadata.activeThreadWindowComplete).toBe(true);
   });
 
-  it('bounds long threads to root plus first 10 replies and latest 39 replies deterministically without duplicates', async () => {
+  it('bounds long threads to the root plus nine latest replies deterministically without duplicates', async () => {
     const threadMessages = sequence(70, (index) => ({
       id: `thread-${index}`,
+      external_message_id: index === 1 ? 'thread-1' : undefined,
       thread_id: 'thread-1',
       content: `thread ${index}`,
     }));
@@ -264,10 +269,7 @@ describe('buildConversationContextPacket', () => {
       getRecentTopLevelMessagesBefore: vi.fn().mockResolvedValue([]),
       getFirstThreadMessages: vi
         .fn()
-        .mockResolvedValue([
-          ...threadMessages.slice(0, 11).reverse(),
-          threadMessages[3],
-        ]),
+        .mockResolvedValue(threadMessages.slice(0, 1)),
       getLatestThreadMessages: vi
         .fn()
         .mockResolvedValue([
@@ -284,19 +286,18 @@ describe('buildConversationContextPacket', () => {
       repository,
     });
 
-    expect(packet.activeThreadContext).toHaveLength(50);
+    expect(packet.activeThreadContext).toHaveLength(10);
     expect(packet.activeThreadContext.map((message) => message.id)).toEqual([
       'thread-1',
-      ...Array.from({ length: 10 }, (_, index) => `thread-${index + 2}`),
-      ...Array.from({ length: 39 }, (_, index) => `thread-${index + 31}`),
+      ...Array.from({ length: 9 }, (_, index) => `thread-${index + 61}`),
     ]);
-    expect(new Set(packet.activeThreadContext.map((m) => m.id)).size).toBe(50);
+    expect(new Set(packet.activeThreadContext.map((m) => m.id)).size).toBe(10);
     expect(packet.activeThreadContext.at(-1)?.id).toBe('thread-69');
     expect(packet.currentMessages).toEqual([current]);
     expect(packet.metadata.activeThreadRootPresent).toBe(true);
   });
 
-  it('does not treat reply windows without explicit root ids as root-present', async () => {
+  it('uses the latest replies when a thread root is unavailable', async () => {
     const replies = sequence(50, (index) => ({
       id: `reply-${index}`,
       external_message_id: `provider-reply-${index}`,
@@ -312,7 +313,7 @@ describe('buildConversationContextPacket', () => {
     });
     const repository = {
       getRecentTopLevelMessagesBefore: vi.fn().mockResolvedValue([]),
-      getFirstThreadMessages: vi.fn().mockResolvedValue(replies.slice(0, 11)),
+      getFirstThreadMessages: vi.fn().mockResolvedValue(replies.slice(0, 1)),
       getLatestThreadMessages: vi.fn().mockResolvedValue(replies),
     };
 
@@ -324,7 +325,10 @@ describe('buildConversationContextPacket', () => {
       repository,
     });
 
-    expect(packet.activeThreadContext).toHaveLength(50);
+    expect(packet.activeThreadContext).toHaveLength(10);
+    expect(packet.activeThreadContext.map((message) => message.id)).toEqual(
+      Array.from({ length: 10 }, (_, index) => `reply-${index + 41}`),
+    );
     expect(packet.metadata.activeThreadWindowComplete).toBe(true);
     expect(packet.metadata.activeThreadRootPresent).toBe(false);
   });
