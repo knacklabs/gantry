@@ -21,7 +21,6 @@ import type {
   isSenderAllowed,
   loadSenderControlAllowlist,
   loadSenderAllowlist,
-  shouldDropMessage,
   shouldLogDenied,
 } from '../../platform/sender-allowlist.js';
 import type {
@@ -124,7 +123,6 @@ export interface ChannelWiringDeps {
   opsRepository?: ChannelWiringRepository;
   loadSenderAllowlist: typeof loadSenderAllowlist;
   loadSenderControlAllowlist: typeof loadSenderControlAllowlist;
-  shouldDropMessage: typeof shouldDropMessage;
   isSenderAllowed: typeof isSenderAllowed;
   isSenderControlAllowed: typeof isSenderControlAllowed;
   shouldLogDenied: typeof shouldLogDenied;

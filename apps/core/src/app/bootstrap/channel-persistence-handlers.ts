@@ -146,28 +146,11 @@ export function createChannelPersistenceHandlers({
     onMessage: async (chatJid: string, msg: NewMessage) => {
       const canRoute = await ensureConfiguredConversationRoute(chatJid, msg);
       if (!canRoute) return;
-      let routes = routesForChat(chatJid, msg.thread_id, msg.providerAccountId);
-      if (!msg.is_from_me && !msg.is_bot_message && routes.length > 0) {
-        const cfg = resolved.loadSenderAllowlist();
-        routes = routes.filter((route) => {
-          if (
-            !resolved.shouldDropMessage(chatJid, cfg, route.folder) ||
-            resolved.isSenderAllowed(chatJid, msg.sender, cfg, route.folder)
-          ) {
-            return true;
-          }
-          if (resolved.shouldLogDenied(chatJid, cfg)) {
-            resolved.logger.debug(
-              { chatJid, sender: msg.sender, agentFolder: route.folder },
-              'sender-allowlist: dropping message (drop mode)',
-            );
-          }
-          return false;
-        });
-        if (routes.length === 0) {
-          return;
-        }
-      }
+      const routes = routesForChat(
+        chatJid,
+        msg.thread_id,
+        msg.providerAccountId,
+      );
 
       const persistMessage = async () => {
         try {
