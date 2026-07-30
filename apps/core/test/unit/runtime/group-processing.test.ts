@@ -5792,7 +5792,7 @@ describe('createGroupProcessor', () => {
         providerAccountId: 'telegram_account_2',
         threadId: '42',
         latestMessage: current,
-        limits: { channelMessages: 30, threadMessages: 50 },
+        limits: { channelMessages: 30, threadMessages: 10 },
       });
       expect((deps.opsRepository as any).storeMessage).toHaveBeenNthCalledWith(
         1,
@@ -6024,7 +6024,7 @@ describe('createGroupProcessor', () => {
         conversationJid: 'tg:-100123',
         threadId: '42',
         latestMessage: current,
-        limits: { channelMessages: 30, threadMessages: 50 },
+        limits: { channelMessages: 30, threadMessages: 10 },
       });
       expect(mockLogger.warn).toHaveBeenCalledWith(
         {
@@ -6105,7 +6105,7 @@ describe('createGroupProcessor', () => {
           conversationJid: 'tg:-100123',
           threadId: '42',
           latestMessage: current,
-          limits: { channelMessages: 30, threadMessages: 50 },
+          limits: { channelMessages: 30, threadMessages: 10 },
         });
         expect(settled).toBe(false);
 
@@ -6402,10 +6402,10 @@ describe('createGroupProcessor', () => {
         .mockResolvedValue([]);
       (deps.opsRepository as any).getFirstThreadMessages = vi
         .fn()
-        .mockResolvedValue(storedThreadMessages.slice(0, 11));
+        .mockResolvedValue(storedThreadMessages.slice(0, 1));
       (deps.opsRepository as any).getLatestThreadMessages = vi
         .fn()
-        .mockResolvedValue(storedThreadMessages);
+        .mockResolvedValue(storedThreadMessages.slice(-10));
 
       const { processGroupMessages } = createGroupProcessor(deps);
       await processGroupMessages('sl:C123::thread:1710000000.000000');
@@ -6413,7 +6413,10 @@ describe('createGroupProcessor', () => {
       expect(channel.hydrateConversationContext).not.toHaveBeenCalled();
       expect(mockFormatConversationContextMessages).toHaveBeenCalledWith(
         expect.objectContaining({
-          activeThreadContext: storedThreadMessages,
+          activeThreadContext: [
+            storedThreadMessages[0],
+            ...storedThreadMessages.slice(-9),
+          ],
           currentMessages: [current],
         }),
         'UTC',
@@ -6464,10 +6467,10 @@ describe('createGroupProcessor', () => {
         .mockResolvedValue([]);
       (deps.opsRepository as any).getFirstThreadMessages = vi
         .fn()
-        .mockResolvedValue(storedThreadReplies.slice(0, 11));
+        .mockResolvedValue(storedThreadReplies.slice(0, 1));
       (deps.opsRepository as any).getLatestThreadMessages = vi
         .fn()
-        .mockResolvedValue(storedThreadReplies);
+        .mockResolvedValue(storedThreadReplies.slice(-10));
 
       const { processGroupMessages } = createGroupProcessor(deps);
       await processGroupMessages('dc:thread-1::thread:discord-thread-1');
@@ -6476,7 +6479,7 @@ describe('createGroupProcessor', () => {
         conversationJid: 'dc:thread-1',
         threadId: 'discord-thread-1',
         latestMessage: current,
-        limits: { channelMessages: 30, threadMessages: 50 },
+        limits: { channelMessages: 30, threadMessages: 10 },
       });
     });
 

@@ -2,9 +2,10 @@ import type { NewMessage } from '../domain/types.js';
 import type { RuntimeMessageRepository } from '../domain/repositories/ops-repo.js';
 
 const CHANNEL_CONTEXT_LIMIT = 30;
-const THREAD_CONTEXT_LIMIT = 50;
-const THREAD_LONG_FIRST_REPLIES = 10;
-const THREAD_LONG_LATEST_REPLIES = 39;
+const THREAD_CONTEXT_LIMIT = 10;
+const THREAD_CONTEXT_ROOT_MESSAGE_COUNT = 1;
+const THREAD_CONTEXT_RECENT_REPLY_COUNT =
+  THREAD_CONTEXT_LIMIT - THREAD_CONTEXT_ROOT_MESSAGE_COUNT;
 
 export const CONVERSATION_CONTEXT_LIMITS = {
   channelMessages: CHANNEL_CONTEXT_LIMIT,
@@ -102,7 +103,7 @@ function selectThreadContext(input: {
     input.repository.getFirstThreadMessages(
       input.conversationJid,
       input.threadId,
-      THREAD_LONG_FIRST_REPLIES + 1,
+      THREAD_CONTEXT_ROOT_MESSAGE_COUNT,
       { providerAccountId: input.providerAccountId },
     ),
     input.repository.getLatestThreadMessages(
@@ -129,11 +130,19 @@ function selectThreadContext(input: {
     if (combined.length <= THREAD_CONTEXT_LIMIT) {
       return { messages: combined, rootPresent };
     }
-    const root = combined.slice(0, 1);
-    const firstReplies = combined.slice(1, THREAD_LONG_FIRST_REPLIES + 1);
-    const latestReplies = combined.slice(1).slice(-THREAD_LONG_LATEST_REPLIES);
+    const root = rootPresent
+      ? combined.find((message) => isThreadRootMessage(message, input.threadId))
+      : undefined;
+    const nonRootMessages = root
+      ? combined.filter((message) => messageKey(message) !== messageKey(root))
+      : combined;
+    const recentMessages = nonRootMessages.slice(
+      -(root ? THREAD_CONTEXT_RECENT_REPLY_COUNT : THREAD_CONTEXT_LIMIT),
+    );
     return {
-      messages: dedupeMessages([...root, ...firstReplies, ...latestReplies]),
+      messages: dedupeMessages(
+        root ? [root, ...recentMessages] : recentMessages,
+      ),
       rootPresent,
     };
   });

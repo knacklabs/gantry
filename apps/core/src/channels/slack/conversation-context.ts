@@ -22,7 +22,7 @@ type SlackHydratedFile = NonNullable<SlackMessageLike['files']>[number] & {
   size?: number;
 };
 
-const THREAD_LONG_FIRST_REPLIES = 10;
+const THREAD_ROOT_MESSAGE_COUNT = 1;
 const THREAD_TAIL_INITIAL_LOOKBACK_SECONDS = 60 * 60;
 const THREAD_TAIL_MAX_LOOKBACK_SECONDS = 7 * 24 * 60 * 60;
 const THREAD_TAIL_MIN_LOOKBACK_SECONDS = 1;
@@ -272,10 +272,7 @@ function slackTailWindowIsDense(
 }
 
 function slackThreadTailFetchLimit(limit: number): number {
-  return Math.max(
-    0,
-    limit - 1 - Math.min(THREAD_LONG_FIRST_REPLIES, Math.max(0, limit - 1)),
-  );
+  return Math.max(0, limit - THREAD_ROOT_MESSAGE_COUNT);
 }
 
 function slackTailWindowOldest(
@@ -376,18 +373,16 @@ function selectHydratedSlackMessages(input: {
     return messages.slice(0, input.limit);
   }
 
-  const firstReplyCount = Math.min(
-    THREAD_LONG_FIRST_REPLIES,
-    Math.max(0, input.limit - 1),
+  const root = messages.find(
+    (message) => message.ts === input.requestedThreadId,
   );
-  const latestReplyCount = Math.max(0, input.limit - 1 - firstReplyCount);
-  const latestReplies =
-    latestReplyCount > 0 ? messages.slice(1).slice(-latestReplyCount) : [];
-  return dedupeSlackMessages([
-    ...messages.slice(0, 1),
-    ...messages.slice(1, firstReplyCount + 1),
-    ...latestReplies,
-  ]);
+  const nonRootMessages = root
+    ? messages.filter((message) => message.ts !== root.ts)
+    : messages;
+  const recentMessages = nonRootMessages.slice(
+    -Math.max(0, input.limit - (root ? THREAD_ROOT_MESSAGE_COUNT : 0)),
+  );
+  return dedupeSlackMessages(root ? [root, ...recentMessages] : recentMessages);
 }
 
 function isHydratableSlackMessage(message: SlackMessageLike): boolean {
