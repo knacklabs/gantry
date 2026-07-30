@@ -14,7 +14,7 @@ import { openRuntimeGroupDb } from './runtime-group-db.js';
 type MemoryScope = 'conversation' | 'user' | 'agent' | 'app';
 type SenderPolicy = {
   allow: '*' | string[];
-  mode: 'trigger' | 'drop';
+  mode: 'trigger';
 };
 
 interface SetupProviderAccount {
@@ -298,7 +298,8 @@ async function promptSenderPolicy(): Promise<SenderPolicy | null> {
       },
       {
         value: 'listed',
-        label: 'Only listed senders',
+        label:
+          "Only listed senders can trigger the agent (everyone's messages are recorded)",
       },
       { value: '__cancel', label: 'Cancel' },
     ],
@@ -311,7 +312,7 @@ async function promptSenderPolicy(): Promise<SenderPolicy | null> {
       parseCsv(value).length > 0 ? undefined : 'Enter at least one sender ID.',
   });
   if (p.isCancel(allow)) return null;
-  return { allow: parseCsv(allow), mode: 'drop' };
+  return { allow: parseCsv(allow), mode: 'trigger' };
 }
 
 export async function runAddConversationSetupSlice<
@@ -448,7 +449,11 @@ export async function runAddConversationSetupSlice<
         `Provider Account: ${accountSettings.label} (${providerAccountId})`,
         `Conversation: ${String(displayName).trim()} (${choice.externalId})`,
         `Approvers: ${controlApprovers.join(', ')}`,
-        `Sender policy: ${senderPolicy.allow === '*' ? 'all senders' : senderPolicy.allow.join(', ')}`,
+        `Sender policy: ${
+          senderPolicy.allow === '*'
+            ? 'all senders can trigger the agent'
+            : `everyone's messages are recorded; only ${senderPolicy.allow.join(', ')} can trigger the agent`
+        }`,
         `Trigger: ${String(trigger).trim()}`,
         `Requires trigger: ${requiresTrigger ? 'yes' : 'no'}`,
         `Memory scope: ${String(memoryScope)}`,

@@ -209,15 +209,16 @@ function mockReconciledDesiredWrite() {
 
 function clackLogMock() {
   const warn = vi.fn();
+  const error = vi.fn();
   vi.doMock('@clack/prompts', () => ({
     isCancel: () => false,
     select: vi.fn(),
     text: vi.fn(),
     note: vi.fn(),
     spinner: vi.fn(() => ({ start: vi.fn(), stop: vi.fn() })),
-    log: { info: vi.fn(), success: vi.fn(), error: vi.fn(), warn },
+    log: { info: vi.fn(), success: vi.fn(), error, warn },
   }));
-  return { warn };
+  return { error, warn };
 }
 
 describe('cli slack helpers', () => {
@@ -1060,7 +1061,7 @@ describe('cli slack helpers', () => {
     );
   });
 
-  it('updates sender policy without storing agent-qualified route keys in settings', async () => {
+  it('rejects --mode drop because sender policies are trigger-only', async () => {
     const runtimeHome = makeRuntimeHome();
 
     const result = await registerSlackMainGroup({
@@ -1078,6 +1079,7 @@ describe('cli slack helpers', () => {
     const sourceRoute = groupsStore.get('sl:C0123456789');
     groupsStore.set(routeKey, { ...sourceRoute, requiresTrigger: true });
 
+    const { error } = clackLogMock();
     const { runAgentCommand } = await import('@core/cli/group.js');
     const code = await runAgentCommand(runtimeHome, [
       'policy',
@@ -1088,7 +1090,10 @@ describe('cli slack helpers', () => {
       'drop',
     ]);
 
-    expect(code).toBe(0);
+    expect(code).toBe(1);
+    expect(error).toHaveBeenCalledWith(
+      'Invalid value for --mode. Sender policies are trigger-only; use trigger.',
+    );
     const settings = loadRuntimeSettings(runtimeHome);
     const bindingId = Object.entries(settings.bindings).find(
       ([, binding]) => binding.agent === result.folder,
@@ -1099,7 +1104,7 @@ describe('cli slack helpers', () => {
     );
     expect(
       settings.conversations.slack_default_c0123456789.senderPolicy,
-    ).toEqual({ allow: ['U123', 'U456'], mode: 'drop' });
+    ).toEqual({ allow: '*', mode: 'trigger' });
     expect(Object.values(settings.conversations)).not.toContainEqual(
       expect.objectContaining({
         externalId: expect.stringContaining('::agent:'),

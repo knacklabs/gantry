@@ -222,6 +222,8 @@ describe('formatConversationContextMessages', () => {
     const currentIndex = result.indexOf('<current_message');
 
     expect(result).toContain('<context timezone="UTC" />');
+    expect(result).toContain('channel decision');
+    expect(result).toContain('thread detail');
     expect(recentIndex).toBeGreaterThan(-1);
     expect(threadIndex).toBeGreaterThan(recentIndex);
     expect(currentIndex).toBeGreaterThan(threadIndex);

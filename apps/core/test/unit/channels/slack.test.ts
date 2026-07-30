@@ -2377,13 +2377,13 @@ describe('Slack channel', () => {
             user: 'U123',
             text: 'root',
           },
-          {
+          ...Array.from({ length: 10 }, (_, index) => ({
             channel: 'C123',
-            ts: '1710000001.000200',
+            ts: `17100000${String(index + 1).padStart(2, '0')}.000200`,
             thread_ts: '1710000000.000100',
             user: 'U456',
-            text: 'first reply',
-          },
+            text: `early reply ${index + 1}`,
+          })),
         ],
         response_metadata: { next_cursor: 'thread-page-2' },
       })
@@ -2396,7 +2396,7 @@ describe('Slack channel', () => {
         messages: [
           {
             channel: 'C123',
-            ts: '1710000002.000300',
+            ts: '1710000011.000300',
             thread_ts: '1710000000.000100',
             user: 'U789',
             text: 'tail reply',
@@ -2410,56 +2410,22 @@ describe('Slack channel', () => {
       threadId: '1710000000.000100',
       latestMessage: {
         id: 'current',
-        timestamp: '2024-03-09T16:00:03.000Z',
-        external_message_id: '1710000003.000400',
+        timestamp: '2024-03-09T16:00:12.000Z',
+        external_message_id: '1710000012.000400',
         thread_id: '1710000000.000100',
       },
-      limits: { channelMessages: 30, threadMessages: 12 },
+      limits: { channelMessages: 30, threadMessages: 50 },
     });
 
-    expect(result.messages).toEqual([
-      {
-        id: '1710000000.000100',
-        chat_jid: 'sl:C123',
-        provider: 'slack',
-        sender: 'U123',
-        sender_name: 'Alice',
-        content: 'root',
-        timestamp: '2024-03-09T16:00:00.000Z',
-        is_from_me: false,
-        is_bot_message: false,
-        external_message_id: '1710000000.000100',
-        thread_id: '1710000000.000100',
-        reply_to_message_id: undefined,
-      },
-      {
-        id: '1710000001.000200',
-        chat_jid: 'sl:C123',
-        provider: 'slack',
-        sender: 'U456',
-        sender_name: 'Alice',
-        content: 'first reply',
-        timestamp: '2024-03-09T16:00:01.000Z',
-        is_from_me: false,
-        is_bot_message: false,
-        external_message_id: '1710000001.000200',
-        thread_id: '1710000000.000100',
-        reply_to_message_id: '1710000000.000100',
-      },
-      {
-        id: '1710000002.000300',
-        chat_jid: 'sl:C123',
-        provider: 'slack',
-        sender: 'U789',
-        sender_name: 'Alice',
-        content: 'tail reply',
-        timestamp: '2024-03-09T16:00:02.000Z',
-        is_from_me: false,
-        is_bot_message: false,
-        external_message_id: '1710000002.000300',
-        thread_id: '1710000000.000100',
-        reply_to_message_id: '1710000000.000100',
-      },
+    expect(
+      result.messages?.map((message) => message.external_message_id),
+    ).toEqual([
+      '1710000000.000100',
+      ...Array.from(
+        { length: 10 },
+        (_, index) => `17100000${String(index + 1).padStart(2, '0')}.000200`,
+      ),
+      '1710000011.000300',
     ]);
     expect(result.coverage?.completeness).toEqual({
       kind: 'server_confirmed',
@@ -2468,9 +2434,9 @@ describe('Slack channel', () => {
     const requests = result.coverage?.requests ?? [];
     expect(requests[0]).toEqual({
       role: 'thread',
-      limit: 12,
-      effectiveBounds: { cursor: '1710000003.000400' },
-      rawMessageCount: 2,
+      limit: 50,
+      effectiveBounds: { cursor: '1710000012.000400' },
+      rawMessageCount: 11,
       pagination: {
         kind: 'server_confirmed',
         hasMore: false,
@@ -2484,7 +2450,7 @@ describe('Slack channel', () => {
     for (const tail of requests.slice(1)) {
       expect(tail).toMatchObject({
         role: 'thread_tail',
-        limit: 11,
+        limit: 49,
         rawMessageCount: 1,
         pagination: {
           kind: 'server_confirmed',
@@ -2492,7 +2458,7 @@ describe('Slack channel', () => {
           hadCursor: false,
         },
       });
-      expect(tail.effectiveBounds.cursor).toBe('1710000003.000400');
+      expect(tail.effectiveBounds.cursor).toBe('1710000012.000400');
       expect(tail.effectiveBounds.oldest).toBeDefined();
     }
   });
@@ -2679,10 +2645,28 @@ describe('Slack channel', () => {
       })
       .mockResolvedValueOnce({
         ok: true,
-        messages: [
-          reply(49),
-          ...Array.from({ length: 39 }, (_, index) => reply(index + 51)),
-        ],
+        messages: Array.from({ length: 30 }, (_, index) => reply(index + 41)),
+        response_metadata: { next_cursor: '   ' },
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        messages: Array.from({ length: 30 }, (_, index) => reply(index + 41)),
+        response_metadata: { next_cursor: '   ' },
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        messages: Array.from({ length: 30 }, (_, index) => reply(index + 41)),
+        response_metadata: { next_cursor: '   ' },
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        messages: Array.from({ length: 30 }, (_, index) => reply(index + 41)),
+        response_metadata: { next_cursor: '   ' },
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        messages: Array.from({ length: 30 }, (_, index) => reply(index + 41)),
+        response_metadata: { next_cursor: '   ' },
       });
 
     const result = await channel.hydrateConversationContext({
@@ -2694,11 +2678,11 @@ describe('Slack channel', () => {
         external_message_id: '1710000091.000100',
         thread_id: '1710000000.000100',
       },
-      limits: { channelMessages: 30, threadMessages: 10 },
+      limits: { channelMessages: 30, threadMessages: 50 },
     });
 
     expect(appRef.current.client.conversations.replies).toHaveBeenCalledTimes(
-      2,
+      6,
     );
     expect(appRef.current.client.conversations.replies).toHaveBeenNthCalledWith(
       1,
@@ -2707,7 +2691,7 @@ describe('Slack channel', () => {
         ts: '1710000000.000100',
         latest: '1710000091.000100',
         inclusive: false,
-        limit: 10,
+        limit: 50,
       },
     );
     expect(appRef.current.client.conversations.replies).toHaveBeenNthCalledWith(
@@ -2718,54 +2702,469 @@ describe('Slack channel', () => {
         latest: '1710000091.000100',
         inclusive: false,
         oldest: expect.any(String),
-        limit: 9,
+        limit: 88,
       },
     );
     const tailWindowCall =
       appRef.current.client.conversations.replies.mock.calls[1]?.[0];
     expect(Number(tailWindowCall.oldest)).toBeCloseTo(1709996491.0001, 5);
     expect(tailWindowCall).not.toHaveProperty('cursor');
-    expect(result.messages).toHaveLength(10);
+    expect(result.messages).toHaveLength(50);
     expect(
       result.messages?.map((message) => message.external_message_id),
     ).toEqual([
       '1710000000.000100',
       ...Array.from(
-        { length: 9 },
-        (_, index) => `1710000${String(index + 81).padStart(3, '0')}.000100`,
+        { length: 10 },
+        (_, index) => `1710000${String(index + 1).padStart(3, '0')}.000100`,
+      ),
+      ...Array.from(
+        { length: 39 },
+        (_, index) => `1710000${String(index + 32).padStart(3, '0')}.000100`,
       ),
     ]);
     expect(
       new Set(result.messages?.map((message) => message.external_message_id)),
-    ).toHaveProperty('size', 10);
+    ).toHaveProperty('size', 50);
     expect(result.messages?.at(-1)).toEqual(
       expect.objectContaining({
-        external_message_id: '1710000089.000100',
+        external_message_id: '1710000070.000100',
         thread_id: '1710000000.000100',
         reply_to_message_id: '1710000000.000100',
       }),
     );
     expect(result.coverage).toMatchObject({
       completeness: { kind: 'server_confirmed', exhausted: false },
-      deliveredMessageCount: 10,
+      deliveredMessageCount: 50,
       threadRoot: 'included',
       requests: [
         {
           role: 'thread',
-          limit: 10,
+          limit: 50,
           effectiveBounds: { cursor: '1710000091.000100' },
           rawMessageCount: 50,
         },
-        {
+        ...Array.from({ length: 5 }, () => ({
           role: 'thread_tail',
-          limit: 9,
+          limit: 88,
           effectiveBounds: {
             cursor: '1710000091.000100',
-            oldest: tailWindowCall.oldest,
+            oldest: expect.any(String),
           },
-          rawMessageCount: 40,
+          rawMessageCount: 30,
+        })),
+      ],
+    });
+  });
+
+  it('stops Slack thread fetching when a small limit has no latest-reply slots', async () => {
+    const opts = createOpts();
+    const channel = new SlackChannel('xoxb-token', 'xapp-token', opts as any);
+    await channel.connect();
+    appRef.current.client.conversations.replies.mockResolvedValueOnce({
+      ok: true,
+      messages: [
+        {
+          channel: 'C123',
+          ts: '1710000000.000100',
+          thread_ts: '1710000000.000100',
+          user: 'U123',
+          text: 'root',
+        },
+        ...Array.from({ length: 4 }, (_, index) => ({
+          channel: 'C123',
+          ts: `171000000${index + 1}.000200`,
+          thread_ts: '1710000000.000100',
+          user: 'U456',
+          text: `early reply ${index + 1}`,
+        })),
+      ],
+      response_metadata: { next_cursor: 'thread-page-2' },
+    });
+
+    const result = await channel.hydrateConversationContext({
+      conversationJid: 'sl:C123',
+      threadId: '1710000000.000100',
+      latestMessage: {
+        id: 'current',
+        timestamp: '2024-03-09T16:00:06.000Z',
+        external_message_id: '1710000006.000300',
+        thread_id: '1710000000.000100',
+      },
+      limits: { channelMessages: 30, threadMessages: 5 },
+    });
+
+    expect(appRef.current.client.conversations.replies).toHaveBeenCalledTimes(
+      1,
+    );
+    expect(
+      result.messages?.map((message) => message.external_message_id),
+    ).toEqual([
+      '1710000000.000100',
+      '1710000001.000200',
+      '1710000002.000200',
+      '1710000003.000200',
+      '1710000004.000200',
+    ]);
+  });
+
+  it('keeps Slack thread coverage non-exhausted when a terminated chain skips a middle reply observed in the tail', async () => {
+    const opts = createOpts();
+    const channel = new SlackChannel('xoxb-token', 'xapp-token', opts as any);
+    await channel.connect();
+    const reply = (index: number) => ({
+      channel: 'C123',
+      ts: `1710000${String(index).padStart(3, '0')}.000100`,
+      thread_ts: '1710000000.000100',
+      user: 'U456',
+      text: `reply ${index}`,
+    });
+    appRef.current.client.conversations.replies
+      .mockResolvedValueOnce({
+        ok: true,
+        messages: [
+          {
+            channel: 'C123',
+            ts: '1710000000.000100',
+            thread_ts: '1710000000.000100',
+            user: 'U123',
+            text: 'root',
+          },
+          ...Array.from({ length: 5 }, (_, index) => reply(index + 1)),
+        ],
+        response_metadata: { next_cursor: 'thread-page-2' },
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        messages: [
+          ...Array.from({ length: 5 }, (_, index) => reply(index + 7)),
+        ],
+        response_metadata: { next_cursor: '' },
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        messages: Array.from({ length: 49 }, (_, index) =>
+          reply((index % 11) + 1),
+        ),
+      });
+
+    const result = await channel.hydrateConversationContext({
+      conversationJid: 'sl:C123',
+      threadId: '1710000000.000100',
+      latestMessage: {
+        id: 'current',
+        timestamp: '2024-03-09T16:01:35.000Z',
+        external_message_id: '1710000095.000100',
+        thread_id: '1710000000.000100',
+      },
+      limits: { channelMessages: 30, threadMessages: 50 },
+    });
+
+    expect(appRef.current.client.conversations.replies).toHaveBeenCalledTimes(
+      3,
+    );
+    expect(appRef.current.client.conversations.replies).toHaveBeenNthCalledWith(
+      2,
+      {
+        channel: 'C123',
+        ts: '1710000000.000100',
+        latest: '1710000095.000100',
+        inclusive: false,
+        limit: 50,
+        cursor: 'thread-page-2',
+      },
+    );
+    const tailCall =
+      appRef.current.client.conversations.replies.mock.calls[2]?.[0];
+    expect(tailCall).toEqual({
+      channel: 'C123',
+      ts: '1710000000.000100',
+      latest: '1710000095.000100',
+      oldest: expect.any(String),
+      inclusive: false,
+      limit: 49,
+    });
+    expect(
+      result.messages?.map((message) => message.external_message_id),
+    ).toEqual([
+      '1710000000.000100',
+      ...Array.from(
+        { length: 11 },
+        (_, index) => `1710000${String(index + 1).padStart(3, '0')}.000100`,
+      ),
+    ]);
+    expect(result.coverage).toMatchObject({
+      completeness: { kind: 'server_confirmed', exhausted: false },
+      deliveredMessageCount: 12,
+      requests: [
+        {
+          role: 'thread',
+          limit: 50,
+          effectiveBounds: { cursor: '1710000095.000100' },
+          rawMessageCount: 6,
+          pagination: {
+            kind: 'server_confirmed',
+            hasMore: false,
+            hadCursor: true,
+          },
+        },
+        {
+          role: 'thread',
+          limit: 50,
+          effectiveBounds: { cursor: 'thread-page-2' },
+          rawMessageCount: 5,
+          pagination: {
+            kind: 'server_confirmed',
+            hasMore: false,
+            hadCursor: false,
+          },
+        },
+        {
+          role: 'thread_tail',
+          limit: 49,
+          effectiveBounds: {
+            cursor: '1710000095.000100',
+            oldest: tailCall.oldest,
+          },
+          rawMessageCount: 49,
         },
       ],
+    });
+  });
+
+  it('reports exhausted Slack thread coverage when a multi-page chain terminates and the tail stays within its coverage', async () => {
+    const opts = createOpts();
+    const channel = new SlackChannel('xoxb-token', 'xapp-token', opts as any);
+    await channel.connect();
+    const reply = (index: number) => ({
+      channel: 'C123',
+      ts: `1710000${String(index).padStart(3, '0')}.000100`,
+      thread_ts: '1710000000.000100',
+      user: 'U456',
+      text: `reply ${index}`,
+    });
+    appRef.current.client.conversations.replies
+      .mockResolvedValueOnce({
+        ok: true,
+        messages: [
+          {
+            channel: 'C123',
+            ts: '1710000000.000100',
+            thread_ts: '1710000000.000100',
+            user: 'U123',
+            text: 'root',
+          },
+          ...Array.from({ length: 5 }, (_, index) => reply(index + 1)),
+        ],
+        response_metadata: { next_cursor: 'thread-page-2' },
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        messages: [
+          ...Array.from({ length: 44 }, (_, index) => reply(index + 6)),
+        ],
+        response_metadata: { next_cursor: '' },
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        messages: Array.from({ length: 88 }, (_, index) =>
+          reply((index % 49) + 1),
+        ),
+      });
+
+    const result = await channel.hydrateConversationContext({
+      conversationJid: 'sl:C123',
+      threadId: '1710000000.000100',
+      latestMessage: {
+        id: 'current',
+        timestamp: '2024-03-09T16:01:35.000Z',
+        external_message_id: '1710000095.000100',
+        thread_id: '1710000000.000100',
+      },
+      limits: { channelMessages: 30, threadMessages: 50 },
+    });
+
+    expect(appRef.current.client.conversations.replies).toHaveBeenCalledTimes(
+      3,
+    );
+    expect(result.coverage?.requests.slice(0, 2)).toMatchObject([
+      {
+        role: 'thread',
+        pagination: {
+          kind: 'server_confirmed',
+          hasMore: false,
+          hadCursor: true,
+        },
+      },
+      {
+        role: 'thread',
+        pagination: {
+          kind: 'server_confirmed',
+          hasMore: false,
+          hadCursor: false,
+        },
+      },
+    ]);
+    expect(result.coverage?.completeness).toEqual({
+      kind: 'server_confirmed',
+      exhausted: true,
+    });
+  });
+
+  it('keeps Slack thread coverage non-exhausted when an earlier broad tail attempt contains an unseen reply', async () => {
+    const opts = createOpts();
+    const channel = new SlackChannel('xoxb-token', 'xapp-token', opts as any);
+    await channel.connect();
+    const reply = (index: number) => ({
+      channel: 'C123',
+      ts: `1710000${String(index).padStart(3, '0')}.000100`,
+      thread_ts: '1710000000.000100',
+      user: 'U456',
+      text: `reply ${index}`,
+    });
+    appRef.current.client.conversations.replies
+      .mockResolvedValueOnce({
+        ok: true,
+        messages: [
+          {
+            channel: 'C123',
+            ts: '1710000000.000100',
+            thread_ts: '1710000000.000100',
+            user: 'U123',
+            text: 'root',
+          },
+          ...Array.from({ length: 5 }, (_, index) => reply(index + 1)),
+        ],
+        response_metadata: { next_cursor: 'thread-page-2' },
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        messages: Array.from({ length: 44 }, (_, index) => reply(index + 6)),
+        response_metadata: { next_cursor: '' },
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        messages: [
+          {
+            ...reply(50),
+            ts: '1709997000.000100',
+            text: 'unseen broad-tail reply',
+          },
+          ...Array.from({ length: 87 }, (_, index) => reply((index % 49) + 1)),
+        ],
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        messages: Array.from({ length: 88 }, (_, index) =>
+          reply((index % 49) + 1),
+        ),
+      });
+
+    const result = await channel.hydrateConversationContext({
+      conversationJid: 'sl:C123',
+      threadId: '1710000000.000100',
+      latestMessage: {
+        id: 'current',
+        timestamp: '2024-03-09T16:01:35.000Z',
+        external_message_id: '1710000095.000100',
+        thread_id: '1710000000.000100',
+      },
+      limits: { channelMessages: 30, threadMessages: 50 },
+    });
+
+    expect(appRef.current.client.conversations.replies).toHaveBeenCalledTimes(
+      4,
+    );
+    const firstTailCall =
+      appRef.current.client.conversations.replies.mock.calls[2]?.[0];
+    const narrowedTailCall =
+      appRef.current.client.conversations.replies.mock.calls[3]?.[0];
+    expect(Number(narrowedTailCall.oldest)).toBeGreaterThan(
+      Number(firstTailCall.oldest),
+    );
+    expect(result.coverage?.completeness).toEqual({
+      kind: 'server_confirmed',
+      exhausted: false,
+    });
+  });
+
+  it('keeps Slack thread coverage non-exhausted when the full-range chain reaches its four-page cap', async () => {
+    const opts = createOpts();
+    const channel = new SlackChannel('xoxb-token', 'xapp-token', opts as any);
+    await channel.connect();
+    const reply = (index: number) => ({
+      channel: 'C123',
+      ts: `1710000${String(index).padStart(3, '0')}.000100`,
+      thread_ts: '1710000000.000100',
+      user: 'U456',
+      text: `reply ${index}`,
+    });
+    appRef.current.client.conversations.replies
+      .mockResolvedValueOnce({
+        ok: true,
+        messages: [
+          {
+            channel: 'C123',
+            ts: '1710000000.000100',
+            thread_ts: '1710000000.000100',
+            user: 'U123',
+            text: 'root',
+          },
+          reply(1),
+        ],
+        response_metadata: { next_cursor: 'thread-page-2' },
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        messages: [reply(2)],
+        response_metadata: { next_cursor: 'thread-page-3' },
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        messages: [reply(3)],
+        response_metadata: { next_cursor: 'thread-page-4' },
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        messages: [reply(4)],
+        response_metadata: { next_cursor: 'thread-page-5' },
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        messages: Array.from({ length: 49 }, (_, index) => reply(index + 41)),
+      });
+
+    const result = await channel.hydrateConversationContext({
+      conversationJid: 'sl:C123',
+      threadId: '1710000000.000100',
+      latestMessage: {
+        id: 'current',
+        timestamp: '2024-03-09T16:01:35.000Z',
+        external_message_id: '1710000095.000100',
+        thread_id: '1710000000.000100',
+      },
+      limits: { channelMessages: 30, threadMessages: 50 },
+    });
+
+    const threadRequests =
+      result.coverage?.requests.filter(({ role }) => role === 'thread') ?? [];
+    expect(threadRequests).toHaveLength(4);
+    expect(
+      threadRequests.map(({ effectiveBounds }) => effectiveBounds.cursor),
+    ).toEqual([
+      '1710000095.000100',
+      'thread-page-2',
+      'thread-page-3',
+      'thread-page-4',
+    ]);
+    expect(threadRequests.at(-1)?.pagination).toEqual({
+      kind: 'server_confirmed',
+      hasMore: false,
+      hadCursor: true,
+    });
+    expect(result.coverage?.completeness).toEqual({
+      kind: 'server_confirmed',
+      exhausted: false,
     });
   });
 
@@ -2803,6 +3202,61 @@ describe('Slack channel', () => {
     );
   });
 
+  it('fetches a full latest-only Slack tail when a paginated thread root is unavailable', async () => {
+    const opts = createOpts();
+    const channel = new SlackChannel('xoxb-token', 'xapp-token', opts as any);
+    await channel.connect();
+    const reply = (index: number) => ({
+      channel: 'C123',
+      ts: `1710000${String(index).padStart(3, '0')}.000100`,
+      thread_ts: '1710000000.000100',
+      user: 'U456',
+      text: `reply ${index}`,
+    });
+    appRef.current.client.conversations.replies
+      .mockResolvedValueOnce({
+        ok: true,
+        messages: Array.from({ length: 50 }, (_, index) => reply(index + 1)),
+        response_metadata: { next_cursor: 'thread-page-2' },
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        messages: Array.from({ length: 50 }, (_, index) => reply(index + 41)),
+      });
+
+    const result = await channel.hydrateConversationContext({
+      conversationJid: 'sl:C123',
+      threadId: '1710000000.000100',
+      latestMessage: {
+        id: 'current',
+        timestamp: '2024-03-09T16:01:31.000Z',
+        external_message_id: '1710000091.000100',
+        thread_id: '1710000000.000100',
+      },
+      limits: { channelMessages: 30, threadMessages: 50 },
+    });
+
+    expect(appRef.current.client.conversations.replies).toHaveBeenCalledTimes(
+      2,
+    );
+    expect(appRef.current.client.conversations.replies).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ limit: 50 }),
+    );
+    expect(
+      result.messages?.map((message) => message.external_message_id),
+    ).toEqual(
+      Array.from(
+        { length: 50 },
+        (_, index) => `1710000${String(index + 41).padStart(3, '0')}.000100`,
+      ),
+    );
+    expect(
+      new Set(result.messages?.map((message) => message.external_message_id)),
+    ).toHaveProperty('size', 50);
+    expect(result.coverage?.deliveredMessageCount).toBe(50);
+  });
+
   it('narrows dense Slack thread tail windows before selecting latest replies', async () => {
     const opts = createOpts();
     const channel = new SlackChannel('xoxb-token', 'xapp-token', opts as any);
@@ -2831,12 +3285,12 @@ describe('Slack channel', () => {
       })
       .mockResolvedValueOnce({
         ok: true,
-        messages: Array.from({ length: 39 }, (_, index) => reply(index + 11)),
+        messages: Array.from({ length: 88 }, (_, index) => reply(index + 3)),
         response_metadata: { next_cursor: 'dense-tail-page' },
       })
       .mockResolvedValueOnce({
         ok: true,
-        messages: Array.from({ length: 39 }, (_, index) => reply(index + 52)),
+        messages: Array.from({ length: 88 }, (_, index) => reply(index + 3)),
       });
 
     const result = await channel.hydrateConversationContext({
@@ -2848,7 +3302,7 @@ describe('Slack channel', () => {
         external_message_id: '1710000091.000100',
         thread_id: '1710000000.000100',
       },
-      limits: { channelMessages: 30, threadMessages: 10 },
+      limits: { channelMessages: 30, threadMessages: 50 },
     });
 
     expect(appRef.current.client.conversations.replies).toHaveBeenCalledTimes(
@@ -2866,8 +3320,12 @@ describe('Slack channel', () => {
     ).toEqual([
       '1710000000.000100',
       ...Array.from(
-        { length: 9 },
-        (_, index) => `1710000${String(index + 82).padStart(3, '0')}.000100`,
+        { length: 10 },
+        (_, index) => `1710000${String(index + 1).padStart(3, '0')}.000100`,
+      ),
+      ...Array.from(
+        { length: 39 },
+        (_, index) => `1710000${String(index + 52).padStart(3, '0')}.000100`,
       ),
     ]);
     expect(result.coverage?.requests.slice(1)).toEqual([

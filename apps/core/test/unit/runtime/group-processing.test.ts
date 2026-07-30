@@ -93,7 +93,6 @@ vi.mock('@core/messaging/router.js', () => ({
 
 const mockIsTriggerAllowed = vi.fn();
 const mockIsSenderAllowed = vi.fn();
-const mockShouldDropMessage = vi.fn();
 const mockShouldLogDenied = vi.fn();
 const mockIsSenderControlAllowed = vi.fn();
 const mockLoadSenderAllowlist = vi.fn();
@@ -103,7 +102,6 @@ vi.mock('@core/platform/sender-allowlist.js', () => ({
   isTriggerAllowed: (...args: unknown[]) => mockIsTriggerAllowed(...args),
   isSenderControlAllowed: (...args: unknown[]) =>
     mockIsSenderControlAllowed(...args),
-  shouldDropMessage: (...args: unknown[]) => mockShouldDropMessage(...args),
   shouldLogDenied: (...args: unknown[]) => mockShouldLogDenied(...args),
   loadSenderAllowlist: (...args: unknown[]) => mockLoadSenderAllowlist(...args),
   loadSenderControlAllowlist: (...args: unknown[]) =>
@@ -354,7 +352,6 @@ function setupHappyPath(
   mockLoadSenderControlAllowlist.mockReturnValue({});
   mockIsTriggerAllowed.mockReturnValue(true);
   mockIsSenderAllowed.mockReturnValue(true);
-  mockShouldDropMessage.mockReturnValue(false);
   mockShouldLogDenied.mockReturnValue(true);
   mockIsSenderControlAllowed.mockReturnValue(false);
 
@@ -5788,6 +5785,7 @@ describe('createGroupProcessor', () => {
       const root = makeMessage({
         id: 'root',
         content: 'thread root',
+        external_message_id: 'thread-1',
         thread_id: 'thread-1',
         timestamp: '2024-01-01T00:02:00.000Z',
       });
@@ -5803,7 +5801,7 @@ describe('createGroupProcessor', () => {
         .mockResolvedValue(undefined);
       (deps.opsRepository as any).getRecentTopLevelMessagesBefore = vi
         .fn()
-        .mockResolvedValue([recent]);
+        .mockResolvedValue([recent, root]);
       (deps.opsRepository as any).getFirstThreadMessages = vi
         .fn()
         .mockResolvedValue([root]);
@@ -5891,7 +5889,7 @@ describe('createGroupProcessor', () => {
         providerAccountId: 'telegram_account_2',
         threadId: '42',
         latestMessage: current,
-        limits: { channelMessages: 30, threadMessages: 10 },
+        limits: { channelMessages: 30, threadMessages: 50 },
       });
       expect((deps.opsRepository as any).storeMessage).toHaveBeenNthCalledWith(
         1,
@@ -6236,7 +6234,7 @@ describe('createGroupProcessor', () => {
         conversationJid: 'tg:-100123',
         threadId: '42',
         latestMessage: current,
-        limits: { channelMessages: 30, threadMessages: 10 },
+        limits: { channelMessages: 30, threadMessages: 50 },
       });
       expect(mockLogger.warn).toHaveBeenCalledWith(
         {
@@ -6317,7 +6315,7 @@ describe('createGroupProcessor', () => {
           conversationJid: 'tg:-100123',
           threadId: '42',
           latestMessage: current,
-          limits: { channelMessages: 30, threadMessages: 10 },
+          limits: { channelMessages: 30, threadMessages: 50 },
         });
         expect(settled).toBe(false);
 
@@ -6362,7 +6360,7 @@ describe('createGroupProcessor', () => {
       }
     });
 
-    it('drops non-allowlisted and self/bot hydrated messages before storing or recall', async () => {
+    it('stores hydrated non-allowed senders on a registered route while excluding self/bot messages', async () => {
       const group = makeGroup({
         folder: 'my-group',
         requiresTrigger: false,
@@ -6425,10 +6423,6 @@ describe('createGroupProcessor', () => {
       });
       const { deps } = setupHappyPath({ group, messages: [current] });
       deps.channelRuntime = channel;
-      mockShouldDropMessage.mockReturnValue(true);
-      mockIsSenderAllowed.mockImplementation(
-        (_chatJid, sender) => sender === 'allowed-user',
-      );
       (deps.opsRepository as any).getAgentTurnContext = vi
         .fn()
         .mockResolvedValue(undefined);
@@ -6438,62 +6432,38 @@ describe('createGroupProcessor', () => {
       (deps.opsRepository as any).getFirstThreadMessages = vi
         .fn()
         .mockResolvedValueOnce([])
-        .mockResolvedValue([allowedHydrated]);
+        .mockResolvedValue([allowedHydrated, disallowedHydrated]);
       (deps.opsRepository as any).getLatestThreadMessages = vi
         .fn()
         .mockResolvedValueOnce([current])
-        .mockResolvedValue([allowedHydrated, current]);
+        .mockResolvedValue([allowedHydrated, disallowedHydrated, current]);
 
       const { processGroupMessages } = createGroupProcessor(deps);
       await processGroupMessages('sl:C123::thread:1710000000.000000');
 
-      expect(mockShouldDropMessage).toHaveBeenCalledWith(
-        'sl:C123',
-        {},
-        'my-group',
-      );
-      expect(mockShouldDropMessage).toHaveBeenCalledTimes(2);
-      expect(mockIsSenderAllowed).toHaveBeenCalledWith(
-        'sl:C123',
-        'blocked-user',
-        {},
-        'my-group',
-      );
-      expect(mockIsSenderAllowed).not.toHaveBeenCalledWith(
-        'sl:C123',
-        'gantry-bot',
-        {},
-        'my-group',
-      );
-      expect(mockIsSenderAllowed).not.toHaveBeenCalledWith(
-        'sl:C123',
-        'third-party-bot',
-        {},
-        'my-group',
-      );
-      expect((deps.opsRepository as any).storeMessage).toHaveBeenCalledTimes(1);
+      expect((deps.opsRepository as any).storeMessage).toHaveBeenCalledTimes(2);
       expect((deps.opsRepository as any).storeMessage).toHaveBeenCalledWith(
         allowedHydrated,
       );
-      expect((deps.opsRepository as any).storeMessage).not.toHaveBeenCalledWith(
-        gantrySelfHydrated,
+      expect((deps.opsRepository as any).storeMessage).toHaveBeenCalledWith(
+        disallowedHydrated,
       );
       expect((deps.opsRepository as any).storeMessage).not.toHaveBeenCalledWith(
-        disallowedHydrated,
+        gantrySelfHydrated,
       );
       expect((deps.opsRepository as any).storeMessage).not.toHaveBeenCalledWith(
         botHydrated,
       );
       expect(mockFormatConversationContextMessages).toHaveBeenCalledWith(
         expect.objectContaining({
-          activeThreadContext: [allowedHydrated],
+          activeThreadContext: [allowedHydrated, disallowedHydrated],
           currentMessages: [current],
         }),
         'UTC',
       );
       const formattedContext =
         mockFormatConversationContextMessages.mock.calls[0][0];
-      expect(formattedContext.activeThreadContext).not.toContain(
+      expect(formattedContext.activeThreadContext).toContain(
         disallowedHydrated,
       );
       expect(formattedContext.activeThreadContext).not.toContain(
@@ -6503,15 +6473,15 @@ describe('createGroupProcessor', () => {
       const query = (deps.opsRepository as any).getAgentTurnContext.mock
         .calls[0][0].query;
       expect(query).toContain('allowed hydrated history');
+      expect(query).toContain('blocked hydrated history');
       expect(query).not.toContain('gantry self hydrated history');
       expect(query).not.toContain('bot hydrated history');
-      expect(query).not.toContain('blocked hydrated history');
       expect(mockLogger.debug).toHaveBeenCalledWith(
         {
           chatJid: 'sl:C123',
           providerId: 'slack',
           messageCount: 4,
-          droppedCount: 3,
+          droppedCount: 2,
         },
         'Conversation context hydration dropped messages before persistence',
       );
@@ -6614,10 +6584,10 @@ describe('createGroupProcessor', () => {
         .mockResolvedValue([]);
       (deps.opsRepository as any).getFirstThreadMessages = vi
         .fn()
-        .mockResolvedValue(storedThreadMessages.slice(0, 1));
+        .mockResolvedValue(storedThreadMessages.slice(0, 11));
       (deps.opsRepository as any).getLatestThreadMessages = vi
         .fn()
-        .mockResolvedValue(storedThreadMessages.slice(-10));
+        .mockResolvedValue(storedThreadMessages);
 
       const { processGroupMessages } = createGroupProcessor(deps);
       await processGroupMessages('sl:C123::thread:1710000000.000000');
@@ -6625,10 +6595,7 @@ describe('createGroupProcessor', () => {
       expect(channel.hydrateConversationContext).not.toHaveBeenCalled();
       expect(mockFormatConversationContextMessages).toHaveBeenCalledWith(
         expect.objectContaining({
-          activeThreadContext: [
-            storedThreadMessages[0],
-            ...storedThreadMessages.slice(-9),
-          ],
+          activeThreadContext: storedThreadMessages,
           currentMessages: [current],
         }),
         'UTC',
@@ -6679,10 +6646,10 @@ describe('createGroupProcessor', () => {
         .mockResolvedValue([]);
       (deps.opsRepository as any).getFirstThreadMessages = vi
         .fn()
-        .mockResolvedValue(storedThreadReplies.slice(0, 1));
+        .mockResolvedValue(storedThreadReplies.slice(0, 11));
       (deps.opsRepository as any).getLatestThreadMessages = vi
         .fn()
-        .mockResolvedValue(storedThreadReplies.slice(-10));
+        .mockResolvedValue(storedThreadReplies);
 
       const { processGroupMessages } = createGroupProcessor(deps);
       await processGroupMessages('dc:thread-1::thread:discord-thread-1');
@@ -6691,7 +6658,7 @@ describe('createGroupProcessor', () => {
         conversationJid: 'dc:thread-1',
         threadId: 'discord-thread-1',
         latestMessage: current,
-        limits: { channelMessages: 30, threadMessages: 10 },
+        limits: { channelMessages: 30, threadMessages: 50 },
       });
     });
 

@@ -12,7 +12,6 @@ import {
   isSenderAllowed,
   loadSenderControlAllowlist,
   loadSenderAllowlist,
-  shouldDropMessage,
   shouldLogDenied,
 } from '../../platform/sender-allowlist.js';
 import {
@@ -97,7 +96,6 @@ export function createChannelWiring(
     providerIds: listChannelProviders(),
     loadSenderAllowlist,
     loadSenderControlAllowlist,
-    shouldDropMessage,
     isSenderAllowed,
     isSenderControlAllowed,
     shouldLogDenied,

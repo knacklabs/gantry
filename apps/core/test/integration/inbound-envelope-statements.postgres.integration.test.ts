@@ -23,6 +23,13 @@ import { TeamsChannel } from '@core/channels/teams.js';
 import type { TeamsSdkClient } from '@core/channels/teams-types.js';
 import { handleTelegramTextMessage } from '@core/channels/telegram/text-message-handler.js';
 import type { ConversationRoute } from '@core/domain/types.js';
+import {
+  isSenderAllowed,
+  isSenderControlAllowed,
+  isTriggerAllowed,
+  shouldLogDenied,
+  type RuntimeSenderAllowlistConfig,
+} from '@core/platform/sender-allowlist.js';
 
 import {
   createPostgresIntegrationRuntime,
@@ -68,6 +75,23 @@ const EXPECTED_ENSURE_CONVERSATION_CALLS = 1;
 const PRIVATE_CONVERSATION_JID = 'tg:400200';
 const PRIVATE_PROVIDER_ACCOUNT_ID = 'telegram_lat_4a_unregistered_private';
 const MESSAGE_TIMESTAMP = '2026-07-29T00:00:00.000Z';
+const PERMISSIVE_SENDER_ALLOWLIST: RuntimeSenderAllowlistConfig = {
+  telegram: {
+    default: { allow: '*', mode: 'trigger' },
+    agents: {},
+    logDenied: false,
+  },
+  slack: {
+    default: { allow: '*', mode: 'trigger' },
+    agents: {},
+    logDenied: false,
+  },
+  teams: {
+    default: { allow: '*', mode: 'trigger' },
+    agents: {},
+    logDenied: false,
+  },
+};
 
 describe.runIf(hasPostgresIntegrationDatabase)(
   'inbound envelope Postgres statement baseline',
@@ -77,6 +101,7 @@ describe.runIf(hasPostgresIntegrationDatabase)(
     function createPersistenceHarness(input: {
       providerAccountId: string;
       conversationRoutes: Record<string, ConversationRoute>;
+      senderAllowlist?: RuntimeSenderAllowlistConfig;
     }): {
       persistenceQueue: AsyncTaskQueue;
       channelOpts: ChannelOpts;
@@ -88,12 +113,12 @@ describe.runIf(hasPostgresIntegrationDatabase)(
         appId: DEFAULT_APP_ID,
         providerIds: [],
         opsRepository: runtime.ops,
-        loadSenderAllowlist: () => ({}),
+        loadSenderAllowlist: () =>
+          input.senderAllowlist ?? PERMISSIVE_SENDER_ALLOWLIST,
         loadSenderControlAllowlist: () => ({}),
-        shouldDropMessage: () => false,
-        isSenderAllowed: () => true,
-        isSenderControlAllowed: () => true,
-        shouldLogDenied: () => false,
+        isSenderAllowed,
+        isSenderControlAllowed,
+        shouldLogDenied,
         logger: {
           info: () => undefined,
           warn: () => undefined,
@@ -364,6 +389,135 @@ describe.runIf(hasPostgresIntegrationDatabase)(
         title: 'Renamed Group',
         kind: 'group',
       });
+    });
+
+    it('persists a trigger-denied Telegram sender in the channel context window', async () => {
+      const conversationJid = 'tg:-100400352';
+      const providerAccountId = 'telegram_gh_352_read_all';
+      const sender = '400352';
+      const listedSender = '999352';
+      const messageId = 352;
+      const messageContent = 'Store this non-listed sender for context.';
+      const route: ConversationRoute = {
+        name: 'GH-352 Read All',
+        folder: 'main_agent',
+        trigger: '@Main',
+        added_at: MESSAGE_TIMESTAMP,
+        agentId: DEFAULT_AGENT_ID,
+        providerAccountId,
+        requiresTrigger: true,
+        conversationKind: 'channel',
+      };
+      const senderAllowlist: RuntimeSenderAllowlistConfig = {
+        telegram: {
+          default: { allow: [listedSender], mode: 'trigger' },
+          agents: {},
+          conversations: {
+            [conversationJid]: {
+              [route.folder]: {
+                allow: [listedSender],
+                mode: 'trigger',
+              },
+            },
+          },
+          logDenied: false,
+        },
+      };
+      await runtime.repositories.providerAccounts.saveProviderAccount({
+        id: providerAccountId as never,
+        appId: DEFAULT_APP_ID as never,
+        agentId: DEFAULT_AGENT_ID as never,
+        providerId: 'telegram' as never,
+        externalIdentityRef: {
+          kind: 'provider_account',
+          value: providerAccountId,
+        },
+        label: route.name,
+        status: 'active',
+        config: {},
+        runtimeSecretRefs: {},
+        createdAt: MESSAGE_TIMESTAMP,
+        updatedAt: MESSAGE_TIMESTAMP,
+      });
+      const { persistenceQueue, channelOpts } = createPersistenceHarness({
+        providerAccountId,
+        conversationRoutes: { [conversationJid]: route },
+        senderAllowlist,
+      });
+
+      expect(
+        isTriggerAllowed(
+          conversationJid,
+          sender,
+          senderAllowlist,
+          route.folder,
+        ),
+      ).toBe(false);
+
+      const ctx = {
+        chat: {
+          id: -100400352,
+          type: 'supergroup',
+          title: route.name,
+        },
+        from: {
+          id: Number(sender),
+          first_name: 'Non-listed User',
+        },
+        message: {
+          text: messageContent,
+          date: Date.parse(MESSAGE_TIMESTAMP) / 1000,
+          message_id: messageId,
+          entities: [],
+        },
+        me: { username: 'gantry_read_all_bot' },
+      } as Parameters<typeof handleTelegramTextMessage>[0]['ctx'];
+
+      await handleTelegramTextMessage({
+        ctx,
+        opts: channelOpts,
+        assistantName: 'Main',
+        triggerPattern: /@Main\b/i,
+        tryResolveOther: async () => false,
+      });
+      expect(await persistenceQueue.waitForIdle(5_000)).toBe(true);
+
+      const persistedEnvelope = await runtime.service.pool.query(
+        `SELECT m.external_message_id, c.title, c.kind
+         FROM messages m
+         JOIN conversations c ON c.id = m.conversation_id
+         WHERE c.provider_account_id = $1
+           AND c.external_ref_json LIKE $2
+           AND m.external_message_id = $3`,
+        [providerAccountId, `%${conversationJid}%`, String(messageId)],
+      );
+      expect(persistedEnvelope.rows).toHaveLength(1);
+      expect(persistedEnvelope.rows[0]).toMatchObject({
+        external_message_id: String(messageId),
+        title: route.name,
+        kind: 'group',
+      });
+
+      const contextWindow = await runtime.ops.getRecentTopLevelMessagesBefore(
+        conversationJid,
+        {
+          timestamp: new Date(
+            Date.parse(MESSAGE_TIMESTAMP) + 1_000,
+          ).toISOString(),
+          id: 'after-gh-352-read-all-proof',
+        },
+        30,
+        { providerAccountId },
+      );
+      expect(contextWindow).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            id: String(messageId),
+            sender,
+            content: messageContent,
+          }),
+        ]),
+      );
     });
 
     it('persists an unregistered private chat in one conversation write', async () => {

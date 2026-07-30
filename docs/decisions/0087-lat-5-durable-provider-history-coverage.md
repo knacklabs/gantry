@@ -175,19 +175,13 @@ made.
 Postgres-backed, so the disposable Postgres lane is required and a missing
 `GANTRY_TEST_DATABASE_URL` is a blocker rather than a pass.
 
-**A boundary found while investigating a live report, worth stating because it
-limits what this phase can promise.** Coverage records what the PROVIDER
-returned; it cannot repair history the runtime never stored locally. When a
-conversation's sender allowlist is in `drop` mode and a sender is not on it,
-every route is filtered out and the handler returns BEFORE persisting
-(`channel-persistence-handlers.ts:148-170`), so that message is never written at
-all. The context query itself filters only on conversation, thread scope and
-direction — there is no sender filter — so a stored message is always eligible
-for the window regardless of author. The hole is therefore at write time and is
-permanent: no history hydration, watermark or larger window recovers it. This is
-provider-neutral and affects Telegram exactly as much as Slack. It is NOT in
-LAT-5's scope; it is recorded so nobody reads "durable history coverage" as a
-promise that the agent sees everything humans see in the channel.
+**Historical boundary note.** The paragraph previously here described
+pre-GH-352 behavior: sender allowlist `drop` mode could create a permanent
+write-time history hole. Decision 0090 supersedes that behavior. Every
+non-self/bot inbound message on a registered route that reaches persistence is
+now stored regardless of sender allowlist membership; the allowlist gates only
+who may trigger the agent. Unregistered chats and provider-specific media
+boundaries retain their existing behavior.
 
 Accepted risk: a coverage record that is wrong in the optimistic direction
 silently truncates conversation history for the model — worse than the latency it

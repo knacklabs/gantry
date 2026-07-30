@@ -70,7 +70,7 @@ maybeDescribe(
         controlApprovers: ['U12345678'],
         now: NOW,
         displayName: 'Incident Room',
-        senderPolicy: { allow: ['U12345678'], mode: 'drop' },
+        senderPolicy: { allow: ['U12345678'], mode: 'trigger' },
         memoryScope: 'conversation',
         trigger: '@Incident',
         requiresTrigger: true,

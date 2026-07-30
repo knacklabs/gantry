@@ -33,7 +33,7 @@ export function printPolicyChannel(
   } else {
     for (const [folder, entry] of entries) {
       lines.push(
-        `    ${folder}: allow=${renderAllow(entry.allow)} mode=${entry.mode}`,
+        `    ${folder}: allow=${renderAllow(entry.allow)} mode=trigger`,
       );
     }
   }
