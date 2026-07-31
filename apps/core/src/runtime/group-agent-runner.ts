@@ -137,7 +137,10 @@ export function createGroupAgentRunner(input: {
     const modelStatus = createModelStatus(group.folder, sessionThreadId);
     const runTokenBudget = createConfiguredRunTokenBudget(group.folder);
     const streamedResult = createRuntimeResultSummaryAccumulator();
-    const loadTurnContext = async (promoteReadyProviderSession: boolean) =>
+    const loadTurnContext = async (
+      promoteReadyProviderSession: boolean,
+      hydrateMemory = true,
+    ) =>
       ops().getAgentTurnContext?.({
         appId: turnAppId,
         agentFolder: group.folder,
@@ -149,6 +152,7 @@ export function createGroupAgentRunner(input: {
         memoryUserId: options?.memoryContext?.userId,
         hydrationMode: 'first_visible',
         promoteReadyProviderSession,
+        hydrateMemory,
         query:
           options?.memoryContext?.source === 'message'
             ? buildBoundedMemoryRecallQuery(options.memoryContext.recallQuery)
@@ -529,6 +533,9 @@ export function createGroupAgentRunner(input: {
             ...(turnContext?.agentId ? { agentId: turnContext.agentId } : {}),
             ...(agentInput.model ? { model: agentInput.model } : {}),
             chatJid,
+            // Exact key the finalizer consumes activity with; stored with the
+            // browser credential so the IPC side never rebuilds it.
+            turnQueueKey: queueJid,
             threadId: options?.memoryContext?.threadId,
             memoryUserId: options?.memoryContext?.userId,
             memoryDefaultScope: defaultMemoryScope,

@@ -23,9 +23,9 @@ jobs:
           # Real scan into the disposable CI workspace so unscanned/changed
           # inbox files count as pending (scan --check detects drift but
           # does not register it; list would then undercount).
-          python3 .agents/scripts/forge.py context scan >/dev/null
-          PENDING=$(python3 .agents/scripts/forge.py context list --pending | wc -l | tr -d ' ')
-          PROPOSED=$(ls .agents/skills/proposed/*.md 2>/dev/null | wc -l | tr -d ' ')
+          python3 factory/scripts/forge.py context scan >/dev/null
+          PENDING=$(python3 factory/scripts/forge.py context list --pending | wc -l | tr -d ' ')
+          PROPOSED=$(ls factory/skills/proposed/*.md 2>/dev/null | wc -l | tr -d ' ')
           echo "pending=$PENDING" >> "$GITHUB_OUTPUT"
           echo "proposed=$PROPOSED" >> "$GITHUB_OUTPUT"
       - name: Open or update the gardening issue
@@ -38,8 +38,8 @@ jobs:
           TITLE="Gardening: context/skills need attention"
           BODY="Daily gardener report:
 
-          - Unharvested context files: **$PENDING** (\`forge.py context list --pending\`; harvest per \`.agents/prompts/harvester.md\`)
-          - Proposed skills awaiting human review: **$PROPOSED** (\`.agents/skills/proposed/\`; promote or reject per \`.agents/prompts/skill-miner.md\`)
+          - Unharvested context files: **$PENDING** (\`forge.py context list --pending\`; harvest per \`factory/prompts/harvester.md\`)
+          - Proposed skills awaiting human review: **$PROPOSED** (\`factory/skills/proposed/\`; promote or reject per \`factory/prompts/skill-miner.md\`)
 
           Run the harvest/review locally (the /forge skill routes it), commit the ledger, and this issue closes on the next clean run."
           EXISTING=$(gh issue list --state open --search "in:title Gardening:" --json number --jq '.[0].number' || true)

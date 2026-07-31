@@ -5,6 +5,7 @@ import { logger } from '../../infrastructure/logging/logger.js';
 import type {
   ConversationContextHydrationRequest,
   ConversationContextHydrationResult,
+  HydrationRequestObservation,
 } from '../channel-provider.js';
 import type { SlackMessageLike } from './channel-state.js';
 
@@ -18,11 +19,25 @@ interface SlackHydratedMessagesResponse {
   };
 }
 
+interface SlackHydratedMessagesFetch {
+  response: SlackHydratedMessagesResponse;
+  requests: HydrationRequestObservation[];
+  coverageExhausted: boolean;
+}
+
+interface SlackThreadTailFetch {
+  response: SlackHydratedMessagesResponse;
+  requests: HydrationRequestObservation[];
+  observedMessages: SlackMessageLike[];
+}
+
 type SlackHydratedFile = NonNullable<SlackMessageLike['files']>[number] & {
   size?: number;
 };
 
 const THREAD_LONG_FIRST_REPLIES = 10;
+// Bound provider work to at most four full-range replies pages per hydration.
+const THREAD_FULL_RANGE_PAGE_CAP = 4;
 const THREAD_TAIL_INITIAL_LOOKBACK_SECONDS = 60 * 60;
 const THREAD_TAIL_MAX_LOOKBACK_SECONDS = 7 * 24 * 60 * 60;
 const THREAD_TAIL_MIN_LOOKBACK_SECONDS = 1;
@@ -71,12 +86,13 @@ export async function hydrateSlackConversationContext(
   }
 
   try {
-    const response = await fetchSlackMessages(
+    const fetch = await fetchSlackMessages(
       request,
       deps.app,
       parsed.channelId,
       limit,
     );
+    const { response } = fetch;
     if (response.ok === false) {
       return failedSlackHydration(request, response.error || 'provider_error');
     }
@@ -99,7 +115,35 @@ export async function hydrateSlackConversationContext(
       },
       'Slack context hydration completed',
     );
-    return { providerId: 'slack', attempted: true, messages };
+    return {
+      providerId: 'slack',
+      attempted: true,
+      messages,
+      coverage: {
+        requestedLatestMessage: {
+          ...(request.latestMessage.external_message_id !== undefined
+            ? {
+                externalMessageId: request.latestMessage.external_message_id,
+              }
+            : {}),
+          timestamp: request.latestMessage.timestamp,
+        },
+        scope: request.threadId ? 'thread' : 'channel',
+        requests: fetch.requests,
+        completeness: {
+          kind: 'server_confirmed',
+          exhausted: fetch.coverageExhausted,
+        },
+        deliveredMessageCount: messages.length,
+        threadRoot: request.threadId
+          ? messages.some(
+              (message) => message.external_message_id === request.threadId,
+            )
+            ? 'included'
+            : 'missing'
+          : 'not_applicable',
+      },
+    };
   } catch (err) {
     logger.debug(
       {
@@ -125,17 +169,22 @@ async function fetchSlackMessages(
   app: App,
   channel: string,
   limit: number,
-): Promise<SlackHydratedMessagesResponse> {
+): Promise<SlackHydratedMessagesFetch> {
   const latest = slackLatestCursor(request.latestMessage);
   if (request.threadId) {
     return fetchSlackThreadMessages(request, app, channel, limit, latest);
   }
-  return (await app.client.conversations.history({
+  const response = (await app.client.conversations.history({
     channel,
     latest,
     inclusive: false,
     limit,
   })) as SlackHydratedMessagesResponse;
+  return {
+    response,
+    requests: [slackRequestObservation('channel', limit, latest, response)],
+    coverageExhausted: !response.has_more && !hasUsableSlackCursor(response),
+  };
 }
 
 async function fetchSlackThreadMessages(
@@ -144,7 +193,7 @@ async function fetchSlackThreadMessages(
   channel: string,
   limit: number,
   latest: string | undefined,
-): Promise<SlackHydratedMessagesResponse> {
+): Promise<SlackHydratedMessagesFetch> {
   const first = (await app.client.conversations.replies({
     channel,
     ts: request.threadId!,
@@ -152,13 +201,75 @@ async function fetchSlackThreadMessages(
     inclusive: false,
     limit,
   })) as SlackHydratedMessagesResponse;
-  if (first.ok === false) return first;
+  const requests = [slackRequestObservation('thread', limit, latest, first)];
+  if (first.ok === false) {
+    return { response: first, requests, coverageExhausted: false };
+  }
 
   const messages = [...(first.messages || [])];
-  const cursor = first.response_metadata?.next_cursor?.trim();
-  let tailResponse: SlackHydratedMessagesResponse | null = null;
-  const tailLimit = slackThreadTailFetchLimit(limit);
-  if (cursor && tailLimit > 0) {
+  const firstCursor = slackNextCursor(first);
+  let fullRangeResponse = first;
+  let fullRangeCursor = firstCursor;
+  let fullRangePagesFetched = 1;
+  const fullRangeReplyTarget = slackThreadFirstReplyCount(limit);
+  while (
+    slackHydratableNonRootReplyCount(messages, request.threadId!) <
+      fullRangeReplyTarget &&
+    fullRangeCursor &&
+    fullRangePagesFetched < THREAD_FULL_RANGE_PAGE_CAP
+  ) {
+    const cursor = fullRangeCursor;
+    fullRangeResponse = (await app.client.conversations.replies({
+      channel,
+      ts: request.threadId!,
+      latest,
+      inclusive: false,
+      limit,
+      cursor,
+    })) as SlackHydratedMessagesResponse;
+    fullRangePagesFetched += 1;
+    requests.push(
+      slackRequestObservation('thread', limit, cursor, fullRangeResponse),
+    );
+    if (fullRangeResponse.ok === false) {
+      return {
+        response: fullRangeResponse,
+        requests,
+        coverageExhausted: false,
+      };
+    }
+    messages.push(...(fullRangeResponse.messages || []));
+    fullRangeCursor = slackNextCursor(fullRangeResponse);
+  }
+
+  let tailResponse: SlackThreadTailFetch | null = null;
+  const fullRangeReplyCount = slackHydratableNonRootReplyCount(
+    messages,
+    request.threadId!,
+  );
+  const fullRangeMessages = dedupeSlackMessages(
+    messages.filter(isHydratableSlackMessage),
+  );
+  const fullRangeMessageIds = new Set(
+    fullRangeMessages.map((message) => message.ts!),
+  );
+  const fullRangeChainStoppedByCap =
+    fullRangePagesFetched >= THREAD_FULL_RANGE_PAGE_CAP &&
+    Boolean(fullRangeCursor) &&
+    fullRangeReplyCount < fullRangeReplyTarget;
+  const hasHydratableRoot = messages.some(
+    (message) =>
+      message.ts === request.threadId && isHydratableSlackMessage(message),
+  );
+  const hasLatestReplyBudget = limit - 1 - fullRangeReplyTarget > 0;
+  const tailLimit = hasHydratableRoot
+    ? slackThreadTailFetchLimit(limit, fullRangeReplyCount)
+    : limit;
+  if (
+    firstCursor &&
+    (!hasHydratableRoot || hasLatestReplyBudget) &&
+    tailLimit > 0
+  ) {
     tailResponse = await fetchSlackThreadTailWindow({
       app,
       channel,
@@ -166,15 +277,41 @@ async function fetchSlackThreadMessages(
       latest,
       limit: tailLimit,
     });
-    if (tailResponse.ok === false) return tailResponse;
-    messages.push(...(tailResponse.messages || []));
+    requests.push(...tailResponse.requests);
+    if (tailResponse.response.ok === false) {
+      return {
+        response: tailResponse.response,
+        requests,
+        coverageExhausted: false,
+      };
+    }
+    messages.push(...(tailResponse.response.messages || []));
   }
 
+  const tailContradictsFullRangeCoverage = Boolean(
+    tailResponse?.observedMessages.some(
+      (message) =>
+        isHydratableSlackMessage(message) &&
+        !fullRangeMessageIds.has(message.ts!),
+    ),
+  );
+  // Exhaustion requires every hydratable tail message to already appear in
+  // the full-range chain; any unseen tail row proves the chain omitted data.
+  const coverageExhausted =
+    !fullRangeChainStoppedByCap &&
+    !fullRangeResponse.has_more &&
+    !hasUsableSlackCursor(fullRangeResponse) &&
+    !tailContradictsFullRangeCoverage;
+
   return {
-    ...first,
-    messages,
-    response_metadata:
-      tailResponse?.response_metadata || first.response_metadata,
+    response: {
+      ...first,
+      messages,
+      response_metadata:
+        tailResponse?.response.response_metadata || first.response_metadata,
+    },
+    requests,
+    coverageExhausted,
   };
 }
 
@@ -184,24 +321,41 @@ async function fetchSlackThreadTailWindow(input: {
   threadId: string;
   latest: string | undefined;
   limit: number;
-}): Promise<SlackHydratedMessagesResponse> {
+}): Promise<SlackThreadTailFetch> {
   const latestSeconds = Number(input.latest);
   if (!Number.isFinite(latestSeconds)) {
-    return { ok: true, messages: [] };
+    return {
+      response: { ok: true, messages: [] },
+      requests: [],
+      observedMessages: [],
+    };
   }
 
   let lookbackSeconds = THREAD_TAIL_INITIAL_LOOKBACK_SECONDS;
   let response: SlackHydratedMessagesResponse = { ok: true, messages: [] };
+  const requests: HydrationRequestObservation[] = [];
+  const observedMessages: SlackMessageLike[] = [];
   for (let attempt = 0; attempt < THREAD_TAIL_WINDOW_ATTEMPTS; attempt += 1) {
+    const oldest = slackTailWindowOldest(latestSeconds, lookbackSeconds);
     response = (await input.app.client.conversations.replies({
       channel: input.channel,
       ts: input.threadId,
       latest: input.latest,
-      oldest: slackTailWindowOldest(latestSeconds, lookbackSeconds),
+      oldest,
       inclusive: false,
       limit: input.limit,
     })) as SlackHydratedMessagesResponse;
-    if (response.ok === false) return response;
+    requests.push(
+      slackRequestObservation(
+        'thread_tail',
+        input.limit,
+        input.latest,
+        response,
+        oldest,
+      ),
+    );
+    observedMessages.push(...(response.messages || []));
+    if (response.ok === false) return { response, requests, observedMessages };
 
     if (
       slackTailWindowIsDense(
@@ -238,7 +392,42 @@ async function fetchSlackThreadTailWindow(input: {
 
     break;
   }
-  return response;
+  return { response, requests, observedMessages };
+}
+
+function slackRequestObservation(
+  role: 'channel' | 'thread' | 'thread_tail',
+  limit: number,
+  cursor: string | undefined,
+  response: SlackHydratedMessagesResponse,
+  oldest?: string,
+): HydrationRequestObservation {
+  return {
+    role,
+    limit,
+    effectiveBounds: {
+      ...(cursor ? { cursor } : {}),
+      ...(oldest ? { oldest } : {}),
+    },
+    rawMessageCount: (response.messages || []).length,
+    pagination: {
+      kind: 'server_confirmed',
+      hasMore: Boolean(response.has_more),
+      hadCursor: hasUsableSlackCursor(response),
+    },
+  };
+}
+
+function hasUsableSlackCursor(
+  response: SlackHydratedMessagesResponse,
+): boolean {
+  return Boolean(slackNextCursor(response));
+}
+
+function slackNextCursor(
+  response: SlackHydratedMessagesResponse,
+): string | undefined {
+  return response.response_metadata?.next_cursor?.trim() || undefined;
 }
 
 function slackLatestCursor(
@@ -271,11 +460,22 @@ function slackTailWindowIsDense(
   return latestSeconds - firstMessageSeconds > lookbackSeconds / 2;
 }
 
-function slackThreadTailFetchLimit(limit: number): number {
-  return Math.max(
+function slackThreadTailFetchLimit(
+  limit: number,
+  availableFirstReplies: number,
+): number {
+  const latestReplyCount = Math.max(
     0,
-    limit - 1 - Math.min(THREAD_LONG_FIRST_REPLIES, Math.max(0, limit - 1)),
+    limit -
+      1 -
+      Math.min(slackThreadFirstReplyCount(limit), availableFirstReplies),
   );
+  // The bounded full-range count absorbs worst-case overlap before dedupe.
+  return latestReplyCount + availableFirstReplies;
+}
+
+function slackThreadFirstReplyCount(limit: number): number {
+  return Math.min(THREAD_LONG_FIRST_REPLIES, Math.max(0, limit - 1));
 }
 
 function slackTailWindowOldest(
@@ -366,28 +566,41 @@ function selectHydratedSlackMessages(input: {
   limit: number;
   requestedThreadId: string | undefined;
 }): SlackMessageLike[] {
-  const byExternalId = new Map<string, SlackMessageLike>();
-  for (const message of input.rawMessages) {
-    if (!isHydratableSlackMessage(message)) continue;
-    byExternalId.set(message.ts!, message);
-  }
-  const messages = Array.from(byExternalId.values()).sort(compareSlackMessages);
+  const messages = input.rawMessages
+    .filter(isHydratableSlackMessage)
+    .sort(compareSlackMessages);
   if (!input.requestedThreadId || messages.length <= input.limit) {
-    return messages.slice(0, input.limit);
+    return dedupeSlackMessages(messages).slice(0, input.limit);
   }
 
-  const firstReplyCount = Math.min(
-    THREAD_LONG_FIRST_REPLIES,
-    Math.max(0, input.limit - 1),
+  const root = messages.find(
+    (message) => message.ts === input.requestedThreadId,
   );
+  if (!root) return dedupeSlackMessages(messages).slice(-input.limit);
+
+  const nonRootMessages = dedupeSlackMessages(
+    messages.filter((message) => message.ts !== root.ts),
+  );
+  const firstReplyCount = slackThreadFirstReplyCount(input.limit);
   const latestReplyCount = Math.max(0, input.limit - 1 - firstReplyCount);
   const latestReplies =
-    latestReplyCount > 0 ? messages.slice(1).slice(-latestReplyCount) : [];
+    latestReplyCount > 0 ? nonRootMessages.slice(-latestReplyCount) : [];
   return dedupeSlackMessages([
-    ...messages.slice(0, 1),
-    ...messages.slice(1, firstReplyCount + 1),
+    root,
+    ...nonRootMessages.slice(0, firstReplyCount),
     ...latestReplies,
   ]);
+}
+
+function slackHydratableNonRootReplyCount(
+  messages: SlackMessageLike[],
+  threadId: string,
+): number {
+  return dedupeSlackMessages(
+    messages.filter(
+      (message) => message.ts !== threadId && isHydratableSlackMessage(message),
+    ),
+  ).length;
 }
 
 function isHydratableSlackMessage(message: SlackMessageLike): boolean {

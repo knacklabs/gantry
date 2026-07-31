@@ -648,7 +648,7 @@ Sessions enable conversation continuity from Gantry-owned Postgres state.
    ▼
 5. Message loop checks:
    ├── Is chat_jid in registered groups? -> No: ignore
-   ├── Is sender allowed to interact? -> No: drop or store only
+   ├── Is sender allowed to trigger the agent? -> No: store but don't process
    └── Does message match trigger/session command policy? -> No: store but don't process
    │
    ▼

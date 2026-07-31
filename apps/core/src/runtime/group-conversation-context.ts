@@ -2,11 +2,6 @@ import { logger } from '../infrastructure/logging/logger.js';
 import { formatConversationContextMessages } from '../messaging/router.js';
 import { buildMemoryRecallQueryFromMessages } from '../memory/app-memory-recall-query.js';
 import type { NewMessage } from '../domain/types.js';
-import {
-  isSenderAllowed,
-  loadSenderAllowlist,
-  shouldDropMessage,
-} from '../platform/sender-allowlist.js';
 import type {
   ConversationContextHydrationRequest,
   ConversationContextHydrationResult,
@@ -217,21 +212,9 @@ function filterHydratedMessagesForPersistence(input: {
   messages: NewMessage[];
 }): NewMessage[] {
   if (input.messages.length === 0) return input.messages;
-  const allowlistCfg = loadSenderAllowlist();
-  return input.messages.filter((message) => {
-    if (message.is_from_me === true || message.is_bot_message === true) {
-      return false;
-    }
-    if (!shouldDropMessage(input.chatJid, allowlistCfg, input.agentFolder)) {
-      return true;
-    }
-    return isSenderAllowed(
-      input.chatJid,
-      message.sender,
-      allowlistCfg,
-      input.agentFolder,
-    );
-  });
+  return input.messages.filter(
+    (message) => message.is_from_me !== true && message.is_bot_message !== true,
+  );
 }
 
 function hydrationErrorDiagnostics(err: unknown): {

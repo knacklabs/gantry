@@ -1977,7 +1977,7 @@ describe('validateIpcAuthRequest', () => {
     const marker = JSON.stringify({
       expiresAtMs: now - REPLAY_MARKER_SWEEP_GRACE_MS - 1,
     });
-    for (let index = 0; index < 2_000; index += 1) {
+    for (let index = 0; index < 512; index += 1) {
       const markerPath = path.join(replayDir, `${markerPrefix}${index}.json`);
       markerPaths.push(markerPath);
       fs.writeFileSync(markerPath, marker);

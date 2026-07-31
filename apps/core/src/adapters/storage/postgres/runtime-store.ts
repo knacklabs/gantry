@@ -17,7 +17,10 @@ import type { BrowserProfileSnapshotRepository } from '../../../domain/ports/bro
 import { evaluatePostgresStorageCapabilities } from './readiness.js';
 import type { PostgresControlPlaneRepository } from './repositories/control-plane-repository.postgres.js';
 import type { RuntimeEventExchange } from '../../../application/runtime-events/runtime-event-exchange.js';
-import type { RuntimeLease } from '../../../domain/ports/runtime-lease.js';
+import type {
+  RuntimeLease,
+  RuntimeLeaseAcquireOptions,
+} from '../../../domain/ports/runtime-lease.js';
 import type { WorkerCoordinationRepository } from '../../../domain/ports/worker-coordination.js';
 import { configurePendingInteractionDurability } from '../../../application/interactions/pending-interaction-durability.js';
 import { ModelCredentialService } from '../../../application/model-credentials/model-credential-service.js';
@@ -322,9 +325,11 @@ export async function getConfiguredModelProvidersForApp(
 
 export async function tryAcquireRuntimeAdvisoryLease(
   key: string,
+  options: RuntimeLeaseAcquireOptions = {},
 ): Promise<RuntimeLease | undefined> {
   const client = await getRuntimeStorage().service.pool.connect();
   let released = false;
+  let lostError: Error | undefined;
   try {
     const result = await client.query<{ acquired: boolean }>(
       'SELECT pg_try_advisory_lock(hashtextextended($1, 0)) AS acquired',
@@ -335,9 +340,49 @@ export async function tryAcquireRuntimeAdvisoryLease(
       released = true;
       return undefined;
     }
+    // Bump the durable generation on THIS connection, which already holds the
+    // advisory lock — that is what serializes the bump against other holders of
+    // the same key. A separate pooled connection would not be serialized.
+    //
+    // Fails closed: if this throws, the catch below releases the connection
+    // (dropping the advisory lock with it) and no lease is returned. An
+    // unfenced lease is worse than no lease.
+    // SHARED reads the current generation; OWNERSHIP advances it. Both hold the
+    // same advisory lock, so exclusion is identical — only the epoch differs.
+    const generationResult = await client.query<{
+      generation: string | number;
+    }>(
+      options.shared
+        ? `SELECT COALESCE(
+             (SELECT generation FROM runtime_lease_generations WHERE lease_key = $1),
+             0
+           ) AS generation, $2::text AS holder`
+        : `INSERT INTO runtime_lease_generations (lease_key, generation, holder, updated_at)
+       VALUES ($1, 1, $2, now())
+       ON CONFLICT (lease_key) DO UPDATE
+         SET generation = runtime_lease_generations.generation + 1,
+             holder = EXCLUDED.holder,
+             updated_at = now()
+       RETURNING generation`,
+      // ponytail: diagnostic only, so keep it dependency-free rather than
+      // importing the worker identity from jobs/ (no adapter does today).
+      [key, `pid-${process.pid}`],
+    );
+    // node-postgres returns bigint as a string to avoid precision loss.
+    const rawGeneration = generationResult.rows[0]?.generation;
+    const generation = Number(rawGeneration);
+    // A shared acquisition may legitimately report 0 (nobody has ever owned this
+    // key); an ownership acquisition must always yield at least 1.
+    const minimumGeneration = options.shared ? 0 : 1;
+    if (!Number.isSafeInteger(generation) || generation < minimumGeneration) {
+      throw new Error(
+        `Runtime advisory lease generation bump returned no usable generation for ${key}: ${String(rawGeneration)}`,
+      );
+    }
     const lostHandlers = new Set<(err: Error) => void>();
     const notifyLost = (err: Error) => {
       if (released) return;
+      lostError = err;
       released = true;
       for (const handler of [...lostHandlers]) handler(err);
       client.removeListener('error', notifyLost);
@@ -354,8 +399,11 @@ export async function tryAcquireRuntimeAdvisoryLease(
     client.once('error', notifyLost);
     client.once('end', notifyEnd);
     return {
+      generation,
+      isValid: () => !lostError && !released,
       onLost: (handler) => {
-        lostHandlers.add(handler);
+        if (lostError) handler(lostError);
+        else lostHandlers.add(handler);
       },
       release: async () => {
         if (released) return;
@@ -373,7 +421,22 @@ export async function tryAcquireRuntimeAdvisoryLease(
       },
     };
   } catch (err) {
-    if (!released) client.release(err instanceof Error ? err : undefined);
+    if (!released) {
+      // ALWAYS destroy here. pg advisory locks are session-scoped, and a
+      // no-argument release() returns the session to the pool with any lock
+      // still held — wedging the key for every other session, while a later
+      // acquisition on that same session re-enters the lock and would need
+      // more unlocks than anyone will issue.
+      //
+      // Every path into this catch has an unknown-or-held lock state: the lock
+      // query may have executed server-side before a cancellation or a
+      // result-delivery failure, so "the query threw" does NOT mean "no lock
+      // was taken". Passing an error is what actually destroys the connection.
+      // The clean refused case (`acquired: false`) returns above and keeps its
+      // plain release, because there the server told us definitively.
+      client.release(err instanceof Error ? err : new Error(String(err)));
+      released = true;
+    }
     throw err;
   }
 }
@@ -413,10 +476,22 @@ export async function closeRuntimeStorage(): Promise<void> {
   if (existing) await closeStorageRuntimeResources(existing);
 }
 
-/** @internal test hook */
-export function _setRuntimeStorageForTest(nextRuntime: StorageRuntime): void {
+/**
+ * @internal test hook
+ *
+ * Pass `scope` to install the storage AS the storage for a specific runtime
+ * home, so a home-scoped caller (a CLI command) reuses it instead of opening a
+ * second runtime against a schema it has not migrated. Without `scope` the
+ * scope stays unknown and any explicit home is rejected — the invariant
+ * asserted by 'rejects an explicit runtime home when service-owned storage
+ * scope is unknown'.
+ */
+export function _setRuntimeStorageForTest(
+  nextRuntime: StorageRuntime,
+  scope?: StorageRuntimeOptions,
+): void {
   runtime = nextRuntime;
-  runtimeScopeKey = 'process-runtime';
+  runtimeScopeKey = scope ? runtimeStorageScopeKey(scope) : 'process-runtime';
   const workerCoordination = nextRuntime.repositories?.workerCoordination;
   configurePendingInteractionDurability(
     workerCoordination

@@ -242,7 +242,10 @@ function touchSession(session: BrowserSession): void {
     last_used: new Date(session.lastUsedAt).toISOString(),
     cdp_port: session.port,
   });
-  writeBrowserSessionRecord(profile, session);
+  writeBrowserSessionRecord(profile, {
+    ...session,
+    leaseGeneration: session.lock.generation,
+  });
 
   if (session.keepAliveTimer) clearTimeout(session.keepAliveTimer);
   session.keepAliveTimer = setTimeout(() => {
@@ -267,13 +270,14 @@ function assertProfileLockValid(lock: BrowserProfileLock): void {
 function registerLiveBrowserSession(session: BrowserSession): void {
   assertProfileLockValid(session.lock);
   sessions.set(session.profileName, session);
-  session.lock.onLost((err) => {
-    if (hasBrowserLeaseLossTeardown(session.profileName)) return;
+  const { profileName, lock } = session;
+  lock.onLost((err) => {
+    if (hasBrowserLeaseLossTeardown(profileName)) return;
     logger.error(
-      { err, profileName: session.profileName, pid: session.pid },
+      { err, profileName, pid: session.pid },
       'Browser profile lease lost; stopping session without snapshot',
     );
-    skipNextBrowserProfileSnapshot(session.profileName);
+    skipNextBrowserProfileSnapshot(profileName, lock.generation);
     const teardown = shutdownLiveBrowserSession(session, {
       ownershipLost: true,
     });
@@ -615,7 +619,12 @@ function shutdownLiveBrowserSession(
 
 export async function closeBrowser(
   profileName = DEFAULT_BROWSER_PROFILE_NAME,
-): Promise<{ closed: boolean; reason?: string; elapsedMs?: number }> {
+): Promise<{
+  closed: boolean;
+  reason?: string;
+  elapsedMs?: number;
+  leaseGeneration?: number;
+}> {
   const startedAt = currentTimeMs();
   const normalized = resolveProfileName(profileName);
   const leaseLossExited = await finishBrowserLeaseLossTeardown(normalized);
@@ -629,12 +638,21 @@ export async function closeBrowser(
   const session = sessions.get(normalized);
   if (!session) {
     const profile = createProfile(normalized);
-    const lock = await acquireProfileLock(normalized, getProfileLockLeases());
+    // SHARED: stopping a stray process is cleanup, not a new ownership epoch.
+    // Advancing the generation here would invalidate a legitimate owner's
+    // pending snapshot. Exclusion against a launch is unchanged.
+    const lock = await acquireProfileLock(
+      normalized,
+      getProfileLockLeases(),
+      undefined,
+      { shared: true },
+    );
     try {
       assertProfileLockValid(lock);
       const record = readBrowserSessionRecord(profile);
       if (!record) {
         return {
+          // No record: no provenance, so no generation may be claimed.
           closed: true,
           reason: 'not_running',
           elapsedMs: currentTimeMs() - startedAt,
@@ -659,12 +677,18 @@ export async function closeBrowser(
       });
       if (!shouldTerminate && isPidAlive(record.pid)) {
         return {
+          leaseGeneration: record.leaseGeneration,
           closed: false,
           reason: 'pid_not_owned_by_browser_profile',
           elapsedMs: currentTimeMs() - startedAt,
         };
       }
       return {
+        // DURABLE LOCAL provenance, never the lease's current value: that may
+        // belong to another worker that has since owned and released this
+        // profile, and would relabel these stale bytes as current. Undefined
+        // for pre-existing records — no provenance, so no snapshot.
+        leaseGeneration: record.leaseGeneration,
         closed: true,
         reason: shouldTerminate ? 'terminated' : 'already_stopped',
         elapsedMs: currentTimeMs() - startedAt,
@@ -674,11 +698,13 @@ export async function closeBrowser(
     }
   }
 
+  const leaseGeneration = session.lock.generation; // bound before teardown
   const teardown = shutdownLiveBrowserSession(session);
   if (teardown) trackBrowserLeaseLossTeardown(session, teardown);
   const exited = await teardown;
 
   return {
+    leaseGeneration,
     closed: exited ?? true,
     reason:
       exited === undefined

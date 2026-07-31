@@ -1405,21 +1405,34 @@ describe('CanonicalMessageOpsService', () => {
     );
   });
 
-  it('publishes an opaque live admission wakeup after storing a work item', async () => {
-    const notifyLiveAdmissionWorkItem = vi.fn(async () => {});
-    const saveMessage = vi.fn(async () => ({
-      outcome: 'enqueued' as const,
-      item: {
-        id: 'live-admission:default:message-1',
-        appId: 'default',
-      },
-    }));
+  it('publishes an opaque live admission wakeup only after the transaction commits', async () => {
+    const order: string[] = [];
+    let commitTransaction!: () => void;
+    const transactionCommitted = new Promise<{
+      outcome: 'enqueued';
+      item: { id: string; appId: string };
+    }>((resolve) => {
+      commitTransaction = () => {
+        order.push('transaction committed');
+        resolve({
+          outcome: 'enqueued',
+          item: {
+            id: 'live-admission:default:message-1',
+            appId: 'default',
+          },
+        });
+      };
+    });
+    const notifyLiveAdmissionWorkItem = vi.fn(async () => {
+      order.push('admission notified');
+    });
+    const saveMessage = vi.fn(() => transactionCommitted);
     const service = new CanonicalMessageOpsService(
       { saveMessage } as unknown as PostgresCanonicalMessageRepository,
       { notifyLiveAdmissionWorkItem },
     );
 
-    await service.storeMessageWithLiveAdmission(
+    const storing = service.storeMessageWithLiveAdmission(
       {
         id: 'provider-message-1',
         chat_jid: 'tg:one',
@@ -1435,6 +1448,13 @@ describe('CanonicalMessageOpsService', () => {
       },
     );
 
+    await vi.waitFor(() => expect(saveMessage).toHaveBeenCalledOnce());
+    expect(notifyLiveAdmissionWorkItem).not.toHaveBeenCalled();
+
+    commitTransaction();
+    await storing;
+
+    expect(order).toEqual(['transaction committed', 'admission notified']);
     expect(notifyLiveAdmissionWorkItem).toHaveBeenCalledWith({
       appId: 'default',
       workItemId: 'live-admission:default:message-1',

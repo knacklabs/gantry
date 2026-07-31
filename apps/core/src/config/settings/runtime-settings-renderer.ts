@@ -446,7 +446,7 @@ function renderConversationsYaml(
     lines.push(
       '    sender_policy:',
       `      allow: ${conversation.senderPolicy.allow === '*' ? '"*"' : JSON.stringify(conversation.senderPolicy.allow)}`,
-      `      mode: ${conversation.senderPolicy.mode}`,
+      '      mode: trigger',
     );
     if (conversation.controlApprovers.length > 0) {
       lines.push(

@@ -10,7 +10,7 @@
       "story": "First story through the harness. Five failing sections inventoried in the goal-prompt: file-size splits (genai-spans worst), dangling doc refs, layer-import caps, provider-boundary tokens in tests, provider literals in prompt-profile-service.",
       "acceptance_criteria": [
         "npm run check:architecture exits 0",
-        "python3 .agents/scripts/verify.py passes end to end",
+        "python3 factory/scripts/verify.py passes end to end",
         "npm run typecheck and npm test green; no test deleted",
         "no public API/contract change; contracts package diff empty",
         "any remaining architecture exception carries an expiry/ratchet note"

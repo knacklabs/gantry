@@ -84,6 +84,9 @@ export const memoryIpcAllowedActions = normalizeMemoryIpcActions(
 );
 export const browserProfileName =
   process.env.GANTRY_BROWSER_PROFILE_NAME?.trim() || undefined;
+/** Per-turn browser credential; the host maps it to the profile this turn owns. */
+export const browserTurnToken =
+  process.env.GANTRY_BROWSER_TURN_TOKEN?.trim() || undefined;
 // Locked agents never see capability-request/approval machinery: the enabled
 // tool set parses fail-closed and introspection text shows only what is
 // currently provisioned.

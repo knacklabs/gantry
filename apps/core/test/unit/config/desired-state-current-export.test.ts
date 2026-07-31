@@ -9,6 +9,64 @@ import {
 import { renderRuntimeSettingsYaml } from '@core/config/settings/runtime-settings-renderer.js';
 
 describe('exportCurrentDesiredState', () => {
+  it('loads conversation threads in bounded batches during settings export', async () => {
+    let activeThreadQueries = 0;
+    let maximumActiveThreadQueries = 0;
+    const conversations = Array.from({ length: 17 }, (_, index) => ({
+      id: `conversation:slack:${index}`,
+      providerAccountId: 'slack-default',
+      externalRef: { value: `C${index}` },
+      kind: 'channel',
+      title: `Channel ${index}`,
+      status: 'active',
+    }));
+    const deps = {
+      ops: { getAllConversationRoutes: vi.fn(async () => ({})) },
+      repositories: {
+        agents: { listAgents: vi.fn(async () => []) },
+        tools: {
+          listAgentToolBindingsForAgents: vi.fn(async () => []),
+          listAgentToolSourcesForAgents: vi.fn(async () => []),
+          listTools: vi.fn(async () => []),
+        },
+        skills: {
+          listAgentSkillBindingsForAgents: vi.fn(async () => []),
+          listSkills: vi.fn(async () => []),
+        },
+        mcpServers: { listAgentBindingsForAgents: vi.fn(async () => []) },
+        providerAccounts: {
+          listProviderAccounts: vi.fn(async () => []),
+          listConversationInstalls: vi.fn(async () => []),
+        },
+        conversations: {
+          listConversations: vi.fn(async () => conversations),
+          listThreads: vi.fn(async () => {
+            activeThreadQueries += 1;
+            maximumActiveThreadQueries = Math.max(
+              maximumActiveThreadQueries,
+              activeThreadQueries,
+            );
+            await new Promise((resolve) => setTimeout(resolve, 5));
+            activeThreadQueries -= 1;
+            return [];
+          }),
+          listConversationApproversForConversations: vi.fn(async () => []),
+        },
+      },
+    };
+
+    await exportCurrentDesiredState({
+      deps: deps as any,
+      appId: 'app-one' as never,
+      settings: createDefaultRuntimeSettings(),
+    });
+
+    expect(deps.repositories.conversations.listThreads).toHaveBeenCalledTimes(
+      conversations.length,
+    );
+    expect(maximumActiveThreadQueries).toBeLessThanOrEqual(4);
+  });
+
   it('does not export internal app/control approval routes to settings', async () => {
     const settings = {
       providers: {},
@@ -954,6 +1012,89 @@ permissions:
       appSettings.conversations.app_workspace.installedAgents.main_agent
         ?.providerAccountId,
     ).toBe('app_settings');
+  });
+
+  it('does not export live routes owned by another app agent', async () => {
+    const settings = parseRuntimeSettings(`agents:
+  warden:
+    name: Warden
+`);
+    settings.providerAccounts.slack_warden = {
+      agentId: 'warden',
+      provider: 'slack',
+      label: 'Warden Slack',
+      runtimeSecretRefs: {},
+    };
+    const deps = {
+      ops: {
+        getAllConversationRoutes: vi.fn(async () => ({
+          'sl:CWARDEN': {
+            folder: 'warden',
+            name: 'Warden',
+            providerAccountId: 'slack_warden',
+            trigger: '@Warden',
+            added_at: '2026-07-31T00:00:00.000Z',
+            requiresTrigger: true,
+          },
+          'sl:CTEST': {
+            folder: 'app_test_agent',
+            name: 'Test Agent',
+            providerAccountId: 'slack_other_app_agent',
+            trigger: '@test',
+            added_at: '2026-07-31T00:00:00.000Z',
+            requiresTrigger: true,
+          },
+        })),
+      },
+      repositories: {
+        agents: { listAgents: vi.fn(async () => []) },
+        tools: {
+          listAgentToolBindingsForAgents: vi.fn(async () => []),
+          listAgentToolSourcesForAgents: vi.fn(async () => []),
+          listTools: vi.fn(async () => []),
+        },
+        skills: {
+          listAgentSkillBindingsForAgents: vi.fn(async () => []),
+          listSkills: vi.fn(async () => []),
+        },
+        mcpServers: { listAgentBindingsForAgents: vi.fn(async () => []) },
+        providerAccounts: {
+          listProviderAccounts: vi.fn(async () => [
+            {
+              id: 'slack_warden',
+              agentId: 'agent:warden',
+              providerId: 'slack',
+              label: 'Warden Slack',
+              status: 'active',
+              config: {},
+              runtimeSecretRefs: {},
+            },
+          ]),
+          listConversationInstalls: vi.fn(async () => []),
+        },
+        conversations: {
+          listConversations: vi.fn(async () => []),
+          listConversationApproversForConversations: vi.fn(async () => []),
+        },
+      },
+    };
+
+    const exported = await exportCurrentDesiredState({
+      deps: deps as any,
+      appId: 'default' as never,
+      settings,
+    });
+
+    expect(Object.values(exported.conversations)).toHaveLength(1);
+    expect(Object.values(exported.conversations)[0]).toMatchObject({
+      externalId: 'CWARDEN',
+      providerAccount: 'slack_warden',
+    });
+    expect(exported.agents).toHaveProperty('warden');
+    expect(exported.agents).not.toHaveProperty('app_test_agent');
+    expect(() =>
+      parseRuntimeSettings(renderRuntimeSettingsYaml(exported)),
+    ).not.toThrow();
   });
 
   it('keeps route-less channel installs trigger gated on export', async () => {

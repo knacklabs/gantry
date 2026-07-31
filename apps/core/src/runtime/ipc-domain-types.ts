@@ -195,6 +195,12 @@ export interface IpcDeps {
 export interface IpcDomainContext {
   sourceAgentFolder: string;
   browserProfileName?: string;
+  /**
+   * Queue key of the turn making this request. Threads of one conversation and
+   * account share a profile, so the activity marker is keyed by turn to stop a
+   * sibling's finalize consuming it.
+   */
+  turnQueueKey?: string;
   ipcBaseDir: string;
   deps: IpcDeps;
 }

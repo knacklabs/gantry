@@ -796,6 +796,13 @@
     {
       "idx": 116,
       "version": "7",
+      "when": 1785010800000,
+      "tag": "0116_runtime_lease_generations",
+      "breakpoints": true
+    },
+    {
+      "idx": 117,
+      "version": "7",
       "when": 1785264903868,
       "tag": "20260728185503_schema_generation_baseline",
       "breakpoints": true

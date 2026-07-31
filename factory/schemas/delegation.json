@@ -1,0 +1,32 @@
+{
+  "artifact": "delegation",
+  "phase": "implementing",
+  "recorded_by": "forge.py delegate",
+  "generated_by": ["orchestrator"],
+  "required": {
+    "generated_by": "str",
+    "at": "str",
+    "launch_id": "str",
+    "task": "str",
+    "brief_sha256": "str",
+    "task_sha256": "str",
+    "write": "bool",
+    "model": "str",
+    "effort": "str",
+    "companion_path": "str",
+    "argv": "list",
+    "argv_sha256": "str",
+    "launch_status": "str"
+  },
+  "optional": {
+    "story": "str",
+    "background": "bool",
+    "stage_started_at": "str",
+    "pid": "int",
+    "pgid": "int",
+    "pid_started": "str",
+    "process_token": "str",
+    "exit_code": "int"
+  },
+  "kind_note": "Append-only starting, running, and terminal lines share a launch_id. The starting row is protected before spawn; the running row adds PID identity. Brief, task, stage and argv digests bind the launch to the active contract. Authoritative rows and locks live in Git's protected control directory; .factory/delegations.jsonl is a diagnostic mirror. Per-task and shared-state locks serialize writers; PID start identity prevents reuse mistakes, unverified reused groups are never signalled, and trusted-command cleanup reaps the process group plus descendants observed through a post-exit quiet window. Print-only diagnostics never create a record."
+}

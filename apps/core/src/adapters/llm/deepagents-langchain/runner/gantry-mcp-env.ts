@@ -118,6 +118,9 @@ export function buildGantryMcpProjection(
       : {}),
     ...passthrough(env, 'GANTRY_MEMORY_IPC_AUTH_TOKEN'),
     ...passthrough(env, 'GANTRY_BROWSER_PROFILE_NAME'),
+    // Browser IPC REQUIRES this credential: without it every browser action is
+    // refused, so it must travel with the profile name for every adapter.
+    ...passthrough(env, 'GANTRY_BROWSER_TURN_TOKEN'),
     ...passthrough(env, 'GANTRY_AGENT_ACCESS_PRESET'),
     ...passthrough(env, 'GANTRY_DEPLOYMENT_MODE'),
     ...passthrough(env, 'GANTRY_PERMISSION_MODE'),

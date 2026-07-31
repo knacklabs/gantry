@@ -305,7 +305,7 @@ export const AgentAdminBoundConversationSchema = z.object({
   senderPolicy: z
     .object({
       allow: z.union([z.literal('*'), z.array(z.string().min(1))]),
-      mode: z.enum(['trigger', 'drop']),
+      mode: z.literal('trigger'),
     })
     .strict()
     .optional(),

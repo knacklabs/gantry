@@ -9,9 +9,9 @@
         "docs/decisions/0003-early-stage-no-backcompat.md",
         "docs/decisions/0004-gantry-naming-and-public-repo.md"
       ],
-      "notes": "Product facts already canonical in docs/product/BRIEF.md; architecture rules canonical across docs/architecture/ (capability-management, current-verification-commands, codebase-refactor-principles, components) and 31 existing docs/decisions/ records; execution/orchestration standards superseded per 0002. Two previously unrecorded choices extracted as 0003 and 0004.",
-      "marked_at": "2026-07-28T18:30:13+00:00",
-      "updated": "2026-07-28T18:29:56+00:00"
+      "notes": "Re-staled by PR #338, which added only an archival banner marking this file as a superseded migration snapshot and pointing at docs/architecture/capability-management.md, runtime-components.md, and the accepted permission decisions. Its substance was already harvested into decisions 0002/0003/0004; the banner is itself the resolution, so there is no new decision to extract. Marked during LAT-3B because pending context blocks plan save; unrelated to that phase's scope.",
+      "marked_at": "2026-07-29T03:56:07+00:00",
+      "updated": "2026-07-28T19:09:02+00:00"
     },
     "migrated-CLAUDE.md": {
       "sha256": "6cb5f0cc5d4896ef69d73c98983c710869fc01e5141a0de1601e4a8918e6f675",

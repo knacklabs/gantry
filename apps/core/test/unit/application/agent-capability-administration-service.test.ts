@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { AgentCapabilityAdministrationService } from '@core/application/agents/agent-capability-administration-service.js';
+import { semanticCapabilityInputSchema } from '@core/shared/semantic-capabilities.js';
 
 describe('AgentCapabilityAdministrationService', () => {
   it('replaces capabilities and sources through separate agent-owned views', async () => {
@@ -140,6 +141,78 @@ describe('AgentCapabilityAdministrationService', () => {
           serverId: 'mcp:one',
           status: 'active',
           allowedToolPatterns: ['read_*'],
+        }),
+      ]),
+    );
+  });
+
+  it('persists an independently reviewed catalog capability with its MCP source', async () => {
+    const state = createState();
+    state.tools.set('tool:capability:itops.operations.manage', {
+      id: 'tool:capability:itops.operations.manage',
+      appId: 'app:one',
+      name: 'capability:itops.operations.manage',
+      kind: 'host',
+      provider: 'gantry',
+      displayName: 'IT Ops operations',
+      category: 'productivity',
+      risk: 'high',
+      selectable: true,
+      status: 'active',
+      adapterRef: 'capability/itops.operations.manage',
+      inputSchema: semanticCapabilityInputSchema({
+        capabilityId: 'itops.operations.manage',
+        version: '1',
+        displayName: 'IT Ops operations',
+        category: 'itops',
+        risk: 'write',
+        can: 'Use the reviewed IT Ops MCP operations.',
+        cannot: 'Use newly exposed MCP operations until they are reviewed.',
+        credentialSource: 'configured_access',
+        implementationBindings: [
+          {
+            kind: 'mcp_pattern',
+            mcpServer: 'itops',
+            mcpToolPatterns: ['itops_list_*'],
+          },
+        ],
+      }),
+      createdAt: '2026-04-30T00:00:00.000Z',
+      updatedAt: '2026-04-30T00:00:00.000Z',
+    });
+    const service = new AgentCapabilityAdministrationService(
+      state.repositories,
+      { now: () => '2026-05-01T00:00:00.000Z' },
+    );
+
+    const response = await service.replaceAccessDocument({
+      appId: 'app:one' as never,
+      agentId: 'agent:one' as never,
+      sources: {
+        skills: [],
+        mcpServers: [{ id: 'mcp:one', tools: ['itops_*'] }],
+        tools: [],
+      },
+      capabilities: [{ id: 'itops.operations.manage', version: '1' }],
+    });
+
+    expect(response.capabilities).toEqual([
+      { id: 'itops.operations.manage', version: '1' },
+    ]);
+    expect(state.toolBindings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          toolId: 'tool:capability:itops.operations.manage',
+          status: 'active',
+        }),
+      ]),
+    );
+    expect(state.mcpBindings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          serverId: 'mcp:one',
+          allowedToolPatterns: ['itops_*'],
+          status: 'active',
         }),
       ]),
     );
@@ -567,7 +640,7 @@ function createState() {
         riskClass: 'medium',
         transport: 'stdio_template',
         config: { transport: 'stdio_template', templateId: 'node-script' },
-        allowedToolPatterns: ['read_*', 'write_*'],
+        allowedToolPatterns: ['read_*', 'write_*', 'itops_*'],
         autoApproveToolPatterns: [],
         credentialRefs: [],
         createdAt: now,

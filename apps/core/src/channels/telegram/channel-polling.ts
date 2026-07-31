@@ -55,10 +55,55 @@ export abstract class TelegramChannelPolling extends TelegramChannelState {
       if (this.isStopping) return;
       logger.warn(
         { err, leaseKey },
-        'Telegram polling lease connection was lost; scheduling retry',
+        'Telegram polling lease connection was lost; stopping poller before retry',
       );
-      this.schedulePollingRetry();
+      // bot.stop() is async and issues a final getUpdates before it settles, so chain
+      // the retry off it. Otherwise a reacquired lease can start a new poll while the
+      // old shutdown is still in flight — two concurrent getUpdates, and the old stop
+      // can clear the new poll's abort controller.
+      const previousRun = this.activePollingRun;
+      const stopped = (
+        this.isTelegramBotRunning()
+          ? Promise.resolve(this.bot?.stop()).catch((stopErr: unknown) => {
+              logger.warn(
+                { err: stopErr, leaseKey },
+                'Telegram poller stop failed after polling lease loss',
+              );
+            })
+          : Promise.resolve()
+      ).then(() =>
+        // stop() does not await the polling loop or in-flight middleware, so drain
+        // the retained run too before anyone may start a new one.
+        previousRun ? previousRun.then(() => undefined) : undefined,
+      );
+      void stopped.then(() => {
+        if (this.isStopping) return;
+        this.schedulePollingRetry();
+      });
     });
+
+    // onLost replays synchronously, so registration above may already have handled a
+    // loss and cleared pollingLease. Revalidate before falling through to the start
+    // path, or we would begin polling under a lease we no longer hold.
+    // Only applies when a lease was actually acquired; unleased polling (no runtime
+    // lease configured) is a supported mode and must still start.
+    if (lease && (this.pollingLease !== lease || !lease.isValid())) {
+      this.pollingStartInFlight = false;
+      logger.warn(
+        { leaseKey },
+        'Telegram polling lease was lost during acquisition; not starting poller',
+      );
+      // onLost is optional on the port, so we can land here purely because
+      // isValid() went false with no handler having cleaned up. Recover ourselves in
+      // that case, or polling would stay stopped indefinitely. When a replayed loss
+      // handler already cleared the lease, leave its recovery alone.
+      if (this.pollingLease === lease) {
+        this.pollingLease = null;
+        await lease.release().catch(() => undefined);
+        if (!this.isStopping) this.schedulePollingRetry();
+      }
+      return;
+    }
 
     if (this.isTelegramBotRunning()) {
       this.pollingStartInFlight = false;
@@ -88,6 +133,14 @@ export abstract class TelegramChannelPolling extends TelegramChannelState {
       this.pollingStartInFlight = false;
       return;
     }
+
+    // Retained so a lease-loss teardown can await the polling loop itself, not just
+    // bot.stop() (which does not wait for it).
+    const activeRun = Promise.resolve(pollingRun).catch(() => undefined);
+    this.activePollingRun = activeRun;
+    void activeRun.then(() => {
+      if (this.activePollingRun === activeRun) this.activePollingRun = null;
+    });
 
     Promise.resolve(pollingRun)
       .then(() => {
