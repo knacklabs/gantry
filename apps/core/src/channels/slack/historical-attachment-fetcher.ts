@@ -3,6 +3,7 @@ import type {
   HistoricalAttachmentFetchResult,
   HistoricalAttachmentUnreachableReason,
 } from '../../domain/ports/historical-attachment-fetcher.js';
+import { isLikelySlackHtmlResponse } from './inbound-attachment-download.js';
 
 interface SlackFileInfo {
   name?: string;
@@ -50,7 +51,10 @@ export async function fetchSlackHistoricalAttachment(
   } catch {
     return { status: 'unreachable', reason: 'network' };
   }
-  const failure = await classifySlackDownloadResponse(response);
+  const failure = await classifySlackDownloadResponse(
+    response,
+    file.name || file.title || 'attachment.bin',
+  );
   if (failure) return failure;
 
   const reader = response.body?.getReader();
@@ -66,7 +70,11 @@ export async function fetchSlackHistoricalAttachment(
 
 export async function classifySlackDownloadResponse(
   response: Response,
+  fileName = 'attachment.bin',
 ): Promise<Exclude<HistoricalAttachmentFetchResult, { status: 'ok' }> | null> {
+  if (isLikelySlackHtmlResponse(response, fileName)) {
+    return { status: 'unreachable', reason: 'unknown' };
+  }
   if (response.ok) return null;
   const errorCode = await slackDownloadErrorCode(response);
   if (errorCode === 'file_deleted') return { status: 'deleted' };

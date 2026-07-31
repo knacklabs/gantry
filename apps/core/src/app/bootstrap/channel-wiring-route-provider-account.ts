@@ -85,13 +85,23 @@ export function findBoundChannelForRequest<
     jid,
     targetProviderAccountId,
   );
-  if (!targetProviderAccountId) return exact;
+  const targetAgentId =
+    request?.agentId ??
+    (request?.sourceAgentFolder
+      ? agentIdForFolder(request.sourceAgentFolder)
+      : undefined);
+  if (!targetProviderAccountId) {
+    if (exact || !targetAgentId) return exact;
+
+    // Some internal notifications are routed after a permission/review flow
+    // that may not carry the provider account. Recover only when the request
+    // agent has exactly one live account that owns this JID.
+    const agentMatches = channels.filter(
+      (bound) => bound.agentId === targetAgentId && bound.channel.ownsJid(jid),
+    );
+    return agentMatches.length === 1 ? agentMatches[0]!.channel : undefined;
+  }
   if (!exact) {
-    const targetAgentId =
-      request?.agentId ??
-      (request?.sourceAgentFolder
-        ? agentIdForFolder(request.sourceAgentFolder)
-        : undefined);
     if (!targetAgentId) return undefined;
 
     // A persisted route can outlive a provider-account rename or rotation.

@@ -12,6 +12,7 @@ import {
   ATTACHMENT_UNREACHABLE_COPY,
   AttachmentResolver,
 } from '@core/application/attachments/attachment-resolver.js';
+import { fetchSlackHistoricalAttachment } from '@core/channels/slack/historical-attachment-fetcher.js';
 import type {
   HistoricalAttachmentFetchResult,
   HistoricalAttachmentFetcher,
@@ -913,6 +914,45 @@ describe('AttachmentResolver', () => {
     });
     expect(fs.readFileSync(claimedPath, 'utf8')).toBe('already materialized');
     expect(repository.tombstoneUpdates).toBe(1);
+  });
+
+  it('does not persist or tombstone a Slack HTML historical response', async () => {
+    const repository = new MemoryAttachmentRepository();
+    repository.attachments.set('attachment-1', attachment());
+    const provider: HistoricalAttachmentFetcher = {
+      fetchHistoricalAttachment: (input) =>
+        fetchSlackHistoricalAttachment(
+          { identity: input.identity },
+          {
+            filesInfo: async () => ({
+              file: {
+                name: 'report.txt',
+                url_private_download: 'https://files.slack.test/F1',
+              },
+            }),
+            download: async () =>
+              new Response('file_deleted', {
+                status: 200,
+                headers: { 'content-type': 'text/html; charset=utf-8' },
+              }),
+          },
+        ),
+    };
+    const resolver = createResolver({ repository, fetcher: provider });
+
+    await expect(resolver.open(openRequest())).resolves.toEqual({
+      status: 'unreachable',
+      content: ATTACHMENT_UNREACHABLE_COPY,
+    });
+    expect(repository.storageUpdates).toBe(0);
+    expect(repository.storageClaims).toEqual([]);
+    expect(repository.tombstoneUpdates).toBe(0);
+    expect(
+      repository.attachments.get('attachment-1')?.storageRef,
+    ).toBeUndefined();
+    expect(
+      repository.attachments.get('attachment-1')?.deletedAt,
+    ).toBeUndefined();
   });
 
   it.each(['not_found', 'auth', 'rate_limit'] as const)(

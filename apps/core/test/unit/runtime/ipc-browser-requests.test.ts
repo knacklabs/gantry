@@ -118,6 +118,7 @@ describe('processBrowserRequestDirectory', () => {
     const responseEnvelope = createIpcAuthEnvelope(sourceAgentFolder);
     const requestId = `browser-${randomUUID()}`;
     const payload = {
+      browserTurnToken: 'test-turn-token',
       requestId,
       nonce: randomUUID(),
       expiresAt: new Date(Date.now() + 60_000).toISOString(),
@@ -129,6 +130,8 @@ describe('processBrowserRequestDirectory', () => {
       },
     };
     registerBrowserIpcAuthorization({
+      turnToken: 'test-turn-token',
+      browserProfileName: 'gantry',
       workspaceKey: sourceAgentFolder,
       chatJid,
     });

@@ -291,6 +291,7 @@ export async function runQuery(
     memoryReviewerIsControlApprover: agentInput.memoryReviewerIsControlApprover,
     persona: agentInput.persona,
     browserProfileName: agentInput.browserProfileName,
+    browserTurnToken: agentInput.browserTurnToken,
     configuredAllowedTools: agentInput.allowedTools,
     attachedSkillSourceIds: agentInput.attachedSkillSourceIds,
     selectedSkillDisplays: agentInput.selectedSkillDisplays,

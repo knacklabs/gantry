@@ -11,6 +11,7 @@ import {
   normalizeFileArtifactScope,
 } from '../domain/file-artifacts/virtual-path.js';
 import { memoryAgentIdForWorkspaceFolder } from '../memory/app-memory-boundaries.js';
+import { readWorkspaceMessageAttachment } from '../platform/workspace-message-attachment.js';
 import { sourceAgentHasAdminToolCapability } from './ipc-admin-authorization.js';
 import { createTaskResponder, toTrimmedString } from './ipc-shared.js';
 import type { TaskContext, TaskHandler } from './ipc-types.js';
@@ -55,6 +56,46 @@ const fileArtifactHandler: TaskHandler = async (context) => {
   }
 
   try {
+    if (action === 'read') {
+      const artifactId = toTrimmedString(payload.artifactId, { maxLen: 160 });
+      const rawPath = toTrimmedString(payload.path, { maxLen: 1000 });
+      const rawScope = toTrimmedString(payload.scope, { maxLen: 160 });
+      if (!artifactId && !rawScope && rawPath?.startsWith('attachments/')) {
+        const result = await readWorkspaceMessageAttachment(
+          sourceAgentFolder,
+          rawPath,
+        );
+        if (result.status !== 'resolved') {
+          reject(
+            result.status === 'missing'
+              ? 'Workspace attachment is missing.'
+              : result.reason,
+            result.status === 'missing' ? 'not_found' : 'invalid_request',
+          );
+          return;
+        }
+        acceptData('Workspace attachment read.', {
+          ok: true,
+          attachment: {
+            filename: result.attachment.filename,
+            contentType: result.attachment.contentType,
+            sizeBytes: result.attachment.sizeBytes,
+          },
+          content: encodeFileArtifactContent(
+            workspaceAttachmentContentForRead(result.attachment),
+            {
+              offset: typeof payload.offset === 'number' ? payload.offset : 0,
+              limit:
+                typeof payload.readLimit === 'number'
+                  ? payload.readLimit
+                  : DEFAULT_READ_LIMIT_BYTES,
+            },
+          ),
+        });
+        return;
+      }
+    }
+
     const store = context.deps.getFileArtifactStore?.();
     if (!store) {
       reject('FileArtifact storage is not ready.', 'preflight_failed');
@@ -281,6 +322,20 @@ function decodeFileArtifactContent(
   }
   if (encoding === 'base64') return Buffer.from(content, 'base64');
   return content;
+}
+
+function workspaceAttachmentContentForRead(input: {
+  contentType: string;
+  content: Uint8Array;
+}): Uint8Array | string {
+  if (
+    input.contentType.startsWith('text/') ||
+    input.contentType === 'application/json' ||
+    input.contentType === 'application/xml'
+  ) {
+    return Buffer.from(input.content).toString('utf-8');
+  }
+  return input.content;
 }
 
 function encodeFileArtifactContent(

@@ -533,6 +533,9 @@ export function createGroupAgentRunner(input: {
             ...(turnContext?.agentId ? { agentId: turnContext.agentId } : {}),
             ...(agentInput.model ? { model: agentInput.model } : {}),
             chatJid,
+            // Exact key the finalizer consumes activity with; stored with the
+            // browser credential so the IPC side never rebuilds it.
+            turnQueueKey: queueJid,
             threadId: options?.memoryContext?.threadId,
             memoryUserId: options?.memoryContext?.userId,
             memoryDefaultScope: defaultMemoryScope,

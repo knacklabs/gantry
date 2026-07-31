@@ -134,7 +134,7 @@ describe('browser-profile-sync', () => {
 
   afterEach(async () => {
     registerBrowserProfileSync(null);
-    consumeBrowserProfileActivity('p');
+    consumeBrowserProfileActivity('p', 'turn-1');
     for (const dir of [artifactRoot, profileDir]) {
       await fs.rm(dir, { recursive: true, force: true });
     }
@@ -581,11 +581,38 @@ describe('browser-profile-sync', () => {
     await fs.rm(profileDirB, { recursive: true, force: true });
   });
 
-  it('tracks and consumes the per-profile activity flag', () => {
-    expect(consumeBrowserProfileActivity('p')).toBe(false);
-    markBrowserProfileActivity('p');
-    expect(consumeBrowserProfileActivity('p')).toBe(true);
+  it('tracks and consumes the per-turn activity flag', () => {
+    expect(consumeBrowserProfileActivity('p', 'turn-1')).toBe(false);
+    markBrowserProfileActivity('p', 'turn-1');
+    expect(consumeBrowserProfileActivity('p', 'turn-1')).toBe(true);
     // Consume is read-and-clear.
-    expect(consumeBrowserProfileActivity('p')).toBe(false);
+    expect(consumeBrowserProfileActivity('p', 'turn-1')).toBe(false);
+  });
+
+  it("does not let a sibling thread consume another turn's activity", () => {
+    // Threads of one conversation and account deliberately SHARE a profile.
+    // Keyed by profile alone, thread B's finalize would clear thread A's marker
+    // and A's browser work would never be snapshotted.
+    markBrowserProfileActivity('shared-profile', 'thread-a');
+
+    expect(consumeBrowserProfileActivity('shared-profile', 'thread-b')).toBe(
+      false,
+    );
+    expect(consumeBrowserProfileActivity('shared-profile', 'thread-a')).toBe(
+      true,
+    );
+  });
+
+  it('keeps two turns on one profile independent', () => {
+    markBrowserProfileActivity('shared-profile', 'thread-a');
+    markBrowserProfileActivity('shared-profile', 'thread-b');
+
+    expect(consumeBrowserProfileActivity('shared-profile', 'thread-a')).toBe(
+      true,
+    );
+    // B's marker survived A's finalize.
+    expect(consumeBrowserProfileActivity('shared-profile', 'thread-b')).toBe(
+      true,
+    );
   });
 });

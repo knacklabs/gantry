@@ -250,6 +250,9 @@ async function runtimeContextPreviewFor(input: {
       agentId: group?.folder ?? input.executionContext.workspaceKey,
       workspaceKey: input.executionContext.workspaceKey,
       conversationId: input.executionContext.conversationJid,
+      // The group IS the route, so this is the same fact the shared resolver
+      // would look up.
+      providerAccountId: group?.providerAccountId ?? null,
     }),
     persona: group?.agentConfig?.persona ?? 'developer',
   };

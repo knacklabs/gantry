@@ -115,6 +115,21 @@ describe('Slack historical attachment fetch taxonomy', () => {
     expect(result).toEqual({ status: 'unreachable', reason: 'network' });
   });
 
+  it.each([200, 404])(
+    'keeps an HTML download response with status %s unreachable and non-deleting',
+    async (status) => {
+      await expect(
+        classifySlackDownloadResponse(
+          new Response('file_deleted', {
+            status,
+            headers: { 'content-type': 'text/html; charset=utf-8' },
+          }),
+          'report.txt',
+        ),
+      ).resolves.toEqual({ status: 'unreachable', reason: 'unknown' });
+    },
+  );
+
   it('recognizes explicit file_deleted in a failed download body', async () => {
     await expect(
       classifySlackDownloadResponse(

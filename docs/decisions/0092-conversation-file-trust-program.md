@@ -46,7 +46,7 @@ Twelve client-grilled locks (2026-07-30) govern the program:
 10. **Provider staging: Slack-complete first** (FILE-1A: durable metadata
     foundation + conversation-scoped resolver + Slack backfill fetch),
     **Discord second** (FILE-1B: live capture + refetch — its live gap is
-    part of the same trust debt), **Teams deferred** (D-0032) until a real
+    part of the same trust debt), **Teams deferred** (D-0034) until a real
     SDK client exists.
 11. Foundation requires new durable attachment metadata (filename,
     conversation scope, tombstone, provider fetch identity) — a migration;
@@ -98,7 +98,7 @@ Work this implies, staged:
   capture through the 0045 writer, filename + fetch identity persisted,
   backfill re-fetch via message-id attachment lookup, deletion event
   routing, ephemeral-flag handling.
-- **FILE-1C (deferred, D-0032)**: Teams — everything in the matrix, gated
+- **FILE-1C (deferred, D-0034)**: Teams — everything in the matrix, gated
   on a real SDK client; the port grows the SAME neutral operations, never
   Teams-shaped ones.
 - **Cross-provider (with 1A foundation, extended per provider as each

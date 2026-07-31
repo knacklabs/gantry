@@ -68,7 +68,7 @@ to full Slack/Telegram parity: live capture, filename + fetch identity
 persisted, backfill re-fetch by message-id attachment lookup, deletion event
 routing, ephemeral-flag handling.
 
-### FILE-1C — Teams parity (deferred, D-0032)
+### FILE-1C — Teams parity (deferred, D-0034)
 
 Everything in the parity matrix, gated on a real Teams SDK client. The port
 grows the same neutral operations — never Teams-shaped ones.

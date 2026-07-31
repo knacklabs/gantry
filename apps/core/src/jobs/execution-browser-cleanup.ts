@@ -21,6 +21,7 @@ export async function closeBrowserAfterJobRun(input: {
   currentJob: Job;
   executionGroupFolder?: string;
   executionJid?: string;
+  executionProviderAccountId?: string;
   diagnostics: JobRunDiagnostics;
   deps: SchedulerDependencies;
   snapshotRunId?: string | null;
@@ -46,6 +47,11 @@ export async function closeBrowserAfterJobRun(input: {
     agentId: input.executionGroupFolder,
     workspaceKey: input.executionGroupFolder,
     conversationId: input.executionJid,
+    // The route CAPTURED at execution start, not a fresh lookup: routes are
+    // mutable, so re-resolving here would let a mid-run reassignment send
+    // cleanup to a different profile than prelaunch opened — closing the wrong
+    // browser and leaking the one the job actually launched.
+    providerAccountId: input.executionProviderAccountId ?? null,
   });
   const startedAt = nowMs();
 

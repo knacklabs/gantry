@@ -1,7 +1,10 @@
+import path from 'node:path';
+
 import { App } from '@slack/bolt';
 
 import { logger } from '../../infrastructure/logging/logger.js';
 import { resolveWorkspaceFolderPath } from '../../platform/workspace-folder.js';
+import { findConversationRoutesForChat } from '../../shared/thread-queue-key.js';
 import {
   NewMessage,
   PermissionApprovalDecision,
@@ -38,9 +41,9 @@ import {
   type InteractionCancellationResult,
 } from '../interaction-settlement.js';
 import {
-  downloadSlackAttachment,
-  type SlackAttachmentDownload,
-} from './live-attachment-download.js';
+  downloadSlackAttachmentToFolder,
+  type SlackAttachmentDownloadResult,
+} from './inbound-attachment-download.js';
 
 type SlackMessageAttachments = NonNullable<NewMessage['attachments']>;
 type UQSelection = { selected: string | string[]; answeredBy?: string };
@@ -563,19 +566,36 @@ export abstract class SlackChannelState {
     },
     threadId?: string,
     targetFolder?: string,
-  ): Promise<SlackAttachmentDownload> {
-    return downloadSlackAttachment({
-      jid,
-      file,
-      ...(threadId ? { threadId } : {}),
-      ...(targetFolder ? { targetFolder } : {}),
-      conversationRoutes: this.opts.conversationRoutes,
-      ...(this.opts.providerAccountId
-        ? { providerAccountId: this.opts.providerAccountId }
-        : {}),
+  ): Promise<SlackAttachmentDownloadResult> {
+    const url = file.url_private_download || file.url_private;
+    if (!url) return { status: 'unavailable', reason: 'missing_download_url' };
+    const groups = targetFolder
+      ? []
+      : findConversationRoutesForChat(
+          this.opts.conversationRoutes(),
+          jid,
+          threadId,
+          this.opts.providerAccountId,
+        );
+    if (!targetFolder && groups.length < 1) {
+      return { status: 'unavailable', reason: 'no_matching_route' };
+    }
+    const filename = this.sanitizeFilename(
+      file.name || file.title || 'attachment.bin',
+    );
+    const folders = targetFolder
+      ? [targetFolder]
+      : Array.from(new Set(groups.map(([, group]) => group.folder)));
+    if (folders.length !== 1) {
+      return { status: 'unavailable', reason: 'ambiguous_route' };
+    }
+
+    return downloadSlackAttachmentToFolder({
       botToken: this.botToken,
-      sanitizeFilename: (raw) => this.sanitizeFilename(raw),
-      resolveWorkspaceFolder: resolveWorkspaceFolderPath,
+      jid,
+      filename,
+      url,
+      groupDir: resolveWorkspaceFolderPath(folders[0]),
     });
   }
 
@@ -591,14 +611,18 @@ export abstract class SlackChannelState {
 
     if (Array.isArray(event.files)) {
       for (const file of event.files) {
-        const download = await this.downloadSlackAttachment(
+        const downloadResult = await this.downloadSlackAttachment(
           jid,
           file,
           event.thread_ts,
           targetFolder,
         );
         const label = file.name || file.title || 'attachment';
-        lines.push(`Attachment: ${label}`);
+        lines.push(
+          downloadResult.status === 'downloaded'
+            ? `Attachment: ${label}`
+            : `Attachment: ${label} (download unavailable: ${downloadResult.reason})`,
+        );
         const attachment: SlackMessageAttachments[number] = {
           id: file.id ? `slack-file:${file.id}` : undefined,
           kind: file.mimetype?.startsWith('image/') ? 'image' : 'file',
@@ -609,8 +633,8 @@ export abstract class SlackChannelState {
             ? { provider: 'slack', kind: 'file_id', id: file.id }
             : undefined,
         };
-        if (download.status === 'ok') {
-          attachment.storageRef = download.storageRef;
+        if (downloadResult.status === 'downloaded') {
+          attachment.storageRef = downloadResult.download.storageRef;
         }
         attachments.push(attachment);
       }

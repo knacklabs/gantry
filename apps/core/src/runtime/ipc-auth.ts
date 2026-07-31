@@ -72,6 +72,19 @@ const responseSigningKeys = new Map<
   }
 >();
 const browserIpcAuthorizations = new Map<string, number>();
+/**
+ * Per-TURN browser credential: an unguessable token issued at spawn, mapped to
+ * the profile that turn owns, and removed when the turn ends.
+ *
+ * A pooled set keyed by (workspace, chat, thread) is NOT enough: two concurrent
+ * turns for different provider accounts share that key, so either runner would
+ * be authorized for both accounts' profiles, and stale names would survive a
+ * route change. The token is the only thing that distinguishes the turns.
+ */
+const browserTurnProfiles = new Map<
+  string,
+  { profileName: string; scope: string; queueKey: string }
+>();
 const RESPONSE_PRIVATE_KEY_SEAL_AAD = Buffer.from(
   'gantry:ipc-response-private-key:v1',
 );
@@ -133,19 +146,64 @@ export function registerBrowserIpcAuthorization(input: {
   workspaceKey: string;
   chatJid: string;
   threadId?: string | null;
+  /** Per-turn credential + the profile it owns; same lifecycle as the grant. */
+  turnToken?: string;
+  browserProfileName?: string;
+  /**
+   * The EXACT queue key this turn runs under. Stored rather than rebuilt at the
+   * IPC boundary: a reconstruction there has no provider account, so it would
+   * never match the key the finalizer consumes with, and every account-scoped
+   * turn would silently skip its snapshot.
+   */
+  turnQueueKey?: string;
 }): void {
   const key = browserIpcAuthorizationKey(input);
   browserIpcAuthorizations.set(
     key,
     (browserIpcAuthorizations.get(key) ?? 0) + 1,
   );
+  if (input.turnToken && input.browserProfileName) {
+    browserTurnProfiles.set(input.turnToken, {
+      profileName: input.browserProfileName,
+      scope: key,
+      queueKey: input.turnQueueKey ?? '',
+    });
+  }
+}
+
+export function releaseBrowserTurnProfile(turnToken: string): void {
+  browserTurnProfiles.delete(turnToken);
+}
+
+/**
+ * The profile this turn owns, or undefined if the token is unknown, expired, or
+ * belongs to no live turn. Undefined must be treated as a refusal: guessing is
+ * how a runner ends up on another account's logged-in browser.
+ */
+export function browserTurnBinding(input: {
+  turnToken: string | undefined;
+  workspaceKey: string;
+  chatJid: string;
+  threadId?: string | null;
+}): { profileName: string; queueKey: string } | undefined {
+  const token = input.turnToken?.trim();
+  if (!token) return undefined;
+  const held = browserTurnProfiles.get(token);
+  // A token is a bearer credential: bind it to the caller it was issued for, so
+  // a runner that somehow learns another turn's token still cannot use its own
+  // authorization to drive that turn's logged-in browser.
+  return held && held.scope === browserIpcAuthorizationKey(input)
+    ? { profileName: held.profileName, queueKey: held.queueKey }
+    : undefined;
 }
 
 export function revokeBrowserIpcAuthorization(input: {
   workspaceKey: string;
   chatJid: string;
   threadId?: string | null;
+  turnToken?: string;
 }): void {
+  if (input.turnToken) browserTurnProfiles.delete(input.turnToken);
   const key = browserIpcAuthorizationKey(input);
   const count = browserIpcAuthorizations.get(key) ?? 0;
   if (count <= 1) {
