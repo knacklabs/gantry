@@ -42,6 +42,8 @@ export const BROWSER_REQUESTS_DIR = path.join(IPC_DIR, 'browser-requests');
 export const BROWSER_RESPONSES_DIR = path.join(IPC_DIR, 'browser-responses');
 export const TASK_RESPONSES_DIR = path.join(IPC_DIR, 'task-responses');
 export const IPC_AUTH_TOKEN = process.env.GANTRY_IPC_AUTH_TOKEN || '';
+export const ATTACHMENT_IPC_AUTH_TOKEN =
+  process.env.GANTRY_ATTACHMENT_IPC_AUTH_TOKEN || '';
 export const BROWSER_IPC_AUTH_TOKEN =
   process.env.GANTRY_BROWSER_IPC_AUTH_TOKEN || IPC_AUTH_TOKEN;
 export const MEMORY_IPC_AUTH_TOKEN =

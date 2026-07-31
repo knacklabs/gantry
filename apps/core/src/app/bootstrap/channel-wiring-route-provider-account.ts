@@ -18,6 +18,18 @@ export type RouteRequest = {
   providerAccountId?: string;
 };
 
+export function describeProviderDestination<T extends string>(
+  provider: { id: string; internal?: boolean } | undefined,
+  runtimeAppId: T,
+) {
+  return {
+    ...(provider
+      ? { providerId: provider.id, internal: provider.internal === true }
+      : { internal: false }),
+    runtimeAppId,
+  };
+}
+
 export function findBoundChannelForProviderAccount<
   T extends ProviderAccountBoundChannel,
 >(

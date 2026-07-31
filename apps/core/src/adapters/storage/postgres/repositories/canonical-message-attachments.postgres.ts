@@ -1,7 +1,9 @@
 import { sql } from 'drizzle-orm';
 
 import type { NewMessage } from '../../../../domain/repositories/domain-types.js';
+import { isProviderAttachmentStorageRef } from '../../../../shared/provider-attachment-materialization.js';
 import * as pgSchema from '../schema/schema.js';
+import { storageRefForAttachmentWriter } from './provider-attachment-cleanup.postgres.js';
 
 const MAX_MESSAGE_ATTACHMENTS_PER_ROW = 20;
 const IDENTITYLESS_ATTACHMENT_ROW_ID_PREFIX = 'message-attachment:index:';
@@ -162,6 +164,8 @@ export function existingAttachmentMetadataMaps(
     externalRefJson: unknown;
     storageRef: string | null;
     fileName: string | null;
+    contentType?: string | null;
+    sizeBytes?: number | null;
     providerFetchJson: unknown;
     deletedAt: string | null;
   }>,
@@ -173,6 +177,8 @@ export function existingAttachmentMetadataMaps(
     providerFetchIdentity: string | undefined;
     storageRef: string | null;
     fileName: string | null;
+    contentType: string | null;
+    sizeBytes: number | null;
     providerFetchJson: unknown;
     deletedAt: string | null;
   };
@@ -191,6 +197,8 @@ export function existingAttachmentMetadataMaps(
       providerFetchIdentity: providerFetchIdentity(row.providerFetchJson),
       storageRef: row.storageRef,
       fileName: row.fileName,
+      contentType: row.contentType ?? null,
+      sizeBytes: row.sizeBytes ?? null,
       providerFetchJson: row.providerFetchJson,
       deletedAt: row.deletedAt,
     };
@@ -201,6 +209,29 @@ export function existingAttachmentMetadataMaps(
     }
   }
   return { byId, byExternalId, byProviderFetchIdentity };
+}
+
+export function providerAttachmentStorageRefsRemovedByReplacement(
+  existingRows: Array<{ storageRef: string | null }>,
+  replacementRows: Array<{ storageRef: string | null }>,
+): string[] {
+  const retainedRefs = new Set(
+    replacementRows
+      .map((row) => row.storageRef)
+      .filter((storageRef): storageRef is string => Boolean(storageRef)),
+  );
+  return [
+    ...new Set(
+      existingRows
+        .map((row) => row.storageRef)
+        .filter(
+          (storageRef): storageRef is string =>
+            typeof storageRef === 'string' &&
+            isProviderAttachmentStorageRef(storageRef) &&
+            !retainedRefs.has(storageRef),
+        ),
+    ),
+  ];
 }
 
 function mergedProviderFetch(
@@ -257,8 +288,23 @@ export function preservedMetadataForIncomingAttachment(
       attachment.externalId !== undefined
         ? incomingExternalRef
         : (preserved?.externalRefJson ?? incomingExternalRef),
-    storageRef: attachment.storageRef ?? preserved?.storageRef ?? null,
+    storageRef: storageRefForAttachmentWriter(
+      attachment.storageRef,
+      preserved?.storageRef,
+    ),
     fileName: attachment.file_name ?? preserved?.fileName ?? null,
+    ...(attachment.contentType !== undefined ||
+    typeof preserved?.contentType === 'string'
+      ? {
+          contentType: attachment.contentType ?? preserved?.contentType ?? null,
+        }
+      : {}),
+    ...(attachment.sizeBytes !== undefined ||
+    typeof preserved?.sizeBytes === 'number'
+      ? {
+          sizeBytes: attachment.sizeBytes ?? preserved?.sizeBytes ?? null,
+        }
+      : {}),
     providerFetchJson: mergedProviderFetch(
       attachment.provider_fetch,
       preserved?.providerFetchJson,

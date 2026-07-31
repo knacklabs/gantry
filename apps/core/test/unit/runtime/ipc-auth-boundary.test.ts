@@ -9,6 +9,7 @@ import {
   signIpcRequestPayload,
 } from '@core/infrastructure/ipc/request-signing.js';
 import {
+  computeAttachmentIpcAuthToken,
   computeBrowserIpcAuthToken,
   computeIpcAuthToken,
   computeMemoryIpcAuthToken,
@@ -16,6 +17,7 @@ import {
   getIpcResponseSigningPrivateKey,
   revokeIpcResponseSigningKey,
 } from '@core/runtime/ipc-auth.js';
+import { createAttachmentOpenProof } from '@core/shared/attachment-open-auth-proof.js';
 import {
   signIpcResponsePayload,
   verifyIpcResponsePayload,
@@ -846,6 +848,71 @@ describe('validateIpcAuthRequest', () => {
 
     expect(() => parseTaskIpcData(payload, 'team')).toThrow(
       /providerAccountId mismatch/,
+    );
+  });
+
+  it('rejects a cross-conversation attachment proof even with a valid general IPC signature', () => {
+    const attachmentId = 'message-attachment:provider-fetch:m1:slack:F1';
+    const taskId = 'attachment-open-cross-conversation';
+    const threadId = '1784545366.449119';
+    const context = {
+      responseKeyId: TEST_RESPONSE_KEY_ID,
+      threadId,
+      appId: 'app-1',
+      agentId: 'agent-1',
+      providerAccountId: 'slack-default',
+    };
+    const originIpcAuthValue = computeAttachmentIpcAuthToken('team', {
+      chatJid: 'sl:C1',
+      threadId,
+      appId: 'app-1',
+      agentId: 'agent-1',
+      providerAccountId: 'slack-default',
+    });
+    const openEvidence = createAttachmentOpenProof(originIpcAuthValue, {
+      attachmentId,
+      chatJid: 'sl:C1',
+      taskId,
+      threadId,
+    });
+    const origin = signedPayload(
+      {
+        requestId: 'attachment-origin-conversation',
+        nonce: randomUUID(),
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        type: 'attachment_open',
+        taskId,
+        chatJid: 'sl:C1',
+        targetJid: 'sl:C1',
+        context,
+        payload: { attachmentId, conversationProof: openEvidence },
+      },
+      'team',
+      threadId,
+    );
+    const forged = signedPayload(
+      {
+        requestId: 'attachment-cross-conversation',
+        nonce: randomUUID(),
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        type: 'attachment_open',
+        taskId,
+        chatJid: 'sl:C2',
+        targetJid: 'sl:C2',
+        context,
+        payload: { attachmentId, conversationProof: openEvidence },
+      },
+      'team',
+      threadId,
+    );
+
+    expect(parseTaskIpcData(origin, 'team')).toMatchObject({
+      type: 'attachment_open',
+      chatJid: 'sl:C1',
+      providerAccountId: 'slack-default',
+    });
+    expect(() => parseTaskIpcData(forged, 'team')).toThrow(
+      'Invalid attachment open conversation proof',
     );
   });
 

@@ -18,6 +18,7 @@ import {
   type DeepAgentsShellFilesystemGuardInput,
 } from './deepagents-shell-filesystem-guard.js';
 import { resolveWorkspaceFolderPath } from '../platform/workspace-folder.js';
+import { computeAttachmentIpcAuthToken } from './ipc-auth.js';
 
 const SANDBOX_RUNTIME_GO_DNS = 'netdns=go';
 // Host env projection for the DeepAgents shell tool. Returns the enable flag the
@@ -126,6 +127,16 @@ export function buildBaseRunnerEnv(input: {
     GANTRY_IPC_DIR: input.workspaceIpcDir,
     GANTRY_IPC_INPUT_DIR: input.ipcInputDir,
     GANTRY_IPC_AUTH_TOKEN: input.ipcAuthToken,
+    GANTRY_ATTACHMENT_IPC_AUTH_TOKEN: computeAttachmentIpcAuthToken(
+      input.workspaceKey,
+      {
+        chatJid: input.chatJid,
+        threadId: input.threadId,
+        appId: input.runnerAppId,
+        agentId: input.agentId,
+        providerAccountId: input.providerAccountId,
+      },
+    ),
     GANTRY_CHAT_JID: input.chatJid,
     ...(input.providerAccountId
       ? { GANTRY_PROVIDER_ACCOUNT_ID: input.providerAccountId }

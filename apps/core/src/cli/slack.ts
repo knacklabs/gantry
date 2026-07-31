@@ -485,10 +485,10 @@ export async function runSlackConnectCommand(
   p.note(
     [
       'Create the Slack app first: create an app in the target workspace, add a bot user, then install it.',
-      'Recommended bot scopes: chat:write, files:write, app_mentions:read, channels:read, channels:history, groups:read, groups:history, im:read, im:history, mpim:read, mpim:history.',
+      'Recommended bot scopes: chat:write, files:read, files:write, app_mentions:read, channels:read, channels:history, groups:read, groups:history, im:read, im:history, mpim:read, mpim:history.',
       'Enable Socket Mode and generate an app-level xapp token with connections:write.',
       'For Slack DMs, enable App Home > Messages Tab and allow users to send messages from the tab.',
-      'After scope or App Home changes, reinstall the app and invite it to the target channel or DM it once before discovery.',
+      'After adding files:read or changing any scope or App Home setting, reinstall the app so existing workspace installations receive the new access, then invite it to the target channel or DM it once before discovery.',
       'Docs: https://docs.slack.dev/apis/events-api/using-socket-mode/',
     ].join('\n'),
     'Slack app setup',

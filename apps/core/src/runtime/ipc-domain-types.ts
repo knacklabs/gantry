@@ -47,6 +47,7 @@ import type { PermissionClassifierPromptConsultInput } from './permission-classi
 import type { PermissionMode } from '../shared/permission-mode.js';
 import type { PermissionPromotionRepository } from '../domain/ports/permission-promotion.js';
 import type { PermissionDecisionMemoryRepository } from '../domain/ports/permission-decision-memory.js';
+import type { AttachmentOpenResult } from '../application/attachments/attachment-resolver.js';
 
 export interface IpcDeps {
   sendMessage: (
@@ -128,6 +129,13 @@ export interface IpcDeps {
     | PermissionDecisionMemoryRepository
     | undefined;
   getFileArtifactStore?: () => FileArtifactStore | undefined;
+  openAttachment?: (input: {
+    attachmentId: string;
+    appId: string;
+    providerAccountId: string;
+    conversationJid: string;
+    threadId?: string;
+  }) => Promise<AttachmentOpenResult>;
   publishRuntimeEvent?: (event: RuntimeEventPublishInput) => Promise<void>;
   classifierConsult?: PermissionClassifierPromptConsultInput['classifierConsult'];
   getPermissionRuntimeSettings?: () => {

@@ -41,7 +41,14 @@ import {
   attachmentsJsonForMessage,
   existingAttachmentMetadataMaps,
   preservedMetadataForIncomingAttachment,
+  providerAttachmentStorageRefsRemovedByReplacement,
 } from './canonical-message-attachments.postgres.js';
+import { lockCanonicalMessageAttachments } from './canonical-message-attachment-lock.postgres.js';
+import {
+  cleanupRemovedProviderAttachments as cleanupProviderAttachments,
+  type ProviderAttachmentCleanup,
+  type RemovedProviderAttachment,
+} from './provider-attachment-cleanup.postgres.js';
 import {
   externalRefForMessage,
   liveAdmissionIdempotencyKey,
@@ -80,6 +87,11 @@ export interface MessageLiveAdmissionInput {
   providerAccountId?: string | null;
   triggerDecision?: Record<string, unknown>;
   now?: string;
+}
+
+export interface MessageSaveWithExecutorResult {
+  liveAdmissionResult: LiveAdmissionWorkItemEnqueueResult | undefined;
+  removedProviderStorageRefs: RemovedProviderAttachment[];
 }
 
 interface MessageListInput {
@@ -145,6 +157,7 @@ export class PostgresCanonicalMessageRepository {
   constructor(
     private readonly db: CanonicalDb,
     private readonly maxLiveAdmissionBacklog = 100,
+    private readonly cleanupProviderAttachment: ProviderAttachmentCleanup = missingProviderAttachmentCleanup,
   ) {
     this.graph = new PostgresCanonicalGraphRepository(db);
   }
@@ -152,8 +165,22 @@ export class PostgresCanonicalMessageRepository {
     msg: NewMessage,
     options: { liveAdmission?: MessageLiveAdmissionInput } = {},
   ): Promise<LiveAdmissionWorkItemEnqueueResult | undefined> {
-    return this.db.transaction((tx) =>
+    const result = await this.db.transaction((tx) =>
       this.saveMessageWithExecutor(tx, msg, options),
+    );
+    await this.cleanupRemovedProviderAttachments(
+      result.removedProviderStorageRefs,
+    );
+    return result.liveAdmissionResult;
+  }
+
+  async cleanupRemovedProviderAttachments(
+    storageRefs: readonly RemovedProviderAttachment[],
+  ): Promise<void> {
+    await cleanupProviderAttachments(
+      this.db,
+      storageRefs,
+      this.cleanupProviderAttachment,
     );
   }
 
@@ -161,7 +188,7 @@ export class PostgresCanonicalMessageRepository {
     tx: CanonicalExecutor,
     msg: NewMessage,
     options: { liveAdmission?: MessageLiveAdmissionInput } = {},
-  ): Promise<LiveAdmissionWorkItemEnqueueResult | undefined> {
+  ): Promise<MessageSaveWithExecutorResult> {
     const providerId =
       normalizeProviderId(msg.provider ?? providerIdForJid(msg.chat_jid)) ||
       'app';
@@ -292,76 +319,87 @@ export class PostgresCanonicalMessageRepository {
           payloadJson: sql`excluded.payload_json`,
         },
       });
+    let removedProviderStorageRefs: RemovedProviderAttachment[] = [];
     if (msg.attachments !== undefined) {
+      await lockCanonicalMessageAttachments(tx, canonicalMessageId);
       const incomingAttachments = msg.attachments;
-      const existingAttachmentMetadata =
-        incomingAttachments.length > 0
-          ? existingAttachmentMetadataMaps(
-              await tx
-                .select({
-                  id: pgSchema.messageAttachmentsPostgres.id,
-                  externalRefJson:
-                    pgSchema.messageAttachmentsPostgres.externalRefJson,
-                  storageRef: pgSchema.messageAttachmentsPostgres.storageRef,
-                  fileName: pgSchema.messageAttachmentsPostgres.fileName,
-                  providerFetchJson:
-                    pgSchema.messageAttachmentsPostgres.providerFetchJson,
-                  deletedAt: pgSchema.messageAttachmentsPostgres.deletedAt,
-                })
-                .from(pgSchema.messageAttachmentsPostgres)
-                .where(
-                  eq(
-                    pgSchema.messageAttachmentsPostgres.messageId,
-                    canonicalMessageId,
-                  ),
-                ),
-            )
-          : existingAttachmentMetadataMaps([]);
+      const existingAttachmentRows = await tx
+        .select({
+          id: pgSchema.messageAttachmentsPostgres.id,
+          externalRefJson: pgSchema.messageAttachmentsPostgres.externalRefJson,
+          storageRef: pgSchema.messageAttachmentsPostgres.storageRef,
+          fileName: pgSchema.messageAttachmentsPostgres.fileName,
+          contentType: pgSchema.messageAttachmentsPostgres.contentType,
+          sizeBytes: pgSchema.messageAttachmentsPostgres.sizeBytes,
+          providerFetchJson:
+            pgSchema.messageAttachmentsPostgres.providerFetchJson,
+          deletedAt: pgSchema.messageAttachmentsPostgres.deletedAt,
+        })
+        .from(pgSchema.messageAttachmentsPostgres)
+        .where(
+          eq(pgSchema.messageAttachmentsPostgres.messageId, canonicalMessageId),
+        );
+      const existingAttachmentMetadata = existingAttachmentMetadataMaps(
+        existingAttachmentRows,
+      );
+      const replacementAttachmentRows = incomingAttachments.map(
+        (attachment, index) => {
+          const attachmentId = attachmentIdForIncomingAttachment(
+            canonicalMessageId,
+            attachment,
+            index,
+          );
+          const preservedMetadata = preservedMetadataForIncomingAttachment(
+            attachment,
+            attachmentId,
+            existingAttachmentMetadata,
+          );
+          return {
+            id: preservedMetadata.attachmentId,
+            messageId: canonicalMessageId,
+            kind: attachment.kind,
+            contentType:
+              attachment.contentType ?? preservedMetadata.contentType ?? null,
+            sizeBytes:
+              attachment.sizeBytes ?? preservedMetadata.sizeBytes ?? null,
+            externalRefJson: preservedMetadata.externalRefJson
+              ? jsonb(preservedMetadata.externalRefJson)
+              : null,
+            storageRef: preservedMetadata.storageRef,
+            fileName: preservedMetadata.fileName,
+            providerFetchJson: jsonb(preservedMetadata.providerFetchJson),
+            deletedAt: preservedMetadata.deletedAt,
+            trust: msg.is_bot_message ? 'system' : 'trusted',
+          };
+        },
+      );
+      removedProviderStorageRefs =
+        providerAttachmentStorageRefsRemovedByReplacement(
+          existingAttachmentRows,
+          replacementAttachmentRows,
+        ).map((storageRef) => ({
+          messageId: canonicalMessageId,
+          storageRef,
+        }));
       await tx
         .delete(pgSchema.messageAttachmentsPostgres)
         .where(
           eq(pgSchema.messageAttachmentsPostgres.messageId, canonicalMessageId),
         );
-      if (incomingAttachments.length > 0) {
-        await tx.insert(pgSchema.messageAttachmentsPostgres).values(
-          incomingAttachments.map((attachment, index) => {
-            const attachmentId = attachmentIdForIncomingAttachment(
-              canonicalMessageId,
-              attachment,
-              index,
-            );
-            const preservedMetadata = preservedMetadataForIncomingAttachment(
-              attachment,
-              attachmentId,
-              existingAttachmentMetadata,
-            );
-            return {
-              id: preservedMetadata.attachmentId,
-              messageId: canonicalMessageId,
-              kind: attachment.kind,
-              contentType: attachment.contentType ?? null,
-              sizeBytes: attachment.sizeBytes ?? null,
-              externalRefJson: preservedMetadata.externalRefJson
-                ? jsonb(preservedMetadata.externalRefJson)
-                : null,
-              storageRef: preservedMetadata.storageRef,
-              fileName: preservedMetadata.fileName,
-              providerFetchJson: jsonb(preservedMetadata.providerFetchJson),
-              deletedAt: preservedMetadata.deletedAt,
-              trust: msg.is_bot_message ? 'system' : 'trusted',
-            };
-          }),
-        );
+      if (replacementAttachmentRows.length > 0) {
+        await tx
+          .insert(pgSchema.messageAttachmentsPostgres)
+          .values(replacementAttachmentRows);
       }
     }
     if (direction !== 'inbound' || !options.liveAdmission) {
-      return undefined;
+      return { liveAdmissionResult: undefined, removedProviderStorageRefs };
     }
     const admission = options.liveAdmission;
     const agentId = admission.agentId
       ? normalizeAgentIdForFolder(admission.agentId)
       : null;
-    return enqueueLiveAdmissionWorkItemWithExecutor(
+    const liveAdmissionResult = await enqueueLiveAdmissionWorkItemWithExecutor(
       tx,
       {
         id: liveAdmissionWorkItemId(
@@ -397,6 +435,7 @@ export class PostgresCanonicalMessageRepository {
       },
       this.maxLiveAdmissionBacklog,
     );
+    return { liveAdmissionResult, removedProviderStorageRefs };
   }
 
   async listInboundMessages(
@@ -629,4 +668,8 @@ export class PostgresCanonicalMessageRepository {
       .limit(1);
     return rows[0];
   }
+}
+
+async function missingProviderAttachmentCleanup(): Promise<never> {
+  throw new Error('Provider attachment cleanup dependency is not configured');
 }

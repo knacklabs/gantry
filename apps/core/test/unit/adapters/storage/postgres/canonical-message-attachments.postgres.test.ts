@@ -10,6 +10,72 @@ import {
 } from '@core/adapters/storage/postgres/repositories/canonical-message-attachments.postgres.js';
 
 describe('canonical message attachment preservation', () => {
+  it('drops a queued reclaimed provider ref while retaining fetch identity', () => {
+    const providerFetch = {
+      provider: 'slack',
+      kind: 'file_id',
+      id: 'provider-file-id',
+    };
+
+    expect(
+      preservedMetadataForIncomingAttachment(
+        {
+          id: 'attachment-id',
+          kind: 'file',
+          storageRef: 'provider-attachments/reclaimed-report.pdf',
+          provider_fetch: providerFetch,
+        },
+        'attachment-id',
+        existingAttachmentMetadataMaps([]),
+      ),
+    ).toMatchObject({
+      attachmentId: 'attachment-id',
+      storageRef: null,
+      providerFetchJson: providerFetch,
+    });
+  });
+
+  it('carries forward only the matched row current provider ref', () => {
+    const currentStorageRef = 'provider-attachments/current-report.pdf';
+    const existing = existingAttachmentMetadataMaps([
+      {
+        id: 'attachment-id',
+        externalRefJson: null,
+        storageRef: currentStorageRef,
+        fileName: 'report.pdf',
+        providerFetchJson: {
+          provider: 'slack',
+          kind: 'file_id',
+          id: 'provider-file-id',
+        },
+        deletedAt: null,
+      },
+    ]);
+
+    expect(
+      preservedMetadataForIncomingAttachment(
+        {
+          id: 'attachment-id',
+          kind: 'file',
+          storageRef: 'provider-attachments/reclaimed-report.pdf',
+        },
+        'attachment-id',
+        existing,
+      ).storageRef,
+    ).toBe(currentStorageRef);
+    expect(
+      preservedMetadataForIncomingAttachment(
+        {
+          id: 'attachment-id',
+          kind: 'file',
+          storageRef: currentStorageRef,
+        },
+        'attachment-id',
+        existing,
+      ).storageRef,
+    ).toBe(currentStorageRef);
+  });
+
   it('synthesizes row ids from the strongest available stable identity', () => {
     const messageId = 'canonical:message';
 
@@ -93,6 +159,8 @@ describe('canonical message attachment preservation', () => {
         externalRefJson: null,
         storageRef: null,
         fileName: 'report.pdf',
+        contentType: 'application/pdf',
+        sizeBytes: 2048,
         providerFetchJson: {
           provider: 'slack',
           kind: 'file_id',
@@ -118,6 +186,8 @@ describe('canonical message attachment preservation', () => {
       externalRefJson: null,
       storageRef: null,
       fileName: 'report.pdf',
+      contentType: 'application/pdf',
+      sizeBytes: 2048,
       providerFetchJson: {
         provider: 'slack',
         kind: 'file_id',

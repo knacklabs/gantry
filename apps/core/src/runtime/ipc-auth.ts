@@ -104,6 +104,23 @@ export function computeBrowserIpcAuthToken(
     .digest('hex');
 }
 
+export function computeAttachmentIpcAuthToken(
+  workspaceKey: string,
+  input: {
+    chatJid: string;
+    threadId?: string | null;
+    appId?: string | null;
+    agentId?: string | null;
+    providerAccountId?: string | null;
+  },
+): string {
+  return createHmac('sha256', IPC_AUTH_SECRET)
+    .update(
+      `attachment\0${authScope(workspaceKey, input.threadId, input)}\0chat\0${input.chatJid}\0provider\0${input.providerAccountId?.trim() || ''}`,
+    )
+    .digest('hex');
+}
+
 function browserIpcAuthorizationKey(input: {
   workspaceKey: string;
   chatJid: string;
