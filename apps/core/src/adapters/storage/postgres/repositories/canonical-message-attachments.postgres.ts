@@ -353,9 +353,16 @@ export function preservedMetadataForIncomingAttachment(
   const incomingProviderFetchIdentity = providerFetchIdentity(
     attachment.provider_fetch,
   );
+  const exactIdMatch = existingMetadata.byId.get(attachmentId);
   const idMatch = attachment.id
-    ? existingMetadata.byId.get(attachmentId)
-    : undefined;
+    ? exactIdMatch
+    : attachmentId.startsWith(IDENTITYLESS_ATTACHMENT_ROW_ID_PREFIX) &&
+        attachment.externalId === undefined &&
+        incomingProviderFetchIdentity === undefined &&
+        exactIdMatch?.externalId === undefined &&
+        exactIdMatch?.providerFetchIdentity === undefined
+      ? exactIdMatch
+      : undefined;
   const externalIdMatch = attachment.externalId
     ? existingMetadata.byExternalId.get(attachment.externalId)
     : undefined;

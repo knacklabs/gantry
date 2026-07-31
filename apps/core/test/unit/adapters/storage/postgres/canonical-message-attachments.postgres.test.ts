@@ -197,6 +197,44 @@ describe('canonical message attachment preservation', () => {
     });
   });
 
+  it('preserves metadata when an identity-less attachment is redelivered at the same index', () => {
+    const attachment = { kind: 'file' as const };
+    const attachmentId = attachmentIdForIncomingAttachment(
+      'canonical-message-id',
+      attachment,
+      0,
+    );
+    const existing = existingAttachmentMetadataMaps([
+      {
+        id: attachmentId,
+        externalRefJson: { kind: 'message_attachment_index' },
+        storageRef: 'attachments/report.pdf',
+        fileName: 'report.pdf',
+        contentType: 'application/pdf',
+        sizeBytes: 2048,
+        providerFetchJson: null,
+        deletedAt: '2026-07-30T12:00:00.000Z',
+      },
+    ]);
+
+    expect(
+      preservedMetadataForIncomingAttachment(
+        attachment,
+        attachmentId,
+        existing,
+      ),
+    ).toEqual({
+      attachmentId,
+      externalRefJson: { kind: 'message_attachment_index' },
+      storageRef: 'attachments/report.pdf',
+      fileName: 'report.pdf',
+      contentType: 'application/pdf',
+      sizeBytes: 2048,
+      providerFetchJson: null,
+      deletedAt: '2026-07-30T12:00:00.000Z',
+    });
+  });
+
   it('preserves both attachment identities when redeliveries omit one at a time', () => {
     const messageId = 'canonical-message-id';
     const externalId = 'F';
