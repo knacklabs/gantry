@@ -89,21 +89,57 @@ describe('connectProviderAccountChannels', () => {
       logger: { info: vi.fn(), warn: vi.fn() },
     });
 
-    expect(distrustHistoryCoverage).toHaveBeenCalledTimes(2);
-    expect(distrustHistoryCoverage).toHaveBeenNthCalledWith(1, [
-      'slack_one',
-      'slack_two',
-    ]);
-    expect(distrustHistoryCoverage).toHaveBeenNthCalledWith(2, [
-      'slack_one',
-      'slack_two',
-    ]);
+    expect(distrustHistoryCoverage).toHaveBeenCalledTimes(4);
+    for (const call of distrustHistoryCoverage.mock.calls) {
+      expect(call[0]).toEqual(['slack_one', 'slack_two']);
+    }
     expect(order).toEqual([
       'distrust:slack_one,slack_two',
       'connect',
       'distrust:slack_one,slack_two',
+      'distrust:slack_one,slack_two',
       'connect',
+      'distrust:slack_one,slack_two',
     ]);
+  });
+
+  it('distrusts history when a history-capable account connects outbound-only', async () => {
+    const activeChannel = channel();
+    activeChannel.hydrateConversationContext = vi.fn(async () => ({
+      providerId: 'slack',
+      attempted: true,
+      messages: [],
+    }));
+    const distrustHistoryCoverage = vi.fn();
+
+    await connectProviderAccountChannels({
+      provider: provider(vi.fn(async () => activeChannel)),
+      appId: 'app-one',
+      runtimeSettings: {
+        providerAccounts: {
+          slack_one: {
+            provider: 'slack',
+            agentId: 'agent:one',
+            runtimeSecretRefs: { app_token: 'app', bot_token: 'bot' },
+          },
+        },
+        runtime: {},
+      },
+      channelOpts: { ...channelOpts(), distrustHistoryCoverage },
+      inboundEnabled: false,
+      connectedChannels: [],
+      connectedChannelLeases: [],
+      inboundLeasePrefix: 'runtime:provider-inbound',
+      logger: { info: vi.fn(), warn: vi.fn() },
+    });
+
+    expect(activeChannel.connect).toHaveBeenCalledWith({
+      inbound: false,
+      interactionCallbacks: false,
+    });
+    expect(distrustHistoryCoverage).toHaveBeenCalledTimes(2);
+    expect(distrustHistoryCoverage).toHaveBeenNthCalledWith(1, ['slack_one']);
+    expect(distrustHistoryCoverage).toHaveBeenNthCalledWith(2, ['slack_one']);
   });
 
   it('does not distrust Telegram even if an adapter exposes hydration', async () => {

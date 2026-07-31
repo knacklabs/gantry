@@ -230,9 +230,7 @@ export async function connectProviderAccountChannels(input: {
 
     try {
       const shouldDistrustHistoryCoverage =
-        providerInbound &&
-        channel.hydrateConversationContext &&
-        input.provider.id !== 'telegram';
+        channel.hydrateConversationContext && input.provider.id !== 'telegram';
       if (shouldDistrustHistoryCoverage) {
         input.channelOpts.distrustHistoryCoverage?.(inboundProviderAccountIds);
       }
