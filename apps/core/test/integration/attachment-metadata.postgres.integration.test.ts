@@ -5,6 +5,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
 
 import { PostgresCanonicalMessageRepository } from '@core/adapters/storage/postgres/repositories/canonical-message-repository.postgres.js';
+import { messageIdFor } from '@core/adapters/storage/postgres/repositories/canonical-message-repository-identifiers.js';
 import * as pgSchema from '@core/adapters/storage/postgres/schema/schema.js';
 import { CanonicalMessageOpsService } from '@core/adapters/storage/postgres/services/canonical-message-ops-service.js';
 import type { NewMessage } from '@core/domain/types.js';
@@ -206,7 +207,70 @@ maybeDescribe('attachment metadata (Postgres)', () => {
     expect(reduced[0]?.attachments?.[0]?.id).toBe(synthesizedHandle);
   });
 
-  it('migration 0117 rewrites positional ids into external and index formats', async () => {
+  it('stores duplicate attachment identities and preserves metadata by occurrence', async () => {
+    const externalId = 'F_DUPLICATE_IDENTITY';
+    const message: NewMessage = {
+      id: 'provider-message-duplicate-identity',
+      chat_jid: 'sl:C_FILE_METADATA_DUPLICATE_IDENTITY',
+      provider: 'slack',
+      providerAccountId: 'slack_default',
+      sender: 'U_FILE_METADATA',
+      sender_name: 'File Owner',
+      content: 'duplicate identities attached',
+      timestamp: '2026-07-30T12:20:00.000Z',
+      external_message_id: 'provider-message-duplicate-identity',
+      attachments: [
+        {
+          kind: 'file',
+          externalId,
+          storageRef: 'attachments/duplicate-first.pdf',
+          file_name: 'duplicate-first.pdf',
+        },
+        {
+          kind: 'file',
+          externalId,
+          storageRef: 'attachments/duplicate-second.pdf',
+          file_name: 'duplicate-second.pdf',
+        },
+      ],
+    };
+
+    await messages.storeMessage(message);
+    await messages.storeMessage({
+      ...message,
+      content: 'duplicate identities redelivered',
+      attachments: [
+        { kind: 'file', externalId },
+        { kind: 'file', externalId },
+      ],
+    });
+
+    const messageId = messageIdFor(
+      message.chat_jid,
+      message.id,
+      message.providerAccountId,
+    );
+    const baseId = `message-attachment:external:${encodeURIComponent(messageId)}:${externalId}`;
+    const stored = await messages.getMessagesSince(message.chat_jid, '');
+    expect(stored[0]?.attachments).toEqual([
+      {
+        id: baseId,
+        kind: 'file',
+        externalId,
+        storageRef: 'attachments/duplicate-first.pdf',
+        file_name: 'duplicate-first.pdf',
+      },
+      {
+        id: `${baseId}:2`,
+        kind: 'file',
+        externalId,
+        storageRef: 'attachments/duplicate-second.pdf',
+        file_name: 'duplicate-second.pdf',
+      },
+    ]);
+  });
+
+  it('migration 0117 rewrites colliding positional ids into distinct stable formats', async () => {
     const externalId = 'F:MIGRATION/file 1';
     const message: NewMessage = {
       id: 'provider-message-id-migration',
@@ -222,7 +286,12 @@ maybeDescribe('attachment metadata (Postgres)', () => {
         {
           kind: 'file',
           externalId,
-          file_name: 'identified-migration.pdf',
+          file_name: 'identified-migration-first.pdf',
+        },
+        {
+          kind: 'file',
+          externalId,
+          file_name: 'identified-migration-second.pdf',
         },
         { kind: 'file', file_name: 'identity-less-migration.pdf' },
       ],
@@ -230,7 +299,7 @@ maybeDescribe('attachment metadata (Postgres)', () => {
 
     await messages.storeMessage(message);
 
-    const [identifiedRow] = await runtime.service.db
+    const [firstIdentifiedRow] = await runtime.service.db
       .select({
         id: pgSchema.messageAttachmentsPostgres.id,
         messageId: pgSchema.messageAttachmentsPostgres.messageId,
@@ -239,7 +308,16 @@ maybeDescribe('attachment metadata (Postgres)', () => {
       .where(
         eq(
           pgSchema.messageAttachmentsPostgres.fileName,
-          'identified-migration.pdf',
+          'identified-migration-first.pdf',
+        ),
+      );
+    const [secondIdentifiedRow] = await runtime.service.db
+      .select({ id: pgSchema.messageAttachmentsPostgres.id })
+      .from(pgSchema.messageAttachmentsPostgres)
+      .where(
+        eq(
+          pgSchema.messageAttachmentsPostgres.fileName,
+          'identified-migration-second.pdf',
         ),
       );
     const [identitylessRow] = await runtime.service.db
@@ -251,22 +329,48 @@ maybeDescribe('attachment metadata (Postgres)', () => {
           'identity-less-migration.pdf',
         ),
       );
-    expect(identifiedRow).toBeDefined();
+    expect(firstIdentifiedRow).toBeDefined();
+    expect(secondIdentifiedRow).toBeDefined();
     expect(identitylessRow).toBeDefined();
-    const messageId = identifiedRow!.messageId;
+    const messageId = firstIdentifiedRow!.messageId;
     await runtime.service.db
       .update(pgSchema.messageAttachmentsPostgres)
       .set({
         id: `message-attachment:${messageId}:0`,
       })
-      .where(eq(pgSchema.messageAttachmentsPostgres.id, identifiedRow!.id));
+      .where(
+        eq(pgSchema.messageAttachmentsPostgres.id, firstIdentifiedRow!.id),
+      );
     await runtime.service.db
       .update(pgSchema.messageAttachmentsPostgres)
       .set({
         id: `message-attachment:${messageId}:1`,
+      })
+      .where(
+        eq(pgSchema.messageAttachmentsPostgres.id, secondIdentifiedRow!.id),
+      );
+    await runtime.service.db
+      .update(pgSchema.messageAttachmentsPostgres)
+      .set({
+        id: `message-attachment:${messageId}:2`,
         externalRefJson: null,
       })
       .where(eq(pgSchema.messageAttachmentsPostgres.id, identitylessRow!.id));
+
+    const expectedExternalId = `message-attachment:external:${encodeURIComponent(messageId)}:${encodeURIComponent(externalId)}`;
+    await runtime.service.db
+      .insert(pgSchema.messageAttachmentsPostgres)
+      .values({
+        id: expectedExternalId,
+        messageId,
+        kind: 'file',
+        externalRefJson: {
+          kind: 'message_attachment',
+          value: externalId,
+        },
+        fileName: 'already-migrated.pdf',
+        trust: 'trusted',
+      });
 
     const migration = fs.readFileSync(
       path.resolve(
@@ -276,16 +380,17 @@ maybeDescribe('attachment metadata (Postgres)', () => {
     );
     await runtime.service.pool.query(migration);
 
-    const expectedExternalId = `message-attachment:external:${encodeURIComponent(messageId)}:${encodeURIComponent(externalId)}`;
-    const expectedIndexId = `message-attachment:index:${encodeURIComponent(messageId)}:1`;
+    const expectedIndexId = `message-attachment:index:${encodeURIComponent(messageId)}:2`;
     const migratedRows = await runtime.service.db
       .select({
         id: pgSchema.messageAttachmentsPostgres.id,
         externalRefJson: pgSchema.messageAttachmentsPostgres.externalRefJson,
+        fileName: pgSchema.messageAttachmentsPostgres.fileName,
       })
       .from(pgSchema.messageAttachmentsPostgres)
       .where(eq(pgSchema.messageAttachmentsPostgres.messageId, messageId));
-    expect(migratedRows).toHaveLength(2);
+    expect(migratedRows).toHaveLength(4);
+    expect(new Set(migratedRows.map((row) => row.id)).size).toBe(4);
     expect(migratedRows).toEqual(
       expect.arrayContaining([
         {
@@ -294,10 +399,28 @@ maybeDescribe('attachment metadata (Postgres)', () => {
             kind: 'message_attachment',
             value: externalId,
           },
+          fileName: 'already-migrated.pdf',
+        },
+        {
+          id: `${expectedExternalId}:2`,
+          externalRefJson: {
+            kind: 'message_attachment',
+            value: externalId,
+          },
+          fileName: 'identified-migration-first.pdf',
+        },
+        {
+          id: `${expectedExternalId}:3`,
+          externalRefJson: {
+            kind: 'message_attachment',
+            value: externalId,
+          },
+          fileName: 'identified-migration-second.pdf',
         },
         {
           id: expectedIndexId,
           externalRefJson: { kind: 'message_attachment_index' },
+          fileName: 'identity-less-migration.pdf',
         },
       ]),
     );
@@ -309,7 +432,7 @@ maybeDescribe('attachment metadata (Postgres)', () => {
           id: expectedExternalId,
           kind: 'file',
           externalId,
-          file_name: 'identified-migration.pdf',
+          file_name: 'already-migrated.pdf',
           // 0117's Slack backfill derives the fetch identity from the
           // external ref during the same migration.
           provider_fetch: {
@@ -318,6 +441,16 @@ maybeDescribe('attachment metadata (Postgres)', () => {
             id: externalId,
           },
         },
+        expect.objectContaining({
+          id: `${expectedExternalId}:2`,
+          externalId,
+          file_name: 'identified-migration-first.pdf',
+        }),
+        expect.objectContaining({
+          id: `${expectedExternalId}:3`,
+          externalId,
+          file_name: 'identified-migration-second.pdf',
+        }),
         { kind: 'file', file_name: 'identity-less-migration.pdf' },
       ]),
     );

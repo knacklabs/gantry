@@ -796,6 +796,13 @@ describe('Postgres migration journal', () => {
     );
     expect(metadataMigration).toContain("'message-attachment:external:'");
     expect(metadataMigration).toContain("'message-attachment:index:'");
+    expect(metadataMigration).toContain('row_number() OVER (');
+    expect(metadataMigration).toContain('generate_series(');
+    expect(metadataMigration).toContain('available.occurrence_ordinal');
+    expect(
+      metadataMigration,
+      'migration 0117 must assign each rewrite its collision-free target ID',
+    ).toContain('SET target_id = available.candidate_id');
     expect(metadataMigration).toContain(
       "jsonb_build_object('kind', 'message_attachment_index')",
     );

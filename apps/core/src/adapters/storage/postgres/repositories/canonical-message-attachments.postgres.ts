@@ -81,6 +81,32 @@ export function attachmentIdForIncomingAttachment(
   return `${IDENTITYLESS_ATTACHMENT_ROW_ID_PREFIX}${attachmentIdentityComponent(messageId)}:${index}`;
 }
 
+export function attachmentIdsForIncomingAttachments(
+  messageId: string,
+  attachments: IncomingMessageAttachment[],
+): string[] {
+  const usedIds = new Set(
+    attachments.flatMap((attachment) => (attachment.id ? [attachment.id] : [])),
+  );
+  return attachments.map((attachment, index) => {
+    const baseId = attachmentIdForIncomingAttachment(
+      messageId,
+      attachment,
+      index,
+    );
+    if (attachment.id) return baseId;
+
+    let attachmentId = baseId;
+    let occurrence = 1;
+    while (usedIds.has(attachmentId)) {
+      occurrence += 1;
+      attachmentId = `${baseId}:${occurrence}`;
+    }
+    usedIds.add(attachmentId);
+    return attachmentId;
+  });
+}
+
 export function attachmentExternalRefForIncomingAttachment(
   attachment: IncomingMessageAttachment,
 ): Record<string, string> | null {
@@ -283,13 +309,13 @@ export async function replaceCanonicalMessageAttachments(
   const existingAttachmentMetadata = existingAttachmentMetadataMaps(
     existingAttachmentRows,
   );
+  const attachmentIds = attachmentIdsForIncomingAttachments(
+    messageId,
+    incomingAttachments,
+  );
   const replacementAttachmentRows = incomingAttachments.map(
     (attachment, index) => {
-      const attachmentId = attachmentIdForIncomingAttachment(
-        messageId,
-        attachment,
-        index,
-      );
+      const attachmentId = attachmentIds[index]!;
       const preservedMetadata = preservedMetadataForIncomingAttachment(
         attachment,
         attachmentId,
@@ -356,15 +382,18 @@ export function preservedMetadataForIncomingAttachment(
     attachment.provider_fetch,
   );
   const exactIdMatch = existingMetadata.byId.get(attachmentId);
-  const idMatch = attachment.id
-    ? exactIdMatch
-    : attachmentId.startsWith(IDENTITYLESS_ATTACHMENT_ROW_ID_PREFIX) &&
-        attachment.externalId === undefined &&
-        incomingProviderFetchIdentity === undefined &&
-        exactIdMatch?.externalId === undefined &&
-        exactIdMatch?.providerFetchIdentity === undefined
+  const idMatch =
+    attachment.id ||
+    attachment.externalId !== undefined ||
+    incomingProviderFetchIdentity !== undefined
       ? exactIdMatch
-      : undefined;
+      : attachmentId.startsWith(IDENTITYLESS_ATTACHMENT_ROW_ID_PREFIX) &&
+          attachment.externalId === undefined &&
+          incomingProviderFetchIdentity === undefined &&
+          exactIdMatch?.externalId === undefined &&
+          exactIdMatch?.providerFetchIdentity === undefined
+        ? exactIdMatch
+        : undefined;
   const externalIdMatch = attachment.externalId
     ? existingMetadata.byExternalId.get(attachment.externalId)
     : undefined;

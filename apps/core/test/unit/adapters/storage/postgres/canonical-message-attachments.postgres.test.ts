@@ -4,6 +4,7 @@ import { PgDialect } from 'drizzle-orm/pg-core';
 import {
   attachmentExternalRefForIncomingAttachment,
   attachmentIdForIncomingAttachment,
+  attachmentIdsForIncomingAttachments,
   attachmentsJsonForMessage,
   existingAttachmentMetadataMaps,
   preservedMetadataForIncomingAttachment,
@@ -138,6 +139,41 @@ describe('canonical message attachment preservation', () => {
     expect(
       attachmentExternalRefForIncomingAttachment({ kind: 'file' }),
     ).toEqual({ kind: 'message_attachment_index' });
+  });
+
+  it('discriminates duplicate synthesized identities by occurrence', () => {
+    const messageId = 'canonical-message-id';
+    const attachmentIds = attachmentIdsForIncomingAttachments(messageId, [
+      { kind: 'file', externalId: 'provider-file-id' },
+      { kind: 'file', externalId: 'provider-file-id' },
+      {
+        kind: 'file',
+        provider_fetch: {
+          provider: 'slack',
+          kind: 'file_id',
+          id: 'provider-fetch-id',
+        },
+      },
+      {
+        kind: 'file',
+        provider_fetch: {
+          provider: 'slack',
+          kind: 'file_id',
+          id: 'provider-fetch-id',
+        },
+      },
+    ]);
+
+    expect(
+      new Set(attachmentIds).size,
+      'duplicate synthesized attachment IDs would violate the message_attachments PK',
+    ).toBe(attachmentIds.length);
+    expect(attachmentIds).toEqual([
+      'message-attachment:external:canonical-message-id:provider-file-id',
+      'message-attachment:external:canonical-message-id:provider-file-id:2',
+      'message-attachment:provider-fetch:canonical-message-id:slack:file_id:provider-fetch-id',
+      'message-attachment:provider-fetch:canonical-message-id:slack:file_id:provider-fetch-id:2',
+    ]);
   });
 
   it('preserves metadata by provider attachment identity across redelivery', () => {
