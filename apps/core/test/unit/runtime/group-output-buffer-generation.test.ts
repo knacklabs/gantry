@@ -39,14 +39,16 @@ describe('streamed generation persistence', () => {
       persisted.push(text);
     });
 
-    await buffer.appendRawOutput('first chunk. ');
+    // Split mid-word on purpose: a flush boundary is a transport detail, so
+    // the stored text must be exactly what the user saw, with no separator
+    // introduced at the seam.
+    await buffer.appendRawOutput('hel');
     await buffer.flushBufferedOutput('mid', { done: false, terminal: false });
-    await buffer.appendRawOutput('second chunk.');
+    await buffer.appendRawOutput('lo world');
     await buffer.flushBufferedOutput('end', { done: true, terminal: true });
 
     expect(persisted).toHaveLength(1);
-    expect(persisted[0]).toContain('first chunk.');
-    expect(persisted[0]).toContain('second chunk.');
+    expect(persisted[0]).toBe('hello world');
   });
 
   it('does not carry one generation delivery status into the next', async () => {

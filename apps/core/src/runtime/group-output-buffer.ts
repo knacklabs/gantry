@@ -93,7 +93,10 @@ export function createGroupOutputBuffer(input: {
         return 'not_delivered' as const;
       });
       input.applyDeliverySettlement(settlement, { streamed: true, terminal });
-      generationTranscript.append(`${text}\n`);
+      // Verbatim, no separator: flush boundaries are a transport detail and
+      // can fall mid-word, so appending a newline here would store "hel\nlo"
+      // for a reply the user received as "hello".
+      generationTranscript.append(text);
       if (done) {
         const deliveryStatus = input.getStreamedTranscriptDeliveryStatus();
         const completed = (generationTranscript.snapshot() ?? '').trim();
