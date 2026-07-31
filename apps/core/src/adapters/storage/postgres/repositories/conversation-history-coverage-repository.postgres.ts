@@ -226,7 +226,11 @@ export class PostgresConversationHistoryCoverageRepository implements Conversati
               AND (
                 excluded.complete = false
                 OR ${coverage.coveredThroughTimestamp} IS NULL
-                OR excluded.covered_through_timestamp >= ${coverage.coveredThroughTimestamp}
+                OR excluded.covered_through_timestamp > ${coverage.coveredThroughTimestamp}
+                OR (
+                  excluded.covered_through_timestamp = ${coverage.coveredThroughTimestamp}
+                  AND excluded.covered_through_external_id IS NOT DISTINCT FROM ${coverage.coveredThroughExternalId}
+                )
               )
             )
           )`,

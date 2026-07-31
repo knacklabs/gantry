@@ -348,6 +348,99 @@ maybeDescribe('conversation history coverage Postgres repository', () => {
     expect(contradiction.coverage?.coveredThroughTimestamp).toBeUndefined();
   });
 
+  it('requires the same external id to re-attest an equal timestamp', async () => {
+    const repository = runtime.repositories.conversationHistoryCoverage;
+    const generation =
+      await repository.readProviderGeneration(providerAccountId);
+    const timestamp = '2026-07-31T00:05:00.000Z';
+    const staleScope = {
+      kind: 'thread' as const,
+      id: 'equal-timestamp-stale-thread',
+    };
+
+    await repository.upsertCoverage({
+      providerAccountId,
+      conversationId,
+      scope: staleScope,
+      complete: false,
+      coveredThroughExternalId: 'message-b',
+      coveredThroughTimestamp: timestamp,
+      providerGeneration: generation,
+      recordedAt: '2026-07-31T00:05:01.000Z',
+      updatedAt: '2026-07-31T00:05:01.000Z',
+    });
+    await repository.upsertCoverage({
+      providerAccountId,
+      conversationId,
+      scope: staleScope,
+      complete: true,
+      coveredThroughExternalId: 'message-a',
+      coveredThroughTimestamp: timestamp,
+      providerGeneration: generation,
+      recordedAt: '2026-07-31T00:05:02.000Z',
+      updatedAt: '2026-07-31T00:05:02.000Z',
+    });
+
+    await expect(
+      repository.getCoverage({
+        providerAccountId,
+        conversationId,
+        scope: staleScope,
+      }),
+    ).resolves.toMatchObject({
+      coverage: {
+        complete: false,
+        coveredThroughExternalId: 'message-b',
+        coveredThroughTimestamp: timestamp,
+        providerGeneration: generation,
+      },
+      isCurrentGeneration: true,
+    });
+
+    const reattestationScope = {
+      kind: 'thread' as const,
+      id: 'equal-timestamp-reattestation-thread',
+    };
+    await repository.upsertCoverage({
+      providerAccountId,
+      conversationId,
+      scope: reattestationScope,
+      complete: false,
+      coveredThroughExternalId: 'message-b',
+      coveredThroughTimestamp: timestamp,
+      providerGeneration: generation,
+      recordedAt: '2026-07-31T00:05:03.000Z',
+      updatedAt: '2026-07-31T00:05:03.000Z',
+    });
+    await repository.upsertCoverage({
+      providerAccountId,
+      conversationId,
+      scope: reattestationScope,
+      complete: true,
+      coveredThroughExternalId: 'message-b',
+      coveredThroughTimestamp: timestamp,
+      providerGeneration: generation,
+      recordedAt: '2026-07-31T00:05:04.000Z',
+      updatedAt: '2026-07-31T00:05:04.000Z',
+    });
+
+    await expect(
+      repository.getCoverage({
+        providerAccountId,
+        conversationId,
+        scope: reattestationScope,
+      }),
+    ).resolves.toMatchObject({
+      coverage: {
+        complete: true,
+        coveredThroughExternalId: 'message-b',
+        coveredThroughTimestamp: timestamp,
+        providerGeneration: generation,
+      },
+      isCurrentGeneration: true,
+    });
+  });
+
   it('does not expose an old account row after a conversation rebind', async () => {
     const repository = runtime.repositories.conversationHistoryCoverage;
     const generation =
