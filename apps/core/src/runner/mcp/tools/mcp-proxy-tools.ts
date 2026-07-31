@@ -60,6 +60,7 @@ export function registerMcpProxyTools(server: McpServer): void {
       writeIpcFile(TASKS_DIR, {
         type: 'mcp_list_tools',
         taskId,
+        ...scheduledMcpRunContext(),
         targetJid: chatJid,
         chatJid,
         authThreadId: threadId,
@@ -123,6 +124,7 @@ export function registerMcpProxyTools(server: McpServer): void {
       writeIpcFile(TASKS_DIR, {
         type: 'mcp_describe_tool',
         taskId,
+        ...scheduledMcpRunContext(),
         targetJid: chatJid,
         chatJid,
         authThreadId: threadId,
@@ -169,8 +171,8 @@ export function registerMcpProxyTools(server: McpServer): void {
   server.tool(
     'mcp_call_tool',
     lockedAccessPreset
-      ? 'Call a tool from an MCP server source connected to this agent. Use serverName and the raw tool name from mcp_list_tools.'
-      : 'Call a raw MCP source tool only when the requested action is covered by reviewed current-run capability access. Prefer the reviewed action capability as the product contract; do not call direct third-party mcp__server__tool names.',
+      ? 'Call a proxy-capable MCP source connected to this agent when no direct mcp__server__tool action is mounted. Use serverName and the raw tool name from mcp_list_tools.'
+      : 'Call a proxy-capable MCP source only when the action is covered by reviewed current-run capability access and no reviewed direct mcp__server__tool action is mounted. Local stdio sources execute through their directly mounted reviewed tools.',
     {
       serverName: z.string().describe('Connected MCP server name'),
       toolName: z
@@ -187,6 +189,7 @@ export function registerMcpProxyTools(server: McpServer): void {
         type: 'mcp_call_tool',
         taskId,
         runHandle: process.env.GANTRY_AGENT_RUN_HANDLE || undefined,
+        ...(jobId ? { jobId } : {}),
         ...(jobRunId ? { runId: jobRunId } : {}),
         ...(jobRunLeaseToken ? { runLeaseToken: jobRunLeaseToken } : {}),
         ...(jobRunLeaseFencingVersion !== undefined
@@ -281,6 +284,19 @@ export function registerMcpProxyTools(server: McpServer): void {
       };
     },
   );
+}
+
+function scheduledMcpRunContext(): Record<string, unknown> {
+  if (!jobId) return {};
+  return {
+    jobId,
+    runHandle: process.env.GANTRY_AGENT_RUN_HANDLE || undefined,
+    ...(jobRunId ? { runId: jobRunId } : {}),
+    ...(jobRunLeaseToken ? { runLeaseToken: jobRunLeaseToken } : {}),
+    ...(jobRunLeaseFencingVersion !== undefined
+      ? { runLeaseFencingVersion: Number(jobRunLeaseFencingVersion) }
+      : {}),
+  };
 }
 
 function modelVisibleMcpCallResult(data: unknown): CallToolResult {

@@ -128,6 +128,46 @@ export const openApiSchemas: Record<string, JsonSchema> = {
       audit: metadata,
     },
   },
+  ReviewedMcpCapabilityManifest: {
+    type: 'object',
+    required: [
+      'capabilityId',
+      'displayName',
+      'category',
+      'risk',
+      'can',
+      'cannot',
+      'credentialSource',
+      'implementationBindings',
+    ],
+    additionalProperties: false,
+    properties: {
+      capabilityId: { type: 'string' },
+      version: { type: 'string' },
+      displayName: { type: 'string' },
+      category: { type: 'string' },
+      risk: { type: 'string', enum: ['read', 'write', 'admin'] },
+      can: { type: 'string' },
+      cannot: { type: 'string' },
+      credentialSource: {
+        type: 'string',
+        enum: ['configured_access'],
+      },
+      implementationBindings: {
+        type: 'array',
+        minItems: 1,
+        items: {
+          type: 'object',
+          required: ['kind', 'mcpTool'],
+          additionalProperties: false,
+          properties: {
+            kind: { type: 'string', enum: ['mcp_tool'] },
+            mcpTool: { type: 'string' },
+          },
+        },
+      },
+    },
+  },
   CapabilityListResponse: arrayEnvelope('capabilities', 'CapabilityManifest'),
   ...modelCredentialSchemas,
   AgentSourceSelection: {

@@ -297,6 +297,7 @@ export function prepareExternalMcpStdioAudit(input: {
           args: [proxyPath, config.command, ...(config.args ?? [])],
           env: {
             ...(config.env ?? {}),
+            PATH: process.env.PATH,
             [AUDIT_FILE_ENV]: auditFile,
             [SERVER_NAME_ENV]: serverName,
           },

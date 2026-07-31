@@ -72,6 +72,64 @@ function githubMcpRecord(
   };
 }
 
+const FIRECRAWL_TOOLS = [
+  'mcp__firecrawl__firecrawl_search',
+  'mcp__firecrawl__firecrawl_scrape',
+  'mcp__firecrawl__firecrawl_map',
+  'mcp__firecrawl__firecrawl_crawl',
+] as const;
+
+function reviewedFirecrawlRuntimeAccess(
+  allowedTools: readonly string[] = FIRECRAWL_TOOLS,
+): CapabilityRuntimeAccess[] {
+  return [
+    {
+      selectedCapabilityId: 'source_discovery.firecrawl',
+      sourceType: 'mcp_server',
+      auditLabel: 'Firecrawl source discovery',
+      reviewedServerId: 'firecrawl',
+      allowedTools: [...allowedTools],
+      credentialRefs: [],
+      networkHosts: [],
+    },
+  ];
+}
+
+function firecrawlMcpRecord(
+  allowedToolPatterns: string[] = [
+    'firecrawl_search',
+    'firecrawl_scrape',
+    'firecrawl_map',
+    'firecrawl_crawl',
+  ],
+): MaterializedMcpServer {
+  const record = githubMcpRecord();
+  return {
+    definition: {
+      ...record.definition,
+      id: 'mcp:firecrawl' as never,
+      name: 'firecrawl',
+      config: {
+        transport: 'stdio_template',
+        templateId: 'npx-package',
+        args: ['firecrawl-mcp'],
+      },
+      allowedToolPatterns: [
+        'firecrawl_search',
+        'firecrawl_scrape',
+        'firecrawl_map',
+        'firecrawl_crawl',
+      ],
+    },
+    binding: {
+      ...record.binding,
+      id: 'agent-mcp-binding:firecrawl' as never,
+      serverId: 'mcp:firecrawl' as never,
+      allowedToolPatterns,
+    },
+  };
+}
+
 describe('agent spawn runtime policy', () => {
   const envKey = (suffix: string) => ['ANTHROPIC', suffix].join('_');
 
@@ -160,6 +218,55 @@ describe('agent spawn runtime policy', () => {
         'mcp__github__search_repositories',
       ],
       projectedMcpSourceIds: ['mcp:github'],
+    });
+  });
+
+  it('projects only the four exact selected Firecrawl tools through native stdio', () => {
+    const projection = resolveRunnerMcpProjection(DEFAULT_AGENT_ENGINE, {
+      runtimeAccess: reviewedFirecrawlRuntimeAccess(),
+      mcpSourceRecords: [firecrawlMcpRecord()],
+    });
+
+    expect(projection).toEqual({
+      reviewedMcpToolNames: FIRECRAWL_TOOLS,
+      projectedMcpSourceIds: ['mcp:firecrawl'],
+    });
+  });
+
+  it('does not project Firecrawl without selected exact current-run bindings', () => {
+    const unselected = resolveRunnerMcpProjection(DEFAULT_AGENT_ENGINE, {
+      runtimeAccess: [],
+      mcpSourceRecords: [firecrawlMcpRecord()],
+    });
+    const wildcardOnly = resolveRunnerMcpProjection(DEFAULT_AGENT_ENGINE, {
+      runtimeAccess: reviewedFirecrawlRuntimeAccess(['mcp__firecrawl__*']),
+      mcpSourceRecords: [firecrawlMcpRecord()],
+    });
+
+    expect(unselected).toEqual({
+      reviewedMcpToolNames: [],
+      projectedMcpSourceIds: [],
+    });
+    expect(wildcardOnly).toEqual({
+      reviewedMcpToolNames: [],
+      projectedMcpSourceIds: [],
+    });
+  });
+
+  it('intersects selected Firecrawl tools with the active source binding', () => {
+    const projection = resolveRunnerMcpProjection(DEFAULT_AGENT_ENGINE, {
+      runtimeAccess: reviewedFirecrawlRuntimeAccess(),
+      mcpSourceRecords: [
+        firecrawlMcpRecord(['firecrawl_search', 'firecrawl_scrape']),
+      ],
+    });
+
+    expect(projection).toEqual({
+      reviewedMcpToolNames: [
+        'mcp__firecrawl__firecrawl_search',
+        'mcp__firecrawl__firecrawl_scrape',
+      ],
+      projectedMcpSourceIds: ['mcp:firecrawl'],
     });
   });
 

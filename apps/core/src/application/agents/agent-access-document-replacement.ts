@@ -33,6 +33,7 @@ import { isAdminMcpToolFullName } from '../../shared/admin-mcp-tools.js';
 import type { SemanticCapabilityDefinition } from '../../shared/semantic-capabilities.js';
 import { nextMcpSourceBindings } from './agent-mcp-source-bindings.js';
 import {
+  catalogSemanticCapabilityDefinitions,
   canonicalToolReferenceForView,
   skillActionDefinitionsForBindings,
 } from './agent-capability-skill-actions.js';
@@ -120,13 +121,21 @@ export async function replaceAgentAccessDocument(input: {
     existingBindings: mcpBindings,
     now: input.now,
   });
-  const semanticCapabilityDefinitions = await skillActionDefinitionsForBindings(
-    {
+  const [catalogDefinitions, skillDefinitions] = await Promise.all([
+    catalogSemanticCapabilityDefinitions({
+      appId: input.appId,
+      toolRepository: input.repositories.tools,
+    }),
+    skillActionDefinitionsForBindings({
       appId: input.appId,
       skillBindings: nextSkillBindings,
       skillRepository: input.repositories.skills,
-    },
-  );
+    }),
+  ]);
+  const semanticCapabilityDefinitions = {
+    ...catalogDefinitions,
+    ...skillDefinitions,
+  };
   const selectedToolReferences = resolveSelectedToolReferences(
     input.capabilities,
     semanticCapabilityDefinitions,

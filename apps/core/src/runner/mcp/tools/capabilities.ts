@@ -152,7 +152,7 @@ export function registerAccessRequestTool(
                     approved.implementationBindings.some(
                       (binding) => binding.kind === 'mcp_tool',
                     )
-                      ? 'For MCP sources, use mcp_list_tools to inspect the ready source, mcp_describe_tool for one tool schema if needed, then mcp_call_tool to call the approved action.'
+                      ? 'For MCP sources, call a directly mounted reviewed mcp__server__tool action when available. Otherwise inspect with mcp_list_tools and mcp_describe_tool, then use mcp_call_tool for a proxy-capable source.'
                       : 'Check capability_status if you need to confirm current access.',
                   ].join('\n'),
                 },

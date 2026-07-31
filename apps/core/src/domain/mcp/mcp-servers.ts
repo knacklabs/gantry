@@ -88,6 +88,7 @@ export type McpServerAuditEventType =
   | 'startup_failure'
   | 'permission_allow'
   | 'permission_deny'
+  | 'capability_register'
   | 'tool_activity';
 
 export interface McpServerAuditEvent {

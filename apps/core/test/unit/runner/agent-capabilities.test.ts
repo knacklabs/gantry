@@ -852,6 +852,90 @@ describe('agent capability composition', () => {
     ]);
   });
 
+  it('hides proxy execution when every selected external MCP action is mounted directly', () => {
+    const firecrawlTools = [
+      'mcp__firecrawl__firecrawl_search',
+      'mcp__firecrawl__firecrawl_scrape',
+      'mcp__firecrawl__firecrawl_map',
+      'mcp__firecrawl__firecrawl_crawl',
+    ];
+    const profile = composeAgentCapabilities({
+      mcpServerPath: '/tmp/ipc-mcp-stdio.js',
+      chatJid: 'app:source-discovery',
+      workspaceFolder: 'source_discovery',
+      isScheduledJob: true,
+      asyncTaskToolsEnabled: true,
+      configuredAllowedTools: firecrawlTools,
+      externalMcpServers: {
+        firecrawl: {
+          type: 'stdio',
+          command: 'node',
+          args: ['firecrawl-mcp.js'],
+        },
+      },
+      externalMcpAllowedTools: firecrawlTools,
+      externalMcpAlwaysAllowedTools: firecrawlTools,
+    });
+
+    expect(profile.allowedTools).toEqual(
+      expect.arrayContaining(firecrawlTools),
+    );
+    expect(profile.allowedTools).not.toContain('mcp__gantry__mcp_call_tool');
+    expect(profile.allowedTools).not.toContain('mcp__gantry__async_mcp_call');
+    expect(profile.disallowedTools).toEqual(
+      expect.arrayContaining([
+        'mcp__gantry__mcp_call_tool',
+        'mcp__gantry__async_mcp_call',
+      ]),
+    );
+    const gantryServer = profile.mcpServers.gantry;
+    expect(gantryServer).toHaveProperty('command');
+    if (!gantryServer || !('command' in gantryServer)) {
+      throw new Error('Expected Gantry stdio server');
+    }
+    expect(
+      JSON.parse(gantryServer.env?.GANTRY_MCP_TOOL_NAMES_JSON ?? '[]'),
+    ).not.toEqual(expect.arrayContaining(['mcp_call_tool', 'async_mcp_call']));
+  });
+
+  it('keeps proxy execution when a selected external MCP action is not mounted directly', () => {
+    const firecrawlTool = 'mcp__firecrawl__firecrawl_search';
+    const profile = composeAgentCapabilities({
+      mcpServerPath: '/tmp/ipc-mcp-stdio.js',
+      chatJid: 'app:mixed-job',
+      workspaceFolder: 'mixed_job',
+      isScheduledJob: true,
+      asyncTaskToolsEnabled: true,
+      configuredAllowedTools: [
+        firecrawlTool,
+        'mcp__github__search_repositories',
+      ],
+      externalMcpServers: {
+        firecrawl: {
+          type: 'stdio',
+          command: 'node',
+          args: ['firecrawl-mcp.js'],
+        },
+      },
+      externalMcpAllowedTools: [firecrawlTool],
+    });
+
+    expect(profile.allowedTools).toContain('mcp__gantry__mcp_call_tool');
+    expect(profile.allowedTools).toContain('mcp__gantry__async_mcp_call');
+    expect(profile.disallowedTools).not.toContain('mcp__gantry__mcp_call_tool');
+    expect(profile.disallowedTools).not.toContain(
+      'mcp__gantry__async_mcp_call',
+    );
+    const gantryServer = profile.mcpServers.gantry;
+    expect(gantryServer).toHaveProperty('command');
+    if (!gantryServer || !('command' in gantryServer)) {
+      throw new Error('Expected Gantry stdio server');
+    }
+    expect(
+      JSON.parse(gantryServer.env?.GANTRY_MCP_TOOL_NAMES_JSON ?? '[]'),
+    ).toEqual(expect.arrayContaining(['mcp_call_tool', 'async_mcp_call']));
+  });
+
   it('does not expose remote MCP servers directly to the SDK', () => {
     const profile = composeAgentCapabilities({
       mcpServerPath: '/tmp/ipc-mcp-stdio.js',

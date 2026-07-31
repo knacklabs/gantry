@@ -151,7 +151,7 @@ function toolingSection(mode: GantryAgentPromptMode): string {
           'Use Ready tools first. If the tool you need is missing, inspect the catalog/source. If it is still missing, request access or setup. If policy blocks the action, say so plainly.',
           'Use WebSearch for discovery and WebRead for exact source reading.',
           'Use FileSearch, FileRead, FileEdit, and FileWrite for approved host file work. Use file only for Gantry FileArtifacts.',
-          'Use MCP tools through mcp_list_tools, mcp_describe_tool, and mcp_call_tool. Use async_mcp_call for long-running or parallel MCP work, then task_get or task_list for status.',
+          'For MCP, call directly mounted reviewed mcp__server__tool actions directly. Otherwise inspect with mcp_list_tools and mcp_describe_tool, and use mcp_call_tool only for connected sources without a directly mounted action. Use async_mcp_call for long-running or parallel proxy work, then task_get or task_list for status.',
           'Never use raw harness subagents. Gantry delegation tools are unavailable until Gantry mounts a real delegated-task executor.',
           'Do not describe raw provider or harness tool names to users unless the user asks for runtime internals.',
         ];

@@ -34,6 +34,7 @@ export const openApiResponseSchemas: Record<string, JsonSchema> = {
   getAgentProfileFile: ref('AgentProfileFileContentResponse'),
   setAgentProfileFile: ref('AgentProfileFileContentResponse'),
   getCapability: ref('CapabilityManifest'),
+  putCapability: ref('CapabilityManifest'),
   getConversation: ref('Conversation'),
   getDoctor: ref('DoctorResponse'),
   getExternalIngress: ref('ExternalIngress'),
@@ -126,6 +127,7 @@ export const openApiResponseSchemas: Record<string, JsonSchema> = {
 };
 
 export const openApiRequestSchemas: Record<string, JsonSchema> = {
+  putCapability: ref('ReviewedMcpCapabilityManifest'),
   putCapabilityCredential: ref('CapabilityCredentialWriteRequest'),
   bindMcpServerToAgent: ref('AgentMcpServerBindingRequest'),
   bindSkillToAgent: ref('AgentSkillBindingRequest'),

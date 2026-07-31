@@ -74,6 +74,10 @@
   for operators. Scheduled jobs may forward and summarize them into terminal
   run diagnostics, but notification copy must not dump raw timing payloads,
   prompts, URLs, tokens, tool args, or queue bookkeeping.
+- Native reviewed MCP calls emit `mcp.tool_activity` from the runner audit
+  wrapper. Keep that event in the scheduled-run forwarding allowlist so caller
+  receipt validators observe the same durable tool-call IDs returned to the
+  model.
 - Memory dreaming job notifications should be quiet on success: use a one-line
   completed outcome unless there are pending reviews, newly sent review items,
   blockers, timeouts, or failures. Keep review issues visible and actionable

@@ -116,6 +116,9 @@ export type QueryUsageQuery = Query<'queryUsage'>;
 export type QueryUsageResponse = JsonResponse<'queryUsage', 200>;
 
 export type ListProvidersResponse = JsonResponse<'listProviders', 200>;
+export type ListCapabilitiesResponse = JsonResponse<'listCapabilities', 200>;
+export type GetCapabilityResponse = JsonResponse<'getCapability', 200>;
+export type PutCapabilityResponse = JsonResponse<'putCapability', 200>;
 export type ListAgentsResponse = JsonResponse<'listAgents', 200>;
 export type CreateAgentRequest = JsonRequest<'createAgent'>;
 export type CreateAgentResponse = JsonResponse<'createAgent', 201>;

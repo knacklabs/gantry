@@ -78,6 +78,7 @@ describe('external stdio MCP audit', () => {
       ],
       env: {
         FIRECRAWL_API_KEY: 'secret',
+        PATH: process.env.PATH,
         GANTRY_MCP_STDIO_AUDIT_SERVER_NAME: 'firecrawl',
       },
     });

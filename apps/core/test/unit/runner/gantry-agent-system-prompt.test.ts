@@ -82,6 +82,12 @@ describe('buildGantryAgentSystemPrompt', () => {
     expect(prompt.prompt).toContain('WebRead');
     expect(prompt.prompt).toContain('FileRead');
     expect(prompt.prompt).toContain('RunCommand(<scope>)');
+    expect(prompt.prompt).toContain(
+      'call directly mounted reviewed mcp__server__tool actions directly',
+    );
+    expect(prompt.prompt).toContain(
+      'use mcp_call_tool only for connected sources without a directly mounted action',
+    );
     expect(prompt.prompt).not.toContain('WebFetch');
     expect(prompt.prompt).not.toContain('DeepAgents');
   });

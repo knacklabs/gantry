@@ -342,13 +342,13 @@ export function capabilityStatusText(): string {
                     `  selected capabilities: ${selectedCapabilities.join(', ')}`,
                   ]
                 : []),
-              `  use: mcp_list_tools with serverName="${sourceName}", mcp_describe_tool for one tool schema if needed, then mcp_call_tool with serverName="${sourceName}" for immediate calls or async_mcp_call for long-running work`,
+              `  use: call a directly mounted reviewed mcp__${sourceName}__tool action when available; otherwise inspect with mcp_list_tools and mcp_describe_tool, then use mcp_call_tool for immediate proxy calls or async_mcp_call for long-running proxy work`,
             ];
           })
       : ['- none connected yet']),
     ...(attachedMcpSourceIds.length > 0
       ? [
-          'MCP source rule: ready sources are already attached. Inspect them with mcp_list_tools, fetch one-tool schema/details with mcp_describe_tool when needed, call approved immediate actions through mcp_call_tool, and use async_mcp_call for long-running or parallel work. Do not request the same MCP capability again unless the tool response says access is missing or denied.',
+          'MCP source rule: ready sources are already attached. Call directly mounted reviewed mcp__server__tool actions directly. Otherwise inspect with mcp_list_tools and mcp_describe_tool, then use mcp_call_tool for immediate proxy calls or async_mcp_call for long-running proxy work. Do not request the same MCP capability again unless the tool response says access is missing or denied.',
         ]
       : []),
     ...(requestableBrowserTools.length > 0

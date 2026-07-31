@@ -29,6 +29,7 @@ import { jobListQuery } from './job-list-query.js';
 import { createModelsClient } from './models.js';
 import { createLlmClient } from './llm.js';
 import { Transport } from './transport.js';
+import type { ReviewedMcpCapabilityManifest } from '@gantry/contracts';
 export type { GantryError } from './transport.js';
 import type {
   CreateJobInput,
@@ -98,6 +99,25 @@ export class GantryClient {
   }
 
   readonly settings = createSettingsClient({ request: this.request });
+
+  readonly capabilities = {
+    list: () =>
+      this.transport.request<OpenApi.ListCapabilitiesResponse>({
+        method: 'GET',
+        path: '/v1/capabilities',
+      }),
+    get: (capabilityId: string) =>
+      this.transport.request<OpenApi.GetCapabilityResponse>({
+        method: 'GET',
+        path: `/v1/capabilities/${encodeURIComponent(capabilityId)}`,
+      }),
+    register: (capabilityId: string, input: ReviewedMcpCapabilityManifest) =>
+      this.transport.request<OpenApi.PutCapabilityResponse>({
+        method: 'PUT',
+        path: `/v1/capabilities/${encodeURIComponent(capabilityId)}`,
+        body: input,
+      }),
+  };
 
   readonly sessions = {
     ensure: (input: OpenApi.EnsureSessionRequest) =>

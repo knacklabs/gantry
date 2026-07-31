@@ -407,7 +407,11 @@ export interface paths {
          * @description Returns the immutable capability manifest and projection metadata.
          */
         get: operations["getCapability"];
-        put?: never;
+        /**
+         * Register one reviewed MCP capability
+         * @description Idempotently registers an immutable app-scoped semantic capability with exact bindings to reviewed tools on active MCP sources.
+         */
+        put: operations["putCapability"];
         post?: never;
         delete?: never;
         options?: never;
@@ -1960,6 +1964,23 @@ export interface components {
             };
         } & {
             [key: string]: unknown;
+        };
+        ReviewedMcpCapabilityManifest: {
+            capabilityId: string;
+            version?: string;
+            displayName: string;
+            category: string;
+            /** @enum {string} */
+            risk: "read" | "write" | "admin";
+            can: string;
+            cannot: string;
+            /** @enum {string} */
+            credentialSource: "configured_access";
+            implementationBindings: {
+                /** @enum {string} */
+                kind: "mcp_tool";
+                mcpTool: string;
+            }[];
         };
         CapabilityListResponse: {
             capabilities: components["schemas"]["CapabilityManifest"][];
@@ -4582,6 +4603,39 @@ export interface operations {
             cookie?: never;
         };
         requestBody?: never;
+        responses: {
+            /** @description Request succeeded. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CapabilityManifest"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    putCapability: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Capability id. */
+                capabilityId: string;
+            };
+            cookie?: never;
+        };
+        /** @description JSON request payload. */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReviewedMcpCapabilityManifest"];
+            };
+        };
         responses: {
             /** @description Request succeeded. */
             200: {

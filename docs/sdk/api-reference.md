@@ -196,6 +196,7 @@ GET    /v1/agents/:agentId/admin
 GET    /v1/inventory
 GET    /v1/capabilities
 GET    /v1/capabilities/:capabilityId
+PUT    /v1/capabilities/:capabilityId
 GET    /v1/agents/:agentId/access
 PUT    /v1/agents/:agentId/access
 
@@ -908,6 +909,7 @@ GET    /v1/agents/:id/admin                        agents:admin
 GET    /v1/inventory                               agents:admin
 GET    /v1/capabilities                            agents:admin
 GET    /v1/capabilities/:id                        agents:admin
+PUT    /v1/capabilities/:id                        agents:admin
 GET    /v1/agents/:id/access                       agents:admin
 PUT    /v1/agents/:id/access                       agents:admin
 

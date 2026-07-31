@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { RUNTIME_EVENT_TYPES } from '@core/domain/events/runtime-event-types.js';
 import {
@@ -187,5 +187,32 @@ describe('execution diagnostics', () => {
         availableToolCount: 11,
       },
     ]);
+  });
+
+  it('forwards native MCP audit receipts into scheduled job events', async () => {
+    const diagnostics = createJobRunDiagnostics();
+    const emitJobEvent = vi.fn();
+    const payload = {
+      toolCallId: 'tool-call-1',
+      serverName: 'firecrawl',
+      toolName: 'firecrawl_search',
+      resultClass: 'success',
+    };
+
+    await forwardRunnerRuntimeEvents({
+      events: [
+        {
+          eventType: RUNTIME_EVENT_TYPES.MCP_TOOL_ACTIVITY,
+          payload,
+        },
+      ],
+      diagnostics,
+      emitJobEvent,
+    });
+
+    expect(emitJobEvent).toHaveBeenCalledWith(
+      RUNTIME_EVENT_TYPES.MCP_TOOL_ACTIVITY,
+      payload,
+    );
   });
 });

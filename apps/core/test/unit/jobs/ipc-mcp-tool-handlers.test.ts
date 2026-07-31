@@ -271,6 +271,157 @@ describe('MCP IPC tool handlers', () => {
     );
   });
 
+  it('allows scheduled MCP calls for a host-attested synthetic conversation', async () => {
+    const callTool = vi.fn(async () => ({}));
+    const createProxy = vi.fn(async () => ({
+      callTool,
+      describeTool: vi.fn(),
+      listTools: vi.fn(),
+    }));
+    configurePendingInteractionDurability({
+      repository: {
+        getActiveRunLease: vi.fn(async () => ({
+          runId: 'job-run-1',
+          leaseToken: 'lease-1',
+          fencingVersion: 1,
+        })),
+      } as never,
+    });
+    registerAsyncTaskPolicy({
+      runHandle: 'job-run-handle-1',
+      conversationId: 'app:test:scheduled-source-discovery',
+      runId: 'job-run-1',
+      jobId: 'job-1',
+    });
+    const { mcpCallToolHandler } = createMcpToolHandlers(createProxy as never);
+
+    await mcpCallToolHandler({
+      data: {
+        type: 'mcp_call_tool',
+        appId: 'app:test',
+        agentId: 'agent:signed',
+        chatJid: 'app:test:scheduled-source-discovery',
+        targetJid: 'app:test:scheduled-source-discovery',
+        jobId: 'job-1',
+        runId: 'job-run-1',
+        runHandle: 'job-run-handle-1',
+        runLeaseToken: 'lease-1',
+        runLeaseFencingVersion: 1,
+        payload: {
+          serverName: 'firecrawl',
+          toolName: 'firecrawl_search',
+          arguments: { query: 'tenders' },
+        },
+      },
+      sourceAgentFolder: 'main_agent',
+      deps: {} as never,
+      conversationBindings: {},
+      sourceAgentFolderJids: [],
+    });
+
+    expect(callTool).toHaveBeenCalledWith(
+      expect.objectContaining({
+        serverName: 'firecrawl',
+        toolName: 'firecrawl_search',
+      }),
+    );
+  });
+
+  it('rejects scheduled MCP calls when the signed request drifts from host policy', async () => {
+    const callTool = vi.fn(async () => ({}));
+    const createProxy = vi.fn(async () => ({
+      callTool,
+      describeTool: vi.fn(),
+      listTools: vi.fn(),
+    }));
+    registerAsyncTaskPolicy({
+      runHandle: 'job-run-handle-2',
+      conversationId: 'app:test:scheduled-source-discovery',
+      runId: 'job-run-2',
+      jobId: 'job-2',
+    });
+    const { mcpCallToolHandler } = createMcpToolHandlers(createProxy as never);
+
+    await mcpCallToolHandler({
+      data: {
+        type: 'mcp_call_tool',
+        appId: 'app:test',
+        agentId: 'agent:signed',
+        chatJid: 'app:test:different-job',
+        targetJid: 'app:test:different-job',
+        jobId: 'job-2',
+        runId: 'job-run-2',
+        runHandle: 'job-run-handle-2',
+        runLeaseToken: 'lease-2',
+        runLeaseFencingVersion: 1,
+        payload: {
+          serverName: 'firecrawl',
+          toolName: 'firecrawl_search',
+          arguments: { query: 'tenders' },
+        },
+      },
+      sourceAgentFolder: 'main_agent',
+      deps: {} as never,
+      conversationBindings: {},
+      sourceAgentFolderJids: [],
+    });
+
+    expect(createProxy).not.toHaveBeenCalled();
+    expect(callTool).not.toHaveBeenCalled();
+  });
+
+  it('rejects scheduled MCP calls when the host-attested run lease is stale', async () => {
+    const callTool = vi.fn(async () => ({}));
+    const createProxy = vi.fn(async () => ({
+      callTool,
+      describeTool: vi.fn(),
+      listTools: vi.fn(),
+    }));
+    configurePendingInteractionDurability({
+      repository: {
+        getActiveRunLease: vi.fn(async () => ({
+          runId: 'job-run-3',
+          leaseToken: 'new-lease',
+          fencingVersion: 2,
+        })),
+      } as never,
+    });
+    registerAsyncTaskPolicy({
+      runHandle: 'job-run-handle-3',
+      conversationId: 'app:test:scheduled-source-discovery',
+      runId: 'job-run-3',
+      jobId: 'job-3',
+    });
+    const { mcpCallToolHandler } = createMcpToolHandlers(createProxy as never);
+
+    await mcpCallToolHandler({
+      data: {
+        type: 'mcp_call_tool',
+        appId: 'app:test',
+        agentId: 'agent:signed',
+        chatJid: 'app:test:scheduled-source-discovery',
+        targetJid: 'app:test:scheduled-source-discovery',
+        jobId: 'job-3',
+        runId: 'job-run-3',
+        runHandle: 'job-run-handle-3',
+        runLeaseToken: 'old-lease',
+        runLeaseFencingVersion: 1,
+        payload: {
+          serverName: 'firecrawl',
+          toolName: 'firecrawl_search',
+          arguments: { query: 'tenders' },
+        },
+      },
+      sourceAgentFolder: 'main_agent',
+      deps: {} as never,
+      conversationBindings: {},
+      sourceAgentFolderJids: [],
+    });
+
+    expect(createProxy).not.toHaveBeenCalled();
+    expect(callTool).not.toHaveBeenCalled();
+  });
+
   it('rejects side-effecting MCP calls when the run lease is stale', async () => {
     const callTool = vi.fn(async () => ({}));
     const createProxy = vi.fn(async () => ({
@@ -690,6 +841,7 @@ describe('MCP IPC tool handlers', () => {
     );
     registerAsyncTaskPolicy({
       runHandle: 'job-run-handle-1',
+      conversationId: 'app:test:scheduled-source-discovery',
       runId: 'job-run-1',
       jobId: 'job-1',
     });
@@ -699,8 +851,8 @@ describe('MCP IPC tool handlers', () => {
         type: 'async_mcp_call',
         appId: 'app:test',
         agentId: 'agent:signed',
-        chatJid: 'sl:C123',
-        targetJid: 'sl:C123',
+        chatJid: 'app:test:scheduled-source-discovery',
+        targetJid: 'app:test:scheduled-source-discovery',
         jobId: 'job-1',
         runId: 'job-run-1',
         runHandle: 'job-run-handle-1',
@@ -715,7 +867,7 @@ describe('MCP IPC tool handlers', () => {
       sourceAgentFolder: 'main_agent',
       deps: asyncRuntimeDeps(repository),
       conversationBindings: {},
-      sourceAgentFolderJids: ['sl:C123'],
+      sourceAgentFolderJids: [],
     });
 
     const task = [...repository.tasks.values()].find(

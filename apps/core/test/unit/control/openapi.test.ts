@@ -59,6 +59,7 @@ const expectedControlRoutes = [
   'GET /v1/brain/status',
   'GET /v1/capabilities',
   'GET /v1/capabilities/{capabilityId}',
+  'PUT /v1/capabilities/{capabilityId}',
   'GET /v1/conversations',
   'GET /v1/conversations/{conversationId}',
   'GET /v1/conversations/{conversationId}/approvers',
@@ -949,6 +950,18 @@ describe('control OpenAPI documentation', () => {
       spec.paths['/v1/capabilities/{capabilityId}']?.get.responses['200']
         .content['application/json'].schema,
     ).toEqual({ $ref: '#/components/schemas/CapabilityManifest' });
+    expect(spec.paths['/v1/capabilities/{capabilityId}']?.put).toMatchObject({
+      'x-gantry-required-scopes': ['agents:admin'],
+      requestBody: {
+        content: {
+          'application/json': {
+            schema: {
+              $ref: '#/components/schemas/ReviewedMcpCapabilityManifest',
+            },
+          },
+        },
+      },
+    });
     expect(spec.components.schemas.AgentSources.properties.tools.items).toEqual(
       { $ref: '#/components/schemas/AgentToolSourceSelection' },
     );

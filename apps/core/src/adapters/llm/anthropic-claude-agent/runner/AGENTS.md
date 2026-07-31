@@ -18,3 +18,8 @@
   boundary: request its decision before closing, buffer an approved
   continuation through `SteeringDeliveryGate`, and close normally only after
   the caller accepts completion.
+- Reviewed local stdio MCP tools execute through the Claude SDK's native MCP
+  path and the existing audit wrapper. For direct-only external MCP runs, do
+  not register or allow the Gantry proxy execution tools. Resolve bundled bare
+  commands against the runtime-local npm bin directory before the runner
+  sandbox scrubs `PATH`; changing only the wrapper environment is too late.

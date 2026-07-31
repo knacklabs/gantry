@@ -279,7 +279,7 @@ export function registerServiceTools(server: McpServer): void {
             text: [
               'RunCommand/Bash permission is not available as a fallback while MCP access is selected for this run.',
               `Selected MCP capabilities: ${selectedMcpCapabilityIds.join(', ')}`,
-              'Use mcp_list_tools to inspect the ready source, then mcp_call_tool for immediate approved actions or async_mcp_call for long-running work.',
+              'Call a directly mounted reviewed mcp__server__tool action when available. Otherwise inspect with mcp_list_tools, then use mcp_call_tool for immediate proxy calls or async_mcp_call for long-running proxy work.',
             ].join('\n'),
           },
         ],
@@ -350,7 +350,7 @@ export function registerServiceTools(server: McpServer): void {
                 existingSource.selectedCapabilities.length
                   ? `Selected capabilities: ${existingSource.selectedCapabilities.join(', ')}`
                   : 'A matching MCP source is already attached.',
-                `Use mcp_list_tools with serverName="${existingSource.serverName}", mcp_describe_tool when schema is needed, then mcp_call_tool with serverName="${existingSource.serverName}" for immediate approved actions or async_mcp_call for long-running work.`,
+                `Call a directly mounted reviewed mcp__${existingSource.serverName}__tool action when available. Otherwise inspect with mcp_list_tools and mcp_describe_tool, then use mcp_call_tool for immediate proxy calls or async_mcp_call for long-running proxy work.`,
                 'Do not request the same MCP source setup again unless a tool call reports access is missing or denied.',
               ].join('\n'),
             },

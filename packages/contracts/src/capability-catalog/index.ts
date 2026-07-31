@@ -12,3 +12,29 @@ export const CapabilityCatalogResponseSchema = z.object({
 export type CapabilityCatalogResponse = z.infer<
   typeof CapabilityCatalogResponseSchema
 >;
+
+export const ReviewedMcpCapabilityManifestSchema = z
+  .object({
+    capabilityId: z.string().trim().min(1),
+    version: z.string().trim().min(1).optional(),
+    displayName: z.string().trim().min(1),
+    category: z.string().trim().min(1),
+    risk: z.enum(['read', 'write', 'admin']),
+    can: z.string().trim().min(1),
+    cannot: z.string().trim().min(1),
+    credentialSource: z.literal('configured_access'),
+    implementationBindings: z
+      .array(
+        z
+          .object({
+            kind: z.literal('mcp_tool'),
+            mcpTool: z.string().trim().min(1),
+          })
+          .strict(),
+      )
+      .min(1),
+  })
+  .strict();
+export type ReviewedMcpCapabilityManifest = z.infer<
+  typeof ReviewedMcpCapabilityManifestSchema
+>;

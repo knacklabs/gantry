@@ -10,6 +10,7 @@ import {
 } from '../domain/ports/async-tasks.js';
 import { memoryAgentIdForWorkspaceFolder } from '../memory/app-memory-boundaries.js';
 import { readAsyncCommandSandboxPolicy } from '../runtime/async-command-sandbox-policy.js';
+import type { AsyncCommandSandboxPolicy } from '../runtime/async-command-sandbox-policy.js';
 import type { McpCompatibleToolError } from '../runtime/core-tools/registry.js';
 import {
   createAsyncMcpTask,
@@ -68,13 +69,14 @@ function mcpListToolsHandler(
       reject('MCP tool listing requires signed app scope.', 'forbidden');
       return;
     }
-    const requestedTargetJid = validateSameChannelMcpTarget({
+    const validatedTarget = await validateMcpExecutionTarget({
       data,
+      sourceAgentFolder,
       sourceAgentFolderJids,
       requestKind: 'MCP tool list',
       reject,
     });
-    if (!requestedTargetJid) return;
+    if (!validatedTarget) return;
     try {
       const listInput = mcpListToolsProxyInput(data.payload || {});
       const agentId = agentIdForMcpTask(data, sourceAgentFolder);
@@ -118,13 +120,14 @@ function mcpDescribeToolHandler(
       reject('MCP tool detail requires signed app scope.', 'forbidden');
       return;
     }
-    const requestedTargetJid = validateSameChannelMcpTarget({
+    const validatedTarget = await validateMcpExecutionTarget({
       data,
+      sourceAgentFolder,
       sourceAgentFolderJids,
       requestKind: 'MCP tool detail',
       reject,
     });
-    if (!requestedTargetJid) return;
+    if (!validatedTarget) return;
     try {
       const detailInput = mcpDescribeToolProxyInput(data.payload || {});
       if (!detailInput.serverName || !detailInput.toolName) {
@@ -179,13 +182,14 @@ function mcpCallToolHandler(
       reject('MCP tool calls require signed app scope.', 'forbidden');
       return;
     }
-    const requestedTargetJid = validateSameChannelMcpTarget({
+    const validatedTarget = await validateMcpExecutionTarget({
       data,
+      sourceAgentFolder,
       sourceAgentFolderJids,
       requestKind: 'MCP tool call',
       reject,
     });
-    if (!requestedTargetJid) return;
+    if (!validatedTarget) return;
     try {
       const callInput = mcpCallToolProxyInput(data.payload || {});
       if (
@@ -218,11 +222,13 @@ function mcpCallToolHandler(
         runHandle: data.runHandle,
         runId: data.runId,
       });
-      const activeLease = await isActiveRunLeaseForInteraction({
-        runId: data.runId,
-        runLeaseToken: data.runLeaseToken,
-        runLeaseFencingVersion: data.runLeaseFencingVersion,
-      });
+      const activeLease =
+        validatedTarget.leaseValidated ||
+        (await isActiveRunLeaseForInteraction({
+          runId: data.runId,
+          runLeaseToken: data.runLeaseToken,
+          runLeaseFencingVersion: data.runLeaseFencingVersion,
+        }));
       if (!activeLease) {
         reject(
           'MCP tool call rejected because the run lease is no longer active.',
@@ -320,13 +326,15 @@ function asyncMcpCallToolHandler(
       reject('Async MCP tool calls require signed app scope.', 'forbidden');
       return;
     }
-    const requestedTargetJid = validateSameChannelMcpTarget({
+    const validatedTarget = await validateMcpExecutionTarget({
       data,
+      sourceAgentFolder,
       sourceAgentFolderJids,
       requestKind: 'Async MCP tool call',
       reject,
     });
-    if (!requestedTargetJid) return;
+    if (!validatedTarget) return;
+    const requestedTargetJid = validatedTarget.conversationId;
     try {
       const callInput = mcpCallToolProxyInput(data.payload || {});
       if (
@@ -353,10 +361,12 @@ function asyncMcpCallToolHandler(
         return;
       }
       const agentId = agentIdForMcpTask(data, sourceAgentFolder);
-      const sandboxPolicy = readAsyncCommandSandboxPolicy({
-        sourceAgentFolder,
-        runHandle: data.runHandle,
-      });
+      const sandboxPolicy =
+        validatedTarget.sandboxPolicy ??
+        readAsyncCommandSandboxPolicy({
+          sourceAgentFolder,
+          runHandle: data.runHandle,
+        });
       if (
         !sandboxPolicy ||
         sandboxPolicy.appId !== data.appId ||
@@ -388,11 +398,13 @@ function asyncMcpCallToolHandler(
         reject(parentTask.message, 'invalid_request');
         return;
       }
-      const activeLease = await isActiveRunLeaseForInteraction({
-        runId: data.runId,
-        runLeaseToken: data.runLeaseToken,
-        runLeaseFencingVersion: data.runLeaseFencingVersion,
-      });
+      const activeLease =
+        validatedTarget.leaseValidated ||
+        (await isActiveRunLeaseForInteraction({
+          runId: data.runId,
+          runLeaseToken: data.runLeaseToken,
+          runLeaseFencingVersion: data.runLeaseFencingVersion,
+        }));
       if (!activeLease) {
         reject(
           'Async MCP tool call rejected because the run lease is no longer active.',
@@ -523,6 +535,74 @@ function agentIdForMcpTask(
 ) {
   return (data.agentId ||
     memoryAgentIdForWorkspaceFolder(sourceAgentFolder)) as never;
+}
+
+async function validateMcpExecutionTarget(input: {
+  data: Parameters<TaskHandler>[0]['data'];
+  sourceAgentFolder: string;
+  sourceAgentFolderJids: string[];
+  requestKind: string;
+  reject: (error: string, code?: string, details?: string[]) => void;
+}): Promise<{
+  conversationId: string;
+  leaseValidated: boolean;
+  sandboxPolicy?: AsyncCommandSandboxPolicy;
+} | null> {
+  if (!input.data.jobId) {
+    const conversationId = validateSameChannelMcpTarget(input);
+    return conversationId ? { conversationId, leaseValidated: false } : null;
+  }
+
+  const conversationId = toTrimmedString(input.data.chatJid, {
+    maxLen: 512,
+  });
+  const targetOverride = toTrimmedString(
+    input.data.targetJid || input.data.jid,
+    { maxLen: 512 },
+  );
+  const agentId = agentIdForMcpTask(input.data, input.sourceAgentFolder);
+  const sandboxPolicy = readAsyncCommandSandboxPolicy({
+    sourceAgentFolder: input.sourceAgentFolder,
+    runHandle: input.data.runHandle,
+  });
+  if (
+    !conversationId ||
+    (targetOverride && targetOverride !== conversationId) ||
+    !input.data.runId ||
+    !sandboxPolicy ||
+    sandboxPolicy.appId !== input.data.appId ||
+    (sandboxPolicy.agentId && sandboxPolicy.agentId !== agentId) ||
+    sandboxPolicy.conversationId !== conversationId ||
+    (sandboxPolicy.providerAccountId ?? null) !==
+      (input.data.providerAccountId ?? null) ||
+    (sandboxPolicy.threadId ?? null) !==
+      (input.data.authThreadId || input.data.threadId || null) ||
+    sandboxPolicy.runId !== input.data.runId ||
+    sandboxPolicy.jobId !== input.data.jobId
+  ) {
+    input.reject(
+      `${input.requestKind} requests must match the host-attested scheduled run context.`,
+      'forbidden',
+    );
+    return null;
+  }
+  const activeLease = await isActiveRunLeaseForInteraction({
+    runId: input.data.runId,
+    runLeaseToken: input.data.runLeaseToken,
+    runLeaseFencingVersion: input.data.runLeaseFencingVersion,
+  });
+  if (!activeLease) {
+    input.reject(
+      `${input.requestKind} rejected because the run lease is no longer active.`,
+      'stale_run_lease',
+    );
+    return null;
+  }
+  return {
+    conversationId,
+    leaseValidated: true,
+    sandboxPolicy,
+  };
 }
 
 function validateSameChannelMcpTarget(input: {

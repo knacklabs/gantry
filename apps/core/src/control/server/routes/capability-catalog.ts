@@ -1,6 +1,9 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
-import { AgentAccessRequestSchema } from '@gantry/contracts';
+import {
+  AgentAccessRequestSchema,
+  ReviewedMcpCapabilityManifestSchema,
+} from '@gantry/contracts';
 
 import { AgentCapabilityAdministrationService } from '../../../application/agents/agent-capability-administration-service.js';
 import { ApplicationError } from '../../../application/common/application-error.js';
@@ -66,6 +69,34 @@ export async function handleCapabilityCatalogRoutes(
   }
 
   const capabilityMatch = pathname.match(/^\/v1\/capabilities\/([^/]+)$/);
+  if (capabilityMatch && req.method === 'PUT') {
+    const auth = authorizeControlRequest(req, res, ctx.keys, ['agents:admin']);
+    if (!auth) return true;
+    const capabilityId = decodeURIComponent(capabilityMatch[1]);
+    const parsed = ReviewedMcpCapabilityManifestSchema.safeParse(
+      await readJson(req),
+    );
+    if (!parsed.success || parsed.data.capabilityId !== capabilityId) {
+      sendError(
+        res,
+        400,
+        'INVALID_REQUEST',
+        'Invalid reviewed MCP capability manifest or capability id mismatch.',
+      );
+      return true;
+    }
+    try {
+      const tool = await service().registerReviewedMcpCapability({
+        appId: auth.appId as AppId,
+        capability: parsed.data,
+      });
+      sendJson(res, 200, toolToCapabilityResponse(tool));
+    } catch (error) {
+      if (!sendApplicationError(res, error)) throw error;
+    }
+    return true;
+  }
+
   if (capabilityMatch && req.method === 'GET') {
     const auth = authorizeControlRequest(req, res, ctx.keys, ['agents:admin']);
     if (!auth) return true;

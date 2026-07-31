@@ -79,7 +79,7 @@ describe('capabilityStatusText access projection', () => {
     expect(text).toContain('- ready: skill:refunds');
     expect(text).toContain('- ready source: crm');
     expect(text).toContain(
-      'use: mcp_list_tools with serverName="crm", mcp_describe_tool for one tool schema if needed, then mcp_call_tool with serverName="crm"',
+      'use: call a directly mounted reviewed mcp__crm__tool action when available',
     );
   });
 
@@ -248,7 +248,7 @@ describe('locked MCP listing and tool descriptions', () => {
       'call_data: {"serverName":"crm","toolName":"lookup_order"}',
     );
     expect(provisionedOnly).toContain(
-      'call: use mcp_call_tool only when task-relevant and policy permits',
+      'call: use a directly mounted reviewed mcp__server__tool action when available',
     );
     expect(provisionedOnly).toContain('callable: no');
     expect(provisionedOnly).toContain(

@@ -474,13 +474,13 @@ describe('PromptProfileService', () => {
       'mcp_list_tools and used through mcp_call_tool',
     );
     expect(prompt).toContain(
-      'When capability_status shows an MCP source as ready, use it: inspect with mcp_list_tools, fetch one-tool schema with mcp_describe_tool when needed, call approved immediate actions with mcp_call_tool, and use async_mcp_call for long-running or parallel MCP work instead of requesting the same access again',
+      'When capability_status shows an MCP source as ready, use it: call a directly mounted reviewed mcp__server__tool action when available',
     );
     expect(prompt).toContain(
-      'instead of requesting the same access again or using command/browser fallback',
+      'use mcp_call_tool or async_mcp_call for a proxy-capable source instead of requesting the same access again or using command/browser fallback',
     );
     expect(prompt).toContain(
-      'Do not infer a third-party MCP source is unavailable only because its tools are not direct SDK tool names',
+      'Do not infer a third-party MCP source is unavailable only because its tools are not directly mounted',
     );
     expect(prompt).not.toContain('[[SHARED_CONTEXT]]');
   });

@@ -1,4 +1,5 @@
 import { doc, ids, query, type RouteDoc } from './openapi-route-helpers.js';
+import { capabilityOpenApiRouteDocs } from './openapi-routes-capabilities.js';
 
 export const coreOpenApiRouteDocs: RouteDoc[] = [
   doc(
@@ -264,34 +265,7 @@ export const coreOpenApiRouteDocs: RouteDoc[] = [
     ['agents:admin'],
     { parameters: [ids.agent] },
   ),
-  doc(
-    'get',
-    '/v1/inventory',
-    'getInventory',
-    'Capabilities',
-    'List global inventory',
-    'Returns read-only global onboarded tools, skills, and MCP servers.',
-    ['agents:admin'],
-  ),
-  doc(
-    'get',
-    '/v1/capabilities',
-    'listCapabilities',
-    'Capabilities',
-    'List approved capabilities',
-    'Returns approved immutable capability manifests.',
-    ['agents:admin'],
-  ),
-  doc(
-    'get',
-    '/v1/capabilities/{capabilityId}',
-    'getCapability',
-    'Capabilities',
-    'Get one approved capability',
-    'Returns the immutable capability manifest and projection metadata.',
-    ['agents:admin'],
-    { parameters: [ids.capability] },
-  ),
+  ...capabilityOpenApiRouteDocs,
   doc(
     'get',
     '/v1/agents/{agentId}/access',

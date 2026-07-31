@@ -44,7 +44,7 @@ function symlinkPackage(
   fs.symlinkSync(
     path.isAbsolute(target) ? target : path.join(repoRoot, target),
     packagePath,
-    'dir',
+    process.platform === 'win32' ? 'junction' : 'dir',
   );
 }
 
@@ -834,6 +834,7 @@ describe('agent-runner MCP stdio tools', { timeout: 70_000 }, () => {
         arguments: { title: 'Bug' },
       },
       {
+        GANTRY_JOB_ID: 'job-1',
         GANTRY_JOB_RUN_ID: 'job-run-1',
         GANTRY_JOB_RUN_LEASE_TOKEN: 'lease-1',
         GANTRY_JOB_RUN_LEASE_FENCING_VERSION: '7',
@@ -852,6 +853,7 @@ describe('agent-runner MCP stdio tools', { timeout: 70_000 }, () => {
     expect(task).toMatchObject({
       type: 'mcp_call_tool',
       runHandle: 'mcp-test-run',
+      jobId: 'job-1',
       runId: 'job-run-1',
       runLeaseToken: 'lease-1',
       runLeaseFencingVersion: 7,
@@ -860,6 +862,40 @@ describe('agent-runner MCP stdio tools', { timeout: 70_000 }, () => {
         toolName: 'create_issue',
         arguments: { title: 'Bug' },
       },
+    });
+  });
+
+  it('includes the scheduled run context on MCP inventory requests', async () => {
+    const fixture = createMcpFixture();
+
+    const result = await runMcpFixture(
+      fixture,
+      'mcp_list_tools',
+      { serverName: 'firecrawl' },
+      {
+        GANTRY_JOB_ID: 'job-1',
+        GANTRY_JOB_RUN_ID: 'job-run-1',
+        GANTRY_JOB_RUN_LEASE_TOKEN: 'lease-1',
+        GANTRY_JOB_RUN_LEASE_FENCING_VERSION: '7',
+      },
+    );
+
+    expect(result.exitCode, result.stderr).toBe(0);
+    const taskFiles = fs.readdirSync(path.join(fixture.ipcDir, 'tasks'));
+    expect(taskFiles).toHaveLength(1);
+    const task = JSON.parse(
+      fs.readFileSync(
+        path.join(fixture.ipcDir, 'tasks', taskFiles[0]),
+        'utf-8',
+      ),
+    );
+    expect(task).toMatchObject({
+      type: 'mcp_list_tools',
+      runHandle: 'mcp-test-run',
+      jobId: 'job-1',
+      runId: 'job-run-1',
+      runLeaseToken: 'lease-1',
+      runLeaseFencingVersion: 7,
     });
   });
 
@@ -1381,7 +1417,7 @@ describe('agent-runner MCP stdio tools', { timeout: 70_000 }, () => {
       'selected capabilities: mcp.caw-ats.access',
     );
     expect(record.result.content[0].text).toContain(
-      'use: mcp_list_tools with serverName="caw-ats", mcp_describe_tool for one tool schema if needed, then mcp_call_tool with serverName="caw-ats"',
+      'use: call a directly mounted reviewed mcp__caw-ats__tool action when available',
     );
     expect(record.result.content[0].text).toContain(
       'Do not request the same MCP capability again',
@@ -1523,7 +1559,7 @@ describe('agent-runner MCP stdio tools', { timeout: 70_000 }, () => {
       'already selected for this run',
     );
     expect(record.result.content[0].text).toContain(
-      'use mcp_list_tools to inspect the ready source, mcp_describe_tool for one tool schema if needed, then mcp_call_tool',
+      'call a directly mounted reviewed mcp__server__tool action when available',
     );
     const taskDir = path.join(fixture.ipcDir, 'tasks');
     expect(fs.existsSync(taskDir) ? fs.readdirSync(taskDir) : []).toEqual([]);
@@ -1554,7 +1590,7 @@ describe('agent-runner MCP stdio tools', { timeout: 70_000 }, () => {
       'already selected for this run',
     );
     expect(record.result.content[0].text).toContain(
-      'use mcp_list_tools to inspect the ready source, mcp_describe_tool for one tool schema if needed, then mcp_call_tool',
+      'call a directly mounted reviewed mcp__server__tool action when available',
     );
     const taskDir = path.join(fixture.ipcDir, 'tasks');
     expect(fs.existsSync(taskDir) ? fs.readdirSync(taskDir) : []).toEqual([]);
@@ -1595,7 +1631,7 @@ describe('agent-runner MCP stdio tools', { timeout: 70_000 }, () => {
       'Selected capabilities: mcp.caw-ats.access',
     );
     expect(record.result.content[0].text).toContain(
-      'Use mcp_list_tools with serverName="caw-ats", mcp_describe_tool when schema is needed, then mcp_call_tool',
+      'Call a directly mounted reviewed mcp__caw-ats__tool action when available',
     );
     const taskDir = path.join(fixture.ipcDir, 'tasks');
     expect(fs.existsSync(taskDir) ? fs.readdirSync(taskDir) : []).toEqual([]);
