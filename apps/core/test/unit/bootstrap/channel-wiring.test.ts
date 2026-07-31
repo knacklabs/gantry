@@ -3,7 +3,6 @@ import { describe, expect, it, vi } from 'vitest';
 vi.mock('@core/platform/sender-allowlist.js', () => ({
   loadSenderAllowlist: vi.fn(() => ({})),
   loadSenderControlAllowlist: vi.fn(() => ({})),
-  shouldDropMessage: vi.fn(() => false),
   isSenderAllowed: vi.fn(() => true),
   isSenderControlAllowed: vi.fn(() => true),
   shouldLogDenied: vi.fn(() => false),
@@ -33,6 +32,7 @@ const runtimeStoreMock = vi.hoisted(() => ({
 }));
 const runtimeLeaseMock = vi.hoisted(() => ({
   tryAcquire: vi.fn(async () => ({
+    generation: 1,
     isValid: () => true,
     onLost: vi.fn(),
     release: vi.fn(async () => undefined),
@@ -1238,6 +1238,7 @@ describe('createChannelWiring', () => {
     const app = makeApp();
     const channel = makeChannel();
     const lease = {
+      generation: 1,
       isValid: () => true,
       onLost: vi.fn(),
       release: vi.fn(async () => undefined),
@@ -1322,7 +1323,7 @@ describe('createChannelWiring', () => {
     ).rejects.toThrow(/runtime transport is not implemented/);
   });
 
-  it('drops disallowed inbound sender before persistence', async () => {
+  it('persists a non-allowed sender on a registered route', async () => {
     const app = makeApp({
       'tg:123': {
         name: 'Main',
@@ -1342,7 +1343,6 @@ describe('createChannelWiring', () => {
       ],
       opsRepository: { storeMessage } as any,
       loadSenderAllowlist: vi.fn(() => ({}) as any),
-      shouldDropMessage: vi.fn(() => true),
       isSenderAllowed: vi.fn(() => false),
       shouldLogDenied: vi.fn(() => true),
     });
@@ -1362,7 +1362,18 @@ describe('createChannelWiring', () => {
       is_bot_message: false,
     });
 
-    expect(storeMessage).not.toHaveBeenCalled();
+    expect(storeMessage).toHaveBeenCalledWith({
+      agentId: 'agent:main_agent',
+      chat_jid: 'tg:123',
+      content: 'hello',
+      id: 'm1',
+      is_bot_message: false,
+      is_from_me: false,
+      providerAccountId: 'telegram_default',
+      sender: 'user-1',
+      sender_name: 'User',
+      timestamp: '2026-01-01T00:00:00.000Z',
+    });
   });
 
   it('stores normal inbound messages', async () => {
@@ -1384,7 +1395,6 @@ describe('createChannelWiring', () => {
         }),
       ],
       opsRepository: { storeMessage } as any,
-      shouldDropMessage: vi.fn(() => false),
     });
 
     await wiring.connectEnabledChannels(
@@ -1437,7 +1447,6 @@ describe('createChannelWiring', () => {
         storeMessage,
         storeMessageWithLiveAdmission,
       } as any,
-      shouldDropMessage: vi.fn(() => false),
     });
 
     await wiring.connectEnabledChannels(
@@ -1511,7 +1520,6 @@ describe('createChannelWiring', () => {
         storeMessage: vi.fn(),
         storeMessageWithLiveAdmission,
       } as any,
-      shouldDropMessage: vi.fn(() => false),
     });
 
     await wiring.connectEnabledChannels(
@@ -1533,8 +1541,26 @@ describe('createChannelWiring', () => {
     expect(
       storeMessageWithLiveAdmission.mock.calls.map((call) => call[1]),
     ).toEqual([
-      expect.objectContaining({ agentId: 'agent:alpha' }),
-      expect.objectContaining({ agentId: 'agent:beta' }),
+      {
+        appId: 'app-one',
+        agentId: 'agent:alpha',
+        providerAccountId: 'telegram_default',
+        triggerDecision: {
+          source: 'channel_persistence',
+          requiresTrigger: false,
+          conversationKind: 'channel',
+        },
+      },
+      {
+        appId: 'app-one',
+        agentId: 'agent:beta',
+        providerAccountId: 'telegram_default',
+        triggerDecision: {
+          source: 'channel_persistence',
+          requiresTrigger: true,
+          conversationKind: 'channel',
+        },
+      },
     ]);
   });
 
@@ -1594,7 +1620,6 @@ describe('createChannelWiring', () => {
         storeMessage: vi.fn(),
         storeMessageWithLiveAdmission,
       } as any,
-      shouldDropMessage: vi.fn(() => false),
     });
 
     await wiring.connectEnabledChannels(settings);
@@ -1641,7 +1666,6 @@ describe('createChannelWiring', () => {
         providerIds: [],
         loadSenderAllowlist: vi.fn(() => ({}) as any),
         loadSenderControlAllowlist: vi.fn(() => ({}) as any),
-        shouldDropMessage: vi.fn(() => false),
         isSenderAllowed: vi.fn(() => true),
         isSenderControlAllowed: vi.fn(() => true),
         shouldLogDenied: vi.fn(() => false),
@@ -1693,7 +1717,6 @@ describe('createChannelWiring', () => {
         providerIds: [],
         loadSenderAllowlist: vi.fn(() => ({}) as any),
         loadSenderControlAllowlist: vi.fn(() => ({}) as any),
-        shouldDropMessage: vi.fn(() => false),
         isSenderAllowed: vi.fn(() => true),
         isSenderControlAllowed: vi.fn(() => true),
         shouldLogDenied: vi.fn(() => false),
@@ -1761,7 +1784,6 @@ describe('createChannelWiring', () => {
         providerIds: [],
         loadSenderAllowlist: vi.fn(() => ({}) as any),
         loadSenderControlAllowlist: vi.fn(() => ({}) as any),
-        shouldDropMessage: vi.fn(() => false),
         isSenderAllowed: vi.fn(() => true),
         isSenderControlAllowed: vi.fn(() => true),
         shouldLogDenied: vi.fn(() => false),
@@ -1823,6 +1845,29 @@ describe('createChannelWiring', () => {
     );
 
     expect(findBoundChannel).toHaveBeenCalledWith('sl:C123', 'slack_beta');
+  });
+
+  it('returns the exact unsupported result without coverage for a hookless channel', async () => {
+    const result = await hydrateChannelConversationContext(
+      {
+        conversationJid: 'tg:-100123',
+        latestMessage: {
+          id: 'current',
+          timestamp: '2026-01-01T00:00:00.000Z',
+        },
+        limits: { channelMessages: 30, threadMessages: 50 },
+      },
+      vi.fn(() => ({})),
+      () => 'telegram',
+    );
+
+    expect(result).toEqual({
+      providerId: 'telegram',
+      attempted: false,
+      skipped: true,
+      reason: 'unsupported',
+    });
+    expect('coverage' in result).toBe(false);
   });
 
   it('resets the routed Provider Account channel after an IPC approval prompt', async () => {
@@ -2271,7 +2316,6 @@ describe('createChannelWiring', () => {
         storeMessage,
         storeMessageWithLiveAdmission,
       } as any,
-      shouldDropMessage: vi.fn(() => false),
     });
 
     await wiring.connectEnabledChannels(
@@ -2327,7 +2371,6 @@ describe('createChannelWiring', () => {
         storeMessage: vi.fn(),
         storeMessageWithLiveAdmission,
       } as any,
-      shouldDropMessage: vi.fn(() => false),
     });
 
     await wiring.connectEnabledChannels(
@@ -2390,7 +2433,6 @@ describe('createChannelWiring', () => {
         storeMessage: vi.fn(),
         storeMessageWithLiveAdmission,
       } as any,
-      shouldDropMessage: vi.fn(() => false),
     });
 
     await wiring.connectEnabledChannels(
@@ -2438,7 +2480,6 @@ describe('createChannelWiring', () => {
         providerIds: [],
         loadSenderAllowlist: vi.fn(() => ({}) as any),
         loadSenderControlAllowlist: vi.fn(() => ({}) as any),
-        shouldDropMessage: vi.fn(() => false),
         isSenderAllowed: vi.fn(() => true),
         isSenderControlAllowed: vi.fn(() => true),
         shouldLogDenied: vi.fn(() => false),
@@ -3954,7 +3995,6 @@ describe('createChannelPersistenceHandlers conversation-owned direct routes', ()
           providerIds: [],
           loadSenderAllowlist: vi.fn(() => ({}) as any),
           loadSenderControlAllowlist: vi.fn(() => ({}) as any),
-          shouldDropMessage: vi.fn(() => false),
           isSenderAllowed: vi.fn(() => true),
           isSenderControlAllowed: vi.fn(() => true),
           shouldLogDenied: vi.fn(() => false),
@@ -4006,7 +4046,6 @@ describe('createChannelPersistenceHandlers conversation-owned direct routes', ()
         providerIds: [],
         loadSenderAllowlist: vi.fn(() => ({}) as any),
         loadSenderControlAllowlist: vi.fn(() => ({}) as any),
-        shouldDropMessage: vi.fn(() => false),
         isSenderAllowed: vi.fn(() => true),
         isSenderControlAllowed: vi.fn(() => true),
         shouldLogDenied: vi.fn(() => false),

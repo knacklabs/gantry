@@ -108,6 +108,7 @@ vi.mock('@core/shared/chrome-executable.js', () => ({
 vi.mock('@core/runtime/browser-profiles.js', () => ({
   acquireProfileLock: vi.fn(async () => ({
     name: 'gantry',
+    generation: 1,
     isValid: mocks.isProfileLockValid,
     onLost: mocks.onProfileLockLost,
     release: mocks.release,
@@ -639,6 +640,37 @@ describe('browser-capability', () => {
     expect(mocks.fetch).not.toHaveBeenCalled();
   });
 
+  it('claims NO generation when cleaning up with no session record', async () => {
+    // Corrected from my first attempt, which returned the lease's CURRENT
+    // generation here. That is unsound across workers: the issued generation
+    // may belong to another worker that has since owned and released this
+    // profile, so using it would relabel these stale local bytes as current.
+    // With no record there is no provenance, so no generation may be claimed.
+    const manager = await import('@core/runtime/browser-capability.js');
+
+    const closed = await manager.closeBrowser();
+
+    expect(closed).toMatchObject({ closed: true, reason: 'not_running' });
+    expect(closed.leaseGeneration).toBeUndefined();
+  });
+
+  it('takes the stray-process cleanup lock SHARED so it cannot advance the epoch', async () => {
+    // With the equality fence, an ownership bump here would REJECT a legitimate
+    // owner's pending snapshot: cleanup must not count as a new epoch.
+    const manager = await import('@core/runtime/browser-capability.js');
+    const profiles = await import('@core/runtime/browser-profiles.js');
+    vi.mocked(profiles.acquireProfileLock).mockClear();
+
+    await manager.closeBrowser();
+
+    expect(profiles.acquireProfileLock).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.anything(),
+      undefined,
+      { shared: true },
+    );
+  });
+
   it('returns idempotent success when closing an already stopped browser', async () => {
     const manager = await import('@core/runtime/browser-capability.js');
 
@@ -792,7 +824,10 @@ describe('browser-capability', () => {
     );
     expect(mocks.clearBrowserSessionRecord).not.toHaveBeenCalled();
     expect(profiles.updateProfileMetadata).not.toHaveBeenCalled();
-    expect(mocks.skipNextBrowserProfileSnapshot).toHaveBeenCalledWith('gantry');
+    expect(mocks.skipNextBrowserProfileSnapshot).toHaveBeenCalledWith(
+      'gantry',
+      expect.any(Number),
+    );
     expect(mocks.release).not.toHaveBeenCalled();
 
     expect(

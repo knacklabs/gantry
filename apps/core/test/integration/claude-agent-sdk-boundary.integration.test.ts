@@ -724,7 +724,7 @@ describe('Claude Agent SDK boundary integration', () => {
       model: 'sonnet',
       cwd: path.join(env.root, 'workspace', 'group'),
       permissionMode: 'default',
-      settingSources: [],
+      settingSources: ['user'],
       strictMcpConfig: true,
       skills: ['gantry-admin', 'gantry-browser', 'linkedin-posting'],
       includePartialMessages: true,
@@ -1078,7 +1078,7 @@ describe('Claude Agent SDK boundary integration', () => {
 
     const call = sdkState.calls[0];
     expect(call?.options).toMatchObject({
-      settingSources: [],
+      settingSources: ['user'],
       strictMcpConfig: true,
       skills: [],
     });

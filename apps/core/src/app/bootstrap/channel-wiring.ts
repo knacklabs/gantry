@@ -12,7 +12,6 @@ import {
   isSenderAllowed,
   loadSenderControlAllowlist,
   loadSenderAllowlist,
-  shouldDropMessage,
   shouldLogDenied,
 } from '../../platform/sender-allowlist.js';
 import {
@@ -85,6 +84,7 @@ import {
 import { createPermissionApprovalRequester } from '../../channels/permission-approval-requester.js';
 import * as routeProviderAccount from './channel-wiring-route-provider-account.js';
 import { syncChannelGroups } from './channel-wiring-group-sync.js';
+import { fetchHistoricalAttachmentFromChannel } from './channel-wiring-historical-attachments.js';
 const PROVIDER_INBOUND_LEASE_PREFIX = 'runtime:provider-inbound';
 type AccountOpts = { providerAccountId?: string };
 type BoundChannel = BoundProviderAccountChannel['channel'];
@@ -97,7 +97,6 @@ export function createChannelWiring(
     providerIds: listChannelProviders(),
     loadSenderAllowlist,
     loadSenderControlAllowlist,
-    shouldDropMessage,
     isSenderAllowed,
     isSenderControlAllowed,
     shouldLogDenied,
@@ -269,15 +268,11 @@ export function createChannelWiring(
     }
   }
   const hasConnectedChannels = (): boolean => connectedChannels.length > 0;
-  function describeDestinationJid(jid: string) {
-    const provider = providerForJid(jid);
-    return {
-      ...(provider
-        ? { providerId: provider.id, internal: provider.internal === true }
-        : { internal: false }),
-      runtimeAppId: resolved.appId,
-    };
-  }
+  const describeDestinationJid = (jid: string) =>
+    routeProviderAccount.describeProviderDestination(
+      providerForJid(jid),
+      resolved.appId,
+    );
 
   const hasChannel = (jid: string, options?: { providerAccountId?: string }) =>
     findBoundChannel(jid, options?.providerAccountId) !== undefined;
@@ -297,6 +292,11 @@ export function createChannelWiring(
   ): boolean {
     const channel = findBoundChannel(jid, options?.providerAccountId);
     return channel ? asProgressSink(channel) !== undefined : false;
+  }
+  async function fetchHistoricalAttachment(
+    input: Parameters<ChannelWiring['fetchHistoricalAttachment']>[0],
+  ) {
+    return fetchHistoricalAttachmentFromChannel(input, findBoundChannel);
   }
   async function sendMessage(
     jid: string,
@@ -716,6 +716,9 @@ export function createChannelWiring(
     hasChannel,
     supportsStreaming,
     supportsProgress,
+    fetchHistoricalAttachment,
+    getMessageAttachmentRepository: () =>
+      getRuntimeStorage().repositories.messageAttachments,
     sendMessage,
     sendProviderMessage,
     createRecoveryDispatchPermit,

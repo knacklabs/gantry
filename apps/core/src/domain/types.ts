@@ -116,6 +116,8 @@ export interface ConversationRoute {
 export interface NewMessage {
   id: string;
   chat_jid: string;
+  name?: string;
+  isGroup?: boolean;
   provider?: string;
   providerAccountId?: string;
   agentId?: string;
@@ -149,6 +151,14 @@ export interface NewMessageAttachment {
   sizeBytes?: number;
   externalId?: string;
   storageRef?: string;
+  file_name?: string;
+  provider_fetch?: {
+    provider: string;
+    kind: string;
+    id: string;
+    [key: string]: unknown;
+  };
+  deleted_at?: string;
 }
 
 // --- Channel capability ports ---

@@ -1,8 +1,9 @@
 import { isValidWorkspaceFolder } from '../../platform/workspace-folder-rules.js';
+import { logger } from '../../infrastructure/logging/logger.js';
 
 export interface ChatAllowlistEntry {
   allow: '*' | string[];
-  mode: 'trigger' | 'drop';
+  mode: 'trigger';
 }
 
 export interface SenderAllowlistConfig {
@@ -16,6 +17,7 @@ const DEFAULT_SENDER_ALLOWLIST: SenderAllowlistConfig = {
   agents: {},
   logDenied: true,
 };
+let warnedLegacyDrop = false;
 
 export function createDefaultSenderAllowlist(): SenderAllowlistConfig {
   return {
@@ -34,7 +36,7 @@ function isValidAllowlistEntry(entry: unknown): entry is ChatAllowlistEntry {
     allow === '*' ||
     (Array.isArray(allow) &&
       allow.every((item) => typeof item === 'string' && item.trim()));
-  const validMode = mode === 'trigger' || mode === 'drop';
+  const validMode = mode === 'trigger';
   return validAllow && validMode;
 }
 
@@ -56,7 +58,27 @@ export function parseSenderAllowlistConfig(
   }
 
   const map = raw as Record<string, unknown>;
-  if (!isValidAllowlistEntry(map.default)) {
+  const normalizeLegacyDrop = (entry: unknown): unknown => {
+    if (
+      entry &&
+      typeof entry === 'object' &&
+      !Array.isArray(entry) &&
+      (entry as Record<string, unknown>).mode === 'drop'
+    ) {
+      if (!warnedLegacyDrop) {
+        logger.warn(
+          { path: pathPrefix },
+          'sender-allowlist: legacy drop mode normalized to trigger',
+        );
+        warnedLegacyDrop = true;
+      }
+      return { ...(entry as Record<string, unknown>), mode: 'trigger' };
+    }
+    return entry;
+  };
+
+  const defaultEntry = normalizeLegacyDrop(map.default);
+  if (!isValidAllowlistEntry(defaultEntry)) {
     throw new Error(`${pathPrefix}.default must include allow and mode`);
   }
 
@@ -70,9 +92,10 @@ export function parseSenderAllowlistConfig(
   }
 
   const agents: Record<string, ChatAllowlistEntry> = {};
-  for (const [folder, entry] of Object.entries(
+  for (const [folder, rawEntry] of Object.entries(
     agentsRaw as Record<string, unknown>,
   )) {
+    const entry = normalizeLegacyDrop(rawEntry);
     const trimmedFolder = folder.trim();
     if (!trimmedFolder) throw new Error(`${pathPrefix}.agents has empty key`);
     if (!isValidWorkspaceFolder(trimmedFolder)) {
@@ -91,7 +114,7 @@ export function parseSenderAllowlistConfig(
   }
 
   return {
-    default: normalizeAllowlistEntry(map.default as ChatAllowlistEntry),
+    default: normalizeAllowlistEntry(defaultEntry),
     agents,
     logDenied: map.log_denied,
   };

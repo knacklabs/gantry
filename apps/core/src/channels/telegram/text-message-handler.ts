@@ -3,6 +3,7 @@ import type { Filter } from 'grammy';
 import { logger } from '../../infrastructure/logging/logger.js';
 import { findConversationRoutesForChat } from '../../shared/thread-queue-key.js';
 import type { ChannelOpts } from '../channel-provider.js';
+import { resolveInboundConversationIdentityForChat } from '../inbound-conversation-identity.js';
 import type { TelegramContext } from './channel-shared.js';
 import { shouldLogUnregisteredChatDrop } from '../unregistered-chat-drop-log.js';
 
@@ -83,21 +84,40 @@ export async function handleTelegramTextMessage(input: {
   }
 
   const isGroup = ctx.chat.type === 'group' || ctx.chat.type === 'supergroup';
-  await input.opts.onChatMetadata(
-    chatJid,
-    timestamp,
-    chatName,
-    'telegram',
-    isGroup,
-    { providerAccountId: input.opts.providerAccountId },
-  );
-
+  // Two different questions, deliberately answered with two different lookups.
+  //
+  // DELIVERY (below): unscoped, exactly as before. A route configured without a
+  // providerAccountId still routes messages, and narrowing this would start
+  // dropping group messages that used to be delivered.
   const hasRegisteredRoute =
     findConversationRoutesForChat(
       input.opts.conversationRoutes(),
       chatJid,
       threadId?.toString(),
     ).length > 0;
+  // METADATA: account-scoped. Two accounts can share a chat JID; an unscoped
+  // match would see ANOTHER account's route, skip this account's metadata
+  // write, and then have its message rejected by account-scoped persistence —
+  // losing both the conversation row and the envelope. Scoping errs toward
+  // writing metadata, which is the safe direction.
+  const identity = resolveInboundConversationIdentityForChat({
+    conversationRoutes: input.opts.conversationRoutes(),
+    chatJid,
+    threadId: threadId?.toString(),
+    providerAccountId: input.opts.providerAccountId,
+    name: chatName,
+    isGroup,
+  });
+  if (identity.needsStandaloneMetadataWrite) {
+    await input.opts.onChatMetadata(
+      chatJid,
+      timestamp,
+      chatName,
+      'telegram',
+      isGroup,
+      { providerAccountId: input.opts.providerAccountId },
+    );
+  }
   if (!hasRegisteredRoute && isGroup) {
     if (shouldLogUnregisteredChatDrop('telegram', chatJid)) {
       logger.info(
@@ -117,6 +137,7 @@ export async function handleTelegramTextMessage(input: {
   await input.opts.onMessage(chatJid, {
     id: msgId,
     chat_jid: chatJid,
+    ...identity.messageIdentity,
     provider: 'telegram',
     sender,
     sender_name: senderName,

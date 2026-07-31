@@ -87,6 +87,7 @@ export interface StorageRuntimeOptions {
   runtimeHome?: string;
   storageConfig?: ResolvedStorageConfig;
   runtimeSettings?: RuntimeSettings;
+  reclaimProviderAttachment?: (storageRef: string) => Promise<void>;
   loadSessionAppMemoryItems?: (input: {
     session: AgentSession;
     limit: number;
@@ -168,7 +169,11 @@ export function createStorageRuntime(
   const repositories = createPostgresDomainRepositories(
     service.db,
     service.pool,
-    { liveTurnCommandNotifier, maxLiveAdmissionBacklog },
+    {
+      liveTurnCommandNotifier,
+      maxLiveAdmissionBacklog,
+      cleanupProviderAttachment: options.reclaimProviderAttachment,
+    },
   );
   const runtimeEventNotifier = new PostgresRuntimeEventNotifier(service.pool);
   const liveAdmissionNotifier = new PostgresLiveAdmissionNotifier(service.pool);
@@ -189,6 +194,7 @@ export function createStorageRuntime(
       runtimeEvents,
       liveAdmissionNotifier,
       maxLiveAdmissionBacklog,
+      cleanupProviderAttachment: options.reclaimProviderAttachment,
       sessions: {
         ...sessionSettings,
         loadAppMemoryItems: options.loadSessionAppMemoryItems,

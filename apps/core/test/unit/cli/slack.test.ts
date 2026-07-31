@@ -27,8 +27,29 @@ import {
   resolveGroupSelector,
 } from '@core/cli/group-helpers.js';
 import { agentIdForFolder } from '@core/domain/agent/agent-folder-id.js';
+import { runtimeSecretNameForAgent } from '@core/domain/provider/provider-runtime-secret-keys.js';
 
 const groupsStore = vi.hoisted(() => new Map<string, any>());
+const defaultSlackBotSecretName = runtimeSecretNameForAgent(
+  'slack',
+  'main_agent',
+  'BOT_TOKEN',
+);
+const defaultSlackAppSecretName = runtimeSecretNameForAgent(
+  'slack',
+  'main_agent',
+  'APP_TOKEN',
+);
+const recruitingSlackBotSecretName = runtimeSecretNameForAgent(
+  'slack',
+  'recruiting_agent',
+  'BOT_TOKEN',
+);
+const recruitingSlackAppSecretName = runtimeSecretNameForAgent(
+  'slack',
+  'recruiting_agent',
+  'APP_TOKEN',
+);
 const fileArtifacts = vi.hoisted(() => new Map<string, string>());
 const fileArtifactState = vi.hoisted(() => ({ failWrites: false }));
 const fileArtifactStore = vi.hoisted(() => ({
@@ -188,15 +209,16 @@ function mockReconciledDesiredWrite() {
 
 function clackLogMock() {
   const warn = vi.fn();
+  const error = vi.fn();
   vi.doMock('@clack/prompts', () => ({
     isCancel: () => false,
     select: vi.fn(),
     text: vi.fn(),
     note: vi.fn(),
     spinner: vi.fn(() => ({ start: vi.fn(), stop: vi.fn() })),
-    log: { info: vi.fn(), success: vi.fn(), error: vi.fn(), warn },
+    log: { info: vi.fn(), success: vi.fn(), error, warn },
   }));
-  return { warn };
+  return { error, warn };
 }
 
 describe('cli slack helpers', () => {
@@ -688,13 +710,13 @@ describe('cli slack helpers', () => {
     expect(code).toBe(0);
     expect(storeRuntimeSecretInput).toHaveBeenCalledWith({
       runtimeHome,
-      name: 'SLACK_BOT_TOKEN',
+      name: defaultSlackBotSecretName,
       value: 'xoxb-valid-token',
       actor: 'cli:slack-connect',
     });
     expect(storeRuntimeSecretInput).toHaveBeenCalledWith({
       runtimeHome,
-      name: 'SLACK_APP_TOKEN',
+      name: defaultSlackAppSecretName,
       value: 'xapp-valid-token',
       actor: 'cli:slack-connect',
     });
@@ -802,7 +824,11 @@ describe('cli slack helpers', () => {
     mockRuntimeSecretStorage(runtimeHome);
 
     const { runSlackConnectCommand } = await import('@core/cli/slack.js');
-    const code = await runSlackConnectCommand(runtimeHome);
+    const code = await runSlackConnectCommand(
+      runtimeHome,
+      'recruiting_agent',
+      'Test',
+    );
 
     expect(code).toBe(0);
     const settings = loadRuntimeSettings(runtimeHome);
@@ -812,8 +838,8 @@ describe('cli slack helpers', () => {
     expect(
       settings.providerAccounts.slack_recruiting_agent.runtimeSecretRefs,
     ).toEqual({
-      bot_token: 'gantry-secret:SLACK_BOT_TOKEN',
-      app_token: 'gantry-secret:SLACK_APP_TOKEN',
+      bot_token: `gantry-secret:${recruitingSlackBotSecretName}`,
+      app_token: `gantry-secret:${recruitingSlackAppSecretName}`,
     });
     expect(
       settings.conversations.slack_recruiting_agent_c0123456789.providerAccount,
@@ -1035,7 +1061,7 @@ describe('cli slack helpers', () => {
     );
   });
 
-  it('updates sender policy without storing agent-qualified route keys in settings', async () => {
+  it('rejects --mode drop because sender policies are trigger-only', async () => {
     const runtimeHome = makeRuntimeHome();
 
     const result = await registerSlackMainGroup({
@@ -1053,6 +1079,7 @@ describe('cli slack helpers', () => {
     const sourceRoute = groupsStore.get('sl:C0123456789');
     groupsStore.set(routeKey, { ...sourceRoute, requiresTrigger: true });
 
+    const { error } = clackLogMock();
     const { runAgentCommand } = await import('@core/cli/group.js');
     const code = await runAgentCommand(runtimeHome, [
       'policy',
@@ -1063,7 +1090,10 @@ describe('cli slack helpers', () => {
       'drop',
     ]);
 
-    expect(code).toBe(0);
+    expect(code).toBe(1);
+    expect(error).toHaveBeenCalledWith(
+      'Invalid value for --mode. Sender policies are trigger-only; use trigger.',
+    );
     const settings = loadRuntimeSettings(runtimeHome);
     const bindingId = Object.entries(settings.bindings).find(
       ([, binding]) => binding.agent === result.folder,
@@ -1074,7 +1104,7 @@ describe('cli slack helpers', () => {
     );
     expect(
       settings.conversations.slack_default_c0123456789.senderPolicy,
-    ).toEqual({ allow: ['U123', 'U456'], mode: 'drop' });
+    ).toEqual({ allow: '*', mode: 'trigger' });
     expect(Object.values(settings.conversations)).not.toContainEqual(
       expect.objectContaining({
         externalId: expect.stringContaining('::agent:'),

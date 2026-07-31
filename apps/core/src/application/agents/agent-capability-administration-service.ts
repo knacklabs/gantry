@@ -49,6 +49,7 @@ import { nowIso } from '../../shared/time/datetime.js';
 import {
   buildSelectedCapabilities,
   canonicalToolReferenceForView,
+  semanticCapabilityDefinitionsForAccess,
   skillActionDefinitionsForAgent,
   skillActionDefinitionsForBindings,
 } from './agent-capability-skill-actions.js';
@@ -219,11 +220,18 @@ export class AgentCapabilityAdministrationService {
       );
     }
     const now = this.clock.now();
-    const semanticCapabilityDefinitions = await skillActionDefinitionsForAgent({
-      appId: input.appId,
-      agentId: input.agentId,
-      skillRepository: this.repositories.skills,
-    });
+    const existingSkillBindings =
+      await this.repositories.skills.listAgentSkillBindings({
+        appId: input.appId,
+        agentId: input.agentId,
+      });
+    const semanticCapabilityDefinitions =
+      await semanticCapabilityDefinitionsForAccess({
+        appId: input.appId,
+        skillBindings: existingSkillBindings,
+        skillRepository: this.repositories.skills,
+        toolRepository: this.repositories.tools,
+      });
     const selectedToolReferences = resolveSelectedToolReferences(
       input.capabilities,
       semanticCapabilityDefinitions,

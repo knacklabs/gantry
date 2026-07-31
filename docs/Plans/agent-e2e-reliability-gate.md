@@ -59,9 +59,9 @@ that response needs a separate contract decision.
 
 ## Decisions
 
-- [0083](../decisions/0083-public-session-conversation-aggregate.md): public
+- [0097](../decisions/0097-public-session-conversation-aggregate.md): public
   sessions are canonical conversation aggregates.
-- [0084](../decisions/0084-streamed-message-projection-timing.md): completed
+- [0098](../decisions/0098-streamed-message-projection-timing.md): completed
   streamed generations persist before run finalization.
 - Existing decisions 0008, 0013, and 0018 continue to govern Postgres
   persistence, runtime event exchange, and provider-neutral execution.

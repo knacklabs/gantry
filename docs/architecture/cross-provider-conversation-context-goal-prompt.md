@@ -25,10 +25,10 @@ Before every live agent turn, Gantry builds a transient context packet:
 
 - Channel message: current message plus the last 30 stored top-level messages
   before it.
-- Thread/reply-chain/topic message: thread root plus up to 50 stored messages
+- Thread/reply-chain/topic message: thread root plus up to 10 stored messages
   with the same canonical `thread_id`.
-- Long thread/reply-chain/topic: root plus first 10 replies plus latest 39
-  replies, deduped and ordered.
+- Long thread/reply-chain/topic: root plus latest 9 replies, deduped and
+  ordered.
 - Existing Gantry continuity/memory stays separate and is injected through the
   existing turn-context path.
 
@@ -70,8 +70,8 @@ present.
      message, timezone, and message repository.
    - Output: sectioned context data with `recentChannelContext`,
      `activeThreadContext`, `currentMessages`, and metadata counts.
-   - Keep constants internal for v1: channel limit 30, thread limit 50, long
-     thread first 10 plus latest 39.
+   - Keep constants internal for v1: channel limit 30, thread limit 10, long
+     thread root plus latest 9 replies.
 
 2. Add narrow message repository reads.
    - Read last N top-level inbound messages before a cursor/message.
@@ -161,7 +161,7 @@ Focused unit tests:
 - Context selector:
   - mid-channel tag includes last 30 top-level messages plus current message.
   - mid-thread tag includes root plus prior thread messages.
-  - long thread returns root plus first 10 plus latest 39.
+  - long thread returns root plus latest 9 replies.
   - unrelated threads are excluded.
   - Telegram topic uses stored `thread_id` messages only.
   - missing hydration degrades to stored messages.

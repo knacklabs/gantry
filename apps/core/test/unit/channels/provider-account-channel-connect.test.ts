@@ -57,6 +57,7 @@ describe('connectProviderAccountChannels', () => {
     let lostHandler: ((err: Error) => void) | undefined;
     let leaseValid = true;
     const lease = {
+      generation: 1,
       isValid: vi.fn(() => leaseValid),
       onLost: vi.fn((handler: (err: Error) => void) => {
         lostHandler = handler;
@@ -144,6 +145,7 @@ describe('connectProviderAccountChannels', () => {
     // connect outbound-only, as it does under ordinary lease contention.
     const lossError = new Error('inbound lease lost before connect');
     const lease = {
+      generation: 1,
       isValid: vi.fn(() => false),
       onLost: vi.fn((handler: (err: Error) => void) => {
         handler(lossError);
@@ -308,7 +310,7 @@ describe('connectProviderAccountChannels', () => {
     );
   });
 
-  it('fans out shared inbound chat metadata to every matching provider account', async () => {
+  it('persists standalone provider-account channel-connect metadata without a message', async () => {
     let firstOnChatMetadata: ChannelOpts['onChatMetadata'] | undefined;
     const opts = channelOpts();
     const create = vi.fn<Provider['create']>(async (channelCreateOpts) => {
@@ -370,6 +372,7 @@ describe('connectProviderAccountChannels', () => {
       true,
       { providerAccountId: 'slack_two' },
     );
+    expect(opts.onMessage).not.toHaveBeenCalled();
   });
 
   it('does not fan out messages already scoped by the inbound transport', async () => {

@@ -42,6 +42,7 @@ import {
 } from '../repositories/canonical-graph-repository.postgres.js';
 import { PostgresCanonicalJobRepository } from '../repositories/canonical-job-repository.postgres.js';
 import { PostgresCanonicalMessageRepository } from '../repositories/canonical-message-repository.postgres.js';
+import type { ProviderAttachmentCleanup } from '../repositories/provider-attachment-cleanup.postgres.js';
 import { PostgresCanonicalRouterStateRepository } from '../repositories/canonical-router-state-repository.postgres.js';
 import { PostgresCanonicalSessionRepository } from '../repositories/canonical-session-repository.postgres.js';
 import { createPostgresDomainRepositories } from '../repositories/domain-repositories.postgres.js';
@@ -101,16 +102,19 @@ export class PostgresRuntimeRepositoryBundle
       sessions?: SessionRuntimeOptions;
       liveAdmissionNotifier?: LiveAdmissionWorkItemNotifier;
       maxLiveAdmissionBacklog?: number;
+      cleanupProviderAttachment?: ProviderAttachmentCleanup;
     },
   ) {
     const repositories = createPostgresDomainRepositories(this.db, this.pool, {
       maxLiveAdmissionBacklog: this.options.maxLiveAdmissionBacklog,
+      cleanupProviderAttachment: this.options.cleanupProviderAttachment,
     });
     this.graph = new PostgresCanonicalGraphRepository(this.db);
     this.messages = new CanonicalMessageOpsService(
       new PostgresCanonicalMessageRepository(
         this.db,
         this.options.maxLiveAdmissionBacklog,
+        this.options.cleanupProviderAttachment,
       ),
       this.options.liveAdmissionNotifier,
     );
@@ -564,7 +568,9 @@ export class PostgresRuntimeRepositoryBundle
     cause: 'message' | 'job' | 'control' | 'manual';
   }): Promise<string | undefined> {
     assertSafeExecutionProviderId(input.executionProviderId);
-    const repositories = createPostgresDomainRepositories(this.db, this.pool);
+    const repositories = createPostgresDomainRepositories(this.db, this.pool, {
+      cleanupProviderAttachment: this.options.cleanupProviderAttachment,
+    });
     const session = await repositories.agentSessions.getAgentSession(
       input.agentSessionId as never,
     );
@@ -633,7 +639,9 @@ export class PostgresRuntimeRepositoryBundle
     resultSummary?: string | null;
     errorSummary?: string | null;
   }): Promise<void> {
-    const repositories = createPostgresDomainRepositories(this.db, this.pool);
+    const repositories = createPostgresDomainRepositories(this.db, this.pool, {
+      cleanupProviderAttachment: this.options.cleanupProviderAttachment,
+    });
     const run = await repositories.agentRuns.getAgentRun(input.runId as never);
     if (!run) return;
     const resultSummary =

@@ -6,8 +6,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createDefaultRuntimeSettings } from '@core/config/settings/runtime-settings-defaults.js';
 import type { RuntimeSettings } from '@core/config/settings/runtime-settings-types.js';
+import { runtimeSecretNameForAgent } from '@core/domain/provider/provider-runtime-secret-keys.js';
 
 const events: string[] = [];
+const defaultTelegramBotSecretName = runtimeSecretNameForAgent(
+  'telegram',
+  'main_agent',
+  'BOT_TOKEN',
+);
 const STALE_SETTINGS_MESSAGE =
   'Settings mutation is based on stale settings; reload latest desired state and retry.';
 const settingsWrites: Array<{
@@ -151,13 +157,13 @@ describe('persistOnboardingConfig', () => {
     expect(events).toEqual([
       'migrate:custom_schema',
       'loadDesired:custom_schema',
-      'secret:TELEGRAM_BOT_TOKEN:custom_schema',
+      `secret:${defaultTelegramBotSecretName}:custom_schema`,
       'write:custom_schema',
     ]);
     expect(settingsWrites).toHaveLength(1);
     expect(settingsWrites[0]?.telegramEnabled).toBe(true);
     expect(settingsWrites[0]?.telegramBotRef).toBe(
-      'gantry-secret:TELEGRAM_BOT_TOKEN',
+      `gantry-secret:${defaultTelegramBotSecretName}`,
     );
     expect(settingsWrites[0]?.previousSchema).toBe('gantry');
     expect(settingsWrites[0]?.agentHarness).toBe('deepagents');
@@ -368,15 +374,15 @@ describe('persistOnboardingConfig', () => {
     expect(stableJson(parsedDocument)).toBe(stableJson(storedDocument));
   });
 
-  it('preserves an enabled provider with stored refs when no new token is supplied', async () => {
+  it('preserves the exact stored Slack refs when no new token is supplied', async () => {
     desiredSettings.providers.slack.enabled = true;
     desiredSettings.providerAccounts.slack_default = {
       agentId: 'main_agent',
       provider: 'slack',
       label: 'Slack Default',
       runtimeSecretRefs: {
-        bot_token: 'gantry-secret:SLACK_BOT_TOKEN',
-        app_token: 'gantry-secret:SLACK_APP_TOKEN',
+        bot_token: 'gantry-secret:SLACK_SLACK_DEFAULT_EXISTING_BOT_TOKEN',
+        app_token: 'gantry-secret:SLACK_SLACK_DEFAULT_EXISTING_APP_TOKEN',
       },
     };
     const { persistOnboardingConfig } =
@@ -385,6 +391,7 @@ describe('persistOnboardingConfig', () => {
     await persistOnboardingConfig({
       runtimeHome: '/tmp/gantry',
       primaryProvider: 'slack',
+      hasStoredSlackSecretRefs: true,
       agentHarness: 'auto',
       credentialMode: 'gantry',
       memoryEnabled: true,
@@ -395,8 +402,8 @@ describe('persistOnboardingConfig', () => {
     expect(events).toEqual(['loadDesired:gantry', 'write:gantry']);
     expect(settingsWrites.at(-1)).toMatchObject({
       slackEnabled: true,
-      slackBotRef: 'gantry-secret:SLACK_BOT_TOKEN',
-      slackAppRef: 'gantry-secret:SLACK_APP_TOKEN',
+      slackBotRef: 'gantry-secret:SLACK_SLACK_DEFAULT_EXISTING_BOT_TOKEN',
+      slackAppRef: 'gantry-secret:SLACK_SLACK_DEFAULT_EXISTING_APP_TOKEN',
     });
   });
 
@@ -418,7 +425,7 @@ describe('persistOnboardingConfig', () => {
     expect(events).toEqual(['loadDesired:gantry', 'write:gantry']);
     expect(settingsWrites.at(-1)).toMatchObject({
       telegramEnabled: true,
-      telegramBotRef: 'gantry-secret:TELEGRAM_BOT_TOKEN',
+      telegramBotRef: `gantry-secret:${defaultTelegramBotSecretName}`,
     });
   });
 

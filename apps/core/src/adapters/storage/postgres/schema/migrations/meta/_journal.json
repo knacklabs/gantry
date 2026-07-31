@@ -796,8 +796,22 @@
     {
       "idx": 116,
       "version": "7",
-      "when": 1784928000000,
-      "tag": "0116_session_observability_index",
+      "when": 1785010800000,
+      "tag": "0116_runtime_lease_generations",
+      "breakpoints": true
+    },
+    {
+      "idx": 117,
+      "version": "7",
+      "when": 1785097200000,
+      "tag": "0117_message_attachment_metadata",
+      "breakpoints": true
+    },
+    {
+      "idx": 118,
+      "version": "7",
+      "when": 1785183600000,
+      "tag": "0118_session_observability_index",
       "breakpoints": true
     }
   ]

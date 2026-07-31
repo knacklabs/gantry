@@ -62,6 +62,16 @@ const PERMISSION_BACKGROUND_DEMOTE_MS = 120_000;
 const PROVIDER_FAILOVER_EXHAUSTED_MESSAGE =
   "The AI provider is unavailable and your message couldn't be processed after several retries. Please try again shortly.";
 type ProgressHeartbeat = ReturnType<typeof startGroupProgressHeartbeats>;
+
+function slackChannelRootThreadId(
+  chatJid: string,
+  externalMessageId: string | null | undefined,
+): string | undefined {
+  if (!/^sl:[CG][A-Z0-9]+$/i.test(chatJid)) return undefined;
+  const threadId = externalMessageId?.trim();
+  return /^\d+\.\d+$/.test(threadId ?? '') ? threadId : undefined;
+}
+
 export function createGroupProcessor(deps: GroupProcessingDeps) {
   const collectSessionMemory = deps.collectSessionMemory;
   const ops = () => {
@@ -88,10 +98,11 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
     }
     const scopedQueue = options.queued === true || threadId !== undefined;
     const opsRepository = ops();
+    const replayCursor = await deps.getCursor(queueJid);
     const replay = await collectPendingMessagesSince({
       getMessagesSince: opsRepository.getMessagesSince.bind(opsRepository),
       chatJid,
-      sinceCursor: await deps.getCursor(queueJid),
+      sinceCursor: replayCursor,
       pageSize: config.MESSAGE_FETCH_PAGE_SIZE,
       maxMessages: config.MAX_MESSAGES_PER_PROMPT,
       options: {
@@ -112,6 +123,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
     const activeThreadId = firstThreadQueueId(
       threadId,
       latestMessage.thread_id,
+      slackChannelRootThreadId(chatJid, latestMessage.external_message_id),
     );
     let firstProgressNotified = false;
     const notifyFirstProgress = async () => {
@@ -206,12 +218,18 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
       return cmdResult.success;
     }
     if (
-      !groupTurnHasRequiredTrigger({
+      !(await groupTurnHasRequiredTrigger({
         group,
         chatJid,
         triggerPattern: config.getTriggerPattern(group.trigger),
         messages: missedMessages,
-      })
+        continuation: {
+          threadId,
+          hasPriorCursor: replayCursor.trim().length > 0,
+          messageRepository: opsRepository,
+          pageSize: config.MESSAGE_FETCH_PAGE_SIZE,
+        },
+      }))
     ) {
       deps.setCursor(
         queueJid,

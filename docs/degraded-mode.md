@@ -22,20 +22,20 @@ The Codex CLI is itself a sanctioned runtime — a Codex session reads the same
 
 - **Exploration**: a read-only Codex session, or `codex --profile explore`
   (gpt-5.6-terra @ high, `.codex/explore.config.toml`).
-- **Planning**: the `planner-high` agent with `.agents/prompts/planner.md` —
+- **Planning**: the `planner-high` agent with `factory/prompts/planner.md` —
   the plan grill and `forge plan save` gates apply unchanged.
 - **Implementation**: a Codex session following
-  `.agents/prompts/implementer.md`, one bounded task at a time.
+  `factory/prompts/implementer.md`, one bounded task at a time.
 - **Testing / review / functional**: same specialist agents, same recorders:
 
 ```bash
-python3 .agents/scripts/record_test_from_json.py --kind automated --input /tmp/automated.json
-python3 .agents/scripts/verify.py
-python3 .agents/scripts/record_review_from_json.py --aspect quality --input /tmp/quality.json
-python3 .agents/scripts/record_review_from_json.py --aspect performance --input /tmp/performance.json
-python3 .agents/scripts/record_review_from_json.py --aspect security --input /tmp/security.json
-python3 .agents/scripts/record_test_from_json.py --kind functional --input /tmp/functional.json
-python3 .agents/scripts/pr_ready.py
+python3 factory/scripts/record_test_from_json.py --kind automated --input /tmp/automated.json
+python3 factory/scripts/verify.py
+python3 factory/scripts/record_review_from_json.py --aspect quality --input /tmp/quality.json
+python3 factory/scripts/record_review_from_json.py --aspect performance --input /tmp/performance.json
+python3 factory/scripts/record_review_from_json.py --aspect security --input /tmp/security.json
+python3 factory/scripts/record_test_from_json.py --kind functional --input /tmp/functional.json
+python3 factory/scripts/pr_ready.py
 ```
 
 The artifacts and gates never change — degraded mode swaps the coordinator,

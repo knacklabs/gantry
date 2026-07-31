@@ -29,8 +29,10 @@ import type {
 } from '../domain/ports/conversation-context-hydration.js';
 
 export type {
+  ConversationContextHydrationCoverage,
   ConversationContextHydrationRequest,
   ConversationContextHydrationResult,
+  HydrationRequestObservation,
 } from '../domain/ports/conversation-context-hydration.js';
 
 export const CHANNEL_STREAM_UPDATE_INTERVAL_MS = {

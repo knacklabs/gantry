@@ -761,6 +761,54 @@ describe('Postgres migration journal', () => {
     );
     expect(schema).toContain('table.messageId');
     expect(schema).toContain('table.id');
+
+    const attachmentMetadata = journal.entries.find(
+      (entry) => entry.tag === '0117_message_attachment_metadata',
+    );
+    expect(attachmentMetadata).toMatchObject({ idx: 117 });
+
+    const metadataMigration = fs.readFileSync(
+      path.resolve(
+        'apps/core/src/adapters/storage/postgres/schema/migrations/0117_message_attachment_metadata.sql',
+      ),
+      'utf8',
+    );
+    expect(metadataMigration).toContain(
+      '"message_attachments" ADD COLUMN IF NOT EXISTS "file_name" text',
+    );
+    expect(metadataMigration).toContain(
+      '"message_attachments" ADD COLUMN IF NOT EXISTS "provider_fetch_json" jsonb',
+    );
+    expect(metadataMigration).toContain(
+      '"message_attachments" ADD COLUMN IF NOT EXISTS "deleted_at" timestamp with time zone',
+    );
+    expect(metadataMigration).toContain(
+      'SET "provider_fetch_json" = jsonb_build_object(',
+    );
+    expect(metadataMigration).toContain("'provider', 'slack'");
+    expect(metadataMigration).toContain("'kind', 'file_id'");
+    expect(metadataMigration).toContain('message."provider" = \'slack\'');
+    expect(metadataMigration).toContain(
+      'attachment."provider_fetch_json" IS NULL',
+    );
+    expect(metadataMigration).toContain(
+      "attachment.\"external_ref_json\"->>'kind' = 'message_attachment'",
+    );
+    expect(metadataMigration).toContain("'message-attachment:external:'");
+    expect(metadataMigration).toContain("'message-attachment:index:'");
+    expect(metadataMigration).toContain('row_number() OVER (');
+    expect(metadataMigration).toContain('generate_series(');
+    expect(metadataMigration).toContain('available.occurrence_ordinal');
+    expect(
+      metadataMigration,
+      'migration 0117 must assign each rewrite its collision-free target ID',
+    ).toContain('SET target_id = available.candidate_id');
+    expect(metadataMigration).toContain(
+      "jsonb_build_object('kind', 'message_attachment_index')",
+    );
+    expect(schema).toContain("fileName: text('file_name')");
+    expect(schema).toContain("providerFetchJson: jsonb('provider_fetch_json')");
+    expect(schema).toContain("deletedAt: timestamp('deleted_at'");
   });
 
   it('registers scope-key and digest scope columns/indexes without legacy backfill', () => {

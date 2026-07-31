@@ -8,8 +8,10 @@ import type {
   ThinkingOverride,
 } from '../domain/types.js';
 import type {
+  ConversationContextHydrationCoverage,
   ConversationContextHydrationRequest,
   ConversationContextHydrationResult,
+  HydrationRequestObservation,
 } from '../domain/ports/conversation-context-hydration.js';
 import type {
   RuntimeAgentSessionRepository,
@@ -41,8 +43,10 @@ import type { AgentLockStatus } from './proactive-surfacing-gate.js';
 import type { GroupAgentRunResult } from './group-agent-runner.js';
 
 export type {
+  ConversationContextHydrationCoverage,
   ConversationContextHydrationRequest,
   ConversationContextHydrationResult,
+  HydrationRequestObservation,
 };
 
 export type GroupProcessingRepository = RuntimeAgentSessionRepository &
