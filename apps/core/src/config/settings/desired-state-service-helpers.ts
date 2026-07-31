@@ -5,6 +5,7 @@ import {
 } from '../../domain/agent/agent-folder-id.js';
 import type { AppId } from '../../domain/app/app.js';
 import type {
+  Conversation,
   ConversationId,
   UserId,
 } from '../../domain/conversation/conversation.js';
@@ -66,6 +67,12 @@ export function configuredAgentConfig(
     relationshipMode: agent?.relationshipMode,
   };
   return Object.values(config).some(Boolean) ? config : undefined;
+}
+
+export function defaultRequiresTriggerForConversationKind(
+  kind: Conversation['kind'],
+): boolean {
+  return kind !== 'direct';
 }
 
 function canonicalRouteConversationId(

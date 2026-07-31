@@ -24,6 +24,7 @@ import {
   groupByAgentId,
   groupByConversationId,
   storedConversationKey,
+  defaultRequiresTriggerForConversationKind,
 } from './desired-state-service-helpers.js';
 import type { SettingsDesiredStateServiceDeps } from './desired-state-service-types.js';
 import type {
@@ -53,17 +54,25 @@ export async function exportCurrentDesiredState(input: {
   const conversations: Record<string, RuntimeConfiguredConversation> = {};
   const bindings: Record<string, RuntimeConfiguredBinding> = {};
 
-  const groupEntries = Object.entries(groups);
   const storedAgents = await deps.repositories.agents.listAgents(appId);
   const activeStoredAgents = storedAgents.filter(
     (agent) => agent.status === 'active',
   );
   const agentIds = [
     ...new Set([
-      ...groupEntries.map(([, group]) => agentIdForFolder(group.folder)),
       ...activeStoredAgents.map((agent) => agent.id),
+      ...Object.keys(settings.agents).map(agentIdForFolder),
+      ...Object.values(settings.bindings).map((binding) =>
+        agentIdForFolder(binding.agent),
+      ),
     ]),
   ];
+  const groupEntries =
+    agentIds.length === 0
+      ? Object.entries(groups)
+      : Object.entries(groups).filter(([, group]) =>
+          agentIds.includes(agentIdForFolder(group.folder)),
+        );
   const [
     toolBindingRows,
     toolSourceRows,
@@ -687,10 +696,4 @@ function publicThreadIdFromCanonical(input: {
   return input.canonicalThreadId.startsWith(prefix)
     ? input.canonicalThreadId.slice(prefix.length)
     : input.canonicalThreadId;
-}
-
-function defaultRequiresTriggerForConversationKind(
-  kind: Conversation['kind'],
-): boolean {
-  return kind !== 'direct';
 }
