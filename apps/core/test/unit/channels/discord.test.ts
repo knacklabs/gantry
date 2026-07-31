@@ -2111,9 +2111,10 @@ describe('DiscordChannel', () => {
     sockets[0]!.close();
     await vi.advanceTimersByTimeAsync(1_000);
     sockets[1]!.receive({ op: 10, d: { heartbeat_interval: 60_000 } });
+    sockets[1]!.receive({ op: 0, t: 'RESUMED', s: 4, d: {} });
 
     expect(sockets).toHaveLength(2);
-    expect(distrustHistoryCoverage).toHaveBeenCalledOnce();
+    expect(distrustHistoryCoverage).toHaveBeenCalledTimes(2);
     expect(distrustHistoryCoverage).toHaveBeenCalledWith([
       'discord-one',
       'discord-two',
@@ -2188,6 +2189,11 @@ describe('DiscordChannel', () => {
 
       expect(distrustHistoryCoverage).toHaveBeenCalledOnce();
       expect(order).toEqual(['distrust', 'close']);
+      await vi.advanceTimersByTimeAsync(1_000);
+      socket.receive({ op: 0, t: 'READY', s: 1, d: { session_id: 'next' } });
+
+      expect(distrustHistoryCoverage).toHaveBeenCalledTimes(2);
+      expect(order).toEqual(['distrust', 'close', 'distrust']);
       channel.disconnect();
     },
   );

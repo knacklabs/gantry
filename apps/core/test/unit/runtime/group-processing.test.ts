@@ -16,7 +16,14 @@ import { buildProviderSessionAccessFingerprint } from '@core/runtime/provider-se
 import { createAgentExecutionAdapterRegistry } from '@core/application/agent-execution/agent-execution-adapter-registry.js';
 import { stableSha256Json } from '@core/shared/stable-hash.js';
 import { createOperationCounter } from '../../harness/response-latency-harness.js';
-import type { ConversationHistoryCoverageRepository } from '@core/domain/ports/conversation-history-coverage.js';
+import { ConversationHistoryCoverageDistrust } from '@core/app/bootstrap/conversation-history-coverage-distrust.js';
+import { connectProviderAccountChannels } from '@core/channels/provider-account-channel-connect.js';
+import type { ChannelAdapter } from '@core/channels/channel-provider.js';
+import type { Provider } from '@core/channels/provider-registry.js';
+import type {
+  ConversationHistoryCoverage,
+  ConversationHistoryCoverageRepository,
+} from '@core/domain/ports/conversation-history-coverage.js';
 
 // ---------------------------------------------------------------------------
 // Mocks
@@ -6555,6 +6562,139 @@ describe('createGroupProcessor', () => {
       expect(historyCoverage.readProviderGeneration).not.toHaveBeenCalled();
       expect(hydrateConversationContext).not.toHaveBeenCalled();
       expect(historyCoverage.upsertCoverage).not.toHaveBeenCalled();
+    });
+
+    it('hydrates after a successful-handshake re-fence invalidates down-window coverage', async () => {
+      let providerGeneration = 0;
+      let coverage: ConversationHistoryCoverage | null = null;
+      const historyCoverage: ConversationHistoryCoverageRepository = {
+        readProviderGeneration: vi.fn(async () => providerGeneration),
+        bumpProviderGeneration: vi.fn(async () => ++providerGeneration),
+        getCoverage: vi.fn(async () => ({
+          coverage,
+          currentProviderGeneration: providerGeneration,
+          isCurrentGeneration:
+            coverage?.providerGeneration === providerGeneration,
+        })),
+        upsertCoverage: vi.fn(async (input) => {
+          if (input.providerGeneration !== providerGeneration) {
+            return {
+              status: 'stale' as const,
+              currentGeneration: providerGeneration,
+            };
+          }
+          coverage = input;
+          return { status: 'written' as const, coverage };
+        }),
+      };
+      const distrust = new ConversationHistoryCoverageDistrust(
+        () => historyCoverage,
+        { warn: vi.fn() },
+      );
+      const group = makeGroup({
+        conversationId: 'conversation:slack:C123',
+        providerAccountId: 'slack-account-1',
+        requiresTrigger: false,
+        conversationKind: 'channel',
+      });
+      const current = makeMessage({
+        id: 'current',
+        chat_jid: 'sl:C123',
+        external_message_id: '1710000004.000000',
+        timestamp: '2024-01-01T00:04:00.000Z',
+      });
+      const hydrateConversationContext = vi.fn().mockResolvedValue({
+        providerId: 'slack',
+        attempted: true,
+        messages: [],
+        coverage: {
+          requestedLatestMessage: {
+            externalMessageId: current.external_message_id,
+            timestamp: current.timestamp,
+          },
+          scope: 'thread',
+          requests: [],
+          completeness: { kind: 'server_confirmed', exhausted: true },
+          deliveredMessageCount: 0,
+          threadRoot: 'not_applicable',
+        },
+      });
+      const connectBarrier = deferred();
+      const channelAdapter: ChannelAdapter = {
+        name: 'slack',
+        connect: vi.fn(() => connectBarrier.promise),
+        disconnect: vi.fn(async () => undefined),
+        isConnected: vi.fn(() => true),
+        ownsJid: vi.fn(() => true),
+        sendMessage: vi.fn(async () => undefined),
+        hydrateConversationContext,
+      };
+      const provider: Provider = {
+        id: 'slack',
+        label: 'Slack',
+        jidPrefix: 'sl:',
+        folderPrefix: 'slack_',
+        isGroupJid: () => true,
+        formatting: 'mrkdwn',
+        isEnabled: () => true,
+        create: vi.fn(async () => channelAdapter),
+        setup: {
+          envKeys: [],
+          describe: () => 'Slack',
+          run: async () => undefined,
+        },
+      };
+      const { deps } = setupHappyPath({ group, messages: [current] });
+      deps.channelRuntime = makeChannel({ hydrateConversationContext });
+      deps.getConversationHistoryCoverageRepository = () => historyCoverage;
+      deps.getHistoryCoverageDistrustEpoch = (providerAccountId) =>
+        distrust.readEpoch(providerAccountId);
+      const { processGroupMessages } = createGroupProcessor(deps);
+
+      const connectPromise = connectProviderAccountChannels({
+        provider,
+        appId: 'app-one',
+        runtimeSettings: {
+          providerAccounts: {
+            'slack-account-1': {
+              provider: 'slack',
+              agentId: 'agent:one',
+              runtimeSecretRefs: { app_token: 'app', bot_token: 'bot' },
+            },
+          },
+          runtime: {},
+        },
+        channelOpts: {
+          onMessage: vi.fn(async () => undefined),
+          onChatMetadata: vi.fn(async () => undefined),
+          conversationRoutes: () => ({}),
+          distrustHistoryCoverage: distrust.distrust,
+        },
+        inboundEnabled: true,
+        connectedChannels: [],
+        connectedChannelLeases: [],
+        inboundLeasePrefix: 'runtime:provider-inbound',
+        logger: { info: vi.fn(), warn: vi.fn() },
+      });
+      await vi.waitFor(() =>
+        expect(distrust.readEpoch('slack-account-1')).toEqual({
+          current: 1,
+          durable: 1,
+        }),
+      );
+      await processGroupMessages('sl:C123');
+      expect(historyCoverage.upsertCoverage).toHaveBeenLastCalledWith(
+        expect.objectContaining({ complete: true, providerGeneration: 1 }),
+      );
+
+      connectBarrier.resolve();
+      await connectPromise;
+      await Promise.resolve();
+      await processGroupMessages('sl:C123');
+
+      expect(hydrateConversationContext).toHaveBeenCalledTimes(2);
+      expect(historyCoverage.getCoverage).toHaveBeenCalledTimes(2);
+      expect(coverage?.providerGeneration).toBe(2);
     });
 
     it.each([

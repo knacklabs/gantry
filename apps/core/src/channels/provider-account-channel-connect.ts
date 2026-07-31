@@ -229,11 +229,11 @@ export async function connectProviderAccountChannels(input: {
     }
 
     try {
-      if (
+      const shouldDistrustHistoryCoverage =
         providerInbound &&
         channel.hydrateConversationContext &&
-        input.provider.id !== 'telegram'
-      ) {
+        input.provider.id !== 'telegram';
+      if (shouldDistrustHistoryCoverage) {
         input.channelOpts.distrustHistoryCoverage?.(inboundProviderAccountIds);
       }
       await channel.connect({
@@ -241,6 +241,9 @@ export async function connectProviderAccountChannels(input: {
         interactionCallbacks: providerInbound,
       });
       channelConnected = true;
+      if (shouldDistrustHistoryCoverage) {
+        input.channelOpts.distrustHistoryCoverage?.(inboundProviderAccountIds);
+      }
       if (
         providerInboundLease &&
         (providerInboundLeaseLost || !providerInboundLease.isValid())

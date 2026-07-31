@@ -15,6 +15,7 @@ export class DiscordGatewayConnection {
   private shuttingDown = false;
   private reconnectAttempts = 0;
   private reconnectDistrusted = false;
+  private reconnectNeedsRefence = false;
 
   constructor(
     private readonly input: {
@@ -112,6 +113,13 @@ export class DiscordGatewayConnection {
     } else if (payload.t === 'RESUMED') {
       this.reconnectAttempts = 0;
     }
+    if (
+      (payload.t === 'READY' || payload.t === 'RESUMED') &&
+      this.reconnectNeedsRefence
+    ) {
+      this.reconnectNeedsRefence = false;
+      this.input.onReconnect?.();
+    }
     await this.input.onDispatch(payload);
   }
 
@@ -163,6 +171,7 @@ export class DiscordGatewayConnection {
   private distrustReconnectTransition(): void {
     if (this.reconnectDistrusted) return;
     this.reconnectDistrusted = true;
+    this.reconnectNeedsRefence = true;
     this.input.onReconnect?.();
   }
 

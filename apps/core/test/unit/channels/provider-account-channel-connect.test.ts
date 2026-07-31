@@ -45,7 +45,7 @@ function channelOpts(onMessage = vi.fn(async () => undefined)): ChannelOpts {
 }
 
 describe('connectProviderAccountChannels', () => {
-  it('distrusts every account sharing an inbound hydration transport before connect', async () => {
+  it('distrusts every account sharing an inbound hydration transport before and after connect', async () => {
     const order: string[] = [];
     const activeChannel = channel();
     activeChannel.hydrateConversationContext = vi.fn(async () => ({
@@ -89,14 +89,19 @@ describe('connectProviderAccountChannels', () => {
       logger: { info: vi.fn(), warn: vi.fn() },
     });
 
-    expect(distrustHistoryCoverage).toHaveBeenCalledOnce();
-    expect(distrustHistoryCoverage).toHaveBeenCalledWith([
+    expect(distrustHistoryCoverage).toHaveBeenCalledTimes(2);
+    expect(distrustHistoryCoverage).toHaveBeenNthCalledWith(1, [
+      'slack_one',
+      'slack_two',
+    ]);
+    expect(distrustHistoryCoverage).toHaveBeenNthCalledWith(2, [
       'slack_one',
       'slack_two',
     ]);
     expect(order).toEqual([
       'distrust:slack_one,slack_two',
       'connect',
+      'distrust:slack_one,slack_two',
       'connect',
     ]);
   });
