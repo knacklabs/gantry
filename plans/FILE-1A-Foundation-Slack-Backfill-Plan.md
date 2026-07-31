@@ -86,7 +86,7 @@ fetch identity.
 
 ### Non-goals
 
-- Discord/Teams (1B / D-0032); deletion EVENT routing; ephemerality capture;
+- Discord/Teams (1B / D-0034); deletion EVENT routing; ephemerality capture;
   the search tool and its index; version-resolution UX; migrating LIVE
   attachment reads behind the resolver (program lane, explicitly not
   claimed here).
@@ -142,7 +142,7 @@ seams are re-asserted at that boundary.
 | UI | **N-A** | Chat copy only (honest failure lines). |
 | Docs | **Changed** | Program doc committed; setup guidance; PR carries the files:read note. |
 | Tests | **Changed** | Migration/journal sync, preservation falsification, resolver unit fakes, dedicated Postgres proofs, taxonomy assertions. |
-| Deferred | **Deferred** | Discord (1B), Teams (D-0032), deletion events, ephemerality, search tool + index, version UX, live-read migration behind the resolver — all staged in the program doc. |
+| Deferred | **Deferred** | Discord (1B), Teams (D-0034), deletion events, ephemerality, search tool + index, version UX, live-read migration behind the resolver — all staged in the program doc. |
 
 ## Task Decomposition
 
