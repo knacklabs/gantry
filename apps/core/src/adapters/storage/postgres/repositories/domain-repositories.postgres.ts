@@ -1180,7 +1180,7 @@ export class PostgresMessageRepository implements MessageRepository {
           .limit(1);
         targetMessageId = (duplicateRows[0]?.id ?? message.id) as Message['id'];
       }
-      await tx
+      const [messageUpsertResult] = await tx
         .insert(pgSchema.messagesPostgres)
         .values({
           id: targetMessageId,
@@ -1215,17 +1215,28 @@ export class PostgresMessageRepository implements MessageRepository {
             deliveredAt: message.deliveredAt ?? null,
             deliveryError: message.deliveryError ?? null,
           },
+        })
+        .returning({
+          inserted: sql<boolean>`(xmax = 0)`,
         });
+      const messageInserted = messageUpsertResult?.inserted === true;
       await tx
         .delete(pgSchema.messagePartsPostgres)
         .where(eq(pgSchema.messagePartsPostgres.messageId, targetMessageId));
-      await lockCanonicalMessageAttachments(tx, targetMessageId);
-      const existingAttachments = await tx
-        .select()
-        .from(pgSchema.messageAttachmentsPostgres)
-        .where(
-          eq(pgSchema.messageAttachmentsPostgres.messageId, targetMessageId),
-        );
+      if (!messageInserted) {
+        await lockCanonicalMessageAttachments(tx, targetMessageId);
+      }
+      const existingAttachments = messageInserted
+        ? []
+        : await tx
+            .select()
+            .from(pgSchema.messageAttachmentsPostgres)
+            .where(
+              eq(
+                pgSchema.messageAttachmentsPostgres.messageId,
+                targetMessageId,
+              ),
+            );
       const existingAttachmentsById = new Map(
         existingAttachments.map((attachment) => [attachment.id, attachment]),
       );
@@ -1259,11 +1270,13 @@ export class PostgresMessageRepository implements MessageRepository {
           messageId: targetMessageId,
           storageRef,
         }));
-      await tx
-        .delete(pgSchema.messageAttachmentsPostgres)
-        .where(
-          eq(pgSchema.messageAttachmentsPostgres.messageId, targetMessageId),
-        );
+      if (!messageInserted) {
+        await tx
+          .delete(pgSchema.messageAttachmentsPostgres)
+          .where(
+            eq(pgSchema.messageAttachmentsPostgres.messageId, targetMessageId),
+          );
+      }
       if (message.parts.length > 0) {
         await tx.insert(pgSchema.messagePartsPostgres).values(
           message.parts.map((part, ordinal) => ({

@@ -177,6 +177,7 @@ export class PostgresCanonicalMessageRepository {
   async cleanupRemovedProviderAttachments(
     storageRefs: readonly RemovedProviderAttachment[],
   ): Promise<void> {
+    if (storageRefs.length === 0) return;
     await cleanupProviderAttachments(
       this.db,
       storageRefs,
@@ -266,7 +267,7 @@ export class PostgresCanonicalMessageRepository {
         tx,
       );
     }
-    await tx
+    const [messageUpsertResult] = await tx
       .insert(pgSchema.messagesPostgres)
       .values({
         id: canonicalMessageId,
@@ -300,7 +301,11 @@ export class PostgresCanonicalMessageRepository {
           deliveredAt: msg.delivered_at ?? null,
           deliveryError: msg.delivery_error ?? null,
         },
+      })
+      .returning({
+        inserted: sql<boolean>`(xmax = 0)`,
       });
+    const messageInserted = messageUpsertResult?.inserted === true;
     await tx
       .insert(pgSchema.messagePartsPostgres)
       .values({
@@ -321,24 +326,42 @@ export class PostgresCanonicalMessageRepository {
       });
     let removedProviderStorageRefs: RemovedProviderAttachment[] = [];
     if (msg.attachments !== undefined) {
-      await lockCanonicalMessageAttachments(tx, canonicalMessageId);
       const incomingAttachments = msg.attachments;
-      const existingAttachmentRows = await tx
-        .select({
-          id: pgSchema.messageAttachmentsPostgres.id,
-          externalRefJson: pgSchema.messageAttachmentsPostgres.externalRefJson,
-          storageRef: pgSchema.messageAttachmentsPostgres.storageRef,
-          fileName: pgSchema.messageAttachmentsPostgres.fileName,
-          contentType: pgSchema.messageAttachmentsPostgres.contentType,
-          sizeBytes: pgSchema.messageAttachmentsPostgres.sizeBytes,
-          providerFetchJson:
-            pgSchema.messageAttachmentsPostgres.providerFetchJson,
-          deletedAt: pgSchema.messageAttachmentsPostgres.deletedAt,
-        })
-        .from(pgSchema.messageAttachmentsPostgres)
-        .where(
-          eq(pgSchema.messageAttachmentsPostgres.messageId, canonicalMessageId),
-        );
+      const attachmentMetadataColumns = {
+        id: pgSchema.messageAttachmentsPostgres.id,
+        externalRefJson: pgSchema.messageAttachmentsPostgres.externalRefJson,
+        storageRef: pgSchema.messageAttachmentsPostgres.storageRef,
+        fileName: pgSchema.messageAttachmentsPostgres.fileName,
+        contentType: pgSchema.messageAttachmentsPostgres.contentType,
+        sizeBytes: pgSchema.messageAttachmentsPostgres.sizeBytes,
+        providerFetchJson:
+          pgSchema.messageAttachmentsPostgres.providerFetchJson,
+        deletedAt: pgSchema.messageAttachmentsPostgres.deletedAt,
+      };
+      if (!messageInserted) {
+        await lockCanonicalMessageAttachments(tx, canonicalMessageId);
+      }
+      const existingAttachmentRows = messageInserted
+        ? []
+        : incomingAttachments.length > 0
+          ? await tx
+              .select(attachmentMetadataColumns)
+              .from(pgSchema.messageAttachmentsPostgres)
+              .where(
+                eq(
+                  pgSchema.messageAttachmentsPostgres.messageId,
+                  canonicalMessageId,
+                ),
+              )
+          : await tx
+              .delete(pgSchema.messageAttachmentsPostgres)
+              .where(
+                eq(
+                  pgSchema.messageAttachmentsPostgres.messageId,
+                  canonicalMessageId,
+                ),
+              )
+              .returning(attachmentMetadataColumns);
       const existingAttachmentMetadata = existingAttachmentMetadataMaps(
         existingAttachmentRows,
       );
@@ -381,11 +404,16 @@ export class PostgresCanonicalMessageRepository {
           messageId: canonicalMessageId,
           storageRef,
         }));
-      await tx
-        .delete(pgSchema.messageAttachmentsPostgres)
-        .where(
-          eq(pgSchema.messageAttachmentsPostgres.messageId, canonicalMessageId),
-        );
+      if (!messageInserted && incomingAttachments.length > 0) {
+        await tx
+          .delete(pgSchema.messageAttachmentsPostgres)
+          .where(
+            eq(
+              pgSchema.messageAttachmentsPostgres.messageId,
+              canonicalMessageId,
+            ),
+          );
+      }
       if (replacementAttachmentRows.length > 0) {
         await tx
           .insert(pgSchema.messageAttachmentsPostgres)

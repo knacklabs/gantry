@@ -8,10 +8,17 @@ import {
   PostgresProviderAccountRepository,
 } from '@core/adapters/storage/postgres/repositories/domain-repositories.postgres.js';
 import { PostgresOutboundDeliveryRepository } from '@core/adapters/storage/postgres/repositories/outbound-delivery-repository.postgres.js';
+import * as pgSchema from '@core/adapters/storage/postgres/schema/schema.js';
 import {
   conversationInstallsPostgres,
   providerAccountsPostgres,
 } from '@core/adapters/storage/postgres/schema/providers.js';
+
+function messageUpsertResult(inserted = false) {
+  return {
+    returning: vi.fn(async () => [{ inserted }]),
+  };
+}
 
 describe('createPostgresDomainRepositories', () => {
   it('wires outbound delivery repository into the domain bundle', () => {
@@ -100,31 +107,24 @@ describe('PostgresConversationRepository', () => {
 describe('PostgresMessageRepository', () => {
   it('drops an incoming provider ref when no current attachment row carries it', async () => {
     let insertedAttachmentRows: Array<{ storageRef: string | null }> = [];
-    const select = vi
-      .fn()
-      .mockReturnValueOnce({
-        from: vi.fn(() => ({
-          innerJoin: vi.fn(() => ({
-            where: vi.fn(() => ({
-              limit: vi.fn(async () => [
-                {
-                  providerAccountId: 'slack-account',
-                  providerId: 'slack',
-                },
-              ]),
-            })),
+    const select = vi.fn().mockReturnValueOnce({
+      from: vi.fn(() => ({
+        innerJoin: vi.fn(() => ({
+          where: vi.fn(() => ({
+            limit: vi.fn(async () => [
+              {
+                providerAccountId: 'slack-account',
+                providerId: 'slack',
+              },
+            ]),
           })),
         })),
-      })
-      .mockReturnValueOnce({
-        from: vi.fn(() => ({
-          where: vi.fn(async () => []),
-        })),
-      });
+      })),
+    });
     const tx = {
       execute: vi.fn(async () => undefined),
       select,
-      insert: vi.fn(() => ({
+      insert: vi.fn((table: unknown) => ({
         values: vi.fn((values: unknown) => {
           if (Array.isArray(values)) {
             insertedAttachmentRows = values as Array<{
@@ -132,7 +132,9 @@ describe('PostgresMessageRepository', () => {
             }>;
           }
           return {
-            onConflictDoUpdate: vi.fn(async () => undefined),
+            onConflictDoUpdate: vi.fn(() =>
+              messageUpsertResult(table === pgSchema.messagesPostgres),
+            ),
           };
         }),
       })),
@@ -167,6 +169,11 @@ describe('PostgresMessageRepository', () => {
 
     expect(insertedAttachmentRows).toHaveLength(1);
     expect(insertedAttachmentRows[0]?.storageRef).toBeNull();
+    expect(tx.execute).not.toHaveBeenCalled();
+    expect(tx.select).toHaveBeenCalledTimes(1);
+    expect(tx.delete).not.toHaveBeenCalledWith(
+      pgSchema.messageAttachmentsPostgres,
+    );
   });
 
   it('skips unlink when a stale domain save restores the ref before cleanup revalidation', async () => {
@@ -204,7 +211,7 @@ describe('PostgresMessageRepository', () => {
       select,
       insert: vi.fn(() => ({
         values: vi.fn(() => ({
-          onConflictDoUpdate: vi.fn(async () => undefined),
+          onConflictDoUpdate: vi.fn(() => messageUpsertResult()),
         })),
       })),
       delete: vi.fn(() => ({
@@ -264,6 +271,7 @@ describe('PostgresMessageRepository', () => {
       'cleanup:lock',
       'cleanup:recheck-restored',
     ]);
+    expect(tx.execute).toHaveBeenCalledTimes(1);
     expect(cleanupMaterialization).not.toHaveBeenCalled();
   });
 });

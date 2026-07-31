@@ -13,7 +13,7 @@ export type ProviderAttachmentCleanup = (storageRef: string) => Promise<void>;
  * 1. Only the resolver mints provider refs through its identity-bound CAS.
  *    Writers may carry forward only the matched row's current provider ref;
  *    every other incoming provider ref is dropped while fetch identity stays.
- * 2. Every persisted-ref unlink is handed off after commit to the single
+ * 2. Every non-empty displaced-ref set is handed off after commit to the
  *    reference-aware cleanup below (advisory lock plus zero-reference recheck).
  * 3. A provider ref whose file is missing self-heals on open from fetch identity.
  */
@@ -43,6 +43,7 @@ export async function cleanupRemovedProviderAttachments(
   removedAttachments: readonly RemovedProviderAttachment[],
   cleanupProviderAttachment: ProviderAttachmentCleanup,
 ): Promise<void> {
+  if (removedAttachments.length === 0) return;
   await Promise.all(
     removedAttachments.map(async ({ messageId, storageRef }) => {
       try {

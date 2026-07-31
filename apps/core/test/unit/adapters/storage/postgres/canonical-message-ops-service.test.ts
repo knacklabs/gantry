@@ -81,6 +81,12 @@ function liveAdmissionSelectMock() {
   }));
 }
 
+function messageUpsertResult(inserted = false) {
+  return {
+    returning: vi.fn(async () => [{ inserted }]),
+  };
+}
+
 describe('CanonicalMessageOpsService', () => {
   it('does not pass an after boundary for an empty group cursor', async () => {
     const listInboundMessages = vi.fn().mockResolvedValue([]);
@@ -745,7 +751,7 @@ describe('CanonicalMessageOpsService', () => {
       select: vi.fn(),
       insert: vi.fn(() => ({
         values: vi.fn(() => ({
-          onConflictDoUpdate: vi.fn(async () => undefined),
+          onConflictDoUpdate: vi.fn(() => messageUpsertResult()),
         })),
       })),
       delete: vi.fn(() => ({
@@ -781,8 +787,21 @@ describe('CanonicalMessageOpsService', () => {
     expect(tx.delete).not.toHaveBeenCalled();
   });
 
-  it('clears stored attachment rows when duplicate hydrated upserts explicitly pass empty attachments', async () => {
-    const deleteWhere = vi.fn(async () => undefined);
+  it('locks before clearing stored attachment rows when duplicate hydrated upserts explicitly pass empty attachments', async () => {
+    const deletedAttachmentRows = [
+      {
+        id: 'removed-provider-attachment',
+        externalRefJson: null,
+        storageRef: 'provider-attachments/removed.txt',
+        fileName: 'removed.txt',
+        contentType: 'text/plain',
+        sizeBytes: 7,
+        providerFetchJson: null,
+        deletedAt: null,
+      },
+    ];
+    const deleteReturning = vi.fn(async () => deletedAttachmentRows);
+    const deleteWhere = vi.fn(() => ({ returning: deleteReturning }));
     const cleanupMaterialization = vi.fn(async (_storageRef: string) => {});
     const cleanupTx = {
       execute: vi.fn(async () => undefined),
@@ -802,25 +821,10 @@ describe('CanonicalMessageOpsService', () => {
     };
     const tx = {
       execute: vi.fn(async () => undefined),
-      select: vi.fn(() => ({
-        from: vi.fn(() => ({
-          where: vi.fn(async () => [
-            {
-              id: 'removed-provider-attachment',
-              externalRefJson: null,
-              storageRef: 'provider-attachments/removed.txt',
-              fileName: 'removed.txt',
-              contentType: 'text/plain',
-              sizeBytes: 7,
-              providerFetchJson: null,
-              deletedAt: null,
-            },
-          ]),
-        })),
-      })),
+      select: vi.fn(),
       insert: vi.fn(() => ({
         values: vi.fn(() => ({
-          onConflictDoUpdate: vi.fn(async () => undefined),
+          onConflictDoUpdate: vi.fn(() => messageUpsertResult()),
         })),
       })),
       delete: vi.fn(() => ({
@@ -857,9 +861,11 @@ describe('CanonicalMessageOpsService', () => {
       {},
     );
 
-    expect(tx.select).toHaveBeenCalledTimes(1);
+    expect(tx.select).not.toHaveBeenCalled();
+    expect(tx.execute).toHaveBeenCalledTimes(1);
     expect(tx.delete).toHaveBeenCalledTimes(1);
     expect(deleteWhere).toHaveBeenCalledTimes(1);
+    expect(deleteReturning).toHaveBeenCalledTimes(1);
     expect(tx.insert).toHaveBeenCalledTimes(2);
     expect(cleanupMaterialization).not.toHaveBeenCalled();
 
@@ -870,6 +876,127 @@ describe('CanonicalMessageOpsService', () => {
     expect(cleanupMaterialization).toHaveBeenCalledWith(
       'provider-attachments/removed.txt',
     );
+  });
+
+  it('adds no attachment lock, lookup, or cleanup statements for an ordinary empty first delivery', async () => {
+    const cleanupMaterialization = vi.fn(async (_storageRef: string) => {});
+    const db = {
+      transaction: vi.fn(),
+    };
+    const tx = {
+      execute: vi.fn(async () => undefined),
+      select: vi.fn(),
+      insert: vi.fn((table: unknown) => ({
+        values: vi.fn(() => ({
+          onConflictDoUpdate: vi.fn(() =>
+            messageUpsertResult(table === pgSchema.messagesPostgres),
+          ),
+        })),
+      })),
+      delete: vi.fn(() => ({
+        where: vi.fn(() => ({
+          returning: vi.fn(async () => []),
+        })),
+      })),
+    };
+    const repository = new PostgresCanonicalMessageRepository(
+      db as never,
+      100,
+      cleanupMaterialization,
+    );
+    Object.assign(repository, {
+      graph: {
+        findConversationIdForJid: vi.fn(async () => undefined),
+        ensureConversation: vi.fn(async () => 'conversation:sl:C123'),
+        ensureThread: vi.fn(async () => null),
+        getConversationInstallationId: vi.fn(async () => null),
+        ensureParticipant: vi.fn(async () => undefined),
+      },
+    });
+
+    const result = await repository.saveMessageWithExecutor(
+      tx as never,
+      {
+        id: '1710000001.000101',
+        chat_jid: 'sl:C123',
+        provider: 'slack',
+        sender: 'U123',
+        sender_name: 'Ravi',
+        content: 'ordinary first delivery',
+        timestamp: '2026-05-06T00:00:00.000Z',
+        attachments: [],
+      },
+      {},
+    );
+
+    expect(result.removedProviderStorageRefs).toEqual([]);
+    expect(tx.select).not.toHaveBeenCalled();
+    expect(tx.execute).not.toHaveBeenCalled();
+    expect(tx.delete).not.toHaveBeenCalled();
+
+    await repository.cleanupRemovedProviderAttachments(
+      result.removedProviderStorageRefs,
+    );
+
+    expect(db.transaction).not.toHaveBeenCalled();
+    expect(cleanupMaterialization).not.toHaveBeenCalled();
+  });
+
+  it('routes the loser of concurrent same-message first deliveries through the locked update path', async () => {
+    const messageUpsertOutcomes = [true, false];
+    const deleteReturning = vi.fn(async () => []);
+    const tx = {
+      execute: vi.fn(async () => undefined),
+      select: vi.fn(),
+      insert: vi.fn((table: unknown) => ({
+        values: vi.fn(() => ({
+          onConflictDoUpdate: vi.fn(() =>
+            messageUpsertResult(
+              table === pgSchema.messagesPostgres
+                ? messageUpsertOutcomes.shift() === true
+                : false,
+            ),
+          ),
+        })),
+      })),
+      delete: vi.fn(() => ({
+        where: vi.fn(() => ({ returning: deleteReturning })),
+      })),
+    };
+    const repository = new PostgresCanonicalMessageRepository({} as never);
+    Object.assign(repository, {
+      graph: {
+        findConversationIdForJid: vi.fn(async () => undefined),
+        ensureConversation: vi.fn(async () => 'conversation:sl:C123'),
+        ensureThread: vi.fn(async () => null),
+        getConversationInstallationId: vi.fn(async () => null),
+        ensureParticipant: vi.fn(async () => undefined),
+      },
+    });
+    const message = {
+      id: '1710000001.000102',
+      chat_jid: 'sl:C123',
+      provider: 'slack',
+      sender: 'U123',
+      sender_name: 'Ravi',
+      content: 'concurrent first delivery',
+      timestamp: '2026-05-06T00:00:00.000Z',
+      attachments: [],
+    } as const;
+
+    await repository.saveMessageWithExecutor(tx as never, message, {});
+
+    expect(tx.execute).not.toHaveBeenCalled();
+    expect(tx.delete).not.toHaveBeenCalled();
+
+    // PostgreSQL serializes conflicting upserts on the message row. The
+    // concurrent loser resumes as UPDATE, represented by this second save.
+    await repository.saveMessageWithExecutor(tx as never, message, {});
+
+    expect(messageUpsertOutcomes).toEqual([]);
+    expect(tx.execute).toHaveBeenCalledTimes(1);
+    expect(tx.delete).toHaveBeenCalledTimes(1);
+    expect(deleteReturning).toHaveBeenCalledTimes(1);
   });
 
   it('skips unlink when a stale save restores the ref before cleanup revalidation', async () => {
@@ -960,14 +1087,23 @@ describe('CanonicalMessageOpsService', () => {
           ) {
             storedRow = (values[0] as typeof originalRow | undefined) ?? null;
           }
-          return { onConflictDoUpdate: vi.fn(async () => undefined) };
+          return {
+            onConflictDoUpdate: vi.fn(() => messageUpsertResult()),
+          };
         }),
       })),
       delete: vi.fn((table: unknown) => ({
-        where: vi.fn(async () => {
+        where: vi.fn(() => {
+          const deletedRows =
+            table === pgSchema.messageAttachmentsPostgres && storedRow
+              ? [storedRow]
+              : [];
           if (table === pgSchema.messageAttachmentsPostgres) {
             storedRow = null;
           }
+          return {
+            returning: vi.fn(async () => deletedRows),
+          };
         }),
       })),
     };
@@ -1112,7 +1248,9 @@ describe('CanonicalMessageOpsService', () => {
       insert: vi.fn(() => ({
         values: vi.fn((values: unknown) => {
           insertedValues.push(values);
-          return { onConflictDoUpdate: vi.fn(async () => undefined) };
+          return {
+            onConflictDoUpdate: vi.fn(() => messageUpsertResult()),
+          };
         }),
       })),
       delete: vi.fn(() => ({
@@ -1166,6 +1304,7 @@ describe('CanonicalMessageOpsService', () => {
         }),
       ]),
     );
+    expect(tx.execute).toHaveBeenCalledTimes(1);
     expect(cleanupMaterialization).not.toHaveBeenCalled();
 
     await repository.cleanupRemovedProviderAttachments(
@@ -1199,7 +1338,9 @@ describe('CanonicalMessageOpsService', () => {
       insert: vi.fn(() => ({
         values: vi.fn((values: unknown) => {
           insertedValues.push(values);
-          return { onConflictDoUpdate: vi.fn(async () => undefined) };
+          return {
+            onConflictDoUpdate: vi.fn(() => messageUpsertResult()),
+          };
         }),
       })),
       delete: vi.fn(),
@@ -1275,7 +1416,9 @@ describe('CanonicalMessageOpsService', () => {
         insert: vi.fn(() => ({
           values: vi.fn((values: unknown) => {
             insertedValues.push(values);
-            return { onConflictDoUpdate: vi.fn(async () => undefined) };
+            return {
+              onConflictDoUpdate: vi.fn(() => messageUpsertResult()),
+            };
           }),
         })),
         delete: vi.fn(),
@@ -1345,7 +1488,9 @@ describe('CanonicalMessageOpsService', () => {
               })),
             };
           }
-          return { onConflictDoUpdate: vi.fn(async () => undefined) };
+          return {
+            onConflictDoUpdate: vi.fn(() => messageUpsertResult()),
+          };
         }),
       })),
       delete: vi.fn(),
@@ -1421,7 +1566,9 @@ describe('CanonicalMessageOpsService', () => {
               })),
             };
           }
-          return { onConflictDoUpdate: vi.fn(async () => undefined) };
+          return {
+            onConflictDoUpdate: vi.fn(() => messageUpsertResult()),
+          };
         }),
       })),
       delete: vi.fn(),
@@ -1531,7 +1678,9 @@ describe('CanonicalMessageOpsService', () => {
               })),
             };
           }
-          return { onConflictDoUpdate: vi.fn(async () => undefined) };
+          return {
+            onConflictDoUpdate: vi.fn(() => messageUpsertResult()),
+          };
         }),
       })),
       delete: vi.fn(),
@@ -1610,7 +1759,9 @@ describe('CanonicalMessageOpsService', () => {
               })),
             };
           }
-          return { onConflictDoUpdate: vi.fn(async () => undefined) };
+          return {
+            onConflictDoUpdate: vi.fn(() => messageUpsertResult()),
+          };
         }),
       })),
       delete: vi.fn(),
@@ -1725,7 +1876,9 @@ describe('CanonicalMessageOpsService', () => {
       insert: vi.fn(() => ({
         values: vi.fn((values: unknown) => {
           insertedValues.push(values);
-          return { onConflictDoUpdate: vi.fn(async () => undefined) };
+          return {
+            onConflictDoUpdate: vi.fn(() => messageUpsertResult()),
+          };
         }),
       })),
       delete: vi.fn(() => ({
