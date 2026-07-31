@@ -24,7 +24,15 @@ repeat the provider history request or its up-to-2.5-second wait.
    gapless since recording: any (re)connect or stream reset for the
    provider account invalidates it fail-safe — the next turn re-verifies
    with at most one extra hydration, and a missed message is impossible to
-   silently paper over.
+   silently paper over. Invalidation fires at EVERY seam where delivery can
+   gap, per the independent plan critique: before the awaited inbound
+   connect begins (events can arrive during the await), fanned across every
+   provider account sharing one transport; on every gateway reconnect entry
+   (socket close and provider resume/re-identify opcodes); and on
+   library-managed reconnects below the provider SDK's start call — which
+   requires an explicit adapter lifecycle signal where the SDK owns
+   reconnection silently (Slack Socket Mode). Providers without a real
+   client (Teams today) get fake-adapter proof only, stated as such.
 3. A turn in a covered conversation makes zero provider history calls and
    never enters the hydration deadline wait; behaviour for uncovered
    conversations is byte-identical to today.
