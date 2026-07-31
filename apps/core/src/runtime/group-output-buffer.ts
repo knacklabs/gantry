@@ -37,6 +37,7 @@ export function createGroupOutputBuffer(input: {
     settlement: DeliverySettlement,
     options: { streamed: boolean; terminal: boolean },
   ) => void;
+  resetStreamedTranscriptDeliveryStatus?: () => void;
   getStreamedTranscriptDeliveryStatus: () => 'none' | 'sent' | 'partially_sent';
   persistCompletedStreamedGeneration?: (
     text: string,
@@ -45,6 +46,11 @@ export function createGroupOutputBuffer(input: {
   log: RuntimeLogger;
 }) {
   const userVisibleTranscript = createRuntimeResultSummaryAccumulator();
+  // Scoped to ONE generation, unlike userVisibleTranscript which spans the run.
+  // `text` below is only the delta since the previous flush (the visible
+  // accumulator resets on every flush), so persisting it alone would store a
+  // multi-chunk reply truncated to its last chunk.
+  let generationTranscript = createRuntimeResultSummaryAccumulator();
   let pendingOutputVisible = createRuntimeUserVisibleResultAccumulator();
   let streamSanitizer = createRuntimeUserVisibleStreamSanitizer();
   let pendingOutputRawChars = 0;
@@ -87,14 +93,21 @@ export function createGroupOutputBuffer(input: {
         return 'not_delivered' as const;
       });
       input.applyDeliverySettlement(settlement, { streamed: true, terminal });
+      generationTranscript.append(`${text}\n`);
       if (done) {
         const deliveryStatus = input.getStreamedTranscriptDeliveryStatus();
-        if (deliveryStatus !== 'none') {
+        const completed = (generationTranscript.snapshot() ?? '').trim();
+        if (deliveryStatus !== 'none' && completed) {
           await input.persistCompletedStreamedGeneration?.(
-            text,
+            completed,
             deliveryStatus,
           );
         }
+        // Both the text and the delivery accounting belong to the generation
+        // that just ended: without these resets the next generation inherits a
+        // previous one's transcript and its sent/partially_sent status.
+        generationTranscript = createRuntimeResultSummaryAccumulator();
+        input.resetStreamedTranscriptDeliveryStatus?.();
       }
     } else {
       const messageOptions = await input.buildMessageOptions();

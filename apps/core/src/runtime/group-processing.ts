@@ -509,6 +509,12 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
       applyDeliverySettlement,
       getStreamedTranscriptDeliveryStatus: () =>
         streamedTranscriptDeliveryStatus,
+      // Persistence is per completed generation, so the accounting has to be
+      // too: otherwise a delivered generation leaves the status non-'none' and
+      // a later, wholly undelivered one is persisted as if it had been sent.
+      resetStreamedTranscriptDeliveryStatus: () => {
+        streamedTranscriptDeliveryStatus = 'none';
+      },
       persistCompletedStreamedGeneration: async (text, deliveryStatus) => {
         const timestamp = nowIso();
         const message: NewMessage = {
