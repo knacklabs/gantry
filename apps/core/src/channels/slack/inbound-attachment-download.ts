@@ -79,7 +79,10 @@ export async function downloadSlackAttachmentToFolder(input: {
   }
 }
 
-function isLikelySlackHtmlResponse(resp: Response, filename: string): boolean {
+export function isLikelySlackHtmlResponse(
+  resp: Response,
+  filename: string,
+): boolean {
   const contentType = resp.headers.get('content-type')?.toLowerCase() ?? '';
   if (!contentType.includes('text/html')) return false;
 

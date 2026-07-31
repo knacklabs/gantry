@@ -113,6 +113,12 @@ export const messageAttachmentsPostgres = pgTable(
     sizeBytes: integer('size_bytes'),
     externalRefJson: jsonb('external_ref_json'),
     storageRef: text('storage_ref'),
+    fileName: text('file_name'),
+    providerFetchJson: jsonb('provider_fetch_json'),
+    deletedAt: timestamp('deleted_at', {
+      withTimezone: true,
+      mode: 'string',
+    }),
     trust: text('trust').notNull(),
   },
   (table) => ({

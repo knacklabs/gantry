@@ -44,6 +44,11 @@ import type {
   HydrationRequestObservation,
 } from '../../channels/channel-provider.js';
 import type { BrainChannelHarvestTap } from '../../brain/brain-channel-harvest.js';
+import type {
+  HistoricalAttachmentFetcher,
+  HistoricalAttachmentFetchResult,
+} from '../../domain/ports/historical-attachment-fetcher.js';
+import type { MessageAttachmentRepository } from '../../domain/ports/message-attachment-repository.js';
 
 export type ChannelWiringRepository = RuntimeChatMetadataRepository &
   RuntimeMessageRepository;
@@ -154,6 +159,12 @@ export interface ChannelWiring {
     jid: string,
     options?: { providerAccountId?: string },
   ) => boolean;
+  fetchHistoricalAttachment: (
+    input: Parameters<
+      HistoricalAttachmentFetcher['fetchHistoricalAttachment']
+    >[0],
+  ) => Promise<HistoricalAttachmentFetchResult>;
+  getMessageAttachmentRepository: () => MessageAttachmentRepository;
   sendMessage: (
     jid: string,
     rawText: string,

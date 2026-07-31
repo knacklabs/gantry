@@ -3,6 +3,7 @@ import path from 'node:path';
 import { App } from '@slack/bolt';
 
 import { logger } from '../../infrastructure/logging/logger.js';
+import { resolveWorkspaceFolderPath } from '../../platform/workspace-folder.js';
 import { findConversationRoutesForChat } from '../../shared/thread-queue-key.js';
 import {
   NewMessage,
@@ -13,7 +14,6 @@ import {
   UserQuestionCancellation,
   UserQuestionRequest,
 } from '../../domain/types.js';
-import { resolveWorkspaceFolderPath } from '../../platform/workspace-folder.js';
 import { ChannelOpts } from '../channel-provider.js';
 import { StreamResetEpochs } from '../stream-reset-epochs.js';
 import { hydrateSlackConversationContext } from './conversation-context.js';
@@ -30,6 +30,11 @@ import {
   tryNativeStreamStart,
   tryNativeStreamStop,
 } from './native-stream.js';
+import { fetchSlackHistoricalAttachment } from './historical-attachment-fetcher.js';
+import type {
+  HistoricalAttachmentFetchIdentity,
+  HistoricalAttachmentFetchResult,
+} from '../../domain/ports/historical-attachment-fetcher.js';
 import type { DurableQuestionCallback } from '../../application/interactions/pending-interaction-durability.js';
 import {
   cancelMatchingPendingQuestions,
@@ -623,6 +628,10 @@ export abstract class SlackChannelState {
           kind: file.mimetype?.startsWith('image/') ? 'image' : 'file',
           contentType: file.mimetype,
           externalId: file.id,
+          file_name: file.name || file.title,
+          provider_fetch: file.id
+            ? { provider: 'slack', kind: 'file_id', id: file.id }
+            : undefined,
         };
         if (downloadResult.status === 'downloaded') {
           attachment.storageRef = downloadResult.download.storageRef;
@@ -632,6 +641,26 @@ export abstract class SlackChannelState {
     }
 
     return { text: lines.join('\n').trim(), attachments };
+  }
+
+  async fetchHistoricalAttachment(input: {
+    identity: HistoricalAttachmentFetchIdentity;
+    signal?: AbortSignal;
+  }): Promise<HistoricalAttachmentFetchResult> {
+    if (!this.app) {
+      return { status: 'unreachable', reason: 'incapable' };
+    }
+    return fetchSlackHistoricalAttachment(input, {
+      filesInfo: async (fileId) =>
+        (await this.app!.client.files.info({ file: fileId })) as never,
+      download: (url) =>
+        fetch(url, {
+          signal: input.signal,
+          headers: {
+            authorization: `Bearer ${this.botToken}`,
+          },
+        }),
+    });
   }
 
   async hydrateConversationContext(

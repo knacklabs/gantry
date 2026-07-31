@@ -151,6 +151,14 @@ export interface NewMessageAttachment {
   sizeBytes?: number;
   externalId?: string;
   storageRef?: string;
+  file_name?: string;
+  provider_fetch?: {
+    provider: string;
+    kind: string;
+    id: string;
+    [key: string]: unknown;
+  };
+  deleted_at?: string;
 }
 
 // --- Channel capability ports ---

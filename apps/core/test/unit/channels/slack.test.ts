@@ -2139,6 +2139,36 @@ describe('Slack channel', () => {
     });
 
     expect(fetchSpy).not.toHaveBeenCalled();
+    expect(result.messages?.[0]?.attachments).toEqual([
+      {
+        id: 'slack-file:F_IMAGE',
+        kind: 'image',
+        contentType: 'image/png',
+        sizeBytes: 4096,
+        externalId: 'F_IMAGE',
+        file_name: 'screen.png',
+        provider_fetch: {
+          provider: 'slack',
+          kind: 'file_id',
+          id: 'F_IMAGE',
+        },
+      },
+    ]);
+    expect(result.messages?.[1]?.attachments).toEqual([
+      {
+        id: 'slack-file:F_FILE',
+        kind: 'file',
+        contentType: 'application/pdf',
+        sizeBytes: 8192,
+        externalId: 'F_FILE',
+        file_name: 'report.pdf',
+        provider_fetch: {
+          provider: 'slack',
+          kind: 'file_id',
+          id: 'F_FILE',
+        },
+      },
+    ]);
     expect(result.messages).toEqual([
       expect.objectContaining({
         content: 'Attachment: screen.png',
@@ -3511,6 +3541,19 @@ describe('Slack channel', () => {
     expect(opts.onMessage.mock.calls[0][1].content).not.toContain('/tmp/');
     const storageRef =
       opts.onMessage.mock.calls[0][1].attachments[0].storageRef;
+    expect(opts.onMessage.mock.calls[0][1].attachments[0]).toEqual({
+      id: 'slack-file:F123',
+      kind: 'file',
+      contentType: 'application/pdf',
+      externalId: 'F123',
+      file_name: 'report.pdf',
+      provider_fetch: {
+        provider: 'slack',
+        kind: 'file_id',
+        id: 'F123',
+      },
+      storageRef,
+    });
     expect(
       fs.readFileSync(
         path.join(slackWorkspace.root, 'slack_ops', ...storageRef.split('/')),
