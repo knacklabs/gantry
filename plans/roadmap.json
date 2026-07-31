@@ -371,6 +371,19 @@
       "status": "pending",
       "epic": "Audit paydown 2026-07",
       "skill": "backend"
+    },
+    {
+      "key": "LAT-5B",
+      "title": "Durable conversation history coverage",
+      "story": "As a teammate chatting with the agent, my turns in fully-synced conversations respond without waiting on redundant provider history fetches, so the agent feels immediate once it has everything.",
+      "acceptance_criteria": [
+        "A conversation attested complete (server-confirmed exhausted, current provider generation) makes zero provider hydration calls and skips the deadline wait; reconnects un-trust coverage fail-safe; request_bounded never promotes"
+      ],
+      "order": 25,
+      "status": "pending",
+      "kind": "feature",
+      "origin": "adhoc",
+      "spec": "docs/specs/lat-5b-durable-history-coverage.md"
     }
   ],
   "epics": [
@@ -459,5 +472,5 @@
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-07-24T15:06:25+00:00"
+  "updated_at": "2026-07-31T15:11:58+00:00"
 }
