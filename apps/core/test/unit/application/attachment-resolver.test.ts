@@ -285,6 +285,30 @@ afterEach(() => {
 });
 
 describe('AttachmentResolver', () => {
+  it('opens a preserved legacy row id as the durable attachment handle', async () => {
+    const legacyAttachmentId = 'message-attachment:message-1:0';
+    const repository = new MemoryAttachmentRepository();
+    repository.attachments.set(
+      legacyAttachmentId,
+      attachment({ id: legacyAttachmentId }),
+    );
+    const provider = fetcher(() => ({
+      status: 'ok',
+      content: Buffer.from('legacy attachment content'),
+      fileName: 'report.txt',
+      contentType: 'text/plain',
+    }));
+    const resolver = createResolver({ repository, fetcher: provider });
+
+    await expect(
+      resolver.open(openRequest({ attachmentId: legacyAttachmentId })),
+    ).resolves.toMatchObject({
+      status: 'opened',
+      content: 'legacy attachment content',
+    });
+    expect(provider.calls).toBe(1);
+  });
+
   it('hides foreign canonical conversation scopes as not found and allows any thread in the owning conversation', async () => {
     const repository = new MemoryAttachmentRepository();
     repository.attachments.set('attachment-1', attachment());

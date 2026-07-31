@@ -98,6 +98,8 @@ export function attachmentsJsonForMessage(messageId: unknown) {
                       'message-attachment:' || attachment_row.message_id || ':'
                     ) + 1
                   ) ~ '^[0-9]+$'
+                  AND attachment_row.external_id IS NULL
+                  AND attachment_row.provider_fetch_json IS NULL
                 )
               THEN NULL
               ELSE attachment_row.id

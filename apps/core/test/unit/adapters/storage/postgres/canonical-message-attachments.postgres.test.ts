@@ -565,7 +565,7 @@ describe('canonical message attachment preservation', () => {
     });
   });
 
-  it('appends provider fetch after recursive null stripping', () => {
+  it('renders identified legacy row handles and suppresses identity-less ones', () => {
     const query = new PgDialect().sqlToQuery(
       attachmentsJsonForMessage('canonical-message-id'),
     ).sql;
@@ -574,7 +574,7 @@ describe('canonical message attachment preservation', () => {
       /jsonb_strip_nulls\(\s*jsonb_build_object\([\s\S]*?'deleted_at'[\s\S]*?\)\s*\)\s*\|\|\s*CASE[\s\S]*?jsonb_build_object\(\s*'provider_fetch'/,
     );
     expect(query).toMatch(
-      /left\([\s\S]*?attachment_row\.id[\s\S]*?'message-attachment:' \|\| attachment_row\.message_id \|\| ':'[\s\S]*?~ '\^\[0-9\]\+\$'/,
+      /left\([\s\S]*?attachment_row\.id[\s\S]*?'message-attachment:' \|\| attachment_row\.message_id \|\| ':'[\s\S]*?~ '\^\[0-9\]\+\$'[\s\S]*?attachment_row\.external_id IS NULL[\s\S]*?attachment_row\.provider_fetch_json IS NULL/,
     );
   });
 });
