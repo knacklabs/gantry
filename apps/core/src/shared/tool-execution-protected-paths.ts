@@ -53,6 +53,7 @@ export function isSkillCapabilityPath(value: string): boolean {
       `/${SKILLS}`,
       '/.codex/skills',
       '/.agents/skills',
+      '/factory/skills',
       '/artifacts/skills',
     ].some((suffix) => isAtOrUnderPath(value, suffix)) ||
     /\/agents\/[^/]+\/skills(?:\/|$)/.test(value)

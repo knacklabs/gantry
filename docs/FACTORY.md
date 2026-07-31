@@ -15,7 +15,7 @@ matters here.
 
 ## Prompt Usage Model
 
-Prompt files under `.agents/prompts/` are explicit phase contracts.
+Prompt files under `factory/prompts/` are explicit phase contracts.
 
 They are used in three ways:
 - `SessionStart` reports run state
@@ -29,7 +29,8 @@ Hooks are not the workflow engine. They only add guardrails and continuation log
 ## Factory Phases
 
 0a. `discovery` — lightweight problem, stakeholder, and constraint discovery. It does not require `.factory` ceremony.
-0b. `prototype` — lightweight proof work before the factory loop. It does not require `.factory` ceremony.
+0b. `prototype` — prototype freely and save capability specs as they emerge. It does not require `.factory` ceremony.
+0c. `roadmap` — confirm every spec, then derive epics and stories from them.
 1. `planning`
 2. `decomposing`
 3. `awaiting-approval`
@@ -40,7 +41,11 @@ Hooks are not the workflow engine. They only add guardrails and continuation log
 8. `pr-ready`
 9. `done` or `blocked`
 
-The sign-off gate sits between `prototype` and `planning`. `python3 .agents/scripts/record_signoff.py` records an accepted client sign-off decision by setting `client_signoff: true` in `.factory/run.json`.
+The sign-off gate sits between roadmap derivation and planning, and fires ONCE
+for the project. `record_signoff.py` requires at least one confirmed spec, a
+derived roadmap with at least one story, and coverage of every confirmed spec.
+It then pins that record in `harness.yaml` (`signoff_record:`); the gate is
+derived from that committed pin rather than stored in `.factory/run.json`.
 
 Phases at `planning` or later are refused by `update_run.py` and `pre_tool_use.py` until `client_signoff` is true.
 
@@ -134,7 +139,7 @@ Each leaf task must include:
 
 Store the decomposition in `.factory/decomposition.json` — that artifact is
 canonical. Mirroring into a tracker (Linear, GitHub Issues, Jira) is optional;
-`python3 .agents/scripts/render_linear_task_graph.py` renders a deterministic
+`python3 factory/scripts/render_linear_task_graph.py` renders a deterministic
 Markdown view of the graph if you want one to review or sync.
 
 ## AGENTS Hygiene

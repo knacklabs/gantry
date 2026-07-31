@@ -15,7 +15,7 @@ budgets at `c986aff4e`:
 - `apps/core/src/runtime/group-processing.ts` — 860 lines against 840, already
   fixed in open PR #296
 
-This matters more than a style nit because `.agents/scripts/verify.py` aborts at
+This matters more than a style nit because `factory/scripts/verify.py` aborts at
 its FIRST failing phase, and `structural` runs first. A single over-budget file
 therefore masks typecheck and tests for every branch in the repo — nobody gets a
 deterministic verify signal until it is fixed.
