@@ -37,13 +37,9 @@ import {
   threadIdFor,
 } from './canonical-graph-repository.postgres.js';
 import {
-  attachmentIdForIncomingAttachment,
   attachmentsJsonForMessage,
-  existingAttachmentMetadataMaps,
-  preservedMetadataForIncomingAttachment,
-  providerAttachmentStorageRefsRemovedByReplacement,
+  replaceCanonicalMessageAttachments,
 } from './canonical-message-attachments.postgres.js';
-import { lockCanonicalMessageAttachments } from './canonical-message-attachment-lock.postgres.js';
 import {
   cleanupRemovedProviderAttachments as cleanupProviderAttachments,
   type ProviderAttachmentCleanup,
@@ -324,102 +320,15 @@ export class PostgresCanonicalMessageRepository {
           payloadJson: sql`excluded.payload_json`,
         },
       });
-    let removedProviderStorageRefs: RemovedProviderAttachment[] = [];
-    if (msg.attachments !== undefined) {
-      const incomingAttachments = msg.attachments;
-      const attachmentMetadataColumns = {
-        id: pgSchema.messageAttachmentsPostgres.id,
-        externalRefJson: pgSchema.messageAttachmentsPostgres.externalRefJson,
-        storageRef: pgSchema.messageAttachmentsPostgres.storageRef,
-        fileName: pgSchema.messageAttachmentsPostgres.fileName,
-        contentType: pgSchema.messageAttachmentsPostgres.contentType,
-        sizeBytes: pgSchema.messageAttachmentsPostgres.sizeBytes,
-        providerFetchJson:
-          pgSchema.messageAttachmentsPostgres.providerFetchJson,
-        deletedAt: pgSchema.messageAttachmentsPostgres.deletedAt,
-      };
-      if (!messageInserted) {
-        await lockCanonicalMessageAttachments(tx, canonicalMessageId);
-      }
-      const existingAttachmentRows = messageInserted
+    const removedProviderStorageRefs =
+      msg.attachments === undefined
         ? []
-        : incomingAttachments.length > 0
-          ? await tx
-              .select(attachmentMetadataColumns)
-              .from(pgSchema.messageAttachmentsPostgres)
-              .where(
-                eq(
-                  pgSchema.messageAttachmentsPostgres.messageId,
-                  canonicalMessageId,
-                ),
-              )
-          : await tx
-              .delete(pgSchema.messageAttachmentsPostgres)
-              .where(
-                eq(
-                  pgSchema.messageAttachmentsPostgres.messageId,
-                  canonicalMessageId,
-                ),
-              )
-              .returning(attachmentMetadataColumns);
-      const existingAttachmentMetadata = existingAttachmentMetadataMaps(
-        existingAttachmentRows,
-      );
-      const replacementAttachmentRows = incomingAttachments.map(
-        (attachment, index) => {
-          const attachmentId = attachmentIdForIncomingAttachment(
-            canonicalMessageId,
-            attachment,
-            index,
-          );
-          const preservedMetadata = preservedMetadataForIncomingAttachment(
-            attachment,
-            attachmentId,
-            existingAttachmentMetadata,
-          );
-          return {
-            id: preservedMetadata.attachmentId,
+        : await replaceCanonicalMessageAttachments(tx, {
             messageId: canonicalMessageId,
-            kind: attachment.kind,
-            contentType:
-              attachment.contentType ?? preservedMetadata.contentType ?? null,
-            sizeBytes:
-              attachment.sizeBytes ?? preservedMetadata.sizeBytes ?? null,
-            externalRefJson: preservedMetadata.externalRefJson
-              ? jsonb(preservedMetadata.externalRefJson)
-              : null,
-            storageRef: preservedMetadata.storageRef,
-            fileName: preservedMetadata.fileName,
-            providerFetchJson: jsonb(preservedMetadata.providerFetchJson),
-            deletedAt: preservedMetadata.deletedAt,
+            incomingAttachments: msg.attachments,
+            messageInserted,
             trust: msg.is_bot_message ? 'system' : 'trusted',
-          };
-        },
-      );
-      removedProviderStorageRefs =
-        providerAttachmentStorageRefsRemovedByReplacement(
-          existingAttachmentRows,
-          replacementAttachmentRows,
-        ).map((storageRef) => ({
-          messageId: canonicalMessageId,
-          storageRef,
-        }));
-      if (!messageInserted && incomingAttachments.length > 0) {
-        await tx
-          .delete(pgSchema.messageAttachmentsPostgres)
-          .where(
-            eq(
-              pgSchema.messageAttachmentsPostgres.messageId,
-              canonicalMessageId,
-            ),
-          );
-      }
-      if (replacementAttachmentRows.length > 0) {
-        await tx
-          .insert(pgSchema.messageAttachmentsPostgres)
-          .values(replacementAttachmentRows);
-      }
-    }
+          });
     if (direction !== 'inbound' || !options.liveAdmission) {
       return { liveAdmissionResult: undefined, removedProviderStorageRefs };
     }

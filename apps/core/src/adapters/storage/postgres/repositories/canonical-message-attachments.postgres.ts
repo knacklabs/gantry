@@ -1,9 +1,17 @@
-import { sql } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 
 import type { NewMessage } from '../../../../domain/repositories/domain-types.js';
 import { isProviderAttachmentStorageRef } from '../../../../shared/provider-attachment-materialization.js';
 import * as pgSchema from '../schema/schema.js';
-import { storageRefForAttachmentWriter } from './provider-attachment-cleanup.postgres.js';
+import {
+  type CanonicalExecutor,
+  jsonb,
+} from './canonical-graph-repository.postgres.js';
+import { lockCanonicalMessageAttachments } from './canonical-message-attachment-lock.postgres.js';
+import {
+  type RemovedProviderAttachment,
+  storageRefForAttachmentWriter,
+} from './provider-attachment-cleanup.postgres.js';
 
 const MAX_MESSAGE_ATTACHMENTS_PER_ROW = 20;
 const IDENTITYLESS_ATTACHMENT_ROW_ID_PREFIX = 'message-attachment:index:';
@@ -232,6 +240,91 @@ export function providerAttachmentStorageRefsRemovedByReplacement(
         ),
     ),
   ];
+}
+
+export async function replaceCanonicalMessageAttachments(
+  tx: CanonicalExecutor,
+  input: {
+    messageId: string;
+    incomingAttachments: IncomingMessageAttachment[];
+    messageInserted: boolean;
+    trust: 'system' | 'trusted';
+  },
+): Promise<RemovedProviderAttachment[]> {
+  const { messageId, incomingAttachments, messageInserted, trust } = input;
+  const attachmentMetadataColumns = {
+    id: pgSchema.messageAttachmentsPostgres.id,
+    externalRefJson: pgSchema.messageAttachmentsPostgres.externalRefJson,
+    storageRef: pgSchema.messageAttachmentsPostgres.storageRef,
+    fileName: pgSchema.messageAttachmentsPostgres.fileName,
+    contentType: pgSchema.messageAttachmentsPostgres.contentType,
+    sizeBytes: pgSchema.messageAttachmentsPostgres.sizeBytes,
+    providerFetchJson: pgSchema.messageAttachmentsPostgres.providerFetchJson,
+    deletedAt: pgSchema.messageAttachmentsPostgres.deletedAt,
+  };
+  if (!messageInserted) {
+    await lockCanonicalMessageAttachments(tx, messageId);
+  }
+  const existingAttachmentRows = messageInserted
+    ? []
+    : incomingAttachments.length > 0
+      ? await tx
+          .select(attachmentMetadataColumns)
+          .from(pgSchema.messageAttachmentsPostgres)
+          .where(eq(pgSchema.messageAttachmentsPostgres.messageId, messageId))
+      : await tx
+          .delete(pgSchema.messageAttachmentsPostgres)
+          .where(eq(pgSchema.messageAttachmentsPostgres.messageId, messageId))
+          .returning(attachmentMetadataColumns);
+  const existingAttachmentMetadata = existingAttachmentMetadataMaps(
+    existingAttachmentRows,
+  );
+  const replacementAttachmentRows = incomingAttachments.map(
+    (attachment, index) => {
+      const attachmentId = attachmentIdForIncomingAttachment(
+        messageId,
+        attachment,
+        index,
+      );
+      const preservedMetadata = preservedMetadataForIncomingAttachment(
+        attachment,
+        attachmentId,
+        existingAttachmentMetadata,
+      );
+      return {
+        id: preservedMetadata.attachmentId,
+        messageId,
+        kind: attachment.kind,
+        contentType:
+          attachment.contentType ?? preservedMetadata.contentType ?? null,
+        sizeBytes: attachment.sizeBytes ?? preservedMetadata.sizeBytes ?? null,
+        externalRefJson: preservedMetadata.externalRefJson
+          ? jsonb(preservedMetadata.externalRefJson)
+          : null,
+        storageRef: preservedMetadata.storageRef,
+        fileName: preservedMetadata.fileName,
+        providerFetchJson: jsonb(preservedMetadata.providerFetchJson),
+        deletedAt: preservedMetadata.deletedAt,
+        trust,
+      };
+    },
+  );
+  const removedProviderStorageRefs =
+    providerAttachmentStorageRefsRemovedByReplacement(
+      existingAttachmentRows,
+      replacementAttachmentRows,
+    ).map((storageRef) => ({ messageId, storageRef }));
+  if (!messageInserted && incomingAttachments.length > 0) {
+    await tx
+      .delete(pgSchema.messageAttachmentsPostgres)
+      .where(eq(pgSchema.messageAttachmentsPostgres.messageId, messageId));
+  }
+  if (replacementAttachmentRows.length > 0) {
+    await tx
+      .insert(pgSchema.messageAttachmentsPostgres)
+      .values(replacementAttachmentRows);
+  }
+  return removedProviderStorageRefs;
 }
 
 function mergedProviderFetch(
