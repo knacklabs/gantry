@@ -111,6 +111,9 @@ export function createChannelWiring(
   const ops = () => resolved.opsRepository ?? getRuntimeRepositories();
   // prettier-ignore
   const historyDistrust = new ConversationHistoryCoverageDistrust(() => resolved.historyCoverage ?? getRuntimeStorage().repositories.conversationHistoryCoverage, resolved.logger);
+  if (resolved.historyCoverage) {
+    app.setConversationHistoryCoverageRepository(resolved.historyCoverage);
+  }
   if (typeof app.setHistoryCoverageDistrustEpochReader === 'function') {
     app.setHistoryCoverageDistrustEpochReader((providerAccountId) =>
       historyDistrust.readEpoch(providerAccountId),

@@ -183,6 +183,7 @@ function makeApp(conversationRoutes: Record<string, any> = {}): RuntimeApp {
     setAgentCursor: vi.fn(),
     setChannelRuntime: vi.fn(),
     setHistoryCoverageDistrustEpochReader: vi.fn(),
+    setConversationHistoryCoverageRepository: vi.fn(),
   };
 }
 
@@ -224,6 +225,22 @@ describe('createChannelWiring', () => {
     expect(setReader).toHaveBeenCalledTimes(1);
     expect(setReader.mock.calls[0][0]('slack-account-1')).toEqual(
       wiring.getHistoryCoverageDistrustEpoch('slack-account-1'),
+    );
+  });
+
+  it('registers an override coverage repository with the runtime app', () => {
+    const app = makeApp();
+    const historyCoverage = {
+      readProviderGeneration: vi.fn(),
+      bumpProviderGeneration: vi.fn(),
+      getCoverage: vi.fn(),
+      upsertCoverage: vi.fn(),
+    } as any;
+
+    createChannelWiring(app, { historyCoverage });
+
+    expect(app.setConversationHistoryCoverageRepository).toHaveBeenCalledWith(
+      historyCoverage,
     );
   });
 

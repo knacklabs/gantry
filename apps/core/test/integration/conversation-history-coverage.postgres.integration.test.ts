@@ -262,6 +262,92 @@ maybeDescribe('conversation history coverage Postgres repository', () => {
     expect(rows.rows[0]?.count).toBe('1');
   });
 
+  it('orders same-generation attestations asymmetrically', async () => {
+    const repository = runtime.repositories.conversationHistoryCoverage;
+    const generation =
+      await repository.readProviderGeneration(providerAccountId);
+    const scope = { kind: 'thread' as const, id: 'ordered-boundary-thread' };
+
+    await repository.upsertCoverage({
+      providerAccountId,
+      conversationId,
+      scope,
+      complete: false,
+      coveredThroughExternalId: 'newer-message',
+      coveredThroughTimestamp: '2026-07-31T00:03:00.000Z',
+      providerGeneration: generation,
+      recordedAt: '2026-07-31T00:03:01.000Z',
+      updatedAt: '2026-07-31T00:03:01.000Z',
+    });
+    await repository.upsertCoverage({
+      providerAccountId,
+      conversationId,
+      scope,
+      complete: true,
+      coveredThroughExternalId: 'older-message',
+      coveredThroughTimestamp: '2026-07-31T00:02:00.000Z',
+      providerGeneration: generation,
+      recordedAt: '2026-07-31T00:03:02.000Z',
+      updatedAt: '2026-07-31T00:03:02.000Z',
+    });
+
+    await expect(
+      repository.getCoverage({
+        providerAccountId,
+        conversationId,
+        scope,
+      }),
+    ).resolves.toMatchObject({
+      coverage: {
+        complete: false,
+        coveredThroughExternalId: 'newer-message',
+        coveredThroughTimestamp: '2026-07-31T00:03:00.000Z',
+        providerGeneration: generation,
+      },
+      isCurrentGeneration: true,
+    });
+
+    const contradictionScope = {
+      kind: 'thread' as const,
+      id: 'boundary-less-contradiction-thread',
+    };
+    await repository.upsertCoverage({
+      providerAccountId,
+      conversationId,
+      scope: contradictionScope,
+      complete: true,
+      coveredThroughExternalId: 'newest-message',
+      coveredThroughTimestamp: '2026-07-31T00:04:00.000Z',
+      providerGeneration: generation,
+      recordedAt: '2026-07-31T00:04:01.000Z',
+      updatedAt: '2026-07-31T00:04:01.000Z',
+    });
+    await repository.upsertCoverage({
+      providerAccountId,
+      conversationId,
+      scope: contradictionScope,
+      complete: false,
+      providerGeneration: generation,
+      recordedAt: '2026-07-31T00:04:02.000Z',
+      updatedAt: '2026-07-31T00:04:02.000Z',
+    });
+
+    const contradiction = await repository.getCoverage({
+      providerAccountId,
+      conversationId,
+      scope: contradictionScope,
+    });
+    expect(contradiction).toMatchObject({
+      coverage: {
+        complete: false,
+        providerGeneration: generation,
+      },
+      isCurrentGeneration: true,
+    });
+    expect(contradiction.coverage?.coveredThroughExternalId).toBeUndefined();
+    expect(contradiction.coverage?.coveredThroughTimestamp).toBeUndefined();
+  });
+
   it('does not expose an old account row after a conversation rebind', async () => {
     const repository = runtime.repositories.conversationHistoryCoverage;
     const generation =

@@ -67,6 +67,7 @@ import type { AgentExecutionAdapter } from '../../application/agent-execution/ag
 import type { AgentExecutionAdapterRegistry } from '../../application/agent-execution/agent-execution-adapter-registry.js';
 import { registerMemoryLlmClient } from '../../memory/memory-llm-port.js';
 import type { RunnerSandboxProvider } from '../../shared/runner-sandbox-provider.js';
+import type { ConversationHistoryCoverageRepository } from '../../domain/ports/conversation-history-coverage.js';
 import { createMutableChannelRuntime } from './runtime-app-channel-runtime.js';
 import { resolveGroupRouteExecutionProviderId } from '../../runtime/group-initial-execution-provider.js';
 import { resolveRuntimeDefaultAdapters } from './runtime-default-adapters.js';
@@ -136,6 +137,9 @@ export interface RuntimeApp {
   setHistoryCoverageDistrustEpochReader?: (
     reader: NonNullable<GroupProcessingDeps['getHistoryCoverageDistrustEpoch']>,
   ) => void;
+  setConversationHistoryCoverageRepository: (
+    repository: ConversationHistoryCoverageRepository,
+  ) => void;
 }
 export interface RuntimeAppOptions {
   ensureCredentialBinding?: (input: {
@@ -196,6 +200,9 @@ export function createRuntimeApp(options: RuntimeAppOptions = {}): RuntimeApp {
   const channelRuntime = createMutableChannelRuntime();
   let readHistoryCoverageDistrustEpoch:
     | NonNullable<GroupProcessingDeps['getHistoryCoverageDistrustEpoch']>
+    | undefined;
+  let conversationHistoryCoverageRepository:
+    | ConversationHistoryCoverageRepository
     | undefined;
   const resolveExecutionProviderId = (
     route: Pick<ConversationRoute, 'agentConfig' | 'folder'>,
@@ -600,6 +607,7 @@ export function createRuntimeApp(options: RuntimeAppOptions = {}): RuntimeApp {
     opsRepository: options.opsRepository,
     getRuntimeRepository: ops,
     getConversationHistoryCoverageRepository: () =>
+      conversationHistoryCoverageRepository ??
       getRuntimeStorage().repositories.conversationHistoryCoverage,
     getHistoryCoverageDistrustEpoch: (providerAccountId) =>
       readHistoryCoverageDistrustEpoch?.(providerAccountId),
@@ -689,6 +697,9 @@ export function createRuntimeApp(options: RuntimeAppOptions = {}): RuntimeApp {
     },
     setHistoryCoverageDistrustEpochReader: (reader) => {
       readHistoryCoverageDistrustEpoch = reader;
+    },
+    setConversationHistoryCoverageRepository: (repository) => {
+      conversationHistoryCoverageRepository = repository;
     },
   };
 }

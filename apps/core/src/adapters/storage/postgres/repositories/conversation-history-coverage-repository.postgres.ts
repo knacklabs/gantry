@@ -219,9 +219,38 @@ export class PostgresConversationHistoryCoverageRepository implements Conversati
             recordedAt: input.recordedAt,
             updatedAt: input.updatedAt,
           },
+          setWhere: sql`(
+            ${input.providerGeneration} > ${coverage.providerGeneration}
+            OR (
+              ${input.providerGeneration} = ${coverage.providerGeneration}
+              AND (
+                excluded.complete = false
+                OR ${coverage.coveredThroughTimestamp} IS NULL
+                OR excluded.covered_through_timestamp >= ${coverage.coveredThroughTimestamp}
+              )
+            )
+          )`,
         })
         .returning();
-      const written = rows[0];
+      const id = scopeId(input.scope);
+      const written =
+        rows[0] ??
+        (
+          await tx
+            .select()
+            .from(coverage)
+            .where(
+              and(
+                eq(coverage.providerAccountId, input.providerAccountId),
+                eq(coverage.conversationId, input.conversationId),
+                eq(coverage.scopeKind, input.scope.kind),
+                id === null
+                  ? isNull(coverage.scopeId)
+                  : eq(coverage.scopeId, id),
+              ),
+            )
+            .limit(1)
+        )[0];
       if (!written) {
         throw new Error('Conversation history coverage upsert returned no row');
       }
