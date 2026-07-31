@@ -413,6 +413,21 @@ export function preservedMetadataForIncomingAttachment(
         candidate,
       ),
   );
+  // Consume-once: a matched row hands its metadata (and durable id) to
+  // exactly one incoming occurrence. Without this, a redelivery that
+  // duplicates a stable identity would reuse the same preserved primary key
+  // twice and roll back the whole save.
+  if (preserved !== undefined) {
+    existingMetadata.byId.delete(preserved.id);
+    if (preserved.externalId !== undefined) {
+      existingMetadata.byExternalId.delete(preserved.externalId);
+    }
+    if (preserved.providerFetchIdentity !== undefined) {
+      existingMetadata.byProviderFetchIdentity.delete(
+        preserved.providerFetchIdentity,
+      );
+    }
+  }
   const incomingExternalRef =
     attachmentExternalRefForIncomingAttachment(attachment);
   return {

@@ -72,9 +72,54 @@ describe('canonical message attachment preservation', () => {
           storageRef: currentStorageRef,
         },
         'attachment-id',
-        existing,
+        // Maps are per-save; a second save rebuilds them.
+        existingAttachmentMetadataMaps([
+          {
+            id: 'attachment-id',
+            externalRefJson: null,
+            storageRef: currentStorageRef,
+            fileName: 'report.pdf',
+            providerFetchJson: {
+              provider: 'slack',
+              kind: 'file_id',
+              id: 'provider-file-id',
+            },
+            deletedAt: null,
+          },
+        ]),
       ).storageRef,
     ).toBe(currentStorageRef);
+  });
+
+  it('consumes a matched row once so duplicated identities cannot reuse its id', () => {
+    const existing = existingAttachmentMetadataMaps([
+      {
+        id: 'message-attachment:external:msg:F_DUP',
+        externalRefJson: { kind: 'message_attachment', value: 'F_DUP' },
+        storageRef: 'provider-attachments/first-copy.pdf',
+        fileName: 'dup.pdf',
+        providerFetchJson: null,
+        deletedAt: null,
+      },
+    ]);
+
+    const first = preservedMetadataForIncomingAttachment(
+      { kind: 'file', externalId: 'F_DUP' },
+      'message-attachment:external:msg:F_DUP',
+      existing,
+    );
+    const second = preservedMetadataForIncomingAttachment(
+      { kind: 'file', externalId: 'F_DUP' },
+      'message-attachment:external:msg:F_DUP:2',
+      existing,
+    );
+
+    expect(first.attachmentId).toBe('message-attachment:external:msg:F_DUP');
+    expect(first.storageRef).toBe('provider-attachments/first-copy.pdf');
+    // The second occurrence is a NEW row: keeps its discriminated id, no
+    // preserved metadata — never a duplicate primary key.
+    expect(second.attachmentId).toBe('message-attachment:external:msg:F_DUP:2');
+    expect(second.storageRef).toBeNull();
   });
 
   it('synthesizes row ids from the strongest available stable identity', () => {
