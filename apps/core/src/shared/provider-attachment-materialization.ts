@@ -161,7 +161,17 @@ async function readAttachmentContent(
   const file = await fs.open(filePath, 'r');
   try {
     const buffer = Buffer.alloc(limit + 1);
-    const { bytesRead } = await file.read(buffer, 0, buffer.length, 0);
+    let bytesRead = 0;
+    while (bytesRead < buffer.length) {
+      const read = await file.read(
+        buffer,
+        bytesRead,
+        buffer.length - bytesRead,
+        bytesRead,
+      );
+      if (read.bytesRead === 0) break;
+      bytesRead += read.bytesRead;
+    }
     const truncated = bytesRead > limit;
     const content = buffer.subarray(0, Math.min(bytesRead, limit));
     if (textLike) {

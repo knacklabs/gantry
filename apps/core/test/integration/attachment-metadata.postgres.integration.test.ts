@@ -1,3 +1,6 @@
+import fs from 'node:fs';
+import path from 'node:path';
+
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
 
@@ -203,54 +206,124 @@ maybeDescribe('attachment metadata (Postgres)', () => {
     expect(reduced[0]?.attachments?.[0]?.id).toBe(synthesizedHandle);
   });
 
-  it('does not publish an array-index row id as a durable handle', async () => {
+  it('migration 0117 rewrites positional ids into external and index formats', async () => {
+    const externalId = 'F:MIGRATION/file 1';
     const message: NewMessage = {
-      id: 'provider-message-identityless',
-      chat_jid: 'sl:C_FILE_METADATA_IDENTITYLESS',
+      id: 'provider-message-id-migration',
+      chat_jid: 'sl:C_FILE_METADATA_ID_MIGRATION',
       provider: 'slack',
       providerAccountId: 'slack_default',
       sender: 'U_FILE_METADATA',
       sender_name: 'File Owner',
-      content: 'identity-less report attached',
+      content: 'migration reports attached',
       timestamp: '2026-07-30T12:30:00.000Z',
-      external_message_id: 'provider-message-identityless',
-      attachments: [{ kind: 'file', file_name: 'identity-less.pdf' }],
+      external_message_id: 'provider-message-id-migration',
+      attachments: [
+        {
+          kind: 'file',
+          externalId,
+          file_name: 'identified-migration.pdf',
+        },
+        { kind: 'file', file_name: 'identity-less-migration.pdf' },
+      ],
     };
 
     await messages.storeMessage(message);
 
-    const [attachmentRow] = await runtime.service.db
+    const [identifiedRow] = await runtime.service.db
       .select({
         id: pgSchema.messageAttachmentsPostgres.id,
         messageId: pgSchema.messageAttachmentsPostgres.messageId,
       })
       .from(pgSchema.messageAttachmentsPostgres)
       .where(
-        eq(pgSchema.messageAttachmentsPostgres.fileName, 'identity-less.pdf'),
+        eq(
+          pgSchema.messageAttachmentsPostgres.fileName,
+          'identified-migration.pdf',
+        ),
       );
-    expect(attachmentRow).toBeDefined();
+    const [identitylessRow] = await runtime.service.db
+      .select({ id: pgSchema.messageAttachmentsPostgres.id })
+      .from(pgSchema.messageAttachmentsPostgres)
+      .where(
+        eq(
+          pgSchema.messageAttachmentsPostgres.fileName,
+          'identity-less-migration.pdf',
+        ),
+      );
+    expect(identifiedRow).toBeDefined();
+    expect(identitylessRow).toBeDefined();
+    const messageId = identifiedRow!.messageId;
     await runtime.service.db
       .update(pgSchema.messageAttachmentsPostgres)
       .set({
-        id: `message-attachment:${attachmentRow!.messageId}:0`,
+        id: `message-attachment:${messageId}:0`,
+      })
+      .where(eq(pgSchema.messageAttachmentsPostgres.id, identifiedRow!.id));
+    await runtime.service.db
+      .update(pgSchema.messageAttachmentsPostgres)
+      .set({
+        id: `message-attachment:${messageId}:1`,
         externalRefJson: null,
       })
-      .where(eq(pgSchema.messageAttachmentsPostgres.id, attachmentRow!.id));
+      .where(eq(pgSchema.messageAttachmentsPostgres.id, identitylessRow!.id));
+
+    const migration = fs.readFileSync(
+      path.resolve(
+        'apps/core/src/adapters/storage/postgres/schema/migrations/0117_message_attachment_metadata.sql',
+      ),
+      'utf8',
+    );
+    await runtime.service.pool.query(migration);
+
+    const expectedExternalId = `message-attachment:external:${encodeURIComponent(messageId)}:${encodeURIComponent(externalId)}`;
+    const expectedIndexId = `message-attachment:index:${encodeURIComponent(messageId)}:1`;
+    const migratedRows = await runtime.service.db
+      .select({
+        id: pgSchema.messageAttachmentsPostgres.id,
+        externalRefJson: pgSchema.messageAttachmentsPostgres.externalRefJson,
+      })
+      .from(pgSchema.messageAttachmentsPostgres)
+      .where(eq(pgSchema.messageAttachmentsPostgres.messageId, messageId));
+    expect(migratedRows).toHaveLength(2);
+    expect(migratedRows).toEqual(
+      expect.arrayContaining([
+        {
+          id: expectedExternalId,
+          externalRefJson: {
+            kind: 'message_attachment',
+            value: externalId,
+          },
+        },
+        {
+          id: expectedIndexId,
+          externalRefJson: { kind: 'message_attachment_index' },
+        },
+      ]),
+    );
 
     const stored = await messages.getMessagesSince(message.chat_jid, '');
-    expect(stored[0]?.attachments).toEqual([
-      { kind: 'file', file_name: 'identity-less.pdf' },
-    ]);
-    expect(
-      formatConversationContextMessages(
+    expect(stored[0]?.attachments).toEqual(
+      expect.arrayContaining([
         {
-          recentChannelContext: [],
-          activeThreadContext: [],
-          currentMessages: stored,
+          id: expectedExternalId,
+          kind: 'file',
+          externalId,
+          file_name: 'identified-migration.pdf',
         },
-        'UTC',
-      ),
-    ).not.toContain('gantry_attachment=');
+        { kind: 'file', file_name: 'identity-less-migration.pdf' },
+      ]),
+    );
+    const rendered = formatConversationContextMessages(
+      {
+        recentChannelContext: [],
+        activeThreadContext: [],
+        currentMessages: stored,
+      },
+      'UTC',
+    );
+    expect(rendered).toContain(`gantry_attachment="${expectedExternalId}"`);
+    expect(rendered).not.toContain(expectedIndexId);
   });
 
   it('preserves attachment metadata by external identity when ID-less attachments reorder', async () => {

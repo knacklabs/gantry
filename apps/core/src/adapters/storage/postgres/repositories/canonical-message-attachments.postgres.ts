@@ -84,23 +84,6 @@ export function attachmentsJsonForMessage(messageId: unknown) {
           jsonb_build_object(
             'id', CASE
               WHEN attachment_row.external_ref_kind = ${IDENTITYLESS_ATTACHMENT_REF_KIND}
-                OR (
-                  left(
-                    attachment_row.id,
-                    length(
-                      'message-attachment:' || attachment_row.message_id || ':'
-                    )
-                  ) =
-                    'message-attachment:' || attachment_row.message_id || ':'
-                  AND substring(
-                    attachment_row.id
-                    FROM length(
-                      'message-attachment:' || attachment_row.message_id || ':'
-                    ) + 1
-                  ) ~ '^[0-9]+$'
-                  AND attachment_row.external_id IS NULL
-                  AND attachment_row.provider_fetch_json IS NULL
-                )
               THEN NULL
               ELSE attachment_row.id
             END,
@@ -127,7 +110,6 @@ export function attachmentsJsonForMessage(messageId: unknown) {
     FROM (
       SELECT
         ${a.id} AS id,
-        ${a.messageId} AS message_id,
         ${a.kind} AS kind,
         ${a.contentType} AS content_type,
         ${a.sizeBytes} AS size_bytes,
