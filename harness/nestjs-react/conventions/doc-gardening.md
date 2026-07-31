@@ -95,7 +95,6 @@ Purpose statement — one line explaining what this doc covers and why it exists
 @Injectable()
 export class JwtGuard extends AuthGuard('jwt') { ... }
 ```
-````
 
 Last verified: 2025-01-15
 
@@ -128,4 +127,3 @@ Last verified: 2025-01-15
 | Reviewing gardening PRs | Human or senior agent | Approves doc fixes. Ensures no meaning is lost. |
 
 Last verified: 2025-03-15
-````
