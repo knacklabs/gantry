@@ -9,6 +9,9 @@ import type {
   ProviderAccountId,
   ProviderId,
 } from '@core/domain/provider/provider.js';
+import type { NewMessage } from '@core/domain/types.js';
+import { buildGroupTurnConversationContext } from '@core/runtime/group-conversation-context.js';
+import type { GroupProcessingDeps } from '@core/runtime/group-processing-types.js';
 import {
   DEFAULT_AGENT_ID,
   DEFAULT_APP_ID,
@@ -18,6 +21,7 @@ import {
   hasPostgresIntegrationDatabase,
   type PostgresIntegrationRuntime,
 } from '../harness/postgres-integration-runtime.js';
+import { measurePostgresOperations } from '../harness/response-latency-postgres.js';
 
 const maybeDescribe = hasPostgresIntegrationDatabase ? describe : describe.skip;
 
@@ -31,6 +35,8 @@ maybeDescribe('conversation history coverage Postgres repository', () => {
     'channel-providerAccount:history-coverage:slack-rebound' as ProviderAccountId;
   const conversationId =
     'conversation:history-coverage:slack:C123' as ConversationId;
+  const packetConversationId =
+    'conversation:history-coverage:slack:packet' as ConversationId;
   const threadId =
     'thread:history-coverage:slack:C123:1700.1' as ConversationThreadId;
 
@@ -72,6 +78,17 @@ maybeDescribe('conversation history coverage Postgres repository', () => {
       externalRef: { kind: 'conversation', value: 'C123' },
       kind: 'channel',
       title: 'history coverage',
+      status: 'active',
+      createdAt: now,
+      updatedAt: now,
+    });
+    await runtime.repositories.conversations.saveConversation({
+      id: packetConversationId,
+      appId,
+      providerAccountId,
+      externalRef: { kind: 'conversation', value: 'C-packet' },
+      kind: 'channel',
+      title: 'history coverage packet',
       status: 'active',
       createdAt: now,
       updatedAt: now,
@@ -351,6 +368,117 @@ maybeDescribe('conversation history coverage Postgres repository', () => {
       currentProviderGeneration: bumpedGeneration,
       isCurrentGeneration: false,
     });
+  });
+
+  it('adds one guard statement and rehydrates exactly once after a generation bump', async () => {
+    const repository = runtime.repositories.conversationHistoryCoverage;
+    const currentMessage: NewMessage = {
+      id: 'packet-current',
+      chat_jid: 'sl:C-packet',
+      sender: 'U123',
+      sender_name: 'History User',
+      content: '@Gantry prove durable history coverage',
+      timestamp: '2026-08-01T00:00:00.000Z',
+      external_message_id: '1754006400.000000',
+      provider: 'slack',
+      providerAccountId,
+      is_from_me: false,
+      is_bot_message: false,
+    };
+    const hydrateConversationContext = vi.fn().mockResolvedValue({
+      providerId: 'slack',
+      attempted: true,
+      messages: [],
+      coverage: {
+        requestedLatestMessage: {
+          externalMessageId: currentMessage.external_message_id,
+          timestamp: currentMessage.timestamp,
+        },
+        scope: 'channel',
+        requests: [],
+        completeness: { kind: 'server_confirmed', exhausted: true },
+        deliveredMessageCount: 0,
+        threadRoot: 'not_applicable',
+      },
+    });
+    const packetInput = (historyCoverage: boolean) => ({
+      deps: {
+        channelRuntime: { hydrateConversationContext },
+        ...(historyCoverage
+          ? { getConversationHistoryCoverageRepository: () => repository }
+          : {}),
+      } as unknown as GroupProcessingDeps,
+      repository: runtime.ops,
+      agentFolder: 'main',
+      chatJid: currentMessage.chat_jid,
+      conversationId: packetConversationId,
+      providerAccountId,
+      activeThreadId: null,
+      latestMessage: currentMessage,
+      currentMessages: [currentMessage],
+      timezone: 'UTC',
+    });
+
+    const beforeGuard = await measurePostgresOperations(
+      runtime.service.pool,
+      async () => buildGroupTurnConversationContext(packetInput(false)),
+    );
+    expect(beforeGuard.counts).toEqual({
+      postgres_statements: 1,
+      postgres_transactions: 0,
+    });
+    expect(hydrateConversationContext).toHaveBeenCalledTimes(1);
+
+    const generation =
+      await repository.readProviderGeneration(providerAccountId);
+    await repository.upsertCoverage({
+      providerAccountId,
+      conversationId: packetConversationId,
+      scope: { kind: 'channel' },
+      complete: true,
+      coveredThroughExternalId: currentMessage.external_message_id,
+      coveredThroughTimestamp: currentMessage.timestamp,
+      providerGeneration: generation,
+      recordedAt: '2026-08-01T00:00:01.000Z',
+      updatedAt: '2026-08-01T00:00:01.000Z',
+    });
+    hydrateConversationContext.mockClear();
+
+    const guarded = await measurePostgresOperations(
+      runtime.service.pool,
+      async () => buildGroupTurnConversationContext(packetInput(true)),
+    );
+    expect(guarded.counts).toEqual({
+      postgres_statements: 2,
+      postgres_transactions: 0,
+    });
+    expect(hydrateConversationContext).not.toHaveBeenCalled();
+
+    const bumpedGeneration =
+      await repository.bumpProviderGeneration(providerAccountId);
+    await buildGroupTurnConversationContext(packetInput(true));
+    expect(hydrateConversationContext).toHaveBeenCalledTimes(1);
+    await expect(
+      repository.getCoverage({
+        providerAccountId,
+        conversationId: packetConversationId,
+        scope: { kind: 'channel' },
+      }),
+    ).resolves.toMatchObject({
+      coverage: {
+        complete: true,
+        providerGeneration: bumpedGeneration,
+      },
+      currentProviderGeneration: bumpedGeneration,
+      isCurrentGeneration: true,
+    });
+
+    const reattested = await measurePostgresOperations(
+      runtime.service.pool,
+      async () => buildGroupTurnConversationContext(packetInput(true)),
+    );
+    expect(reattested.counts).toEqual(guarded.counts);
+    expect(hydrateConversationContext).toHaveBeenCalledTimes(1);
   });
 
   it('fences a concurrent attestation against conversation rebinding', async () => {

@@ -54,6 +54,12 @@ false)` then runner calls it again with memory (`live-execution.ts:224-244`,
    but is the FAST-PATH question, deferred to model-management's inline-lane
    discussion, NOT this cycle — noted, not fixed here.
 
+### Durable history premise status
+
+| Slice                                    | Real-Postgres result                                                                                                                                                                                                                                                                                                                                                                          | What did not improve                                                                                                                                                                                                                                                      |
+| ---------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| LAT-5B durable provider-history coverage | The real context-packet path changes provider-history calls from **1 before coverage to 0 with current complete coverage**. The generation-aware guard changes that packet from **1 to 2 SQL statements (+1)**. After a provider-generation bump, the next packet rehydrates and re-attests exactly once; the following packet returns to 0 provider calls and the 2-statement guarded shape. | First/uncovered and first-post-reconnect packets still call the provider and synchronously persist accepted history before prompt construction. The 2.5-second deadline remains a ceiling for those packets, not a fixed per-turn cost and not a measured latency saving. |
+
 ## Part B — Ambient liveness (Fable-ranked, no-clutter-filtered)
 
 1. **Revive the progress heartbeat as a REPLACE-ONLY card edit.**
@@ -368,7 +374,7 @@ semantics already established for provider-session writes at
 `canonical-session-repository.postgres.ts:454-475`; on fence mismatch the
 carried block is discarded and that read re-hydrates.
 
-Decision 0078 also REJECTS this section's suggestion to carry the *admission*
+Decision 0078 also REJECTS this section's suggestion to carry the _admission_
 session identity forward as the fenced expected id. The memory block is only
 reused between the runner's provisional read and the model-visible read taken
 inside `prepareCompactionDeltaReplay`, both within one `runGroupAgent` call, so
