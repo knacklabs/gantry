@@ -1,6 +1,7 @@
 import type {
   MessageActionCallbackInput,
   MessageActionOutcome,
+  OnBrainDreamReviewMessageAction,
   OnMemoryReviewMessageAction,
   OnMessageAction,
   OnObserverFeedbackMessageAction,
@@ -40,6 +41,12 @@ function isMessageActionValid(input: MessageActionCallbackInput): boolean {
       input.localDay.trim().length > 0
     );
   }
+  if (input.kind === 'brain_dream_review_decision') {
+    return (
+      input.reviewId.trim().length > 0 &&
+      (input.decision === 'approve' || input.decision === 'reject')
+    );
+  }
   return isLiveStopActionTokenValid(input);
 }
 
@@ -58,12 +65,16 @@ export function createChannelMessageActionRouter(): {
   setObserverFeedbackHandler: (
     handler: OnObserverFeedbackMessageAction | undefined,
   ) => void;
+  setBrainDreamReviewHandler: (
+    handler: OnBrainDreamReviewMessageAction | undefined,
+  ) => void;
 } {
   let handler: OnMessageAction | undefined;
   let memoryReviewHandler: OnMemoryReviewMessageAction | undefined;
   // Task 5 sets the owner-only executor here; until then observer_feedback
   // callbacks parse + validate + route but settle to a no-op (void outcome).
   let observerFeedbackHandler: OnObserverFeedbackMessageAction | undefined;
+  let brainDreamReviewHandler: OnBrainDreamReviewMessageAction | undefined;
   return {
     handle: async (input: MessageActionCallbackInput) => {
       if (!isMessageActionValid(input)) return;
@@ -72,6 +83,9 @@ export function createChannelMessageActionRouter(): {
       }
       if (input.kind === 'observer_feedback') {
         return observerFeedbackHandler?.(input);
+      }
+      if (input.kind === 'brain_dream_review_decision') {
+        return brainDreamReviewHandler?.(input);
       }
       return handler?.(input);
     },
@@ -86,6 +100,11 @@ export function createChannelMessageActionRouter(): {
       next: OnObserverFeedbackMessageAction | undefined,
     ) => {
       observerFeedbackHandler = next;
+    },
+    setBrainDreamReviewHandler: (
+      next: OnBrainDreamReviewMessageAction | undefined,
+    ) => {
+      brainDreamReviewHandler = next;
     },
   };
 }

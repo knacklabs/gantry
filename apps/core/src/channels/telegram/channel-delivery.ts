@@ -30,6 +30,7 @@ import {
 import {
   telegramActionReplyMarkup,
   sendTelegramReviewMessage,
+  sendTelegramBrainReviewMessage,
 } from './message-action-affordances.js';
 import { sendTelegramObserverDigestMessage } from './observer-digest-message.js';
 import {
@@ -76,6 +77,15 @@ export abstract class TelegramChannelDelivery extends TelegramChannelConnect {
 
     if (options.reviewMessageView) {
       return sendTelegramReviewMessage({
+        bot: this.bot,
+        jid,
+        options,
+        sanitizeErrorMessage: (err) => this.sanitizeErrorMessage(err),
+      });
+    }
+
+    if (options.brainReviewView) {
+      return sendTelegramBrainReviewMessage({
         bot: this.bot,
         jid,
         options,

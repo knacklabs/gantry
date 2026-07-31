@@ -1,6 +1,7 @@
 import { ChildProcess } from 'child_process';
 import fs from 'fs';
 import path from 'path';
+import { randomUUID } from 'node:crypto';
 import {
   DATA_DIR,
   PERMISSION_APPROVAL_TIMEOUT_MS,
@@ -69,6 +70,10 @@ import {
 import { formatGeneratedRuntimePathPermissionError } from './generated-runtime-path-error.js';
 import { writeRunnerMcpConfigFile } from './agent-spawn-mcp-config.js';
 import { withStdioMcpEgressEnv } from './agent-spawn-mcp-egress-env.js';
+import {
+  accessSnapshotForSpawnMcpProjection,
+  resolveSpawnMcpSourceRecords,
+} from './agent-spawn-mcp-source-records.js';
 import { publishRunnerHostStartupDiagnosticFromSpawn } from './agent-spawn-startup-diagnostic.js';
 import { resolveSelectedSkillEnvForSpawn } from './agent-spawn-selected-skill-env.js';
 import { configureSpawnAsyncCommandSandboxPolicy } from './async-command-sandbox-policy.js';
@@ -224,12 +229,17 @@ async function spawnAgentWithContext(
   const { runnerInput, browserIpcEnabled, trustedToolPolicyRules } =
     projectSpawnRunnerInput({
       agentInput: input,
-      workspaceFolder: group.folder,
+      group,
       callableAgentManifest,
       hideAuthorityTools,
       compiledSystemPrompt,
       permissions: runtimeSettings.permissions,
     });
+  // Per-turn browser credential: two concurrent turns for different accounts
+  // get different tokens, which a shared (workspace, chat, thread) key cannot.
+  const browserTurnToken = randomUUID();
+  const browserProfileForRun = runnerInput.browserProfileName ?? '';
+  runnerInput.browserTurnToken = browserTurnToken;
   const egressSettings = runtimeSettings.permissions.egress;
   const hostRuntime = host.prepareHostRuntimeContext(group);
   const adapterResolution = resolveSpawnExecutionAdapter(
@@ -327,17 +337,12 @@ async function spawnAgentWithContext(
     let projectedMcpSourceIds: string[] = [];
     let effectiveRuntimeAccess = input.runtimeAccess ?? [];
     await hostStartup.measureAsync('mcpProjectionMs', async () => {
-      const mcpSourceRecords =
-        options?.mcpServerRepository &&
-        options.mcpContext?.appId &&
-        options.mcpContext.agentId &&
-        attachedMcpSourceIds.length > 0
-          ? await options.mcpServerRepository.listMaterializedServersForAgent({
-              appId: options.mcpContext.appId as never,
-              agentId: options.mcpContext.agentId as never,
-              serverIds: attachedMcpSourceIds as never,
-            })
-          : [];
+      const accessSnapshot = accessSnapshotForSpawnMcpProjection(options);
+      const mcpSourceRecords = await resolveSpawnMcpSourceRecords({
+        attachedMcpSourceIds,
+        options,
+        accessSnapshot,
+      });
       selectedMcpServerNames = uniqueStrings([
         ...mcpSourceRecords.map((record) => record.definition.name),
         ...attachedMcpSourceIds.map((sourceId) =>
@@ -371,7 +376,9 @@ async function spawnAgentWithContext(
                 serverIds: projectedMcpSourceIds as never,
                 mcpServers: options.mcpServerRepository,
                 secrets: options.capabilitySecretRepository,
+                accessSnapshot,
               }),
+              accessSnapshot,
             })
           : [];
       effectiveRuntimeAccess = attachMcpSourceNetworkHosts(
@@ -514,6 +521,7 @@ async function spawnAgentWithContext(
       workspaceIpcDir: hostRuntime.workspaceIpcDir,
       ipcInputDir,
       ipcAuthToken: ipcAuth.authToken,
+      browserTurnToken,
       chatJid: input.chatJid,
       providerAccountId: group.providerAccountId,
       jobId: input.jobId,
@@ -664,6 +672,9 @@ async function spawnAgentWithContext(
         workspaceKey: group.folder,
         chatJid: input.chatJid,
         threadId: input.threadId,
+        turnToken: browserTurnToken,
+        browserProfileName: browserProfileForRun,
+        turnQueueKey: input.turnQueueKey,
       });
     }
     sandboxConfigPath = path.join(
@@ -780,6 +791,7 @@ async function spawnAgentWithContext(
         workspaceKey: group.folder,
         chatJid: input.chatJid,
         threadId: input.threadId,
+        turnToken: browserTurnToken,
       });
     }
     cleanupRunnerMcpConfigFile(mcpConfigPath, logger.warn.bind(logger));

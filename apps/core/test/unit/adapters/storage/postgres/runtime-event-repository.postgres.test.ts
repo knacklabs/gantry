@@ -1,6 +1,8 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { PostgresRuntimeEventRepository } from '@core/adapters/storage/postgres/repositories/runtime-event-repository.postgres.js';
+import { PostgresCanonicalMessageRepository } from '@core/adapters/storage/postgres/repositories/canonical-message-repository.postgres.js';
+import { createPostgresDomainRepositories } from '@core/adapters/storage/postgres/repositories/domain-repositories.postgres.js';
 import * as pgSchema from '@core/adapters/storage/postgres/schema/schema.js';
 import { RUNTIME_EVENT_TYPES } from '@core/domain/events/runtime-event-types.js';
 
@@ -11,6 +13,10 @@ class FakeDrizzleDb {
   insertedConversationThread: Record<string, unknown> | null = null;
   failOutboxInsert = false;
   failDeliveryInsert = false;
+
+  async execute(): Promise<void> {
+    this.operations.push('lock:message_attachments');
+  }
 
   async transaction<T>(fn: (tx: this) => Promise<T>): Promise<T> {
     this.operations.push('transaction:begin');
@@ -97,6 +103,18 @@ class FakeDrizzleDb {
     const db = this;
     return {
       from(table: unknown) {
+        if (table === pgSchema.messageAttachmentsPostgres) {
+          db.operations.push('select:provider_attachment');
+          return {
+            where() {
+              return {
+                async limit() {
+                  return [];
+                },
+              };
+            },
+          };
+        }
         if (table !== pgSchema.controlHttpWebhooksPostgres) {
           throw new Error('Unexpected select table');
         }
@@ -115,8 +133,25 @@ class FakeDrizzleDb {
   }
 }
 
-function createRepository(db: FakeDrizzleDb) {
-  return new PostgresRuntimeEventRepository(db as never);
+function createRepository(
+  db: FakeDrizzleDb,
+  reclaimProviderAttachment?: (storageRef: string) => Promise<void>,
+) {
+  return new PostgresRuntimeEventRepository(
+    db as never,
+    undefined,
+    100,
+    reclaimProviderAttachment,
+  );
+}
+
+function createWiredRepository(
+  db: FakeDrizzleDb,
+  reclaimProviderAttachment: (storageRef: string) => Promise<void>,
+) {
+  return createPostgresDomainRepositories(db as never, undefined, {
+    cleanupProviderAttachment: reclaimProviderAttachment,
+  }).runtimeEvents;
 }
 
 describe('PostgresRuntimeEventRepository', () => {
@@ -181,6 +216,128 @@ describe('PostgresRuntimeEventRepository', () => {
       'insert:event_bus_outbox',
       'transaction:rollback',
     ]);
+  });
+
+  it('runs handed-off attachment cleanup only after its caller-owned transaction commits', async () => {
+    const db = new FakeDrizzleDb();
+    const reclaimProviderAttachment = vi.fn(async (_storageRef: string) => {
+      db.operations.push('reclaim:provider_attachment');
+    });
+    const saveMessageWithExecutor = vi
+      .spyOn(
+        PostgresCanonicalMessageRepository.prototype,
+        'saveMessageWithExecutor',
+      )
+      .mockResolvedValue({
+        liveAdmissionResult: undefined,
+        removedProviderStorageRefs: [
+          {
+            messageId: 'provider-message-1',
+            storageRef: 'provider-attachments/only-copy.txt',
+          },
+        ],
+      });
+    const repository = createWiredRepository(db, reclaimProviderAttachment);
+
+    try {
+      await repository.appendRuntimeEventAndStoreLiveAdmission(
+        {
+          appId: 'app:test' as never,
+          eventType: RUNTIME_EVENT_TYPES.SESSION_MESSAGE_OUTBOUND,
+          actor: 'agent',
+          payload: { text: 'done' },
+        },
+        {
+          message: {
+            id: 'provider-message-1',
+            chat_jid: 'sl:C123',
+            provider: 'slack',
+            sender: 'U123',
+            sender_name: 'Ravi',
+            content: 'message',
+            timestamp: '2026-04-30T00:00:00.000Z',
+          },
+          liveAdmission: { appId: 'app:test' },
+        },
+      );
+
+      expect(reclaimProviderAttachment).toHaveBeenCalledWith(
+        'provider-attachments/only-copy.txt',
+      );
+      expect(db.operations).toEqual([
+        'transaction:begin',
+        'insert:runtime_events',
+        'insert:event_bus_outbox',
+        'transaction:commit',
+        'transaction:begin',
+        'lock:message_attachments',
+        'lock:message_attachments',
+        'select:provider_attachment',
+        'reclaim:provider_attachment',
+        'transaction:commit',
+      ]);
+      expect(saveMessageWithExecutor).toHaveBeenCalledOnce();
+    } finally {
+      saveMessageWithExecutor.mockRestore();
+    }
+  });
+
+  it('does not run handed-off attachment cleanup when its caller-owned transaction rolls back', async () => {
+    const db = new FakeDrizzleDb();
+    db.failOutboxInsert = true;
+    const reclaimProviderAttachment = vi.fn(
+      async (_storageRef: string) => undefined,
+    );
+    const saveMessageWithExecutor = vi
+      .spyOn(
+        PostgresCanonicalMessageRepository.prototype,
+        'saveMessageWithExecutor',
+      )
+      .mockResolvedValue({
+        liveAdmissionResult: undefined,
+        removedProviderStorageRefs: [
+          {
+            messageId: 'provider-message-1',
+            storageRef: 'provider-attachments/only-copy.txt',
+          },
+        ],
+      });
+    const repository = createWiredRepository(db, reclaimProviderAttachment);
+
+    try {
+      await expect(
+        repository.appendRuntimeEventAndStoreLiveAdmission(
+          {
+            appId: 'app:test' as never,
+            eventType: RUNTIME_EVENT_TYPES.SESSION_MESSAGE_OUTBOUND,
+            actor: 'agent',
+            payload: { text: 'done' },
+          },
+          {
+            message: {
+              id: 'provider-message-1',
+              chat_jid: 'sl:C123',
+              provider: 'slack',
+              sender: 'U123',
+              sender_name: 'Ravi',
+              content: 'message',
+              timestamp: '2026-04-30T00:00:00.000Z',
+            },
+            liveAdmission: { appId: 'app:test' },
+          },
+        ),
+      ).rejects.toThrow('outbox insert failed');
+
+      expect(db.operations).toEqual([
+        'transaction:begin',
+        'insert:runtime_events',
+        'insert:event_bus_outbox',
+        'transaction:rollback',
+      ]);
+      expect(reclaimProviderAttachment).not.toHaveBeenCalled();
+    } finally {
+      saveMessageWithExecutor.mockRestore();
+    }
   });
 
   it('rolls back the runtime event when webhook delivery enqueue fails', async () => {

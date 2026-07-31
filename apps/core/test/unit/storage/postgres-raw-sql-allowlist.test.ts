@@ -15,6 +15,9 @@ const ALLOWED_RAW_SQL_FILES = new Set([
   'apps/core/src/adapters/storage/postgres/repositories/async-task-repository.postgres.ts',
   // pg_advisory_xact_lock makes live admission cap checks atomic per app.
   'apps/core/src/adapters/storage/postgres/repositories/live-admission-work-item-repository.postgres.ts',
+  // pg_advisory_xact_lock serializes attachment writers against the
+  // reference-aware provider-ref cleanup (FILE-1A reclamation invariants).
+  'apps/core/src/adapters/storage/postgres/repositories/canonical-message-attachment-lock.postgres.ts',
   // pg_advisory_xact_lock makes Observer batch claiming atomic across workers
   // (prefer-orphan state machine); same operational primitive as above.
   'apps/core/src/adapters/storage/postgres/repositories/chat-batch-repository.postgres.ts',

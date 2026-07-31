@@ -1,11 +1,14 @@
 import { sql } from 'drizzle-orm';
 import {
+  boolean,
+  check,
   index,
   jsonb,
   pgTable,
   primaryKey,
   text,
   timestamp,
+  unique,
   uniqueIndex,
   vector,
   integer,
@@ -218,6 +221,94 @@ export const brainDreamDecisionsPostgres = pgTable(
     appIdx: index('idx_brain_dream_decisions_app').on(
       table.appId,
       table.createdAt,
+    ),
+  }),
+);
+
+// One row per VALID destructive dream decision awaiting owner review. Holds the
+// immutable canonical operation + the immutable human display snapshot; `state`
+// is the review lifecycle claimed at-most-once by the executor (T3/T4).
+export const brainDreamReviewsPostgres = pgTable(
+  'brain_dream_reviews',
+  {
+    id: text('id').primaryKey(),
+    appId: text('app_id')
+      .notNull()
+      .references(() => appsPostgres.id, { onDelete: 'cascade' }),
+    runId: text('run_id'),
+    decisionId: text('decision_id')
+      .notNull()
+      .references(() => brainDreamDecisionsPostgres.id, {
+        onDelete: 'cascade',
+      }),
+    action: text('action').notNull(),
+    canonicalOpJson: jsonb('canonical_op_json').notNull(),
+    reviewSnapshotJson: jsonb('review_snapshot_json').notNull(),
+    state: text('state').notNull().default('pending_review'),
+    reviewerUserId: text('reviewer_user_id'),
+    reviewerConversationJid: text('reviewer_conversation_jid'),
+    reviewerProviderAccountId: text('reviewer_provider_account_id'),
+    createdAt: timestamp('created_at', {
+      withTimezone: true,
+      mode: 'string',
+    })
+      .notNull()
+      .defaultNow(),
+    decidedAt: timestamp('decided_at', {
+      withTimezone: true,
+      mode: 'string',
+    }),
+    outcome: text('outcome'),
+    error: text('error'),
+  },
+  (table) => ({
+    decisionUnique: unique('brain_dream_reviews_decision_id_unique').on(
+      table.decisionId,
+    ),
+    pendingIdx: index('idx_brain_dream_reviews_pending').on(
+      table.appId,
+      table.state,
+      table.createdAt,
+    ),
+    stateCheck: check(
+      'brain_dream_reviews_state_check',
+      sql`${table.state} IN ('pending_review', 'applying', 'applied', 'rejected', 'stale', 'failed')`,
+    ),
+  }),
+);
+
+// One row per page/entity/edge a review would mutate. `open` + the partial
+// unique index guarantee at most one PENDING review owns a given target, so two
+// overlapping proposals can't both be surfaced/applied. Closed on terminal.
+export const brainDreamReviewTargetsPostgres = pgTable(
+  'brain_dream_review_targets',
+  {
+    id: text('id').primaryKey(),
+    reviewId: text('review_id')
+      .notNull()
+      .references(() => brainDreamReviewsPostgres.id, { onDelete: 'cascade' }),
+    appId: text('app_id').notNull(),
+    targetKind: text('target_kind').notNull(),
+    targetId: text('target_id').notNull(),
+    expectedVersion: text('expected_version'),
+    open: boolean('open').notNull().default(true),
+    createdAt: timestamp('created_at', {
+      withTimezone: true,
+      mode: 'string',
+    })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    reviewIdx: index('idx_brain_dream_review_targets_review').on(
+      table.reviewId,
+    ),
+    openUnique: uniqueIndex('idx_brain_dream_review_targets_open_unique')
+      .on(table.appId, table.targetKind, table.targetId)
+      .where(sql`${table.open}`),
+    kindCheck: check(
+      'brain_dream_review_targets_kind_check',
+      sql`${table.targetKind} IN ('page', 'entity', 'edge')`,
     ),
   }),
 );

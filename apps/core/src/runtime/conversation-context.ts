@@ -109,7 +109,9 @@ function selectThreadContext(input: {
       input.conversationJid,
       input.threadId,
       input.latestMessage,
-      THREAD_CONTEXT_LIMIT,
+      // Rooted selection may over-fetch one row; rootless selection needs every
+      // excluded current message budgeted because no separate root fills a slot.
+      THREAD_CONTEXT_LIMIT + input.currentMessages.length,
       { providerAccountId: input.providerAccountId },
     ),
   ]).then(([firstMessages, latestMessages]) => {
@@ -129,11 +131,22 @@ function selectThreadContext(input: {
     if (combined.length <= THREAD_CONTEXT_LIMIT) {
       return { messages: combined, rootPresent };
     }
-    const root = combined.slice(0, 1);
-    const firstReplies = combined.slice(1, THREAD_LONG_FIRST_REPLIES + 1);
-    const latestReplies = combined.slice(1).slice(-THREAD_LONG_LATEST_REPLIES);
+    const root = rootPresent
+      ? combined.find((message) => isThreadRootMessage(message, input.threadId))
+      : undefined;
+    const nonRootMessages = root
+      ? combined.filter((message) => messageKey(message) !== messageKey(root))
+      : combined;
+    const firstReplies = root
+      ? nonRootMessages.slice(0, THREAD_LONG_FIRST_REPLIES)
+      : [];
+    const latestReplies = nonRootMessages.slice(
+      -(root ? THREAD_LONG_LATEST_REPLIES : THREAD_CONTEXT_LIMIT),
+    );
     return {
-      messages: dedupeMessages([...root, ...firstReplies, ...latestReplies]),
+      messages: dedupeMessages(
+        root ? [root, ...firstReplies, ...latestReplies] : latestReplies,
+      ),
       rootPresent,
     };
   });

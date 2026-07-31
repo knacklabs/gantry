@@ -44,6 +44,7 @@ import { forceBackgroundNativeAgentInput } from './native-agent-tool-input.js';
 import { denyNonPromptableAutonomousRecovery } from './autonomous-permission-recovery.js';
 import { evaluateYoloModeDenylist } from '../../../../shared/yolo-mode-policy.js';
 import { formatPermissionDeniedMessage } from '../../../../shared/permission-decision-message.js';
+import { isHostAuthorizedMcpProxyDispatcherFullName } from '../../../../shared/admin-mcp-tools.js';
 type ApprovalInput = Parameters<typeof requestPermissionApproval>[0];
 const WORKSPACE_FOLDER_KEY = WORKSPACE_FOLDER_OPTION_KEY as keyof ApprovalInput;
 const RAW_REQ = /^(Agent|AskUserQuestion|TodoWrite)$/;
@@ -371,6 +372,14 @@ export function createCanUseToolCallback(
         principal: sdkApprovalPrincipal,
         reason: yoloDenylistReason,
       });
+    }
+
+    // The host resolves and authorizes the exact MCP target.
+    if (
+      !yoloDenylistMatch &&
+      isHostAuthorizedMcpProxyDispatcherFullName(toolName)
+    ) {
+      return allowToolUse('host resolves and authorizes the MCP target');
     }
 
     const toolExecutionRequest = buildAgentToolExecutionRequest(

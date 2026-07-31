@@ -34,9 +34,11 @@ import {
   getRuntimeControlRepository,
   getRuntimeRepositories,
   getRuntimeStorage,
+  tryAcquireRuntimeAdvisoryLease,
 } from '../../adapters/storage/postgres/runtime-store.js';
 import { preflightModelProvider } from '../../adapters/llm/model-provider-preflight.js';
 import type { AppId } from '../../domain/app/app.js';
+import type { RuntimeLeasePort } from '../../domain/ports/runtime-lease.js';
 import { canAccessApp, makeAppGroup } from './app-identity.js';
 import {
   isValidControlId,
@@ -271,7 +273,11 @@ export function startControlServer(input: {
   agentSettings?: ControlRouteContext['agentSettings'];
   settingsImport?: ControlRouteContext['settingsImport'];
   resolveObserverStatus?: ControlRouteContext['resolveObserverStatus'];
+  leases?: RuntimeLeasePort;
 }): ControlServerHandle {
+  const leases = input.leases ?? {
+    tryAcquire: tryAcquireRuntimeAdvisoryLease,
+  };
   configureDesiredSettingsStorageProvider(async () => {
     const storage = getRuntimeStorage();
     return {
@@ -279,6 +285,7 @@ export function startControlServer(input: {
       repositories: storage.repositories,
       settingsRevisions: storage.repositories.settingsRevisions,
       pool: storage.service.pool,
+      leases,
     };
   });
   const socketPath =
@@ -394,6 +401,7 @@ export function startControlServer(input: {
         providerId,
         chatAlias,
         settings: getRuntimeSettingsForConfig(),
+        modelCredentials: getRuntimeStorage().repositories.modelCredentials,
         appId,
       }),
     getActiveModelCredentialProviderIds: async (appId: AppId) => {
@@ -439,6 +447,7 @@ export function startControlServer(input: {
         settingsRevisions: storage.repositories.settingsRevisions,
         pool: storage.service?.pool,
         createdBy: 'control-api:projection-sync',
+        leases,
         reloadRuntimeState: () => input.app.loadState(),
         overrides,
       });

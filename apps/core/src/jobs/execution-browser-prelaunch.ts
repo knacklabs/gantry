@@ -5,7 +5,6 @@ import {
 import type { Job } from '../domain/types.js';
 import { setupStateForBrowserPrelaunchFailure } from '../application/jobs/job-readiness-service.js';
 import { splitAccessRequirements } from '../application/jobs/job-access-requirements.js';
-import { resolveConversationBrowserProfile } from '../shared/browser-profile-scope.js';
 import { nowMs } from '../shared/time/datetime.js';
 import {
   type JobRunDiagnostics,
@@ -13,11 +12,13 @@ import {
   updateDiagnosticsFromRuntimeEvent,
 } from './execution-diagnostics.js';
 import type { SchedulerDependencies } from './types.js';
+import { resolveConversationBrowserProfile } from '../shared/browser-profile-scope.js';
 
 export async function prelaunchBrowserForJobRun(input: {
   currentJob: Job;
   executionGroupFolder?: string;
   executionJid?: string;
+  executionProviderAccountId?: string;
   diagnostics: JobRunDiagnostics;
   deps: SchedulerDependencies;
   emitJobEvent: (
@@ -43,6 +44,13 @@ export async function prelaunchBrowserForJobRun(input: {
     agentId: input.executionGroupFolder,
     workspaceKey: input.executionGroupFolder,
     conversationId: input.executionJid,
+    // Same resolver as the live-turn path: a job MUST land on the same profile
+    // as the chat it belongs to, or it loses the login established there.
+    // The route CAPTURED at execution start, not a fresh lookup: routes are
+    // mutable, so re-resolving here would let a mid-run reassignment send
+    // cleanup to a different profile than prelaunch opened — closing the wrong
+    // browser and leaking the one the job actually launched.
+    providerAccountId: input.executionProviderAccountId ?? null,
   });
   const startedAt = nowMs();
 

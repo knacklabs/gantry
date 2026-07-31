@@ -1,5 +1,11 @@
 # Agent E2E CI Merge Gate — Plan Validation Round 3
 
+> **Historical validation snapshot.** This report records the 2026-07-20
+> branch state named below. Decision 0040 and later PERM work supersede its
+> sandbox, YOLO, classifier-eligibility, persistent-grant, and permission-receipt
+> observations. Use `agent-e2e-test-matrix.md` and
+> `capability-management.md` for the current contract.
+
 Status: **NOT APPROVED FOR IMPLEMENTATION**
 
 Validated: 2026-07-20

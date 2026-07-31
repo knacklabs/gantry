@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
-import { and, asc, desc, eq, inArray, ne, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, ne, or, sql } from 'drizzle-orm';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 
 import {
@@ -34,6 +34,11 @@ import {
   listBrainPagesForDream,
   saveBrainDreamCursor,
 } from './brain-dream-repository.postgres.js';
+import {
+  toBrainEdge as toEdge,
+  toBrainEntity as toEntity,
+  toBrainPage as toPage,
+} from './brain-row-mappers.postgres.js';
 
 type Db = NodePgDatabase<typeof pgSchema>;
 
@@ -48,6 +53,61 @@ export class PostgresBrainRepository implements BrainRepository {
 
   async getPageBySlug(appId: string, slug: string): Promise<BrainPage | null> {
     return this.pageBySlug(appId, slug);
+  }
+
+  async getPageById(appId: string, pageId: string): Promise<BrainPage | null> {
+    const [row] = await this.db
+      .select()
+      .from(Pages)
+      .where(and(eq(Pages.appId, appId), eq(Pages.id, pageId)))
+      .limit(1);
+    return row ? toPage(row) : null;
+  }
+
+  async getEntityById(
+    appId: string,
+    entityId: string,
+  ): Promise<BrainEntity | null> {
+    const [row] = await this.db
+      .select()
+      .from(Entities)
+      .where(and(eq(Entities.appId, appId), eq(Entities.id, entityId)))
+      .limit(1);
+    return row ? toEntity(row) : null;
+  }
+
+  async getEdgeById(appId: string, edgeId: string): Promise<BrainEdge | null> {
+    const [row] = await this.db
+      .select()
+      .from(Edges)
+      .where(and(eq(Edges.appId, appId), eq(Edges.id, edgeId)))
+      .limit(1);
+    return row ? toEdge(row) : null;
+  }
+
+  async listEdgesForEntity(
+    appId: string,
+    entityId: string,
+  ): Promise<BrainEdge[]> {
+    const rows = await this.db
+      .select()
+      .from(Edges)
+      .where(
+        and(
+          eq(Edges.appId, appId),
+          or(eq(Edges.fromEntityId, entityId), eq(Edges.toEntityId, entityId)),
+        ),
+      );
+    return rows.map(toEdge);
+  }
+
+  async countPageEmbeddings(appId: string, pageId: string): Promise<number> {
+    const [row] = await this.db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(Embeddings)
+      .innerJoin(Pages, eq(Embeddings.pageId, Pages.id))
+      .where(and(eq(Pages.appId, appId), eq(Embeddings.pageId, pageId)));
+    return Number(row?.count ?? 0);
   }
 
   async upsertPage(
@@ -630,48 +690,4 @@ function pageContentHashSql() {
 
 function toVectorLiteral(vector: number[]): string {
   return `[${vector.join(',')}]`;
-}
-
-function toPage(row: typeof Pages.$inferSelect): BrainPage {
-  return {
-    id: row.id,
-    appId: row.appId,
-    slug: row.slug,
-    title: row.title,
-    markdown: row.markdown,
-    sourceKind: row.sourceKind as BrainPage['sourceKind'],
-    sourceRef: row.sourceRef,
-    authorId: row.authorId,
-    metadata:
-      row.metadataJson && typeof row.metadataJson === 'object'
-        ? (row.metadataJson as Record<string, unknown>)
-        : {},
-    createdAt: row.createdAt,
-    updatedAt: row.updatedAt,
-  };
-}
-
-function toEntity(row: typeof Entities.$inferSelect): BrainEntity {
-  return {
-    id: row.id,
-    appId: row.appId,
-    kind: row.kind as BrainEntity['kind'],
-    name: row.name,
-    normalizedName: row.normalizedName,
-    createdAt: row.createdAt,
-    updatedAt: row.updatedAt,
-  };
-}
-
-function toEdge(row: typeof Edges.$inferSelect): BrainEdge {
-  return {
-    id: row.id,
-    appId: row.appId,
-    type: row.type as BrainEdge['type'],
-    fromEntityId: row.fromEntityId,
-    toEntityId: row.toEntityId,
-    evidencePageId: row.evidencePageId,
-    createdAt: row.createdAt,
-    updatedAt: row.updatedAt,
-  };
 }

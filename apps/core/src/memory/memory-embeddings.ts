@@ -100,6 +100,7 @@ interface EmbeddingProviderOptions {
   model?: string;
   dimensions?: number;
   appId?: AppId;
+  credentialBrokerConfig?: ReturnType<typeof getCredentialBrokerRuntimeConfig>;
 }
 
 const embeddingProviderFactories = new Map<
@@ -108,10 +109,13 @@ const embeddingProviderFactories = new Map<
 >();
 const DEFAULT_EMBEDDING_BASE_URL = ['https://api.', 'open', 'ai.com'].join('');
 const OPEN_AI_PROVIDER_ALIAS = ['open', 'ai'].join('');
-let embeddingCredentialBrokerPromise:
-  | ReturnType<typeof createAgentCredentialBroker>
-  | undefined;
-let embeddingCredentialBrokerConfigKey = '';
+interface EmbeddingCredentialBrokerState {
+  configKey: string;
+  storage: ReturnType<typeof getRuntimeStorage>;
+  brokerPromise: ReturnType<typeof createAgentCredentialBroker>;
+}
+
+let embeddingCredentialBrokerState: EmbeddingCredentialBrokerState | undefined;
 
 export class OpenAIEmbeddingClient implements EmbeddingProvider {
   private readonly apiKey: string | null | EmbeddingCredentialResolver;
@@ -362,8 +366,9 @@ export class OpenAIEmbeddingClient implements EmbeddingProvider {
   }
 }
 
-function validateBrokeredEmbeddingConfiguration(): void {
-  const brokerConfig = getCredentialBrokerRuntimeConfig();
+function validateBrokeredEmbeddingConfiguration(
+  brokerConfig = getCredentialBrokerRuntimeConfig(),
+): void {
   if (brokerConfig.mode === 'gantry') return;
   throw new Error('Gantry Model Access is required for memory embeddings');
 }
@@ -380,6 +385,7 @@ function validateEmbeddingProviderDefinition(providerId: string): void {
 async function resolveBrokeredEmbeddingConnection(
   providerId: string,
   appId: AppId | undefined,
+  brokerConfig = getCredentialBrokerRuntimeConfig(),
 ) {
   validateEmbeddingProviderDefinition(providerId);
   if (!appId) {
@@ -387,26 +393,16 @@ async function resolveBrokeredEmbeddingConnection(
       'Memory embeddings require an app-scoped credential binding.',
     );
   }
-  const brokerConfig = getCredentialBrokerRuntimeConfig();
   if (brokerConfig.mode !== 'gantry') return null;
   const configKey = `${brokerConfig.mode}:${brokerConfig.gatewayBindHost}`;
-  if (embeddingCredentialBrokerConfigKey !== configKey) {
-    void embeddingCredentialBrokerPromise
-      ?.then((broker) => broker?.close?.())
-      .catch((error) => {
-        logger.warn(
-          { err: error },
-          'Failed to close replaced embedding credential broker',
-        );
-      });
-    embeddingCredentialBrokerPromise = undefined;
-    embeddingCredentialBrokerConfigKey = configKey;
-  }
+  const storage = getRuntimeStorage();
   return resolveBrokeredEmbeddingInjectionFromBroker({
     mode: 'gantry',
     gatewayBindHost: brokerConfig.gatewayBindHost,
     providerId,
     appId,
+    configKey,
+    storage,
   });
 }
 
@@ -415,18 +411,10 @@ async function resolveBrokeredEmbeddingInjectionFromBroker(brokerConfig: {
   gatewayBindHost: string;
   providerId: string;
   appId: AppId;
+  configKey: string;
+  storage: ReturnType<typeof getRuntimeStorage>;
 }) {
-  embeddingCredentialBrokerPromise ??= createAgentCredentialBroker({
-    mode: brokerConfig.mode,
-    modelCredentials: getRuntimeStorage().repositories.modelCredentials,
-    gatewayBindHost: brokerConfig.gatewayBindHost,
-    publishRuntimeEvent: (event) =>
-      getRuntimeStorage().runtimeEvents.publish(event),
-  }).catch((error) => {
-    embeddingCredentialBrokerPromise = undefined;
-    throw error;
-  });
-  const broker = await embeddingCredentialBrokerPromise;
+  const broker = await embeddingCredentialBrokerForStorage(brokerConfig);
   if (!broker) return null;
   const providerId = normalizeModelProviderId(brokerConfig.providerId);
   const runId = `memory-embedding:${randomUUID()}` as never;
@@ -455,6 +443,54 @@ async function resolveBrokeredEmbeddingInjectionFromBroker(brokerConfig: {
         },
       }) ?? Promise.resolve(),
   };
+}
+
+function embeddingCredentialBrokerForStorage(input: {
+  mode: 'gantry';
+  gatewayBindHost: string;
+  configKey: string;
+  storage: ReturnType<typeof getRuntimeStorage>;
+}) {
+  const existing = embeddingCredentialBrokerState;
+  if (
+    existing?.configKey === input.configKey &&
+    existing.storage === input.storage
+  ) {
+    return existing.brokerPromise;
+  }
+
+  let previousClosed = false;
+  const brokerPromise = (async () => {
+    const previousBroker = await existing?.brokerPromise.catch(() => undefined);
+    if (previousBroker?.close) {
+      await previousBroker.close().catch((error) => {
+        logger.warn(
+          { err: error },
+          'Failed to close replaced embedding credential broker',
+        );
+      });
+    }
+    previousClosed = true;
+    return createAgentCredentialBroker({
+      mode: input.mode,
+      modelCredentials: input.storage.repositories.modelCredentials,
+      gatewayBindHost: input.gatewayBindHost,
+      publishRuntimeEvent: (event) =>
+        input.storage.runtimeEvents.publish(event),
+    });
+  })();
+  const nextState = {
+    configKey: input.configKey,
+    storage: input.storage,
+    brokerPromise,
+  };
+  embeddingCredentialBrokerState = nextState;
+  void brokerPromise.catch(() => {
+    if (embeddingCredentialBrokerState === nextState) {
+      embeddingCredentialBrokerState = previousClosed ? undefined : existing;
+    }
+  });
+  return brokerPromise;
 }
 
 export class DisabledEmbeddingClient implements EmbeddingProvider {
@@ -522,11 +558,18 @@ for (const provider of listEmbeddingModelProviders()) {
         null,
         options?.model || MEMORY_EMBED_MODEL,
         () => {
-          validateBrokeredEmbeddingConfiguration();
+          validateBrokeredEmbeddingConfiguration(
+            options?.credentialBrokerConfig,
+          );
           validateEmbeddingProviderDefinition(provider.id);
         },
         DEFAULT_EMBEDDING_BASE_URL,
-        () => resolveBrokeredEmbeddingConnection(provider.id, options?.appId),
+        () =>
+          resolveBrokeredEmbeddingConnection(
+            provider.id,
+            options?.appId,
+            options?.credentialBrokerConfig,
+          ),
         options?.dimensions ?? MEMORY_EMBED_DIMENSIONS,
       ),
   );
@@ -543,7 +586,9 @@ if (
         null,
         options?.model || MEMORY_EMBED_MODEL,
         () => {
-          validateBrokeredEmbeddingConfiguration();
+          validateBrokeredEmbeddingConfiguration(
+            options?.credentialBrokerConfig,
+          );
           validateEmbeddingProviderDefinition(defaultEmbeddingProvider.id);
         },
         DEFAULT_EMBEDDING_BASE_URL,
@@ -551,6 +596,7 @@ if (
           resolveBrokeredEmbeddingConnection(
             defaultEmbeddingProvider.id,
             options?.appId,
+            options?.credentialBrokerConfig,
           ),
         options?.dimensions ?? MEMORY_EMBED_DIMENSIONS,
       ),

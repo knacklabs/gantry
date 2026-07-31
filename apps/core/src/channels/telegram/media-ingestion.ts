@@ -118,6 +118,7 @@ export function registerTelegramMediaHandlers(input: {
         kind: 'image' | 'file' | 'audio' | 'video' | 'other';
         externalId?: string;
         storageRef?: string;
+        fileName?: string;
       },
     ) => {
       const msgId = ctx.message.message_id.toString();
@@ -138,6 +139,9 @@ export function registerTelegramMediaHandlers(input: {
                 id: `telegram-attachment:${chatJid}:${msgId}`,
                 kind: attachment.kind,
                 externalId: attachment.externalId,
+                ...(attachment.fileName === undefined
+                  ? {}
+                  : { file_name: attachment.fileName }),
                 ...(attachment.storageRef === undefined
                   ? {}
                   : { storageRef: attachment.storageRef }),
@@ -178,6 +182,7 @@ export function registerTelegramMediaHandlers(input: {
             kind,
             externalId: opts.fileId,
             storageRef: downloaded.storageRef,
+            fileName: opts.filename,
           });
           return;
         }
@@ -185,6 +190,7 @@ export function registerTelegramMediaHandlers(input: {
       await deliver(`${placeholder}${caption}`, {
         kind,
         externalId: opts.fileId,
+        fileName: opts.filename,
       });
       return;
     }

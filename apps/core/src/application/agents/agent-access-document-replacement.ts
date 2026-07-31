@@ -34,7 +34,7 @@ import type { SemanticCapabilityDefinition } from '../../shared/semantic-capabil
 import { nextMcpSourceBindings } from './agent-mcp-source-bindings.js';
 import {
   canonicalToolReferenceForView,
-  skillActionDefinitionsForBindings,
+  semanticCapabilityDefinitionsForAccess,
 } from './agent-capability-skill-actions.js';
 import type { AgentCapabilitiesView } from './agent-capability-administration-service.js';
 
@@ -120,13 +120,13 @@ export async function replaceAgentAccessDocument(input: {
     existingBindings: mcpBindings,
     now: input.now,
   });
-  const semanticCapabilityDefinitions = await skillActionDefinitionsForBindings(
-    {
+  const semanticCapabilityDefinitions =
+    await semanticCapabilityDefinitionsForAccess({
       appId: input.appId,
       skillBindings: nextSkillBindings,
       skillRepository: input.repositories.skills,
-    },
-  );
+      toolRepository: input.repositories.tools,
+    });
   const selectedToolReferences = resolveSelectedToolReferences(
     input.capabilities,
     semanticCapabilityDefinitions,

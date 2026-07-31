@@ -24,6 +24,11 @@ const runtimeHomes: string[] = [];
 
 function makeDeps() {
   return {
+    leases: {
+      tryAcquire: vi.fn(async () => ({
+        release: vi.fn(async () => {}),
+      })),
+    },
     app: { loadState: vi.fn(async () => undefined) } as any,
     ops: {
       getAllConversationRoutes: vi.fn(async () => ({})),
@@ -321,6 +326,18 @@ class FakeSettingsRevisionRepository implements SettingsRevisionRepository {
 
   async getLatestSettingsRevision(appId: string): Promise<SettingsRevision> {
     if (this.latestError) throw this.latestError;
+    const appended = this.appended.at(-1);
+    if (appended) {
+      return {
+        appId,
+        revision: this.appended.length + 1,
+        settingsDocument: appended.settingsDocument,
+        minReaderVersion: appended.minReaderVersion,
+        createdBy: appended.createdBy,
+        note: appended.note ?? null,
+        createdAt: new Date(0).toISOString(),
+      };
+    }
     return {
       appId,
       revision: 1,

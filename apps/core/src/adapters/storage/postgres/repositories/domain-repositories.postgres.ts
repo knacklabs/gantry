@@ -77,6 +77,18 @@ import {
   type CanonicalDb,
 } from './canonical-graph-repository.postgres.js';
 import {
+  attachmentIdentityConflicts,
+  existingAttachmentMetadataMaps,
+  providerAttachmentStorageRefsRemovedByReplacement,
+} from './canonical-message-attachments.postgres.js';
+import { lockCanonicalMessageAttachments } from './canonical-message-attachment-lock.postgres.js';
+import {
+  cleanupRemovedProviderAttachments,
+  storageRefForAttachmentWriter,
+  type ProviderAttachmentCleanup,
+  type RemovedProviderAttachment,
+} from './provider-attachment-cleanup.postgres.js';
+import {
   PostgresAgentSessionRepository,
   PostgresAgentSessionDigestRepository,
   PostgresAgentSessionSummaryRepository,
@@ -104,6 +116,7 @@ import { PostgresAsyncTaskRepository } from './async-task-repository.postgres.js
 import { PostgresPatternCandidateRepository } from './pattern-candidate-repository.postgres.js';
 import { PostgresProactiveSurfacingRepository } from './proactive-surfacing-repository.postgres.js';
 import { PostgresObserverInsightRepository } from './observer-insight-repository.postgres.js';
+import { PostgresBrainDreamReviewRepository } from './brain-dream-review-repository.postgres.js';
 import { PostgresChatBatchRepository } from './chat-batch-repository.postgres.js';
 import type {
   RuntimeDependencyRepository,
@@ -113,13 +126,16 @@ import type {
 import type { AsyncTaskRepository } from '../../../../domain/ports/async-tasks.js';
 import type { PatternCandidateRepository } from '../../../../domain/ports/pattern-candidates.js';
 import type { ObserverInsightRepository } from '../../../../domain/ports/observer-insights.js';
+import type { BrainDreamReviewRepository } from '../../../../brain/brain-dream-review-repository.js';
 import type { ChatBatchRepository } from '../../../../domain/ports/chat-batches.js';
 import type { PermissionPromotionRepository } from '../../../../domain/ports/permission-promotion.js';
 import type { PermissionDecisionMemoryRepository } from '../../../../domain/ports/permission-decision-memory.js';
 import type { GroupJoinOnboardingRepository } from '../../../../domain/ports/group-join-onboarding.js';
+import type { MessageAttachmentRepository } from '../../../../domain/ports/message-attachment-repository.js';
 import { PostgresPermissionPromotionRepository } from './permission-promotion-repository.postgres.js';
 import { PostgresPermissionDecisionMemoryRepository } from './permission-decision-memory-repository.postgres.js';
 import { PostgresGroupJoinOnboardingRepository } from './group-join-onboarding-repository.postgres.js';
+import { PostgresMessageAttachmentRepository } from './message-attachment-repository.postgres.js';
 export interface PostgresDomainRepositoryBundle {
   apps: AppRepository;
   agents: AgentRepository;
@@ -127,6 +143,7 @@ export interface PostgresDomainRepositoryBundle {
   providerAccounts: ProviderAccountRepository;
   conversations: ConversationRepository;
   messages: MessageRepository;
+  messageAttachments: MessageAttachmentRepository;
   agentSessions: AgentSessionRepository;
   agentSessionDigests: AgentSessionDigestRepository;
   providerSessions: ProviderSessionRepository;
@@ -151,6 +168,7 @@ export interface PostgresDomainRepositoryBundle {
   patternCandidates: PatternCandidateRepository;
   proactiveSurfacing: PostgresProactiveSurfacingRepository;
   observerInsights: ObserverInsightRepository;
+  brainDreamReviews: BrainDreamReviewRepository;
   chatBatches: ChatBatchRepository;
   permissionPromotions: PermissionPromotionRepository;
   permissionDecisionMemory: PermissionDecisionMemoryRepository;
@@ -1065,7 +1083,10 @@ export class PostgresConversationRepository implements ConversationRepository {
   }
 }
 export class PostgresMessageRepository implements MessageRepository {
-  constructor(private readonly db: CanonicalDb) {}
+  constructor(
+    private readonly db: CanonicalDb,
+    private readonly cleanupProviderAttachment: ProviderAttachmentCleanup = missingProviderAttachmentCleanup,
+  ) {}
   async listConversationIdsForJid(jid: string): Promise<Conversation['id'][]> {
     const c = pgSchema.conversationsPostgres;
     const rows = await this.db
@@ -1098,17 +1119,25 @@ export class PostgresMessageRepository implements MessageRepository {
     return this.messageFromRows(row, parts, attachments);
   }
   async saveMessage(message: Message): Promise<void> {
+    let removedProviderStorageRefs: RemovedProviderAttachment[];
     try {
-      await this.writeMessage(message);
+      removedProviderStorageRefs = await this.writeMessage(message);
     } catch (err) {
       if (!message.externalRef?.value || !isUniqueViolation(err)) {
         throw err;
       }
-      await this.writeMessage(message);
+      removedProviderStorageRefs = await this.writeMessage(message);
     }
+    await cleanupRemovedProviderAttachments(
+      this.db,
+      removedProviderStorageRefs,
+      this.cleanupProviderAttachment,
+    );
   }
-  private async writeMessage(message: Message): Promise<void> {
-    await this.db.transaction(async (tx) => {
+  private async writeMessage(
+    message: Message,
+  ): Promise<RemovedProviderAttachment[]> {
+    return this.db.transaction(async (tx) => {
       const c = pgSchema.conversationsPostgres;
       const ci = pgSchema.providerAccountsPostgres;
       const channelRows = await tx
@@ -1155,7 +1184,7 @@ export class PostgresMessageRepository implements MessageRepository {
           .limit(1);
         targetMessageId = (duplicateRows[0]?.id ?? message.id) as Message['id'];
       }
-      await tx
+      const [messageUpsertResult] = await tx
         .insert(pgSchema.messagesPostgres)
         .values({
           id: targetMessageId,
@@ -1190,15 +1219,73 @@ export class PostgresMessageRepository implements MessageRepository {
             deliveredAt: message.deliveredAt ?? null,
             deliveryError: message.deliveryError ?? null,
           },
+        })
+        .returning({
+          inserted: sql<boolean>`(xmax = 0)`,
         });
+      const messageInserted = messageUpsertResult?.inserted === true;
       await tx
         .delete(pgSchema.messagePartsPostgres)
         .where(eq(pgSchema.messagePartsPostgres.messageId, targetMessageId));
-      await tx
-        .delete(pgSchema.messageAttachmentsPostgres)
-        .where(
-          eq(pgSchema.messageAttachmentsPostgres.messageId, targetMessageId),
-        );
+      if (!messageInserted) {
+        await lockCanonicalMessageAttachments(tx, targetMessageId);
+      }
+      const existingAttachments = messageInserted
+        ? []
+        : await tx
+            .select()
+            .from(pgSchema.messageAttachmentsPostgres)
+            .where(
+              eq(
+                pgSchema.messageAttachmentsPostgres.messageId,
+                targetMessageId,
+              ),
+            );
+      const existingAttachmentsById =
+        existingAttachmentMetadataMaps(existingAttachments).byId;
+      const replacementAttachmentRows = message.attachments.map(
+        (attachment) => {
+          const idMatch = existingAttachmentsById.get(attachment.id);
+          const existing = attachmentIdentityConflicts(
+            { externalId: attachment.externalRef?.value },
+            idMatch,
+          )
+            ? undefined
+            : idMatch;
+          return {
+            id: attachment.id,
+            messageId: targetMessageId,
+            kind: attachment.kind,
+            contentType:
+              attachment.contentType ?? existing?.contentType ?? null,
+            sizeBytes: attachment.sizeBytes ?? existing?.sizeBytes ?? null,
+            externalRefJson: jsonbOrNull(attachment.externalRef),
+            storageRef: storageRefForAttachmentWriter(
+              attachment.storageRef,
+              existing?.storageRef,
+            ),
+            fileName: existing?.fileName ?? null,
+            providerFetchJson: existing?.providerFetchJson ?? null,
+            deletedAt: existing?.deletedAt ?? null,
+            trust: attachment.trust,
+          };
+        },
+      );
+      const removedProviderStorageRefs =
+        providerAttachmentStorageRefsRemovedByReplacement(
+          existingAttachments,
+          replacementAttachmentRows,
+        ).map((storageRef) => ({
+          messageId: targetMessageId,
+          storageRef,
+        }));
+      if (!messageInserted) {
+        await tx
+          .delete(pgSchema.messageAttachmentsPostgres)
+          .where(
+            eq(pgSchema.messageAttachmentsPostgres.messageId, targetMessageId),
+          );
+      }
       if (message.parts.length > 0) {
         await tx.insert(pgSchema.messagePartsPostgres).values(
           message.parts.map((part, ordinal) => ({
@@ -1209,20 +1296,12 @@ export class PostgresMessageRepository implements MessageRepository {
           })),
         );
       }
-      if (message.attachments.length > 0) {
-        await tx.insert(pgSchema.messageAttachmentsPostgres).values(
-          message.attachments.map((attachment) => ({
-            id: attachment.id,
-            messageId: targetMessageId,
-            kind: attachment.kind,
-            contentType: attachment.contentType ?? null,
-            sizeBytes: attachment.sizeBytes ?? null,
-            externalRefJson: jsonbOrNull(attachment.externalRef),
-            storageRef: attachment.storageRef ?? null,
-            trust: attachment.trust,
-          })),
-        );
+      if (replacementAttachmentRows.length > 0) {
+        await tx
+          .insert(pgSchema.messageAttachmentsPostgres)
+          .values(replacementAttachmentRows);
       }
+      return removedProviderStorageRefs;
     });
   }
   async listMessages(input: {
@@ -1745,6 +1824,7 @@ export function createPostgresDomainRepositories(
   options: {
     liveTurnCommandNotifier?: LiveTurnCommandNotifier;
     maxLiveAdmissionBacklog?: number;
+    cleanupProviderAttachment?: ProviderAttachmentCleanup;
   } = {},
 ): PostgresDomainRepositoryBundle {
   return {
@@ -1753,7 +1833,14 @@ export function createPostgresDomainRepositories(
     agentConfigs: new PostgresAgentConfigRepository(db),
     providerAccounts: new PostgresProviderAccountRepository(db),
     conversations: new PostgresConversationRepository(db),
-    messages: new PostgresMessageRepository(db),
+    messages: new PostgresMessageRepository(
+      db,
+      options.cleanupProviderAttachment,
+    ),
+    messageAttachments: new PostgresMessageAttachmentRepository(
+      db,
+      options.cleanupProviderAttachment,
+    ),
     agentSessions: new PostgresAgentSessionRepository(db),
     agentSessionDigests: new PostgresAgentSessionDigestRepository(db),
     providerSessions: new PostgresProviderSessionRepository(db),
@@ -1763,6 +1850,7 @@ export function createPostgresDomainRepositories(
       db,
       undefined,
       options.maxLiveAdmissionBacklog,
+      options.cleanupProviderAttachment,
     ),
     tools: new PostgresToolCatalogRepository(db),
     skills: new PostgresSkillCatalogRepository(db),
@@ -1788,6 +1876,7 @@ export function createPostgresDomainRepositories(
     patternCandidates: new PostgresPatternCandidateRepository(db),
     proactiveSurfacing: new PostgresProactiveSurfacingRepository(db),
     observerInsights: new PostgresObserverInsightRepository(db),
+    brainDreamReviews: new PostgresBrainDreamReviewRepository(db),
     chatBatches: new PostgresChatBatchRepository(db),
     permissionPromotions: new PostgresPermissionPromotionRepository(db),
     permissionDecisionMemory: new PostgresPermissionDecisionMemoryRepository(
@@ -1795,4 +1884,8 @@ export function createPostgresDomainRepositories(
     ),
     groupJoinOnboarding: new PostgresGroupJoinOnboardingRepository(db),
   };
+}
+
+async function missingProviderAttachmentCleanup(): Promise<never> {
+  throw new Error('Provider attachment cleanup dependency is not configured');
 }

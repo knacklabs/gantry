@@ -1,11 +1,18 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 
+const spawnAgent = vi.hoisted(() => vi.fn());
+
+vi.mock('@core/runtime/agent-spawn.js', () => ({
+  spawnAgent,
+}));
+
 import {
   createInlineCoreTools,
   createInlineCoreToolsForRun,
   wireInlineAgentLoopTools,
 } from '@core/app/bootstrap/inline-agent-loop-tools.js';
+import { createInlineAgentTaskLifecycle } from '@core/app/bootstrap/inline-agent-task-lifecycle.js';
 import {
   evaluateNeutralToolPolicy,
   evaluateNeutralToolPreChecks,
@@ -15,9 +22,19 @@ import {
   formatMemoryWriteResponse,
 } from '@core/runner/mcp/formatting.js';
 import type {
+  AsyncTaskBacklogAdmissionInput,
+  AsyncTaskClaimInput,
   AsyncTaskCreateInput,
   AsyncTaskRecord,
+  AsyncTaskScopedAdmissionInput,
 } from '@core/domain/ports/async-tasks.js';
+import {
+  loadAgentAccessSnapshot,
+  resolveTurnSelectedMcpServerIdsFromSnapshot,
+  resolveTurnSelectedSkillContextFromSnapshot,
+  resolveTurnSemanticCapabilitiesFromSnapshot,
+  resolveTurnToolPolicyFromSnapshot,
+} from '@core/runtime/group-run-context.js';
 import { makeAgentThreadQueueKey } from '@core/shared/thread-queue-key.js';
 
 const publishRuntimeEvent = vi.fn(async () => undefined);
@@ -165,6 +182,14 @@ function support(
 
 beforeEach(() => {
   vi.clearAllMocks();
+  spawnAgent.mockImplementation(async (_group, _input, onProcess, onOutput) => {
+    onProcess?.({
+      pid: 12345,
+      kill: vi.fn(() => true),
+    } as never);
+    await onOutput?.({ status: 'success', result: 'delegated done' });
+    return { status: 'success', result: 'delegated done' };
+  });
 });
 
 describe('inline core tool bootstrap', () => {
@@ -454,7 +479,33 @@ describe('inline core tool bootstrap', () => {
       }),
       listTasks: vi.fn(async () => []),
       countTasksByStatus: vi.fn(async () => []),
-      claimQueuedTask: vi.fn(async () => null),
+      createTaskWithBacklogAdmission: vi.fn(
+        async (input: AsyncTaskBacklogAdmissionInput) =>
+          repository.createTask(input.task),
+      ),
+      createTaskWithScopedAdmission: vi.fn(
+        async (input: AsyncTaskScopedAdmissionInput) => ({
+          task: await repository.createTask(input.task),
+          admitted: true,
+          staleTasks: [],
+        }),
+      ),
+      claimQueuedTask: vi.fn(async (input: AsyncTaskClaimInput) => {
+        const index = tasks.findIndex((task) => task.id === input.taskId);
+        const current = tasks[index];
+        if (!current || current.status !== 'queued') return null;
+        const claimed: AsyncTaskRecord = {
+          ...current,
+          status: 'running',
+          leaseToken: input.leaseToken,
+          fencingVersion: current.fencingVersion + 1,
+          heartbeatAt: input.now,
+          startedAt: input.now,
+          updatedAt: input.now,
+        };
+        tasks[index] = claimed;
+        return claimed;
+      }),
     };
     const listAgents = vi.fn(async () => [
       {
@@ -506,6 +557,195 @@ describe('inline core tool bootstrap', () => {
       maxDepth: 1,
     });
     expect(tasks[0]?.authoritySnapshotJson.toolName).not.toBe('delegate_task');
+  });
+
+  it('reuses one target access snapshot for inline delegated input and run options', async () => {
+    const tasks: AsyncTaskRecord[] = [];
+    const repository = {
+      createTask: vi.fn(async (taskInput: AsyncTaskCreateInput) => {
+        const task: AsyncTaskRecord = {
+          ...taskInput,
+          conversationId: taskInput.conversationId ?? null,
+          threadId: taskInput.threadId ?? null,
+          parentRunId: taskInput.parentRunId ?? null,
+          parentJobId: taskInput.parentJobId ?? null,
+          parentJobRunId: taskInput.parentJobRunId ?? null,
+          privateCorrelationJson: taskInput.privateCorrelationJson ?? {},
+          createdAt: taskInput.now,
+          updatedAt: taskInput.now,
+        };
+        tasks.push(task);
+        return task;
+      }),
+      getTask: vi.fn(
+        async (taskId: string) =>
+          tasks.find((task) => task.id === taskId) ?? null,
+      ),
+      transitionTask: vi.fn(async (transition) => {
+        const index = tasks.findIndex((task) => task.id === transition.taskId);
+        const current = tasks[index];
+        if (!current) return null;
+        const updated = {
+          ...current,
+          status: transition.status,
+          updatedAt: transition.now,
+          privateCorrelationJson:
+            transition.privateCorrelationJson ?? current.privateCorrelationJson,
+          outputSummary: transition.outputSummary ?? current.outputSummary,
+          errorSummary: transition.errorSummary ?? current.errorSummary,
+          receiptJson: transition.receiptJson ?? current.receiptJson,
+        };
+        tasks[index] = updated;
+        return updated;
+      }),
+      listTasks: vi.fn(async () => []),
+      countTasksByStatus: vi.fn(async () => []),
+      createTaskWithBacklogAdmission: vi.fn(
+        async (input: AsyncTaskBacklogAdmissionInput) =>
+          repository.createTask(input.task),
+      ),
+      createTaskWithScopedAdmission: vi.fn(
+        async (input: AsyncTaskScopedAdmissionInput) => ({
+          task: await repository.createTask(input.task),
+          admitted: true,
+          staleTasks: [],
+        }),
+      ),
+      claimQueuedTask: vi.fn(async (input: AsyncTaskClaimInput) => {
+        const index = tasks.findIndex((task) => task.id === input.taskId);
+        const current = tasks[index];
+        if (!current || current.status !== 'queued') return null;
+        const claimed: AsyncTaskRecord = {
+          ...current,
+          status: 'running',
+          leaseToken: input.leaseToken,
+          fencingVersion: current.fencingVersion + 1,
+          heartbeatAt: input.now,
+          startedAt: input.now,
+          updatedAt: input.now,
+        };
+        tasks[index] = claimed;
+        return claimed;
+      }),
+    };
+    const toolSnapshot = {
+      activeBindings: [
+        {
+          binding: { status: 'active', toolId: 'tool:file-read' },
+          definition: { appId: 'default', name: 'FileRead' },
+        },
+      ],
+      appActiveDefinitions: [],
+    };
+    const skillSnapshot = {
+      activeBindings: [],
+      enabledDefinitions: [],
+    };
+    const mcpSnapshot = {
+      activeBindings: [],
+      materializedServers: [],
+    };
+    const listAgentToolAccessSnapshot = vi.fn(async () => toolSnapshot);
+    const listAgentSkillAccessSnapshot = vi.fn(async () => skillSnapshot);
+    const listAgentMcpAccessSnapshot = vi.fn(async () => mcpSnapshot);
+    let resolvedAccessSnapshot: unknown;
+    const input = laneInput();
+    input.input.toolPolicyRules = ['AgentDelegation'];
+    const snapshotDeps = {
+      getToolRepository: () =>
+        ({
+          listAgentToolAccessSnapshot,
+        }) as never,
+      getSkillRepository: () =>
+        ({
+          listAgentSkillAccessSnapshot,
+        }) as never,
+      getMcpServerRepository: () =>
+        ({
+          listAgentMcpAccessSnapshot,
+        }) as never,
+    };
+    const backend = createInlineAgentTaskLifecycle({
+      laneInput: input,
+      repository: repository as never,
+      getConversationRoutes: () => ({
+        [makeAgentThreadQueueKey(
+          'conversation:test',
+          'agent-1',
+          undefined,
+          'slack-main',
+        )]: {
+          name: 'Main',
+          folder: 'main_agent',
+          trigger: '',
+          added_at: new Date(0).toISOString(),
+          agentId: 'agent-1',
+          providerAccountId: 'slack-main',
+          conversationId: 'conversation:shared',
+        },
+        [makeAgentThreadQueueKey('conversation:test', 'agent:reviewer')]: {
+          name: 'Reviewer',
+          folder: 'reviewer',
+          trigger: '',
+          added_at: new Date(0).toISOString(),
+          agentId: 'agent:reviewer',
+          providerAccountId: 'slack-reviewer',
+          conversationId: 'conversation:shared',
+        },
+      }),
+      resolveExecutionProviderId: vi.fn(async () => 'test:inline'),
+      resolveRunAccess: async (agentId) => {
+        const accessSnapshot = await loadAgentAccessSnapshot(snapshotDeps, {
+          appId: 'default',
+          agentId,
+        });
+        resolvedAccessSnapshot = accessSnapshot;
+        const toolPolicy = resolveTurnToolPolicyFromSnapshot(accessSnapshot);
+        const selectedSkills =
+          resolveTurnSelectedSkillContextFromSnapshot(accessSnapshot);
+        return {
+          toolPolicyRules: toolPolicy.toolPolicyRules,
+          runtimeAccess: toolPolicy.runtimeAccess,
+          attachedSkillSourceIds: selectedSkills.ids,
+          selectedSkillDisplays: selectedSkills.displays,
+          attachedMcpSourceIds:
+            resolveTurnSelectedMcpServerIdsFromSnapshot(accessSnapshot),
+          semanticCapabilities:
+            resolveTurnSemanticCapabilitiesFromSnapshot(accessSnapshot),
+          accessSnapshot,
+        };
+      },
+      buildRunOptions: async (_agentId, runAccess) =>
+        ({
+          accessSnapshot: runAccess.accessSnapshot,
+          runnerSandboxProvider: { enforcing: true },
+        }) as never,
+    });
+
+    vi.stubEnv('SECRET_ENCRYPTION_KEY', Buffer.alloc(32, 1).toString('base64'));
+    const result = await backend!.delegate_task({
+      objective: 'Review the change',
+      targetAgentId: 'agent:reviewer',
+    });
+    vi.unstubAllEnvs();
+
+    expect(result).toMatchObject({ ok: true });
+    await vi.waitFor(() => expect(spawnAgent).toHaveBeenCalledOnce());
+    expect(listAgentToolAccessSnapshot).toHaveBeenCalledOnce();
+    expect(listAgentSkillAccessSnapshot).toHaveBeenCalledOnce();
+    expect(listAgentMcpAccessSnapshot).toHaveBeenCalledOnce();
+    const delegatedInput = spawnAgent.mock.calls[0]?.[1];
+    const delegatedOptions = spawnAgent.mock.calls[0]?.[4];
+    expect(delegatedInput).toMatchObject({
+      agentId: 'agent:reviewer',
+      toolPolicyRules: ['FileRead'],
+    });
+    expect(delegatedInput).not.toHaveProperty('accessSnapshot');
+    expect(delegatedOptions?.accessSnapshot).toMatchObject({
+      appId: 'default',
+      agentId: 'agent:reviewer',
+    });
+    expect(delegatedOptions?.accessSnapshot).toBe(resolvedAccessSnapshot);
   });
 
   it.each([

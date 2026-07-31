@@ -53,6 +53,8 @@ export abstract class TelegramChannelState implements ChannelAdapter {
   protected pollingRetryTimer: ReturnType<typeof setTimeout> | null = null;
   protected pollingLease: RuntimeLease | null = null;
   protected pollingStartInFlight = false;
+  // grammY stop() does not await the polling loop; teardown must drain this too.
+  protected activePollingRun: Promise<unknown> | null = null;
   protected interactionCallbacksEnabled = true;
   protected opts: ChannelOpts;
   protected botToken: string;

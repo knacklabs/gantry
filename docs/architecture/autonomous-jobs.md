@@ -75,19 +75,24 @@ must not start arbitrary MCP servers as a readiness side effect.
 ## Execution
 
 Scheduled job execution keeps protected capability and memory guards active
-before autonomous allowance. If a tool is outside the effective job allowlist,
-the runner uses the same permission IPC path as interactive agent runs: it sends
-the approval prompt to the job's source conversation/thread or topic and waits
-at the tool boundary. `Allow once` resumes that tool call in the current job
-run. `Allow for future`, when offered, stores a semantic
+before autonomous allowance. Eligible `auto`/`auto_strict` requests get a
+bounded classifier decision, but a request that still needs a human cannot hold
+the unattended runner indefinitely. The job enters the setup-required recovery
+path and delivers its approval through the existing job/source-conversation
+route. The current implementation releases the old lease and schedules new
+work after approval; same-fenced-run tool-call resume and explicit
+`controlApprovers` routing remain D-0008.
+
+`Allow for future`, when offered, stores a semantic
 `capability:<id>` grant when the request names one; otherwise it may apply
 canonical `Browser`, an exact Gantry file/web facade, an exact Gantry admin
 tool, or a scoped `RunCommand(...)` rule to the target agent. Broad exact
 SDK/native tools and exact third-party MCP tool names remain one-off only. The
 grant is mirrored to
-`settings.yaml`, expanded into live runtime rules for the active run, and
-resumes the same tool call so recurring jobs do not need the same approval next
-time.
+`settings.yaml`; the replacement or next scheduled run sees the updated
+agent-owned authority so recurring jobs do not need the same approval next
+time. `Allow once` remains transient and must not be documented as durable
+agent authority.
 
 If the approval surface is unavailable, denied, or times out, the runner fails
 the tool call with recovery guidance such as:
@@ -183,13 +188,15 @@ part of job creation or update; the host derives the share target from
 `executionContext`.
 
 Host-owned job scripts are not supported. Raw host Bash is not equivalent to
-Claude SDK Bash because it does not inherit the SDK filesystem sandbox,
-provider tool lifecycle, or per-tool permission callback. Move job logic into
-the scheduled prompt and grant semantic capabilities first, with scoped SDK
-Bash only as a fallback low-level durable grant, through the normal capability
-request flow. Any future script-like job runner must first
-provide the same protected-path deny-write boundary on macOS, Linux, and Docker
-deployments.
+governed runner Bash because it bypasses the provider tool lifecycle and
+per-tool host permission callback. `direct` runner mode has no Claude SDK
+filesystem sandbox; `sandbox_runtime` optionally adds whole-runner confinement.
+Move job logic into the scheduled prompt and grant semantic capabilities first,
+with scoped SDK Bash only as a fallback low-level durable grant through the
+normal capability request flow. Any future script-like job runner must first
+provide the same deterministic credential/protected-path authorization on
+macOS, Linux, and Docker, plus an explicit confinement boundary when that
+deployment requires one.
 Persistent approval helpers do not suggest or store host-owned Python script
 rules such as `RunCommand(/path/to/script.py *)`; reviewed skill actions use
 stable `skills/<id>/...` command templates, and authenticated local CLIs use

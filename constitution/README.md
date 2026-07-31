@@ -7,7 +7,7 @@ standard, deviate with a written reason).
 
 Precedence when guidance conflicts (see also `harness.yaml`):
 1. This constitution wins over any skill's guidance.
-2. Factory gates (`.agents/scripts/`, `.factory/` artifacts) win over workflow skills.
+2. Factory gates (`factory/scripts/`, `.factory/` artifacts) win over workflow skills.
 3. gstack skills win over other third-party skills.
 
 In generated repos this directory is vendored and pinned (`VENDORED_FROM`);

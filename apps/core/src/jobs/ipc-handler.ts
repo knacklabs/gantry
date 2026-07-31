@@ -5,6 +5,7 @@ import { adminTaskHandlers } from './ipc-admin-handlers.js';
 import { agentProfileTaskHandlers } from './ipc-agent-profile-handlers.js';
 import { fileArtifactTaskHandlers } from './ipc-file-artifact-handlers.js';
 import { agentTaskLifecycleHandlers } from './ipc-agent-task-lifecycle-handlers.js';
+import { attachmentOpenTaskHandlers } from './ipc-attachment-open-handler.js';
 import { schedulerCreateTaskHandlers } from './ipc-scheduler-create-handlers.js';
 import { schedulerMutateTaskHandlers } from './ipc-scheduler-mutate-handlers.js';
 import { schedulerQueryTaskHandlers } from './ipc-scheduler-query-handlers.js';
@@ -119,6 +120,7 @@ const taskHandlers: Record<string, TaskHandler> = {
   ...agentProfileTaskHandlers,
   ...fileArtifactTaskHandlers,
   ...agentTaskLifecycleHandlers,
+  ...attachmentOpenTaskHandlers,
 };
 
 export type { TaskIpcData } from './ipc-types.js';

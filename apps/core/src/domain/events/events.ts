@@ -25,6 +25,23 @@ import type { IsoTimestamp } from '../../shared/time/primitives.js';
 import type { RuntimeEventType } from './runtime-event-types.js';
 
 export type AgentRunId = BrandedId<'AgentRunId'>;
+
+// Synthetic run-ids are minted for LLM calls that have no `agent_runs` row
+// (permission classification, memory queries, credential brokering). A real
+// run id is either `agent-run:<uuid>` or a bare uuid — both satisfy the
+// runtime_events -> agent_runs FK; these prefixes never do, so audit writes
+// must drop them. Every synthetic minter MUST register its prefix here: the
+// permission-classifier LLM client, the per-provider memory-query and
+// chat-batch clients, and the spawn-host / turn-tracker credential minters.
+export const SYNTHETIC_RUN_ID_PREFIXES = [
+  'permission-classifier:',
+  'memory-query:',
+  'credential-run:',
+] as const;
+
+export function isSyntheticRunId(runId: string): boolean {
+  return SYNTHETIC_RUN_ID_PREFIXES.some((prefix) => runId.startsWith(prefix));
+}
 export type RuntimeEventId = number & {
   readonly __brand: 'RuntimeEventId';
 };

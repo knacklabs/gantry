@@ -5,6 +5,7 @@ import type { AgentId } from '../../../domain/agent/agent.js';
 import type { AppId } from '../../../domain/app/app.js';
 import type { SkillArtifactStore } from '../../../domain/ports/skill-artifact-store.js';
 import type { SkillCatalogRepository } from '../../../domain/ports/repositories.js';
+import type { AgentAccessSnapshot } from '../../../application/agent-execution/agent-access-snapshot.js';
 import { resolveSelectedSkillProjection } from '../../../application/skills/selected-skill-projection.js';
 import {
   sanitizeSkillDirectoryName,
@@ -73,6 +74,7 @@ export class ArtifactClaudeSkillSource implements SkillSource {
     private readonly skills: SkillCatalogRepository,
     private readonly artifacts: SkillArtifactStore,
     private readonly context: { appId: AppId; agentId: AgentId },
+    private readonly accessSnapshot?: AgentAccessSnapshot,
   ) {}
 
   async listSkills(input?: {
@@ -86,6 +88,7 @@ export class ArtifactClaudeSkillSource implements SkillSource {
       skillRepository: this.skills,
       skillArtifactStore: this.artifacts,
       skillContext: this.context,
+      accessSnapshot: this.accessSnapshot,
     });
     return (projection?.skills ?? []).map((skill) => ({
       id: skill.id,

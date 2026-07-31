@@ -18,6 +18,9 @@ need AI agents to run safely inside product and operations workflows.
   transport remains outside the current implementation.
 - Postgres-backed settings, credential references, memory, jobs, events, and audit state.
 - Provider-neutral model routing through catalog aliases and gateway-owned credentials.
+- Guided conversation installation for adding one existing agent and provider
+  account to additional channel conversations without re-entering credentials
+  or editing `settings.yaml`.
 
 ## Non-Goals
 

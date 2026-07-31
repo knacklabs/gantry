@@ -5,6 +5,8 @@ import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { PostgresBrainRepository } from '@core/adapters/storage/postgres/repositories/brain-repository.postgres.js';
+import { PostgresBrainDreamReviewRepository } from '@core/adapters/storage/postgres/repositories/brain-dream-review-repository.postgres.js';
+import { DEFAULT_MEMORY_APP_ID } from '@core/memory/app-memory-boundaries.js';
 import {
   _setRuntimeStorageForTest,
   closeRuntimeStorage,
@@ -13,6 +15,8 @@ import { BrainService } from '@core/brain/brain-service.js';
 import { runBrainEmbeddingBackfill } from '@core/brain/brain-embedding-backfill.js';
 import { processMemoryRequest } from '@core/memory/memory-ipc.js';
 import { runBrainCommand } from '@core/cli/brain.js';
+import { storageRuntimeOptionsForRuntimeHome } from '@core/adapters/storage/postgres/factory.js';
+import { loadRuntimeSettings } from '@core/config/settings/runtime-settings.js';
 import type { EmbeddingProvider } from '@core/memory/memory-embeddings.js';
 
 import {
@@ -60,8 +64,14 @@ maybeDescribe('company brain postgres core', () => {
   }, 60_000);
 
   afterAll(async () => {
-    await closeRuntimeStorage().catch(() => undefined);
-    await runtime.cleanup();
+    // Drop the schema while the pool is still alive: closeRuntimeStorage ends
+    // the pool this harness owns, so cleanup() must run first. The finally
+    // still resets module state if the schema drop throws.
+    try {
+      await runtime.cleanup();
+    } finally {
+      await closeRuntimeStorage().catch(() => undefined);
+    }
   });
 
   it('creates pages, entities, edges, and the vector index', async () => {
@@ -207,6 +217,18 @@ Dana works at Knacklabs.`,
       process.env.GANTRY_BOOTSTRAP_SETTINGS_IF_MISSING = '1';
 
       const before = await brain.status('default');
+      // Claim the CLI's home scope so runBrainCommand reuses this already
+      // migrated storage. Built with the same helper the CLI uses, so the scope
+      // keys match by construction — the bootstrapped settings resolve schema
+      // 'gantry', not the harness schema, so a second runtime would open an
+      // unmigrated schema.
+      _setRuntimeStorageForTest(
+        runtime.storageRuntime,
+        storageRuntimeOptionsForRuntimeHome(
+          runtimeHome,
+          loadRuntimeSettings(runtimeHome),
+        ),
+      );
       expect(await runBrainCommand(runtimeHome, ['import', fixtureDir])).toBe(
         0,
       );
@@ -232,6 +254,78 @@ Dana works at Knacklabs.`,
         delete process.env.GANTRY_BOOTSTRAP_SETTINGS_IF_MISSING;
       else process.env.GANTRY_BOOTSTRAP_SETTINGS_IF_MISSING = oldBootstrap;
       fs.rmSync(fixtureDir, { recursive: true, force: true });
+      fs.rmSync(runtimeHome, { recursive: true, force: true });
+    }
+  });
+
+  it('reviews notify exits NON-zero (no false success) when the owner is unresolved', async () => {
+    // Seed a pending review the CLI can find.
+    const reviews = new PostgresBrainDreamReviewRepository(runtime.service.db);
+    const NOW = '2026-07-29T00:00:00.000Z';
+    await repo.journalDreamDecision({
+      id: 'cli-notify-dec',
+      appId: DEFAULT_MEMORY_APP_ID,
+      runId: 'cli-notify',
+      pageId: null,
+      op: { action: 'delete_page' },
+      outcome: 'proposed',
+      reason: 'test',
+    });
+    const created = await reviews.createBrainDreamReview({
+      id: 'cli-notify-rev',
+      appId: DEFAULT_MEMORY_APP_ID,
+      decisionId: 'cli-notify-dec',
+      action: 'delete_page',
+      canonicalOp: { action: 'delete_page', version: 1, pageId: 'p' },
+      reviewSnapshot: { action: 'delete_page', before: { title: 'x' } },
+      nowIso: NOW,
+      targets: [
+        { targetKind: 'page', targetId: 'cli-notify-p', expectedVersion: 'v1' },
+      ],
+    });
+    expect(created.ok).toBe(true);
+
+    const runtimeHome = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'gantry-brain-home-'),
+    );
+    const oldDatabaseUrl = process.env.GANTRY_DATABASE_URL;
+    const oldSchema = process.env.GANTRY_SETTINGS_POSTGRES_SCHEMA;
+    const oldHome = process.env.GANTRY_HOME;
+    const oldBootstrap = process.env.GANTRY_BOOTSTRAP_SETTINGS_IF_MISSING;
+    try {
+      process.env.GANTRY_DATABASE_URL = process.env.GANTRY_TEST_DATABASE_URL;
+      process.env.GANTRY_SETTINGS_POSTGRES_SCHEMA = runtime.schemaName;
+      process.env.GANTRY_HOME = runtimeHome;
+      process.env.GANTRY_BOOTSTRAP_SETTINGS_IF_MISSING = '1';
+
+      // Claim the CLI's home scope (see the import test above).
+      _setRuntimeStorageForTest(
+        runtime.storageRuntime,
+        storageRuntimeOptionsForRuntimeHome(
+          runtimeHome,
+          loadRuntimeSettings(runtimeHome),
+        ),
+      );
+      // Bootstrapped settings have no verified owner → the notifier reports
+      // delivered:false → the CLI must exit NON-zero, not print a false success.
+      const code = await runBrainCommand(runtimeHome, [
+        'reviews',
+        'notify',
+        'cli-notify-rev',
+      ]);
+      expect(code).toBe(1);
+    } finally {
+      if (oldDatabaseUrl === undefined) delete process.env.GANTRY_DATABASE_URL;
+      else process.env.GANTRY_DATABASE_URL = oldDatabaseUrl;
+      if (oldSchema === undefined)
+        delete process.env.GANTRY_SETTINGS_POSTGRES_SCHEMA;
+      else process.env.GANTRY_SETTINGS_POSTGRES_SCHEMA = oldSchema;
+      if (oldHome === undefined) delete process.env.GANTRY_HOME;
+      else process.env.GANTRY_HOME = oldHome;
+      if (oldBootstrap === undefined)
+        delete process.env.GANTRY_BOOTSTRAP_SETTINGS_IF_MISSING;
+      else process.env.GANTRY_BOOTSTRAP_SETTINGS_IF_MISSING = oldBootstrap;
+      _setRuntimeStorageForTest(runtime.storageRuntime);
       fs.rmSync(runtimeHome, { recursive: true, force: true });
     }
   });

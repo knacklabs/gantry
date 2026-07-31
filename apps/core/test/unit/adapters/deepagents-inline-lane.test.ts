@@ -53,8 +53,16 @@ const model = vi.hoisted(() => ({
 const remote = vi.hoisted(() => {
   class Client {
     static instances: Client[] = [];
-    connect = vi.fn(async () => undefined);
-    close = vi.fn(async () => undefined);
+    static connectImpl: (client: Client, transport: unknown) => Promise<void> =
+      async () => undefined;
+    private transport?: { close?(): Promise<void> | void };
+    connect = vi.fn((transport: unknown) => {
+      this.transport = transport as { close?(): Promise<void> | void };
+      return Client.connectImpl(this, transport);
+    });
+    close = vi.fn(async () => {
+      await this.transport?.close?.();
+    });
     constructor(readonly info: unknown) {
       Client.instances.push(this);
     }
@@ -68,7 +76,9 @@ const remote = vi.hoisted(() => {
       HttpTransport.instances.push(this);
     }
   }
-  class SseTransport extends HttpTransport {}
+  class SseTransport extends HttpTransport {
+    close = vi.fn(async () => undefined);
+  }
   return {
     Client,
     HttpTransport,
@@ -129,6 +139,7 @@ vi.mock(mcpAdaptersPackage, () => ({
 import { createDeepAgentsInlineAgentLoopLane } from '@core/adapters/llm/deepagents-langchain/inline-lane/index.js';
 import { InMemoryInlineRunnerControlPort } from '@core/runtime/agent-inline.js';
 import { DEEPAGENTS_ENGINE } from '@core/shared/agent-engine.js';
+import { createDeterministicBarrier } from '../../harness/response-latency-harness.js';
 
 function laneInput(overrides: Record<string, unknown> = {}) {
   const coreTools = {
@@ -202,6 +213,7 @@ beforeEach(() => {
   checkpoint.Saver.tuple = { checkpoint: {} };
   checkpoint.Pool.instances = [];
   remote.Client.instances = [];
+  remote.Client.connectImpl = async () => undefined;
   remote.HttpTransport.instances = [];
   deep.createAgent.mockReturnValue({ streamEvents: deep.streamEvents });
   deep.createAgentMemory.mockReturnValue({
@@ -407,27 +419,28 @@ Always mention the migration impact.
         },
       ],
     };
+    const skill = {
+      id: 'skill:release',
+      appId: 'app:test',
+      name: 'release-writer',
+      source: 'admin_uploaded',
+      status: 'installed',
+      promptRefs: [],
+      toolIds: [],
+      workflowRefs: [],
+      storage: {
+        storageType: 'object-store',
+        storageRef: 'skill-release',
+        contentHash: hashSkillBundle(skillBundle),
+        sizeBytes: skillContent.length,
+      },
+      createdAt: new Date(0).toISOString(),
+      updatedAt: new Date(0).toISOString(),
+    };
     const skillRepository = {
-      listEnabledSkillsForAgent: vi.fn(async () => [
-        {
-          id: 'skill:release',
-          appId: 'app:test',
-          name: 'release-writer',
-          source: 'admin_uploaded',
-          status: 'installed',
-          promptRefs: [],
-          toolIds: [],
-          workflowRefs: [],
-          storage: {
-            storageType: 'object-store',
-            storageRef: 'skill-release',
-            contentHash: hashSkillBundle(skillBundle),
-            sizeBytes: skillContent.length,
-          },
-          createdAt: new Date(0).toISOString(),
-          updatedAt: new Date(0).toISOString(),
-        },
-      ]),
+      listEnabledSkillsForAgent: vi.fn(async () => {
+        throw new Error('unexpected enabled skill read');
+      }),
     };
     const skillArtifactStore = {
       getSkillArtifact: vi.fn(async () => skillBundle),
@@ -457,6 +470,16 @@ Always mention the migration impact.
       skillRepository,
       skillArtifactStore,
       skillContext: { appId: 'app:test', agentId: 'agent:test' },
+      accessSnapshot: {
+        appId: 'app:test',
+        agentId: 'agent:test',
+        tools: { activeBindings: [], appActiveDefinitions: [] },
+        skills: {
+          activeBindings: [],
+          enabledDefinitions: [skill],
+        },
+        mcp: { activeBindings: [], materializedServers: [] },
+      },
     });
     const lane = createDeepAgentsInlineAgentLoopLane({
       databaseUrl: 'postgres://gantry:test@localhost:5432/gantry',
@@ -465,10 +488,7 @@ Always mention the migration impact.
 
     await lane(input);
 
-    expect(skillRepository.listEnabledSkillsForAgent).toHaveBeenCalledWith({
-      appId: 'app:test',
-      agentId: 'agent:test',
-    });
+    expect(skillRepository.listEnabledSkillsForAgent).not.toHaveBeenCalled();
     expect(skillArtifactStore.getSkillArtifact).toHaveBeenCalledWith(
       'skill-release',
     );
@@ -951,6 +971,481 @@ Always mention the migration impact.
     expect(remote.Client.instances[0]?.close).toHaveBeenCalledOnce();
   });
 
+  it('starts remote MCP servers with bounded concurrency and keeps configured tool order', async () => {
+    deep.streamEvents.mockImplementation(() => ({
+      async *[Symbol.asyncIterator]() {
+        yield streamEvent('done');
+      },
+    }));
+    const serverNames = ['alpha', 'bravo', 'charlie', 'delta', 'echo'];
+    const barrier = createDeterministicBarrier(serverNames.length);
+    const participants: ReturnType<typeof barrier.arrive>[] = [];
+    const connectOrder: string[] = [];
+    const inventoryByServer = Object.fromEntries(
+      serverNames.map((serverName) => [
+        serverName,
+        [
+          {
+            name: 'first',
+            description: `${serverName} first tool.`,
+            schema: z.object({}),
+            invoke: remote.invoke,
+          },
+          {
+            name: 'second',
+            description: `${serverName} second tool.`,
+            schema: z.object({}),
+            invoke: remote.invoke,
+          },
+        ],
+      ]),
+    );
+    remote.Client.connectImpl = async (client) => {
+      const info = client.info as { name: string };
+      connectOrder.push(info.name.replace('gantry-inline-', ''));
+      const participant = barrier.arrive();
+      participants.push(participant);
+      await participant.completed;
+    };
+    remote.loadTools.mockImplementation(async (serverName: string) => {
+      const tools = inventoryByServer[serverName];
+      if (!tools) throw new Error(`unexpected server ${serverName}`);
+      return tools;
+    });
+    const input = laneInput({
+      mcpServers: serverNames.map((serverName, index) => ({
+        name: serverName,
+        config: {
+          type: index % 2 === 0 ? 'http' : 'sse',
+          url: `https://mcp.example.test/${serverName}`,
+        },
+        allowedToolPatterns: ['*'],
+      })),
+    });
+    const lane = createDeepAgentsInlineAgentLoopLane({
+      databaseUrl: 'postgres://gantry:test@localhost:5432/gantry',
+      schema: 'gantry_deepagents',
+    });
+
+    const result = lane(input);
+    try {
+      await flushMicrotasks();
+
+      expect(barrier.snapshot()).toMatchObject({
+        arrivals: 4,
+        active: 4,
+        completed: 0,
+        maximumActive: 4,
+        allArrived: false,
+      });
+      expect(connectOrder).toEqual(serverNames.slice(0, 4));
+
+      participants[0]?.release();
+      await barrier.waitForArrivals(5);
+
+      expect(connectOrder).toEqual(serverNames);
+      expect(barrier.snapshot()).toMatchObject({
+        arrivals: 5,
+        active: 4,
+        maximumActive: 4,
+        allArrived: true,
+      });
+
+      participants[4]?.release();
+      participants[3]?.release();
+      participants[2]?.release();
+      participants[1]?.release();
+
+      await expect(result).resolves.toMatchObject({ status: 'success' });
+      const toolNames = deep.createAgent.mock.calls[0]?.[0].tools.map(
+        (tool) => tool.name,
+      );
+      expect(toolNames).toEqual([
+        'send_message',
+        'mcp__alpha__first',
+        'mcp__alpha__second',
+        'mcp__bravo__first',
+        'mcp__bravo__second',
+        'mcp__charlie__first',
+        'mcp__charlie__second',
+        'mcp__delta__first',
+        'mcp__delta__second',
+        'mcp__echo__first',
+        'mcp__echo__second',
+      ]);
+    } finally {
+      await releaseBarrierParticipantsUntilSettled(result, participants);
+    }
+  });
+
+  it('stops queued remote MCP startup after an initial-wave server failure and cleans up connected clients', async () => {
+    const serverNames = ['alpha', 'bravo', 'charlie', 'delta', 'echo'];
+    const startupError = new Error('bravo startup failed');
+    const discoveryBarrier = createDeterministicBarrier(4);
+    const participants: ReturnType<typeof discoveryBarrier.arrive>[] = [];
+    const connectOrder: string[] = [];
+    remote.Client.connectImpl = async (client) => {
+      const info = client.info as { name: string };
+      connectOrder.push(info.name.replace('gantry-inline-', ''));
+    };
+    remote.loadTools.mockImplementation(async (serverName: string) => {
+      const participant = discoveryBarrier.arrive();
+      participants.push(participant);
+      await discoveryBarrier.waitForArrivals(4);
+      if (serverName === 'bravo') throw startupError;
+      await participant.completed;
+      return [
+        {
+          name: 'read',
+          description: `${serverName} read tool.`,
+          schema: z.object({}),
+          invoke: remote.invoke,
+        },
+      ];
+    });
+    const input = laneInput({
+      mcpServers: serverNames.map((serverName) => ({
+        name: serverName,
+        config: {
+          type: 'http',
+          url: `https://mcp.example.test/${serverName}`,
+        },
+        allowedToolPatterns: ['*'],
+      })),
+    });
+    const lane = createDeepAgentsInlineAgentLoopLane({
+      databaseUrl: 'postgres://gantry:test@localhost:5432/gantry',
+      schema: 'gantry_deepagents',
+    });
+
+    const result = lane(input);
+    try {
+      await discoveryBarrier.waitForArrivals(4);
+      await flushMicrotasks();
+
+      expect(connectOrder).toEqual(serverNames.slice(0, 4));
+      expect(remote.Client.instances).toHaveLength(4);
+      for (const client of remote.Client.instances) {
+        client.close.mockRejectedValueOnce(new Error('cleanup close failed'));
+      }
+
+      expect(connectOrder).not.toContain('echo');
+      expect(deep.createAgent).not.toHaveBeenCalled();
+
+      participants
+        .filter((_, index) => serverNames[index] !== 'bravo')
+        .forEach((participant) => participant.release());
+
+      await expect(result).rejects.toBe(startupError);
+      expect(remote.Client.instances).toHaveLength(4);
+      expect(connectOrder).not.toContain('echo');
+      for (const client of remote.Client.instances) {
+        expect(client.close).toHaveBeenCalledOnce();
+      }
+      expect(checkpoint.Saver.instances[0]?.end).toHaveBeenCalledOnce();
+    } finally {
+      await releaseBarrierParticipantsUntilSettled(result, participants);
+    }
+  });
+
+  it('cancels already-started remote MCP startup peers before waiting for them after an initial-wave failure', async () => {
+    const serverNames = ['alpha', 'bravo', 'charlie', 'delta', 'echo'];
+    const startupError = new Error('alpha startup failed');
+    const discoveryBarrier = createDeterministicBarrier(4);
+    const participants: ReturnType<typeof discoveryBarrier.arrive>[] = [];
+    const connectOrder: string[] = [];
+    let releaseInitialWave: (() => void) | undefined;
+    const initialWaveGate = new Promise<void>((resolve) => {
+      releaseInitialWave = resolve;
+    });
+    let releaseBlockedPeer: (() => void) | undefined;
+    let blockedPeerClosed = false;
+    let blockedPeerRequestAborted = false;
+    let blockedPeerRequestSignal: AbortSignal | undefined;
+    remote.Client.connectImpl = async (client, transport) => {
+      const info = client.info as { name: string };
+      const serverName = info.name.replace('gantry-inline-', '');
+      connectOrder.push(serverName);
+      if (serverName !== 'bravo') return;
+      const transportOptions = (
+        transport as {
+          options?: { requestInit?: { signal?: AbortSignal } };
+        }
+      ).options;
+      blockedPeerRequestSignal = transportOptions?.requestInit?.signal;
+      if (blockedPeerRequestSignal) {
+        blockedPeerRequestSignal.addEventListener(
+          'abort',
+          () => {
+            blockedPeerRequestAborted = true;
+          },
+          { once: true },
+        );
+      }
+    };
+    remote.loadTools.mockImplementation(async (serverName: string, client) => {
+      const participant = discoveryBarrier.arrive();
+      participants.push(participant);
+      await initialWaveGate;
+      if (serverName === 'alpha') throw startupError;
+      if (serverName === 'bravo') {
+        await new Promise<void>((resolve) => {
+          releaseBlockedPeer = resolve;
+          client.close.mockImplementationOnce(async () => {
+            blockedPeerClosed = true;
+            resolve();
+          });
+        });
+      } else {
+        await participant.completed;
+      }
+      return [
+        {
+          name: 'read',
+          description: `${serverName} read tool.`,
+          schema: z.object({}),
+          invoke: remote.invoke,
+        },
+      ];
+    });
+    const input = laneInput({
+      mcpServers: serverNames.map((serverName) => ({
+        name: serverName,
+        config: {
+          type: 'http',
+          url: `https://mcp.example.test/${serverName}`,
+        },
+        allowedToolPatterns: ['*'],
+      })),
+    });
+    const lane = createDeepAgentsInlineAgentLoopLane({
+      databaseUrl: 'postgres://gantry:test@localhost:5432/gantry',
+      schema: 'gantry_deepagents',
+    });
+
+    const result = lane(input);
+    try {
+      await flushMicrotasks();
+
+      expect(discoveryBarrier.snapshot()).toMatchObject({ arrivals: 4 });
+      expect(connectOrder).toEqual(serverNames.slice(0, 4));
+      expect(connectOrder).not.toContain('echo');
+      expect(deep.createAgent).not.toHaveBeenCalled();
+      expect(remote.Client.instances).toHaveLength(4);
+
+      releaseInitialWave?.();
+      await flushMicrotasks();
+      expect(
+        blockedPeerClosed || blockedPeerRequestAborted,
+        'blocked peer should be cancelled before its discovery promise settles',
+      ).toBe(true);
+
+      participants
+        .filter((_, index) => serverNames[index] !== 'bravo')
+        .forEach((participant) => participant.release());
+
+      await expect(result).rejects.toBe(startupError);
+      expect(remote.Client.instances).toHaveLength(4);
+      expect(connectOrder).not.toContain('echo');
+      for (const client of remote.Client.instances) {
+        expect(client.close).toHaveBeenCalledOnce();
+      }
+      expect(checkpoint.Saver.instances[0]?.end).toHaveBeenCalledOnce();
+    } finally {
+      releaseInitialWave?.();
+      await flushMicrotasks();
+      releaseBlockedPeer?.();
+      participants.forEach((participant) => participant.release());
+      await releaseBarrierParticipantsUntilSettled(result, participants);
+    }
+  });
+
+  it('settles an in-flight SSE endpoint connection when a peer startup fails', async () => {
+    const startupError = new Error('alpha startup failed');
+    const connectBarrier = createDeterministicBarrier(2);
+    const participants: ReturnType<typeof connectBarrier.arrive>[] = [];
+    let releaseSseConnect: (() => void) | undefined;
+    const sseConnect = new Promise<void>((resolve) => {
+      releaseSseConnect = resolve;
+    });
+    remote.Client.connectImpl = async (client, transport) => {
+      const participant = connectBarrier.arrive();
+      participants.push(participant);
+      await connectBarrier.waitForArrivals(2);
+      const serverName = (client.info as { name: string }).name.replace(
+        'gantry-inline-',
+        '',
+      );
+      if (serverName === 'alpha') throw startupError;
+      expect(transport).toBeInstanceOf(remote.SseTransport);
+      // The MCP SDK's SSE start promise remains pending when close aborts the
+      // initial EventSource fetch, so only an explicit startup race can settle it.
+      await sseConnect;
+    };
+    const input = laneInput({
+      mcpServers: [
+        {
+          name: 'alpha',
+          config: {
+            type: 'http',
+            url: 'https://mcp.example.test/alpha',
+          },
+          allowedToolPatterns: ['*'],
+        },
+        {
+          name: 'bravo',
+          config: {
+            type: 'sse',
+            url: 'https://mcp.example.test/bravo',
+          },
+          allowedToolPatterns: ['*'],
+        },
+      ],
+    });
+    const lane = createDeepAgentsInlineAgentLoopLane({
+      databaseUrl: 'postgres://gantry:test@localhost:5432/gantry',
+      schema: 'gantry_deepagents',
+    });
+
+    const result = lane(input);
+    let outcome:
+      | { status: 'resolved' }
+      | { status: 'rejected'; error: unknown };
+    const observed = result.then(
+      () => {
+        outcome = { status: 'resolved' };
+      },
+      (error: unknown) => {
+        outcome = { status: 'rejected', error };
+      },
+    );
+    try {
+      await connectBarrier.waitForArrivals(2);
+      await new Promise<void>((resolve) => setImmediate(resolve));
+
+      const sseTransport = remote.HttpTransport.instances.find(
+        (transport) => transport instanceof remote.SseTransport,
+      ) as InstanceType<typeof remote.SseTransport> | undefined;
+      expect(sseTransport?.options.fetch).toEqual(expect.any(Function));
+      expect(
+        (
+          sseTransport?.options.requestInit as
+            | { signal?: AbortSignal }
+            | undefined
+        )?.signal?.aborted,
+      ).toBe(true);
+      expect(sseTransport?.close).toHaveBeenCalledOnce();
+      expect(outcome).toEqual({ status: 'rejected', error: startupError });
+    } finally {
+      releaseSseConnect?.();
+      participants.forEach((participant) => participant.release());
+      await observed;
+    }
+  });
+
+  it('aborts remote MCP startup without starting queued work and closes connected clients', async () => {
+    const serverNames = ['alpha', 'bravo', 'charlie', 'delta', 'echo'];
+    const controller = new AbortController();
+    const connectBarrier = createDeterministicBarrier(4);
+    const participants: ReturnType<typeof connectBarrier.arrive>[] = [];
+    const connectOrder: string[] = [];
+    remote.Client.connectImpl = async (client) => {
+      const info = client.info as { name: string };
+      connectOrder.push(info.name.replace('gantry-inline-', ''));
+      const participant = connectBarrier.arrive();
+      participants.push(participant);
+      await participant.completed;
+    };
+    remote.loadTools.mockImplementation(async (serverName: string) => [
+      {
+        name: 'read',
+        description: `${serverName} read tool.`,
+        schema: z.object({}),
+        invoke: remote.invoke,
+      },
+    ]);
+    const input = laneInput({
+      signal: controller.signal,
+      mcpServers: serverNames.map((serverName) => ({
+        name: serverName,
+        config: {
+          type: 'http',
+          url: `https://mcp.example.test/${serverName}`,
+        },
+        allowedToolPatterns: ['*'],
+      })),
+    });
+    const lane = createDeepAgentsInlineAgentLoopLane({
+      databaseUrl: 'postgres://gantry:test@localhost:5432/gantry',
+      schema: 'gantry_deepagents',
+    });
+
+    const result = lane(input);
+    try {
+      await connectBarrier.waitForArrivals(4);
+      expect(connectOrder).toEqual(serverNames.slice(0, 4));
+
+      const abortError = new Error('startup aborted');
+      abortError.name = 'AbortError';
+      controller.abort(abortError);
+      await flushMicrotasks();
+
+      expect(remote.Client.instances).toHaveLength(4);
+      expect(connectOrder).not.toContain('echo');
+      expect(deep.createAgent).not.toHaveBeenCalled();
+
+      participants.forEach((participant) => participant.release());
+
+      await expect(result).rejects.toBe(abortError);
+      expect(remote.Client.instances).toHaveLength(4);
+      expect(connectOrder).not.toContain('echo');
+      for (const client of remote.Client.instances) {
+        expect(client.close).toHaveBeenCalledOnce();
+      }
+      expect(checkpoint.Saver.instances[0]?.end).toHaveBeenCalledOnce();
+    } finally {
+      await releaseBarrierParticipantsUntilSettled(result, participants);
+    }
+  });
+
+  it('returns the graceful aborted result when cancellation reaches startup with no remote MCP work', async () => {
+    const controller = new AbortController();
+    model.build.mockImplementationOnce(async () => {
+      controller.abort(new Error('cancelled during model setup'));
+      return {
+        model: { profile: { maxInputTokens: 100 } },
+        endpointFamily: 'openai',
+        modelId: 'test-model',
+      };
+    });
+    deep.streamEvents.mockImplementation(() => ({
+      async *[Symbol.asyncIterator]() {
+        yield streamEvent('ignored after cancellation');
+      },
+    }));
+    const input = laneInput({
+      signal: controller.signal,
+      mcpServers: [
+        {
+          name: 'local-only',
+          config: { command: 'ignored-stdio-command' },
+          allowedToolPatterns: ['*'],
+        },
+      ],
+    });
+    const lane = createDeepAgentsInlineAgentLoopLane({
+      databaseUrl: 'postgres://gantry:test@localhost:5432/gantry',
+      schema: 'gantry_deepagents',
+    });
+
+    await expect(lane(input)).resolves.toMatchObject({
+      status: 'error',
+      error: 'Inline DeepAgents lane aborted.',
+      newSessionId: expect.any(String),
+    });
+    expect(remote.Client.instances).toHaveLength(0);
+  });
+
   it('filters remote MCP tools with reviewed wildcard scopes', async () => {
     deep.streamEvents.mockImplementation(() => ({
       async *[Symbol.asyncIterator]() {
@@ -1168,4 +1663,38 @@ function streamEvent(text: string) {
       },
     },
   };
+}
+
+async function flushMicrotasks() {
+  for (let index = 0; index < 8; index += 1) {
+    await Promise.resolve();
+  }
+}
+
+async function releaseBarrierParticipantsUntilSettled(
+  result: Promise<unknown>,
+  participants: readonly ReturnType<
+    ReturnType<typeof createDeterministicBarrier>['arrive']
+  >[],
+) {
+  const released = new Set<
+    ReturnType<ReturnType<typeof createDeterministicBarrier>['arrive']>
+  >();
+  let settled = false;
+  const settledResult = result
+    .catch(() => undefined)
+    .finally(() => {
+      settled = true;
+    });
+
+  while (!settled) {
+    for (const participant of participants) {
+      if (!released.has(participant)) {
+        released.add(participant);
+        participant.release();
+      }
+    }
+    await Promise.race([settledResult, flushMicrotasks()]);
+  }
+  await settledResult;
 }

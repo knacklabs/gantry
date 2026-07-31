@@ -224,6 +224,12 @@ export class PostgresCanonicalBindingRepository {
       .where(
         and(
           eq(b.appId, CANONICAL_APP_ID),
+          // Route rows are canonical, but their joined conversation and
+          // provider account must belong to the same app. Without these
+          // guards, stale rows from another app can contaminate a default
+          // app settings export and make the document unparseable.
+          eq(c.appId, CANONICAL_APP_ID),
+          eq(pa.appId, CANONICAL_APP_ID),
           like(b.id, `${CONVERSATION_ROUTE_BINDING_ID_PREFIX}%`),
           eq(b.status, 'active'),
           eq(pa.status, 'active'),

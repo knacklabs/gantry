@@ -4,6 +4,10 @@ import type {
   CapabilitySecretRepository,
   SkillCatalogRepository,
 } from '../../domain/ports/repositories.js';
+import {
+  type AgentAccessSnapshot,
+  assertHostAccessSnapshot,
+} from '../agent-execution/agent-access-snapshot.js';
 import { CapabilitySecretService } from './capability-secret-service.js';
 import type {
   CapabilityRuntimeAccess,
@@ -16,13 +20,22 @@ export async function resolveSelectedSkillEnvForAgent(input: {
   skills: SkillCatalogRepository;
   secrets: CapabilitySecretRepository;
   runtimeAccess: readonly CapabilityRuntimeAccess[];
+  accessSnapshot?: AgentAccessSnapshot;
 }): Promise<{
   env: Record<string, string>;
 }> {
-  const selectedSkills = await input.skills.listEnabledSkillsForAgent({
+  const accessSnapshot = assertHostAccessSnapshot({
+    accessSnapshot: input.accessSnapshot,
     appId: input.appId,
     agentId: input.agentId,
+    subject: 'Selected skill secret projection',
   });
+  const selectedSkills =
+    accessSnapshot?.skills.enabledDefinitions ??
+    (await input.skills.listEnabledSkillsForAgent({
+      appId: input.appId,
+      agentId: input.agentId,
+    }));
   const attachedSkillSourceIds = new Set(
     selectedSkills.map((skill) => skill.id),
   );

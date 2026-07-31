@@ -10,7 +10,11 @@ import {
   evaluateFleetCapabilityReadiness,
   fleetCapabilitySetupState,
 } from '@core/jobs/capability-readiness.js';
-import { toolchainCapabilityId } from '@core/jobs/worker-capability-reconciler.js';
+import {
+  skillCapabilityId,
+  toolchainCapabilityId,
+} from '@core/jobs/worker-capability-reconciler.js';
+import type { AgentAccessSnapshot } from '@core/application/agent-execution/agent-access-snapshot.js';
 
 function depsRepo(rows: RuntimeDependency[]): RuntimeDependencyRepository {
   return {
@@ -110,6 +114,44 @@ describe('evaluateFleetCapabilityReadiness', () => {
     );
     expect(result.satisfiable).toBe(false);
     expect(result.missingCapabilities).toEqual([cap]);
+  });
+
+  it('checks fleet workers against snapshot-selected skills', async () => {
+    const accessSnapshot = {
+      appId: 'default',
+      agentId: 'agent:a',
+      tools: { activeBindings: [], appActiveDefinitions: [] },
+      skills: {
+        activeBindings: [
+          {
+            binding: {
+              appId: 'default',
+              agentId: 'agent:a',
+              skillId: 'selected',
+              status: 'active',
+            },
+            definition: null,
+          },
+        ],
+        enabledDefinitions: [],
+      },
+      mcp: { activeBindings: [], materializedServers: [] },
+    } as unknown as AgentAccessSnapshot;
+    const capability = skillCapabilityId('selected');
+
+    const result = await evaluateFleetCapabilityReadiness(
+      {
+        deploymentMode: 'fleet',
+        skills: noSkills,
+        runtimeDependencies: depsRepo([]),
+        workerRegistry: workerRegistry([[capability]]),
+        now: () => '2026-06-11T12:00:00.000Z',
+      },
+      { ...input, accessSnapshot },
+    );
+
+    expect(result.satisfiable).toBe(true);
+    expect(result.requiredCapabilities).toEqual([capability]);
   });
 });
 

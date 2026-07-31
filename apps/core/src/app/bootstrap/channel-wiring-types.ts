@@ -3,6 +3,7 @@ import type {
   MessageActionCallbackInput,
   OnMemoryReviewMessageAction,
   OnObserverFeedbackMessageAction,
+  OnBrainDreamReviewMessageAction,
   MessageSendOptions,
   PermissionApprovalCancellation,
   PermissionApprovalDecision,
@@ -20,7 +21,6 @@ import type {
   isSenderAllowed,
   loadSenderControlAllowlist,
   loadSenderAllowlist,
-  shouldDropMessage,
   shouldLogDenied,
 } from '../../platform/sender-allowlist.js';
 import type {
@@ -38,10 +38,17 @@ import type {
   AgentTodoRender,
 } from '../../domain/ports/task-lifecycle.js';
 import type {
+  ConversationContextHydrationCoverage,
   ConversationContextHydrationRequest,
   ConversationContextHydrationResult,
+  HydrationRequestObservation,
 } from '../../channels/channel-provider.js';
 import type { BrainChannelHarvestTap } from '../../brain/brain-channel-harvest.js';
+import type {
+  HistoricalAttachmentFetcher,
+  HistoricalAttachmentFetchResult,
+} from '../../domain/ports/historical-attachment-fetcher.js';
+import type { MessageAttachmentRepository } from '../../domain/ports/message-attachment-repository.js';
 
 export type ChannelWiringRepository = RuntimeChatMetadataRepository &
   RuntimeMessageRepository;
@@ -121,7 +128,6 @@ export interface ChannelWiringDeps {
   opsRepository?: ChannelWiringRepository;
   loadSenderAllowlist: typeof loadSenderAllowlist;
   loadSenderControlAllowlist: typeof loadSenderControlAllowlist;
-  shouldDropMessage: typeof shouldDropMessage;
   isSenderAllowed: typeof isSenderAllowed;
   isSenderControlAllowed: typeof isSenderControlAllowed;
   shouldLogDenied: typeof shouldLogDenied;
@@ -153,6 +159,12 @@ export interface ChannelWiring {
     jid: string,
     options?: { providerAccountId?: string },
   ) => boolean;
+  fetchHistoricalAttachment: (
+    input: Parameters<
+      HistoricalAttachmentFetcher['fetchHistoricalAttachment']
+    >[0],
+  ) => Promise<HistoricalAttachmentFetchResult>;
+  getMessageAttachmentRepository: () => MessageAttachmentRepository;
   sendMessage: (
     jid: string,
     rawText: string,
@@ -189,6 +201,9 @@ export interface ChannelWiring {
   ) => void;
   setObserverFeedbackMessageActionHandler: (
     handler: OnObserverFeedbackMessageAction | undefined,
+  ) => void;
+  setBrainDreamReviewMessageActionHandler: (
+    handler: OnBrainDreamReviewMessageAction | undefined,
   ) => void;
   sendStreamingChunk: (
     jid: string,
@@ -259,6 +274,8 @@ export interface ChannelWiring {
 }
 
 export type {
+  ConversationContextHydrationCoverage,
   ConversationContextHydrationRequest,
   ConversationContextHydrationResult,
+  HydrationRequestObservation,
 };

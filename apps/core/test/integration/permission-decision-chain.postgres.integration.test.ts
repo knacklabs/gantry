@@ -57,6 +57,9 @@ import {
 } from '../harness/postgres-integration-runtime.js';
 
 const maybeDescribe = hasPostgresIntegrationDatabase ? describe : describe.skip;
+const runtimeLease = {
+  tryAcquire: async () => ({ release: async () => {} }),
+};
 
 const APP_ID = 'default';
 const AGENT_ID = 'agent:main_agent';
@@ -167,6 +170,7 @@ maybeDescribe('permission decision durable IPC chain (Postgres)', () => {
       opsRepository: runtime.ops,
       repositories: runtime.repositories,
       reloadRuntimeState: async () => {},
+      leases: runtimeLease,
     });
     configurePendingInteractionDurability({
       repository: runtime.repositories.workerCoordination,

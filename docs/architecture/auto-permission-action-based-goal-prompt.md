@@ -1,5 +1,9 @@
 # Goal: Action-Based Auto-Permission (single cut, no backward compat)
 
+> **Historical goal record.** Later permission-engine and UX work superseded
+> this July 13 design. Use `capability-management.md` and the Current shipped
+> contract in `permission-engine-redesign-goal-prompt.md` for current behavior.
+
 Replaces the forgeable "who-triggered → silently auto-allow" trust model — and the
 five trust holes it produced (r12/r13 + the run-origin/lease/responseKeyId rebuild) —
 with a model that needs **no run-identity anchor at all**: auto mode judges the

@@ -4,6 +4,7 @@ import { ModelCredentialService } from '../../../application/model-credentials/m
 import type { AppId } from '../../../domain/app/app.js';
 import type { RuntimeEventPublishInput } from '../../../domain/events/events.js';
 import { RUNTIME_EVENT_TYPES } from '../../../domain/events/runtime-event-types.js';
+import { publishAuditEventWithRunIdFallback } from './gantry-model-gateway-audit.js';
 import type { AgentCredentialBroker } from '../../../domain/ports/agent-credential-broker.js';
 import type { ModelCredentialRepository } from '../../../domain/ports/repositories.js';
 import type {
@@ -591,8 +592,8 @@ export class GantryModelGatewayBroker implements AgentCredentialBroker {
     },
   ): Promise<void> {
     if (!this.audit) return;
-    try {
-      await this.audit({
+    await this.publishAuditEvent(
+      {
         appId: tokenRecord.appId,
         ...(tokenRecord.agentId ? { agentId: tokenRecord.agentId } : {}),
         ...(runtimeEventRunIdFor(tokenRecord)
@@ -622,18 +623,25 @@ export class GantryModelGatewayBroker implements AgentCredentialBroker {
           usage: input.usage,
           modelAlias: input.usage?.model,
         },
-      });
-    } catch (err) {
-      logger.warn({ err }, 'Gantry Model Gateway usage audit failed');
-    }
+      },
+      'Gantry Model Gateway usage audit failed',
+    );
+  }
+
+  private async publishAuditEvent(
+    event: RuntimeEventPublishInput,
+    failureMessage: string,
+  ): Promise<void> {
+    if (!this.audit) return;
+    await publishAuditEventWithRunIdFallback(this.audit, event, failureMessage);
   }
   private async publishGatewayTokenAudit(
     tokenRecord: GatewayTokenRecord,
     outcome: 'token_issued' | 'token_rejected',
   ): Promise<void> {
     if (!this.audit) return;
-    try {
-      await this.audit({
+    await this.publishAuditEvent(
+      {
         appId: tokenRecord.appId,
         ...(tokenRecord.agentId ? { agentId: tokenRecord.agentId } : {}),
         ...(runtimeEventRunIdFor(tokenRecord)
@@ -655,10 +663,9 @@ export class GantryModelGatewayBroker implements AgentCredentialBroker {
           tokenExpiresAtMs: tokenRecord.expiresAtMs,
           credentialFingerprint: tokenRecord.credentialFingerprint,
         },
-      });
-    } catch (err) {
-      logger.warn({ err }, 'Gantry Model Gateway token audit failed');
-    }
+      },
+      'Gantry Model Gateway token audit failed',
+    );
   }
   private startTokenSweep(): void {
     if (this.tokenSweepTimer || this.tokenSweepIntervalMs <= 0) return;

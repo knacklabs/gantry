@@ -785,6 +785,27 @@
       "when": 1784920800000,
       "tag": "0114_observer_digest_view",
       "breakpoints": true
+    },
+    {
+      "idx": 115,
+      "version": "7",
+      "when": 1784924400000,
+      "tag": "0115_brain_dream_review_lifecycle",
+      "breakpoints": true
+    },
+    {
+      "idx": 116,
+      "version": "7",
+      "when": 1785010800000,
+      "tag": "0116_runtime_lease_generations",
+      "breakpoints": true
+    },
+    {
+      "idx": 117,
+      "version": "7",
+      "when": 1785097200000,
+      "tag": "0117_message_attachment_metadata",
+      "breakpoints": true
     }
   ]
 }

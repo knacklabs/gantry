@@ -1,10 +1,31 @@
 # Goal Prompt: Permission Auto-Mode UX, Quiet Prompts, Threading, Skill Installs
 
+> **Implementation status (2026-07-28): SHIPPED.** This file retains the staged
+> goal and investigation record. Current behavior supersedes earlier acceptance
+> wording: automatic allows are silent; Slack and Telegram delete an approved
+> prompt and post no receipt, with a one-line edit/send only when deletion is
+> unavailable or fails; denials remain visible. YOLO denylist matches hard-deny
+> before cache, classifier, or human approval. Missing/redacted/risk-relevant
+> truncated input requires approval except for explicitly input-independent
+> birthright tools. Interactive permission waits are indefinite until decision,
+> cancellation, or abort. The prompt renderer currently mislabels timeout `0`
+> as `Reply in 1m`; that is a display bug, not a real deadline. Scheduled-job
+> approval currently queues replacement work rather than resuming the same
+> fenced run.
+
 ## Objective
 
-Make the runtime pleasant to drive from chat: auto permission mode actually auto-decides (classifier judges what the deterministic gate can't prove; user approved this posture change), prompts are compact and edit down to receipts, auto-allows are silent, post-approval replies arrive as new messages, and skill installs work for multi-skill repos with failures that say why.
+Make the runtime pleasant to drive from chat: auto permission mode actually
+auto-decides eligible gray-zone actions, approved prompts disappear when the
+channel supports deletion, automatic allows are silent, post-approval replies
+arrive as new messages, and skill installs work for multi-skill repos with
+failures that say why.
 
-Use ponytail. Fail-open on rendering (a failed edit falls back to send). Security rails that must NOT change: host-side independent judge, schema-enforced verdicts, YOLO denylist backstop always forces ask, sanitized-input guard forces ask, prompts never see the capability list.
+Use ponytail. Fail-open on rendering (failed delete/edit falls back to a minimal
+receipt). Security rails that must NOT change: host-side independent judge,
+schema-enforced risk output, YOLO denylist hard deny, incomplete-input approval
+floor except for input-independent birthrights, and no capability list in the
+classifier prompt.
 
 ## Evidence (2026-07-14 runtime logs, verified)
 
@@ -30,10 +51,21 @@ Bounded write scope: those two source files + the receipt delivery site in the s
 ### Stage B — Auto mode that decides (user-approved posture change)
 
 - `apps/core/src/shared/auto-permission-read-only-gate.ts`: widen the provable read-only set — flag-tolerant `ls` (incl. `-a`/`-l`), `pwd`, `stat`, `file`, `head`, `tail`, `wc`, `du`, `df`, `which`, `grep`/`rg` read-only forms, `find` without `-exec`/`-delete`/`-ok`/`-fprintf`-style writers, `git status|log|diff|show|branch` (no pager side effects — `--no-pager` tolerated). Keep: path confinement (workspace + granted folders), shell-control/redirect refusal, secret-bearing hidden-segment and credential-name blocks. `env`/credential reads stay unproven.
-- `apps/core/src/runtime/permission-classifier.ts` `consultPermissionClassifierBeforePrompt`: when the deterministic gate cannot prove read-only (and input is not sanitized and the denylist does not match), CONSULT THE CLASSIFIER instead of returning a hard `ask` — with an ALLOW-LEANING posture (user decision 2026-07-15): the classifier allows unless it identifies concrete risk (destructive/irreversible actions, credential/secret access, data exfiltration, obfuscated or indirect execution, out-of-workspace writes); `ask` is the exception, not the default. Adjust the classifier prompt/verdict rubric accordingly. Denylist match and sanitized input keep forcing `ask`. Note in docs: `yolo` mode remains the pure reverse-list (allow-except-denylist, no LLM) option.
+- `apps/core/src/runtime/permission-classifier.ts`
+  `consultPermissionClassifierBeforePrompt`: when deterministic stages abstain
+  and the request is eligible, consult the allow-leaning risk classifier instead
+  of returning a hard `ask`. The model returns risk only; Gantry maps
+  low/medium to run-local `allow_once` and high/critical or classifier failure
+  to human approval. The settings-owned YOLO denylist hard-denies before this
+  stage. Missing/redacted/risk-relevant truncated input is an approval floor
+  except for input-independent birthright tools.
 - Mode naming in settings (`apps/core/src/config/settings/`): `permission_mode: auto` = the new consult-classifier behavior; add `auto_strict` = today's deterministic-proof-only behavior. Parser accepts both; docs strings updated. Existing configs with `auto` get the new behavior by design (that is the user's ask).
 - Promotion signal: extend the existing promotion counter so repeat approvals (N≥2) of the same suggestion shape mark "Allow always" as the primary/default button, and pass a `recentlyApprovedExactToolShape` boolean to the classifier prompt (mirror of `recentlyDeniedExactToolShape`).
-- Tests: gate table tests (each newly proven command form, plus refusals: redirects, `-exec`, `rm`, hidden-secret segments, out-of-workspace paths); classifier-consult flow tests for `auto` vs `auto_strict` (denylist still asks, sanitized still asks, unproven consults); settings parser accept/reject for the new mode value.
+- Tests: gate table tests (each newly proven command form, plus refusals:
+  redirects, `-exec`, `rm`, hidden-secret segments, out-of-workspace paths);
+  classifier-consult flow tests for `auto` vs `auto_strict` (denylist hard
+  denies, incomplete input cannot auto-allow, unproven eligible calls consult);
+  settings parser accept/reject for the new mode value.
 
 Bounded write scope: those files + the permission gate/callback modules under `apps/core/src/runtime/permissions/` ONLY if mode plumbing requires it + settings parser files + their tests. Nothing else. Mind the `permission-classifier.ts` file-size budget (currently near-limit territory — extract a helper module in the same directory if needed).
 
@@ -70,7 +102,7 @@ Every stage records assumptions in `docs/architecture/runtime-permission-ux-assu
 | --- | --- | --- |
 | Permission posture | Changed (user-approved) | `auto` consults the classifier for unproven commands; `auto_strict` added. |
 | settings.yaml | Additive | New `auto_strict` mode value. |
-| Chat UX | Changed | Compact prompts, edited receipts, silent auto-allows, new-message boundary after prompts. |
+| Chat UX | Changed | Compact prompts, approved-prompt deletion with fallback receipt, silent auto-allows, new-message boundary after prompts. |
 | Skill installs | Fixed | Multi-skill repos; failures carry output. |
 | Control API / SDK | Unchanged | No contract changes. |
 | Security rails | Unchanged | Denylist backstop, sanitized-input guard, host-side judge, schema verdicts. |
@@ -78,9 +110,13 @@ Every stage records assumptions in `docs/architecture/runtime-permission-ux-assu
 ## Acceptance Criteria
 
 - `ls -la` inside the workspace runs with zero prompt in `auto`.
-- An unproven-but-safe command auto-allows via classifier; a denylisted command still prompts; `auto_strict` reproduces today's behavior.
+- An unproven-but-safe eligible command auto-allows via classifier; a
+  denylisted command hard-denies before classifier or prompt; `auto_strict`
+  keeps the proof-only posture for unproven actions.
 - Multi-skill repo install succeeds and lists installed skills; a failing install shows the installer's actual output.
-- A permission prompt edits down to a one-line receipt after decision; near-simultaneous requests render as one batch message.
+- An approved permission prompt is deleted without a receipt when supported;
+  deletion failure falls back to a one-line edit/send. Near-simultaneous
+  requests render as one batch message.
 - After approving a mid-turn prompt, the next agent reply arrives as a NEW message.
 - No Telegram `BUTTON_DATA_INVALID` for permission/user-question buttons.
 - Full unit suite green; architecture gates introduce no NEW violations vs branch base.
@@ -92,4 +128,7 @@ npx tsc --noEmit -p tsconfig.json
 python3 .codex/scripts/check_architecture.py
 ```
 
-Plus per-stage focused vitest files named in each stage. Closeout: full `npm run test:unit`, branch autoreview, Telegram runtime smoke (install a multi-skill repo, run `ls -la`, approve one prompt, verify receipt edit + new-message boundary).
+Plus per-stage focused vitest files named in each stage. Closeout: full
+`npm run test:unit`, branch autoreview, Telegram runtime smoke (install a
+multi-skill repo, run `ls -la`, approve one prompt, verify deletion or fallback
+receipt plus the new-message boundary).

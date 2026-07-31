@@ -210,7 +210,7 @@ runtime database.
 
 ## Optional Codex Factory
 
-The `.agents/`, `.codex/`, and `.factory/` folders contain optional maintainer
+The `factory/`, `.codex/`, and `.factory/` folders contain optional maintainer
 automation for planning, decomposition, verification, and review. Public
 contributors are not required to use it. Maintainers who enable the harness
 should first read [AGENTS.md](AGENTS.md), [WORKFLOW.md](WORKFLOW.md),
@@ -258,6 +258,6 @@ root, then:
 - **Humans own** accepting decisions, client sign-off, and merging PRs —
   agents draft and relay, never run those.
 
-The vendored harness machinery (`.agents/`, `constitution/`, gate scripts)
+The vendored harness machinery (`factory/`, `constitution/`, gate scripts)
 is frozen: never edit it here — improvements go to the harness repo and
 arrive by re-vendoring.

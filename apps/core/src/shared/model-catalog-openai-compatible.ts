@@ -60,6 +60,8 @@ type ExecutableModelEntryFn = (input: {
   cacheWriteUsdPerMillionTokens?: number;
   cacheMode: ModelCatalogEntry['cacheMode'];
   cacheTokenFields: readonly string[];
+  supportsThinking?: boolean;
+  supportsTools?: boolean;
   supportedWorkloads: readonly ModelWorkload[];
   providerAvailability?: ModelCatalogEntry['providerAvailability'];
   providerRouting?: ModelCatalogEntry['providerRouting'];
@@ -144,6 +146,7 @@ const VERTEX_GLOBAL_AVAILABILITY: ModelCatalogEntry['providerAvailability'] = {
 const WINDOW_128K = 131_072;
 const WINDOW_1M = 1_048_576;
 const WINDOW_GROK = 256_000;
+const WINDOW_GROK_45 = 500_000;
 const WINDOW_DEEPSEEK_V4 = 1_048_576;
 const WINDOW_QWEN3_235B = 40_960;
 const WINDOW_PERPLEXITY_PRO = 200_000;
@@ -240,13 +243,39 @@ export function buildOpenAiCompatibleCatalog(deps: {
       experimental: true,
     }),
     // xai (Grok)
+    // Base-rate estimate only: at or above 200K input tokens, Grok 4.5 bills
+    // $4 input, $0.60 cached input, and $12 output per 1M tokens for the full
+    // request. Server-tool fees are separate and are not catalog token rates.
+    executableModelEntry({
+      id: 'xai:grok-4.5',
+      route: providerRoute('xai', 'grok-4.5'),
+      displayName: 'Grok 4.5',
+      runnerModel: 'grok-4.5',
+      aliases: ['grok', 'grok-4.5'],
+      recommendedAlias: 'grok',
+      source: {
+        label: 'xAI Grok 4.5 model',
+        url: 'https://docs.x.ai/developers/models/grok-4.5',
+        verifiedAt: '2026-07-28',
+      },
+      contextWindowTokens: WINDOW_GROK_45,
+      inputUsdPerMillionTokens: 2,
+      outputUsdPerMillionTokens: 6,
+      cachedInputUsdPerMillionTokens: 0.3,
+      cacheMode: OPENAI_PREFIX_CACHE_MODE,
+      cacheTokenFields: NESTED_OPENAI_CACHE_FIELDS,
+      supportsThinking: true,
+      supportsTools: true,
+      supportedWorkloads: DEEPAGENTS_MEMORY_WORKLOADS,
+      experimental: true,
+    }),
     executableModelEntry({
       id: 'xai:grok-4.3',
       route: providerRoute('xai', 'grok-4.3'),
       displayName: 'Grok 4.3',
       runnerModel: 'grok-4.3',
-      aliases: ['grok', 'grok-4.3'],
-      recommendedAlias: 'grok',
+      aliases: ['grok-4.3'],
+      recommendedAlias: 'grok-4.3',
       source: XAI_SOURCE,
       contextWindowTokens: WINDOW_GROK,
       inputUsdPerMillionTokens: 1.25,

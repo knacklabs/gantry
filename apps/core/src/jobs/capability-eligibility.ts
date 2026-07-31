@@ -5,6 +5,10 @@ import {
   skillCapabilityId,
   toolchainCapabilityId,
 } from './worker-capability-reconciler.js';
+import {
+  assertHostAccessSnapshot,
+  type AgentAccessSnapshot,
+} from '../application/agent-execution/agent-access-snapshot.js';
 
 /**
  * Capability-matched dispatch (fleet mode only).
@@ -49,13 +53,27 @@ export interface RequiredCapabilityResolverDeps {
  */
 export async function resolveRequiredCapabilities(
   deps: RequiredCapabilityResolverDeps,
-  input: { appId: string; agentId: string },
+  input: {
+    appId: string;
+    agentId: string;
+    accessSnapshot?: AgentAccessSnapshot;
+  },
 ): Promise<string[]> {
+  const accessSnapshot = assertHostAccessSnapshot({
+    accessSnapshot: input.accessSnapshot,
+    appId: input.appId,
+    agentId: input.agentId,
+    subject: 'Required capability resolution',
+  });
   if (deps.deploymentMode !== 'fleet') return [];
 
   const required = new Set<string>();
 
-  if (deps.skills) {
+  if (accessSnapshot) {
+    for (const row of accessSnapshot.skills.activeBindings) {
+      required.add(skillCapabilityId(String(row.binding.skillId)));
+    }
+  } else if (deps.skills) {
     const bindings = await deps.skills.listAgentSkillBindings({
       appId: input.appId as never,
       agentId: input.agentId as never,

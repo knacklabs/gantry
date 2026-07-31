@@ -25,9 +25,11 @@ import {
   failRuntimeSessionRun as failSessionRun,
 } from '../runtime/session-resume-runtime.js';
 import {
-  resolveTurnSemanticCapabilities,
-  resolveTurnSelectedMcpServerIds,
-  resolveTurnSelectedSkillContext,
+  loadAgentAccessSnapshot,
+  resolveTurnSemanticCapabilitiesFromSnapshot,
+  resolveTurnSelectedMcpServerIdsFromSnapshot,
+  resolveTurnSelectedSkillContextFromSnapshot,
+  resolveTurnToolPolicyFromSnapshot,
 } from '../runtime/group-run-context.js';
 // prettier-ignore
 import { collectCompactBoundaryMemory, collectJobCompletionMemory } from './compact-memory.js';
@@ -347,36 +349,27 @@ async function runActiveJob(
             appId: executionAppId,
             agentId: executionAgentId,
           });
-          const [
-            toolPolicy,
-            selectedSkillContext,
-            semanticCapabilities,
-            credentialBroker,
-          ] = await Promise.all([
-            jobToolPolicy.resolveJobToolPolicy({
-              job: currentJob,
-              appId: executionAppId,
-              agentId: executionAgentId,
-              toolRepository: deps.getToolRepository?.(),
-              skillRepository: deps.getSkillRepository?.(),
-            }),
-            resolveTurnSelectedSkillContext(deps, {
-              appId: executionAppId,
-              agentId: executionAgentId,
-            }),
-            resolveTurnSemanticCapabilities(deps, {
-              appId: executionAppId,
-              agentId: executionAgentId,
-            }),
+          const snapshotOwner = {
+            appId: executionAppId,
+            agentId: executionAgentId,
+          };
+          const [accessSnapshot, credentialBroker] = await Promise.all([
+            loadAgentAccessSnapshot(deps, snapshotOwner),
             deps.getCredentialBroker?.() ?? Promise.resolve(undefined),
           ]);
-          const attachedMcpSourceIds = await resolveTurnSelectedMcpServerIds(
-            deps,
-            {
-              appId: executionAppId,
-              agentId: executionAgentId,
-            },
-          );
+          const inheritedToolPolicy =
+            resolveTurnToolPolicyFromSnapshot(accessSnapshot);
+          const toolPolicy: jobToolPolicy.JobToolPolicyResolution = {
+            inheritedTools: inheritedToolPolicy.toolPolicyRules ?? [],
+            effectiveAllowedTools: inheritedToolPolicy.toolPolicyRules ?? [],
+            runtimeAccess: inheritedToolPolicy.runtimeAccess,
+          };
+          const selectedSkillContext =
+            resolveTurnSelectedSkillContextFromSnapshot(accessSnapshot);
+          const semanticCapabilities =
+            resolveTurnSemanticCapabilitiesFromSnapshot(accessSnapshot);
+          const attachedMcpSourceIds =
+            resolveTurnSelectedMcpServerIdsFromSnapshot(accessSnapshot);
           const toolAccessRequirementPreflight =
             await assertToolAccessRequirementsReadyForRun({
               toolAccessRequirements: splitAccessRequirements(
@@ -394,6 +387,7 @@ async function runActiveJob(
             agentId: executionAgentId,
             source: 'final_setup',
             runId,
+            accessSnapshot,
             publishRuntimeEvent,
           }));
           const browserPrelaunchSetup = finalReadinessPassed
@@ -401,6 +395,7 @@ async function runActiveJob(
                 currentJob,
                 executionGroupFolder: execution.group.folder,
                 executionJid: execution.executionJid,
+                executionProviderAccountId: execution.group.providerAccountId,
                 diagnostics,
                 deps,
                 emitJobEvent,
@@ -438,6 +433,7 @@ async function runActiveJob(
                 agentId: executionAgentId,
               },
             });
+            if (accessSnapshot) runOptions.accessSnapshot = accessSnapshot;
             agentRunId = turnContext?.agentSessionId
               ? await deps.opsRepository.createSessionAgentRun?.({
                   agentSessionId: turnContext.agentSessionId,
@@ -726,6 +722,7 @@ async function runActiveJob(
       currentJob,
       executionGroupFolder: execution?.group.folder,
       executionJid: execution?.executionJid,
+      executionProviderAccountId: execution?.group.providerAccountId,
       diagnostics,
       deps,
       snapshotRunId: runId,

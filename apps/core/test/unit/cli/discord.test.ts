@@ -10,8 +10,29 @@ import {
   loadRuntimeSettings,
   saveRuntimeSettings,
 } from '@core/config/settings/runtime-settings.js';
+import { runtimeSecretNameForAgent } from '@core/domain/provider/provider-runtime-secret-keys.js';
 
 const groupsStore = vi.hoisted(() => new Map<string, any>());
+const defaultDiscordBotSecretName = runtimeSecretNameForAgent(
+  'discord',
+  'main_agent',
+  'BOT_TOKEN',
+);
+const defaultDiscordApplicationSecretName = runtimeSecretNameForAgent(
+  'discord',
+  'main_agent',
+  'APPLICATION_ID',
+);
+const test2DiscordBotSecretName = runtimeSecretNameForAgent(
+  'discord',
+  'test2',
+  'BOT_TOKEN',
+);
+const test2DiscordApplicationSecretName = runtimeSecretNameForAgent(
+  'discord',
+  'test2',
+  'APPLICATION_ID',
+);
 
 vi.mock('@core/cli/runtime-group-db.js', () => ({
   openRuntimeGroupDb: async () => ({
@@ -119,13 +140,13 @@ describe('cli discord helpers', () => {
     expect(code).toBe(0);
     expect(storeRuntimeSecretInput).toHaveBeenCalledWith({
       runtimeHome,
-      name: 'DISCORD_BOT_TOKEN',
+      name: defaultDiscordBotSecretName,
       value: 'discord-token',
       actor: 'cli:discord-connect',
     });
     expect(storeRuntimeSecretInput).toHaveBeenCalledWith({
       runtimeHome,
-      name: 'DISCORD_APPLICATION_ID',
+      name: defaultDiscordApplicationSecretName,
       value: '123456789',
       actor: 'cli:discord-connect',
     });
@@ -137,8 +158,8 @@ describe('cli discord helpers', () => {
     expect(settings.providerAccounts.discord_default).toMatchObject({
       provider: 'discord',
       runtimeSecretRefs: {
-        bot_token: 'gantry-secret:DISCORD_BOT_TOKEN',
-        application_id: 'gantry-secret:DISCORD_APPLICATION_ID',
+        bot_token: `gantry-secret:${defaultDiscordBotSecretName}`,
+        application_id: `gantry-secret:${defaultDiscordApplicationSecretName}`,
       },
     });
   });
@@ -196,12 +217,36 @@ describe('cli discord helpers', () => {
   it('registers a selected Discord channel and enables runtime transport', async () => {
     vi.resetModules();
     const runtimeHome = makeRuntimeHome();
+    const existingSettings = loadRuntimeSettings(runtimeHome);
+    existingSettings.agents.main_agent = {
+      name: 'Default Agent',
+      folder: 'main_agent',
+      bindings: {},
+      sources: { skills: [], mcpServers: [], tools: [] },
+      capabilities: [],
+      accessPreset: 'full',
+    };
+    existingSettings.providerAccounts.discord_default = {
+      agentId: 'main_agent',
+      provider: 'discord',
+      label: 'Discord Default',
+      runtimeSecretRefs: {
+        bot_token: `gantry-secret:${defaultDiscordBotSecretName}`,
+        application_id: `gantry-secret:${defaultDiscordApplicationSecretName}`,
+      },
+    };
+    saveRuntimeSettings(runtimeHome, existingSettings);
     mockPrompts('dc:1234567890');
     const discovery = fakeDiscordDiscovery();
     const storeRuntimeSecretInput = mockRuntimeSecretStorage();
 
     const { runDiscordConnectCommand } = await import('@core/cli/discord.js');
-    const code = await runDiscordConnectCommand(runtimeHome, discovery);
+    const code = await runDiscordConnectCommand(
+      runtimeHome,
+      discovery,
+      'test2',
+      'Test 2',
+    );
 
     expect(code).toBe(0);
     expect(loadRuntimeSettings(runtimeHome).providers.discord.enabled).toBe(
@@ -209,12 +254,19 @@ describe('cli discord helpers', () => {
     );
     expect(storeRuntimeSecretInput).toHaveBeenCalledWith({
       runtimeHome,
-      name: 'DISCORD_BOT_TOKEN',
+      name: test2DiscordBotSecretName,
       value: 'discord-token',
       actor: 'cli:discord-connect',
     });
     expect(groupsStore.get('dc:1234567890')).toEqual(
-      expect.objectContaining({ folder: 'main_agent' }),
+      expect.objectContaining({ folder: 'test2' }),
     );
+    expect(
+      loadRuntimeSettings(runtimeHome).providerAccounts.discord_test2
+        .runtimeSecretRefs,
+    ).toEqual({
+      bot_token: `gantry-secret:${test2DiscordBotSecretName}`,
+      application_id: `gantry-secret:${test2DiscordApplicationSecretName}`,
+    });
   });
 });
