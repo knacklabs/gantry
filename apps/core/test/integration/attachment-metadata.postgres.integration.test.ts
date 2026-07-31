@@ -310,6 +310,13 @@ maybeDescribe('attachment metadata (Postgres)', () => {
           kind: 'file',
           externalId,
           file_name: 'identified-migration.pdf',
+          // 0117's Slack backfill derives the fetch identity from the
+          // external ref during the same migration.
+          provider_fetch: {
+            provider: 'slack',
+            kind: 'file_id',
+            id: externalId,
+          },
         },
         { kind: 'file', file_name: 'identity-less-migration.pdf' },
       ]),
