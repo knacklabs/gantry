@@ -1,8 +1,8 @@
 # Conversation File Trust Program
 
-Status: active. Governing decision: `docs/decisions/0092-conversation-file-trust-program.md`
+Status: active. Governing decision: `docs/decisions/0094-conversation-file-trust-program.md`
 (twelve client-grilled locks + the provider parity matrix). Sign-off:
-`docs/decisions/0093-client-signoff.md`.
+`docs/decisions/0095-client-signoff.md`.
 User-facing documentation ships from the corrected draft (per-provider honest).
 
 ## The promise
@@ -38,15 +38,15 @@ coverage was made neutral (decision 0087):
 
 | Feature | Lock |
 | --- | --- |
-| Lazy backfill fetch on first need, via the live pipeline | 0092 §1 |
-| Provider deletion honored; agent says "deleted from the channel" | 0092 §2 |
-| One 50 MiB cap everywhere | 0092 §3 |
-| Versions: latest-wins by name, history mentioned | 0092 §4 |
-| Strictly conversation-scoped access | 0092 §5 |
-| Ephemeral/self-destruct content never stored | 0092 §6 |
-| Per-conversation file search (name/type/date) beyond the window | 0092 §7 |
-| Retention: keep until deleted upstream | 0092 §8 |
-| Linked files (Drive/Dropbox/SharePoint) ride connectors; honest copy until then | 0092 §9 |
+| Lazy backfill fetch on first need, via the live pipeline | 0094 §1 |
+| Provider deletion honored; agent says "deleted from the channel" | 0094 §2 |
+| One 50 MiB cap everywhere | 0094 §3 |
+| Versions: latest-wins by name, history mentioned | 0094 §4 |
+| Strictly conversation-scoped access | 0094 §5 |
+| Ephemeral/self-destruct content never stored | 0094 §6 |
+| Per-conversation file search (name/type/date) beyond the window | 0094 §7 |
+| Retention: keep until deleted upstream | 0094 §8 |
+| Linked files (Drive/Dropbox/SharePoint) ride connectors; honest copy until then | 0094 §9 |
 
 ## Phases
 

@@ -15,7 +15,7 @@ reviewed and corrected for per-provider honesty.
 
 ## Decision
 
-The client signed off on the program shape recorded in decision 0092, with
+The client signed off on the program shape recorded in decision 0094, with
 FILE-1A (foundation + conversation-scoped resolver + Slack backfill fetch)
 as the first bounded task, FILE-1B (Discord live capture + refetch) next,
 and Teams deferred (D-0032).

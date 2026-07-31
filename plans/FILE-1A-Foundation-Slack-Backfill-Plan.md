@@ -4,8 +4,8 @@ Issue: `FILE-1`
 Branch: `feat/backfilled-file-extraction`
 Base: `origin/main` @ `f1adbc682`
 Program: Conversation File Trust (docs/architecture/conversation-file-trust-program.md)
-Governing decision: `docs/decisions/0092-conversation-file-trust-program.md`
-Sign-off: `docs/decisions/0093-client-signoff.md`
+Governing decision: `docs/decisions/0094-conversation-file-trust-program.md`
+Sign-off: `docs/decisions/0095-client-signoff.md`
 Signal: `S-0001-e125` (contradiction) — raised and resolved before planning
 
 ## Problem
