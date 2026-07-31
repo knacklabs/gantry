@@ -3575,6 +3575,71 @@ describe('Slack channel', () => {
     );
   });
 
+  it('does not expose a gantry attachment ref when Slack returns an HTML page', async () => {
+    const opts = createOpts();
+    opts.conversationRoutes.mockReturnValue({
+      [makeAgentThreadQueueKey('sl:C123', 'agent:ops', null, 'slack_default')]:
+        {
+          folder: 'slack_ops',
+          name: 'Ops',
+          providerAccountId: 'slack_default',
+        },
+    });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        headers: {
+          get: (name: string) =>
+            name.toLowerCase() === 'content-type'
+              ? 'text/html; charset=utf-8'
+              : null,
+        },
+        arrayBuffer: vi
+          .fn()
+          .mockResolvedValue(Buffer.from('<html>Sign in to Slack</html>')),
+      }),
+    );
+    const channel = new SlackChannel('xoxb-token', 'xapp-token', opts as any);
+    await channel.connect();
+
+    const handlers = appRef.current.eventHandlers.get('message') || [];
+    await handlers[0]({
+      event: {
+        channel: 'C123',
+        ts: '1710000000.000100',
+        user: 'U123',
+        text: 'see file',
+        files: [
+          {
+            id: 'F123',
+            name: 'Scout_Agent_Skills.md',
+            mimetype: 'text/markdown',
+            url_private_download: 'https://files.slack.test/skills.md',
+          },
+        ],
+      },
+    });
+
+    expect(opts.onMessage).toHaveBeenCalledWith(
+      'sl:C123',
+      expect.objectContaining({
+        content:
+          'see file\nAttachment: Scout_Agent_Skills.md (download unavailable: slack_html_response)',
+        attachments: [
+          expect.objectContaining({
+            externalId: 'F123',
+            contentType: 'text/markdown',
+          }),
+        ],
+      }),
+    );
+    expect(opts.onMessage.mock.calls[0][1].attachments[0]).not.toHaveProperty(
+      'storageRef',
+    );
+  });
+
   it('does not download Slack attachments through a different provider account route', async () => {
     const opts = createOpts();
     opts.providerAccountId = 'slack_alpha';

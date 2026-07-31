@@ -39,6 +39,17 @@ export async function downloadSlackAttachmentToFolder(input: {
       );
       return { status: 'unavailable', reason: `slack_http_${resp.status}` };
     }
+    if (isLikelySlackHtmlResponse(resp, input.filename)) {
+      logger.warn(
+        {
+          jid: input.jid,
+          filename: input.filename,
+          contentType: resp.headers.get('content-type') ?? null,
+        },
+        'Slack attachment download returned HTML instead of file content',
+      );
+      return { status: 'unavailable', reason: 'slack_html_response' };
+    }
 
     const wrote = await writeSlackAttachmentResponse(
       resp,
@@ -66,6 +77,17 @@ export async function downloadSlackAttachmentToFolder(input: {
     );
     return { status: 'unavailable', reason: 'download_failed' };
   }
+}
+
+function isLikelySlackHtmlResponse(resp: Response, filename: string): boolean {
+  const contentType = resp.headers.get('content-type')?.toLowerCase() ?? '';
+  if (!contentType.includes('text/html')) return false;
+
+  const disposition =
+    resp.headers.get('content-disposition')?.toLowerCase() ?? '';
+  if (disposition.includes('attachment')) return false;
+
+  return !/\.(?:html?|xhtml)$/i.test(filename);
 }
 
 function isFileExistsError(error: unknown): boolean {
