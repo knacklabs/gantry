@@ -105,6 +105,128 @@ describe('PostgresConversationRepository', () => {
 });
 
 describe('PostgresMessageRepository', () => {
+  it('does not preserve attachment state when the external identity conflicts', async () => {
+    let insertedAttachmentRows: Array<{
+      storageRef: string | null;
+      fileName: string | null;
+      providerFetchJson: unknown;
+      deletedAt: string | null;
+    }> = [];
+    const cleanupMaterialization = vi.fn(async (_storageRef: string) => {});
+    const select = vi
+      .fn()
+      .mockReturnValueOnce({
+        from: vi.fn(() => ({
+          innerJoin: vi.fn(() => ({
+            where: vi.fn(() => ({
+              limit: vi.fn(async () => [
+                {
+                  providerAccountId: 'slack-account',
+                  providerId: 'slack',
+                },
+              ]),
+            })),
+          })),
+        })),
+      })
+      .mockReturnValueOnce({
+        from: vi.fn(() => ({
+          where: vi.fn(async () => [
+            {
+              id: 'attachment-1',
+              externalRefJson: {
+                kind: 'message_attachment',
+                value: 'old-provider-file-id',
+              },
+              storageRef: 'provider-attachments/old-file.txt',
+              fileName: 'old-file.txt',
+              contentType: 'text/plain',
+              sizeBytes: 123,
+              providerFetchJson: {
+                provider: 'slack',
+                kind: 'file_id',
+                id: 'old-provider-file-id',
+              },
+              deletedAt: '2026-07-30T12:00:00.000Z',
+            },
+          ]),
+        })),
+      });
+    const writeTx = {
+      execute: vi.fn(async () => undefined),
+      select,
+      insert: vi.fn(() => ({
+        values: vi.fn((values: unknown) => {
+          if (Array.isArray(values)) {
+            insertedAttachmentRows = values as typeof insertedAttachmentRows;
+          }
+          return {
+            onConflictDoUpdate: vi.fn(() => messageUpsertResult()),
+          };
+        }),
+      })),
+      delete: vi.fn(() => ({
+        where: vi.fn(async () => undefined),
+      })),
+    };
+    const cleanupTx = {
+      execute: vi.fn(async () => undefined),
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({
+            limit: vi.fn(async () => []),
+          })),
+        })),
+      })),
+    };
+    let transactionCall = 0;
+    const db = {
+      transaction: vi.fn(
+        async (
+          run: (
+            transaction: typeof writeTx | typeof cleanupTx,
+          ) => Promise<unknown>,
+        ) => run(transactionCall++ === 0 ? writeTx : cleanupTx),
+      ),
+    };
+    const repository = new PostgresMessageRepository(
+      db as never,
+      cleanupMaterialization,
+    );
+
+    await repository.saveMessage({
+      id: 'message-1',
+      appId: 'app-1',
+      conversationId: 'conversation-1',
+      direction: 'inbound',
+      trust: 'trusted',
+      createdAt: '2026-07-31T00:00:00.000Z',
+      parts: [],
+      attachments: [
+        {
+          id: 'attachment-1',
+          kind: 'file',
+          trust: 'trusted',
+          externalRef: {
+            kind: 'message_attachment',
+            value: 'new-provider-file-id',
+          },
+        },
+      ],
+    } as never);
+
+    expect(insertedAttachmentRows).toHaveLength(1);
+    expect(insertedAttachmentRows[0]).toMatchObject({
+      storageRef: null,
+      fileName: null,
+      providerFetchJson: null,
+      deletedAt: null,
+    });
+    expect(cleanupMaterialization).toHaveBeenCalledWith(
+      'provider-attachments/old-file.txt',
+    );
+  });
+
   it('drops an incoming provider ref when no current attachment row carries it', async () => {
     let insertedAttachmentRows: Array<{ storageRef: string | null }> = [];
     const select = vi.fn().mockReturnValueOnce({

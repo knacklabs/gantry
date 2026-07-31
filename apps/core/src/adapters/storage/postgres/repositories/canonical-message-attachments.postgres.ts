@@ -19,6 +19,26 @@ const IDENTITYLESS_ATTACHMENT_REF_KIND = 'message_attachment_index';
 
 type IncomingMessageAttachment = NonNullable<NewMessage['attachments']>[number];
 
+interface AttachmentIdentity {
+  externalId?: string;
+  providerFetchIdentity?: string;
+}
+
+export function attachmentIdentityConflicts(
+  incoming: AttachmentIdentity,
+  existing: AttachmentIdentity | undefined,
+): boolean {
+  return (
+    existing !== undefined &&
+    ((incoming.externalId !== undefined &&
+      existing.externalId !== undefined &&
+      existing.externalId !== incoming.externalId) ||
+      (incoming.providerFetchIdentity !== undefined &&
+        existing.providerFetchIdentity !== undefined &&
+        existing.providerFetchIdentity !== incoming.providerFetchIdentity))
+  );
+}
+
 function providerFetchIdentity(value: unknown): string | undefined {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     return undefined;
@@ -353,16 +373,16 @@ export function preservedMetadataForIncomingAttachment(
         incomingProviderFetchIdentity,
       )
     : undefined;
-  const conflicts = (candidate: typeof idMatch): boolean =>
-    candidate !== undefined &&
-    ((attachment.externalId !== undefined &&
-      candidate.externalId !== undefined &&
-      candidate.externalId !== attachment.externalId) ||
-      (incomingProviderFetchIdentity !== undefined &&
-        candidate.providerFetchIdentity !== undefined &&
-        candidate.providerFetchIdentity !== incomingProviderFetchIdentity));
   const preserved = [idMatch, externalIdMatch, providerFetchMatch].find(
-    (candidate) => candidate !== undefined && !conflicts(candidate),
+    (candidate) =>
+      candidate !== undefined &&
+      !attachmentIdentityConflicts(
+        {
+          externalId: attachment.externalId,
+          providerFetchIdentity: incomingProviderFetchIdentity,
+        },
+        candidate,
+      ),
   );
   const incomingExternalRef =
     attachmentExternalRefForIncomingAttachment(attachment);

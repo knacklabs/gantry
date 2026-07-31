@@ -76,7 +76,11 @@ import {
   jsonb,
   type CanonicalDb,
 } from './canonical-graph-repository.postgres.js';
-import { providerAttachmentStorageRefsRemovedByReplacement } from './canonical-message-attachments.postgres.js';
+import {
+  attachmentIdentityConflicts,
+  existingAttachmentMetadataMaps,
+  providerAttachmentStorageRefsRemovedByReplacement,
+} from './canonical-message-attachments.postgres.js';
 import { lockCanonicalMessageAttachments } from './canonical-message-attachment-lock.postgres.js';
 import {
   cleanupRemovedProviderAttachments,
@@ -1237,12 +1241,17 @@ export class PostgresMessageRepository implements MessageRepository {
                 targetMessageId,
               ),
             );
-      const existingAttachmentsById = new Map(
-        existingAttachments.map((attachment) => [attachment.id, attachment]),
-      );
+      const existingAttachmentsById =
+        existingAttachmentMetadataMaps(existingAttachments).byId;
       const replacementAttachmentRows = message.attachments.map(
         (attachment) => {
-          const existing = existingAttachmentsById.get(attachment.id);
+          const idMatch = existingAttachmentsById.get(attachment.id);
+          const existing = attachmentIdentityConflicts(
+            { externalId: attachment.externalRef?.value },
+            idMatch,
+          )
+            ? undefined
+            : idMatch;
           return {
             id: attachment.id,
             messageId: targetMessageId,
