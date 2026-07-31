@@ -593,6 +593,8 @@ export function createRuntimeApp(options: RuntimeAppOptions = {}): RuntimeApp {
     getRegisteredJids: () => new Set(Object.keys(conversationRoutes)),
     opsRepository: options.opsRepository,
     getRuntimeRepository: ops,
+    getConversationHistoryCoverageRepository: () =>
+      getRuntimeStorage().repositories.conversationHistoryCoverage,
     queue: {
       enqueueMessageCheck: (chatJid) => queue.enqueueMessageCheck(chatJid),
       closeStdin: (chatJid) => queue.closeStdin(chatJid),

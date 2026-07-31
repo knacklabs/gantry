@@ -21,6 +21,12 @@ export type ConversationHistoryCoverageWriteResult =
   | { status: 'written'; coverage: ConversationHistoryCoverage }
   | { status: 'stale'; currentGeneration: number };
 
+export interface ConversationHistoryCoverageReadResult {
+  coverage: ConversationHistoryCoverage | null;
+  currentProviderGeneration: number;
+  isCurrentGeneration: boolean;
+}
+
 export interface ConversationHistoryCoverageRepository {
   readProviderGeneration(providerAccountId: ProviderAccountId): Promise<number>;
   bumpProviderGeneration(providerAccountId: ProviderAccountId): Promise<number>;
@@ -28,7 +34,7 @@ export interface ConversationHistoryCoverageRepository {
     providerAccountId: ProviderAccountId;
     conversationId: ConversationId;
     scope: ConversationHistoryScope;
-  }): Promise<ConversationHistoryCoverage | null>;
+  }): Promise<ConversationHistoryCoverageReadResult>;
   upsertCoverage(input: {
     providerAccountId: ProviderAccountId;
     conversationId: ConversationId;

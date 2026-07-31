@@ -245,6 +245,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
         groupName: group.name,
         agentFolder: group.folder,
         chatJid,
+        conversationId: group.conversationId,
         providerAccountId: group.providerAccountId,
         activeThreadId,
         latestMessage,

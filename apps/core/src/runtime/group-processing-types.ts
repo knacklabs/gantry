@@ -41,6 +41,7 @@ import type { PatternCandidateRepository } from '../domain/ports/pattern-candida
 import type { AgentTodoRender } from '../domain/ports/task-lifecycle.js';
 import type { AgentLockStatus } from './proactive-surfacing-gate.js';
 import type { GroupAgentRunResult } from './group-agent-runner.js';
+import type { ConversationHistoryCoverageRepository } from '../domain/ports/conversation-history-coverage.js';
 
 export type {
   ConversationContextHydrationCoverage,
@@ -228,4 +229,7 @@ export interface GroupProcessingDeps {
   getSelectedAgentHarness: (agentFolder?: string) => AgentHarness;
   opsRepository?: GroupProcessingRepository;
   getRuntimeRepository?: () => GroupProcessingRepository;
+  getConversationHistoryCoverageRepository?: () =>
+    | ConversationHistoryCoverageRepository
+    | undefined;
 }

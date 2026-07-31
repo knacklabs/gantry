@@ -2,6 +2,12 @@ import { logger } from '../infrastructure/logging/logger.js';
 import { formatConversationContextMessages } from '../messaging/router.js';
 import { buildMemoryRecallQueryFromMessages } from '../memory/app-memory-recall-query.js';
 import type { NewMessage } from '../domain/types.js';
+import type { ConversationId } from '../domain/conversation/conversation.js';
+import type { ProviderAccountId } from '../domain/provider/provider.js';
+import type {
+  ConversationHistoryCoverageRepository,
+  ConversationHistoryScope,
+} from '../domain/ports/conversation-history-coverage.js';
 import type {
   ConversationContextHydrationRequest,
   ConversationContextHydrationResult,
@@ -20,6 +26,7 @@ export async function buildGroupTurnConversationContext(input: {
   repository: GroupProcessingRepository;
   agentFolder: string;
   chatJid: string;
+  conversationId?: string;
   providerAccountId?: string | null;
   activeThreadId: string | null | undefined;
   latestMessage: NewMessage;
@@ -34,21 +41,40 @@ export async function buildGroupTurnConversationContext(input: {
     currentMessages: input.currentMessages,
     repository: input.repository,
   });
-  const hydration = shouldHydrateConversationContext(conversationContext)
-    ? await hydrateConversationContextWithDeadline({
-        hydrate: input.deps.channelRuntime.hydrateConversationContext,
-        request: {
-          conversationJid: input.chatJid,
-          ...(input.providerAccountId
-            ? { providerAccountId: input.providerAccountId }
-            : {}),
-          threadId: input.activeThreadId,
-          latestMessage: input.latestMessage,
-          limits: CONVERSATION_CONTEXT_LIMITS,
-        },
-        providerId: input.latestMessage.provider,
+  const shouldHydrate = shouldHydrateConversationContext(conversationContext);
+  const coverageRepository =
+    shouldHydrate && input.deps.channelRuntime.hydrateConversationContext
+      ? input.deps.getConversationHistoryCoverageRepository?.()
+      : undefined;
+  const coverageScope = historyCoverageScope(input.activeThreadId);
+  const coverageRead = shouldHydrate
+    ? await readHistoryCoverage({
+        repository: coverageRepository,
+        providerAccountId: input.providerAccountId,
+        conversationId: input.conversationId,
+        scope: coverageScope,
       })
     : undefined;
+  const hydration =
+    shouldHydrate &&
+    !(
+      coverageRead?.coverage?.complete === true &&
+      coverageRead.isCurrentGeneration
+    )
+      ? await hydrateConversationContextWithDeadline({
+          hydrate: input.deps.channelRuntime.hydrateConversationContext,
+          request: {
+            conversationJid: input.chatJid,
+            ...(input.providerAccountId
+              ? { providerAccountId: input.providerAccountId }
+              : {}),
+            threadId: input.activeThreadId,
+            latestMessage: input.latestMessage,
+            limits: CONVERSATION_CONTEXT_LIMITS,
+          },
+          providerId: input.latestMessage.provider,
+        })
+      : undefined;
   const rawHydratedMessages = stampProviderAccountOnHydratedMessages({
     providerAccountId: input.providerAccountId,
     messages: hydration?.messages ?? [],
@@ -95,6 +121,15 @@ export async function buildGroupTurnConversationContext(input: {
       );
     }
   }
+  await attestHistoryCoverage({
+    repository: coverageRepository,
+    providerAccountId: input.providerAccountId,
+    conversationId: input.conversationId,
+    scope: coverageScope,
+    hydration,
+    currentProviderGeneration: coverageRead?.currentProviderGeneration,
+    persistenceFailed: failedHydratedMessageCount > 0,
+  });
   if (hydratedMessages.length > 0) {
     conversationContext = await buildConversationContextPacket({
       conversationJid: input.chatJid,
@@ -132,6 +167,87 @@ export async function buildGroupTurnConversationContext(input: {
         : undefined,
     },
   };
+}
+
+async function readHistoryCoverage(input: {
+  repository: ConversationHistoryCoverageRepository | undefined;
+  providerAccountId?: string | null;
+  conversationId?: string;
+  scope: ConversationHistoryScope;
+}) {
+  if (!input.repository || !input.providerAccountId || !input.conversationId) {
+    return undefined;
+  }
+  try {
+    return await input.repository.getCoverage({
+      providerAccountId: input.providerAccountId as ProviderAccountId,
+      conversationId: input.conversationId as ConversationId,
+      scope: input.scope,
+    });
+  } catch (err) {
+    logger.warn(
+      { coverageError: hydrationErrorDiagnostics(err) },
+      'Conversation history coverage read failed',
+    );
+    return undefined;
+  }
+}
+
+async function attestHistoryCoverage(input: {
+  repository: ConversationHistoryCoverageRepository | undefined;
+  providerAccountId?: string | null;
+  conversationId?: string;
+  scope: ConversationHistoryScope;
+  hydration: ConversationContextHydrationResult | undefined;
+  currentProviderGeneration: number | undefined;
+  persistenceFailed: boolean;
+}): Promise<void> {
+  const claim = input.hydration?.coverage;
+  if (
+    !input.repository ||
+    !input.providerAccountId ||
+    !input.conversationId ||
+    !claim ||
+    input.currentProviderGeneration === undefined
+  ) {
+    return;
+  }
+  const now = new Date().toISOString();
+  try {
+    await input.repository.upsertCoverage({
+      providerAccountId: input.providerAccountId as ProviderAccountId,
+      conversationId: input.conversationId as ConversationId,
+      scope: input.scope,
+      complete:
+        !input.persistenceFailed &&
+        claim.scope === input.scope.kind &&
+        claim.completeness.kind === 'server_confirmed' &&
+        claim.completeness.exhausted,
+      ...(claim.requestedLatestMessage.externalMessageId !== undefined
+        ? {
+            coveredThroughExternalId:
+              claim.requestedLatestMessage.externalMessageId,
+          }
+        : {}),
+      coveredThroughTimestamp: claim.requestedLatestMessage.timestamp,
+      providerGeneration: input.currentProviderGeneration,
+      recordedAt: now,
+      updatedAt: now,
+    });
+  } catch (err) {
+    logger.warn(
+      { coverageError: hydrationErrorDiagnostics(err) },
+      'Conversation history coverage attestation failed',
+    );
+  }
+}
+
+function historyCoverageScope(
+  activeThreadId: string | null | undefined,
+): ConversationHistoryScope {
+  return activeThreadId
+    ? { kind: 'thread', id: activeThreadId }
+    : { kind: 'channel' };
 }
 
 async function hydrateConversationContextWithDeadline(input: {

@@ -16,6 +16,7 @@ import { buildProviderSessionAccessFingerprint } from '@core/runtime/provider-se
 import { createAgentExecutionAdapterRegistry } from '@core/application/agent-execution/agent-execution-adapter-registry.js';
 import { stableSha256Json } from '@core/shared/stable-hash.js';
 import { createOperationCounter } from '../../harness/response-latency-harness.js';
+import type { ConversationHistoryCoverageRepository } from '@core/domain/ports/conversation-history-coverage.js';
 
 // ---------------------------------------------------------------------------
 // Mocks
@@ -247,6 +248,25 @@ function makeChannel(
     resetStreaming: vi.fn(),
     setTyping: vi.fn().mockResolvedValue(undefined),
     sendProgressUpdate: vi.fn().mockResolvedValue(undefined),
+    ...overrides,
+  };
+}
+
+function makeHistoryCoverageRepository(
+  overrides: Partial<ConversationHistoryCoverageRepository> = {},
+): ConversationHistoryCoverageRepository {
+  return {
+    readProviderGeneration: vi.fn().mockResolvedValue(0),
+    bumpProviderGeneration: vi.fn().mockResolvedValue(1),
+    getCoverage: vi.fn().mockResolvedValue({
+      coverage: null,
+      currentProviderGeneration: 0,
+      isCurrentGeneration: false,
+    }),
+    upsertCoverage: vi.fn().mockResolvedValue({
+      status: 'stale',
+      currentGeneration: 0,
+    }),
     ...overrides,
   };
 }
@@ -6484,6 +6504,235 @@ describe('createGroupProcessor', () => {
           droppedCount: 2,
         },
         'Conversation context hydration dropped messages before persistence',
+      );
+    });
+
+    it('skips provider hydration when current-generation coverage is complete', async () => {
+      const group = makeGroup({
+        conversationId: 'conversation:slack:C123',
+        providerAccountId: 'slack-account-1',
+        requiresTrigger: false,
+        conversationKind: 'channel',
+      });
+      const current = makeMessage({
+        id: 'current',
+        chat_jid: 'sl:C123',
+        content: '@Andy use durably covered history',
+      });
+      const hydrateConversationContext = vi.fn();
+      const historyCoverage = makeHistoryCoverageRepository({
+        getCoverage: vi.fn().mockResolvedValue({
+          coverage: {
+            providerAccountId: 'slack-account-1',
+            conversationId: 'conversation:slack:C123',
+            scope: { kind: 'channel' },
+            complete: true,
+            providerGeneration: 7,
+            recordedAt: '2026-08-01T00:00:00.000Z',
+            updatedAt: '2026-08-01T00:00:00.000Z',
+          },
+          currentProviderGeneration: 7,
+          isCurrentGeneration: true,
+        }),
+      });
+      const { deps } = setupHappyPath({ group, messages: [current] });
+      deps.channelRuntime = makeChannel({ hydrateConversationContext });
+      deps.getConversationHistoryCoverageRepository = () => historyCoverage;
+
+      const { processGroupMessages } = createGroupProcessor(deps);
+      await processGroupMessages('sl:C123');
+
+      expect(historyCoverage.getCoverage).toHaveBeenCalledTimes(1);
+      expect(historyCoverage.getCoverage).toHaveBeenCalledWith({
+        providerAccountId: 'slack-account-1',
+        conversationId: 'conversation:slack:C123',
+        scope: { kind: 'channel' },
+      });
+      expect(historyCoverage.readProviderGeneration).not.toHaveBeenCalled();
+      expect(hydrateConversationContext).not.toHaveBeenCalled();
+      expect(historyCoverage.upsertCoverage).not.toHaveBeenCalled();
+    });
+
+    it('treats a generation-mismatched complete row as stale using one coverage call', async () => {
+      const group = makeGroup({
+        conversationId: 'conversation:slack:C123',
+        providerAccountId: 'slack-account-1',
+        requiresTrigger: false,
+        conversationKind: 'channel',
+      });
+      const current = makeMessage({
+        id: 'current',
+        chat_jid: 'sl:C123',
+        external_message_id: '1710000004.000000',
+        content: '@Andy refresh stale coverage',
+        timestamp: '2024-01-01T00:04:00.000Z',
+      });
+      const coverage: ConversationContextHydrationCoverage = {
+        requestedLatestMessage: {
+          externalMessageId: '1710000004.000000',
+          timestamp: '2024-01-01T00:04:00.000Z',
+        },
+        scope: 'thread',
+        requests: [],
+        completeness: { kind: 'server_confirmed', exhausted: true },
+        deliveredMessageCount: 0,
+        threadRoot: 'not_applicable',
+      };
+      const hydrateConversationContext = vi.fn().mockResolvedValue({
+        providerId: 'slack',
+        attempted: true,
+        messages: [],
+        coverage,
+      });
+      const getCoverage = vi.fn().mockResolvedValue({
+        coverage: {
+          providerAccountId: 'slack-account-1',
+          conversationId: 'conversation:slack:C123',
+          scope: { kind: 'thread', id: '1710000004.000000' },
+          complete: true,
+          providerGeneration: 4,
+          recordedAt: '2026-08-01T00:00:00.000Z',
+          updatedAt: '2026-08-01T00:00:00.000Z',
+        },
+        currentProviderGeneration: 5,
+        isCurrentGeneration: false,
+      });
+      const historyCoverage = makeHistoryCoverageRepository({ getCoverage });
+      const { deps } = setupHappyPath({ group, messages: [current] });
+      deps.channelRuntime = makeChannel({ hydrateConversationContext });
+      deps.getConversationHistoryCoverageRepository = () => historyCoverage;
+
+      const { processGroupMessages } = createGroupProcessor(deps);
+      await processGroupMessages('sl:C123');
+
+      expect(getCoverage).toHaveBeenCalledTimes(1);
+      expect(historyCoverage.readProviderGeneration).not.toHaveBeenCalled();
+      expect(hydrateConversationContext).toHaveBeenCalledTimes(1);
+      expect(historyCoverage.upsertCoverage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          complete: true,
+          providerGeneration: 5,
+        }),
+      );
+    });
+
+    it.each([
+      ['request-bounded', { kind: 'request_bounded' } as const],
+      [
+        'server-confirmed non-exhausted',
+        { kind: 'server_confirmed', exhausted: false } as const,
+      ],
+    ])('never promotes a %s coverage claim', async (_label, completeness) => {
+      const group = makeGroup({
+        conversationId: 'conversation:slack:C123',
+        providerAccountId: 'slack-account-1',
+        requiresTrigger: false,
+        conversationKind: 'channel',
+      });
+      const current = makeMessage({
+        chat_jid: 'sl:C123',
+        timestamp: '2024-01-01T00:04:00.000Z',
+      });
+      const historyCoverage = makeHistoryCoverageRepository({
+        getCoverage: vi.fn().mockResolvedValue({
+          coverage: {
+            providerAccountId: 'slack-account-1',
+            conversationId: 'conversation:slack:C123',
+            scope: { kind: 'channel' },
+            complete: true,
+            providerGeneration: 2,
+            recordedAt: '2026-08-01T00:00:00.000Z',
+            updatedAt: '2026-08-01T00:00:00.000Z',
+          },
+          currentProviderGeneration: 3,
+          isCurrentGeneration: false,
+        }),
+      });
+      const { deps } = setupHappyPath({ group, messages: [current] });
+      deps.channelRuntime = makeChannel({
+        hydrateConversationContext: vi.fn().mockResolvedValue({
+          providerId: 'slack',
+          attempted: true,
+          messages: [],
+          coverage: {
+            requestedLatestMessage: {
+              timestamp: '2024-01-01T00:04:00.000Z',
+            },
+            scope: 'channel',
+            requests: [],
+            completeness,
+            deliveredMessageCount: 0,
+            threadRoot: 'not_applicable',
+          },
+        }),
+      });
+      deps.getConversationHistoryCoverageRepository = () => historyCoverage;
+
+      const { processGroupMessages } = createGroupProcessor(deps);
+      await processGroupMessages('sl:C123');
+
+      expect(historyCoverage.upsertCoverage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          complete: false,
+          providerGeneration: 3,
+        }),
+      );
+    });
+
+    it('does not promote complete coverage when hydrated persistence fails', async () => {
+      const group = makeGroup({
+        conversationId: 'conversation:slack:C123',
+        providerAccountId: 'slack-account-1',
+        requiresTrigger: false,
+        conversationKind: 'channel',
+      });
+      const current = makeMessage({
+        chat_jid: 'sl:C123',
+        timestamp: '2024-01-01T00:04:00.000Z',
+      });
+      const hydrated = makeMessage({
+        id: 'hydrated',
+        chat_jid: 'sl:C123',
+        timestamp: '2024-01-01T00:03:00.000Z',
+      });
+      const historyCoverage = makeHistoryCoverageRepository({
+        getCoverage: vi.fn().mockResolvedValue({
+          coverage: null,
+          currentProviderGeneration: 9,
+          isCurrentGeneration: false,
+        }),
+      });
+      const { deps } = setupHappyPath({ group, messages: [current] });
+      (deps.opsRepository as any).storeMessage = vi
+        .fn()
+        .mockRejectedValue(new Error('write failed'));
+      deps.channelRuntime = makeChannel({
+        hydrateConversationContext: vi.fn().mockResolvedValue({
+          providerId: 'slack',
+          attempted: true,
+          messages: [hydrated],
+          coverage: {
+            requestedLatestMessage: {
+              timestamp: '2024-01-01T00:04:00.000Z',
+            },
+            scope: 'channel',
+            requests: [],
+            completeness: { kind: 'server_confirmed', exhausted: true },
+            deliveredMessageCount: 1,
+            threadRoot: 'not_applicable',
+          },
+        }),
+      });
+      deps.getConversationHistoryCoverageRepository = () => historyCoverage;
+
+      const { processGroupMessages } = createGroupProcessor(deps);
+      await processGroupMessages('sl:C123');
+
+      expect(historyCoverage.upsertCoverage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          complete: false,
+          providerGeneration: 9,
+        }),
       );
     });
 

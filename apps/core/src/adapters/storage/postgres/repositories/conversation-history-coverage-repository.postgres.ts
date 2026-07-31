@@ -2,6 +2,7 @@ import { and, eq, isNull, sql } from 'drizzle-orm';
 
 import type {
   ConversationHistoryCoverage,
+  ConversationHistoryCoverageReadResult,
   ConversationHistoryCoverageRepository,
   ConversationHistoryCoverageWriteResult,
   ConversationHistoryScope,
@@ -113,13 +114,19 @@ export class PostgresConversationHistoryCoverageRepository implements Conversati
 
   async getCoverage(
     input: Parameters<ConversationHistoryCoverageRepository['getCoverage']>[0],
-  ): Promise<ConversationHistoryCoverage | null> {
+  ): Promise<ConversationHistoryCoverageReadResult> {
     const coverage = pgSchema.conversationHistoryCoveragePostgres;
+    const generations = pgSchema.runtimeLeaseGenerationsPostgres;
     const id = scopeId(input.scope);
     const rows = await this.db
-      .select()
-      .from(coverage)
-      .where(
+      .select({ coverage, currentGeneration: generations.generation })
+      .from(sql`(VALUES (1)) AS coverage_seed(value)`)
+      .leftJoin(
+        generations,
+        eq(generations.leaseKey, generationKey(input.providerAccountId)),
+      )
+      .leftJoin(
+        coverage,
         and(
           eq(coverage.providerAccountId, input.providerAccountId),
           eq(coverage.conversationId, input.conversationId),
@@ -128,7 +135,19 @@ export class PostgresConversationHistoryCoverageRepository implements Conversati
         ),
       )
       .limit(1);
-    return rows[0] ? mapCoverage(rows[0]) : null;
+    const row = rows[0];
+    const currentProviderGeneration = safeGeneration(
+      row?.currentGeneration ?? 0,
+      'Conversation history generation-aware coverage read',
+    );
+    const mapped = row?.coverage ? mapCoverage(row.coverage) : null;
+    return {
+      coverage: mapped,
+      currentProviderGeneration,
+      isCurrentGeneration:
+        mapped !== null &&
+        mapped.providerGeneration === currentProviderGeneration,
+    };
   }
 
   async upsertCoverage(

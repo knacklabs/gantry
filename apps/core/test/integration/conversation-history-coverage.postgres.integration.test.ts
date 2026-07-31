@@ -145,10 +145,14 @@ maybeDescribe('conversation history coverage Postgres repository', () => {
         scope: { kind: 'channel' },
       }),
     ).resolves.toMatchObject({
-      providerAccountId,
-      complete: false,
-      providerGeneration: generation,
-      scope: { kind: 'channel' },
+      coverage: {
+        providerAccountId,
+        complete: false,
+        providerGeneration: generation,
+        scope: { kind: 'channel' },
+      },
+      currentProviderGeneration: generation,
+      isCurrentGeneration: true,
     });
     await expect(
       repository.getCoverage({
@@ -157,8 +161,11 @@ maybeDescribe('conversation history coverage Postgres repository', () => {
         scope: { kind: 'thread', id: '1700.1' },
       }),
     ).resolves.toMatchObject({
-      complete: true,
-      scope: { kind: 'thread', id: '1700.1' },
+      coverage: {
+        complete: true,
+        scope: { kind: 'thread', id: '1700.1' },
+      },
+      isCurrentGeneration: true,
     });
     await expect(
       repository.getCoverage({
@@ -167,8 +174,11 @@ maybeDescribe('conversation history coverage Postgres repository', () => {
         scope: { kind: 'thread', id: '' },
       }),
     ).resolves.toMatchObject({
-      coveredThroughExternalId: '',
-      scope: { kind: 'thread', id: '' },
+      coverage: {
+        coveredThroughExternalId: '',
+        scope: { kind: 'thread', id: '' },
+      },
+      isCurrentGeneration: true,
     });
 
     const rows = await runtime.service.pool.query<{ count: string }>(
@@ -219,9 +229,13 @@ maybeDescribe('conversation history coverage Postgres repository', () => {
         scope: { kind: 'thread', id: 'concurrent-thread' },
       }),
     ).resolves.toMatchObject({
-      complete: true,
-      coveredThroughExternalId: 'current-message',
-      providerGeneration: currentGeneration,
+      coverage: {
+        complete: true,
+        coveredThroughExternalId: 'current-message',
+        providerGeneration: currentGeneration,
+      },
+      currentProviderGeneration: currentGeneration,
+      isCurrentGeneration: true,
     });
 
     const rows = await runtime.service.pool.query<{ count: string }>(
@@ -263,7 +277,10 @@ maybeDescribe('conversation history coverage Postgres repository', () => {
         conversationId,
         scope: { kind: 'thread', id: 'rebound-thread' },
       }),
-    ).resolves.toBeNull();
+    ).resolves.toMatchObject({
+      coverage: null,
+      isCurrentGeneration: false,
+    });
 
     const afterRebind = await runtime.service.pool.query<{ count: string }>(
       'SELECT count(*)::text AS count FROM conversation_history_coverage WHERE conversation_id = $1',
@@ -289,7 +306,51 @@ maybeDescribe('conversation history coverage Postgres repository', () => {
         conversationId,
         scope: { kind: 'thread', id: 'rebound-thread' },
       }),
-    ).resolves.toBeNull();
+    ).resolves.toMatchObject({
+      coverage: null,
+      isCurrentGeneration: false,
+    });
+  });
+
+  it('marks a coverage row stale in the same generation-aware lookup', async () => {
+    const repository = runtime.repositories.conversationHistoryCoverage;
+    const generation =
+      await repository.readProviderGeneration(providerAccountId);
+    await repository.upsertCoverage({
+      providerAccountId,
+      conversationId,
+      scope: { kind: 'thread', id: 'generation-aware-read' },
+      complete: true,
+      providerGeneration: generation,
+      recordedAt: '2026-07-31T00:02:03.000Z',
+      updatedAt: '2026-07-31T00:02:03.000Z',
+    });
+
+    await expect(
+      repository.getCoverage({
+        providerAccountId,
+        conversationId,
+        scope: { kind: 'thread', id: 'generation-aware-read' },
+      }),
+    ).resolves.toMatchObject({
+      coverage: { providerGeneration: generation, complete: true },
+      currentProviderGeneration: generation,
+      isCurrentGeneration: true,
+    });
+
+    const bumpedGeneration =
+      await repository.bumpProviderGeneration(providerAccountId);
+    await expect(
+      repository.getCoverage({
+        providerAccountId,
+        conversationId,
+        scope: { kind: 'thread', id: 'generation-aware-read' },
+      }),
+    ).resolves.toMatchObject({
+      coverage: { providerGeneration: generation, complete: true },
+      currentProviderGeneration: bumpedGeneration,
+      isCurrentGeneration: false,
+    });
   });
 
   it('fences a concurrent attestation against conversation rebinding', async () => {
