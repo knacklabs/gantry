@@ -1,12 +1,25 @@
+import {
+  access,
+  mkdtemp,
+  readFile,
+  rm,
+  unlink,
+  writeFile,
+} from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+
 import { describe, expect, it, vi } from 'vitest';
 import { sql } from 'drizzle-orm';
 
+import * as pgSchema from '@core/adapters/storage/postgres/schema/schema.js';
 import { CanonicalMessageOpsService } from '@core/adapters/storage/postgres/services/canonical-message-ops-service.js';
 import {
   externalRefForMessage,
   PostgresCanonicalMessageRepository,
   type CanonicalOpsMessageRow,
 } from '@core/adapters/storage/postgres/repositories/canonical-message-repository.postgres.js';
+import { logger } from '@core/infrastructure/logging/logger.js';
 
 function messageRow(
   overrides: Partial<CanonicalOpsMessageRow> = {},
@@ -66,6 +79,12 @@ function liveAdmissionSelectMock() {
       })),
     })),
   }));
+}
+
+function messageUpsertResult(inserted = false) {
+  return {
+    returning: vi.fn(async () => [{ inserted }]),
+  };
 }
 
 describe('CanonicalMessageOpsService', () => {
@@ -168,11 +187,20 @@ describe('CanonicalMessageOpsService', () => {
         payload_json: JSON.stringify({ kind: 'text', text: 'sensitive body' }),
         attachments_json: JSON.stringify([
           {
+            id: 'attachment-row-1',
             kind: 'file',
             contentType: 'application/pdf',
             sizeBytes: 1234,
             externalId: 'file-ref',
             storageRef: 'artifact-ref',
+            file_name: 'report.pdf',
+            provider_fetch: {
+              provider: 'slack',
+              kind: 'file_id',
+              id: 'F123',
+              team_id: 'T123',
+            },
+            deleted_at: '2026-05-06T00:00:01.000+00:00',
             content: 'attachment body must not leak',
             providerPayload: { token: 'provider-secret' },
           },
@@ -200,11 +228,20 @@ describe('CanonicalMessageOpsService', () => {
         },
         attachments: [
           {
+            id: 'attachment-row-1',
             kind: 'file',
             contentType: 'application/pdf',
             sizeBytes: 1234,
             externalId: 'file-ref',
             storageRef: 'artifact-ref',
+            file_name: 'report.pdf',
+            provider_fetch: {
+              provider: 'slack',
+              kind: 'file_id',
+              id: 'F123',
+              team_id: 'T123',
+            },
+            deleted_at: '2026-05-06T00:00:01.000Z',
           },
         ],
       },
@@ -714,7 +751,7 @@ describe('CanonicalMessageOpsService', () => {
       select: vi.fn(),
       insert: vi.fn(() => ({
         values: vi.fn(() => ({
-          onConflictDoUpdate: vi.fn(async () => undefined),
+          onConflictDoUpdate: vi.fn(() => messageUpsertResult()),
         })),
       })),
       delete: vi.fn(() => ({
@@ -750,20 +787,55 @@ describe('CanonicalMessageOpsService', () => {
     expect(tx.delete).not.toHaveBeenCalled();
   });
 
-  it('clears stored attachment rows when duplicate hydrated upserts explicitly pass empty attachments', async () => {
-    const deleteWhere = vi.fn(async () => undefined);
+  it('locks before clearing stored attachment rows when duplicate hydrated upserts explicitly pass empty attachments', async () => {
+    const deletedAttachmentRows = [
+      {
+        id: 'removed-provider-attachment',
+        externalRefJson: null,
+        storageRef: 'provider-attachments/removed.txt',
+        fileName: 'removed.txt',
+        contentType: 'text/plain',
+        sizeBytes: 7,
+        providerFetchJson: null,
+        deletedAt: null,
+      },
+    ];
+    const deleteReturning = vi.fn(async () => deletedAttachmentRows);
+    const deleteWhere = vi.fn(() => ({ returning: deleteReturning }));
+    const cleanupMaterialization = vi.fn(async (_storageRef: string) => {});
+    const cleanupTx = {
+      execute: vi.fn(async () => undefined),
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({
+            limit: vi.fn(async () => []),
+          })),
+        })),
+      })),
+    };
+    const db = {
+      transaction: vi.fn(
+        async (run: (transaction: typeof cleanupTx) => Promise<unknown>) =>
+          run(cleanupTx),
+      ),
+    };
     const tx = {
+      execute: vi.fn(async () => undefined),
       select: vi.fn(),
       insert: vi.fn(() => ({
         values: vi.fn(() => ({
-          onConflictDoUpdate: vi.fn(async () => undefined),
+          onConflictDoUpdate: vi.fn(() => messageUpsertResult()),
         })),
       })),
       delete: vi.fn(() => ({
         where: deleteWhere,
       })),
     };
-    const repository = new PostgresCanonicalMessageRepository({} as never);
+    const repository = new PostgresCanonicalMessageRepository(
+      db as never,
+      100,
+      cleanupMaterialization,
+    );
     Object.assign(repository, {
       graph: {
         findConversationIdForJid: vi.fn(async () => undefined),
@@ -774,7 +846,7 @@ describe('CanonicalMessageOpsService', () => {
       },
     });
 
-    await repository.saveMessageWithExecutor(
+    const result = await repository.saveMessageWithExecutor(
       tx as never,
       {
         id: '1710000001.000100',
@@ -790,9 +862,474 @@ describe('CanonicalMessageOpsService', () => {
     );
 
     expect(tx.select).not.toHaveBeenCalled();
+    expect(tx.execute).toHaveBeenCalledTimes(1);
     expect(tx.delete).toHaveBeenCalledTimes(1);
     expect(deleteWhere).toHaveBeenCalledTimes(1);
+    expect(deleteReturning).toHaveBeenCalledTimes(1);
     expect(tx.insert).toHaveBeenCalledTimes(2);
+    expect(cleanupMaterialization).not.toHaveBeenCalled();
+
+    await repository.cleanupRemovedProviderAttachments(
+      result.removedProviderStorageRefs,
+    );
+
+    expect(cleanupMaterialization).toHaveBeenCalledWith(
+      'provider-attachments/removed.txt',
+    );
+  });
+
+  it('adds no attachment lock, lookup, or cleanup statements for an ordinary empty first delivery', async () => {
+    const cleanupMaterialization = vi.fn(async (_storageRef: string) => {});
+    const db = {
+      transaction: vi.fn(),
+    };
+    const tx = {
+      execute: vi.fn(async () => undefined),
+      select: vi.fn(),
+      insert: vi.fn((table: unknown) => ({
+        values: vi.fn(() => ({
+          onConflictDoUpdate: vi.fn(() =>
+            messageUpsertResult(table === pgSchema.messagesPostgres),
+          ),
+        })),
+      })),
+      delete: vi.fn(() => ({
+        where: vi.fn(() => ({
+          returning: vi.fn(async () => []),
+        })),
+      })),
+    };
+    const repository = new PostgresCanonicalMessageRepository(
+      db as never,
+      100,
+      cleanupMaterialization,
+    );
+    Object.assign(repository, {
+      graph: {
+        findConversationIdForJid: vi.fn(async () => undefined),
+        ensureConversation: vi.fn(async () => 'conversation:sl:C123'),
+        ensureThread: vi.fn(async () => null),
+        getConversationInstallationId: vi.fn(async () => null),
+        ensureParticipant: vi.fn(async () => undefined),
+      },
+    });
+
+    const result = await repository.saveMessageWithExecutor(
+      tx as never,
+      {
+        id: '1710000001.000101',
+        chat_jid: 'sl:C123',
+        provider: 'slack',
+        sender: 'U123',
+        sender_name: 'Ravi',
+        content: 'ordinary first delivery',
+        timestamp: '2026-05-06T00:00:00.000Z',
+        attachments: [],
+      },
+      {},
+    );
+
+    expect(result.removedProviderStorageRefs).toEqual([]);
+    expect(tx.select).not.toHaveBeenCalled();
+    expect(tx.execute).not.toHaveBeenCalled();
+    expect(tx.delete).not.toHaveBeenCalled();
+
+    await repository.cleanupRemovedProviderAttachments(
+      result.removedProviderStorageRefs,
+    );
+
+    expect(db.transaction).not.toHaveBeenCalled();
+    expect(cleanupMaterialization).not.toHaveBeenCalled();
+  });
+
+  it('routes the loser of concurrent same-message first deliveries through the locked update path', async () => {
+    const messageUpsertOutcomes = [true, false];
+    const deleteReturning = vi.fn(async () => []);
+    const tx = {
+      execute: vi.fn(async () => undefined),
+      select: vi.fn(),
+      insert: vi.fn((table: unknown) => ({
+        values: vi.fn(() => ({
+          onConflictDoUpdate: vi.fn(() =>
+            messageUpsertResult(
+              table === pgSchema.messagesPostgres
+                ? messageUpsertOutcomes.shift() === true
+                : false,
+            ),
+          ),
+        })),
+      })),
+      delete: vi.fn(() => ({
+        where: vi.fn(() => ({ returning: deleteReturning })),
+      })),
+    };
+    const repository = new PostgresCanonicalMessageRepository({} as never);
+    Object.assign(repository, {
+      graph: {
+        findConversationIdForJid: vi.fn(async () => undefined),
+        ensureConversation: vi.fn(async () => 'conversation:sl:C123'),
+        ensureThread: vi.fn(async () => null),
+        getConversationInstallationId: vi.fn(async () => null),
+        ensureParticipant: vi.fn(async () => undefined),
+      },
+    });
+    const message = {
+      id: '1710000001.000102',
+      chat_jid: 'sl:C123',
+      provider: 'slack',
+      sender: 'U123',
+      sender_name: 'Ravi',
+      content: 'concurrent first delivery',
+      timestamp: '2026-05-06T00:00:00.000Z',
+      attachments: [],
+    } as const;
+
+    await repository.saveMessageWithExecutor(tx as never, message, {});
+
+    expect(tx.execute).not.toHaveBeenCalled();
+    expect(tx.delete).not.toHaveBeenCalled();
+
+    // PostgreSQL serializes conflicting upserts on the message row. The
+    // concurrent loser resumes as UPDATE, represented by this second save.
+    await repository.saveMessageWithExecutor(tx as never, message, {});
+
+    expect(messageUpsertOutcomes).toEqual([]);
+    expect(tx.execute).toHaveBeenCalledTimes(1);
+    expect(tx.delete).toHaveBeenCalledTimes(1);
+    expect(deleteReturning).toHaveBeenCalledTimes(1);
+  });
+
+  it('skips unlink when a stale save restores the ref before cleanup revalidation', async () => {
+    const operations: string[] = ['save:commit'];
+    const cleanupMaterialization = vi.fn(async () => {
+      operations.push('unlink');
+    });
+    const cleanupTx = {
+      execute: vi.fn(async () => {
+        operations.push('lock');
+      }),
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({
+            limit: vi.fn(async () => {
+              operations.push('recheck:referenced');
+              return [{ id: 'restored-attachment' }];
+            }),
+          })),
+        })),
+      })),
+    };
+    const db = {
+      transaction: vi.fn(
+        async (run: (transaction: typeof cleanupTx) => Promise<unknown>) => {
+          operations.push('cleanup:begin');
+          const result = await run(cleanupTx);
+          operations.push('cleanup:commit');
+          return result;
+        },
+      ),
+    };
+    const repository = new PostgresCanonicalMessageRepository(
+      db as never,
+      100,
+      cleanupMaterialization,
+    );
+
+    await repository.cleanupRemovedProviderAttachments([
+      {
+        messageId: 'canonical:message:sl:C123:1710000001.000100',
+        storageRef: 'provider-attachments/restored.txt',
+      },
+    ]);
+
+    expect(operations).toEqual([
+      'save:commit',
+      'cleanup:begin',
+      'lock',
+      'lock',
+      'recheck:referenced',
+      'cleanup:commit',
+    ]);
+    expect(cleanupMaterialization).not.toHaveBeenCalled();
+  });
+
+  it('keeps a dropped materialization and its row when the caller-owned transaction rolls back', async () => {
+    const tempDir = await mkdtemp(
+      path.join(os.tmpdir(), 'gantry-provider-cleanup-rollback-'),
+    );
+    const materializedPath = path.join(tempDir, 'only-copy.txt');
+    await writeFile(materializedPath, 'durable bytes');
+    const originalRow = {
+      id: 'attachment-only-copy',
+      externalRefJson: null,
+      storageRef: 'provider-attachments/only-copy.txt',
+      fileName: 'only-copy.txt',
+      contentType: 'text/plain',
+      sizeBytes: 13,
+      providerFetchJson: null,
+      deletedAt: null,
+    };
+    let storedRow: typeof originalRow | null = originalRow;
+    const cleanupMaterialization = vi.fn(async () => {
+      await unlink(materializedPath);
+    });
+    const tx = {
+      execute: vi.fn(async () => undefined),
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(async () => (storedRow ? [storedRow] : [])),
+        })),
+      })),
+      insert: vi.fn((table: unknown) => ({
+        values: vi.fn((values: unknown) => {
+          if (
+            table === pgSchema.messageAttachmentsPostgres &&
+            Array.isArray(values)
+          ) {
+            storedRow = (values[0] as typeof originalRow | undefined) ?? null;
+          }
+          return {
+            onConflictDoUpdate: vi.fn(() => messageUpsertResult()),
+          };
+        }),
+      })),
+      delete: vi.fn((table: unknown) => ({
+        where: vi.fn(() => {
+          const deletedRows =
+            table === pgSchema.messageAttachmentsPostgres && storedRow
+              ? [storedRow]
+              : [];
+          if (table === pgSchema.messageAttachmentsPostgres) {
+            storedRow = null;
+          }
+          return {
+            returning: vi.fn(async () => deletedRows),
+          };
+        }),
+      })),
+    };
+    const repository = new PostgresCanonicalMessageRepository(
+      {} as never,
+      100,
+      cleanupMaterialization,
+    );
+    Object.assign(repository, {
+      graph: {
+        findConversationIdForJid: vi.fn(async () => undefined),
+        ensureConversation: vi.fn(async () => 'conversation:sl:C123'),
+        ensureThread: vi.fn(async () => null),
+        getConversationInstallationId: vi.fn(async () => null),
+        ensureParticipant: vi.fn(async () => undefined),
+      },
+    });
+    const callerOwnedDb = {
+      transaction: async (fn: (executor: typeof tx) => Promise<void>) => {
+        const rowBeforeTransaction = storedRow;
+        try {
+          await fn(tx);
+        } catch (error) {
+          storedRow = rowBeforeTransaction;
+          throw error;
+        }
+      },
+    };
+
+    try {
+      await expect(
+        callerOwnedDb.transaction(async (executor) => {
+          await repository.saveMessageWithExecutor(
+            executor as never,
+            {
+              id: '1710000001.000100',
+              chat_jid: 'sl:C123',
+              provider: 'slack',
+              sender: 'U123',
+              sender_name: 'Ravi',
+              content: 'replacement drops the only copy',
+              timestamp: '2026-05-06T00:00:00.000Z',
+              attachments: [],
+            },
+            {},
+          );
+          throw new Error('later transaction failure');
+        }),
+      ).rejects.toThrow('later transaction failure');
+
+      expect(cleanupMaterialization).not.toHaveBeenCalled();
+      await expect(access(materializedPath)).resolves.toBeUndefined();
+      await expect(readFile(materializedPath, 'utf8')).resolves.toBe(
+        'durable bytes',
+      );
+      expect(storedRow).toEqual(originalRow);
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('reclaims only dropped provider materializations after attachment replacement', async () => {
+    const cleanupMaterialization = vi.fn(async (storageRef: string) => {
+      if (storageRef.endsWith('cleanup-fails.txt')) {
+        throw Object.assign(new Error('unlink failed'), { code: 'EACCES' });
+      }
+    });
+    const warn = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
+    const insertedValues: unknown[] = [];
+    const cleanupTx = {
+      execute: vi.fn(async () => undefined),
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({
+            limit: vi.fn(async () => []),
+          })),
+        })),
+      })),
+    };
+    const db = {
+      transaction: vi.fn(
+        async (run: (transaction: typeof cleanupTx) => Promise<unknown>) =>
+          run(cleanupTx),
+      ),
+    };
+    const tx = {
+      execute: vi.fn(async () => undefined),
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(async () => [
+            {
+              id: 'dropped-provider',
+              externalRefJson: null,
+              storageRef: 'provider-attachments/dropped.txt',
+              fileName: 'dropped.txt',
+              contentType: 'text/plain',
+              sizeBytes: 12,
+              providerFetchJson: {
+                provider: 'slack',
+                kind: 'file_id',
+                id: 'F-DROPPED',
+              },
+              deletedAt: null,
+            },
+            {
+              id: 'preserved-provider',
+              externalRefJson: null,
+              storageRef: 'provider-attachments/preserved.txt',
+              fileName: 'preserved.txt',
+              contentType: 'text/plain',
+              sizeBytes: 13,
+              providerFetchJson: {
+                provider: 'slack',
+                kind: 'file_id',
+                id: 'F-PRESERVED',
+              },
+              deletedAt: null,
+            },
+            {
+              id: 'failed-provider-cleanup',
+              externalRefJson: null,
+              storageRef: 'provider-attachments/cleanup-fails.txt',
+              fileName: 'cleanup-fails.txt',
+              contentType: 'text/plain',
+              sizeBytes: 15,
+              providerFetchJson: null,
+              deletedAt: null,
+            },
+            {
+              id: 'dropped-workspace',
+              externalRefJson: null,
+              storageRef: 'attachments/workspace-live.txt',
+              fileName: 'workspace-live.txt',
+              contentType: 'text/plain',
+              sizeBytes: 14,
+              providerFetchJson: null,
+              deletedAt: null,
+            },
+          ]),
+        })),
+      })),
+      insert: vi.fn(() => ({
+        values: vi.fn((values: unknown) => {
+          insertedValues.push(values);
+          return {
+            onConflictDoUpdate: vi.fn(() => messageUpsertResult()),
+          };
+        }),
+      })),
+      delete: vi.fn(() => ({
+        where: vi.fn(async () => undefined),
+      })),
+    };
+    const repository = new PostgresCanonicalMessageRepository(
+      db as never,
+      100,
+      cleanupMaterialization,
+    );
+    Object.assign(repository, {
+      graph: {
+        findConversationIdForJid: vi.fn(async () => undefined),
+        ensureConversation: vi.fn(async () => 'conversation:sl:C123'),
+        ensureThread: vi.fn(async () => null),
+        getConversationInstallationId: vi.fn(async () => null),
+        ensureParticipant: vi.fn(async () => undefined),
+      },
+    });
+
+    const result = await repository.saveMessageWithExecutor(
+      tx as never,
+      {
+        id: '1710000001.000100',
+        chat_jid: 'sl:C123',
+        provider: 'slack',
+        sender: 'U123',
+        sender_name: 'Ravi',
+        content: 'hydrated replacement',
+        timestamp: '2026-05-06T00:00:00.000Z',
+        attachments: [
+          {
+            kind: 'file',
+            provider_fetch: {
+              provider: 'slack',
+              kind: 'file_id',
+              id: 'F-PRESERVED',
+            },
+          },
+        ],
+      },
+      {},
+    );
+
+    expect(insertedValues).toContainEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'preserved-provider',
+          storageRef: 'provider-attachments/preserved.txt',
+        }),
+      ]),
+    );
+    expect(tx.execute).toHaveBeenCalledTimes(1);
+    expect(cleanupMaterialization).not.toHaveBeenCalled();
+
+    await repository.cleanupRemovedProviderAttachments(
+      result.removedProviderStorageRefs,
+    );
+
+    expect(cleanupMaterialization).toHaveBeenCalledTimes(2);
+    expect(cleanupMaterialization).toHaveBeenCalledWith(
+      'provider-attachments/dropped.txt',
+    );
+    expect(cleanupMaterialization).toHaveBeenCalledWith(
+      'provider-attachments/cleanup-fails.txt',
+    );
+    expect(cleanupMaterialization).not.toHaveBeenCalledWith(
+      'provider-attachments/preserved.txt',
+    );
+    expect(cleanupMaterialization).not.toHaveBeenCalledWith(
+      'attachments/workspace-live.txt',
+    );
+    expect(warn).toHaveBeenCalledWith(
+      { errorCode: 'EACCES' },
+      'Failed to clean removed provider attachment materialization',
+    );
+    warn.mockRestore();
   });
 
   it('uses explicit provider account when saving inbound channel messages', async () => {
@@ -802,7 +1339,9 @@ describe('CanonicalMessageOpsService', () => {
       insert: vi.fn(() => ({
         values: vi.fn((values: unknown) => {
           insertedValues.push(values);
-          return { onConflictDoUpdate: vi.fn(async () => undefined) };
+          return {
+            onConflictDoUpdate: vi.fn(() => messageUpsertResult()),
+          };
         }),
       })),
       delete: vi.fn(),
@@ -878,7 +1417,9 @@ describe('CanonicalMessageOpsService', () => {
         insert: vi.fn(() => ({
           values: vi.fn((values: unknown) => {
             insertedValues.push(values);
-            return { onConflictDoUpdate: vi.fn(async () => undefined) };
+            return {
+              onConflictDoUpdate: vi.fn(() => messageUpsertResult()),
+            };
           }),
         })),
         delete: vi.fn(),
@@ -948,7 +1489,9 @@ describe('CanonicalMessageOpsService', () => {
               })),
             };
           }
-          return { onConflictDoUpdate: vi.fn(async () => undefined) };
+          return {
+            onConflictDoUpdate: vi.fn(() => messageUpsertResult()),
+          };
         }),
       })),
       delete: vi.fn(),
@@ -1024,7 +1567,9 @@ describe('CanonicalMessageOpsService', () => {
               })),
             };
           }
-          return { onConflictDoUpdate: vi.fn(async () => undefined) };
+          return {
+            onConflictDoUpdate: vi.fn(() => messageUpsertResult()),
+          };
         }),
       })),
       delete: vi.fn(),
@@ -1134,7 +1679,9 @@ describe('CanonicalMessageOpsService', () => {
               })),
             };
           }
-          return { onConflictDoUpdate: vi.fn(async () => undefined) };
+          return {
+            onConflictDoUpdate: vi.fn(() => messageUpsertResult()),
+          };
         }),
       })),
       delete: vi.fn(),
@@ -1213,7 +1760,9 @@ describe('CanonicalMessageOpsService', () => {
               })),
             };
           }
-          return { onConflictDoUpdate: vi.fn(async () => undefined) };
+          return {
+            onConflictDoUpdate: vi.fn(() => messageUpsertResult()),
+          };
         }),
       })),
       delete: vi.fn(),
@@ -1278,9 +1827,10 @@ describe('CanonicalMessageOpsService', () => {
     );
   });
 
-  it('preserves stored attachment refs when replacing hydrated attachment rows', async () => {
+  it('preserves stored attachment refs unless explicit identities conflict', async () => {
     const insertedValues: unknown[] = [];
     const tx = {
+      execute: vi.fn(async () => undefined),
       select: vi.fn(() => ({
         from: vi.fn(() => ({
           where: vi.fn(async () => [
@@ -1301,6 +1851,19 @@ describe('CanonicalMessageOpsService', () => {
               storageRef: 'artifact-by-external-id',
             },
             {
+              id: 'matching-attachment-id',
+              externalRefJson: {
+                kind: 'message_attachment',
+                value: 'matching-provider-external',
+              },
+              storageRef: 'artifact-by-matching-id',
+            },
+            {
+              id: 'stored-external-null-id',
+              externalRefJson: null,
+              storageRef: 'artifact-by-null-external-id',
+            },
+            {
               id: 'explicit-fresh-id',
               externalRefJson: {
                 kind: 'message_attachment',
@@ -1314,7 +1877,9 @@ describe('CanonicalMessageOpsService', () => {
       insert: vi.fn(() => ({
         values: vi.fn((values: unknown) => {
           insertedValues.push(values);
-          return { onConflictDoUpdate: vi.fn(async () => undefined) };
+          return {
+            onConflictDoUpdate: vi.fn(() => messageUpsertResult()),
+          };
         }),
       })),
       delete: vi.fn(() => ({
@@ -1354,6 +1919,16 @@ describe('CanonicalMessageOpsService', () => {
             externalId: 'provider-file-2',
           },
           {
+            id: 'matching-attachment-id',
+            kind: 'file',
+            externalId: 'matching-provider-external',
+          },
+          {
+            id: 'stored-external-null-id',
+            kind: 'file',
+            externalId: 'new-provider-external-for-stored-null',
+          },
+          {
             id: 'explicit-fresh-id',
             kind: 'file',
             externalId: 'provider-file-3',
@@ -1387,11 +1962,19 @@ describe('CanonicalMessageOpsService', () => {
       expect.arrayContaining([
         expect.objectContaining({
           id: 'provider-attachment-id',
-          storageRef: 'artifact-by-id',
+          storageRef: null,
         }),
         expect.objectContaining({
-          id: 'new-generated-id',
+          id: 'old-generated-id',
           storageRef: 'artifact-by-external-id',
+        }),
+        expect.objectContaining({
+          id: 'matching-attachment-id',
+          storageRef: 'artifact-by-matching-id',
+        }),
+        expect.objectContaining({
+          id: 'stored-external-null-id',
+          storageRef: 'artifact-by-null-external-id',
         }),
         expect.objectContaining({
           id: 'explicit-fresh-id',

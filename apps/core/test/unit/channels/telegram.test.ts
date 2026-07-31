@@ -2590,6 +2590,17 @@ describe('TelegramChannel', () => {
           ),
         }),
       );
+      const attachment = opts.onMessage.mock.calls[0][1].attachments[0];
+      expect(attachment).toEqual({
+        id: 'telegram-attachment:tg:100200300:1',
+        kind: 'file',
+        externalId: 'doc_id',
+        file_name: 'report.pdf',
+        storageRef: attachment.storageRef,
+      });
+      expect(attachment.storageRef).toMatch(
+        /^attachments\/[a-f0-9]{16}-report\.pdf$/,
+      );
     });
 
     it('downloads video', async () => {

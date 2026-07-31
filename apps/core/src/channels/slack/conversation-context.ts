@@ -666,6 +666,10 @@ function hydratedSlackAttachments(
           ? file.size
           : undefined,
       externalId: file.id,
+      file_name: file.name || file.title,
+      provider_fetch: file.id
+        ? { provider: 'slack', kind: 'file_id', id: file.id }
+        : undefined,
     });
   }
   return attachments;

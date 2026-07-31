@@ -64,7 +64,9 @@ import { measurePostgresOperations } from '../harness/response-latency-postgres.
 // A single shared constant would have been wrong for two of the four.
 const EXPECTED_ENVELOPE_STATEMENTS_BY_PROVIDER: Record<string, number> = {
   'Telegram text': 19,
-  Slack: 20,
+  // FILE-1A dropped Slack from 20 to 19: the insert-vs-update split removed
+  // the unconditional attachment DELETE a fresh delivery always paid.
+  Slack: 19,
   Teams: 19,
 };
 // Referenced by docs/architecture/lat-4a-measurement.md; kept here so the number

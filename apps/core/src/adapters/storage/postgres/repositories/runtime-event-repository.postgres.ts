@@ -33,6 +33,7 @@ import {
   type MessageLiveAdmissionInput,
   PostgresCanonicalMessageRepository,
 } from './canonical-message-repository.postgres.js';
+import type { ProviderAttachmentCleanup } from './provider-attachment-cleanup.postgres.js';
 
 type RuntimeEventRow = typeof pgSchema.runtimeEventsPostgres.$inferSelect;
 
@@ -97,6 +98,7 @@ export class PostgresRuntimeEventRepository implements RuntimeEventRepository {
       db,
     ),
     private readonly maxLiveAdmissionBacklog = 100,
+    private readonly cleanupProviderAttachment?: ProviderAttachmentCleanup,
   ) {}
 
   async appendRuntimeEvent(
@@ -123,9 +125,10 @@ export class PostgresRuntimeEventRepository implements RuntimeEventRepository {
     const messages = new PostgresCanonicalMessageRepository(
       this.db,
       this.maxLiveAdmissionBacklog,
+      this.cleanupProviderAttachment,
     );
-    return this.db.transaction(async (tx) => {
-      const liveAdmissionResult = await messages.saveMessageWithExecutor(
+    const result = await this.db.transaction(async (tx) => {
+      const messageSaveResult = await messages.saveMessageWithExecutor(
         tx,
         admission.message,
         { liveAdmission: admission.liveAdmission },
@@ -133,8 +136,15 @@ export class PostgresRuntimeEventRepository implements RuntimeEventRepository {
       const event = await this.insertRuntimeEvent(tx, input);
       await this.eventBus.publish(eventBusInputForRuntimeEvent(event), tx);
       await this.enqueueWebhookDeliveryIfNeeded(tx, event);
-      return { event, liveAdmissionResult };
+      return { event, messageSaveResult };
     });
+    await messages.cleanupRemovedProviderAttachments(
+      result.messageSaveResult.removedProviderStorageRefs,
+    );
+    return {
+      event: result.event,
+      liveAdmissionResult: result.messageSaveResult.liveAdmissionResult,
+    };
   }
 
   private async insertRuntimeEvent(

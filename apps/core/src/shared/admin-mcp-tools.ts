@@ -48,6 +48,7 @@ export type SeededSchedulerMcpToolName =
   (typeof SEEDED_SCHEDULER_MCP_TOOL_NAMES)[number];
 
 export const BASELINE_GANTRY_MCP_TOOL_NAMES = [
+  'attachment_open',
   'send_message',
   'ask_user_question',
   'render_status',
