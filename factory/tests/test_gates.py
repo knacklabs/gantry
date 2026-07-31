@@ -1155,7 +1155,7 @@ def test_upgrade_migration_promotes_and_refuses_correctly(repo, tmp_path):
         "client_signoff_record": "docs/decisions/0005-client-signoff.md",
     }))
     git(repo, "add", "-A")
-    git(repo, "commit", "-q", "-m", "legacy project, unsigned")
+    git(repo, "commit", "-q", "--allow-empty", "-m", "legacy project, unsigned")
     proc = upgrade_into(repo)
     assert proc.returncode == 0, proc.stdout + proc.stderr
     assert not signed_off(repo), "an explicitly unsigned project was promoted"
@@ -1167,7 +1167,7 @@ def test_upgrade_migration_promotes_and_refuses_correctly(repo, tmp_path):
     strip_pin(repo)
     (repo / ".factory" / "run.json").unlink()
     git(repo, "add", "-A")
-    git(repo, "commit", "-q", "-m", "no run state")
+    git(repo, "commit", "-q", "--allow-empty", "-m", "no run state")
     proc = upgrade_into(repo)
     assert proc.returncode == 0, proc.stdout + proc.stderr
     assert not signed_off(repo), "absent run state was treated as prior sign-off"
@@ -1182,7 +1182,7 @@ def test_upgrade_migration_promotes_and_refuses_correctly(repo, tmp_path):
         "client_signoff_record": "docs/decisions/0005-client-signoff.md",
     }))
     git(repo, "add", "-A")
-    git(repo, "commit", "-q", "-m", "legacy signed")
+    git(repo, "commit", "-q", "--allow-empty", "-m", "legacy signed")
     proc = upgrade_into(repo)
     assert proc.returncode == 0, proc.stdout + proc.stderr
     assert signed_off(repo), "a genuinely signed legacy project was un-signed"

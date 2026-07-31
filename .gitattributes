@@ -5,3 +5,8 @@
 plans/lessons.jsonl merge=jsonl-append
 
 plans/quickfixes.jsonl merge=jsonl-append
+
+# deliberately not jsonl-append: these files must never conflict, and a custom
+# driver may not be registered in every clone — the built-in union always is.
+.factory/*.jsonl merge=union
+.factory/history/**/*.jsonl merge=union
