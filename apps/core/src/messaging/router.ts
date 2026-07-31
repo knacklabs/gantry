@@ -1,4 +1,5 @@
 import { ChannelOwnershipPort, NewMessage } from '../domain/types.js';
+import { isProviderAttachmentStorageRef } from '../shared/provider-attachment-materialization.js';
 import { formatLocalTime } from '../shared/timezone.js';
 import '../channels/register-builtins.js';
 import { getProvider } from '../channels/provider-registry.js';
@@ -252,7 +253,13 @@ function utf8Bytes(value: string): number {
 }
 
 function formatGantryAttachmentRef(storageRef?: string): string | undefined {
-  if (!storageRef?.startsWith('attachments/')) return undefined;
+  if (
+    !storageRef ||
+    isProviderAttachmentStorageRef(storageRef) ||
+    !storageRef.startsWith('attachments/')
+  ) {
+    return undefined;
+  }
   if (storageRef.includes('\\') || storageRef.includes('\0')) {
     return undefined;
   }

@@ -782,6 +782,18 @@ describe('Postgres migration journal', () => {
     expect(metadataMigration).toContain(
       '"message_attachments" ADD COLUMN IF NOT EXISTS "deleted_at" timestamp with time zone',
     );
+    expect(metadataMigration).toContain(
+      'SET "provider_fetch_json" = jsonb_build_object(',
+    );
+    expect(metadataMigration).toContain("'provider', 'slack'");
+    expect(metadataMigration).toContain("'kind', 'file_id'");
+    expect(metadataMigration).toContain('message."provider" = \'slack\'');
+    expect(metadataMigration).toContain(
+      'attachment."provider_fetch_json" IS NULL',
+    );
+    expect(metadataMigration).toContain(
+      "attachment.\"external_ref_json\"->>'kind' = 'message_attachment'",
+    );
     expect(metadataMigration).toContain("'message-attachment:external:'");
     expect(metadataMigration).toContain("'message-attachment:index:'");
     expect(metadataMigration).toContain(

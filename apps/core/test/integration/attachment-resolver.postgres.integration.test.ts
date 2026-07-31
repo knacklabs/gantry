@@ -242,6 +242,95 @@ maybeDescribe('attachment resolver with Postgres repositories', () => {
     await runtime?.cleanup();
   });
 
+  it('backfills a pre-0117 Slack file id and lazily opens it without touching another provider', async () => {
+    const root = materializationRoot('migration-backfill');
+    const slack = fakeSlackFetcher({
+      F_MIGRATION_BACKFILL: {
+        status: 'ok',
+        content: Buffer.from('backfilled migration bytes'),
+        fileName: 'backfilled.txt',
+        contentType: 'text/plain',
+      },
+    });
+    const seam = createPostgresSeam(runtime, root, slack.fetcher);
+    const conversationJid = 'sl:C_FILE_1A_MIGRATION_BACKFILL';
+    const attachmentId = 'attachment:file-1a:migration-backfill';
+    const untouchedAttachmentId =
+      'attachment:file-1a:migration-backfill-non-slack';
+    await seam.messages.storeMessage(
+      message({
+        id: 'message-file-1a-migration-backfill',
+        conversationJid,
+        attachments: [
+          {
+            id: attachmentId,
+            kind: 'file',
+            externalId: 'F_MIGRATION_BACKFILL',
+            file_name: 'backfilled.txt',
+          },
+        ],
+      }),
+    );
+    await seam.messages.storeMessage(
+      message({
+        id: 'message-file-1a-migration-backfill-non-slack',
+        conversationJid: 'sl:C_FILE_1A_MIGRATION_BACKFILL_NON_SLACK',
+        attachments: [
+          {
+            id: untouchedAttachmentId,
+            kind: 'file',
+            externalId: 'F_NON_SLACK',
+          },
+        ],
+      }),
+    );
+    const untouchedBefore = await seam.attachments.getResolvableAttachment(
+      untouchedAttachmentId,
+    );
+    if (!untouchedBefore) {
+      throw new Error('Expected the non-Slack migration fixture');
+    }
+    expect(untouchedBefore.providerFetch).toBeUndefined();
+    await runtime.service.pool.query(
+      'UPDATE messages SET provider = $1 WHERE id = $2',
+      ['telegram', untouchedBefore.messageId],
+    );
+    const slackBefore =
+      await seam.attachments.getResolvableAttachment(attachmentId);
+    expect(slackBefore?.storageRef).toBeUndefined();
+    expect(slackBefore?.providerFetch).toBeUndefined();
+
+    const migration = fs.readFileSync(
+      path.resolve(
+        'apps/core/src/adapters/storage/postgres/schema/migrations/0117_message_attachment_metadata.sql',
+      ),
+      'utf8',
+    );
+    await runtime.service.pool.query(migration);
+
+    await expect(
+      seam.attachments.getResolvableAttachment(attachmentId),
+    ).resolves.toMatchObject({
+      providerFetch: {
+        provider: 'slack',
+        kind: 'file_id',
+        id: 'F_MIGRATION_BACKFILL',
+      },
+    });
+    expect(
+      (await seam.attachments.getResolvableAttachment(untouchedAttachmentId))
+        ?.providerFetch,
+    ).toBeUndefined();
+    await expect(
+      seam.resolver.open(openRequest(attachmentId, conversationJid)),
+    ).resolves.toMatchObject({
+      status: 'opened',
+      content: 'backfilled migration bytes',
+    });
+    expect(slack.filesInfo).toHaveBeenCalledOnce();
+    expect(slack.download).toHaveBeenCalledOnce();
+  });
+
   it('hides a foreign conversation and resolves a thread in the owning conversation', async () => {
     const root = materializationRoot('scope');
     const slack = fakeSlackFetcher({

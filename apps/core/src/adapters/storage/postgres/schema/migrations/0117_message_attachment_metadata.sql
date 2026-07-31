@@ -1,6 +1,19 @@
 ALTER TABLE "message_attachments" ADD COLUMN IF NOT EXISTS "file_name" text;--> statement-breakpoint
 ALTER TABLE "message_attachments" ADD COLUMN IF NOT EXISTS "provider_fetch_json" jsonb;--> statement-breakpoint
 ALTER TABLE "message_attachments" ADD COLUMN IF NOT EXISTS "deleted_at" timestamp with time zone;--> statement-breakpoint
+UPDATE "message_attachments" AS attachment
+SET "provider_fetch_json" = jsonb_build_object(
+  'provider', 'slack',
+  'kind', 'file_id',
+  'id', attachment."external_ref_json"->>'value'
+)
+FROM "messages" AS message
+WHERE message."id" = attachment."message_id"
+  AND message."provider" = 'slack'
+  AND attachment."provider_fetch_json" IS NULL
+  AND attachment."external_ref_json"->>'kind' = 'message_attachment'
+  AND jsonb_typeof(attachment."external_ref_json"->'value') = 'string'
+  AND NULLIF(btrim(attachment."external_ref_json"->>'value'), '') IS NOT NULL;--> statement-breakpoint
 DO $$
 DECLARE
   attachment_row record;

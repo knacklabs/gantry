@@ -314,7 +314,7 @@ describe('formatConversationContextMessages', () => {
     expect(result.trim().endsWith('</current_message>')).toBe(true);
   });
 
-  it('renders durable attachment ids with unchanged materialized file refs', () => {
+  it('renders provider materializations only as handles and keeps workspace file refs', () => {
     const result = formatConversationContextMessages(
       {
         recentChannelContext: [],
@@ -330,7 +330,13 @@ describe('formatConversationContextMessages', () => {
                 file_name: 'backfilled.pdf',
               },
               {
-                id: 'attachment-materialized',
+                id: 'attachment-provider-materialized',
+                kind: 'file',
+                file_name: 'collision.pdf',
+                storageRef: 'provider-attachments/collision.pdf',
+              },
+              {
+                id: 'attachment-workspace-materialized',
                 kind: 'file',
                 file_name: 'live.pdf',
                 storageRef: 'attachments/live.pdf',
@@ -346,7 +352,13 @@ describe('formatConversationContextMessages', () => {
       '<attachment kind="file" gantry_attachment="attachment-unmaterialized" />',
     );
     expect(result).toContain(
-      '<attachment kind="file" gantry_attachment="attachment-materialized" gantry_ref="attachments/live.pdf" />',
+      '<attachment kind="file" gantry_attachment="attachment-provider-materialized" />',
+    );
+    expect(result).not.toContain(
+      'gantry_attachment="attachment-provider-materialized" gantry_ref=',
+    );
+    expect(result).toContain(
+      '<attachment kind="file" gantry_attachment="attachment-workspace-materialized" gantry_ref="attachments/live.pdf" />',
     );
     expect(result).not.toContain(
       'gantry_attachment="attachment-unmaterialized" gantry_ref=',
