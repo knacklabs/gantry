@@ -643,6 +643,10 @@ export abstract class SlackChannelState {
           kind: file.mimetype?.startsWith('image/') ? 'image' : 'file',
           contentType: file.mimetype,
           externalId: file.id,
+          file_name: file.name || file.title,
+          provider_fetch: file.id
+            ? { provider: 'slack', kind: 'file_id', id: file.id }
+            : undefined,
         };
         if (download) attachment.storageRef = download.storageRef;
         attachments.push(attachment);

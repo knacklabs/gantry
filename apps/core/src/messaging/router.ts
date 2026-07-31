@@ -192,6 +192,7 @@ function formatAttachmentLines(
             ? Math.trunc(attachment.sizeBytes!).toString()
             : undefined,
         ],
+        ['gantry_attachment', attachment.id],
         ['gantry_ref', formatGantryAttachmentRef(attachment.storageRef)],
       ]
         .filter(

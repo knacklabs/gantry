@@ -314,6 +314,65 @@ describe('formatConversationContextMessages', () => {
     expect(result.trim().endsWith('</current_message>')).toBe(true);
   });
 
+  it('renders durable attachment ids with unchanged materialized file refs', () => {
+    const result = formatConversationContextMessages(
+      {
+        recentChannelContext: [],
+        activeThreadContext: [],
+        currentMessages: [
+          makeMsg({
+            id: 'current',
+            content: '',
+            attachments: [
+              {
+                id: 'attachment-unmaterialized',
+                kind: 'file',
+                file_name: 'backfilled.pdf',
+              },
+              {
+                id: 'attachment-materialized',
+                kind: 'file',
+                file_name: 'live.pdf',
+                storageRef: 'attachments/live.pdf',
+              },
+            ],
+          }),
+        ],
+      },
+      TZ,
+    );
+
+    expect(result).toContain(
+      '<attachment kind="file" gantry_attachment="attachment-unmaterialized" />',
+    );
+    expect(result).toContain(
+      '<attachment kind="file" gantry_attachment="attachment-materialized" gantry_ref="attachments/live.pdf" />',
+    );
+    expect(result).not.toContain(
+      'gantry_attachment="attachment-unmaterialized" gantry_ref=',
+    );
+  });
+
+  it('does not render a durable handle for an identity-less attachment', () => {
+    const result = formatConversationContextMessages(
+      {
+        recentChannelContext: [],
+        activeThreadContext: [],
+        currentMessages: [
+          makeMsg({
+            id: 'current',
+            content: '',
+            attachments: [{ kind: 'file', file_name: 'identity-less.pdf' }],
+          }),
+        ],
+      },
+      TZ,
+    );
+
+    expect(result).toContain('<attachment kind="file" />');
+    expect(result).not.toContain('gantry_attachment=');
+  });
+
   it('truncates long historical message content and quoted content after XML escaping remains safe', () => {
     const result = formatConversationContextMessages(
       {

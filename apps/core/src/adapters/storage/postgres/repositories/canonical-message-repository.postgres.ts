@@ -37,9 +37,10 @@ import {
   threadIdFor,
 } from './canonical-graph-repository.postgres.js';
 import {
+  attachmentIdForIncomingAttachment,
   attachmentsJsonForMessage,
-  existingAttachmentStorageMaps,
-  storageRefForIncomingAttachment,
+  existingAttachmentMetadataMaps,
+  preservedMetadataForIncomingAttachment,
 } from './canonical-message-attachments.postgres.js';
 import {
   externalRefForMessage,
@@ -293,15 +294,19 @@ export class PostgresCanonicalMessageRepository {
       });
     if (msg.attachments !== undefined) {
       const incomingAttachments = msg.attachments;
-      const existingStorageRefs =
+      const existingAttachmentMetadata =
         incomingAttachments.length > 0
-          ? existingAttachmentStorageMaps(
+          ? existingAttachmentMetadataMaps(
               await tx
                 .select({
                   id: pgSchema.messageAttachmentsPostgres.id,
                   externalRefJson:
                     pgSchema.messageAttachmentsPostgres.externalRefJson,
                   storageRef: pgSchema.messageAttachmentsPostgres.storageRef,
+                  fileName: pgSchema.messageAttachmentsPostgres.fileName,
+                  providerFetchJson:
+                    pgSchema.messageAttachmentsPostgres.providerFetchJson,
+                  deletedAt: pgSchema.messageAttachmentsPostgres.deletedAt,
                 })
                 .from(pgSchema.messageAttachmentsPostgres)
                 .where(
@@ -311,7 +316,7 @@ export class PostgresCanonicalMessageRepository {
                   ),
                 ),
             )
-          : existingAttachmentStorageMaps([]);
+          : existingAttachmentMetadataMaps([]);
       await tx
         .delete(pgSchema.messageAttachmentsPostgres)
         .where(
@@ -320,26 +325,29 @@ export class PostgresCanonicalMessageRepository {
       if (incomingAttachments.length > 0) {
         await tx.insert(pgSchema.messageAttachmentsPostgres).values(
           incomingAttachments.map((attachment, index) => {
-            const attachmentId =
-              attachment.id ??
-              `message-attachment:${canonicalMessageId}:${index}`;
+            const attachmentId = attachmentIdForIncomingAttachment(
+              canonicalMessageId,
+              attachment,
+              index,
+            );
+            const preservedMetadata = preservedMetadataForIncomingAttachment(
+              attachment,
+              attachmentId,
+              existingAttachmentMetadata,
+            );
             return {
-              id: attachmentId,
+              id: preservedMetadata.attachmentId,
               messageId: canonicalMessageId,
               kind: attachment.kind,
               contentType: attachment.contentType ?? null,
               sizeBytes: attachment.sizeBytes ?? null,
-              externalRefJson: attachment.externalId
-                ? jsonb({
-                    kind: 'message_attachment',
-                    value: attachment.externalId,
-                  })
+              externalRefJson: preservedMetadata.externalRefJson
+                ? jsonb(preservedMetadata.externalRefJson)
                 : null,
-              storageRef: storageRefForIncomingAttachment(
-                attachment,
-                attachmentId,
-                existingStorageRefs,
-              ),
+              storageRef: preservedMetadata.storageRef,
+              fileName: preservedMetadata.fileName,
+              providerFetchJson: jsonb(preservedMetadata.providerFetchJson),
+              deletedAt: preservedMetadata.deletedAt,
               trust: msg.is_bot_message ? 'system' : 'trusted',
             };
           }),

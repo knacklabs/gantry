@@ -168,11 +168,20 @@ describe('CanonicalMessageOpsService', () => {
         payload_json: JSON.stringify({ kind: 'text', text: 'sensitive body' }),
         attachments_json: JSON.stringify([
           {
+            id: 'attachment-row-1',
             kind: 'file',
             contentType: 'application/pdf',
             sizeBytes: 1234,
             externalId: 'file-ref',
             storageRef: 'artifact-ref',
+            file_name: 'report.pdf',
+            provider_fetch: {
+              provider: 'slack',
+              kind: 'file_id',
+              id: 'F123',
+              team_id: 'T123',
+            },
+            deleted_at: '2026-05-06T00:00:01.000+00:00',
             content: 'attachment body must not leak',
             providerPayload: { token: 'provider-secret' },
           },
@@ -200,11 +209,20 @@ describe('CanonicalMessageOpsService', () => {
         },
         attachments: [
           {
+            id: 'attachment-row-1',
             kind: 'file',
             contentType: 'application/pdf',
             sizeBytes: 1234,
             externalId: 'file-ref',
             storageRef: 'artifact-ref',
+            file_name: 'report.pdf',
+            provider_fetch: {
+              provider: 'slack',
+              kind: 'file_id',
+              id: 'F123',
+              team_id: 'T123',
+            },
+            deleted_at: '2026-05-06T00:00:01.000Z',
           },
         ],
       },
@@ -1278,7 +1296,7 @@ describe('CanonicalMessageOpsService', () => {
     );
   });
 
-  it('preserves stored attachment refs when replacing hydrated attachment rows', async () => {
+  it('preserves stored attachment refs unless explicit identities conflict', async () => {
     const insertedValues: unknown[] = [];
     const tx = {
       select: vi.fn(() => ({
@@ -1299,6 +1317,19 @@ describe('CanonicalMessageOpsService', () => {
                 value: 'provider-file-2',
               },
               storageRef: 'artifact-by-external-id',
+            },
+            {
+              id: 'matching-attachment-id',
+              externalRefJson: {
+                kind: 'message_attachment',
+                value: 'matching-provider-external',
+              },
+              storageRef: 'artifact-by-matching-id',
+            },
+            {
+              id: 'stored-external-null-id',
+              externalRefJson: null,
+              storageRef: 'artifact-by-null-external-id',
             },
             {
               id: 'explicit-fresh-id',
@@ -1354,6 +1385,16 @@ describe('CanonicalMessageOpsService', () => {
             externalId: 'provider-file-2',
           },
           {
+            id: 'matching-attachment-id',
+            kind: 'file',
+            externalId: 'matching-provider-external',
+          },
+          {
+            id: 'stored-external-null-id',
+            kind: 'file',
+            externalId: 'new-provider-external-for-stored-null',
+          },
+          {
             id: 'explicit-fresh-id',
             kind: 'file',
             externalId: 'provider-file-3',
@@ -1387,11 +1428,19 @@ describe('CanonicalMessageOpsService', () => {
       expect.arrayContaining([
         expect.objectContaining({
           id: 'provider-attachment-id',
-          storageRef: 'artifact-by-id',
+          storageRef: null,
         }),
         expect.objectContaining({
-          id: 'new-generated-id',
+          id: 'old-generated-id',
           storageRef: 'artifact-by-external-id',
+        }),
+        expect.objectContaining({
+          id: 'matching-attachment-id',
+          storageRef: 'artifact-by-matching-id',
+        }),
+        expect.objectContaining({
+          id: 'stored-external-null-id',
+          storageRef: 'artifact-by-null-external-id',
         }),
         expect.objectContaining({
           id: 'explicit-fresh-id',

@@ -761,6 +761,30 @@ describe('Postgres migration journal', () => {
     );
     expect(schema).toContain('table.messageId');
     expect(schema).toContain('table.id');
+
+    const attachmentMetadata = journal.entries.find(
+      (entry) => entry.tag === '0117_message_attachment_metadata',
+    );
+    expect(attachmentMetadata).toMatchObject({ idx: 117 });
+
+    const metadataMigration = fs.readFileSync(
+      path.resolve(
+        'apps/core/src/adapters/storage/postgres/schema/migrations/0117_message_attachment_metadata.sql',
+      ),
+      'utf8',
+    );
+    expect(metadataMigration).toContain(
+      '"message_attachments" ADD COLUMN IF NOT EXISTS "file_name" text',
+    );
+    expect(metadataMigration).toContain(
+      '"message_attachments" ADD COLUMN IF NOT EXISTS "provider_fetch_json" jsonb',
+    );
+    expect(metadataMigration).toContain(
+      '"message_attachments" ADD COLUMN IF NOT EXISTS "deleted_at" timestamp with time zone',
+    );
+    expect(schema).toContain("fileName: text('file_name')");
+    expect(schema).toContain("providerFetchJson: jsonb('provider_fetch_json')");
+    expect(schema).toContain("deletedAt: timestamp('deleted_at'");
   });
 
   it('registers scope-key and digest scope columns/indexes without legacy backfill', () => {
