@@ -46,8 +46,27 @@ vi.mock('@core/platform/workspace-folder.js', () => ({
 }));
 
 const appRef = vi.hoisted(() => ({ current: null as any }));
+const socketReceiverRef = vi.hoisted(() => ({ current: null as any }));
 
 vi.mock('@slack/bolt', () => ({
+  SocketModeReceiver: class MockSocketModeReceiver {
+    private listeners = new Map<string, Array<() => void>>();
+    client = {
+      on: (event: string, listener: () => void) => {
+        const listeners = this.listeners.get(event) ?? [];
+        listeners.push(listener);
+        this.listeners.set(event, listeners);
+      },
+    };
+
+    constructor(_options: unknown) {
+      socketReceiverRef.current = this;
+    }
+
+    emit(event: string) {
+      for (const listener of this.listeners.get(event) ?? []) listener();
+    }
+  },
   App: class MockSlackApp {
     options: any;
     eventHandlers = new Map<string, ((args: any) => Promise<void>)[]>();
@@ -56,6 +75,8 @@ vi.mock('@slack/bolt', () => ({
     actionHandlers = new Map<string | RegExp, (args: any) => Promise<void>>();
     viewHandlers = new Map<string, (args: any) => Promise<void>>();
     errorHandler: ((err: Error) => Promise<void>) | null = null;
+    middleware: Array<(args: { next: () => Promise<void> }) => Promise<void>> =
+      [];
 
     client = {
       auth: {
@@ -143,6 +164,10 @@ vi.mock('@slack/bolt', () => ({
       this.errorHandler = handler;
     }
 
+    use(handler: (args: { next: () => Promise<void> }) => Promise<void>) {
+      this.middleware.push(handler);
+    }
+
     async start() {}
 
     async stop() {}
@@ -167,6 +192,7 @@ import {
 } from '@core/channels/slack/permission-blocks.js';
 import { SLACK_PERMISSION_DECISION_ACTION_IDS } from '@core/channels/slack/permission-action-id.js';
 import { writeSlackAttachmentResponse } from '@core/channels/slack/attachment-download.js';
+import { SLACK_SOCKET_MODE_RECONNECT_EVENT } from '@core/channels/slack/channel-connect.js';
 import { asTypingSink } from '@core/app/bootstrap/channel-capability-ports.js';
 import type {
   PermissionApprovalRequest,
@@ -695,6 +721,7 @@ describe('Slack channel', () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     if (savedGantryHome === undefined) delete process.env.GANTRY_HOME;
     else process.env.GANTRY_HOME = savedGantryHome;
     configurePendingInteractionDurability(null);
@@ -741,6 +768,34 @@ describe('Slack channel', () => {
     );
 
     expect(asTypingSink(channel)).toBeUndefined();
+  });
+
+  it('sets Slack reconnect distrust synchronously without delivery middleware', async () => {
+    const order: string[] = [];
+    const distrustHistoryCoverage = vi.fn(() => {
+      order.push('distrust');
+    });
+    const channelOpts = {
+      ...createOptsWithApproverHook([]),
+      inboundProviderAccountIds: ['slack-one', 'slack-two'],
+      distrustHistoryCoverage,
+    };
+    const channel = new SlackChannel(
+      'xoxb-token',
+      'xapp-token',
+      channelOpts as any,
+    );
+    await channel.connect();
+
+    socketReceiverRef.current.emit(SLACK_SOCKET_MODE_RECONNECT_EVENT);
+    order.push('delivery remains unblocked');
+
+    expect(distrustHistoryCoverage).toHaveBeenCalledWith([
+      'slack-one',
+      'slack-two',
+    ]);
+    expect(appRef.current.middleware).toHaveLength(0);
+    expect(order).toEqual(['distrust', 'delivery remains unblocked']);
   });
 
   it('adds Slack reactions idempotently', async () => {

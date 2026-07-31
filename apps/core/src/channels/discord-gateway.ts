@@ -14,6 +14,7 @@ export class DiscordGatewayConnection {
   private sessionId = '';
   private shuttingDown = false;
   private reconnectAttempts = 0;
+  private reconnectDistrusted = false;
 
   constructor(
     private readonly input: {
@@ -21,6 +22,7 @@ export class DiscordGatewayConnection {
       apiRoot: string;
       intents: number;
       createWebSocket: WebSocketFactory;
+      onReconnect?: () => void;
       onDispatch: (payload: DiscordGatewayPayload) => Promise<void>;
     },
   ) {}
@@ -57,6 +59,7 @@ export class DiscordGatewayConnection {
     this.socket = this.input.createWebSocket(
       `${gateway.url}/?v=10&encoding=json`,
     );
+    this.reconnectDistrusted = false;
     this.connected = true;
     this.socket.onmessage = (event) => {
       void this.handle(event.data).catch((err) => {
@@ -70,6 +73,7 @@ export class DiscordGatewayConnection {
       this.clearHeartbeat();
       this.connected = false;
       this.socket = null;
+      if (!this.shuttingDown) this.distrustReconnectTransition();
       this.scheduleReconnect();
     };
   }
@@ -148,11 +152,18 @@ export class DiscordGatewayConnection {
   private reconnectNow(): void {
     this.clearReconnect();
     this.clearHeartbeat();
+    this.distrustReconnectTransition();
     const socket = this.socket;
     this.socket = null;
     this.connected = false;
     socket?.close(4000, 'Discord requested reconnect');
     this.scheduleReconnect();
+  }
+
+  private distrustReconnectTransition(): void {
+    if (this.reconnectDistrusted) return;
+    this.reconnectDistrusted = true;
+    this.input.onReconnect?.();
   }
 
   private send(payload: unknown): void {

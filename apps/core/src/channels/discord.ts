@@ -144,6 +144,11 @@ export class DiscordChannel implements ChannelAdapter {
       apiRoot: DISCORD_API_ROOT,
       intents: DISCORD_GATEWAY_INTENTS,
       createWebSocket: this.createWebSocket,
+      onReconnect: () =>
+        this.opts.distrustHistoryCoverage?.(
+          this.opts.inboundProviderAccountIds ??
+            (this.opts.providerAccountId ? [this.opts.providerAccountId] : []),
+        ),
       onDispatch: (payload) => this.handleGatewayDispatch(payload),
     });
     await this.gateway.connect();

@@ -69,6 +69,11 @@ export abstract class SlackChannelDelivery extends SlackChannelInteractions {
       appToken: this.appToken,
       inboundEnabled,
       interactionCallbacksEnabled,
+      onReconnect: () =>
+        this.opts.distrustHistoryCoverage?.(
+          this.opts.inboundProviderAccountIds ??
+            (this.opts.providerAccountId ? [this.opts.providerAccountId] : []),
+        ),
       registerBoltHandlers: (app) => {
         this.app = app;
         this.registerBoltHandlers({ inbound: inboundEnabled });

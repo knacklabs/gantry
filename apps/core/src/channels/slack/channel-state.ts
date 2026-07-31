@@ -128,17 +128,7 @@ export abstract class SlackChannelState {
   protected app: App | null = null;
   protected readonly botToken: string;
   protected readonly appToken: string;
-  protected readonly opts: Pick<
-    ChannelOpts,
-    | 'onMessage'
-    | 'onChatMetadata'
-    | 'conversationRoutes'
-    | 'runtimeSettings'
-    | 'isControlApproverAllowed'
-    | 'onMessageAction'
-    | 'providerAccountId'
-    | 'agentId'
-  >;
+  protected readonly opts: ChannelOpts;
   protected botUserId: string | null = null;
   protected userNameCache = new Map<string, string>();
   protected channelNameCache = new Map<string, string>();

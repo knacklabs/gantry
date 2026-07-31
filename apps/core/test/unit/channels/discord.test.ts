@@ -2084,11 +2084,21 @@ describe('DiscordChannel', () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation(async () =>
       jsonResponse({ url: 'wss://gateway.discord.test' }),
     );
-    const channel = new DiscordChannel('bot-token', 'app-id', opts(), (url) => {
-      const socket = new FakeWebSocket(url);
-      sockets.push(socket);
-      return socket;
-    });
+    const distrustHistoryCoverage = vi.fn();
+    const channel = new DiscordChannel(
+      'bot-token',
+      'app-id',
+      opts({
+        providerAccountId: 'discord-one',
+        inboundProviderAccountIds: ['discord-one', 'discord-two'],
+        distrustHistoryCoverage,
+      }),
+      (url) => {
+        const socket = new FakeWebSocket(url);
+        sockets.push(socket);
+        return socket;
+      },
+    );
 
     await channel.connect();
     sockets[0]!.receive({ op: 10, d: { heartbeat_interval: 60_000 } });
@@ -2103,12 +2113,84 @@ describe('DiscordChannel', () => {
     sockets[1]!.receive({ op: 10, d: { heartbeat_interval: 60_000 } });
 
     expect(sockets).toHaveLength(2);
+    expect(distrustHistoryCoverage).toHaveBeenCalledOnce();
+    expect(distrustHistoryCoverage).toHaveBeenCalledWith([
+      'discord-one',
+      'discord-two',
+    ]);
     expect(JSON.parse(sockets[1]!.sent[1] || '{}')).toEqual({
       op: 6,
       d: { token: 'bot-token', session_id: 'session-1', seq: 3 },
     });
     channel.disconnect();
   });
+
+  it('distrusts Discord history before failed reconnect discovery', async () => {
+    vi.useFakeTimers();
+    const sockets: FakeWebSocket[] = [];
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(
+        jsonResponse({ url: 'wss://gateway.discord.test' }),
+      )
+      .mockResolvedValueOnce(new Response('{}', { status: 500 }));
+    const distrustHistoryCoverage = vi.fn();
+    const channel = new DiscordChannel(
+      'bot-token',
+      'app-id',
+      opts({
+        providerAccountId: 'discord-one',
+        distrustHistoryCoverage,
+      }),
+      (url) => {
+        const socket = new FakeWebSocket(url);
+        sockets.push(socket);
+        return socket;
+      },
+    );
+
+    await channel.connect();
+    sockets[0]!.close();
+    expect(distrustHistoryCoverage).toHaveBeenCalledOnce();
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(sockets).toHaveLength(1);
+    channel.disconnect();
+  });
+
+  it.each([7, 9])(
+    'distrusts Discord history immediately on gateway opcode %i',
+    async (opcode) => {
+      vi.useFakeTimers();
+      let socket!: FakeWebSocket;
+      const order: string[] = [];
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+        jsonResponse({ url: 'wss://gateway.discord.test' }),
+      );
+      const distrustHistoryCoverage = vi.fn(() => order.push('distrust'));
+      const channel = new DiscordChannel(
+        'bot-token',
+        'app-id',
+        opts({
+          providerAccountId: 'discord-one',
+          distrustHistoryCoverage,
+        }),
+        (url) => {
+          socket = new FakeWebSocket(url);
+          socket.close = vi.fn(() => order.push('close'));
+          return socket;
+        },
+      );
+
+      await channel.connect();
+      socket.receive({ op: opcode, d: opcode === 9 ? false : null });
+
+      expect(distrustHistoryCoverage).toHaveBeenCalledOnce();
+      expect(order).toEqual(['distrust', 'close']);
+      channel.disconnect();
+    },
+  );
 
   it('routes /gantry slash interactions and live Stop button interactions', async () => {
     let socket!: FakeWebSocket;

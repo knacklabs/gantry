@@ -59,6 +59,7 @@ export interface ChannelOpts {
   runtimeLease?: RuntimeLeasePort;
   runtimeSecrets?: RuntimeSecretProvider;
   groupJoinOnboarding?: GroupJoinOnboardingCoordinator;
+  distrustHistoryCoverage?: (providerAccountIds: readonly string[]) => void;
   isControlApproverAllowed?: (input: {
     providerId: string;
     providerAccountId?: string;

@@ -23,13 +23,14 @@ with all of the following requirements folded into the capability contract:
 1. Key coverage and its delivery generation by provider account as well as
    conversation and scope, so one account's proof or reconnect cannot be
    mistaken for another's.
-2. Advance that generation before every provider-specific connect, reconnect,
-   or stream-reset seam can accept delivery; fence both coverage reads and
-   attestation writes against it so a reconnect racing a turn cannot preserve
-   or recreate stale completeness.
-3. Fail closed when invalidation cannot be made effective: the covered fast
-   path is forbidden until the account is known uncovered in the current
-   generation.
+2. At every applicable reconnect or stream-reset transition, synchronously
+   advance a process-local distrust epoch before any await, then advance the
+   durable generation in the background with bounded retry; fence coverage
+   reads and attestation writes against both signals so a reconnect racing a
+   turn cannot preserve or recreate stale completeness.
+3. Never block provider delivery on durable invalidation. The process-local
+   epoch immediately forbids the covered fast path while the durable bump
+   retries with a delay capped at two seconds.
 4. Require explicit proof for every enumerated provider seam class, including
    transport fan-out and SDK-owned reconnects; a provider with no real client
    may supply fake-adapter contract proof only and must not imply live coverage.
@@ -47,10 +48,11 @@ with all of the following requirements folded into the capability contract:
    gapless since recording: any (re)connect or stream reset for the
    provider account invalidates it fail-safe — the next turn re-verifies
    with at most one extra hydration, and a missed message is impossible to
-   silently paper over. Invalidation advances a provider-account delivery
-   generation before the seam can accept events; coverage reads and writes
-   must match the current generation, stale writers no-op, and failure to
-   advance or invalidate forbids the covered fast path.
+   silently paper over. Invalidation synchronously advances a per-process,
+   provider-account distrust epoch before any await, while a background retry
+   advances the durable generation without blocking events. Coverage reads and
+   writes must match the current generation, stale writers no-op, and local
+   distrust forbids the covered fast path until the durable bump lands.
 3. A turn in a covered conversation makes zero provider history calls and
    never enters the hydration deadline wait; behaviour for uncovered
    conversations is byte-identical to today.
@@ -63,12 +65,12 @@ with all of the following requirements folded into the capability contract:
 Every applicable row is part of the contract; covering only the common start
 path is insufficient.
 
-| Provider | Seam classes that must invalidate before delivery | Required proof |
-| --- | --- | --- |
-| Telegram | Initial awaited long-poll start and every poller restart or stream reset | Adapter test that advances the account generation before the awaited start/restart |
-| Discord | Initial gateway connect, socket close, resume entry, and re-identify entry | Adapter tests for each gateway transition, including fan-out to every provider account sharing the transport |
-| Slack Socket Mode | Initial awaited SDK start and every library-managed reconnect below that call | An explicit adapter lifecycle signal plus tests showing generation advance before start and SDK-owned reconnect delivery |
-| Teams | No real client exists today | Fake-adapter contract proof only, labelled as non-live; a real client cannot ship without enumerating and proving its actual seams |
+| Provider          | Seam classes that must invalidate before delivery                                       | Required proof                                                                                                                                                 |
+| ----------------- | --------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Telegram          | Excluded: no provider-history hydration hook means no coverage rows exist to invalidate | Regression proof that no invalidation is wired even if the adapter shape changes                                                                               |
+| Discord           | Shared pre-connect fan-out; socket close; gateway opcodes 7 and 9                       | Adapter tests for each transition, ordering before discovery, failed discovery retaining distrust, and fan-out to every provider account sharing the transport |
+| Slack Socket Mode | Shared pre-connect fan-out and the receiver's library-managed reconnect signal          | Tests showing synchronous distrust, unblocked delivery during DB outage, and eventual durable advance after recovery without another event                     |
+| Teams             | No real client exists today                                                             | Fake-adapter contract proof only, labelled as non-live; a real client cannot ship without enumerating and proving its actual seams                             |
 
 If a transport multiplexes provider accounts, one transport seam invalidates
 every account on that transport. If a provider library reconnects silently,

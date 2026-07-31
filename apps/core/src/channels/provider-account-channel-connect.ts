@@ -229,6 +229,13 @@ export async function connectProviderAccountChannels(input: {
     }
 
     try {
+      if (
+        providerInbound &&
+        channel.hydrateConversationContext &&
+        input.provider.id !== 'telegram'
+      ) {
+        input.channelOpts.distrustHistoryCoverage?.(inboundProviderAccountIds);
+      }
       await channel.connect({
         inbound: providerInbound,
         interactionCallbacks: providerInbound,

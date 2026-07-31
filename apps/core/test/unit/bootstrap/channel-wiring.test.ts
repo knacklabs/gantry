@@ -1011,6 +1011,25 @@ describe('createChannelWiring', () => {
     });
   });
 
+  it('uses runtime secret rotations made after channel wiring creation', async () => {
+    const initialSecrets = { getSecret: vi.fn() } as never;
+    const rotatedSecrets = { getSecret: vi.fn() } as never;
+    const create = vi.fn(() => makeChannel());
+    const wiring = createChannelWiring(makeApp(), {
+      providerIds: [makeProvider('slack', create)],
+      runtimeSecrets: initialSecrets,
+    });
+
+    wiring.setRuntimeSecrets(rotatedSecrets);
+    await wiring.connectEnabledChannels(
+      makeRuntimeSettings({ telegram: false, slack: true }),
+    );
+
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({ runtimeSecrets: rotatedSecrets }),
+    );
+  });
+
   it('derives provider account and agent context for same-channel approval checks', async () => {
     runtimeStoreMock.repositories.conversations.getConversation.mockResolvedValue(
       {

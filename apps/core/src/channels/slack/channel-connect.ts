@@ -1,6 +1,10 @@
-import { App } from '@slack/bolt';
+import { App, SocketModeReceiver } from '@slack/bolt';
 
 import { logger } from '../../infrastructure/logging/logger.js';
+
+// SocketModeClient emits this transport event synchronously when the active
+// WebSocket closes, before its delayed reconnect and gateway discovery begin.
+export const SLACK_SOCKET_MODE_RECONNECT_EVENT = 'close' as const;
 
 export async function connectSlackApp(input: {
   botToken: string;
@@ -8,13 +12,17 @@ export async function connectSlackApp(input: {
   inboundEnabled: boolean;
   interactionCallbacksEnabled: boolean;
   registerBoltHandlers: (app: App) => void;
+  onReconnect?: () => void;
 }): Promise<{ app: App; botUserId: string | null }> {
+  const receiver = new SocketModeReceiver({ appToken: input.appToken });
   const app = new App({
     token: input.botToken,
-    appToken: input.appToken,
-    socketMode: true,
+    receiver,
   });
   if (input.inboundEnabled || input.interactionCallbacksEnabled) {
+    receiver.client.on(SLACK_SOCKET_MODE_RECONNECT_EVENT, () => {
+      input.onReconnect?.();
+    });
     input.registerBoltHandlers(app);
     app.error(async (error: Error) =>
       logger.error({ err: error }, 'Slack app error'),
