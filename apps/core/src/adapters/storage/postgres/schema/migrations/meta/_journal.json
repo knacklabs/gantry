@@ -806,6 +806,13 @@
       "when": 1785264903868,
       "tag": "20260728185503_schema_generation_baseline",
       "breakpoints": true
+    },
+    {
+      "idx": 118,
+      "version": "7",
+      "when": 1785506704668,
+      "tag": "20260731140504_lease_generation_already_applied",
+      "breakpoints": true
     }
   ]
 }

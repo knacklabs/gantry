@@ -1,0 +1,5 @@
+-- Snapshot catch-up, intentionally no DDL: 0116_runtime_lease_generations
+-- already created runtime_lease_generations and added
+-- browser_profiles.snapshot_lease_generation. This migration exists only so the
+-- drizzle snapshot records that state; running the DDL again would fail on every
+-- database that has applied 0116.
