@@ -53,17 +53,19 @@ export async function exportCurrentDesiredState(input: {
   const conversations: Record<string, RuntimeConfiguredConversation> = {};
   const bindings: Record<string, RuntimeConfiguredBinding> = {};
 
-  const groupEntries = Object.entries(groups);
   const storedAgents = await deps.repositories.agents.listAgents(appId);
   const activeStoredAgents = storedAgents.filter(
     (agent) => agent.status === 'active',
   );
   const agentIds = [
     ...new Set([
-      ...groupEntries.map(([, group]) => agentIdForFolder(group.folder)),
       ...activeStoredAgents.map((agent) => agent.id),
+      ...Object.keys(settings.agents).map(agentIdForFolder),
     ]),
   ];
+  const groupEntries = Object.entries(groups).filter(([, group]) =>
+    agentIds.includes(agentIdForFolder(group.folder)),
+  );
   const [
     toolBindingRows,
     toolSourceRows,
