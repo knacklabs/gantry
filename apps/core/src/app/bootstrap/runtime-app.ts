@@ -133,6 +133,9 @@ export interface RuntimeApp {
   ) => Promise<ExecutionProviderId>;
   setAgentCursor: (chatJid: string, timestamp: string) => void;
   setChannelRuntime: (runtime: GroupProcessingDeps['channelRuntime']) => void;
+  setHistoryCoverageDistrustEpochReader?: (
+    reader: NonNullable<GroupProcessingDeps['getHistoryCoverageDistrustEpoch']>,
+  ) => void;
 }
 export interface RuntimeAppOptions {
   ensureCredentialBinding?: (input: {
@@ -191,6 +194,9 @@ export function createRuntimeApp(options: RuntimeAppOptions = {}): RuntimeApp {
   const credentialBindingPromises = new Map<string, Promise<void>>();
   const ops = () => options.opsRepository ?? getRuntimeRepositories();
   const channelRuntime = createMutableChannelRuntime();
+  let readHistoryCoverageDistrustEpoch:
+    | NonNullable<GroupProcessingDeps['getHistoryCoverageDistrustEpoch']>
+    | undefined;
   const resolveExecutionProviderId = (
     route: Pick<ConversationRoute, 'agentConfig' | 'folder'>,
     chatJid: string,
@@ -595,6 +601,8 @@ export function createRuntimeApp(options: RuntimeAppOptions = {}): RuntimeApp {
     getRuntimeRepository: ops,
     getConversationHistoryCoverageRepository: () =>
       getRuntimeStorage().repositories.conversationHistoryCoverage,
+    getHistoryCoverageDistrustEpoch: (providerAccountId) =>
+      readHistoryCoverageDistrustEpoch?.(providerAccountId),
     queue: {
       enqueueMessageCheck: (chatJid) => queue.enqueueMessageCheck(chatJid),
       closeStdin: (chatJid) => queue.closeStdin(chatJid),
@@ -678,6 +686,9 @@ export function createRuntimeApp(options: RuntimeAppOptions = {}): RuntimeApp {
     },
     setChannelRuntime: (runtime) => {
       channelRuntime.set(runtime);
+    },
+    setHistoryCoverageDistrustEpochReader: (reader) => {
+      readHistoryCoverageDistrustEpoch = reader;
     },
   };
 }

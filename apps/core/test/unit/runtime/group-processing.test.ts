@@ -314,6 +314,10 @@ function makeDeps(
       start: vi.fn(),
     },
     getSelectedAgentHarness: vi.fn(() => 'auto'),
+    getHistoryCoverageDistrustEpoch: vi.fn(() => ({
+      current: 0,
+      durable: 0,
+    })),
     getAvailableGroups: vi.fn().mockReturnValue([]),
     getRegisteredJids: vi.fn().mockReturnValue(new Set<string>()),
     opsRepository,
@@ -6551,6 +6555,200 @@ describe('createGroupProcessor', () => {
       expect(historyCoverage.readProviderGeneration).not.toHaveBeenCalled();
       expect(hydrateConversationContext).not.toHaveBeenCalled();
       expect(historyCoverage.upsertCoverage).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['absent', undefined],
+      ['non-function', { legacyHarness: true }],
+    ])(
+      'fails closed when the process-local distrust epoch reader is %s',
+      async (_label, epochReader) => {
+        const group = makeGroup({
+          conversationId: 'conversation:slack:C123',
+          providerAccountId: 'slack-account-1',
+          requiresTrigger: false,
+          conversationKind: 'channel',
+        });
+        const current = makeMessage({
+          id: 'current',
+          chat_jid: 'sl:C123',
+          external_message_id: '1710000004.000000',
+          timestamp: '2024-01-01T00:04:00.000Z',
+        });
+        const historyCoverage = makeHistoryCoverageRepository({
+          getCoverage: vi.fn().mockResolvedValue({
+            coverage: {
+              providerAccountId: 'slack-account-1',
+              conversationId: 'conversation:slack:C123',
+              scope: { kind: 'channel' },
+              complete: true,
+              providerGeneration: 7,
+              recordedAt: '2026-08-01T00:00:00.000Z',
+              updatedAt: '2026-08-01T00:00:00.000Z',
+            },
+            currentProviderGeneration: 7,
+            isCurrentGeneration: true,
+          }),
+        });
+        const hydrateConversationContext = vi.fn().mockResolvedValue({
+          providerId: 'slack',
+          attempted: true,
+          messages: [],
+          coverage: {
+            requestedLatestMessage: {
+              externalMessageId: current.external_message_id,
+              timestamp: current.timestamp,
+            },
+            scope: 'channel',
+            requests: [],
+            completeness: { kind: 'server_confirmed', exhausted: true },
+            deliveredMessageCount: 0,
+            threadRoot: 'not_applicable',
+          },
+        });
+        const { deps } = setupHappyPath({ group, messages: [current] });
+        deps.channelRuntime = makeChannel({ hydrateConversationContext });
+        deps.getConversationHistoryCoverageRepository = () => historyCoverage;
+        (deps as unknown as Record<string, unknown>)[
+          'getHistoryCoverageDistrustEpoch'
+        ] = epochReader;
+
+        const { processGroupMessages } = createGroupProcessor(deps);
+        await processGroupMessages('sl:C123');
+
+        expect(hydrateConversationContext).toHaveBeenCalledTimes(1);
+        expect(historyCoverage.upsertCoverage).toHaveBeenCalledWith(
+          expect.objectContaining({
+            complete: false,
+            providerGeneration: 7,
+          }),
+        );
+      },
+    );
+
+    it('hydrates when local distrust begins during the coverage read', async () => {
+      const group = makeGroup({
+        conversationId: 'conversation:slack:C123',
+        providerAccountId: 'slack-account-1',
+        requiresTrigger: false,
+        conversationKind: 'channel',
+      });
+      const current = makeMessage({
+        id: 'current',
+        chat_jid: 'sl:C123',
+        external_message_id: '1710000004.000000',
+        content: '@Andy refresh locally distrusted coverage',
+        timestamp: '2024-01-01T00:04:00.000Z',
+      });
+      const getCoverage = vi.fn().mockResolvedValue({
+        coverage: {
+          providerAccountId: 'slack-account-1',
+          conversationId: 'conversation:slack:C123',
+          scope: { kind: 'channel' },
+          complete: true,
+          providerGeneration: 7,
+          recordedAt: '2026-08-01T00:00:00.000Z',
+          updatedAt: '2026-08-01T00:00:00.000Z',
+        },
+        currentProviderGeneration: 7,
+        isCurrentGeneration: true,
+      });
+      const historyCoverage = makeHistoryCoverageRepository({ getCoverage });
+      const hydrateConversationContext = vi.fn().mockResolvedValue({
+        providerId: 'slack',
+        attempted: true,
+        messages: [],
+        coverage: {
+          requestedLatestMessage: {
+            externalMessageId: '1710000004.000000',
+            timestamp: '2024-01-01T00:04:00.000Z',
+          },
+          scope: 'channel',
+          requests: [],
+          completeness: { kind: 'server_confirmed', exhausted: true },
+          deliveredMessageCount: 0,
+          threadRoot: 'not_applicable',
+        },
+      });
+      const getHistoryCoverageDistrustEpoch = vi
+        .fn()
+        .mockReturnValueOnce({ current: 0, durable: 0 })
+        .mockReturnValue({ current: 1, durable: 0 });
+      const { deps } = setupHappyPath({ group, messages: [current] });
+      deps.channelRuntime = makeChannel({ hydrateConversationContext });
+      deps.getConversationHistoryCoverageRepository = () => historyCoverage;
+      deps.getHistoryCoverageDistrustEpoch = getHistoryCoverageDistrustEpoch;
+
+      const { processGroupMessages } = createGroupProcessor(deps);
+      await processGroupMessages('sl:C123');
+
+      expect(getCoverage).toHaveBeenCalledTimes(1);
+      expect(
+        getHistoryCoverageDistrustEpoch.mock.invocationCallOrder[0],
+      ).toBeLessThan(getCoverage.mock.invocationCallOrder[0]);
+      expect(hydrateConversationContext).toHaveBeenCalledTimes(1);
+      expect(historyCoverage.upsertCoverage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          complete: false,
+          providerGeneration: 7,
+        }),
+      );
+    });
+
+    it('does not attest complete when the local distrust epoch changes during hydration', async () => {
+      const group = makeGroup({
+        conversationId: 'conversation:slack:C123',
+        providerAccountId: 'slack-account-1',
+        requiresTrigger: false,
+        conversationKind: 'channel',
+      });
+      const current = makeMessage({
+        chat_jid: 'sl:C123',
+        timestamp: '2024-01-01T00:04:00.000Z',
+      });
+      const historyCoverage = makeHistoryCoverageRepository({
+        getCoverage: vi.fn().mockResolvedValue({
+          coverage: null,
+          currentProviderGeneration: 9,
+          isCurrentGeneration: false,
+        }),
+      });
+      const getHistoryCoverageDistrustEpoch = vi
+        .fn()
+        .mockReturnValueOnce({ current: 0, durable: 0 })
+        .mockReturnValueOnce({ current: 0, durable: 0 })
+        .mockReturnValue({ current: 1, durable: 1 });
+      const { deps } = setupHappyPath({ group, messages: [current] });
+      deps.channelRuntime = makeChannel({
+        hydrateConversationContext: vi.fn().mockResolvedValue({
+          providerId: 'slack',
+          attempted: true,
+          messages: [],
+          coverage: {
+            requestedLatestMessage: {
+              timestamp: '2024-01-01T00:04:00.000Z',
+            },
+            scope: 'channel',
+            requests: [],
+            completeness: { kind: 'server_confirmed', exhausted: true },
+            deliveredMessageCount: 0,
+            threadRoot: 'not_applicable',
+          },
+        }),
+      });
+      deps.getConversationHistoryCoverageRepository = () => historyCoverage;
+      deps.getHistoryCoverageDistrustEpoch = getHistoryCoverageDistrustEpoch;
+
+      const { processGroupMessages } = createGroupProcessor(deps);
+      await processGroupMessages('sl:C123');
+
+      expect(getHistoryCoverageDistrustEpoch).toHaveBeenCalledTimes(3);
+      expect(historyCoverage.upsertCoverage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          complete: false,
+          providerGeneration: 9,
+        }),
+      );
     });
 
     it('treats a generation-mismatched complete row as stale using one coverage call', async () => {

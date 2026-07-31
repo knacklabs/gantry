@@ -404,6 +404,7 @@ maybeDescribe('conversation history coverage Postgres repository', () => {
     const packetInput = (historyCoverage: boolean) => ({
       deps: {
         channelRuntime: { hydrateConversationContext },
+        getHistoryCoverageDistrustEpoch: () => ({ current: 0, durable: 0 }),
         ...(historyCoverage
           ? { getConversationHistoryCoverageRepository: () => repository }
           : {}),

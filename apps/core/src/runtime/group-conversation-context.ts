@@ -6,6 +6,7 @@ import type { ConversationId } from '../domain/conversation/conversation.js';
 import type { ProviderAccountId } from '../domain/provider/provider.js';
 import type {
   ConversationHistoryCoverageRepository,
+  ConversationHistoryDistrustEpoch,
   ConversationHistoryScope,
 } from '../domain/ports/conversation-history-coverage.js';
 import type {
@@ -47,6 +48,13 @@ export async function buildGroupTurnConversationContext(input: {
       ? input.deps.getConversationHistoryCoverageRepository?.()
       : undefined;
   const coverageScope = historyCoverageScope(input.activeThreadId);
+  const coverageDistrustEpoch =
+    coverageRepository && input.providerAccountId && input.conversationId
+      ? readHistoryCoverageDistrustEpoch(
+          input.deps.getHistoryCoverageDistrustEpoch,
+          input.providerAccountId,
+        )
+      : undefined;
   const coverageRead = shouldHydrate
     ? await readHistoryCoverage({
         repository: coverageRepository,
@@ -55,12 +63,21 @@ export async function buildGroupTurnConversationContext(input: {
         scope: coverageScope,
       })
     : undefined;
+  const coverageDistrustEpochAfterRead = coverageDistrustEpoch
+    ? readHistoryCoverageDistrustEpoch(
+        input.deps.getHistoryCoverageDistrustEpoch,
+        input.providerAccountId!,
+      )
+    : undefined;
+  const coverageIsTrusted =
+    coverageRead?.coverage?.complete === true &&
+    coverageRead.isCurrentGeneration &&
+    isHistoryCoverageDistrustEpochStable(
+      coverageDistrustEpoch,
+      coverageDistrustEpochAfterRead,
+    );
   const hydration =
-    shouldHydrate &&
-    !(
-      coverageRead?.coverage?.complete === true &&
-      coverageRead.isCurrentGeneration
-    )
+    shouldHydrate && !coverageIsTrusted
       ? await hydrateConversationContextWithDeadline({
           hydrate: input.deps.channelRuntime.hydrateConversationContext,
           request: {
@@ -129,6 +146,8 @@ export async function buildGroupTurnConversationContext(input: {
     hydration,
     currentProviderGeneration: coverageRead?.currentProviderGeneration,
     persistenceFailed: failedHydratedMessageCount > 0,
+    capturedDistrustEpoch: coverageDistrustEpoch,
+    getDistrustEpoch: input.deps.getHistoryCoverageDistrustEpoch,
   });
   if (hydratedMessages.length > 0) {
     conversationContext = await buildConversationContextPacket({
@@ -201,6 +220,8 @@ async function attestHistoryCoverage(input: {
   hydration: ConversationContextHydrationResult | undefined;
   currentProviderGeneration: number | undefined;
   persistenceFailed: boolean;
+  capturedDistrustEpoch: ConversationHistoryDistrustEpoch | undefined;
+  getDistrustEpoch: GroupProcessingDeps['getHistoryCoverageDistrustEpoch'];
 }): Promise<void> {
   const claim = input.hydration?.coverage;
   if (
@@ -212,6 +233,17 @@ async function attestHistoryCoverage(input: {
   ) {
     return;
   }
+  const claimAllowsComplete =
+    !input.persistenceFailed &&
+    claim.scope === input.scope.kind &&
+    claim.completeness.kind === 'server_confirmed' &&
+    claim.completeness.exhausted;
+  const distrustEpochAtWrite = claimAllowsComplete
+    ? readHistoryCoverageDistrustEpoch(
+        input.getDistrustEpoch,
+        input.providerAccountId,
+      )
+    : undefined;
   const now = new Date().toISOString();
   try {
     await input.repository.upsertCoverage({
@@ -219,10 +251,11 @@ async function attestHistoryCoverage(input: {
       conversationId: input.conversationId as ConversationId,
       scope: input.scope,
       complete:
-        !input.persistenceFailed &&
-        claim.scope === input.scope.kind &&
-        claim.completeness.kind === 'server_confirmed' &&
-        claim.completeness.exhausted,
+        claimAllowsComplete &&
+        isHistoryCoverageDistrustEpochStable(
+          input.capturedDistrustEpoch,
+          distrustEpochAtWrite,
+        ),
       ...(claim.requestedLatestMessage.externalMessageId !== undefined
         ? {
             coveredThroughExternalId:
@@ -240,6 +273,27 @@ async function attestHistoryCoverage(input: {
       'Conversation history coverage attestation failed',
     );
   }
+}
+
+function readHistoryCoverageDistrustEpoch(
+  reader: GroupProcessingDeps['getHistoryCoverageDistrustEpoch'],
+  providerAccountId: string,
+): ConversationHistoryDistrustEpoch | undefined {
+  return typeof reader === 'function' ? reader(providerAccountId) : undefined;
+}
+
+function isHistoryCoverageDistrustEpochStable(
+  captured: ConversationHistoryDistrustEpoch | undefined,
+  current: ConversationHistoryDistrustEpoch | undefined,
+): boolean {
+  return (
+    captured !== undefined &&
+    current !== undefined &&
+    captured.current === captured.durable &&
+    current.current === current.durable &&
+    captured.current === current.current &&
+    captured.durable === current.durable
+  );
 }
 
 function historyCoverageScope(

@@ -1,14 +1,12 @@
 import type { ProviderAccountId } from '../../domain/provider/provider.js';
-import type { ConversationHistoryCoverageRepository } from '../../domain/ports/conversation-history-coverage.js';
+import type {
+  ConversationHistoryCoverageRepository,
+  ConversationHistoryDistrustEpoch,
+} from '../../domain/ports/conversation-history-coverage.js';
 import type { logger } from '../../infrastructure/logging/logger.js';
 
 const INITIAL_RETRY_MS = 100;
 export const HISTORY_COVERAGE_DISTRUST_MAX_RETRY_MS = 2_000;
-
-export interface ConversationHistoryDistrustEpoch {
-  readonly current: number;
-  readonly durable: number;
-}
 
 interface ProviderDistrustState extends ConversationHistoryDistrustEpoch {
   worker?: Promise<void>;

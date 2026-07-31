@@ -5,6 +5,11 @@ export type ConversationHistoryScope =
   | { kind: 'channel'; id?: never }
   | { kind: 'thread'; id: string };
 
+export interface ConversationHistoryDistrustEpoch {
+  readonly current: number;
+  readonly durable: number;
+}
+
 export interface ConversationHistoryCoverage {
   providerAccountId: ProviderAccountId;
   conversationId: ConversationId;

@@ -182,6 +182,7 @@ function makeApp(conversationRoutes: Record<string, any> = {}): RuntimeApp {
     getConversationRoutes: vi.fn(() => conversationRoutes),
     setAgentCursor: vi.fn(),
     setChannelRuntime: vi.fn(),
+    setHistoryCoverageDistrustEpochReader: vi.fn(),
   };
 }
 
@@ -215,6 +216,17 @@ function makeProvider(
 }
 
 describe('createChannelWiring', () => {
+  it('registers its process-local history distrust epoch reader with the runtime app', () => {
+    const app = makeApp();
+    const wiring = createChannelWiring(app);
+    const setReader = vi.mocked(app.setHistoryCoverageDistrustEpochReader);
+
+    expect(setReader).toHaveBeenCalledTimes(1);
+    expect(setReader.mock.calls[0][0]('slack-account-1')).toEqual(
+      wiring.getHistoryCoverageDistrustEpoch('slack-account-1'),
+    );
+  });
+
   it('coalesces run permission requests into one live batch prompt', async () => {
     vi.useFakeTimers();
     try {

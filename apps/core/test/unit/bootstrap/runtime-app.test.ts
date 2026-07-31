@@ -246,6 +246,21 @@ describe('runtime app credential binding', () => {
     );
   });
 
+  it('delegates process-local history distrust epoch reads to channel wiring', async () => {
+    const { createRuntimeApp, createGroupProcessor } =
+      await loadRuntimeAppWithGroupProcessorSpy();
+    const app = createRuntimeApp();
+    const capturedDeps = vi.mocked(createGroupProcessor).mock.calls[0]?.[0];
+    const readEpoch = vi.fn(() => ({ current: 3, durable: 2 }));
+
+    app.setHistoryCoverageDistrustEpochReader(readEpoch);
+
+    expect(
+      capturedDeps?.getHistoryCoverageDistrustEpoch('slack-account-1'),
+    ).toEqual({ current: 3, durable: 2 });
+    expect(readEpoch).toHaveBeenCalledWith('slack-account-1');
+  });
+
   it('threads provider account options through channel lookup', async () => {
     const { createRuntimeApp, createGroupProcessor } =
       await loadRuntimeAppWithGroupProcessorSpy();
