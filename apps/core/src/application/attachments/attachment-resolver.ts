@@ -1,4 +1,7 @@
-import type { HistoricalAttachmentFetcher } from '../../domain/ports/historical-attachment-fetcher.js';
+import type {
+  HistoricalAttachmentFetcher,
+  HistoricalAttachmentReader,
+} from '../../domain/ports/historical-attachment-fetcher.js';
 import type {
   MessageAttachmentRepository,
   ResolvableMessageAttachment,
@@ -96,6 +99,7 @@ export class AttachmentResolver {
       deadline,
     ]).finally(() => {
       if (timeout) clearTimeout(timeout);
+      abortController.abort();
     });
   }
 
@@ -126,6 +130,16 @@ export class AttachmentResolver {
       };
     }
     if (attachment.deletedAt) {
+      if (
+        attachment.storageRef &&
+        isProviderAttachmentStorageRef(attachment.storageRef)
+      ) {
+        await this.deps.repository.reclaimTombstonedStorageRef({
+          attachmentId: attachment.id,
+          messageId: attachment.messageId,
+          storageRef: attachment.storageRef,
+        });
+      }
       return { status: 'deleted', content: ATTACHMENT_DELETED_COPY };
     }
     if (
@@ -271,6 +285,11 @@ export class AttachmentResolver {
       signal,
     });
     if (signal.aborted) {
+      if (fetched.status === 'ok') {
+        await historicalAttachmentReader(fetched.content)
+          ?.cancel(signal.reason)
+          .catch(() => undefined);
+      }
       return {
         status: 'unreachable',
         content: ATTACHMENT_UNREACHABLE_COPY,
@@ -308,14 +327,41 @@ export class AttachmentResolver {
       'attachment.bin';
     const contentType = fetched.contentType ?? attachment.contentType;
     const storageRef = this.createStorageRef(fileName);
-    const writeResult = await materializeProviderAttachment({
-      materializationRoot: this.deps.materializationRoot,
-      workspaceRoots: this.deps.workspaceRoots(),
-      storageRef,
-      content: fetched.content,
-      maxBytes: ATTACHMENT_MAX_BYTES,
-      writer: this.writeAttachment,
-    });
+    const reader = historicalAttachmentReader(fetched.content);
+    let streamConsumed = false;
+    let cancellation: Promise<void> | undefined;
+    const cancelIncompleteStream = (): Promise<void> => {
+      if (!reader || streamConsumed) return Promise.resolve();
+      cancellation ??= reader.cancel(signal.reason).catch(() => undefined);
+      return cancellation;
+    };
+    const cancelOnAbort = () => {
+      void cancelIncompleteStream();
+    };
+    signal.addEventListener('abort', cancelOnAbort, { once: true });
+    if (signal.aborted) cancelOnAbort();
+    let writeResult: Awaited<ReturnType<ProviderAttachmentWriter>>;
+    try {
+      writeResult = await materializeProviderAttachment({
+        materializationRoot: this.deps.materializationRoot,
+        workspaceRoots: this.deps.workspaceRoots(),
+        storageRef,
+        content: reader
+          ? {
+              async read() {
+                const chunk = await reader.read();
+                streamConsumed = chunk.done;
+                return chunk;
+              },
+            }
+          : fetched.content,
+        maxBytes: ATTACHMENT_MAX_BYTES,
+        writer: this.writeAttachment,
+      });
+    } finally {
+      signal.removeEventListener('abort', cancelOnAbort);
+      await cancelIncompleteStream();
+    }
     if (writeResult.status === 'too-large') {
       return {
         status: 'too_large',
@@ -389,4 +435,10 @@ export class AttachmentResolver {
       storageRef,
     });
   }
+}
+
+function historicalAttachmentReader(
+  content: Uint8Array | HistoricalAttachmentReader,
+): HistoricalAttachmentReader | undefined {
+  return 'read' in content ? content : undefined;
 }

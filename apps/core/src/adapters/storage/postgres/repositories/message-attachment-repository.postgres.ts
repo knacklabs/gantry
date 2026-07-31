@@ -13,6 +13,7 @@ import { lockCanonicalMessageAttachments } from './canonical-message-attachment-
 import * as pgSchema from '../schema/schema.js';
 import {
   cleanupRemovedProviderAttachments,
+  reclaimTombstonedProviderAttachment,
   type ProviderAttachmentCleanup,
 } from './provider-attachment-cleanup.postgres.js';
 
@@ -323,10 +324,7 @@ export class PostgresMessageAttachmentRepository implements MessageAttachmentRep
             : undefined;
         const rows = await tx
           .update(attachment)
-          .set({
-            deletedAt: input.deletedAt,
-            ...(providerStorageRef ? { storageRef: null } : {}),
-          })
+          .set({ deletedAt: input.deletedAt })
           .where(
             and(
               eq(attachment.id, input.attachmentId),
@@ -375,16 +373,6 @@ export class PostgresMessageAttachmentRepository implements MessageAttachmentRep
         ) {
           return { tombstoned: true };
         }
-        await tx
-          .update(attachment)
-          .set({ storageRef: null })
-          .where(
-            and(
-              eq(attachment.id, input.attachmentId),
-              eq(attachment.messageId, owner[0].messageId),
-              eq(attachment.storageRef, existing[0].storageRef),
-            ),
-          );
         return {
           tombstoned: true,
           storageRef: existing[0].storageRef,
@@ -396,18 +384,25 @@ export class PostgresMessageAttachmentRepository implements MessageAttachmentRep
       result.storageRef &&
       isProviderAttachmentStorageRef(result.storageRef)
     ) {
-      await cleanupRemovedProviderAttachments(
-        this.db,
-        [
-          {
-            messageId: input.expectedMessageId,
-            storageRef: result.storageRef,
-          },
-        ],
-        this.cleanupProviderAttachment,
-      );
+      await this.reclaimTombstonedStorageRef({
+        attachmentId: input.attachmentId,
+        messageId: input.expectedMessageId,
+        storageRef: result.storageRef,
+      });
     }
     return result;
+  }
+
+  async reclaimTombstonedStorageRef(input: {
+    attachmentId: string;
+    messageId: string;
+    storageRef: string;
+  }): Promise<void> {
+    await reclaimTombstonedProviderAttachment(
+      this.db,
+      input,
+      this.cleanupProviderAttachment,
+    );
   }
 }
 

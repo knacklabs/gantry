@@ -42,6 +42,9 @@ class MemoryAttachmentRepository implements MessageAttachmentRepository {
   tombstoneBeforeStorageClaim = false;
   storageClaimError: Error | undefined;
   storageRefBeforeTombstone: string | undefined;
+  cleanupProviderAttachment: (storageRef: string) => Promise<void> = async () =>
+    undefined;
+  reclamationAttempts = 0;
   lookupOverride:
     | ((attachmentId: string) => Promise<ResolvableMessageAttachment | null>)
     | undefined;
@@ -163,6 +166,29 @@ class MemoryAttachmentRepository implements MessageAttachmentRepository {
       tombstoned: true,
       ...(attachment.storageRef ? { storageRef: attachment.storageRef } : {}),
     };
+  }
+
+  async reclaimTombstonedStorageRef(input: {
+    attachmentId: string;
+    messageId: string;
+    storageRef: string;
+  }): Promise<void> {
+    this.reclamationAttempts += 1;
+    const attachment = this.attachments.get(input.attachmentId);
+    if (
+      !attachment?.deletedAt ||
+      attachment.messageId !== input.messageId ||
+      attachment.storageRef !== input.storageRef
+    ) {
+      return;
+    }
+    const shared = [...this.attachments.values()].some(
+      (candidate) =>
+        candidate.id !== input.attachmentId &&
+        candidate.storageRef === input.storageRef,
+    );
+    if (!shared) await this.cleanupProviderAttachment(input.storageRef);
+    delete attachment.storageRef;
   }
 }
 
@@ -768,21 +794,30 @@ describe('AttachmentResolver', () => {
     const repository = new MemoryAttachmentRepository();
     repository.attachments.set('attachment-1', attachment());
     let readCount = 0;
-    const provider = fetcher(() => ({
-      status: 'ok',
-      content: {
-        async read() {
-          readCount += 1;
-          if (readCount === 1) {
-            return { done: false, value: new Uint8Array(ATTACHMENT_MAX_BYTES) };
-          }
-          if (readCount === 2) {
-            return { done: false, value: new Uint8Array(1) };
-          }
-          return { done: true };
+    const cancel = vi.fn(async () => undefined);
+    let fetchSignal: AbortSignal | undefined;
+    const provider = fetcher((input) => {
+      fetchSignal = input.signal;
+      return {
+        status: 'ok',
+        content: {
+          async read() {
+            readCount += 1;
+            if (readCount === 1) {
+              return {
+                done: false,
+                value: new Uint8Array(ATTACHMENT_MAX_BYTES),
+              };
+            }
+            if (readCount === 2) {
+              return { done: false, value: new Uint8Array(1) };
+            }
+            return { done: true };
+          },
+          cancel,
         },
-      },
-    }));
+      };
+    });
     const writerSpy = vi.fn(writeInboundAttachment);
     const resolver = createResolver({
       repository,
@@ -801,6 +836,8 @@ describe('AttachmentResolver', () => {
     expect(repository.attachments.get('attachment-1')?.storageRef).toBe(
       undefined,
     );
+    expect(cancel).toHaveBeenCalledOnce();
+    expect(fetchSignal?.aborted).toBe(true);
   });
 
   it('refuses an existing tombstone without a provider call', async () => {
@@ -819,6 +856,47 @@ describe('AttachmentResolver', () => {
       status: 'deleted',
       content: ATTACHMENT_DELETED_COPY,
     });
+    expect(provider.calls).toBe(0);
+  });
+
+  it('reclaims a crash-pending tombstone on the next open and still refuses it', async () => {
+    const repository = new MemoryAttachmentRepository();
+    const storageRef = 'provider-attachments/pending-delete.txt';
+    repository.attachments.set(
+      'attachment-1',
+      attachment({
+        deletedAt: '2026-07-30T00:00:00.000Z',
+        storageRef,
+      }),
+    );
+    const materializationRoot = tempRoot('gantry-provider-attachments');
+    const materializedPath = path.join(
+      materializationRoot,
+      'pending-delete.txt',
+    );
+    fs.writeFileSync(materializedPath, 'must be reclaimed');
+    repository.cleanupProviderAttachment = async (ref) => {
+      expect(ref).toBe(storageRef);
+      fs.rmSync(materializedPath);
+    };
+    const provider = fetcher(() => {
+      throw new Error('tombstones must not refetch');
+    });
+    const resolver = createResolver({
+      repository,
+      fetcher: provider,
+      materializationRoot,
+    });
+
+    await expect(resolver.open(openRequest())).resolves.toEqual({
+      status: 'deleted',
+      content: ATTACHMENT_DELETED_COPY,
+    });
+    expect(fs.existsSync(materializedPath)).toBe(false);
+    expect(
+      repository.attachments.get('attachment-1')?.storageRef,
+    ).toBeUndefined();
+    expect(repository.reclamationAttempts).toBe(1);
     expect(provider.calls).toBe(0);
   });
 

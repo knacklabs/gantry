@@ -61,7 +61,10 @@ export async function fetchSlackHistoricalAttachment(
   return {
     status: 'ok',
     content: reader
-      ? { read: () => reader.read() }
+      ? {
+          read: () => reader.read(),
+          cancel: (reason?: unknown) => reader.cancel(reason),
+        }
       : new Uint8Array(await response.arrayBuffer()),
     ...(file.name || file.title ? { fileName: file.name || file.title } : {}),
     ...(file.mimetype ? { contentType: file.mimetype } : {}),

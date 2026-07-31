@@ -49,6 +49,38 @@ describe('Slack historical attachment fetch taxonomy', () => {
     );
   });
 
+  it('propagates cancellation to the Slack response body reader', async () => {
+    const cancelBody = vi.fn();
+    const response = new Response(
+      new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(new Uint8Array([1]));
+        },
+        cancel: cancelBody,
+      }),
+      { status: 200, headers: { 'content-type': 'application/octet-stream' } },
+    );
+    const result = await fetchSlackHistoricalAttachment(
+      { identity },
+      {
+        filesInfo: vi.fn(async () => ({
+          file: {
+            name: 'report.bin',
+            url_private_download: 'https://files.slack.test/F123',
+          },
+        })),
+        download: vi.fn(async () => response),
+      },
+    );
+    if (result.status !== 'ok' || !('read' in result.content)) {
+      throw new Error('expected streaming Slack content');
+    }
+
+    await result.content.cancel('too_large');
+
+    expect(cancelBody).toHaveBeenCalledWith('too_large');
+  });
+
   it('reports unsupported provider identity as incapable data', async () => {
     const filesInfo = vi.fn();
     const result = await fetchSlackHistoricalAttachment(

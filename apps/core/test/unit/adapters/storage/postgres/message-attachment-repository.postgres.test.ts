@@ -5,6 +5,7 @@ import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 
 import { PostgresMessageAttachmentRepository } from '@core/adapters/storage/postgres/repositories/message-attachment-repository.postgres.js';
+import { reclaimTombstonedProviderAttachment } from '@core/adapters/storage/postgres/repositories/provider-attachment-cleanup.postgres.js';
 
 describe('PostgresMessageAttachmentRepository', () => {
   it('routes a displaced self-heal ref through reference-aware post-commit cleanup', async () => {
@@ -148,6 +149,57 @@ describe('PostgresMessageAttachmentRepository', () => {
     );
   });
 
+  it('unlinks a tombstoned materialization before clearing its durable retry ref', async () => {
+    const operations: string[] = [];
+    const cleanupMaterialization = vi.fn(async () => {
+      operations.push('cleanup:unlink');
+    });
+    const set = vi.fn(() => ({
+      where: vi.fn(async () => {
+        operations.push('cleanup:cas');
+      }),
+    }));
+    const tx = {
+      execute: vi.fn(async () => {
+        operations.push('cleanup:lock');
+      }),
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({
+            limit: vi.fn(async () => {
+              operations.push('cleanup:unreferenced');
+              return [];
+            }),
+          })),
+        })),
+      })),
+      update: vi.fn(() => ({ set })),
+    };
+    const db = {
+      transaction: vi.fn(
+        async (run: (transaction: typeof tx) => Promise<void>) => run(tx),
+      ),
+    };
+
+    await reclaimTombstonedProviderAttachment(
+      db as never,
+      {
+        attachmentId: 'attachment-1',
+        messageId: 'message-1',
+        storageRef: 'provider-attachments/pending-delete.txt',
+      },
+      cleanupMaterialization,
+    );
+
+    expect(operations).toEqual([
+      'cleanup:lock',
+      'cleanup:unreferenced',
+      'cleanup:unlink',
+      'cleanup:cas',
+    ]);
+    expect(set).toHaveBeenCalledWith({ storageRef: null });
+  });
+
   it('keeps shared bytes when tombstone cleanup finds another row reference', async () => {
     const tempDir = fs.mkdtempSync(
       path.join(os.tmpdir(), 'gantry-tombstone-shared-ref-'),
@@ -190,7 +242,7 @@ describe('PostgresMessageAttachmentRepository', () => {
           })),
         })),
       });
-    const set = vi.fn(() => ({
+    const tombstoneSet = vi.fn(() => ({
       where: vi.fn(() => ({
         returning: vi.fn(async () => [{ id: 'attachment-1' }]),
       })),
@@ -198,8 +250,13 @@ describe('PostgresMessageAttachmentRepository', () => {
     const tombstoneTx = {
       execute: vi.fn(async () => undefined),
       select: tombstoneSelect,
-      update: vi.fn(() => ({ set })),
+      update: vi.fn(() => ({ set: tombstoneSet })),
     };
+    const cleanupSet = vi.fn(() => ({
+      where: vi.fn(async () => {
+        operations.push('cleanup:cas');
+      }),
+    }));
     const cleanupTx = {
       execute: vi.fn(async () => {
         operations.push('cleanup:lock');
@@ -214,6 +271,7 @@ describe('PostgresMessageAttachmentRepository', () => {
           })),
         })),
       })),
+      update: vi.fn(() => ({ set: cleanupSet })),
     };
     let transactionCall = 0;
     const db = {
@@ -257,14 +315,15 @@ describe('PostgresMessageAttachmentRepository', () => {
         storageRef: 'provider-attachments/shared.txt',
       });
 
-      expect(set).toHaveBeenCalledWith({
+      expect(tombstoneSet).toHaveBeenCalledWith({
         deletedAt: '2026-07-31T00:00:00.000Z',
-        storageRef: null,
       });
+      expect(cleanupSet).toHaveBeenCalledWith({ storageRef: null });
       expect(operations).toEqual([
         'tombstone:commit',
         'cleanup:lock',
         'cleanup:shared-ref',
+        'cleanup:cas',
       ]);
       expect(cleanupMaterialization).not.toHaveBeenCalled();
       expect(fs.readFileSync(materializedPath, 'utf8')).toBe('shared bytes');

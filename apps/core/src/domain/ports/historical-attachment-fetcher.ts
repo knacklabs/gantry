@@ -1,5 +1,6 @@
 export interface HistoricalAttachmentReader {
   read(): Promise<{ done: boolean; value?: Uint8Array }>;
+  cancel(reason?: unknown): Promise<void>;
 }
 
 export interface HistoricalAttachmentFetchIdentity {

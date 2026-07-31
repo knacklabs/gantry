@@ -78,4 +78,9 @@ export interface MessageAttachmentRepository {
     expectedProviderFetch: ProviderFetchIdentity;
     deletedAt: string;
   }): Promise<AttachmentTombstoneResult>;
+  reclaimTombstonedStorageRef(input: {
+    attachmentId: string;
+    messageId: string;
+    storageRef: string;
+  }): Promise<void>;
 }

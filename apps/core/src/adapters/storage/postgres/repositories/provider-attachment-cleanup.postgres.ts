@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm';
+import { and, eq, isNotNull, ne } from 'drizzle-orm';
 
 import { logger } from '../../../../infrastructure/logging/logger.js';
 import { isProviderAttachmentStorageRef } from '../../../../shared/provider-attachment-materialization.js';
@@ -15,12 +15,18 @@ export type ProviderAttachmentCleanup = (storageRef: string) => Promise<void>;
  *    every other incoming provider ref is dropped while fetch identity stays.
  * 2. Every non-empty displaced-ref set is handed off after commit to the
  *    reference-aware cleanup below (advisory lock plus zero-reference recheck).
- * 3. A provider ref whose file is missing self-heals on open from fetch identity.
+ * 3. Tombstones retain their provider ref until reference-aware cleanup unlinks
+ *    the file and CASes the deleted row's ref to null. Open retries pending rows.
+ * 4. A provider ref whose file is missing self-heals on open from fetch identity.
  */
 
 export interface RemovedProviderAttachment {
   messageId: string;
   storageRef: string;
+}
+
+export interface TombstonedProviderAttachment extends RemovedProviderAttachment {
+  attachmentId: string;
 }
 
 export function storageRefForAttachmentWriter(
@@ -68,6 +74,56 @@ export async function cleanupRemovedProviderAttachments(
       }
     }),
   );
+}
+
+export async function reclaimTombstonedProviderAttachment(
+  db: CanonicalDb,
+  pending: TombstonedProviderAttachment,
+  cleanupProviderAttachment: ProviderAttachmentCleanup,
+): Promise<void> {
+  try {
+    await db.transaction(async (tx) => {
+      await lockCanonicalMessageAttachments(tx, pending.messageId);
+      const otherReference = await tx
+        .select({ id: pgSchema.messageAttachmentsPostgres.id })
+        .from(pgSchema.messageAttachmentsPostgres)
+        .where(
+          and(
+            eq(
+              pgSchema.messageAttachmentsPostgres.storageRef,
+              pending.storageRef,
+            ),
+            ne(pgSchema.messageAttachmentsPostgres.id, pending.attachmentId),
+          ),
+        )
+        .limit(1);
+      if (otherReference.length === 0) {
+        await cleanupProviderAttachment(pending.storageRef);
+      }
+      await tx
+        .update(pgSchema.messageAttachmentsPostgres)
+        .set({ storageRef: null })
+        .where(
+          and(
+            eq(pgSchema.messageAttachmentsPostgres.id, pending.attachmentId),
+            eq(
+              pgSchema.messageAttachmentsPostgres.messageId,
+              pending.messageId,
+            ),
+            eq(
+              pgSchema.messageAttachmentsPostgres.storageRef,
+              pending.storageRef,
+            ),
+            isNotNull(pgSchema.messageAttachmentsPostgres.deletedAt),
+          ),
+        );
+    });
+  } catch (error) {
+    logger.warn(
+      { errorCode: errorCode(error) },
+      'Failed to reclaim tombstoned provider attachment materialization',
+    );
+  }
 }
 
 function errorCode(error: unknown): string | undefined {
