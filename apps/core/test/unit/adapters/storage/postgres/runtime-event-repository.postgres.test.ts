@@ -271,6 +271,7 @@ describe('PostgresRuntimeEventRepository', () => {
         'transaction:commit',
         'transaction:begin',
         'lock:message_attachments',
+        'lock:message_attachments',
         'select:provider_attachment',
         'reclaim:provider_attachment',
         'transaction:commit',

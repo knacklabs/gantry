@@ -91,6 +91,33 @@ describe('canonical message attachment preservation', () => {
     ).toBe(currentStorageRef);
   });
 
+  it('yields a preserved id claimed by another incoming attachment', () => {
+    const existing = existingAttachmentMetadataMaps([
+      {
+        id: 'provider-id',
+        externalRefJson: { kind: 'message_attachment', value: 'F1' },
+        storageRef: 'provider-attachments/f1.pdf',
+        fileName: 'f1.pdf',
+        providerFetchJson: null,
+        deletedAt: null,
+      },
+    ]);
+
+    // F1 arrives ID-less (would preserve row 'provider-id'); F2 explicitly
+    // claims 'provider-id'. F1 must keep its metadata under its OWN
+    // synthesized id — never duplicate the claimed primary key.
+    const preserved = preservedMetadataForIncomingAttachment(
+      { kind: 'file', externalId: 'F1' },
+      'message-attachment:external:msg:F1',
+      existing,
+      new Set(['provider-id']),
+    );
+
+    expect(preserved.attachmentId).toBe('message-attachment:external:msg:F1');
+    expect(preserved.storageRef).toBe('provider-attachments/f1.pdf');
+    expect(preserved.fileName).toBe('f1.pdf');
+  });
+
   it('consumes a matched row once so duplicated identities cannot reuse its id', () => {
     const existing = existingAttachmentMetadataMaps([
       {

@@ -1046,6 +1046,7 @@ describe('CanonicalMessageOpsService', () => {
       'save:commit',
       'cleanup:begin',
       'lock',
+      'lock',
       'recheck:referenced',
       'cleanup:commit',
     ]);

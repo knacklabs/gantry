@@ -320,6 +320,7 @@ export async function replaceCanonicalMessageAttachments(
         attachment,
         attachmentId,
         existingAttachmentMetadata,
+        reservedIncomingIds(attachmentIds, index),
       );
       return {
         id: preservedMetadata.attachmentId,
@@ -373,10 +374,25 @@ function mergedProviderFetch(
     : incoming;
 }
 
+/** IDs claimed by OTHER incoming attachments in this save; a preserved row
+ *  whose id is claimed elsewhere keeps its metadata but yields the primary
+ *  key to the claimant (the occurrence gets its own synthesized id). */
+export function reservedIncomingIds(
+  attachmentIds: readonly string[],
+  ownIndex: number,
+): Set<string> {
+  const reserved = new Set<string>();
+  attachmentIds.forEach((id, index) => {
+    if (index !== ownIndex) reserved.add(id);
+  });
+  return reserved;
+}
+
 export function preservedMetadataForIncomingAttachment(
   attachment: IncomingMessageAttachment,
   attachmentId: string,
   existingMetadata: ReturnType<typeof existingAttachmentMetadataMaps>,
+  reservedByOtherIncoming?: Set<string>,
 ) {
   const incomingProviderFetchIdentity = providerFetchIdentity(
     attachment.provider_fetch,
@@ -430,8 +446,10 @@ export function preservedMetadataForIncomingAttachment(
   }
   const incomingExternalRef =
     attachmentExternalRefForIncomingAttachment(attachment);
+  const preservedIdUsable =
+    preserved !== undefined && !reservedByOtherIncoming?.has(preserved.id);
   return {
-    attachmentId: preserved?.id ?? attachmentId,
+    attachmentId: preservedIdUsable ? preserved.id : attachmentId,
     externalRefJson:
       attachment.externalId !== undefined
         ? incomingExternalRef

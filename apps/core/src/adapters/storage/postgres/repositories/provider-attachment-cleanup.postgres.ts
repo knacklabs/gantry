@@ -4,7 +4,10 @@ import { logger } from '../../../../infrastructure/logging/logger.js';
 import { isProviderAttachmentStorageRef } from '../../../../shared/provider-attachment-materialization.js';
 import * as pgSchema from '../schema/schema.js';
 import type { CanonicalDb } from './canonical-graph-repository.postgres.js';
-import { lockCanonicalMessageAttachments } from './canonical-message-attachment-lock.postgres.js';
+import {
+  lockCanonicalMessageAttachments,
+  lockProviderAttachmentStorageRef,
+} from './canonical-message-attachment-lock.postgres.js';
 
 export type ProviderAttachmentCleanup = (storageRef: string) => Promise<void>;
 
@@ -55,6 +58,7 @@ export async function cleanupRemovedProviderAttachments(
       try {
         await db.transaction(async (tx) => {
           await lockCanonicalMessageAttachments(tx, messageId);
+          await lockProviderAttachmentStorageRef(tx, storageRef);
           const referenced = await tx
             .select({ id: pgSchema.messageAttachmentsPostgres.id })
             .from(pgSchema.messageAttachmentsPostgres)
@@ -84,6 +88,7 @@ export async function reclaimTombstonedProviderAttachment(
   try {
     await db.transaction(async (tx) => {
       await lockCanonicalMessageAttachments(tx, pending.messageId);
+      await lockProviderAttachmentStorageRef(tx, pending.storageRef);
       const otherReference = await tx
         .select({ id: pgSchema.messageAttachmentsPostgres.id })
         .from(pgSchema.messageAttachmentsPostgres)

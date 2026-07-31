@@ -138,6 +138,7 @@ describe('PostgresMessageAttachmentRepository', () => {
       'claim:lock',
       'claim:commit',
       'cleanup:lock',
+      'cleanup:lock',
       'cleanup:unreferenced',
       'store:remove:provider-attachments/unreadable-old.txt',
     ]);
@@ -192,6 +193,7 @@ describe('PostgresMessageAttachmentRepository', () => {
     );
 
     expect(operations).toEqual([
+      'cleanup:lock',
       'cleanup:lock',
       'cleanup:unreferenced',
       'cleanup:unlink',
@@ -321,6 +323,7 @@ describe('PostgresMessageAttachmentRepository', () => {
       expect(cleanupSet).toHaveBeenCalledWith({ storageRef: null });
       expect(operations).toEqual([
         'tombstone:commit',
+        'cleanup:lock',
         'cleanup:lock',
         'cleanup:shared-ref',
         'cleanup:cas',

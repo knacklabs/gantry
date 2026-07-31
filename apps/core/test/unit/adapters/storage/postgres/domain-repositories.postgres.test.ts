@@ -391,6 +391,7 @@ describe('PostgresMessageRepository', () => {
     expect(operations).toEqual([
       'save:commit',
       'cleanup:lock',
+      'cleanup:lock',
       'cleanup:recheck-restored',
     ]);
     expect(tx.execute).toHaveBeenCalledTimes(1);
