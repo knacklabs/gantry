@@ -6,7 +6,7 @@
 set -eu
 
 HERE="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
-FORGE_SCRIPT="$HERE/.agents/scripts/forge.py"
+FORGE_SCRIPT="$HERE/factory/scripts/forge.py"
 
 [ -f "$FORGE_SCRIPT" ] || {
   echo "[FAIL] Forge script not found: $FORGE_SCRIPT" >&2

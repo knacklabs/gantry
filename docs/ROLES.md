@@ -13,10 +13,10 @@ Owns the business truth: what we're building and why.
 | Discovery conversation | "Let's run office hours" (gstack `/office-hours`) |
 | Product intent | own `docs/product/DISCOVERY.md` + `BRIEF.md` |
 | Client decisions | "Record that as a decision" → you are the human who runs `./forge decision accept <slug> --by "<you>"` |
-| **Grill before sign-off** | "Grill the handover" — an adversarial pass (`.agents/prompts/griller.md`) interrogates DISCOVERY/BRIEF/decisions for gaps and contradictions, one question at a time; findings become doc edits or decision records. `record_signoff.py` REFUSES without a fresh, passing `.factory/grills/signoff.json` |
-| Client sign-off | the `client-signoff` decision + `record_signoff.py` — nothing proceeds without you |
-| **Grill the epics handover** | same drill against the proposed epics/stories (coverage vs BRIEF, criteria vs decisions, order sanity) — `roadmap import` refuses without a passing `epics` grill |
-| **Epics (the PM→EM handoff)** | after the grill: `./forge decision new epics-approved` (list the epics in it) → `./forge decision accept epics-approved --by "<you>"`. **Roadmap import is refused until this exists.** |
+| Capability contracts | save specs during prototyping; each confirmation gets its own fresh spec grill |
+| Derived roadmap | review the spec-linked epics/stories produced by `./forge roadmap derive` |
+| **Grill before sign-off** | interrogate DISCOVERY/BRIEF/specs/roadmap/decisions for gaps and contradictions; `record_signoff.py` refuses without a fresh pass |
+| Client sign-off | the `client-signoff` decision + `record_signoff.py`; the spec/roadmap coverage gate runs now |
 | Scope changes later | epics live in `plans/roadmap.json` (`epics` block) — change them by PR |
 
 ## EM — engineering manager
@@ -25,8 +25,8 @@ Owns the backlog shape and distribution: epics → stories → devs.
 
 | You do | You say / run |
 |---|---|
-| **Stories (the EM→dev handoff)** | after the PM accepts epics: "record the roadmap" → `./forge roadmap import --input <json>` — items carry `story`, `acceptance_criteria`, `epic`, `skill` (frontend/backend/fullstack), execution `order` |
-| Groom / extend | `./forge roadmap add <KEY> "<title>" --epic <id> --skill <s>`; edit `plans/roadmap.json` by PR |
+| **Stories (the EM→dev handoff)** | review and distribute the derived roadmap; every story carries its source `spec`, criteria, epic, skill, and order |
+| Groom / extend | add a story only with its confirmed `--spec`; edit `plans/roadmap.json` by PR |
 | Define the team (optional, recommended) | `./forge team set <handle> --role dev --skills frontend,backend` — makes distribution checkable |
 | Distribute | `./forge roadmap assign <KEY> --to <dev>` — validated against the roster; match item `skill` to dev skills (a fullstack dev can take anything; specialists take their lane). Assignments survive re-imports |
 | Watch the board | `./forge roadmap list` (grouped by epic, shows @assignee) — `forge next` flags unassigned pending items to you |
@@ -47,8 +47,8 @@ Owns one story at a time, on its own branch (see Concurrency in WORKFLOW.md).
 ## Handoff summary
 
 ```text
-client ──[grill]──sign-off gate──▶ PM ──[grill]──epics-approved gate──▶ EM ──roadmap item + assign──▶ dev
-      (decision + record_signoff)          (decision accept)            (intake activates; pr_ready closes)
+prototype ──[spec grills]──▶ confirmed specs ──▶ derived roadmap
+         ──[sign-off grill + decision]──▶ PM/EM review + assign ──▶ dev
 ```
 
 Every handoff is an artifact plus a gate, and every gate is preceded by a
