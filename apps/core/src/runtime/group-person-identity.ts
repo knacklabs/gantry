@@ -178,6 +178,12 @@ export async function resolveCanonicalMemoryPersonId(input: {
         threadId: input.threadId,
       });
     }
+    // The DM gate is the LOCKED memory boundary (spec person-identity-aliases;
+    // ID-1 decision 8), not an accident: group/channel turns resolve identity
+    // for audit evidence only and never hydrate personal memory — a channel
+    // sender's resolved person is deliberately unused here. A review suggested
+    // gating on memoryHydrationEligible alone; that would let personal context
+    // into shared rooms, which is the exact leak this boundary exists to stop.
     const canHydratePersonalMemory =
       input.conversationKind === 'dm' && resolved.memoryHydrationEligible;
     const personId =

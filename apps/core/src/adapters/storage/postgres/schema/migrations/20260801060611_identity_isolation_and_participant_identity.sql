@@ -12,6 +12,11 @@ JOIN provider_accounts AS provider_account
 WHERE participant.conversation_id = conversation.id
   AND participant.app_id = conversation.app_id;
 
+-- Deliberate deletion, not an oversight (review finding rejected 2026-08-01):
+-- this repo runs a no-backward-compatibility policy (decision 0003) and Ravi
+-- confirmed no legacy is needed for these rows specifically. Participant rows
+-- without an external identity predate identity-carrying participants and
+-- cannot be attributed to a person; they are dropped rather than backfilled.
 DELETE FROM conversation_participants
 WHERE external_user_id IS NULL;
 
