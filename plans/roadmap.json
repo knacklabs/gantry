@@ -400,10 +400,13 @@
         "Conversation scoping refusal proven on real Postgres for Discord identities"
       ],
       "order": 26,
-      "status": "pending",
+      "status": "done",
       "skill": "backend",
       "kind": "feature",
-      "spec": "docs/specs/file-1b-discord-file-parity.md"
+      "spec": "docs/specs/file-1b-discord-file-parity.md",
+      "completed_at": "2026-08-01T19:00:59+00:00",
+      "history": ".factory/history/FILE-1B/",
+      "outcome": "Files shared in Discord now behave like Slack files. The agent saves the bytes the moment a file is posted, remembers the filename and where it came from, and can fetch an old file it never saved the first time someone needs it. When a message is deleted on Discord, its files are honestly reported as deleted and the stored bytes are removed \u2014 durably, so a deletion that races message ingestion, hits a transient database error, or arrives for a not-yet-stored message still lands. Ephemeral content is never stored, downloads only ever come from Discord's CDN with no credentials attached, and every file stays locked to its own conversation. Remaining edges (attachment removal via message edits, marker retention hygiene) are recorded as deferrals with triggers."
     }
   ],
   "epics": [
@@ -492,5 +495,5 @@
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-08-01T03:23:00+00:00"
+  "updated_at": "2026-08-01T19:00:59+00:00"
 }
