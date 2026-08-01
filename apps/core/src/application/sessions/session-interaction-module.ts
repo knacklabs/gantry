@@ -228,19 +228,7 @@ export class SessionInteractionModule {
       await this.deps.repositories.messages.listConversationIdsForJid(
         session.conversationJid,
       );
-    if (conversationIds.length === 0) {
-      // Say why the feed is empty. A silent [] here is indistinguishable from
-      // "the assistant never replied", which is what made the missing-message
-      // failure undiagnosable.
-      console.warn(
-        JSON.stringify({
-          event: 'session_messages_no_conversation_rows',
-          sessionId: input.sessionId,
-          conversationJid: session.conversationJid,
-        }),
-      );
-      return { messages: [] };
-    }
+    if (conversationIds.length === 0) return { messages: [] };
     const lists = await Promise.all(
       conversationIds.map((conversationId) =>
         this.deps.repositories.messages.listRecentMessages({
@@ -253,15 +241,6 @@ export class SessionInteractionModule {
       .flat()
       .sort((a, b) => (a.createdAt < b.createdAt ? -1 : 1))
       .slice(-input.limit);
-    console.warn(
-      JSON.stringify({
-        event: 'session_messages_resolved',
-        sessionId: input.sessionId,
-        conversationJid: session.conversationJid,
-        conversationIds,
-        messageCount: messages.length,
-      }),
-    );
     return { messages };
   }
 
