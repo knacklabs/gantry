@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
+import { AddPersonAliasRequestSchema } from '@gantry/contracts';
+
 import {
   PersonIdentityService,
   type PersonIdentityRepository,
@@ -50,5 +52,20 @@ describe('person identity service', () => {
       }),
       undefined,
     );
+  });
+
+  it('never exposes verified as a People API alias input', () => {
+    const parsed = AddPersonAliasRequestSchema.parse({
+      provider: 'email',
+      externalUserId: 'person@example.com',
+      evidenceType: 'email',
+      verificationStatus: 'verified',
+      verifiedAt: '2026-08-01T00:00:00.000Z',
+      verifiedBy: 'api-client',
+    });
+
+    expect(parsed).not.toHaveProperty('verificationStatus');
+    expect(parsed).not.toHaveProperty('verifiedAt');
+    expect(parsed).not.toHaveProperty('verifiedBy');
   });
 });

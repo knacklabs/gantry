@@ -28,6 +28,13 @@ maybeDescribe('memory write, recall, and subject boundary (Postgres)', () => {
       schemaPrefix: 'memory_boundary',
     });
     memory = new AppMemoryService(runtime.service.db);
+    // memory_items_app_user_fk: person-scoped memories require the person row.
+    await runtime.service.pool.query(
+      `INSERT INTO users (id, app_id, kind, status, created_at, updated_at)
+       SELECT unnest($2::text[]), $1, 'human', 'active', now(), now()
+       ON CONFLICT DO NOTHING`,
+      [APP_ID, ['user:alice', 'user:bob']],
+    );
   }, 60_000);
 
   afterAll(async () => {

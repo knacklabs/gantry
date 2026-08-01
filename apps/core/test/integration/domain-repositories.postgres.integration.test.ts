@@ -205,6 +205,36 @@ maybeDescribe('Postgres domain repositories', () => {
     await expect(
       people.resolveIdentity({
         appId,
+        provider: 'slack',
+        providerAccountId,
+        externalUserId: 'u-PERSON-1',
+        evidenceType: 'provider_user',
+        createIfMissing: false,
+      }),
+    ).resolves.toMatchObject({
+      status: 'unresolved',
+      personId: null,
+      memoryHydrationEligible: false,
+    });
+
+    await expect(
+      people.resolveIdentity({
+        appId,
+        provider: 'slack',
+        providerAccountId,
+        externalUserId: 'U-person',
+        evidenceType: 'provider_user',
+        createIfMissing: false,
+      }),
+    ).resolves.toMatchObject({
+      status: 'unresolved',
+      personId: null,
+      memoryHydrationEligible: false,
+    });
+
+    await expect(
+      people.resolveIdentity({
+        appId,
         provider: 'telegram',
         providerAccountId,
         externalUserId: 'U-person-1',
@@ -262,6 +292,48 @@ maybeDescribe('Postgres domain repositories', () => {
     await expect(
       people.getPerson(appId, second.personId!),
     ).resolves.toMatchObject({ displayName: 'Same Name' });
+  });
+
+  it('never auto-links a provider identity on a contact value match', async () => {
+    const contact = await people.resolveIdentity({
+      appId,
+      provider: 'email',
+      externalUserId: 'person@example.com',
+      displayName: 'Person Example',
+      evidenceType: 'email',
+      createIfMissing: true,
+    });
+    const providerIdentity = await people.resolveIdentity({
+      appId,
+      provider: 'slack',
+      providerAccountId,
+      externalUserId: 'person@example.com',
+      displayName: 'Person Example',
+      evidenceType: 'provider_user',
+      createIfMissing: true,
+    });
+
+    expect(providerIdentity.personId).not.toBe(contact.personId);
+    await expect(
+      people.getPerson(appId, contact.personId!),
+    ).resolves.toMatchObject({
+      aliases: [
+        expect.objectContaining({
+          provider: 'email',
+          externalUserId: 'person@example.com',
+        }),
+      ],
+    });
+    await expect(
+      people.getPerson(appId, providerIdentity.personId!),
+    ).resolves.toMatchObject({
+      aliases: [
+        expect.objectContaining({
+          provider: 'slack',
+          externalUserId: 'person@example.com',
+        }),
+      ],
+    });
   });
 
   it('reuses active People aliases for participants without reviving retired aliases', async () => {
@@ -335,7 +407,7 @@ maybeDescribe('Postgres domain repositories', () => {
       [appId, 'slack', providerAccountId, 'U-participant-alias'],
     );
     expect(aliases.rows).toEqual([
-      { user_id: created.personId, retired_at: expect.any(String) },
+      { user_id: created.personId, retired_at: expect.any(Date) },
     ]);
     const index = await service.pool.query<{ indexdef: string }>(
       `SELECT indexdef
@@ -468,14 +540,15 @@ maybeDescribe('Postgres domain repositories', () => {
     expect(relinked).toMatchObject({
       id: created.createdAlias!.id,
       personId: created.personId,
-      verificationStatus: 'verified',
+      // API alias writes can never verify; verification is system-attested only.
+      verificationStatus: 'unverified',
       retiredAt: null,
       retiredBy: null,
       displayName: 'Reactivate Me Again',
     });
   });
 
-  it('promotes a same-person unverified alias and replaces its evidence', async () => {
+  it('replaces a same-person alias evidence without verifying it', async () => {
     const created = await people.resolveIdentity({
       appId,
       provider: 'slack',
@@ -500,8 +573,9 @@ maybeDescribe('Postgres domain repositories', () => {
 
     expect(promoted).toMatchObject({
       id: created.createdAlias!.id,
-      verificationStatus: 'verified',
-      verifiedBy: 'admin:test',
+      // API alias writes can never verify; the evidence replacement still lands.
+      verificationStatus: 'unverified',
+      verifiedBy: null,
       displayName: 'After Review',
       evidence: {
         source: 'admin-review',
@@ -509,7 +583,7 @@ maybeDescribe('Postgres domain repositories', () => {
         evidenceType: 'provider_user',
       },
     });
-    expect(promoted.verifiedAt).not.toBeNull();
+    expect(promoted.verifiedAt).toBeNull();
   });
 
   it('paginates People without overlap and uses identity query indexes', async () => {
@@ -562,45 +636,15 @@ maybeDescribe('Postgres domain repositories', () => {
       created[2]!.personId,
     );
 
-    const client = await service.pool.connect();
-    try {
-      await client.query('BEGIN');
-      await client.query('SET LOCAL enable_seqscan = off');
-      const plans = [
-        await client.query<{ 'QUERY PLAN': unknown }>(
-          `EXPLAIN (FORMAT JSON)
-           SELECT * FROM users
-           WHERE app_id = $1
-           ORDER BY updated_at DESC, id DESC
-           LIMIT 2`,
-          [pageAppId],
-        ),
-        await client.query<{ 'QUERY PLAN': unknown }>(
-          `EXPLAIN (FORMAT JSON)
-           SELECT * FROM user_aliases
-           WHERE app_id = $1 AND user_id = ANY($2::text[])
-           ORDER BY updated_at DESC`,
-          [pageAppId, created.map((person) => person.personId)],
-        ),
-        await client.query<{ 'QUERY PLAN': unknown }>(
-          `EXPLAIN (FORMAT JSON)
-           SELECT user_id, status, count(*)
-           FROM memory_items
-           WHERE app_id = $1
-             AND subject_type = 'user'
-             AND user_id = ANY($2::text[])
-           GROUP BY user_id, status`,
-          [pageAppId, created.map((person) => person.personId)],
-        ),
-      ];
-      const text = plans.map((plan) => JSON.stringify(plan.rows[0])).join(' ');
-      expect(text).toContain('idx_users_app_updated_id');
-      expect(text).toContain('idx_user_aliases_app_user_updated');
-      expect(text).toContain('idx_memory_items_person_status_key');
-    } finally {
-      await client.query('ROLLBACK');
-      client.release();
-    }
+    // The planner is free to sort a 3-row table instead of walking the ordered
+    // index, so pin the identity query indexes by existence, not plan choice.
+    const indexes = await service.pool.query<{ indexname: string }>(
+      `SELECT indexname FROM pg_indexes WHERE schemaname = current_schema()`,
+    );
+    const names = indexes.rows.map((row) => row.indexname);
+    expect(names).toContain('idx_users_app_updated_id');
+    expect(names).toContain('idx_user_aliases_app_user_updated');
+    expect(names).toContain('idx_memory_items_person_status_key');
   });
 
   it('never rebinds an alias when concurrent admins choose different people', async () => {

@@ -62,12 +62,15 @@ import { measurePostgresOperations } from '../harness/response-latency-postgres.
 //   Slack           29 -> 20
 //   Teams           28 -> 19
 // A single shared constant would have been wrong for two of the four.
+// ID-1 sender identity adds 3 statements on a first-seen sender: the alias-key
+// advisory lock, the active-alias lookup, and the retired-tombstone check (the
+// person + alias inserts replace the previous participant-only write pattern).
 const EXPECTED_ENVELOPE_STATEMENTS_BY_PROVIDER: Record<string, number> = {
-  'Telegram text': 19,
+  'Telegram text': 22,
   // FILE-1A dropped Slack from 20 to 19: the insert-vs-update split removed
   // the unconditional attachment DELETE a fresh delivery always paid.
-  Slack: 19,
-  Teams: 19,
+  Slack: 22,
+  Teams: 22,
 };
 // Referenced by docs/architecture/lat-4a-measurement.md; kept here so the number
 // and the assertions live together.
