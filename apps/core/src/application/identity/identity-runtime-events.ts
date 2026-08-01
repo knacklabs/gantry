@@ -197,6 +197,31 @@ export function identityMergedEvent(input: {
   };
 }
 
+export function identityUnmergedEvent(input: {
+  appId: string;
+  auditId: string;
+  sourcePersonId: string;
+  targetPersonId: string;
+  actor: string;
+  memoryRowsRestored: number;
+  unmergedAt: string;
+}): RuntimeEventPublishInput {
+  return {
+    appId: input.appId as never,
+    eventType: RUNTIME_EVENT_TYPES.IDENTITY_UNMERGED,
+    actor: input.actor,
+    payload: {
+      source: 'control_api',
+      auditId: input.auditId,
+      sourcePersonId: input.sourcePersonId,
+      targetPersonId: input.targetPersonId,
+      actor: input.actor,
+      memoryRowsRestored: input.memoryRowsRestored,
+      unmergedAt: input.unmergedAt,
+    },
+  };
+}
+
 export async function publishMemoryHydrationDecisionEvent(
   publish: RuntimeEventPublisher | undefined,
   input: {

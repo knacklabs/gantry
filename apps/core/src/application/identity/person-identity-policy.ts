@@ -43,7 +43,7 @@ export function assertAliasCanResolve(retired: boolean): void {
 }
 
 export function assertMergeablePeople(
-  rows: Array<{ status: string }>,
+  rows: Array<{ status: string; kind: string }>,
   targetPersonId: string,
   sourcePersonId: string,
 ): void {
@@ -63,6 +63,12 @@ export function assertMergeablePeople(
     throw new ApplicationError(
       'CONFLICT',
       'Source and target people must both be active and unmerged.',
+    );
+  }
+  if (rows[0]!.kind !== rows[1]!.kind) {
+    throw new ApplicationError(
+      'CONFLICT',
+      'People of different kinds cannot be merged.',
     );
   }
 }

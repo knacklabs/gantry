@@ -904,6 +904,13 @@
       "when": 1785592203404,
       "tag": "20260801135003_identity_schema_baseline",
       "breakpoints": true
+    },
+    {
+      "idx": 132,
+      "version": "7",
+      "when": 1785607107238,
+      "tag": "20260801175827_normalize_contact_aliases",
+      "breakpoints": true
     }
   ]
 }

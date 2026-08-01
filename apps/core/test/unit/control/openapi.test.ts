@@ -10,9 +10,12 @@ import {
   IdentityResolveRequestSchema,
   IdentityResolveResponseSchema,
   PersonAliasResponseSchema,
+  PersonMergeApplyRequestSchema,
   PersonMergeApplyResponseSchema,
   PersonMergePreviewResponseSchema,
   PersonMergeRequestSchema,
+  PersonUnmergeRequestSchema,
+  PersonUnmergeResponseSchema,
   PersonResponseSchema,
   PeopleListResponseSchema,
 } from '@gantry/contracts';
@@ -144,6 +147,7 @@ const expectedControlRoutes = [
   'DELETE /v1/people/{personId}/aliases/{aliasId}',
   'POST /v1/people/{personId}/merge',
   'POST /v1/people/{personId}/merge:preview',
+  'POST /v1/people/{personId}/unmerge',
   'GET /v1/providers',
   'GET /v1/runs',
   'GET /v1/runs/{runId}',
@@ -524,6 +528,27 @@ describe('control OpenAPI documentation', () => {
         valid: false,
       },
     ]);
+    expectSchemaParity(
+      'PersonMergeApplyRequest',
+      PersonMergeApplyRequestSchema,
+      [
+        {
+          value: {
+            sourcePersonId: 'person-source',
+            fingerprint: 'sha256:preview',
+          },
+          valid: true,
+        },
+        { value: { sourcePersonId: 'person-source' }, valid: false },
+      ],
+    );
+    expectSchemaParity('PersonUnmergeRequest', PersonUnmergeRequestSchema, [
+      {
+        value: { auditId: 'audit-1', fingerprint: 'sha256:preview' },
+        valid: true,
+      },
+      { value: { auditId: 'audit-1' }, valid: false },
+    ]);
     expect(
       AddPersonAliasRequestSchema.parse({
         appId: 'app-one',
@@ -680,6 +705,37 @@ describe('control OpenAPI documentation', () => {
         },
       ],
     );
+    expectSchemaParity('PersonUnmergeResponse', PersonUnmergeResponseSchema, [
+      {
+        value: {
+          summary:
+            'Person unmerge completed. The archived person and merge-owned data were restored.',
+          auditId: 'audit-1',
+          sourcePersonId: 'person-source',
+          targetPersonId: 'person-target',
+          restoredPerson: {
+            personId: 'person-source',
+            appId: 'app-one',
+            kind: 'human',
+            status: 'active',
+            createdAt: '2026-01-01T00:00:00.000Z',
+            updatedAt: '2026-01-02T00:00:00.000Z',
+          },
+          aliasesRestored: [personAlias],
+          memoryRowsRestored: 2,
+          unmergedAt: '2026-01-02T00:00:00.000Z',
+        },
+        valid: true,
+      },
+      {
+        value: {
+          auditId: 'audit-1',
+          sourcePersonId: 'person-source',
+          targetPersonId: 'person-target',
+        },
+        valid: false,
+      },
+    ]);
   });
 
   it('documents People operation schemas and app scope inputs', () => {
@@ -727,7 +783,7 @@ describe('control OpenAPI documentation', () => {
       requestBody: {
         content: {
           'application/json': {
-            schema: { $ref: '#/components/schemas/PersonMergeRequest' },
+            schema: { $ref: '#/components/schemas/PersonMergeApplyRequest' },
           },
         },
       },
@@ -738,6 +794,24 @@ describe('control OpenAPI documentation', () => {
               schema: {
                 $ref: '#/components/schemas/PersonMergeApplyResponse',
               },
+            },
+          },
+        },
+      },
+    });
+    expect(spec.paths['/v1/people/{personId}/unmerge']?.post).toMatchObject({
+      requestBody: {
+        content: {
+          'application/json': {
+            schema: { $ref: '#/components/schemas/PersonUnmergeRequest' },
+          },
+        },
+      },
+      responses: {
+        '200': {
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/PersonUnmergeResponse' },
             },
           },
         },

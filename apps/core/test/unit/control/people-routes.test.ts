@@ -12,6 +12,7 @@ const fakeRepository = vi.hoisted(() => ({
   retireAlias: vi.fn(),
   previewMerge: vi.fn(),
   mergePeople: vi.fn(),
+  unmergePerson: vi.fn(),
 }));
 
 const runtimeEvents = vi.hoisted(() => ({
@@ -29,6 +30,7 @@ vi.mock(
       retireAlias = fakeRepository.retireAlias;
       previewMerge = fakeRepository.previewMerge;
       mergePeople = fakeRepository.mergePeople;
+      unmergePerson = fakeRepository.unmergePerson;
     },
   }),
 );
@@ -508,7 +510,7 @@ describe('people control routes', () => {
         provider: 'slack',
         providerAccountId: 'providerAccount-slack',
         externalUserId: 'U123',
-        verificationStatus: 'verified',
+        verificationStatus: 'unverified',
         createdAt: '2026-01-01T00:00:00.000Z',
         updatedAt: '2026-01-01T00:00:00.000Z',
       };
@@ -576,5 +578,102 @@ describe('people control routes', () => {
       (call) => call[0].payload,
     );
     expect(JSON.stringify(publishedPayloads)).not.toContain('U123');
+  });
+
+  it('does not let the People API set an alias as verified', async () => {
+    fakeRepository.addAlias.mockImplementation(async (input) => ({
+      ...input,
+      id: 'alias-1',
+      verificationStatus: 'unverified',
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+    }));
+
+    const { res, body } = await call({
+      method: 'POST',
+      pathname: '/v1/people/person-1/aliases',
+      body: {
+        provider: 'email',
+        externalUserId: 'person@example.com',
+        evidenceType: 'email',
+        verificationStatus: 'verified',
+        verifiedBy: 'api-client',
+      },
+      scopes: ['people:admin'],
+    });
+
+    expect(res.statusCode).toBe(201);
+    expect(body.alias.verificationStatus).toBe('unverified');
+    expect(fakeRepository.addAlias).toHaveBeenCalledWith(
+      expect.not.objectContaining({
+        verificationStatus: expect.anything(),
+        verifiedBy: expect.anything(),
+      }),
+      expect.any(Function),
+    );
+  });
+
+  it('unmerges one audited merge under people:admin', async () => {
+    fakeRepository.unmergePerson.mockResolvedValue({
+      summary:
+        'Person unmerge completed. The archived person and merge-owned data were restored.',
+      auditId: 'audit-1',
+      sourcePersonId: 'person-source',
+      targetPersonId: 'person-target',
+      restoredPerson: {
+        personId: 'person-source',
+        appId: 'app-one',
+        kind: 'human',
+        status: 'active',
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-02T00:00:00.000Z',
+      },
+      aliasesRestored: [],
+      memoryRowsRestored: 0,
+      unmergedAt: '2026-01-02T00:00:00.000Z',
+    });
+
+    const forbidden = await call({
+      method: 'POST',
+      pathname: '/v1/people/person-target/unmerge',
+      body: { auditId: 'audit-1', fingerprint: 'sha256:preview' },
+      scopes: ['people:read'],
+    });
+    const allowed = await call({
+      method: 'POST',
+      pathname: '/v1/people/person-target/unmerge',
+      body: { auditId: 'audit-1', fingerprint: 'sha256:preview' },
+      scopes: ['people:admin'],
+    });
+
+    expect(forbidden.res.statusCode).toBe(403);
+    expect(allowed.res.statusCode).toBe(200);
+    expect(fakeRepository.unmergePerson).toHaveBeenCalledWith(
+      {
+        appId: 'app-one',
+        targetPersonId: 'person-target',
+        auditId: 'audit-1',
+        expectedFingerprint: 'sha256:preview',
+        actor: 'test',
+      },
+      expect.any(Function),
+    );
+    const eventFactory = fakeRepository.unmergePerson.mock.calls.at(-1)?.[1] as (
+      result: unknown,
+    ) => { eventType: string; payload: Record<string, unknown> };
+    const event = eventFactory({
+      auditId: 'audit-1',
+      sourcePersonId: 'person-source',
+      targetPersonId: 'person-target',
+      memoryRowsRestored: 2,
+      unmergedAt: '2026-01-02T00:00:00.000Z',
+    });
+    expect(event.eventType).toBe('identity.unmerged');
+    expect(event.payload).toMatchObject({
+      auditId: 'audit-1',
+      sourcePersonId: 'person-source',
+      targetPersonId: 'person-target',
+      memoryRowsRestored: 2,
+    });
   });
 });

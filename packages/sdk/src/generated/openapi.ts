@@ -1014,7 +1014,7 @@ export interface paths {
         put?: never;
         /**
          * Add person alias
-         * @description Links an alias to a person as verified after admin review.
+         * @description Links an unverified alias to a person. Verification requires a system-attested control flow.
          */
         post: operations["addPersonAlias"];
         delete?: never;
@@ -1077,6 +1077,26 @@ export interface paths {
          * @description Atomically moves aliases and user-scoped personal memory to the target person.
          */
         post: operations["mergePerson"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/people/{personId}/unmerge": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Unmerge person
+         * @description Restores the archived source person and only the aliases and personal memory rows recorded by the merge audit. Messages and data added to the surviving person after the merge remain untouched Publishes an identity.unmerged runtime event.
+         */
+        post: operations["unmergePerson"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2305,6 +2325,14 @@ export interface components {
             /** @enum {string} */
             conflictResolution?: "fail_on_conflict" | "keep_target";
         };
+        PersonMergeApplyRequest: {
+            appId?: string;
+            sourcePersonId: string;
+            idempotencyKey?: string;
+            fingerprint: string;
+            /** @enum {string} */
+            conflictResolution?: "fail_on_conflict" | "keep_target";
+        };
         PersonMergeConflict: {
             /** @enum {string} */
             type?: "memory" | "alias";
@@ -2350,6 +2378,23 @@ export interface components {
             idempotencyKey: string;
             auditId: string;
             applied: boolean;
+        };
+        PersonUnmergeRequest: {
+            appId?: string;
+            auditId: string;
+            fingerprint: string;
+        };
+        PersonUnmergeResponse: {
+            /** @constant */
+            summary: "Person unmerge completed. The archived person and merge-owned data were restored.";
+            auditId: string;
+            sourcePersonId: string;
+            targetPersonId: string;
+            restoredPerson: components["schemas"]["Person"];
+            aliasesRestored: components["schemas"]["PersonAlias"][];
+            memoryRowsRestored: number;
+            /** Format: date-time */
+            unmergedAt: string;
         };
         ModelCredentialStatus: {
             /** @example provider-id */
@@ -3246,7 +3291,7 @@ export interface components {
             /** Format: uri */
             url: string;
             enabled: boolean;
-            eventTypes: ("session.message.inbound" | "session.message.outbound" | "session.message.streaming" | "session.typing" | "session.progress" | "session.compaction.queued" | "session.compaction.running" | "session.compaction.ready" | "session.compaction.degraded" | "session.compaction.failed" | "session.compaction.timeout" | "conversation.message.inbound" | "conversation.message.outbound" | "job.triggered" | "job.run.started" | "job.started" | "job.streaming" | "job.heartbeat" | "job.setup_required" | "job.tool_denied" | "job.tool_activity" | "task.started" | "task.progress" | "task.updated" | "task.notification" | "job.completed" | "job.failed" | "job.run.completed" | "job.run.failed" | "permission.requested" | "permission.allowed" | "permission.denied" | "permission.cancelled" | "permission.persisted" | "permission.resumed" | "permission.final_outcome" | "permission.yolo_denylist_hit" | "permission.classifier_decision" | "interaction.pending" | "interaction.cancellation_discarded" | "credential.capability.updated" | "credential.capability.removed" | "credential.model.updated" | "credential.model.disabled" | "credential.model.used" | "profile.file.read" | "profile.file.updated" | "egress.connect" | "mcp.tool_activity" | "sandbox.blocked" | "model.usage" | "run.started" | "run.startup_diagnostic" | "run.failover" | "run.canceled" | "run.paused" | "run.completed" | "run.failed" | "run.timeout" | "run.dead_lettered" | "proactive.surfacing.outcome" | "webhook.test")[] | null;
+            eventTypes: ("session.message.inbound" | "session.message.outbound" | "session.message.streaming" | "session.typing" | "session.progress" | "session.compaction.queued" | "session.compaction.running" | "session.compaction.ready" | "session.compaction.degraded" | "session.compaction.failed" | "session.compaction.timeout" | "conversation.message.inbound" | "conversation.message.outbound" | "identity.resolved" | "identity.alias.linked" | "identity.alias.retired" | "identity.merged" | "identity.unmerged" | "memory.hydration.decision" | "job.triggered" | "job.run.started" | "job.started" | "job.streaming" | "job.heartbeat" | "job.setup_required" | "job.tool_denied" | "job.tool_activity" | "task.started" | "task.progress" | "task.updated" | "task.notification" | "job.completed" | "job.failed" | "job.run.completed" | "job.run.failed" | "permission.requested" | "permission.allowed" | "permission.denied" | "permission.cancelled" | "permission.persisted" | "permission.resumed" | "permission.final_outcome" | "permission.yolo_denylist_hit" | "permission.classifier_decision" | "interaction.pending" | "interaction.cancellation_discarded" | "credential.capability.updated" | "credential.capability.removed" | "credential.model.updated" | "credential.model.disabled" | "credential.model.used" | "profile.file.read" | "profile.file.updated" | "egress.connect" | "mcp.tool_activity" | "sandbox.blocked" | "model.usage" | "run.started" | "run.startup_diagnostic" | "run.failover" | "run.canceled" | "run.paused" | "run.completed" | "run.failed" | "run.timeout" | "run.dead_lettered" | "proactive.surfacing.outcome" | "webhook.test")[] | null;
             agentId: string | null;
             sessionId: string | null;
             jobId: string | null;
@@ -3264,7 +3309,7 @@ export interface components {
             url: string;
             secret?: string;
             enabled?: boolean;
-            eventTypes?: ("session.message.inbound" | "session.message.outbound" | "session.message.streaming" | "session.typing" | "session.progress" | "session.compaction.queued" | "session.compaction.running" | "session.compaction.ready" | "session.compaction.degraded" | "session.compaction.failed" | "session.compaction.timeout" | "conversation.message.inbound" | "conversation.message.outbound" | "job.triggered" | "job.run.started" | "job.started" | "job.streaming" | "job.heartbeat" | "job.setup_required" | "job.tool_denied" | "job.tool_activity" | "task.started" | "task.progress" | "task.updated" | "task.notification" | "job.completed" | "job.failed" | "job.run.completed" | "job.run.failed" | "permission.requested" | "permission.allowed" | "permission.denied" | "permission.cancelled" | "permission.persisted" | "permission.resumed" | "permission.final_outcome" | "permission.yolo_denylist_hit" | "permission.classifier_decision" | "interaction.pending" | "interaction.cancellation_discarded" | "credential.capability.updated" | "credential.capability.removed" | "credential.model.updated" | "credential.model.disabled" | "credential.model.used" | "profile.file.read" | "profile.file.updated" | "egress.connect" | "mcp.tool_activity" | "sandbox.blocked" | "model.usage" | "run.started" | "run.startup_diagnostic" | "run.failover" | "run.canceled" | "run.paused" | "run.completed" | "run.failed" | "run.timeout" | "run.dead_lettered" | "proactive.surfacing.outcome" | "webhook.test")[] | null;
+            eventTypes?: ("session.message.inbound" | "session.message.outbound" | "session.message.streaming" | "session.typing" | "session.progress" | "session.compaction.queued" | "session.compaction.running" | "session.compaction.ready" | "session.compaction.degraded" | "session.compaction.failed" | "session.compaction.timeout" | "conversation.message.inbound" | "conversation.message.outbound" | "identity.resolved" | "identity.alias.linked" | "identity.alias.retired" | "identity.merged" | "identity.unmerged" | "memory.hydration.decision" | "job.triggered" | "job.run.started" | "job.started" | "job.streaming" | "job.heartbeat" | "job.setup_required" | "job.tool_denied" | "job.tool_activity" | "task.started" | "task.progress" | "task.updated" | "task.notification" | "job.completed" | "job.failed" | "job.run.completed" | "job.run.failed" | "permission.requested" | "permission.allowed" | "permission.denied" | "permission.cancelled" | "permission.persisted" | "permission.resumed" | "permission.final_outcome" | "permission.yolo_denylist_hit" | "permission.classifier_decision" | "interaction.pending" | "interaction.cancellation_discarded" | "credential.capability.updated" | "credential.capability.removed" | "credential.model.updated" | "credential.model.disabled" | "credential.model.used" | "profile.file.read" | "profile.file.updated" | "egress.connect" | "mcp.tool_activity" | "sandbox.blocked" | "model.usage" | "run.started" | "run.startup_diagnostic" | "run.failover" | "run.canceled" | "run.paused" | "run.completed" | "run.failed" | "run.timeout" | "run.dead_lettered" | "proactive.surfacing.outcome" | "webhook.test")[] | null;
             agentId?: string | null;
             sessionId?: string | null;
             jobId?: string | null;
@@ -3275,7 +3320,7 @@ export interface components {
             url?: string;
             secret?: string;
             enabled?: boolean;
-            eventTypes?: ("session.message.inbound" | "session.message.outbound" | "session.message.streaming" | "session.typing" | "session.progress" | "session.compaction.queued" | "session.compaction.running" | "session.compaction.ready" | "session.compaction.degraded" | "session.compaction.failed" | "session.compaction.timeout" | "conversation.message.inbound" | "conversation.message.outbound" | "job.triggered" | "job.run.started" | "job.started" | "job.streaming" | "job.heartbeat" | "job.setup_required" | "job.tool_denied" | "job.tool_activity" | "task.started" | "task.progress" | "task.updated" | "task.notification" | "job.completed" | "job.failed" | "job.run.completed" | "job.run.failed" | "permission.requested" | "permission.allowed" | "permission.denied" | "permission.cancelled" | "permission.persisted" | "permission.resumed" | "permission.final_outcome" | "permission.yolo_denylist_hit" | "permission.classifier_decision" | "interaction.pending" | "interaction.cancellation_discarded" | "credential.capability.updated" | "credential.capability.removed" | "credential.model.updated" | "credential.model.disabled" | "credential.model.used" | "profile.file.read" | "profile.file.updated" | "egress.connect" | "mcp.tool_activity" | "sandbox.blocked" | "model.usage" | "run.started" | "run.startup_diagnostic" | "run.failover" | "run.canceled" | "run.paused" | "run.completed" | "run.failed" | "run.timeout" | "run.dead_lettered" | "proactive.surfacing.outcome" | "webhook.test")[] | null;
+            eventTypes?: ("session.message.inbound" | "session.message.outbound" | "session.message.streaming" | "session.typing" | "session.progress" | "session.compaction.queued" | "session.compaction.running" | "session.compaction.ready" | "session.compaction.degraded" | "session.compaction.failed" | "session.compaction.timeout" | "conversation.message.inbound" | "conversation.message.outbound" | "identity.resolved" | "identity.alias.linked" | "identity.alias.retired" | "identity.merged" | "identity.unmerged" | "memory.hydration.decision" | "job.triggered" | "job.run.started" | "job.started" | "job.streaming" | "job.heartbeat" | "job.setup_required" | "job.tool_denied" | "job.tool_activity" | "task.started" | "task.progress" | "task.updated" | "task.notification" | "job.completed" | "job.failed" | "job.run.completed" | "job.run.failed" | "permission.requested" | "permission.allowed" | "permission.denied" | "permission.cancelled" | "permission.persisted" | "permission.resumed" | "permission.final_outcome" | "permission.yolo_denylist_hit" | "permission.classifier_decision" | "interaction.pending" | "interaction.cancellation_discarded" | "credential.capability.updated" | "credential.capability.removed" | "credential.model.updated" | "credential.model.disabled" | "credential.model.used" | "profile.file.read" | "profile.file.updated" | "egress.connect" | "mcp.tool_activity" | "sandbox.blocked" | "model.usage" | "run.started" | "run.startup_diagnostic" | "run.failover" | "run.canceled" | "run.paused" | "run.completed" | "run.failed" | "run.timeout" | "run.dead_lettered" | "proactive.surfacing.outcome" | "webhook.test")[] | null;
             agentId?: string | null;
             sessionId?: string | null;
             jobId?: string | null;
@@ -6272,7 +6317,7 @@ export interface operations {
         /** @description JSON request payload. */
         requestBody: {
             content: {
-                "application/json": components["schemas"]["PersonMergeRequest"];
+                "application/json": components["schemas"]["PersonMergeApplyRequest"];
             };
         };
         responses: {
@@ -6283,6 +6328,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PersonMergeApplyResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    unmergePerson: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Person id. */
+                personId: string;
+            };
+            cookie?: never;
+        };
+        /** @description JSON request payload. */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PersonUnmergeRequest"];
+            };
+        };
+        responses: {
+            /** @description Request succeeded. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PersonUnmergeResponse"];
                 };
             };
             400: components["responses"]["BadRequest"];

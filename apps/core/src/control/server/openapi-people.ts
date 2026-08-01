@@ -192,6 +192,20 @@ export const peopleOpenApiSchemas: Record<string, JsonSchema> = {
       },
     },
   },
+  PersonMergeApplyRequest: {
+    type: 'object',
+    required: ['sourcePersonId', 'fingerprint'],
+    properties: {
+      appId: { type: 'string' },
+      sourcePersonId: { type: 'string' },
+      idempotencyKey: { type: 'string' },
+      fingerprint: { type: 'string', minLength: 1 },
+      conflictResolution: {
+        type: 'string',
+        enum: ['fail_on_conflict', 'keep_target'],
+      },
+    },
+  },
   PersonMergeConflict: {
     type: 'object',
     required: ['kind', 'key'],
@@ -237,6 +251,41 @@ export const peopleOpenApiSchemas: Record<string, JsonSchema> = {
       applied: { type: 'boolean' },
     },
   },
+  PersonUnmergeRequest: {
+    type: 'object',
+    required: ['auditId', 'fingerprint'],
+    properties: {
+      appId: { type: 'string' },
+      auditId: { type: 'string', minLength: 1 },
+      fingerprint: { type: 'string', minLength: 1 },
+    },
+  },
+  PersonUnmergeResponse: {
+    type: 'object',
+    required: [
+      'summary',
+      'auditId',
+      'sourcePersonId',
+      'targetPersonId',
+      'restoredPerson',
+      'aliasesRestored',
+      'memoryRowsRestored',
+      'unmergedAt',
+    ],
+    properties: {
+      summary: {
+        const:
+          'Person unmerge completed. The archived person and merge-owned data were restored.',
+      },
+      auditId: { type: 'string' },
+      sourcePersonId: { type: 'string' },
+      targetPersonId: { type: 'string' },
+      restoredPerson: ref('Person'),
+      aliasesRestored: { type: 'array', items: personAlias },
+      memoryRowsRestored: { type: 'integer', minimum: 0 },
+      unmergedAt: isoDateTime,
+    },
+  },
 };
 
 export const peopleOpenApiResponseSchemas: Record<string, JsonSchema> = {
@@ -247,13 +296,15 @@ export const peopleOpenApiResponseSchemas: Record<string, JsonSchema> = {
   retirePersonAlias: ref('PersonAliasMutationResponse'),
   previewPersonMerge: ref('PersonMergePreviewResponse'),
   mergePerson: ref('PersonMergeApplyResponse'),
+  unmergePerson: ref('PersonUnmergeResponse'),
 };
 
 export const peopleOpenApiRequestSchemas: Record<string, JsonSchema> = {
   resolveIdentity: ref('IdentityResolveRequest'),
   addPersonAlias: ref('AddPersonAliasRequest'),
   previewPersonMerge: ref('PersonMergeRequest'),
-  mergePerson: ref('PersonMergeRequest'),
+  mergePerson: ref('PersonMergeApplyRequest'),
+  unmergePerson: ref('PersonUnmergeRequest'),
 };
 
 const appIdQuery = query('appId', 'App id. Defaults to API key app.');
@@ -304,7 +355,7 @@ export const peopleOpenApiRouteDocs: RouteDoc[] = [
     'addPersonAlias',
     'People',
     'Add person alias',
-    'Links an alias to a person as verified after admin review.',
+    'Links an unverified alias to a person. Verification requires a system-attested control flow.',
     ['people:admin'],
     { body: 'json', parameters: [ids.person], status: '201' },
   ),
@@ -335,6 +386,16 @@ export const peopleOpenApiRouteDocs: RouteDoc[] = [
     'People',
     'Merge person',
     'Atomically moves aliases and user-scoped personal memory to the target person.',
+    ['people:admin'],
+    { body: 'json', parameters: [ids.person] },
+  ),
+  doc(
+    'post',
+    '/v1/people/{personId}/unmerge',
+    'unmergePerson',
+    'People',
+    'Unmerge person',
+    'Restores the archived source person and only the aliases and personal memory rows recorded by the merge audit. Messages and data added to the surviving person after the merge remain untouched Publishes an identity.unmerged runtime event.',
     ['people:admin'],
     { body: 'json', parameters: [ids.person] },
   ),

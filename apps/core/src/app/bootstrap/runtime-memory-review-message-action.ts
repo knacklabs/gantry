@@ -7,6 +7,7 @@ import {
 } from '../../memory/memory-review-ipc.js';
 import { resolveTrustedMemorySubject } from '../../memory/memory-ipc.js';
 import type { ChannelWiring } from './channel-wiring-types.js';
+import { agentIdForFolder } from '../../domain/agent/agent-folder-id.js';
 import type {
   ConversationRoute,
   MemoryReviewMessageActionInput,
@@ -30,11 +31,13 @@ export interface MemoryReviewDecisionExecuteInput {
   reviewId: string;
   decision: 'approve' | 'reject';
   reviewerId: string;
+  appId: string;
   sourceAgentFolder: string;
   conversationJid: string;
 }
 
 export interface MemoryReviewMessageActionDeps {
+  appId: string;
   sourceAgentFolderFor: (
     conversationJid: string,
     threadId?: string,
@@ -95,6 +98,7 @@ export async function handleMemoryReviewDecisionAction(
     reviewId: action.reviewId,
     decision: action.decision,
     reviewerId: action.userId,
+    appId: deps.appId,
     sourceAgentFolder,
     conversationJid: action.conversationJid,
   });
@@ -125,8 +129,8 @@ export async function executeMemoryReviewDecision(
   // discarded — the review's OWN subject (below) is authoritative, never the
   // approver's identity.
   const boundary = resolveTrustedMemorySubject(input.sourceAgentFolder, {
-    appId: 'default',
-    agentId: input.sourceAgentFolder,
+    appId: input.appId,
+    agentId: agentIdForFolder(input.sourceAgentFolder),
     personId: input.reviewerId,
   });
   try {
@@ -180,6 +184,7 @@ export function registerRuntimeMemoryReviewMessageAction(
   app: { getConversationRoutes(): Record<string, ConversationRoute> },
 ): void {
   const deps: MemoryReviewMessageActionDeps = {
+    appId: String(channelWiring.getRuntimeAppId()),
     sourceAgentFolderFor: (conversationJid, threadId, providerAccountId) =>
       getSourceAgentFolder(
         app.getConversationRoutes(),

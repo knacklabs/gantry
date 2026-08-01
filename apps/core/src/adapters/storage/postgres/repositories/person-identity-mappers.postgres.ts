@@ -164,8 +164,31 @@ export async function rekeyPersonalMemory(
     conflictSourceIds: string[];
     timestamp: string;
   },
-): Promise<number> {
+): Promise<{
+  movedMemoryIds: string[];
+  supersededMemoryRows: Array<{ id: string; priorStatus: string }>;
+}> {
   const memory = pgSchema.memoryItemsPostgres;
+  const rows = await executor
+    .select({ id: memory.id, status: memory.status })
+    .from(memory)
+    .where(
+      and(
+        eq(memory.appId, input.appId),
+        eq(memory.subjectType, 'user'),
+        eq(memory.userId, input.sourcePersonId),
+      ),
+    )
+    .orderBy(memory.id)
+    .for('update');
+  if (rows.length === 0) {
+    return { movedMemoryIds: [], supersededMemoryRows: [] };
+  }
+  const movedMemoryIds = rows.map((row) => row.id);
+  const conflictSourceIds = new Set(input.conflictSourceIds);
+  const supersededMemoryRows = rows
+    .filter((row) => conflictSourceIds.has(row.id))
+    .map((row) => ({ id: row.id, priorStatus: row.status }));
   const updates = {
     subjectId: sql<string>`'msu_' || substr(encode(digest(${memory.appId} || ':' || COALESCE(${memory.agentId}, 'agent:unknown') || ':user:' || ${input.targetPersonId}, 'sha256'), 'hex'), 1, 32)`,
     userId: input.targetPersonId,
@@ -184,13 +207,97 @@ export async function rekeyPersonalMemory(
     .update(memory)
     .set(updates)
     .where(
+      and(eq(memory.appId, input.appId), inArray(memory.id, movedMemoryIds)),
+    );
+  if ((moved.rowCount ?? 0) !== movedMemoryIds.length) {
+    throw new ApplicationError(
+      'CONFLICT',
+      'Personal memory changed while the person merge was applied.',
+    );
+  }
+  return { movedMemoryIds, supersededMemoryRows };
+}
+
+export async function restorePersonalMemory(
+  executor: Executor,
+  input: {
+    appId: string;
+    sourcePersonId: string;
+    targetPersonId: string;
+    movedMemoryIds: string[];
+    supersededMemoryRows: Array<{ id: string; priorStatus: string }>;
+    timestamp: string;
+  },
+): Promise<number> {
+  if (input.movedMemoryIds.length === 0) return 0;
+  const memory = pgSchema.memoryItemsPostgres;
+  const rows = await executor
+    .select({ id: memory.id })
+    .from(memory)
+    .where(
       and(
         eq(memory.appId, input.appId),
         eq(memory.subjectType, 'user'),
-        eq(memory.userId, input.sourcePersonId),
+        eq(memory.userId, input.targetPersonId),
+        inArray(memory.id, input.movedMemoryIds),
+      ),
+    )
+    .orderBy(memory.id)
+    .for('update');
+  if (rows.length !== input.movedMemoryIds.length) {
+    throw new ApplicationError(
+      'CONFLICT',
+      'Merge-owned personal memory is no longer intact; unmerge was refused.',
+    );
+  }
+  await executor
+    .update(memory)
+    .set({
+      subjectId: sql<string>`'msu_' || substr(encode(digest(${memory.appId} || ':' || COALESCE(${memory.agentId}, 'agent:unknown') || ':user:' || ${input.sourcePersonId}, 'sha256'), 'hex'), 1, 32)`,
+      userId: input.sourcePersonId,
+      sourceRefJson: sql<
+        Record<string, unknown>
+      >`(CASE WHEN jsonb_typeof(${memory.sourceRefJson}) = 'object' THEN ${memory.sourceRefJson} ELSE '{}'::jsonb END) || jsonb_build_object('subject', (CASE WHEN jsonb_typeof(${memory.sourceRefJson}->'subject') = 'object' THEN ${memory.sourceRefJson}->'subject' ELSE '{}'::jsonb END) || jsonb_build_object('subjectType', 'user', 'subjectId', ${input.sourcePersonId}::text, 'userId', ${input.sourcePersonId}::text))`,
+      updatedAt: input.timestamp,
+    })
+    .where(
+      and(
+        eq(memory.appId, input.appId),
+        inArray(memory.id, input.movedMemoryIds),
       ),
     );
-  return moved.rowCount ?? 0;
+  if (input.supersededMemoryRows.length > 0) {
+    const supersededIds = input.supersededMemoryRows.map((row) => row.id);
+    const current = await executor
+      .select({ id: memory.id, status: memory.status })
+      .from(memory)
+      .where(and(eq(memory.appId, input.appId), inArray(memory.id, supersededIds)))
+      .orderBy(memory.id)
+      .for('update');
+    const statusById = new Map(current.map((row) => [row.id, row.status]));
+    const changed = supersededIds.filter(
+      (id) => statusById.get(id) !== 'superseded',
+    );
+    if (changed.length > 0) {
+      throw new ApplicationError(
+        'CONFLICT',
+        `Merge-superseded personal memory changed after the merge; unmerge was refused: ${changed.join(', ')}`,
+      );
+    }
+  }
+  const idsByStatus = new Map<string, string[]>();
+  for (const row of input.supersededMemoryRows) {
+    const ids = idsByStatus.get(row.priorStatus) ?? [];
+    ids.push(row.id);
+    idsByStatus.set(row.priorStatus, ids);
+  }
+  for (const [status, ids] of idsByStatus) {
+    await executor
+      .update(memory)
+      .set({ status, updatedAt: input.timestamp })
+      .where(and(eq(memory.appId, input.appId), inArray(memory.id, ids)));
+  }
+  return rows.length;
 }
 
 export async function findMergeAudit(
@@ -209,6 +316,126 @@ export async function findMergeAudit(
     )
     .limit(1);
   return row ?? null;
+}
+
+export async function findMergeAuditByIdForUpdate(
+  executor: Executor,
+  appId: string,
+  auditId: string,
+): Promise<AuditRow | null> {
+  const [row] = await executor
+    .select()
+    .from(pgSchema.personMergeAuditPostgres)
+    .where(
+      and(
+        eq(pgSchema.personMergeAuditPostgres.appId, appId),
+        eq(pgSchema.personMergeAuditPostgres.id, auditId),
+      ),
+    )
+    .for('update')
+    .limit(1);
+  return row ?? null;
+}
+
+export interface MergeUndoSnapshot {
+  sourcePerson: PersonRecord;
+  aliasesToMove: PersonAliasRecord[];
+  movedAliasIds: string[];
+  movedMemoryIds: string[];
+  supersededMemoryRows: Array<{ id: string; priorStatus: string }>;
+  fingerprint: string;
+  unmergedAt?: string;
+}
+
+export function mergeUndoSnapshot(audit: AuditRow): MergeUndoSnapshot {
+  const stored = jsonRecord(audit.resultJson);
+  const source = jsonRecord(stored.sourcePerson);
+  const aliasesToMove = jsonArray(stored.aliasesToMove);
+  const movedAliasIds = jsonArray(stored.movedAliasIds);
+  const movedMemoryIds = jsonArray(stored.movedMemoryIds);
+  const supersededMemoryRows = jsonArray(stored.supersededMemoryRows);
+  const validSource =
+    source.personId === audit.sourcePersonId &&
+    source.appId === audit.appId &&
+    (source.kind === 'human' || source.kind === 'service') &&
+    source.status === 'active' &&
+    (source.displayName === undefined ||
+      source.displayName === null ||
+      typeof source.displayName === 'string') &&
+    typeof source.createdAt === 'string' &&
+    typeof source.updatedAt === 'string';
+  const validAliases = aliasesToMove.every(
+    (alias) =>
+      !!alias &&
+      typeof alias === 'object' &&
+      !Array.isArray(alias) &&
+      typeof (alias as Record<string, unknown>).id === 'string' &&
+      (alias as Record<string, unknown>).appId === audit.appId &&
+      (alias as Record<string, unknown>).personId === audit.sourcePersonId,
+  );
+  const validSupersededRows = supersededMemoryRows.every(
+    (row) =>
+      !!row &&
+      typeof row === 'object' &&
+      !Array.isArray(row) &&
+      typeof (row as Record<string, unknown>).id === 'string' &&
+      typeof (row as Record<string, unknown>).priorStatus === 'string',
+  );
+  const aliasRecordIds = aliasesToMove.map((alias) =>
+    alias && typeof alias === 'object' && !Array.isArray(alias)
+      ? (alias as Record<string, unknown>).id
+      : undefined,
+  );
+  const sortedAliasRecordIds = [...aliasRecordIds].sort();
+  const sortedMovedAliasIds = [...movedAliasIds].sort();
+  const aliasesMatch =
+    aliasRecordIds.length === movedAliasIds.length &&
+    sortedAliasRecordIds.every(
+      (id, index) => id === sortedMovedAliasIds[index],
+    );
+  const memoryIdSet = new Set(movedMemoryIds);
+  const uniqueAliasIds = new Set(movedAliasIds).size === movedAliasIds.length;
+  const uniqueMemoryIds =
+    new Set(movedMemoryIds).size === movedMemoryIds.length;
+  if (
+    !Array.isArray(stored.aliasesToMove) ||
+    !Array.isArray(stored.movedAliasIds) ||
+    !Array.isArray(stored.movedMemoryIds) ||
+    !Array.isArray(stored.supersededMemoryRows) ||
+    !validSource ||
+    !validAliases ||
+    !movedAliasIds.every((id) => typeof id === 'string') ||
+    !movedMemoryIds.every((id) => typeof id === 'string') ||
+    !validSupersededRows ||
+    !aliasesMatch ||
+    !uniqueAliasIds ||
+    !uniqueMemoryIds ||
+    supersededMemoryRows.some(
+      (row) => !memoryIdSet.has((row as Record<string, unknown>).id),
+    ) ||
+    typeof stored.fingerprint !== 'string' ||
+    !stored.fingerprint ||
+    (stored.unmergedAt !== undefined && typeof stored.unmergedAt !== 'string')
+  ) {
+    throw new ApplicationError(
+      'CONFLICT',
+      'Merge audit does not contain the complete reversible state.',
+    );
+  }
+  return {
+    sourcePerson: source as unknown as PersonRecord,
+    aliasesToMove: aliasesToMove as PersonAliasRecord[],
+    movedAliasIds: movedAliasIds as string[],
+    movedMemoryIds: movedMemoryIds as string[],
+    supersededMemoryRows: supersededMemoryRows as Array<{
+      id: string;
+      priorStatus: string;
+    }>,
+    fingerprint: stored.fingerprint,
+    ...(typeof stored.unmergedAt === 'string'
+      ? { unmergedAt: stored.unmergedAt }
+      : {}),
+  };
 }
 
 export function auditToMergeApply(

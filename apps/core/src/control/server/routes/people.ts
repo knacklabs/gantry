@@ -6,6 +6,7 @@ import {
   PeopleListQuerySchema,
   PersonMergeApplyRequestSchema,
   PersonMergeRequestSchema,
+  PersonUnmergeRequestSchema,
 } from '@gantry/contracts';
 
 import { PostgresPersonIdentityRepository } from '../../../adapters/storage/postgres/repositories/person-identity-repository.postgres.js';
@@ -17,6 +18,7 @@ import {
   identityAliasLinkedEvent,
   identityAliasRetiredEvent,
   identityMergedEvent,
+  identityUnmergedEvent,
   identityResolvedEvent,
   publishIdentityResolvedEvent,
 } from '../../../application/identity/identity-runtime-events.js';
@@ -110,6 +112,11 @@ function mergePath(pathname: string): {
     personId: decodeURIComponent(match[1]!),
     preview: pathname.endsWith('merge:preview'),
   };
+}
+
+function unmergePath(pathname: string): { personId: string } | null {
+  const match = /^\/v1\/people\/([^/]+)\/unmerge$/.exec(pathname);
+  return match ? { personId: decodeURIComponent(match[1]!) } : null;
 }
 
 export async function handlePeopleRoutes(
@@ -352,6 +359,48 @@ export async function handlePeopleRoutes(
             }),
           );
       sendJson(res, 200, result);
+    } catch (error) {
+      if (!sendApplicationError(res, error)) throw error;
+    }
+    return true;
+  }
+
+  const unmerge = unmergePath(pathname);
+  if (unmerge && req.method === 'POST') {
+    const auth = authorizeControlRequest(req, res, ctx.keys, ['people:admin']);
+    if (!auth) return true;
+    const body = (await readJson(req)) as Record<string, unknown>;
+    const parsed = PersonUnmergeRequestSchema.safeParse(body);
+    if (!parsed.success) {
+      sendError(res, 400, 'INVALID_REQUEST', 'Invalid person unmerge request');
+      return true;
+    }
+    const appId = readAppId(body, auth.appId);
+    if (!assertPeopleAppAccess(res, appId, auth)) return true;
+    try {
+      sendJson(
+        res,
+        200,
+        await service().unmergePerson(
+          {
+            appId,
+            targetPersonId: unmerge.personId,
+            auditId: parsed.data.auditId,
+            expectedFingerprint: parsed.data.fingerprint,
+            actor: auth.kid,
+          },
+          (unmerged) =>
+            identityUnmergedEvent({
+              appId,
+              auditId: unmerged.auditId,
+              sourcePersonId: unmerged.sourcePersonId,
+              targetPersonId: unmerged.targetPersonId,
+              actor: auth.kid,
+              memoryRowsRestored: unmerged.memoryRowsRestored,
+              unmergedAt: unmerged.unmergedAt,
+            }),
+        ),
+      );
     } catch (error) {
       if (!sendApplicationError(res, error)) throw error;
     }

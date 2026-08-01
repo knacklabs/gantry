@@ -17,7 +17,6 @@ import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 
 import {
   type AddPersonAliasInput,
-  type AliasVerificationStatus,
   type IdentityResolveInput,
   type IdentityResolveResult,
   type PersonAliasRecord,
@@ -25,6 +24,8 @@ import {
   type PersonMergeApplyResult,
   type PersonMergeInput,
   type PersonMergePreview,
+  type PersonUnmergeInput,
+  type PersonUnmergeResult,
   type PersonRecord,
   type PersonListRepositoryInput,
   type PersonListRepositoryPage,
@@ -49,10 +50,13 @@ import {
   assertMergeAuditMatches,
   ensureApp,
   findMergeAudit,
+  findMergeAuditByIdForUpdate,
   lockPersonAliasKey,
+  mergeUndoSnapshot,
   memoryCountsFromRows,
   normalizeProviderAccountId,
   rekeyPersonalMemory,
+  restorePersonalMemory,
   stableId,
   toAlias,
   toPerson,
@@ -144,18 +148,13 @@ export class PostgresPersonIdentityRepository implements PersonIdentityRepositor
         normalizeProviderAccountId(input.providerAccountId) ?? '',
         input.externalUserId,
       ]);
-      await tx
-        .insert(pgSchema.usersPostgres)
-        .values({
-          id: personId,
-          appId: input.appId,
-          kind: 'human',
-          displayName: input.displayName ?? input.externalUserId,
-          status: 'active',
-          createdAt: timestamp,
-          updatedAt: timestamp,
-        })
-        .onConflictDoNothing();
+      await this.createPerson(tx, {
+        personId,
+        appId: input.appId,
+        kind: 'human',
+        displayName: input.displayName ?? input.externalUserId,
+        timestamp,
+      });
       const alias = await this.insertAlias(tx, {
         appId: input.appId,
         personId,
@@ -165,7 +164,6 @@ export class PostgresPersonIdentityRepository implements PersonIdentityRepositor
         displayName: input.displayName,
         verificationStatus: 'unverified',
         evidence: { evidenceType: input.evidenceType },
-        actor: 'identity:resolve',
         timestamp,
       });
       const result: IdentityResolveResult = {
@@ -245,9 +243,9 @@ export class PostgresPersonIdentityRepository implements PersonIdentityRepositor
       await lockPersonAliasKey(tx, input);
       const duplicate = await this.findActiveAlias(tx, input);
       assertAliasOwnership(duplicate?.userId, input.personId);
-      const verifiedAlias = {
+      const unverifiedAlias = {
         ...input,
-        verificationStatus: 'verified' as const,
+        verificationStatus: 'unverified' as const,
         evidence: {
           ...(input.evidence || {}),
           evidenceType: input.evidenceType,
@@ -260,14 +258,14 @@ export class PostgresPersonIdentityRepository implements PersonIdentityRepositor
           duplicate.verificationStatus === 'verified'
             ? toAlias(duplicate)
             : await this.insertAlias(tx, {
-                ...verifiedAlias,
+                ...unverifiedAlias,
                 aliasId: duplicate.id,
               });
       } else {
         const retired = await this.findRetiredAlias(tx, input);
         assertRetiredAliasCanBeRebound(retired?.userId, input.personId);
         alias = await this.insertAlias(tx, {
-          ...verifiedAlias,
+          ...unverifiedAlias,
           aliasId: retired?.id,
         });
       }
@@ -367,6 +365,9 @@ export class PostgresPersonIdentityRepository implements PersonIdentityRepositor
         input.sourcePersonId,
       );
       assertMergeablePeople(people, input.targetPersonId, input.sourcePersonId);
+      const sourcePerson = people.find(
+        (person) => person.id === input.sourcePersonId,
+      )!;
       const preview = await this.buildMergePreview(tx, input);
       const aliasConflicts = preview.conflicts.filter(
         (conflict) => conflict.type === 'alias',
@@ -432,10 +433,22 @@ export class PostgresPersonIdentityRepository implements PersonIdentityRepositor
           actor: input.actor,
           conflictResolution,
           aliasesMoved: preview.aliasesToMove.length,
-          memoryRowsMoved: moved,
+          memoryRowsMoved: moved.movedMemoryIds.length,
           conflictsJson: preview.conflicts,
           resultJson: {
             aliasesToMove: preview.aliasesToMove,
+            movedAliasIds: preview.aliasesToMove.map((alias) => alias.id),
+            movedMemoryIds: moved.movedMemoryIds,
+            supersededMemoryRows: moved.supersededMemoryRows,
+            sourcePerson: {
+              personId: sourcePerson.id,
+              appId: sourcePerson.appId,
+              kind: sourcePerson.kind,
+              displayName: sourcePerson.displayName,
+              status: sourcePerson.status,
+              createdAt: sourcePerson.createdAt,
+              updatedAt: sourcePerson.updatedAt,
+            },
             excludedMemoryScopes: preview.excludedMemoryScopes,
             fingerprint: preview.fingerprint,
           },
@@ -443,6 +456,189 @@ export class PostgresPersonIdentityRepository implements PersonIdentityRepositor
         })
         .returning();
       const result = auditToMergeApply(audit!, idempotencyKey, true);
+      if (auditEventFactory) {
+        await this.runtimeEvents.appendRuntimeEventWithExecutor(
+          tx,
+          auditEventFactory(result),
+        );
+      }
+      return result;
+    });
+  }
+
+  async unmergePerson(
+    input: PersonUnmergeInput,
+    auditEventFactory?: (
+      result: PersonUnmergeResult,
+    ) => RuntimeEventPublishInput,
+  ): Promise<PersonUnmergeResult> {
+    return this.db.transaction(async (tx) => {
+      const audit = await findMergeAuditByIdForUpdate(
+        tx,
+        input.appId,
+        input.auditId,
+      );
+      if (!audit || audit.targetPersonId !== input.targetPersonId) {
+        throw new ApplicationError(
+          'FORBIDDEN',
+          'Person merge is not accessible to this app.',
+        );
+      }
+      const snapshot = mergeUndoSnapshot(audit);
+      if (snapshot.unmergedAt) {
+        throw new ApplicationError(
+          'CONFLICT',
+          'Person merge is already unmerged.',
+        );
+      }
+      if (snapshot.fingerprint !== input.expectedFingerprint) {
+        throw new ApplicationError(
+          'CONFLICT',
+          'Merge fingerprint does not match the recorded audit.',
+        );
+      }
+      const people = await this.lockPeopleForMerge(
+        tx,
+        input.appId,
+        audit.targetPersonId,
+        audit.sourcePersonId,
+      );
+      const sourcePerson = people.find(
+        (person) => person.id === audit.sourcePersonId,
+      );
+      const targetPerson = people.find(
+        (person) => person.id === audit.targetPersonId,
+      );
+      if (!sourcePerson || !targetPerson) {
+        throw new ApplicationError(
+          'FORBIDDEN',
+          'Person merge is not accessible to this app.',
+        );
+      }
+      if (
+        sourcePerson.status !== 'archived' ||
+        targetPerson.status !== 'active'
+      ) {
+        throw new ApplicationError(
+          'CONFLICT',
+          'Source must be archived and target must be active to unmerge.',
+        );
+      }
+      if (
+        sourcePerson.kind !== snapshot.sourcePerson.kind ||
+        targetPerson.kind !== snapshot.sourcePerson.kind
+      ) {
+        throw new ApplicationError(
+          'CONFLICT',
+          'Person kind changed after merge; unmerge was refused.',
+        );
+      }
+      const timestamp = nowIso();
+      let aliasesRestored: ReturnType<typeof toAlias>[] = [];
+      if (snapshot.movedAliasIds.length > 0) {
+        const aliases = await tx
+          .select({
+            id: pgSchema.userAliasesPostgres.id,
+            personId: pgSchema.userAliasesPostgres.userId,
+            provider: pgSchema.userAliasesPostgres.provider,
+            providerAccountId: pgSchema.userAliasesPostgres.providerAccountId,
+            externalUserId: pgSchema.userAliasesPostgres.externalUserId,
+            verificationStatus: pgSchema.userAliasesPostgres.verificationStatus,
+          })
+          .from(pgSchema.userAliasesPostgres)
+          .where(
+            and(
+              eq(pgSchema.userAliasesPostgres.appId, input.appId),
+              inArray(pgSchema.userAliasesPostgres.id, snapshot.movedAliasIds),
+            ),
+          )
+          .orderBy(asc(pgSchema.userAliasesPostgres.id))
+          .for('update');
+        const preMergeById = new Map(
+          snapshot.aliasesToMove.map((alias) => [alias.id, alias]),
+        );
+        const damaged = aliases.filter((alias) => {
+          const before = preMergeById.get(alias.id);
+          return (
+            alias.personId !== audit.targetPersonId ||
+            !before ||
+            alias.provider !== before.provider ||
+            (alias.providerAccountId ?? null) !==
+              (before.providerAccountId ?? null) ||
+            alias.externalUserId !== before.externalUserId ||
+            alias.verificationStatus !== before.verificationStatus
+          );
+        });
+        if (aliases.length !== snapshot.movedAliasIds.length || damaged.length > 0) {
+          throw new ApplicationError(
+            'CONFLICT',
+            'Merge-owned aliases are no longer intact; unmerge was refused.',
+          );
+        }
+        aliasesRestored = (
+          await tx
+            .update(pgSchema.userAliasesPostgres)
+            .set({ userId: audit.sourcePersonId, updatedAt: timestamp })
+            .where(
+              and(
+                eq(pgSchema.userAliasesPostgres.appId, input.appId),
+                inArray(pgSchema.userAliasesPostgres.id, snapshot.movedAliasIds),
+              ),
+            )
+            .returning()
+        )
+          .sort((a, b) => a.id.localeCompare(b.id))
+          .map(toAlias);
+      }
+      const memoryRowsRestored = await restorePersonalMemory(tx, {
+        appId: input.appId,
+        sourcePersonId: audit.sourcePersonId,
+        targetPersonId: audit.targetPersonId,
+        movedMemoryIds: snapshot.movedMemoryIds,
+        supersededMemoryRows: snapshot.supersededMemoryRows,
+        timestamp,
+      });
+      await tx
+        .update(pgSchema.usersPostgres)
+        .set({
+          kind: snapshot.sourcePerson.kind,
+          displayName: snapshot.sourcePerson.displayName,
+          status: snapshot.sourcePerson.status,
+          createdAt: snapshot.sourcePerson.createdAt,
+          updatedAt: timestamp,
+        })
+        .where(
+          and(
+            eq(pgSchema.usersPostgres.appId, input.appId),
+            eq(pgSchema.usersPostgres.id, audit.sourcePersonId),
+          ),
+        );
+      await tx
+        .update(pgSchema.personMergeAuditPostgres)
+        .set({
+          resultJson: sql`${pgSchema.personMergeAuditPostgres.resultJson} || jsonb_build_object('unmergedAt', ${timestamp}::text, 'unmergedBy', ${input.actor}::text)`,
+        })
+        .where(
+          and(
+            eq(pgSchema.personMergeAuditPostgres.appId, input.appId),
+            eq(pgSchema.personMergeAuditPostgres.id, audit.id),
+          ),
+        );
+      const result: PersonUnmergeResult = {
+        summary:
+          'Person unmerge completed. The archived person and merge-owned data were restored.',
+        auditId: audit.id,
+        sourcePersonId: audit.sourcePersonId,
+        targetPersonId: audit.targetPersonId,
+        restoredPerson: {
+          ...snapshot.sourcePerson,
+          status: 'active',
+          updatedAt: timestamp,
+        },
+        aliasesRestored,
+        memoryRowsRestored,
+        unmergedAt: timestamp,
+      };
       if (auditEventFactory) {
         await this.runtimeEvents.appendRuntimeEventWithExecutor(
           tx,
@@ -557,8 +753,7 @@ export class PostgresPersonIdentityRepository implements PersonIdentityRepositor
       externalUserId: string;
       displayName?: string | null;
       evidence?: Record<string, unknown>;
-      actor: string;
-      verificationStatus: Exclude<AliasVerificationStatus, 'retired'>;
+      verificationStatus: 'unverified';
       timestamp: string;
       aliasId?: string;
     },
@@ -583,9 +778,8 @@ export class PostgresPersonIdentityRepository implements PersonIdentityRepositor
       externalUserId: input.externalUserId,
       displayName: input.displayName ?? input.externalUserId,
       verificationStatus: input.verificationStatus,
-      verifiedAt:
-        input.verificationStatus === 'verified' ? input.timestamp : null,
-      verifiedBy: input.verificationStatus === 'verified' ? input.actor : null,
+      verifiedAt: null,
+      verifiedBy: null,
       evidenceJson: input.evidence || {},
       createdAt: input.timestamp,
       updatedAt: input.timestamp,
@@ -623,6 +817,30 @@ export class PostgresPersonIdentityRepository implements PersonIdentityRepositor
       'CONFLICT',
       'Alias already belongs to another person.',
     );
+  }
+
+  private async createPerson(
+    executor: Executor,
+    input: {
+      personId: string;
+      appId: string;
+      kind: 'human' | 'service';
+      displayName: string;
+      timestamp: string;
+    },
+  ): Promise<void> {
+    await executor
+      .insert(pgSchema.usersPostgres)
+      .values({
+        id: input.personId,
+        appId: input.appId,
+        kind: input.kind,
+        displayName: input.displayName,
+        status: 'active',
+        createdAt: input.timestamp,
+        updatedAt: input.timestamp,
+      })
+      .onConflictDoNothing();
   }
 
   private async getPersonForUpdate(

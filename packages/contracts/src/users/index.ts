@@ -205,3 +205,24 @@ export const PersonMergeApplyResponseSchema =
 export type PersonMergeApplyResponse = z.infer<
   typeof PersonMergeApplyResponseSchema
 >;
+
+export const PersonUnmergeRequestSchema = z.object({
+  appId: z.string().optional(),
+  auditId: z.string().min(1),
+  fingerprint: z.string().min(1),
+});
+export type PersonUnmergeRequest = z.infer<typeof PersonUnmergeRequestSchema>;
+
+export const PersonUnmergeResponseSchema = z.object({
+  summary: z.literal(
+    'Person unmerge completed. The archived person and merge-owned data were restored.',
+  ),
+  auditId: z.string(),
+  sourcePersonId: z.string(),
+  targetPersonId: z.string(),
+  restoredPerson: PersonResponseSchema,
+  aliasesRestored: z.array(PersonAliasResponseSchema),
+  memoryRowsRestored: z.number().int().min(0),
+  unmergedAt: IsoDateTimeSchema,
+});
+export type PersonUnmergeResponse = z.infer<typeof PersonUnmergeResponseSchema>;

@@ -25,12 +25,25 @@ export const openApiSessionSchemas: Record<string, JsonSchema> = {
           'Optional agent id to bind the session to that agent workspace.',
       },
       conversationId: { type: 'string' },
+      conversationKind: {
+        type: 'string',
+        enum: ['dm', 'channel'],
+        description: 'Session conversation scope; appUser requires dm.',
+      },
       title: { type: 'string' },
       responseMode: {
         type: 'string',
         enum: ['sse', 'webhook', 'both', 'none'],
       },
       webhookId: { type: 'string' },
+      appUser: {
+        type: 'object',
+        required: ['authorityId', 'subject'],
+        properties: {
+          authorityId: { type: 'string' },
+          subject: { type: 'string' },
+        },
+      },
     },
   },
   SessionEnsureResponse: {
@@ -41,6 +54,14 @@ export const openApiSessionSchemas: Record<string, JsonSchema> = {
       appId: { type: 'string' },
       conversationId: { type: 'string' },
       chatJid: { type: 'string' },
+      appUser: {
+        type: 'object',
+        required: ['authorityId', 'subject'],
+        properties: {
+          authorityId: { type: 'string' },
+          subject: { type: 'string' },
+        },
+      },
     },
   },
   SessionInteractionDecision: {

@@ -156,6 +156,25 @@ export interface PersonMergeInput {
   expectedFingerprint?: string;
 }
 
+export interface PersonUnmergeInput {
+  appId: string;
+  targetPersonId: string;
+  auditId: string;
+  expectedFingerprint: string;
+  actor: string;
+}
+
+export interface PersonUnmergeResult {
+  summary: 'Person unmerge completed. The archived person and merge-owned data were restored.';
+  auditId: string;
+  sourcePersonId: string;
+  targetPersonId: string;
+  restoredPerson: PersonRecord;
+  aliasesRestored: PersonAliasRecord[];
+  memoryRowsRestored: number;
+  unmergedAt: string;
+}
+
 export function personMergeFingerprint(
   preview: Omit<PersonMergePreview, 'fingerprint'>,
 ): string {
@@ -211,6 +230,12 @@ export interface PersonIdentityRepository {
       result: PersonMergeApplyResult,
     ) => RuntimeEventPublishInput,
   ): Promise<PersonMergeApplyResult>;
+  unmergePerson(
+    input: PersonUnmergeInput,
+    auditEventFactory?: (
+      result: PersonUnmergeResult,
+    ) => RuntimeEventPublishInput,
+  ): Promise<PersonUnmergeResult>;
 }
 
 export class PersonIdentityService {
@@ -322,20 +347,70 @@ export class PersonIdentityService {
     );
   }
 
+  unmergePerson(
+    input: PersonUnmergeInput,
+    auditEventFactory?: (
+      result: PersonUnmergeResult,
+    ) => RuntimeEventPublishInput,
+  ): Promise<PersonUnmergeResult> {
+    return this.repository.unmergePerson(input, auditEventFactory);
+  }
+
   private normalizeAliasInput<
-    T extends { provider: string; externalUserId: string },
+    T extends {
+      provider: string;
+      externalUserId: string;
+      evidenceType: IdentityEvidenceType;
+    },
   >(input: T): T {
     const provider = this.normalizeProvider(input.provider);
     if (!provider) {
       throw new ApplicationError('INVALID_REQUEST', 'provider is required');
     }
-    if (!input.externalUserId.trim()) {
+    const externalUserId = this.normalizeExternalUserId(
+      input.evidenceType,
+      input.externalUserId,
+    );
+    if (!externalUserId) {
       throw new ApplicationError(
         'INVALID_REQUEST',
         'externalUserId is required',
       );
     }
-    return { ...input, provider };
+    return { ...input, provider, externalUserId };
+  }
+
+  private normalizeExternalUserId(
+    evidenceType: IdentityEvidenceType,
+    externalUserId: string,
+  ): string {
+    const trimmed = externalUserId.trim();
+    if (evidenceType === 'email') return trimmed.toLowerCase();
+    if (evidenceType !== 'phone') return trimmed;
+
+    const international = trimmed.startsWith('00')
+      ? `+${trimmed.slice(2)}`
+      : trimmed;
+    if (!international.startsWith('+')) {
+      throw new ApplicationError(
+        'INVALID_REQUEST',
+        'Phone aliases must include an international country code.',
+      );
+    }
+    if (!/^\+[0-9().\s-]+$/.test(international)) {
+      throw new ApplicationError(
+        'INVALID_REQUEST',
+        'Phone alias is not a valid E.164 number.',
+      );
+    }
+    const normalized = `+${international.slice(1).replace(/[^0-9]/g, '')}`;
+    if (!/^\+[1-9][0-9]{1,14}$/.test(normalized)) {
+      throw new ApplicationError(
+        'INVALID_REQUEST',
+        'Phone alias is not a valid E.164 number.',
+      );
+    }
+    return normalized;
   }
 
   private decodeListCursor(cursor: string): PersonListCursor {
