@@ -26,7 +26,6 @@
     "apps/core/src/adapters/storage/postgres/services/canonical-job-ops-service.ts": 807,
     "apps/core/src/adapters/storage/postgres/schema/canonical-ops-repo.postgres.ts": 950,
     "apps/core/src/adapters/storage/postgres/schema/schema.ts": 900,
-
     "apps/core/src/app/bootstrap/inline-agent-loop-tools.ts": 745,
     "apps/core/src/app/bootstrap/runtime-app.ts": 737,
     "apps/core/src/app/bootstrap/runtime-services.ts": 1185,
@@ -61,16 +60,25 @@
     "apps/core/src/config/settings/runtime-settings-renderer.ts": 725,
     "apps/core/src/control/server/routes/models.ts": 714,
     "apps/core/src/shared/model-catalog.ts": 800,
-    "apps/core/src/adapters/llm/anthropic-claude-agent/gantry-model-gateway.ts": 720
+    "apps/core/src/adapters/llm/anthropic-claude-agent/gantry-model-gateway.ts": 720,
+    "apps/core/src/adapters/storage/postgres/repositories/message-attachment-repository.postgres.ts": 730
   },
   "layers": {
     "domain": {
-      "paths": ["apps/core/src/domain"],
-      "allowedImportLayers": ["domain", "shared", "packages/contracts"],
+      "paths": [
+        "apps/core/src/domain"
+      ],
+      "allowedImportLayers": [
+        "domain",
+        "shared",
+        "packages/contracts"
+      ],
       "allowedExternalImports": []
     },
     "application": {
-      "paths": ["apps/core/src/application"],
+      "paths": [
+        "apps/core/src/application"
+      ],
       "allowedImportLayers": [
         "domain",
         "application",
@@ -124,10 +132,14 @@
         "shared",
         "packages/contracts"
       ],
-      "allowedExternalImports": ["*"]
+      "allowedExternalImports": [
+        "*"
+      ]
     },
     "config": {
-      "paths": ["apps/core/src/config"],
+      "paths": [
+        "apps/core/src/config"
+      ],
       "allowedImportLayers": [
         "config",
         "domain",
@@ -145,19 +157,49 @@
       ]
     },
     "shared": {
-      "paths": ["apps/core/src/shared", "apps/core/src/infrastructure/logging"],
-      "allowedImportLayers": ["shared", "packages/contracts"],
-      "allowedExternalImports": ["node:", "crypto", "fs", "path", "url", "os"]
+      "paths": [
+        "apps/core/src/shared",
+        "apps/core/src/infrastructure/logging"
+      ],
+      "allowedImportLayers": [
+        "shared",
+        "packages/contracts"
+      ],
+      "allowedExternalImports": [
+        "node:",
+        "crypto",
+        "fs",
+        "path",
+        "url",
+        "os"
+      ]
     },
     "packages/contracts": {
-      "paths": ["packages/contracts/src"],
-      "allowedImportLayers": ["packages/contracts"],
-      "allowedExternalImports": ["zod"]
+      "paths": [
+        "packages/contracts/src"
+      ],
+      "allowedImportLayers": [
+        "packages/contracts"
+      ],
+      "allowedExternalImports": [
+        "zod"
+      ]
     },
     "packages/sdk": {
-      "paths": ["packages/sdk/src"],
-      "allowedImportLayers": ["packages/contracts", "packages/sdk"],
-      "allowedExternalImports": ["node:", "http", "https", "url", "crypto"]
+      "paths": [
+        "packages/sdk/src"
+      ],
+      "allowedImportLayers": [
+        "packages/contracts",
+        "packages/sdk"
+      ],
+      "allowedExternalImports": [
+        "node:",
+        "http",
+        "https",
+        "url",
+        "crypto"
+      ]
     }
   },
   "approvedProviderSpecificPaths": [
@@ -212,5 +254,8 @@
     "registeredGroup": "\\bregisteredGroups?\\b",
     "claude_only": "\\b(?:claude-only|Claude-only|claude only|Claude only|only Claude|only supports Claude)\\b"
   },
-  "emptyFolderScanRoots": ["apps/core/src", "packages"]
+  "emptyFolderScanRoots": [
+    "apps/core/src",
+    "packages"
+  ]
 }
