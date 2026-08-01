@@ -810,8 +810,36 @@
     {
       "idx": 118,
       "version": "7",
-      "when": 1785183600000,
-      "tag": "0118_session_observability_index",
+      "when": 1785264903868,
+      "tag": "20260728185503_schema_generation_baseline",
+      "breakpoints": true
+    },
+    {
+      "idx": 119,
+      "version": "7",
+      "when": 1785506704668,
+      "tag": "20260731140504_lease_generation_already_applied",
+      "breakpoints": true
+    },
+    {
+      "idx": 120,
+      "version": "7",
+      "when": 1785511283332,
+      "tag": "20260731152123_attachment_metadata_already_applied",
+      "breakpoints": true
+    },
+    {
+      "idx": 121,
+      "version": "7",
+      "when": 1785548111633,
+      "tag": "20260801013511_conversation_history_coverage",
+      "breakpoints": true
+    },
+    {
+      "idx": 122,
+      "version": "7",
+      "when": 1785549600000,
+      "tag": "20260801020000_session_observability_index",
       "breakpoints": true
     }
   ]

@@ -7,6 +7,8 @@ const NO_VISIBLE_OUTPUT_FALLBACK_MESSAGE =
 export async function finalizeGroupAgentUserVisibleOutput(input: {
   boundedTranscript: string | null;
   outputSentToUser: boolean;
+  /** Completed generations that delivered nothing; see the fallback below. */
+  undeliveredGenerations?: string;
   sawRawOutput: boolean;
   groupName: string;
   warn: (metadata: Record<string, unknown>, message: string) => void;
@@ -25,12 +27,17 @@ export async function finalizeGroupAgentUserVisibleOutput(input: {
   let outputSentToUser = input.outputSentToUser;
   let terminalSettlement: DeliverySettlement = 'sent';
   const transcriptText = input.boundedTranscript?.trim() ?? '';
+  // Text from generations that completed having delivered NOTHING. A run can
+  // deliver its first generation and lose a later one (an interaction prompt
+  // followed by a resumed answer); outputSentToUser is run-wide, so returning
+  // early on it would drop that later generation silently.
+  const undeliveredText = input.undeliveredGenerations?.trim() ?? '';
 
-  if (outputSentToUser) {
+  if (outputSentToUser && !undeliveredText) {
     return { outputSentToUser, terminalSettlement };
   }
 
-  const fallbackText = transcriptText;
+  const fallbackText = outputSentToUser ? undeliveredText : transcriptText;
   if (fallbackText) {
     try {
       const messageOptions = await input.buildMessageOptions();

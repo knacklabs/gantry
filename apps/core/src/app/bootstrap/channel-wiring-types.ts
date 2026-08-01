@@ -49,6 +49,10 @@ import type {
   HistoricalAttachmentFetchResult,
 } from '../../domain/ports/historical-attachment-fetcher.js';
 import type { MessageAttachmentRepository } from '../../domain/ports/message-attachment-repository.js';
+import type {
+  ConversationHistoryCoverageRepository,
+  ConversationHistoryDistrustEpoch,
+} from '../../domain/ports/conversation-history-coverage.js';
 
 export type ChannelWiringRepository = RuntimeChatMetadataRepository &
   RuntimeMessageRepository;
@@ -136,10 +140,14 @@ export interface ChannelWiringDeps {
   groupJoinOnboarding?: GroupJoinOnboardingCoordinator;
   publishRuntimeEvent?: (event: RuntimeEventPublishInput) => Promise<unknown>;
   brainHarvestTap?: BrainChannelHarvestTap;
+  historyCoverage?: ConversationHistoryCoverageRepository;
 }
 
 export interface ChannelWiring {
   getRuntimeAppId: () => AppId;
+  getHistoryCoverageDistrustEpoch: (
+    providerAccountId: string,
+  ) => ConversationHistoryDistrustEpoch;
   describeDestinationJid: (jid: string) => {
     providerId?: string;
     internal: boolean;

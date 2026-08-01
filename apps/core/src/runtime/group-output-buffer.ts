@@ -38,6 +38,8 @@ export function createGroupOutputBuffer(input: {
     options: { streamed: boolean; terminal: boolean },
   ) => void;
   resetStreamedTranscriptDeliveryStatus?: () => void;
+  /** A generation finished having delivered nothing to the user. */
+  onGenerationUndelivered?: (text: string) => void;
   getStreamedTranscriptDeliveryStatus: () => 'none' | 'sent' | 'partially_sent';
   persistCompletedStreamedGeneration?: (
     text: string,
@@ -105,6 +107,11 @@ export function createGroupOutputBuffer(input: {
             completed,
             deliveryStatus,
           );
+        } else if (completed) {
+          // Nothing from this generation reached the user. Hand it to
+          // finalization: the run-wide sent flag may already be true from an
+          // earlier generation, which would otherwise suppress the fallback.
+          input.onGenerationUndelivered?.(completed);
         }
         // Both the text and the delivery accounting belong to the generation
         // that just ended: without these resets the next generation inherits a

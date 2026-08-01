@@ -214,7 +214,6 @@ export const openApiSessionSchemas: Record<string, JsonSchema> = {
       jobId: { type: ['string', 'null'] },
       llmProfileId: { type: 'string' },
       permissionDecisionIds: { type: 'array', items: { type: 'string' } },
-      sandboxLeaseId: { type: ['string', 'null'] },
       workspaceSnapshotId: { type: ['string', 'null'] },
       cause: {
         type: 'string',

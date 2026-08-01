@@ -247,6 +247,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
         groupName: group.name,
         agentFolder: group.folder,
         chatJid,
+        conversationId: group.conversationId,
         providerAccountId: group.providerAccountId,
         activeThreadId,
         latestMessage,
@@ -418,6 +419,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
     let hadError = false;
     let lastAgentError: string | undefined;
     let outputSentToUser = false;
+    const undeliveredGenerations: string[] = [];
     let streamedTranscriptDeliveryStatus: 'none' | 'sent' | 'partially_sent' =
       'none';
     let sawRawOutput = false;
@@ -514,6 +516,9 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
       // a later, wholly undelivered one is persisted as if it had been sent.
       resetStreamedTranscriptDeliveryStatus: () => {
         streamedTranscriptDeliveryStatus = 'none';
+      },
+      onGenerationUndelivered: (text) => {
+        undeliveredGenerations.push(text);
       },
       persistCompletedStreamedGeneration: async (text, deliveryStatus) => {
         const timestamp = nowIso();
@@ -754,6 +759,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
       const finalization = await finalizeGroupAgentUserVisibleOutput({
         boundedTranscript: outputBuffer.transcriptSnapshot(),
         outputSentToUser,
+        undeliveredGenerations: undeliveredGenerations.join('\n\n'),
         sawRawOutput,
         groupName: group.name,
         warn: (metadata, message) => logger.warn(metadata, message),

@@ -18,10 +18,10 @@ function channel(): ChannelAdapter {
   };
 }
 
-function provider(create: Provider['create']): Provider {
+function provider(create: Provider['create'], id = 'slack'): Provider {
   return {
-    id: 'slack',
-    label: 'Slack',
+    id,
+    label: id,
     jidPrefix: 'sl:',
     folderPrefix: 'slack_',
     isGroupJid: () => true,
@@ -45,6 +45,164 @@ function channelOpts(onMessage = vi.fn(async () => undefined)): ChannelOpts {
 }
 
 describe('connectProviderAccountChannels', () => {
+  it('distrusts every account sharing an inbound hydration transport before and after connect', async () => {
+    const order: string[] = [];
+    const activeChannel = channel();
+    const disconnect = activeChannel.disconnect;
+    activeChannel.hydrateConversationContext = vi.fn(async () => ({
+      providerId: 'slack',
+      attempted: true,
+      messages: [],
+    }));
+    vi.mocked(activeChannel.connect).mockImplementation(async () => {
+      order.push('connect');
+    });
+    const distrustHistoryCoverage = vi.fn((accountIds) => {
+      order.push(`distrust:${accountIds.join(',')}`);
+    });
+    const setHistoryCoverageInboundActive = vi.fn();
+
+    const connectedChannels: Parameters<
+      typeof connectProviderAccountChannels
+    >[0]['connectedChannels'] = [];
+    await connectProviderAccountChannels({
+      provider: provider(vi.fn(async () => activeChannel)),
+      appId: 'app-one',
+      runtimeSettings: {
+        providerAccounts: {
+          slack_one: {
+            provider: 'slack',
+            agentId: 'agent:one',
+            runtimeSecretRefs: { app_token: 'same', bot_token: 'same-bot' },
+          },
+          slack_two: {
+            provider: 'slack',
+            agentId: 'agent:two',
+            runtimeSecretRefs: { bot_token: 'same-bot', app_token: 'same' },
+          },
+        },
+        runtime: {},
+      },
+      channelOpts: {
+        ...channelOpts(),
+        distrustHistoryCoverage,
+        setHistoryCoverageInboundActive,
+      },
+      inboundEnabled: true,
+      connectedChannels,
+      connectedChannelLeases: [],
+      inboundLeasePrefix: 'runtime:provider-inbound',
+      logger: { info: vi.fn(), warn: vi.fn() },
+    });
+
+    expect(distrustHistoryCoverage).toHaveBeenCalledTimes(4);
+    for (const call of distrustHistoryCoverage.mock.calls) {
+      expect(call[0]).toEqual(['slack_one', 'slack_two']);
+    }
+    expect(order).toEqual([
+      'distrust:slack_one,slack_two',
+      'connect',
+      'distrust:slack_one,slack_two',
+      'distrust:slack_one,slack_two',
+      'connect',
+      'distrust:slack_one,slack_two',
+    ]);
+    expect(setHistoryCoverageInboundActive.mock.calls).toEqual([
+      [['slack_one', 'slack_two'], false],
+      [['slack_one', 'slack_two'], true],
+    ]);
+
+    await connectedChannels[0]!.channel.disconnect();
+
+    expect(setHistoryCoverageInboundActive).toHaveBeenLastCalledWith(
+      ['slack_one', 'slack_two'],
+      false,
+    );
+    expect(distrustHistoryCoverage).toHaveBeenCalledTimes(5);
+    expect(disconnect).toHaveBeenCalledOnce();
+  });
+
+  it('distrusts history when a history-capable account connects outbound-only', async () => {
+    const activeChannel = channel();
+    activeChannel.hydrateConversationContext = vi.fn(async () => ({
+      providerId: 'slack',
+      attempted: true,
+      messages: [],
+    }));
+    const distrustHistoryCoverage = vi.fn();
+    const setHistoryCoverageInboundActive = vi.fn();
+
+    await connectProviderAccountChannels({
+      provider: provider(vi.fn(async () => activeChannel)),
+      appId: 'app-one',
+      runtimeSettings: {
+        providerAccounts: {
+          slack_one: {
+            provider: 'slack',
+            agentId: 'agent:one',
+            runtimeSecretRefs: { app_token: 'app', bot_token: 'bot' },
+          },
+        },
+        runtime: {},
+      },
+      channelOpts: {
+        ...channelOpts(),
+        distrustHistoryCoverage,
+        setHistoryCoverageInboundActive,
+      },
+      inboundEnabled: false,
+      connectedChannels: [],
+      connectedChannelLeases: [],
+      inboundLeasePrefix: 'runtime:provider-inbound',
+      logger: { info: vi.fn(), warn: vi.fn() },
+    });
+
+    expect(activeChannel.connect).toHaveBeenCalledWith({
+      inbound: false,
+      interactionCallbacks: false,
+    });
+    expect(distrustHistoryCoverage).toHaveBeenCalledTimes(2);
+    expect(distrustHistoryCoverage).toHaveBeenNthCalledWith(1, ['slack_one']);
+    expect(distrustHistoryCoverage).toHaveBeenNthCalledWith(2, ['slack_one']);
+    expect(setHistoryCoverageInboundActive).not.toHaveBeenCalled();
+  });
+
+  it('does not distrust Telegram even if an adapter exposes hydration', async () => {
+    const activeChannel = channel();
+    activeChannel.hydrateConversationContext = vi.fn(async () => ({
+      providerId: 'telegram',
+      attempted: true,
+      messages: [],
+    }));
+    const distrustHistoryCoverage = vi.fn();
+
+    await connectProviderAccountChannels({
+      provider: provider(
+        vi.fn(async () => activeChannel),
+        'telegram',
+      ),
+      appId: 'app-one',
+      runtimeSettings: {
+        providerAccounts: {
+          telegram_one: {
+            provider: 'telegram',
+            agentId: 'agent:one',
+            runtimeSecretRefs: { token: 'same' },
+          },
+        },
+        runtime: {},
+      },
+      channelOpts: { ...channelOpts(), distrustHistoryCoverage },
+      inboundEnabled: true,
+      connectedChannels: [],
+      connectedChannelLeases: [],
+      inboundLeasePrefix: 'runtime:provider-inbound',
+      logger: { info: vi.fn(), warn: vi.fn() },
+    });
+
+    expect(distrustHistoryCoverage).not.toHaveBeenCalled();
+  });
+
   it('observes lease loss during connect and awaits teardown before failing closed', async () => {
     let releaseConnect!: () => void;
     const connectBarrier = new Promise<void>((resolve) => {

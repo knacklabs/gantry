@@ -371,6 +371,22 @@
       "status": "pending",
       "epic": "Audit paydown 2026-07",
       "skill": "backend"
+    },
+    {
+      "key": "LAT-5B",
+      "title": "Durable conversation history coverage",
+      "story": "As a teammate chatting with the agent, my turns in fully-synced conversations respond without waiting on redundant provider history fetches, so the agent feels immediate once it has everything.",
+      "acceptance_criteria": [
+        "A conversation attested complete (server-confirmed exhausted, current provider generation) makes zero provider hydration calls and skips the deadline wait; reconnects un-trust coverage fail-safe; request_bounded never promotes"
+      ],
+      "order": 25,
+      "status": "done",
+      "kind": "feature",
+      "origin": "adhoc",
+      "spec": "docs/specs/lat-5b-durable-history-coverage.md",
+      "completed_at": "2026-08-01T01:08:57+00:00",
+      "history": ".factory/history/LAT-5B/",
+      "outcome": "Agent conversations on Slack and Discord now remember, durably in Postgres, what history they have already stored. Once a channel or thread is fully persisted, later turns skip the provider history call (measured 1 to 0 calls, for exactly one extra SQL statement), so replies start faster. The record is trusted only while a live inbound stream is delivering: reconnects, dropped sockets, outbound-only accounts, interaction-only sockets, failed dispatches and account rebinds all invalidate it, and the next turn re-fetches from the provider so nothing said while the agent was away is silently skipped. Telegram is unchanged. Known residual: a brief multi-process stale-trust window, deferred as D-0036."
     }
   ],
   "epics": [
@@ -459,5 +475,5 @@
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-07-24T15:06:25+00:00"
+  "updated_at": "2026-08-01T01:08:57+00:00"
 }

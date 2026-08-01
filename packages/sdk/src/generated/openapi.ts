@@ -2516,7 +2516,6 @@ export interface components {
             jobId?: string | null;
             llmProfileId: string;
             permissionDecisionIds: string[];
-            sandboxLeaseId?: string | null;
             workspaceSnapshotId?: string | null;
             /** @enum {string} */
             cause: "message" | "job" | "control" | "manual" | "system";

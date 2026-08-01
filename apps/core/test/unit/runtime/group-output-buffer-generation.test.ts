@@ -4,7 +4,9 @@ import { createGroupOutputBuffer } from '@core/runtime/group-output-buffer.js';
 
 function makeBuffer(
   persist: (text: string, status: 'sent' | 'partially_sent') => Promise<void>,
+  options: { deliver?: boolean; undelivered?: string[] } = {},
 ) {
+  const deliver = options.deliver ?? true;
   let deliveryStatus: 'none' | 'sent' | 'partially_sent' = 'none';
   const buffer = createGroupOutputBuffer({
     channelRuntime: {
@@ -17,7 +19,10 @@ function makeBuffer(
     buildMessageOptions: () => undefined,
     sendMessageToChannel: async () => {},
     applyDeliverySettlement: () => {
-      deliveryStatus = 'sent';
+      if (deliver) deliveryStatus = 'sent';
+    },
+    onGenerationUndelivered: (text: string) => {
+      options.undelivered?.push(text);
     },
     resetStreamedTranscriptDeliveryStatus: () => {
       deliveryStatus = 'none';
@@ -49,6 +54,19 @@ describe('streamed generation persistence', () => {
 
     expect(persisted).toHaveLength(1);
     expect(persisted[0]).toBe('hello world');
+  });
+
+  it('reports a generation that reached nobody so the fallback can cover it', async () => {
+    // outputSentToUser is run-wide: an earlier delivered generation would make
+    // finalization return early and drop this one silently.
+    const undelivered: string[] = [];
+    const { buffer } = makeBuffer(async () => {}, {
+      deliver: false,
+      undelivered,
+    });
+    await buffer.appendRawOutput('answer nobody received');
+    await buffer.flushBufferedOutput('end', { done: true, terminal: true });
+    expect(undelivered).toEqual(['answer nobody received']);
   });
 
   it('does not carry one generation delivery status into the next', async () => {
