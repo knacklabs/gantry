@@ -1100,7 +1100,8 @@ client.people.get(personId, { appId? })
 client.people.aliases.add(personId, { provider, providerAccountId?, externalUserId, displayName?, evidenceType, evidence? })
 client.people.aliases.retire(personId, aliasId, { appId? })
 client.people.merge.preview(personId, { sourcePersonId, idempotencyKey?, conflictResolution? })
-client.people.merge.apply(personId, { sourcePersonId, idempotencyKey?, conflictResolution? })
+client.people.merge.apply(personId, { sourcePersonId, fingerprint, idempotencyKey?, conflictResolution? })
+client.people.unmerge(personId, { auditId, fingerprint, appId? })
 ```
 
 Identity lookup requires `identity:resolve`. People list/get operations require

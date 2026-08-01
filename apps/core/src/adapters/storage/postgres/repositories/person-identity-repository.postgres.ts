@@ -922,6 +922,7 @@ export class PostgresPersonIdentityRepository implements PersonIdentityRepositor
             eq(pgSchema.userAliasesPostgres.userId, input.sourcePersonId),
           ),
         )
+        .orderBy(asc(pgSchema.userAliasesPostgres.id))
         .limit(PERSON_MERGE_DETAIL_LIMIT + 1)
     ).map(toAlias);
     assertDetailLimit('alias', aliases.length, PERSON_MERGE_DETAIL_LIMIT);
@@ -941,11 +942,32 @@ export class PostgresPersonIdentityRepository implements PersonIdentityRepositor
           eq(pgSchema.memoryItemsPostgres.userId, input.sourcePersonId),
         ),
       );
-    const sourceMemoryFingerprint = stableSha256Json(
-      sourceMemoryRows
+    // Conflicts depend on BOTH sides: a target row inserted or archived after
+    // preview must stale the fingerprint, not slip past it.
+    const targetMemoryRows = await executor
+      .select({
+        id: pgSchema.memoryItemsPostgres.id,
+        updatedAt: pgSchema.memoryItemsPostgres.updatedAt,
+        status: pgSchema.memoryItemsPostgres.status,
+        kind: pgSchema.memoryItemsPostgres.kind,
+        key: pgSchema.memoryItemsPostgres.key,
+      })
+      .from(pgSchema.memoryItemsPostgres)
+      .where(
+        and(
+          eq(pgSchema.memoryItemsPostgres.appId, input.appId),
+          eq(pgSchema.memoryItemsPostgres.subjectType, 'user'),
+          eq(pgSchema.memoryItemsPostgres.userId, input.targetPersonId),
+        ),
+      );
+    const sourceMemoryFingerprint = stableSha256Json({
+      source: sourceMemoryRows
         .map((row) => ({ ...row }))
         .sort((a, b) => a.id.localeCompare(b.id)),
-    );
+      target: targetMemoryRows
+        .map((row) => ({ ...row }))
+        .sort((a, b) => a.id.localeCompare(b.id)),
+    });
     const excludedRows = await executor
       .select({
         subjectType: pgSchema.memoryItemsPostgres.subjectType,
