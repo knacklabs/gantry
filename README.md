@@ -207,9 +207,29 @@ Postgres-backed integration tests require a disposable Postgres database via
 `GANTRY_TEST_DATABASE_URL`; do not run them against a developer's persistent
 runtime database.
 
+### Postgres migrations
+
+Change the Drizzle schema, then generate a timestamped migration and review its
+SQL before committing:
+
+```bash
+npm run db:migrations:generate -- --name add_feature
+```
+
+For data migrations or SQL Drizzle cannot generate, use a custom migration:
+
+```bash
+npm run db:migrations:custom -- --name backfill_feature
+```
+
+Run `npm run db:migrations:check` locally. After rebasing overlapping schema
+work, regenerate and resolve any Drizzle conflicts. CI also verifies that a
+clean schema produces no uncommitted migration files. Runtime deployments
+continue to apply migrations with `npm run db:migrate`.
+
 ## Optional Codex Factory
 
-The `.agents/`, `.codex/`, and `.factory/` folders contain optional maintainer
+The `factory/`, `.codex/`, and `.factory/` folders contain optional maintainer
 automation for planning, decomposition, verification, and review. Public
 contributors are not required to use it. Maintainers who enable the harness
 should first read [AGENTS.md](AGENTS.md), [WORKFLOW.md](WORKFLOW.md),
@@ -256,6 +276,6 @@ root, then:
 - **Humans own** accepting decisions, client sign-off, and merging PRs —
   agents draft and relay, never run those.
 
-The vendored harness machinery (`.agents/`, `constitution/`, gate scripts)
+The vendored harness machinery (`factory/`, `constitution/`, gate scripts)
 is frozen: never edit it here — improvements go to the harness repo and
 arrive by re-vendoring.

@@ -1,4 +1,5 @@
 import {
+  DATA_DIR,
   DEFAULT_TRIGGER,
   MESSAGE_FETCH_PAGE_SIZE,
   TIMEZONE,
@@ -6,6 +7,7 @@ import {
   getDeploymentMode,
   getRuntimeSettingsForConfig,
 } from '../../config/index.js';
+import path from 'node:path';
 import { agentIdForFolder } from '../../config/settings/desired-state-service-helpers.js';
 import {
   createAgentToolRuleSettingsMirror,
@@ -118,6 +120,8 @@ import {
 import { wireInlineAgentLoopTools } from './inline-agent-loop-tools.js';
 import { createGroupSnapshotSync } from './runtime-services-group-snapshot-sync.js';
 import type { GroupProcessingDeps } from '../../runtime/group-processing-types.js';
+import { createAttachmentOpen } from './attachment-resolver-wiring.js';
+import { resolveWorkspaceFolderPath } from '../../platform/workspace-folder.js';
 export { stopAsyncTaskRecoveryLoop } from './runtime-services-async-task-recovery.js';
 type RuntimeBootstrapRepository = RuntimeAppRepository & RuntimeJobRepository;
 type LiveTurnCommandWakeupSourceFactory = () =>
@@ -448,6 +452,17 @@ export async function startRuntimeServices(
       getMcpServerRepository: resolved.getMcpServerRepository,
       getCapabilitySecretRepository: resolved.getCapabilitySecretRepository,
       getSkillArtifactStore: resolved.getSkillArtifactStore,
+      openAttachment: createAttachmentOpen({
+        getRepository: channelWiring.getMessageAttachmentRepository,
+        fetcher: {
+          fetchHistoricalAttachment: channelWiring.fetchHistoricalAttachment,
+        },
+        materializationRoot: path.join(DATA_DIR, 'provider-attachments'),
+        workspaceRoots: () =>
+          Object.values(app.getConversationRoutes()).map((route) =>
+            resolveWorkspaceFolderPath(route.folder),
+          ),
+      }),
       getMcpDnsValidationCache: resolved.getMcpDnsValidationCache,
       executionAdapter: resolved.executionAdapter ?? app.executionAdapter,
       executionAdapters: resolved.executionAdapters ?? app.executionAdapters,

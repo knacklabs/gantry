@@ -31,6 +31,7 @@ import {
   createDiscordChannel,
   DiscordChannel,
 } from '@core/channels/discord.js';
+import { DiscordGatewayConnection } from '@core/channels/discord-gateway.js';
 import {
   parsePermissionCustomId,
   permissionCustomId,
@@ -924,6 +925,66 @@ describe('DiscordChannel', () => {
     vi.restoreAllMocks();
   });
 
+  it('covers the registered Discord paired-message shape at the adapter seam', async () => {
+    let socket!: FakeWebSocket;
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async () =>
+      jsonResponse({ url: 'wss://gateway.discord.test' }),
+    );
+    const onMessage = vi.fn();
+    const onChatMetadata = vi.fn();
+    const channel = new DiscordChannel(
+      'bot-token',
+      'app-id',
+      opts({
+        providerAccountId: 'discord_default',
+        conversationRoutes: () => ({
+          'dc:channel-1': {
+            name: 'Discord Latency',
+            folder: 'main_agent',
+            trigger: '@Main',
+            added_at: '2026-07-29T00:00:00.000Z',
+            providerAccountId: 'discord_default',
+          },
+        }),
+        onMessage,
+        onChatMetadata,
+      }),
+      (url) => {
+        socket = new FakeWebSocket(url);
+        return socket;
+      },
+    );
+
+    await channel.connect();
+    socket.receive({ op: 10, d: { heartbeat_interval: 60_000 } });
+    socket.receive({ op: 0, t: 'READY', s: 1, d: { user: { id: 'bot-1' } } });
+    socket.receive({
+      op: 0,
+      t: 'MESSAGE_CREATE',
+      s: 2,
+      d: {
+        id: 'message-2',
+        channel_id: 'channel-1',
+        content: 'hello',
+        timestamp: '2026-07-29T00:00:00.000Z',
+        author: { id: 'user-1', username: 'Ravi' },
+      },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(onChatMetadata).not.toHaveBeenCalled();
+    expect(onMessage).toHaveBeenCalledTimes(1);
+    expect(onMessage).toHaveBeenCalledWith(
+      'dc:channel-1',
+      expect.objectContaining({
+        name: 'Discord Latency',
+        isGroup: true,
+      }),
+    );
+    await channel.disconnect();
+    vi.restoreAllMocks();
+  });
+
   it('routes live Discord attachment-only messages with metadata only', async () => {
     let socket!: FakeWebSocket;
     vi.spyOn(globalThis, 'fetch').mockImplementation(async () =>
@@ -1241,6 +1302,34 @@ describe('DiscordChannel', () => {
           }),
         ],
       }),
+    ]);
+    expect(result.coverage).toEqual({
+      requestedLatestMessage: {
+        externalMessageId: 'message-4',
+        timestamp: '2026-06-22T00:00:04.000Z',
+      },
+      scope: 'channel',
+      requests: [
+        {
+          role: 'channel',
+          limit: 3,
+          effectiveBounds: { cursor: 'message-4' },
+          rawMessageCount: 3,
+          pagination: { kind: 'request_bounded' },
+        },
+      ],
+      completeness: { kind: 'request_bounded' },
+      deliveredMessageCount: 2,
+      threadRoot: 'not_applicable',
+    });
+    expect(
+      result.messages?.map(({ external_message_id, content }) => ({
+        external_message_id,
+        content,
+      })),
+    ).toEqual([
+      { external_message_id: 'message-2', content: 'report attached' },
+      { external_message_id: 'message-3', content: '' },
     ]);
     fetchMock.mockRestore();
   });
@@ -1600,6 +1689,199 @@ describe('DiscordChannel', () => {
         }),
       ]),
     );
+    expect(result.coverage).toEqual({
+      requestedLatestMessage: {
+        externalMessageId: 'message-100',
+        timestamp: '2026-06-22T00:01:40.000Z',
+      },
+      scope: 'thread',
+      requests: [
+        {
+          role: 'thread',
+          limit: 39,
+          effectiveBounds: { cursor: 'message-100' },
+          rawMessageCount: 39,
+          pagination: { kind: 'request_bounded' },
+        },
+        {
+          role: 'thread_root',
+          limit: 1,
+          effectiveBounds: {},
+          rawMessageCount: 1,
+          pagination: { kind: 'request_bounded' },
+        },
+        {
+          role: 'thread_first_replies',
+          limit: 10,
+          effectiveBounds: { cursor: 'thread-1' },
+          rawMessageCount: 10,
+          pagination: { kind: 'request_bounded' },
+        },
+      ],
+      completeness: { kind: 'request_bounded' },
+      deliveredMessageCount: 50,
+      threadRoot: 'included',
+    });
+    fetchMock.mockRestore();
+  });
+
+  it('omits Discord coverage when the first-replies request fails', async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation(async (input) => {
+        const url = String(input);
+        if (
+          url ===
+          'https://discord.com/api/v10/channels/thread-1/messages?limit=39&before=message-100'
+        ) {
+          return jsonResponse([
+            {
+              id: 'message-99',
+              channel_id: 'thread-1',
+              content: 'latest reply',
+              timestamp: '2026-06-22T00:01:39.000Z',
+              author: { id: 'user-2', username: 'Maya' },
+            },
+          ]);
+        }
+        if (
+          url ===
+          'https://discord.com/api/v10/channels/thread-1/messages/thread-1'
+        ) {
+          return jsonResponse({
+            id: 'thread-1',
+            channel_id: 'thread-1',
+            content: 'thread starter',
+            timestamp: '2026-06-22T00:00:01.000Z',
+            author: { id: 'user-1', username: 'Ravi' },
+          });
+        }
+        if (
+          url ===
+          'https://discord.com/api/v10/channels/thread-1/messages?after=thread-1&limit=10'
+        ) {
+          return new Response('{}', { status: 500 });
+        }
+        if (url === 'https://discord.com/api/v10/channels/thread-1') {
+          return jsonResponse({
+            id: 'thread-1',
+            type: 11,
+            parent_id: 'parent-1',
+          });
+        }
+        return new Response('{}', { status: 404 });
+      });
+    const channel = new DiscordChannel('bot-token', 'app-id', opts());
+
+    const result = await channel.hydrateConversationContext({
+      conversationJid: 'dc:parent-1',
+      threadId: 'thread-1',
+      latestMessage: {
+        id: 'current',
+        timestamp: '2026-06-22T00:01:40.000Z',
+        external_message_id: 'message-100',
+        thread_id: 'thread-1',
+      },
+      limits: { channelMessages: 30, threadMessages: 50 },
+    });
+
+    expect(
+      result.messages?.map((message) => message.external_message_id),
+    ).toEqual(['thread-1', 'message-99']);
+    expect(result).not.toHaveProperty('coverage');
+    fetchMock.mockRestore();
+  });
+
+  it('reports missing when the Discord thread root is filtered by normalization', async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation(async (input) => {
+        const url = String(input);
+        if (
+          url ===
+          'https://discord.com/api/v10/channels/thread-1/messages?limit=2&before=message-3'
+        ) {
+          return jsonResponse([
+            {
+              id: 'message-2',
+              channel_id: 'thread-1',
+              content: 'kept reply',
+              timestamp: '2026-06-22T00:00:02.000Z',
+              author: { id: 'user-2', username: 'Maya' },
+            },
+            {
+              id: 'message-empty',
+              channel_id: 'thread-1',
+              content: '   ',
+              timestamp: '2026-06-22T00:00:01.000Z',
+              author: { id: 'user-3', username: 'Isha' },
+            },
+          ]);
+        }
+        if (
+          url ===
+          'https://discord.com/api/v10/channels/thread-1/messages/thread-1'
+        ) {
+          return jsonResponse({
+            id: 'thread-1',
+            channel_id: 'thread-1',
+            content: '   ',
+            timestamp: '2026-06-22T00:00:00.000Z',
+            author: { id: 'user-root', username: 'Root' },
+          });
+        }
+        if (url === 'https://discord.com/api/v10/channels/thread-1') {
+          return jsonResponse({
+            id: 'thread-1',
+            type: 11,
+            parent_id: 'parent-1',
+          });
+        }
+        return new Response('{}', { status: 404 });
+      });
+    const channel = new DiscordChannel('bot-token', 'app-id', opts());
+
+    const result = await channel.hydrateConversationContext({
+      conversationJid: 'dc:parent-1',
+      threadId: 'thread-1',
+      latestMessage: {
+        id: 'current',
+        timestamp: '2026-06-22T00:00:03.000Z',
+        external_message_id: 'message-3',
+        thread_id: 'thread-1',
+      },
+      limits: { channelMessages: 30, threadMessages: 2 },
+    });
+
+    expect(result.messages).toEqual([
+      expect.objectContaining({ external_message_id: 'message-2' }),
+    ]);
+    expect(result.coverage).toEqual({
+      requestedLatestMessage: {
+        externalMessageId: 'message-3',
+        timestamp: '2026-06-22T00:00:03.000Z',
+      },
+      scope: 'thread',
+      requests: [
+        {
+          role: 'thread',
+          limit: 2,
+          effectiveBounds: { cursor: 'message-3' },
+          rawMessageCount: 2,
+          pagination: { kind: 'request_bounded' },
+        },
+        {
+          role: 'thread_root',
+          limit: 1,
+          effectiveBounds: {},
+          rawMessageCount: 1,
+          pagination: { kind: 'request_bounded' },
+        },
+      ],
+      completeness: { kind: 'request_bounded' },
+      deliveredMessageCount: 1,
+      threadRoot: 'missing',
+    });
     fetchMock.mockRestore();
   });
 
@@ -1660,6 +1942,50 @@ describe('DiscordChannel', () => {
         thread_id: 'thread-1',
       }),
     ]);
+    expect(result.coverage?.requests).toEqual([
+      {
+        role: 'thread',
+        limit: 2,
+        effectiveBounds: { cursor: 'message-3' },
+        rawMessageCount: 1,
+        pagination: { kind: 'request_bounded' },
+      },
+      {
+        role: 'thread_root',
+        limit: 1,
+        effectiveBounds: {},
+        rawMessageCount: 0,
+        pagination: { kind: 'request_bounded' },
+      },
+    ]);
+    expect(result.coverage?.threadRoot).toBe('missing');
+    fetchMock.mockRestore();
+  });
+
+  it('omits Discord coverage when the history request fails', async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(new Response('{}', { status: 500 }));
+    const channel = new DiscordChannel('bot-token', 'app-id', opts());
+
+    const result = await channel.hydrateConversationContext({
+      conversationJid: 'dc:channel-1',
+      latestMessage: {
+        id: 'current',
+        timestamp: '2026-06-22T00:00:04.000Z',
+        external_message_id: 'message-4',
+      },
+      limits: { channelMessages: 3, threadMessages: 50 },
+    });
+
+    expect(result).toEqual({
+      providerId: 'discord',
+      attempted: true,
+      failed: true,
+      reason: 'provider_error',
+      messages: [],
+    });
+    expect(result).not.toHaveProperty('coverage');
     fetchMock.mockRestore();
   });
 
@@ -1759,11 +2085,23 @@ describe('DiscordChannel', () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation(async () =>
       jsonResponse({ url: 'wss://gateway.discord.test' }),
     );
-    const channel = new DiscordChannel('bot-token', 'app-id', opts(), (url) => {
-      const socket = new FakeWebSocket(url);
-      sockets.push(socket);
-      return socket;
-    });
+    const distrustHistoryCoverage = vi.fn();
+    const setHistoryCoverageInboundActive = vi.fn();
+    const channel = new DiscordChannel(
+      'bot-token',
+      'app-id',
+      opts({
+        providerAccountId: 'discord-one',
+        inboundProviderAccountIds: ['discord-one', 'discord-two'],
+        distrustHistoryCoverage,
+        setHistoryCoverageInboundActive,
+      }),
+      (url) => {
+        const socket = new FakeWebSocket(url);
+        sockets.push(socket);
+        return socket;
+      },
+    );
 
     await channel.connect();
     sockets[0]!.receive({ op: 10, d: { heartbeat_interval: 60_000 } });
@@ -1776,14 +2114,200 @@ describe('DiscordChannel', () => {
     sockets[0]!.close();
     await vi.advanceTimersByTimeAsync(1_000);
     sockets[1]!.receive({ op: 10, d: { heartbeat_interval: 60_000 } });
+    sockets[1]!.receive({ op: 0, t: 'RESUMED', s: 4, d: {} });
 
     expect(sockets).toHaveLength(2);
+    expect(distrustHistoryCoverage).toHaveBeenCalledTimes(2);
+    expect(distrustHistoryCoverage).toHaveBeenCalledWith([
+      'discord-one',
+      'discord-two',
+    ]);
+    expect(setHistoryCoverageInboundActive.mock.calls).toEqual([
+      [['discord-one', 'discord-two'], true],
+      [['discord-one', 'discord-two'], false],
+      [['discord-one', 'discord-two'], true],
+    ]);
     expect(JSON.parse(sockets[1]!.sent[1] || '{}')).toEqual({
       op: 6,
       d: { token: 'bot-token', session_id: 'session-1', seq: 3 },
     });
     channel.disconnect();
   });
+
+  it('distrusts Discord history before failed reconnect discovery', async () => {
+    vi.useFakeTimers();
+    const sockets: FakeWebSocket[] = [];
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(
+        jsonResponse({ url: 'wss://gateway.discord.test' }),
+      )
+      .mockResolvedValueOnce(new Response('{}', { status: 500 }));
+    const distrustHistoryCoverage = vi.fn();
+    const channel = new DiscordChannel(
+      'bot-token',
+      'app-id',
+      opts({
+        providerAccountId: 'discord-one',
+        distrustHistoryCoverage,
+      }),
+      (url) => {
+        const socket = new FakeWebSocket(url);
+        sockets.push(socket);
+        return socket;
+      },
+    );
+
+    await channel.connect();
+    sockets[0]!.close();
+    expect(distrustHistoryCoverage).toHaveBeenCalledOnce();
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(sockets).toHaveLength(1);
+    channel.disconnect();
+  });
+
+  it('distrusts Discord history before a rejected live dispatch is swallowed', async () => {
+    let socket!: FakeWebSocket;
+    const order: string[] = [];
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      jsonResponse({ url: 'wss://gateway.discord.test' }),
+    );
+    const gateway = new DiscordGatewayConnection({
+      botToken: 'bot-token',
+      apiRoot: 'https://discord.com/api/v10',
+      intents: 1,
+      inboundEnabled: true,
+      interactionCallbacksEnabled: true,
+      createWebSocket: (url) => {
+        socket = new FakeWebSocket(url);
+        return socket;
+      },
+      onDispatch: vi.fn(async () => {
+        order.push('dispatch');
+        throw new Error('persistence rejected');
+      }),
+      onDispatchFailure: () => order.push('distrust'),
+    });
+
+    await gateway.connect();
+    socket.receive({ op: 0, t: 'MESSAGE_CREATE', s: 1, d: { id: 'm-1' } });
+
+    await vi.waitFor(() => expect(order).toEqual(['dispatch', 'distrust']));
+    gateway.disconnect();
+  });
+
+  it('keeps Discord inbound inactive when READY was queued before disconnect', async () => {
+    let socket!: FakeWebSocket;
+    const setInboundActive = vi.fn();
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      jsonResponse({ url: 'wss://gateway.discord.test' }),
+    );
+    const gateway = new DiscordGatewayConnection({
+      botToken: 'bot-token',
+      apiRoot: 'https://discord.com/api/v10',
+      intents: 1,
+      inboundEnabled: true,
+      interactionCallbacksEnabled: true,
+      createWebSocket: (url) => {
+        socket = new FakeWebSocket(url);
+        return socket;
+      },
+      onInboundStateChange: setInboundActive,
+      onDispatch: vi.fn(async () => undefined),
+    });
+
+    await gateway.connect();
+    const queuedMessage = socket.onmessage;
+    gateway.disconnect();
+    queuedMessage?.({
+      data: JSON.stringify({
+        op: 0,
+        t: 'READY',
+        s: 1,
+        d: { session_id: 'session-1' },
+      }),
+    });
+
+    await vi.waitFor(() => expect(setInboundActive).toHaveBeenCalledOnce());
+    expect(setInboundActive).toHaveBeenCalledWith(false);
+    expect(socket.onmessage).toBeNull();
+    expect(socket.onclose).toBeNull();
+  });
+
+  it('does not mark an interaction-only Discord gateway inbound-active', async () => {
+    let socket!: FakeWebSocket;
+    const setHistoryCoverageInboundActive = vi.fn();
+    const distrustHistoryCoverage = vi.fn();
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      jsonResponse({ url: 'wss://gateway.discord.test' }),
+    );
+    const channel = new DiscordChannel(
+      'bot-token',
+      'app-id',
+      opts({
+        providerAccountId: 'discord-one',
+        setHistoryCoverageInboundActive,
+        distrustHistoryCoverage,
+      }),
+      (url) => {
+        socket = new FakeWebSocket(url);
+        return socket;
+      },
+    );
+
+    await channel.connect({ inbound: false, interactionCallbacks: true });
+    socket.receive({
+      op: 0,
+      t: 'READY',
+      s: 1,
+      d: { user: { id: 'bot-1' }, session_id: 'session-1' },
+    });
+
+    await vi.waitFor(() => expect(channel.isConnected()).toBe(true));
+    expect(setHistoryCoverageInboundActive).not.toHaveBeenCalled();
+    expect(distrustHistoryCoverage).not.toHaveBeenCalled();
+    await channel.disconnect();
+  });
+
+  it.each([7, 9])(
+    'distrusts Discord history immediately on gateway opcode %i',
+    async (opcode) => {
+      vi.useFakeTimers();
+      let socket!: FakeWebSocket;
+      const order: string[] = [];
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+        jsonResponse({ url: 'wss://gateway.discord.test' }),
+      );
+      const distrustHistoryCoverage = vi.fn(() => order.push('distrust'));
+      const channel = new DiscordChannel(
+        'bot-token',
+        'app-id',
+        opts({
+          providerAccountId: 'discord-one',
+          distrustHistoryCoverage,
+        }),
+        (url) => {
+          socket = new FakeWebSocket(url);
+          socket.close = vi.fn(() => order.push('close'));
+          return socket;
+        },
+      );
+
+      await channel.connect();
+      socket.receive({ op: opcode, d: opcode === 9 ? false : null });
+
+      expect(distrustHistoryCoverage).toHaveBeenCalledOnce();
+      expect(order).toEqual(['distrust', 'close']);
+      await vi.advanceTimersByTimeAsync(1_000);
+      socket.receive({ op: 0, t: 'READY', s: 1, d: { session_id: 'next' } });
+
+      expect(distrustHistoryCoverage).toHaveBeenCalledTimes(2);
+      expect(order).toEqual(['distrust', 'close', 'distrust']);
+      channel.disconnect();
+    },
+  );
 
   it('routes /gantry slash interactions and live Stop button interactions', async () => {
     let socket!: FakeWebSocket;

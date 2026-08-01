@@ -128,6 +128,7 @@ export type TeamsChannelOpts = Pick<
   | 'onMessageAction'
   | 'providerAccountId'
   | 'agentId'
+  | 'conversationRoutes'
 >;
 
 export interface PendingTeamsPermissionPrompt {

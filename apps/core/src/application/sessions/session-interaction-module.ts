@@ -1,4 +1,5 @@
 import type { AgentControlOverrides, NewMessage } from '../../domain/types.js';
+import { AgentRunResponseSchema } from '@gantry/contracts';
 import type {
   RuntimeEvent,
   RuntimeEventFilter,
@@ -33,7 +34,9 @@ type ControlResponseMode = Exclude<RuntimeResponseMode, 'sse'> | 'sse';
 export type SessionAppRecord = {
   sessionId: string;
   appId: string;
+  agentId: string;
   conversationId: string;
+  canonicalConversationId: string;
   conversationJid: string;
   workspaceKey: string;
   title?: string | null;
@@ -261,15 +264,32 @@ export class SessionInteractionModule {
     limit: number;
   }): Promise<{ runs: unknown[] }> {
     const appSession = await this.requireSession(input);
-    const session = await this.deps.repositories.agentSessions.getAgentSession(
-      appSession.sessionId as never,
+    // Resolve by jid and union, exactly as listMessages does. One jid can map
+    // to several conversation rows — the runtime warns
+    // `conversation_route_conversation_id_noncanonical` when a route predates
+    // the canonical id — so asking only for the canonical id silently returns
+    // [] for runs recorded under the older one.
+    const candidates = await this.feedConversationIds(appSession);
+    if (candidates.length === 0) return { runs: [] };
+    const lists = await Promise.all(
+      candidates.map((conversationId) =>
+        this.deps.repositories.agentRuns.listAgentRunsByConversation({
+          appId: appSession.appId as never,
+          conversationId: conversationId as never,
+          limit: input.limit,
+        }),
+      ),
     );
-    if (!session) return { runs: [] };
-    const runs = await this.deps.repositories.agentRuns.listAgentRunsBySession({
-      sessionId: session.id,
-      limit: input.limit,
-    });
-    return { runs };
+    const runs = lists
+      .flat()
+      .sort((a, b) =>
+        (a as { createdAt: string }).createdAt <
+        (b as { createdAt: string }).createdAt
+          ? 1
+          : -1,
+      )
+      .slice(0, input.limit);
+    return { runs: runs.map((run) => AgentRunResponseSchema.parse(run)) };
   }
 
   async acceptMessage(input: {
@@ -361,7 +381,9 @@ export class SessionInteractionModule {
         threadId,
       },
       actor: 'sdk',
+      agentId: session.agentId as never,
       sessionId: session.sessionId as never,
+      conversationId: session.canonicalConversationId as never,
       threadId: threadId ? (threadId as never) : undefined,
       correlationId: input.correlationId ?? null,
       responseMode,
@@ -426,7 +448,10 @@ export class SessionInteractionModule {
     limit?: number;
   }): Promise<RuntimeEvent[]> {
     const session = await this.requireSession(input);
-    return this.deps.runtimeEvents.list(this.eventFilter(session, input));
+    const conversationIds = await this.feedConversationIds(session);
+    return this.deps.runtimeEvents.list(
+      this.eventFilter(session, input, conversationIds),
+    );
   }
 
   async subscribeEvents(input: {
@@ -436,7 +461,10 @@ export class SessionInteractionModule {
     limit?: number;
   }) {
     const session = await this.requireSession(input);
-    return this.deps.runtimeEvents.subscribe(this.eventFilter(session, input));
+    const conversationIds = await this.feedConversationIds(session);
+    return this.deps.runtimeEvents.subscribe(
+      this.eventFilter(session, input, conversationIds),
+    );
   }
 
   async waitForVisibleEvent(input: {
@@ -483,10 +511,12 @@ export class SessionInteractionModule {
     });
     const event = await this.deps.runtimeEvents.publish({
       appId: session.appId as never,
+      agentId: session.agentId as never,
       eventType: input.eventType,
       payload: input.payload,
       actor: 'agent',
       sessionId: session.sessionId as never,
+      conversationId: session.canonicalConversationId as never,
       threadId: threadId ? (threadId as never) : undefined,
       correlationId: route?.correlationId ?? null,
       responseMode: route?.responseMode ?? session.defaultResponseMode,
@@ -525,13 +555,26 @@ export class SessionInteractionModule {
     return webhook.webhookId;
   }
 
+  /** Every conversation row this session's jid maps to, canonical first. */
+  private async feedConversationIds(
+    session: SessionAppRecord,
+  ): Promise<string[]> {
+    const rows =
+      await this.deps.repositories.messages.listConversationIdsForJid(
+        session.conversationJid,
+      );
+    const canonical = session.canonicalConversationId as string | undefined;
+    return Array.from(new Set([...(canonical ? [canonical] : []), ...rows]));
+  }
+
   private eventFilter(
     session: SessionAppRecord,
     input: { afterEventId?: number; limit?: number },
+    conversationIds: string[],
   ): RuntimeEventFilter {
     return {
       appId: session.appId as never,
-      sessionId: session.sessionId as never,
+      conversationIds: conversationIds as never,
       afterEventId:
         input.afterEventId && input.afterEventId > 0
           ? (input.afterEventId as never)

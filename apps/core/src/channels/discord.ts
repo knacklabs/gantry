@@ -27,11 +27,15 @@ import {
   splitDiscordText,
 } from './discord-delivery.js';
 import { sendDiscordProgressUpdate } from './discord-progress.js';
-import { DiscordGatewayConnection } from './discord-gateway.js';
+import {
+  connectDiscordGateway,
+  DiscordGatewayConnection,
+} from './discord-gateway.js';
 import { agentTodoStopActions } from './agent-todo-render.js';
 import { CHANNEL_STREAM_UPDATE_INTERVAL_MS } from './channel-provider.js';
 import { getProviderRuntimeSecret } from './provider-runtime-secrets.js';
 import { nowMs as currentTimeMs } from '../shared/time/datetime.js';
+import { findConversationRoutesForChat } from '../shared/thread-queue-key.js';
 import type {
   DiscordInteraction,
   DiscordMessageCreate,
@@ -54,6 +58,7 @@ import {
   waitDiscordRetryDelay,
 } from './discord-http-helpers.js';
 import { StreamResetEpochs } from './stream-reset-epochs.js';
+import { resolveInboundConversationIdentity } from './inbound-conversation-identity.js';
 
 export const DISCORD_JID_PREFIX = 'dc:';
 
@@ -85,6 +90,7 @@ function websocketFactory(url: string): WebSocketLike {
 }
 
 export class DiscordChannel implements ChannelAdapter {
+  readonly reportsHistoryCoverageInboundLiveness = true;
   name = 'discord';
   private gateway: DiscordGatewayConnection | null = null;
   private botUserId = '';
@@ -135,16 +141,18 @@ export class DiscordChannel implements ChannelAdapter {
     return jid.trim().startsWith(DISCORD_JID_PREFIX);
   }
 
-  async connect(options: { inbound?: boolean } = {}): Promise<void> {
-    if (options.inbound === false) return;
-    this.gateway = new DiscordGatewayConnection({
+  async connect(
+    options: { inbound?: boolean; interactionCallbacks?: boolean } = {},
+  ): Promise<void> {
+    this.gateway = await connectDiscordGateway({
       botToken: this.botToken,
       apiRoot: DISCORD_API_ROOT,
       intents: DISCORD_GATEWAY_INTENTS,
       createWebSocket: this.createWebSocket,
+      channelOpts: this.opts,
+      options,
       onDispatch: (payload) => this.handleGatewayDispatch(payload),
     });
-    await this.gateway.connect();
   }
 
   isConnected(): boolean {
@@ -560,23 +568,37 @@ export class DiscordChannel implements ChannelAdapter {
         message.channel_id,
       );
     }
+    const matchingRoutes = findConversationRoutesForChat(
+      this.opts.conversationRoutes?.() ?? {},
+      context.conversationJid,
+      context.threadId,
+      this.opts.providerAccountId,
+    );
+    const identity = resolveInboundConversationIdentity({
+      hasRegisteredRoute: matchingRoutes.length > 0,
+      name: matchingRoutes[0]?.[1].name,
+      isGroup: true,
+    });
     const metadataArgs = [
       context.conversationJid,
       message.timestamp || new Date().toISOString(),
-      undefined,
+      identity.messageIdentity.name,
       'discord',
       true,
     ] as const;
-    if (this.opts.providerAccountId) {
-      await this.opts.onChatMetadata(...metadataArgs, {
-        providerAccountId: this.opts.providerAccountId,
-      });
-    } else {
-      await this.opts.onChatMetadata(...metadataArgs);
+    if (identity.needsStandaloneMetadataWrite) {
+      if (this.opts.providerAccountId) {
+        await this.opts.onChatMetadata(...metadataArgs, {
+          providerAccountId: this.opts.providerAccountId,
+        });
+      } else {
+        await this.opts.onChatMetadata(...metadataArgs);
+      }
     }
     await this.opts.onMessage(context.conversationJid, {
       id: message.id,
       chat_jid: context.conversationJid,
+      ...identity.messageIdentity,
       provider: 'discord',
       sender: author?.id || 'unknown',
       sender_name: message.member?.nick || userName(author),

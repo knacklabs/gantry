@@ -6,6 +6,7 @@ import {
   loadRuntimeSettings,
 } from '../../config/settings/runtime-settings.js';
 import {
+  DATA_DIR,
   GANTRY_HOME,
   resolveRuntimeBootstrapStorageConfigFromEnv,
   readRuntimeSecretEnv,
@@ -35,6 +36,7 @@ import {
 import { loadSessionAppMemoryItems } from '../../memory/app-memory-session-hydration.js';
 import { RuntimeApp } from './runtime-app.js';
 import { nowIso } from '../../shared/time/datetime.js';
+import { createProviderAttachmentReclaimer } from './attachment-resolver-wiring.js';
 
 interface SettingsImportPreflightFailure {
   summary: string;
@@ -104,9 +106,16 @@ export async function runStartup(
     ...makeDefaultDeps(),
     ...deps,
   };
+  const reclaimProviderAttachment = createProviderAttachmentReclaimer({
+    materializationRoot: path.join(DATA_DIR, 'provider-attachments'),
+    workspaceRoots: () => [],
+  });
 
   resolved.ensureRuntimeLayoutDirectories(GANTRY_HOME);
-  let storage = await initializeStartupStorage(resolved);
+  let storage = await initializeStartupStorage(
+    resolved,
+    reclaimProviderAttachment,
+  );
   resolved.logger.info('Database initialized');
   const runtimeSettings = await (async () => {
     if (resolved.settingsAuthority !== 'revision') {
@@ -128,6 +137,7 @@ export async function runStartup(
     storage = await resolved.initializeRuntimeStorage({
       loadSessionAppMemoryItems: loadSessionAppMemoryItems,
       runtimeSettings: revisionSettings,
+      reclaimProviderAttachment,
     });
     resolved.logger.info(
       'Database initialized with authoritative settings revision',
@@ -213,9 +223,11 @@ async function closeStartupStorage(
 
 async function initializeStartupStorage(
   resolved: StartupDeps,
+  reclaimProviderAttachment: (storageRef: string) => Promise<void>,
 ): ReturnType<typeof initializeRuntimeStorage> {
   const baseOptions = {
     loadSessionAppMemoryItems: loadSessionAppMemoryItems,
+    reclaimProviderAttachment,
   };
   if (resolved.settingsAuthority !== 'revision') {
     return resolved.initializeRuntimeStorage(baseOptions);

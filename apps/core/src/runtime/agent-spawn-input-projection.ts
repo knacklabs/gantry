@@ -18,8 +18,14 @@ export function agentPersonasById(
 }
 
 export function projectSpawnRunnerInput(input: {
+  /**
+   * The conversation route this turn belongs to. Taken whole rather than as
+   * separate folder/account fields: the profile name is derived from both, and
+   * splitting them invites a caller to supply one and forget the other, which
+   * silently derives a different profile than the IPC handler resolves.
+   */
+  group: { folder: string; providerAccountId?: string };
   agentInput: AgentInput;
-  workspaceFolder: string;
   callableAgentManifest: RunnerAgentInput['callableAgentManifest'];
   hideAuthorityTools: boolean;
   compiledSystemPrompt: string;
@@ -33,9 +39,10 @@ export function projectSpawnRunnerInput(input: {
   trustedToolPolicyRules: AgentInput['toolPolicyRules'];
 } {
   const browserProfileName = resolveConversationBrowserProfile({
-    agentId: input.workspaceFolder,
-    workspaceKey: input.workspaceFolder,
+    agentId: input.group.folder,
+    workspaceKey: input.group.folder,
     conversationId: input.agentInput.chatJid,
+    providerAccountId: input.group.providerAccountId ?? null,
   });
   const trustedToolPolicyRules = input.agentInput.toolPolicyRules;
   const browserIpcEnabled = (trustedToolPolicyRules ?? []).some(

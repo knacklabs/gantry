@@ -58,12 +58,18 @@ function resolveConversationRouteFolder(
 
 export function buildLiveTurnBrowserFinalizer(deps: {
   getConversationRoutes: () => Record<string, { folder: string }>;
-  closeBrowserSession?: (profileName: string) => Promise<unknown>;
+  closeBrowserSession?: (
+    profileName: string,
+  ) => Promise<{ leaseGeneration?: number } | unknown>;
   closeBrowserToolBackends?: (profileName: string) => Promise<void>;
   warn: WarnLog;
 }): LiveTurnBrowserFinalizer {
   return async (input) => {
     const { chatJid } = parseThreadQueueKey(input.queueJid);
+    // The account is already IN the queue key — it was built from the same
+    // route the resolver would read, so this is the same fact from a cheaper
+    // place, not a second source of truth.
+    const { providerAccountId } = parseAgentThreadQueueKey(input.queueJid);
     const folder = resolveConversationRouteFolder(
       deps.getConversationRoutes(),
       input.queueJid,
@@ -73,21 +79,37 @@ export function buildLiveTurnBrowserFinalizer(deps: {
       agentId: folder,
       workspaceKey: folder,
       conversationId: chatJid,
+      providerAccountId: providerAccountId ?? null,
     });
-    const used = consumeBrowserProfileActivity(profileName);
+    const used = consumeBrowserProfileActivity(profileName, input.queueJid);
     if (!used) return;
     try {
       if (!isBrowserProfileSyncEnabled()) return;
       await deps.closeBrowserToolBackends?.(profileName);
-      await deps.closeBrowserSession?.(profileName);
+      const closed = (await deps.closeBrowserSession?.(profileName)) as
+        | { leaseGeneration?: number }
+        | undefined;
       const profile = getProfile(profileName);
       if (!profile) return;
+      // No provenance means we cannot say which ownership epoch produced these
+      // bytes. Publishing anyway would collapse "unknown" into generation 0,
+      // which the repository ACCEPTS while the durable counter is still 0 —
+      // letting a stale pre-upgrade directory overwrite a real snapshot.
+      if (closed?.leaseGeneration === undefined) {
+        deps.warn(
+          { queueJid: input.queueJid, profileName },
+          'Skipped live-turn browser snapshot: no lease generation provenance',
+        );
+        return;
+      }
       await snapshotBrowserProfile({
         profileName,
         profileDir: profile.dir,
         userDataDir: profile.userDataDir,
         snapshotRunId: input.runId ?? null,
         snapshotFencingVersion: input.fencingVersion ?? 0,
+        // Bound to the session just closed, not re-read from shared state.
+        snapshotLeaseGeneration: closed?.leaseGeneration,
       });
     } catch (err) {
       deps.warn(

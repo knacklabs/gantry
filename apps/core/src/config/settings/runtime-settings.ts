@@ -56,6 +56,10 @@ export {
   noteRestartRequired,
   writeDesiredRuntimeSettings,
 } from './desired-settings-writer.js';
+export {
+  applyConversationInstallToSettings,
+  hasConversationInstallInSettings,
+} from './conversation-install-settings.js';
 
 const DEFAULT_PROVIDER_ACCOUNT_IDS: Record<string, string> = {
   app: 'app_default',

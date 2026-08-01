@@ -114,6 +114,7 @@ describe('handleActiveNewSessionCommand', () => {
         providerAccountId: 'slack_alpha',
         externalUserId: 'U123',
       }),
+      expect.any(Function),
     );
     expect(getAgentTurnContext).toHaveBeenCalledWith(
       expect.objectContaining({ memoryUserId: 'person:canonical' }),

@@ -29,8 +29,10 @@ import type {
 } from '../domain/ports/conversation-context-hydration.js';
 
 export type {
+  ConversationContextHydrationCoverage,
   ConversationContextHydrationRequest,
   ConversationContextHydrationResult,
+  HydrationRequestObservation,
 } from '../domain/ports/conversation-context-hydration.js';
 
 export const CHANNEL_STREAM_UPDATE_INTERVAL_MS = {
@@ -57,6 +59,11 @@ export interface ChannelOpts {
   runtimeLease?: RuntimeLeasePort;
   runtimeSecrets?: RuntimeSecretProvider;
   groupJoinOnboarding?: GroupJoinOnboardingCoordinator;
+  distrustHistoryCoverage?: (providerAccountIds: readonly string[]) => void;
+  setHistoryCoverageInboundActive?: (
+    providerAccountIds: readonly string[],
+    active: boolean,
+  ) => void;
   isControlApproverAllowed?: (input: {
     providerId: string;
     providerAccountId?: string;
@@ -73,8 +80,7 @@ export type MaybePromise<T> = T | Promise<T>;
 
 export type ChannelAdapter = ChannelLifecyclePort &
   ChannelOwnershipPort &
-  MessageSink &
-  Partial<
+  MessageSink & { reportsHistoryCoverageInboundLiveness?: boolean } & Partial<
     StreamingSink &
       StreamingStateSink &
       TypingSink &

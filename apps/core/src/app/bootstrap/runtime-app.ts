@@ -68,6 +68,7 @@ import type { AgentExecutionAdapter } from '../../application/agent-execution/ag
 import type { AgentExecutionAdapterRegistry } from '../../application/agent-execution/agent-execution-adapter-registry.js';
 import { registerMemoryLlmClient } from '../../memory/memory-llm-port.js';
 import type { RunnerSandboxProvider } from '../../shared/runner-sandbox-provider.js';
+import type { ConversationHistoryCoverageRepository } from '../../domain/ports/conversation-history-coverage.js';
 import { createMutableChannelRuntime } from './runtime-app-channel-runtime.js';
 import { resolveGroupRouteExecutionProviderId } from '../../runtime/group-initial-execution-provider.js';
 import { resolveRuntimeDefaultAdapters } from './runtime-default-adapters.js';
@@ -134,6 +135,12 @@ export interface RuntimeApp {
   setAgentCursor: (chatJid: string, timestamp: string) => void;
   setChannelRuntime: (runtime: GroupProcessingDeps['channelRuntime']) => void;
   setProviderIdNormalizer?: (normalize: (providerId: string) => string) => void;
+  setHistoryCoverageDistrustEpochReader?: (
+    reader: NonNullable<GroupProcessingDeps['getHistoryCoverageDistrustEpoch']>,
+  ) => void;
+  setConversationHistoryCoverageRepository: (
+    repository: ConversationHistoryCoverageRepository,
+  ) => void;
 }
 export interface RuntimeAppOptions {
   ensureCredentialBinding?: (input: {
@@ -193,6 +200,12 @@ export function createRuntimeApp(options: RuntimeAppOptions = {}): RuntimeApp {
   const credentialBindingPromises = new Map<string, Promise<void>>();
   const ops = () => options.opsRepository ?? getRuntimeRepositories();
   const channelRuntime = createMutableChannelRuntime();
+  let readHistoryCoverageDistrustEpoch:
+    | NonNullable<GroupProcessingDeps['getHistoryCoverageDistrustEpoch']>
+    | undefined;
+  let conversationHistoryCoverageRepository:
+    | ConversationHistoryCoverageRepository
+    | undefined;
   const resolveExecutionProviderId = (
     route: Pick<ConversationRoute, 'agentConfig' | 'folder'>,
     chatJid: string,
@@ -590,6 +603,11 @@ export function createRuntimeApp(options: RuntimeAppOptions = {}): RuntimeApp {
     getRegisteredJids: () => new Set(Object.keys(conversationRoutes)),
     opsRepository: options.opsRepository,
     getRuntimeRepository: ops,
+    getConversationHistoryCoverageRepository: () =>
+      conversationHistoryCoverageRepository ??
+      getRuntimeStorage().repositories.conversationHistoryCoverage,
+    getHistoryCoverageDistrustEpoch: (providerAccountId) =>
+      readHistoryCoverageDistrustEpoch?.(providerAccountId),
     queue: {
       enqueueMessageCheck: (chatJid) => queue.enqueueMessageCheck(chatJid),
       closeStdin: (chatJid) => queue.closeStdin(chatJid),
@@ -679,6 +697,12 @@ export function createRuntimeApp(options: RuntimeAppOptions = {}): RuntimeApp {
     },
     setProviderIdNormalizer: (normalize) =>
       void (normalizeProviderId = normalize),
+    setHistoryCoverageDistrustEpochReader: (reader) => {
+      readHistoryCoverageDistrustEpoch = reader;
+    },
+    setConversationHistoryCoverageRepository: (repository) => {
+      conversationHistoryCoverageRepository = repository;
+    },
   };
 }
 export const collectRuntimeSessionMemory: import('../../domain/ports/session-memory-collector.js').SessionMemoryCollector =

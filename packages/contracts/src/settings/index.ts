@@ -186,7 +186,7 @@ export const RuntimeSettingsConversationSchema = z
     senderPolicy: z
       .object({
         allow: z.union([z.literal('*'), z.array(z.string().trim().min(1))]),
-        mode: z.enum(['trigger', 'drop']),
+        mode: z.literal('trigger'),
       })
       .strict(),
     controlApprovers: z.array(z.string().trim().min(1)),

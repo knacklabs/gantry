@@ -18,10 +18,10 @@ function channel(): ChannelAdapter {
   };
 }
 
-function provider(create: Provider['create']): Provider {
+function provider(create: Provider['create'], id = 'slack'): Provider {
   return {
-    id: 'slack',
-    label: 'Slack',
+    id,
+    label: id,
     jidPrefix: 'sl:',
     folderPrefix: 'slack_',
     isGroupJid: () => true,
@@ -45,6 +45,316 @@ function channelOpts(onMessage = vi.fn(async () => undefined)): ChannelOpts {
 }
 
 describe('connectProviderAccountChannels', () => {
+  it('distrusts every account sharing an inbound hydration transport before and after connect', async () => {
+    const order: string[] = [];
+    const activeChannel = channel();
+    const disconnect = activeChannel.disconnect;
+    activeChannel.hydrateConversationContext = vi.fn(async () => ({
+      providerId: 'slack',
+      attempted: true,
+      messages: [],
+    }));
+    vi.mocked(activeChannel.connect).mockImplementation(async () => {
+      order.push('connect');
+    });
+    const distrustHistoryCoverage = vi.fn((accountIds) => {
+      order.push(`distrust:${accountIds.join(',')}`);
+    });
+    const setHistoryCoverageInboundActive = vi.fn();
+
+    const connectedChannels: Parameters<
+      typeof connectProviderAccountChannels
+    >[0]['connectedChannels'] = [];
+    await connectProviderAccountChannels({
+      provider: provider(vi.fn(async () => activeChannel)),
+      appId: 'app-one',
+      runtimeSettings: {
+        providerAccounts: {
+          slack_one: {
+            provider: 'slack',
+            agentId: 'agent:one',
+            runtimeSecretRefs: { app_token: 'same', bot_token: 'same-bot' },
+          },
+          slack_two: {
+            provider: 'slack',
+            agentId: 'agent:two',
+            runtimeSecretRefs: { bot_token: 'same-bot', app_token: 'same' },
+          },
+        },
+        runtime: {},
+      },
+      channelOpts: {
+        ...channelOpts(),
+        distrustHistoryCoverage,
+        setHistoryCoverageInboundActive,
+      },
+      inboundEnabled: true,
+      connectedChannels,
+      connectedChannelLeases: [],
+      inboundLeasePrefix: 'runtime:provider-inbound',
+      logger: { info: vi.fn(), warn: vi.fn() },
+    });
+
+    expect(distrustHistoryCoverage).toHaveBeenCalledTimes(4);
+    for (const call of distrustHistoryCoverage.mock.calls) {
+      expect(call[0]).toEqual(['slack_one', 'slack_two']);
+    }
+    expect(order).toEqual([
+      'distrust:slack_one,slack_two',
+      'connect',
+      'distrust:slack_one,slack_two',
+      'distrust:slack_one,slack_two',
+      'connect',
+      'distrust:slack_one,slack_two',
+    ]);
+    expect(setHistoryCoverageInboundActive.mock.calls).toEqual([
+      [['slack_one', 'slack_two'], false],
+      [['slack_one', 'slack_two'], true],
+    ]);
+
+    await connectedChannels[0]!.channel.disconnect();
+
+    expect(setHistoryCoverageInboundActive).toHaveBeenLastCalledWith(
+      ['slack_one', 'slack_two'],
+      false,
+    );
+    expect(distrustHistoryCoverage).toHaveBeenCalledTimes(5);
+    expect(disconnect).toHaveBeenCalledOnce();
+  });
+
+  it('distrusts history when a history-capable account connects outbound-only', async () => {
+    const activeChannel = channel();
+    activeChannel.hydrateConversationContext = vi.fn(async () => ({
+      providerId: 'slack',
+      attempted: true,
+      messages: [],
+    }));
+    const distrustHistoryCoverage = vi.fn();
+    const setHistoryCoverageInboundActive = vi.fn();
+
+    await connectProviderAccountChannels({
+      provider: provider(vi.fn(async () => activeChannel)),
+      appId: 'app-one',
+      runtimeSettings: {
+        providerAccounts: {
+          slack_one: {
+            provider: 'slack',
+            agentId: 'agent:one',
+            runtimeSecretRefs: { app_token: 'app', bot_token: 'bot' },
+          },
+        },
+        runtime: {},
+      },
+      channelOpts: {
+        ...channelOpts(),
+        distrustHistoryCoverage,
+        setHistoryCoverageInboundActive,
+      },
+      inboundEnabled: false,
+      connectedChannels: [],
+      connectedChannelLeases: [],
+      inboundLeasePrefix: 'runtime:provider-inbound',
+      logger: { info: vi.fn(), warn: vi.fn() },
+    });
+
+    expect(activeChannel.connect).toHaveBeenCalledWith({
+      inbound: false,
+      interactionCallbacks: false,
+    });
+    expect(distrustHistoryCoverage).toHaveBeenCalledTimes(2);
+    expect(distrustHistoryCoverage).toHaveBeenNthCalledWith(1, ['slack_one']);
+    expect(distrustHistoryCoverage).toHaveBeenNthCalledWith(2, ['slack_one']);
+    expect(setHistoryCoverageInboundActive).not.toHaveBeenCalled();
+  });
+
+  it('does not distrust Telegram even if an adapter exposes hydration', async () => {
+    const activeChannel = channel();
+    activeChannel.hydrateConversationContext = vi.fn(async () => ({
+      providerId: 'telegram',
+      attempted: true,
+      messages: [],
+    }));
+    const distrustHistoryCoverage = vi.fn();
+
+    await connectProviderAccountChannels({
+      provider: provider(
+        vi.fn(async () => activeChannel),
+        'telegram',
+      ),
+      appId: 'app-one',
+      runtimeSettings: {
+        providerAccounts: {
+          telegram_one: {
+            provider: 'telegram',
+            agentId: 'agent:one',
+            runtimeSecretRefs: { token: 'same' },
+          },
+        },
+        runtime: {},
+      },
+      channelOpts: { ...channelOpts(), distrustHistoryCoverage },
+      inboundEnabled: true,
+      connectedChannels: [],
+      connectedChannelLeases: [],
+      inboundLeasePrefix: 'runtime:provider-inbound',
+      logger: { info: vi.fn(), warn: vi.fn() },
+    });
+
+    expect(distrustHistoryCoverage).not.toHaveBeenCalled();
+  });
+
+  it('observes lease loss during connect and awaits teardown before failing closed', async () => {
+    let releaseConnect!: () => void;
+    const connectBarrier = new Promise<void>((resolve) => {
+      releaseConnect = resolve;
+    });
+    let releaseDisconnect!: () => void;
+    const disconnectBarrier = new Promise<void>((resolve) => {
+      releaseDisconnect = resolve;
+    });
+    let lostHandler: ((err: Error) => void) | undefined;
+    let leaseValid = true;
+    const lease = {
+      generation: 1,
+      isValid: vi.fn(() => leaseValid),
+      onLost: vi.fn((handler: (err: Error) => void) => {
+        lostHandler = handler;
+      }),
+      release: vi.fn(async () => undefined),
+    };
+    const activeChannel = channel();
+    vi.mocked(activeChannel.connect).mockImplementation(() => connectBarrier);
+    vi.mocked(activeChannel.disconnect).mockImplementation(
+      () => disconnectBarrier,
+    );
+    const connectedChannels: Parameters<
+      typeof connectProviderAccountChannels
+    >[0]['connectedChannels'] = [];
+    const connectedChannelLeases: Parameters<
+      typeof connectProviderAccountChannels
+    >[0]['connectedChannelLeases'] = [];
+    const logger = { info: vi.fn(), warn: vi.fn() };
+    const lossError = new Error('inbound lease lost during connect');
+    let settled = false;
+
+    const outcomePromise = connectProviderAccountChannels({
+      provider: provider(vi.fn(async () => activeChannel)),
+      appId: 'app-one',
+      runtimeSettings: {
+        providerAccounts: {
+          slack_one: {
+            provider: 'slack',
+            agentId: 'agent:one',
+            runtimeSecretRefs: { app_token: 'same', bot_token: 'same-bot' },
+          },
+        },
+        runtime: { deploymentMode: 'fleet' },
+      },
+      channelOpts: {
+        ...channelOpts(),
+        runtimeLease: { tryAcquire: vi.fn(async () => lease) },
+      },
+      inboundEnabled: true,
+      connectedChannels,
+      connectedChannelLeases,
+      inboundLeasePrefix: 'runtime:provider-inbound',
+      logger,
+    }).then(
+      () => {
+        settled = true;
+        return { status: 'resolved' as const };
+      },
+      (error: unknown) => {
+        settled = true;
+        return { status: 'rejected' as const, error };
+      },
+    );
+
+    await vi.waitFor(() =>
+      expect(activeChannel.connect).toHaveBeenCalledOnce(),
+    );
+    leaseValid = false;
+    lostHandler?.(lossError);
+    releaseConnect();
+    await Promise.resolve();
+    await Promise.resolve();
+    const disconnectCallsBeforeRelease = vi.mocked(activeChannel.disconnect)
+      .mock.calls.length;
+    const settledBeforeDisconnectRelease = settled;
+    releaseDisconnect();
+    const outcome = await outcomePromise;
+
+    expect(lease.onLost).toHaveBeenCalledOnce();
+    expect(disconnectCallsBeforeRelease).toBe(1);
+    expect(settledBeforeDisconnectRelease).toBe(false);
+    expect(outcome).toEqual({ status: 'rejected', error: lossError });
+    expect(connectedChannels).toEqual([]);
+    expect(connectedChannelLeases).toEqual([]);
+    expect(lease.release).toHaveBeenCalledOnce();
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ err: lossError }),
+      'Provider Account inbound lease lost; disconnecting channel',
+    );
+  });
+
+  it('degrades to outbound-only when the lease is already lost before connect', async () => {
+    // onLost replays synchronously, so the loss is known before connect. Losing
+    // inbound must not also cost the ability to SEND — the account should still
+    // connect outbound-only, as it does under ordinary lease contention.
+    const lossError = new Error('inbound lease lost before connect');
+    const lease = {
+      generation: 1,
+      isValid: vi.fn(() => false),
+      onLost: vi.fn((handler: (err: Error) => void) => {
+        handler(lossError);
+      }),
+      release: vi.fn(async () => undefined),
+    };
+    const activeChannel = channel();
+    vi.mocked(activeChannel.connect).mockImplementation(async () => undefined);
+    const connectedChannels: Parameters<
+      typeof connectProviderAccountChannels
+    >[0]['connectedChannels'] = [];
+    const connectedChannelLeases: Parameters<
+      typeof connectProviderAccountChannels
+    >[0]['connectedChannelLeases'] = [];
+    const logger = { info: vi.fn(), warn: vi.fn() };
+
+    await connectProviderAccountChannels({
+      provider: provider(vi.fn(async () => activeChannel)),
+      appId: 'app-one',
+      runtimeSettings: {
+        providerAccounts: {
+          slack_one: {
+            provider: 'slack',
+            agentId: 'agent:one',
+            runtimeSecretRefs: { app_token: 'same', bot_token: 'same-bot' },
+          },
+        },
+        runtime: { deploymentMode: 'fleet' },
+      },
+      channelOpts: {
+        ...channelOpts(),
+        runtimeLease: { tryAcquire: vi.fn(async () => lease) },
+      },
+      inboundEnabled: true,
+      connectedChannels,
+      connectedChannelLeases,
+      inboundLeasePrefix: 'runtime:provider-inbound',
+      logger,
+    });
+
+    // Connected, but inbound disabled, and the dead lease released and not retained.
+    expect(activeChannel.connect).toHaveBeenCalledOnce();
+    expect(vi.mocked(activeChannel.connect).mock.calls[0]![0]).toMatchObject({
+      inbound: false,
+    });
+    expect(connectedChannels).toHaveLength(1);
+    expect(connectedChannelLeases).toEqual([]);
+    expect(lease.release).toHaveBeenCalledOnce();
+    expect(activeChannel.disconnect).not.toHaveBeenCalled();
+  });
+
   it('connects one inbound transport for provider accounts sharing secret refs', async () => {
     const channels = [channel(), channel()];
     const create = vi
@@ -158,7 +468,7 @@ describe('connectProviderAccountChannels', () => {
     );
   });
 
-  it('fans out shared inbound chat metadata to every matching provider account', async () => {
+  it('persists standalone provider-account channel-connect metadata without a message', async () => {
     let firstOnChatMetadata: ChannelOpts['onChatMetadata'] | undefined;
     const opts = channelOpts();
     const create = vi.fn<Provider['create']>(async (channelCreateOpts) => {
@@ -220,6 +530,7 @@ describe('connectProviderAccountChannels', () => {
       true,
       { providerAccountId: 'slack_two' },
     );
+    expect(opts.onMessage).not.toHaveBeenCalled();
   });
 
   it('does not fan out messages already scoped by the inbound transport', async () => {

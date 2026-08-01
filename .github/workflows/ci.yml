@@ -60,6 +60,12 @@ jobs:
       - name: Architecture check
         run: npm run check:architecture
 
+      - name: Drizzle migration check
+        run: |
+          npm run db:migrations:check
+          npm run db:migrations:generate -- --name ci_schema_drift
+          test -z "$(git status --porcelain -- apps/core/src/adapters/storage/postgres/schema/migrations)"
+
       - name: Typecheck
         run: npm run typecheck
 
@@ -68,6 +74,11 @@ jobs:
           docker exec ${{ job.services.postgres.id }} psql -U postgres -d gantry_test -v ON_ERROR_STOP=1 \
             -c 'CREATE EXTENSION IF NOT EXISTS vector;' \
             -c 'CREATE EXTENSION IF NOT EXISTS pg_trgm;'
+
+      - name: Apply migrations to clean Postgres schema
+        env:
+          GANTRY_TEST_DATABASE_URL: postgres://postgres:postgres@localhost:${{ job.services.postgres.ports[5432] }}/gantry_test
+        run: npm run test:integration:postgres -- apps/core/test/integration/postgres-migration-chain.postgres.integration.test.ts
 
       - name: Generate runtime SBOM
         run: npm run --silent security:sbom > gantry-runtime-sbom.cdx.json
@@ -118,58 +129,14 @@ jobs:
             fi
           }
 
+          # Unit + integration only. The e2e lanes run nightly
+          # (.github/workflows/nightly-e2e.yml): they boot a runtime, drive real
+          # transports and call a rate-limited real model, so per-PR they cost
+          # every author ~10 minutes and fail for reasons unrelated to the diff.
           run_check npm test
-          run_check npm run test:e2e
           export GANTRY_TEST_DATABASE_URL=postgres://postgres:postgres@localhost:${{ job.services.postgres.ports[5432] }}/gantry_test
-          run_check npm run test:e2e:postgres
           run_check npm run test:integration:postgres
           run_check npm run test:integration:postgres:chaos
-          run_check npm run test:e2e:agent:hermetic
-
-      # The Claude Agent SDK filesystem sandbox uses bubblewrap on Linux
-      # (seatbelt is built into macOS) and socat for proxy bridging; the
-      # runner spawns Claude Code with failIfUnavailable, so a missing bwrap
-      # kills the subprocess at startup (exit 1, no turn). Ubuntu 24.04 also
-      # restricts unprivileged user namespaces by default, which bwrap needs.
-      - name: Prepare agent sandbox deps (bubblewrap + socat)
-        run: |
-          # bwrap+socat are only needed for the supplementary real-model turn.
-          # Prefer already-present tools; only apt-install when a tool is missing
-          # AND passwordless sudo is available (GitHub-hosted ubuntu). On a
-          # self-hosted runner without either, warn and let the turn self-skip —
-          # `sudo -n` avoids the interactive-password hang that timed out the job.
-          if command -v bwrap >/dev/null && command -v socat >/dev/null; then
-            echo "bubblewrap + socat already present"
-          elif command -v sudo >/dev/null && sudo -n true 2>/dev/null; then
-            sudo apt-get update -qq
-            sudo apt-get install -y -qq bubblewrap socat
-            sudo sysctl -q kernel.apparmor_restrict_unprivileged_userns=0 2>/dev/null || true
-          else
-            echo "::warning::bubblewrap/socat unavailable and no passwordless sudo; the supplementary real-model agent turn will be skipped (hermetic agent-e2e already ran in Tests)."
-          fi
-
-      # Real-model turn: supplementary signal — the hermetic agent-e2e already
-      # ran in Tests. Self-skips when bwrap is unavailable (runner can't sandbox
-      # the SDK child) or the key is absent (fork PRs). The key reaches ONLY this
-      # step's env.
-      - name: Agent E2E turn (real model)
-        env:
-          E2E_MODEL_API_KEY: ${{ secrets.E2E_ANTHROPIC_API_KEY }}
-        run: |
-          if [ -z "$E2E_MODEL_API_KEY" ]; then
-            echo "::notice::E2E_MODEL_API_KEY is unavailable; skipping the real-model turn."
-            exit 0
-          fi
-          set -o pipefail
-          # The SDK filesystem sandbox needs BOTH bwrap and socat; if either is
-          # missing the runner can't sandbox the SDK child (failIfUnavailable),
-          # so skip this supplementary turn (hermetic agent-e2e ran in Tests).
-          if ! command -v bwrap >/dev/null || ! command -v socat >/dev/null; then
-            echo "bwrap/socat unavailable on this runner; skipping the real-model turn."
-            exit 0
-          fi
-          export GANTRY_TEST_DATABASE_URL=postgres://postgres:postgres@localhost:${{ job.services.postgres.ports[5432] }}/gantry_test
-          timeout 900s env LOG_LEVEL=fatal CI=true npm run test:e2e:agent:turn 2>&1 | tee -a /tmp/vitest.log
 
       - name: Debug CI Hang Context
         if: ${{ always() && steps.tests.outcome != 'success' }}

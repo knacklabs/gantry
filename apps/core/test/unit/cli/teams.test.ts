@@ -10,8 +10,24 @@ import {
   loadRuntimeSettings,
   saveRuntimeSettings,
 } from '@core/config/settings/runtime-settings.js';
+import { runtimeSecretNameForAgent } from '@core/domain/provider/provider-runtime-secret-keys.js';
 
 const groupsStore = vi.hoisted(() => new Map<string, any>());
+const test2TeamsClientIdSecretName = runtimeSecretNameForAgent(
+  'teams',
+  'test2',
+  'CLIENT_ID',
+);
+const test2TeamsClientSecretName = runtimeSecretNameForAgent(
+  'teams',
+  'test2',
+  'CLIENT_SECRET',
+);
+const test2TeamsTenantIdSecretName = runtimeSecretNameForAgent(
+  'teams',
+  'test2',
+  'TENANT_ID',
+);
 
 vi.mock('@core/cli/runtime-group-db.js', () => ({
   openRuntimeGroupDb: async () => ({
@@ -334,26 +350,51 @@ describe('cli teams helpers', () => {
       })),
     }));
     const storeRuntimeSecretInput = mockRuntimeSecretStorage();
+    const existingSettings = loadRuntimeSettings(runtimeHome);
+    existingSettings.agents.main_agent = {
+      name: 'Default Agent',
+      folder: 'main_agent',
+      bindings: {},
+      sources: { skills: [], mcpServers: [], tools: [] },
+      capabilities: [],
+      accessPreset: 'full',
+    };
+    existingSettings.providerAccounts.teams_default = {
+      agentId: 'main_agent',
+      provider: 'teams',
+      label: 'Teams Default',
+      runtimeSecretRefs: {
+        client_id: 'gantry-secret:DEFAULT_AGENT_TEAMS_CLIENT_ID',
+        client_secret: 'gantry-secret:DEFAULT_AGENT_TEAMS_CLIENT_SECRET',
+        tenant_id: 'gantry-secret:DEFAULT_AGENT_TEAMS_TENANT_ID',
+      },
+    };
+    saveRuntimeSettings(runtimeHome, existingSettings);
 
     const { runTeamsConnectCommand } = await import('@core/cli/teams.js');
-    const code = await runTeamsConnectCommand(runtimeHome);
+    const code = await runTeamsConnectCommand(
+      runtimeHome,
+      undefined,
+      'test2',
+      'Test 2',
+    );
 
     expect(code).toBe(0);
     expect(storeRuntimeSecretInput).toHaveBeenCalledWith({
       runtimeHome,
-      name: 'TEAMS_CLIENT_ID',
+      name: test2TeamsClientIdSecretName,
       value: 'client-id',
       actor: 'cli:teams-connect',
     });
     expect(storeRuntimeSecretInput).toHaveBeenCalledWith({
       runtimeHome,
-      name: 'TEAMS_CLIENT_SECRET',
+      name: test2TeamsClientSecretName,
       value: 'client-secret',
       actor: 'cli:teams-connect',
     });
     expect(storeRuntimeSecretInput).toHaveBeenCalledWith({
       runtimeHome,
-      name: 'TEAMS_TENANT_ID',
+      name: test2TeamsTenantIdSecretName,
       value: 'tenant-id',
       actor: 'cli:teams-connect',
     });
@@ -362,14 +403,14 @@ describe('cli teams helpers', () => {
     );
     const settings = loadRuntimeSettings(runtimeHome);
     expect(settings.providers.teams.enabled).toBe(true);
-    expect(settings.providerAccounts.teams_default.runtimeSecretRefs).toEqual({
-      client_id: 'gantry-secret:TEAMS_CLIENT_ID',
-      client_secret: 'gantry-secret:TEAMS_CLIENT_SECRET',
-      tenant_id: 'gantry-secret:TEAMS_TENANT_ID',
+    expect(settings.providerAccounts.teams_test2.runtimeSecretRefs).toEqual({
+      client_id: `gantry-secret:${test2TeamsClientIdSecretName}`,
+      client_secret: `gantry-secret:${test2TeamsClientSecretName}`,
+      tenant_id: `gantry-secret:${test2TeamsTenantIdSecretName}`,
     });
     expect(groupsStore.get('teams:19:general@thread.tacv2')).toEqual(
       expect.objectContaining({
-        folder: 'main_agent',
+        folder: 'test2',
       }),
     );
     expect(outro).toHaveBeenCalledWith(

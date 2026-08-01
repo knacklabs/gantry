@@ -13,8 +13,9 @@ import {
   loadSenderControlAllowlist,
   loadSenderAllowlist,
   shouldLogDenied,
-  shouldDropMessage,
 } from '@core/platform/sender-allowlist.js';
+import { parseRuntimeSettings } from '@core/config/settings/runtime-settings-parser.js';
+import { renderRuntimeSettingsYaml } from '@core/config/settings/runtime-settings-renderer.js';
 import {
   getProvider,
   registerProvider,
@@ -307,7 +308,8 @@ describe('loadSenderAllowlist', () => {
     expect(cfg.slack.conversations).not.toHaveProperty('sl:slack:C123');
     expect(isSenderAllowed('sl:C123', 'U999', cfg, 'slack_ops')).toBe(true);
     expect(isSenderAllowed('sl:C123', 'U111', cfg, 'slack_ops')).toBe(false);
-    expect(shouldDropMessage('sl:C123', cfg, 'slack_ops')).toBe(true);
+    expect(isTriggerAllowed('sl:C123', 'U999', cfg, 'slack_ops')).toBe(true);
+    expect(isTriggerAllowed('sl:C123', 'U111', cfg, 'slack_ops')).toBe(false);
   });
 
   it('keeps settings-derived sender policies scoped by conversation', () => {
@@ -331,7 +333,7 @@ describe('isSenderAllowed', () => {
   const cfg: RuntimeSenderAllowlistConfig = {
     telegram: {
       default: { allow: '*', mode: 'trigger' },
-      agents: { telegram_kai: { allow: ['alice'], mode: 'drop' } },
+      agents: { telegram_kai: { allow: ['alice'], mode: 'trigger' } },
       logDenied: true,
     },
     slack: {
@@ -367,7 +369,6 @@ describe('isSenderAllowed', () => {
 
   it('fails closed for JIDs without a registered provider prefix', () => {
     expect(isSenderAllowed('unknown:1', 'anyone', cfg)).toBe(false);
-    expect(shouldDropMessage('unknown:1', cfg)).toBe(true);
   });
 });
 
@@ -375,7 +376,7 @@ describe('isSenderExplicitlyAllowed', () => {
   const cfg: RuntimeSenderAllowlistConfig = {
     telegram: {
       default: { allow: '*', mode: 'trigger' },
-      agents: { telegram_kai: { allow: ['alice'], mode: 'drop' } },
+      agents: { telegram_kai: { allow: ['alice'], mode: 'trigger' } },
       logDenied: true,
     },
     slack: {
@@ -493,30 +494,48 @@ describe('sender control allowlist', () => {
   });
 });
 
-describe('shouldDropMessage', () => {
-  const cfg: RuntimeSenderAllowlistConfig = {
-    telegram: {
-      default: { allow: '*', mode: 'trigger' },
-      agents: { telegram_kai: { allow: '*', mode: 'drop' } },
-      logDenied: true,
-    },
-    slack: {
-      default: { allow: '*', mode: 'drop' },
-      agents: {},
-      logDenied: true,
-    },
-  };
+describe('legacy sender policy normalization', () => {
+  it('normalizes drop through runtime settings and renders trigger', () => {
+    const settings = parseRuntimeSettings(
+      renderSettingsYaml({
+        telegramDefaultAllow: '*',
+        telegramDefaultMode: 'trigger',
+        telegramAgents: {
+          telegram_kai: { allow: ['alice'], mode: 'drop' },
+        },
+        slackDefaultAllow: '*',
+        slackDefaultMode: 'trigger',
+      }),
+    );
 
-  it('returns false for trigger mode', () => {
-    expect(shouldDropMessage('tg:1', cfg)).toBe(false);
+    expect(
+      settings.conversations.telegram_kai_conversation.senderPolicy,
+    ).toEqual({
+      allow: ['alice'],
+      mode: 'trigger',
+    });
+    const rendered = renderRuntimeSettingsYaml(settings);
+    expect(rendered).toContain('      allow: ["alice"]\n      mode: trigger');
+    expect(rendered).not.toContain('mode: drop');
   });
 
-  it('returns true for drop mode', () => {
-    expect(shouldDropMessage('sl:C1', cfg)).toBe(true);
-  });
+  it('normalizes drop through loadSenderAllowlist without losing allow', () => {
+    const cfg = loadSenderAllowlist(
+      writeSettings({
+        telegramDefaultAllow: '*',
+        telegramDefaultMode: 'trigger',
+        telegramAgents: {
+          telegram_kai: { allow: ['alice'], mode: 'drop' },
+        },
+        slackDefaultAllow: '*',
+        slackDefaultMode: 'trigger',
+      }),
+    );
 
-  it('uses per-agent mode override', () => {
-    expect(shouldDropMessage('tg:1', cfg, 'telegram_kai')).toBe(true);
+    expect(cfg.telegram.conversations?.['tg:1']?.telegram_kai).toEqual({
+      allow: ['alice'],
+      mode: 'trigger',
+    });
   });
 });
 

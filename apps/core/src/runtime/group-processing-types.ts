@@ -8,8 +8,10 @@ import type {
   ThinkingOverride,
 } from '../domain/types.js';
 import type {
+  ConversationContextHydrationCoverage,
   ConversationContextHydrationRequest,
   ConversationContextHydrationResult,
+  HydrationRequestObservation,
 } from '../domain/ports/conversation-context-hydration.js';
 import type {
   RuntimeAgentSessionRepository,
@@ -43,10 +45,16 @@ import type {
   IdentityResolveInput,
   IdentityResolveResult,
 } from '../application/identity/person-identity-service.js';
+import type {
+  ConversationHistoryCoverageRepository,
+  ConversationHistoryDistrustEpoch,
+} from '../domain/ports/conversation-history-coverage.js';
 
 export type {
+  ConversationContextHydrationCoverage,
   ConversationContextHydrationRequest,
   ConversationContextHydrationResult,
+  HydrationRequestObservation,
 };
 
 export type GroupProcessingRepository = RuntimeAgentSessionRepository &
@@ -235,4 +243,10 @@ export interface GroupProcessingDeps {
   getSelectedAgentHarness: (agentFolder?: string) => AgentHarness;
   opsRepository?: GroupProcessingRepository;
   getRuntimeRepository?: () => GroupProcessingRepository;
+  getConversationHistoryCoverageRepository?: () =>
+    | ConversationHistoryCoverageRepository
+    | undefined;
+  getHistoryCoverageDistrustEpoch?: (
+    providerAccountId: string,
+  ) => ConversationHistoryDistrustEpoch | undefined;
 }

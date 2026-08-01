@@ -1,0 +1,1 @@
+-- Schema snapshot baseline: the seven preceding identity migrations already apply this DDL.

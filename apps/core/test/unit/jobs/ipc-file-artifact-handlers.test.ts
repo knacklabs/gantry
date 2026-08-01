@@ -82,6 +82,7 @@ function contextFor(input: {
   data: Record<string, unknown>;
   ipcBaseDir?: string;
   writeFileArtifact: ReturnType<typeof vi.fn>;
+  readFileArtifact?: ReturnType<typeof vi.fn>;
 }) {
   return {
     data: input.data,
@@ -89,6 +90,7 @@ function contextFor(input: {
     ipcBaseDir: input.ipcBaseDir,
     deps: {
       getFileArtifactStore: () => ({
+        readFileArtifact: input.readFileArtifact,
         writeFileArtifact: input.writeFileArtifact,
       }),
       getToolRepository: () => ({
@@ -150,6 +152,109 @@ describe('file artifact IPC handlers', () => {
           scope: 'default',
           path: 'notes/result.txt',
           version: 1,
+        },
+      },
+    });
+  });
+
+  it('reads workspace message attachments through the file tool path', async () => {
+    const runtimeHome = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'gantry-file-ipc-'),
+    );
+    runtimeHomes.push(runtimeHome);
+    const { fileArtifactTaskHandlers, taskData } =
+      await loadFileArtifactHandlers(runtimeHome);
+    const attachmentDir = path.join(
+      runtimeHome,
+      'agents',
+      'main_agent',
+      'attachments',
+    );
+    fs.mkdirSync(attachmentDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(attachmentDir, 'skills.md'),
+      '# ATS Skills\nRead this file.',
+      { mode: 0o600 },
+    );
+    const writeFileArtifact = vi.fn();
+
+    await fileArtifactTaskHandlers.file_artifact(
+      contextFor({
+        data: taskData('read-workspace-attachment', {
+          payload: {
+            action: 'read',
+            path: 'attachments/skills.md',
+          },
+        }),
+        writeFileArtifact,
+      }),
+    );
+
+    expect(writeFileArtifact).not.toHaveBeenCalled();
+    expect(
+      readResponse(runtimeHome, 'read-workspace-attachment'),
+    ).toMatchObject({
+      ok: true,
+      data: {
+        ok: true,
+        attachment: {
+          filename: 'skills.md',
+          contentType: 'text/markdown',
+        },
+        content: {
+          encoding: 'utf8',
+          text: '# ATS Skills\nRead this file.',
+        },
+      },
+    });
+  });
+
+  it('does not shadow scoped FileArtifact reads under attachments paths', async () => {
+    const runtimeHome = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'gantry-file-ipc-'),
+    );
+    runtimeHomes.push(runtimeHome);
+    const { fileArtifactTaskHandlers, taskData } =
+      await loadFileArtifactHandlers(runtimeHome);
+    const writeFileArtifact = vi.fn();
+    const readFileArtifact = vi.fn(async () => ({
+      artifact: makeArtifact({
+        virtualScope: 'default',
+        virtualPath: 'attachments/skills.md',
+        content: 'from artifact store',
+      }),
+      content: 'from artifact store',
+    }));
+
+    await fileArtifactTaskHandlers.file_artifact(
+      contextFor({
+        data: taskData('read-scoped-attachment-artifact', {
+          payload: {
+            action: 'read',
+            scope: 'default',
+            path: 'attachments/skills.md',
+          },
+        }),
+        readFileArtifact,
+        writeFileArtifact,
+      }),
+    );
+
+    expect(readFileArtifact).toHaveBeenCalledWith(
+      expect.objectContaining({
+        virtualScope: 'default',
+        virtualPath: 'attachments/skills.md',
+      }),
+    );
+    expect(
+      readResponse(runtimeHome, 'read-scoped-attachment-artifact'),
+    ).toMatchObject({
+      ok: true,
+      data: {
+        ok: true,
+        content: {
+          encoding: 'utf8',
+          text: 'from artifact store',
         },
       },
     });

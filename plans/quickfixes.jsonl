@@ -1,0 +1,1 @@
+{"event": "open", "id": "Q-0001-4048", "reason": "PR #345 review: make the drizzle snapshot catch-up idempotent so a database that applied the branch baseline before 0116 was merged does not skip 0116's DDL (autoreview P1)", "started_at": "2026-07-31T14:11:26+00:00", "max_files": 5, "files": []}

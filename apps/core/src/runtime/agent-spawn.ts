@@ -1,6 +1,7 @@
 import { ChildProcess } from 'child_process';
 import fs from 'fs';
 import path from 'path';
+import { randomUUID } from 'node:crypto';
 import {
   DATA_DIR,
   PERMISSION_APPROVAL_TIMEOUT_MS,
@@ -229,12 +230,17 @@ async function spawnAgentWithContext(
   const { runnerInput, browserIpcEnabled, trustedToolPolicyRules } =
     projectSpawnRunnerInput({
       agentInput: input,
-      workspaceFolder: group.folder,
+      group,
       callableAgentManifest,
       hideAuthorityTools,
       compiledSystemPrompt,
       permissions: runtimeSettings.permissions,
     });
+  // Per-turn browser credential: two concurrent turns for different accounts
+  // get different tokens, which a shared (workspace, chat, thread) key cannot.
+  const browserTurnToken = randomUUID();
+  const browserProfileForRun = runnerInput.browserProfileName ?? '';
+  runnerInput.browserTurnToken = browserTurnToken;
   const egressSettings = runtimeSettings.permissions.egress;
   const hostRuntime = host.prepareHostRuntimeContext(group);
   const adapterResolution = resolveSpawnExecutionAdapter(
@@ -517,6 +523,7 @@ async function spawnAgentWithContext(
       workspaceIpcDir: hostRuntime.workspaceIpcDir,
       ipcInputDir,
       ipcAuthToken: ipcAuth.authToken,
+      browserTurnToken,
       chatJid: input.chatJid,
       providerAccountId: group.providerAccountId,
       jobId: input.jobId,
@@ -669,6 +676,9 @@ async function spawnAgentWithContext(
         workspaceKey: group.folder,
         chatJid: input.chatJid,
         threadId: input.threadId,
+        turnToken: browserTurnToken,
+        browserProfileName: browserProfileForRun,
+        turnQueueKey: input.turnQueueKey,
       });
     }
     sandboxConfigPath = path.join(
@@ -785,6 +795,7 @@ async function spawnAgentWithContext(
         workspaceKey: group.folder,
         chatJid: input.chatJid,
         threadId: input.threadId,
+        turnToken: browserTurnToken,
       });
     }
     cleanupRunnerMcpConfigFile(mcpConfigPath, logger.warn.bind(logger));

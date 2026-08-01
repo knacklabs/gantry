@@ -291,6 +291,7 @@ export async function runQuery(
     memoryReviewerIsControlApprover: agentInput.memoryReviewerIsControlApprover,
     persona: agentInput.persona,
     browserProfileName: agentInput.browserProfileName,
+    browserTurnToken: agentInput.browserTurnToken,
     configuredAllowedTools: agentInput.allowedTools,
     attachedSkillSourceIds: agentInput.attachedSkillSourceIds,
     selectedSkillDisplays: agentInput.selectedSkillDisplays,
@@ -419,7 +420,9 @@ export async function runQuery(
           heartbeat.recordToolActivity(toolName),
         recordPermissionApprovalContext: permissionApprovalContext.record,
       }),
-      settingSources: [],
+      // Load only the per-run CLAUDE_CONFIG_DIR settings so Claude discovers
+      // Gantry-materialized skills without reading workspace configuration.
+      settingSources: ['user'],
       mcpServers: capabilities.mcpServers,
       strictMcpConfig: true,
       includePartialMessages: true,

@@ -12,7 +12,6 @@ import {
   isSenderAllowed,
   loadSenderControlAllowlist,
   loadSenderAllowlist,
-  shouldDropMessage,
   shouldLogDenied,
 } from '../../platform/sender-allowlist.js';
 import {
@@ -20,12 +19,10 @@ import {
   isPartialMessageDeliveryError,
 } from '../../domain/messages/partial-delivery.js';
 import { AmbiguousDurableDeliveryError } from '../../domain/messages/durable-delivery.js';
-import {
-  getRuntimeStorage,
-  getRuntimeRepositories,
-  tryAcquireRuntimeAdvisoryLease,
-} from '../../adapters/storage/postgres/runtime-store.js';
+// prettier-ignore
+import { getRuntimeRepositories, getRuntimeStorage, tryAcquireRuntimeAdvisoryLease } from '../../adapters/storage/postgres/runtime-store.js';
 import { EnvRuntimeSecretProvider } from '../../adapters/credentials/env-runtime-secret-provider.js';
+import { ConversationHistoryCoverageDistrust } from './conversation-history-coverage-distrust.js';
 import { RuntimeApp } from './runtime-app.js';
 import { ConversationAdministrationService } from '../../application/provider-conversations/conversation-administration-service.js';
 import { RuntimeSecretConversationMembershipValidator } from '../../channels/conversation-membership-validation.js';
@@ -86,6 +83,7 @@ import {
 import { createPermissionApprovalRequester } from '../../channels/permission-approval-requester.js';
 import * as routeProviderAccount from './channel-wiring-route-provider-account.js';
 import { syncChannelGroups } from './channel-wiring-group-sync.js';
+import { fetchHistoricalAttachmentFromChannel } from './channel-wiring-historical-attachments.js';
 const PROVIDER_INBOUND_LEASE_PREFIX = 'runtime:provider-inbound';
 type AccountOpts = { providerAccountId?: string };
 type BoundChannel = BoundProviderAccountChannel['channel'];
@@ -99,7 +97,6 @@ export function createChannelWiring(
     providerIds: listChannelProviders(),
     loadSenderAllowlist,
     loadSenderControlAllowlist,
-    shouldDropMessage,
     isSenderAllowed,
     isSenderControlAllowed,
     shouldLogDenied,
@@ -114,6 +111,15 @@ export function createChannelWiring(
   const messageActionRouter = createChannelMessageActionRouter();
   const persistenceQueue = new AsyncTaskQueue(4, 5_000);
   const ops = () => resolved.opsRepository ?? getRuntimeRepositories();
+  // prettier-ignore
+  const historyDistrust = new ConversationHistoryCoverageDistrust(() => resolved.historyCoverage ?? getRuntimeStorage().repositories.conversationHistoryCoverage, resolved.logger);
+  if (resolved.historyCoverage)
+    app.setConversationHistoryCoverageRepository(resolved.historyCoverage);
+  if (typeof app.setHistoryCoverageDistrustEpochReader === 'function') {
+    app.setHistoryCoverageDistrustEpochReader((providerAccountId) =>
+      historyDistrust.readEpoch(providerAccountId),
+    );
+  }
   const optionalOps = () => {
     try {
       return ops();
@@ -235,9 +241,10 @@ export function createChannelWiring(
     conversationRoutes: () => app.getConversationRoutes(),
     runtimeSettings: () => currentRuntimeSettings,
     runtimeLease: { tryAcquire: tryAcquireRuntimeAdvisoryLease },
-    get runtimeSecrets() {
-      return resolved.runtimeSecrets;
-    },
+    distrustHistoryCoverage: historyDistrust.distrust,
+    setHistoryCoverageInboundActive: historyDistrust.setInboundActive,
+    // prettier-ignore
+    get runtimeSecrets() { return resolved.runtimeSecrets; },
     isControlApproverAllowed,
     onMessageAction: messageActionRouter.handle,
   };
@@ -271,15 +278,12 @@ export function createChannelWiring(
     }
   }
   const hasConnectedChannels = (): boolean => connectedChannels.length > 0;
-  function describeDestinationJid(jid: string) {
-    const provider = providerForJid(jid);
-    return {
-      ...(provider
-        ? { providerId: provider.id, internal: provider.internal === true }
-        : { internal: false }),
-      runtimeAppId: resolved.appId,
-    };
-  }
+  const describeDestinationJid = (jid: string) =>
+    routeProviderAccount.describeProviderDestination(
+      providerForJid(jid),
+      resolved.appId,
+    );
+
   const hasChannel = (jid: string, options?: { providerAccountId?: string }) =>
     findBoundChannel(jid, options?.providerAccountId) !== undefined;
   function supportsStreaming(
@@ -298,6 +302,11 @@ export function createChannelWiring(
   ): boolean {
     const channel = findBoundChannel(jid, options?.providerAccountId);
     return channel ? asProgressSink(channel) !== undefined : false;
+  }
+  async function fetchHistoricalAttachment(
+    input: Parameters<ChannelWiring['fetchHistoricalAttachment']>[0],
+  ) {
+    return fetchHistoricalAttachmentFromChannel(input, findBoundChannel);
   }
   async function sendMessage(
     jid: string,
@@ -709,13 +718,18 @@ export function createChannelWiring(
   return {
     getRuntimeAppId: () => resolved.appId,
     normalizeProviderId,
-    setRuntimeSecrets: (provider) => void (resolved.runtimeSecrets = provider),
+    getHistoryCoverageDistrustEpoch: (id) => historyDistrust.readEpoch(id),
+    // prettier-ignore
+    setRuntimeSecrets: (provider) => { resolved.runtimeSecrets = provider; },
     describeDestinationJid,
     connectEnabledChannels,
     hasConnectedChannels,
     hasChannel,
     supportsStreaming,
     supportsProgress,
+    fetchHistoricalAttachment,
+    getMessageAttachmentRepository: () =>
+      getRuntimeStorage().repositories.messageAttachments,
     sendMessage,
     sendProviderMessage,
     createRecoveryDispatchPermit,

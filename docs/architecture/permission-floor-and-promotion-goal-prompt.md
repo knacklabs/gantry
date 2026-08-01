@@ -1,6 +1,10 @@
 # Permission floor + command-class promotion — goal prompt
 <!-- doc-references: frozen 2026-07-22 (decision 0036) -->
 
+> **Historical goal record.** This work was folded into and superseded by the
+> shipped permission-engine redesign. Use `capability-management.md` and the
+> Current shipped contract in `permission-engine-redesign-goal-prompt.md`.
+
 Status: SCOPED via grill (2026-07-20). Next lane after the incident closeout.
 Stay-direct posture confirmed; this lane makes the live default safer AND kills
 the novel-task prompt flood.

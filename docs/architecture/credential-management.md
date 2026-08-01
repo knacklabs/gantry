@@ -285,10 +285,14 @@ authority environment keys unless a future capability explicitly models that
 behavior.
 
 Selected `local_cli` capabilities project credential paths and network host
-metadata only through typed runtime access. Credential directories are mounted
-into the SDK as additional readable directories and are also added to
-`sandbox.filesystem.denyWrite`; they are intentionally not added to
-`denyRead`. Declared network hosts are not durable `SandboxNetworkAccess`
+metadata only through typed runtime access. Credential directories are exposed
+to the runner as additional readable directories for reviewed local-CLI
+commands, while explicit credential/protected-path checks remain host-side
+authorization rails. In `direct`, Gantry does not configure a Claude SDK
+filesystem sandbox, so these checks must not be described as OS-level
+`denyRead` or `denyWrite` confinement. When `sandbox_runtime` is selected, its
+outer whole-runner profile adds filesystem confinement around the same
+projection. Declared network hosts are not durable `SandboxNetworkAccess`
 authority. For scheduled jobs, Gantry may suppress a parentless SDK network
 prompt only when it arrives immediately after the same principal's approved
 Bash invocation, that command matches the reviewed local CLI command template,
@@ -677,32 +681,43 @@ credential handoff. Bash tools, MCP stdio subprocesses, browser tools, and
 skills do not receive model provider tokens. Host-owned scheduler scripts are
 not supported.
 
-The SDK process receives sandbox policy and model credentials as separate
+The runner receives protected-path metadata and model credentials as separate
 adapter projections. Approved tool calls receive a separate `toolNetworkEnv`
 projection for the Gantry loopback egress proxy and neutral TLS aliases; future
 execution adapters such as Deep Agents must consume that same neutral contract
-instead of reusing model credentials for tool egress. Protected filesystem paths
-are passed through
-`GANTRY_PROTECTED_FILESYSTEM_DENY_READ_PATHS_JSON` and
-`GANTRY_PROTECTED_FILESYSTEM_DENY_WRITE_PATHS_JSON` and become Claude SDK
-`sandbox.filesystem.denyRead` and `sandbox.filesystem.denyWrite` entries;
-reviewed local CLI credential directories are also passed through
-`GANTRY_LOCAL_CLI_CREDENTIAL_DIRS_JSON` so the SDK can mount them for reads
-while still denying writes. Model credentials remain only in the private SDK env
-handoff. Do not use MCP stdio env, browser env, or any future scheduler script
-env to carry sandbox authority or provider credentials.
+instead of reusing model credentials for tool egress.
+
+`GANTRY_PROTECTED_FILESYSTEM_DENY_READ_PATHS_JSON`,
+`GANTRY_PROTECTED_FILESYSTEM_DENY_WRITE_PATHS_JSON`, and
+`GANTRY_LOCAL_CLI_CREDENTIAL_DIRS_JSON` carry host/runner policy metadata; they
+are not authority by themselves. In `direct`, the Anthropic SDK receives no
+inner sandbox configuration. Gantry's coordinator and deterministic
+credential/protected-path rails decide declared tool requests, while the
+deployment host account, container, or VM is the OS boundary. If
+`sandbox_runtime` is selected, the outer runner sandbox additionally enforces
+filesystem policy for the runner and its children. Model credentials remain
+only in the private SDK env handoff. Do not use MCP stdio env, browser env, or
+any future scheduler script env to carry sandbox authority or provider
+credentials.
 
 ## Permission Boundary
 
 Credential injection is not permission approval. Agent actions must still pass
-through `ToolExecutionPolicyService` and the permission/capability binding
-checks before credentials are injected or used for a tool/API action.
+through the host permission coordinator: hard restrictions, reviewed
+agent-owned capability/rule evaluation, and deterministic safety rails run
+before credentials are injected or used for a tool/API action. The classifier
+may assess residual action risk, but it never grants durable credential
+authority.
 
 ```mermaid
 flowchart LR
-  Runtime["Runtime agent run"] --> Policy["ToolExecutionPolicyService"]
+  Runtime["Runtime agent run"] --> Coordinator["Host permission coordinator"]
+  Coordinator --> Rails["Deterministic rails"]
+  Coordinator --> Policy["Reviewed agent capability or rule"]
   Policy --> CapabilitySecrets["Capability Credentials"]
   CapabilitySecrets --> CapabilityEnv["Selected skill/MCP/tool env"]
+  Coordinator --> Human["Durable human approval when required"]
+  Runtime --> Sandbox["Optional sandbox_runtime confinement"]
   Runtime --> Broker["Gantry Model Gateway"]
   Broker --> ModelInjection["Private model SDK credential handoff"]
   Runtime --> Secrets["RuntimeSecretProvider"]

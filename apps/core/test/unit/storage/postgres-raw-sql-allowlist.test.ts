@@ -15,6 +15,9 @@ const ALLOWED_RAW_SQL_FILES = new Set([
   'apps/core/src/adapters/storage/postgres/repositories/async-task-repository.postgres.ts',
   // pg_advisory_xact_lock makes live admission cap checks atomic per app.
   'apps/core/src/adapters/storage/postgres/repositories/live-admission-work-item-repository.postgres.ts',
+  // pg_advisory_xact_lock serializes attachment writers against the
+  // reference-aware provider-ref cleanup (FILE-1A reclamation invariants).
+  'apps/core/src/adapters/storage/postgres/repositories/canonical-message-attachment-lock.postgres.ts',
   // pg_advisory_xact_lock makes Observer batch claiming atomic across workers
   // (prefer-orphan state machine); same operational primitive as above.
   'apps/core/src/adapters/storage/postgres/repositories/chat-batch-repository.postgres.ts',
@@ -22,6 +25,9 @@ const ALLOWED_RAW_SQL_FILES = new Set([
   // to make exact-key resolution and merge idempotency atomic.
   'apps/core/src/adapters/storage/postgres/repositories/person-identity-mappers.postgres.ts',
   'apps/core/src/adapters/storage/postgres/repositories/person-identity-repository.postgres.ts',
+  // pg_advisory_xact_lock serializes conversation ownership checks even when
+  // the conversation row does not exist yet.
+  'apps/core/src/adapters/storage/postgres/repositories/domain-repositories.postgres.ts',
   // LISTEN/NOTIFY is wakeup-only; durable rows remain authoritative.
   'apps/core/src/adapters/storage/postgres/live-admission-notify.postgres.ts',
   'apps/core/src/adapters/storage/postgres/runtime-event-notifier.postgres.ts',
@@ -71,7 +77,7 @@ describe('person identity migration contract', () => {
     const migration = fs.readFileSync(
       path.join(
         ROOT,
-        'apps/core/src/adapters/storage/postgres/schema/migrations/0116_person_identity_management.sql',
+        'apps/core/src/adapters/storage/postgres/schema/migrations/20260801060607_person_identity_management.sql',
       ),
       'utf8',
     );
@@ -94,7 +100,7 @@ describe('person identity migration contract', () => {
     const migration = fs.readFileSync(
       path.join(
         ROOT,
-        'apps/core/src/adapters/storage/postgres/schema/migrations/0119_person_merge_audit_result.sql',
+        'apps/core/src/adapters/storage/postgres/schema/migrations/20260801060610_person_merge_audit_result.sql',
       ),
       'utf8',
     );
@@ -106,7 +112,7 @@ describe('person identity migration contract', () => {
     const migration = fs.readFileSync(
       path.join(
         ROOT,
-        'apps/core/src/adapters/storage/postgres/schema/migrations/0121_identity_app_scoped_person_foreign_keys.sql',
+        'apps/core/src/adapters/storage/postgres/schema/migrations/20260801060612_identity_app_scoped_person_foreign_keys.sql',
       ),
       'utf8',
     );

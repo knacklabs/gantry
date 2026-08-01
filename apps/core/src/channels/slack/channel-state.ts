@@ -1,10 +1,9 @@
-import path from 'path';
+import path from 'node:path';
 
 import { App } from '@slack/bolt';
 
 import { logger } from '../../infrastructure/logging/logger.js';
-import { createInboundAttachmentStorageRef } from '../../shared/inbound-attachment-writer.js';
-import { ensurePrivateDirSync } from '../../shared/private-fs.js';
+import { resolveWorkspaceFolderPath } from '../../platform/workspace-folder.js';
 import { findConversationRoutesForChat } from '../../shared/thread-queue-key.js';
 import {
   NewMessage,
@@ -15,7 +14,6 @@ import {
   UserQuestionCancellation,
   UserQuestionRequest,
 } from '../../domain/types.js';
-import { resolveWorkspaceFolderPath } from '../../platform/workspace-folder.js';
 import { ChannelOpts } from '../channel-provider.js';
 import { StreamResetEpochs } from '../stream-reset-epochs.js';
 import { hydrateSlackConversationContext } from './conversation-context.js';
@@ -32,17 +30,20 @@ import {
   tryNativeStreamStart,
   tryNativeStreamStop,
 } from './native-stream.js';
-import { writeSlackAttachmentResponse } from './attachment-download.js';
+import { fetchSlackHistoricalAttachment } from './historical-attachment-fetcher.js';
+import type {
+  HistoricalAttachmentFetchIdentity,
+  HistoricalAttachmentFetchResult,
+} from '../../domain/ports/historical-attachment-fetcher.js';
 import type { DurableQuestionCallback } from '../../application/interactions/pending-interaction-durability.js';
 import {
   cancelMatchingPendingQuestions,
   type InteractionCancellationResult,
 } from '../interaction-settlement.js';
-
-interface SlackAttachmentDownload {
-  filePath: string;
-  storageRef: string;
-}
+import {
+  downloadSlackAttachmentToFolder,
+  type SlackAttachmentDownloadResult,
+} from './inbound-attachment-download.js';
 
 type SlackMessageAttachments = NonNullable<NewMessage['attachments']>;
 type UQSelection = { selected: string | string[]; answeredBy?: string };
@@ -127,17 +128,7 @@ export abstract class SlackChannelState {
   protected app: App | null = null;
   protected readonly botToken: string;
   protected readonly appToken: string;
-  protected readonly opts: Pick<
-    ChannelOpts,
-    | 'onMessage'
-    | 'onChatMetadata'
-    | 'conversationRoutes'
-    | 'runtimeSettings'
-    | 'isControlApproverAllowed'
-    | 'onMessageAction'
-    | 'providerAccountId'
-    | 'agentId'
-  >;
+  protected readonly opts: ChannelOpts;
   protected botUserId: string | null = null;
   protected userNameCache = new Map<string, string>();
   protected channelNameCache = new Map<string, string>();
@@ -565,9 +556,9 @@ export abstract class SlackChannelState {
     },
     threadId?: string,
     targetFolder?: string,
-  ): Promise<SlackAttachmentDownload | null> {
+  ): Promise<SlackAttachmentDownloadResult> {
     const url = file.url_private_download || file.url_private;
-    if (!url) return null;
+    if (!url) return { status: 'unavailable', reason: 'missing_download_url' };
     const groups = targetFolder
       ? []
       : findConversationRoutesForChat(
@@ -576,46 +567,26 @@ export abstract class SlackChannelState {
           threadId,
           this.opts.providerAccountId,
         );
-    if (!targetFolder && groups.length < 1) return null;
+    if (!targetFolder && groups.length < 1) {
+      return { status: 'unavailable', reason: 'no_matching_route' };
+    }
     const filename = this.sanitizeFilename(
       file.name || file.title || 'attachment.bin',
     );
-    const storageRef = createInboundAttachmentStorageRef(filename);
     const folders = targetFolder
       ? [targetFolder]
       : Array.from(new Set(groups.map(([, group]) => group.folder)));
-    if (folders.length !== 1) return null;
-
-    try {
-      const groupDir = resolveWorkspaceFolderPath(folders[0]);
-      const attachDir = path.join(groupDir, 'attachments');
-      ensurePrivateDirSync(attachDir);
-      const destPath = path.join(groupDir, ...storageRef.split('/'));
-      const resp = await fetch(url, {
-        headers: {
-          authorization: `Bearer ${this.botToken}`,
-        },
-      });
-      if (!resp.ok) {
-        logger.warn(
-          { jid, status: resp.status, filename },
-          'Failed to download Slack attachment',
-        );
-        return null;
-      }
-
-      const wrote = await writeSlackAttachmentResponse(
-        resp,
-        groupDir,
-        storageRef,
-      );
-      if (!wrote) return null;
-      return { filePath: destPath, storageRef };
-    } catch (err) {
-      if (isFileExistsError(err)) throw err;
-      logger.warn({ jid, err, filename }, 'Slack attachment download failed');
-      return null;
+    if (folders.length !== 1) {
+      return { status: 'unavailable', reason: 'ambiguous_route' };
     }
+
+    return downloadSlackAttachmentToFolder({
+      botToken: this.botToken,
+      jid,
+      filename,
+      url,
+      groupDir: resolveWorkspaceFolderPath(folders[0]),
+    });
   }
 
   protected async enrichMessage(
@@ -630,26 +601,56 @@ export abstract class SlackChannelState {
 
     if (Array.isArray(event.files)) {
       for (const file of event.files) {
-        const download = await this.downloadSlackAttachment(
+        const downloadResult = await this.downloadSlackAttachment(
           jid,
           file,
           event.thread_ts,
           targetFolder,
         );
         const label = file.name || file.title || 'attachment';
-        lines.push(`Attachment: ${label}`);
+        lines.push(
+          downloadResult.status === 'downloaded'
+            ? `Attachment: ${label}`
+            : `Attachment: ${label} (download unavailable: ${downloadResult.reason})`,
+        );
         const attachment: SlackMessageAttachments[number] = {
           id: file.id ? `slack-file:${file.id}` : undefined,
           kind: file.mimetype?.startsWith('image/') ? 'image' : 'file',
           contentType: file.mimetype,
           externalId: file.id,
+          file_name: file.name || file.title,
+          provider_fetch: file.id
+            ? { provider: 'slack', kind: 'file_id', id: file.id }
+            : undefined,
         };
-        if (download) attachment.storageRef = download.storageRef;
+        if (downloadResult.status === 'downloaded') {
+          attachment.storageRef = downloadResult.download.storageRef;
+        }
         attachments.push(attachment);
       }
     }
 
     return { text: lines.join('\n').trim(), attachments };
+  }
+
+  async fetchHistoricalAttachment(input: {
+    identity: HistoricalAttachmentFetchIdentity;
+    signal?: AbortSignal;
+  }): Promise<HistoricalAttachmentFetchResult> {
+    if (!this.app) {
+      return { status: 'unreachable', reason: 'incapable' };
+    }
+    return fetchSlackHistoricalAttachment(input, {
+      filesInfo: async (fileId) =>
+        (await this.app!.client.files.info({ file: fileId })) as never,
+      download: (url) =>
+        fetch(url, {
+          signal: input.signal,
+          headers: {
+            authorization: `Bearer ${this.botToken}`,
+          },
+        }),
+    });
   }
 
   async hydrateConversationContext(
@@ -685,13 +686,4 @@ export abstract class SlackChannelState {
   ): Promise<boolean> {
     return tryNativeStreamStop({ app: this.app, channelId, streamTs });
   }
-}
-
-function isFileExistsError(error: unknown): boolean {
-  let current = error;
-  while (typeof current === 'object' && current !== null) {
-    if ('code' in current && current.code === 'EEXIST') return true;
-    current = 'cause' in current ? current.cause : null;
-  }
-  return false;
 }

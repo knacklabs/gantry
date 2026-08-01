@@ -224,7 +224,7 @@ describe('POST /v1/memory/reviews/{reviewId}/decision', () => {
     expect(JSON.parse(res.body).review.status).toBe('applied');
     const arg = ipcMock.processMemoryReviewDecisionRequest.mock.calls[0]![0];
     expect(arg.request.context).toEqual({
-      userId: 'control_api:key-42',
+      personId: 'control_api:key-42',
       reviewerIsControlApprover: true,
     });
     expect(arg.request.payload).toEqual({

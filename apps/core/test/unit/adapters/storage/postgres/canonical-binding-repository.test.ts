@@ -1307,7 +1307,7 @@ describe('canonical binding repository route projection', () => {
     expect(insertedRows).toHaveLength(1);
   });
 
-  it('requires active provider accounts when loading active route rows', async () => {
+  it('requires active provider accounts from the canonical app when loading active route rows', async () => {
     let query: any;
     query = {
       from: vi.fn(() => query),
@@ -1326,5 +1326,6 @@ describe('canonical binding repository route projection', () => {
       pgSchema.providerAccountsPostgres,
       expect.anything(),
     );
+    expect(query.where).toHaveBeenCalledWith(expect.anything());
   });
 });

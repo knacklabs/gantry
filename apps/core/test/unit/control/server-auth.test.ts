@@ -328,6 +328,8 @@ const domainRepositories = {
   },
   messages: {
     listMessages: vi.fn(async () => []),
+    // The session feeds resolve conversation rows by jid and union them.
+    listConversationIdsForJid: vi.fn(async () => []),
   },
   capabilitySecrets: {
     getSecret: vi.fn(async () => null),

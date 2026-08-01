@@ -1,8 +1,8 @@
 import path from 'path';
 
-import { resolveConversationBrowserProfile } from '../shared/browser-profile-scope.js';
 import {
   getIpcResponseSigningPrivateKey,
+  browserTurnBinding,
   isBrowserIpcAuthorized,
 } from './ipc-auth.js';
 import { parseBrowserIpcRequest } from './ipc-parsing.js';
@@ -125,13 +125,20 @@ function processOneBrowserRequest(input: {
     if (inFlightBrowserIpc >= MAX_IN_FLIGHT_BROWSER_IPC) {
       throw new Error('Browser IPC concurrency limit exceeded');
     }
+    // Resolve BEFORE taking an in-flight slot. A refusal here throws
+    // synchronously, which would bypass the promise cleanup that releases the
+    // slot and leave IPC permanently counted as busy.
+    const turn = resolveBrowserTurnForRequest({
+      sourceAgentFolder,
+      chatJid: request.chatJid,
+      threadId: request.threadId,
+      turnToken: request.browserTurnToken,
+    });
     inFlightBrowserIpc += 1;
     void processBrowserIpcRequest(request, {
       sourceAgentFolder,
-      browserProfileName: resolveConversationBrowserProfile({
-        workspaceKey: sourceAgentFolder,
-        conversationId: request.chatJid,
-      }),
+      browserProfileName: turn.profileName,
+      turnQueueKey: turn.queueKey,
       browserIpcAuthorized,
       getFileArtifactStore: deps.getFileArtifactStore,
       callBrowserTool: deps.callBrowserTool,
@@ -250,4 +257,42 @@ function writeBrowserFailureResponse(input: {
       'Failed to write browser IPC error fallback',
     );
   }
+}
+
+/**
+ * Resolves the browser profile for an inbound IPC request by VALIDATING the
+ * name the runner was issued, rather than re-deriving it.
+ *
+ * Re-deriving cannot work at this boundary: the request carries no account (and
+ * must not, or a runner could name another conversation's profile), so when two
+ * accounts serve one conversation the lookup cannot tell which turn is calling.
+ * Routes are also mutable, so a reassignment mid-turn would switch an in-flight
+ * runner onto another account's logged-in profile.
+ *
+ * Matching against what the server actually issued fixes both: the name is fixed
+ * at spawn, and a runner is bounded to profiles issued for its own conversation
+ * and thread.
+ */
+export function resolveBrowserTurnForRequest(input: {
+  sourceAgentFolder: string;
+  chatJid: string;
+  threadId?: string | null;
+  turnToken?: string;
+}): { profileName: string; queueKey: string } {
+  const binding = browserTurnBinding({
+    turnToken: input.turnToken,
+    workspaceKey: input.sourceAgentFolder,
+    chatJid: input.chatJid,
+    threadId: input.threadId,
+  });
+  if (binding) return binding;
+  // NO fallback. A scope-only selection cannot be safe: browser IPC
+  // authorization is refcounted per (workspace, chat, thread), which concurrent
+  // provider-account turns share, so a revoked turn's delayed request — or a
+  // runner that simply omits the field — would bind to whichever turn is still
+  // live and reach another account's authenticated browser. The credential is
+  // issued in the central runner env, so every adapter has one.
+  throw new Error(
+    `Browser IPC refused: no live turn owns this browser credential (${input.chatJid}). The runner must present the token issued to it at spawn.`,
+  );
 }

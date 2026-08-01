@@ -796,50 +796,113 @@
     {
       "idx": 116,
       "version": "7",
-      "when": 1785000001000,
-      "tag": "0116_person_identity_management",
+      "when": 1785010800000,
+      "tag": "0116_runtime_lease_generations",
       "breakpoints": true
     },
     {
       "idx": 117,
       "version": "7",
-      "when": 1785000002000,
-      "tag": "0117_drop_legacy_user_alias_unique_index",
+      "when": 1785097200000,
+      "tag": "0117_message_attachment_metadata",
       "breakpoints": true
     },
     {
       "idx": 118,
       "version": "7",
-      "when": 1785000003000,
-      "tag": "0118_people_identity_query_indexes",
+      "when": 1785264903868,
+      "tag": "20260728185503_schema_generation_baseline",
       "breakpoints": true
     },
     {
       "idx": 119,
       "version": "7",
-      "when": 1785000004000,
-      "tag": "0119_person_merge_audit_result",
+      "when": 1785506704668,
+      "tag": "20260731140504_lease_generation_already_applied",
       "breakpoints": true
     },
     {
       "idx": 120,
       "version": "7",
-      "when": 1785000005000,
-      "tag": "0120_identity_isolation_and_participant_identity",
+      "when": 1785511283332,
+      "tag": "20260731152123_attachment_metadata_already_applied",
       "breakpoints": true
     },
     {
       "idx": 121,
       "version": "7",
-      "when": 1785000006000,
-      "tag": "0121_identity_app_scoped_person_foreign_keys",
+      "when": 1785548111633,
+      "tag": "20260801013511_conversation_history_coverage",
       "breakpoints": true
     },
     {
       "idx": 122,
       "version": "7",
-      "when": 1785000007000,
-      "tag": "0122_identity_memory_scope_cleanup",
+      "when": 1785549600000,
+      "tag": "20260801020000_session_event_conversation_backfill",
+      "breakpoints": true
+    },
+    {
+      "idx": 123,
+      "version": "7",
+      "when": 1785564366568,
+      "tag": "20260801060606_session_observability_index",
+      "breakpoints": true
+    },
+    {
+      "idx": 124,
+      "version": "7",
+      "when": 1785564367000,
+      "tag": "20260801060607_person_identity_management",
+      "breakpoints": true
+    },
+    {
+      "idx": 125,
+      "version": "7",
+      "when": 1785564368000,
+      "tag": "20260801060608_drop_legacy_user_alias_unique_index",
+      "breakpoints": true
+    },
+    {
+      "idx": 126,
+      "version": "7",
+      "when": 1785564369000,
+      "tag": "20260801060609_people_identity_query_indexes",
+      "breakpoints": true
+    },
+    {
+      "idx": 127,
+      "version": "7",
+      "when": 1785564370000,
+      "tag": "20260801060610_person_merge_audit_result",
+      "breakpoints": true
+    },
+    {
+      "idx": 128,
+      "version": "7",
+      "when": 1785564371000,
+      "tag": "20260801060611_identity_isolation_and_participant_identity",
+      "breakpoints": true
+    },
+    {
+      "idx": 129,
+      "version": "7",
+      "when": 1785564372000,
+      "tag": "20260801060612_identity_app_scoped_person_foreign_keys",
+      "breakpoints": true
+    },
+    {
+      "idx": 130,
+      "version": "7",
+      "when": 1785564373000,
+      "tag": "20260801060613_identity_memory_scope_cleanup",
+      "breakpoints": true
+    },
+    {
+      "idx": 131,
+      "version": "7",
+      "when": 1785592203404,
+      "tag": "20260801135003_identity_schema_baseline",
       "breakpoints": true
     }
   ]

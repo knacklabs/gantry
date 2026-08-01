@@ -1,5 +1,6 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { registerBrainTools } from './tools/brain.js';
+import { registerAttachmentTools } from './tools/attachment.js';
 import { registerBrowserTools } from './tools/browser.js';
 import { registerFileTools } from './tools/file.js';
 import { registerMemoryTools } from './tools/memory.js';
@@ -112,6 +113,7 @@ export function createGantryMcpServer(): McpServer {
   );
 
   registerMessagingTools(filteredServer);
+  registerAttachmentTools(filteredServer);
   registerSchedulerTools(filteredServer);
   registerTaskLifecycleTools(filteredServer, callableAgentManifest);
   registerMemoryTools(filteredServer);

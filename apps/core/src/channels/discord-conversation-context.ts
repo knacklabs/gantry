@@ -3,6 +3,7 @@ import { logger } from '../infrastructure/logging/logger.js';
 import type {
   ConversationContextHydrationRequest,
   ConversationContextHydrationResult,
+  HydrationRequestObservation,
 } from './channel-provider.js';
 import type {
   DiscordChannelInfo,
@@ -73,9 +74,24 @@ export async function hydrateDiscordConversationContext(input: {
       { method: 'GET', headers: input.headers(input.botToken) },
       'Discord message history request failed',
     );
-    const threadRootMessage = input.request.threadId
+    const requests: HydrationRequestObservation[] = [
+      {
+        role: input.request.threadId ? 'thread' : 'channel',
+        limit: latestLimit,
+        effectiveBounds: {
+          ...(input.request.latestMessage.external_message_id
+            ? { cursor: input.request.latestMessage.external_message_id }
+            : {}),
+        },
+        rawMessageCount: rawMessages.length,
+        pagination: { kind: 'request_bounded' },
+      },
+    ];
+    const threadRootFetch = input.request.threadId
       ? await fetchDiscordThreadRootMessage(input)
       : null;
+    if (threadRootFetch) requests.push(threadRootFetch.observation);
+    const threadRootMessage = threadRootFetch?.message ?? null;
     const firstReplyLimit =
       input.request.threadId && limit > 0
         ? Math.min(
@@ -83,10 +99,14 @@ export async function hydrateDiscordConversationContext(input: {
             Math.max(0, limit - latestLimit - (threadRootMessage ? 1 : 0)),
           )
         : 0;
-    const firstReplyMessages =
+    const firstReplyFetch =
       firstReplyLimit > 0
         ? await fetchDiscordThreadFirstReplies(input, firstReplyLimit)
-        : [];
+        : null;
+    if (firstReplyFetch?.observation) {
+      requests.push(firstReplyFetch.observation);
+    }
+    const firstReplyMessages = firstReplyFetch?.messages ?? [];
     const context = await resolveDiscordConversationContext({
       channelId: input.request.threadId ? targetChannelId : requestedChannelId,
       botToken: input.botToken,
@@ -123,7 +143,39 @@ export async function hydrateDiscordConversationContext(input: {
       },
       'Discord context hydration completed',
     );
-    return { providerId: 'discord', attempted: true, messages };
+    return {
+      providerId: 'discord',
+      attempted: true,
+      messages,
+      ...(firstReplyFetch?.failed
+        ? {}
+        : {
+            coverage: {
+              requestedLatestMessage: {
+                ...(input.request.latestMessage.external_message_id !==
+                undefined
+                  ? {
+                      externalMessageId:
+                        input.request.latestMessage.external_message_id,
+                    }
+                  : {}),
+                timestamp: input.request.latestMessage.timestamp,
+              },
+              scope: input.request.threadId ? 'thread' : 'channel',
+              requests,
+              completeness: { kind: 'request_bounded' },
+              deliveredMessageCount: messages.length,
+              threadRoot: input.request.threadId
+                ? messages.some(
+                    (message) =>
+                      message.external_message_id === input.request.threadId,
+                  )
+                  ? 'included'
+                  : 'missing'
+                : 'not_applicable',
+            },
+          }),
+    };
   } catch (err) {
     logger.debug(
       {
@@ -152,19 +204,33 @@ async function fetchDiscordThreadFirstReplies(
     requestJson: DiscordContextRequestJson;
   },
   limit: number,
-): Promise<DiscordMessageCreate[]> {
-  const threadId = input.request.threadId;
-  if (!threadId || limit <= 0) return [];
+): Promise<{
+  messages: DiscordMessageCreate[];
+  observation?: HydrationRequestObservation;
+  failed: boolean;
+}> {
+  const threadId = input.request.threadId!;
   try {
     const query = new URLSearchParams({
       after: threadId,
       limit: String(limit),
     });
-    return await input.requestJson<DiscordMessageCreate[]>(
+    const messages = await input.requestJson<DiscordMessageCreate[]>(
       `/channels/${encodeURIComponent(threadId)}/messages?${query.toString()}`,
       { method: 'GET', headers: input.headers(input.botToken) },
       'Discord first thread replies request failed',
     );
+    return {
+      messages,
+      failed: false,
+      observation: {
+        role: 'thread_first_replies',
+        limit,
+        effectiveBounds: { cursor: threadId },
+        rawMessageCount: messages.length,
+        pagination: { kind: 'request_bounded' },
+      },
+    };
   } catch (err) {
     logger.debug(
       {
@@ -175,7 +241,10 @@ async function fetchDiscordThreadFirstReplies(
       },
       'Discord first thread replies hydration failed',
     );
-    return [];
+    return {
+      messages: [],
+      failed: true,
+    };
   }
 }
 
@@ -184,15 +253,27 @@ async function fetchDiscordThreadRootMessage(input: {
   botToken: string;
   headers(token: string): Record<string, string>;
   requestJson: DiscordContextRequestJson;
-}): Promise<DiscordMessageCreate | null> {
-  const threadId = input.request.threadId;
-  if (!threadId) return null;
+}): Promise<{
+  message: DiscordMessageCreate | null;
+  observation: HydrationRequestObservation;
+}> {
+  const threadId = input.request.threadId!;
   try {
-    return await input.requestJson<DiscordMessageCreate>(
+    const message = await input.requestJson<DiscordMessageCreate>(
       `/channels/${encodeURIComponent(threadId)}/messages/${encodeURIComponent(threadId)}`,
       { method: 'GET', headers: input.headers(input.botToken) },
       'Discord thread root message request failed',
     );
+    return {
+      message,
+      observation: {
+        role: 'thread_root',
+        limit: 1,
+        effectiveBounds: {},
+        rawMessageCount: 1,
+        pagination: { kind: 'request_bounded' },
+      },
+    };
   } catch (err) {
     logger.debug(
       {
@@ -203,7 +284,16 @@ async function fetchDiscordThreadRootMessage(input: {
       },
       'Discord thread root message hydration failed',
     );
-    return null;
+    return {
+      message: null,
+      observation: {
+        role: 'thread_root',
+        limit: 1,
+        effectiveBounds: {},
+        rawMessageCount: 0,
+        pagination: { kind: 'request_bounded' },
+      },
+    };
   }
 }
 

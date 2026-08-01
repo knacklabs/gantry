@@ -76,7 +76,7 @@ const DEFAULT_CONTROL_CHANNEL_CONFIG: SenderControlAllowlistConfig = {
 
 const DEFAULT_ENTRY: ChatAllowlistEntry = {
   allow: [],
-  mode: 'drop',
+  mode: 'trigger',
 };
 
 function cloneDefaultChannelConfig(): RuntimeSenderProviderAllowlistConfig {
@@ -320,14 +320,6 @@ export function isSenderControlAllowed(
   agentFolder?: string,
 ): boolean {
   return getControlSenders(chatJid, cfg, agentFolder).includes(sender);
-}
-
-export function shouldDropMessage(
-  chatJid: string,
-  cfg: RuntimeSenderAllowlistConfig,
-  agentFolder?: string,
-): boolean {
-  return getEntry(chatJid, cfg, agentFolder).mode === 'drop';
 }
 
 export function isTriggerAllowed(

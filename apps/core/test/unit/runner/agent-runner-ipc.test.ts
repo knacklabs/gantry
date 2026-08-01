@@ -193,6 +193,10 @@ function createRunnerFixture(): {
     path.resolve('apps/core/src/domain/events/runtime-event-types.ts'),
     path.join(domainEventsDir, 'runtime-event-types.ts'),
   );
+  fs.copyFileSync(
+    path.resolve('apps/core/src/domain/events/runtime-event-conversation.ts'),
+    path.join(domainEventsDir, 'runtime-event-conversation.ts'),
+  );
   fs.writeFileSync(
     path.join(sdkDir, 'package.json'),
     JSON.stringify({ type: 'module', main: 'index.js' }),
@@ -1595,7 +1599,7 @@ describe('agent-runner IPC lifecycle', () => {
       expect(call?.settings?.skillOverrides).toEqual(
         SDK_NATIVE_SKILL_OVERRIDES,
       );
-      expect(call?.settingSources).toEqual([]);
+      expect(call?.settingSources).toEqual(['user']);
       expect(call?.strictMcpConfig).toBe(true);
       expect(call?.skills).toEqual([
         'gantry-admin',

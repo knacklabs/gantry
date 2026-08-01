@@ -57,6 +57,7 @@ export interface AgentCapabilityContext {
   memoryReviewerIsControlApprover?: boolean;
   persona?: AgentPersona;
   browserProfileName?: string;
+  browserTurnToken?: string;
   configuredAllowedTools?: readonly string[];
   attachedSkillSourceIds?: readonly string[];
   selectedSkillDisplays?: readonly string[];
@@ -290,6 +291,11 @@ const gantryMcpProvider: AgentCapabilityProvider = {
         ? { GANTRY_MEMORY_CONTEXT_BLOCK: ctx.memoryBlock }
         : {}),
       GANTRY_BROWSER_PROFILE_NAME: ctx.browserProfileName || '',
+      // Only present for a turn that actually has a browser credential; an
+      // empty value would just be noise in every other agent's environment.
+      ...(ctx.browserTurnToken
+        ? { GANTRY_BROWSER_TURN_TOKEN: ctx.browserTurnToken }
+        : {}),
       GANTRY_ADMIN_MCP_TOOLS_JSON: JSON.stringify(
         selectedAdminMcpToolNames(ctx.configuredAllowedTools ?? []),
       ),

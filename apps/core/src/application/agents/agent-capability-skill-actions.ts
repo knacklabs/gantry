@@ -9,6 +9,7 @@ import type {
   SkillCatalogItem,
 } from '../../domain/skills/skills.js';
 import { isSkillUsableForBinding } from '../../domain/skills/skills.js';
+import type { ToolCatalogRepository } from '../../domain/ports/repositories.js';
 import { skillActionSemanticCapabilitiesForSkills } from '../../domain/skills/skill-action-permissions.js';
 import type { ToolCatalogItem } from '../../domain/tools/tools.js';
 import { canonicalizeDurableSkillActionToolRule } from '../../shared/skill-action-capability-rules.js';
@@ -17,6 +18,7 @@ import {
   semanticCapabilityFromToolCatalogItem,
   type SemanticCapabilityDefinition,
 } from '../../shared/semantic-capabilities.js';
+import { skillActionSource } from '../../domain/skills/skill-action-permissions.js';
 
 export async function skillActionDefinitionsForAgent(input: {
   appId: AppId;
@@ -55,6 +57,42 @@ export async function skillActionDefinitionsForBindings(input: {
       !!skill && skill.appId === input.appId && isSkillUsableForBinding(skill),
   );
   return skillActionSemanticCapabilitiesForSkills(skills);
+}
+
+/**
+ * Durable access selection accepts reviewed catalog capabilities as well as
+ * actions declared by selected skills. Skill-owned capabilities remain tied to
+ * the selected skill; catalog capabilities cover independently reviewed MCP,
+ * adapter, and local CLI authority.
+ */
+export async function semanticCapabilityDefinitionsForAccess(input: {
+  appId: AppId;
+  skillBindings: readonly AgentSkillBinding[];
+  skillRepository: SkillCatalogRepository;
+  toolRepository: ToolCatalogRepository;
+}): Promise<Record<string, SemanticCapabilityDefinition>> {
+  const [skillDefinitions, tools] = await Promise.all([
+    skillActionDefinitionsForBindings({
+      appId: input.appId,
+      skillBindings: input.skillBindings,
+      skillRepository: input.skillRepository,
+    }),
+    input.toolRepository.listTools({
+      appId: input.appId,
+      statuses: ['active'],
+    }),
+  ]);
+  const catalogDefinitions: Record<string, SemanticCapabilityDefinition> = {};
+  for (const tool of tools) {
+    if (!tool.selectable) continue;
+    const capability = semanticCapabilityFromToolCatalogItem({
+      name: tool.name,
+      inputSchema: tool.inputSchema,
+    });
+    if (!capability || skillActionSource(capability)) continue;
+    catalogDefinitions[capability.capabilityId] = capability;
+  }
+  return { ...catalogDefinitions, ...skillDefinitions };
 }
 
 export function skillActionDefinitionsFromSnapshot(input: {

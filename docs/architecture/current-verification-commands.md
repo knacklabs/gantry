@@ -8,6 +8,34 @@ Use Node `>=24 <26` for local development, CI, and runtime deployments. The pack
 npm install
 ```
 
+## Postgres Migration Generation
+
+Change the TypeScript schema first, then let Drizzle create the SQL, snapshot,
+and journal entry with a timestamp filename:
+
+```bash
+npm run db:migrations:generate -- --name <short_description>
+```
+
+For data moves, extensions, or DDL Drizzle cannot generate, create a tracked
+empty migration and write the SQL there:
+
+```bash
+npm run db:migrations:custom -- --name <short_description>
+```
+
+Review every generated SQL file before committing it. After rebasing a branch
+that overlaps another schema change, run generation again and resolve any
+conflict Drizzle reports. Check migration history locally with:
+
+```bash
+npm run db:migrations:check
+```
+
+CI runs both the history check and a no-op generation check. It fails when the
+TypeScript schema would generate migration changes that were not committed.
+Runtime and deployment migration application remain `npm run db:migrate`.
+
 ## CI Runner Topology
 
 Every workflow defaults `GITHUB_TOKEN` contents access to read-only, with
@@ -81,10 +109,11 @@ Expected cleanup-search interpretation:
   active Bash policy should fail closed when a protected path is an action
   target, while preserving explicitly safe text-payload flows such as issue or
   PR bodies.
-- SDK Bash/file/MCP subprocess protection should be visible as
-  `sandbox.filesystem.denyWrite` entries sourced from
-  `GANTRY_PROTECTED_FILESYSTEM_PATHS_JSON`; direct scheduler scripts should
-  fail closed until an equivalent OS sandbox runner exists.
+- protected-path protection must remain visible in deterministic host-side
+  policy tests. `direct` must not rely on an inner SDK sandbox;
+  `sandbox_runtime` additionally projects protected paths into the outer OS
+  jail. Direct scheduler scripts that bypass the canonical permission boundary
+  should still fail closed until an equivalent guarded runner exists.
 
 Clean-cut session continuity cleanup must also verify that unsupported legacy
 continuity paths did not return:

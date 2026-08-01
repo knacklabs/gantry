@@ -83,9 +83,19 @@ vi.mock('@core/adapters/storage/postgres/runtime-store.js', () => ({
           state.listRunInputs.push(input);
           return (state.runs.get(input.sessionId) ?? []).slice(0, input.limit);
         }),
+        listAgentRunsByConversation: vi.fn(async (input: any) => {
+          state.listRunInputs.push(input);
+          return (state.runs.get(input.conversationId) ?? []).slice(
+            0,
+            input.limit,
+          );
+        }),
       },
       messages: {
         listRecentMessages: vi.fn(async () => []),
+        // listRuns resolves conversation rows by jid and unions them, so the
+        // canonical/non-canonical route skew cannot hide runs.
+        listConversationIdsForJid: vi.fn(async () => []),
       },
     },
   }),
@@ -111,24 +121,40 @@ describe('session control runs integration', () => {
       sessionId: 'session:edge',
       id: 'session:edge',
       appId: 'app-one',
+      agentId: 'agent-one',
       conversationId: 'conversation-edge',
+      canonicalConversationId: 'conversation-edge',
       chatJid: 'app:app-one:conversation-edge',
       workspaceKey: 'app_scope_session_edge',
       defaultResponseMode: 'sse',
       defaultWebhookId: null,
     });
-    state.runs.set('session:edge', [
+    state.runs.set('conversation-edge', [
       {
         id: 'run:latest',
         appId: 'app-one',
-        agentSessionId: 'session:edge',
+        agentId: 'agent-one',
+        configVersionId: 'config:agent-one:1',
+        sessionId: 'runtime-session:edge',
+        conversationId: 'conversation-edge',
+        llmProfileId: 'llm:default',
+        permissionDecisionIds: [],
+        cause: 'message',
         status: 'completed',
+        createdAt: '2026-07-29T00:00:00.000Z',
       },
       {
         id: 'run:older',
         appId: 'app-one',
-        agentSessionId: 'session:edge',
+        agentId: 'agent-one',
+        configVersionId: 'config:agent-one:1',
+        sessionId: 'runtime-session:edge',
+        conversationId: 'conversation-edge',
+        llmProfileId: 'llm:default',
+        permissionDecisionIds: [],
+        cause: 'message',
         status: 'completed',
+        createdAt: '2026-07-28T00:00:00.000Z',
       },
     ]);
 
@@ -150,7 +176,7 @@ describe('session control runs integration', () => {
       expect(response.status).toBe(200);
       expect(body.runs.map((run: any) => run.id)).toEqual(['run:latest']);
       expect(state.listRunInputs).toEqual([
-        { sessionId: 'session:edge', limit: 1 },
+        { appId: 'app-one', conversationId: 'conversation-edge', limit: 1 },
       ]);
     } finally {
       await server.close();
@@ -162,7 +188,9 @@ describe('session control runs integration', () => {
       sessionId: 'session:other-app',
       id: 'session:other-app',
       appId: 'app-two',
+      agentId: 'agent-two',
       conversationId: 'conversation-other',
+      canonicalConversationId: 'conversation-other',
       chatJid: 'app:app-two:conversation-other',
       workspaceKey: 'app_scope_session_other',
       defaultResponseMode: 'sse',

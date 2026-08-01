@@ -1240,7 +1240,7 @@ describe('TelegramChannel', () => {
   });
 
   describe('group join onboarding', () => {
-    it('prompts a registered control DM when an approver adds the bot', async () => {
+    it('persists standalone metadata for Telegram group-join onboarding without a message', async () => {
       const { opts, coordinator } = createGroupJoinOnboardingOpts();
       const channel = new TelegramChannel('test-token', opts);
       await channel.connect();
@@ -1255,6 +1255,7 @@ describe('TelegramChannel', () => {
         true,
         { providerAccountId: 'telegram_default' },
       );
+      expect(opts.onMessage).not.toHaveBeenCalled();
       expect(coordinator.recordPrompt).toHaveBeenCalledWith({
         providerAccountId: 'telegram_default',
         chatJid: 'tg:-1001234',
@@ -1507,20 +1508,14 @@ describe('TelegramChannel', () => {
       const ctx = createTextCtx({ text: 'Hello everyone' });
       await triggerTextMessage(ctx);
 
-      expect(opts.onChatMetadata).toHaveBeenCalledWith(
-        'tg:100200300',
-        expect.any(String),
-        'Test Group',
-        'telegram',
-        true,
-        { providerAccountId: 'telegram_default' },
-      );
+      expect(opts.onChatMetadata).not.toHaveBeenCalled();
       expect(opts.onMessage).toHaveBeenCalledWith(
         'tg:100200300',
         expect.objectContaining({
           id: '1',
           chat_jid: 'tg:100200300',
-          providerAccountId: 'telegram_default',
+          name: 'Test Group',
+          isGroup: true,
           sender: '99001',
           sender_name: 'Alice',
           content: 'Hello everyone',
@@ -1602,7 +1597,7 @@ describe('TelegramChannel', () => {
       );
     });
 
-    it('only emits metadata for unregistered chats', async () => {
+    it('persists standalone metadata for unregistered Telegram group text', async () => {
       const opts = createTestOpts();
       const channel = new TelegramChannel('test-token', opts);
       await channel.connect();
@@ -1679,7 +1674,6 @@ describe('TelegramChannel', () => {
         expect.objectContaining({
           chat_jid: 'tg:999999',
           provider: 'telegram',
-          providerAccountId: 'telegram_default',
           sender: '99001',
           content: 'Unknown private chat',
         }),
@@ -1764,7 +1758,7 @@ describe('TelegramChannel', () => {
       );
     });
 
-    it('uses sender name as chat name for private chats', async () => {
+    it('carries sender name as chat name for private chats', async () => {
       const opts = createTestOpts({
         conversationRoutes: vi.fn(() => ({
           'tg:100200300': {
@@ -1785,17 +1779,16 @@ describe('TelegramChannel', () => {
       });
       await triggerTextMessage(ctx);
 
-      expect(opts.onChatMetadata).toHaveBeenCalledWith(
+      expect(opts.onMessage).toHaveBeenCalledWith(
         'tg:100200300',
-        expect.any(String),
-        'Alice', // Private chats use sender name
-        'telegram',
-        false,
-        { providerAccountId: 'telegram_default' },
+        expect.objectContaining({
+          name: 'Alice',
+          isGroup: false,
+        }),
       );
     });
 
-    it('uses chat title as name for group chats', async () => {
+    it('carries chat title as name for group chats', async () => {
       const opts = createTestOpts();
       const channel = new TelegramChannel('test-token', opts);
       await channel.connect();
@@ -1807,13 +1800,12 @@ describe('TelegramChannel', () => {
       });
       await triggerTextMessage(ctx);
 
-      expect(opts.onChatMetadata).toHaveBeenCalledWith(
+      expect(opts.onMessage).toHaveBeenCalledWith(
         'tg:100200300',
-        expect.any(String),
-        'Project Team',
-        'telegram',
-        true,
-        { providerAccountId: 'telegram_default' },
+        expect.objectContaining({
+          name: 'Project Team',
+          isGroup: true,
+        }),
       );
     });
 
@@ -2067,6 +2059,14 @@ describe('TelegramChannel', () => {
       await vi.waitFor(() => expect(opts.onMessage).toHaveBeenCalled());
 
       expect(currentBot().api.getFile).toHaveBeenCalledWith('large_id');
+      expect(opts.onChatMetadata).toHaveBeenCalledWith(
+        'tg:100200300',
+        expect.any(String),
+        undefined,
+        'telegram',
+        true,
+        { providerAccountId: 'telegram_default' },
+      );
       expect(opts.onMessage).toHaveBeenCalledWith(
         'tg:100200300',
         expect.objectContaining({
@@ -2590,6 +2590,17 @@ describe('TelegramChannel', () => {
           ),
         }),
       );
+      const attachment = opts.onMessage.mock.calls[0][1].attachments[0];
+      expect(attachment).toEqual({
+        id: 'telegram-attachment:tg:100200300:1',
+        kind: 'file',
+        externalId: 'doc_id',
+        file_name: 'report.pdf',
+        storageRef: attachment.storageRef,
+      });
+      expect(attachment.storageRef).toMatch(
+        /^attachments\/[a-f0-9]{16}-report\.pdf$/,
+      );
     });
 
     it('downloads video', async () => {
@@ -2970,13 +2981,15 @@ describe('TelegramChannel', () => {
       }
     });
 
-    it('retains a newly acquired lease when the poller is already running', async () => {
+    it('reacquires the lease after loss stops the running poller', async () => {
       vi.useFakeTimers();
       try {
         const lostHandlers: Array<(err: Error) => void> = [];
         const releases = [vi.fn().mockResolvedValue(undefined), vi.fn()];
         releases[1]!.mockResolvedValue(undefined);
         const leases = releases.map((release) => ({
+          generation: 1,
+          isValid: vi.fn(() => true),
           release,
           onLost: vi.fn((handler: (err: Error) => void) => {
             lostHandlers.push(handler);
@@ -3000,16 +3013,66 @@ describe('TelegramChannel', () => {
         const startSpy = vi.spyOn(currentBot(), 'start');
 
         lostHandlers[0]!(new Error('lease connection lost'));
+        // The retry is chained off bot.stop() settling, so flush microtasks before
+        // running the retry timer — it does not exist until the stop resolves.
+        await vi.advanceTimersByTimeAsync(0);
         vi.runOnlyPendingTimers();
         await vi.waitFor(() =>
           expect(runtimeLease.tryAcquire).toHaveBeenCalledTimes(2),
         );
 
-        expect(startSpy).not.toHaveBeenCalled();
+        expect(startSpy).toHaveBeenCalledOnce();
         expect(releases[1]).not.toHaveBeenCalled();
         expect(logger.warn).not.toHaveBeenCalledWith(
           'Telegram polling stopped unexpectedly',
         );
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('stops the bot before scheduling a retry after poll lease loss', async () => {
+      vi.useFakeTimers();
+      try {
+        let lostHandler: ((err: Error) => void) | undefined;
+        const lease = {
+          generation: 1,
+          isValid: vi.fn(() => true),
+          release: vi.fn(async () => undefined),
+          onLost: vi.fn((handler: (err: Error) => void) => {
+            lostHandler = handler;
+          }),
+        };
+        const channel = new TelegramChannel(
+          'test-token',
+          createTestOpts({
+            runtimeLease: {
+              tryAcquire: vi.fn(async () => lease),
+            },
+          }),
+        );
+
+        await channel.connect();
+        await vi.waitFor(() => expect(lostHandler).toBeTypeOf('function'));
+        const stopSpy = vi.spyOn(currentBot(), 'stop');
+        const scheduleRetrySpy = vi.spyOn(
+          channel as any,
+          'schedulePollingRetry',
+        );
+
+        lostHandler?.(new Error('poll lease lost'));
+
+        // The retry is chained off bot.stop() settling, so it lands a microtask
+        // later. That the retry has NOT been scheduled yet is the ordering
+        // guarantee under test: a reacquired lease cannot start polling while the
+        // previous shutdown is still in flight.
+        expect(stopSpy).toHaveBeenCalledOnce();
+        expect(scheduleRetrySpy).not.toHaveBeenCalled();
+        await vi.waitFor(() => expect(scheduleRetrySpy).toHaveBeenCalledOnce());
+        expect(stopSpy.mock.invocationCallOrder[0]).toBeLessThan(
+          scheduleRetrySpy.mock.invocationCallOrder[0]!,
+        );
+        await channel.disconnect();
       } finally {
         vi.useRealTimers();
       }

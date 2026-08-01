@@ -19,7 +19,9 @@ function makeModule(overrides?: {
     ensureAppSession: vi.fn(async (input) => ({
       sessionId: 'session-1',
       appId: input.appId,
+      agentId: 'agent-one',
       conversationId: input.conversationId,
+      canonicalConversationId: `canonical:${input.appId}:${input.conversationId}`,
       conversationJid: input.conversationJid,
       workspaceKey: input.folder,
       defaultResponseMode: input.defaultResponseMode ?? 'sse',
@@ -29,7 +31,9 @@ function makeModule(overrides?: {
     getAppSessionById: vi.fn(async () => ({
       sessionId: 'session-1',
       appId: 'app-one',
+      agentId: 'agent-one',
       conversationId: 'conv-1',
+      canonicalConversationId: 'canonical:app-one:conv-1',
       conversationJid: 'app:app-one:conv-1',
       workspaceKey: 'group',
       defaultResponseMode: 'sse',
@@ -61,7 +65,21 @@ function makeModule(overrides?: {
   const module = new SessionInteractionModule({
     control: control as never,
     ops: ops as never,
-    repositories: (overrides?.repositories ?? {}) as never,
+    // The session feeds resolve conversation rows by jid and union them, so
+    // every case needs this port even when it overrides other repositories.
+    repositories: {
+      messages: { listConversationIdsForJid: vi.fn(async () => []) },
+      ...(overrides?.repositories ?? {}),
+      ...(overrides?.repositories &&
+      (overrides.repositories as { messages?: unknown }).messages
+        ? {
+            messages: {
+              listConversationIdsForJid: vi.fn(async () => []),
+              ...(overrides.repositories as { messages: object }).messages,
+            },
+          }
+        : {}),
+    } as never,
     runtimeEvents: runtimeEvents as never,
     liveAdmissionAppId: overrides?.liveAdmissionAppId,
     getConfiguredAgentRuntime:
@@ -163,7 +181,9 @@ describe('SessionInteractionModule', () => {
         getAppSessionById: vi.fn(async () => ({
           sessionId: 'session-1',
           appId: 'app-two',
+          agentId: 'agent-two',
           conversationId: 'conv-1',
+          canonicalConversationId: 'canonical:app-two:conv-1',
           conversationJid: 'app:app-two:conv-1',
           workspaceKey: 'group',
           defaultResponseMode: 'sse',
@@ -546,7 +566,10 @@ describe('SessionInteractionModule', () => {
     expect(runtimeEvents.subscribe).toHaveBeenCalledWith(
       expect.objectContaining({
         appId: 'app-one',
-        sessionId: 'session-1',
+        // A set, not one id: a jid can map to several conversation rows, and
+        // filtering on the canonical one alone hides events recorded under a
+        // route that predates it.
+        conversationIds: ['canonical:app-one:conv-1'],
         afterEventId: 9,
       }),
     );

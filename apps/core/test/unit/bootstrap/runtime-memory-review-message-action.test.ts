@@ -203,7 +203,7 @@ describe('executeMemoryReviewDecision', () => {
     });
     // approver identity flows through as audit/authorization context only.
     expect(call.request.context).toMatchObject({
-      userId: 'U-ADMIN',
+      personId: 'U-ADMIN',
       reviewerIsControlApprover: true,
     });
     expect(result).toEqual({

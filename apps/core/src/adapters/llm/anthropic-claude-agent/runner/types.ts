@@ -26,6 +26,7 @@ export interface AgentRunnerInput {
   memoryReviewerIsControlApprover?: boolean;
   persona?: AgentPersona;
   browserProfileName?: string;
+  browserTurnToken?: string;
   allowedTools?: string[];
   toolRules?: DeclarativeToolRule[];
   toolAccessRequirements?: string[];

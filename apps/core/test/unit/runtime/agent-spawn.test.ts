@@ -1229,6 +1229,7 @@ describe('agent-spawn timeout behavior', () => {
   it('projects chat scope so spawned memory IPC signatures validate with runner context', async () => {
     const input = {
       ...testInput,
+      agentId: 'agent:test-group',
       chatJid: 'tg:trusted-chat',
       threadId: 'thread-a',
       memoryUserId: 'user-a',
@@ -1255,9 +1256,10 @@ describe('agent-spawn timeout behavior', () => {
     ) as string[];
     const runnerContext = {
       appId: env.GANTRY_APP_ID,
+      agentId: env.GANTRY_AGENT_ID,
       chatJid: env.GANTRY_CHAT_JID,
       threadId: env.GANTRY_THREAD_ID,
-      userId: env.GANTRY_MEMORY_USER_ID,
+      personId: env.GANTRY_MEMORY_USER_ID,
       defaultScope: env.GANTRY_MEMORY_DEFAULT_SCOPE,
       allowedActions,
       responseKeyId: env.GANTRY_IPC_RESPONSE_KEY_ID,
@@ -1290,9 +1292,10 @@ describe('agent-spawn timeout behavior', () => {
     ).toMatchObject({
       requestId: 'mem-spawn-chat-scope',
       context: {
+        agentId: 'agent:test-group',
         chatJid: 'tg:trusted-chat',
         threadId: 'thread-a',
-        userId: 'user-a',
+        personId: 'user-a',
         defaultScope: 'user',
       },
       allowedActions: [
@@ -1346,6 +1349,7 @@ describe('agent-spawn timeout behavior', () => {
   it('includes reviewer memory actions in spawned IPC signatures for control approvers', async () => {
     const input = {
       ...testInput,
+      agentId: 'agent:test-group',
       chatJid: 'tg:trusted-chat',
       memoryUserId: 'reviewer-a',
       memoryReviewerIsControlApprover: true,
@@ -1378,9 +1382,10 @@ describe('agent-spawn timeout behavior', () => {
           payload: { limit: 10 },
           context: {
             appId: env.GANTRY_APP_ID,
+            agentId: env.GANTRY_AGENT_ID,
             chatJid: env.GANTRY_CHAT_JID,
             threadId: env.GANTRY_THREAD_ID,
-            userId: env.GANTRY_MEMORY_USER_ID,
+            personId: env.GANTRY_MEMORY_USER_ID,
             defaultScope: env.GANTRY_MEMORY_DEFAULT_SCOPE,
             allowedActions,
             reviewerIsControlApprover: true,
@@ -1397,7 +1402,8 @@ describe('agent-spawn timeout behavior', () => {
         'memory_review_decision',
       ]),
       context: {
-        userId: 'reviewer-a',
+        agentId: 'agent:test-group',
+        personId: 'reviewer-a',
         reviewerIsControlApprover: true,
       },
     });

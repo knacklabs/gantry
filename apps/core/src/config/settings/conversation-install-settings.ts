@@ -1,7 +1,40 @@
 import { createHash } from 'node:crypto';
 
 import type { Conversation } from '../../domain/conversation/conversation.js';
+import type { ChatAllowlistEntry } from './sender-allowlist.js';
 import type { RuntimeSettings } from './runtime-settings-types.js';
+
+export interface ConversationInstallSettingsInput {
+  settings: RuntimeSettings;
+  conversation: Pick<Conversation, 'id' | 'externalRef' | 'kind' | 'title'>;
+  providerAccountId: string;
+  agentFolder: string;
+  controlApprovers: readonly string[];
+  now: string;
+  displayName?: string;
+  senderPolicy?: ChatAllowlistEntry;
+  memoryScope?: 'conversation' | 'user' | 'agent' | 'app';
+  trigger?: string;
+  requiresTrigger?: boolean;
+}
+
+export function hasConversationInstallInSettings(
+  input: Pick<
+    ConversationInstallSettingsInput,
+    'settings' | 'conversation' | 'providerAccountId' | 'agentFolder'
+  >,
+): boolean {
+  const conversationKey = configuredConversationKey(
+    input.settings,
+    input.conversation,
+    input.providerAccountId,
+  );
+  return Boolean(
+    input.settings.conversations[conversationKey]?.installedAgents[
+      input.agentFolder
+    ],
+  );
+}
 
 export function applyConversationInstallToSettings(input: {
   settings: RuntimeSettings;
@@ -10,6 +43,11 @@ export function applyConversationInstallToSettings(input: {
   agentFolder: string;
   controlApprovers: readonly string[];
   now: string;
+  displayName?: string;
+  senderPolicy?: ChatAllowlistEntry;
+  memoryScope?: 'conversation' | 'user' | 'agent' | 'app';
+  trigger?: string;
+  requiresTrigger?: boolean;
 }): string {
   const { settings, conversation, providerAccountId, agentFolder } = input;
   const conversationKey = configuredConversationKey(
@@ -30,9 +68,15 @@ export function applyConversationInstallToSettings(input: {
     providerAccount: providerAccountId,
     externalId,
     kind: conversation.kind === 'direct' ? 'dm' : conversation.kind,
-    displayName: conversation.title || existing?.displayName || conversationKey,
+    displayName:
+      input.displayName?.trim() ||
+      conversation.title ||
+      existing?.displayName ||
+      conversationKey,
     senderPolicy:
-      existing?.senderPolicy ?? ({ allow: '*', mode: 'trigger' } as never),
+      input.senderPolicy ??
+      existing?.senderPolicy ??
+      ({ allow: '*', mode: 'trigger' } as never),
     controlApprovers,
     installedAgents: {
       ...(existing?.installedAgents ?? {}),
@@ -41,9 +85,12 @@ export function applyConversationInstallToSettings(input: {
         providerAccountId,
         status: 'active',
         addedAt: input.now,
-        memoryScope: 'conversation',
-        trigger: `@${settings.agents[agentFolder]?.name || agentFolder}`,
-        requiresTrigger: conversation.kind !== 'direct',
+        memoryScope: input.memoryScope ?? 'conversation',
+        trigger:
+          input.trigger?.trim() ||
+          `@${settings.agents[agentFolder]?.name || agentFolder}`,
+        requiresTrigger:
+          input.requiresTrigger ?? conversation.kind !== 'direct',
       },
     },
   };

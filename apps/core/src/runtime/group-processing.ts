@@ -4,7 +4,7 @@ import {
   toGroupMessageCursor,
 } from '../shared/message-cursor.js';
 import { logger } from '../infrastructure/logging/logger.js';
-import { MessageSendOptions } from '../domain/types.js';
+import { MessageSendOptions, NewMessage } from '../domain/types.js';
 import * as agentOutputCallbacks from './agent-output-callbacks.js';
 import * as progress from './progress-updates.js';
 import { finalizeGroupAgentUserVisibleOutput } from './group-output-finalization.js';
@@ -46,7 +46,10 @@ import { createGroupTurnOptionBuilders } from './group-turn-options.js';
 import { collectPendingMessagesSince } from './pending-message-replay.js';
 import { buildGroupProcessingConversationContext } from './group-processing-context.js';
 import { createGroupOutputBuffer } from './group-output-buffer.js';
+import { persistTurnAssistantTranscript } from './group-output-finalization.js';
 import { activeTurnUiCleanupByQueue } from './group-active-turn-cleanup.js';
+import { randomUUID } from 'node:crypto';
+import { nowIso } from '../shared/time/datetime.js';
 import { createGroupProcessingSessionCommandHandlers } from './group-processing-session-command-handlers.js';
 import { createGroupProcessingPersonResolver } from './group-person-identity.js';
 import {
@@ -58,6 +61,16 @@ const PERMISSION_BACKGROUND_DEMOTE_MS = 120_000;
 const PROVIDER_FAILOVER_EXHAUSTED_MESSAGE =
   "The AI provider is unavailable and your message couldn't be processed after several retries. Please try again shortly.";
 type ProgressHeartbeat = ReturnType<typeof startGroupProgressHeartbeats>;
+
+function slackChannelRootThreadId(
+  chatJid: string,
+  externalMessageId: string | null | undefined,
+): string | undefined {
+  if (!/^sl:[CG][A-Z0-9]+$/i.test(chatJid)) return undefined;
+  const threadId = externalMessageId?.trim();
+  return /^\d+\.\d+$/.test(threadId ?? '') ? threadId : undefined;
+}
+
 export function createGroupProcessor(deps: GroupProcessingDeps) {
   const collectSessionMemory = deps.collectSessionMemory;
   const ops = () => {
@@ -84,10 +97,11 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
     }
     const scopedQueue = options.queued === true || threadId !== undefined;
     const opsRepository = ops();
+    const replayCursor = await deps.getCursor(queueJid);
     const replay = await collectPendingMessagesSince({
       getMessagesSince: opsRepository.getMessagesSince.bind(opsRepository),
       chatJid,
-      sinceCursor: await deps.getCursor(queueJid),
+      sinceCursor: replayCursor,
       pageSize: config.MESSAGE_FETCH_PAGE_SIZE,
       maxMessages: config.MAX_MESSAGES_PER_PROMPT,
       options: {
@@ -110,6 +124,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
     const activeThreadId = firstThreadQueueId(
       threadId,
       latestMessage.thread_id,
+      slackChannelRootThreadId(chatJid, latestMessage.external_message_id),
     );
     let firstProgressNotified = false;
     const notifyFirstProgress = async () => {
@@ -213,12 +228,18 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
       return cmdResult.success;
     }
     if (
-      !groupTurnHasRequiredTrigger({
+      !(await groupTurnHasRequiredTrigger({
         group,
         chatJid,
         triggerPattern: config.getTriggerPattern(group.trigger),
         messages: missedMessages,
-      })
+        continuation: {
+          threadId,
+          hasPriorCursor: replayCursor.trim().length > 0,
+          messageRepository: opsRepository,
+          pageSize: config.MESSAGE_FETCH_PAGE_SIZE,
+        },
+      }))
     ) {
       deps.setCursor(queueJid, cursorForMessage(latestMessage));
       await deps.saveState();
@@ -234,6 +255,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
         groupName: group.name,
         agentFolder: group.folder,
         chatJid,
+        conversationId: group.conversationId,
         providerAccountId: group.providerAccountId,
         activeThreadId,
         latestMessage,
@@ -403,6 +425,13 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
     let hadError = false;
     let lastAgentError: string | undefined;
     let outputSentToUser = false;
+    const undeliveredGenerations: string[] = [];
+    // A turn must leave exactly one durable assistant record. Per-generation
+    // persistence is the primary path; this flag drives the finalization
+    // safety net below so a turn whose output never reached a `done` flush
+    // (transport-specific streaming paths do exist) is not left with the
+    // reply visible to the user but absent from GET /messages.
+    let persistedAnyGeneration = false;
     let streamedTranscriptDeliveryStatus: 'none' | 'sent' | 'partially_sent' =
       'none';
     let sawRawOutput = false;
@@ -492,6 +521,43 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
       buildMessageOptions,
       sendMessageToChannel,
       applyDeliverySettlement,
+      getStreamedTranscriptDeliveryStatus: () =>
+        streamedTranscriptDeliveryStatus,
+      // Persistence is per completed generation, so the accounting has to be
+      // too: otherwise a delivered generation leaves the status non-'none' and
+      // a later, wholly undelivered one is persisted as if it had been sent.
+      resetStreamedTranscriptDeliveryStatus: () => {
+        streamedTranscriptDeliveryStatus = 'none';
+      },
+      onGenerationUndelivered: (text) => {
+        undeliveredGenerations.push(text);
+      },
+      persistCompletedStreamedGeneration: async (text, deliveryStatus) => {
+        persistedAnyGeneration = true;
+        const timestamp = nowIso();
+        const message: NewMessage = {
+          id: `streamed-outbound:${randomUUID()}`,
+          chat_jid: chatJid,
+          sender: 'gantry',
+          sender_name: 'Gantry',
+          content: text.trim(),
+          timestamp,
+          is_from_me: true,
+          is_bot_message: true,
+          thread_id: activeThreadId,
+          delivery_status: deliveryStatus,
+          // Only claim a delivery time when something was actually delivered.
+          delivered_at: deliveryStatus === 'failed' ? undefined : timestamp,
+        };
+        await ops()
+          .storeMessage(message)
+          .catch((err: unknown) =>
+            logger.warn(
+              { err, group: group.name },
+              'Failed to persist streamed assistant generation',
+            ),
+          );
+      },
       log: logger,
     });
     const finalizeStreamingOutput = outputBuffer.flushBufferedOutput;
@@ -702,16 +768,24 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
         logger,
       });
     } else {
-      const finalization = await finalizeGroupAgentUserVisibleOutput({
-        streamedTranscriptDeliveryStatus,
-        boundedTranscript: outputBuffer.transcriptSnapshot(),
+      await persistTurnAssistantTranscript({
+        supportsStreamingChunks,
+        persistedAnyGeneration,
+        transcript: outputBuffer.transcriptSnapshot(),
         chatJid,
         activeThreadId,
         outputSentToUser,
+        groupName: group.name,
+        storeMessage: (message) => ops().storeMessage(message),
+        log: logger,
+      });
+      const finalization = await finalizeGroupAgentUserVisibleOutput({
+        boundedTranscript: outputBuffer.transcriptSnapshot(),
+        outputSentToUser,
+        undeliveredGenerations: undeliveredGenerations.join('\n\n'),
         sawRawOutput,
         groupName: group.name,
         warn: (metadata, message) => logger.warn(metadata, message),
-        storeMessage: (message) => ops().storeMessage(message),
         buildMessageOptions,
         sendMessageToChannel: async (text, options) =>
           settleDeliveryAttempt(() => sendMessageToChannel(text, options), {

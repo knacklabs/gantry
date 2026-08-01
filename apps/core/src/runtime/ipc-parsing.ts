@@ -77,6 +77,7 @@ export interface ParsedBrowserIpcRequest {
   payload: Record<string, unknown>;
   chatJid: string;
   threadId?: string;
+  browserTurnToken?: string; // per-turn credential issued at spawn
   responseKeyId?: string;
   jobId?: string;
   runId?: string;
@@ -722,6 +723,7 @@ export function parseBrowserIpcRequest(
     throw new Error('browser IPC responseKeyId is required');
   }
   const requestId = toTrimmedString(raw.requestId, { maxLen: 128 });
+  const turnToken = toTrimmedString(raw.browserTurnToken, { maxLen: 128 });
   const rawAction = toTrimmedString(raw.action, { maxLen: 64 });
   if (!requestId || !rawAction) {
     throw new Error('Invalid browser IPC request envelope');
@@ -764,6 +766,7 @@ export function parseBrowserIpcRequest(
     payload,
     chatJid,
     ...(threadId ? { threadId } : {}),
+    ...(turnToken ? { browserTurnToken: turnToken } : {}),
     ...(responseKeyId ? { responseKeyId } : {}),
     ...(jobId ? { jobId } : {}),
     ...(runId ? { runId } : {}),

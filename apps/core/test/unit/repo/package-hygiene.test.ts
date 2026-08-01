@@ -73,7 +73,7 @@ describe('package hygiene', () => {
 
   it('ships only Gantry-owned bundled skills', () => {
     const expectedSkillFiles = GANTRY_BUNDLED_SKILL_IDS.map(
-      (skillId) => `.agents/skills/${skillId}/SKILL.md`,
+      (skillId) => `factory/skills/${skillId}/SKILL.md`,
     );
     const raw = execFileSync('npm', ['pack', '--dry-run', '--json'], {
       encoding: 'utf-8',
@@ -83,20 +83,20 @@ describe('package hygiene', () => {
     }>;
     const files = pack.files.map((file) => file.path);
     const skillFiles = files
-      .filter((file) => file.startsWith('.agents/skills/'))
+      .filter((file) => file.startsWith('factory/skills/'))
       .sort();
 
     expect(skillFiles).toEqual(expectedSkillFiles);
     expect(files.filter((file) => file.startsWith('.claude/'))).toEqual([]);
 
-    const sourceSkillsRoot = path.join(process.cwd(), '.agents', 'skills');
+    const sourceSkillsRoot = path.join(process.cwd(), 'factory', 'skills');
     const sourceSkillFiles = fs
       .readdirSync(sourceSkillsRoot, { withFileTypes: true })
       .filter((entry) => entry.isDirectory())
       .flatMap((entry) => {
         const skillFile = path.join(sourceSkillsRoot, entry.name, 'SKILL.md');
         return fs.existsSync(skillFile)
-          ? [`.agents/skills/${entry.name}/SKILL.md`]
+          ? [`factory/skills/${entry.name}/SKILL.md`]
           : [];
       })
       .sort();
