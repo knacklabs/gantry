@@ -324,6 +324,7 @@ function makeDeps(
     getHistoryCoverageDistrustEpoch: vi.fn(() => ({
       current: 0,
       durable: 0,
+      inboundActive: true,
     })),
     getAvailableGroups: vi.fn().mockReturnValue([]),
     getRegisteredJids: vi.fn().mockReturnValue(new Set<string>()),
@@ -6676,6 +6677,7 @@ describe('createGroupProcessor', () => {
           onChatMetadata: vi.fn(async () => undefined),
           conversationRoutes: () => ({}),
           distrustHistoryCoverage: distrust.distrust,
+          setHistoryCoverageInboundActive: distrust.setInboundActive,
         },
         inboundEnabled: false,
         connectedChannels: [],
@@ -6684,17 +6686,19 @@ describe('createGroupProcessor', () => {
         logger: { info: vi.fn(), warn: vi.fn() },
       });
       await processGroupMessages('sl:C123');
+      await processGroupMessages('sl:C123');
 
-      expect(hydrateConversationContext).toHaveBeenCalledOnce();
-      expect(historyCoverage.getCoverage).toHaveBeenCalledOnce();
+      expect(hydrateConversationContext).toHaveBeenCalledTimes(2);
+      expect(historyCoverage.getCoverage).toHaveBeenCalledTimes(2);
       await vi.waitFor(() =>
         expect(distrust.readEpoch('slack-account-1')).toEqual({
           current: 2,
           durable: 2,
+          inboundActive: false,
         }),
       );
       expect(historyCoverage.upsertCoverage).toHaveBeenCalledWith(
-        expect.objectContaining({ complete: true, providerGeneration: 2 }),
+        expect.objectContaining({ complete: false, providerGeneration: 2 }),
       );
     });
 
@@ -6803,6 +6807,7 @@ describe('createGroupProcessor', () => {
           onChatMetadata: vi.fn(async () => undefined),
           conversationRoutes: () => ({}),
           distrustHistoryCoverage: distrust.distrust,
+          setHistoryCoverageInboundActive: distrust.setInboundActive,
         },
         inboundEnabled: true,
         connectedChannels: [],
@@ -6814,11 +6819,12 @@ describe('createGroupProcessor', () => {
         expect(distrust.readEpoch('slack-account-1')).toEqual({
           current: 1,
           durable: 1,
+          inboundActive: false,
         }),
       );
       await processGroupMessages('sl:C123');
       expect(historyCoverage.upsertCoverage).toHaveBeenLastCalledWith(
-        expect.objectContaining({ complete: true, providerGeneration: 1 }),
+        expect.objectContaining({ complete: false, providerGeneration: 1 }),
       );
 
       connectBarrier.resolve();
@@ -6946,8 +6952,8 @@ describe('createGroupProcessor', () => {
       });
       const getHistoryCoverageDistrustEpoch = vi
         .fn()
-        .mockReturnValueOnce({ current: 0, durable: 0 })
-        .mockReturnValue({ current: 1, durable: 0 });
+        .mockReturnValueOnce({ current: 0, durable: 0, inboundActive: true })
+        .mockReturnValue({ current: 1, durable: 0, inboundActive: true });
       const { deps } = setupHappyPath({ group, messages: [current] });
       deps.channelRuntime = makeChannel({ hydrateConversationContext });
       deps.getConversationHistoryCoverageRepository = () => historyCoverage;
@@ -6989,9 +6995,9 @@ describe('createGroupProcessor', () => {
       });
       const getHistoryCoverageDistrustEpoch = vi
         .fn()
-        .mockReturnValueOnce({ current: 0, durable: 0 })
-        .mockReturnValueOnce({ current: 0, durable: 0 })
-        .mockReturnValue({ current: 1, durable: 1 });
+        .mockReturnValueOnce({ current: 0, durable: 0, inboundActive: true })
+        .mockReturnValueOnce({ current: 0, durable: 0, inboundActive: true })
+        .mockReturnValue({ current: 1, durable: 1, inboundActive: true });
       const { deps } = setupHappyPath({ group, messages: [current] });
       deps.channelRuntime = makeChannel({
         hydrateConversationContext: vi.fn().mockResolvedValue({

@@ -31,6 +31,7 @@ import {
   createDiscordChannel,
   DiscordChannel,
 } from '@core/channels/discord.js';
+import { DiscordGatewayConnection } from '@core/channels/discord-gateway.js';
 import {
   parsePermissionCustomId,
   permissionCustomId,
@@ -2085,6 +2086,7 @@ describe('DiscordChannel', () => {
       jsonResponse({ url: 'wss://gateway.discord.test' }),
     );
     const distrustHistoryCoverage = vi.fn();
+    const setHistoryCoverageInboundActive = vi.fn();
     const channel = new DiscordChannel(
       'bot-token',
       'app-id',
@@ -2092,6 +2094,7 @@ describe('DiscordChannel', () => {
         providerAccountId: 'discord-one',
         inboundProviderAccountIds: ['discord-one', 'discord-two'],
         distrustHistoryCoverage,
+        setHistoryCoverageInboundActive,
       }),
       (url) => {
         const socket = new FakeWebSocket(url);
@@ -2118,6 +2121,11 @@ describe('DiscordChannel', () => {
     expect(distrustHistoryCoverage).toHaveBeenCalledWith([
       'discord-one',
       'discord-two',
+    ]);
+    expect(setHistoryCoverageInboundActive.mock.calls).toEqual([
+      [['discord-one', 'discord-two'], true],
+      [['discord-one', 'discord-two'], false],
+      [['discord-one', 'discord-two'], true],
     ]);
     expect(JSON.parse(sockets[1]!.sent[1] || '{}')).toEqual({
       op: 6,
@@ -2158,6 +2166,109 @@ describe('DiscordChannel', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(sockets).toHaveLength(1);
     channel.disconnect();
+  });
+
+  it('distrusts Discord history before a rejected live dispatch is swallowed', async () => {
+    let socket!: FakeWebSocket;
+    const order: string[] = [];
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      jsonResponse({ url: 'wss://gateway.discord.test' }),
+    );
+    const gateway = new DiscordGatewayConnection({
+      botToken: 'bot-token',
+      apiRoot: 'https://discord.com/api/v10',
+      intents: 1,
+      inboundEnabled: true,
+      interactionCallbacksEnabled: true,
+      createWebSocket: (url) => {
+        socket = new FakeWebSocket(url);
+        return socket;
+      },
+      onDispatch: vi.fn(async () => {
+        order.push('dispatch');
+        throw new Error('persistence rejected');
+      }),
+      onDispatchFailure: () => order.push('distrust'),
+    });
+
+    await gateway.connect();
+    socket.receive({ op: 0, t: 'MESSAGE_CREATE', s: 1, d: { id: 'm-1' } });
+
+    await vi.waitFor(() => expect(order).toEqual(['dispatch', 'distrust']));
+    gateway.disconnect();
+  });
+
+  it('keeps Discord inbound inactive when READY was queued before disconnect', async () => {
+    let socket!: FakeWebSocket;
+    const setInboundActive = vi.fn();
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      jsonResponse({ url: 'wss://gateway.discord.test' }),
+    );
+    const gateway = new DiscordGatewayConnection({
+      botToken: 'bot-token',
+      apiRoot: 'https://discord.com/api/v10',
+      intents: 1,
+      inboundEnabled: true,
+      interactionCallbacksEnabled: true,
+      createWebSocket: (url) => {
+        socket = new FakeWebSocket(url);
+        return socket;
+      },
+      onInboundStateChange: setInboundActive,
+      onDispatch: vi.fn(async () => undefined),
+    });
+
+    await gateway.connect();
+    const queuedMessage = socket.onmessage;
+    gateway.disconnect();
+    queuedMessage?.({
+      data: JSON.stringify({
+        op: 0,
+        t: 'READY',
+        s: 1,
+        d: { session_id: 'session-1' },
+      }),
+    });
+
+    await vi.waitFor(() => expect(setInboundActive).toHaveBeenCalledOnce());
+    expect(setInboundActive).toHaveBeenCalledWith(false);
+    expect(socket.onmessage).toBeNull();
+    expect(socket.onclose).toBeNull();
+  });
+
+  it('does not mark an interaction-only Discord gateway inbound-active', async () => {
+    let socket!: FakeWebSocket;
+    const setHistoryCoverageInboundActive = vi.fn();
+    const distrustHistoryCoverage = vi.fn();
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      jsonResponse({ url: 'wss://gateway.discord.test' }),
+    );
+    const channel = new DiscordChannel(
+      'bot-token',
+      'app-id',
+      opts({
+        providerAccountId: 'discord-one',
+        setHistoryCoverageInboundActive,
+        distrustHistoryCoverage,
+      }),
+      (url) => {
+        socket = new FakeWebSocket(url);
+        return socket;
+      },
+    );
+
+    await channel.connect({ inbound: false, interactionCallbacks: true });
+    socket.receive({
+      op: 0,
+      t: 'READY',
+      s: 1,
+      d: { user: { id: 'bot-1' }, session_id: 'session-1' },
+    });
+
+    await vi.waitFor(() => expect(channel.isConnected()).toBe(true));
+    expect(setHistoryCoverageInboundActive).not.toHaveBeenCalled();
+    expect(distrustHistoryCoverage).not.toHaveBeenCalled();
+    await channel.disconnect();
   });
 
   it.each([7, 9])(

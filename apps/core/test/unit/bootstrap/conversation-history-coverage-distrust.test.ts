@@ -11,12 +11,29 @@ describe('ConversationHistoryCoverageDistrust', () => {
     vi.useRealTimers();
   });
 
+  it('tracks inbound liveness per provider account synchronously', () => {
+    const service = new ConversationHistoryCoverageDistrust(
+      () => ({}) as ConversationHistoryCoverageRepository,
+      { warn: vi.fn() },
+    );
+
+    expect(service.isInboundActive('slack-one')).toBe(false);
+    service.setInboundActive(['slack-one', 'slack-two'], true);
+    expect(service.isInboundActive('slack-one')).toBe(true);
+    expect(service.readEpoch('slack-one').inboundActive).toBe(true);
+    expect(service.isInboundActive('slack-two')).toBe(true);
+    service.setInboundActive(['slack-one'], false);
+    expect(service.isInboundActive('slack-one')).toBe(false);
+    expect(service.isInboundActive('slack-two')).toBe(true);
+  });
+
   it('sets the in-memory epoch before starting the durable bump', async () => {
     let service!: ConversationHistoryCoverageDistrust;
     const bumpProviderGeneration = vi.fn(async () => {
       expect(service.readEpoch('slack-one')).toEqual({
         current: 1,
         durable: 0,
+        inboundActive: false,
       });
       return 1;
     });
@@ -36,6 +53,7 @@ describe('ConversationHistoryCoverageDistrust', () => {
       expect(service.readEpoch('slack-one')).toEqual({
         current: 1,
         durable: 1,
+        inboundActive: false,
       }),
     );
   });
@@ -59,6 +77,7 @@ describe('ConversationHistoryCoverageDistrust', () => {
     expect(service.readEpoch('discord-one')).toEqual({
       current: 1,
       durable: 0,
+      inboundActive: false,
     });
 
     await vi.advanceTimersByTimeAsync(100);
@@ -68,6 +87,7 @@ describe('ConversationHistoryCoverageDistrust', () => {
     expect(service.readEpoch('discord-one')).toEqual({
       current: 1,
       durable: 1,
+      inboundActive: false,
     });
     expect(HISTORY_COVERAGE_DISTRUST_MAX_RETRY_MS).toBe(2_000);
   });
@@ -98,6 +118,7 @@ describe('ConversationHistoryCoverageDistrust', () => {
     expect(service.readEpoch('slack-one')).toEqual({
       current: 5,
       durable: 5,
+      inboundActive: false,
     });
     expect(vi.getTimerCount()).toBe(0);
   });
@@ -127,6 +148,7 @@ describe('ConversationHistoryCoverageDistrust', () => {
       expect(service.readEpoch('discord-one')).toEqual({
         current: 3,
         durable: 3,
+        inboundActive: false,
       }),
     );
     expect(bumpProviderGeneration).toHaveBeenCalledTimes(2);

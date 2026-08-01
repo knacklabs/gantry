@@ -48,6 +48,7 @@ describe('connectProviderAccountChannels', () => {
   it('distrusts every account sharing an inbound hydration transport before and after connect', async () => {
     const order: string[] = [];
     const activeChannel = channel();
+    const disconnect = activeChannel.disconnect;
     activeChannel.hydrateConversationContext = vi.fn(async () => ({
       providerId: 'slack',
       attempted: true,
@@ -59,7 +60,11 @@ describe('connectProviderAccountChannels', () => {
     const distrustHistoryCoverage = vi.fn((accountIds) => {
       order.push(`distrust:${accountIds.join(',')}`);
     });
+    const setHistoryCoverageInboundActive = vi.fn();
 
+    const connectedChannels: Parameters<
+      typeof connectProviderAccountChannels
+    >[0]['connectedChannels'] = [];
     await connectProviderAccountChannels({
       provider: provider(vi.fn(async () => activeChannel)),
       appId: 'app-one',
@@ -81,9 +86,10 @@ describe('connectProviderAccountChannels', () => {
       channelOpts: {
         ...channelOpts(),
         distrustHistoryCoverage,
+        setHistoryCoverageInboundActive,
       },
       inboundEnabled: true,
-      connectedChannels: [],
+      connectedChannels,
       connectedChannelLeases: [],
       inboundLeasePrefix: 'runtime:provider-inbound',
       logger: { info: vi.fn(), warn: vi.fn() },
@@ -101,6 +107,19 @@ describe('connectProviderAccountChannels', () => {
       'connect',
       'distrust:slack_one,slack_two',
     ]);
+    expect(setHistoryCoverageInboundActive.mock.calls).toEqual([
+      [['slack_one', 'slack_two'], false],
+      [['slack_one', 'slack_two'], true],
+    ]);
+
+    await connectedChannels[0]!.channel.disconnect();
+
+    expect(setHistoryCoverageInboundActive).toHaveBeenLastCalledWith(
+      ['slack_one', 'slack_two'],
+      false,
+    );
+    expect(distrustHistoryCoverage).toHaveBeenCalledTimes(5);
+    expect(disconnect).toHaveBeenCalledOnce();
   });
 
   it('distrusts history when a history-capable account connects outbound-only', async () => {
@@ -111,6 +130,7 @@ describe('connectProviderAccountChannels', () => {
       messages: [],
     }));
     const distrustHistoryCoverage = vi.fn();
+    const setHistoryCoverageInboundActive = vi.fn();
 
     await connectProviderAccountChannels({
       provider: provider(vi.fn(async () => activeChannel)),
@@ -125,7 +145,11 @@ describe('connectProviderAccountChannels', () => {
         },
         runtime: {},
       },
-      channelOpts: { ...channelOpts(), distrustHistoryCoverage },
+      channelOpts: {
+        ...channelOpts(),
+        distrustHistoryCoverage,
+        setHistoryCoverageInboundActive,
+      },
       inboundEnabled: false,
       connectedChannels: [],
       connectedChannelLeases: [],
@@ -140,6 +164,7 @@ describe('connectProviderAccountChannels', () => {
     expect(distrustHistoryCoverage).toHaveBeenCalledTimes(2);
     expect(distrustHistoryCoverage).toHaveBeenNthCalledWith(1, ['slack_one']);
     expect(distrustHistoryCoverage).toHaveBeenNthCalledWith(2, ['slack_one']);
+    expect(setHistoryCoverageInboundActive).not.toHaveBeenCalled();
   });
 
   it('does not distrust Telegram even if an adapter exposes hydration', async () => {

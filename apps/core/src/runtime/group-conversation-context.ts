@@ -289,6 +289,8 @@ function isHistoryCoverageDistrustEpochStable(
   return (
     captured !== undefined &&
     current !== undefined &&
+    captured.inboundActive === true &&
+    current.inboundActive === true &&
     captured.current === captured.durable &&
     current.current === current.durable &&
     captured.current === current.current &&

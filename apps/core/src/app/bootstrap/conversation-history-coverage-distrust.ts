@@ -14,6 +14,7 @@ interface ProviderDistrustState extends ConversationHistoryDistrustEpoch {
 
 export class ConversationHistoryCoverageDistrust {
   private readonly epochs = new Map<string, ProviderDistrustState>();
+  private readonly inboundActive = new Set<string>();
 
   constructor(
     private readonly repository: () => ConversationHistoryCoverageRepository,
@@ -23,9 +24,31 @@ export class ConversationHistoryCoverageDistrust {
   readEpoch(providerAccountId: string): ConversationHistoryDistrustEpoch {
     const epoch = this.epochs.get(providerAccountId);
     return epoch
-      ? { current: epoch.current, durable: epoch.durable }
-      : { current: 0, durable: 0 };
+      ? {
+          current: epoch.current,
+          durable: epoch.durable,
+          inboundActive: this.isInboundActive(providerAccountId),
+        }
+      : {
+          current: 0,
+          durable: 0,
+          inboundActive: this.isInboundActive(providerAccountId),
+        };
   }
+
+  isInboundActive(providerAccountId: string): boolean {
+    return this.inboundActive.has(providerAccountId);
+  }
+
+  readonly setInboundActive = (
+    providerAccountIds: readonly string[],
+    active: boolean,
+  ): void => {
+    for (const providerAccountId of providerAccountIds) {
+      if (active) this.inboundActive.add(providerAccountId);
+      else this.inboundActive.delete(providerAccountId);
+    }
+  };
 
   readonly distrust = (providerAccountIds: readonly string[]): void => {
     for (const providerAccountId of providerAccountIds) {

@@ -167,6 +167,8 @@ export async function connectProviderAccountChannels(input: {
       );
       continue;
     }
+    const hasHistoryCoverage =
+      channel.hydrateConversationContext && input.provider.id !== 'telegram';
 
     let providerInbound =
       input.inboundEnabled &&
@@ -194,6 +196,15 @@ export async function connectProviderAccountChannels(input: {
       providerInboundLease?.onLost?.((err) => {
         if (providerInboundLeaseLost) return;
         providerInboundLeaseLost = err;
+        if (hasHistoryCoverage) {
+          input.channelOpts.setHistoryCoverageInboundActive?.(
+            inboundProviderAccountIds,
+            false,
+          );
+          input.channelOpts.distrustHistoryCoverage?.(
+            inboundProviderAccountIds,
+          );
+        }
         input.logger.warn(
           { err, channel: input.provider.id, providerAccountId },
           'Provider Account inbound lease lost; disconnecting channel',
@@ -229,9 +240,13 @@ export async function connectProviderAccountChannels(input: {
     }
 
     try {
-      const shouldDistrustHistoryCoverage =
-        channel.hydrateConversationContext && input.provider.id !== 'telegram';
-      if (shouldDistrustHistoryCoverage) {
+      if (hasHistoryCoverage) {
+        if (providerInbound) {
+          input.channelOpts.setHistoryCoverageInboundActive?.(
+            inboundProviderAccountIds,
+            false,
+          );
+        }
         input.channelOpts.distrustHistoryCoverage?.(inboundProviderAccountIds);
       }
       await channel.connect({
@@ -239,7 +254,31 @@ export async function connectProviderAccountChannels(input: {
         interactionCallbacks: providerInbound,
       });
       channelConnected = true;
-      if (shouldDistrustHistoryCoverage) {
+      if (hasHistoryCoverage) {
+        if (
+          providerInbound &&
+          channel.reportsHistoryCoverageInboundLiveness !== true
+        ) {
+          const disconnect = channel.disconnect.bind(channel);
+          let fallbackInboundActive = true;
+          channel.disconnect = async () => {
+            if (fallbackInboundActive) {
+              fallbackInboundActive = false;
+              input.channelOpts.setHistoryCoverageInboundActive?.(
+                inboundProviderAccountIds,
+                false,
+              );
+              input.channelOpts.distrustHistoryCoverage?.(
+                inboundProviderAccountIds,
+              );
+            }
+            await disconnect();
+          };
+          input.channelOpts.setHistoryCoverageInboundActive?.(
+            inboundProviderAccountIds,
+            true,
+          );
+        }
         input.channelOpts.distrustHistoryCoverage?.(inboundProviderAccountIds);
       }
       if (

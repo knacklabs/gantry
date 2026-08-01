@@ -60,6 +60,10 @@ export interface ChannelOpts {
   runtimeSecrets?: RuntimeSecretProvider;
   groupJoinOnboarding?: GroupJoinOnboardingCoordinator;
   distrustHistoryCoverage?: (providerAccountIds: readonly string[]) => void;
+  setHistoryCoverageInboundActive?: (
+    providerAccountIds: readonly string[],
+    active: boolean,
+  ) => void;
   isControlApproverAllowed?: (input: {
     providerId: string;
     providerAccountId?: string;
@@ -76,8 +80,7 @@ export type MaybePromise<T> = T | Promise<T>;
 
 export type ChannelAdapter = ChannelLifecyclePort &
   ChannelOwnershipPort &
-  MessageSink &
-  Partial<
+  MessageSink & { reportsHistoryCoverageInboundLiveness?: boolean } & Partial<
     StreamingSink &
       StreamingStateSink &
       TypingSink &

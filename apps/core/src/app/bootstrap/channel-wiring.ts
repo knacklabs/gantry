@@ -111,9 +111,8 @@ export function createChannelWiring(
   const ops = () => resolved.opsRepository ?? getRuntimeRepositories();
   // prettier-ignore
   const historyDistrust = new ConversationHistoryCoverageDistrust(() => resolved.historyCoverage ?? getRuntimeStorage().repositories.conversationHistoryCoverage, resolved.logger);
-  if (resolved.historyCoverage) {
+  if (resolved.historyCoverage)
     app.setConversationHistoryCoverageRepository(resolved.historyCoverage);
-  }
   if (typeof app.setHistoryCoverageDistrustEpochReader === 'function') {
     app.setHistoryCoverageDistrustEpochReader((providerAccountId) =>
       historyDistrust.readEpoch(providerAccountId),
@@ -241,6 +240,7 @@ export function createChannelWiring(
     runtimeSettings: () => currentRuntimeSettings,
     runtimeLease: { tryAcquire: tryAcquireRuntimeAdvisoryLease },
     distrustHistoryCoverage: historyDistrust.distrust,
+    setHistoryCoverageInboundActive: historyDistrust.setInboundActive,
     // prettier-ignore
     get runtimeSecrets() { return resolved.runtimeSecrets; },
     isControlApproverAllowed,

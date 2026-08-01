@@ -4,6 +4,42 @@ import type {
   WebSocketFactory,
   WebSocketLike,
 } from './discord-types.js';
+import type { ChannelOpts } from './channel-provider.js';
+import { historyCoverageInboundCallbacks } from './conversation-history-coverage-lifecycle.js';
+
+export async function connectDiscordGateway(input: {
+  botToken: string;
+  apiRoot: string;
+  intents: number;
+  createWebSocket: WebSocketFactory;
+  channelOpts: ChannelOpts;
+  options: { inbound?: boolean; interactionCallbacks?: boolean };
+  onDispatch: (payload: DiscordGatewayPayload) => Promise<void>;
+}): Promise<DiscordGatewayConnection | null> {
+  const inboundEnabled = input.options.inbound !== false;
+  const interactionCallbacksEnabled =
+    input.options.interactionCallbacks ?? inboundEnabled;
+  if (!inboundEnabled && !interactionCallbacksEnabled) return null;
+  const gateway = new DiscordGatewayConnection({
+    botToken: input.botToken,
+    apiRoot: input.apiRoot,
+    intents: input.intents,
+    createWebSocket: input.createWebSocket,
+    inboundEnabled,
+    interactionCallbacksEnabled,
+    onReconnect: () =>
+      input.channelOpts.distrustHistoryCoverage?.(
+        input.channelOpts.inboundProviderAccountIds ??
+          (input.channelOpts.providerAccountId
+            ? [input.channelOpts.providerAccountId]
+            : []),
+      ),
+    ...historyCoverageInboundCallbacks(input.channelOpts),
+    onDispatch: input.onDispatch,
+  });
+  await gateway.connect();
+  return gateway;
+}
 
 export class DiscordGatewayConnection {
   private connected = false;
@@ -23,7 +59,11 @@ export class DiscordGatewayConnection {
       apiRoot: string;
       intents: number;
       createWebSocket: WebSocketFactory;
+      inboundEnabled: boolean;
+      interactionCallbacksEnabled: boolean;
       onReconnect?: () => void;
+      onInboundStateChange?: (active: boolean) => void;
+      onDispatchFailure?: () => void;
       onDispatch: (payload: DiscordGatewayPayload) => Promise<void>;
     },
   ) {}
@@ -42,8 +82,14 @@ export class DiscordGatewayConnection {
     this.clearReconnect();
     this.clearHeartbeat();
     this.connected = false;
-    this.socket?.close(1000, 'Gantry shutdown');
+    this.setInboundActive(false);
+    const socket = this.socket;
     this.socket = null;
+    if (!socket) return;
+    socket.onmessage = null;
+    socket.onerror = null;
+    socket.onclose = null;
+    socket.close(1000, 'Gantry shutdown');
   }
 
   private async open(): Promise<void> {
@@ -64,6 +110,7 @@ export class DiscordGatewayConnection {
     this.connected = true;
     this.socket.onmessage = (event) => {
       void this.handle(event.data).catch((err) => {
+        if (this.input.inboundEnabled) this.input.onDispatchFailure?.();
         logger.warn({ err }, 'Discord gateway message handling failed');
       });
     };
@@ -73,6 +120,7 @@ export class DiscordGatewayConnection {
     this.socket.onclose = () => {
       this.clearHeartbeat();
       this.connected = false;
+      this.setInboundActive(false);
       this.socket = null;
       if (!this.shuttingDown) this.distrustReconnectTransition();
       this.scheduleReconnect();
@@ -114,11 +162,25 @@ export class DiscordGatewayConnection {
       this.reconnectAttempts = 0;
     }
     if (
+      !this.shuttingDown &&
+      (payload.t === 'READY' || payload.t === 'RESUMED')
+    ) {
+      this.setInboundActive(true);
+    }
+    if (
+      !this.shuttingDown &&
       (payload.t === 'READY' || payload.t === 'RESUMED') &&
       this.reconnectNeedsRefence
     ) {
       this.reconnectNeedsRefence = false;
       this.input.onReconnect?.();
+    }
+    if (!this.input.inboundEnabled && payload.t === 'MESSAGE_CREATE') return;
+    if (
+      !this.input.interactionCallbacksEnabled &&
+      payload.t === 'INTERACTION_CREATE'
+    ) {
+      return;
     }
     await this.input.onDispatch(payload);
   }
@@ -164,15 +226,21 @@ export class DiscordGatewayConnection {
     const socket = this.socket;
     this.socket = null;
     this.connected = false;
+    this.setInboundActive(false);
     socket?.close(4000, 'Discord requested reconnect');
     this.scheduleReconnect();
   }
 
   private distrustReconnectTransition(): void {
+    if (!this.input.inboundEnabled) return;
     if (this.reconnectDistrusted) return;
     this.reconnectDistrusted = true;
     this.reconnectNeedsRefence = true;
     this.input.onReconnect?.();
+  }
+
+  private setInboundActive(active: boolean): void {
+    if (this.input.inboundEnabled) this.input.onInboundStateChange?.(active);
   }
 
   private send(payload: unknown): void {

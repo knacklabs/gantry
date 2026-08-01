@@ -8,6 +8,7 @@ export type ConversationHistoryScope =
 export interface ConversationHistoryDistrustEpoch {
   readonly current: number;
   readonly durable: number;
+  readonly inboundActive?: boolean;
 }
 
 export interface ConversationHistoryCoverage {
