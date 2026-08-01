@@ -71,6 +71,8 @@
     "test": "npm run build:contracts && npm run test:unit && npm run test:integration",
     "test:unit": "npm run build:contracts && vitest run -c vitest.unit.config.ts",
     "test:integration": "npm run build:contracts && vitest run -c vitest.integration.config.ts",
+    "test:proof:unit": "npm run build:contracts && vitest run -c vitest.proof.unit.config.ts",
+    "test:proof:integration": "node scripts/require-postgres-integration-env.mjs && npm run build:contracts && vitest run -c vitest.proof.integration.config.ts",
     "test:integration:postgres": "node scripts/require-postgres-integration-env.mjs && npm run build:contracts && vitest run -c vitest.integration.postgres.config.ts",
     "test:integration:postgres:chaos": "node scripts/require-postgres-integration-env.mjs && npm run build:contracts && vitest run -c vitest.integration.postgres.chaos.config.ts",
     "test:integration:postgres:hot-path": "node scripts/require-postgres-integration-env.mjs && npm run build:contracts && GANTRY_POSTGRES_HOT_PATH=1 vitest run -c vitest.integration.postgres.hot-path.config.ts",
