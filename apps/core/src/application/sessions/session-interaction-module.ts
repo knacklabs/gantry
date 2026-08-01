@@ -255,14 +255,7 @@ export class SessionInteractionModule {
     // `conversation_route_conversation_id_noncanonical` when a route predates
     // the canonical id — so asking only for the canonical id silently returns
     // [] for runs recorded under the older one.
-    const conversationIds =
-      await this.deps.repositories.messages.listConversationIdsForJid(
-        appSession.conversationJid,
-      );
-    const canonical = appSession.canonicalConversationId as string | undefined;
-    const candidates = Array.from(
-      new Set([...(canonical ? [canonical] : []), ...conversationIds]),
-    );
+    const candidates = await this.feedConversationIds(appSession);
     if (candidates.length === 0) return { runs: [] };
     const lists = await Promise.all(
       candidates.map((conversationId) =>
@@ -435,7 +428,10 @@ export class SessionInteractionModule {
     limit?: number;
   }): Promise<RuntimeEvent[]> {
     const session = await this.requireSession(input);
-    return this.deps.runtimeEvents.list(this.eventFilter(session, input));
+    const conversationIds = await this.feedConversationIds(session);
+    return this.deps.runtimeEvents.list(
+      this.eventFilter(session, input, conversationIds),
+    );
   }
 
   async subscribeEvents(input: {
@@ -445,7 +441,10 @@ export class SessionInteractionModule {
     limit?: number;
   }) {
     const session = await this.requireSession(input);
-    return this.deps.runtimeEvents.subscribe(this.eventFilter(session, input));
+    const conversationIds = await this.feedConversationIds(session);
+    return this.deps.runtimeEvents.subscribe(
+      this.eventFilter(session, input, conversationIds),
+    );
   }
 
   async waitForVisibleEvent(input: {
@@ -536,13 +535,26 @@ export class SessionInteractionModule {
     return webhook.webhookId;
   }
 
+  /** Every conversation row this session's jid maps to, canonical first. */
+  private async feedConversationIds(
+    session: SessionAppRecord,
+  ): Promise<string[]> {
+    const rows =
+      await this.deps.repositories.messages.listConversationIdsForJid(
+        session.conversationJid,
+      );
+    const canonical = session.canonicalConversationId as string | undefined;
+    return Array.from(new Set([...(canonical ? [canonical] : []), ...rows]));
+  }
+
   private eventFilter(
     session: SessionAppRecord,
     input: { afterEventId?: number; limit?: number },
+    conversationIds: string[],
   ): RuntimeEventFilter {
     return {
       appId: session.appId as never,
-      conversationId: session.canonicalConversationId as never,
+      conversationIds: conversationIds as never,
       afterEventId:
         input.afterEventId && input.afterEventId > 0
           ? (input.afterEventId as never)

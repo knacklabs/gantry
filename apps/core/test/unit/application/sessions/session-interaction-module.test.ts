@@ -62,7 +62,21 @@ function makeModule(overrides?: {
   const module = new SessionInteractionModule({
     control: control as never,
     ops: ops as never,
-    repositories: (overrides?.repositories ?? {}) as never,
+    // The session feeds resolve conversation rows by jid and union them, so
+    // every case needs this port even when it overrides other repositories.
+    repositories: {
+      messages: { listConversationIdsForJid: vi.fn(async () => []) },
+      ...(overrides?.repositories ?? {}),
+      ...(overrides?.repositories &&
+      (overrides.repositories as { messages?: unknown }).messages
+        ? {
+            messages: {
+              listConversationIdsForJid: vi.fn(async () => []),
+              ...(overrides.repositories as { messages: object }).messages,
+            },
+          }
+        : {}),
+    } as never,
     runtimeEvents: runtimeEvents as never,
     liveAdmissionAppId: overrides?.liveAdmissionAppId,
     getConfiguredAgentRuntime:
@@ -482,7 +496,10 @@ describe('SessionInteractionModule', () => {
     expect(runtimeEvents.subscribe).toHaveBeenCalledWith(
       expect.objectContaining({
         appId: 'app-one',
-        conversationId: 'canonical:app-one:conv-1',
+        // A set, not one id: a jid can map to several conversation rows, and
+        // filtering on the canonical one alone hides events recorded under a
+        // route that predates it.
+        conversationIds: ['canonical:app-one:conv-1'],
         afterEventId: 9,
       }),
     );
