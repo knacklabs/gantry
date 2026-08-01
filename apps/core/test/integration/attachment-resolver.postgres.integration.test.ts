@@ -24,6 +24,8 @@ import {
   AttachmentResolver,
 } from '@core/application/attachments/attachment-resolver.js';
 import { fetchSlackHistoricalAttachment } from '@core/channels/slack/historical-attachment-fetcher.js';
+import { fetchDiscordHistoricalAttachment } from '@core/channels/discord-historical-attachment-fetcher.js';
+import { DiscordRestError } from '@core/channels/discord-http-helpers.js';
 import type {
   HistoricalAttachmentFetcher,
   HistoricalAttachmentFetchResult,
@@ -41,6 +43,7 @@ import {
 const maybeDescribe = hasPostgresIntegrationDatabase ? describe : describe.skip;
 const appId = 'default';
 const providerAccountId = 'slack_file_1a_postgres';
+const discordProviderAccountId = 'discord_file_1b_postgres';
 const workspaceRoots = [process.cwd()];
 const temporaryRoots: string[] = [];
 
@@ -121,12 +124,14 @@ function message(input: {
   conversationJid: string;
   attachments: NonNullable<NewMessage['attachments']>;
   threadId?: string;
+  provider?: string;
+  providerAccountId?: string;
 }): NewMessage {
   return {
     id: input.id,
     chat_jid: input.conversationJid,
-    provider: 'slack',
-    providerAccountId,
+    provider: input.provider ?? 'slack',
+    providerAccountId: input.providerAccountId ?? providerAccountId,
     sender: 'U_FILE_1A',
     sender_name: 'File Owner',
     content: `attachments for ${input.id}`,
@@ -134,6 +139,77 @@ function message(input: {
     external_message_id: input.id,
     ...(input.threadId ? { thread_id: input.threadId } : {}),
     attachments: input.attachments,
+  };
+}
+
+function discordAttachment(input: {
+  attachmentId: string;
+  discordAttachmentId: string;
+  channelId: string;
+  messageId: string;
+  parentChannelId?: string;
+  fileName?: string;
+}): NonNullable<NewMessage['attachments']>[number] {
+  return {
+    id: input.attachmentId,
+    kind: 'file',
+    externalId: input.discordAttachmentId,
+    ...(input.fileName ? { file_name: input.fileName } : {}),
+    provider_fetch: {
+      provider: 'discord',
+      kind: 'attachment_id',
+      id: input.discordAttachmentId,
+      channelId: input.channelId,
+      messageId: input.messageId,
+      ...(input.parentChannelId
+        ? { parentChannelId: input.parentChannelId }
+        : {}),
+      url: 'https://cdn.discordapp.com/attachments/expired/copy.bin',
+    },
+  };
+}
+
+function fakeDiscordFetcher(input: {
+  status?: 'ok' | 'deleted';
+  content?: Uint8Array | (() => ReadableStream<Uint8Array>);
+  fileName?: string;
+  contentType?: string;
+}) {
+  const requestMessage = vi.fn(async (channelId: string, messageId: string) => {
+    if (input.status === 'deleted') {
+      throw new DiscordRestError('unknown message', 404, 10008);
+    }
+    return {
+      id: messageId,
+      channel_id: channelId,
+      attachments: [
+        {
+          id: 'discord-file',
+          filename: input.fileName,
+          content_type: input.contentType,
+          url: 'https://cdn.discordapp.com/attachments/fresh/copy.bin',
+        },
+      ],
+    };
+  });
+  const download = vi.fn(async () => {
+    const content =
+      typeof input.content === 'function' ? input.content() : input.content;
+    return new Response(content ?? new Uint8Array());
+  });
+  const fetchHistoricalAttachment = vi.fn(
+    async (
+      request: Parameters<
+        HistoricalAttachmentFetcher['fetchHistoricalAttachment']
+      >[0],
+    ) =>
+      fetchDiscordHistoricalAttachment(request, { requestMessage, download }),
+  );
+  return {
+    fetcher: { fetchHistoricalAttachment },
+    fetchHistoricalAttachment,
+    requestMessage,
+    download,
   };
 }
 
@@ -190,11 +266,12 @@ function openRequest(
   attachmentId: string,
   conversationJid: string,
   threadId?: string,
+  accountId = providerAccountId,
 ): Parameters<AttachmentResolver['open']>[0] {
   return {
     attachmentId,
     appId,
-    providerAccountId,
+    providerAccountId: accountId,
     conversationJid,
     ...(threadId ? { threadId } : {}),
   };
@@ -465,6 +542,164 @@ maybeDescribe('attachment resolver with Postgres repositories', () => {
       ),
     ).toHaveLength(1);
     expect(seam.writer).toHaveBeenCalledTimes(2);
+  });
+
+  it('scope-fences a Discord lazy fetch and persists fresh provider metadata', async () => {
+    const root = materializationRoot('discord-lazy');
+    const discord = fakeDiscordFetcher({
+      content: Buffer.from('discord historical bytes'),
+      fileName: 'discord-report.txt',
+      contentType: 'text/plain',
+    });
+    const seam = createPostgresSeam(runtime, root, discord.fetcher);
+    const conversationJid = 'dc:discord-channel';
+    const attachmentId = 'attachment:file-1b:discord-lazy';
+    await seam.messages.storeMessage(
+      message({
+        id: 'discord-message',
+        conversationJid,
+        provider: 'discord',
+        providerAccountId: discordProviderAccountId,
+        attachments: [
+          discordAttachment({
+            attachmentId,
+            discordAttachmentId: 'discord-file',
+            channelId: 'discord-channel',
+            messageId: 'discord-message',
+          }),
+        ],
+      }),
+    );
+
+    await expect(
+      seam.resolver.open(
+        openRequest(
+          attachmentId,
+          'dc:foreign-channel',
+          undefined,
+          discordProviderAccountId,
+        ),
+      ),
+    ).resolves.toEqual({
+      status: 'not_found',
+      content: ATTACHMENT_NOT_FOUND_COPY,
+    });
+    expect(discord.requestMessage).not.toHaveBeenCalled();
+
+    const opened = await seam.resolver.open(
+      openRequest(
+        attachmentId,
+        conversationJid,
+        undefined,
+        discordProviderAccountId,
+      ),
+    );
+    expect(opened).toMatchObject({
+      status: 'opened',
+      content: 'discord historical bytes',
+    });
+    await expect(
+      seam.attachments.getResolvableAttachment(attachmentId),
+    ).resolves.toMatchObject({
+      fileName: 'discord-report.txt',
+      contentType: 'text/plain',
+      storageRef: expect.stringMatching(/^provider-attachments\//),
+    });
+    expect(discord.requestMessage).toHaveBeenCalledOnce();
+    expect(discord.download).toHaveBeenCalledWith(
+      'https://cdn.discordapp.com/attachments/fresh/copy.bin',
+      expect.any(AbortSignal),
+    );
+  });
+
+  it('leaves a Discord row unchanged when actual streamed bytes exceed 50 MiB', async () => {
+    const root = materializationRoot('discord-cap');
+    const discord = fakeDiscordFetcher({
+      content: overCapSlackStream,
+      fileName: 'discord-too-large.bin',
+      contentType: 'application/octet-stream',
+    });
+    const seam = createPostgresSeam(runtime, root, discord.fetcher);
+    const conversationJid = 'dc:discord-cap-channel';
+    const attachmentId = 'attachment:file-1b:discord-cap';
+    await seam.messages.storeMessage(
+      message({
+        id: 'discord-cap-message',
+        conversationJid,
+        provider: 'discord',
+        providerAccountId: discordProviderAccountId,
+        attachments: [
+          discordAttachment({
+            attachmentId,
+            discordAttachmentId: 'discord-file',
+            channelId: 'discord-cap-channel',
+            messageId: 'discord-cap-message',
+          }),
+        ],
+      }),
+    );
+    const before = await seam.attachments.getResolvableAttachment(attachmentId);
+
+    await expect(
+      seam.resolver.open(
+        openRequest(
+          attachmentId,
+          conversationJid,
+          undefined,
+          discordProviderAccountId,
+        ),
+      ),
+    ).resolves.toEqual({
+      status: 'too_large',
+      content: ATTACHMENT_TOO_LARGE_COPY,
+    });
+    await expect(
+      seam.attachments.getResolvableAttachment(attachmentId),
+    ).resolves.toEqual(before);
+    expect(regularFiles(root)).toEqual([]);
+  });
+
+  it('tombstones an explicitly deleted Discord message and never fetches it again', async () => {
+    const root = materializationRoot('discord-deleted');
+    const discord = fakeDiscordFetcher({ status: 'deleted' });
+    const seam = createPostgresSeam(runtime, root, discord.fetcher);
+    const conversationJid = 'dc:discord-deleted-channel';
+    const attachmentId = 'attachment:file-1b:discord-deleted';
+    await seam.messages.storeMessage(
+      message({
+        id: 'discord-deleted-message',
+        conversationJid,
+        provider: 'discord',
+        providerAccountId: discordProviderAccountId,
+        attachments: [
+          discordAttachment({
+            attachmentId,
+            discordAttachmentId: 'discord-file',
+            channelId: 'discord-deleted-channel',
+            messageId: 'discord-deleted-message',
+          }),
+        ],
+      }),
+    );
+    const request = openRequest(
+      attachmentId,
+      conversationJid,
+      undefined,
+      discordProviderAccountId,
+    );
+
+    await expect(seam.resolver.open(request)).resolves.toEqual({
+      status: 'deleted',
+      content: ATTACHMENT_DELETED_COPY,
+    });
+    await expect(seam.resolver.open(request)).resolves.toEqual({
+      status: 'deleted',
+      content: ATTACHMENT_DELETED_COPY,
+    });
+    expect(discord.requestMessage).toHaveBeenCalledOnce();
+    expect(
+      (await seam.attachments.getResolvableAttachment(attachmentId))?.deletedAt,
+    ).toBeTruthy();
   });
 
   it('refuses a Slack stream over 50 MiB without changing the row or leaving a file', async () => {

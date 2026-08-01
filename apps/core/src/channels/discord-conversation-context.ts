@@ -349,7 +349,10 @@ function normalizeDiscordContextMessages(input: {
     if (byExternalId.size >= input.limit) break;
     if (!message.id || isDiscordEphemeralMessage(message)) continue;
     const content = message.content?.trim() || '';
-    const attachments = discordMessageAttachments(message);
+    const attachments = discordMessageAttachments(
+      message,
+      input.conversationJid,
+    );
     if (!content && attachments.length === 0) continue;
     const author = message.author || message.member?.user;
     const sender = author?.id || 'unknown';
@@ -380,8 +383,12 @@ function normalizeDiscordContextMessages(input: {
 
 export function discordMessageAttachments(
   message: DiscordMessageCreate,
+  conversationJid?: string,
 ): NonNullable<NewMessage['attachments']> {
   if (isDiscordEphemeralMessage(message)) return [];
+  const conversationChannelId = conversationJid
+    ? discordChannelIdFromJid(conversationJid)
+    : null;
   return (message.attachments || [])
     .filter((attachment) => attachment.ephemeral !== true)
     .map((attachment) => ({
@@ -402,6 +409,10 @@ export function discordMessageAttachments(
               id: attachment.id,
               channelId: message.channel_id,
               messageId: message.id,
+              ...(conversationChannelId &&
+              conversationChannelId !== message.channel_id
+                ? { parentChannelId: conversationChannelId }
+                : {}),
             }
           : undefined,
     }));

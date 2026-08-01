@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { connectProviderAccountChannels } from '@core/channels/provider-account-channel-connect.js';
+import { InboundMessageDeliveryError } from '@core/channels/channel-provider.js';
 import type {
   ChannelAdapter,
   ChannelOpts,
@@ -36,13 +37,59 @@ function provider(create: Provider['create'], id = 'slack'): Provider {
   };
 }
 
-function channelOpts(onMessage = vi.fn(async () => undefined)): ChannelOpts {
+function channelOpts(
+  onMessage: ChannelOpts['onMessage'] = vi.fn(async () => 'dropped'),
+): ChannelOpts {
   return {
     onMessage,
     onChatMetadata: vi.fn(async () => undefined),
     conversationRoutes: () => ({}),
   };
 }
+
+async function sharedInboundOnMessage(
+  onMessage: ChannelOpts['onMessage'],
+): Promise<ChannelOpts['onMessage']> {
+  let inboundOnMessage: ChannelOpts['onMessage'] | undefined;
+  const create = vi.fn<Provider['create']>(async (opts) => {
+    inboundOnMessage ??= opts.onMessage;
+    return channel();
+  });
+  await connectProviderAccountChannels({
+    provider: provider(create),
+    appId: 'app-one',
+    runtimeSettings: {
+      providerAccounts: {
+        slack_one: {
+          provider: 'slack',
+          agentId: 'agent:one',
+          runtimeSecretRefs: { app_token: 'same', bot_token: 'same-bot' },
+        },
+        slack_two: {
+          provider: 'slack',
+          agentId: 'agent:two',
+          runtimeSecretRefs: { bot_token: 'same-bot', app_token: 'same' },
+        },
+      },
+      runtime: {},
+    },
+    channelOpts: channelOpts(onMessage),
+    inboundEnabled: true,
+    connectedChannels: [],
+    connectedChannelLeases: [],
+    inboundLeasePrefix: 'runtime:provider-inbound',
+    logger: { info: vi.fn(), warn: vi.fn() },
+  });
+  if (!inboundOnMessage) throw new Error('Expected shared inbound transport');
+  return inboundOnMessage;
+}
+
+const fanOutMessage = {
+  id: 'msg-ownership',
+  text: 'hello',
+  sender: 'U123',
+  timestamp: '2026-07-01T00:00:00.000Z',
+};
 
 describe('connectProviderAccountChannels', () => {
   it('distrusts every account sharing an inbound hydration transport before and after connect', async () => {
@@ -410,7 +457,7 @@ describe('connectProviderAccountChannels', () => {
 
   it('fans out shared inbound messages to every matching provider account', async () => {
     let firstOnMessage: ChannelOpts['onMessage'] | undefined;
-    const onMessage = vi.fn(async () => undefined);
+    const onMessage = vi.fn(async () => 'stored' as const);
     const create = vi.fn<Provider['create']>(async (opts) => {
       firstOnMessage ??= opts.onMessage;
       return channel();
@@ -466,6 +513,41 @@ describe('connectProviderAccountChannels', () => {
         agentId: 'agent:two',
       }),
     );
+  });
+
+  it.each([
+    [['stored', 'dropped'], 'stored'],
+    [['dropped', 'dropped'], 'dropped'],
+  ] as const)(
+    'transfers fan-out ownership when any target stores: %j',
+    async (deliveryResults, expected) => {
+      const onMessage = vi
+        .fn<ChannelOpts['onMessage']>()
+        .mockResolvedValueOnce(deliveryResults[0])
+        .mockResolvedValueOnce(deliveryResults[1]);
+      const inboundOnMessage = await sharedInboundOnMessage(onMessage);
+
+      await expect(inboundOnMessage('sl:C123', fanOutMessage)).resolves.toBe(
+        expected,
+      );
+    },
+  );
+
+  it('propagates fan-out rejection with sibling storage ownership', async () => {
+    const persistenceError = new Error('second target rejected');
+    const onMessage = vi
+      .fn<ChannelOpts['onMessage']>()
+      .mockResolvedValueOnce('stored')
+      .mockRejectedValueOnce(persistenceError);
+    const inboundOnMessage = await sharedInboundOnMessage(onMessage);
+
+    await expect(
+      inboundOnMessage('sl:C123', fanOutMessage),
+    ).rejects.toMatchObject<Partial<InboundMessageDeliveryError>>({
+      name: 'InboundMessageDeliveryError',
+      stored: true,
+      failures: [persistenceError],
+    });
   });
 
   it('persists standalone provider-account channel-connect metadata without a message', async () => {

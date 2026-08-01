@@ -15,9 +15,50 @@ const identity = {
   id: 'attachment-1',
   channelId: 'thread-1',
   messageId: 'message-1',
+  parentChannelId: 'channel-1',
 };
+const scope = { conversationJid: 'dc:channel-1', threadId: 'thread-1' };
 
 describe('Discord historical attachment fetch', () => {
+  it.each([
+    [{ ...identity, provider: 'slack' }, scope],
+    [{ ...identity, kind: 'file_id' }, scope],
+    [{ ...identity, id: '' }, scope],
+    [{ ...identity, messageId: ' ' }, scope],
+    [{ ...identity, channelId: '' }, scope],
+    [{ ...identity, parentChannelId: '' }, scope],
+    [
+      {
+        provider: 'discord',
+        kind: 'attachment_id',
+        id: 'attachment-1',
+        channelId: 'thread-1',
+        messageId: 'message-1',
+      },
+      scope,
+    ],
+    [{ ...identity, messageId: '' }, scope],
+    [identity, { conversationJid: 'dc:other-channel' }],
+    [identity, { conversationJid: 'dc:other-channel', threadId: 'thread-1' }],
+    [identity, { conversationJid: 'sl:C123', threadId: 'thread-1' }],
+    [identity, { conversationJid: 'dc:channel-1', threadId: 'other-thread' }],
+  ])(
+    'rejects invalid or foreign identity before provider I/O',
+    async (candidateIdentity, candidateScope) => {
+      const requestMessage = vi.fn();
+      const download = vi.fn();
+
+      await expect(
+        fetchDiscordHistoricalAttachment(
+          { identity: candidateIdentity, ...candidateScope },
+          { requestMessage, download },
+        ),
+      ).resolves.toEqual({ status: 'unreachable', reason: 'incapable' });
+      expect(requestMessage).not.toHaveBeenCalled();
+      expect(download).not.toHaveBeenCalled();
+    },
+  );
+
   it('looks up the durable attachment identity and returns a safe CDN stream', async () => {
     const requestMessage = vi.fn(async () => ({
       id: 'message-1',
@@ -34,7 +75,7 @@ describe('Discord historical attachment fetch', () => {
     const download = vi.fn(async () => new Response('historical bytes'));
 
     const result = await fetchDiscordHistoricalAttachment(
-      { identity },
+      { identity, ...scope },
       { requestMessage, download },
     );
 
@@ -58,6 +99,34 @@ describe('Discord historical attachment fetch', () => {
     expect(
       Buffer.from((await result.content.read()).value ?? []).toString('utf8'),
     ).toBe('historical bytes');
+  });
+
+  it('uses only the fresh message lookup URL and ignores caller identity extensions', async () => {
+    const requestMessage = vi.fn(async () => ({
+      attachments: [
+        {
+          id: 'attachment-1',
+          url: 'https://cdn.discordapp.com/attachments/fresh/report.txt',
+        },
+      ],
+    }));
+    const download = vi.fn(async () => new Response('fresh'));
+
+    await fetchDiscordHistoricalAttachment(
+      {
+        identity: {
+          ...identity,
+          url: 'https://cdn.discordapp.com/attachments/expired/report.txt',
+        },
+        ...scope,
+      },
+      { requestMessage, download },
+    );
+
+    expect(download).toHaveBeenCalledWith(
+      'https://cdn.discordapp.com/attachments/fresh/report.txt',
+      undefined,
+    );
   });
 
   it('allows only the Discord CDN and strips credentials and REST headers on every hop', async () => {
@@ -134,7 +203,7 @@ describe('Discord historical attachment fetch', () => {
       }),
     );
     const result = await fetchDiscordHistoricalAttachment(
-      { identity },
+      { identity, ...scope },
       {
         requestMessage: vi.fn(async () => ({
           attachments: [
@@ -161,7 +230,7 @@ describe('Discord historical attachment fetch', () => {
     const cancel = vi.fn();
     const controller = new AbortController();
     const result = await fetchDiscordHistoricalAttachment(
-      { identity, signal: controller.signal },
+      { identity, ...scope, signal: controller.signal },
       {
         requestMessage: vi.fn(async () => ({
           attachments: [
@@ -195,7 +264,7 @@ describe('Discord historical attachment fetch', () => {
 
   it('treats only Discord unknown-message or a missing live attachment as deleted', async () => {
     const unknownMessage = await fetchDiscordHistoricalAttachment(
-      { identity },
+      { identity, ...scope },
       {
         requestMessage: vi.fn(async () => {
           throw new DiscordRestError('missing', 404, 10008);
@@ -204,7 +273,7 @@ describe('Discord historical attachment fetch', () => {
       },
     );
     const missingAttachment = await fetchDiscordHistoricalAttachment(
-      { identity },
+      { identity, ...scope },
       {
         requestMessage: vi.fn(async () => ({ attachments: [] })),
         download: vi.fn(),
@@ -221,7 +290,7 @@ describe('Discord historical attachment fetch', () => {
   ])('never downloads ephemeral live content', async (message) => {
     const download = vi.fn();
     const result = await fetchDiscordHistoricalAttachment(
-      { identity },
+      { identity, ...scope },
       {
         requestMessage: vi.fn(async () => ({
           attachments: [
@@ -251,7 +320,7 @@ describe('Discord historical attachment fetch', () => {
     'keeps non-authoritative failure unreachable',
     async (error, reason) => {
       const result = await fetchDiscordHistoricalAttachment(
-        { identity },
+        { identity, ...scope },
         {
           requestMessage: vi.fn(async () => {
             throw error;
@@ -266,7 +335,7 @@ describe('Discord historical attachment fetch', () => {
 
   it('keeps an ambiguous CDN 404 unreachable and non-deleting', async () => {
     const result = await fetchDiscordHistoricalAttachment(
-      { identity },
+      { identity, ...scope },
       {
         requestMessage: vi.fn(async () => ({
           attachments: [

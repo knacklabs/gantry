@@ -42,7 +42,10 @@ import {
   pending as pendingDiscordPermissionPrompt,
   settle as settleDiscordPermissionPrompt,
 } from '@core/channels/discord-permission-prompt-settlement.js';
-import type { ChannelOpts } from '@core/channels/channel-provider.js';
+import {
+  InboundMessageDeliveryError,
+  type ChannelOpts,
+} from '@core/channels/channel-provider.js';
 
 class FakeWebSocket {
   onopen: (() => void) | null = null;
@@ -1087,6 +1090,212 @@ describe('DiscordChannel', () => {
     vi.restoreAllMocks();
   });
 
+  it('admits the route before attachment network I/O or materialization', async () => {
+    let socket!: FakeWebSocket;
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation(async () =>
+        jsonResponse({ url: 'wss://gateway.discord.test' }),
+      );
+    const ensureMessageRoute = vi.fn(async () => false);
+    const materializeProviderAttachment = vi.fn();
+    const onMessage = vi.fn();
+    const channel = new DiscordChannel(
+      'bot-token',
+      'app-id',
+      opts({
+        ensureMessageRoute,
+        materializeProviderAttachment,
+        onMessage,
+      }),
+      (url) => {
+        socket = new FakeWebSocket(url);
+        return socket;
+      },
+    );
+
+    await channel.connect();
+    socket.receive({ op: 10, d: { heartbeat_interval: 60_000 } });
+    socket.receive({ op: 0, t: 'READY', s: 1, d: { user: { id: 'bot-1' } } });
+    socket.receive({
+      op: 0,
+      t: 'MESSAGE_CREATE',
+      s: 2,
+      d: {
+        id: 'message-unconfigured',
+        channel_id: 'channel-1',
+        author: { id: 'user-1' },
+        attachments: [
+          {
+            id: 'attachment-1',
+            filename: 'private.txt',
+            url: 'https://cdn.discordapp.com/attachments/private/file',
+          },
+        ],
+      },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(ensureMessageRoute).toHaveBeenCalledOnce();
+    expect(
+      fetchMock.mock.calls.filter(([input]) =>
+        String(input).startsWith('https://cdn.discordapp.com/'),
+      ),
+    ).toHaveLength(0);
+    expect(materializeProviderAttachment).not.toHaveBeenCalled();
+    expect(onMessage).not.toHaveBeenCalled();
+    await channel.disconnect();
+  });
+
+  it('keeps partial live capture metadata and reclaims captures after delivery rejection', async () => {
+    let socket!: FakeWebSocket;
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.endsWith('/gateway/bot')) {
+        return jsonResponse({ url: 'wss://gateway.discord.test' });
+      }
+      if (url.endsWith('/success')) return new Response('captured bytes');
+      return new Response('unreachable', { status: 403 });
+    });
+    const reclaim = vi.fn(async () => undefined);
+    const materializeProviderAttachment = vi.fn(async () => ({
+      storageRef: 'provider-attachments/captured.txt',
+      reclaim,
+    }));
+    const onMessage = vi.fn(async () => {
+      throw new Error('persistence rejected');
+    });
+    const channel = new DiscordChannel(
+      'bot-token',
+      'app-id',
+      opts({
+        ensureMessageRoute: vi.fn(async () => true),
+        materializeProviderAttachment,
+        onMessage,
+      }),
+      (url) => {
+        socket = new FakeWebSocket(url);
+        return socket;
+      },
+    );
+
+    await channel.connect();
+    socket.receive({ op: 10, d: { heartbeat_interval: 60_000 } });
+    socket.receive({ op: 0, t: 'READY', s: 1, d: { user: { id: 'bot-1' } } });
+    socket.receive({
+      op: 0,
+      t: 'MESSAGE_CREATE',
+      s: 2,
+      d: {
+        id: 'message-2',
+        channel_id: 'channel-1',
+        author: { id: 'user-1' },
+        attachments: [
+          {
+            id: 'success',
+            filename: 'captured.txt',
+            url: 'https://cdn.discordapp.com/attachments/private/success',
+          },
+          {
+            id: 'failed',
+            filename: 'failed.txt',
+            url: 'https://cdn.discordapp.com/attachments/private/failed',
+          },
+        ],
+      },
+    });
+
+    await vi.waitFor(() => expect(reclaim).toHaveBeenCalledOnce());
+    expect(onMessage).toHaveBeenCalledWith(
+      'dc:channel-1',
+      expect.objectContaining({
+        attachments: [
+          expect.objectContaining({
+            externalId: 'success',
+            storageRef: 'provider-attachments/captured.txt',
+          }),
+          expect.objectContaining({ externalId: 'failed' }),
+        ],
+      }),
+    );
+    expect(onMessage.mock.calls[0]?.[1].attachments?.[1]).not.toHaveProperty(
+      'storageRef',
+    );
+    await channel.disconnect();
+  });
+
+  it.each([
+    ['stored', 0],
+    ['dropped', 1],
+    [new InboundMessageDeliveryError([new Error('target rejected')], true), 0],
+  ] as const)(
+    '%s delivery acknowledgment controls live attachment ownership',
+    async (deliveryResult, expectedReclaims) => {
+      let socket!: FakeWebSocket;
+      vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) =>
+        String(input).endsWith('/gateway/bot')
+          ? jsonResponse({ url: 'wss://gateway.discord.test' })
+          : new Response('captured bytes'),
+      );
+      const reclaim = vi.fn(async () => undefined);
+      const channel = new DiscordChannel(
+        'bot-token',
+        'app-id',
+        opts({
+          ensureMessageRoute: vi.fn(async () => true),
+          materializeProviderAttachment: vi.fn(async () => ({
+            storageRef: 'provider-attachments/captured.txt',
+            reclaim,
+          })),
+          onMessage: vi.fn(async () => {
+            if (deliveryResult instanceof Error) throw deliveryResult;
+            return deliveryResult;
+          }),
+        }),
+        (url) => {
+          socket = new FakeWebSocket(url);
+          return socket;
+        },
+      );
+
+      await channel.connect();
+      socket.receive({ op: 10, d: { heartbeat_interval: 60_000 } });
+      socket.receive({
+        op: 0,
+        t: 'READY',
+        s: 1,
+        d: { user: { id: 'bot-1' } },
+      });
+      socket.receive({
+        op: 0,
+        t: 'MESSAGE_CREATE',
+        s: 2,
+        d: {
+          id: `message-${deliveryResult}`,
+          channel_id: 'channel-1',
+          author: { id: 'user-1' },
+          attachments: [
+            {
+              id: 'attachment-1',
+              filename: 'captured.txt',
+              url: 'https://cdn.discordapp.com/attachments/private/file',
+            },
+          ],
+        },
+      });
+
+      if (expectedReclaims > 0) {
+        await vi.waitFor(() =>
+          expect(reclaim).toHaveBeenCalledTimes(expectedReclaims),
+        );
+      } else {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        expect(reclaim).not.toHaveBeenCalled();
+      }
+      await channel.disconnect();
+    },
+  );
+
   it('drops live ephemeral Discord messages before metadata or message ingress', async () => {
     let socket!: FakeWebSocket;
     vi.spyOn(globalThis, 'fetch').mockImplementation(async () =>
@@ -1151,6 +1360,7 @@ describe('DiscordChannel', () => {
 
     await expect(
       channel.fetchHistoricalAttachment({
+        conversationJid: 'dc:channel-1',
         identity: {
           provider: 'discord',
           kind: 'attachment_id',
@@ -1261,6 +1471,7 @@ describe('DiscordChannel', () => {
               id: 'thread-attachment',
               channelId: 'thread-1',
               messageId: 'message-2',
+              parentChannelId: 'parent-1',
             }),
           }),
         ],

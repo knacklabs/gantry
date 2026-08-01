@@ -27,6 +27,7 @@ import type {
   ConversationContextHydrationRequest,
   ConversationContextHydrationResult,
 } from '../domain/ports/conversation-context-hydration.js';
+import type { InboundAttachmentReader } from '../shared/inbound-attachment-writer.js';
 
 export type {
   ConversationContextHydrationCoverage,
@@ -42,16 +43,44 @@ export const CHANNEL_STREAM_UPDATE_INTERVAL_MS = {
   discord: 1200,
 } as const;
 
+export type InboundMessageDeliveryResult = 'stored' | 'dropped';
+
+export class InboundMessageDeliveryError extends Error {
+  readonly name = 'InboundMessageDeliveryError';
+
+  constructor(
+    readonly failures: readonly unknown[],
+    readonly stored: boolean,
+  ) {
+    super('Inbound message persistence failed');
+  }
+}
+
+export type MaterializedProviderAttachment = {
+  storageRef: string;
+  reclaim: () => Promise<void>;
+};
+
+export type MaterializeProviderAttachment = (input: {
+  fileName: string;
+  content: InboundAttachmentReader & {
+    cancel(reason?: unknown): Promise<void>;
+  };
+}) => Promise<MaterializedProviderAttachment>;
+
 export interface ChannelOpts {
   appId?: string;
   providerAccountId?: string;
   inboundProviderAccountIds?: string[];
   agentId?: string;
-  onMessage: OnInboundMessage;
+  onMessage: (
+    ...args: Parameters<OnInboundMessage>
+  ) => Promise<InboundMessageDeliveryResult>;
   ensureMessageRoute?: (
     chatJid: string,
     message: NewMessage,
   ) => Promise<boolean>;
+  materializeProviderAttachment?: MaterializeProviderAttachment;
   onChatMetadata: OnChatMetadata;
   onMessageAction?: OnMessageAction;
   conversationRoutes: () => Record<string, ConversationRoute>;

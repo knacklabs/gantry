@@ -4,7 +4,10 @@ import path from 'node:path';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { readProviderAttachment } from '@core/shared/provider-attachment-materialization.js';
+import {
+  createProviderAttachmentMaterializer,
+  readProviderAttachment,
+} from '@core/shared/provider-attachment-materialization.js';
 
 const temporaryRoots: string[] = [];
 
@@ -49,6 +52,61 @@ afterEach(async () => {
 });
 
 describe('provider attachment materialization reads', () => {
+  it('mints provider refs at the host and writes outside workspace roots', async () => {
+    const materializationRoot = await temporaryMaterializationRoot();
+    const workspaceRoot = await temporaryMaterializationRoot();
+    const materialize = createProviderAttachmentMaterializer({
+      materializationRoot,
+      workspaceRoots: () => [workspaceRoot],
+    });
+    const body = new Response('live bytes').body!.getReader();
+
+    const result = await materialize({ fileName: 'report.txt', content: body });
+
+    expect(result.storageRef).toMatch(
+      /^provider-attachments\/[a-f0-9]{16}-report\.txt$/,
+    );
+    await expect(
+      fs.readFile(
+        path.join(
+          materializationRoot,
+          result.storageRef.slice('provider-attachments/'.length),
+        ),
+        'utf8',
+      ),
+    ).resolves.toBe('live bytes');
+    expect(
+      path.relative(workspaceRoot, materializationRoot).startsWith('..'),
+    ).toBe(true);
+
+    await result.reclaim();
+    await expect(
+      fs.stat(
+        path.join(
+          materializationRoot,
+          result.storageRef.slice('provider-attachments/'.length),
+        ),
+      ),
+    ).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('cancels a stream refused by the authoritative writer cap', async () => {
+    const cancel = vi.fn(async () => undefined);
+    const materialize = createProviderAttachmentMaterializer({
+      materializationRoot: await temporaryMaterializationRoot(),
+      workspaceRoots: () => [],
+      writer: vi.fn(async () => ({ status: 'too-large', bytes: 50_000_001 })),
+    });
+
+    await expect(
+      materialize({
+        fileName: 'large.bin',
+        content: { read: vi.fn(), cancel },
+      }),
+    ).rejects.toThrow('Provider attachment exceeds max allowed size');
+    expect(cancel).toHaveBeenCalledWith('too_large');
+  });
+
   it('continues after legal short reads until the full file reaches EOF', async () => {
     stubReads(Buffer.from('complete attachment'), 1);
 

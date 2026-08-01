@@ -1,7 +1,11 @@
 import type { RuntimeLease } from '../domain/ports/runtime-lease.js';
 import { agentIdForFolder } from '../domain/agent/agent-folder-id.js';
 import type { logger } from '../infrastructure/logging/logger.js';
-import type { ChannelAdapter, ChannelOpts } from './channel-provider.js';
+import {
+  InboundMessageDeliveryError,
+  type ChannelAdapter,
+  type ChannelOpts,
+} from './channel-provider.js';
 import {
   internalControlProviderAccountId,
   type Provider,
@@ -140,7 +144,7 @@ export async function connectProviderAccountChannels(input: {
       onMessage: (chatJid, msg) =>
         msg.providerAccountId
           ? input.channelOpts.onMessage(chatJid, msg)
-          : Promise.all(
+          : Promise.allSettled(
               inboundProviderAccountIds.map((targetProviderAccountId) =>
                 input.channelOpts.onMessage(chatJid, {
                   ...msg,
@@ -151,7 +155,19 @@ export async function connectProviderAccountChannels(input: {
                   ),
                 }),
               ),
-            ).then(() => undefined),
+            ).then((results) => {
+              const failures = results.flatMap((result) =>
+                result.status === 'rejected' ? [result.reason] : [],
+              );
+              const stored = results.some(
+                (result) =>
+                  result.status === 'fulfilled' && result.value === 'stored',
+              );
+              if (failures.length > 0) {
+                throw new InboundMessageDeliveryError(failures, stored);
+              }
+              return stored ? 'stored' : 'dropped';
+            }),
     });
     if (!channel) {
       if (

@@ -50,6 +50,7 @@ import {
   resolveDiscordConversationContext,
   type DiscordConversationContextCache,
 } from './discord-conversation-context.js';
+import { deliverLiveDiscordMessage } from './discord-live-attachment-capture.js';
 import { DiscordInteractionHandler } from './discord-interactions.js';
 import {
   discordHeaders,
@@ -560,9 +561,12 @@ export class DiscordChannel implements ChannelAdapter {
     if (!isDiscordDurableIngressMessage(message)) return;
     const author = message.author || message.member?.user;
     if (author?.bot || author?.id === this.botUserId) return;
-    const attachments = discordMessageAttachments(message);
     const context = await this.resolveInteractionConversationContext(
       message.channel_id,
+    );
+    const attachments = discordMessageAttachments(
+      message,
+      context.conversationJid,
     );
     if (context.threadId) {
       this.rememberMessageChannelId(
@@ -582,23 +586,7 @@ export class DiscordChannel implements ChannelAdapter {
       name: matchingRoutes[0]?.[1].name,
       isGroup: true,
     });
-    const metadataArgs = [
-      context.conversationJid,
-      message.timestamp || new Date().toISOString(),
-      identity.messageIdentity.name,
-      'discord',
-      true,
-    ] as const;
-    if (identity.needsStandaloneMetadataWrite) {
-      if (this.opts.providerAccountId) {
-        await this.opts.onChatMetadata(...metadataArgs, {
-          providerAccountId: this.opts.providerAccountId,
-        });
-      } else {
-        await this.opts.onChatMetadata(...metadataArgs);
-      }
-    }
-    await this.opts.onMessage(context.conversationJid, {
+    const inboundMessage = {
       id: message.id,
       chat_jid: context.conversationJid,
       ...identity.messageIdentity,
@@ -615,6 +603,15 @@ export class DiscordChannel implements ChannelAdapter {
       reply_to_message_content: message.referenced_message?.content,
       reply_to_sender_name: userName(message.referenced_message?.author, ''),
       ...(attachments.length > 0 ? { attachments } : {}),
+    };
+    await deliverLiveDiscordMessage({
+      opts: this.opts,
+      message,
+      conversationJid: context.conversationJid,
+      inboundMessage,
+      attachments,
+      metadataName: identity.messageIdentity.name,
+      needsStandaloneMetadataWrite: identity.needsStandaloneMetadataWrite,
     });
   }
 

@@ -24,10 +24,14 @@ type DiscordAttachmentIdentity = HistoricalAttachmentFetchIdentity & {
   kind: 'attachment_id';
   channelId: string;
   messageId: string;
+  parentChannelId?: string;
 };
 
 type DiscordHistoricalAttachmentFetchInput = {
   identity: HistoricalAttachmentFetchIdentity;
+  conversationJid: string;
+  threadId?: string;
+  providerAccountId?: string;
   signal?: AbortSignal;
 };
 
@@ -55,6 +59,9 @@ export function createDiscordHistoricalAttachmentFetcher(
 export async function fetchDiscordHistoricalAttachment(
   input: {
     identity: HistoricalAttachmentFetchIdentity;
+    conversationJid: string;
+    threadId?: string;
+    providerAccountId?: string;
     signal?: AbortSignal;
   },
   deps: {
@@ -66,7 +73,10 @@ export async function fetchDiscordHistoricalAttachment(
     download: (url: string, signal?: AbortSignal) => Promise<Response>;
   },
 ): Promise<HistoricalAttachmentFetchResult> {
-  if (!isDiscordAttachmentIdentity(input.identity)) {
+  if (
+    !isDiscordAttachmentIdentity(input.identity) ||
+    !isActiveDiscordAttachmentScope(input, input.identity)
+  ) {
     return { status: 'unreachable', reason: 'incapable' };
   }
 
@@ -112,6 +122,33 @@ export async function fetchDiscordHistoricalAttachment(
   }
 
   return successfulAttachment(response, attachment, input.signal);
+}
+
+function isActiveDiscordAttachmentScope(
+  input: { conversationJid: string; threadId?: string },
+  identity: DiscordAttachmentIdentity,
+): boolean {
+  const conversationJid = input.conversationJid.trim();
+  if (!conversationJid.startsWith('dc:')) return false;
+  const conversationChannelId = conversationJid.slice('dc:'.length);
+  if (
+    !isDiscordId(conversationChannelId) ||
+    conversationChannelId.includes(':')
+  ) {
+    return false;
+  }
+  if (input.threadId !== undefined) {
+    return (
+      isDiscordId(input.threadId) &&
+      identity.channelId === input.threadId &&
+      identity.parentChannelId === conversationChannelId
+    );
+  }
+  return (
+    identity.channelId === conversationChannelId &&
+    (identity.parentChannelId === undefined ||
+      identity.parentChannelId === conversationChannelId)
+  );
 }
 
 export async function fetchDiscordCdnAttachment(
@@ -177,12 +214,17 @@ function isDiscordAttachmentIdentity(
   return (
     identity.provider === 'discord' &&
     identity.kind === 'attachment_id' &&
-    typeof identity.id === 'string' &&
-    identity.id.length > 0 &&
-    typeof identity.channelId === 'string' &&
-    identity.channelId.length > 0 &&
-    typeof identity.messageId === 'string' &&
-    identity.messageId.length > 0
+    isDiscordId(identity.id) &&
+    isDiscordId(identity.channelId) &&
+    isDiscordId(identity.messageId) &&
+    (identity.parentChannelId === undefined ||
+      isDiscordId(identity.parentChannelId))
+  );
+}
+
+function isDiscordId(value: unknown): value is string {
+  return (
+    typeof value === 'string' && value.length > 0 && value === value.trim()
   );
 }
 

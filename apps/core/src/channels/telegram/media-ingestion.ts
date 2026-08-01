@@ -23,7 +23,7 @@ export function registerTelegramMediaHandlers(input: {
       options?: { providerAccountId?: string },
     ) => Promise<void>;
     providerAccountId?: string;
-    onMessage: (jid: string, message: any) => Promise<void>;
+    onMessage: (jid: string, message: any) => Promise<unknown>;
     ensureMessageRoute?: (jid: string, message: any) => Promise<unknown>;
     conversationRoutes: () => Record<
       string,

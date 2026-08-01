@@ -18,6 +18,7 @@ interface ReadableAttachmentMetadata {
 export type ProviderAttachmentWriter = typeof writeInboundAttachment;
 export const providerAttachmentWriter: ProviderAttachmentWriter =
   writeInboundAttachment;
+export const PROVIDER_ATTACHMENT_MAX_BYTES = 50 * 1024 * 1024;
 
 export function createProviderAttachmentStorageRef(fileName: string): string {
   const liveStorageRef = createInboundAttachmentStorageRef(fileName);
@@ -50,6 +51,49 @@ export async function materializeProviderAttachment(input: {
     content: input.content,
     maxBytes: input.maxBytes,
   });
+}
+
+export function createProviderAttachmentMaterializer(input: {
+  materializationRoot: string;
+  workspaceRoots: () => readonly string[];
+  writer?: ProviderAttachmentWriter;
+}) {
+  return async (attachment: {
+    fileName: string;
+    content: {
+      read: () => Promise<{ done: boolean; value?: Uint8Array }>;
+      cancel: (reason?: unknown) => Promise<void>;
+    };
+  }) => {
+    const storageRef = createProviderAttachmentStorageRef(attachment.fileName);
+    let result;
+    try {
+      result = await materializeProviderAttachment({
+        materializationRoot: input.materializationRoot,
+        workspaceRoots: input.workspaceRoots(),
+        storageRef,
+        content: attachment.content,
+        maxBytes: PROVIDER_ATTACHMENT_MAX_BYTES,
+        writer: input.writer ?? providerAttachmentWriter,
+      });
+    } catch (error) {
+      await attachment.content.cancel(error).catch(() => undefined);
+      throw error;
+    }
+    if (result.status === 'too-large') {
+      await attachment.content.cancel('too_large').catch(() => undefined);
+      throw new Error('Provider attachment exceeds max allowed size');
+    }
+    return {
+      storageRef,
+      reclaim: () =>
+        removeProviderAttachment({
+          materializationRoot: input.materializationRoot,
+          workspaceRoots: input.workspaceRoots(),
+          storageRef,
+        }),
+    };
+  };
 }
 
 export async function removeProviderAttachment(input: {

@@ -121,7 +121,19 @@ import { wireInlineAgentLoopTools } from './inline-agent-loop-tools.js';
 import { createGroupSnapshotSync } from './runtime-services-group-snapshot-sync.js';
 import { createAttachmentOpen } from './attachment-resolver-wiring.js';
 import { resolveWorkspaceFolderPath } from '../../platform/workspace-folder.js';
+import { createProviderAttachmentMaterializer } from '../../shared/provider-attachment-materialization.js';
 export { stopAsyncTaskRecoveryLoop } from './runtime-services-async-task-recovery.js';
+
+export function createRuntimeProviderAttachmentMaterializer(app: RuntimeApp) {
+  return createProviderAttachmentMaterializer({
+    materializationRoot: path.join(DATA_DIR, 'provider-attachments'),
+    workspaceRoots: () =>
+      Object.values(app.getConversationRoutes()).map((route) =>
+        resolveWorkspaceFolderPath(route.folder),
+      ),
+  });
+}
+
 type RuntimeBootstrapRepository = RuntimeAppRepository & RuntimeJobRepository;
 type LiveTurnCommandWakeupSourceFactory = () =>
   | LiveTurnCommandWakeupSource
