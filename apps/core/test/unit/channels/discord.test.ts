@@ -1020,12 +1020,22 @@ describe('DiscordChannel', () => {
             filename: 'screen.png',
             content_type: 'image/png',
             size: 4096,
+            url: 'https://cdn.discordapp.com/attachments/private/image',
           },
           {
             id: 'attachment-file',
             filename: 'report.pdf',
             content_type: 'application/pdf',
             size: 8192,
+            url: 'https://cdn.discordapp.com/attachments/private/file',
+          },
+          {
+            id: 'attachment-ephemeral',
+            filename: 'secret.txt',
+            content_type: 'text/plain',
+            size: 12,
+            url: 'https://cdn.discordapp.com/attachments/private/ephemeral',
+            ephemeral: true,
           },
         ],
       },
@@ -1043,6 +1053,14 @@ describe('DiscordChannel', () => {
             contentType: 'image/png',
             sizeBytes: 4096,
             externalId: 'attachment-image',
+            file_name: 'screen.png',
+            provider_fetch: {
+              provider: 'discord',
+              kind: 'attachment_id',
+              id: 'attachment-image',
+              channelId: 'channel-1',
+              messageId: 'message-2',
+            },
           },
           {
             id: 'discord-attachment:attachment-file',
@@ -1050,15 +1068,106 @@ describe('DiscordChannel', () => {
             contentType: 'application/pdf',
             sizeBytes: 8192,
             externalId: 'attachment-file',
+            file_name: 'report.pdf',
+            provider_fetch: {
+              provider: 'discord',
+              kind: 'attachment_id',
+              id: 'attachment-file',
+              channelId: 'channel-1',
+              messageId: 'message-2',
+            },
           },
         ],
       }),
     );
     const delivered = onMessage.mock.calls[0]?.[1];
-    expect(delivered.attachments[0]).not.toHaveProperty('filename');
+    expect(delivered.attachments).toHaveLength(2);
     expect(delivered.attachments[0]).not.toHaveProperty('url');
     await channel.disconnect();
     vi.restoreAllMocks();
+  });
+
+  it('drops live ephemeral Discord messages before metadata or message ingress', async () => {
+    let socket!: FakeWebSocket;
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async () =>
+      jsonResponse({ url: 'wss://gateway.discord.test' }),
+    );
+    const onMessage = vi.fn();
+    const onChatMetadata = vi.fn();
+    const channel = new DiscordChannel(
+      'bot-token',
+      'app-id',
+      opts({ onMessage, onChatMetadata }),
+      (url) => {
+        socket = new FakeWebSocket(url);
+        return socket;
+      },
+    );
+
+    await channel.connect();
+    socket.receive({ op: 10, d: { heartbeat_interval: 60_000 } });
+    socket.receive({ op: 0, t: 'READY', s: 1, d: { user: { id: 'bot-1' } } });
+    socket.receive({
+      op: 0,
+      t: 'MESSAGE_CREATE',
+      s: 2,
+      d: {
+        id: 'ephemeral-message',
+        channel_id: 'channel-1',
+        flags: 64,
+        content: 'secret text',
+        author: { id: 'user-1', username: 'Ravi' },
+        attachments: [
+          {
+            id: 'secret-file',
+            filename: 'secret.txt',
+            url: 'https://cdn.discordapp.com/attachments/private/secret',
+          },
+        ],
+      },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(onChatMetadata).not.toHaveBeenCalled();
+    expect(onMessage).not.toHaveBeenCalled();
+    await channel.disconnect();
+  });
+
+  it('does not distrust history coverage when Discord attachment capture is unreachable', async () => {
+    const distrustHistoryCoverage = vi.fn();
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(
+        new Response(JSON.stringify({ code: 50001 }), { status: 403 }),
+      );
+    const channel = new DiscordChannel(
+      'bot-token',
+      'app-id',
+      opts({
+        providerAccountId: 'discord-default',
+        distrustHistoryCoverage,
+      }),
+    );
+
+    await expect(
+      channel.fetchHistoricalAttachment({
+        identity: {
+          provider: 'discord',
+          kind: 'attachment_id',
+          id: 'attachment-1',
+          channelId: 'channel-1',
+          messageId: 'message-1',
+        },
+      }),
+    ).resolves.toEqual({ status: 'unreachable', reason: 'auth' });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://discord.com/api/v10/channels/channel-1/messages/message-1',
+      expect.objectContaining({
+        headers: expect.objectContaining({ authorization: 'Bot bot-token' }),
+      }),
+    );
+    expect(distrustHistoryCoverage).not.toHaveBeenCalled();
   });
 
   it('normalizes Discord thread channel events to the parent conversation', async () => {
@@ -1122,6 +1231,13 @@ describe('DiscordChannel', () => {
         content: 'thread reply',
         timestamp: '2026-06-22T00:00:00.000Z',
         author: { id: 'user-1', username: 'Ravi' },
+        attachments: [
+          {
+            id: 'thread-attachment',
+            filename: 'thread.txt',
+            url: 'https://cdn.discordapp.com/attachments/private/thread',
+          },
+        ],
       },
     });
     await new Promise((resolve) => setTimeout(resolve, 0));
@@ -1139,6 +1255,15 @@ describe('DiscordChannel', () => {
         chat_jid: 'dc:parent-1',
         thread_id: 'thread-1',
         external_message_id: 'message-2',
+        attachments: [
+          expect.objectContaining({
+            provider_fetch: expect.objectContaining({
+              id: 'thread-attachment',
+              channelId: 'thread-1',
+              messageId: 'message-2',
+            }),
+          }),
+        ],
       }),
     );
     expect(fetchMock).toHaveBeenCalledWith(
@@ -1232,6 +1357,7 @@ describe('DiscordChannel', () => {
                   filename: 'screen.png',
                   content_type: 'image/png',
                   size: 4096,
+                  url: 'https://cdn.discordapp.com/attachments/private/image',
                 },
               ],
             },
@@ -1247,6 +1373,7 @@ describe('DiscordChannel', () => {
                   filename: 'report.pdf',
                   content_type: 'application/pdf',
                   size: 8192,
+                  url: 'https://cdn.discordapp.com/attachments/private/file',
                 },
               ],
             },
@@ -1287,6 +1414,14 @@ describe('DiscordChannel', () => {
             contentType: 'application/pdf',
             sizeBytes: 8192,
             externalId: 'att-file',
+            file_name: 'report.pdf',
+            provider_fetch: {
+              provider: 'discord',
+              kind: 'attachment_id',
+              id: 'att-file',
+              channelId: 'channel-1',
+              messageId: 'message-2',
+            },
           }),
         ],
       }),
@@ -1299,6 +1434,14 @@ describe('DiscordChannel', () => {
             contentType: 'image/png',
             sizeBytes: 4096,
             externalId: 'att-image',
+            file_name: 'screen.png',
+            provider_fetch: {
+              provider: 'discord',
+              kind: 'attachment_id',
+              id: 'att-image',
+              channelId: 'channel-1',
+              messageId: 'message-3',
+            },
           }),
         ],
       }),
@@ -1332,6 +1475,79 @@ describe('DiscordChannel', () => {
       { external_message_id: 'message-3', content: '' },
     ]);
     fetchMock.mockRestore();
+  });
+
+  it('drops ephemeral Discord messages and attachments from hydrated context', async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation(async (input) => {
+        const url = String(input);
+        if (url.includes('/messages?')) {
+          return jsonResponse([
+            {
+              id: 'message-ephemeral',
+              channel_id: 'channel-1',
+              flags: 64,
+              content: 'secret text',
+              timestamp: '2026-06-22T00:00:02.000Z',
+              author: { id: 'user-1', username: 'Ravi' },
+              attachments: [
+                {
+                  id: 'secret-file',
+                  filename: 'secret.txt',
+                  url: 'https://cdn.discordapp.com/attachments/private/secret',
+                },
+              ],
+            },
+            {
+              id: 'message-durable',
+              channel_id: 'channel-1',
+              content: 'durable text',
+              timestamp: '2026-06-22T00:00:01.000Z',
+              author: { id: 'user-2', username: 'Maya' },
+              attachments: [
+                {
+                  id: 'durable-file',
+                  filename: 'durable.txt',
+                  url: 'https://cdn.discordapp.com/attachments/private/durable',
+                },
+                {
+                  id: 'ephemeral-file',
+                  filename: 'ephemeral.txt',
+                  url: 'https://cdn.discordapp.com/attachments/private/ephemeral',
+                  ephemeral: true,
+                },
+              ],
+            },
+          ]);
+        }
+        if (url === 'https://discord.com/api/v10/channels/channel-1') {
+          return jsonResponse({ id: 'channel-1', type: 0 });
+        }
+        return new Response('{}', { status: 404 });
+      });
+    const channel = new DiscordChannel('bot-token', 'app-id', opts());
+
+    const result = await channel.hydrateConversationContext({
+      conversationJid: 'dc:channel-1',
+      latestMessage: {
+        id: 'current',
+        timestamp: '2026-06-22T00:00:03.000Z',
+        external_message_id: 'message-3',
+      },
+      limits: { channelMessages: 3, threadMessages: 50 },
+    });
+
+    expect(result.messages).toEqual([
+      expect.objectContaining({
+        external_message_id: 'message-durable',
+        content: 'durable text',
+        attachments: [expect.objectContaining({ externalId: 'durable-file' })],
+      }),
+    ]);
+    expect(result.coverage).toEqual(
+      expect.objectContaining({ deliveredMessageCount: 1 }),
+    );
   });
 
   it('only marks configured Discord self bot history as bot messages', async () => {

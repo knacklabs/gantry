@@ -46,17 +46,18 @@ import type {
 import {
   discordMessageAttachments,
   hydrateDiscordConversationContext,
+  isDiscordDurableIngressMessage,
   resolveDiscordConversationContext,
   type DiscordConversationContextCache,
 } from './discord-conversation-context.js';
 import { DiscordInteractionHandler } from './discord-interactions.js';
 import {
   discordHeaders,
-  discordRateLimitRetryDelayMs,
   discordReactionEmoji,
+  requestDiscordJson,
   userName,
-  waitDiscordRetryDelay,
 } from './discord-http-helpers.js';
+import { createDiscordHistoricalAttachmentFetcher } from './discord-historical-attachment-fetcher.js';
 import { StreamResetEpochs } from './stream-reset-epochs.js';
 import { resolveInboundConversationIdentity } from './inbound-conversation-identity.js';
 
@@ -119,6 +120,9 @@ export class DiscordChannel implements ChannelAdapter {
   private readonly channelContextCache: DiscordConversationContextCache =
     new Map();
   private readonly interactions: DiscordInteractionHandler;
+  readonly fetchHistoricalAttachment: ReturnType<
+    typeof createDiscordHistoricalAttachmentFetcher
+  >;
 
   constructor(
     private readonly botToken: string,
@@ -126,6 +130,8 @@ export class DiscordChannel implements ChannelAdapter {
     private readonly opts: ChannelOpts,
     private readonly createWebSocket: WebSocketFactory = websocketFactory,
   ) {
+    this.fetchHistoricalAttachment =
+      createDiscordHistoricalAttachmentFetcher(botToken);
     this.interactions = new DiscordInteractionHandler({
       botToken,
       applicationId,
@@ -478,20 +484,17 @@ export class DiscordChannel implements ChannelAdapter {
     errorMessage: string,
     parseJson = true,
   ): Promise<T> {
-    for (let attempt = 0; attempt < 3; attempt += 1) {
-      const response = await fetch(`${DISCORD_API_ROOT}${path}`, init);
-      if (response.ok) {
-        return parseJson ? ((await response.json()) as T) : (undefined as T);
-      }
-      const retryDelayMs = discordRateLimitRetryDelayMs(response);
-      if (retryDelayMs === null || attempt >= 2) throw new Error(errorMessage);
-      logger.warn(
-        { path, attempt: attempt + 1, retryDelayMs },
-        'Discord REST request rate-limited; retrying',
-      );
-      await waitDiscordRetryDelay(retryDelayMs);
-    }
-    throw new Error(errorMessage);
+    return requestDiscordJson<T>({
+      url: `${DISCORD_API_ROOT}${path}`,
+      init,
+      errorMessage,
+      parseJson,
+      onRetry: (attempt, retryDelayMs) =>
+        logger.warn(
+          { path, attempt, retryDelayMs },
+          'Discord REST request rate-limited; retrying',
+        ),
+    });
   }
 
   private async postJson<T>(path: string, body: unknown): Promise<T> {
@@ -554,7 +557,7 @@ export class DiscordChannel implements ChannelAdapter {
   }
 
   private async handleMessageCreate(message: DiscordMessageCreate) {
-    if (!message.channel_id || !message.id) return;
+    if (!isDiscordDurableIngressMessage(message)) return;
     const author = message.author || message.member?.user;
     if (author?.bot || author?.id === this.botUserId) return;
     const attachments = discordMessageAttachments(message);
