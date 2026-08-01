@@ -49,6 +49,7 @@ import { createGroupTurnOptionBuilders } from './group-turn-options.js';
 import { collectPendingMessagesSince } from './pending-message-replay.js';
 import { buildGroupProcessingConversationContext } from './group-processing-context.js';
 import { createGroupOutputBuffer } from './group-output-buffer.js';
+import { persistTurnAssistantTranscript } from './group-output-finalization.js';
 import { activeTurnUiCleanupByQueue } from './group-active-turn-cleanup.js';
 import { randomUUID } from 'node:crypto';
 import { nowIso } from '../shared/time/datetime.js';
@@ -764,57 +765,17 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
         logger,
       });
     } else {
-      logger.info(
-        {
-          group: group.name,
-          supportsStreamingChunks,
-          persistedAnyGeneration,
-        },
-        'Turn finalization: assistant durability state',
-      );
-      // Safety net, and deliberately BEFORE finalization so the durable record
-      // exists whatever finalization then does about delivery. Per-generation
-      // persistence covers the normal path; this covers a turn whose visible
-      // output never reached a `done` flush, which otherwise leaves the user
-      // holding a reply that GET /messages cannot show. Fires only when nothing
-      // was persisted, so it cannot double-write.
-      // STREAMING turns only. A non-streaming turn sends through
-      // sendMessageToChannel, and channel-wiring already writes the row via its
-      // message_row_projection — persisting here too would double-write.
-      if (supportsStreamingChunks && !persistedAnyGeneration) {
-        const transcript = (outputBuffer.transcriptSnapshot() ?? '').trim();
-        logger.info(
-          {
-            group: group.name,
-            transcriptChars: transcript.length,
-            outputSentToUser,
-          },
-          'Turn assistant transcript safety-net persistence',
-        );
-        if (transcript) {
-          const timestamp = nowIso();
-          await ops()
-            .storeMessage({
-              id: `streamed-outbound:${randomUUID()}`,
-              chat_jid: chatJid,
-              sender: 'gantry',
-              sender_name: 'Gantry',
-              content: transcript,
-              timestamp,
-              is_from_me: true,
-              is_bot_message: true,
-              thread_id: activeThreadId,
-              delivery_status: outputSentToUser ? 'sent' : 'failed',
-              delivered_at: outputSentToUser ? timestamp : undefined,
-            })
-            .catch((err: unknown) =>
-              logger.warn(
-                { err, group: group.name },
-                'Failed to persist turn assistant transcript',
-              ),
-            );
-        }
-      }
+      await persistTurnAssistantTranscript({
+        supportsStreamingChunks,
+        persistedAnyGeneration,
+        transcript: outputBuffer.transcriptSnapshot(),
+        chatJid,
+        activeThreadId,
+        outputSentToUser,
+        groupName: group.name,
+        storeMessage: (message) => ops().storeMessage(message),
+        log: logger,
+      });
       const finalization = await finalizeGroupAgentUserVisibleOutput({
         boundedTranscript: outputBuffer.transcriptSnapshot(),
         outputSentToUser,
