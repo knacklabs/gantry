@@ -420,6 +420,12 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
     let lastAgentError: string | undefined;
     let outputSentToUser = false;
     const undeliveredGenerations: string[] = [];
+    // A turn must leave exactly one durable assistant record. Per-generation
+    // persistence is the primary path; this flag drives the finalization
+    // safety net below so a turn whose output never reached a `done` flush
+    // (transport-specific streaming paths do exist) is not left with the
+    // reply visible to the user but absent from GET /messages.
+    let persistedAnyGeneration = false;
     let streamedTranscriptDeliveryStatus: 'none' | 'sent' | 'partially_sent' =
       'none';
     let sawRawOutput = false;
@@ -521,6 +527,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
         undeliveredGenerations.push(text);
       },
       persistCompletedStreamedGeneration: async (text, deliveryStatus) => {
+        persistedAnyGeneration = true;
         const timestamp = nowIso();
         const message: NewMessage = {
           id: `streamed-outbound:${randomUUID()}`,
@@ -757,6 +764,41 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
         logger,
       });
     } else {
+      // Safety net, and deliberately BEFORE finalization so the durable record
+      // exists whatever finalization then does about delivery. Per-generation
+      // persistence covers the normal path; this covers a turn whose visible
+      // output never reached a `done` flush, which otherwise leaves the user
+      // holding a reply that GET /messages cannot show. Fires only when nothing
+      // was persisted, so it cannot double-write.
+      // STREAMING turns only. A non-streaming turn sends through
+      // sendMessageToChannel, and channel-wiring already writes the row via its
+      // message_row_projection — persisting here too would double-write.
+      if (supportsStreamingChunks && !persistedAnyGeneration) {
+        const transcript = (outputBuffer.transcriptSnapshot() ?? '').trim();
+        if (transcript) {
+          const timestamp = nowIso();
+          await ops()
+            .storeMessage({
+              id: `streamed-outbound:${randomUUID()}`,
+              chat_jid: chatJid,
+              sender: 'gantry',
+              sender_name: 'Gantry',
+              content: transcript,
+              timestamp,
+              is_from_me: true,
+              is_bot_message: true,
+              thread_id: activeThreadId,
+              delivery_status: outputSentToUser ? 'sent' : 'failed',
+              delivered_at: outputSentToUser ? timestamp : undefined,
+            })
+            .catch((err: unknown) =>
+              logger.warn(
+                { err, group: group.name },
+                'Failed to persist turn assistant transcript',
+              ),
+            );
+        }
+      }
       const finalization = await finalizeGroupAgentUserVisibleOutput({
         boundedTranscript: outputBuffer.transcriptSnapshot(),
         outputSentToUser,
