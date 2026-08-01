@@ -121,6 +121,12 @@ keeps the docs honest automatically.
 - The durable deletion mechanism is Discord-registered only; the marker
   table and repository operation are provider-neutral and ready for Slack/
   Telegram registration.
+- A hydration page fetched before a deletion event and persisted after the
+  marker's consumption can materialize an attachment identity the event
+  never saw; known identities are protected by tombstone preservation, and
+  a deleted message 404s on backfill, so the window needs a stale
+  pre-deletion snapshot carrying a never-persisted identity (residual,
+  D-0039-adjacent).
 
 ## Verification bar
 

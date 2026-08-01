@@ -22,7 +22,7 @@ the conversation-scoped attachment resolver.
 
 1. **Live capture.** A non-ephemeral Discord message with attachments
    persists, per attachment: `file_name`, durable fetch identity
-   `{provider:'discord', kind:'message_attachment', id:<attachment_id>,
+   `{provider:'discord', kind:'attachment_id', id:<attachment_id>,
 channelId:<channel_id>, messageId:<message_id>}`, and — on successful
    download — an opaque `provider-attachments/...` storage ref in the
    non-workspace provider store, written by the 0045 writer under the one

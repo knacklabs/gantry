@@ -554,7 +554,10 @@ export class PostgresMessageAttachmentRepository implements MessageAttachmentRep
             (row.deletedAt ? toIsoTimestamp(row.deletedAt) : undefined);
           return deletedAt ? [{ attachmentId: row.id, deletedAt }] : [];
         }),
-        matched: true,
+        // Consume only when attachment rows were actually seen: a matched
+        // message with zero rows may still be awaiting capture or backfill,
+        // and the insert-side consumption owns that hand-off.
+        matched: owned.length > 0,
         providerId: pair.providerId,
         candidateMessageIds: messageIds,
       };
