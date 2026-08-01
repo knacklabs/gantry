@@ -553,7 +553,11 @@ async function memoryResult(
       allowedActions: ['memory_search', 'memory_save'],
       context: {
         appId: deps.context.appId ?? '',
-        agentId: deps.context.sourceAgentFolder,
+        // Canonical agent id, NOT the folder: the memory boundary keys on
+        // `agent:<folder>`, and every sibling call site here uses
+        // deps.context.agentId — a folder here addresses a different namespace
+        // and reads as lost durable memory (review finding, 2026-08-01).
+        agentId: deps.context.agentId ?? deps.context.sourceAgentFolder,
         chatJid: deps.context.conversationId,
         threadId: deps.context.threadId,
         personId: deps.context.memoryUserId,
