@@ -37,7 +37,6 @@ import { getProviderRuntimeSecret } from './provider-runtime-secrets.js';
 import { nowMs as currentTimeMs } from '../shared/time/datetime.js';
 import { findConversationRoutesForChat } from '../shared/thread-queue-key.js';
 import type {
-  DiscordInteraction,
   DiscordMessageCreate,
   DiscordUser,
   WebSocketFactory,
@@ -61,6 +60,7 @@ import {
 import { createDiscordHistoricalAttachmentFetcher } from './discord-historical-attachment-fetcher.js';
 import { StreamResetEpochs } from './stream-reset-epochs.js';
 import { resolveInboundConversationIdentity } from './inbound-conversation-identity.js';
+import { routeDiscordGatewayDispatch } from './discord-gateway-dispatch.js';
 
 export const DISCORD_JID_PREFIX = 'dc:';
 
@@ -541,20 +541,19 @@ export class DiscordChannel implements ChannelAdapter {
     t?: string | null;
     d?: unknown;
   }) {
-    if (payload.t === 'READY') {
-      const ready = payload.d as { user?: DiscordUser; session_id?: string };
-      this.botUserId = ready.user?.id || '';
-      return;
-    }
-    if (payload.t === 'MESSAGE_CREATE') {
-      await this.handleMessageCreate(payload.d as DiscordMessageCreate);
-      return;
-    }
-    if (payload.t === 'INTERACTION_CREATE') {
-      await this.interactions.handleInteraction(
-        payload.d as DiscordInteraction,
-      );
-    }
+    await routeDiscordGatewayDispatch(payload, {
+      botToken: this.botToken,
+      cache: this.channelContextCache,
+      requestJson: (path, init, errorMessage, parseJson) =>
+        this.requestJson(path, init, errorMessage, parseJson),
+      onReady: (ready) => {
+        this.botUserId = ready.user?.id || '';
+      },
+      onMessageCreate: (message) => this.handleMessageCreate(message),
+      onInteraction: (interaction) =>
+        this.interactions.handleInteraction(interaction),
+      onMessageAttachmentsDeleted: this.opts.onMessageAttachmentsDeleted,
+    });
   }
 
   private async handleMessageCreate(message: DiscordMessageCreate) {

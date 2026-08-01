@@ -279,9 +279,16 @@ export async function replaceCanonicalMessageAttachments(
     incomingAttachments: IncomingMessageAttachment[];
     messageInserted: boolean;
     trust: 'system' | 'trusted';
+    deletionMarkerTimestamp?: string;
   },
 ): Promise<RemovedProviderAttachment[]> {
-  const { messageId, incomingAttachments, messageInserted, trust } = input;
+  const {
+    messageId,
+    incomingAttachments,
+    messageInserted,
+    trust,
+    deletionMarkerTimestamp,
+  } = input;
   const attachmentMetadataColumns = {
     id: pgSchema.messageAttachmentsPostgres.id,
     externalRefJson: pgSchema.messageAttachmentsPostgres.externalRefJson,
@@ -335,7 +342,10 @@ export async function replaceCanonicalMessageAttachments(
         storageRef: preservedMetadata.storageRef,
         fileName: preservedMetadata.fileName,
         providerFetchJson: jsonb(preservedMetadata.providerFetchJson),
-        deletedAt: preservedMetadata.deletedAt,
+        deletedAt: earlierTimestamp(
+          preservedMetadata.deletedAt,
+          deletionMarkerTimestamp,
+        ),
         trust,
       };
     },
@@ -356,6 +366,15 @@ export async function replaceCanonicalMessageAttachments(
       .values(replacementAttachmentRows);
   }
   return removedProviderStorageRefs;
+}
+
+function earlierTimestamp(
+  left: string | null | undefined,
+  right: string | null | undefined,
+): string | null {
+  if (!left) return right ?? null;
+  if (!right) return left;
+  return Date.parse(left) <= Date.parse(right) ? left : right;
 }
 
 function mergedProviderFetch(

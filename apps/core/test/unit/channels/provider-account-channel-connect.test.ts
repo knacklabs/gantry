@@ -515,6 +515,60 @@ describe('connectProviderAccountChannels', () => {
     );
   });
 
+  it('routes shared-credential deletion scope through one callback', async () => {
+    let firstDeletionCallback: ChannelOpts['onMessageAttachmentsDeleted'];
+    const onMessageAttachmentsDeleted = vi.fn(async () => undefined);
+    const create = vi.fn<Provider['create']>(async (opts) => {
+      firstDeletionCallback ??= opts.onMessageAttachmentsDeleted;
+      return channel();
+    });
+
+    await connectProviderAccountChannels({
+      provider: provider(create),
+      appId: 'app-one',
+      runtimeSettings: {
+        providerAccounts: {
+          slack_one: {
+            provider: 'slack',
+            agentId: 'agent:one',
+            runtimeSecretRefs: { app_token: 'same', bot_token: 'same-bot' },
+          },
+          slack_two: {
+            provider: 'slack',
+            agentId: 'agent:two',
+            runtimeSecretRefs: { bot_token: 'same-bot', app_token: 'same' },
+          },
+        },
+        runtime: {},
+      },
+      channelOpts: {
+        ...channelOpts(),
+        onMessageAttachmentsDeleted,
+      },
+      inboundEnabled: true,
+      connectedChannels: [],
+      connectedChannelLeases: [],
+      inboundLeasePrefix: 'runtime:provider-inbound',
+      logger: { info: vi.fn(), warn: vi.fn() },
+    });
+
+    await firstDeletionCallback?.({
+      providerId: 'slack',
+      conversationJid: 'sl:C123',
+      externalMessageIds: ['message-1'],
+      deletedAt: '2026-08-01T00:00:00.000Z',
+    });
+
+    expect(onMessageAttachmentsDeleted).toHaveBeenCalledOnce();
+    expect(onMessageAttachmentsDeleted).toHaveBeenCalledWith({
+      providerId: 'slack',
+      providerAccountIds: ['slack_one', 'slack_two'],
+      conversationJid: 'sl:C123',
+      externalMessageIds: ['message-1'],
+      deletedAt: '2026-08-01T00:00:00.000Z',
+    });
+  });
+
   it.each([
     [['stored', 'dropped'], 'stored'],
     [['dropped', 'dropped'], 'dropped'],

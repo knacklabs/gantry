@@ -303,6 +303,7 @@ export async function resolveDiscordConversationContext(input: {
   cache: DiscordConversationContextCache;
   headers(token: string): Record<string, string>;
   requestJson: DiscordContextRequestJson;
+  failClosed?: boolean;
 }): Promise<{ conversationJid: string; threadId?: string }> {
   const cached = input.cache.get(input.channelId);
   if (cached) return cached;
@@ -333,6 +334,7 @@ export async function resolveDiscordConversationContext(input: {
       },
       'Discord thread parent lookup failed',
     );
+    if (input.failClosed) throw err;
     return fallback;
   }
 }

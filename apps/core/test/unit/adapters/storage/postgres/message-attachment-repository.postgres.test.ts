@@ -8,6 +8,145 @@ import { PostgresMessageAttachmentRepository } from '@core/adapters/storage/post
 import { reclaimTombstonedProviderAttachment } from '@core/adapters/storage/postgres/repositories/provider-attachment-cleanup.postgres.js';
 
 describe('PostgresMessageAttachmentRepository', () => {
+  it('persists first, then deduplicates a message-scoped tombstone transaction with deterministic locks', async () => {
+    const operations: string[] = [];
+    const select = vi
+      .fn()
+      .mockReturnValueOnce({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({
+            limit: vi.fn(() => ({
+              for: vi.fn(async () => [
+                {
+                  id: 'marker-1',
+                  appId: 'app-1',
+                  providerId: 'discord',
+                  providerAccountIdsJson: ['account-1'],
+                  conversationJid: 'dc:channel-1',
+                  threadId: null,
+                  externalMessageIdsJson: ['external-1', 'external-2'],
+                  deletedAt: '2026-08-01T00:00:00.000Z',
+                  createdAt: '2026-08-01T00:00:00.000Z',
+                },
+              ]),
+            })),
+          })),
+        })),
+      })
+      .mockReturnValueOnce({
+        from: vi.fn(() => ({
+          innerJoin: vi.fn(() => ({
+            innerJoin: vi.fn(() => ({
+              where: vi.fn(() => ({
+                orderBy: vi.fn(async () => [
+                  { messageId: 'message-1' },
+                  { messageId: 'message-2' },
+                ]),
+              })),
+            })),
+          })),
+        })),
+      })
+      .mockReturnValueOnce({
+        from: vi.fn(() => ({
+          innerJoin: vi.fn(() => ({
+            innerJoin: vi.fn(() => ({
+              innerJoin: vi.fn(() => ({
+                where: vi.fn(() => ({
+                  orderBy: vi.fn(async () => [
+                    {
+                      id: 'attachment-1',
+                      messageId: 'message-1',
+                      deletedAt: null,
+                      storageRef: null,
+                    },
+                    {
+                      id: 'attachment-2',
+                      messageId: 'message-2',
+                      deletedAt: '2026-07-31T00:00:00.000Z',
+                      storageRef: null,
+                    },
+                  ]),
+                })),
+              })),
+            })),
+          })),
+        })),
+      });
+    const returning = vi.fn(async () => [
+      {
+        id: 'attachment-1',
+        deletedAt: '2026-08-01 00:00:00+00',
+      },
+    ]);
+    const where = vi.fn(() => ({ returning }));
+    const set = vi.fn(() => ({ where }));
+    const tx = {
+      select,
+      execute: vi.fn(async () => {
+        operations.push('lock');
+      }),
+      update: vi.fn(() => ({ set })),
+    };
+    const markerTx = {
+      insert: vi.fn(() => ({
+        values: vi.fn(() => ({
+          onConflictDoUpdate: vi.fn(async () => {
+            operations.push('marker:write');
+          }),
+        })),
+      })),
+    };
+    let transactionCall = 0;
+    const db = {
+      transaction: vi.fn(async (run: (transaction: never) => unknown) => {
+        const transaction = transactionCall++ === 0 ? markerTx : tx;
+        const result = await run(transaction as never);
+        operations.push(
+          transaction === markerTx ? 'marker:commit' : 'tombstone:commit',
+        );
+        return result;
+      }),
+      delete: vi.fn(() => ({ where: vi.fn(async () => undefined) })),
+    };
+    const repository = new PostgresMessageAttachmentRepository(db as never);
+
+    await expect(
+      repository.setDeletedAtByMessageExternalIds({
+        appId: 'app-1',
+        providerId: 'discord',
+        providerAccountIds: ['account-1', 'account-1'],
+        conversationJid: 'dc:channel-1',
+        externalMessageIds: ['external-2', 'external-1', 'external-2'],
+        deletedAt: '2026-08-01T00:00:00.000Z',
+      }),
+    ).resolves.toEqual({
+      tombstonedAttachments: [
+        {
+          attachmentId: 'attachment-1',
+          deletedAt: '2026-08-01T00:00:00.000Z',
+        },
+        {
+          attachmentId: 'attachment-2',
+          deletedAt: '2026-07-31T00:00:00.000Z',
+        },
+      ],
+    });
+
+    expect(db.transaction).toHaveBeenCalledTimes(2);
+    expect(tx.execute).toHaveBeenCalledTimes(2);
+    expect(set).toHaveBeenCalledWith({
+      deletedAt: '2026-08-01T00:00:00.000Z',
+    });
+    expect(operations).toEqual([
+      'marker:write',
+      'marker:commit',
+      'lock',
+      'lock',
+      'tombstone:commit',
+    ]);
+  });
+
   it('routes a displaced self-heal ref through reference-aware post-commit cleanup', async () => {
     const operations: string[] = [];
     const cleanupMaterialization = vi.fn(async (storageRef: string) => {

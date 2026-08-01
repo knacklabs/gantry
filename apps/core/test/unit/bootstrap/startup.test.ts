@@ -40,6 +40,41 @@ function makeApp(overrides: Partial<RuntimeApp> = {}): RuntimeApp {
 }
 
 describe('runStartup', () => {
+  it('sweeps pending message attachment deletions before loading app state', async () => {
+    const order: string[] = [];
+    const retryPendingMessageAttachmentDeletions = vi.fn(async () => {
+      order.push('sweep-deletions');
+      return false;
+    });
+    const app = makeApp({
+      loadState: vi.fn(async () => {
+        order.push('load-state');
+      }),
+    });
+
+    await runStartup(app, {
+      ensureRuntimeLayoutDirectories: vi.fn(),
+      initializeRuntimeStorage: vi.fn(async () => ({
+        repositories: {
+          messageAttachments: { retryPendingMessageAttachmentDeletions },
+        },
+      })) as never,
+      loadRuntimeSettings: vi.fn(
+        () =>
+          ({
+            providers: {},
+            storage: {
+              postgres: { urlEnv: 'GANTRY_DATABASE_URL', schema: 'gantry' },
+            },
+            memory: {},
+          }) as never,
+      ),
+      logger: { info: vi.fn(), warn: vi.fn() },
+    });
+
+    expect(order).toEqual(['sweep-deletions', 'load-state']);
+  });
+
   it('preserves startup order through host runtime startup', async () => {
     const order: string[] = [];
     const app = makeApp({

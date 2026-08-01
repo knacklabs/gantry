@@ -168,6 +168,13 @@ export async function connectProviderAccountChannels(input: {
               }
               return stored ? 'stored' : 'dropped';
             }),
+      onMessageAttachmentsDeleted: input.channelOpts.onMessageAttachmentsDeleted
+        ? (event) =>
+            input.channelOpts.onMessageAttachmentsDeleted!({
+              ...event,
+              providerAccountIds: inboundProviderAccountIds,
+            })
+        : undefined,
     });
     if (!channel) {
       if (

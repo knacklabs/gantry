@@ -1,8 +1,10 @@
-import { and, eq, isNull, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull, or, sql } from 'drizzle-orm';
 
 import type {
   AttachmentStorageClaimResult,
   AttachmentTombstoneResult,
+  MessageAttachmentDeletionResult,
+  MessageAttachmentDeletionScope,
   MessageAttachmentRepository,
   ProviderFetchIdentity,
   ResolvableMessageAttachment,
@@ -10,6 +12,11 @@ import type {
 import { isProviderAttachmentStorageRef } from '../../../../shared/provider-attachment-materialization.js';
 import type { CanonicalDb } from './canonical-graph-repository.postgres.js';
 import { lockCanonicalMessageAttachments } from './canonical-message-attachment-lock.postgres.js';
+import {
+  normalizeMessageAttachmentDeletionScope,
+  persistMessageAttachmentDeletionMarker,
+  type NormalizedMessageAttachmentDeletionScope,
+} from './message-attachment-deletion-markers.postgres.js';
 import * as pgSchema from '../schema/schema.js';
 import {
   cleanupRemovedProviderAttachments,
@@ -93,7 +100,7 @@ export class PostgresMessageAttachmentRepository implements MessageAttachmentRep
       ...(row.sizeBytes !== null ? { sizeBytes: row.sizeBytes } : {}),
       ...(row.storageRef ? { storageRef: row.storageRef } : {}),
       ...(providerFetch ? { providerFetch } : {}),
-      ...(row.deletedAt ? { deletedAt: row.deletedAt } : {}),
+      ...(row.deletedAt ? { deletedAt: toIsoTimestamp(row.deletedAt) } : {}),
     };
   }
 
@@ -393,6 +400,195 @@ export class PostgresMessageAttachmentRepository implements MessageAttachmentRep
     return result;
   }
 
+  async setDeletedAtByMessageExternalIds(
+    input: MessageAttachmentDeletionScope,
+  ): Promise<MessageAttachmentDeletionResult> {
+    const scope = normalizeMessageAttachmentDeletionScope(input);
+    if (!scope) {
+      return { tombstonedAttachments: [] };
+    }
+    await this.db.transaction((tx) =>
+      persistMessageAttachmentDeletionMarker(tx, scope),
+    );
+    return this.processDeletionMarker(scope.markerId);
+  }
+
+  async retryPendingMessageAttachmentDeletions(): Promise<boolean> {
+    const marker = pgSchema.messageAttachmentDeletionMarkersPostgres;
+    const pending = await this.db
+      .select({ id: marker.id })
+      .from(marker)
+      .orderBy(asc(marker.createdAt), asc(marker.id))
+      .limit(100);
+    let firstError: unknown;
+    for (const row of pending) {
+      try {
+        await this.processDeletionMarker(row.id);
+      } catch (err) {
+        firstError ??= err;
+      }
+    }
+    if (firstError) throw firstError;
+    // Markers that survive a clean pass matched no existing message: they are
+    // waiting on the ingest race (or a foreign/unknown id that never arrives)
+    // and are not actionable work. Signal another pass only when this one was
+    // truncated by the batch limit.
+    return pending.length === 100;
+  }
+
+  private async processDeletionMarker(
+    markerId: string,
+  ): Promise<MessageAttachmentDeletionResult> {
+    const marker = pgSchema.messageAttachmentDeletionMarkersPostgres;
+
+    const attachment = pgSchema.messageAttachmentsPostgres;
+    const message = pgSchema.messagesPostgres;
+    const conversation = pgSchema.conversationsPostgres;
+    const providerAccount = pgSchema.providerAccountsPostgres;
+    const result = await this.db.transaction(async (tx) => {
+      const markerRows = await tx
+        .select()
+        .from(marker)
+        .where(eq(marker.id, markerId))
+        .limit(1)
+        .for('update');
+      const scope = deletionScopeFromMarker(markerRows[0]);
+      if (!scope) {
+        return { rows: [], tombstonedAttachments: [], matched: false };
+      }
+      const scopeCondition = and(
+        eq(message.appId, scope.appId),
+        eq(conversation.appId, scope.appId),
+        eq(providerAccount.appId, scope.appId),
+        eq(message.providerId, scope.providerId),
+        eq(providerAccount.providerId, scope.providerId),
+        inArray(message.providerAccountId, scope.providerAccountIds),
+        eq(conversation.providerAccountId, message.providerAccountId),
+        eq(
+          sql<string>`${conversation.externalRefJson}::jsonb->>'jid'`,
+          scope.conversationJid,
+        ),
+        inArray(message.externalMessageId, scope.externalMessageIds),
+        scope.threadId
+          ? eq(
+              sql<string>`${message.externalRefJson}::jsonb->>'thread_id'`,
+              scope.threadId,
+            )
+          : isNull(message.threadId),
+      );
+      const candidates = await tx
+        .select({ messageId: message.id })
+        .from(message)
+        .innerJoin(conversation, eq(conversation.id, message.conversationId))
+        .innerJoin(
+          providerAccount,
+          eq(providerAccount.id, message.providerAccountId),
+        )
+        .where(scopeCondition)
+        .orderBy(asc(message.id));
+      const messageIds = [...new Set(candidates.map((row) => row.messageId))];
+      for (const messageId of messageIds) {
+        await lockCanonicalMessageAttachments(tx, messageId);
+      }
+      if (messageIds.length === 0) {
+        return { rows: [], tombstonedAttachments: [], matched: false };
+      }
+
+      const owned = await tx
+        .select({
+          id: attachment.id,
+          messageId: attachment.messageId,
+          deletedAt: attachment.deletedAt,
+          storageRef: attachment.storageRef,
+        })
+        .from(attachment)
+        .innerJoin(message, eq(message.id, attachment.messageId))
+        .innerJoin(conversation, eq(conversation.id, message.conversationId))
+        .innerJoin(
+          providerAccount,
+          eq(providerAccount.id, message.providerAccountId),
+        )
+        .where(
+          and(
+            scopeCondition,
+            inArray(message.id, messageIds),
+            or(
+              isNull(attachment.providerFetchJson),
+              eq(
+                sql<string>`${attachment.providerFetchJson}::jsonb->>'provider'`,
+                scope.providerId,
+              ),
+            ),
+          ),
+        )
+        .orderBy(asc(message.id), asc(attachment.id));
+      const activeIds = owned
+        .filter((row) => !row.deletedAt)
+        .map((row) => row.id);
+      const updatedDeletedAtById = new Map<string, string>();
+      if (activeIds.length > 0) {
+        const updated = await tx
+          .update(attachment)
+          .set({ deletedAt: scope.deletedAt })
+          .where(
+            and(
+              inArray(attachment.id, activeIds),
+              isNull(attachment.deletedAt),
+              or(
+                isNull(attachment.providerFetchJson),
+                eq(
+                  sql<string>`${attachment.providerFetchJson}::jsonb->>'provider'`,
+                  scope.providerId,
+                ),
+              ),
+            ),
+          )
+          .returning({ id: attachment.id, deletedAt: attachment.deletedAt });
+        for (const row of updated) {
+          if (row.deletedAt) {
+            updatedDeletedAtById.set(row.id, toIsoTimestamp(row.deletedAt));
+          }
+        }
+      }
+      return {
+        rows: owned,
+        tombstonedAttachments: owned.flatMap((row) => {
+          const deletedAt =
+            updatedDeletedAtById.get(row.id) ??
+            (row.deletedAt ? toIsoTimestamp(row.deletedAt) : undefined);
+          return deletedAt
+            ? [{ attachmentId: row.id, deletedAt }]
+            : [];
+        }),
+        // The marker is consumed once its message exists: attachments arrive
+        // with the message row, so a matched message with nothing left to
+        // tombstone is complete, not pending.
+        matched: true,
+      };
+    });
+
+    for (const row of result.rows) {
+      if (!row.storageRef || !isProviderAttachmentStorageRef(row.storageRef)) {
+        continue;
+      }
+      await this.reclaimTombstonedStorageRef({
+        attachmentId: row.id,
+        messageId: row.messageId,
+        storageRef: row.storageRef,
+      });
+    }
+    if (result.matched) {
+      await this.db
+        .delete(pgSchema.messageAttachmentDeletionMarkersPostgres)
+        .where(eq(pgSchema.messageAttachmentDeletionMarkersPostgres.id, markerId));
+    }
+    return {
+      tombstonedAttachments: [...result.tombstonedAttachments].sort((a, b) =>
+        a.attachmentId.localeCompare(b.attachmentId),
+      ),
+    };
+  }
+
   async reclaimTombstonedStorageRef(input: {
     attachmentId: string;
     messageId: string;
@@ -404,6 +600,40 @@ export class PostgresMessageAttachmentRepository implements MessageAttachmentRep
       this.cleanupProviderAttachment,
     );
   }
+}
+
+function deletionScopeFromMarker(
+  row:
+    | typeof pgSchema.messageAttachmentDeletionMarkersPostgres.$inferSelect
+    | undefined,
+): NormalizedMessageAttachmentDeletionScope | undefined {
+  if (!row) return undefined;
+  const providerAccountIds = stringArray(row.providerAccountIdsJson);
+  const externalMessageIds = stringArray(row.externalMessageIdsJson);
+  if (providerAccountIds.length === 0 || externalMessageIds.length === 0) {
+    return undefined;
+  }
+  return {
+    markerId: row.id,
+    appId: row.appId,
+    providerId: row.providerId,
+    providerAccountIds,
+    conversationJid: row.conversationJid,
+    ...(row.threadId ? { threadId: row.threadId } : {}),
+    externalMessageIds,
+    deletedAt: row.deletedAt,
+  };
+}
+
+function stringArray(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === 'string')
+    : [];
+}
+
+function toIsoTimestamp(value: string): string {
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? value : parsed.toISOString();
 }
 
 function providerFetchIdentityCondition(

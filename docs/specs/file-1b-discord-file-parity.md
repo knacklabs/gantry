@@ -78,7 +78,7 @@ eager backfill; public-URL fetching; content-scan metadata.
 
 ## Constraints
 
-- No schema migration: the 0117 columns are provider-neutral and suffice.
+- The 0117 columns stay sufficient for parity metadata. Deletion durability adds one narrow migration: a scoped deletion-marker table written before tombstoning, consumed by message ingestion, and swept on startup — a deletion event is never lost to an ingest race, a transient failure, or a crash (Discord never redelivers acknowledged dispatches).
 - Adapters never mint `provider-attachments/` refs (cleanup invariant).
 - The parity matrix in decision 0094 is updated in the same change that
   flips each row, with citations.

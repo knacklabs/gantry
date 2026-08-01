@@ -834,6 +834,13 @@
       "when": 1785548111633,
       "tag": "20260801013511_conversation_history_coverage",
       "breakpoints": true
+    },
+    {
+      "idx": 122,
+      "version": "7",
+      "when": 1785567172270,
+      "tag": "20260801065252_durable_message_attachment_deletions",
+      "breakpoints": true
     }
   ]
 }

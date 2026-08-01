@@ -168,6 +168,14 @@ class MemoryAttachmentRepository implements MessageAttachmentRepository {
     };
   }
 
+  async setDeletedAtByMessageExternalIds() {
+    return { tombstonedAttachments: [] };
+  }
+
+  async retryPendingMessageAttachmentDeletions() {
+    return false;
+  }
+
   async reclaimTombstonedStorageRef(input: {
     attachmentId: string;
     messageId: string;

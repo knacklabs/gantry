@@ -175,7 +175,14 @@ export class DiscordGatewayConnection {
       this.reconnectNeedsRefence = false;
       this.input.onReconnect?.();
     }
-    if (!this.input.inboundEnabled && payload.t === 'MESSAGE_CREATE') return;
+    if (
+      !this.input.inboundEnabled &&
+      (payload.t === 'MESSAGE_CREATE' ||
+        payload.t === 'MESSAGE_DELETE' ||
+        payload.t === 'MESSAGE_DELETE_BULK')
+    ) {
+      return;
+    }
     if (
       !this.input.interactionCallbacksEnabled &&
       payload.t === 'INTERACTION_CREATE'

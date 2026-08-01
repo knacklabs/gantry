@@ -702,6 +702,357 @@ maybeDescribe('attachment resolver with Postgres repositories', () => {
     ).toBeTruthy();
   });
 
+  it('atomically tombstones only the scoped Discord deletion event and reclaims bytes after commit', async () => {
+    const root = materializationRoot('discord-deletion-event');
+    const discord = fakeDiscordFetcher({
+      content: Buffer.from('provider bytes'),
+      fileName: 'deleted.txt',
+      contentType: 'text/plain',
+    });
+    const seam = createPostgresSeam(runtime, root, discord.fetcher);
+    const conversationJid = 'dc:discord-deletion-channel';
+    const targetId = 'attachment:file-1b:event-target';
+    const siblingId = 'attachment:file-1b:event-sibling';
+    const legacyIdentitylessId = 'attachment:file-1b:event-legacy';
+    const foreignIdentityId = 'attachment:file-1b:event-foreign-provider';
+    const foreignConversationId =
+      'attachment:file-1b:event-foreign-conversation';
+    const targetMessage = message({
+      id: 'discord-deletion-message',
+      conversationJid,
+      provider: 'discord',
+      providerAccountId: discordProviderAccountId,
+      attachments: [
+        discordAttachment({
+          attachmentId: targetId,
+          discordAttachmentId: 'discord-file',
+          channelId: 'discord-deletion-channel',
+          messageId: 'discord-deletion-message',
+        }),
+        discordAttachment({
+          attachmentId: siblingId,
+          discordAttachmentId: 'discord-sibling',
+          channelId: 'discord-deletion-channel',
+          messageId: 'discord-deletion-message',
+        }),
+        slackAttachment({
+          attachmentId: foreignIdentityId,
+          fileId: 'F_FOREIGN_PROVIDER',
+        }),
+        {
+          id: legacyIdentitylessId,
+          kind: 'file',
+          externalId: 'discord-legacy-file',
+        },
+      ],
+    });
+    await seam.messages.storeMessage(targetMessage);
+    await seam.messages.storeMessage(
+      message({
+        id: 'discord-deletion-message',
+        conversationJid: 'dc:discord-foreign-channel',
+        provider: 'discord',
+        providerAccountId: discordProviderAccountId,
+        attachments: [
+          discordAttachment({
+            attachmentId: foreignConversationId,
+            discordAttachmentId: 'discord-file',
+            channelId: 'discord-foreign-channel',
+            messageId: 'discord-deletion-message',
+          }),
+        ],
+      }),
+    );
+    const request = openRequest(
+      targetId,
+      conversationJid,
+      undefined,
+      discordProviderAccountId,
+    );
+    await expect(seam.resolver.open(request)).resolves.toMatchObject({
+      status: 'opened',
+    });
+    expect(regularFiles(root)).toHaveLength(1);
+    const providerCallsBeforeDeletion =
+      discord.requestMessage.mock.calls.length;
+
+    await expect(
+      seam.attachments.setDeletedAtByMessageExternalIds({
+        appId: 'foreign-app',
+        providerId: 'discord',
+        providerAccountIds: [discordProviderAccountId],
+        conversationJid,
+        externalMessageIds: ['discord-deletion-message'],
+        deletedAt: '2026-08-01T00:00:00.000Z',
+      }),
+    ).resolves.toEqual({ tombstonedAttachments: [] });
+    await expect(
+      seam.attachments.setDeletedAtByMessageExternalIds({
+        appId,
+        providerId: 'discord',
+        providerAccountIds: ['foreign-provider-account'],
+        conversationJid,
+        externalMessageIds: ['discord-deletion-message'],
+        deletedAt: '2026-08-01T00:00:00.000Z',
+      }),
+    ).resolves.toEqual({ tombstonedAttachments: [] });
+    expect(
+      (await seam.attachments.getResolvableAttachment(targetId))?.deletedAt,
+    ).toBeUndefined();
+
+    await expect(
+      seam.attachments.setDeletedAtByMessageExternalIds({
+        appId,
+        providerId: 'discord',
+        providerAccountIds: [discordProviderAccountId],
+        conversationJid,
+        externalMessageIds: [
+          'discord-deletion-message',
+          'discord-deletion-message',
+          'unknown-message',
+        ],
+        deletedAt: '2026-08-01T00:00:00.000Z',
+      }),
+    ).resolves.toEqual({
+      tombstonedAttachments: [legacyIdentitylessId, siblingId, targetId]
+        .sort()
+        .map((attachmentId) => ({
+          attachmentId,
+          deletedAt: '2026-08-01T00:00:00.000Z',
+        })),
+    });
+
+    expect(regularFiles(root)).toEqual([]);
+    await expect(seam.resolver.open(request)).resolves.toEqual({
+      status: 'deleted',
+      content: ATTACHMENT_DELETED_COPY,
+    });
+    expect(await seam.resolver.open(request)).not.toHaveProperty('gantryRef');
+    expect(discord.requestMessage).toHaveBeenCalledTimes(
+      providerCallsBeforeDeletion,
+    );
+    expect(
+      (await seam.attachments.getResolvableAttachment(targetId))?.deletedAt,
+    ).toBe('2026-08-01T00:00:00.000Z');
+    expect(
+      (await seam.attachments.getResolvableAttachment(siblingId))?.deletedAt,
+    ).toBe('2026-08-01T00:00:00.000Z');
+    expect(
+      (await seam.attachments.getResolvableAttachment(legacyIdentitylessId))
+        ?.deletedAt,
+    ).toBe('2026-08-01T00:00:00.000Z');
+    expect(
+      (await seam.attachments.getResolvableAttachment(foreignIdentityId))
+        ?.deletedAt,
+    ).toBeUndefined();
+    expect(
+      (await seam.attachments.getResolvableAttachment(foreignConversationId))
+        ?.deletedAt,
+    ).toBeUndefined();
+
+    await Promise.all([
+      seam.attachments.setDeletedAtByMessageExternalIds({
+        appId,
+        providerId: 'discord',
+        providerAccountIds: [discordProviderAccountId],
+        conversationJid,
+        externalMessageIds: ['discord-deletion-message'],
+        deletedAt: '2026-08-01T00:00:01.000Z',
+      }),
+      seam.messages.storeMessage({
+        ...targetMessage,
+        content: 'concurrent redelivery',
+      }),
+    ]);
+    expect(
+      (await seam.attachments.getResolvableAttachment(targetId))?.deletedAt,
+    ).toBe('2026-08-01T00:00:00.000Z');
+    expect(
+      (await seam.attachments.getResolvableAttachment(foreignIdentityId))
+        ?.deletedAt,
+    ).toBeUndefined();
+  });
+
+  it('keeps a deletion marker until a later Discord message insert lands tombstoned', async () => {
+    const root = materializationRoot('discord-delete-before-insert');
+    const discord = fakeDiscordFetcher({ content: Buffer.from('never fetched') });
+    const seam = createPostgresSeam(runtime, root, discord.fetcher);
+    const conversationJid = 'dc:discord-delete-before-insert';
+    const messageId = 'discord-delete-before-insert-message';
+    const attachmentId = 'attachment:file-1b:delete-before-insert';
+
+    await expect(
+      seam.attachments.setDeletedAtByMessageExternalIds({
+        appId,
+        providerId: 'discord',
+        providerAccountIds: [discordProviderAccountId],
+        conversationJid,
+        externalMessageIds: [messageId],
+        deletedAt: '2026-08-01T00:00:00.000Z',
+      }),
+    ).resolves.toEqual({ tombstonedAttachments: [] });
+
+    await seam.messages.storeMessage(
+      message({
+        id: messageId,
+        conversationJid,
+        provider: 'discord',
+        providerAccountId: discordProviderAccountId,
+        attachments: [
+          discordAttachment({
+            attachmentId,
+            discordAttachmentId: 'discord-late-file',
+            channelId: 'discord-delete-before-insert',
+            messageId,
+          }),
+        ],
+      }),
+    );
+
+    expect(
+      (await seam.attachments.getResolvableAttachment(attachmentId))?.deletedAt,
+    ).toBe('2026-08-01T00:00:00.000Z');
+    await expect(
+      seam.resolver.open(
+        openRequest(
+          attachmentId,
+          conversationJid,
+          undefined,
+          discordProviderAccountId,
+        ),
+      ),
+    ).resolves.toEqual({ status: 'deleted', content: ATTACHMENT_DELETED_COPY });
+    expect(discord.requestMessage).not.toHaveBeenCalled();
+    await expect(
+      seam.attachments.retryPendingMessageAttachmentDeletions(),
+    ).resolves.toBe(false);
+  });
+
+  it('retains a durable marker when tombstoning fails once and succeeds on retry', async () => {
+    const root = materializationRoot('discord-deletion-retry');
+    const discord = fakeDiscordFetcher({ content: Buffer.from('retry bytes') });
+    const seam = createPostgresSeam(runtime, root, discord.fetcher);
+    const conversationJid = 'dc:discord-deletion-retry';
+    const messageId = 'discord-deletion-retry-message';
+    const attachmentId = 'attachment:file-1b:deletion-retry';
+    await seam.messages.storeMessage(
+      message({
+        id: messageId,
+        conversationJid,
+        provider: 'discord',
+        providerAccountId: discordProviderAccountId,
+        attachments: [
+          discordAttachment({
+            attachmentId,
+            discordAttachmentId: 'discord-retry-file',
+            channelId: 'discord-deletion-retry',
+            messageId,
+          }),
+        ],
+      }),
+    );
+
+    let transactionCalls = 0;
+    const failOnceDb = new Proxy(runtime.service.db, {
+      get(target, property, receiver) {
+        if (property === 'transaction') {
+          return async (...args: unknown[]) => {
+            transactionCalls += 1;
+            if (transactionCalls === 2) throw new Error('fail tombstone once');
+            return (target.transaction as (...input: unknown[]) => unknown)(
+              ...args,
+            );
+          };
+        }
+        const value = Reflect.get(target, property, receiver) as unknown;
+        return typeof value === 'function' ? value.bind(target) : value;
+      },
+    });
+    const failing = new PostgresMessageAttachmentRepository(
+      failOnceDb as never,
+    );
+    await expect(
+      failing.setDeletedAtByMessageExternalIds({
+        appId,
+        providerId: 'discord',
+        providerAccountIds: [discordProviderAccountId],
+        conversationJid,
+        externalMessageIds: [messageId],
+        deletedAt: '2026-08-01T00:00:00.000Z',
+      }),
+    ).rejects.toThrow('fail tombstone once');
+    expect(
+      (await seam.attachments.getResolvableAttachment(attachmentId))?.deletedAt,
+    ).toBeUndefined();
+
+    await expect(
+      seam.attachments.retryPendingMessageAttachmentDeletions(),
+    ).resolves.toBe(false);
+    expect(
+      (await seam.attachments.getResolvableAttachment(attachmentId))?.deletedAt,
+    ).toBe('2026-08-01T00:00:00.000Z');
+  });
+
+  it('requires the exact Discord thread scope for deletion events', async () => {
+    const root = materializationRoot('discord-deletion-thread');
+    const discord = fakeDiscordFetcher({ content: Buffer.from('thread file') });
+    const seam = createPostgresSeam(runtime, root, discord.fetcher);
+    const conversationJid = 'dc:discord-thread-parent';
+    const threadId = 'discord-thread-1';
+    const attachmentId = 'attachment:file-1b:event-thread';
+    await seam.messages.storeMessage(
+      message({
+        id: 'discord-thread-message',
+        conversationJid,
+        threadId,
+        provider: 'discord',
+        providerAccountId: discordProviderAccountId,
+        attachments: [
+          discordAttachment({
+            attachmentId,
+            discordAttachmentId: 'discord-file',
+            channelId: threadId,
+            parentChannelId: 'discord-thread-parent',
+            messageId: 'discord-thread-message',
+          }),
+        ],
+      }),
+    );
+
+    await expect(
+      seam.attachments.setDeletedAtByMessageExternalIds({
+        appId,
+        providerId: 'discord',
+        providerAccountIds: [discordProviderAccountId],
+        conversationJid,
+        externalMessageIds: ['discord-thread-message'],
+        deletedAt: '2026-08-01T00:00:00.000Z',
+      }),
+    ).resolves.toEqual({ tombstonedAttachments: [] });
+    expect(
+      (await seam.attachments.getResolvableAttachment(attachmentId))?.deletedAt,
+    ).toBeUndefined();
+
+    await expect(
+      seam.attachments.setDeletedAtByMessageExternalIds({
+        appId,
+        providerId: 'discord',
+        providerAccountIds: [discordProviderAccountId],
+        conversationJid,
+        threadId,
+        externalMessageIds: ['discord-thread-message'],
+        deletedAt: '2026-08-01T00:00:00.000Z',
+      }),
+    ).resolves.toEqual({
+      tombstonedAttachments: [
+        {
+          attachmentId,
+          deletedAt: '2026-08-01T00:00:00.000Z',
+        },
+      ],
+    });
+  });
+
   it('refuses a Slack stream over 50 MiB without changing the row or leaving a file', async () => {
     const root = materializationRoot('cap');
     const slack = fakeSlackFetcher({

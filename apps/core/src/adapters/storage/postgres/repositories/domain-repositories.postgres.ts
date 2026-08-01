@@ -138,6 +138,7 @@ import { PostgresPermissionDecisionMemoryRepository } from './permission-decisio
 import { PostgresGroupJoinOnboardingRepository } from './group-join-onboarding-repository.postgres.js';
 import { PostgresMessageAttachmentRepository } from './message-attachment-repository.postgres.js';
 import { PostgresConversationHistoryCoverageRepository } from './conversation-history-coverage-repository.postgres.js';
+import { deletionMarkerTimestampForMessage } from './message-attachment-deletion-markers.postgres.js';
 export interface PostgresDomainRepositoryBundle {
   apps: AppRepository;
   agents: AgentRepository;
@@ -1172,6 +1173,7 @@ export class PostgresMessageRepository implements MessageRepository {
         .select({
           providerAccountId: c.providerAccountId,
           providerId: ci.providerId,
+          conversationJid: sql<string>`${c.externalRefJson}::jsonb->>'jid'`,
         })
         .from(c)
         .innerJoin(ci, eq(ci.id, c.providerAccountId))
@@ -1271,6 +1273,17 @@ export class PostgresMessageRepository implements MessageRepository {
             );
       const existingAttachmentsById =
         existingAttachmentMetadataMaps(existingAttachments).byId;
+      const deletionMarkerTimestamp =
+        message.attachments.length > 0 && channel.conversationJid
+          ? await deletionMarkerTimestampForMessage(tx, {
+              appId: message.appId,
+              providerId: channel.providerId,
+              providerAccountId: channel.providerAccountId,
+              conversationJid: channel.conversationJid,
+              ...(message.threadId ? { threadId: message.threadId } : {}),
+              externalMessageId,
+            })
+          : undefined;
       const replacementAttachmentRows = message.attachments.map(
         (attachment) => {
           const idMatch = existingAttachmentsById.get(attachment.id);
@@ -1294,7 +1307,13 @@ export class PostgresMessageRepository implements MessageRepository {
             ),
             fileName: existing?.fileName ?? null,
             providerFetchJson: existing?.providerFetchJson ?? null,
-            deletedAt: existing?.deletedAt ?? null,
+            deletedAt:
+              existing?.deletedAt && deletionMarkerTimestamp
+                ? Date.parse(existing.deletedAt) <=
+                  Date.parse(deletionMarkerTimestamp)
+                  ? existing.deletedAt
+                  : deletionMarkerTimestamp
+                : (existing?.deletedAt ?? deletionMarkerTimestamp ?? null),
             trust: attachment.trust,
           };
         },

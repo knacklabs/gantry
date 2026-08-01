@@ -141,6 +141,7 @@ export interface ChannelWiringDeps {
   publishRuntimeEvent?: (event: RuntimeEventPublishInput) => Promise<unknown>;
   brainHarvestTap?: BrainChannelHarvestTap;
   historyCoverage?: ConversationHistoryCoverageRepository;
+  messageAttachments?: MessageAttachmentRepository;
 }
 
 export interface ChannelWiring {

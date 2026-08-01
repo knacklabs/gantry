@@ -68,6 +68,15 @@ export type MaterializeProviderAttachment = (input: {
   };
 }) => Promise<MaterializedProviderAttachment>;
 
+export interface MessageAttachmentsDeleted {
+  providerId: string;
+  providerAccountIds?: readonly string[];
+  conversationJid: string;
+  threadId?: string;
+  externalMessageIds: readonly string[];
+  deletedAt: string;
+}
+
 export interface ChannelOpts {
   appId?: string;
   providerAccountId?: string;
@@ -81,6 +90,9 @@ export interface ChannelOpts {
     message: NewMessage,
   ) => Promise<boolean>;
   materializeProviderAttachment?: MaterializeProviderAttachment;
+  onMessageAttachmentsDeleted?: (
+    input: MessageAttachmentsDeleted,
+  ) => Promise<void>;
   onChatMetadata: OnChatMetadata;
   onMessageAction?: OnMessageAction;
   conversationRoutes: () => Record<string, ConversationRoute>;

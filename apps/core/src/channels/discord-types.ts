@@ -40,6 +40,18 @@ export type DiscordMessageAttachment = {
   ephemeral?: boolean;
 };
 
+export type DiscordMessageDelete = {
+  id?: string;
+  channel_id?: string;
+  guild_id?: string;
+};
+
+export type DiscordMessageDeleteBulk = {
+  ids?: string[];
+  channel_id?: string;
+  guild_id?: string;
+};
+
 export type DiscordChannelInfo = {
   id?: string;
   type?: number;
