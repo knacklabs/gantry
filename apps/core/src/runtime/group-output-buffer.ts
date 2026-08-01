@@ -107,6 +107,19 @@ export function createGroupOutputBuffer(input: {
       if (done) {
         const deliveryStatus = input.getStreamedTranscriptDeliveryStatus();
         const completed = generationParts.join('').trim();
+        // Durability is a contract of this path, so say what it decided:
+        // silence here is why a missing assistant row could not be diagnosed
+        // from a CI log.
+        input.log.info(
+          {
+            group: input.groupName,
+            reason,
+            deliveryStatus,
+            completedChars: completed.length,
+            willPersist: completed.length > 0,
+          },
+          'Streamed generation persistence decision',
+        );
         if (completed) {
           // Persist what the assistant PRODUCED, and record what happened to it
           // in delivery_status — rather than skipping the row when nothing was

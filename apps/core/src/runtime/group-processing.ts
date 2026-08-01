@@ -764,6 +764,14 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
         logger,
       });
     } else {
+      logger.info(
+        {
+          group: group.name,
+          supportsStreamingChunks,
+          persistedAnyGeneration,
+        },
+        'Turn finalization: assistant durability state',
+      );
       // Safety net, and deliberately BEFORE finalization so the durable record
       // exists whatever finalization then does about delivery. Per-generation
       // persistence covers the normal path; this covers a turn whose visible
@@ -775,6 +783,14 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
       // message_row_projection — persisting here too would double-write.
       if (supportsStreamingChunks && !persistedAnyGeneration) {
         const transcript = (outputBuffer.transcriptSnapshot() ?? '').trim();
+        logger.info(
+          {
+            group: group.name,
+            transcriptChars: transcript.length,
+            outputSentToUser,
+          },
+          'Turn assistant transcript safety-net persistence',
+        );
         if (transcript) {
           const timestamp = nowIso();
           await ops()
