@@ -16,6 +16,7 @@ export function makeVitestConfig(options: VitestConfigOptions) {
     include: string[];
     setupFiles?: string[];
     testTimeout?: number;
+    reporters?: [string, Record<string, unknown>][];
     coverage?: {
       provider: 'v8';
       reporter: string[];
@@ -29,6 +30,11 @@ export function makeVitestConfig(options: VitestConfigOptions) {
     include,
     setupFiles: ['apps/core/test/setup/runtime-env.ts'],
     testTimeout: 30_000,
+    // The junit `file` attribute is a reporter option with no CLI flag; the
+    // harness stage gate attributes required tests by it.
+    ...(process.env.VITEST_JUNIT
+      ? { reporters: [['junit', { addFileAttribute: true }] as [string, Record<string, unknown>]] }
+      : {}),
   };
 
   if (withCoverage) {
