@@ -21,6 +21,9 @@ const ALLOWED_RAW_SQL_FILES = new Set([
   // pg_advisory_xact_lock makes Observer batch claiming atomic across workers
   // (prefer-orphan state machine); same operational primitive as above.
   'apps/core/src/adapters/storage/postgres/repositories/chat-batch-repository.postgres.ts',
+  // pg_advisory_xact_lock serializes conversation ownership checks even when
+  // the conversation row does not exist yet.
+  'apps/core/src/adapters/storage/postgres/repositories/domain-repositories.postgres.ts',
   // LISTEN/NOTIFY is wakeup-only; durable rows remain authoritative.
   'apps/core/src/adapters/storage/postgres/live-admission-notify.postgres.ts',
   'apps/core/src/adapters/storage/postgres/runtime-event-notifier.postgres.ts',

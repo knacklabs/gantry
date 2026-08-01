@@ -7,6 +7,7 @@ export * from './capability-secrets.js';
 export * from './chat-batches.js';
 export * from './providers.js';
 export * from './conversations.js';
+export * from './conversation-history-coverage.js';
 export * from './control-http.js';
 export * from './events.js';
 export * from './external-ingress.js';

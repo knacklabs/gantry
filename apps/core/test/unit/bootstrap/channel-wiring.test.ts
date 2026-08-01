@@ -182,6 +182,8 @@ function makeApp(conversationRoutes: Record<string, any> = {}): RuntimeApp {
     getConversationRoutes: vi.fn(() => conversationRoutes),
     setAgentCursor: vi.fn(),
     setChannelRuntime: vi.fn(),
+    setHistoryCoverageDistrustEpochReader: vi.fn(),
+    setConversationHistoryCoverageRepository: vi.fn(),
   };
 }
 
@@ -215,6 +217,33 @@ function makeProvider(
 }
 
 describe('createChannelWiring', () => {
+  it('registers its process-local history distrust epoch reader with the runtime app', () => {
+    const app = makeApp();
+    const wiring = createChannelWiring(app);
+    const setReader = vi.mocked(app.setHistoryCoverageDistrustEpochReader);
+
+    expect(setReader).toHaveBeenCalledTimes(1);
+    expect(setReader.mock.calls[0][0]('slack-account-1')).toEqual(
+      wiring.getHistoryCoverageDistrustEpoch('slack-account-1'),
+    );
+  });
+
+  it('registers an override coverage repository with the runtime app', () => {
+    const app = makeApp();
+    const historyCoverage = {
+      readProviderGeneration: vi.fn(),
+      bumpProviderGeneration: vi.fn(),
+      getCoverage: vi.fn(),
+      upsertCoverage: vi.fn(),
+    } as any;
+
+    createChannelWiring(app, { historyCoverage });
+
+    expect(app.setConversationHistoryCoverageRepository).toHaveBeenCalledWith(
+      historyCoverage,
+    );
+  });
+
   it('coalesces run permission requests into one live batch prompt', async () => {
     vi.useFakeTimers();
     try {
@@ -1009,6 +1038,25 @@ describe('createChannelWiring', () => {
       inbound: true,
       interactionCallbacks: true,
     });
+  });
+
+  it('uses runtime secret rotations made after channel wiring creation', async () => {
+    const initialSecrets = { getSecret: vi.fn() } as never;
+    const rotatedSecrets = { getSecret: vi.fn() } as never;
+    const create = vi.fn(() => makeChannel());
+    const wiring = createChannelWiring(makeApp(), {
+      providerIds: [makeProvider('slack', create)],
+      runtimeSecrets: initialSecrets,
+    });
+
+    wiring.setRuntimeSecrets(rotatedSecrets);
+    await wiring.connectEnabledChannels(
+      makeRuntimeSettings({ telegram: false, slack: true }),
+    );
+
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({ runtimeSecrets: rotatedSecrets }),
+    );
   });
 
   it('derives provider account and agent context for same-channel approval checks', async () => {

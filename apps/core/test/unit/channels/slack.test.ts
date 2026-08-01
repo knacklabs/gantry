@@ -46,8 +46,27 @@ vi.mock('@core/platform/workspace-folder.js', () => ({
 }));
 
 const appRef = vi.hoisted(() => ({ current: null as any }));
+const socketReceiverRef = vi.hoisted(() => ({ current: null as any }));
 
 vi.mock('@slack/bolt', () => ({
+  SocketModeReceiver: class MockSocketModeReceiver {
+    private listeners = new Map<string, Array<() => void>>();
+    client = {
+      on: (event: string, listener: () => void) => {
+        const listeners = this.listeners.get(event) ?? [];
+        listeners.push(listener);
+        this.listeners.set(event, listeners);
+      },
+    };
+
+    constructor(_options: unknown) {
+      socketReceiverRef.current = this;
+    }
+
+    emit(event: string) {
+      for (const listener of this.listeners.get(event) ?? []) listener();
+    }
+  },
   App: class MockSlackApp {
     options: any;
     eventHandlers = new Map<string, ((args: any) => Promise<void>)[]>();
@@ -56,6 +75,8 @@ vi.mock('@slack/bolt', () => ({
     actionHandlers = new Map<string | RegExp, (args: any) => Promise<void>>();
     viewHandlers = new Map<string, (args: any) => Promise<void>>();
     errorHandler: ((err: Error) => Promise<void>) | null = null;
+    middleware: Array<(args: { next: () => Promise<void> }) => Promise<void>> =
+      [];
 
     client = {
       auth: {
@@ -143,6 +164,10 @@ vi.mock('@slack/bolt', () => ({
       this.errorHandler = handler;
     }
 
+    use(handler: (args: { next: () => Promise<void> }) => Promise<void>) {
+      this.middleware.push(handler);
+    }
+
     async start() {}
 
     async stop() {}
@@ -167,6 +192,11 @@ import {
 } from '@core/channels/slack/permission-blocks.js';
 import { SLACK_PERMISSION_DECISION_ACTION_IDS } from '@core/channels/slack/permission-action-id.js';
 import { writeSlackAttachmentResponse } from '@core/channels/slack/attachment-download.js';
+import {
+  SLACK_SOCKET_MODE_CONNECTED_EVENT,
+  SLACK_SOCKET_MODE_DISCONNECTED_EVENT,
+  SLACK_SOCKET_MODE_RECONNECT_EVENT,
+} from '@core/channels/slack/channel-connect.js';
 import { asTypingSink } from '@core/app/bootstrap/channel-capability-ports.js';
 import type {
   PermissionApprovalRequest,
@@ -695,6 +725,7 @@ describe('Slack channel', () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     if (savedGantryHome === undefined) delete process.env.GANTRY_HOME;
     else process.env.GANTRY_HOME = savedGantryHome;
     configurePendingInteractionDurability(null);
@@ -741,6 +772,161 @@ describe('Slack channel', () => {
     );
 
     expect(asTypingSink(channel)).toBeUndefined();
+  });
+
+  it('distrusts Slack history on socket close and successful reconnect without delivery middleware', async () => {
+    const order: string[] = [];
+    const distrustHistoryCoverage = vi.fn(() => {
+      order.push('distrust');
+    });
+    const setHistoryCoverageInboundActive = vi.fn();
+    const channelOpts = {
+      ...createOptsWithApproverHook([]),
+      inboundProviderAccountIds: ['slack-one', 'slack-two'],
+      distrustHistoryCoverage,
+      setHistoryCoverageInboundActive,
+    };
+    const channel = new SlackChannel(
+      'xoxb-token',
+      'xapp-token',
+      channelOpts as any,
+    );
+    await channel.connect();
+
+    socketReceiverRef.current.emit(SLACK_SOCKET_MODE_CONNECTED_EVENT);
+    expect(distrustHistoryCoverage).not.toHaveBeenCalled();
+    socketReceiverRef.current.emit(SLACK_SOCKET_MODE_RECONNECT_EVENT);
+    order.push('transport down');
+    socketReceiverRef.current.emit(SLACK_SOCKET_MODE_CONNECTED_EVENT);
+    order.push('delivery remains unblocked');
+
+    expect(distrustHistoryCoverage).toHaveBeenCalledTimes(2);
+    expect(distrustHistoryCoverage).toHaveBeenNthCalledWith(1, [
+      'slack-one',
+      'slack-two',
+    ]);
+    expect(distrustHistoryCoverage).toHaveBeenNthCalledWith(2, [
+      'slack-one',
+      'slack-two',
+    ]);
+    expect(appRef.current.middleware).toHaveLength(0);
+    expect(setHistoryCoverageInboundActive.mock.calls).toEqual([
+      [['slack-one', 'slack-two'], true],
+      [['slack-one', 'slack-two'], false],
+      [['slack-one', 'slack-two'], true],
+    ]);
+    expect(order).toEqual([
+      'distrust',
+      'transport down',
+      'distrust',
+      'delivery remains unblocked',
+    ]);
+  });
+
+  it('never marks an interaction-only Slack socket inbound-live', async () => {
+    const distrustHistoryCoverage = vi.fn();
+    const setHistoryCoverageInboundActive = vi.fn();
+    const channel = new SlackChannel('xoxb-token', 'xapp-token', {
+      ...createOpts(),
+      distrustHistoryCoverage,
+      setHistoryCoverageInboundActive,
+    } as any);
+
+    await channel.connect({ inbound: false, interactionCallbacks: true });
+    socketReceiverRef.current.emit(SLACK_SOCKET_MODE_CONNECTED_EVENT);
+    socketReceiverRef.current.emit(SLACK_SOCKET_MODE_RECONNECT_EVENT);
+    socketReceiverRef.current.emit(SLACK_SOCKET_MODE_DISCONNECTED_EVENT);
+
+    expect(setHistoryCoverageInboundActive).not.toHaveBeenCalled();
+    expect(distrustHistoryCoverage).not.toHaveBeenCalled();
+  });
+
+  it('clears Slack inbound liveness before a clean channel disconnect', async () => {
+    const order: string[] = [];
+    const distrustHistoryCoverage = vi.fn(() => order.push('distrust'));
+    const setHistoryCoverageInboundActive = vi.fn(
+      (_providerAccountIds: readonly string[], active: boolean) =>
+        order.push(active ? 'active' : 'inactive'),
+    );
+    const channel = new SlackChannel('xoxb-token', 'xapp-token', {
+      ...createOpts(),
+      distrustHistoryCoverage,
+      setHistoryCoverageInboundActive,
+    } as any);
+    await channel.connect();
+    socketReceiverRef.current.emit(SLACK_SOCKET_MODE_CONNECTED_EVENT);
+    order.length = 0;
+
+    await channel.disconnect();
+    socketReceiverRef.current.emit(SLACK_SOCKET_MODE_CONNECTED_EVENT);
+
+    expect(order).toEqual(['inactive', 'distrust']);
+  });
+
+  it('clears Slack inbound liveness on terminal disconnect and re-fences later activation', async () => {
+    const order: string[] = [];
+    const distrustHistoryCoverage = vi.fn(() => order.push('distrust'));
+    const setHistoryCoverageInboundActive = vi.fn(
+      (_providerAccountIds: readonly string[], active: boolean) =>
+        order.push(active ? 'active' : 'inactive'),
+    );
+    const channel = new SlackChannel('xoxb-token', 'xapp-token', {
+      ...createOpts(),
+      distrustHistoryCoverage,
+      setHistoryCoverageInboundActive,
+    } as any);
+    await channel.connect();
+    socketReceiverRef.current.emit(SLACK_SOCKET_MODE_CONNECTED_EVENT);
+    order.length = 0;
+
+    socketReceiverRef.current.emit(SLACK_SOCKET_MODE_DISCONNECTED_EVENT);
+    socketReceiverRef.current.emit(SLACK_SOCKET_MODE_CONNECTED_EVENT);
+
+    expect(order).toEqual(['inactive', 'distrust', 'distrust', 'active']);
+  });
+
+  it('distrusts Slack history when Bolt swallows a rejected live dispatch', async () => {
+    const distrustHistoryCoverage = vi.fn();
+    const channel = new SlackChannel('xoxb-token', 'xapp-token', {
+      ...createOpts(),
+      providerAccountId: 'slack-one',
+      distrustHistoryCoverage,
+      onMessage: vi.fn(async () => {
+        throw new Error('persistence rejected');
+      }),
+    } as any);
+    await channel.connect();
+    const handler = appRef.current.eventHandlers.get('message')?.[0];
+    expect(handler).toBeDefined();
+
+    try {
+      await handler!({
+        event: {
+          channel: 'D123',
+          ts: '1710000000.000100',
+          user: 'U123',
+          text: 'hello',
+        },
+      });
+    } catch (err) {
+      await appRef.current.errorHandler(err as Error);
+    }
+
+    expect(distrustHistoryCoverage).toHaveBeenCalledWith(['slack-one']);
+  });
+
+  it('does not distrust history for an interaction-only Slack handler failure', async () => {
+    const distrustHistoryCoverage = vi.fn();
+    const channel = new SlackChannel('xoxb-token', 'xapp-token', {
+      ...createOpts(),
+      providerAccountId: 'slack-one',
+      distrustHistoryCoverage,
+    } as any);
+    await channel.connect({ inbound: false, interactionCallbacks: true });
+
+    await appRef.current.errorHandler(new Error('interaction rejected'));
+
+    expect(distrustHistoryCoverage).not.toHaveBeenCalled();
   });
 
   it('adds Slack reactions idempotently', async () => {

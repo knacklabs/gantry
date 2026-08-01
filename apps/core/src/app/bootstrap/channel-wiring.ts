@@ -19,12 +19,10 @@ import {
   isPartialMessageDeliveryError,
 } from '../../domain/messages/partial-delivery.js';
 import { AmbiguousDurableDeliveryError } from '../../domain/messages/durable-delivery.js';
-import {
-  getRuntimeStorage,
-  getRuntimeRepositories,
-  tryAcquireRuntimeAdvisoryLease,
-} from '../../adapters/storage/postgres/runtime-store.js';
+// prettier-ignore
+import { getRuntimeRepositories, getRuntimeStorage, tryAcquireRuntimeAdvisoryLease } from '../../adapters/storage/postgres/runtime-store.js';
 import { EnvRuntimeSecretProvider } from '../../adapters/credentials/env-runtime-secret-provider.js';
+import { ConversationHistoryCoverageDistrust } from './conversation-history-coverage-distrust.js';
 import { RuntimeApp } from './runtime-app.js';
 import { ConversationAdministrationService } from '../../application/provider-conversations/conversation-administration-service.js';
 import { RuntimeSecretConversationMembershipValidator } from '../../channels/conversation-membership-validation.js';
@@ -111,6 +109,15 @@ export function createChannelWiring(
   const messageActionRouter = createChannelMessageActionRouter();
   const persistenceQueue = new AsyncTaskQueue(4, 5_000);
   const ops = () => resolved.opsRepository ?? getRuntimeRepositories();
+  // prettier-ignore
+  const historyDistrust = new ConversationHistoryCoverageDistrust(() => resolved.historyCoverage ?? getRuntimeStorage().repositories.conversationHistoryCoverage, resolved.logger);
+  if (resolved.historyCoverage)
+    app.setConversationHistoryCoverageRepository(resolved.historyCoverage);
+  if (typeof app.setHistoryCoverageDistrustEpochReader === 'function') {
+    app.setHistoryCoverageDistrustEpochReader((providerAccountId) =>
+      historyDistrust.readEpoch(providerAccountId),
+    );
+  }
   const optionalOps = () => {
     try {
       return ops();
@@ -232,9 +239,10 @@ export function createChannelWiring(
     conversationRoutes: () => app.getConversationRoutes(),
     runtimeSettings: () => currentRuntimeSettings,
     runtimeLease: { tryAcquire: tryAcquireRuntimeAdvisoryLease },
-    get runtimeSecrets() {
-      return resolved.runtimeSecrets;
-    },
+    distrustHistoryCoverage: historyDistrust.distrust,
+    setHistoryCoverageInboundActive: historyDistrust.setInboundActive,
+    // prettier-ignore
+    get runtimeSecrets() { return resolved.runtimeSecrets; },
     isControlApproverAllowed,
     onMessageAction: messageActionRouter.handle,
   };
@@ -707,9 +715,9 @@ export function createChannelWiring(
   }
   return {
     getRuntimeAppId: () => resolved.appId,
-    setRuntimeSecrets: (provider) => {
-      resolved.runtimeSecrets = provider;
-    },
+    getHistoryCoverageDistrustEpoch: (id) => historyDistrust.readEpoch(id),
+    // prettier-ignore
+    setRuntimeSecrets: (provider) => { resolved.runtimeSecrets = provider; },
     describeDestinationJid,
     connectEnabledChannels,
     hasConnectedChannels,

@@ -31,6 +31,7 @@ import {
   createDiscordChannel,
   DiscordChannel,
 } from '@core/channels/discord.js';
+import { DiscordGatewayConnection } from '@core/channels/discord-gateway.js';
 import {
   parsePermissionCustomId,
   permissionCustomId,
@@ -2084,11 +2085,23 @@ describe('DiscordChannel', () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation(async () =>
       jsonResponse({ url: 'wss://gateway.discord.test' }),
     );
-    const channel = new DiscordChannel('bot-token', 'app-id', opts(), (url) => {
-      const socket = new FakeWebSocket(url);
-      sockets.push(socket);
-      return socket;
-    });
+    const distrustHistoryCoverage = vi.fn();
+    const setHistoryCoverageInboundActive = vi.fn();
+    const channel = new DiscordChannel(
+      'bot-token',
+      'app-id',
+      opts({
+        providerAccountId: 'discord-one',
+        inboundProviderAccountIds: ['discord-one', 'discord-two'],
+        distrustHistoryCoverage,
+        setHistoryCoverageInboundActive,
+      }),
+      (url) => {
+        const socket = new FakeWebSocket(url);
+        sockets.push(socket);
+        return socket;
+      },
+    );
 
     await channel.connect();
     sockets[0]!.receive({ op: 10, d: { heartbeat_interval: 60_000 } });
@@ -2101,14 +2114,200 @@ describe('DiscordChannel', () => {
     sockets[0]!.close();
     await vi.advanceTimersByTimeAsync(1_000);
     sockets[1]!.receive({ op: 10, d: { heartbeat_interval: 60_000 } });
+    sockets[1]!.receive({ op: 0, t: 'RESUMED', s: 4, d: {} });
 
     expect(sockets).toHaveLength(2);
+    expect(distrustHistoryCoverage).toHaveBeenCalledTimes(2);
+    expect(distrustHistoryCoverage).toHaveBeenCalledWith([
+      'discord-one',
+      'discord-two',
+    ]);
+    expect(setHistoryCoverageInboundActive.mock.calls).toEqual([
+      [['discord-one', 'discord-two'], true],
+      [['discord-one', 'discord-two'], false],
+      [['discord-one', 'discord-two'], true],
+    ]);
     expect(JSON.parse(sockets[1]!.sent[1] || '{}')).toEqual({
       op: 6,
       d: { token: 'bot-token', session_id: 'session-1', seq: 3 },
     });
     channel.disconnect();
   });
+
+  it('distrusts Discord history before failed reconnect discovery', async () => {
+    vi.useFakeTimers();
+    const sockets: FakeWebSocket[] = [];
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(
+        jsonResponse({ url: 'wss://gateway.discord.test' }),
+      )
+      .mockResolvedValueOnce(new Response('{}', { status: 500 }));
+    const distrustHistoryCoverage = vi.fn();
+    const channel = new DiscordChannel(
+      'bot-token',
+      'app-id',
+      opts({
+        providerAccountId: 'discord-one',
+        distrustHistoryCoverage,
+      }),
+      (url) => {
+        const socket = new FakeWebSocket(url);
+        sockets.push(socket);
+        return socket;
+      },
+    );
+
+    await channel.connect();
+    sockets[0]!.close();
+    expect(distrustHistoryCoverage).toHaveBeenCalledOnce();
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(sockets).toHaveLength(1);
+    channel.disconnect();
+  });
+
+  it('distrusts Discord history before a rejected live dispatch is swallowed', async () => {
+    let socket!: FakeWebSocket;
+    const order: string[] = [];
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      jsonResponse({ url: 'wss://gateway.discord.test' }),
+    );
+    const gateway = new DiscordGatewayConnection({
+      botToken: 'bot-token',
+      apiRoot: 'https://discord.com/api/v10',
+      intents: 1,
+      inboundEnabled: true,
+      interactionCallbacksEnabled: true,
+      createWebSocket: (url) => {
+        socket = new FakeWebSocket(url);
+        return socket;
+      },
+      onDispatch: vi.fn(async () => {
+        order.push('dispatch');
+        throw new Error('persistence rejected');
+      }),
+      onDispatchFailure: () => order.push('distrust'),
+    });
+
+    await gateway.connect();
+    socket.receive({ op: 0, t: 'MESSAGE_CREATE', s: 1, d: { id: 'm-1' } });
+
+    await vi.waitFor(() => expect(order).toEqual(['dispatch', 'distrust']));
+    gateway.disconnect();
+  });
+
+  it('keeps Discord inbound inactive when READY was queued before disconnect', async () => {
+    let socket!: FakeWebSocket;
+    const setInboundActive = vi.fn();
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      jsonResponse({ url: 'wss://gateway.discord.test' }),
+    );
+    const gateway = new DiscordGatewayConnection({
+      botToken: 'bot-token',
+      apiRoot: 'https://discord.com/api/v10',
+      intents: 1,
+      inboundEnabled: true,
+      interactionCallbacksEnabled: true,
+      createWebSocket: (url) => {
+        socket = new FakeWebSocket(url);
+        return socket;
+      },
+      onInboundStateChange: setInboundActive,
+      onDispatch: vi.fn(async () => undefined),
+    });
+
+    await gateway.connect();
+    const queuedMessage = socket.onmessage;
+    gateway.disconnect();
+    queuedMessage?.({
+      data: JSON.stringify({
+        op: 0,
+        t: 'READY',
+        s: 1,
+        d: { session_id: 'session-1' },
+      }),
+    });
+
+    await vi.waitFor(() => expect(setInboundActive).toHaveBeenCalledOnce());
+    expect(setInboundActive).toHaveBeenCalledWith(false);
+    expect(socket.onmessage).toBeNull();
+    expect(socket.onclose).toBeNull();
+  });
+
+  it('does not mark an interaction-only Discord gateway inbound-active', async () => {
+    let socket!: FakeWebSocket;
+    const setHistoryCoverageInboundActive = vi.fn();
+    const distrustHistoryCoverage = vi.fn();
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      jsonResponse({ url: 'wss://gateway.discord.test' }),
+    );
+    const channel = new DiscordChannel(
+      'bot-token',
+      'app-id',
+      opts({
+        providerAccountId: 'discord-one',
+        setHistoryCoverageInboundActive,
+        distrustHistoryCoverage,
+      }),
+      (url) => {
+        socket = new FakeWebSocket(url);
+        return socket;
+      },
+    );
+
+    await channel.connect({ inbound: false, interactionCallbacks: true });
+    socket.receive({
+      op: 0,
+      t: 'READY',
+      s: 1,
+      d: { user: { id: 'bot-1' }, session_id: 'session-1' },
+    });
+
+    await vi.waitFor(() => expect(channel.isConnected()).toBe(true));
+    expect(setHistoryCoverageInboundActive).not.toHaveBeenCalled();
+    expect(distrustHistoryCoverage).not.toHaveBeenCalled();
+    await channel.disconnect();
+  });
+
+  it.each([7, 9])(
+    'distrusts Discord history immediately on gateway opcode %i',
+    async (opcode) => {
+      vi.useFakeTimers();
+      let socket!: FakeWebSocket;
+      const order: string[] = [];
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+        jsonResponse({ url: 'wss://gateway.discord.test' }),
+      );
+      const distrustHistoryCoverage = vi.fn(() => order.push('distrust'));
+      const channel = new DiscordChannel(
+        'bot-token',
+        'app-id',
+        opts({
+          providerAccountId: 'discord-one',
+          distrustHistoryCoverage,
+        }),
+        (url) => {
+          socket = new FakeWebSocket(url);
+          socket.close = vi.fn(() => order.push('close'));
+          return socket;
+        },
+      );
+
+      await channel.connect();
+      socket.receive({ op: opcode, d: opcode === 9 ? false : null });
+
+      expect(distrustHistoryCoverage).toHaveBeenCalledOnce();
+      expect(order).toEqual(['distrust', 'close']);
+      await vi.advanceTimersByTimeAsync(1_000);
+      socket.receive({ op: 0, t: 'READY', s: 1, d: { session_id: 'next' } });
+
+      expect(distrustHistoryCoverage).toHaveBeenCalledTimes(2);
+      expect(order).toEqual(['distrust', 'close', 'distrust']);
+      channel.disconnect();
+    },
+  );
 
   it('routes /gantry slash interactions and live Stop button interactions', async () => {
     let socket!: FakeWebSocket;

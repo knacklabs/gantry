@@ -827,6 +827,13 @@
       "when": 1785511283332,
       "tag": "20260731152123_attachment_metadata_already_applied",
       "breakpoints": true
+    },
+    {
+      "idx": 121,
+      "version": "7",
+      "when": 1785548111633,
+      "tag": "20260801013511_conversation_history_coverage",
+      "breakpoints": true
     }
   ]
 }

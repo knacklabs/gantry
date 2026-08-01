@@ -132,10 +132,12 @@ import type { PermissionPromotionRepository } from '../../../../domain/ports/per
 import type { PermissionDecisionMemoryRepository } from '../../../../domain/ports/permission-decision-memory.js';
 import type { GroupJoinOnboardingRepository } from '../../../../domain/ports/group-join-onboarding.js';
 import type { MessageAttachmentRepository } from '../../../../domain/ports/message-attachment-repository.js';
+import type { ConversationHistoryCoverageRepository } from '../../../../domain/ports/conversation-history-coverage.js';
 import { PostgresPermissionPromotionRepository } from './permission-promotion-repository.postgres.js';
 import { PostgresPermissionDecisionMemoryRepository } from './permission-decision-memory-repository.postgres.js';
 import { PostgresGroupJoinOnboardingRepository } from './group-join-onboarding-repository.postgres.js';
 import { PostgresMessageAttachmentRepository } from './message-attachment-repository.postgres.js';
+import { PostgresConversationHistoryCoverageRepository } from './conversation-history-coverage-repository.postgres.js';
 export interface PostgresDomainRepositoryBundle {
   apps: AppRepository;
   agents: AgentRepository;
@@ -143,6 +145,7 @@ export interface PostgresDomainRepositoryBundle {
   providerAccounts: ProviderAccountRepository;
   conversations: ConversationRepository;
   messages: MessageRepository;
+  conversationHistoryCoverage: ConversationHistoryCoverageRepository;
   messageAttachments: MessageAttachmentRepository;
   agentSessions: AgentSessionRepository;
   agentSessionDigests: AgentSessionDigestRepository;
@@ -898,30 +901,55 @@ export class PostgresConversationRepository implements ConversationRepository {
     return rows[0] ? this.threadFromRow(rows[0].thread) : null;
   }
   async saveConversation(conversation: Conversation): Promise<void> {
-    await this.db
-      .insert(pgSchema.conversationsPostgres)
-      .values({
-        id: conversation.id,
-        appId: conversation.appId,
-        providerAccountId: conversation.providerAccountId,
-        externalRefJson: encodeJsonOrNull(conversation.externalRef),
-        kind: conversation.kind,
-        title: conversation.title ?? null,
-        status: conversation.status,
-        createdAt: conversation.createdAt,
-        updatedAt: conversation.updatedAt,
-      })
-      .onConflictDoUpdate({
-        target: pgSchema.conversationsPostgres.id,
-        set: {
+    await this.db.transaction(async (tx) => {
+      const conversations = pgSchema.conversationsPostgres;
+      await tx.execute(
+        sql`select pg_advisory_xact_lock(hashtextextended(${`conversation_ownership:${conversation.id}`}, 0))`,
+      );
+      const existing = await tx
+        .select({ providerAccountId: conversations.providerAccountId })
+        .from(conversations)
+        .where(eq(conversations.id, conversation.id))
+        .for('update')
+        .limit(1);
+      if (
+        existing[0] &&
+        existing[0].providerAccountId !== conversation.providerAccountId
+      ) {
+        await tx
+          .delete(pgSchema.conversationHistoryCoveragePostgres)
+          .where(
+            eq(
+              pgSchema.conversationHistoryCoveragePostgres.conversationId,
+              conversation.id,
+            ),
+          );
+      }
+      await tx
+        .insert(conversations)
+        .values({
+          id: conversation.id,
+          appId: conversation.appId,
           providerAccountId: conversation.providerAccountId,
           externalRefJson: encodeJsonOrNull(conversation.externalRef),
           kind: conversation.kind,
           title: conversation.title ?? null,
           status: conversation.status,
+          createdAt: conversation.createdAt,
           updatedAt: conversation.updatedAt,
-        },
-      });
+        })
+        .onConflictDoUpdate({
+          target: conversations.id,
+          set: {
+            providerAccountId: conversation.providerAccountId,
+            externalRefJson: encodeJsonOrNull(conversation.externalRef),
+            kind: conversation.kind,
+            title: conversation.title ?? null,
+            status: conversation.status,
+            updatedAt: conversation.updatedAt,
+          },
+        });
+    });
   }
   async saveThread(thread: ConversationThread): Promise<void> {
     await this.db
@@ -1837,6 +1865,8 @@ export function createPostgresDomainRepositories(
       db,
       options.cleanupProviderAttachment,
     ),
+    conversationHistoryCoverage:
+      new PostgresConversationHistoryCoverageRepository(db),
     messageAttachments: new PostgresMessageAttachmentRepository(
       db,
       options.cleanupProviderAttachment,

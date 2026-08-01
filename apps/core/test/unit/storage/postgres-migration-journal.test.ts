@@ -1838,4 +1838,51 @@ describe('Postgres migration journal', () => {
     expect(migration).toContain('"group_join_onboarding_status_check"');
     expect(migration).toContain('"group_join_onboarding_provider_chat_unique"');
   });
+
+  it('keeps durable conversation history coverage migration and schema in sync', () => {
+    const journalPath = path.resolve(
+      'apps/core/src/adapters/storage/postgres/schema/migrations/meta/_journal.json',
+    );
+    const journal = JSON.parse(fs.readFileSync(journalPath, 'utf8')) as {
+      entries: Array<{ idx: number; tag: string }>;
+    };
+    expect(
+      journal.entries.find(
+        (entry) => entry.tag === '20260801013511_conversation_history_coverage',
+      ),
+    ).toMatchObject({ idx: 121 });
+
+    const migration = fs.readFileSync(
+      path.resolve(
+        'apps/core/src/adapters/storage/postgres/schema/migrations/20260801013511_conversation_history_coverage.sql',
+      ),
+      'utf8',
+    );
+    expect(migration).toContain('CREATE TABLE "conversation_history_coverage"');
+    expect(migration).toContain(
+      'FOREIGN KEY ("conversation_id") REFERENCES "conversations"("id") ON DELETE cascade',
+    );
+    expect(migration).toContain(
+      'FOREIGN KEY ("provider_account_id") REFERENCES "provider_accounts"("id") ON DELETE cascade',
+    );
+    expect(migration).toContain('"uniq_conversation_history_coverage_scope"');
+    expect(migration).toContain(
+      'UNIQUE NULLS NOT DISTINCT("provider_account_id","conversation_id","scope_kind","scope_id")',
+    );
+    expect(migration).toContain('NULLS NOT DISTINCT');
+    expect(migration).toContain('"conversation_history_coverage_scope_check"');
+
+    const schema = fs.readFileSync(
+      path.resolve(
+        'apps/core/src/adapters/storage/postgres/schema/conversation-history-coverage.ts',
+      ),
+      'utf8',
+    );
+    expect(schema).toContain(
+      "unique('uniq_conversation_history_coverage_scope')",
+    );
+    expect(schema).toContain('table.providerAccountId');
+    expect(schema).toContain('.nullsNotDistinct()');
+    expect(schema).toContain("'conversation_history_coverage_scope_check'");
+  });
 });
