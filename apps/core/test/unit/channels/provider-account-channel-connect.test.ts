@@ -554,7 +554,7 @@ describe('connectProviderAccountChannels', () => {
 
     await firstDeletionCallback?.({
       providerId: 'slack',
-      conversationJid: 'sl:C123',
+      channelId: 'C123',
       externalMessageIds: ['message-1'],
       deletedAt: '2026-08-01T00:00:00.000Z',
     });
@@ -563,7 +563,7 @@ describe('connectProviderAccountChannels', () => {
     expect(onMessageAttachmentsDeleted).toHaveBeenCalledWith({
       providerId: 'slack',
       providerAccountIds: ['slack_one', 'slack_two'],
-      conversationJid: 'sl:C123',
+      channelId: 'C123',
       externalMessageIds: ['message-1'],
       deletedAt: '2026-08-01T00:00:00.000Z',
     });

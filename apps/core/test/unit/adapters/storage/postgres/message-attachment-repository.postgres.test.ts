@@ -5,10 +5,52 @@ import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 
 import { PostgresMessageAttachmentRepository } from '@core/adapters/storage/postgres/repositories/message-attachment-repository.postgres.js';
+import { normalizeMessageAttachmentDeletionScope } from '@core/adapters/storage/postgres/repositories/message-attachment-deletion-markers.postgres.js';
 import { reclaimTombstonedProviderAttachment } from '@core/adapters/storage/postgres/repositories/provider-attachment-cleanup.postgres.js';
 
+function makeChain(result: unknown[]) {
+  const chain: Record<string, unknown> = {};
+  const self = () => chain;
+  for (const method of [
+    'from',
+    'where',
+    'limit',
+    'for',
+    'orderBy',
+    'innerJoin',
+  ]) {
+    chain[method] = vi.fn(self);
+  }
+  chain.then = (resolve: (value: unknown[]) => unknown) =>
+    Promise.resolve(result).then(resolve);
+  return chain;
+}
+
 describe('PostgresMessageAttachmentRepository', () => {
-  it('sweeps past a full page of retained unmatched deletion markers', async () => {
+  it('includes the complete channel scope in deletion marker identity', () => {
+    const base = {
+      appId: 'app-1',
+      providerId: 'discord',
+      providerAccountIds: ['account-1'],
+      externalMessageIds: ['message-1'],
+      deletedAt: '2026-08-01T00:00:00.000Z',
+    };
+
+    const first = normalizeMessageAttachmentDeletionScope({
+      ...base,
+      channelId: 'channel-1',
+    });
+    const second = normalizeMessageAttachmentDeletionScope({
+      ...base,
+      channelId: 'channel-2',
+    });
+
+    expect(first).toHaveLength(1);
+    expect(second).toHaveLength(1);
+    expect(first[0]?.markerId).not.toBe(second[0]?.markerId);
+  });
+
+  it('keyset-pages only deletion markers selected by the actionable join', async () => {
     const markers = Array.from({ length: 101 }, (_, index) => ({
       id: `marker-${String(index).padStart(3, '0')}`,
       createdAt: '2026-08-01T00:00:00.000Z',
@@ -16,11 +58,15 @@ describe('PostgresMessageAttachmentRepository', () => {
     let page = 0;
     const select = vi.fn(() => ({
       from: vi.fn(() => ({
-        where: vi.fn(() => ({
-          orderBy: vi.fn(() => ({
-            limit: vi.fn(async () =>
-              page++ === 0 ? markers.slice(0, 100) : markers.slice(100),
-            ),
+        innerJoin: vi.fn(() => ({
+          innerJoin: vi.fn(() => ({
+            where: vi.fn(() => ({
+              orderBy: vi.fn(() => ({
+                limit: vi.fn(async () =>
+                  page++ === 0 ? markers.slice(0, 100) : markers.slice(100),
+                ),
+              })),
+            })),
           })),
         })),
       })),
@@ -52,7 +98,7 @@ describe('PostgresMessageAttachmentRepository', () => {
     expect(db.transaction).toHaveBeenCalledTimes(101);
   });
 
-  it('persists first, then deduplicates a message-scoped tombstone transaction with deterministic locks', async () => {
+  it('persists one deduplicated pair row before the tombstone transaction', async () => {
     const operations: string[] = [];
     const select = vi
       .fn()
@@ -65,10 +111,9 @@ describe('PostgresMessageAttachmentRepository', () => {
                   id: 'marker-1',
                   appId: 'app-1',
                   providerId: 'discord',
-                  providerAccountIdsJson: ['account-1'],
-                  conversationJid: 'dc:channel-1',
-                  threadId: null,
-                  externalMessageIdsJson: ['external-1', 'external-2'],
+                  providerAccountId: 'account-1',
+                  channelId: 'channel-1',
+                  externalMessageId: 'external-1',
                   deletedAt: '2026-08-01T00:00:00.000Z',
                   createdAt: '2026-08-01T00:00:00.000Z',
                 },
@@ -116,7 +161,8 @@ describe('PostgresMessageAttachmentRepository', () => {
             })),
           })),
         })),
-      });
+      })
+      .mockImplementation(() => makeChain([]));
     const returning = vi.fn(async () => [
       {
         id: 'attachment-1',
@@ -131,14 +177,16 @@ describe('PostgresMessageAttachmentRepository', () => {
         operations.push('lock');
       }),
       update: vi.fn(() => ({ set })),
+      delete: vi.fn(() => ({ where: vi.fn(async () => undefined) })),
     };
+    const markerValues = vi.fn(() => ({
+      onConflictDoUpdate: vi.fn(async () => {
+        operations.push('marker:write');
+      }),
+    }));
     const markerTx = {
       insert: vi.fn(() => ({
-        values: vi.fn(() => ({
-          onConflictDoUpdate: vi.fn(async () => {
-            operations.push('marker:write');
-          }),
-        })),
+        values: markerValues,
       })),
     };
     let transactionCall = 0;
@@ -160,8 +208,8 @@ describe('PostgresMessageAttachmentRepository', () => {
         appId: 'app-1',
         providerId: 'discord',
         providerAccountIds: ['account-1', 'account-1'],
-        conversationJid: 'dc:channel-1',
-        externalMessageIds: ['external-2', 'external-1', 'external-2'],
+        channelId: 'channel-1',
+        externalMessageIds: ['external-1', 'external-1'],
         deletedAt: '2026-08-01T00:00:00.000Z',
       }),
     ).resolves.toEqual({
@@ -177,14 +225,23 @@ describe('PostgresMessageAttachmentRepository', () => {
       ],
     });
 
-    expect(db.transaction).toHaveBeenCalledTimes(2);
-    expect(tx.execute).toHaveBeenCalledTimes(2);
+    expect(db.transaction).toHaveBeenCalledTimes(3);
+    expect(markerValues).toHaveBeenCalledWith([
+      expect.objectContaining({
+        providerAccountId: 'account-1',
+        externalMessageId: 'external-1',
+      }),
+    ]);
+    expect(tx.execute).toHaveBeenCalledTimes(4);
     expect(set).toHaveBeenCalledWith({
       deletedAt: '2026-08-01T00:00:00.000Z',
     });
     expect(operations).toEqual([
       'marker:write',
       'marker:commit',
+      'lock',
+      'lock',
+      'tombstone:commit',
       'lock',
       'lock',
       'tombstone:commit',

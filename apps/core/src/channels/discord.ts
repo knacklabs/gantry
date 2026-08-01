@@ -542,10 +542,11 @@ export class DiscordChannel implements ChannelAdapter {
     d?: unknown;
   }) {
     await routeDiscordGatewayDispatch(payload, {
-      botToken: this.botToken,
       cache: this.channelContextCache,
-      requestJson: (path, init, errorMessage, parseJson) =>
-        this.requestJson(path, init, errorMessage, parseJson),
+      conversationRoutes: this.opts.conversationRoutes?.() ?? {},
+      providerAccountIds:
+        this.opts.inboundProviderAccountIds ??
+        (this.opts.providerAccountId ? [this.opts.providerAccountId] : []),
       onReady: (ready) => {
         this.botUserId = ready.user?.id || '';
       },

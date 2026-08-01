@@ -23,7 +23,7 @@ the conversation-scoped attachment resolver.
 1. **Live capture.** A non-ephemeral Discord message with attachments
    persists, per attachment: `file_name`, durable fetch identity
    `{provider:'discord', kind:'message_attachment', id:<attachment_id>,
-   channelId:<channel_id>, messageId:<message_id>}`, and — on successful
+channelId:<channel_id>, messageId:<message_id>}`, and — on successful
    download — an opaque `provider-attachments/...` storage ref in the
    non-workspace provider store, written by the 0045 writer under the one
    50 MiB per-file cap. The identity's `channelId` is
@@ -55,11 +55,22 @@ the conversation-scoped attachment resolver.
    missing-access, rate-limit, malformed-response, abort, and network failures
    stay `unreachable` and are retried on later opens.
 4. **Deletion events.** MESSAGE_DELETE (and MESSAGE_DELETE_BULK) for a
-   message whose attachments we track tombstones those attachments in one
-   scoped transaction; the agent thereafter reports the deleted copy without
-   any provider call. Provider bytes are reclaimed only after commit.
-   Deletions for unknown messages are no-ops. The routing operation is
-   provider-neutral; Discord is its first registrant.
+   configured route is persisted raw, before any Discord context lookup, as
+   one marker row per (app, provider, provider account, channel, external
+   message) scoped pair. With a cold
+   context cache and no configured route, the same atomic repository call
+   first checks canonical Postgres messages for the raw channel/thread key;
+   any matching provider account admits the event's complete message-id set,
+   while a channel matching neither routes nor stored messages writes nothing.
+   Processing resolves the stored channel key against canonical messages, then
+   tombstones and consumes only the pair whose message exists. Other bulk or
+   shared-credential pairs remain available for their own ingest race. Message
+   insertion consumes its exact pair and inserts attachments already
+   tombstoned. Retry scans join to existing messages, so unmatched race guards
+   do not create repeated per-event work. Provider bytes are reclaimed only
+   after commit; the agent thereafter reports the deleted copy without a
+   provider call. Discord is the first registrant of the provider-neutral
+   repository operation.
 5. **Ephemerality.** A message with the EPHEMERAL flag (bit 64) is rejected
    before route admission or normalization. Any attachment marked ephemeral is
    filtered before mapping. Neither case stores bytes or metadata, live or via
@@ -78,7 +89,11 @@ eager backfill; public-URL fetching; content-scan metadata.
 
 ## Constraints
 
-- The 0117 columns stay sufficient for parity metadata. Deletion durability adds one narrow migration: a scoped deletion-marker table written before tombstoning, consumed by message ingestion, and swept on startup — a deletion event is never lost to an ingest race, a transient failure, or a crash (Discord never redelivers acknowledged dispatches).
+- The 0117 columns stay sufficient for parity metadata. Deletion durability
+  adds one narrow channel-scoped pair marker migration. A coalesced in-process worker
+  retries raw events whose first insert fails, with capped backoff. A crash
+  during a complete database outage before any insert succeeds remains the
+  explicit D-0037 deferral.
 - Adapters never mint `provider-attachments/` refs (cleanup invariant).
 - The parity matrix in decision 0094 is updated in the same change that
   flips each row, with citations.

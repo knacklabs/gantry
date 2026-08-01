@@ -1,8 +1,6 @@
 import type { MessageAttachmentsDeleted } from './channel-provider.js';
-import type {
-  DiscordContextRequestJson,
-  DiscordConversationContextCache,
-} from './discord-conversation-context.js';
+import type { ConversationRoute } from '../domain/types.js';
+import type { DiscordConversationContextCache } from './discord-conversation-context.js';
 import { routeDiscordDeletion } from './discord-message-deletion.js';
 import type {
   DiscordGatewayPayload,
@@ -14,9 +12,9 @@ import type {
 export async function routeDiscordGatewayDispatch(
   payload: Pick<DiscordGatewayPayload, 't' | 'd'>,
   input: {
-    botToken: string;
     cache: DiscordConversationContextCache;
-    requestJson: DiscordContextRequestJson;
+    conversationRoutes: Record<string, ConversationRoute>;
+    providerAccountIds: readonly string[];
     onReady: (ready: { user?: DiscordUser; session_id?: string }) => void;
     onMessageCreate: (message: DiscordMessageCreate) => Promise<void>;
     onInteraction: (interaction: DiscordInteraction) => Promise<void>;
@@ -36,9 +34,9 @@ export async function routeDiscordGatewayDispatch(
   if (
     await routeDiscordDeletion(
       payload,
-      input.botToken,
       input.cache,
-      input.requestJson,
+      input.conversationRoutes,
+      input.providerAccountIds,
       input.onMessageAttachmentsDeleted,
     )
   ) {

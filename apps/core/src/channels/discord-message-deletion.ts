@@ -1,11 +1,11 @@
 import { nowIso } from '../shared/time/datetime.js';
-import type { MessageAttachmentsDeleted } from './channel-provider.js';
 import {
-  resolveDiscordConversationContext,
-  type DiscordContextRequestJson,
-  type DiscordConversationContextCache,
-} from './discord-conversation-context.js';
-import { discordHeaders } from './discord-http-helpers.js';
+  findConversationRoutesForChat,
+  parseAgentThreadQueueKey,
+} from '../shared/thread-queue-key.js';
+import type { ConversationRoute } from '../domain/types.js';
+import type { MessageAttachmentsDeleted } from './channel-provider.js';
+import type { DiscordConversationContextCache } from './discord-conversation-context.js';
 import type {
   DiscordGatewayPayload,
   DiscordMessageDelete,
@@ -14,9 +14,9 @@ import type {
 
 export async function routeDiscordDeletion(
   payload: Pick<DiscordGatewayPayload, 't' | 'd'>,
-  botToken: string,
   cache: DiscordConversationContextCache,
-  requestJson: DiscordContextRequestJson,
+  conversationRoutes: Record<string, ConversationRoute>,
+  providerAccountIds: readonly string[],
   onMessageAttachmentsDeleted?: (
     event: MessageAttachmentsDeleted,
   ) => Promise<void>,
@@ -34,23 +34,58 @@ export async function routeDiscordDeletion(
     .filter(Boolean)
     .sort();
   if (!event.channel_id?.trim() || externalMessageIds.length === 0) return true;
+  const channelKey = admittedDeletionChannelKey(
+    conversationRoutes,
+    event.channel_id,
+    providerAccountIds,
+    cache.get(event.channel_id),
+  );
   if (!onMessageAttachmentsDeleted) {
     throw new Error('Discord message attachment deletion callback unavailable');
   }
-  const context = await resolveDiscordConversationContext({
-    channelId: event.channel_id,
-    botToken,
-    cache,
-    headers: discordHeaders,
-    requestJson,
-    failClosed: true,
-  });
   await onMessageAttachmentsDeleted({
     providerId: 'discord',
-    conversationJid: context.conversationJid,
-    ...(context.threadId ? { threadId: context.threadId } : {}),
+    providerAccountIds,
+    channelId: channelKey ?? event.channel_id,
+    ...(!channelKey
+      ? {
+          fallbackConversationJid: `dc:${event.channel_id}`,
+          requireStoredMessageMatch: true,
+        }
+      : {}),
     externalMessageIds,
     deletedAt: nowIso(),
   });
   return true;
+}
+
+function admittedDeletionChannelKey(
+  routes: Record<string, ConversationRoute>,
+  channelId: string,
+  providerAccountIds: readonly string[],
+  cachedContext?: { conversationJid: string; threadId?: string },
+): string | undefined {
+  const scopes = cachedContext
+    ? [cachedContext]
+    : [
+        { conversationJid: `dc:${channelId}` },
+        ...Object.keys(routes).flatMap((key) => {
+          const parsed = parseAgentThreadQueueKey(key);
+          return parsed.threadId === channelId
+            ? [{ conversationJid: parsed.chatJid, threadId: channelId }]
+            : [];
+        }),
+      ];
+  const admitted = scopes.find((scope) =>
+    providerAccountIds.some(
+      (providerAccountId) =>
+        findConversationRoutesForChat(
+          routes,
+          scope.conversationJid,
+          scope.threadId,
+          providerAccountId,
+        ).length > 0,
+    ),
+  );
+  return admitted?.threadId ?? admitted?.conversationJid;
 }

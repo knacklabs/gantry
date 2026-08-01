@@ -271,7 +271,7 @@ describe('createChannelWiring', () => {
     );
     await onMessageAttachmentsDeleted?.({
       providerId: 'slack',
-      conversationJid: 'sl:C123',
+      channelId: 'C123',
       externalMessageIds: ['message-1'],
       deletedAt: '2026-08-01T00:00:00.000Z',
     });
@@ -281,7 +281,7 @@ describe('createChannelWiring', () => {
       appId: 'app-one',
       providerId: 'slack',
       providerAccountIds: ['slack_default'],
-      conversationJid: 'sl:C123',
+      channelId: 'C123',
       externalMessageIds: ['message-1'],
       deletedAt: '2026-08-01T00:00:00.000Z',
     });
@@ -292,9 +292,10 @@ describe('createChannelWiring', () => {
     vi.useFakeTimers();
     try {
       const failure = new Error('tombstone failed once');
-      const setDeletedAtByMessageExternalIds = vi.fn(async () => {
-        throw failure;
-      });
+      const setDeletedAtByMessageExternalIds = vi
+        .fn()
+        .mockRejectedValueOnce(failure)
+        .mockResolvedValue({ tombstonedAttachments: [] });
       const retryPendingMessageAttachmentDeletions = vi.fn(async () => false);
       const handler = createChannelAttachmentDeletionHandler(
         'app-one',
@@ -309,15 +310,24 @@ describe('createChannelWiring', () => {
       await expect(
         handler({
           providerId: 'discord',
-          providerAccountIds: ['discord-one'],
-          conversationJid: 'dc:channel-1',
-          externalMessageIds: ['message-1'],
+          providerAccountIds: ['discord-one', 'discord-two'],
+          channelId: 'channel-1',
+          externalMessageIds: ['message-1', 'message-2'],
           deletedAt: '2026-08-01T00:00:00.000Z',
         }),
       ).rejects.toBe(failure);
       await vi.advanceTimersByTimeAsync(10);
 
       expect(retryPendingMessageAttachmentDeletions).toHaveBeenCalledOnce();
+      expect(setDeletedAtByMessageExternalIds).toHaveBeenCalledTimes(2);
+      expect(setDeletedAtByMessageExternalIds).toHaveBeenLastCalledWith({
+        appId: 'app-one',
+        providerId: 'discord',
+        providerAccountIds: ['discord-one', 'discord-two'],
+        channelId: 'channel-1',
+        externalMessageIds: ['message-1', 'message-2'],
+        deletedAt: '2026-08-01T00:00:00.000Z',
+      });
     } finally {
       vi.useRealTimers();
     }

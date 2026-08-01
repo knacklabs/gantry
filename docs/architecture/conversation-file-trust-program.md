@@ -36,16 +36,16 @@ coverage was made neutral (decision 0087):
 
 ## Feature set (client-locked)
 
-| Feature | Lock |
-| --- | --- |
-| Lazy backfill fetch on first need, via the live pipeline | 0094 §1 |
-| Provider deletion honored; agent says "deleted from the channel" | 0094 §2 |
-| One 50 MiB cap everywhere | 0094 §3 |
-| Versions: latest-wins by name, history mentioned | 0094 §4 |
-| Strictly conversation-scoped access | 0094 §5 |
-| Ephemeral/self-destruct content never stored | 0094 §6 |
-| Per-conversation file search (name/type/date) beyond the window | 0094 §7 |
-| Retention: keep until deleted upstream | 0094 §8 |
+| Feature                                                                         | Lock    |
+| ------------------------------------------------------------------------------- | ------- |
+| Lazy backfill fetch on first need, via the live pipeline                        | 0094 §1 |
+| Provider deletion honored; agent says "deleted from the channel"                | 0094 §2 |
+| One 50 MiB cap everywhere                                                       | 0094 §3 |
+| Versions: latest-wins by name, history mentioned                                | 0094 §4 |
+| Strictly conversation-scoped access                                             | 0094 §5 |
+| Ephemeral/self-destruct content never stored                                    | 0094 §6 |
+| Per-conversation file search (name/type/date) beyond the window                 | 0094 §7 |
+| Retention: keep until deleted upstream                                          | 0094 §8 |
 | Linked files (Drive/Dropbox/SharePoint) ride connectors; honest copy until then | 0094 §9 |
 
 ## Phases
@@ -99,9 +99,21 @@ keeps the docs honest automatically.
 - Slack and Telegram workspace-reference reads have not moved behind the
   attachment resolver; that workspace-ref migration remains pending.
 - Teams remains deferred under D-0034.
-- Deletion markers for scopes that never match (foreign or truly unknown
-  message ids) are retained indefinitely by design — they are the ingest-race
-  guard; a retention sweep is future hygiene, not a correctness gap.
+- Channel-scoped pair deletion markers whose messages do not yet exist are
+  retained as ingest-race guards and excluded from retry scans. Each app,
+  provider, account, channel, and message tuple is consumed independently by
+  marker processing or message insertion; a
+  satisfied sibling in the same bulk event or shared credential cannot consume
+  it.
+- Cold-cache Discord deletions with no configured route are admitted atomically
+  only when the provider account already owns a matching canonical message
+  under the raw channel/thread key; unrelated unconfigured channels leave no
+  marker rows.
+- A crash during a complete Postgres outage before the in-process raw-event
+  retry records its first pair row remains deferred under D-0037.
+- A cold-cache deletion that races a thread's first-ever message after restart
+  cannot inherit a parent-channel route without durable thread-parent state;
+  that window remains deferred under D-0038.
 - The durable deletion mechanism is Discord-registered only; the marker
   table and repository operation are provider-neutral and ready for Slack/
   Telegram registration.

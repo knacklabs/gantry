@@ -97,7 +97,10 @@ export async function fetchDiscordHistoricalAttachment(
     return { status: 'unreachable', reason: discordFailureReason(error) };
   }
 
-  const attachment = message.attachments?.find(
+  if (!isDiscordMessageResponse(message)) {
+    return { status: 'unreachable', reason: 'unknown' };
+  }
+  const attachment = message.attachments.find(
     (candidate) => candidate.id === input.identity.id,
   );
   if (!attachment) return { status: 'deleted' };
@@ -115,6 +118,7 @@ export async function fetchDiscordHistoricalAttachment(
     return { status: 'unreachable', reason: discordFailureReason(error) };
   }
   if (!response.ok) {
+    await discardResponseBody(response);
     return {
       status: 'unreachable',
       reason: discordHttpFailureReason(response.status),
@@ -169,14 +173,52 @@ export async function fetchDiscordCdnAttachment(
       signal,
     });
     if (!isRedirect(response.status)) return response;
+    await discardResponseBody(response);
     if (redirects === DISCORD_CDN_REDIRECT_LIMIT) {
       throw new Error('Discord CDN redirect limit exceeded');
     }
     const location = response.headers.get('location');
-    if (!location) return response;
+    if (!location) throw new Error('Discord CDN redirect missing location');
     url = safeDiscordCdnUrl(new URL(location, url).toString());
   }
   throw new Error('Discord CDN redirect limit exceeded');
+}
+
+function isDiscordMessageResponse(
+  value: unknown,
+): value is DiscordMessageCreate & { attachments: DiscordMessageAttachment[] } {
+  if (typeof value !== 'object' || value === null) return false;
+  const attachments = (value as { attachments?: unknown }).attachments;
+  return Array.isArray(attachments) && attachments.every(isDiscordAttachment);
+}
+
+function isDiscordAttachment(
+  value: unknown,
+): value is DiscordMessageAttachment {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return false;
+  }
+  const candidate = value as {
+    id?: unknown;
+    url?: unknown;
+    filename?: unknown;
+    content_type?: unknown;
+    ephemeral?: unknown;
+  };
+  return (
+    typeof candidate.id === 'string' &&
+    (candidate.url === undefined || typeof candidate.url === 'string') &&
+    (candidate.filename === undefined ||
+      typeof candidate.filename === 'string') &&
+    (candidate.content_type === undefined ||
+      typeof candidate.content_type === 'string') &&
+    (candidate.ephemeral === undefined ||
+      typeof candidate.ephemeral === 'boolean')
+  );
+}
+
+async function discardResponseBody(response: Response): Promise<void> {
+  await response.body?.cancel().catch(() => undefined);
 }
 
 function safeDiscordCdnUrl(rawUrl: string): string {

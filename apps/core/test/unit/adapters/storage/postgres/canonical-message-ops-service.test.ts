@@ -1305,7 +1305,7 @@ describe('CanonicalMessageOpsService', () => {
         }),
       ]),
     );
-    expect(tx.execute).toHaveBeenCalledTimes(1);
+    expect(tx.execute).toHaveBeenCalledTimes(2);
     expect(cleanupMaterialization).not.toHaveBeenCalled();
 
     await repository.cleanupRemovedProviderAttachments(

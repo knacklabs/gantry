@@ -71,8 +71,9 @@ export type MaterializeProviderAttachment = (input: {
 export interface MessageAttachmentsDeleted {
   providerId: string;
   providerAccountIds?: readonly string[];
-  conversationJid: string;
-  threadId?: string;
+  channelId: string;
+  fallbackConversationJid?: string;
+  requireStoredMessageMatch?: boolean;
   externalMessageIds: readonly string[];
   deletedAt: string;
 }

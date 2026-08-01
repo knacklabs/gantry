@@ -279,7 +279,7 @@ export async function replaceCanonicalMessageAttachments(
     incomingAttachments: IncomingMessageAttachment[];
     messageInserted: boolean;
     trust: 'system' | 'trusted';
-    deletionMarkerTimestamp?: string;
+    deletionMarkerTimestamp?: { deletedAt: string; providerId: string };
   },
 ): Promise<RemovedProviderAttachment[]> {
   const {
@@ -344,7 +344,12 @@ export async function replaceCanonicalMessageAttachments(
         providerFetchJson: jsonb(preservedMetadata.providerFetchJson),
         deletedAt: earlierTimestamp(
           preservedMetadata.deletedAt,
-          deletionMarkerTimestamp,
+          deletionMarkerAppliesToProvider(
+            deletionMarkerTimestamp,
+            preservedMetadata.providerFetchJson,
+          )
+            ? deletionMarkerTimestamp?.deletedAt
+            : undefined,
         ),
         trust,
       };
@@ -366,6 +371,21 @@ export async function replaceCanonicalMessageAttachments(
       .values(replacementAttachmentRows);
   }
   return removedProviderStorageRefs;
+}
+
+function deletionMarkerAppliesToProvider(
+  markerTimestamp: { deletedAt: string; providerId: string } | undefined,
+  providerFetchJson: unknown,
+): boolean {
+  if (!markerTimestamp) return false;
+  if (providerFetchJson === null || providerFetchJson === undefined) {
+    return true;
+  }
+  const provider =
+    typeof providerFetchJson === 'object'
+      ? (providerFetchJson as { provider?: unknown }).provider
+      : undefined;
+  return provider === undefined || provider === markerTimestamp.providerId;
 }
 
 function earlierTimestamp(

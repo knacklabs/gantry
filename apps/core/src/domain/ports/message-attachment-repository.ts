@@ -56,8 +56,9 @@ export interface MessageAttachmentDeletionScope {
   appId: string;
   providerId: string;
   providerAccountIds: readonly string[];
-  conversationJid: string;
-  threadId?: string;
+  channelId: string;
+  fallbackConversationJid?: string;
+  requireStoredMessageMatch?: boolean;
   externalMessageIds: readonly string[];
   deletedAt: string;
 }

@@ -78,6 +78,22 @@ function opts(overrides: Partial<ChannelOpts> = {}): ChannelOpts {
   };
 }
 
+function deletionOpts(overrides: Partial<ChannelOpts> = {}): ChannelOpts {
+  return opts({
+    providerAccountId: 'discord-default',
+    conversationRoutes: () => ({
+      'dc:channel-1': {
+        name: 'Discord deletion route',
+        folder: 'main_agent',
+        trigger: '@Main',
+        added_at: '2026-08-01T00:00:00.000Z',
+        providerAccountId: 'discord-default',
+      },
+    }),
+    ...overrides,
+  });
+}
+
 function jsonResponse(body: unknown) {
   return new Response(JSON.stringify(body), {
     status: 200,
@@ -2708,7 +2724,7 @@ describe('DiscordChannel', () => {
     const channel = new DiscordChannel(
       'bot-token',
       'app-id',
-      opts({ onMessageAttachmentsDeleted }),
+      deletionOpts({ onMessageAttachmentsDeleted }),
       (url) => {
         socket = new FakeWebSocket(url);
         return socket;
@@ -2743,7 +2759,7 @@ describe('DiscordChannel', () => {
     const channel = new DiscordChannel(
       'bot-token',
       'app-id',
-      opts({ onMessageAttachmentsDeleted }),
+      deletionOpts({ onMessageAttachmentsDeleted }),
       (url) => {
         socket = new FakeWebSocket(url);
         return socket;
@@ -2775,7 +2791,7 @@ describe('DiscordChannel', () => {
       1,
       expect.objectContaining({
         providerId: 'discord',
-        conversationJid: 'dc:channel-1',
+        channelId: 'dc:channel-1',
         externalMessageIds: ['message-2'],
       }),
     );
@@ -2783,7 +2799,7 @@ describe('DiscordChannel', () => {
       2,
       expect.objectContaining({
         providerId: 'discord',
-        conversationJid: 'dc:channel-1',
+        channelId: 'dc:channel-1',
         externalMessageIds: ['message-1', 'message-3'],
       }),
     );
@@ -2806,7 +2822,7 @@ describe('DiscordChannel', () => {
     const channel = new DiscordChannel(
       'bot-token',
       'app-id',
-      opts({ onMessageAttachmentsDeleted, distrustHistoryCoverage }),
+      deletionOpts({ onMessageAttachmentsDeleted, distrustHistoryCoverage }),
       (url) => {
         socket = new FakeWebSocket(url);
         return socket;
@@ -2829,21 +2845,19 @@ describe('DiscordChannel', () => {
     await channel.disconnect();
   });
 
-  it('fails closed when Discord deletion thread-parent lookup fails', async () => {
+  it('persists admitted raw deletion dispatch without a thread-parent lookup', async () => {
     let socket!: FakeWebSocket;
     const onMessageAttachmentsDeleted = vi.fn(async () => undefined);
     const distrustHistoryCoverage = vi.fn();
-    vi.spyOn(globalThis, 'fetch')
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
       .mockResolvedValueOnce(
         jsonResponse({ url: 'wss://gateway.discord.test' }),
-      )
-      .mockResolvedValueOnce(
-        new Response('provider unavailable', { status: 503 }),
       );
     const channel = new DiscordChannel(
       'bot-token',
       'app-id',
-      opts({ onMessageAttachmentsDeleted, distrustHistoryCoverage }),
+      deletionOpts({ onMessageAttachmentsDeleted, distrustHistoryCoverage }),
       (url) => {
         socket = new FakeWebSocket(url);
         return socket;
@@ -2854,11 +2868,55 @@ describe('DiscordChannel', () => {
     socket.receive({
       op: 0,
       t: 'MESSAGE_DELETE',
-      d: { id: 'message-1', channel_id: 'thread-1' },
+      d: { id: 'message-1', channel_id: 'channel-1' },
     });
 
-    await vi.waitFor(() => expect(distrustHistoryCoverage).toHaveBeenCalled());
-    expect(onMessageAttachmentsDeleted).not.toHaveBeenCalled();
+    await vi.waitFor(() =>
+      expect(onMessageAttachmentsDeleted).toHaveBeenCalledOnce(),
+    );
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(onMessageAttachmentsDeleted).toHaveBeenCalledWith(
+      expect.objectContaining({ channelId: 'dc:channel-1' }),
+    );
+    expect(distrustHistoryCoverage).not.toHaveBeenCalled();
+    await channel.disconnect();
+  });
+
+  it('defers unconfigured-channel admission to the durable stored-message check', async () => {
+    let socket!: FakeWebSocket;
+    const onMessageAttachmentsDeleted = vi.fn(async () => undefined);
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(
+        jsonResponse({ url: 'wss://gateway.discord.test' }),
+      );
+    const channel = new DiscordChannel(
+      'bot-token',
+      'app-id',
+      deletionOpts({ onMessageAttachmentsDeleted }),
+      (url) => {
+        socket = new FakeWebSocket(url);
+        return socket;
+      },
+    );
+
+    await channel.connect();
+    socket.receive({
+      op: 0,
+      t: 'MESSAGE_DELETE',
+      d: { id: 'message-1', channel_id: 'unconfigured-channel' },
+    });
+
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+    expect(onMessageAttachmentsDeleted).toHaveBeenCalledWith({
+      providerId: 'discord',
+      providerAccountIds: ['discord-default'],
+      channelId: 'unconfigured-channel',
+      fallbackConversationJid: 'dc:unconfigured-channel',
+      requireStoredMessageMatch: true,
+      externalMessageIds: ['message-1'],
+      deletedAt: expect.any(String),
+    });
     await channel.disconnect();
   });
 

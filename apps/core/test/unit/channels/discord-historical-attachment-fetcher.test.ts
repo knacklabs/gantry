@@ -130,15 +130,20 @@ describe('Discord historical attachment fetch', () => {
   });
 
   it('allows only the Discord CDN and strips credentials and REST headers on every hop', async () => {
+    const redirectCancel = vi.fn();
     const fetcher = vi
       .fn<typeof fetch>()
       .mockResolvedValueOnce(
-        new Response(null, {
-          status: 302,
-          headers: {
-            location: 'https://cdn.discordapp.com/attachments/1/redirected.txt',
+        new Response(
+          new ReadableStream<Uint8Array>({ cancel: redirectCancel }),
+          {
+            status: 302,
+            headers: {
+              location:
+                'https://cdn.discordapp.com/attachments/1/redirected.txt',
+            },
           },
-        }),
+        ),
       )
       .mockResolvedValueOnce(new Response('ok'));
 
@@ -149,6 +154,7 @@ describe('Discord historical attachment fetch', () => {
     );
 
     expect(response.ok).toBe(true);
+    expect(redirectCancel).toHaveBeenCalledOnce();
     expect(fetcher).toHaveBeenCalledTimes(2);
     for (const [, init] of fetcher.mock.calls) {
       expect(init).toMatchObject({
@@ -175,8 +181,9 @@ describe('Discord historical attachment fetch', () => {
   });
 
   it('rejects a foreign redirect with zero second-hop calls', async () => {
+    const cancel = vi.fn();
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
-      new Response(null, {
+      new Response(new ReadableStream<Uint8Array>({ cancel }), {
         status: 302,
         headers: { location: 'https://evil.test/stolen' },
       }),
@@ -190,6 +197,33 @@ describe('Discord historical attachment fetch', () => {
       ),
     ).rejects.toThrow('Unsafe Discord CDN URL');
     expect(fetcher).toHaveBeenCalledOnce();
+    expect(cancel).toHaveBeenCalledOnce();
+  });
+
+  it('cancels a non-OK final CDN response body', async () => {
+    const cancel = vi.fn();
+    const result = await fetchDiscordHistoricalAttachment(
+      { identity, ...scope },
+      {
+        requestMessage: vi.fn(async () => ({
+          attachments: [
+            {
+              id: 'attachment-1',
+              url: 'https://cdn.discordapp.com/attachments/1/report.bin',
+            },
+          ],
+        })),
+        download: vi.fn(
+          async () =>
+            new Response(new ReadableStream<Uint8Array>({ cancel }), {
+              status: 503,
+            }),
+        ),
+      },
+    );
+
+    expect(result).toEqual({ status: 'unreachable', reason: 'unknown' });
+    expect(cancel).toHaveBeenCalledOnce();
   });
 
   it('propagates cancellation to the CDN response body', async () => {
@@ -282,6 +316,25 @@ describe('Discord historical attachment fetch', () => {
 
     expect(unknownMessage).toEqual({ status: 'deleted' });
     expect(missingAttachment).toEqual({ status: 'deleted' });
+  });
+
+  it.each([
+    {},
+    { attachments: [null] },
+    { attachments: [{}] },
+    { attachments: [{ id: 1 }] },
+  ])('keeps malformed successful message body %# unreachable', async (body) => {
+    const download = vi.fn();
+    const result = await fetchDiscordHistoricalAttachment(
+      { identity, ...scope },
+      {
+        requestMessage: vi.fn(async () => body as never),
+        download,
+      },
+    );
+
+    expect(result).toEqual({ status: 'unreachable', reason: 'unknown' });
+    expect(download).not.toHaveBeenCalled();
   });
 
   it.each([

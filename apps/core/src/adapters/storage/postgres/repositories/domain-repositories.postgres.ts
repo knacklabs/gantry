@@ -1282,6 +1282,12 @@ export class PostgresMessageRepository implements MessageRepository {
               conversationJid: channel.conversationJid,
               ...(message.threadId ? { threadId: message.threadId } : {}),
               externalMessageId,
+              canonicalMessageId: targetMessageId,
+              incomingHasProviderRefs: message.attachments.some(
+                (incoming) =>
+                  typeof incoming.storageRef === 'string' &&
+                  incoming.storageRef.startsWith('provider-attachments/'),
+              ),
             })
           : undefined;
       const replacementAttachmentRows = message.attachments.map(
@@ -1307,13 +1313,26 @@ export class PostgresMessageRepository implements MessageRepository {
             ),
             fileName: existing?.fileName ?? null,
             providerFetchJson: existing?.providerFetchJson ?? null,
-            deletedAt:
-              existing?.deletedAt && deletionMarkerTimestamp
-                ? Date.parse(existing.deletedAt) <=
-                  Date.parse(deletionMarkerTimestamp)
+            deletedAt: (() => {
+              const markerApplies =
+                deletionMarkerTimestamp !== undefined &&
+                (existing?.providerFetchJson === null ||
+                  existing?.providerFetchJson === undefined ||
+                  (existing.providerFetchJson as { provider?: unknown })
+                    .provider === undefined ||
+                  (existing.providerFetchJson as { provider?: unknown })
+                    .provider === deletionMarkerTimestamp.providerId);
+              const markerDeletedAt = markerApplies
+                ? deletionMarkerTimestamp.deletedAt
+                : undefined;
+              if (existing?.deletedAt && markerDeletedAt) {
+                return Date.parse(existing.deletedAt) <=
+                  Date.parse(markerDeletedAt)
                   ? existing.deletedAt
-                  : deletionMarkerTimestamp
-                : (existing?.deletedAt ?? deletionMarkerTimestamp ?? null),
+                  : markerDeletedAt;
+              }
+              return existing?.deletedAt ?? markerDeletedAt ?? null;
+            })(),
             trust: attachment.trust,
           };
         },

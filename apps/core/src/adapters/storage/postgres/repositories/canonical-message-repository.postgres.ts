@@ -338,6 +338,12 @@ export class PostgresCanonicalMessageRepository {
                     conversationJid: msg.chat_jid,
                     ...(msg.thread_id ? { threadId: msg.thread_id } : {}),
                     externalMessageId,
+                    canonicalMessageId,
+                    incomingHasProviderRefs: msg.attachments.some(
+                      (incoming) =>
+                        typeof incoming.storageRef === 'string' &&
+                        incoming.storageRef.startsWith('provider-attachments/'),
+                    ),
                   })
                 : undefined,
           });
