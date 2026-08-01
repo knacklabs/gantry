@@ -91,7 +91,7 @@ maybeDescribe('identity memory scope cleanup migration', () => {
 
       const migration = fs.readFileSync(
         path.resolve(
-          'apps/core/src/adapters/storage/postgres/schema/migrations/0121_identity_app_scoped_person_foreign_keys.sql',
+          'apps/core/src/adapters/storage/postgres/schema/migrations/20260801060612_identity_app_scoped_person_foreign_keys.sql',
         ),
         'utf8',
       );
