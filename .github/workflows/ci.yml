@@ -60,6 +60,12 @@ jobs:
       - name: Architecture check
         run: npm run check:architecture
 
+      - name: Drizzle migration check
+        run: |
+          npm run db:migrations:check
+          npm run db:migrations:generate -- --name ci_schema_drift
+          test -z "$(git status --porcelain -- apps/core/src/adapters/storage/postgres/schema/migrations)"
+
       - name: Typecheck
         run: npm run typecheck
 
@@ -68,6 +74,11 @@ jobs:
           docker exec ${{ job.services.postgres.id }} psql -U postgres -d gantry_test -v ON_ERROR_STOP=1 \
             -c 'CREATE EXTENSION IF NOT EXISTS vector;' \
             -c 'CREATE EXTENSION IF NOT EXISTS pg_trgm;'
+
+      - name: Apply migrations to clean Postgres schema
+        env:
+          GANTRY_TEST_DATABASE_URL: postgres://postgres:postgres@localhost:${{ job.services.postgres.ports[5432] }}/gantry_test
+        run: npm run test:integration:postgres -- apps/core/test/integration/postgres-migration-chain.postgres.integration.test.ts
 
       - name: Generate runtime SBOM
         run: npm run --silent security:sbom > gantry-runtime-sbom.cdx.json

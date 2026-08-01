@@ -806,6 +806,27 @@
       "when": 1785097200000,
       "tag": "0117_message_attachment_metadata",
       "breakpoints": true
+    },
+    {
+      "idx": 118,
+      "version": "7",
+      "when": 1785264903868,
+      "tag": "20260728185503_schema_generation_baseline",
+      "breakpoints": true
+    },
+    {
+      "idx": 119,
+      "version": "7",
+      "when": 1785506704668,
+      "tag": "20260731140504_lease_generation_already_applied",
+      "breakpoints": true
+    },
+    {
+      "idx": 120,
+      "version": "7",
+      "when": 1785511283332,
+      "tag": "20260731152123_attachment_metadata_already_applied",
+      "breakpoints": true
     }
   ]
 }
