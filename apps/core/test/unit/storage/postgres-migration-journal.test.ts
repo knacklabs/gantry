@@ -1848,28 +1848,28 @@ describe('Postgres migration journal', () => {
     };
     expect(
       journal.entries.find(
-        (entry) => entry.tag === '20260801021500_conversation_history_coverage',
+        (entry) => entry.tag === '20260801013511_conversation_history_coverage',
       ),
     ).toMatchObject({ idx: 121 });
 
     const migration = fs.readFileSync(
       path.resolve(
-        'apps/core/src/adapters/storage/postgres/schema/migrations/20260801021500_conversation_history_coverage.sql',
+        'apps/core/src/adapters/storage/postgres/schema/migrations/20260801013511_conversation_history_coverage.sql',
       ),
       'utf8',
     );
     expect(migration).toContain(
-      'CREATE TABLE IF NOT EXISTS "conversation_history_coverage"',
+      'CREATE TABLE "conversation_history_coverage"',
     );
     expect(migration).toContain(
-      'REFERENCES "conversations"("id") ON DELETE CASCADE',
+      'FOREIGN KEY ("conversation_id") REFERENCES "conversations"("id") ON DELETE cascade',
     );
     expect(migration).toContain(
-      '"provider_account_id" text NOT NULL REFERENCES "provider_accounts"("id") ON DELETE CASCADE',
+      'FOREIGN KEY ("provider_account_id") REFERENCES "provider_accounts"("id") ON DELETE cascade',
     );
     expect(migration).toContain('"uniq_conversation_history_coverage_scope"');
     expect(migration).toContain(
-      'UNIQUE NULLS NOT DISTINCT ("provider_account_id", "conversation_id", "scope_kind", "scope_id")',
+      'UNIQUE NULLS NOT DISTINCT("provider_account_id","conversation_id","scope_kind","scope_id")',
     );
     expect(migration).toContain('NULLS NOT DISTINCT');
     expect(migration).toContain('"conversation_history_coverage_scope_check"');
