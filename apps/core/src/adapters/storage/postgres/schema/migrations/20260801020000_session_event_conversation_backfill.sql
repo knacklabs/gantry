@@ -1,5 +1,3 @@
-CREATE INDEX IF NOT EXISTS idx_agent_runs_conversation_created
-  ON agent_runs (app_id, conversation_id, created_at DESC, id DESC);--> statement-breakpoint
 -- Backfill the read key BEFORE the session feed starts filtering on it.
 --
 -- The feed switches from session_id to the canonical conversation_id. Events
