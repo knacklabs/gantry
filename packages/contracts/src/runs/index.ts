@@ -36,7 +36,10 @@ export const AgentRunResponseSchema = z.object({
   jobId: z.string().nullable().optional(),
   llmProfileId: z.string(),
   permissionDecisionIds: z.array(z.string()),
-  sandboxLeaseId: z.string().nullable().optional(),
+  // Deliberately absent: acceptance criterion 7 of the E2E reliability plan
+  // says run responses expose no provider, worker, lease, or execution-provider
+  // internals. The sandbox lease stays on the internal run record and its
+  // storage row; z.object strips it here, so the public payload cannot carry it.
   workspaceSnapshotId: z.string().nullable().optional(),
   cause: AgentRunCauseSchema,
   status: AgentRunStatusSchema,

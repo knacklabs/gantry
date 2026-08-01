@@ -64,7 +64,11 @@ export function mapSession(row: CanonicalControlRow): AppSessionRecord {
   return {
     sessionId: String(column(row, 'session_id', 'sessionId')),
     appId: String(column(row, 'app_id', 'appId')),
+    agentId,
     conversationId,
+    canonicalConversationId: String(
+      column(row, 'conversation_id', 'conversationId'),
+    ),
     chatJid:
       text(external.chatJid) ??
       text(external.externalConversationRef) ??

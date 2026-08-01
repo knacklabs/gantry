@@ -4,7 +4,7 @@ import {
   toGroupMessageCursor,
 } from '../shared/message-cursor.js';
 import { logger } from '../infrastructure/logging/logger.js';
-import { MessageSendOptions } from '../domain/types.js';
+import { MessageSendOptions, NewMessage } from '../domain/types.js';
 import {
   createSerializedAgentOutputCallbacks,
   isAgentTurnCompleteMarker,
@@ -50,6 +50,8 @@ import { collectPendingMessagesSince } from './pending-message-replay.js';
 import { buildGroupProcessingConversationContext } from './group-processing-context.js';
 import { createGroupOutputBuffer } from './group-output-buffer.js';
 import { activeTurnUiCleanupByQueue } from './group-active-turn-cleanup.js';
+import { randomUUID } from 'node:crypto';
+import { nowIso } from '../shared/time/datetime.js';
 import { createGroupProcessingSessionCommandHandlers } from './group-processing-session-command-handlers.js';
 import {
   isFailoverEligibleError,
@@ -417,6 +419,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
     let hadError = false;
     let lastAgentError: string | undefined;
     let outputSentToUser = false;
+    const undeliveredGenerations: string[] = [];
     let streamedTranscriptDeliveryStatus: 'none' | 'sent' | 'partially_sent' =
       'none';
     let sawRawOutput = false;
@@ -506,6 +509,42 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
       buildMessageOptions,
       sendMessageToChannel,
       applyDeliverySettlement,
+      getStreamedTranscriptDeliveryStatus: () =>
+        streamedTranscriptDeliveryStatus,
+      // Persistence is per completed generation, so the accounting has to be
+      // too: otherwise a delivered generation leaves the status non-'none' and
+      // a later, wholly undelivered one is persisted as if it had been sent.
+      resetStreamedTranscriptDeliveryStatus: () => {
+        streamedTranscriptDeliveryStatus = 'none';
+      },
+      onGenerationUndelivered: (text) => {
+        undeliveredGenerations.push(text);
+      },
+      persistCompletedStreamedGeneration: async (text, deliveryStatus) => {
+        const timestamp = nowIso();
+        const message: NewMessage = {
+          id: `streamed-outbound:${randomUUID()}`,
+          chat_jid: chatJid,
+          sender: 'gantry',
+          sender_name: 'Gantry',
+          content: text.trim(),
+          timestamp,
+          is_from_me: true,
+          is_bot_message: true,
+          thread_id: activeThreadId,
+          delivery_status: deliveryStatus,
+          // Only claim a delivery time when something was actually delivered.
+          delivered_at: deliveryStatus === 'failed' ? undefined : timestamp,
+        };
+        await ops()
+          .storeMessage(message)
+          .catch((err: unknown) =>
+            logger.warn(
+              { err, group: group.name },
+              'Failed to persist streamed assistant generation',
+            ),
+          );
+      },
       log: logger,
     });
     const finalizeStreamingOutput = outputBuffer.flushBufferedOutput;
@@ -719,15 +758,12 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
       });
     } else {
       const finalization = await finalizeGroupAgentUserVisibleOutput({
-        streamedTranscriptDeliveryStatus,
         boundedTranscript: outputBuffer.transcriptSnapshot(),
-        chatJid,
-        activeThreadId,
         outputSentToUser,
+        undeliveredGenerations: undeliveredGenerations.join('\n\n'),
         sawRawOutput,
         groupName: group.name,
         warn: (metadata, message) => logger.warn(metadata, message),
-        storeMessage: (message) => ops().storeMessage(message),
         buildMessageOptions,
         sendMessageToChannel: async (text, options) =>
           settleDeliveryAttempt(() => sendMessageToChannel(text, options), {

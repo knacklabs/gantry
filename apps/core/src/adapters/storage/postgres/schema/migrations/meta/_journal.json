@@ -834,6 +834,20 @@
       "when": 1785548111633,
       "tag": "20260801013511_conversation_history_coverage",
       "breakpoints": true
+    },
+    {
+      "idx": 122,
+      "version": "7",
+      "when": 1785549600000,
+      "tag": "20260801020000_session_event_conversation_backfill",
+      "breakpoints": true
+    },
+    {
+      "idx": 123,
+      "version": "7",
+      "when": 1785564366568,
+      "tag": "20260801060606_session_observability_index",
+      "breakpoints": true
     }
   ]
 }

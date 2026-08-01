@@ -37,9 +37,27 @@ export function createGroupOutputBuffer(input: {
     settlement: DeliverySettlement,
     options: { streamed: boolean; terminal: boolean },
   ) => void;
+  resetStreamedTranscriptDeliveryStatus?: () => void;
+  /** A generation finished having delivered nothing to the user. */
+  onGenerationUndelivered?: (text: string) => void;
+  getStreamedTranscriptDeliveryStatus: () => 'none' | 'sent' | 'partially_sent';
+  persistCompletedStreamedGeneration?: (
+    text: string,
+    deliveryStatus: 'sent' | 'partially_sent' | 'failed',
+  ) => Promise<void>;
   log: RuntimeLogger;
 }) {
   const userVisibleTranscript = createRuntimeResultSummaryAccumulator();
+  // Scoped to ONE generation, unlike userVisibleTranscript which spans the run.
+  // `text` below is only the delta since the previous flush (the visible
+  // accumulator resets on every flush), so persisting it alone would store a
+  // multi-chunk reply truncated to its last chunk.
+  //
+  // Plain accumulation, NOT createRuntimeResultSummaryAccumulator: that one is
+  // the bounded 4k summary used for `boundedTranscript`, and it keeps only the
+  // tail. Persisting a durable message through it would silently truncate any
+  // reply the user received in full. Held only until the generation completes.
+  let generationParts: string[] = [];
   let pendingOutputVisible = createRuntimeUserVisibleResultAccumulator();
   let streamSanitizer = createRuntimeUserVisibleStreamSanitizer();
   let pendingOutputRawChars = 0;
@@ -82,6 +100,37 @@ export function createGroupOutputBuffer(input: {
         return 'not_delivered' as const;
       });
       input.applyDeliverySettlement(settlement, { streamed: true, terminal });
+      // Verbatim, no separator: flush boundaries are a transport detail and
+      // can fall mid-word, so appending a newline here would store "hel\nlo"
+      // for a reply the user received as "hello".
+      generationParts.push(text);
+      if (done) {
+        const deliveryStatus = input.getStreamedTranscriptDeliveryStatus();
+        const completed = generationParts.join('').trim();
+        if (completed) {
+          // Persist what the assistant PRODUCED, and record what happened to it
+          // in delivery_status — rather than skipping the row when nothing was
+          // delivered. Skipping loses the reply entirely: transports that
+          // acknowledge asynchronously (the app channel emits events rather
+          // than confirming a send) leave the status at 'none', so the message
+          // never reached /messages at all.
+          await input.persistCompletedStreamedGeneration?.(
+            completed,
+            deliveryStatus === 'none' ? 'failed' : deliveryStatus,
+          );
+          if (deliveryStatus === 'none') {
+            // Also offer it to finalization's fallback: the run-wide sent flag
+            // may already be true from an earlier generation, which would
+            // otherwise suppress a re-send to the user.
+            input.onGenerationUndelivered?.(completed);
+          }
+        }
+        // Both the text and the delivery accounting belong to the generation
+        // that just ended: without these resets the next generation inherits a
+        // previous one's transcript and its sent/partially_sent status.
+        generationParts = [];
+        input.resetStreamedTranscriptDeliveryStatus?.();
+      }
     } else {
       const messageOptions = await input.buildMessageOptions();
       const settlement = await settleDeliveryAttempt(
