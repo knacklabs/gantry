@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, isNull, or, sql } from 'drizzle-orm';
+import { and, asc, eq, gt, inArray, isNull, or, sql } from 'drizzle-orm';
 
 import type {
   AttachmentStorageClaimResult,
@@ -13,6 +13,7 @@ import { isProviderAttachmentStorageRef } from '../../../../shared/provider-atta
 import type { CanonicalDb } from './canonical-graph-repository.postgres.js';
 import { lockCanonicalMessageAttachments } from './canonical-message-attachment-lock.postgres.js';
 import {
+  deletionScopeFromMarker,
   normalizeMessageAttachmentDeletionScope,
   persistMessageAttachmentDeletionMarker,
   type NormalizedMessageAttachmentDeletionScope,
@@ -415,25 +416,40 @@ export class PostgresMessageAttachmentRepository implements MessageAttachmentRep
 
   async retryPendingMessageAttachmentDeletions(): Promise<boolean> {
     const marker = pgSchema.messageAttachmentDeletionMarkersPostgres;
-    const pending = await this.db
-      .select({ id: marker.id })
-      .from(marker)
-      .orderBy(asc(marker.createdAt), asc(marker.id))
-      .limit(100);
     let firstError: unknown;
-    for (const row of pending) {
-      try {
-        await this.processDeletionMarker(row.id);
-      } catch (err) {
-        firstError ??= err;
+    let cursor: { createdAt: string; id: string } | undefined;
+    while (true) {
+      const pending = await this.db
+        .select({ id: marker.id, createdAt: marker.createdAt })
+        .from(marker)
+        .where(
+          cursor
+            ? or(
+                gt(marker.createdAt, cursor.createdAt),
+                and(
+                  eq(marker.createdAt, cursor.createdAt),
+                  gt(marker.id, cursor.id),
+                ),
+              )
+            : undefined,
+        )
+        .orderBy(asc(marker.createdAt), asc(marker.id))
+        .limit(100);
+      for (const row of pending) {
+        try {
+          await this.processDeletionMarker(row.id);
+        } catch (err) {
+          firstError ??= err;
+        }
       }
+      if (pending.length < 100) break;
+      cursor = pending[pending.length - 1];
     }
     if (firstError) throw firstError;
-    // Markers that survive a clean pass matched no existing message: they are
+    // Markers that survive a clean sweep matched no existing message: they are
     // waiting on the ingest race (or a foreign/unknown id that never arrives)
-    // and are not actionable work. Signal another pass only when this one was
-    // truncated by the batch limit.
-    return pending.length === 100;
+    // and are not actionable work.
+    return false;
   }
 
   private async processDeletionMarker(
@@ -600,35 +616,6 @@ export class PostgresMessageAttachmentRepository implements MessageAttachmentRep
       this.cleanupProviderAttachment,
     );
   }
-}
-
-function deletionScopeFromMarker(
-  row:
-    | typeof pgSchema.messageAttachmentDeletionMarkersPostgres.$inferSelect
-    | undefined,
-): NormalizedMessageAttachmentDeletionScope | undefined {
-  if (!row) return undefined;
-  const providerAccountIds = stringArray(row.providerAccountIdsJson);
-  const externalMessageIds = stringArray(row.externalMessageIdsJson);
-  if (providerAccountIds.length === 0 || externalMessageIds.length === 0) {
-    return undefined;
-  }
-  return {
-    markerId: row.id,
-    appId: row.appId,
-    providerId: row.providerId,
-    providerAccountIds,
-    conversationJid: row.conversationJid,
-    ...(row.threadId ? { threadId: row.threadId } : {}),
-    externalMessageIds,
-    deletedAt: row.deletedAt,
-  };
-}
-
-function stringArray(value: unknown): string[] {
-  return Array.isArray(value)
-    ? value.filter((item): item is string => typeof item === 'string')
-    : [];
 }
 
 function toIsoTimestamp(value: string): string {

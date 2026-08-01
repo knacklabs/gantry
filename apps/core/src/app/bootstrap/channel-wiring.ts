@@ -415,7 +415,6 @@ export function createChannelWiring(
         );
       }
     }
-
     let outboundOps = (() => {
       if (options.persistence !== 'message_row_projection') return undefined;
       return optionalOps();

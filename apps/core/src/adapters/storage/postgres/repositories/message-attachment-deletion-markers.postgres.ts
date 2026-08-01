@@ -128,8 +128,37 @@ export async function deletionMarkerTimestampForMessage(
   return rows.map((row) => row.deletedAt).sort()[0];
 }
 
+export function deletionScopeFromMarker(
+  row:
+    | typeof pgSchema.messageAttachmentDeletionMarkersPostgres.$inferSelect
+    | undefined,
+): NormalizedMessageAttachmentDeletionScope | undefined {
+  if (!row) return undefined;
+  const providerAccountIds = stringArray(row.providerAccountIdsJson);
+  const externalMessageIds = stringArray(row.externalMessageIdsJson);
+  if (providerAccountIds.length === 0 || externalMessageIds.length === 0) {
+    return undefined;
+  }
+  return {
+    markerId: row.id,
+    appId: row.appId,
+    providerId: row.providerId,
+    providerAccountIds,
+    conversationJid: row.conversationJid,
+    ...(row.threadId ? { threadId: row.threadId } : {}),
+    externalMessageIds,
+    deletedAt: row.deletedAt,
+  };
+}
+
 function normalizedStrings(values: readonly string[]): string[] {
   return [
     ...new Set(values.map((value) => value.trim()).filter(Boolean)),
   ].sort();
+}
+
+function stringArray(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === 'string')
+    : [];
 }

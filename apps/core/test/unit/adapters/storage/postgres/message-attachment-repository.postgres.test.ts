@@ -8,6 +8,50 @@ import { PostgresMessageAttachmentRepository } from '@core/adapters/storage/post
 import { reclaimTombstonedProviderAttachment } from '@core/adapters/storage/postgres/repositories/provider-attachment-cleanup.postgres.js';
 
 describe('PostgresMessageAttachmentRepository', () => {
+  it('sweeps past a full page of retained unmatched deletion markers', async () => {
+    const markers = Array.from({ length: 101 }, (_, index) => ({
+      id: `marker-${String(index).padStart(3, '0')}`,
+      createdAt: '2026-08-01T00:00:00.000Z',
+    }));
+    let page = 0;
+    const select = vi.fn(() => ({
+      from: vi.fn(() => ({
+        where: vi.fn(() => ({
+          orderBy: vi.fn(() => ({
+            limit: vi.fn(async () =>
+              page++ === 0 ? markers.slice(0, 100) : markers.slice(100),
+            ),
+          })),
+        })),
+      })),
+    }));
+    const markerTx = {
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({
+            limit: vi.fn(() => ({
+              for: vi.fn(async () => []),
+            })),
+          })),
+        })),
+      })),
+    };
+    const db = {
+      select,
+      transaction: vi.fn(async (run: (transaction: never) => unknown) =>
+        run(markerTx as never),
+      ),
+    };
+    const repository = new PostgresMessageAttachmentRepository(db as never);
+
+    await expect(
+      repository.retryPendingMessageAttachmentDeletions(),
+    ).resolves.toBe(false);
+
+    expect(select).toHaveBeenCalledTimes(2);
+    expect(db.transaction).toHaveBeenCalledTimes(101);
+  });
+
   it('persists first, then deduplicates a message-scoped tombstone transaction with deterministic locks', async () => {
     const operations: string[] = [];
     const select = vi

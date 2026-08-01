@@ -99,6 +99,12 @@ keeps the docs honest automatically.
 - Slack and Telegram workspace-reference reads have not moved behind the
   attachment resolver; that workspace-ref migration remains pending.
 - Teams remains deferred under D-0034.
+- Deletion markers for scopes that never match (foreign or truly unknown
+  message ids) are retained indefinitely by design — they are the ingest-race
+  guard; a retention sweep is future hygiene, not a correctness gap.
+- The durable deletion mechanism is Discord-registered only; the marker
+  table and repository operation are provider-neutral and ready for Slack/
+  Telegram registration.
 
 ## Verification bar
 
