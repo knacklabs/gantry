@@ -18,10 +18,7 @@ export function createChannelAttachmentDeletionHandler(
     warn?: (context: Record<string, unknown>, message: string) => void;
   } = {},
 ): (event: ChannelAttachmentDeletionEvent) => Promise<void> {
-  const retry = createMessageAttachmentDeletionRetryWorker(
-    repository,
-    options,
-  );
+  const retry = createMessageAttachmentDeletionRetryWorker(repository, options);
   retry.trigger();
   return async (event) => {
     try {

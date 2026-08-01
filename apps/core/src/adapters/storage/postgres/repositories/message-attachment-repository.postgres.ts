@@ -556,9 +556,7 @@ export class PostgresMessageAttachmentRepository implements MessageAttachmentRep
           const deletedAt =
             updatedDeletedAtById.get(row.id) ??
             (row.deletedAt ? toIsoTimestamp(row.deletedAt) : undefined);
-          return deletedAt
-            ? [{ attachmentId: row.id, deletedAt }]
-            : [];
+          return deletedAt ? [{ attachmentId: row.id, deletedAt }] : [];
         }),
         // The marker is consumed once its message exists: attachments arrive
         // with the message row, so a matched message with nothing left to
@@ -580,7 +578,9 @@ export class PostgresMessageAttachmentRepository implements MessageAttachmentRep
     if (result.matched) {
       await this.db
         .delete(pgSchema.messageAttachmentDeletionMarkersPostgres)
-        .where(eq(pgSchema.messageAttachmentDeletionMarkersPostgres.id, markerId));
+        .where(
+          eq(pgSchema.messageAttachmentDeletionMarkersPostgres.id, markerId),
+        );
     }
     return {
       tombstonedAttachments: [...result.tombstonedAttachments].sort((a, b) =>

@@ -6,8 +6,7 @@ import type { MessageAttachmentDeletionScope } from '../../../../domain/ports/me
 import type { CanonicalExecutor } from './canonical-graph-repository.postgres.js';
 import * as pgSchema from '../schema/schema.js';
 
-export interface NormalizedMessageAttachmentDeletionScope
-  extends MessageAttachmentDeletionScope {
+export interface NormalizedMessageAttachmentDeletionScope extends MessageAttachmentDeletionScope {
   markerId: string;
   providerAccountIds: readonly string[];
   externalMessageIds: readonly string[];
@@ -126,11 +125,11 @@ export async function deletionMarkerTimestampForMessage(
         .where(eq(marker.id, row.id));
     }
   }
-  return rows
-    .map((row) => row.deletedAt)
-    .sort()[0];
+  return rows.map((row) => row.deletedAt).sort()[0];
 }
 
 function normalizedStrings(values: readonly string[]): string[] {
-  return [...new Set(values.map((value) => value.trim()).filter(Boolean))].sort();
+  return [
+    ...new Set(values.map((value) => value.trim()).filter(Boolean)),
+  ].sort();
 }

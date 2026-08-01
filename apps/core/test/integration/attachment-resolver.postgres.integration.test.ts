@@ -875,7 +875,9 @@ maybeDescribe('attachment resolver with Postgres repositories', () => {
 
   it('keeps a deletion marker until a later Discord message insert lands tombstoned', async () => {
     const root = materializationRoot('discord-delete-before-insert');
-    const discord = fakeDiscordFetcher({ content: Buffer.from('never fetched') });
+    const discord = fakeDiscordFetcher({
+      content: Buffer.from('never fetched'),
+    });
     const seam = createPostgresSeam(runtime, root, discord.fetcher);
     const conversationJid = 'dc:discord-delete-before-insert';
     const messageId = 'discord-delete-before-insert-message';
