@@ -4,6 +4,65 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 describe('Postgres migration journal', () => {
+  it('uses native timestamp-prefixed Drizzle migration tooling', () => {
+    const config = fs.readFileSync(
+      path.resolve('drizzle.postgres.config.ts'),
+      'utf8',
+    );
+    const packageJson = JSON.parse(
+      fs.readFileSync(path.resolve('package.json'), 'utf8'),
+    ) as { scripts: Record<string, string> };
+
+    expect(config).toContain(
+      "schema: './apps/core/src/adapters/storage/postgres/schema/schema.ts'",
+    );
+    expect(config).toContain(
+      "out: './apps/core/src/adapters/storage/postgres/schema/migrations'",
+    );
+    expect(config).toContain("prefix: 'timestamp'");
+    expect(config).not.toContain('dbCredentials');
+    expect(packageJson.scripts).toMatchObject({
+      'db:migrations:generate':
+        'drizzle-kit generate --config drizzle.postgres.config.ts',
+      'db:migrations:custom':
+        'drizzle-kit generate --config drizzle.postgres.config.ts --custom',
+      'db:migrations:check':
+        'drizzle-kit check --config drizzle.postgres.config.ts',
+    });
+  });
+
+  it('baselines generated migrations without changing the database', () => {
+    const migrationsDir = path.resolve(
+      'apps/core/src/adapters/storage/postgres/schema/migrations',
+    );
+    const journal = JSON.parse(
+      fs.readFileSync(path.join(migrationsDir, 'meta/_journal.json'), 'utf8'),
+    ) as { entries: Array<{ tag: string }> };
+    const baseline = journal.entries.find((entry) =>
+      entry.tag.endsWith('_schema_generation_baseline'),
+    );
+
+    expect(baseline?.tag).toMatch(/^\d{14}_schema_generation_baseline$/);
+    expect(
+      fs
+        .readFileSync(path.join(migrationsDir, `${baseline?.tag}.sql`), 'utf8')
+        .trim(),
+    ).toBe(
+      '-- Schema-generation baseline: historical migrations already applied this DDL.',
+    );
+    const snapshot = JSON.parse(
+      fs.readFileSync(
+        path.join(
+          migrationsDir,
+          'meta',
+          `${baseline?.tag.slice(0, 14)}_snapshot.json`,
+        ),
+        'utf8',
+      ),
+    ) as { tables: Record<string, unknown> };
+    expect(Object.keys(snapshot.tables)).toHaveLength(103);
+  });
+
   it('has a SQL file for every journal entry', () => {
     const journalPath = path.resolve(
       'apps/core/src/adapters/storage/postgres/schema/migrations/meta/_journal.json',
@@ -1789,13 +1848,13 @@ describe('Postgres migration journal', () => {
     };
     expect(
       journal.entries.find(
-        (entry) => entry.tag === '0118_conversation_history_coverage',
+        (entry) => entry.tag === '20260801021500_conversation_history_coverage',
       ),
-    ).toMatchObject({ idx: 118 });
+    ).toMatchObject({ idx: 121 });
 
     const migration = fs.readFileSync(
       path.resolve(
-        'apps/core/src/adapters/storage/postgres/schema/migrations/0118_conversation_history_coverage.sql',
+        'apps/core/src/adapters/storage/postgres/schema/migrations/20260801021500_conversation_history_coverage.sql',
       ),
       'utf8',
     );

@@ -1,0 +1,1 @@
+-- Schema-generation baseline: historical migrations already applied this DDL.
