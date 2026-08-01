@@ -91,36 +91,48 @@ WHERE (provider IN ('email', 'phone')
   AND retired_at IS NULL;
 
 -- Retired tombstones must match normalized lookups (they gate alias re-binding),
--- so normalize them too — but only where the stored value normalizes cleanly.
--- Values that do not normalize to a valid form are left byte-for-byte untouched:
--- they can never match a valid normalized request, so they bypass nothing.
-UPDATE user_aliases
-SET
-  external_user_id = CASE
-    WHEN provider = 'email' OR evidence_json->>'evidenceType' = 'email'
-      THEN lower(btrim(external_user_id))
-    ELSE CASE
+-- so normalize them too — but only where the stored value normalizes cleanly AND
+-- the normalized value would not collide with any other person's alias on the
+-- same (provider, account) key. Colliding or junk values stay byte-for-byte
+-- untouched: an ambiguous tombstone is worse than an unnormalized one, and junk
+-- can never match a valid normalized request, so neither bypasses anything.
+WITH contact AS (
+  SELECT
+    id,
+    user_id,
+    app_id,
+    provider,
+    COALESCE(provider_account_id, '') AS pa,
+    external_user_id,
+    CASE
+      WHEN provider = 'email' OR evidence_json->>'evidenceType' = 'email'
+        THEN lower(btrim(external_user_id))
       WHEN btrim(external_user_id) LIKE '00%'
+        AND ('+' || regexp_replace(substr(btrim(external_user_id), 3), '[^0-9]', '', 'g'))
+          ~ '^\+[1-9][0-9]{1,14}$'
         THEN '+' || regexp_replace(substr(btrim(external_user_id), 3), '[^0-9]', '', 'g')
-      ELSE '+' || regexp_replace(substr(btrim(external_user_id), 2), '[^0-9]', '', 'g')
-    END
-  END,
-  updated_at = now()
-WHERE (provider IN ('email', 'phone')
-   OR evidence_json->>'evidenceType' IN ('email', 'phone'))
-  AND retired_at IS NOT NULL
-  AND CASE
-    WHEN provider = 'email' OR evidence_json->>'evidenceType' = 'email'
-      THEN lower(btrim(external_user_id)) IS DISTINCT FROM external_user_id
-    ELSE btrim(external_user_id) ~ '^(\+|00)'
-      AND (CASE
-        WHEN btrim(external_user_id) LIKE '00%'
-          THEN '+' || regexp_replace(substr(btrim(external_user_id), 3), '[^0-9]', '', 'g')
-        ELSE '+' || regexp_replace(substr(btrim(external_user_id), 2), '[^0-9]', '', 'g')
-      END) ~ '^\+[1-9][0-9]{1,14}$'
-      AND (CASE
-        WHEN btrim(external_user_id) LIKE '00%'
-          THEN '+' || regexp_replace(substr(btrim(external_user_id), 3), '[^0-9]', '', 'g')
-        ELSE '+' || regexp_replace(substr(btrim(external_user_id), 2), '[^0-9]', '', 'g')
-      END) IS DISTINCT FROM external_user_id
-  END;
+      WHEN btrim(external_user_id) LIKE '+%'
+        AND ('+' || regexp_replace(substr(btrim(external_user_id), 2), '[^0-9]', '', 'g'))
+          ~ '^\+[1-9][0-9]{1,14}$'
+        THEN '+' || regexp_replace(substr(btrim(external_user_id), 2), '[^0-9]', '', 'g')
+    END AS norm
+  FROM user_aliases
+  WHERE provider IN ('email', 'phone')
+     OR evidence_json->>'evidenceType' IN ('email', 'phone')
+)
+UPDATE user_aliases ua
+SET external_user_id = c.norm, updated_at = now()
+FROM contact c
+WHERE ua.id = c.id
+  AND ua.retired_at IS NOT NULL
+  AND c.norm IS NOT NULL
+  AND c.norm IS DISTINCT FROM c.external_user_id
+  AND NOT EXISTS (
+    SELECT 1
+    FROM contact other
+    WHERE other.app_id = c.app_id
+      AND other.provider = c.provider
+      AND other.pa = c.pa
+      AND other.user_id <> c.user_id
+      AND COALESCE(other.norm, other.external_user_id) = c.norm
+  );

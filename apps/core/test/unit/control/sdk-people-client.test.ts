@@ -48,6 +48,7 @@ describe('@gantry/sdk People client', () => {
       appId: 'app/one',
       sourcePersonId: 'person/source',
       idempotencyKey: 'merge-1',
+      fingerprint: 'sha256:preview',
       conflictResolution: 'fail_on_conflict',
     });
 
@@ -106,6 +107,7 @@ describe('@gantry/sdk People client', () => {
           appId: 'app/one',
           sourcePersonId: 'person/source',
           idempotencyKey: 'merge-1',
+          fingerprint: 'sha256:preview',
           conflictResolution: 'fail_on_conflict',
         },
       },

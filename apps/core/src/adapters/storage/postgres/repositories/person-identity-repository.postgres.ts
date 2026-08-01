@@ -623,6 +623,9 @@ export class PostgresPersonIdentityRepository implements PersonIdentityRepositor
         .update(pgSchema.personMergeAuditPostgres)
         .set({
           resultJson: sql`${pgSchema.personMergeAuditPostgres.resultJson} || jsonb_build_object('unmergedAt', ${timestamp}::text, 'unmergedBy', ${input.actor}::text)`,
+          // Free the idempotency key: a repeat merge with the same deterministic
+          // key must run fresh, not replay this spent (unmerged) audit.
+          idempotencyKey: sql`${pgSchema.personMergeAuditPostgres.idempotencyKey} || ':unmerged:' || ${audit.id}`,
         })
         .where(
           and(

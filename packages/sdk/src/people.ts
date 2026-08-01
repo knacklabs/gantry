@@ -7,6 +7,8 @@ import type {
   PersonAliasVerificationStatus,
   PersonMergeApplyResponse,
   PersonMergeApplyRequest,
+  PersonUnmergeRequest,
+  PersonUnmergeResponse,
   PersonMergeConflictResolution,
   PersonMergeRequest,
   PersonMergePreviewResponse,
@@ -88,5 +90,11 @@ export function createPeopleClient(request: Requester) {
           body: input,
         }),
     },
+    unmerge: (personId: string, input: PersonUnmergeRequest) =>
+      request<PersonUnmergeResponse>({
+        method: 'POST',
+        path: `/v1/people/${encodeURIComponent(personId)}/unmerge`,
+        body: input,
+      }),
   };
 }

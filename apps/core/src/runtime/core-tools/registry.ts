@@ -557,7 +557,8 @@ async function memoryResult(
         // `agent:<folder>`, and every sibling call site here uses
         // deps.context.agentId — a folder here addresses a different namespace
         // and reads as lost durable memory (review finding, 2026-08-01).
-        agentId: deps.context.agentId ?? deps.context.sourceAgentFolder,
+        agentId:
+          deps.context.agentId ?? `agent:${deps.context.sourceAgentFolder}`,
         chatJid: deps.context.conversationId,
         threadId: deps.context.threadId,
         personId: deps.context.memoryUserId,

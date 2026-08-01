@@ -28,9 +28,12 @@ describe('contact alias normalization migration', () => {
   it('rewrites live aliases unconditionally, retired ones only when they normalize cleanly', () => {
     const update = migration.slice(migration.indexOf('UPDATE user_aliases'));
     expect(update).toContain('AND retired_at IS NULL');
-    const retiredUpdate = migration.slice(
-      migration.indexOf('AND retired_at IS NOT NULL'),
-    );
+    const retiredUpdate = migration.slice(migration.indexOf('WITH contact'));
+    expect(retiredUpdate).toContain('AND ua.retired_at IS NOT NULL');
     expect(retiredUpdate).toContain(String.raw`~ '^\+[1-9][0-9]{1,14}$'`);
+    // Ambiguous tombstones stay untouched: normalization must not collapse
+    // two people's aliases onto one key.
+    expect(retiredUpdate).toContain('NOT EXISTS');
+    expect(retiredUpdate).toContain('other.user_id <> c.user_id');
   });
 });
