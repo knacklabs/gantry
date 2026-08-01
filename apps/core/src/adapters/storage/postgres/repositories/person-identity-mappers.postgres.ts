@@ -271,7 +271,9 @@ export async function restorePersonalMemory(
     const current = await executor
       .select({ id: memory.id, status: memory.status })
       .from(memory)
-      .where(and(eq(memory.appId, input.appId), inArray(memory.id, supersededIds)))
+      .where(
+        and(eq(memory.appId, input.appId), inArray(memory.id, supersededIds)),
+      )
       .orderBy(memory.id)
       .for('update');
     const statusById = new Map(current.map((row) => [row.id, row.status]));

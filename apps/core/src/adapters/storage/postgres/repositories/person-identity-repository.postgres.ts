@@ -569,7 +569,10 @@ export class PostgresPersonIdentityRepository implements PersonIdentityRepositor
             alias.verificationStatus !== before.verificationStatus
           );
         });
-        if (aliases.length !== snapshot.movedAliasIds.length || damaged.length > 0) {
+        if (
+          aliases.length !== snapshot.movedAliasIds.length ||
+          damaged.length > 0
+        ) {
           throw new ApplicationError(
             'CONFLICT',
             'Merge-owned aliases are no longer intact; unmerge was refused.',
@@ -582,7 +585,10 @@ export class PostgresPersonIdentityRepository implements PersonIdentityRepositor
             .where(
               and(
                 eq(pgSchema.userAliasesPostgres.appId, input.appId),
-                inArray(pgSchema.userAliasesPostgres.id, snapshot.movedAliasIds),
+                inArray(
+                  pgSchema.userAliasesPostgres.id,
+                  snapshot.movedAliasIds,
+                ),
               ),
             )
             .returning()

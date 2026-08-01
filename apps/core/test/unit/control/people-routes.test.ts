@@ -658,9 +658,12 @@ describe('people control routes', () => {
       },
       expect.any(Function),
     );
-    const eventFactory = fakeRepository.unmergePerson.mock.calls.at(-1)?.[1] as (
-      result: unknown,
-    ) => { eventType: string; payload: Record<string, unknown> };
+    const eventFactory = fakeRepository.unmergePerson.mock.calls.at(
+      -1,
+    )?.[1] as (result: unknown) => {
+      eventType: string;
+      payload: Record<string, unknown>;
+    };
     const event = eventFactory({
       auditId: 'audit-1',
       sourcePersonId: 'person-source',
