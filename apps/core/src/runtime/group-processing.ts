@@ -533,7 +533,8 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
           is_bot_message: true,
           thread_id: activeThreadId,
           delivery_status: deliveryStatus,
-          delivered_at: timestamp,
+          // Only claim a delivery time when something was actually delivered.
+          delivered_at: deliveryStatus === 'failed' ? undefined : timestamp,
         };
         await ops()
           .storeMessage(message)

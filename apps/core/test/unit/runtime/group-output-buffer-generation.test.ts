@@ -3,7 +3,10 @@ import { describe, expect, it, vi } from 'vitest';
 import { createGroupOutputBuffer } from '@core/runtime/group-output-buffer.js';
 
 function makeBuffer(
-  persist: (text: string, status: 'sent' | 'partially_sent') => Promise<void>,
+  persist: (
+    text: string,
+    status: 'sent' | 'partially_sent' | 'failed',
+  ) => Promise<void>,
   options: { deliver?: boolean; undelivered?: string[] } = {},
 ) {
   const deliver = options.deliver ?? true;
@@ -80,6 +83,26 @@ describe('streamed generation persistence', () => {
     expect(persisted[0]).toHaveLength(6000);
     expect(persisted[0].startsWith('A')).toBe(true);
     expect(persisted[0].endsWith('B')).toBe(true);
+  });
+
+  it('persists a generation nothing was delivered from, marked failed', async () => {
+    // Transports that acknowledge asynchronously — the app channel emits events
+    // rather than confirming a send — leave the status at 'none'. Skipping the
+    // row there loses the reply from /messages entirely; the delivery truth
+    // belongs in delivery_status, not in whether the row exists.
+    const rows: Array<{ text: string; status: string }> = [];
+    const { buffer } = makeBuffer(
+      async (text, status) => {
+        rows.push({ text, status });
+      },
+      { deliver: false },
+    );
+    await buffer.appendRawOutput('reply nobody confirmed');
+    await buffer.flushBufferedOutput('end', { done: true, terminal: true });
+
+    expect(rows).toEqual([
+      { text: 'reply nobody confirmed', status: 'failed' },
+    ]);
   });
 
   it('reports a generation that reached nobody so the fallback can cover it', async () => {

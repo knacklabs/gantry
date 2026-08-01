@@ -43,7 +43,7 @@ export function createGroupOutputBuffer(input: {
   getStreamedTranscriptDeliveryStatus: () => 'none' | 'sent' | 'partially_sent';
   persistCompletedStreamedGeneration?: (
     text: string,
-    deliveryStatus: 'sent' | 'partially_sent',
+    deliveryStatus: 'sent' | 'partially_sent' | 'failed',
   ) => Promise<void>;
   log: RuntimeLogger;
 }) {
@@ -107,16 +107,23 @@ export function createGroupOutputBuffer(input: {
       if (done) {
         const deliveryStatus = input.getStreamedTranscriptDeliveryStatus();
         const completed = generationParts.join('').trim();
-        if (deliveryStatus !== 'none' && completed) {
+        if (completed) {
+          // Persist what the assistant PRODUCED, and record what happened to it
+          // in delivery_status — rather than skipping the row when nothing was
+          // delivered. Skipping loses the reply entirely: transports that
+          // acknowledge asynchronously (the app channel emits events rather
+          // than confirming a send) leave the status at 'none', so the message
+          // never reached /messages at all.
           await input.persistCompletedStreamedGeneration?.(
             completed,
-            deliveryStatus,
+            deliveryStatus === 'none' ? 'failed' : deliveryStatus,
           );
-        } else if (completed) {
-          // Nothing from this generation reached the user. Hand it to
-          // finalization: the run-wide sent flag may already be true from an
-          // earlier generation, which would otherwise suppress the fallback.
-          input.onGenerationUndelivered?.(completed);
+          if (deliveryStatus === 'none') {
+            // Also offer it to finalization's fallback: the run-wide sent flag
+            // may already be true from an earlier generation, which would
+            // otherwise suppress a re-send to the user.
+            input.onGenerationUndelivered?.(completed);
+          }
         }
         // Both the text and the delivery accounting belong to the generation
         // that just ended: without these resets the next generation inherits a
