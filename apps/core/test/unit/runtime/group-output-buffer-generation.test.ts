@@ -29,7 +29,12 @@ function makeBuffer(
     },
     getStreamedTranscriptDeliveryStatus: () => deliveryStatus,
     persistCompletedStreamedGeneration: persist,
-    log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } as never,
+    log: {
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+      debug: vi.fn(),
+    } as never,
   });
   return { buffer, status: () => deliveryStatus };
 }
