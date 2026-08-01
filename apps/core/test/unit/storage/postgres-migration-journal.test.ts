@@ -1858,9 +1858,7 @@ describe('Postgres migration journal', () => {
       ),
       'utf8',
     );
-    expect(migration).toContain(
-      'CREATE TABLE "conversation_history_coverage"',
-    );
+    expect(migration).toContain('CREATE TABLE "conversation_history_coverage"');
     expect(migration).toContain(
       'FOREIGN KEY ("conversation_id") REFERENCES "conversations"("id") ON DELETE cascade',
     );
