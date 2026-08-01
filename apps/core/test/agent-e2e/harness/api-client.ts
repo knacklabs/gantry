@@ -137,6 +137,46 @@ export class AgentE2EApiClient {
     return body.events;
   }
 
+  async listMessages(sessionId: string): Promise<Record<string, unknown>[]> {
+    const body = await this.expect<{ messages: Record<string, unknown>[] }>(
+      200,
+      'GET',
+      `/v1/sessions/${encodeURIComponent(sessionId)}/messages`,
+    );
+    return body.messages;
+  }
+
+  async listRuns(sessionId: string): Promise<Record<string, unknown>[]> {
+    const body = await this.expect<{ runs: Record<string, unknown>[] }>(
+      200,
+      'GET',
+      `/v1/sessions/${encodeURIComponent(sessionId)}/runs`,
+    );
+    return body.runs;
+  }
+
+  async waitForPersistedAssistantMessage(
+    sessionId: string,
+    options: { timeoutMs?: number } = {},
+  ): Promise<Record<string, unknown>> {
+    const timeoutMs = options.timeoutMs ?? 30_000;
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      const messages = await this.listMessages(sessionId);
+      const assistant = messages.find(
+        (message) =>
+          (message.sender === 'gantry' || message.is_bot_message === true) &&
+          typeof message.content === 'string' &&
+          message.content.trim().length > 0,
+      );
+      if (assistant) return assistant;
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+    throw new Error(
+      `No persisted assistant message for session ${sessionId} within ${timeoutMs}ms`,
+    );
+  }
+
   /**
    * Poll events until a terminal run event appears (a 202 on the message POST
    * is accepted-not-done). Returns every event observed plus the terminal one.

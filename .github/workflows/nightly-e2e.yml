@@ -1,0 +1,154 @@
+name: Nightly E2E
+
+# The end-to-end lanes run ONCE A NIGHT, not on every pull request.
+#
+# They are the slowest and least deterministic signal in the repo: they boot a
+# runtime, drive real transports, and the supplementary turn calls a real model
+# behind a rate-limited key. Per-PR they cost every author ~10 extra minutes and
+# fail for reasons unrelated to the diff. Unit and integration — which are
+# deterministic and fast — stay on the PR lane in ci.yml and remain the merge bar.
+#
+# Nightly failures are a real signal about main and should be triaged the next
+# morning, not ignored: nothing else exercises these paths.
+on:
+  schedule:
+    # 02:00 UTC daily. Cron is UTC and GitHub may delay scheduled runs under
+    # load, so treat the time as approximate.
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+    inputs:
+      debug_logs:
+        description: 'Enable verbose test logs (no LOG_LEVEL suppression)'
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    services:
+      postgres:
+        image: pgvector/pgvector:0.8.2-pg16-trixie
+        env:
+          POSTGRES_DB: gantry_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d gantry_test"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 25
+          cache: npm
+      - run: npm ci
+
+      - name: Bootstrap Postgres test DB
+        run: |
+          docker exec ${{ job.services.postgres.id }} psql -U postgres -d gantry_test -v ON_ERROR_STOP=1 \
+            -c 'CREATE EXTENSION IF NOT EXISTS vector;' \
+            -c 'CREATE EXTENSION IF NOT EXISTS pg_trgm;'
+
+      - name: Build
+        run: npm run build
+
+      - name: E2E
+        id: tests
+        run: |
+          set -o pipefail
+          : > /tmp/vitest.log
+
+          run_check() {
+            echo "Running $*" | tee -a /tmp/vitest.log
+            if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.debug_logs }}" = "true" ]; then
+              timeout 900s env CI=true "$@" 2>&1 | tee -a /tmp/vitest.log
+            else
+              timeout 900s env LOG_LEVEL=fatal CI=true "$@" 2>&1 | tee -a /tmp/vitest.log
+            fi
+            status=${PIPESTATUS[0]}
+            if [ "$status" -eq 124 ]; then
+              echo "::error::$* timed out after 900 seconds"
+              exit 124
+            fi
+            if [ "$status" -ne 0 ]; then
+              exit "$status"
+            fi
+          }
+
+          run_check npm run test:e2e
+          export GANTRY_TEST_DATABASE_URL=postgres://postgres:postgres@localhost:${{ job.services.postgres.ports[5432] }}/gantry_test
+          run_check npm run test:e2e:postgres
+          run_check npm run test:e2e:agent:hermetic
+
+      # The Claude Agent SDK filesystem sandbox uses bubblewrap on Linux
+      # (seatbelt is built into macOS) and socat for proxy bridging; the
+      # runner spawns Claude Code with failIfUnavailable, so a missing bwrap
+      # kills the subprocess at startup (exit 1, no turn). Ubuntu 24.04 also
+      # restricts unprivileged user namespaces by default, which bwrap needs.
+      - name: Prepare agent sandbox deps (bubblewrap + socat)
+        run: |
+          if command -v bwrap >/dev/null && command -v socat >/dev/null; then
+            echo "bubblewrap + socat already present"
+          elif command -v sudo >/dev/null && sudo -n true 2>/dev/null; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq bubblewrap socat
+            sudo sysctl -q kernel.apparmor_restrict_unprivileged_userns=0 2>/dev/null || true
+          else
+            echo "::warning::bubblewrap/socat unavailable and no passwordless sudo; the real-model turn will be skipped (hermetic agent-e2e already ran above)."
+          fi
+
+      # Real-model turn: supplementary signal — the hermetic agent-e2e already
+      # ran above. Self-skips when bwrap is unavailable (runner can't sandbox
+      # the SDK child) or the key is absent. The key reaches ONLY this step's env.
+      - name: Agent E2E turn (real model)
+        env:
+          E2E_MODEL_API_KEY: ${{ secrets.E2E_ANTHROPIC_API_KEY }}
+        run: |
+          if [ -z "$E2E_MODEL_API_KEY" ]; then
+            echo "::notice::E2E_MODEL_API_KEY is unavailable; skipping the real-model turn."
+            exit 0
+          fi
+          set -o pipefail
+          if ! command -v bwrap >/dev/null || ! command -v socat >/dev/null; then
+            echo "bwrap/socat unavailable on this runner; skipping the real-model turn."
+            exit 0
+          fi
+          export GANTRY_TEST_DATABASE_URL=postgres://postgres:postgres@localhost:${{ job.services.postgres.ports[5432] }}/gantry_test
+          timeout 900s env LOG_LEVEL=fatal CI=true npm run test:e2e:agent:turn 2>&1 | tee -a /tmp/vitest.log
+
+      - name: Debug hang context
+        if: ${{ always() && steps.tests.outcome != 'success' }}
+        run: |
+          {
+            echo "=== Date ==="
+            date -u
+            echo
+            echo "=== Process Snapshot ==="
+            ps -eo pid,ppid,etime,stat,cmd | grep -E 'vitest|node|npm' | grep -v grep || true
+            echo
+            echo "=== Last 300 lines of /tmp/vitest.log ==="
+            tail -n 300 /tmp/vitest.log || true
+          } | tee /tmp/ci-debug.txt
+
+      - name: Upload debug artifacts
+        if: ${{ always() && steps.tests.outcome != 'success' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-e2e-debug-logs
+          path: |
+            /tmp/vitest.log
+            /tmp/ci-debug.txt
+          if-no-files-found: ignore

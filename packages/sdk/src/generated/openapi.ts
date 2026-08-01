@@ -2505,12 +2505,31 @@ export interface components {
             events: components["schemas"]["RuntimeEvent"][];
         };
         Run: {
-            run_id: string;
-            job_id: string;
-            status: string;
+            id: string;
+            appId: string;
+            agentId: string;
+            configVersionId: string;
+            sessionId?: string | null;
+            conversationId?: string | null;
+            threadId?: string | null;
+            messageId?: string | null;
+            jobId?: string | null;
+            llmProfileId: string;
+            permissionDecisionIds: string[];
+            workspaceSnapshotId?: string | null;
+            /** @enum {string} */
+            cause: "message" | "job" | "control" | "manual" | "system";
+            /** @enum {string} */
+            status: "queued" | "running" | "completed" | "failed" | "canceled" | "timeout";
             /** Format: date-time */
-            started_at?: string;
-            completed_at?: string | null;
+            createdAt: string;
+            startedAt?: string | null;
+            endedAt?: string | null;
+            resultSummary?: string | null;
+            errorSummary?: string | null;
+            metadata?: {
+                [key: string]: unknown;
+            };
         };
         RunListResponse: {
             runs: components["schemas"]["Run"][];

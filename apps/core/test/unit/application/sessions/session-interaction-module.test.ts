@@ -16,7 +16,9 @@ function makeModule(overrides?: {
     ensureAppSession: vi.fn(async (input) => ({
       sessionId: 'session-1',
       appId: input.appId,
+      agentId: 'agent-one',
       conversationId: input.conversationId,
+      canonicalConversationId: `canonical:${input.appId}:${input.conversationId}`,
       conversationJid: input.conversationJid,
       workspaceKey: input.folder,
       defaultResponseMode: input.defaultResponseMode ?? 'sse',
@@ -26,7 +28,9 @@ function makeModule(overrides?: {
     getAppSessionById: vi.fn(async () => ({
       sessionId: 'session-1',
       appId: 'app-one',
+      agentId: 'agent-one',
       conversationId: 'conv-1',
+      canonicalConversationId: 'canonical:app-one:conv-1',
       conversationJid: 'app:app-one:conv-1',
       workspaceKey: 'group',
       defaultResponseMode: 'sse',
@@ -93,7 +97,9 @@ describe('SessionInteractionModule', () => {
         getAppSessionById: vi.fn(async () => ({
           sessionId: 'session-1',
           appId: 'app-two',
+          agentId: 'agent-two',
           conversationId: 'conv-1',
+          canonicalConversationId: 'canonical:app-two:conv-1',
           conversationJid: 'app:app-two:conv-1',
           workspaceKey: 'group',
           defaultResponseMode: 'sse',
@@ -476,7 +482,7 @@ describe('SessionInteractionModule', () => {
     expect(runtimeEvents.subscribe).toHaveBeenCalledWith(
       expect.objectContaining({
         appId: 'app-one',
-        sessionId: 'session-1',
+        conversationId: 'canonical:app-one:conv-1',
         afterEventId: 9,
       }),
     );

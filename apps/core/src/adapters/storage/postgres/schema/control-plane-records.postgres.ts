@@ -3,7 +3,9 @@ export type ControlResponseMode = 'sse' | 'webhook' | 'both' | 'none';
 export interface AppSessionRecord {
   sessionId: string;
   appId: string;
+  agentId: string;
   conversationId: string;
+  canonicalConversationId: string;
   chatJid: string;
   workspaceFolder: string;
   workspaceKey: string;

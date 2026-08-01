@@ -838,6 +838,20 @@
     {
       "idx": 122,
       "version": "7",
+      "when": 1785549600000,
+      "tag": "20260801020000_session_event_conversation_backfill",
+      "breakpoints": true
+    },
+    {
+      "idx": 123,
+      "version": "7",
+      "when": 1785564366568,
+      "tag": "20260801060606_session_observability_index",
+      "breakpoints": true
+    },
+    {
+      "idx": 124,
+      "version": "7",
       "when": 1785567172270,
       "tag": "20260801065252_durable_message_attachment_deletions",
       "breakpoints": true
