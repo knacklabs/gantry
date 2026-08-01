@@ -1020,6 +1020,103 @@ maybeDescribe('attachment resolver with Postgres repositories', () => {
     ).resolves.toBe(false);
   });
 
+  it('tombstones provider-key-absent attachment metadata and consumes its marker', async () => {
+    const seam = createPostgresSeam(
+      runtime,
+      materializationRoot('discord-provider-key-absent'),
+      fakeDiscordFetcher({ content: Buffer.from('unused') }).fetcher,
+    );
+    const channelId = 'discord-provider-key-absent-channel';
+    const messageId = 'discord-provider-key-absent-message';
+    const attachmentId = 'attachment:file-1b:provider-key-absent';
+    await seam.messages.storeMessage(
+      message({
+        id: messageId,
+        conversationJid: `dc:${channelId}`,
+        provider: 'discord',
+        providerAccountId: discordProviderAccountId,
+        attachments: [
+          discordAttachment({
+            attachmentId,
+            discordAttachmentId: 'discord-provider-key-absent-file',
+            channelId,
+            messageId,
+          }),
+        ],
+      }),
+    );
+    await runtime.service.pool.query(
+      'UPDATE message_attachments SET provider_fetch_json = $1::jsonb WHERE id = $2',
+      ['{}', attachmentId],
+    );
+
+    await seam.attachments.setDeletedAtByMessageExternalIds({
+      appId,
+      providerId: 'discord',
+      providerAccountIds: [discordProviderAccountId],
+      channelId: `dc:${channelId}`,
+      externalMessageIds: [messageId],
+      deletedAt: '2026-08-01T00:00:00.000Z',
+    });
+
+    expect(
+      (await seam.attachments.getResolvableAttachment(attachmentId))?.deletedAt,
+    ).toBe('2026-08-01T00:00:00.000Z');
+    await expect(
+      runtime.service.pool.query(
+        'SELECT id FROM message_attachment_deletion_markers WHERE provider_account_id = $1 AND external_message_id = $2',
+        [discordProviderAccountId, messageId],
+      ),
+    ).resolves.toMatchObject({ rows: [] });
+  });
+
+  it('moves an existing tombstone back to an earlier replayed marker timestamp', async () => {
+    const seam = createPostgresSeam(
+      runtime,
+      materializationRoot('discord-earlier-tombstone'),
+      fakeDiscordFetcher({ content: Buffer.from('unused') }).fetcher,
+    );
+    const channelId = 'discord-earlier-tombstone-channel';
+    const messageId = 'discord-earlier-tombstone-message';
+    const attachmentId = 'attachment:file-1b:earlier-tombstone';
+    await seam.messages.storeMessage(
+      message({
+        id: messageId,
+        conversationJid: `dc:${channelId}`,
+        provider: 'discord',
+        providerAccountId: discordProviderAccountId,
+        attachments: [
+          discordAttachment({
+            attachmentId,
+            discordAttachmentId: 'discord-earlier-tombstone-file',
+            channelId,
+            messageId,
+          }),
+        ],
+      }),
+    );
+    const deletion = {
+      appId,
+      providerId: 'discord',
+      providerAccountIds: [discordProviderAccountId],
+      channelId: `dc:${channelId}`,
+      externalMessageIds: [messageId],
+    } as const;
+
+    await seam.attachments.setDeletedAtByMessageExternalIds({
+      ...deletion,
+      deletedAt: '2026-08-02T00:00:00.000Z',
+    });
+    await seam.attachments.setDeletedAtByMessageExternalIds({
+      ...deletion,
+      deletedAt: '2026-08-01T00:00:00.000Z',
+    });
+
+    expect(
+      (await seam.attachments.getResolvableAttachment(attachmentId))?.deletedAt,
+    ).toBe('2026-08-01T00:00:00.000Z');
+  });
+
   it('consumes only the persisted pair from a bulk deletion and retains the in-flight pair', async () => {
     const seam = createPostgresSeam(
       runtime,

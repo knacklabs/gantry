@@ -46,6 +46,7 @@ import {
   InboundMessageDeliveryError,
   type ChannelOpts,
 } from '@core/channels/channel-provider.js';
+import { DISCORD_LIVE_ATTACHMENT_DEADLINE_MS } from '@core/channels/discord-live-attachment-capture.js';
 import { logger } from '@core/infrastructure/logging/logger.js';
 
 class FakeWebSocket {
@@ -1236,6 +1237,103 @@ describe('DiscordChannel', () => {
       }),
     );
     expect(onMessage.mock.calls[0]?.[1].attachments?.[1]).not.toHaveProperty(
+      'storageRef',
+    );
+    await channel.disconnect();
+  });
+
+  it('bounds a stalled live CDN body while persisting metadata and capturing its sibling', async () => {
+    let socket!: FakeWebSocket;
+    let stalledSignal: AbortSignal | undefined;
+    const stalledCancel = vi.fn();
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input);
+      if (url.endsWith('/gateway/bot')) {
+        return jsonResponse({ url: 'wss://gateway.discord.test' });
+      }
+      if (url.endsWith('/stalled')) {
+        stalledSignal = init?.signal ?? undefined;
+        return new Response(
+          new ReadableStream<Uint8Array>({ pull() {}, cancel: stalledCancel }),
+        );
+      }
+      return new Response('sibling bytes');
+    });
+    const materializeProviderAttachment = vi.fn(
+      async ({ fileName, content }) => {
+        let bytes = 0;
+        for (;;) {
+          const chunk = await content.read();
+          if (chunk.done) break;
+          bytes += chunk.value?.byteLength ?? 0;
+        }
+        if (bytes === 0) throw new Error('empty aborted capture');
+        return {
+          storageRef: `provider-attachments/${fileName}`,
+          reclaim: vi.fn(async () => undefined),
+        };
+      },
+    );
+    const onMessage = vi.fn(async () => 'stored' as const);
+    const channel = new DiscordChannel(
+      'bot-token',
+      'app-id',
+      opts({
+        ensureMessageRoute: vi.fn(async () => true),
+        materializeProviderAttachment,
+        onMessage,
+      }),
+      (url) => {
+        socket = new FakeWebSocket(url);
+        return socket;
+      },
+    );
+
+    await channel.connect();
+    socket.receive({ op: 10, d: { heartbeat_interval: 60_000 } });
+    socket.receive({ op: 0, t: 'READY', s: 1, d: { user: { id: 'bot-1' } } });
+    vi.useFakeTimers();
+    socket.receive({
+      op: 0,
+      t: 'MESSAGE_CREATE',
+      s: 2,
+      d: {
+        id: 'message-stalled-live-file',
+        channel_id: 'channel-1',
+        author: { id: 'user-1' },
+        attachments: [
+          {
+            id: 'stalled',
+            filename: 'stalled.txt',
+            url: 'https://cdn.discordapp.com/attachments/private/stalled',
+          },
+          {
+            id: 'sibling',
+            filename: 'sibling.txt',
+            url: 'https://cdn.discordapp.com/attachments/private/sibling',
+          },
+        ],
+      },
+    });
+
+    await vi.advanceTimersByTimeAsync(DISCORD_LIVE_ATTACHMENT_DEADLINE_MS);
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(stalledSignal?.aborted).toBe(true);
+    expect(stalledCancel).toHaveBeenCalledOnce();
+    expect(onMessage).toHaveBeenCalledWith(
+      'dc:channel-1',
+      expect.objectContaining({
+        attachments: [
+          expect.objectContaining({ externalId: 'stalled' }),
+          expect.objectContaining({
+            externalId: 'sibling',
+            storageRef: 'provider-attachments/sibling.txt',
+          }),
+        ],
+      }),
+    );
+    expect(onMessage.mock.calls[0]?.[1].attachments?.[0]).not.toHaveProperty(
       'storageRef',
     );
     await channel.disconnect();

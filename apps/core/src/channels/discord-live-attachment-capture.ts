@@ -6,17 +6,23 @@ import {
   type MaterializeProviderAttachment,
 } from './channel-provider.js';
 import { discordMessageAttachments } from './discord-conversation-context.js';
-import { fetchDiscordCdnAttachment } from './discord-historical-attachment-fetcher.js';
+import {
+  abortableReader,
+  fetchDiscordCdnAttachment,
+} from './discord-historical-attachment-fetcher.js';
 import type { DiscordMessageCreate } from './discord-types.js';
 
 type DiscordAttachments = NonNullable<
   ReturnType<typeof discordMessageAttachments>
 >;
 
+export const DISCORD_LIVE_ATTACHMENT_DEADLINE_MS = 110_000;
+
 export async function captureLiveDiscordAttachments(input: {
   message: DiscordMessageCreate;
   attachments: DiscordAttachments;
   materialize?: MaterializeProviderAttachment;
+  deadlineMs?: number;
 }): Promise<{
   attachments: DiscordAttachments;
   reclaim: Array<() => Promise<void>>;
@@ -35,16 +41,16 @@ export async function captureLiveDiscordAttachments(input: {
       continue;
     }
     try {
-      const response = await fetchDiscordCdnAttachment(providerAttachment.url);
-      if (!response.ok || !response.body) {
-        await response.body?.cancel().catch(() => undefined);
+      const materialized = await captureAttachmentWithinDeadline({
+        url: providerAttachment.url,
+        fileName: providerAttachment.filename || 'attachment.bin',
+        materialize: input.materialize,
+        deadlineMs: input.deadlineMs ?? DISCORD_LIVE_ATTACHMENT_DEADLINE_MS,
+      });
+      if (!materialized) {
         captured.push(attachment);
         continue;
       }
-      const materialized = await input.materialize({
-        fileName: providerAttachment.filename || 'attachment.bin',
-        content: response.body.getReader(),
-      });
       captured.push({ ...attachment, storageRef: materialized.storageRef });
       reclaim.push(materialized.reclaim);
     } catch {
@@ -56,6 +62,51 @@ export async function captureLiveDiscordAttachments(input: {
     }
   }
   return { attachments: captured, reclaim };
+}
+
+async function captureAttachmentWithinDeadline(input: {
+  url: string;
+  fileName: string;
+  materialize: MaterializeProviderAttachment;
+  deadlineMs: number;
+}) {
+  const controller = new AbortController();
+  let expired = false;
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const capture = (async () => {
+    const response = await fetchDiscordCdnAttachment(
+      input.url,
+      controller.signal,
+    );
+    if (!response.ok || !response.body) {
+      await response.body?.cancel().catch(() => undefined);
+      return undefined;
+    }
+    return input.materialize({
+      fileName: input.fileName,
+      content: abortableReader(response.body.getReader(), controller.signal),
+    });
+  })();
+  const deadline = new Promise<never>((_resolve, reject) => {
+    timeout = setTimeout(() => {
+      expired = true;
+      controller.abort(
+        new DOMException('Discord attachment deadline', 'AbortError'),
+      );
+      reject(new Error('Discord attachment capture deadline exceeded'));
+    }, input.deadlineMs);
+  });
+  try {
+    return await Promise.race([capture, deadline]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+    controller.abort();
+    if (expired) {
+      void capture
+        .then((materialized) => materialized?.reclaim())
+        .catch(() => undefined);
+    }
+  }
 }
 
 export async function reclaimDiscordAttachments(

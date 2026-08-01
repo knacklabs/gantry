@@ -94,6 +94,10 @@ keeps the docs honest automatically.
 
 ## What FILE-1B did not improve
 
+- Discord `MESSAGE_UPDATE` events still do not reconcile attachment removals;
+  captured bytes remain available until a whole-message deletion is observed.
+- Deletion-marker pairs with no matching ingested message have no retention
+  deadline and remain stored as ingest-race guards.
 - The 50 MiB limit remains per file; there is no aggregate per-message cap.
 - Slack and Telegram deletion-event registration is still pending.
 - Slack and Telegram workspace-reference reads have not moved behind the

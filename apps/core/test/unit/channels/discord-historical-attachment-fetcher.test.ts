@@ -296,7 +296,7 @@ describe('Discord historical attachment fetch', () => {
     expect(cancel).toHaveBeenCalledWith(controller.signal.reason);
   });
 
-  it('treats only Discord unknown-message or a missing live attachment as deleted', async () => {
+  it('treats only Discord unknown-message or a missing id in a non-empty attachment list as deleted', async () => {
     const unknownMessage = await fetchDiscordHistoricalAttachment(
       { identity, ...scope },
       {
@@ -306,15 +306,28 @@ describe('Discord historical attachment fetch', () => {
         download: vi.fn(),
       },
     );
-    const missingAttachment = await fetchDiscordHistoricalAttachment(
+    const redactedAttachments = await fetchDiscordHistoricalAttachment(
       { identity, ...scope },
       {
         requestMessage: vi.fn(async () => ({ attachments: [] })),
         download: vi.fn(),
       },
     );
+    const missingAttachment = await fetchDiscordHistoricalAttachment(
+      { identity, ...scope },
+      {
+        requestMessage: vi.fn(async () => ({
+          attachments: [{ id: 'another-attachment' }],
+        })),
+        download: vi.fn(),
+      },
+    );
 
     expect(unknownMessage).toEqual({ status: 'deleted' });
+    expect(redactedAttachments).toEqual({
+      status: 'unreachable',
+      reason: 'not_visible',
+    });
     expect(missingAttachment).toEqual({ status: 'deleted' });
   });
 

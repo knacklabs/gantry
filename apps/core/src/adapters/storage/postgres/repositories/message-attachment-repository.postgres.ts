@@ -521,35 +521,22 @@ export class PostgresMessageAttachmentRepository implements MessageAttachmentRep
           and(
             scopeCondition,
             inArray(message.id, messageIds),
-            or(
-              isNull(attachment.providerFetchJson),
-              eq(
-                sql<string>`${attachment.providerFetchJson}::jsonb->>'provider'`,
-                pair.providerId,
-              ),
-            ),
+            deletionProviderOwnershipCondition(attachment, pair.providerId),
           ),
         )
         .orderBy(asc(message.id), asc(attachment.id));
-      const activeIds = owned
-        .filter((row) => !row.deletedAt)
-        .map((row) => row.id);
+      const ownedIds = owned.map((row) => row.id);
       const updatedDeletedAtById = new Map<string, string>();
-      if (activeIds.length > 0) {
+      if (ownedIds.length > 0) {
         const updated = await tx
           .update(attachment)
-          .set({ deletedAt: pair.deletedAt })
+          .set({
+            deletedAt: sql`least(${attachment.deletedAt}, ${pair.deletedAt})`,
+          })
           .where(
             and(
-              inArray(attachment.id, activeIds),
-              isNull(attachment.deletedAt),
-              or(
-                isNull(attachment.providerFetchJson),
-                eq(
-                  sql<string>`${attachment.providerFetchJson}::jsonb->>'provider'`,
-                  pair.providerId,
-                ),
-              ),
+              inArray(attachment.id, ownedIds),
+              deletionProviderOwnershipCondition(attachment, pair.providerId),
             ),
           )
           .returning({ id: attachment.id, deletedAt: attachment.deletedAt });
@@ -613,12 +600,9 @@ export class PostgresMessageAttachmentRepository implements MessageAttachmentRep
               .where(
                 and(
                   inArray(attachment.messageId, messageIds),
-                  or(
-                    isNull(attachment.providerFetchJson),
-                    eq(
-                      sql<string>`${attachment.providerFetchJson}::jsonb->>'provider'`,
-                      result.providerId,
-                    ),
+                  deletionProviderOwnershipCondition(
+                    attachment,
+                    result.providerId,
                   ),
                 ),
               )
@@ -654,6 +638,18 @@ export class PostgresMessageAttachmentRepository implements MessageAttachmentRep
       this.cleanupProviderAttachment,
     );
   }
+}
+
+function deletionProviderOwnershipCondition(
+  attachment: typeof pgSchema.messageAttachmentsPostgres,
+  providerId: string,
+) {
+  const providerKey = sql<string>`${attachment.providerFetchJson}::jsonb->>'provider'`;
+  return or(
+    isNull(attachment.providerFetchJson),
+    isNull(providerKey),
+    eq(providerKey, providerId),
+  );
 }
 
 function toIsoTimestamp(value: string): string {

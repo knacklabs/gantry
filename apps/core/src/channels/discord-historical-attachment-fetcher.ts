@@ -100,6 +100,9 @@ export async function fetchDiscordHistoricalAttachment(
   if (!isDiscordMessageResponse(message)) {
     return { status: 'unreachable', reason: 'unknown' };
   }
+  if (message.attachments.length === 0) {
+    return { status: 'unreachable', reason: 'not_visible' };
+  }
   const attachment = message.attachments.find(
     (candidate) => candidate.id === input.identity.id,
   );
@@ -288,7 +291,7 @@ async function successfulAttachment(
   };
 }
 
-function abortableReader(
+export function abortableReader(
   reader: ReadableStreamDefaultReader<Uint8Array>,
   signal?: AbortSignal,
 ): HistoricalAttachmentReader {

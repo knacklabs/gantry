@@ -233,8 +233,9 @@ describe('PostgresMessageAttachmentRepository', () => {
       }),
     ]);
     expect(tx.execute).toHaveBeenCalledTimes(4);
-    expect(set).toHaveBeenCalledWith({
-      deletedAt: '2026-08-01T00:00:00.000Z',
+    expect(set).toHaveBeenCalledOnce();
+    expect(set.mock.calls[0]?.[0]).toEqual({
+      deletedAt: expect.anything(),
     });
     expect(operations).toEqual([
       'marker:write',

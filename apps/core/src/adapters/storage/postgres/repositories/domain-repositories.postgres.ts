@@ -1273,14 +1273,16 @@ export class PostgresMessageRepository implements MessageRepository {
             );
       const existingAttachmentsById =
         existingAttachmentMetadataMaps(existingAttachments).byId;
+      const externalThreadId = externalThreadIdFromMessage(message);
       const deletionMarkerTimestamp =
-        message.attachments.length > 0 && channel.conversationJid
+        message.attachments.length > 0 &&
+        (externalThreadId || channel.conversationJid)
           ? await deletionMarkerTimestampForMessage(tx, {
               appId: message.appId,
               providerId: channel.providerId,
               providerAccountId: channel.providerAccountId,
-              conversationJid: channel.conversationJid,
-              ...(message.threadId ? { threadId: message.threadId } : {}),
+              conversationJid: channel.conversationJid ?? '',
+              ...(externalThreadId ? { threadId: externalThreadId } : {}),
               externalMessageId,
               canonicalMessageId: targetMessageId,
               incomingHasProviderRefs: message.attachments.some(
@@ -1574,6 +1576,13 @@ export class PostgresMessageRepository implements MessageRepository {
       ),
     } as unknown as Message;
   }
+}
+
+function externalThreadIdFromMessage(message: Message): string | undefined {
+  const threadId = (message.externalRef as JsonRecord | undefined)?.thread_id;
+  return typeof threadId === 'string' && threadId.trim()
+    ? threadId.trim()
+    : undefined;
 }
 export class PostgresAgentRunRepository implements AgentRunRepository {
   constructor(private readonly db: CanonicalDb) {}
