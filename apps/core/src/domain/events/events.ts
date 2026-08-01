@@ -57,6 +57,14 @@ export interface RuntimeEvent {
   jobId?: JobId;
   triggerId?: string;
   conversationId?: ConversationId;
+  /**
+   * Any of these conversation ids, OR-ed. One jid can map to several
+   * conversation rows — the runtime warns
+   * `conversation_route_conversation_id_noncanonical` for routes that predate
+   * the canonical id — so a single-id filter silently hides events recorded
+   * under the older one.
+   */
+  conversationIds?: ConversationId[];
   threadId?: ConversationThreadId;
   eventType: RuntimeEventType;
   actor: string;
@@ -75,6 +83,14 @@ export interface RuntimeEventPublishInput {
   jobId?: JobId;
   triggerId?: string;
   conversationId?: ConversationId;
+  /**
+   * Any of these conversation ids, OR-ed. One jid can map to several
+   * conversation rows — the runtime warns
+   * `conversation_route_conversation_id_noncanonical` for routes that predate
+   * the canonical id — so a single-id filter silently hides events recorded
+   * under the older one.
+   */
+  conversationIds?: ConversationId[];
   threadId?: ConversationThreadId;
   eventType: RuntimeEventType;
   actor: string;
@@ -93,6 +109,14 @@ export interface RuntimeEventFilter {
   jobId?: JobId;
   triggerId?: string;
   conversationId?: ConversationId;
+  /**
+   * Any of these conversation ids, OR-ed. One jid can map to several
+   * conversation rows — the runtime warns
+   * `conversation_route_conversation_id_noncanonical` for routes that predate
+   * the canonical id — so a single-id filter silently hides events recorded
+   * under the older one.
+   */
+  conversationIds?: ConversationId[];
   threadId?: ConversationThreadId;
   eventTypes?: RuntimeEventType[];
   limit?: number;
@@ -142,6 +166,14 @@ export interface AgentRun {
   configVersionId: AgentConfigVersionId;
   sessionId?: AgentSessionId;
   conversationId?: ConversationId;
+  /**
+   * Any of these conversation ids, OR-ed. One jid can map to several
+   * conversation rows — the runtime warns
+   * `conversation_route_conversation_id_noncanonical` for routes that predate
+   * the canonical id — so a single-id filter silently hides events recorded
+   * under the older one.
+   */
+  conversationIds?: ConversationId[];
   threadId?: ConversationThreadId;
   messageId?: MessageId;
   jobId?: JobId;

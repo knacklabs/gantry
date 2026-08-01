@@ -272,6 +272,14 @@ export class PostgresRuntimeEventRepository implements RuntimeEventRepository {
         ),
       );
     }
+    if (filter.conversationIds?.length) {
+      conditions.push(
+        inArray(
+          pgSchema.runtimeEventsPostgres.conversationId,
+          filter.conversationIds,
+        ),
+      );
+    }
     if (filter.threadId !== undefined) {
       conditions.push(
         eq(pgSchema.runtimeEventsPostgres.threadId, filter.threadId),

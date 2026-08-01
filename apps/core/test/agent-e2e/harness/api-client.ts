@@ -163,12 +163,23 @@ export class AgentE2EApiClient {
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
       const messages = await this.listMessages(sessionId);
-      const assistant = messages.find(
-        (message) =>
-          (message.sender === 'gantry' || message.is_bot_message === true) &&
-          typeof message.content === 'string' &&
-          message.content.trim().length > 0,
-      );
+      // Match the SHAPE the API actually returns. `Message` exposes
+      // `direction` and `parts[]`; it has no `sender`, `is_bot_message` or
+      // `content` field, so the previous filter could never match and this
+      // helper failed regardless of what the runtime persisted.
+      const assistant = messages.find((message) => {
+        if (message.direction !== 'outbound') return false;
+        const parts = Array.isArray(message.parts) ? message.parts : [];
+        return parts.some((part) => {
+          const value = part as {
+            kind?: string;
+            text?: string;
+            markdown?: string;
+          };
+          const text = value.kind === 'markdown' ? value.markdown : value.text;
+          return typeof text === 'string' && text.trim().length > 0;
+        });
+      });
       if (assistant) return assistant;
       await new Promise((resolve) => setTimeout(resolve, 500));
     }

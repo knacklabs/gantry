@@ -93,6 +93,9 @@ vi.mock('@core/adapters/storage/postgres/runtime-store.js', () => ({
       },
       messages: {
         listRecentMessages: vi.fn(async () => []),
+        // listRuns resolves conversation rows by jid and unions them, so the
+        // canonical/non-canonical route skew cannot hide runs.
+        listConversationIdsForJid: vi.fn(async () => []),
       },
     },
   }),

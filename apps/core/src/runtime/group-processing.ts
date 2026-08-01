@@ -49,6 +49,7 @@ import { createGroupTurnOptionBuilders } from './group-turn-options.js';
 import { collectPendingMessagesSince } from './pending-message-replay.js';
 import { buildGroupProcessingConversationContext } from './group-processing-context.js';
 import { createGroupOutputBuffer } from './group-output-buffer.js';
+import { persistTurnAssistantTranscript } from './group-output-finalization.js';
 import { activeTurnUiCleanupByQueue } from './group-active-turn-cleanup.js';
 import { randomUUID } from 'node:crypto';
 import { nowIso } from '../shared/time/datetime.js';
@@ -420,6 +421,12 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
     let lastAgentError: string | undefined;
     let outputSentToUser = false;
     const undeliveredGenerations: string[] = [];
+    // A turn must leave exactly one durable assistant record. Per-generation
+    // persistence is the primary path; this flag drives the finalization
+    // safety net below so a turn whose output never reached a `done` flush
+    // (transport-specific streaming paths do exist) is not left with the
+    // reply visible to the user but absent from GET /messages.
+    let persistedAnyGeneration = false;
     let streamedTranscriptDeliveryStatus: 'none' | 'sent' | 'partially_sent' =
       'none';
     let sawRawOutput = false;
@@ -521,6 +528,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
         undeliveredGenerations.push(text);
       },
       persistCompletedStreamedGeneration: async (text, deliveryStatus) => {
+        persistedAnyGeneration = true;
         const timestamp = nowIso();
         const message: NewMessage = {
           id: `streamed-outbound:${randomUUID()}`,
@@ -757,6 +765,17 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
         logger,
       });
     } else {
+      await persistTurnAssistantTranscript({
+        supportsStreamingChunks,
+        persistedAnyGeneration,
+        transcript: outputBuffer.transcriptSnapshot(),
+        chatJid,
+        activeThreadId,
+        outputSentToUser,
+        groupName: group.name,
+        storeMessage: (message) => ops().storeMessage(message),
+        log: logger,
+      });
       const finalization = await finalizeGroupAgentUserVisibleOutput({
         boundedTranscript: outputBuffer.transcriptSnapshot(),
         outputSentToUser,
