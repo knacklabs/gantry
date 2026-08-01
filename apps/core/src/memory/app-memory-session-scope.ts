@@ -45,9 +45,17 @@ function liveConversationJidFromCanonicalSuffix(value: string): string {
     const candidate = parts.slice(3).join(':').trim();
     return looksLikeLiveConversationJid(candidate) ? candidate : value;
   }
+  // A suffix whose first segment is a real channel scheme IS the jid:
+  // `app:app-one:conv-1` must survive whole, while the pa-qualified
+  // `slack_default:sl:C123` must strip to `sl:C123`. The loose jid regex
+  // cannot tell those apart, so the discriminator is the (tiny, closed) set
+  // of live schemes actually used in this codebase (review finding, 2026-08-01).
+  if (LIVE_JID_SCHEMES.has(parts[0] ?? '')) return value;
   const candidate = parts.slice(1).join(':').trim();
   return looksLikeLiveConversationJid(candidate) ? candidate : value;
 }
+
+const LIVE_JID_SCHEMES = new Set(['app', 'sl', 'tg', 'dc', 'teams']);
 
 function looksLikeLiveConversationJid(value: string): boolean {
   return /^[a-z][a-z0-9_-]{1,31}:.+$/i.test(value);
