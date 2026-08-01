@@ -56,6 +56,27 @@ describe('streamed generation persistence', () => {
     expect(persisted[0]).toBe('hello world');
   });
 
+  it('persists a long generation whole, past the 4k summary bound', async () => {
+    // The run-level transcript uses the bounded summary accumulator, which keeps
+    // only a 4k tail. Durable message content must not go through it: the user
+    // received the whole reply, so /messages must hold the whole reply.
+    const persisted: string[] = [];
+    const { buffer } = makeBuffer(async (text) => {
+      persisted.push(text);
+    });
+    const head = 'A'.repeat(3000);
+    const tail = 'B'.repeat(3000);
+    await buffer.appendRawOutput(head);
+    await buffer.flushBufferedOutput('mid', { done: false, terminal: false });
+    await buffer.appendRawOutput(tail);
+    await buffer.flushBufferedOutput('end', { done: true, terminal: true });
+
+    expect(persisted).toHaveLength(1);
+    expect(persisted[0]).toHaveLength(6000);
+    expect(persisted[0].startsWith('A')).toBe(true);
+    expect(persisted[0].endsWith('B')).toBe(true);
+  });
+
   it('reports a generation that reached nobody so the fallback can cover it', async () => {
     // outputSentToUser is run-wide: an earlier delivered generation would make
     // finalization return early and drop this one silently.

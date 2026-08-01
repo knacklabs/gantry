@@ -52,7 +52,12 @@ export function createGroupOutputBuffer(input: {
   // `text` below is only the delta since the previous flush (the visible
   // accumulator resets on every flush), so persisting it alone would store a
   // multi-chunk reply truncated to its last chunk.
-  let generationTranscript = createRuntimeResultSummaryAccumulator();
+  //
+  // Plain accumulation, NOT createRuntimeResultSummaryAccumulator: that one is
+  // the bounded 4k summary used for `boundedTranscript`, and it keeps only the
+  // tail. Persisting a durable message through it would silently truncate any
+  // reply the user received in full. Held only until the generation completes.
+  let generationParts: string[] = [];
   let pendingOutputVisible = createRuntimeUserVisibleResultAccumulator();
   let streamSanitizer = createRuntimeUserVisibleStreamSanitizer();
   let pendingOutputRawChars = 0;
@@ -98,10 +103,10 @@ export function createGroupOutputBuffer(input: {
       // Verbatim, no separator: flush boundaries are a transport detail and
       // can fall mid-word, so appending a newline here would store "hel\nlo"
       // for a reply the user received as "hello".
-      generationTranscript.append(text);
+      generationParts.push(text);
       if (done) {
         const deliveryStatus = input.getStreamedTranscriptDeliveryStatus();
-        const completed = (generationTranscript.snapshot() ?? '').trim();
+        const completed = generationParts.join('').trim();
         if (deliveryStatus !== 'none' && completed) {
           await input.persistCompletedStreamedGeneration?.(
             completed,
@@ -116,7 +121,7 @@ export function createGroupOutputBuffer(input: {
         // Both the text and the delivery accounting belong to the generation
         // that just ended: without these resets the next generation inherits a
         // previous one's transcript and its sent/partially_sent status.
-        generationTranscript = createRuntimeResultSummaryAccumulator();
+        generationParts = [];
         input.resetStreamedTranscriptDeliveryStatus?.();
       }
     } else {
