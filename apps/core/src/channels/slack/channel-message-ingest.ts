@@ -15,6 +15,7 @@ import type { SlackMessageLike } from './channel-state.js';
 import { ingestSlackSlashCommand as ingestSlackSlashCommandEvent } from './slash-command-ingest.js';
 import { shouldLogUnregisteredChatDrop } from '../unregistered-chat-drop-log.js';
 import { resolveInboundConversationIdentity } from '../inbound-conversation-identity.js';
+import { routeSlackDeletion } from './slack-message-deletion.js';
 
 type SlackIngestOpts = Pick<
   ChannelOpts,
@@ -23,6 +24,7 @@ type SlackIngestOpts = Pick<
   | 'conversationRoutes'
   | 'providerAccountId'
   | 'inboundProviderAccountIds'
+  | 'onMessageAttachmentsDeleted'
 >;
 type EnrichedSlackMessage = {
   text: string;
@@ -103,6 +105,22 @@ export async function ingestSlackMessage(input: {
   ) => Promise<EnrichedSlackMessage>;
 }): Promise<void> {
   const { event } = input;
+  const deletionProviderAccountIds = input.opts.inboundProviderAccountIds
+    ?.length
+    ? input.opts.inboundProviderAccountIds
+    : input.opts.providerAccountId
+      ? [input.opts.providerAccountId]
+      : [];
+  if (
+    await routeSlackDeletion(
+      event,
+      input.opts.conversationRoutes(),
+      deletionProviderAccountIds,
+      input.opts.onMessageAttachmentsDeleted,
+    )
+  ) {
+    return;
+  }
   if (!event.channel || !event.ts) return;
   if (event.bot_id) return;
   if (event.subtype && event.subtype !== 'file_share') return;

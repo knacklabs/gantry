@@ -71,6 +71,16 @@ skips provider-marked ephemeral content. The current owning surfaces are
 `discord-historical-attachment-fetcher.ts`, `discord.ts`, and
 `message-attachment-repository.postgres.ts`.
 
+### FILE-2 — Slack deletion registration
+
+Slack now routes `message_deleted` through the neutral scoped tombstone
+operation. Markers are conversation-keyed in every case (Slack threads share
+the parent channel), so an admitted deletion without thread metadata still
+guards the pre-insert race: the later insert, threaded or not, lands
+tombstoned. Telegram ordinary bot chats remain signal-less: the Bot API exposes
+only `deleted_business_messages`, which requires a Business connection Gantry
+does not model.
+
 ### FILE-1C — Teams parity (deferred, D-0034)
 
 Everything in the parity matrix, gated on a real Teams SDK client. The port
@@ -92,14 +102,21 @@ keeps the docs honest automatically.
 - Cross-conversation file access, with or without consent UI, until a real
   need arrives with its own decision.
 
-## What FILE-1B did not improve
+## What FILE-2 did not improve
 
 - Discord `MESSAGE_UPDATE` events still do not reconcile attachment removals;
   captured bytes remain available until a whole-message deletion is observed.
+- Slack `message_changed` events still do not reconcile attachment removals;
+  that remains a D-0039-class reconciliation problem rather than deletion
+  routing.
+- Slack `file_deleted` is not eagerly routed. The lazy resolver already
+  recognizes provider-side file deletion, so another identity-based repository
+  operation would improve latency only.
 - Deletion-marker pairs with no matching ingested message have no retention
   deadline and remain stored as ingest-race guards.
 - The 50 MiB limit remains per file; there is no aggregate per-message cap.
-- Slack and Telegram deletion-event registration is still pending.
+- Telegram ordinary-chat deletion registration remains unavailable because the
+  Bot API sends no such update; Business connections are not modeled.
 - Slack and Telegram workspace-reference reads have not moved behind the
   attachment resolver; that workspace-ref migration remains pending.
 - Teams remains deferred under D-0034.

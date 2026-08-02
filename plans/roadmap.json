@@ -407,6 +407,26 @@
       "completed_at": "2026-08-01T19:00:59+00:00",
       "history": ".factory/history/FILE-1B/",
       "outcome": "Files shared in Discord now behave like Slack files. The agent saves the bytes the moment a file is posted, remembers the filename and where it came from, and can fetch an old file it never saved the first time someone needs it. When a message is deleted on Discord, its files are honestly reported as deleted and the stored bytes are removed \u2014 durably, so a deletion that races message ingestion, hits a transient database error, or arrives for a not-yet-stored message still lands. Ephemeral content is never stored, downloads only ever come from Discord's CDN with no credentials attached, and every file stays locked to its own conversation. Remaining edges (attachment removal via message edits, marker retention hygiene) are recorded as deferrals with triggers."
+    },
+    {
+      "key": "FILE-2",
+      "title": "Slack deletion registration on the neutral attachment-deletion operation",
+      "story": "As a Slack user, when I delete a message whose files the agent saved, I want the agent to treat those files as deleted \u2014 honestly reported and bytes removed \u2014 the same way it already does on Discord.",
+      "acceptance_criteria": [
+        "Slack message_deleted routes to the neutral deletion callback with the deleted message's ts and the thread-or-jid channel key",
+        "Durability, retries, and ingest-race safety inherited from FILE-1B with no new repository operations or migrations",
+        "Interaction-only and live-turns-off connections never observe deletions (structural gate asserted)",
+        "Telegram documented as having no deletion signal for ordinary bot chats; 0094 matrix rows flipped with citations",
+        "Real-Postgres proof: Slack deletion event tombstones exactly the tracked attachments and the resolver serves the deleted copy with zero provider calls"
+      ],
+      "order": 27,
+      "status": "done",
+      "skill": "backend",
+      "kind": "feature",
+      "spec": "docs/specs/file-2-slack-deletion-registration.md",
+      "completed_at": "2026-08-02T06:06:47+00:00",
+      "history": ".factory/history/FILE-2/",
+      "outcome": "Deleting a Slack message whose files the agent saved now works like Discord: the files are honestly reported as deleted and the stored bytes are removed, durably \u2014 a deletion that races message ingestion or arrives before the message is stored still lands, threads included (Slack threads share the parent channel, so no thread bookkeeping is needed and events without thread metadata are handled). Interaction-only connections never observe deletions. Telegram is honestly documented as having no deletion signal for ordinary bot chats."
     }
   ],
   "epics": [
@@ -495,5 +515,5 @@
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-08-01T19:00:59+00:00"
+  "updated_at": "2026-08-02T06:06:47+00:00"
 }

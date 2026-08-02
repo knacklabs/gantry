@@ -109,6 +109,11 @@ export interface SlackMessageLike {
   user?: string;
   bot_id?: string;
   subtype?: string;
+  deleted_ts?: string;
+  previous_message?: {
+    ts?: string;
+    thread_ts?: string;
+  };
   text?: string;
   files?: Array<{
     id?: string;

@@ -27,7 +27,9 @@ import { fetchSlackHistoricalAttachment } from '@core/channels/slack/historical-
 import { fetchDiscordHistoricalAttachment } from '@core/channels/discord-historical-attachment-fetcher.js';
 import { DiscordRestError } from '@core/channels/discord-http-helpers.js';
 import { routeDiscordDeletion } from '@core/channels/discord-message-deletion.js';
+import { routeSlackDeletion } from '@core/channels/slack/slack-message-deletion.js';
 import { createChannelAttachmentDeletionHandler } from '@core/app/bootstrap/channel-wiring-attachment-deletion.js';
+import { makeAgentThreadQueueKey } from '@core/shared/thread-queue-key.js';
 import type {
   HistoricalAttachmentFetcher,
   HistoricalAttachmentFetchResult,
@@ -1465,6 +1467,8 @@ maybeDescribe('attachment resolver with Postgres repositories', () => {
         providerId: 'discord',
         providerAccountIds: [discordProviderAccountId],
         channelId: conversationJid,
+        fallbackConversationJid: conversationJid,
+        requireStoredMessageMatch: true,
         externalMessageIds: ['discord-thread-message'],
         deletedAt: '2026-08-01T00:00:00.000Z',
       }),
@@ -1490,6 +1494,224 @@ maybeDescribe('attachment resolver with Postgres repositories', () => {
         },
       ],
     });
+  });
+
+  it('retains a channel-admitted Slack deletion without thread metadata and tombstones a later threaded insert', async () => {
+    const slack = fakeSlackFetcher({
+      F_SLACK_PREINSERT: {
+        status: 'ok',
+        content: Buffer.from('must not fetch'),
+      },
+    });
+    const seam = createPostgresSeam(
+      runtime,
+      materializationRoot('slack-deletion-before-insert'),
+      slack.fetcher,
+    );
+    const conversationJid = 'sl:C_SLACK_PREINSERT';
+    const threadId = '1710000000.000100';
+    const messageId = '1710000001.000200';
+    const attachmentId = 'attachment:file-2:slack-preinsert';
+    const handler = createChannelAttachmentDeletionHandler(
+      appId,
+      () => seam.attachments,
+      { retryDelayMs: 5 },
+    );
+    const wrappedHandler = (event: Parameters<typeof handler>[0]) =>
+      handler({ ...event, providerAccountIds: [providerAccountId] });
+
+    await routeSlackDeletion(
+      {
+        subtype: 'message_deleted',
+        channel: 'C_SLACK_PREINSERT',
+        ts: 'deletion-event-ts',
+        deleted_ts: messageId,
+      },
+      {
+        [makeAgentThreadQueueKey(
+          conversationJid,
+          null,
+          null,
+          providerAccountId,
+        )]: { folder: 'slack_ops', name: 'Ops' },
+      },
+      [providerAccountId],
+      wrappedHandler,
+    );
+    await expect(
+      runtime.service.pool.query(
+        'SELECT channel_id FROM message_attachment_deletion_markers WHERE provider_account_id = $1 AND external_message_id = $2',
+        [providerAccountId, messageId],
+      ),
+    ).resolves.toMatchObject({ rows: [{ channel_id: conversationJid }] });
+
+    await seam.messages.storeMessage(
+      message({
+        id: 'slack-preinsert-row',
+        externalMessageId: messageId,
+        conversationJid,
+        threadId,
+        attachments: [
+          slackAttachment({
+            attachmentId,
+            fileId: 'F_SLACK_PREINSERT',
+          }),
+        ],
+      }),
+    );
+
+    await expect(
+      seam.resolver.open(openRequest(attachmentId, conversationJid, threadId)),
+    ).resolves.toEqual({
+      status: 'deleted',
+      content: ATTACHMENT_DELETED_COPY,
+    });
+    expect(slack.fetchHistoricalAttachment).not.toHaveBeenCalled();
+  });
+
+  it('uses conversation-keyed Slack matching for a threaded reply and thread parent while leaving siblings untouched', async () => {
+    const slack = fakeSlackFetcher({
+      F_SLACK_TARGET: {
+        status: 'ok',
+        content: Buffer.from('must not fetch target'),
+      },
+      F_SLACK_SIBLING: {
+        status: 'ok',
+        content: Buffer.from('sibling remains'),
+      },
+      F_SLACK_PARENT: {
+        status: 'ok',
+        content: Buffer.from('must not fetch parent'),
+      },
+    });
+    const seam = createPostgresSeam(
+      runtime,
+      materializationRoot('slack-stored-thread-fallback'),
+      slack.fetcher,
+    );
+    const conversationJid = 'sl:C_SLACK_FALLBACK';
+    const threadId = '1710000010.000100';
+    const targetMessageId = '1710000011.000200';
+    const siblingMessageId = '1710000012.000300';
+    const parentMessageId = threadId;
+    const targetAttachmentId = 'attachment:file-2:slack-fallback-target';
+    const siblingAttachmentId = 'attachment:file-2:slack-fallback-sibling';
+    const parentAttachmentId = 'attachment:file-2:slack-thread-parent';
+    await seam.messages.storeMessage(
+      message({
+        id: 'slack-fallback-target-row',
+        externalMessageId: targetMessageId,
+        conversationJid,
+        threadId,
+        attachments: [
+          slackAttachment({
+            attachmentId: targetAttachmentId,
+            fileId: 'F_SLACK_TARGET',
+          }),
+        ],
+      }),
+    );
+    await seam.messages.storeMessage(
+      message({
+        id: 'slack-thread-parent-row',
+        externalMessageId: parentMessageId,
+        conversationJid,
+        threadId: parentMessageId,
+        attachments: [
+          slackAttachment({
+            attachmentId: parentAttachmentId,
+            fileId: 'F_SLACK_PARENT',
+          }),
+        ],
+      }),
+    );
+    await seam.messages.storeMessage(
+      message({
+        id: 'slack-fallback-sibling-row',
+        externalMessageId: siblingMessageId,
+        conversationJid,
+        threadId,
+        attachments: [
+          slackAttachment({
+            attachmentId: siblingAttachmentId,
+            fileId: 'F_SLACK_SIBLING',
+          }),
+        ],
+      }),
+    );
+    const handler = createChannelAttachmentDeletionHandler(
+      appId,
+      () => seam.attachments,
+      { retryDelayMs: 5 },
+    );
+    const wrappedHandler = (event: Parameters<typeof handler>[0]) =>
+      handler({ ...event, providerAccountIds: [providerAccountId] });
+
+    await routeSlackDeletion(
+      {
+        subtype: 'message_deleted',
+        channel: 'C_SLACK_FALLBACK',
+        deleted_ts: targetMessageId,
+      },
+      {},
+      [providerAccountId],
+      wrappedHandler,
+    );
+
+    expect(
+      (await seam.attachments.getResolvableAttachment(targetAttachmentId))
+        ?.deletedAt,
+    ).toBeDefined();
+    expect(
+      (await seam.attachments.getResolvableAttachment(siblingAttachmentId))
+        ?.deletedAt,
+    ).toBeUndefined();
+    await expect(
+      seam.resolver.open(
+        openRequest(targetAttachmentId, conversationJid, threadId),
+      ),
+    ).resolves.toEqual({
+      status: 'deleted',
+      content: ATTACHMENT_DELETED_COPY,
+    });
+    expect(slack.fetchHistoricalAttachment).not.toHaveBeenCalled();
+
+    await routeSlackDeletion(
+      {
+        subtype: 'message_deleted',
+        channel: 'C_SLACK_FALLBACK',
+        deleted_ts: parentMessageId,
+        previous_message: {
+          ts: parentMessageId,
+          thread_ts: parentMessageId,
+        },
+      },
+      {},
+      [providerAccountId],
+      wrappedHandler,
+    );
+    expect(
+      (await seam.attachments.getResolvableAttachment(parentAttachmentId))
+        ?.deletedAt,
+    ).toBeDefined();
+    expect(slack.fetchHistoricalAttachment).not.toHaveBeenCalled();
+
+    await routeSlackDeletion(
+      {
+        subtype: 'message_deleted',
+        channel: 'C_SLACK_FALLBACK',
+        deleted_ts: 'unknown-slack-message',
+      },
+      {},
+      [providerAccountId],
+      wrappedHandler,
+    );
+    await expect(
+      runtime.service.pool.query(
+        'SELECT id FROM message_attachment_deletion_markers WHERE provider_account_id = $1 AND external_message_id = $2',
+        [providerAccountId, 'unknown-slack-message'],
+      ),
+    ).resolves.toMatchObject({ rows: [] });
   });
 
   it('admits a cold-cache thread deletion from stored messages and rejects an unknown channel', async () => {

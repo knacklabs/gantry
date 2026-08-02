@@ -466,19 +466,24 @@ export class PostgresMessageAttachmentRepository implements MessageAttachmentRep
         eq(message.providerAccountId, pair.providerAccountId),
         eq(conversation.providerAccountId, message.providerAccountId),
         eq(message.externalMessageId, pair.externalMessageId),
-        or(
-          and(
-            isNull(message.threadId),
-            eq(
+        pair.conversationScoped
+          ? eq(
               sql<string>`${conversation.externalRefJson}::jsonb->>'jid'`,
               pair.channelId,
+            )
+          : or(
+              and(
+                isNull(message.threadId),
+                eq(
+                  sql<string>`${conversation.externalRefJson}::jsonb->>'jid'`,
+                  pair.channelId,
+                ),
+              ),
+              eq(
+                sql<string>`${message.externalRefJson}::jsonb->>'thread_id'`,
+                pair.channelId,
+              ),
             ),
-          ),
-          eq(
-            sql<string>`${message.externalRefJson}::jsonb->>'thread_id'`,
-            pair.channelId,
-          ),
-        ),
       );
       const candidates = await tx
         .select({ messageId: message.id })

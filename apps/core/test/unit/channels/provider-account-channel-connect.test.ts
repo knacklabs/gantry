@@ -555,6 +555,9 @@ describe('connectProviderAccountChannels', () => {
     await firstDeletionCallback?.({
       providerId: 'slack',
       channelId: 'C123',
+      fallbackConversationJid: 'sl:C123',
+      requireStoredMessageMatch: true,
+      fallbackMatchesThreadedRows: true,
       externalMessageIds: ['message-1'],
       deletedAt: '2026-08-01T00:00:00.000Z',
     });
@@ -564,6 +567,9 @@ describe('connectProviderAccountChannels', () => {
       providerId: 'slack',
       providerAccountIds: ['slack_one', 'slack_two'],
       channelId: 'C123',
+      fallbackConversationJid: 'sl:C123',
+      requireStoredMessageMatch: true,
+      fallbackMatchesThreadedRows: true,
       externalMessageIds: ['message-1'],
       deletedAt: '2026-08-01T00:00:00.000Z',
     });
