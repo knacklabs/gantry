@@ -28,11 +28,21 @@ import type { ExecutionProviderId } from '../domain/sessions/sessions.js';
 import { maintenanceCompactionPromptForExecutionProvider } from './group-agent-runner-maintenance-compaction.js';
 
 type ArchiveSessionInput = Parameters<typeof archiveCurrentRuntimeSession>[0];
+type MemoryUserIdValue =
+  | string
+  | undefined
+  | (() => Promise<string | undefined>);
 type SenderPolicyGroup = {
   folder: string;
   requiresTrigger?: boolean;
 };
 export const SESSION_COMPACTION_TIMEOUT_MS = 10 * 60_000;
+
+async function readMemoryUserId(
+  value: MemoryUserIdValue,
+): Promise<string | undefined> {
+  return typeof value === 'function' ? value() : value;
+}
 
 export function createAdvanceCursorHandler(input: {
   queueJid: string;
@@ -56,7 +66,7 @@ export function createArchiveCurrentSessionHandler(input: {
   chatJid: string;
   threadId: string | null;
   defaultScope: 'user' | 'group';
-  memoryUserId?: string;
+  memoryUserId?: MemoryUserIdValue;
   collectMemory?: SessionMemoryCollector;
   executionAdapter?: Pick<AgentExecutionAdapter, 'id'>;
   resolveExecutionProviderId?: () =>
@@ -64,6 +74,7 @@ export function createArchiveCurrentSessionHandler(input: {
     | Promise<ExecutionProviderId>;
 }) {
   return async (cause: ArchiveSessionInput['cause'] = 'new-session') => {
+    const memoryUserId = await readMemoryUserId(input.memoryUserId);
     const executionProviderId =
       await resolveSessionCommandExecutionProviderId(input);
     return archiveCurrentRuntimeSession({
@@ -74,7 +85,7 @@ export function createArchiveCurrentSessionHandler(input: {
       threadId: input.threadId,
       cause,
       defaultScope: input.defaultScope,
-      memoryUserId: input.memoryUserId,
+      memoryUserId,
       executionProviderId: resolveRuntimeExecutionProviderId({
         id: executionProviderId,
       }),
@@ -90,7 +101,7 @@ export function createPrepareSessionArchiveHandler(input: {
   chatJid: string;
   threadId: string | null;
   defaultScope: 'user' | 'group';
-  memoryUserId?: string;
+  memoryUserId?: MemoryUserIdValue;
   collectMemory?: SessionMemoryCollector;
   executionAdapter?: Pick<AgentExecutionAdapter, 'id'>;
   resolveExecutionProviderId?: () =>
@@ -98,6 +109,7 @@ export function createPrepareSessionArchiveHandler(input: {
     | Promise<ExecutionProviderId>;
 }) {
   return async (_cause: 'new-session') => {
+    const memoryUserId = await readMemoryUserId(input.memoryUserId);
     const ops = input.ops();
     const executionProviderId =
       await resolveSessionCommandExecutionProviderId(input);
@@ -109,7 +121,7 @@ export function createPrepareSessionArchiveHandler(input: {
       providerAccountId: input.group.providerAccountId,
       threadId: input.threadId,
       conversationKind: input.group.conversationKind,
-      memoryUserId: input.memoryUserId,
+      memoryUserId,
       hydrateMemory: false,
     });
     if (!turnContext?.agentSessionId || !input.collectMemory) {
@@ -146,6 +158,7 @@ export function createSessionCompactionHandlers(
 ) {
   const getContext = async () => {
     const ops = input.ops();
+    const memoryUserId = await readMemoryUserId(input.memoryUserId);
     const executionProviderId =
       await resolveSessionCommandExecutionProviderId(input);
     const context = await ops.getAgentTurnContext?.({
@@ -156,7 +169,7 @@ export function createSessionCompactionHandlers(
       providerAccountId: input.group.providerAccountId,
       threadId: input.threadId,
       conversationKind: input.group.conversationKind,
-      memoryUserId: input.memoryUserId,
+      memoryUserId,
       hydrateMemory: false,
     });
     const repository = input.getAsyncTaskRepository?.();
@@ -467,7 +480,7 @@ function stringValue(value: unknown): string | undefined {
 export function createSaveProcedureHandler(input: {
   folder: string;
   conversationId: string;
-  userId?: string;
+  userId?: MemoryUserIdValue;
   defaultScope: 'user' | 'group';
   threadId?: string | null;
   isAdminWrite: boolean;
@@ -476,7 +489,7 @@ export function createSaveProcedureHandler(input: {
     saveGroupProcedureMemory({
       folder: input.folder,
       conversationId: input.conversationId,
-      userId: input.userId,
+      userId: await readMemoryUserId(input.userId),
       defaultScope: input.defaultScope,
       threadId: input.threadId,
       isAdminWrite: input.isAdminWrite,

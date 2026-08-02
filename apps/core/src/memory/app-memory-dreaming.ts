@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 import { and, desc, eq, inArray } from 'drizzle-orm';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import * as pgSchema from '../adapters/storage/postgres/schema/schema.js';

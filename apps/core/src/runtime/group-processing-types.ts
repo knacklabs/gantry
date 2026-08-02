@@ -42,6 +42,10 @@ import type { AgentTodoRender } from '../domain/ports/task-lifecycle.js';
 import type { AgentLockStatus } from './proactive-surfacing-gate.js';
 import type { GroupAgentRunResult } from './group-agent-runner.js';
 import type {
+  IdentityResolveInput,
+  IdentityResolveResult,
+} from '../application/identity/person-identity-service.js';
+import type {
   ConversationHistoryCoverageRepository,
   ConversationHistoryDistrustEpoch,
 } from '../domain/ports/conversation-history-coverage.js';
@@ -217,6 +221,13 @@ export interface GroupProcessingDeps {
   getMcpDnsValidationCache?: () => RemoteMcpDnsValidationCache | undefined;
   getSkillArtifactStore?: () => SkillArtifactStore | undefined;
   collectSessionMemory?: SessionMemoryCollector;
+  normalizeProviderId?: (providerId: string) => string;
+  resolvePersonIdentity?: (
+    input: IdentityResolveInput,
+    auditEventFactory?: (
+      result: IdentityResolveResult,
+    ) => RuntimeEventPublishInput,
+  ) => Promise<IdentityResolveResult>;
   publishRuntimeEvent?: (
     event: RuntimeEventPublishInput,
   ) => Promise<void> | void;

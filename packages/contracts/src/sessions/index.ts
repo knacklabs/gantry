@@ -11,21 +11,49 @@ export type AgentSessionStatus = z.infer<typeof AgentSessionStatusSchema>;
 export const ResponseModeSchema = z.enum(['sse', 'webhook', 'both', 'none']);
 export type ResponseMode = z.infer<typeof ResponseModeSchema>;
 
+export const SessionConversationKindSchema = z.enum(['dm', 'channel']);
+export type SessionConversationKind = z.infer<
+  typeof SessionConversationKindSchema
+>;
+
+export const AppUserAssertionSchema = z
+  .object({
+    authorityId: z.string().min(1),
+    subject: z.string().min(1),
+  })
+  .strict();
+export type AppUserAssertion = z.infer<typeof AppUserAssertionSchema>;
+
 export const CreateSessionRequestSchema = z
   .object({
     appId: z.string().optional(),
     agentId: z.string().optional(),
     conversationId: z.string().optional(),
+    conversationKind: SessionConversationKindSchema.default('channel'),
     threadId: z.string().optional(),
     jobId: z.string().optional(),
-    userId: z.string().optional(),
+    appUser: AppUserAssertionSchema.optional(),
     title: z.string().optional(),
     responseMode: ResponseModeSchema.optional(),
     webhookId: z.string().optional(),
     metadata: ContractMetadataSchema.optional(),
   })
-  .strict();
-export type CreateSessionRequest = z.infer<typeof CreateSessionRequestSchema>;
+  .strict()
+  .superRefine((value, ctx) => {
+    // The runtime enforces this too; the contract states it so a bound
+    // channel session fails at parse time, not deep in the module. A type-level
+    // discriminated union was reviewed and rejected: it would reshape the
+    // generated OpenAPI for marginal static safety the parse already enforces.
+    if (value.appUser && value.conversationKind !== 'dm') {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['appUser'],
+        message: "appUser requires conversationKind 'dm'",
+      });
+    }
+  });
+// z.input: the wire schema defaults conversationKind, so callers may omit it.
+export type CreateSessionRequest = z.input<typeof CreateSessionRequestSchema>;
 
 export const ResumeSessionRequestSchema = z
   .object({
@@ -115,7 +143,7 @@ export const AgentSessionResponseSchema = z.object({
   conversationId: z.string().nullable().optional(),
   threadId: z.string().nullable().optional(),
   jobId: z.string().nullable().optional(),
-  userId: z.string().nullable().optional(),
+  appUser: AppUserAssertionSchema.nullable().optional(),
   status: AgentSessionStatusSchema,
   providerSessions: z.array(ProviderSessionResponseSchema).optional(),
   createdAt: IsoDateTimeSchema,

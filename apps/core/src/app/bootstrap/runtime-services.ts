@@ -18,7 +18,7 @@ import {
   toGroupMessageCursor,
 } from '../../shared/message-cursor.js';
 import { logger } from '../../infrastructure/logging/logger.js';
-import type { MessageSendOptions, NewMessage } from '../../domain/types.js';
+import type { MessageSendOptions } from '../../domain/types.js';
 import type { HostnameLookup } from '../../domain/network/public-address-policy.js';
 import { writeGroupsSnapshot } from '../../runtime/agent-spawn.js';
 import { startIpcWatcher, type IpcDeps } from '../../runtime/ipc.js';
@@ -119,6 +119,7 @@ import {
 } from './runtime-services-async-task-recovery.js';
 import { wireInlineAgentLoopTools } from './inline-agent-loop-tools.js';
 import { createGroupSnapshotSync } from './runtime-services-group-snapshot-sync.js';
+import type { GroupProcessingDeps } from '../../runtime/group-processing-types.js';
 import { createAttachmentOpen } from './attachment-resolver-wiring.js';
 import { resolveWorkspaceFolderPath } from '../../platform/workspace-folder.js';
 import { createProviderAttachmentMaterializer } from '../../shared/provider-attachment-materialization.js';
@@ -155,6 +156,7 @@ interface Deps extends Pick<IpcDeps, RuntimeStorageDep> {
   logger: Pick<typeof logger, 'info' | 'warn' | 'fatal'>;
   mcpHostnameLookup?: HostnameLookup;
   collectSessionMemory: SessionMemoryCollector;
+  resolvePersonIdentity?: GroupProcessingDeps['resolvePersonIdentity'];
   getCredentialBroker?: () => Promise<AgentCredentialBroker | undefined>;
   getAgentRepository?: () => AgentRepository | undefined;
   getSkillRepository?: () => SkillCatalogRepository | undefined;
@@ -520,7 +522,6 @@ export async function startRuntimeServices(
           liveTurnAuthority.registerLocalRunner(queueJid, hooks, routing)
       : null,
   );
-  let handleActiveControlCommand: ActiveControlCommandHandler | undefined;
   app.queue.setProcessMessagesFn(
     buildLiveAdmissionProcessor({
       liveTurnAuthority,
@@ -533,8 +534,7 @@ export async function startRuntimeServices(
       warn: (context, message) => resolved.logger.warn(context, message),
       addReaction: (jid, messageRef, emoji, options) =>
         channelWiring.addReaction(jid, messageRef, emoji, options),
-      handleActiveControlCommand: (args) =>
-        handleActiveControlCommand?.(args) ?? Promise.resolve(false),
+      handleActiveControlCommand,
       finalizeAgentTodo: (jid, render, options) =>
         channelWiring.finalizeAgentTodo(jid, render, options),
       finalizeBrowserForLiveTurn: buildLiveTurnBrowserFinalizer({
@@ -622,23 +622,13 @@ export async function startRuntimeServices(
   registerRuntimeMemoryReviewMessageAction(channelWiring, app);
   registerRuntimeObserverFeedbackMessageAction(channelWiring);
   registerRuntimeBrainDreamReviewMessageAction(channelWiring);
-  handleActiveControlCommand = async ({
+  async function handleActiveControlCommand({
     chatJid,
     queueJid,
     group,
     command,
     message,
-  }: {
-    chatJid: string;
-    queueJid: string;
-    group: {
-      folder: string;
-      conversationKind?: 'dm' | 'channel';
-      providerAccountId?: string;
-    };
-    command: { kind: string };
-    message: NewMessage;
-  }): Promise<boolean> => {
+  }: Parameters<ActiveControlCommandHandler>[0]): Promise<boolean> {
     if (
       command.kind !== 'stop' &&
       command.kind !== 'new' &&
@@ -685,6 +675,10 @@ export async function startRuntimeServices(
         collectSessionMemory: resolved.collectSessionMemory,
         logger: resolved.logger,
         group,
+        appId: channelWiring.getRuntimeAppId(),
+        resolvePersonIdentity: resolved.resolvePersonIdentity,
+        normalizeProviderId: channelWiring.normalizeProviderId,
+        publishRuntimeEvent: resolved.publishRuntimeEvent,
         executionAdapter: app.executionAdapter,
         chatJid,
         queueJid,
@@ -712,7 +706,7 @@ export async function startRuntimeServices(
       providerAccountId: group.providerAccountId,
     });
     return true;
-  };
+  }
   const outboundDeliveryRepository = resolved.getOutboundDeliveryRepository?.();
   if (outboundDeliveryRepository) {
     const liveSendProfile: OutboundDeliveryProfile = {

@@ -247,18 +247,46 @@ describe('agent capability composition', () => {
     for (const tool of DANGEROUS_DEFAULT_TOOLS) {
       expect(profile.allowedTools).not.toContain(tool);
     }
+    expect(profile.allowedTools).toContain('mcp__gantry__memory_search');
+    expect(profile.allowedTools).toContain('mcp__gantry__memory_save');
+    expect(profile.allowedTools).toContain('mcp__gantry__brain_search');
+    expect(profile.allowedTools).toContain('mcp__gantry__brain_query');
+    expect(profile.allowedTools).toContain('mcp__gantry__brain_write');
     expect(profile.allowedTools).toContain('mcp__gantry__continuity_summary');
+    expect(profile.allowedTools).toContain('mcp__gantry__procedure_save');
     expect(profile.allowedTools).not.toContain(
       'mcp__gantry__memory_review_pending',
     );
     expect(profile.allowedTools).not.toContain(
       'mcp__gantry__memory_review_decision',
     );
-    expect(selectedMemoryIpcActions([])).toContain('continuity_summary');
+    expect(selectedMemoryIpcActions([])).toEqual([
+      'memory_search',
+      'memory_save',
+      'brain_search',
+      'brain_query',
+      'brain_write',
+      'continuity_summary',
+      'procedure_save',
+    ]);
     expect(selectedMemoryIpcActions([])).not.toContain('memory_review_pending');
     expect(selectedMemoryIpcActions([])).not.toContain(
       'memory_review_decision',
     );
+    expect(
+      selectedGantryMcpToolNames(['mcp__gantry__continuity_summary']),
+    ).toContain('continuity_summary');
+    expect(
+      selectedMemoryIpcActions(['mcp__gantry__continuity_summary']),
+    ).toEqual([
+      'memory_search',
+      'memory_save',
+      'brain_search',
+      'brain_query',
+      'brain_write',
+      'continuity_summary',
+      'procedure_save',
+    ]);
     for (const tool of UNAVAILABLE_DEFAULT_TOOLS) {
       expect(profile.allowedTools).not.toContain(tool);
     }

@@ -1,4 +1,8 @@
 import type { JsonSchema } from './openapi-route-helpers.js';
+import {
+  peopleOpenApiRequestSchemas,
+  peopleOpenApiResponseSchemas,
+} from './openapi-people.js';
 
 const ref = (name: string): JsonSchema => ({
   $ref: `#/components/schemas/${name}`,
@@ -125,6 +129,7 @@ export const openApiResponseSchemas: Record<string, JsonSchema> = {
   waitForTrigger: ref('TriggerWaitResponse'),
   importBrainPages: ref('BrainImportResponse'),
   getBrainStatus: ref('BrainStatusResponse'),
+  ...peopleOpenApiResponseSchemas,
 };
 
 export const openApiRequestSchemas: Record<string, JsonSchema> = {
@@ -145,6 +150,7 @@ export const openApiRequestSchemas: Record<string, JsonSchema> = {
   invokeExternalIngress: ref('ExternalIngressInvokeRequest'),
   invokeLlmChatCompletions: ref('LlmChatCompletionsRequest'),
   invokeLlmMessages: ref('LlmMessagesRequest'),
+  ...peopleOpenApiRequestSchemas,
   invokeLlmMessagesCountTokens: ref('LlmMessagesCountTokensRequest'),
   importBrainPages: ref('BrainImportRequest'),
   patchMemory: ref('MemorySaveRequest'),

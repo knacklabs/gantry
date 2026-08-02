@@ -146,6 +146,7 @@ export interface ChannelWiringDeps {
 
 export interface ChannelWiring {
   getRuntimeAppId: () => AppId;
+  normalizeProviderId: (providerId: string) => string;
   getHistoryCoverageDistrustEpoch: (
     providerAccountId: string,
   ) => ConversationHistoryDistrustEpoch;

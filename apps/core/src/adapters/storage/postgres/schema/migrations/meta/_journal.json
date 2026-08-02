@@ -852,8 +852,71 @@
     {
       "idx": 124,
       "version": "7",
+      "when": 1785564367000,
+      "tag": "20260801060607_person_identity_management",
+      "breakpoints": true
+    },
+    {
+      "idx": 125,
+      "version": "7",
+      "when": 1785564368000,
+      "tag": "20260801060608_drop_legacy_user_alias_unique_index",
+      "breakpoints": true
+    },
+    {
+      "idx": 126,
+      "version": "7",
+      "when": 1785564369000,
+      "tag": "20260801060609_people_identity_query_indexes",
+      "breakpoints": true
+    },
+    {
+      "idx": 127,
+      "version": "7",
+      "when": 1785564370000,
+      "tag": "20260801060610_person_merge_audit_result",
+      "breakpoints": true
+    },
+    {
+      "idx": 128,
+      "version": "7",
+      "when": 1785564371000,
+      "tag": "20260801060611_identity_isolation_and_participant_identity",
+      "breakpoints": true
+    },
+    {
+      "idx": 129,
+      "version": "7",
+      "when": 1785564372000,
+      "tag": "20260801060612_identity_app_scoped_person_foreign_keys",
+      "breakpoints": true
+    },
+    {
+      "idx": 130,
+      "version": "7",
+      "when": 1785564373000,
+      "tag": "20260801060613_identity_memory_scope_cleanup",
+      "breakpoints": true
+    },
+    {
+      "idx": 131,
+      "version": "7",
       "when": 1785587292354,
       "tag": "20260801122812_durable_message_attachment_deletions",
+      "breakpoints": true
+    },
+    {
+      "idx": 132,
+      "version": "7",
+      "when": 1785592203404,
+      "tag": "20260801135003_identity_schema_baseline",
+      "breakpoints": true
+    },
+    {
+      "idx": 133,
+      "version": "7",
+      "when": 1785607107238,
+      "tag": "20260801175827_normalize_contact_aliases",
       "breakpoints": true
     }
   ]

@@ -5,10 +5,7 @@ import {
 } from '../shared/message-cursor.js';
 import { logger } from '../infrastructure/logging/logger.js';
 import { MessageSendOptions, NewMessage } from '../domain/types.js';
-import {
-  createSerializedAgentOutputCallbacks,
-  isAgentTurnCompleteMarker,
-} from './agent-output-callbacks.js';
+import * as agentOutputCallbacks from './agent-output-callbacks.js';
 import * as progress from './progress-updates.js';
 import { finalizeGroupAgentUserVisibleOutput } from './group-output-finalization.js';
 import type { AgentOutput } from './agent-spawn.js';
@@ -54,6 +51,7 @@ import { activeTurnUiCleanupByQueue } from './group-active-turn-cleanup.js';
 import { randomUUID } from 'node:crypto';
 import { nowIso } from '../shared/time/datetime.js';
 import { createGroupProcessingSessionCommandHandlers } from './group-processing-session-command-handlers.js';
+import { createGroupProcessingPersonResolver } from './group-person-identity.js';
 import {
   isFailoverEligibleError,
   isMissingProviderSessionError,
@@ -116,6 +114,8 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
     const { messages: missedMessages } = replay;
     if (missedMessages.length === 0) return true;
     const latestMessage = missedMessages[missedMessages.length - 1];
+    const cursorForMessage = (message: typeof latestMessage) =>
+      encodeGroupMessageCursor(toGroupMessageCursor(message));
     const latestMessageReactionRef =
       latestMessage.external_message_id &&
       !latestMessage.external_message_id.startsWith('external-ingress:')
@@ -166,11 +166,20 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
       finalizingGenerations: finalizingProgressGenerations,
       log: logger,
     });
-    const memoryUserId =
-      options.memoryContext?.userId ?? resolveMemoryUserId(missedMessages);
     const defaultMemoryScope = memoryScopeForConversationKind(
       group.conversationKind,
     );
+    const rawMemoryUserId =
+      options.memoryContext?.userId ?? resolveMemoryUserId(missedMessages);
+    const resolveActionMemoryUserId = createGroupProcessingPersonResolver({
+      deps,
+      appId: turnAppId,
+      rawUserId: rawMemoryUserId,
+      group,
+      messages: missedMessages,
+      chatJid,
+      threadId: activeThreadId,
+    });
     const cmdResult = await handleSessionCommand({
       missedMessages,
       groupName: group.name,
@@ -185,7 +194,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
         chatJid,
         threadId: activeThreadId,
         defaultScope: defaultMemoryScope,
-        memoryUserId,
+        memoryUserId: resolveActionMemoryUserId,
         collectMemory: collectSessionMemory,
         deps,
         queueJid,
@@ -232,15 +241,13 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
         },
       }))
     ) {
-      deps.setCursor(
-        queueJid,
-        encodeGroupMessageCursor(toGroupMessageCursor(latestMessage)),
-      );
+      deps.setCursor(queueJid, cursorForMessage(latestMessage));
       await deps.saveState();
       if (replay.hasMore) deps.queue.enqueueMessageCheck(queueJid);
       return true;
     }
     await notifyFirstProgress();
+    const memoryUserId = await resolveActionMemoryUserId();
     const { prompt, recallQuery } =
       await buildGroupProcessingConversationContext({
         deps,
@@ -258,9 +265,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
     const previousCursor = (await deps.getCursor(queueJid)) || '';
     deps.setCursor(
       queueJid,
-      encodeGroupMessageCursor(
-        toGroupMessageCursor(missedMessages[missedMessages.length - 1]),
-      ),
+      cursorForMessage(missedMessages[missedMessages.length - 1]),
     );
     await deps.saveState();
     resetGroupStreamingForTurn({
@@ -558,7 +563,8 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
     const finalizeStreamingOutput = outputBuffer.flushBufferedOutput;
     let output: GroupAgentRunResult = 'error';
     const handleAgentOutput = async (result: AgentOutput) => {
-      const isTurnCompleteMarker = isAgentTurnCompleteMarker(result);
+      const isTurnCompleteMarker =
+        agentOutputCallbacks.isAgentTurnCompleteMarker(result);
       const wasAwaitingResponseReceipt = awaitingResponseReceipt;
       if (
         awaitingResponseReceipt &&
@@ -571,9 +577,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
         await sendResponseReceipt();
       }
       if (result.result) {
-        if (!typingActive) {
-          await setTypingState(true);
-        }
+        if (!typingActive) await setTypingState(true);
         activeGenerationHasOutput = true;
         const raw =
           typeof result.result === 'string'
@@ -622,9 +626,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
         ) {
           await sendTrackedDoneProgress(markerProgressState);
         }
-        if (typingActive) {
-          await setTypingState(false);
-        }
+        if (typingActive) await setTypingState(false);
         startNextStreamingMessage();
         resetIdleTimer();
       }
@@ -648,12 +650,13 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
         await setTypingState(false);
       }
     };
-    const outputCallbacks = createSerializedAgentOutputCallbacks({
-      handle: handleAgentOutput,
-      onError: (err) => {
-        outputCallbackError ??= err;
-      },
-    });
+    const outputCallbacks =
+      agentOutputCallbacks.createSerializedAgentOutputCallbacks({
+        handle: handleAgentOutput,
+        onError: (err) => {
+          outputCallbackError ??= err;
+        },
+      });
     try {
       output = await runAgent(
         group,

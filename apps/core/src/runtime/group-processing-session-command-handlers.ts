@@ -25,6 +25,11 @@ import type {
   GroupProcessingRepository,
 } from './group-processing-types.js';
 
+type MemoryUserIdValue =
+  | string
+  | undefined
+  | (() => Promise<string | undefined>);
+
 export function createGroupProcessingSessionCommandHandlers(input: {
   ops: () => GroupProcessingRepository;
   appId: string;
@@ -33,7 +38,7 @@ export function createGroupProcessingSessionCommandHandlers(input: {
   chatJid: string;
   threadId?: string | null;
   defaultScope: 'user' | 'group';
-  memoryUserId?: string;
+  memoryUserId?: MemoryUserIdValue;
   collectMemory?: GroupProcessingDeps['collectSessionMemory'];
   deps: GroupProcessingDeps;
   queueJid: string;
@@ -56,6 +61,10 @@ export function createGroupProcessingSessionCommandHandlers(input: {
   };
 }) {
   const { deps, group, appId } = input;
+  const resolveMemoryUserId = async () =>
+    typeof input.memoryUserId === 'function'
+      ? input.memoryUserId()
+      : input.memoryUserId;
   const modelStatus = createRuntimeModelStatusAccess(
     group.folder,
     input.threadId,
@@ -144,20 +153,20 @@ export function createGroupProcessingSessionCommandHandlers(input: {
       deps.setGroupPermissionModeOverride(input.commandOverrideRouteKey, value),
     ...createSessionArchiveHandlers(stateInput),
     ...createSessionCompactionHandlers(stateInput),
-    clearCurrentSession: () =>
+    clearCurrentSession: async () =>
       deps.clearSession(group.folder, input.threadId, {
         appId,
         conversationJid: input.chatJid,
         providerAccountId: group.providerAccountId,
         conversationKind: group.conversationKind,
-        memoryUserId: input.memoryUserId,
+        memoryUserId: await resolveMemoryUserId(),
       }),
     stopCurrentRun: () => deps.queue.stopGroup?.(input.queueJid) ?? false,
-    runMemoryDreaming: () =>
+    runMemoryDreaming: async () =>
       runDreamingForGroup({
         folder: group.folder,
         conversationId: input.chatJid,
-        userId: input.memoryUserId,
+        userId: await resolveMemoryUserId(),
         activeThreadId: input.threadId ?? undefined,
         defaultScope: input.defaultScope,
       }),
@@ -167,7 +176,7 @@ export function createGroupProcessingSessionCommandHandlers(input: {
         {
           folder: group.folder,
           conversationId: input.chatJid,
-          userId: input.memoryUserId,
+          userId: await resolveMemoryUserId(),
           threadId: input.threadId,
           defaultScope: input.defaultScope,
         },

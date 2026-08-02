@@ -7,6 +7,8 @@ import {
 } from '../../shared/message-cursor.js';
 import { resolveRuntimeExecutionProviderId } from '../../runtime/execution-provider-id.js';
 import type { AgentExecutionAdapter } from '../../application/agent-execution/agent-execution-adapter.js';
+import { resolveCanonicalMemoryPersonId } from '../../runtime/group-person-identity.js';
+import type { GroupProcessingDeps } from '../../runtime/group-processing-types.js';
 import type { ChannelWiring } from './channel-wiring-types.js';
 
 export function controlAckMessageOptions(
@@ -40,7 +42,13 @@ export async function handleActiveNewSessionCommand(input: {
     folder: string;
     conversationKind?: 'dm' | 'channel';
     providerAccountId?: string;
+    senderIdentityEvidenceType?: 'provider_user' | 'web_user';
+    systemSenderIds?: string[];
   };
+  appId: string;
+  resolvePersonIdentity?: GroupProcessingDeps['resolvePersonIdentity'];
+  normalizeProviderId?: GroupProcessingDeps['normalizeProviderId'];
+  publishRuntimeEvent?: GroupProcessingDeps['publishRuntimeEvent'];
   executionAdapter?: Pick<AgentExecutionAdapter, 'id'>;
   chatJid: string;
   queueJid: string;
@@ -61,7 +69,25 @@ export async function handleActiveNewSessionCommand(input: {
   } = input;
   let boundaryAgentSessionId: string | undefined;
   const defaultScope = group.conversationKind === 'dm' ? 'user' : 'group';
-  const memoryUserId = message.sender?.trim() || undefined;
+  // The resolver runs for EVERY conversation kind: channel senders still get
+  // participant identity resolution and the identity.resolved /
+  // memory.hydration.decision audit events. The resolver itself returns a
+  // memory person id only for DM turns (locked decision 8), so channels
+  // keep resolving without hydrating personal memory.
+  const memoryUserId = await resolveCanonicalMemoryPersonId({
+    resolvePersonIdentity: input.resolvePersonIdentity,
+    normalizeProviderId: input.normalizeProviderId,
+    publishRuntimeEvent: input.publishRuntimeEvent,
+    appId: input.appId,
+    rawUserId: message.sender,
+    conversationKind: group.conversationKind === 'dm' ? 'dm' : 'channel',
+    messages: [message],
+    chatJid,
+    threadId,
+    providerAccountId: group.providerAccountId,
+    identityEvidenceType: group.senderIdentityEvidenceType,
+    systemSenderIds: group.systemSenderIds,
+  });
   const messageOptions = controlAckMessageOptions(
     threadId,
     group.providerAccountId,

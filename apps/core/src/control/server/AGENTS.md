@@ -25,3 +25,10 @@
 - Production or non-loopback TCP control startup must require strong keyed
   `GANTRY_CONTROL_API_KEYS_JSON` records. Do not add a remote auto-accept path;
   approval shortcuts are local-development-only and must fail closed remotely.
+- Identity and People routes must use public `person`/`personId` vocabulary in
+  responses and errors. Keep `users`/`user_aliases` naming inside storage code
+  only, and use the exact product error copy for cross-app and retired-alias
+  failures.
+- Identity and People route runtime events must avoid raw alias values. Publish
+  only canonical `personId`, alias ids, provider/providerConnection metadata,
+  verification state, and coarse resolve or hydration outcomes.

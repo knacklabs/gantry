@@ -29,7 +29,7 @@ export type SseEvent = SessionEventEnvelope;
 export type MemoryContext = {
   appId?: string;
   agentId?: string;
-  userId?: string;
+  personId?: string;
   groupId?: string;
   channelId?: string;
   threadId?: string;

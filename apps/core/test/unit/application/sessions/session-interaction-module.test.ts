@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { SessionInteractionModule } from '@core/application/sessions/session-interaction-module.js';
+import {
+  SessionInteractionModule,
+  makeAppGroup,
+} from '@core/application/sessions/session-interaction-module.js';
 
 function makeModule(overrides?: {
   control?: Record<string, unknown>;
@@ -89,6 +92,21 @@ function makeModule(overrides?: {
 }
 
 describe('SessionInteractionModule', () => {
+  it('marks app-session groups as web_user identity routes with sdk as the system sender sentinel', () => {
+    expect(
+      makeAppGroup({
+        appId: 'app-one',
+        conversationId: 'conv-1',
+        conversationJid: 'app:app-one:conv-1',
+        identityHash: '123456789abc',
+        addedAt: '2026-04-30T00:00:00.000Z',
+      }),
+    ).toMatchObject({
+      senderIdentityEvidenceType: 'web_user',
+      systemSenderIds: ['sdk'],
+    });
+  });
+
   it('rejects non-canonical conversation ids before creating app chat ids', async () => {
     const { module, control } = makeModule();
 
@@ -103,6 +121,56 @@ describe('SessionInteractionModule', () => {
         'appId and conversationId must contain only letters, numbers, dot, underscore, or dash',
     });
     expect(control.ensureAppSession).not.toHaveBeenCalled();
+  });
+
+  it('binds an SDK session to one immutable app user assertion', async () => {
+    const { module, control } = makeModule({
+      control: {
+        getAppSessionById: vi.fn(async () => ({
+          sessionId: 'session-1',
+          appId: 'app-one',
+          conversationId: 'conv-1',
+          conversationJid: 'app:app-one:conv-1',
+          workspaceKey: 'group',
+          defaultResponseMode: 'sse',
+          defaultWebhookId: null,
+          appUser: { authorityId: 'web-app', subject: 'user-1' },
+        })),
+      },
+    });
+
+    await module.ensureSession({
+      appId: 'app-one',
+      conversationId: 'conv-1',
+      conversationKind: 'dm',
+      appUser: { authorityId: 'web-app', subject: 'user-1' },
+    });
+    expect(control.ensureAppSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        appUser: { authorityId: 'web-app', subject: 'user-1' },
+      }),
+    );
+
+    await expect(
+      module.acceptMessage({
+        appId: 'app-one',
+        sessionId: 'session-1',
+        message: 'hello',
+        senderId: 'user-2',
+      }),
+    ).rejects.toMatchObject({
+      code: 'CONFLICT',
+      message: 'SDK session is bound to a different app user.',
+    });
+
+    // An omitted senderId on a bound session means the bound user.
+    await expect(
+      module.acceptMessage({
+        appId: 'app-one',
+        sessionId: 'session-1',
+        message: 'anonymous message',
+      }),
+    ).resolves.toMatchObject({ accepted: true });
   });
 
   it('rejects waits for sessions outside the authenticated app', async () => {

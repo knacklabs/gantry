@@ -19,6 +19,7 @@ function adaptAppSession(session: RuntimeAppSession) {
     title: session.title,
     defaultResponseMode: session.defaultResponseMode,
     defaultWebhookId: session.defaultWebhookId,
+    appUser: session.appUser,
   };
 }
 
@@ -35,6 +36,7 @@ export function adaptSessionControlPort(
         title: input.title,
         defaultResponseMode: input.defaultResponseMode,
         defaultWebhookId: input.defaultWebhookId,
+        appUser: input.appUser,
       });
       return adaptAppSession(session)!;
     },

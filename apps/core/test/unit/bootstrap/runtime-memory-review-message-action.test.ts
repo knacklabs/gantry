@@ -4,8 +4,8 @@ const processMemoryReviewDecisionRequestMock = vi.hoisted(() => vi.fn());
 const resolveReviewSubjectWithinBoundaryMock = vi.hoisted(() => vi.fn());
 const resolveTrustedMemorySubjectMock = vi.hoisted(() =>
   vi.fn(() => ({
-    appId: 'default',
-    agentId: 'a',
+    appId: 'app-one',
+    agentId: 'agent:main_agent',
     subjectType: 'user',
     subjectId: 's',
   })),
@@ -54,6 +54,7 @@ function deps(overrides: Partial<MemoryReviewMessageActionDeps> = {}): {
     execute,
     isControlApproverAllowed,
     deps: {
+      appId: 'app-one',
       sourceAgentFolderFor: () => 'main_agent',
       isControlApproverAllowed: isControlApproverAllowed as never,
       execute,
@@ -71,6 +72,7 @@ describe('handleMemoryReviewDecisionAction', () => {
       reviewId: 'rev-1',
       decision: 'approve',
       reviewerId: 'U123',
+      appId: 'app-one',
       sourceAgentFolder: 'main_agent',
       conversationJid: 'sl:C123',
     });
@@ -181,12 +183,18 @@ describe('executeMemoryReviewDecision', () => {
       reviewId: 'rev-1',
       decision: 'approve',
       reviewerId: 'U-ADMIN',
+      appId: 'app-one',
       sourceAgentFolder: 'main_agent',
       conversationJid: 'sl:C123',
     });
+    expect(resolveTrustedMemorySubjectMock).toHaveBeenCalledWith('main_agent', {
+      appId: 'app-one',
+      agentId: 'agent:main_agent',
+      personId: 'U-ADMIN',
+    });
     expect(resolveReviewSubjectWithinBoundaryMock).toHaveBeenCalledWith({
-      appId: 'default',
-      agentId: 'a',
+      appId: 'app-one',
+      agentId: 'agent:main_agent',
       reviewId: 'rev-1',
     });
     expect(processMemoryReviewDecisionRequestMock).toHaveBeenCalledTimes(1);
@@ -203,7 +211,7 @@ describe('executeMemoryReviewDecision', () => {
     });
     // approver identity flows through as audit/authorization context only.
     expect(call.request.context).toMatchObject({
-      userId: 'U-ADMIN',
+      personId: 'U-ADMIN',
       reviewerIsControlApprover: true,
     });
     expect(result).toEqual({
@@ -218,6 +226,7 @@ describe('executeMemoryReviewDecision', () => {
       reviewId: 'foreign-rev',
       decision: 'approve',
       reviewerId: 'U123',
+      appId: 'app-one',
       sourceAgentFolder: 'main_agent',
       conversationJid: 'sl:C123',
     });
@@ -233,6 +242,7 @@ describe('executeMemoryReviewDecision', () => {
       reviewId: 'rev-1',
       decision: 'approve',
       reviewerId: 'U123',
+      appId: 'app-one',
       sourceAgentFolder: 'main_agent',
       conversationJid: 'sl:C123',
     });
@@ -254,6 +264,7 @@ describe('executeMemoryReviewDecision', () => {
       reviewId: 'rev-1',
       decision: 'reject',
       reviewerId: 'U123',
+      appId: 'app-one',
       sourceAgentFolder: 'main_agent',
       conversationJid: 'sl:C123',
     });
@@ -274,6 +285,7 @@ describe('executeMemoryReviewDecision', () => {
       reviewId: 'rev-1',
       decision: 'approve',
       reviewerId: 'U123',
+      appId: 'app-one',
       sourceAgentFolder: 'main_agent',
       conversationJid: 'sl:C123',
     });

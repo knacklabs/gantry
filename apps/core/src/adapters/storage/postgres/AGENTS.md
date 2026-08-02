@@ -77,3 +77,11 @@
   cancel, abort propagation, terminal receipts, and restart recovery. Delegated
   agent task rows and provider task id correlation still require a real
   delegated-agent executor and read model.
+- People identity uses the existing `users` table as the canonical person
+  table and `user_aliases` as the alias table. Person merge code may rekey only
+  `memory_items.subject_type = 'user'`; group/channel/conversation memory rows
+  must remain untouched.
+- Exact person alias lookup authority is
+  `appId + provider + providerAccountId? + externalUserId`. Keep
+  `providerAccountId` in route and alias resolution paths when it is known;
+  do not fall back to fuzzy or display-name matching.
