@@ -38,7 +38,8 @@ import {
 } from '../harness/postgres-integration-runtime.js';
 import { measurePostgresOperations } from '../harness/response-latency-postgres.js';
 
-// Decision 0085 baseline: stage LAT-4A-2 flips these to 19 and once.
+// Decisions 0085 and 0096: LAT-4A fused the envelope; LAT-4B removes the
+// startup-proven and same-transaction graph repeats.
 //
 // WHAT THIS MEASURES, precisely: every SQL statement issued to persist ONE
 // inbound envelope — the metadata write, the message graph write, participants,
@@ -63,15 +64,16 @@ import { measurePostgresOperations } from '../harness/response-latency-postgres.
 //   Teams           28 -> 19
 // A single shared constant would have been wrong for two of the four.
 const EXPECTED_ENVELOPE_STATEMENTS_BY_PROVIDER: Record<string, number> = {
-  'Telegram text': 19,
-  // FILE-1A dropped Slack from 20 to 19: the insert-vs-update split removed
-  // the unconditional attachment DELETE a fresh delivery always paid.
-  Slack: 19,
-  Teams: 19,
+  'Telegram text': 15,
+  Slack: 15,
+  Teams: 15,
 };
 // Referenced by docs/architecture/lat-4a-measurement.md; kept here so the number
 // and the assertions live together.
 export const STATEMENTS_SAVED_PER_PROVIDER = 9;
+export const LAT_4B_TOP_LEVEL_STATEMENTS_SAVED = 4;
+export const LAT_4B_THREAD_STATEMENTS_SAVED = 13;
+const EXPECTED_THREAD_ENVELOPE_STATEMENTS = 16;
 const EXPECTED_ENSURE_CONVERSATION_CALLS = 1;
 
 const PRIVATE_CONVERSATION_JID = 'tg:400200';
@@ -328,6 +330,224 @@ describe.runIf(hasPostgresIntegrationDatabase)(
         expect(conversation.rows[0].kind).toBe('group');
       },
     );
+
+    it('persists a first-contact Slack thread envelope in 16 statements', async () => {
+      const conversationJid = 'sl:C400116';
+      const providerAccountId = 'slack_lat_4b_first_thread';
+      const threadId = '1785283200.000116';
+      const route: ConversationRoute = {
+        name: 'Slack First Thread',
+        folder: 'main_agent',
+        trigger: '@Main',
+        added_at: MESSAGE_TIMESTAMP,
+        agentId: DEFAULT_AGENT_ID,
+        providerAccountId,
+        requiresTrigger: false,
+        conversationKind: 'channel',
+      };
+      await runtime.repositories.providerAccounts.saveProviderAccount({
+        id: providerAccountId as never,
+        appId: DEFAULT_APP_ID as never,
+        agentId: DEFAULT_AGENT_ID as never,
+        providerId: 'slack' as never,
+        externalIdentityRef: {
+          kind: 'provider_account',
+          value: providerAccountId,
+        },
+        label: 'LAT-4B measurement account',
+        status: 'active',
+        config: {},
+        runtimeSecretRefs: {},
+        createdAt: MESSAGE_TIMESTAMP,
+        updatedAt: MESSAGE_TIMESTAMP,
+      });
+      const { persistenceQueue, channelOpts } = createPersistenceHarness({
+        providerAccountId,
+        conversationRoutes: { [conversationJid]: route },
+      });
+      const ensureConversation = vi.spyOn(
+        PostgresCanonicalGraphRepository.prototype,
+        'ensureConversation',
+      );
+
+      const measurement = await measurePostgresOperations(
+        runtime.service.pool,
+        async () => {
+          await ingestSlackMessage({
+            event: {
+              channel: 'C400116',
+              ts: '1785283201.000116',
+              thread_ts: threadId,
+              user: 'U400116',
+              text: 'First contact in a new thread.',
+            },
+            opts: channelOpts,
+            botUserId: null,
+            resolveChannelName: async () => route.name,
+            resolveUserName: async () => 'First Thread User',
+            isLikelyGroupConversation: () => true,
+            enrichMessage: async () => ({
+              text: 'First contact in a new thread.',
+              attachments: [],
+            }),
+          });
+          expect(await persistenceQueue.waitForIdle(5_000)).toBe(true);
+        },
+      );
+
+      expect(measurement.counts.postgres_statements).toBe(
+        EXPECTED_THREAD_ENVELOPE_STATEMENTS,
+      );
+      expect(ensureConversation).toHaveBeenCalledTimes(1);
+
+      const envelope = await runtime.service.pool.query(
+        `SELECT c.id AS conversation_id,
+                ct.id AS thread_id,
+                cp.id AS participant_id,
+                m.id AS message_id,
+                mp.id AS part_id,
+                admission.id AS admission_id
+         FROM conversations c
+         JOIN conversation_threads ct ON ct.conversation_id = c.id
+         JOIN conversation_participants cp ON cp.conversation_id = c.id
+         JOIN messages m
+           ON m.conversation_id = c.id AND m.thread_id = ct.id
+         JOIN message_parts mp ON mp.message_id = m.id
+         JOIN live_admission_work_items admission ON admission.message_id = m.id
+         WHERE c.provider_account_id = $1`,
+        [providerAccountId],
+      );
+      expect(envelope.rows).toHaveLength(1);
+      expect(envelope.rows[0]).toEqual({
+        conversation_id: expect.any(String),
+        thread_id: expect.any(String),
+        participant_id: expect.any(String),
+        message_id: expect.any(String),
+        part_id: expect.any(Number),
+        admission_id: expect.any(String),
+      });
+    });
+
+    it('orders thread traffic by monotonic message time and preserves group kind', async () => {
+      const providerAccountId = 'slack_lat_4b_recency';
+      const olderJid = 'sl:C400117';
+      const newerJid = 'sl:C400118';
+      const routes: Record<string, ConversationRoute> = {
+        [olderJid]: {
+          name: 'Older Conversation',
+          folder: 'main_agent',
+          trigger: '@Main',
+          added_at: MESSAGE_TIMESTAMP,
+          agentId: DEFAULT_AGENT_ID,
+          providerAccountId,
+          requiresTrigger: false,
+          conversationKind: 'channel',
+        },
+        [newerJid]: {
+          name: 'Newer Conversation',
+          folder: 'main_agent',
+          trigger: '@Main',
+          added_at: MESSAGE_TIMESTAMP,
+          agentId: DEFAULT_AGENT_ID,
+          providerAccountId,
+          requiresTrigger: false,
+          conversationKind: 'channel',
+        },
+      };
+      await runtime.repositories.providerAccounts.saveProviderAccount({
+        id: providerAccountId as never,
+        appId: DEFAULT_APP_ID as never,
+        agentId: DEFAULT_AGENT_ID as never,
+        providerId: 'slack' as never,
+        externalIdentityRef: {
+          kind: 'provider_account',
+          value: providerAccountId,
+        },
+        label: 'LAT-4B recency account',
+        status: 'active',
+        config: {},
+        runtimeSecretRefs: {},
+        createdAt: MESSAGE_TIMESTAMP,
+        updatedAt: MESSAGE_TIMESTAMP,
+      });
+      const { persistenceQueue, channelOpts } = createPersistenceHarness({
+        providerAccountId,
+        conversationRoutes: routes,
+      });
+      const ingest = async (input: {
+        jid: string;
+        timestamp: string;
+        threadId?: string;
+      }) => {
+        const messageId = (Date.parse(input.timestamp) / 1000).toFixed(6);
+        await ingestSlackMessage({
+          event: {
+            channel: input.jid.slice('sl:'.length),
+            ts: messageId,
+            ...(input.threadId ? { thread_ts: input.threadId } : {}),
+            user: 'U400117',
+            text: messageId,
+          },
+          opts: channelOpts,
+          botUserId: null,
+          resolveChannelName: async () => routes[input.jid]!.name,
+          resolveUserName: async () => 'Recency User',
+          isLikelyGroupConversation: () => true,
+          enrichMessage: async () => ({
+            text: messageId,
+            attachments: [],
+          }),
+        });
+        expect(await persistenceQueue.waitForIdle(5_000)).toBe(true);
+      };
+      const positions = async () => {
+        // Mirrors listChats' ordering contract (ORDER BY updated_at DESC)
+        // directly against the storage the chat list reads.
+        const result = await runtime.service.pool.query(
+          `SELECT external_ref_json::jsonb->>'jid' AS jid,
+                  CASE WHEN external_ref_json::jsonb->>'isGroup' = 'true' THEN 1 ELSE 0 END AS is_group
+           FROM conversations
+           WHERE provider_account_id = $1
+           ORDER BY updated_at DESC`,
+          [providerAccountId],
+        );
+        const chats = result.rows as Array<{ jid: string; is_group: number }>;
+        return {
+          chats,
+          older: chats.findIndex((chat) => chat.jid === olderJid),
+          newer: chats.findIndex((chat) => chat.jid === newerJid),
+        };
+      };
+
+      await ingest({
+        jid: olderJid,
+        timestamp: '2026-07-29T00:00:10.000Z',
+      });
+      await ingest({
+        jid: newerJid,
+        timestamp: '2026-07-29T00:00:20.000Z',
+      });
+      let ordered = await positions();
+      expect(ordered.newer).toBeLessThan(ordered.older);
+
+      await ingest({
+        jid: olderJid,
+        timestamp: '2026-07-29T00:00:05.000Z',
+        threadId: '1785283210.000000',
+      });
+      ordered = await positions();
+      expect(ordered.newer).toBeLessThan(ordered.older);
+      expect(ordered.chats[ordered.older]).toMatchObject({ is_group: 1 });
+
+      await ingest({
+        jid: olderJid,
+        timestamp: '2026-07-29T00:00:30.000Z',
+        threadId: '1785283210.000000',
+      });
+      ordered = await positions();
+      expect(ordered.older).toBeLessThan(ordered.newer);
+      expect(ordered.chats[ordered.older]).toMatchObject({ is_group: 1 });
+    });
 
     it('propagates a later Telegram group rename through the message envelope', async () => {
       const conversationJid = 'tg:-100400105';

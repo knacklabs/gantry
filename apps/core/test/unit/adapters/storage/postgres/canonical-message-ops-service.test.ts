@@ -1381,7 +1381,10 @@ describe('CanonicalMessageOpsService', () => {
       'sl:C123',
       'root',
       tx,
-      expect.objectContaining({ providerAccountId: 'slack_beta' }),
+      expect.objectContaining({
+        conversationId: 'conversation:slack_beta:sl:C123',
+        providerAccountId: 'slack_beta',
+      }),
     );
     expect(graph.getConversationInstallationId).not.toHaveBeenCalled();
     expect(graph.findConversationIdForJid).not.toHaveBeenCalled();
@@ -1536,7 +1539,10 @@ describe('CanonicalMessageOpsService', () => {
       'sl:C123',
       'root',
       tx,
-      expect.objectContaining({ providerAccountId: 'slack_beta' }),
+      expect.objectContaining({
+        conversationId: 'conversation:slack_beta:sl:C123',
+        providerAccountId: 'slack_beta',
+      }),
     );
     expect(graph.getConversationInstallationId).not.toHaveBeenCalled();
     expect(graph.findConversationIdForJid).not.toHaveBeenCalled();
@@ -1627,6 +1633,8 @@ describe('CanonicalMessageOpsService', () => {
       'thread-1',
       tx,
       expect.objectContaining({
+        conversationId:
+          'conversation:channel-providerAccount:default:slack:sl:C123',
         providerAccountId: 'channel-providerAccount:default:slack',
       }),
     );

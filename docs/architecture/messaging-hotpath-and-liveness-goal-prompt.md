@@ -59,6 +59,12 @@ false)` then runner calls it again with memory (`live-execution.ts:224-244`,
 See the FINAL program ledger below (added 2026-08-02) for every phase's
 shipped/measured/deferred status.
 
+### Graph-write premise status (LAT-4B, 2026-08-02)
+
+| Slice | Real-Postgres result | What did not improve |
+| --- | --- | --- |
+| LAT-4B graph-write reduction | The audit's ~24-25 baseline was stale (pre-LAT-4A). Corrected: top-level **19 → 15** statements, thread **29 → 16** (first pinned thread measurement). Decision 0096 pins thread recency to the message timestamp; the deleted nested write also stripped `isGroup` on every thread message. | The ~7 CONDITIONAL identity upserts (providers/agents/config/accounts) remain — collapsing them needs the graph-ready receipt (D-0041), which also subsumes a latent fallback-account identity-conflict landmine. Wall-clock latency is not measured; statement counts are the contract. |
+
 ### Durable history premise status
 
 | Slice                                    | Real-Postgres result                                                                                                                                                                                                                                                                                                                                                                          | What did not improve                                                                                                                                                                                                                                                      |

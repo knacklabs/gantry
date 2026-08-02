@@ -168,7 +168,6 @@ export class PostgresCanonicalGraphRepository {
     name: string = folder,
     executor: CanonicalExecutor = this.db,
   ): Promise<string> {
-    await this.ensureApp(executor);
     const agentId = agentIdForFolder(folder);
     const configVersionId = configVersionIdForAgent(agentId);
     await executor
@@ -309,7 +308,6 @@ export class PostgresCanonicalGraphRepository {
         conversationId = existingConversationId;
       }
     }
-    await this.ensureApp(executor);
     const title = input.name || jid;
     const now = input.timestamp || currentIso();
     const hasKnownKind = input.isGroup !== undefined && input.isGroup !== null;
@@ -369,9 +367,9 @@ export class PostgresCanonicalGraphRepository {
 
   async ensureThread(
     chatJid: string,
-    threadId?: string | null,
+    threadId: string | null | undefined,
     executor: CanonicalExecutor = this.db,
-    input: { channel?: string | null; providerAccountId?: string | null } = {},
+    input: { conversationId: string; providerAccountId?: string | null },
   ): Promise<string | null> {
     const canonicalThreadId = threadIdFor(
       chatJid,
@@ -379,17 +377,12 @@ export class PostgresCanonicalGraphRepository {
       input.providerAccountId,
     );
     if (!canonicalThreadId) return null;
-    const conversationId = await this.ensureConversation(
-      chatJid,
-      { channel: input.channel, providerAccountId: input.providerAccountId },
-      executor,
-    );
     await executor
       .insert(pgSchema.conversationThreadsPostgres)
       .values({
         id: canonicalThreadId,
         appId: CANONICAL_APP_ID,
-        conversationId,
+        conversationId: input.conversationId,
         externalRefJson: json({
           kind: 'conversation_thread',
           value: threadId,
