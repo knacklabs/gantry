@@ -89,7 +89,7 @@ maybeDescribe('MCP capability authoring (Postgres)', () => {
 
     const allowOnce = await requestCapability({
       tools: ['get-sum'],
-      risk: 'read',
+      risk: 'write',
       displayName: 'E2E sum read',
       mode: 'allow_once',
     });
@@ -120,7 +120,7 @@ maybeDescribe('MCP capability authoring (Postgres)', () => {
 
     const denied = await requestCapability({
       tools: ['get-sum'],
-      risk: 'read',
+      risk: 'write',
       displayName: 'E2E sum read',
       mode: 'cancel',
     });
@@ -131,7 +131,7 @@ maybeDescribe('MCP capability authoring (Postgres)', () => {
 
     const permanent = await requestCapability({
       tools: ['get-sum'],
-      risk: 'read',
+      risk: 'write',
       displayName: 'E2E sum read',
       mode: 'allow_persistent_rule',
     });
@@ -142,7 +142,9 @@ maybeDescribe('MCP capability authoring (Postgres)', () => {
         details: expect.arrayContaining([
           { label: 'Server', value: SERVER_NAME },
           { label: 'Resolved tools', value: 'get-sum' },
-          { label: 'Risk', value: 'read' },
+          // Host-derived risk: the fixture server is not registered low-risk,
+          // so even a read-shaped pattern classifies as write (fail-closed).
+          { label: 'Risk', value: 'write' },
         ]),
       },
     });
@@ -157,7 +159,7 @@ maybeDescribe('MCP capability authoring (Postgres)', () => {
     });
     expect(persistedDefinition).toMatchObject({
       capabilityId: candidate.capabilityId,
-      risk: 'read',
+      risk: 'write',
       implementationBindings: [
         {
           kind: 'mcp_pattern',
