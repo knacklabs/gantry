@@ -42,6 +42,12 @@ function liveConversationJidFromCanonicalSuffix(value: string): string {
   const parts = value.split(':');
   if (parts.length < 3) return value;
   if (parts[0]?.includes('providerAccount') && parts.length > 3) {
+    // The marker account id is ALWAYS exactly three segments —
+    // `channel-providerAccount:<appId>:<providerId>` (fallbackProviderAccountId
+    // in channels/provider-registry.ts) — and appId/providerId are validated
+    // colon-free, so the jid deterministically starts at segment 3. A review
+    // suggested scanning for a variable segment count; that would misparse
+    // provider-word segments as jid schemes.
     const candidate = parts.slice(3).join(':').trim();
     return looksLikeLiveConversationJid(candidate) ? candidate : value;
   }

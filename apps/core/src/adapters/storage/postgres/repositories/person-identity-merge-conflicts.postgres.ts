@@ -1,4 +1,4 @@
-import { and, eq, isNotNull, isNull, sql } from 'drizzle-orm';
+import { and, eq, isNull, sql } from 'drizzle-orm';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import { alias } from 'drizzle-orm/pg-core';
 
@@ -69,7 +69,10 @@ export async function findMemoryMergeConflicts(
       target,
       and(
         eq(target.appId, source.appId),
-        eq(target.agentId, source.agentId),
+        // NULL agent ids must still collide with each other: the unique index
+        // treats NULLs as distinct, so an undetected pair would slip past
+        // conflict review and duplicate an active key after the merge.
+        sql`COALESCE(${target.agentId}, '') = COALESCE(${source.agentId}, '')`,
         eq(target.kind, source.kind),
         eq(target.key, source.key),
         eq(target.subjectType, 'user'),
@@ -83,7 +86,6 @@ export async function findMemoryMergeConflicts(
         eq(source.subjectType, 'user'),
         eq(source.userId, input.sourcePersonId),
         eq(source.status, 'active'),
-        isNotNull(source.agentId),
       ),
     )
     .limit(PERSON_MERGE_DETAIL_LIMIT + 1);
