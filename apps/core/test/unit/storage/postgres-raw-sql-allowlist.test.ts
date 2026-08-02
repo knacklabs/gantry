@@ -25,6 +25,9 @@ const ALLOWED_RAW_SQL_FILES = new Set([
   // to make exact-key resolution and merge idempotency atomic.
   'apps/core/src/adapters/storage/postgres/repositories/person-identity-mappers.postgres.ts',
   'apps/core/src/adapters/storage/postgres/repositories/person-identity-repository.postgres.ts',
+  // pg_advisory_xact_lock serializes first-time SDK session app-user binding
+  // so concurrent first requests cannot bind different users.
+  'apps/core/src/adapters/storage/postgres/repositories/control-plane-repository.postgres.ts',
   // pg_advisory_xact_lock serializes conversation ownership checks even when
   // the conversation row does not exist yet.
   'apps/core/src/adapters/storage/postgres/repositories/domain-repositories.postgres.ts',
