@@ -66,6 +66,16 @@ export class PostgresControlPlaneRepository {
         title: input.title,
       });
       const now = currentIso();
+      // Two concurrent first requests for one conversation must serialize:
+      // an unlocked read lets both observe "no binding" and both write their
+      // own app user. The advisory lock pins the read-check-write sequence.
+      await tx.execute(
+        sql`SELECT pg_advisory_xact_lock(hashtextextended(${JSON.stringify([
+          'control-session-binding',
+          input.appId,
+          input.conversationId,
+        ])}, 0))`,
+      );
       const [existing] = await tx
         .select()
         .from(pgSchema.controlHttpSessionsPostgres)

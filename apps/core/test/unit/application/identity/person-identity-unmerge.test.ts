@@ -43,6 +43,7 @@ describe('person identity unmerge audit', () => {
         aliasesToMove: [movedAlias],
         movedAliasIds: ['alias-moved'],
         movedMemoryIds: ['memory-moved'],
+        movedMemoryRows: [{ id: 'memory-moved', subjectId: 'msu_original' }],
         supersededMemoryRows: [{ id: 'memory-moved', priorStatus: 'active' }],
         fingerprint: 'sha256:preview',
       }),
@@ -80,6 +81,7 @@ describe('person identity unmerge memory restore', () => {
     return {
       select: () => chain,
       update: () => ({ set: () => ({ where: () => Promise.resolve() }) }),
+      execute: () => Promise.resolve(),
     } as never;
   }
 
@@ -94,6 +96,7 @@ describe('person identity unmerge memory restore', () => {
         sourcePersonId: 'person-source',
         targetPersonId: 'person-target',
         movedMemoryIds: ['memory-moved'],
+        movedMemoryRows: [{ id: 'memory-moved', subjectId: 'msu_original' }],
         supersededMemoryRows: [
           { id: 'memory-superseded', priorStatus: 'active' },
         ],

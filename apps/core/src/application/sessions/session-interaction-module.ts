@@ -347,7 +347,13 @@ export class SessionInteractionModule {
       id: messageId,
       chat_jid: session.conversationJid,
       provider: 'app',
-      sender: input.senderId ?? 'sdk',
+      // A bound app user is identified by (authorityId, subject): qualify the
+      // sender so equal subjects under different authorities stay different
+      // people — and so a subject literally named 'sdk' can never collide
+      // with the unbound system-sender sentinel.
+      sender: session.appUser
+        ? `${session.appUser.authorityId}:${session.appUser.subject}`
+        : (input.senderId ?? 'sdk'),
       sender_name: input.senderName ?? 'SDK',
       content: text,
       timestamp: now,

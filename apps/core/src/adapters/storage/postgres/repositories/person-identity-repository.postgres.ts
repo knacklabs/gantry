@@ -439,6 +439,7 @@ export class PostgresPersonIdentityRepository implements PersonIdentityRepositor
             aliasesToMove: preview.aliasesToMove,
             movedAliasIds: preview.aliasesToMove.map((alias) => alias.id),
             movedMemoryIds: moved.movedMemoryIds,
+            movedMemoryRows: moved.movedMemoryRows,
             supersededMemoryRows: moved.supersededMemoryRows,
             sourcePerson: {
               personId: sourcePerson.id,
@@ -601,6 +602,7 @@ export class PostgresPersonIdentityRepository implements PersonIdentityRepositor
         sourcePersonId: audit.sourcePersonId,
         targetPersonId: audit.targetPersonId,
         movedMemoryIds: snapshot.movedMemoryIds,
+        movedMemoryRows: snapshot.movedMemoryRows,
         supersededMemoryRows: snapshot.supersededMemoryRows,
         timestamp,
       });

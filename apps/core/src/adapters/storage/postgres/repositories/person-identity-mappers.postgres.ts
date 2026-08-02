@@ -166,11 +166,16 @@ export async function rekeyPersonalMemory(
   },
 ): Promise<{
   movedMemoryIds: string[];
+  movedMemoryRows: Array<{ id: string; subjectId: string }>;
   supersededMemoryRows: Array<{ id: string; priorStatus: string }>;
 }> {
   const memory = pgSchema.memoryItemsPostgres;
   const rows = await executor
-    .select({ id: memory.id, status: memory.status })
+    .select({
+      id: memory.id,
+      status: memory.status,
+      subjectId: memory.subjectId,
+    })
     .from(memory)
     .where(
       and(
@@ -182,9 +187,17 @@ export async function rekeyPersonalMemory(
     .orderBy(memory.id)
     .for('update');
   if (rows.length === 0) {
-    return { movedMemoryIds: [], supersededMemoryRows: [] };
+    return {
+      movedMemoryIds: [],
+      movedMemoryRows: [],
+      supersededMemoryRows: [],
+    };
   }
   const movedMemoryIds = rows.map((row) => row.id);
+  const movedMemoryRows = rows.map((row) => ({
+    id: row.id,
+    subjectId: row.subjectId ?? '',
+  }));
   const conflictSourceIds = new Set(input.conflictSourceIds);
   const supersededMemoryRows = rows
     .filter((row) => conflictSourceIds.has(row.id))
@@ -215,7 +228,7 @@ export async function rekeyPersonalMemory(
       'Personal memory changed while the person merge was applied.',
     );
   }
-  return { movedMemoryIds, supersededMemoryRows };
+  return { movedMemoryIds, movedMemoryRows, supersededMemoryRows };
 }
 
 export async function restorePersonalMemory(
@@ -225,6 +238,7 @@ export async function restorePersonalMemory(
     sourcePersonId: string;
     targetPersonId: string;
     movedMemoryIds: string[];
+    movedMemoryRows: Array<{ id: string; subjectId: string }>;
     supersededMemoryRows: Array<{ id: string; priorStatus: string }>;
     timestamp: string;
   },
@@ -250,22 +264,22 @@ export async function restorePersonalMemory(
       'Merge-owned personal memory is no longer intact; unmerge was refused.',
     );
   }
-  await executor
-    .update(memory)
-    .set({
-      subjectId: sql<string>`'msu_' || substr(encode(digest(${memory.appId} || ':' || COALESCE(${memory.agentId}, 'agent:unknown') || ':user:' || ${input.sourcePersonId}, 'sha256'), 'hex'), 1, 32)`,
-      userId: input.sourcePersonId,
-      sourceRefJson: sql<
-        Record<string, unknown>
-      >`(CASE WHEN jsonb_typeof(${memory.sourceRefJson}) = 'object' THEN ${memory.sourceRefJson} ELSE '{}'::jsonb END) || jsonb_build_object('subject', (CASE WHEN jsonb_typeof(${memory.sourceRefJson}->'subject') = 'object' THEN ${memory.sourceRefJson}->'subject' ELSE '{}'::jsonb END) || jsonb_build_object('subjectType', 'user', 'subjectId', ${input.sourcePersonId}::text, 'userId', ${input.sourcePersonId}::text))`,
-      updatedAt: input.timestamp,
-    })
-    .where(
-      and(
-        eq(memory.appId, input.appId),
-        inArray(memory.id, input.movedMemoryIds),
-      ),
-    );
+  // Restore each row's RECORDED pre-merge subject id: recomputing from the
+  // source person would silently canonicalize any noncanonical original.
+  const restoredIds = input.movedMemoryRows.map((row) => row.id);
+  const restoredSubjects = input.movedMemoryRows.map((row) => row.subjectId);
+  await executor.execute(sql`
+    UPDATE ${memory} AS m
+    SET subject_id = v.subject_id,
+        user_id = ${input.sourcePersonId},
+        source_ref_json = (CASE WHEN jsonb_typeof(m.source_ref_json) = 'object' THEN m.source_ref_json ELSE '{}'::jsonb END) || jsonb_build_object('subject', (CASE WHEN jsonb_typeof(m.source_ref_json->'subject') = 'object' THEN m.source_ref_json->'subject' ELSE '{}'::jsonb END) || jsonb_build_object('subjectType', 'user', 'subjectId', ${input.sourcePersonId}::text, 'userId', ${input.sourcePersonId}::text)),
+        updated_at = ${input.timestamp}
+    FROM (
+      SELECT unnest(${restoredIds}::text[]) AS id,
+             unnest(${restoredSubjects}::text[]) AS subject_id
+    ) v
+    WHERE m.id = v.id AND m.app_id = ${input.appId}
+  `);
   if (input.supersededMemoryRows.length > 0) {
     const supersededIds = input.supersededMemoryRows.map((row) => row.id);
     const current = await executor
@@ -344,6 +358,7 @@ export interface MergeUndoSnapshot {
   aliasesToMove: PersonAliasRecord[];
   movedAliasIds: string[];
   movedMemoryIds: string[];
+  movedMemoryRows: Array<{ id: string; subjectId: string }>;
   supersededMemoryRows: Array<{ id: string; priorStatus: string }>;
   fingerprint: string;
   unmergedAt?: string;
@@ -356,6 +371,24 @@ export function mergeUndoSnapshot(audit: AuditRow): MergeUndoSnapshot {
   const movedAliasIds = jsonArray(stored.movedAliasIds);
   const movedMemoryIds = jsonArray(stored.movedMemoryIds);
   const supersededMemoryRows = jsonArray(stored.supersededMemoryRows);
+  const movedMemoryRows = jsonArray(stored.movedMemoryRows);
+  const validMovedMemoryRows =
+    Array.isArray(stored.movedMemoryRows) &&
+    movedMemoryRows.length === movedMemoryIds.length &&
+    movedMemoryRows.every(
+      (row) =>
+        !!row &&
+        typeof row === 'object' &&
+        !Array.isArray(row) &&
+        typeof (row as Record<string, unknown>).id === 'string' &&
+        typeof (row as Record<string, unknown>).subjectId === 'string',
+    ) &&
+    [...movedMemoryRows]
+      .map((row) => (row as Record<string, unknown>).id as string)
+      .sort()
+      .every(
+        (id, index) => id === [...(movedMemoryIds as string[])].sort()[index],
+      );
   const validSource =
     source.personId === audit.sourcePersonId &&
     source.appId === audit.appId &&
@@ -409,6 +442,7 @@ export function mergeUndoSnapshot(audit: AuditRow): MergeUndoSnapshot {
     !movedAliasIds.every((id) => typeof id === 'string') ||
     !movedMemoryIds.every((id) => typeof id === 'string') ||
     !validSupersededRows ||
+    !validMovedMemoryRows ||
     !aliasesMatch ||
     !uniqueAliasIds ||
     !uniqueMemoryIds ||
@@ -429,6 +463,10 @@ export function mergeUndoSnapshot(audit: AuditRow): MergeUndoSnapshot {
     aliasesToMove: aliasesToMove as PersonAliasRecord[],
     movedAliasIds: movedAliasIds as string[],
     movedMemoryIds: movedMemoryIds as string[],
+    movedMemoryRows: movedMemoryRows as Array<{
+      id: string;
+      subjectId: string;
+    }>,
     supersededMemoryRows: supersededMemoryRows as Array<{
       id: string;
       priorStatus: string;
