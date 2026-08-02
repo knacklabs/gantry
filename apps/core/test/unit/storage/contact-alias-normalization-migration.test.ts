@@ -18,7 +18,9 @@ describe('contact alias normalization migration', () => {
     const collisionGuard = migration.indexOf(
       'normalized values collide under the active alias unique index',
     );
-    const update = migration.indexOf('UPDATE user_aliases');
+    // The same-person dedup UPDATE intentionally precedes the guard; the
+    // abort must precede the NORMALIZATION update specifically.
+    const update = migration.indexOf('UPDATE user_aliases\nSET\n  external_user_id = CASE');
 
     expect(collisionGuard).toBeGreaterThan(-1);
     expect(collisionGuard).toBeLessThan(update);
