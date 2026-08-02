@@ -943,6 +943,166 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/identity/resolve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Resolve identity
+         * @description Resolves provider identity evidence to an app-scoped person for host-owned memory hydration.
+         */
+        post: operations["resolveIdentity"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/people": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List people
+         * @description Lists app-scoped people with aliases and personal memory counts.
+         */
+        get: operations["listPeople"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/people/{personId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get person
+         * @description Reads one app-scoped person with aliases and personal memory counts.
+         */
+        get: operations["getPerson"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/people/{personId}/aliases": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Add person alias
+         * @description Links an unverified alias to a person. Verification requires a system-attested control flow.
+         */
+        post: operations["addPersonAlias"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/people/{personId}/aliases/{aliasId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Retire person alias
+         * @description Retires an alias without deleting personal memory.
+         */
+        delete: operations["retirePersonAlias"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/people/{personId}/merge:preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Preview person merge
+         * @description Reports aliases, personal memory rows, excluded scopes, and conflicts without writing changes.
+         */
+        post: operations["previewPersonMerge"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/people/{personId}/merge": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Merge person
+         * @description Atomically moves aliases and user-scoped personal memory to the target person.
+         */
+        post: operations["mergePerson"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/people/{personId}/unmerge": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Unmerge person
+         * @description Restores the archived source person and only the aliases and personal memory rows recorded by the merge audit. Messages and data added to the surviving person after the merge remain untouched Publishes an identity.unmerged runtime event.
+         */
+        post: operations["unmergePerson"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/jobs": {
         parameters: {
             query?: never;
@@ -1483,6 +1643,66 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/memory/reviews": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List pending memory reviews
+         * @description Lists the pending memory-review queue for one subject as a bounded, immutable-snapshot preview.
+         */
+        get: operations["listMemoryReviews"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/memory/reviews/{reviewId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get memory review detail
+         * @description Returns the full immutable snapshot for one pending review: both claims, the proposed canonical value, and every cited evidence row with untruncated text and source uri.
+         */
+        get: operations["getMemoryReview"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/memory/reviews/{reviewId}/decision": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Decide a memory review
+         * @description Applies a reviewer decision (approve, reject, or edit_approve) to one pending review. The reviewer identity is derived from the authenticated API key; the decision source is recorded as the control API.
+         */
+        post: operations["decideMemoryReview"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/observer/status": {
         parameters: {
             query?: never;
@@ -1515,6 +1735,46 @@ export interface paths {
          * @description Lists app-scoped persisted observer insights with optional subject, type, and state filters.
          */
         get: operations["listObserverInsights"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/observer/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Preview the observer digest
+         * @description Dry-run: computes the would-be owner digest (top-N selected and rendered) WITHOUT claiming insights, reserving a delivery, or sending. Creates no delivery row and no outbound record.
+         */
+        post: operations["previewObserverDigest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/observer/deliveries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List observer digest deliveries
+         * @description Lists past digest reservations and deliveries for the app owner, newest first, with per-delivery state, local day, and insight count.
+         */
+        get: operations["listObserverDeliveries"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1957,6 +2217,185 @@ export interface components {
         CapabilityListResponse: {
             capabilities: components["schemas"]["CapabilityManifest"][];
         };
+        /** @enum {string} */
+        PersonAliasVerificationStatus: "verified" | "unverified" | "retired";
+        /** @enum {string} */
+        IdentityEvidenceType: "provider_user" | "email" | "phone" | "web_user";
+        PersonAlias: {
+            id: string;
+            appId: string;
+            personId: string;
+            provider: string;
+            providerAccountId?: string | null;
+            externalUserId: string;
+            displayName?: string | null;
+            verificationStatus: components["schemas"]["PersonAliasVerificationStatus"];
+            /** Format: date-time */
+            verifiedAt?: string | null;
+            verifiedBy?: string | null;
+            /** Format: date-time */
+            retiredAt?: string | null;
+            retiredBy?: string | null;
+            evidence?: {
+                [key: string]: unknown;
+            };
+            metadata?: {
+                [key: string]: unknown;
+            };
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        PersonMemoryCounts: {
+            personal: number;
+            active: number;
+            archived: number;
+            superseded: number;
+            deleted: number;
+        };
+        PersonAliasCounts: {
+            verified: number;
+            unverified: number;
+            retired: number;
+        };
+        Person: {
+            personId: string;
+            appId: string;
+            /** @enum {string} */
+            kind: "human" | "service";
+            displayName?: string | null;
+            /** @enum {string} */
+            status: "active" | "disabled" | "archived";
+            aliases?: components["schemas"]["PersonAlias"][];
+            memoryCounts?: components["schemas"]["PersonMemoryCounts"];
+            aliasCounts?: components["schemas"]["PersonAliasCounts"];
+            metadata?: {
+                [key: string]: unknown;
+            };
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        PeopleListResponse: {
+            people: components["schemas"]["Person"][];
+            nextCursor: string | null;
+        };
+        PersonGetResponse: {
+            person: components["schemas"]["Person"];
+        };
+        IdentityResolveRequest: {
+            appId?: string;
+            provider: string;
+            providerAccountId?: string | null;
+            externalUserId: string;
+            displayName?: string | null;
+            evidenceType: components["schemas"]["IdentityEvidenceType"];
+            createIfMissing?: boolean;
+        };
+        IdentityResolveResponse: {
+            /** @enum {string} */
+            status: "resolved" | "created" | "unresolved";
+            personId: string | null;
+            memoryHydrationEligible: boolean;
+            matchedAlias?: components["schemas"]["PersonAlias"];
+            createdAlias?: components["schemas"]["PersonAlias"];
+            verificationStatus?: components["schemas"]["PersonAliasVerificationStatus"];
+        };
+        AddPersonAliasRequest: {
+            appId?: string;
+            provider: string;
+            providerAccountId?: string | null;
+            externalUserId: string;
+            displayName?: string | null;
+            evidenceType: components["schemas"]["IdentityEvidenceType"];
+            evidence?: {
+                [key: string]: unknown;
+            };
+        };
+        PersonAliasMutationResponse: {
+            alias: components["schemas"]["PersonAlias"];
+        };
+        PersonMergeRequest: {
+            appId?: string;
+            sourcePersonId: string;
+            idempotencyKey?: string;
+            fingerprint?: string;
+            /** @enum {string} */
+            conflictResolution?: "fail_on_conflict" | "keep_target";
+        };
+        PersonMergeApplyRequest: {
+            appId?: string;
+            sourcePersonId: string;
+            idempotencyKey?: string;
+            fingerprint: string;
+            /** @enum {string} */
+            conflictResolution?: "fail_on_conflict" | "keep_target";
+        };
+        PersonMergeConflict: {
+            /** @enum {string} */
+            type?: "memory" | "alias";
+            sourceMemoryId?: string;
+            targetMemoryId?: string;
+            sourceAliasId?: string;
+            targetAliasId?: string;
+            agentId?: string | null;
+            kind: string;
+            key: string;
+        };
+        PersonMergePreviewResponse: {
+            /** @constant */
+            summary: "Merge preview only. No data changed.";
+            sourcePersonId: string;
+            targetPersonId: string;
+            aliasesToMove: components["schemas"]["PersonAlias"][];
+            memoryRowsToMove: number;
+            memoryRowsFingerprint?: string;
+            excludedMemoryScopes: {
+                group: number;
+                channel: number;
+                common: number;
+            };
+            conflicts: components["schemas"]["PersonMergeConflict"][];
+            fingerprint: string;
+        };
+        PersonMergeApplyResponse: {
+            /** @constant */
+            summary: "Person merge completed. Personal memory and aliases now belong to the target person.";
+            sourcePersonId: string;
+            targetPersonId: string;
+            aliasesToMove: components["schemas"]["PersonAlias"][];
+            memoryRowsToMove: number;
+            memoryRowsFingerprint?: string;
+            excludedMemoryScopes: {
+                group: number;
+                channel: number;
+                common: number;
+            };
+            conflicts: components["schemas"]["PersonMergeConflict"][];
+            fingerprint: string;
+            idempotencyKey: string;
+            auditId: string;
+            applied: boolean;
+        };
+        PersonUnmergeRequest: {
+            appId?: string;
+            auditId: string;
+            fingerprint: string;
+        };
+        PersonUnmergeResponse: {
+            /** @constant */
+            summary: "Person unmerge completed. The archived person and merge-owned data were restored.";
+            auditId: string;
+            sourcePersonId: string;
+            targetPersonId: string;
+            restoredPerson: components["schemas"]["Person"];
+            aliasesRestored: components["schemas"]["PersonAlias"][];
+            memoryRowsRestored: number;
+            /** Format: date-time */
+            unmergedAt: string;
+        };
         ModelCredentialStatus: {
             /** @example provider-id */
             providerId: string;
@@ -2314,16 +2753,29 @@ export interface components {
             /** @description Optional agent id to bind the session to that agent workspace. */
             agentId?: string;
             conversationId: string;
+            /**
+             * @description Session conversation scope; appUser requires dm.
+             * @enum {string}
+             */
+            conversationKind?: "dm" | "channel";
             title?: string;
             /** @enum {string} */
             responseMode?: "sse" | "webhook" | "both" | "none";
             webhookId?: string;
+            appUser?: {
+                authorityId: string;
+                subject: string;
+            };
         };
         SessionEnsureResponse: {
             sessionId: string;
             appId: string;
             conversationId: string;
             chatJid: string;
+            appUser?: {
+                authorityId: string;
+                subject: string;
+            };
         };
         /**
          * @description Permission decision. Exactly three options exist; timed grants are not supported.
@@ -2405,12 +2857,31 @@ export interface components {
             events: components["schemas"]["RuntimeEvent"][];
         };
         Run: {
-            run_id: string;
-            job_id: string;
-            status: string;
+            id: string;
+            appId: string;
+            agentId: string;
+            configVersionId: string;
+            sessionId?: string | null;
+            conversationId?: string | null;
+            threadId?: string | null;
+            messageId?: string | null;
+            jobId?: string | null;
+            llmProfileId: string;
+            permissionDecisionIds: string[];
+            workspaceSnapshotId?: string | null;
+            /** @enum {string} */
+            cause: "message" | "job" | "control" | "manual" | "system";
+            /** @enum {string} */
+            status: "queued" | "running" | "completed" | "failed" | "canceled" | "timeout";
             /** Format: date-time */
-            started_at?: string;
-            completed_at?: string | null;
+            createdAt: string;
+            startedAt?: string | null;
+            endedAt?: string | null;
+            resultSummary?: string | null;
+            errorSummary?: string | null;
+            metadata?: {
+                [key: string]: unknown;
+            };
         };
         RunListResponse: {
             runs: components["schemas"]["Run"][];
@@ -2820,7 +3291,7 @@ export interface components {
             /** Format: uri */
             url: string;
             enabled: boolean;
-            eventTypes: ("session.message.inbound" | "session.message.outbound" | "session.message.streaming" | "session.typing" | "session.progress" | "session.compaction.queued" | "session.compaction.running" | "session.compaction.ready" | "session.compaction.degraded" | "session.compaction.failed" | "session.compaction.timeout" | "conversation.message.inbound" | "conversation.message.outbound" | "job.triggered" | "job.run.started" | "job.started" | "job.streaming" | "job.heartbeat" | "job.setup_required" | "job.tool_denied" | "job.tool_activity" | "task.started" | "task.progress" | "task.updated" | "task.notification" | "job.completed" | "job.failed" | "job.run.completed" | "job.run.failed" | "permission.requested" | "permission.allowed" | "permission.denied" | "permission.cancelled" | "permission.persisted" | "permission.resumed" | "permission.final_outcome" | "permission.yolo_denylist_hit" | "permission.classifier_decision" | "interaction.pending" | "credential.capability.updated" | "credential.capability.removed" | "credential.model.updated" | "credential.model.disabled" | "credential.model.used" | "profile.file.read" | "profile.file.updated" | "egress.connect" | "mcp.tool_activity" | "sandbox.blocked" | "model.usage" | "run.started" | "run.startup_diagnostic" | "run.failover" | "run.canceled" | "run.completed" | "run.failed" | "run.timeout" | "run.dead_lettered" | "proactive.surfacing.outcome" | "webhook.test")[] | null;
+            eventTypes: ("session.message.inbound" | "session.message.outbound" | "session.message.streaming" | "session.typing" | "session.progress" | "session.compaction.queued" | "session.compaction.running" | "session.compaction.ready" | "session.compaction.degraded" | "session.compaction.failed" | "session.compaction.timeout" | "conversation.message.inbound" | "conversation.message.outbound" | "identity.resolved" | "identity.alias.linked" | "identity.alias.retired" | "identity.merged" | "identity.unmerged" | "memory.hydration.decision" | "job.triggered" | "job.run.started" | "job.started" | "job.streaming" | "job.heartbeat" | "job.setup_required" | "job.tool_denied" | "job.tool_activity" | "task.started" | "task.progress" | "task.updated" | "task.notification" | "job.completed" | "job.failed" | "job.run.completed" | "job.run.failed" | "permission.requested" | "permission.allowed" | "permission.denied" | "permission.cancelled" | "permission.persisted" | "permission.resumed" | "permission.final_outcome" | "permission.yolo_denylist_hit" | "permission.classifier_decision" | "interaction.pending" | "interaction.cancellation_discarded" | "credential.capability.updated" | "credential.capability.removed" | "credential.model.updated" | "credential.model.disabled" | "credential.model.used" | "profile.file.read" | "profile.file.updated" | "egress.connect" | "mcp.tool_activity" | "sandbox.blocked" | "model.usage" | "run.started" | "run.startup_diagnostic" | "run.failover" | "run.canceled" | "run.paused" | "run.completed" | "run.failed" | "run.timeout" | "run.dead_lettered" | "proactive.surfacing.outcome" | "webhook.test")[] | null;
             agentId: string | null;
             sessionId: string | null;
             jobId: string | null;
@@ -2838,7 +3309,7 @@ export interface components {
             url: string;
             secret?: string;
             enabled?: boolean;
-            eventTypes?: ("session.message.inbound" | "session.message.outbound" | "session.message.streaming" | "session.typing" | "session.progress" | "session.compaction.queued" | "session.compaction.running" | "session.compaction.ready" | "session.compaction.degraded" | "session.compaction.failed" | "session.compaction.timeout" | "conversation.message.inbound" | "conversation.message.outbound" | "job.triggered" | "job.run.started" | "job.started" | "job.streaming" | "job.heartbeat" | "job.setup_required" | "job.tool_denied" | "job.tool_activity" | "task.started" | "task.progress" | "task.updated" | "task.notification" | "job.completed" | "job.failed" | "job.run.completed" | "job.run.failed" | "permission.requested" | "permission.allowed" | "permission.denied" | "permission.cancelled" | "permission.persisted" | "permission.resumed" | "permission.final_outcome" | "permission.yolo_denylist_hit" | "permission.classifier_decision" | "interaction.pending" | "credential.capability.updated" | "credential.capability.removed" | "credential.model.updated" | "credential.model.disabled" | "credential.model.used" | "profile.file.read" | "profile.file.updated" | "egress.connect" | "mcp.tool_activity" | "sandbox.blocked" | "model.usage" | "run.started" | "run.startup_diagnostic" | "run.failover" | "run.canceled" | "run.completed" | "run.failed" | "run.timeout" | "run.dead_lettered" | "proactive.surfacing.outcome" | "webhook.test")[] | null;
+            eventTypes?: ("session.message.inbound" | "session.message.outbound" | "session.message.streaming" | "session.typing" | "session.progress" | "session.compaction.queued" | "session.compaction.running" | "session.compaction.ready" | "session.compaction.degraded" | "session.compaction.failed" | "session.compaction.timeout" | "conversation.message.inbound" | "conversation.message.outbound" | "identity.resolved" | "identity.alias.linked" | "identity.alias.retired" | "identity.merged" | "identity.unmerged" | "memory.hydration.decision" | "job.triggered" | "job.run.started" | "job.started" | "job.streaming" | "job.heartbeat" | "job.setup_required" | "job.tool_denied" | "job.tool_activity" | "task.started" | "task.progress" | "task.updated" | "task.notification" | "job.completed" | "job.failed" | "job.run.completed" | "job.run.failed" | "permission.requested" | "permission.allowed" | "permission.denied" | "permission.cancelled" | "permission.persisted" | "permission.resumed" | "permission.final_outcome" | "permission.yolo_denylist_hit" | "permission.classifier_decision" | "interaction.pending" | "interaction.cancellation_discarded" | "credential.capability.updated" | "credential.capability.removed" | "credential.model.updated" | "credential.model.disabled" | "credential.model.used" | "profile.file.read" | "profile.file.updated" | "egress.connect" | "mcp.tool_activity" | "sandbox.blocked" | "model.usage" | "run.started" | "run.startup_diagnostic" | "run.failover" | "run.canceled" | "run.paused" | "run.completed" | "run.failed" | "run.timeout" | "run.dead_lettered" | "proactive.surfacing.outcome" | "webhook.test")[] | null;
             agentId?: string | null;
             sessionId?: string | null;
             jobId?: string | null;
@@ -2849,7 +3320,7 @@ export interface components {
             url?: string;
             secret?: string;
             enabled?: boolean;
-            eventTypes?: ("session.message.inbound" | "session.message.outbound" | "session.message.streaming" | "session.typing" | "session.progress" | "session.compaction.queued" | "session.compaction.running" | "session.compaction.ready" | "session.compaction.degraded" | "session.compaction.failed" | "session.compaction.timeout" | "conversation.message.inbound" | "conversation.message.outbound" | "job.triggered" | "job.run.started" | "job.started" | "job.streaming" | "job.heartbeat" | "job.setup_required" | "job.tool_denied" | "job.tool_activity" | "task.started" | "task.progress" | "task.updated" | "task.notification" | "job.completed" | "job.failed" | "job.run.completed" | "job.run.failed" | "permission.requested" | "permission.allowed" | "permission.denied" | "permission.cancelled" | "permission.persisted" | "permission.resumed" | "permission.final_outcome" | "permission.yolo_denylist_hit" | "permission.classifier_decision" | "interaction.pending" | "credential.capability.updated" | "credential.capability.removed" | "credential.model.updated" | "credential.model.disabled" | "credential.model.used" | "profile.file.read" | "profile.file.updated" | "egress.connect" | "mcp.tool_activity" | "sandbox.blocked" | "model.usage" | "run.started" | "run.startup_diagnostic" | "run.failover" | "run.canceled" | "run.completed" | "run.failed" | "run.timeout" | "run.dead_lettered" | "proactive.surfacing.outcome" | "webhook.test")[] | null;
+            eventTypes?: ("session.message.inbound" | "session.message.outbound" | "session.message.streaming" | "session.typing" | "session.progress" | "session.compaction.queued" | "session.compaction.running" | "session.compaction.ready" | "session.compaction.degraded" | "session.compaction.failed" | "session.compaction.timeout" | "conversation.message.inbound" | "conversation.message.outbound" | "identity.resolved" | "identity.alias.linked" | "identity.alias.retired" | "identity.merged" | "identity.unmerged" | "memory.hydration.decision" | "job.triggered" | "job.run.started" | "job.started" | "job.streaming" | "job.heartbeat" | "job.setup_required" | "job.tool_denied" | "job.tool_activity" | "task.started" | "task.progress" | "task.updated" | "task.notification" | "job.completed" | "job.failed" | "job.run.completed" | "job.run.failed" | "permission.requested" | "permission.allowed" | "permission.denied" | "permission.cancelled" | "permission.persisted" | "permission.resumed" | "permission.final_outcome" | "permission.yolo_denylist_hit" | "permission.classifier_decision" | "interaction.pending" | "interaction.cancellation_discarded" | "credential.capability.updated" | "credential.capability.removed" | "credential.model.updated" | "credential.model.disabled" | "credential.model.used" | "profile.file.read" | "profile.file.updated" | "egress.connect" | "mcp.tool_activity" | "sandbox.blocked" | "model.usage" | "run.started" | "run.startup_diagnostic" | "run.failover" | "run.canceled" | "run.paused" | "run.completed" | "run.failed" | "run.timeout" | "run.dead_lettered" | "proactive.surfacing.outcome" | "webhook.test")[] | null;
             agentId?: string | null;
             sessionId?: string | null;
             jobId?: string | null;
@@ -2919,7 +3390,7 @@ export interface components {
             id: string;
             appId: string;
             agentId?: string;
-            userId?: string;
+            personId?: string;
             groupId?: string;
             channelId?: string;
             threadId?: string;
@@ -2946,7 +3417,7 @@ export interface components {
         MemorySaveRequest: {
             appId?: string;
             agentId?: string;
-            userId?: string;
+            personId?: string;
             groupId?: string;
             channelId?: string;
             threadId?: string;
@@ -2962,13 +3433,13 @@ export interface components {
             query: string;
             limit?: number;
             agentId?: string;
-            userId?: string;
+            personId?: string;
             groupId?: string;
         };
         MemoryDreamingTriggerRequest: {
             appId?: string;
             agentId?: string;
-            userId?: string;
+            personId?: string;
             groupId?: string;
             channelId?: string;
             threadId?: string;
@@ -2980,6 +3451,40 @@ export interface components {
             dryRun?: boolean;
             timeoutMs?: number;
             deadlineAtMs?: number;
+        };
+        MemoryReviewPageResponse: {
+            reviews: {
+                [key: string]: unknown;
+            }[];
+            review_page?: {
+                [key: string]: unknown;
+            };
+            page_context?: {
+                [key: string]: unknown;
+            };
+            total_count: number;
+            returned_count: number;
+            remaining_count: number;
+            limit: number;
+            offset: number;
+            next_offset?: number | null;
+        };
+        MemoryReviewDetailResponse: {
+            review: {
+                [key: string]: unknown;
+            };
+        };
+        MemoryReviewDecisionRequest: {
+            /** @constant */
+            decision: "edit_approve";
+            /** @description Replacement value applied to the reviewed memory. */
+            editedValue: string;
+            reason?: string;
+        } | {
+            /** @enum {string} */
+            decision: "approve" | "reject";
+            editedValue?: string;
+            reason?: string;
         };
         MemoryDreamingResponse: {
             run: {
@@ -3048,6 +3553,50 @@ export interface components {
         ObserverInsightListResponse: {
             insights: components["schemas"]["ProactiveInsight"][];
             nextCursor: string | null;
+        };
+        ObserverDigestPreviewInsight: {
+            id: string;
+            subject: string;
+            /** @enum {string} */
+            insightType: "commitment" | "contradiction" | "open_question" | "stale_fact" | "decision_without_owner" | "duplicated_work" | "repetition";
+            title: string;
+            summary: string;
+            confidence: number;
+            priorityScore: number;
+        };
+        ObserverDigestPreviewResponse: {
+            /** @constant */
+            eligible: false;
+            reason: string;
+            message: string;
+        } | {
+            /** @constant */
+            eligible: true;
+            recipient: string;
+            localDay: string;
+            renderedDigest: string | null;
+            /** @enum {string|null} */
+            skippedReason: "no_qualifying_insights" | null;
+            selected: components["schemas"]["ObserverDigestPreviewInsight"][];
+        };
+        ObserverDigestDelivery: {
+            id: string;
+            localDay: string;
+            /** @enum {string} */
+            state: "reserved" | "sent" | "settled" | "failed";
+            insightCount: number;
+            /** Format: date-time */
+            reservedAt: string | null;
+            /** Format: date-time */
+            sentAt: string | null;
+            /** Format: date-time */
+            settledAt: string | null;
+            /** Format: date-time */
+            createdAt: string;
+        };
+        ObserverDigestDeliveryListResponse: {
+            recipient: string | null;
+            deliveries: components["schemas"]["ObserverDigestDelivery"][];
         };
         Skill: {
             id: string;
@@ -5563,6 +6112,264 @@ export interface operations {
             500: components["responses"]["InternalError"];
         };
     };
+    resolveIdentity: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description JSON request payload. */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["IdentityResolveRequest"];
+            };
+        };
+        responses: {
+            /** @description Request succeeded. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IdentityResolveResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    listPeople: {
+        parameters: {
+            query?: {
+                /** @description App id. Defaults to API key app. */
+                appId?: string;
+                /** @description Maximum people to return. Defaults to 50. */
+                limit?: number;
+                /** @description Opaque cursor returned by the previous page. */
+                cursor?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Request succeeded. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PeopleListResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    getPerson: {
+        parameters: {
+            query?: {
+                /** @description App id. Defaults to API key app. */
+                appId?: string;
+            };
+            header?: never;
+            path: {
+                /** @description Person id. */
+                personId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Request succeeded. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PersonGetResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    addPersonAlias: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Person id. */
+                personId: string;
+            };
+            cookie?: never;
+        };
+        /** @description JSON request payload. */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AddPersonAliasRequest"];
+            };
+        };
+        responses: {
+            /** @description Resource created. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PersonAliasMutationResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    retirePersonAlias: {
+        parameters: {
+            query?: {
+                /** @description App id. Defaults to API key app. */
+                appId?: string;
+            };
+            header?: never;
+            path: {
+                /** @description Person id. */
+                personId: string;
+                /** @description Person alias id. */
+                aliasId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Request succeeded. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PersonAliasMutationResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    previewPersonMerge: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Person id. */
+                personId: string;
+            };
+            cookie?: never;
+        };
+        /** @description JSON request payload. */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PersonMergeRequest"];
+            };
+        };
+        responses: {
+            /** @description Request succeeded. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PersonMergePreviewResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    mergePerson: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Person id. */
+                personId: string;
+            };
+            cookie?: never;
+        };
+        /** @description JSON request payload. */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PersonMergeApplyRequest"];
+            };
+        };
+        responses: {
+            /** @description Request succeeded. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PersonMergeApplyResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    unmergePerson: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Person id. */
+                personId: string;
+            };
+            cookie?: never;
+        };
+        /** @description JSON request payload. */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PersonUnmergeRequest"];
+            };
+        };
+        responses: {
+            /** @description Request succeeded. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PersonUnmergeResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalError"];
+        };
+    };
     listJobs: {
         parameters: {
             query?: {
@@ -6405,8 +7212,8 @@ export interface operations {
                 appId?: string;
                 /** @description Agent id filter. */
                 agentId?: string;
-                /** @description User id filter. */
-                userId?: string;
+                /** @description Canonical person id filter. */
+                personId?: string;
                 /** @description Group id filter. */
                 groupId?: string;
                 /** @description Channel id filter. */
@@ -6511,8 +7318,8 @@ export interface operations {
                 appId?: string;
                 /** @description Agent id filter. */
                 agentId?: string;
-                /** @description User id filter. */
-                userId?: string;
+                /** @description Canonical person id filter. */
+                personId?: string;
                 /** @description Group id filter. */
                 groupId?: string;
                 /** @description Channel id filter. */
@@ -6638,6 +7445,124 @@ export interface operations {
             500: components["responses"]["InternalError"];
         };
     };
+    listMemoryReviews: {
+        parameters: {
+            query: {
+                /** @description App id. Defaults to API key app. */
+                appId?: string;
+                /** @description Agent id. */
+                agentId: string;
+                /** @description Canonical memory subject type. */
+                subjectType: "user" | "group" | "channel" | "common";
+                /** @description Canonical memory subject id. */
+                subjectId: string;
+                /** @description Maximum number of reviews to return. */
+                limit?: number;
+                /** @description Pending-review page offset. */
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Request succeeded. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemoryReviewPageResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    getMemoryReview: {
+        parameters: {
+            query: {
+                /** @description App id. Defaults to API key app. */
+                appId?: string;
+                /** @description Agent id. */
+                agentId: string;
+                /** @description Canonical memory subject type. */
+                subjectType: "user" | "group" | "channel" | "common";
+                /** @description Canonical memory subject id. */
+                subjectId: string;
+            };
+            header?: never;
+            path: {
+                /** @description Memory review id. */
+                reviewId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Request succeeded. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemoryReviewDetailResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    decideMemoryReview: {
+        parameters: {
+            query: {
+                /** @description App id. Defaults to API key app. */
+                appId?: string;
+                /** @description Agent id. */
+                agentId: string;
+                /** @description Canonical memory subject type. */
+                subjectType: "user" | "group" | "channel" | "common";
+                /** @description Canonical memory subject id. */
+                subjectId: string;
+            };
+            header?: never;
+            path: {
+                /** @description Memory review id. */
+                reviewId: string;
+            };
+            cookie?: never;
+        };
+        /** @description JSON request payload. */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MemoryReviewDecisionRequest"];
+            };
+        };
+        responses: {
+            /** @description Request succeeded. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemoryReviewDetailResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            500: components["responses"]["InternalError"];
+        };
+    };
     getObserverStatus: {
         parameters: {
             query?: {
@@ -6695,6 +7620,64 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ObserverInsightListResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    previewObserverDigest: {
+        parameters: {
+            query?: {
+                /** @description App id. Defaults to API key app. */
+                appId?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Request succeeded. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ObserverDigestPreviewResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    listObserverDeliveries: {
+        parameters: {
+            query?: {
+                /** @description App id. Defaults to API key app. */
+                appId?: string;
+                /** @description Maximum number of deliveries. */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Request succeeded. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ObserverDigestDeliveryListResponse"];
                 };
             };
             400: components["responses"]["BadRequest"];

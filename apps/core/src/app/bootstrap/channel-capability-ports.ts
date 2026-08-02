@@ -62,13 +62,17 @@ export function asPermissionApprovalSurface(
 ):
   | Pick<
       InteractionSurface,
-      'requestPermissionApproval' | 'dropPendingInteraction'
+      | 'requestPermissionApproval'
+      | 'dropPendingInteraction'
+      | 'cancelPendingPermission'
     >
   | undefined {
   return typeof channel.requestPermissionApproval === 'function'
     ? (channel as unknown as Pick<
         InteractionSurface,
-        'requestPermissionApproval' | 'dropPendingInteraction'
+        | 'requestPermissionApproval'
+        | 'dropPendingInteraction'
+        | 'cancelPendingPermission'
       >)
     : undefined;
 }
@@ -81,6 +85,7 @@ export function asUserQuestionSurface(
       | 'requestUserAnswer'
       | 'questionIndexesForDeliveredPrompt'
       | 'dropPendingInteraction'
+      | 'cancelPendingQuestion'
     >
   | undefined {
   return typeof channel.requestUserAnswer === 'function'
@@ -89,6 +94,7 @@ export function asUserQuestionSurface(
         | 'requestUserAnswer'
         | 'questionIndexesForDeliveredPrompt'
         | 'dropPendingInteraction'
+        | 'cancelPendingQuestion'
       >)
     : undefined;
 }

@@ -76,10 +76,13 @@ function memoryRow(input: {
 describe('app-grade memory boundaries', () => {
   it('requires explicit agent context for normalized app memory boundaries', () => {
     expect(() => _testAppMemory.normalizeSubject({})).toThrow(
-      /memory subject requires agentId/,
+      /memory subject requires appId/,
     );
 
-    const context = _testAppMemory.normalizeSubject({ agentId: 'agent:kai' });
+    const context = _testAppMemory.normalizeSubject({
+      appId: 'default',
+      agentId: 'agent:kai',
+    });
 
     expect(context).toMatchObject({
       appId: 'default',
@@ -128,6 +131,24 @@ describe('app-grade memory boundaries', () => {
       userId: 'user-1',
     });
     expect(context).not.toHaveProperty('threadId');
+  });
+
+  it('normalizes public personId to the personal memory subject', () => {
+    const context = _testAppMemory.normalizeSubject({
+      appId: 'app-a',
+      agentId: 'support-agent',
+      personId: 'person-1',
+      userId: 'provider-user-1',
+      subjectType: 'user',
+    });
+
+    expect(context).toMatchObject({
+      appId: 'app-a',
+      agentId: 'support-agent',
+      subjectType: 'user',
+      subjectId: 'person-1',
+      userId: 'person-1',
+    });
   });
 
   it('maps channel ids to canonical conversation ids for persistence', () => {

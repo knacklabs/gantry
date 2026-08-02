@@ -2,7 +2,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 type PendingPermissionRequest = {
   filePath: string;
@@ -38,6 +38,10 @@ async function waitForPermissionRequest(
 
 const tempRoots: string[] = [];
 
+beforeEach(() => {
+  vi.stubEnv('GANTRY_PERMISSION_LANE', 'interactive');
+});
+
 function makeTempRoot(): string {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'gantry-perm-ipc-'));
   tempRoots.push(root);
@@ -59,6 +63,8 @@ afterEach(async () => {
 
 describe('permission approval IPC boundary', () => {
   it('emits a host permission request before denying unattended jobs without waiting', async () => {
+    vi.stubEnv('GANTRY_PERMISSION_LANE', 'autonomous');
+
     const tempRoot = makeTempRoot();
     const workspaceFolder = 'team-main';
     const groupIpcDir = path.join(tempRoot, 'ipc', workspaceFolder);
@@ -102,6 +108,7 @@ describe('permission approval IPC boundary', () => {
       }),
     ).resolves.toEqual({
       approved: false,
+      decidedBy: 'runtime',
       reason:
         'Permission request was sent to the host. Unattended jobs do not wait for approval during the active tool call; approve the requested capability before retrying the scheduled run.',
       decisionClassification: 'user_reject',

@@ -1369,37 +1369,37 @@ conversations:
     expect(result.invalidReferences).toEqual([]);
     expect(ops.setConversationRoute).toHaveBeenCalledWith(
       makeAgentThreadQueueKey(
-        'sl:slack:C123',
+        'sl:C123',
         'agent:main_agent',
         undefined,
         'slack_one',
       ),
       expect.objectContaining({
-        conversationId: 'conversation:slack_one:sl:slack:C123',
+        conversationId: 'conversation:slack_one:sl:C123',
         providerAccountId: 'slack_one',
       }),
     );
     expect(ops.setConversationRoute).toHaveBeenCalledWith(
       makeAgentThreadQueueKey(
-        'sl:slack:C123',
+        'sl:C123',
         'agent:main_agent',
         undefined,
         'slack_two',
       ),
       expect.objectContaining({
-        conversationId: 'conversation:slack_two:sl:slack:C123',
+        conversationId: 'conversation:slack_two:sl:C123',
         providerAccountId: 'slack_two',
       }),
     );
     expect(repositories.conversations.saveConversation).toHaveBeenCalledWith(
       expect.objectContaining({
-        id: 'conversation:slack_one:sl:slack:C123',
+        id: 'conversation:slack_one:sl:C123',
         providerAccountId: 'slack_one',
       }),
     );
     expect(repositories.conversations.saveConversation).toHaveBeenCalledWith(
       expect.objectContaining({
-        id: 'conversation:slack_two:sl:slack:C123',
+        id: 'conversation:slack_two:sl:C123',
         providerAccountId: 'slack_two',
       }),
     );
@@ -1566,9 +1566,7 @@ conversations:
         saveConversation: vi.fn(async () => undefined),
         replaceConversationApprovers: vi.fn(async () => []),
         listParticipantExternalUserIds: vi.fn(async (conversationId: string) =>
-          conversationId === 'conversation:slack_one:sl:slack:C123'
-            ? ['UADMIN']
-            : [],
+          conversationId === 'conversation:slack_one:sl:C123' ? ['UADMIN'] : [],
         ),
       },
     });
@@ -1582,12 +1580,12 @@ conversations:
     ).toHaveBeenCalledWith(
       expect.objectContaining({
         providerAccountId: 'slack_two',
-        conversationId: 'conversation:slack_two:sl:slack:C123',
+        conversationId: 'conversation:slack_two:sl:C123',
       }),
     );
     expect(repositories.conversations.saveConversation).toHaveBeenCalledWith(
       expect.objectContaining({
-        id: 'conversation:slack_two:sl:slack:C123',
+        id: 'conversation:slack_two:sl:C123',
         providerAccountId: 'slack_two',
       }),
     );
@@ -1595,7 +1593,7 @@ conversations:
       repositories.conversations.replaceConversationApprovers,
     ).toHaveBeenCalledWith(
       expect.objectContaining({
-        conversationId: 'conversation:slack_two:sl:slack:C123',
+        conversationId: 'conversation:slack_two:sl:C123',
         externalUserIds: ['UADMIN'],
       }),
     );
@@ -1603,7 +1601,7 @@ conversations:
       repositories.conversations.replaceConversationApprovers,
     ).toHaveBeenCalledWith(
       expect.objectContaining({
-        conversationId: 'conversation:slack_one:sl:slack:C123',
+        conversationId: 'conversation:slack_one:sl:C123',
         externalUserIds: ['UADMIN'],
       }),
     );
@@ -1668,7 +1666,7 @@ conversations:
     expect(result.invalidReferences).toEqual([]);
     expect(ops.setConversationRoute).toHaveBeenCalledWith(
       makeAgentThreadQueueKey(
-        'sl:slack:C123',
+        'sl:C123',
         'agent:main_agent',
         undefined,
         'slack_two',
@@ -1680,7 +1678,7 @@ conversations:
     ).toHaveBeenCalledWith(
       expect.objectContaining({
         providerAccountId: 'slack_two',
-        conversationId: 'conversation:slack_two:sl:slack:C123',
+        conversationId: 'conversation:slack_two:sl:C123',
       }),
     );
   });
@@ -1726,7 +1724,7 @@ conversations:
     expect(result.invalidReferences).toEqual([]);
     expect(ops.setConversationRoute).toHaveBeenCalledWith(
       makeAgentThreadQueueKey(
-        'sl:slack:C123',
+        'sl:C123',
         'agent:main_agent',
         '171.222',
         'slack_default',
@@ -1737,13 +1735,13 @@ conversations:
       repositories.providerAccounts.saveConversationInstall,
     ).toHaveBeenCalledWith(
       expect.objectContaining({
-        threadId: 'thread:slack_default:sl:slack:C123:171.222',
+        threadId: 'thread:slack_default:sl:C123:171.222',
       }),
     );
     expect(repositories.conversations.saveThread).toHaveBeenCalledWith(
       expect.objectContaining({
-        id: 'thread:slack_default:sl:slack:C123:171.222',
-        conversationId: 'conversation:slack_default:sl:slack:C123',
+        id: 'thread:slack_default:sl:C123:171.222',
+        conversationId: 'conversation:slack_default:sl:C123',
         externalRef: { kind: 'conversation_thread', value: '171.222' },
       }),
     );
@@ -1796,7 +1794,7 @@ conversations:
     ).toHaveBeenCalledWith(
       expect.objectContaining({
         agentId: 'agent:main_agent',
-        conversationId: 'conversation:slack_default:sl:slack:C123',
+        conversationId: 'conversation:slack_default:sl:C123',
       }),
     );
   });
@@ -1837,7 +1835,7 @@ conversations:
             appId: 'default',
             agentId: 'agent:main_agent',
             providerAccountId: 'slack_default',
-            conversationId: 'conversation:slack_default:sl:slack:C123',
+            conversationId: 'conversation:slack_default:sl:C123',
             displayName: 'Main',
             status: 'active',
             senderPolicy: 'provider_native',
@@ -1846,7 +1844,7 @@ conversations:
             memorySubject: {
               kind: 'conversation',
               appId: 'default',
-              conversationId: 'conversation:slack_default:sl:slack:C123',
+              conversationId: 'conversation:slack_default:sl:C123',
             },
             permissionPolicyIds: [],
             createdAt: '2026-05-01T00:00:00.000Z',
@@ -1868,7 +1866,7 @@ conversations:
     ).toHaveBeenCalledWith({
       appId: 'default',
       agentId: 'agent:main_agent',
-      conversationId: 'conversation:slack_default:sl:slack:C123',
+      conversationId: 'conversation:slack_default:sl:C123',
       updatedAt: '2026-05-02T00:00:00.000Z',
     });
   });
@@ -1939,7 +1937,7 @@ conversations:
     ).toHaveBeenCalledWith(
       expect.objectContaining({
         agentId: 'agent:side_agent',
-        conversationId: 'conversation:slack_side:sl:slack:C123',
+        conversationId: 'conversation:slack_side:sl:C123',
       }),
     );
   });
@@ -3827,6 +3825,78 @@ conversations:
     expect(classifySettingsChanges(before, after)).toEqual({
       liveApplied: [],
       restartRequired: ['observer'],
+    });
+  });
+
+  it('classifies conversation install topology additions as restart-required', () => {
+    const before = createDefaultRuntimeSettings();
+    const after = structuredClone(before);
+    after.providerAccounts.slack_ops = {
+      agentId: 'main_agent',
+      provider: 'slack',
+      label: 'Slack Ops',
+      runtimeSecretRefs: {
+        bot_token: 'gantry-secret:MAIN_SLACK_BOT_TOKEN',
+        app_token: 'gantry-secret:MAIN_SLACK_APP_TOKEN',
+      },
+    };
+    before.providerAccounts = structuredClone(after.providerAccounts);
+    after.conversations.slack_ops_incidents = {
+      providerAccount: 'slack_ops',
+      externalId: 'C12345678',
+      kind: 'channel',
+      displayName: 'incidents',
+      senderPolicy: { allow: '*', mode: 'trigger' },
+      controlApprovers: ['U12345678'],
+      installedAgents: {
+        main_agent: {
+          agentId: 'main_agent',
+          providerAccountId: 'slack_ops',
+          status: 'active',
+          addedAt: '2026-07-28T00:00:00.000Z',
+          memoryScope: 'conversation',
+          trigger: '@Main',
+          requiresTrigger: true,
+        },
+      },
+    };
+
+    expect(classifySettingsChanges(before, after)).toEqual({
+      liveApplied: [],
+      restartRequired: ['conversations'],
+    });
+  });
+
+  it('keeps conversation policy-only changes live-applied', () => {
+    const before = createDefaultRuntimeSettings();
+    before.conversations.slack_ops_incidents = {
+      providerAccount: 'slack_ops',
+      externalId: 'C12345678',
+      kind: 'channel',
+      displayName: 'incidents',
+      senderPolicy: { allow: '*', mode: 'trigger' },
+      controlApprovers: ['U12345678'],
+      installedAgents: {
+        main_agent: {
+          agentId: 'main_agent',
+          providerAccountId: 'slack_ops',
+          status: 'active',
+          addedAt: '2026-07-28T00:00:00.000Z',
+          memoryScope: 'conversation',
+          trigger: '@Main',
+          requiresTrigger: true,
+        },
+      },
+    };
+    const after = structuredClone(before);
+    after.conversations.slack_ops_incidents.controlApprovers = ['U87654321'];
+    after.conversations.slack_ops_incidents.installedAgents[
+      'main_agent'
+    ]!.requiresTrigger = false;
+
+    expect(classifySettingsChanges(before, after)).toEqual({
+      liveApplied: ['conversation_policies'],
+      restartRequired: [],
     });
   });
 });

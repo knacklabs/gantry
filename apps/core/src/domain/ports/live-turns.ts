@@ -152,10 +152,14 @@ export interface LiveAdmissionWorkItem {
   endedAt: string | null;
 }
 
-export interface LiveAdmissionWorkItemEnqueueResult {
-  outcome: 'enqueued' | 'replayed';
-  item: LiveAdmissionWorkItem;
-}
+export type LiveAdmissionWorkItemEnqueueResult =
+  | {
+      outcome: 'enqueued' | 'replayed';
+      item: LiveAdmissionWorkItem;
+    }
+  | {
+      outcome: 'overloaded';
+    };
 
 export interface LiveAdmissionWorkItemNotifier {
   notifyLiveAdmissionWorkItem(input: {

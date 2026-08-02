@@ -1,0 +1,215 @@
+import type { ObserverDigestMessageView } from '../../domain/observer-digest-view.js';
+import { markObserverDigestInsight } from '../../domain/observer-digest-view.js';
+import type {
+  ObserverInsightType,
+  ObserverOwnerActionInsight,
+  ObserverOwnerActionResult,
+  ObserverVerifiedOwner,
+} from '../../domain/ports/observer-insights.js';
+import type { ObserverFeedbackAction } from '../../domain/message-actions.js';
+import type {
+  MessageActionOutcome,
+  ObserverFeedbackMessageActionInput,
+} from '../../domain/types.js';
+
+/**
+ * Execute a channel-initiated observer digest feedback action.
+ *
+ * OWNER-ONLY (stricter than memory-review's same-channel control approver): the
+ * digest is a private owner DM, so ANOTHER control approver must NOT be able to
+ * resolve the owner's insights. The channel supplies an AUTHENTICATED provider
+ * identity + conversation; it never supplies authority. This handler:
+ *   1. requires a provider-authenticated userId,
+ *   2. resolves the CURRENT verified observer owner route and requires the
+ *      callback userId + conversation route to match it exactly, and
+ *   3. requires the insight to be owner-scoped and delivered on that same route.
+ * Only then does it hand the mutation to the trusted executor (applyOwnerAction);
+ * the terminal/idempotency veto lives in that DB path, not here.
+ */
+
+// Locked Phase-2 owner-action parameters.
+const SNOOZE_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+const SUPPRESS_MS = 60 * 24 * 60 * 60 * 1000; // 60 days
+const SUPPRESS_THRESHOLD = 2;
+
+const OWNER_ONLY_RECEIPT = 'Only the digest owner can act on these insights.';
+const NOT_FOUND_RECEIPT = 'This insight could not be found.';
+const STALE_RECEIPT = 'This insight is no longer open.';
+const FAILED_RECEIPT = 'This insight could not be updated.';
+
+export interface ObserverFeedbackMessageActionDeps {
+  appId: string;
+  nowIso: () => string;
+  // The CURRENT DB-verified owner route; an unverified/unconfigured owner
+  // yields a value WITHOUT `owner`. Injected by the wiring so this handler
+  // never imports config/adapters.
+  resolveVerifiedOwner: () => Promise<ObserverVerifiedOwner>;
+  findInsightForOwnerAction: (input: {
+    appId: string;
+    recipient: string;
+    insightId: string;
+  }) => Promise<ObserverOwnerActionInsight | null>;
+  applyOwnerAction: (input: {
+    appId: string;
+    recipient: string;
+    actorUserId: string;
+    insightId: string;
+    action: ObserverFeedbackAction;
+    deliveryId: string;
+    nowIso: string;
+    snoozeMs: number;
+    suppressMs: number;
+    suppressThreshold: number;
+  }) => Promise<ObserverOwnerActionResult>;
+  // Resolve the EXACT delivery the clicked button belongs to, keyed by the
+  // callback's own (recipient, localDay). Returns the delivery id (to scope the
+  // mutation + rebuild) and its durable view (view null on legacy rows). Null
+  // when no reservation exists for that day — the button can't be honored.
+  loadReservation: (input: { recipient: string; localDay: string }) => Promise<{
+    deliveryId: string;
+    view: ObserverDigestMessageView | null;
+  } | null>;
+  // The owner's settled action per insight WITHIN this delivery, so the rebuild
+  // re-marks every already-acted insight of THIS occurrence — not an earlier one.
+  listOwnerActions: (input: {
+    appId: string;
+    recipient: string;
+    insightIds: string[];
+    deliveryId: string;
+  }) => Promise<Map<string, ObserverFeedbackAction>>;
+  warn: (context: Record<string, unknown>, message: string) => void;
+}
+
+function receiptForAction(
+  action: ObserverFeedbackAction,
+  insightType: ObserverInsightType,
+): string {
+  switch (action) {
+    case 'resolve':
+      return 'Insight resolved.';
+    case 'dismiss':
+      return 'Insight dismissed.';
+    case 'snooze':
+      return 'Insight snoozed for 30 days.';
+    case 'less_like_this':
+      return `We'll show fewer ${insightType.replace(/_/g, ' ')} insights.`;
+  }
+}
+
+export async function handleObserverFeedbackAction(
+  deps: ObserverFeedbackMessageActionDeps,
+  action: ObserverFeedbackMessageActionInput,
+): Promise<MessageActionOutcome> {
+  // Step 1: a provider-authenticated user is required — identity in, never authority.
+  if (!action.userId) {
+    return {
+      state: 'invalid',
+      receipt: 'Missing an authenticated user for this insight action.',
+    };
+  }
+  try {
+    // Step 2: the callback identity + route MUST be the current verified owner DM.
+    const owner = (await deps.resolveVerifiedOwner()).owner;
+    if (!owner) {
+      return { state: 'denied', receipt: OWNER_ONLY_RECEIPT };
+    }
+    if (
+      action.userId !== owner.recipient ||
+      action.conversationJid !== owner.conversationJid ||
+      (action.providerAccountId ?? '') !== owner.providerAccountId
+    ) {
+      return { state: 'denied', receipt: OWNER_ONLY_RECEIPT };
+    }
+    // Step 3: the insight must be owned by this owner AND delivered on this route.
+    const found = await deps.findInsightForOwnerAction({
+      appId: deps.appId,
+      recipient: owner.recipient,
+      insightId: action.insightId,
+    });
+    if (
+      !found ||
+      (found.conversationJid ?? '') !== action.conversationJid ||
+      (found.providerAccountId ?? '') !== (action.providerAccountId ?? '')
+    ) {
+      return { state: 'invalid', receipt: NOT_FOUND_RECEIPT };
+    }
+    // Step 4: resolve the delivery this button was rendered for BEFORE mutating,
+    // so the action is scoped to that occurrence. No reservation for the button's
+    // localDay → the button can't be honored; do NOT mutate.
+    const reservation = await deps.loadReservation({
+      recipient: owner.recipient,
+      localDay: action.localDay,
+    });
+    if (!reservation) {
+      return { state: 'invalid', receipt: NOT_FOUND_RECEIPT };
+    }
+    const result = await deps.applyOwnerAction({
+      appId: deps.appId,
+      recipient: owner.recipient,
+      actorUserId: action.userId,
+      insightId: action.insightId,
+      action: action.action,
+      deliveryId: reservation.deliveryId,
+      nowIso: deps.nowIso(),
+      snoozeMs: SNOOZE_MS,
+      suppressMs: SUPPRESS_MS,
+      suppressThreshold: SUPPRESS_THRESHOLD,
+    });
+    if (result.outcome === 'stale') {
+      return { state: 'stale', receipt: STALE_RECEIPT };
+    }
+    if (result.outcome === 'invalid') {
+      return { state: 'invalid', receipt: NOT_FOUND_RECEIPT };
+    }
+    // Applied: rebuild the whole digest view from the durable feedback truth so
+    // EVERY already-acted insight shows its marker with buttons removed (not just
+    // the one just clicked), while un-acted insights stay actionable. Concurrent
+    // clicks on the same digest are serialized IN-PROCESS by the channel edit
+    // paths (withObserverDigestEditLock), so the later click reads this committed
+    // state and can't resurrect a settled insight's buttons. ponytail: in-process
+    // only; the multi-instance upgrade path is a durable per-message revision
+    // guard across the three channel edit paths.
+    const outcome: MessageActionOutcome = {
+      state: 'applied',
+      receipt: receiptForAction(action.action, found.insight.insightType),
+    };
+    try {
+      const view = reservation.view;
+      if (view) {
+        const owned = await deps.listOwnerActions({
+          appId: deps.appId,
+          recipient: owner.recipient,
+          insightIds: view.insights.map((insight) => insight.insightId),
+          deliveryId: reservation.deliveryId,
+        });
+        outcome.observerDigestView = view.insights.reduce(
+          (rebuilt, insight) => {
+            const acted = owned.get(insight.insightId);
+            return acted
+              ? markObserverDigestInsight(rebuilt, insight.insightId, acted)
+              : rebuilt;
+          },
+          view,
+        );
+      } else {
+        deps.warn(
+          { insightId: action.insightId },
+          'observer feedback applied but digest view could not be re-loaded; channel keeps the message unchanged',
+        );
+      }
+    } catch (err) {
+      deps.warn(
+        {
+          insightId: action.insightId,
+          error: err instanceof Error ? err.message : String(err),
+        },
+        'observer feedback applied but digest view re-load threw; channel keeps the message unchanged',
+      );
+    }
+    return outcome;
+  } catch {
+    // Any lookup/DB failure inside the boundary is a controlled invalid, never an
+    // unhandled rejection escaping into the channel adapter.
+    return { state: 'invalid', receipt: FAILED_RECEIPT };
+  }
+}

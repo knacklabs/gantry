@@ -70,6 +70,21 @@ function agentControlAdmissionError(input: {
     }
   }
   if (
+    agentInput.thinking === undefined &&
+    agentInput.effort !== undefined &&
+    agentInput.configuredThinking?.mode === 'off' &&
+    modelEntry.thinkingOffSupportedEffortLevels !== undefined &&
+    !modelEntry.thinkingOffSupportedEffortLevels.includes(agentInput.effort)
+  ) {
+    return `effort ${agentInput.effort} is not supported by model ${model} when thinking is off; supported levels are ${modelEntry.thinkingOffSupportedEffortLevels.join(', ')}.`;
+  }
+  if (
+    agentInput.thinking?.mode === 'enabled' &&
+    !modelEntry.supportsThinkingBudget
+  ) {
+    return `thinking enabled mode is not supported by model ${model}.`;
+  }
+  if (
     agentInput.configuredThinking !== undefined &&
     !(
       modelEntry.supportsThinking &&

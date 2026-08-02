@@ -82,7 +82,9 @@ function parseTimeout(raw) {
 
 function assertControlId(value, label) {
   if (!/^[A-Za-z0-9._-]+$/.test(value)) {
-    throw new Error(`${label} must contain only letters, numbers, dot, underscore, or dash`);
+    throw new Error(
+      `${label} must contain only letters, numbers, dot, underscore, or dash`,
+    );
   }
 }
 
@@ -90,7 +92,9 @@ function readRuntimeEnv(runtimeHome) {
   return {
     ...readEnvFile(path.join(runtimeHome, '.env')),
     ...Object.fromEntries(
-      Object.entries(process.env).filter((entry) => typeof entry[1] === 'string'),
+      Object.entries(process.env).filter(
+        (entry) => typeof entry[1] === 'string',
+      ),
     ),
   };
 }
@@ -138,7 +142,8 @@ function controlApiKey(env) {
 }
 
 function controlBaseUrl(env) {
-  if (env.GANTRY_CONTROL_BASE_URL?.trim()) return env.GANTRY_CONTROL_BASE_URL.trim();
+  if (env.GANTRY_CONTROL_BASE_URL?.trim())
+    return env.GANTRY_CONTROL_BASE_URL.trim();
   const port = Number(env.GANTRY_CONTROL_PORT || 0);
   return port > 0 ? `http://127.0.0.1:${port}` : 'http://127.0.0.1';
 }
@@ -146,11 +151,15 @@ function controlBaseUrl(env) {
 function controlSocketPath(runtimeHome, env) {
   if (env.GANTRY_CONTROL_BASE_URL?.trim()) return undefined;
   if (Number(env.GANTRY_CONTROL_PORT || 0) > 0) return undefined;
-  return env.GANTRY_CONTROL_SOCKET_PATH?.trim() || path.join(runtimeHome, 'run', 'control.sock');
+  return (
+    env.GANTRY_CONTROL_SOCKET_PATH?.trim() ||
+    path.join(runtimeHome, 'run', 'control.sock')
+  );
 }
 
 async function requestJson(client, method, requestPath, body) {
-  const payload = body === undefined ? undefined : Buffer.from(JSON.stringify(body));
+  const payload =
+    body === undefined ? undefined : Buffer.from(JSON.stringify(body));
   const url = new URL(requestPath, client.baseUrl);
   const mod = url.protocol === 'https:' ? https : http;
   return await new Promise((resolve, reject) => {
@@ -256,7 +265,8 @@ async function main() {
         )}&timeoutMs=${encodeURIComponent(String(Math.min(remaining, DEFAULT_TIMEOUT_MS)))}`,
       );
     } catch (error) {
-      if (error instanceof Error && error.message.includes('Timed out waiting')) break;
+      if (error instanceof Error && error.message.includes('Timed out waiting'))
+        break;
       throw error;
     }
     if (event?.eventId) afterEventId = event.eventId;

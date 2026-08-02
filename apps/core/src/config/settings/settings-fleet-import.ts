@@ -4,7 +4,10 @@ import {
   McpBindingAuthorityChangedError,
   type McpBindingAuthorityPrecondition,
 } from '../../domain/mcp/mcp-servers.js';
-import type { SettingsRevisionRepository } from '../../domain/ports/fleet-capability-state.js';
+import type {
+  SettingsRevision,
+  SettingsRevisionRepository,
+} from '../../domain/ports/fleet-capability-state.js';
 import type {
   ProviderAccountId,
   ProviderId,
@@ -328,6 +331,7 @@ export interface FleetImportDeps extends SettingsImportServiceDeps {
 
 export interface FleetImportOptions {
   expectedRevision?: number | null;
+  latestRevision?: SettingsRevision | null;
   expectedMcpBindingAgentIds?: AgentId[];
   expectedMcpBindings?: McpBindingAuthorityPrecondition[];
   mcpCapabilityGrantTokens?: Record<string, string>;
@@ -355,7 +359,10 @@ export async function importFleetSettingsRevisionWithProjectionOps(
     options.expectedMcpBindingAgentIds ??
     agentIdsFromMcpBindingPreconditions(options.expectedMcpBindings);
   let expectedMcpBindings = options.expectedMcpBindings;
-  const latest = await deps.settingsRevisions.getLatestSettingsRevision(appId);
+  const latest =
+    options.latestRevision === undefined
+      ? await deps.settingsRevisions.getLatestSettingsRevision(appId)
+      : options.latestRevision;
   let revisionSettings = settings;
   if (
     expectedMcpBindingAgentIds === undefined &&

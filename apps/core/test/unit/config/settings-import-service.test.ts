@@ -19,6 +19,7 @@ import {
   applySettingsRevisionWithMcpFenceRecovery,
   importFleetSettingsRevision,
   importWorkstationSettings,
+  SettingsIncompatibleReaderError,
   SettingsRevisionConflictError,
   settingsFromRevisionDocument,
   settingsToRevisionDocument,
@@ -34,6 +35,10 @@ const {
   applyRuntimeSettingsDesiredState: vi.fn(),
   snapshotConfiguredMcpBindingAuthority: vi.fn(),
 }));
+const releaseLease = vi.fn(async () => {});
+const leases = {
+  tryAcquire: vi.fn(async () => ({ release: releaseLease })),
+};
 
 vi.mock('@core/config/settings/restart-sync.js', () => ({
   addAllMcpSourcesToRuntimeSettings: addActiveMcpSourcesToRuntimeSettings,
@@ -236,6 +241,7 @@ describe('importFleetSettingsRevision', () => {
         ops: {} as never,
         repositories: {} as never,
         appId: 'default' as never,
+        previousSettings: createDefaultRuntimeSettings(),
         revisionMirror: {
           settingsRevisions: repo,
           createdBy: 'test:workstation',
@@ -274,6 +280,7 @@ describe('importFleetSettingsRevision', () => {
         ops: {} as never,
         repositories: {} as never,
         appId: 'default' as never,
+        previousSettings: createDefaultRuntimeSettings(),
         revisionMirror: {
           settingsRevisions: repo,
           createdBy: 'test:workstation',
@@ -295,6 +302,7 @@ describe('importFleetSettingsRevision', () => {
   it('returns applied_no_revision without a revision mirror', async () => {
     capabilityErrors = [];
     const settings = createDefaultRuntimeSettings();
+    const previousSettings = structuredClone(settings);
     applyRuntimeSettingsDesiredState.mockResolvedValue(settings);
 
     const outcome = await importWorkstationSettings(
@@ -303,11 +311,43 @@ describe('importFleetSettingsRevision', () => {
         ops: {} as never,
         repositories: {} as never,
         appId: 'default' as never,
+        previousSettings,
       },
       settings,
     );
 
     expect(outcome).toEqual({ status: 'applied_no_revision' });
+    expect(applyRuntimeSettingsDesiredState).toHaveBeenCalledWith(
+      expect.objectContaining({
+        forwardCorrected: false,
+        previousSettings,
+      }),
+    );
+  });
+
+  it('uses forward correction for an explicit revision-authority projection', async () => {
+    capabilityErrors = [];
+    const settings = createDefaultRuntimeSettings();
+    applyRuntimeSettingsDesiredState.mockReset();
+    applyRuntimeSettingsDesiredState.mockResolvedValue(settings);
+
+    await importWorkstationSettings(
+      {
+        runtimeHome: '/tmp/gantry-import-test',
+        ops: {} as never,
+        repositories: {} as never,
+        appId: 'default' as never,
+        projectionAuthority: 'revision',
+      },
+      settings,
+    );
+
+    expect(applyRuntimeSettingsDesiredState).toHaveBeenCalledWith(
+      expect.objectContaining({
+        forwardCorrected: true,
+        previousSettings: undefined,
+      }),
+    );
   });
 
   it('required workstation mirror propagates append failure', async () => {
@@ -330,6 +370,7 @@ describe('importFleetSettingsRevision', () => {
             settingsRevisions: repo,
             createdBy: 'test:fleet',
           },
+          leases,
           revisionMirrorRequired: true,
         },
         createDefaultRuntimeSettings(),
@@ -362,6 +403,7 @@ describe('importFleetSettingsRevision', () => {
           settingsRevisions: repo,
           createdBy: 'test:fleet',
         },
+        leases,
         revisionMirrorRequired: true,
       },
       createDefaultRuntimeSettings(),
@@ -410,6 +452,7 @@ describe('importFleetSettingsRevision', () => {
           settingsRevisions: repo,
           createdBy: 'permission:mcp-capability',
         },
+        leases,
         revisionMirrorRequired: true,
         mcpCapabilityGrantTokens: { [tokenKey]: 'grant:second' },
       },
@@ -463,6 +506,7 @@ describe('importFleetSettingsRevision', () => {
           settingsRevisions: repo,
           createdBy: 'test:fleet',
         },
+        leases,
         revisionMirrorRequired: true,
         expectedMcpBindings: [currentFence],
       },
@@ -522,6 +566,7 @@ describe('importFleetSettingsRevision', () => {
           settingsRevisions: repo,
           createdBy: 'projection-sync',
         },
+        leases,
         revisionMirrorRequired: true,
       },
       settings,
@@ -608,6 +653,7 @@ describe('importFleetSettingsRevision', () => {
           settingsRevisions: repo,
           createdBy: 'test:fleet',
         },
+        leases,
         revisionMirrorRequired: true,
       },
       next,
@@ -710,6 +756,7 @@ describe('importFleetSettingsRevision', () => {
         ops: {} as never,
         repositories: {} as never,
         appId: 'default' as never,
+        previousSettings: createDefaultRuntimeSettings(),
         revisionMirror: {
           settingsRevisions: repo,
           createdBy: 'test:workstation',
@@ -761,6 +808,7 @@ describe('importFleetSettingsRevision', () => {
           settingsRevisions: repo,
           createdBy: 'test:fleet',
         },
+        leases,
         revisionMirrorRequired: true,
         expectedMcpBindings: [expectedBinding],
       },
@@ -770,6 +818,212 @@ describe('importFleetSettingsRevision', () => {
     expect(repo.lastAppendExpectedRevision).toBe(1);
     expect(repo.lastAppendExpectedMcpBindings).toEqual([expectedBinding]);
     expect(repo.rows).toHaveLength(2);
+  });
+
+  it('projects a required mutation through the app coordinator using the created revision', async () => {
+    capabilityErrors = [];
+    leases.tryAcquire.mockClear();
+    releaseLease.mockClear();
+    applyRuntimeSettingsDesiredState.mockReset();
+    applyRuntimeSettingsDesiredState.mockImplementation(
+      async (input: { settings: unknown }) => input.settings,
+    );
+    const previousSettings = createDefaultRuntimeSettings();
+    const nextSettings = createDefaultRuntimeSettings();
+    nextSettings.agent.name = 'next';
+    const repo = new FakeRevisionRepo();
+
+    await importWorkstationSettings(
+      {
+        runtimeHome: '/tmp/gantry-import-test',
+        ops: {} as never,
+        repositories: {} as never,
+        appId: 'default' as never,
+        previousSettings,
+        revisionMirror: {
+          settingsRevisions: repo,
+          createdBy: 'test:fleet',
+        },
+        leases,
+        revisionMirrorRequired: true,
+      },
+      nextSettings,
+    );
+
+    expect(leases.tryAcquire).toHaveBeenCalledWith(
+      'settings-projector:default',
+    );
+    expect(releaseLease).toHaveBeenCalledOnce();
+    const applyInput = applyRuntimeSettingsDesiredState.mock.calls[0]?.[0];
+    expect(applyInput).toEqual(
+      expect.objectContaining({ forwardCorrected: true }),
+    );
+    expect(applyInput).not.toHaveProperty('previousSettings');
+    expect(applyInput).not.toHaveProperty('projectionRevision');
+    expect(applyInput).not.toHaveProperty('settingsRevisions');
+  });
+
+  it('keeps failed superseding-head projection in forward-correction mode', async () => {
+    capabilityErrors = [];
+    leases.tryAcquire.mockClear();
+    releaseLease.mockClear();
+    applyRuntimeSettingsDesiredState.mockReset();
+    const previousSettings = createDefaultRuntimeSettings();
+    previousSettings.agent.name = 'previous';
+    const targetSettings = createDefaultRuntimeSettings();
+    targetSettings.agent.name = 'target';
+    const supersedingSettings = createDefaultRuntimeSettings();
+    supersedingSettings.agent.name = 'superseding';
+    const repo = new FakeRevisionRepo();
+    const supersedingHead: SettingsRevision = {
+      appId: 'default',
+      revision: 2,
+      settingsDocument: settingsToRevisionDocument(supersedingSettings),
+      minReaderVersion: CURRENT_SETTINGS_READER_VERSION,
+      createdBy: 'test:newer-writer',
+      note: null,
+      createdAt: new Date().toISOString(),
+    };
+    vi.spyOn(repo, 'getLatestSettingsRevision')
+      .mockResolvedValueOnce(null)
+      .mockImplementationOnce(async () => {
+        repo.rows.push(supersedingHead);
+        return supersedingHead;
+      });
+    const failure = new Error('superseding projection failed');
+    applyRuntimeSettingsDesiredState.mockRejectedValueOnce(failure);
+
+    await expect(
+      importWorkstationSettings(
+        {
+          runtimeHome: '/tmp/gantry-import-test',
+          ops: {} as never,
+          repositories: {} as never,
+          appId: 'default' as never,
+          previousSettings,
+          revisionMirror: {
+            settingsRevisions: repo,
+            createdBy: 'test:fleet',
+          },
+          leases,
+          revisionMirrorRequired: true,
+        },
+        targetSettings,
+      ),
+    ).rejects.toBe(failure);
+
+    expect(applyRuntimeSettingsDesiredState).toHaveBeenCalledWith({
+      runtimeHome: '/tmp/gantry-import-test',
+      settings: expect.objectContaining({
+        agent: expect.objectContaining({ name: 'superseding' }),
+      }),
+      ops: expect.anything(),
+      repositories: expect.anything(),
+      appId: 'default',
+      forwardCorrected: true,
+      reloadRuntimeState: undefined,
+    });
+    expect(releaseLease).toHaveBeenCalledOnce();
+  });
+
+  it('rejects a superseding head that requires a newer settings reader', async () => {
+    capabilityErrors = [];
+    leases.tryAcquire.mockClear();
+    releaseLease.mockClear();
+    applyRuntimeSettingsDesiredState.mockReset();
+    const previousSettings = createDefaultRuntimeSettings();
+    previousSettings.agent.name = 'previous';
+    const nextSettings = createDefaultRuntimeSettings();
+    nextSettings.agent.name = 'target';
+    const unreadableSettings = createDefaultRuntimeSettings();
+    unreadableSettings.agent.name = 'unreadable';
+    const repo = new FakeRevisionRepo();
+    const supersedingHead: SettingsRevision = {
+      appId: 'default',
+      revision: 2,
+      settingsDocument: settingsToRevisionDocument(unreadableSettings),
+      minReaderVersion: CURRENT_SETTINGS_READER_VERSION + 1,
+      createdBy: 'test:newer-writer',
+      note: null,
+      createdAt: new Date().toISOString(),
+    };
+    vi.spyOn(repo, 'getLatestSettingsRevision')
+      .mockResolvedValueOnce(null)
+      .mockImplementationOnce(async () => {
+        repo.rows.push(supersedingHead);
+        return supersedingHead;
+      });
+
+    await expect(
+      importWorkstationSettings(
+        {
+          runtimeHome: '/tmp/gantry-import-test',
+          ops: {} as never,
+          repositories: {} as never,
+          appId: 'default' as never,
+          previousSettings,
+          revisionMirror: {
+            settingsRevisions: repo,
+            createdBy: 'test:fleet',
+          },
+          leases,
+          revisionMirrorRequired: true,
+        },
+        nextSettings,
+      ),
+    ).rejects.toEqual(
+      expect.objectContaining<Partial<SettingsIncompatibleReaderError>>({
+        name: 'SettingsIncompatibleReaderError',
+        revision: 2,
+        minReaderVersion: CURRENT_SETTINGS_READER_VERSION + 1,
+        readerVersion: CURRENT_SETTINGS_READER_VERSION,
+      }),
+    );
+    expect(applyRuntimeSettingsDesiredState).not.toHaveBeenCalled();
+    expect(releaseLease).toHaveBeenCalledOnce();
+  });
+
+  it('rejects an exact head that requires a newer settings reader', async () => {
+    capabilityErrors = [];
+    leases.tryAcquire.mockClear();
+    releaseLease.mockClear();
+    applyRuntimeSettingsDesiredState.mockReset();
+    const settings = createDefaultRuntimeSettings();
+    const repo = new FakeRevisionRepo();
+    await repo.appendSettingsRevision({
+      appId: 'default',
+      settingsDocument: settingsToRevisionDocument(settings),
+      minReaderVersion: CURRENT_SETTINGS_READER_VERSION + 1,
+      createdBy: 'newer-runtime',
+    });
+
+    await expect(
+      importWorkstationSettings(
+        {
+          runtimeHome: '/tmp/gantry-import-test',
+          ops: {} as never,
+          repositories: {} as never,
+          appId: 'default' as never,
+          previousSettings: settings,
+          revisionMirror: {
+            settingsRevisions: repo,
+            createdBy: 'test:fleet',
+          },
+          leases,
+          revisionMirrorRequired: true,
+        },
+        settings,
+      ),
+    ).rejects.toEqual(
+      expect.objectContaining<Partial<SettingsIncompatibleReaderError>>({
+        name: 'SettingsIncompatibleReaderError',
+        revision: 1,
+        minReaderVersion: CURRENT_SETTINGS_READER_VERSION + 1,
+        readerVersion: CURRENT_SETTINGS_READER_VERSION,
+      }),
+    );
+    expect(applyRuntimeSettingsDesiredState).not.toHaveBeenCalled();
+    expect(releaseLease).toHaveBeenCalledOnce();
   });
 
   it('canonicalizes old revision rows before stale revision comparison', async () => {
@@ -826,6 +1080,7 @@ describe('importFleetSettingsRevision', () => {
           settingsRevisions: repo,
           createdBy: 'test:fleet',
         },
+        leases,
         revisionMirrorRequired: true,
       },
       nextSettings,
@@ -859,6 +1114,7 @@ describe('importFleetSettingsRevision', () => {
           settingsRevisions: repo,
           createdBy: 'test:fleet',
         },
+        leases,
         revisionMirrorRequired: true,
       },
       firstSettings,
@@ -876,6 +1132,7 @@ describe('importFleetSettingsRevision', () => {
           settingsRevisions: repo,
           createdBy: 'test:fleet',
         },
+        leases,
         revisionMirrorRequired: true,
       },
       secondSettings,
@@ -918,6 +1175,7 @@ describe('importFleetSettingsRevision', () => {
             settingsRevisions: repo,
             createdBy: 'test:workstation',
           },
+          leases,
           revisionMirrorRequired: true,
         },
         nextSettings,
@@ -955,6 +1213,7 @@ describe('importFleetSettingsRevision', () => {
             createdBy: 'test:fleet',
             logWarn,
           },
+          leases,
           revisionMirrorRequired: true,
         },
         nextSettings,
@@ -1032,6 +1291,7 @@ describe('importFleetSettingsRevision', () => {
             settingsRevisions: repo,
             createdBy: 'test:fleet',
           },
+          leases,
           revisionMirrorRequired: true,
         },
         nextSettings,
@@ -1118,6 +1378,7 @@ describe('importFleetSettingsRevision', () => {
             settingsRevisions: repo,
             createdBy: 'test:fleet',
           },
+          leases,
           revisionMirrorRequired: true,
         },
         rejectedSettings,
@@ -1272,6 +1533,7 @@ describe('importFleetSettingsRevision', () => {
             settingsRevisions: repo,
             createdBy: 'test:fleet',
           },
+          leases,
           revisionMirrorRequired: true,
         },
         rejectedSettings,
@@ -1570,6 +1832,7 @@ describe('importFleetSettingsRevision', () => {
             settingsRevisions: repo,
             createdBy: 'test:fleet',
           },
+          leases,
           revisionMirrorRequired: true,
         },
         nextSettings,
@@ -1626,6 +1889,7 @@ describe('importFleetSettingsRevision', () => {
             settingsRevisions: repo,
             createdBy: 'test:fleet',
           },
+          leases,
           revisionMirrorRequired: true,
         },
         nextSettings,
@@ -1690,6 +1954,7 @@ describe('importFleetSettingsRevision', () => {
             settingsRevisions: repo,
             createdBy: 'test:fleet',
           },
+          leases,
           revisionMirrorRequired: true,
         },
         nextSettings,

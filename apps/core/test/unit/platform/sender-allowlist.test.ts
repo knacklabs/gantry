@@ -13,8 +13,9 @@ import {
   loadSenderControlAllowlist,
   loadSenderAllowlist,
   shouldLogDenied,
-  shouldDropMessage,
 } from '@core/platform/sender-allowlist.js';
+import { parseRuntimeSettings } from '@core/config/settings/runtime-settings-parser.js';
+import { renderRuntimeSettingsYaml } from '@core/config/settings/runtime-settings-renderer.js';
 import {
   getProvider,
   registerProvider,
@@ -44,6 +45,7 @@ function renderSettingsYaml(overrides: {
     string,
     { allow: '*' | string[]; mode: 'trigger' | 'drop' }
   >;
+  slackExternalId?: string;
   slackLogDenied?: boolean;
   telegramControlAgents?: Record<string, string[]>;
   slackControlAgents?: Record<string, string[]>;
@@ -101,7 +103,7 @@ function renderSettingsYaml(overrides: {
   for (const [folder, entry] of Object.entries(overrides.slackAgents || {})) {
     lines.push(`  ${folder}_conversation:`);
     lines.push(`    provider_account: ${folder}_account`);
-    lines.push('    external_id: "C1"');
+    lines.push(`    external_id: "${overrides.slackExternalId ?? 'C1'}"`);
     lines.push('    kind: channel');
     lines.push(`    display_name: ${folder}`);
     lines.push('    sender_policy:');
@@ -292,6 +294,24 @@ describe('loadSenderAllowlist', () => {
     ]);
   });
 
+  it('normalizes readable Slack external ids for sender policy lookup', () => {
+    const p = writeSettings({
+      telegramDefaultAllow: '*',
+      telegramDefaultMode: 'trigger',
+      slackExternalId: 'slack:C123',
+      slackAgents: { slack_ops: { allow: ['U999'], mode: 'drop' } },
+    });
+
+    const cfg = loadSenderAllowlist(p);
+
+    expect(cfg.slack.conversations).toHaveProperty('sl:C123');
+    expect(cfg.slack.conversations).not.toHaveProperty('sl:slack:C123');
+    expect(isSenderAllowed('sl:C123', 'U999', cfg, 'slack_ops')).toBe(true);
+    expect(isSenderAllowed('sl:C123', 'U111', cfg, 'slack_ops')).toBe(false);
+    expect(isTriggerAllowed('sl:C123', 'U999', cfg, 'slack_ops')).toBe(true);
+    expect(isTriggerAllowed('sl:C123', 'U111', cfg, 'slack_ops')).toBe(false);
+  });
+
   it('keeps settings-derived sender policies scoped by conversation', () => {
     const cfg = loadSenderAllowlist(writeSameAgentMultiConversationSettings());
 
@@ -313,7 +333,7 @@ describe('isSenderAllowed', () => {
   const cfg: RuntimeSenderAllowlistConfig = {
     telegram: {
       default: { allow: '*', mode: 'trigger' },
-      agents: { telegram_kai: { allow: ['alice'], mode: 'drop' } },
+      agents: { telegram_kai: { allow: ['alice'], mode: 'trigger' } },
       logDenied: true,
     },
     slack: {
@@ -349,7 +369,6 @@ describe('isSenderAllowed', () => {
 
   it('fails closed for JIDs without a registered provider prefix', () => {
     expect(isSenderAllowed('unknown:1', 'anyone', cfg)).toBe(false);
-    expect(shouldDropMessage('unknown:1', cfg)).toBe(true);
   });
 });
 
@@ -357,7 +376,7 @@ describe('isSenderExplicitlyAllowed', () => {
   const cfg: RuntimeSenderAllowlistConfig = {
     telegram: {
       default: { allow: '*', mode: 'trigger' },
-      agents: { telegram_kai: { allow: ['alice'], mode: 'drop' } },
+      agents: { telegram_kai: { allow: ['alice'], mode: 'trigger' } },
       logDenied: true,
     },
     slack: {
@@ -434,6 +453,27 @@ describe('sender control allowlist', () => {
     ).toBe(false);
   });
 
+  it('normalizes readable Slack external ids for control approver lookup', () => {
+    const p = writeSettings({
+      telegramDefaultAllow: '*',
+      telegramDefaultMode: 'trigger',
+      slackExternalId: 'slack:C123',
+      slackAgents: { slack_ops: { allow: '*', mode: 'trigger' } },
+      slackControlAgents: { slack_ops: ['U999'] },
+    });
+
+    const cfg = loadSenderControlAllowlist(p);
+
+    expect(cfg.slack.conversations).toHaveProperty('sl:C123');
+    expect(cfg.slack.conversations).not.toHaveProperty('sl:slack:C123');
+    expect(isSenderControlAllowed('sl:C123', 'U999', cfg, 'slack_ops')).toBe(
+      true,
+    );
+    expect(isSenderControlAllowed('sl:C123', 'U111', cfg, 'slack_ops')).toBe(
+      false,
+    );
+  });
+
   it('keeps settings-derived control approvers scoped by conversation', () => {
     const cfg = loadSenderControlAllowlist(
       writeSameAgentMultiConversationSettings(),
@@ -454,30 +494,48 @@ describe('sender control allowlist', () => {
   });
 });
 
-describe('shouldDropMessage', () => {
-  const cfg: RuntimeSenderAllowlistConfig = {
-    telegram: {
-      default: { allow: '*', mode: 'trigger' },
-      agents: { telegram_kai: { allow: '*', mode: 'drop' } },
-      logDenied: true,
-    },
-    slack: {
-      default: { allow: '*', mode: 'drop' },
-      agents: {},
-      logDenied: true,
-    },
-  };
+describe('legacy sender policy normalization', () => {
+  it('normalizes drop through runtime settings and renders trigger', () => {
+    const settings = parseRuntimeSettings(
+      renderSettingsYaml({
+        telegramDefaultAllow: '*',
+        telegramDefaultMode: 'trigger',
+        telegramAgents: {
+          telegram_kai: { allow: ['alice'], mode: 'drop' },
+        },
+        slackDefaultAllow: '*',
+        slackDefaultMode: 'trigger',
+      }),
+    );
 
-  it('returns false for trigger mode', () => {
-    expect(shouldDropMessage('tg:1', cfg)).toBe(false);
+    expect(
+      settings.conversations.telegram_kai_conversation.senderPolicy,
+    ).toEqual({
+      allow: ['alice'],
+      mode: 'trigger',
+    });
+    const rendered = renderRuntimeSettingsYaml(settings);
+    expect(rendered).toContain('      allow: ["alice"]\n      mode: trigger');
+    expect(rendered).not.toContain('mode: drop');
   });
 
-  it('returns true for drop mode', () => {
-    expect(shouldDropMessage('sl:C1', cfg)).toBe(true);
-  });
+  it('normalizes drop through loadSenderAllowlist without losing allow', () => {
+    const cfg = loadSenderAllowlist(
+      writeSettings({
+        telegramDefaultAllow: '*',
+        telegramDefaultMode: 'trigger',
+        telegramAgents: {
+          telegram_kai: { allow: ['alice'], mode: 'drop' },
+        },
+        slackDefaultAllow: '*',
+        slackDefaultMode: 'trigger',
+      }),
+    );
 
-  it('uses per-agent mode override', () => {
-    expect(shouldDropMessage('tg:1', cfg, 'telegram_kai')).toBe(true);
+    expect(cfg.telegram.conversations?.['tg:1']?.telegram_kai).toEqual({
+      allow: ['alice'],
+      mode: 'trigger',
+    });
   });
 });
 

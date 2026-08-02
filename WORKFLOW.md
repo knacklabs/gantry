@@ -17,6 +17,8 @@
   conflict. History already in a personal store: `./forge gstack migrate`.
 - Product intent lives in `docs/product/BRIEF.md`.
 - Architecture and decision docs live in the repo under `docs/architecture/` and `docs/decisions/`.
+- Durable project facts live under `docs/memory/`; SessionStart injects its
+  `MEMORY.md` index into both runtimes.
 - `docs/decisions/` overrides ambiguous or conflicting architecture guidance.
 
 ## Runtime Modes
@@ -26,7 +28,8 @@ orchestration must produce the same `.factory` artifacts.
 
 ## Factory Phases
 0a. `discovery` — lightweight problem, stakeholder, and constraint discovery; no `.factory` ceremony required.
-0b. `prototype` — lightweight proof work before committing to the factory loop; no `.factory` ceremony required.
+0b. `prototype` — prototype freely and save capability specs as they emerge; no `.factory` ceremony required.
+0c. `roadmap` — confirm the specs, then derive epics and stories from them.
 1. `planning`
 2. `decomposing`
 3. `awaiting-approval`
@@ -37,16 +40,35 @@ orchestration must produce the same `.factory` artifacts.
 8. `pr-ready`
 9. `done` or `blocked`
 
-The sign-off gate sits between `prototype` and `planning`. Record accepted client sign-off with `python3 .agents/scripts/record_signoff.py`, which sets `client_signoff` in `.factory/run.json`. `update_run.py` and `pre_tool_use.py` refuse phases at `planning` or later until that field is true.
+The sign-off gate sits between roadmap derivation and planning, and it fires
+ONCE for the project — not once per task. Recording accepted client sign-off
+with `python3 factory/scripts/record_signoff.py` requires at least one
+confirmed spec, a derived roadmap with at least one story, and every confirmed
+spec referenced by a story. It then PINS that record in `harness.yaml`
+(`signoff_record:`), and every gate DERIVES sign-off from the committed pin —
+so a fresh worktree with no `.factory/` reads the same answer, and nothing
+per-task can re-point it. Re-running on a signed-off project is refused;
+changing the pin is a reviewed edit. `update_run.py` and `pre_tool_use.py`
+refuse phases at `planning` or later until the pin resolves to an accepted,
+human-confirmed record. The per-task human gate is plan approval, not a second
+sign-off.
 
-Every handover gate is preceded by a recorded GRILL (`.agents/prompts/griller.md`): an adversarial gaps-and-contradictions interrogation of what one role hands the next — `signoff` (client→PM: DISCOVERY/BRIEF/decisions), `epics` (PM→EM: epics/stories vs BRIEF), and `plan` (dev, EVERY task: the draft plan vs the story's acceptance criteria and the active decision corpus; `/grill-me` in Claude satisfies it, and `plan save` refuses without a same-issue pass). The verdict lands in `.factory/grills/<gate>.json` via `record_grill_from_json.py` (schema-validated, `generated_by: griller`); `record_signoff.py` and `forge roadmap import` refuse without a fresh pass — stale means the handover docs changed after the grill. Findings must resolve into doc edits or decision records before a `pass` is even recordable.
+Every handover gate is preceded by a recorded GRILL
+(`factory/prompts/griller.md`): an adversarial gaps-and-contradictions
+interrogation of what one role hands the next. Confirming each spec requires a
+fresh pass bound to that spec. The existing `signoff`, `epics`, and `plan`
+grills cover client→PM context, the derived backlog, and each task plan
+respectively. The verdict lands in `.factory/grills/<gate>.json` via
+`record_grill_from_json.py` (schema-validated, `generated_by: griller`);
+stale means the handover inputs changed after the grill. Findings must resolve
+into doc edits or decision records before a `pass` is recordable.
 
 ## Context Inbox & Doc Upkeep
 
 Unstructured context (client emails, transcripts, notes) goes in
 `docs/context/` — dumping is free, tracking is mandatory. `forge.py context
 scan` registers files in `docs/context/ledger.json` (CI enforces freshness);
-an agent following `.agents/prompts/harvester.md` turns pending files into
+an agent following `factory/prompts/harvester.md` turns pending files into
 proposed decision records and BRIEF/architecture edits, then marks them
 harvested with their outputs (`--ignored` requires notes). Pending context is
 surfaced on four channels: the SessionStart hook count, step 1 of
@@ -86,15 +108,15 @@ text). The doors check what enters; these mechanisms manage what accumulates:
   the categories nobody predicted.
 - **Ledger compaction**: `forge.py assumptions archive` moves resolved rows
   from finished tasks to `plans/assumptions-archive.md` at milestones;
-  rejected skill proposals move to `.agents/skills/rejected/` (the miner's
+  rejected skill proposals move to `factory/skills/rejected/` (the miner's
   memory — it must not re-propose them without materially new evidence).
 
 ## Evolution Loop
 
 Dev corrections are the harness's training data. At retro cadence, an agent
-following `.agents/prompts/skill-miner.md` mines recurring patterns (3+
+following `factory/prompts/skill-miner.md` mines recurring patterns (3+
 occurrences: fix-after-review commits, repeated blockers, superseded
-decisions) into PROPOSALS under `.agents/skills/proposed/` — skills, memory
+decisions) into PROPOSALS under `factory/skills/proposed/` — skills, memory
 lines, or constitution changes, each with cited evidence. Humans promote or
 reject; nothing self-activates. The daily `gardener` workflow opens a
 GitHub issue whenever unharvested context or unreviewed proposals exist, and
@@ -150,7 +172,7 @@ Two rules keep it grounded:
   decisions stay human. Nothing self-activates.
 - **Frozen gates** (decision `frozen-gate-integrity`): an optimizing loop
   must never tune its own held-out set. `forge init/adopt/upgrade` freeze the
-  vendored gate surface (`.agents/scripts|schemas|prompts`, `forge`,
+  vendored gate surface (`factory/scripts|schemas|prompts`, `forge`,
   `.claude/settings.json`) into `constitution/VENDOR_MANIFEST.json`;
   `check_vendor_integrity.py` compares, the SessionStart hook warns on drift,
   and `pr_ready` refuses it — a tampered gate invalidates every other gate's
@@ -159,16 +181,17 @@ Two rules keep it grounded:
 
 ## Event-Driven Delegation — signals
 
-Delegation is not fire-and-forget. While a background rescue runs, the
+Delegation is not fire-and-forget. While a delegated companion runs, the
 orchestrator WATCHES `.factory/signals.jsonl` (Claude's Monitor tool on the
-file, alongside the companion job status). A delegated worker raises a
+file, alongside the companion job status). Stage write launches run in the
+foreground; only read-only exploration may run in the background. A worker raises a
 signal the moment it hits a `contradiction` (plan vs decision vs doc),
 genuine `confusion`, a hard `blocked`, or a `scope-change` — via
 `forge.py signal raise --kind <k> --by <agent> -m "<sentence>"` — and PAUSES
 that thread instead of guessing. The orchestrator resolves the event
 (`forge.py signal resolve <id> --notes "<answer>"` — an answer, a decision
 record, or a plan revision) and resumes the worker with the resolution.
-Signals are schema-validated (`.agents/schemas/signal.json`, attested
+Signals are schema-validated (`factory/schemas/signal.json`, attested
 `generated_by`), surfaced by `forge next` and the session-start hook, and
 OPEN SIGNALS BLOCK `pr_ready` — an unanswered contradiction cannot ship.
 The channel is task-scoped: archived to `.factory/history/<issue>/` and
@@ -180,14 +203,14 @@ The rule that decides deterministic vs non-deterministic, once, so nobody
 re-derives it per task:
 
 - **Gates, state transitions, and evidence recording are deterministic** —
-  scripts under `.agents/scripts/`, never skills, never judgment calls.
+  scripts under `factory/scripts/`, never skills, never judgment calls.
 - **Content generation (plans, code, tests, reviews, harvests) runs on the
   phase's PINNED skills** — `harness.yaml` is the allowlist, not a suggestion.
   Adopting a new tool is a PR to `harness.yaml` + the artifact's schema (then
   `forge upgrade` propagates it), never a local dev choice.
 - **The only door into `.factory/` is a recorder** (`record_*_from_json.py`,
   `forge roadmap import`) that validates the payload against its
-  `.agents/schemas/<artifact>.json` — required fields, types, and a
+  `factory/schemas/<artifact>.json` — required fields, types, and a
   `generated_by` value inside the pinned allowlist. Nonconforming payloads
   and unpinned generators are refused outright; there is no override flag.
 - **Mandatory phase skills are attested, not assumed.** Each schema's
@@ -207,7 +230,15 @@ as `plan assume` and decision records).
 
 ## Gating Model
 
-Gates are deterministic and run at phase transitions (`update_run.py`, `record_*` scripts, `pr_ready.py`) and in `pre_tool_use.py` — never on prompt keywords or turn ends. One deliberate exception to "artifact gates only" (decision 0004): **while an active task is unplanned, planning is mandatory and enforced** — the PreToolUse hook blocks product-code edits (Edit/Write) and writing Codex delegation until the plan is saved and approved, telling the dev to switch to PLAN MODE. Planning-phase writes (plans/, docs/, decisions, harness machinery) and read-only exploration stay open. Everything downstream is still enforced at the artifact gates: unapproved work cannot pass verify, testing, review, or `pr_ready.py`.
+Gates are deterministic and run at phase transitions (`update_run.py`,
+`record_*` scripts, `pr_ready.py`) and in `pre_tool_use.py` — never on prompt
+keywords or turn ends. Under decision 0013, the planning lock is **always
+armed**: product writes, including heuristic Bash writes, are refused until
+the plan is approved. The two legitimate exits are plan mode or a bounded,
+ledgered `./forge quickfix start "<reason>"` window. Planning surfaces
+(`plans/`, `docs/`, `.factory/`, `factory/`, and `prototype/`) and read-only
+exploration stay open. Everything downstream remains enforced at the artifact
+gates.
 
 ## Task Graph Rules
 - The planner owns decomposition.
@@ -219,12 +250,11 @@ Gates are deterministic and run at phase transitions (`update_run.py`, `record_*
 ## Project Roadmap
 
 `plans/roadmap.json` is the durable, ordered backlog — the role handoff
-artifact (see `docs/ROLES.md`): the PM's epics and the EM's stories, listing
-everything left to build in execution order. It is recorded once from the
-project-level decomposition after sign-off — **gated on an accepted
-`epics-approved` decision (the PM→EM handoff)** — and survives every task
-cycle: task-scoped `.factory/decomposition.json` is cleared on each intake,
-the roadmap never is. Items carry `story`, `acceptance_criteria`, `epic`,
+artifact (see `docs/ROLES.md`). Its epics and stories are derived from
+confirmed capability specs before sign-off, never hand-authored. Every story
+links its source spec. The roadmap survives every task cycle:
+task-scoped `.factory/decomposition.json` is cleared on each intake, but the
+roadmap is not. Items carry `story`, `acceptance_criteria`, `epic`, `spec`,
 `skill` (frontend|backend|fullstack), and `assignee` (set by
 `forge roadmap assign`, validated against the optional `plans/team.json`
 roster, preserved across re-imports). Item lifecycle: `pending` → `active`
@@ -234,13 +264,13 @@ and flags unassigned ones to the EM. Scope changes are PR edits to the
 file — future planning refines the roadmap, it does not silently regenerate
 it; the per-task plan must satisfy the item's `acceptance_criteria`.
 
-## Concurrency — one task per branch
+## Concurrency — one story per worktree
 
 Run state is branch-scoped by decision (docs/decisions): each story gets its
-own branch (intake names it `feat/<key>-<slug>`), carrying its own committed
+own isolated worktree and branch (intake names it `feat/<key>-<slug>`), carrying its own committed
 `.factory/` state through the loop; `pr_ready.py` archives to
 `.factory/history/<issue>/` before merge, so main only ever accumulates
-history. One active task per branch — parallel devs = parallel branches.
+history. One active story per worktree — parallel stories = parallel worktrees.
 Roadmap status flips (`active`/`done`) happen on the task branch and merge
 normally; the JSONL stores under `.gstack/` union-merge via the
 `jsonl-append` driver.
@@ -252,9 +282,9 @@ ordering); `./forge roadmap parallel` prints the ready frontier — pending
 stories whose dependencies are all done — with a `git worktree add` + intake
 command per story. Each worktree is a full checkout on its own branch with
 its own `.factory/` state, so every gate (plan mode lock, plan grill,
-recorders, ship gate) applies per story, concurrently. Implementations run
-as parallel background rescues. Within ONE task, fan out only across leaf
-tasks with disjoint `write_scope` in the recorded decomposition. Convergence
+recorders, ship gate) applies per story, concurrently. Implementations may run
+concurrently across those story worktrees. Inside one story, leaf tasks run
+strictly in decomposition order with no parallel file edits. Convergence
 is designed to be conflict-free: `pr_ready.py` DELETES the task-scoped
 `.factory/` state after archiving it (history keeps the record) and reduces
 `run.json` to project fields + `last_shipped`, so merging story branches
@@ -271,14 +301,17 @@ mutable execution twin of the immutable decomposition (decision 0007), one
 stage per leaf task in execution order. The dev works stages strictly
 through the loop:
 
-1. `forge stage start <id>` (order-enforced; `--parallel` only for disjoint
-   `write_scope` per the Concurrency contract)
-2. `/codex:rescue` implements the stage in the task worktree
+1. `forge stage start <id>` (strictly order-enforced; task-level `--parallel`
+   is refused)
+2. `forge delegate <id>` composes the task brief and launches the installed
+   companion in the foreground with write access derived from stage state
 3. the orchestrator inspects the diff and rejects overbuilt code
 4. that stage's assumption rows are validated (`forge assumptions list --open`)
 5. smallest relevant checks run
 6. **local autoreview on the UNCOMMITTED diff until clean** (`autoreview
-   --mode local`, run as a Codex handoff) — a stage commits only clean
+   --mode local`, run DIRECTLY by the orchestrator with the autoreview
+   skill — never as a Codex handoff, which re-triggers the same skill one
+   indirection deeper) — a stage commits only clean
 7. commit, then `forge stage done <id>`
 
 Per-stage local reviews are pre-commit hygiene and record nothing; the ONE
@@ -300,11 +333,14 @@ Per-task planning runs in Claude Code plan mode by default (exploration
 delegated to Codex: `/codex:rescue --model gpt-5.6-terra --effort high` —
 read-only by default, never Claude Code itself, never raw `codex exec`); devs may instead use the
 `planner-high` Codex agent — the contract is identical either way. The plan follows
-`.agents/prompts/planner.md`, including the mandatory **Decisions** section: every choice not derivable from BRIEF,
+`factory/prompts/planner.md`, including the mandatory **Decisions** section: every choice not derivable from BRIEF,
 architecture, or existing records becomes a `docs/decisions/` record
 (`forge.py decision new`) before decomposition is recorded. Approval means the
 plan is in-repo — `forge.py plan save --from <plan-file>` writes
-`plans/active/<issue>-<slug>.md`; `update_run.py` refuses
+`plans/active/<issue>-<slug>.md`. The draft frontmatter lists every ID from
+`forge decision list --active`, and `--story <key>` binds it to the roadmap;
+open contradiction signals or incomplete decision coverage refuse the save.
+`update_run.py` refuses
 `plan_status approved` without it.
 
 During implementation, any call the plan does not cover is recorded the moment
@@ -341,15 +377,15 @@ durable record of what was decided and what was built.
 
 ## Execution Order
 1. ensure architecture and decision docs are present in-repo
-2. complete discovery and prototype
-3. record client sign-off
-4. create an approved plan
-5. record decomposition
+2. complete discovery; prototype freely and save specs as capabilities emerge
+3. confirm every spec, then derive the roadmap from the specs
+4. record client sign-off
+5. plan one roadmap story and record its decomposition
 6. implement one leaf task — the implementer writes, runs, and records the automated tests
-7. run `python3 .agents/scripts/verify.py`
+7. run `python3 factory/scripts/verify.py`
 8. run ONE autoreview pass (three lenses) and record the three review artifacts
 9. run `functional-checker` when the decomposition has `user_facing: true`
-10. run `python3 .agents/scripts/pr_ready.py`
+10. run `python3 factory/scripts/pr_ready.py`
 
 ## PR Ready Contract
 A branch is PR-ready only when:

@@ -12,7 +12,6 @@ import type {
 import { memoryScopeForConversationKind } from './group-run-context.js';
 import {
   resolveSingleNonSelfSenderId,
-  buildApprovedSkillContextBlock,
   buildRuntimeRunOptions,
   completeFailedRuntimeSessionRun,
   completeSuccessfulRuntimeSessionRun,
@@ -122,7 +121,6 @@ export function createGroupAgentRunner(input: {
       executionAdapter: deps.executionAdapter,
       agentHarness,
     });
-    const initialModelSelection = initialProvider.initialModelSelection;
     const failoverCandidates = initialProvider.failoverCandidates;
     const firstModel = initialProvider.firstModel;
     let executionProviderId = initialProvider.executionProviderId;
@@ -138,7 +136,10 @@ export function createGroupAgentRunner(input: {
     const modelStatus = createModelStatus(group.folder, sessionThreadId);
     const runTokenBudget = createConfiguredRunTokenBudget(group.folder);
     const streamedResult = createRuntimeResultSummaryAccumulator();
-    const loadTurnContext = async (promoteReadyProviderSession: boolean) =>
+    const loadTurnContext = async (
+      promoteReadyProviderSession: boolean,
+      hydrateMemory = true,
+    ) =>
       ops().getAgentTurnContext?.({
         appId: turnAppId,
         agentFolder: group.folder,
@@ -150,6 +151,7 @@ export function createGroupAgentRunner(input: {
         memoryUserId: options?.memoryContext?.userId,
         hydrationMode: 'first_visible',
         promoteReadyProviderSession,
+        hydrateMemory,
         query:
           options?.memoryContext?.source === 'message'
             ? buildBoundedMemoryRecallQuery(options.memoryContext.recallQuery)
@@ -354,11 +356,6 @@ export function createGroupAgentRunner(input: {
       }
       await onOutput?.(output);
     };
-    const approvedSkillContextBlock = await buildApprovedSkillContextBlock({
-      skillRepository: deps.getSkillRepository?.(),
-      skillArtifactStore: deps.getSkillArtifactStore?.(),
-      turnContext,
-    });
     const {
       configuredToolPolicy,
       selectedSkillContext,
@@ -366,6 +363,8 @@ export function createGroupAgentRunner(input: {
       attachedMcpSourceIds,
       capabilityCatalog,
       currentAccessFingerprint,
+      approvedSkillContextBlock,
+      accessSnapshot,
     } = await resolveGroupAgentAccessContext({
       deps,
       turnContext,
@@ -498,6 +497,7 @@ export function createGroupAgentRunner(input: {
         conversationRoutes: deps.getConversationRoutes?.() ?? {},
         turnContext,
       });
+      if (accessSnapshot) runOptions.accessSnapshot = accessSnapshot;
       const expireTurnProviderSession = async (
         reason: string,
       ): Promise<boolean> => {
@@ -536,6 +536,9 @@ export function createGroupAgentRunner(input: {
             ...(turnContext?.agentId ? { agentId: turnContext.agentId } : {}),
             ...(agentInput.model ? { model: agentInput.model } : {}),
             chatJid,
+            // Exact key the finalizer consumes activity with; stored with the
+            // browser credential so the IPC side never rebuilds it.
+            turnQueueKey: queueJid,
             threadId: options?.memoryContext?.threadId,
             memoryUserId: options?.memoryContext?.userId,
             memoryDefaultScope: defaultMemoryScope,

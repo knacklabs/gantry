@@ -41,7 +41,7 @@ channel message contract.
 | Channels                   | `apps/core/src/app/bootstrap/channel-wiring.ts`, `apps/core/src/channels/channel-provider.ts`, `apps/core/src/channels/slack/`, `apps/core/src/channels/telegram/`                                                               | Connect Slack, Telegram, and app channel adapters; route inbound messages, outbound replies, progress, streaming, typing, and permission prompts.                                            |
 | App channel                | `apps/core/src/channels/app.ts`                                                                                                                                                                                                  | Converts SDK-originated session output into durable `RuntimeEvent` records instead of sending to a chat network.                                                                             |
 | Postgres storage           | `apps/core/src/adapters/storage/postgres/runtime-store.ts`, `apps/core/src/adapters/storage/postgres/factory.ts`, `apps/core/src/adapters/storage/postgres/schema/schema.ts`                                                     | Owns first-party runtime tables, readiness checks, repositories, migrations, pgvector, and full-text search columns.                                                                         |
-| Message admission          | `apps/core/src/runtime/live-admission-work-loop.ts`, `apps/core/src/runtime/message-loop.ts`                                                                                                                                      | Claims durable live-admission work, recovers pending messages, applies slash/control checks, and enqueues processing through queue-scoped replay.                                           |
+| Message admission          | `apps/core/src/runtime/live-admission-work-loop.ts`, `apps/core/src/runtime/message-loop.ts`                                                                                                                                     | Claims durable live-admission work, recovers pending messages, applies slash/control checks, and enqueues processing through queue-scoped replay.                                            |
 | Queue                      | `apps/core/src/runtime/group-queue.ts`                                                                                                                                                                                           | Maintains per-group/thread work ordering, active process tracking, retry behavior, and continuation input routing.                                                                           |
 | Group processor            | `apps/core/src/runtime/group-processing.ts`                                                                                                                                                                                      | Loads unread messages, checks triggers, hydrates durable memory context, starts agent runs, and commits cursors/results.                                                                     |
 | Agent spawn                | `apps/core/src/runtime/agent-spawn.ts`, `apps/core/src/runtime/agent-spawn-process.ts`                                                                                                                                           | Builds the child process environment, group working directory, model config, IPC secrets, MCP server path, and runtime credentials.                                                          |
@@ -109,9 +109,10 @@ shapes such as Claude SDK `allowedTools` and stale-session error handling.
 The Anthropic adapter is the only production path that calls
 `@anthropic-ai/claude-agent-sdk`.
 The final child process spawn always goes through `RunnerSandboxProvider`.
-`direct` is compatibility mode; `sandbox_runtime` wraps the entire runner
-process, including SDK-managed Bash/file/MCP subprocesses and native SDK
-subagents.
+`direct` is a first-class execution mode with no inner OS sandbox; Gantry
+authorization plus the deployment boundary are its controls. `sandbox_runtime`
+adds a whole-runner OS jail around SDK-managed Bash/file/MCP subprocesses and
+native SDK subagents.
 
 Key runner inputs:
 
@@ -121,7 +122,8 @@ Key runner inputs:
 - IPC request/response directories
 - HMAC auth token and response signing key scoped to the group/thread
 - environment values for credentials and browser automation endpoints
-- concrete protected filesystem paths for SDK sandbox deny-write enforcement
+- concrete protected filesystem paths for deterministic host-side rails and,
+  when selected, outer-sandbox enforcement
 
 `apps/core/src/adapters/llm/anthropic-claude-agent/runner/query-loop.ts` creates a `MessageStream` and passes it to `query()`. The stream lets the host add follow-up user messages to an already-running agent when the queue decides continuation is safe. The same `query()` call receives:
 
@@ -135,15 +137,14 @@ Key runner inputs:
 - working directory and extra directories
 - `canUseTool`, the permission callback that projects each SDK request through
   the canonical tool execution boundary before sensitive tools run
-- an enforcing filesystem sandbox boundary for SDK-managed subprocesses:
-  `direct` runner mode uses Claude SDK sandbox settings with
-  `enabled=true`, `failIfUnavailable=true`, `allowUnsandboxedCommands=false`,
-  and protected-path denies, while `sandbox_runtime` mode uses the outer
-  whole-runner OS sandbox and does not request a nested SDK sandbox. In
-  outer-sandbox mode, the Claude Code child is marked already sandboxed, Gantry
-  prefers the resolved `claude` executable on `PATH` when present, reads stay
-  broad except explicit protected read denies, and generated Claude
-  session/cache state remains writable in
+- the selected execution boundary for SDK-managed subprocesses: `direct` uses
+  the permission coordinator, credential/protected-path rails, and the
+  deployment boundary without requesting an inner SDK sandbox.
+  `sandbox_runtime` adds the outer whole-runner OS sandbox and likewise does not
+  request a nested SDK sandbox. In outer-sandbox mode, the Claude Code child is
+  marked already sandboxed, Gantry prefers the resolved `claude` executable on
+  `PATH` when present, reads stay broad except explicit protected read denies,
+  and generated Claude session/cache state remains writable in
   the per-agent config directory, per-run temp directory, and Claude Code's
   uid-scoped temp directory, while stable settings, MCP, and skill definitions
   stay deny-write protected. On macOS, sandbox-runtime's weaker network
@@ -170,26 +171,41 @@ Tool access has two layers:
 
 The default SDK tool list is intentionally narrow: read/search/web/task/skill
 tools plus exact baseline Gantry MCP tools, including `send_message`,
-`ask_user_question`, memory save/search, `continuity_summary`, `procedure_save`,
-`file`, capability request/manage tools, and the third-party MCP proxy tools.
-Browser gateway tools (`browser_status`, `browser_open`, `browser_inspect`,
-`browser_act`, `browser_close`), reviewed memory tools, and admin tools such as
+`ask_user_question`, `file`, capability request/manage tools, and the
+third-party MCP proxy tools. Host-owned hydration provides baseline memory
+context. Baseline memory MCP tools include memory save/search,
+`continuity_summary`, and `procedure_save`; authority-changing memory review,
+patch, consolidation, dreaming, and procedure-patch tools require selected or
+reviewed capabilities. Browser gateway tools
+(`browser_status`, `browser_open`, `browser_inspect`, `browser_act`,
+`browser_close`), reviewed memory tools, and admin tools such as
 `admin_permission_list` and `admin_permission_revoke` require selected
 capabilities. Dangerous tools such as `Bash`, `Write`, `Edit`, config mutation,
 and wildcard `mcp__gantry__*` are not defaults. A small set of worktree
 lifecycle tools is always allowed because it is required for runner operation.
 Other tool calls pass through `canUseTool` and host policy.
 
-All tool execution paths use the same lifecycle:
+Protected tool execution paths use one host-side allow authority, with optional
+classifier/cache stages varying by lane:
 
-1. Classify a `ToolExecutionRequest` with origin, tool kind/name, input,
-   run context, execution mode, target resource, and mutation intent.
-2. Authorize through `ToolExecutionPolicyService`, returning `allow`, `deny`,
-   `needs_approval`, or `not_applicable` with a reason, audit metadata, and
-   recovery action when useful.
-3. Execute only allowed calls, request approval only for interactive calls, or
-   deny without canceling unrelated parallel tool calls.
-4. Record the decision in the canonical audit shape.
+1. Worker-local safety guards may deny before IPC, but they do not grant
+   authority.
+2. The host coordinator applies hard deny, locked preset, and fixed-image
+   restrictions before evaluating the agent's reviewed rule/capability.
+3. Deterministic rails then allow, deny, require approval, or abstain. A rail
+   approval floor cannot be weakened by cache or classifier.
+4. On the full worker IPC lane, a versioned parent-conversation effect cache may
+   reuse only an exact classifier `allow`; a miss reaches the risk-only
+   classifier in `auto`/`auto_strict` when the request family is eligible.
+   Low/medium risk becomes run-local `allow_once`. High/critical risk and
+   malformed, timed-out, or unavailable classifier responses require a human
+   when interactive and deny when unattended.
+5. Inline third-party MCP uses the same coordinator and classifier without
+   decision-memory caching. Core-tool paths share the hard precedence and
+   durable human tail but do not all invoke classifier or cache.
+6. A human interaction is durably recorded before delivery. Execute only after
+   a signed, live decision resolves; record the outcome and reject stale,
+   cancelled, late, or unsigned responses.
 
 Protected capability checks inspect action targets. A Bash command that writes
 `.mcp.json`, edits skill files, touches provider settings, or runs
@@ -198,14 +214,15 @@ commands that reference protected capability paths; known text-payload flows
 such as `gh issue create --body ...` may mention those paths without becoming a
 capability mutation.
 
-SDK-managed Bash, file, hook, and MCP subprocesses run behind one OS sandbox
-boundary. In `direct` runner mode, Gantry passes concrete protected paths
-through `GANTRY_PROTECTED_FILESYSTEM_PATHS_JSON` and the runner projects them
-into the Claude SDK sandbox. In `sandbox_runtime` mode, Gantry does not request
-a nested SDK sandbox; the whole runner process and its children already run
-inside the enforcing sandbox-runtime profile, the Claude Code child is marked
-already sandboxed, reads stay broad except explicit protected read denies, and
-Gantry prefers the resolved `claude` executable on `PATH` when present. Gantry
+SDK-managed Bash, file, hook, and MCP subprocesses follow the selected execution
+provider. In `direct` mode there is no inner OS sandbox; deterministic
+authorization and credential/protected-path rails remain authoritative, with
+the container/VM or host account as the deployment boundary. In
+`sandbox_runtime` mode, Gantry does not request a nested SDK sandbox; the whole
+runner process and its children run inside the enforcing outer profile, the
+Claude Code child is marked already sandboxed, reads stay broad except explicit
+protected read denies, and Gantry prefers the resolved `claude` executable on
+`PATH` when present. Gantry
 also allows Claude Code's uid-scoped temp directory for tool state, and enables
 macOS trustd access for Go-based CLI TLS verification while retaining Gantry's
 egress proxy enforcement. Docker deployments should still
@@ -240,11 +257,11 @@ sequenceDiagram
   participant User as "Approver"
 
   Agent->>Runner: canUseTool(tool, input)
-  Runner->>Runner: classify and evaluate canonical tool execution policy
-  Runner->>Runner: check always-allowed tools and memory boundary
-  Runner->>Dir: write request with group/thread auth token
+  Runner->>Runner: apply deny-only local safety guards
+  Runner->>Dir: write exact signed temporary request
   Host->>Host: validate path, token, kind, rate limit, and ownership
-  Host->>Main: request approval when policy requires it
+  Host->>Host: hard restrictions, reviewed authority, rails, optional cache/classifier
+  Host->>Main: durably request approval only when still required
   Main->>User: show valid choices for this flow
   User->>Main: choose one permission action
   Main->>Host: return decision
@@ -252,6 +269,10 @@ sequenceDiagram
   Runner->>Runner: verify response signature
   Runner-->>Agent: allow once, apply returned permission update, or cancel
 ```
+
+The temporary signed IPC request carries the exact action needed for the
+decision. Durable permission evidence and user-facing prompt data use the
+sanitized/redacted view.
 
 Production and remote IPC must be treated as a signed protocol boundary, not as
 trusted worker output. Privileged envelopes bind the key ID, run or job-run ID,
@@ -262,7 +283,9 @@ state, delivering provider output, writing files, or finalizing jobs.
 
 Important permission boundaries:
 
-- Sender allowlist controls whether a channel sender can interact with, trigger, or be dropped by the runtime.
+- Sender allowlist is trigger-only: every non-self/bot inbound message on a
+  registered route that reaches persistence is stored, while only allowed
+  senders may trigger the agent.
 - Control allowlist controls slash commands, runtime administration, and session commands. A broad sender allowlist does not grant control permissions.
 - No conversation is inherently privileged; sender policy, selected capabilities,
   and conversation control approvers determine runtime administration.
@@ -274,9 +297,8 @@ Important permission boundaries:
   settings writes, stop authority, or continuation admission.
 - `permissions.yolo_mode` is the settings-owned denylist backstop for
   auto-approval paths. Shipped command and path rules merge with user entries.
-  Matches emit `permission.yolo_denylist_hit`, skip auto-approval, and return to
-  normal explicit approval where the runner can prompt; otherwise they produce
-  an explicit denial. `enabled: false` disables this backstop.
+  Matches emit `permission.yolo_denylist_hit` and hard-deny before cache,
+  classifier, or human approval. `enabled: false` disables this backstop.
 
 For the full security model, use [SECURITY.md](../SECURITY.md).
 

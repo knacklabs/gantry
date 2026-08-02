@@ -10,7 +10,7 @@ type InteractionIdentity = Pick<
   'appId' | 'sourceAgentFolder' | 'requestId'
 >;
 type PendingTelegramQuestion = {
-  timer: ReturnType<typeof setTimeout>;
+  timer?: ReturnType<typeof setTimeout>;
   callbackId: string;
   appId: string;
   sourceAgentFolder: string;

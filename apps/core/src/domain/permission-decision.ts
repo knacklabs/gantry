@@ -117,6 +117,18 @@ export function decisionForMode(
       destination: 'session' as const,
     }));
     if (updates.length === 0) {
+      // Learned-root ask-once (PERM-2 Task G): "remember this folder" carries no
+      // tool-rule suggestion, so approve it directly instead of collapsing to
+      // cancel. The coordinator turns this approval into the persisted grant.
+      if (request.trustedRootLearn) {
+        return {
+          approved: true,
+          mode,
+          decidedBy,
+          reason: 'trusted root remembered',
+          decisionClassification: 'user_permanent',
+        };
+      }
       return {
         approved: false,
         mode: 'cancel',

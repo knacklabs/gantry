@@ -45,6 +45,7 @@ export const query = (
 
 export const ids = {
   agent: id('agentId', 'Agent id.'),
+  alias: id('aliasId', 'Person alias id.'),
   capability: id('capabilityId', 'Capability id.'),
   conversation: id('conversationId', 'Conversation id.'),
   file: id('filePath', 'Skill-relative file path.'),
@@ -55,6 +56,7 @@ export const ids = {
   ),
   job: id('jobId', 'Job id.'),
   memory: id('memoryId', 'Memory item id.'),
+  person: id('personId', 'Person id.'),
   modelCredentialProvider: id('providerId', 'Model credential provider id.'),
   profileFileKind: id('kind', 'Profile file kind (soul | agents).'),
   providerAccount: id('providerAccountId', 'Provider account id.'),

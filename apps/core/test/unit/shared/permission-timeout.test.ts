@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
-import { getPermissionTimeoutMs } from '@core/shared/permission-timeout.js';
+import {
+  getPermissionTimeoutMs,
+  NO_PERMISSION_TIMEOUT_MS,
+} from '@core/shared/permission-timeout.js';
 import { AUTO_PERMISSION_CLASSIFIER_WAIT_MS } from '@core/shared/permission-mode.js';
 
 describe('permission-timeout', () => {
@@ -8,8 +11,10 @@ describe('permission-timeout', () => {
     expect(AUTO_PERMISSION_CLASSIFIER_WAIT_MS).toBe(20_000);
   });
 
-  it('defaults interactive permission prompts to a human-scale timeout', () => {
-    expect(getPermissionTimeoutMs('interactive', {}, {})).toBe(300_000);
+  it('defaults interactive permission prompts to no timeout', () => {
+    expect(getPermissionTimeoutMs('interactive', {}, {})).toBe(
+      NO_PERMISSION_TIMEOUT_MS,
+    );
   });
 
   it('defaults autonomous permission checks to no IPC wait', () => {
@@ -31,6 +36,16 @@ describe('permission-timeout', () => {
         {},
       ),
     ).toBe(1_000);
+  });
+
+  it('preserves the explicit interactive no-timeout sentinel', () => {
+    expect(
+      getPermissionTimeoutMs(
+        'interactive',
+        { GANTRY_INTERACTIVE_PERMISSION_TIMEOUT_MS: '0' },
+        {},
+      ),
+    ).toBe(NO_PERMISSION_TIMEOUT_MS);
   });
 
   it('uses runtime env fallback when process env is unset', () => {

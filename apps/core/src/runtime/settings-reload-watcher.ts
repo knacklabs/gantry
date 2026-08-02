@@ -38,6 +38,8 @@ import type {
   SettingsRevision,
   SettingsRevisionRepository,
 } from '../domain/ports/fleet-capability-state.js';
+import type { RuntimeLeasePort } from '../domain/ports/runtime-lease.js';
+import { withSettingsProjectorLease } from '../domain/ports/settings-projector-lease.js';
 
 export interface SettingsReloadWatcherOptions {
   runtimeHome: string;
@@ -47,6 +49,7 @@ export interface SettingsReloadWatcherOptions {
   appId?: AppId;
   settingsRevisions?: SettingsRevisionRepository;
   settingsRevisionPool?: SettingsRevisionMirror['pool'];
+  leases?: RuntimeLeasePort;
   pollIntervalMs?: number;
 }
 
@@ -202,15 +205,18 @@ export function startSettingsReloadWatcher(
             }
           : undefined;
         if (matchesLatestRevision && latestSettingsRevision && revisionMirror) {
-          await applySettingsRevisionWithMcpFenceRecovery({
-            runtimeHome: options.runtimeHome,
-            ops: options.ops,
-            repositories: options.repositories,
-            appId: options.appId ?? ('default' as AppId),
-            revision: latestSettingsRevision,
-            reloadRuntimeState: () => options.app.loadState(),
-            revisionMirror,
-          });
+          const appId = options.appId ?? ('default' as AppId);
+          await withSettingsProjectorLease(options.leases!, appId, () =>
+            applySettingsRevisionWithMcpFenceRecovery({
+              runtimeHome: options.runtimeHome,
+              ops: options.ops,
+              repositories: options.repositories,
+              appId,
+              revision: latestSettingsRevision,
+              reloadRuntimeState: () => options.app.loadState(),
+              revisionMirror,
+            }),
+          );
         } else {
           await importWorkstationSettings(
             {
@@ -225,6 +231,7 @@ export function startSettingsReloadWatcher(
               expectedRevision: latestRevision,
               expectedMcpBindingAgentIds: latestMcpBindingPreconditionAgentIds,
               expectedMcpBindings: latestMcpBindingPreconditions,
+              leases: options.leases,
             },
             settingsToImport,
           );

@@ -14,6 +14,7 @@ import type {
 import {
   configureSkillInstallHandlers,
   requestSkillInstallHandler,
+  requestSkillProposalHandler,
 } from '@core/jobs/ipc-skill-install-handlers.js';
 import {
   collectInstalledSkillAssets,
@@ -90,6 +91,22 @@ class MemorySkillRepository implements SkillCatalogRepository {
       (binding) =>
         binding.appId === input.appId && binding.agentId === input.agentId,
     );
+  }
+
+  async listAgentSkillAccessSnapshot(input: {
+    appId: string;
+    agentId: string;
+  }) {
+    const activeBindings = (await this.listAgentSkillBindings(input)).filter(
+      (binding) => binding.status === 'active',
+    );
+    return {
+      activeBindings: activeBindings.map((binding) => ({
+        binding,
+        definition: this.skills.get(binding.skillId) ?? null,
+      })),
+      enabledDefinitions: await this.listEnabledSkillsForAgent(input),
+    };
   }
 
   async listAgentSkillBindingsForAgents(input: {
@@ -520,6 +537,61 @@ describe('approved command skill installs', () => {
       },
     } as never;
   }
+
+  it('binds proposed package skills to the signed agent id, not the workspace folder', async () => {
+    const { skills, syncApprovedCapabilitySettings } = setup();
+    const sendMessage = vi.fn(async () => undefined);
+    const requestPermissionApproval = vi.fn(async () => ({
+      approved: true,
+      decidedBy: 'user:approver',
+    }));
+
+    await requestSkillProposalHandler({
+      data: {
+        appId: 'app:test',
+        agentId: 'agent:main_agent',
+        chatJid: 'chat:one',
+        authThreadId: 'thread:one',
+        payload: {
+          reason: 'Reuse the hiring intake workflow.',
+          files: [
+            {
+              path: 'SKILL.md',
+              content:
+                '---\nname: hiring-intake\ndescription: Ask hiring intake questions one at a time\n---\n# Hiring Intake\n',
+            },
+          ],
+        },
+      },
+      sourceAgentFolder: 'main_agent_2',
+      sourceAgentFolderJids: ['chat:one'],
+      conversationBindings: {},
+      deps: {
+        requestPermissionApproval,
+        sendMessage,
+      },
+    } as never);
+
+    await vi.waitFor(() => expect(sendMessage).toHaveBeenCalledTimes(1));
+    expect(requestPermissionApproval).toHaveBeenCalledWith(
+      expect.objectContaining({
+        appId: 'app:test',
+        agentId: 'agent:main_agent',
+        sourceAgentFolder: 'main_agent_2',
+        targetJid: 'chat:one',
+        toolName: 'request_skill_proposal',
+      }),
+    );
+    expect(
+      [...skills.bindings.values()].map((binding) => binding.agentId),
+    ).toEqual(['agent:main_agent']);
+    expect(
+      [...skills.bindings.values()].some(
+        (binding) => binding.agentId === 'agent:main_agent_2',
+      ),
+    ).toBe(false);
+    expect(syncApprovedCapabilitySettings).toHaveBeenCalledWith('app:test');
+  });
 
   it('installs and binds every discovered skill and lists their names', async () => {
     const { skills, syncApprovedCapabilitySettings } = setup();

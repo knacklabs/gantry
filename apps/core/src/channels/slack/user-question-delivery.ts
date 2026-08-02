@@ -5,14 +5,49 @@ import type {
   UserQuestionResponse,
 } from '../../domain/types.js';
 import { logger } from '../../infrastructure/logging/logger.js';
-import { waitForSlackUserQuestionSelection } from './channel-delivery-helpers.js';
 import type { PendingUserQuestionState } from './channel-state.js';
 import { slackThreadTsFromThreadId } from './thread-ts.js';
+import { resolveInteractionSettlementDelayMs } from '../interaction-settlement.js';
 import {
   DurableInteractionPersistenceError,
   recordDurableQuestionAnswerProgress,
   type DurableQuestionCallback,
 } from '../../application/interactions/pending-interaction-durability.js';
+
+function waitForSlackUserQuestionSelection(input: {
+  pendingKey: string;
+  pendingState: PendingUserQuestionState;
+  request: UserQuestionRequest;
+  pendingUserQuestions: Map<string, PendingUserQuestionState>;
+  timeoutMs: number;
+  finalizeTimedOut: (pending: PendingUserQuestionState) => Promise<void>;
+}): Promise<{ selected: string | string[]; answeredBy?: string }> {
+  return new Promise((resolve) => {
+    const { expiresAt, permissionLane } =
+      input.request as UserQuestionRequest & {
+        expiresAt?: unknown;
+        permissionLane?: 'interactive' | 'autonomous';
+      };
+    const settlementDelayMs = resolveInteractionSettlementDelayMs({
+      expiresAt,
+      permissionLane,
+      fallbackTimeoutMs: input.timeoutMs,
+    });
+    const timer =
+      settlementDelayMs !== undefined
+        ? setTimeout(() => {
+            const timedOut = input.pendingUserQuestions.get(input.pendingKey);
+            if (!timedOut) return;
+            void input.finalizeTimedOut(timedOut);
+          }, settlementDelayMs)
+        : undefined;
+    input.pendingUserQuestions.set(input.pendingKey, {
+      ...input.pendingState,
+      timer,
+      resolve,
+    });
+  });
+}
 
 export async function requestSlackUserAnswer(input: {
   app: App;
@@ -122,6 +157,7 @@ export async function requestSlackUserAnswer(input: {
       const selection = await waitForSlackUserQuestionSelection({
         pendingKey,
         pendingState: { ...pendingState, messageTs },
+        request: input.request,
         pendingUserQuestions: input.pendingUserQuestions,
         timeoutMs: input.timeoutMs,
         finalizeTimedOut: input.finalizeTimedOut,

@@ -14,6 +14,9 @@ import type {
   ClientOptions,
   MemoryContext,
   MemoryPatchInput,
+  MemoryReviewDecisionInput,
+  MemoryReviewListInput,
+  MemoryReviewSubject,
   MemorySaveInput,
   MemorySearchInput,
   RequestOptions,
@@ -23,6 +26,7 @@ import type * as OpenApi from './openapi-types.js';
 import { parseSessionSseEvent } from './session-events.js';
 import { createIngressesClient } from './ingresses.js';
 import { querySuffix } from './query-string.js';
+import { createIdentityClient, createPeopleClient } from './people.js';
 export type { RuntimeSettingsResponse } from './settings.js';
 import * as mcpServerClients from './mcp-servers.js';
 import { createModelsClient } from './models.js';
@@ -39,27 +43,28 @@ export type {
   AgentAdminBoundConversation,
   AgentAdminResponse,
 } from './agents.js';
-export type {
-  CreateJobInput,
-  CreateJobResponse,
-  JobEventRecord,
-  JobHealth,
-  JobHealthState,
-  JobKind,
-  JobRecord,
-  JobSetup,
-  JobStatus,
-  JobTriggerWaitResult,
-  ListJobEventsInput,
-  ListJobsInput,
-  ModelRecord,
-  ModelDefaultsPatchRequest,
-  ModelDefaultsResponse,
-  ModelPreviewRequest,
-  ModelPreviewResponse,
-  UpdateJobInput,
-} from './job-model-types.js';
+export type * from './job-model-types.js';
 export type * from './openapi-types.js';
+export type * from './people.js';
+
+export type ResponseMode = 'sse' | 'webhook' | 'both' | 'none';
+export type MemorySubjectType = 'user' | 'group' | 'channel' | 'common';
+export type DreamPhase = 'light' | 'rem' | 'deep' | 'all';
+export type ProcessRole = 'all' | 'control' | 'live-worker' | 'job-worker';
+
+export interface HealthResponse {
+  status: string;
+  processRole: ProcessRole;
+  transport:
+    | { kind: 'tcp'; port: number }
+    | { kind: 'unix'; socketPath: string };
+  features: {
+    sessions: boolean;
+    jobs: boolean;
+    events: boolean;
+    webhooks: boolean;
+  };
+}
 
 export interface GantryError extends Error {
   code: string;
@@ -264,11 +269,15 @@ export class GantryClient {
     this.transport.request<T>(options);
   readonly ingresses: ReturnType<typeof createIngressesClient>;
   readonly models: ReturnType<typeof createModelsClient>;
+  readonly identity: ReturnType<typeof createIdentityClient>;
+  readonly people: ReturnType<typeof createPeopleClient>;
 
   constructor(options: ClientOptions) {
     this.transport = new Transport(options);
     this.ingresses = createIngressesClient(this.transport);
     this.models = createModelsClient(this.transport);
+    this.identity = createIdentityClient(this.request);
+    this.people = createPeopleClient(this.request);
   }
 
   health() {
@@ -426,6 +435,16 @@ export class GantryClient {
       this.transport.request<OpenApi.ObserverInsightListResponse>({
         method: 'GET',
         path: `/v1/observer/insights${querySuffix(input)}`,
+      }),
+    preview: (input: OpenApi.PreviewObserverDigestQuery = {}) =>
+      this.transport.request<OpenApi.ObserverDigestPreviewResponse>({
+        method: 'POST',
+        path: `/v1/observer/preview${querySuffix(input)}`,
+      }),
+    deliveries: (input: OpenApi.ListObserverDeliveriesQuery = {}) =>
+      this.transport.request<OpenApi.ObserverDigestDeliveryListResponse>({
+        method: 'GET',
+        path: `/v1/observer/deliveries${querySuffix(input)}`,
       }),
   };
 
@@ -641,6 +660,32 @@ export class GantryClient {
           method: 'GET',
           path: `/v1/memory/dreaming/status${querySuffix(input)}`,
         }),
+    },
+    reviews: {
+      list: (input: MemoryReviewListInput) =>
+        this.transport.request<OpenApi.ListMemoryReviewsResponse>({
+          method: 'GET',
+          path: `/v1/memory/reviews${querySuffix(input)}`,
+        }),
+      get: (reviewId: string, input: MemoryReviewSubject) =>
+        this.transport.request<OpenApi.GetMemoryReviewResponse>({
+          method: 'GET',
+          path: `/v1/memory/reviews/${encodeURIComponent(reviewId)}${querySuffix(input)}`,
+        }),
+      decide: (reviewId: string, input: MemoryReviewDecisionInput) => {
+        const { decision, editedValue, reason, ...subject } = input;
+        return this.transport.request<OpenApi.DecideMemoryReviewResponse>({
+          method: 'POST',
+          // The subject boundary rides on the query; the body carries only the
+          // decision so reviewer identity stays key-derived server-side.
+          path: `/v1/memory/reviews/${encodeURIComponent(reviewId)}/decision${querySuffix(subject)}`,
+          body: {
+            decision,
+            ...(editedValue === undefined ? {} : { editedValue }),
+            ...(reason === undefined ? {} : { reason }),
+          },
+        });
+      },
     },
   };
 }

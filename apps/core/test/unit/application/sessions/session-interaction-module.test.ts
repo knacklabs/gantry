@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { SessionInteractionModule } from '@core/application/sessions/session-interaction-module.js';
+import {
+  SessionInteractionModule,
+  makeAppGroup,
+} from '@core/application/sessions/session-interaction-module.js';
 
 function makeModule(overrides?: {
   control?: Record<string, unknown>;
@@ -16,7 +19,9 @@ function makeModule(overrides?: {
     ensureAppSession: vi.fn(async (input) => ({
       sessionId: 'session-1',
       appId: input.appId,
+      agentId: 'agent-one',
       conversationId: input.conversationId,
+      canonicalConversationId: `canonical:${input.appId}:${input.conversationId}`,
       conversationJid: input.conversationJid,
       workspaceKey: input.folder,
       defaultResponseMode: input.defaultResponseMode ?? 'sse',
@@ -26,7 +31,9 @@ function makeModule(overrides?: {
     getAppSessionById: vi.fn(async () => ({
       sessionId: 'session-1',
       appId: 'app-one',
+      agentId: 'agent-one',
       conversationId: 'conv-1',
+      canonicalConversationId: 'canonical:app-one:conv-1',
       conversationJid: 'app:app-one:conv-1',
       workspaceKey: 'group',
       defaultResponseMode: 'sse',
@@ -58,7 +65,21 @@ function makeModule(overrides?: {
   const module = new SessionInteractionModule({
     control: control as never,
     ops: ops as never,
-    repositories: (overrides?.repositories ?? {}) as never,
+    // The session feeds resolve conversation rows by jid and union them, so
+    // every case needs this port even when it overrides other repositories.
+    repositories: {
+      messages: { listConversationIdsForJid: vi.fn(async () => []) },
+      ...(overrides?.repositories ?? {}),
+      ...(overrides?.repositories &&
+      (overrides.repositories as { messages?: unknown }).messages
+        ? {
+            messages: {
+              listConversationIdsForJid: vi.fn(async () => []),
+              ...(overrides.repositories as { messages: object }).messages,
+            },
+          }
+        : {}),
+    } as never,
     runtimeEvents: runtimeEvents as never,
     liveAdmissionAppId: overrides?.liveAdmissionAppId,
     getConfiguredAgentRuntime:
@@ -71,6 +92,21 @@ function makeModule(overrides?: {
 }
 
 describe('SessionInteractionModule', () => {
+  it('marks app-session groups as web_user identity routes with sdk as the system sender sentinel', () => {
+    expect(
+      makeAppGroup({
+        appId: 'app-one',
+        conversationId: 'conv-1',
+        conversationJid: 'app:app-one:conv-1',
+        identityHash: '123456789abc',
+        addedAt: '2026-04-30T00:00:00.000Z',
+      }),
+    ).toMatchObject({
+      senderIdentityEvidenceType: 'web_user',
+      systemSenderIds: ['sdk'],
+    });
+  });
+
   it('rejects non-canonical conversation ids before creating app chat ids', async () => {
     const { module, control } = makeModule();
 
@@ -87,13 +123,65 @@ describe('SessionInteractionModule', () => {
     expect(control.ensureAppSession).not.toHaveBeenCalled();
   });
 
+  it('binds an SDK session to one immutable app user assertion', async () => {
+    const { module, control } = makeModule({
+      control: {
+        getAppSessionById: vi.fn(async () => ({
+          sessionId: 'session-1',
+          appId: 'app-one',
+          conversationId: 'conv-1',
+          conversationJid: 'app:app-one:conv-1',
+          workspaceKey: 'group',
+          defaultResponseMode: 'sse',
+          defaultWebhookId: null,
+          appUser: { authorityId: 'web-app', subject: 'user-1' },
+        })),
+      },
+    });
+
+    await module.ensureSession({
+      appId: 'app-one',
+      conversationId: 'conv-1',
+      conversationKind: 'dm',
+      appUser: { authorityId: 'web-app', subject: 'user-1' },
+    });
+    expect(control.ensureAppSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        appUser: { authorityId: 'web-app', subject: 'user-1' },
+      }),
+    );
+
+    await expect(
+      module.acceptMessage({
+        appId: 'app-one',
+        sessionId: 'session-1',
+        message: 'hello',
+        senderId: 'user-2',
+      }),
+    ).rejects.toMatchObject({
+      code: 'CONFLICT',
+      message: 'SDK session is bound to a different app user.',
+    });
+
+    // An omitted senderId on a bound session means the bound user.
+    await expect(
+      module.acceptMessage({
+        appId: 'app-one',
+        sessionId: 'session-1',
+        message: 'anonymous message',
+      }),
+    ).resolves.toMatchObject({ accepted: true });
+  });
+
   it('rejects waits for sessions outside the authenticated app', async () => {
     const { module, runtimeEvents } = makeModule({
       control: {
         getAppSessionById: vi.fn(async () => ({
           sessionId: 'session-1',
           appId: 'app-two',
+          agentId: 'agent-two',
           conversationId: 'conv-1',
+          canonicalConversationId: 'canonical:app-two:conv-1',
           conversationJid: 'app:app-two:conv-1',
           workspaceKey: 'group',
           defaultResponseMode: 'sse',
@@ -265,6 +353,29 @@ describe('SessionInteractionModule', () => {
       queueKey: 'app:app-one:conv-1::thread:thread-1',
       durableAdmissionCreated: true,
     });
+  });
+
+  it('does not notify or report durable work for overloaded admission', async () => {
+    const notifyLiveAdmissionWorkItem = vi.fn();
+    const { module } = makeModule({
+      liveAdmissionAppId: 'default',
+      ops: { notifyLiveAdmissionWorkItem },
+      runtimeEvents: {
+        publishWithLiveAdmissionMessage: vi.fn(async () => ({
+          event: { eventId: 1001 },
+          liveAdmissionResult: { outcome: 'overloaded' },
+        })),
+      },
+    });
+
+    const accepted = await module.acceptMessage({
+      appId: 'app-one',
+      sessionId: 'session-1',
+      message: 'hello from sdk',
+    });
+
+    expect(notifyLiveAdmissionWorkItem).not.toHaveBeenCalled();
+    expect(accepted.enqueue.durableAdmissionCreated).toBe(false);
   });
 
   it('rejects response schemas for worker runtimes before persistence or durable admission', async () => {
@@ -453,7 +564,10 @@ describe('SessionInteractionModule', () => {
     expect(runtimeEvents.subscribe).toHaveBeenCalledWith(
       expect.objectContaining({
         appId: 'app-one',
-        sessionId: 'session-1',
+        // A set, not one id: a jid can map to several conversation rows, and
+        // filtering on the canonical one alone hides events recorded under a
+        // route that predates it.
+        conversationIds: ['canonical:app-one:conv-1'],
         afterEventId: 9,
       }),
     );

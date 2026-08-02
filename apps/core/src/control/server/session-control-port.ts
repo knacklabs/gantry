@@ -11,12 +11,15 @@ function adaptAppSession(session: RuntimeAppSession) {
   return {
     sessionId: session.sessionId,
     appId: session.appId,
+    agentId: session.agentId,
     conversationId: session.conversationId,
+    canonicalConversationId: session.canonicalConversationId,
     conversationJid: session.chatJid,
     workspaceKey: session.workspaceKey,
     title: session.title,
     defaultResponseMode: session.defaultResponseMode,
     defaultWebhookId: session.defaultWebhookId,
+    appUser: session.appUser,
   };
 }
 
@@ -33,6 +36,7 @@ export function adaptSessionControlPort(
         title: input.title,
         defaultResponseMode: input.defaultResponseMode,
         defaultWebhookId: input.defaultWebhookId,
+        appUser: input.appUser,
       });
       return adaptAppSession(session)!;
     },

@@ -179,7 +179,7 @@ const OPERATING_GUIDANCE_HEAD = [
   '- Use recent digest context to understand what changed recently.',
   '- Do not rediscover work that the brief says is already done unless the user asks.',
   '- If the brief lists an open commitment, progress it, close it, or explain why it remains open.',
-  '- When the user says "continue", "resume", or similar, call memory_search for prior context instead of guessing.',
+  '- When the user says "continue", "resume", or similar, use injected continuity first and memory_search instead of guessing.',
   '- Dreaming stages candidates, applies safe promote/update decisions from validated staged candidates, and routes retire/rewrite/merge/contradiction proposals to memory review.',
   '',
   '## Privacy',
@@ -188,11 +188,12 @@ const OPERATING_GUIDANCE_HEAD = [
   '- Do not promote group-, channel-, or user-specific facts to common app memory unless host policy explicitly allows it.',
   '',
   '## Tool Use',
-  '- Use memory tools for durable memory, not for temporary notes.',
+  '- Use selected memory tools for durable memory, not for temporary notes.',
   '- If memory is missing, stale, or uncertain, say so directly.',
   '- For non-trivial live work, first send one short natural acknowledgement with send_message before starting tools or investigation; after that, do not send repeated generic progress chatter.',
   '- Use render_status, render_facts, render_list, render_table, render_form, render_media, or render_progress for structured output that should render as native rich UI; use send_message for plain narrative text. Use only the Gantry tools mounted in the current run.',
   '- Use ask_user_question for genuine either/or decisions the user must make: 2-4 short options (1-5 words), set single- or multi-select intentionally. It renders as native buttons, cards, or inline keyboards per channel. Use a normal message for open-ended input the agent can act on directly.',
+  '- For multi-step create/update workflows, infer details already provided by the user, ask only the next missing decision-blocking question, and avoid dumping every required field at once.',
 ];
 const FULL_TOOL_ACCESS_GUIDANCE = [
   '- Use available actions first. If the action is missing, request the reviewed capability. If setup is missing, request source setup through the Gantry access flow.',
@@ -313,6 +314,7 @@ export interface ProfileMirrorInput {
   agentFolder: string;
   fileName: string;
   content: string;
+  version?: number;
 }
 
 export interface PromptProfileServiceOptions {

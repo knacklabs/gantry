@@ -5,6 +5,7 @@ import type {
 } from '../../domain/types.js';
 import { logger } from '../../infrastructure/logging/logger.js';
 import { incrementOperationalError } from '../../shared/operational-error-counters.js';
+import { resolveInteractionSettlementDelayMs } from '../interaction-settlement.js';
 import {
   buildPermissionPromptParts,
   formatPermissionPromptPartsText,
@@ -54,7 +55,10 @@ export async function requestSlackPermissionApproval(input: {
   timeoutMs: number;
   approverUserIds?: readonly string[];
   pendingPermissionPrompts: Map<string, PendingPermissionPrompt>;
-  timeoutPermissionPrompt: (providerAlias: string) => Promise<void>;
+  timeoutPermissionPrompt: (
+    providerAlias: string,
+    retryWindowMs: number,
+  ) => Promise<void>;
   onPromptDelivered?: (messageId: string) => void;
 }): Promise<PermissionApprovalDecision> {
   const parts = buildPermissionPromptParts(input.request, input.timeoutMs);
@@ -116,6 +120,18 @@ export async function requestSlackPermissionApproval(input: {
   const threadTs = slackThreadTsFromThreadId(input.request.threadId);
   const threadPayload = threadTs ? { thread_ts: threadTs } : {};
   const userIds = [...new Set(input.approverUserIds || [])].filter(Boolean);
+  const visiblePromptText =
+    'Approval required from a configured approver. Only configured approvers can decide this action.';
+  const visiblePromptBlocks = [
+    {
+      type: 'section',
+      text: {
+        type: 'mrkdwn',
+        text: '*Approval required*\nA configured approver must decide this action.',
+      },
+    },
+    actionsBlock,
+  ];
   const postPromptDeliveryFailureNotice = async (reason: string) => {
     try {
       await input.app.client.chat.postMessage({
@@ -130,31 +146,32 @@ export async function requestSlackPermissionApproval(input: {
       );
     }
   };
-  const postPrivatePrompt = async (
-    blocks: unknown[],
-  ): Promise<{ ts?: string } | null> => {
-    let first: { ts?: string } | null = null;
-    let lastError: unknown;
+  const postVisiblePrompt = async (): Promise<{ ts?: string } | null> => {
+    const sent = (await input.app.client.chat.postMessage({
+      channel: input.channelId,
+      text: visiblePromptText,
+      ...threadPayload,
+      blocks: visiblePromptBlocks as any,
+    })) as { ts?: string; message_ts?: string };
+    return { ts: sent.ts || sent.message_ts };
+  };
+  const postPrivateDetails = async (blocks: unknown[]): Promise<void> => {
     for (const user of userIds) {
       try {
-        const sent = (await input.app.client.chat.postEphemeral({
+        await input.app.client.chat.postEphemeral({
           channel: input.channelId,
           user,
           text: promptText,
           ...threadPayload,
           blocks: blocks as any,
-        })) as { ts?: string; message_ts?: string };
-        first ||= { ts: sent.ts || sent.message_ts };
+        });
       } catch (err) {
-        lastError = err;
-        logger.debug(
+        logger.warn(
           { jid: input.jid, requestId: input.request.requestId, user, err },
           'Slack ephemeral permission prompt failed for approver',
         );
       }
     }
-    if (!first && lastError) throw lastError;
-    return first;
   };
   try {
     if (userIds.length === 0) {
@@ -176,27 +193,16 @@ export async function requestSlackPermissionApproval(input: {
     }
     let response: { ts?: string } | null;
     try {
-      response = await postPrivatePrompt([...contentBlocks, actionsBlock]);
+      response = await postVisiblePrompt();
     } catch (blocksErr) {
       logger.warn(
         { jid: input.jid, requestId: input.request.requestId, err: blocksErr },
-        'Slack native permission blocks rejected; retrying with simple layout',
+        'Slack visible permission prompt could not be delivered',
       );
-      const simpleBlocks = [
-        {
-          type: 'section',
-          text: { type: 'mrkdwn', text: promptText },
-        },
-        actionsBlock,
-      ];
-      try {
-        response = await postPrivatePrompt(simpleBlocks);
-      } catch (simpleErr) {
-        const reason =
-          'Approval prompt could not be shown to any configured Slack approver. Check that the approver is a member of this conversation and that the Slack app can post ephemeral messages here.';
-        await postPromptDeliveryFailureNotice(reason);
-        throw simpleErr;
-      }
+      const reason =
+        'Approval prompt could not be posted to this Slack thread. Check that the Slack app can post messages here and retry.';
+      await postPromptDeliveryFailureNotice(reason);
+      throw blocksErr;
     }
     const messageTs = response?.ts;
     if (!messageTs) {
@@ -211,9 +217,23 @@ export async function requestSlackPermissionApproval(input: {
     const decision = new Promise<PermissionApprovalDecision>((resolve) => {
       resolveDecision = resolve;
     });
-    const timer = setTimeout(() => {
-      void input.timeoutPermissionPrompt(callback.providerAlias);
-    }, input.timeoutMs);
+    const { expiresAt } = input.request as PermissionApprovalRequest & {
+      expiresAt?: unknown;
+    };
+    const settlementDelayMs = resolveInteractionSettlementDelayMs({
+      expiresAt,
+      permissionLane: input.request.permissionLane,
+      fallbackTimeoutMs: input.timeoutMs,
+    });
+    const timer =
+      settlementDelayMs !== undefined
+        ? setTimeout(() => {
+            void input.timeoutPermissionPrompt(
+              callback.providerAlias,
+              settlementDelayMs,
+            );
+          }, settlementDelayMs)
+        : undefined;
     const livePending: PendingPermissionPrompt = {
       callback,
       channelId: input.channelId,
@@ -257,6 +277,9 @@ export async function requestSlackPermissionApproval(input: {
       return await decision;
     }
     input.onPromptDelivered?.(messageTs);
+    // Ephemeral details preserve the richer prompt for active approvers, but the
+    // durable thread card above is the sole required action surface.
+    await postPrivateDetails(contentBlocks);
     return await decision;
   } catch (err) {
     if (err instanceof DurableInteractionPersistenceError) throw err;

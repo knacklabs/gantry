@@ -68,10 +68,12 @@ async function invokeWrapped(
 
 describe('wrapThirdPartyMcpToolsWithGate', () => {
   beforeEach(() => {
-    requestPermissionApprovalViaIpc.mockReset();
+    requestPermissionApprovalViaIpc
+      .mockReset()
+      .mockResolvedValue({ approved: true });
   });
 
-  it('invokes the underlying tool when a selected capability rule allows it', async () => {
+  it('invokes the underlying tool when the host coordinator allows it', async () => {
     const underlying = fakeTool('search');
     const [wrapped] = wrapThirdPartyMcpToolsWithGate(
       [underlying as never],
@@ -81,7 +83,7 @@ describe('wrapThirdPartyMcpToolsWithGate', () => {
     const result = await invokeWrapped(wrapped as unknown as FakeTool);
     expect(result).toBe('underlying-result');
     expect(underlying.invoke).toHaveBeenCalledTimes(1);
-    expect(requestPermissionApprovalViaIpc).not.toHaveBeenCalled();
+    expect(requestPermissionApprovalViaIpc).toHaveBeenCalledTimes(1);
   });
 
   it('preserves the underlying tool name and description', () => {
@@ -140,6 +142,10 @@ describe('wrapThirdPartyMcpToolsWithGate', () => {
   });
 
   it('hard-denies locked-preset agents without prompting', async () => {
+    requestPermissionApprovalViaIpc.mockResolvedValue({
+      approved: false,
+      reason: 'locked access preset',
+    });
     const underlying = fakeTool('search');
     const [wrapped] = wrapThirdPartyMcpToolsWithGate(
       [underlying as never],
@@ -151,7 +157,7 @@ describe('wrapThirdPartyMcpToolsWithGate', () => {
       isError: true,
       error: { message: expect.stringContaining('locked access preset') },
     });
-    expect(requestPermissionApprovalViaIpc).not.toHaveBeenCalled();
+    expect(requestPermissionApprovalViaIpc).toHaveBeenCalledTimes(1);
     expect(underlying.invoke).not.toHaveBeenCalled();
   });
 

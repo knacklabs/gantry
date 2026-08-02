@@ -55,7 +55,7 @@ import {
   ToolCatalogKindSchema,
   ToolCatalogProviderToolNameSchema,
   UpdateJobRequestSchema,
-  UserAliasResponseSchema,
+  PersonAliasResponseSchema,
   createCursorPageResponseSchema,
   createPageResponseSchema,
 } from '@contracts-src/index.js';
@@ -694,6 +694,7 @@ describe('contracts package', () => {
             maxMessageRuns: 1,
             maxJobRuns: 1,
             maxMessageBacklog: 0,
+            maxLiveAdmissionBacklog: 100,
             maxTaskBacklog: 0,
             maxRetries: 0,
             baseRetryMs: 0,
@@ -1616,13 +1617,14 @@ describe('contracts package', () => {
       ],
     ).toBeUndefined();
     expect(
-      UserAliasResponseSchema.parse({
+      PersonAliasResponseSchema.parse({
         id: 'alias-1',
         appId: 'app-1',
-        userId: 'user-1',
+        personId: 'person-1',
         provider: 'slack',
         providerAccountId: 'provider-account-1',
         externalUserId: 'U123',
+        verificationStatus: 'unverified',
         createdAt: iso,
         updatedAt: iso,
       }),

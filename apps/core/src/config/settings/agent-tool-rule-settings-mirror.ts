@@ -1,6 +1,7 @@
 import { GANTRY_HOME } from '../index.js';
 import type { SettingsRevisionRepository } from '../../domain/ports/fleet-capability-state.js';
 import type { McpBindingAuthorityPrecondition } from '../../domain/mcp/mcp-servers.js';
+import type { RuntimeLeasePort } from '../../domain/ports/runtime-lease.js';
 import type { RuntimeConversationRouteRepository } from '../../domain/repositories/ops-repo.js';
 import type { SettingsDesiredStateRepositories } from './desired-state-service.js';
 import { mirrorAgentToolRulesToRuntimeSettings } from './runtime-settings.js';
@@ -18,6 +19,7 @@ export function createAgentToolRuleSettingsMirror(input: {
   opsRepository: RuntimeConversationRouteRepository;
   repositories?: AgentToolRuleSettingsRepositories;
   reloadRuntimeState: () => Promise<void>;
+  leases?: RuntimeLeasePort;
 }): (
   sourceAgentFolder: string,
   rules: string[],
@@ -41,6 +43,7 @@ export function createAgentToolRuleSettingsMirror(input: {
         settingsRevisions: input.repositories.settingsRevisions,
         expectedMcpBindings: options?.expectedMcpBindings,
         mcpCapabilityGrantToken: options?.mcpCapabilityGrantToken,
+        leases: input.leases,
       };
       return options?.mode === 'remove'
         ? removeAgentToolRulesFromSyncedRuntimeSettings(shared)

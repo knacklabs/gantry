@@ -392,4 +392,71 @@ describe('jobs/delivery', () => {
     expect(send).not.toHaveBeenCalled();
     expect(enqueue).not.toHaveBeenCalled();
   });
+
+  const reviewAffordances = [
+    {
+      kind: 'memory_review_decision' as const,
+      label: 'Approve',
+      reviewId: 'mrv_abc',
+      decision: 'approve' as const,
+    },
+    {
+      kind: 'memory_review_decision' as const,
+      label: 'Reject',
+      reviewId: 'mrv_abc',
+      decision: 'reject' as const,
+    },
+  ];
+
+  it('persists action affordances through the durable-outbox path', async () => {
+    const enqueue = vi.fn(async () => undefined);
+
+    await sendJobNotification({
+      job: makeJob({
+        notification_routes: [
+          { conversationJid: 'tg:1', threadId: null, label: 'dm' },
+        ],
+      }),
+      text: 'review',
+      phase: 'summary',
+      runId: 'run-1',
+      actionAffordances: reviewAffordances,
+      enqueueDurableNotification: enqueue as never,
+    });
+
+    expect(enqueue).toHaveBeenCalledTimes(1);
+    const enqueued = enqueue.mock.calls[0]?.[0] as {
+      actionAffordances?: unknown;
+      metadata: Record<string, unknown>;
+    };
+    // The outbox row itself carries the affordances so a queued delivery keeps
+    // its buttons (closes the drop where only text/metadata survived).
+    expect(enqueued.actionAffordances).toEqual(reviewAffordances);
+    expect(enqueued.metadata.actionAffordances).toEqual(reviewAffordances);
+  });
+
+  it('forwards the review message view on the direct-send path', async () => {
+    const reviewMessageView = { reviewId: 'mrv_abc' } as never;
+    const send = vi.fn(async () => undefined);
+
+    await sendJobNotification({
+      job: makeJob({
+        notification_routes: [
+          { conversationJid: 'tg:1', threadId: null, label: 'dm' },
+        ],
+      }),
+      text: 'review',
+      phase: 'summary',
+      runId: 'run-1',
+      actionAffordances: reviewAffordances,
+      reviewMessageView,
+      sendMessage: send as never,
+    });
+
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(send.mock.calls[0]?.[2]).toMatchObject({
+      actionAffordances: reviewAffordances,
+      reviewMessageView,
+    });
+  });
 });

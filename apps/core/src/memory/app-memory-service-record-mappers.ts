@@ -26,6 +26,7 @@ type MemoryEvidenceRow = {
   threadId: string | null;
   sourceType: string;
   sourceId: string | null;
+  sourceUri: string | null;
   actorId: string | null;
   text: string;
   metadataJson: string | null;
@@ -58,6 +59,7 @@ export function toEvidence(row: MemoryEvidenceRow): MemoryEvidenceRecord {
     ...(row.channelId ? { channelId: row.channelId } : {}),
     sourceType: row.sourceType as MemoryEvidenceRecord['sourceType'],
     sourceId: row.sourceId,
+    sourceUri: row.sourceUri,
     actorId: row.actorId,
     text: row.text,
     metadata: parseJsonObject(row.metadataJson),

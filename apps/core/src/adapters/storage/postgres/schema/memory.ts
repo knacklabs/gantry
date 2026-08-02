@@ -1,6 +1,7 @@
 import { sql } from 'drizzle-orm';
 import {
   doublePrecision,
+  foreignKey,
   index,
   jsonb,
   pgTable,
@@ -9,7 +10,7 @@ import {
   uniqueIndex,
 } from 'drizzle-orm/pg-core';
 
-import { appsPostgres } from './apps.js';
+import { appsPostgres, usersPostgres } from './apps.js';
 
 export const memoryItemsPostgres = pgTable(
   'memory_items',
@@ -64,6 +65,21 @@ export const memoryItemsPostgres = pgTable(
       table.status,
       table.updatedAt.desc(),
     ),
+    personStatusIdx: index('idx_memory_items_person_status_key')
+      .on(
+        table.appId,
+        table.userId,
+        table.status,
+        table.agentId,
+        table.kind,
+        table.key,
+      )
+      .where(sql`${table.subjectType} = 'user'`),
+    appScopedPerson: foreignKey({
+      name: 'memory_items_app_user_fk',
+      columns: [table.appId, table.userId],
+      foreignColumns: [usersPostgres.appId, usersPostgres.id],
+    }),
     searchIdx: index('idx_memory_items_search').using(
       'gin',
       sql`to_tsvector('english', ${table.key} || ' ' || COALESCE(${table.valueJson}->>'value', '') || ' ' || COALESCE(${table.valueJson}->>'why', ''))`,

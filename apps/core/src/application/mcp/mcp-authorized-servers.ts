@@ -1,5 +1,8 @@
 import type { McpServerRepository } from '../../domain/ports/repositories.js';
 import type { AgentMcpServerBinding } from '../../domain/mcp/mcp-servers.js';
+import type {
+  AgentMcpAccessSnapshot,
+} from '../../domain/ports/repositories.js';
 
 // Discovery is not authorization: every ACTIVE bound MCP server is a projected
 // source (inventory-only connects included), regardless of which mcp__ tool
@@ -47,4 +50,20 @@ export function mcpBindingMatchesRouteScope(
     return false;
   }
   return binding.threadId === undefined || binding.threadId === scope.threadId;
+}
+
+export function authorizedMcpServerIdsFromSnapshot(input: {
+  appId: string;
+  activeRows: AgentMcpAccessSnapshot['activeBindings'];
+  conversationId?: string;
+  threadId?: string;
+}): string[] {
+  return input.activeRows.flatMap((row) => {
+    const binding = row.binding;
+    if (binding.status !== 'active') return [];
+    if (!mcpBindingMatchesRouteScope(binding, input)) return [];
+    const server = row.definition;
+    if (!server || server.appId !== input.appId) return [];
+    return [String(binding.serverId)];
+  });
 }

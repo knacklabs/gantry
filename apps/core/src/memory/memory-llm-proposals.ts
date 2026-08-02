@@ -8,6 +8,7 @@ import {
 import { extractMemoryValue } from './app-memory-dreaming-candidate-guardrails.js';
 import { getMemoryLlmClient } from './memory-llm-port.js';
 import type {
+  MemoryContradictionNomination,
   MemoryKind,
   MemoryLifecycleProposal,
   NormalizedMemorySubject,
@@ -33,7 +34,8 @@ type ProposalCandidateRow = {
 const MEMORY_DREAMING_PROPOSAL_PROMPT = [
   'You review grounded memory evidence and staged candidates.',
   'Return strict JSON array: {"action":"stage_candidate|promote|update|retire|needs_review|skip","candidate_id?":"id","item_id?":"id","kind?":"preference|decision|fact|correction|constraint","key?":"key","value?":"value","reason":"short reason","confidence":0.0,"evidence_ids":["id"]}.',
-  'Use only provided IDs and evidence; never copy raw transcripts; retire, contradiction, and rewrite-like corrections require needs_review; evidence_ids are required.',
+  'Use only provided IDs and evidence; never copy raw transcripts; retire and rewrite-like corrections require needs_review; evidence_ids are required.',
+  'A contradiction is a PAIR: an active item disagreeing with a staged candidate. To flag one use action "needs_review" and add "contradiction":{"type":"llm_claim_conflict","active":{"item_id":"<active id from active_items>","evidence_ids":["id"]},"incoming":{"candidate_id":"<id from candidates>","evidence_ids":["id"]}}; set item_id to that active id, value to the resolved canonical claim, and evidence_ids to the grounding for that resolution. Only reference active item ids and candidate ids listed below.',
 ].join('\n');
 
 const MEMORY_CONSOLIDATION_PROPOSAL_PROMPT = [
@@ -64,6 +66,39 @@ function parseProposalStringArray(value: string): string[] {
   );
 }
 
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+// Present iff the model emitted a `contradiction` object at all; parsed
+// leniently so the host can DROP a malformed/foreign nomination rather than
+// silently degrade it into a plain review.
+function parseContradictionNomination(
+  raw: unknown,
+): MemoryContradictionNomination | null {
+  const row = asRecord(raw);
+  if (!row) return null;
+  const active = asRecord(row.active) ?? {};
+  const incoming = asRecord(row.incoming) ?? {};
+  return {
+    conflictType:
+      row.type === 'same_key_value_disagreement'
+        ? 'same_key_value_disagreement'
+        : 'llm_claim_conflict',
+    activeItemId: typeof active.item_id === 'string' ? active.item_id : '',
+    incomingCandidateId:
+      typeof incoming.candidate_id === 'string' ? incoming.candidate_id : '',
+    activeEvidenceIds: Array.isArray(active.evidence_ids)
+      ? active.evidence_ids.filter((e): e is string => typeof e === 'string')
+      : [],
+    incomingEvidenceIds: Array.isArray(incoming.evidence_ids)
+      ? incoming.evidence_ids.filter((e): e is string => typeof e === 'string')
+      : [],
+  };
+}
+
 function normalizeLifecycleProposal(
   raw: unknown,
 ): MemoryLifecycleProposal | null {
@@ -81,6 +116,13 @@ function normalizeLifecycleProposal(
       )
     : [];
   if (!action || !reason || confidence < 0 || confidence > 1) return null;
+  // A `contradiction` key signals contradiction intent; if it is not a usable
+  // object the whole proposal is malformed and dropped (fail-safe).
+  const contradictionNomination =
+    row.contradiction !== undefined
+      ? parseContradictionNomination(row.contradiction)
+      : null;
+  if (row.contradiction !== undefined && !contradictionNomination) return null;
   return {
     action: action as MemoryLifecycleProposal['action'],
     ...(typeof row.candidate_id === 'string'
@@ -103,6 +145,7 @@ function normalizeLifecycleProposal(
     reason,
     confidence,
     evidenceIds,
+    ...(contradictionNomination ? { contradictionNomination } : {}),
   };
 }
 
@@ -150,6 +193,7 @@ export async function proposeMemoryDreamingActions(input: {
       key: row.key,
       value: safeProposalText(extractMemoryValue(row)),
       confidence: row.confidence,
+      evidence_ids: parseItemSource(row).evidenceIds,
       updated_at: row.updatedAt,
     })),
   };

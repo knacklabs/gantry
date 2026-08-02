@@ -20,6 +20,7 @@ import type { SchedulerDependencies } from './types.js';
 const MAX_RETRY_BACKOFF_MS = 30 * 24 * 60 * 60 * 1000;
 
 export type SchedulerRunStatus =
+  | 'paused'
   | 'completed'
   | 'failed'
   | 'timeout'
@@ -76,8 +77,14 @@ export async function finalizeSchedulerJobRun(input: {
         recoveryAction: diagnostics.terminalToolDenial.recoveryAction,
       }
     : null;
-  const toolDenial =
-    parseAutonomousToolDenial(safePrimaryErrorSummary) ?? diagnosticToolDenial;
+  // An autonomous not-on-allowlist denial is a hard dead-end: no approver is in
+  // the loop, so the run cannot resume and must FAIL. Only an attended,
+  // resumable denial pauses the run (Task E). The job still pauses for setup in
+  // both cases so an admin can grant access and the job re-runs.
+  const autonomousToolDenial = parseAutonomousToolDenial(
+    safePrimaryErrorSummary,
+  );
+  const toolDenial = autonomousToolDenial ?? diagnosticToolDenial;
   const transientPermissionApproval =
     diagnostics.transientPermissionApprovals[0] ?? null;
   const safeErrorSummary = safePrimaryErrorSummary
@@ -150,7 +157,11 @@ export async function finalizeSchedulerJobRun(input: {
         : 'failed';
     }
     if (!pausedForSetupDuringRun && toolDenial) {
-      runStatus = 'failed';
+      // An attended, resumable denial is a pending permission ASK: the run that
+      // raised the ask is `paused` (resumable) rather than `failed`. An
+      // autonomous not-on-allowlist denial has no approver, so it stays `failed`
+      // (the else branch above already set it) — a resume would never come.
+      runStatus = autonomousToolDenial ? runStatus : 'paused';
       const setupState = setupStateForDeniedTool({
         toolName: toolDenial.toolName,
         recoveryAction: toolDenial.recoveryAction,

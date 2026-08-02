@@ -78,6 +78,7 @@ maybeDescribe('observer insight Postgres persistence', () => {
          AND table_name IN (
            'proactive_insights',
            'observer_deliveries',
+           'observer_delivery_insights',
            'observer_insight_cursors'
          )
        ORDER BY table_name, ordinal_position`,
@@ -117,6 +118,24 @@ maybeDescribe('observer insight Postgres persistence', () => {
       'recipient',
       'local_day',
       'created_at',
+      'conversation_jid',
+      'provider_account_id',
+      'thread_id',
+      'timezone',
+      'rendered_digest',
+      'content_hash',
+      'outbound_delivery_id',
+      'state',
+      'reserved_at',
+      'sent_at',
+      'settled_at',
+      'rendered_view',
+    ]);
+    expect(columnsFor('observer_delivery_insights')).toEqual([
+      'delivery_id',
+      'insight_id',
+      'claimed_at',
+      'position',
     ]);
     expect(columnsFor('observer_insight_cursors')).toEqual([
       'app_id',
@@ -727,5 +746,393 @@ maybeDescribe('observer insight Postgres persistence', () => {
       advancedCursor,
     );
     expect(await brainRepo.getDreamCursor(APP_ID)).toEqual(brainCursor);
+  });
+
+  async function seedPending(
+    recipient: string,
+    specs: Array<{ id: string; subject: string; priority: number }>,
+  ): Promise<void> {
+    const repo = runtime.repositories.observerInsights;
+    for (const spec of specs) {
+      await repo.create(
+        insight(spec.id, {
+          recipient,
+          subject: spec.subject as never,
+          priorityScore: spec.priority,
+          canonicalSignature: `signature:${spec.id}`,
+        }),
+      );
+    }
+  }
+
+  it('claims highest-priority pending across subjects without double-claiming', async () => {
+    const repo = runtime.repositories.observerInsights;
+    const recipient = 'owner:digest-claim';
+    await seedPending(recipient, [
+      { id: 'dc-a', subject: 'conversation:sl:DA', priority: 0.9 },
+      { id: 'dc-b', subject: 'conversation:sl:DB', priority: 0.5 },
+      { id: 'dc-c', subject: 'conversation:sl:DC', priority: 0.7 },
+      { id: 'dc-d', subject: 'conversation:sl:DD', priority: 0.1 },
+    ]);
+
+    // Ordering: highest priority first, across subjects.
+    const topTwo = await repo.claimPendingForDigest({
+      appId: APP_ID,
+      recipient,
+      limit: 2,
+      nowIso: '2026-07-25T08:00:00.000Z',
+    });
+    expect(topTwo.map((row) => row.id)).toEqual(['dc-a', 'dc-c']);
+    expect(topTwo.every((row) => row.state === 'claimed')).toBe(true);
+
+    // Two concurrent workers over the remaining pending must not overlap.
+    const [left, right] = await Promise.all([
+      repo.claimPendingForDigest({
+        appId: APP_ID,
+        recipient,
+        limit: 10,
+        nowIso: '2026-07-25T08:01:00.000Z',
+      }),
+      repo.claimPendingForDigest({
+        appId: APP_ID,
+        recipient,
+        limit: 10,
+        nowIso: '2026-07-25T08:01:30.000Z',
+      }),
+    ]);
+    const claimedIds = [...left, ...right].map((row) => row.id).sort();
+    expect(claimedIds).toEqual(['dc-b', 'dc-d']);
+    expect(new Set(claimedIds).size).toBe(claimedIds.length);
+  });
+
+  it('reserves the daily digest idempotently under the unique key', async () => {
+    const repo = runtime.repositories.observerInsights;
+    const recipient = 'owner:digest-reserve';
+    await seedPending(recipient, [
+      { id: 'dr-a', subject: 'conversation:sl:RA', priority: 0.9 },
+      { id: 'dr-b', subject: 'conversation:sl:RB', priority: 0.8 },
+    ]);
+    const claimed = await repo.claimPendingForDigest({
+      appId: APP_ID,
+      recipient,
+      limit: 10,
+      nowIso: '2026-07-25T09:00:00.000Z',
+    });
+    const memberships = claimed.map((row, index) => ({
+      insightId: row.id,
+      claimedAt: row.updatedAt,
+      position: index,
+    }));
+
+    const first = await repo.reserveDigest({
+      id: 'delivery-reserve-1',
+      appId: APP_ID,
+      recipient,
+      localDay: '2026-07-25',
+      timezone: 'America/New_York',
+      conversationJid: 'slack:OWNER',
+      providerAccountId: 'slack-one',
+      renderedDigest: 'Digest body',
+      contentHash: 'hash-1',
+      memberships,
+      nowIso: '2026-07-25T09:01:00.000Z',
+    });
+    expect(first).toMatchObject({
+      created: true,
+      reservation: { id: 'delivery-reserve-1', state: 'reserved' },
+    });
+
+    const second = await repo.reserveDigest({
+      id: 'delivery-reserve-2',
+      appId: APP_ID,
+      recipient,
+      localDay: '2026-07-25',
+      timezone: 'America/New_York',
+      conversationJid: 'slack:OWNER',
+      providerAccountId: 'slack-one',
+      renderedDigest: 'Different body',
+      contentHash: 'hash-2',
+      memberships,
+      nowIso: '2026-07-25T09:02:00.000Z',
+    });
+    expect(second.created).toBe(false);
+    expect(second.reservation.id).toBe('delivery-reserve-1');
+
+    const membershipRows = await runtime.service.pool.query<{ count: number }>(
+      `SELECT count(*)::int AS count
+       FROM observer_delivery_insights WHERE delivery_id = $1`,
+      ['delivery-reserve-1'],
+    );
+    expect(membershipRows.rows[0]?.count).toBe(memberships.length);
+    const deliveryRows = await runtime.service.pool.query<{ count: number }>(
+      `SELECT count(*)::int AS count FROM observer_deliveries
+       WHERE app_id = $1 AND recipient = $2 AND local_day = $3`,
+      [APP_ID, recipient, '2026-07-25'],
+    );
+    expect(deliveryRows.rows[0]?.count).toBe(1);
+  });
+
+  it('settles only the fenced membership and moves insights to cooldown', async () => {
+    const repo = runtime.repositories.observerInsights;
+    const recipient = 'owner:digest-settle';
+    await seedPending(recipient, [
+      { id: 'ds-good', subject: 'conversation:sl:SA', priority: 0.9 },
+      { id: 'ds-stale', subject: 'conversation:sl:SB', priority: 0.8 },
+    ]);
+    const claimed = await repo.claimPendingForDigest({
+      appId: APP_ID,
+      recipient,
+      limit: 10,
+      nowIso: '2026-07-25T10:00:00.000Z',
+    });
+    const byId = new Map(claimed.map((row) => [row.id, row]));
+    await repo.reserveDigest({
+      id: 'delivery-settle-1',
+      appId: APP_ID,
+      recipient,
+      localDay: '2026-07-25',
+      timezone: 'UTC',
+      conversationJid: 'slack:OWNER2',
+      providerAccountId: 'slack-one',
+      renderedDigest: 'Digest',
+      contentHash: 'hash-settle',
+      memberships: [
+        {
+          insightId: 'ds-good',
+          claimedAt: byId.get('ds-good')!.updatedAt,
+          position: 0,
+        },
+        // Wrong fence: this membership must be skipped by settle.
+        {
+          insightId: 'ds-stale',
+          claimedAt: '2000-01-01T00:00:00.000Z',
+          position: 1,
+        },
+      ],
+      nowIso: '2026-07-25T10:01:00.000Z',
+    });
+
+    const settled = await repo.settleDigest({
+      deliveryId: 'delivery-settle-1',
+      outboundDeliveryId: 'outbound-xyz',
+      cooldownUntil: '2026-08-01T10:00:00.000Z',
+      nowIso: '2026-07-25T10:02:00.000Z',
+    });
+    expect(settled).toMatchObject({
+      state: 'settled',
+      outboundDeliveryId: 'outbound-xyz',
+    });
+    expect(settled?.settledAt).toBeTruthy();
+
+    const good = await repo.list({
+      appId: APP_ID,
+      subject: 'conversation:sl:SA' as never,
+      limit: 1,
+    });
+    expect(good[0]).toMatchObject({
+      id: 'ds-good',
+      state: 'cooldown',
+      deliveryId: 'delivery-settle-1',
+      cooldownUntil: '2026-08-01T10:00:00.000Z',
+    });
+    // The fenced-out member must NOT be stranded claimed under a settled
+    // delivery: settle releases it back to pending so it can be reclaimed.
+    const stale = await repo.list({
+      appId: APP_ID,
+      subject: 'conversation:sl:SB' as never,
+      limit: 1,
+    });
+    expect(stale[0]).toMatchObject({ id: 'ds-stale', state: 'pending' });
+    const reclaimed = await repo.claimPendingForDigest({
+      appId: APP_ID,
+      recipient,
+      limit: 10,
+      nowIso: '2026-07-25T10:03:00.000Z',
+    });
+    expect(reclaimed.map((row) => row.id)).toEqual(['ds-stale']);
+  });
+
+  it('settles idempotently and never resurrects a failed delivery', async () => {
+    const repo = runtime.repositories.observerInsights;
+    const recipient = 'owner:digest-idem';
+    await seedPending(recipient, [
+      { id: 'di-a', subject: 'conversation:sl:IA', priority: 0.9 },
+    ]);
+    const claimed = await repo.claimPendingForDigest({
+      appId: APP_ID,
+      recipient,
+      limit: 10,
+      nowIso: '2026-07-25T12:00:00.000Z',
+    });
+    await repo.reserveDigest({
+      id: 'delivery-idem-1',
+      appId: APP_ID,
+      recipient,
+      localDay: '2026-07-25',
+      timezone: 'UTC',
+      conversationJid: 'slack:OWNER4',
+      providerAccountId: 'slack-one',
+      renderedDigest: 'Digest',
+      contentHash: 'hash-idem',
+      memberships: [
+        { insightId: 'di-a', claimedAt: claimed[0]!.updatedAt, position: 0 },
+      ],
+      nowIso: '2026-07-25T12:01:00.000Z',
+    });
+
+    const first = await repo.settleDigest({
+      deliveryId: 'delivery-idem-1',
+      outboundDeliveryId: 'outbound-first',
+      cooldownUntil: '2026-08-01T12:00:00.000Z',
+      nowIso: '2026-07-25T12:02:00.000Z',
+    });
+    expect(first).toMatchObject({
+      state: 'settled',
+      outboundDeliveryId: 'outbound-first',
+    });
+
+    // Double settle must return the existing reservation untouched.
+    const second = await repo.settleDigest({
+      deliveryId: 'delivery-idem-1',
+      outboundDeliveryId: 'outbound-second',
+      cooldownUntil: '2026-08-02T12:00:00.000Z',
+      nowIso: '2026-07-25T12:03:00.000Z',
+    });
+    expect(second).toMatchObject({
+      state: 'settled',
+      outboundDeliveryId: 'outbound-first',
+      settledAt: first?.settledAt,
+    });
+
+    // A `failed` delivery is never flipped to settled.
+    await runtime.service.pool.query(
+      `UPDATE observer_deliveries SET state = 'failed' WHERE id = $1`,
+      ['delivery-idem-1'],
+    );
+    const afterFailed = await repo.settleDigest({
+      deliveryId: 'delivery-idem-1',
+      outboundDeliveryId: 'outbound-third',
+      cooldownUntil: '2026-08-03T12:00:00.000Z',
+      nowIso: '2026-07-25T12:04:00.000Z',
+    });
+    expect(afterFailed).toBeNull();
+    const stateRow = await runtime.service.pool.query<{ state: string }>(
+      `SELECT state FROM observer_deliveries WHERE id = $1`,
+      ['delivery-idem-1'],
+    );
+    expect(stateRow.rows[0]?.state).toBe('failed');
+  });
+
+  it('keeps concurrent settles idempotent via the delivery row lock', async () => {
+    const repo = runtime.repositories.observerInsights;
+    const recipient = 'owner:digest-race';
+    await seedPending(recipient, [
+      { id: 'dz-a', subject: 'conversation:sl:ZA', priority: 0.9 },
+    ]);
+    const claimed = await repo.claimPendingForDigest({
+      appId: APP_ID,
+      recipient,
+      limit: 10,
+      nowIso: '2026-07-25T13:00:00.000Z',
+    });
+    await repo.reserveDigest({
+      id: 'delivery-race-1',
+      appId: APP_ID,
+      recipient,
+      localDay: '2026-07-25',
+      timezone: 'UTC',
+      conversationJid: 'slack:OWNER5',
+      providerAccountId: 'slack-one',
+      renderedDigest: 'Digest',
+      contentHash: 'hash-race',
+      memberships: [
+        { insightId: 'dz-a', claimedAt: claimed[0]!.updatedAt, position: 0 },
+      ],
+      nowIso: '2026-07-25T13:01:00.000Z',
+    });
+
+    // Two settles race on separate pool connections. FOR UPDATE serializes
+    // them: the loser blocks, then reads `settled` and returns the winner's
+    // reservation. Neither returns null; both agree on outboundDeliveryId.
+    const [left, right] = await Promise.all([
+      repo.settleDigest({
+        deliveryId: 'delivery-race-1',
+        outboundDeliveryId: 'outbound-left',
+        cooldownUntil: '2026-08-01T13:00:00.000Z',
+        nowIso: '2026-07-25T13:02:00.000Z',
+      }),
+      repo.settleDigest({
+        deliveryId: 'delivery-race-1',
+        outboundDeliveryId: 'outbound-right',
+        cooldownUntil: '2026-08-01T13:00:00.000Z',
+        nowIso: '2026-07-25T13:02:30.000Z',
+      }),
+    ]);
+    expect(left).not.toBeNull();
+    expect(right).not.toBeNull();
+    expect(left?.state).toBe('settled');
+    expect(left?.outboundDeliveryId).toBe(right?.outboundDeliveryId);
+    expect(['outbound-left', 'outbound-right']).toContain(
+      left?.outboundDeliveryId,
+    );
+
+    const persisted = await runtime.service.pool.query<{
+      state: string;
+      outbound_delivery_id: string;
+    }>(
+      `SELECT state, outbound_delivery_id FROM observer_deliveries WHERE id = $1`,
+      ['delivery-race-1'],
+    );
+    expect(persisted.rows[0]?.state).toBe('settled');
+    expect(persisted.rows[0]?.outbound_delivery_id).toBe(
+      left?.outboundDeliveryId,
+    );
+  });
+
+  it('recovers unbound stale claims but never reserved-delivery claims', async () => {
+    const repo = runtime.repositories.observerInsights;
+    const recipient = 'owner:digest-recover';
+    await seedPending(recipient, [
+      { id: 'rc-bound', subject: 'conversation:sl:CA', priority: 0.9 },
+      { id: 'rc-loose', subject: 'conversation:sl:CB', priority: 0.8 },
+    ]);
+    const claimed = await repo.claimPendingForDigest({
+      appId: APP_ID,
+      recipient,
+      limit: 10,
+      nowIso: '2026-07-25T11:00:00.000Z',
+    });
+    const bound = claimed.find((row) => row.id === 'rc-bound')!;
+    await repo.reserveDigest({
+      id: 'delivery-recover-1',
+      appId: APP_ID,
+      recipient,
+      localDay: '2026-07-25',
+      timezone: 'UTC',
+      conversationJid: 'slack:OWNER3',
+      providerAccountId: 'slack-one',
+      renderedDigest: 'Digest',
+      contentHash: 'hash-recover',
+      memberships: [
+        { insightId: 'rc-bound', claimedAt: bound.updatedAt, position: 0 },
+      ],
+      nowIso: '2026-07-25T11:01:00.000Z',
+    });
+
+    const recovered = await repo.recoverStaleDigestClaims({
+      appId: APP_ID,
+      staleBeforeIso: '2026-07-25T11:30:00.000Z',
+      nowIso: '2026-07-25T11:31:00.000Z',
+    });
+    const recoveredIds = recovered.map((row) => row.id);
+    expect(recoveredIds).toContain('rc-loose');
+    expect(recoveredIds).not.toContain('rc-bound');
+
+    const boundNow = await repo.list({
+      appId: APP_ID,
+      subject: 'conversation:sl:CA' as never,
+      limit: 1,
+    });
+    expect(boundNow[0]).toMatchObject({ id: 'rc-bound', state: 'claimed' });
   });
 });

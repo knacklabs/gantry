@@ -91,6 +91,20 @@
   "maxViolations": 3
  },
  {
+  "file": "apps/core/src/app/bootstrap/runtime-observer-feedback-wiring.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "observer feedback wiring composes adapters/config for the message-action handler \u2014 same capped bootstrap-wiring seam as the sibling register files.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 3
+ },
+ {
+  "file": "apps/core/src/app/bootstrap/runtime-brain-review-wiring.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "brain-review owner-only wiring composes adapters/config for the message-action handler \u2014 same capped bootstrap-wiring seam as the sibling register files.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 3
+ },
+ {
   "file": "apps/core/src/app/bootstrap/startup.ts",
   "rule": "forbidden_import_by_layer",
   "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception. +1 (2026-07-14): observability tracing bootstrap (initTracing/shutdownTracing from infrastructure/observability) \u2014 settings-adjacent init; move behind a domain port when the boundary slice lands.",
@@ -166,6 +180,13 @@
   "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
   "removeByPhase": "canonical-boundary-cleanup-phase",
   "maxViolations": 3
+ },
+ {
+  "file": "apps/core/src/cli/brain.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "`gantry brain reviews notify` composes the durable brain-review notify gateway (bootstrap) + verified-owner resolver (config) as a local admin adapter to re-enqueue an orphaned review notification; capped until the CLI command service is extracted.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 2
  },
  {
   "file": "apps/core/src/cli/config.ts",
@@ -504,6 +525,13 @@
   "maxViolations": 3
  },
  {
+  "file": "apps/core/src/control/server/routes/observer.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; observer control route resolves owner/delivery status from config the same way peer routes (settings, memory, jobs) do; capped until the boundary slice removes this exception.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 2
+ },
+ {
   "file": "apps/core/src/domain/repositories/domain-types.ts",
   "rule": "forbidden_import_by_layer",
   "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
@@ -614,6 +642,13 @@
   "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
   "removeByPhase": "canonical-boundary-cleanup-phase",
   "maxViolations": 2
+ },
+ {
+  "file": "apps/core/src/jobs/observer-digest-job.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Observer digest job/handler split out of system-jobs.ts to fit its line budget; carries the same baseline layer-boundary debt (config + runtime-store imports) relocated verbatim, capped until the boundary slice removes it.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 3
  },
  {
   "file": "apps/core/src/jobs/types.ts",
@@ -822,6 +857,20 @@
   "file": "apps/core/src/memory/app-memory-review.ts",
   "rule": "forbidden_import_by_layer",
   "reason": "Memory review storage remains in the current Postgres-backed memory service slice; replace with repository ports in the canonical boundary cleanup.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 1
+ },
+ {
+  "file": "apps/core/src/memory/app-memory-review-lookup.ts",
+  "rule": "forbidden_external_import_by_layer",
+  "reason": "Single-review lookups split out of app-memory-review.ts; same Postgres-backed memory service slice, replace with repository ports in the canonical boundary cleanup.",
+  "removeByPhase": "canonical-boundary-cleanup-phase",
+  "maxViolations": 2
+ },
+ {
+  "file": "apps/core/src/memory/app-memory-review-lookup.ts",
+  "rule": "forbidden_import_by_layer",
+  "reason": "Single-review lookups split out of app-memory-review.ts; same Postgres-backed memory service slice, replace with repository ports in the canonical boundary cleanup.",
   "removeByPhase": "canonical-boundary-cleanup-phase",
   "maxViolations": 1
  },
@@ -1356,5 +1405,12 @@
   "reason": "anthropic_sdk is a deliberate sentinel token of the agent-harness selection contract (decision 0028); relocation would force a forbidden application-to-adapter import. Exact ratchet; review trigger ledgered as deferral D-0004.",
   "removeByPhase": "agent-harness-vocabulary-supersedes-0028",
   "maxViolations": 4
+ },
+ {
+  "file": "apps/core/src/memory/app-memory-session-scope.ts",
+  "rule": "provider_specific_path",
+  "reason": "The live-jid scheme discriminator is a closed set of jid prefixes ('teams' matches the provider word scan); the canonical registry lives in channels/, which the memory layer may not import. Capped to this one literal.",
+  "removeByPhase": "identity-jid-scheme-registry-extraction",
+  "maxViolations": 1
  }
 ]

@@ -179,3 +179,6 @@
 - Keep `app-memory-service.ts` and `app-memory-dreaming.ts` under the
   architecture file-size budget by moving cohesive recall/candidate guardrail
   helpers into narrowly named sibling modules.
+- Public personal memory inputs use `personId`. Normalize that to
+  `subjectType='user'`, `subjectId=personId`, and `userId=personId`; do not
+  require raw provider `userId` for direct personal memory API writes or reads.

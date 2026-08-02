@@ -201,6 +201,7 @@ export class AnthropicClaudeAgentExecutionAdapter implements AgentExecutionAdapt
             appId: input.options.skillContext.appId as never,
             agentId: input.options.skillContext.agentId as never,
           },
+          input.options.accessSnapshot,
         ),
       );
     }

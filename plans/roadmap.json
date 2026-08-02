@@ -10,7 +10,7 @@
       "story": "First story through the harness. Five failing sections inventoried in the goal-prompt: file-size splits (genai-spans worst), dangling doc refs, layer-import caps, provider-boundary tokens in tests, provider literals in prompt-profile-service.",
       "acceptance_criteria": [
         "npm run check:architecture exits 0",
-        "python3 .agents/scripts/verify.py passes end to end",
+        "python3 factory/scripts/verify.py passes end to end",
         "npm run typecheck and npm test green; no test deleted",
         "no public API/contract change; contracts package diff empty",
         "any remaining architecture exception carries an expiry/ratchet note"
@@ -19,7 +19,7 @@
       "history": ".factory/history/PAY-1/"
     },
     {
-      "status": "pending",
+      "status": "done",
       "key": "PERM-1",
       "title": "Permission engine: git deterministic-gate slice",
       "epic": "permission-engine",
@@ -34,10 +34,12 @@
         "hard-deny/locked/fixed-image restrictions resolve BEFORE any cache or classifier allow",
         "RunCommand telemetry records the command text (closes the RCA blind spot)",
         "goal-prompt slice-1 acceptance list satisfied with tests pinning the ordering invariant"
-      ]
+      ],
+      "completed_at": "2026-07-23T07:39:30+00:00",
+      "history": ".factory/history/PERM-1/"
     },
     {
-      "status": "pending",
+      "status": "active",
       "key": "PERM-2",
       "title": "Permission engine: decision coordinator build (remainder)",
       "epic": "permission-engine",
@@ -333,6 +335,78 @@
         "TTL janitor covered by tests",
         "local backend remains the default"
       ]
+    },
+    {
+      "key": "SEC-1",
+      "title": "Audit paydown: security blockers (CI runner isolation, inbound attachment writers, LLM concurrency admission)",
+      "order": 21,
+      "status": "done",
+      "epic": "Audit paydown 2026-07",
+      "skill": "backend",
+      "completed_at": "2026-07-24T11:42:10+00:00",
+      "history": ".factory/history/SEC-1/"
+    },
+    {
+      "key": "PERF-1",
+      "title": "Audit paydown: performance fixes (IPC replay scan, jobs N+1, SSE permit race, live-admission caps)",
+      "order": 22,
+      "status": "done",
+      "epic": "Audit paydown 2026-07",
+      "skill": "backend",
+      "completed_at": "2026-07-24T15:06:25+00:00",
+      "history": ".factory/history/PERF-1/"
+    },
+    {
+      "key": "SIMP-1",
+      "title": "Audit paydown: simplifications (queue defaults, control service construction, test consolidation)",
+      "order": 23,
+      "status": "pending",
+      "epic": "Audit paydown 2026-07",
+      "skill": "backend"
+    },
+    {
+      "key": "SPS-4",
+      "title": "Audit paydown: architecture decisions (cluster rate-limit authority, mandatory durable coordination, LLM loopback collapse, live-admission retention)",
+      "order": 24,
+      "status": "pending",
+      "epic": "Audit paydown 2026-07",
+      "skill": "backend"
+    },
+    {
+      "key": "LAT-5B",
+      "title": "Durable conversation history coverage",
+      "story": "As a teammate chatting with the agent, my turns in fully-synced conversations respond without waiting on redundant provider history fetches, so the agent feels immediate once it has everything.",
+      "acceptance_criteria": [
+        "A conversation attested complete (server-confirmed exhausted, current provider generation) makes zero provider hydration calls and skips the deadline wait; reconnects un-trust coverage fail-safe; request_bounded never promotes"
+      ],
+      "order": 25,
+      "status": "done",
+      "kind": "feature",
+      "origin": "adhoc",
+      "spec": "docs/specs/lat-5b-durable-history-coverage.md",
+      "completed_at": "2026-08-01T01:08:57+00:00",
+      "history": ".factory/history/LAT-5B/",
+      "outcome": "Agent conversations on Slack and Discord now remember, durably in Postgres, what history they have already stored. Once a channel or thread is fully persisted, later turns skip the provider history call (measured 1 to 0 calls, for exactly one extra SQL statement), so replies start faster. The record is trusted only while a live inbound stream is delivering: reconnects, dropped sockets, outbound-only accounts, interaction-only sockets, failed dispatches and account rebinds all invalidate it, and the next turn re-fetches from the provider so nothing said while the agent was away is silently skipped. Telegram is unchanged. Known residual: a brief multi-process stale-trust window, deferred as D-0036."
+    },
+    {
+      "key": "ID-1",
+      "title": "Identity management phases 2-3: reconcile, harden, land",
+      "story": "As an operator, I can resolve any sender to one app-scoped person across Slack/Telegram/Teams/app (and later OIDC/WhatsApp/email/phone), so the agent knows it is the same human and personal memory stays with the person while conversation memory stays with the room.",
+      "acceptance_criteria": [
+        "PR 217 reconciled with main; its 7 migrations converted to the timestamped scheme with no drizzle drift",
+        "Contact aliases normalised at write time (email lowercase, phone E.164) with a collision-safe backfill",
+        "mergePeople gains a faithful unmerge restoring from person_merge_audit",
+        "verified is system-attested only and unsettable via the People API",
+        "Decision-8 boundary/invariant tests pass with reverted-guard negative controls; agents-as-service-kind invariants pinned"
+      ],
+      "order": 26,
+      "status": "done",
+      "epic": "identity",
+      "skill": "backend",
+      "origin": "adhoc",
+      "spec": "docs/specs/person-identity-aliases.md",
+      "completed_at": "2026-08-02T10:24:13+00:00",
+      "outcome": "Merged via PR #373 (supersedes #217, credits Suraj). One canonical person per app with provider-neutral exact-match aliases; personal memory DM-only; audited merge with single-use all-or-nothing unmerge; People API + SDK incl. unmerge; boundaries pinned by revert-proven tests; 22 review rounds, ~50 fixes."
     }
   ],
   "epics": [
@@ -421,5 +495,5 @@
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-07-23T03:18:19+00:00"
+  "updated_at": "2026-08-02T10:37:15+00:00"
 }

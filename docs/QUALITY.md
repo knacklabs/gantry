@@ -12,7 +12,7 @@ Every change must pass these independent checks:
    `user_facing: true`
 
 Artifact shapes are NOT described here — each artifact's contract is its
-schema under `.agents/schemas/`, enforced by the recorder that writes it.
+schema under `factory/schemas/`, enforced by the recorder that writes it.
 Every payload carries `generated_by`, checked against the pins in
 `harness.yaml` — and `skills_used`, checked against the schema's
 `required_skills` for the feature type: user-facing testing artifacts must
@@ -21,9 +21,9 @@ must attest `review-animations`. No attestation, no artifact.
 
 ## Review — one autoreview run, three lenses
 
-Contract: `.agents/prompts/reviewer.md`. A single autoreview run in Codex
+Contract: `factory/prompts/reviewer.md`. A single autoreview run in Codex
 (read-only toward product code) reviews the task diff through three lenses
-and emits one artifact per lens, each matching `.agents/schemas/review.json`
+and emits one artifact per lens, each matching `factory/schemas/review.json`
 with `generated_by: autoreview`:
 
 - **quality** — correctness, regressions, maintainability-as-risk, test
@@ -41,16 +41,16 @@ Never review inline in the coordinating session; never nest reviewers.
 ## Testing
 
 ### automated (the implementer's job)
-- contract: `.agents/prompts/implementer.md` +
-  `.agents/schemas/test-automated.json` (`generated_by: implementer`)
+- contract: `factory/prompts/implementer.md` +
+  `factory/schemas/test-automated.json` (`generated_by: implementer`)
 - the implementer adds or updates tests, runs scoped test commands, and
   records the artifact; autoreview's quality lens checks coverage honestly
 
 ### functional-checker (conditional)
 - model: `gpt-5.5`, reasoning `high`, `workspace-write` when tooling needs
   artifacts, otherwise `read-only`
-- contract: `.agents/prompts/tester-functional.md` +
-  `.agents/schemas/test-functional.json` (`generated_by: functional-checker`)
+- contract: `factory/prompts/tester-functional.md` +
+  `factory/schemas/test-functional.json` (`generated_by: functional-checker`)
 - runs only when the decomposition records `user_facing: true`; the ship
   gate reads the flag, not anyone's judgment
 

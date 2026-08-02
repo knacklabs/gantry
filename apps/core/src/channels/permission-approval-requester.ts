@@ -1,4 +1,5 @@
 import type {
+  PermissionApprovalCancellation,
   PermissionApprovalDecision,
   PermissionApprovalRequest,
 } from '../domain/types.js';
@@ -27,6 +28,9 @@ interface PermissionApprovalSurfaceLike {
     kind: 'permission' | 'question',
     request: PermissionApprovalRequest,
   ) => void;
+  cancelPendingPermission?: (
+    request: PermissionApprovalCancellation,
+  ) => Promise<'settled' | 'already_decided' | 'retryable' | 'not_found'>;
 }
 
 interface PermissionApprovalTargetResolution {
@@ -49,6 +53,13 @@ const permissionRequestScopeKey = (
     request.sourceAgentFolder,
     request.requestId,
   ]);
+
+export interface PermissionApprovalRequester {
+  (request: PermissionApprovalRequest): Promise<PermissionApprovalDecision>;
+  cancel(
+    cancellation: PermissionApprovalCancellation,
+  ): Promise<'settled' | 'queued' | 'not_found'>;
+}
 
 function resolvePermissionApprovalTarget(
   request: PermissionApprovalRequest,
@@ -79,10 +90,16 @@ export function createPermissionApprovalRequester(input: {
       options?: { providerAccountId?: string; threadId?: string },
     ) => void;
   };
-}): (
-  request: PermissionApprovalRequest,
-) => Promise<PermissionApprovalDecision> {
+}): PermissionApprovalRequester {
   const activePrompts = new Set<PermissionApprovalRequest>();
+  const queuedCancellations = new Map<string, PermissionApprovalCancellation>();
+  const activeCancellationHandlers = new Map<
+    string,
+    (
+      cancellation: PermissionApprovalCancellation,
+    ) => Promise<'settled' | 'already_decided' | 'retryable' | 'not_found'>
+  >();
+  const activeCancellationTargets = new Map<string, string>();
   const pendingResolvers = new Map<
     string,
     {
@@ -118,8 +135,9 @@ export function createPermissionApprovalRequester(input: {
 
   async function dispatchSingle(
     request: PermissionApprovalRequest,
+    cancellationAliases: PermissionApprovalRequest[] = [],
   ): Promise<PermissionApprovalDecision> {
-    const result = await dispatchSingleResult(request);
+    const result = await dispatchSingleResult(request, cancellationAliases);
     return result.delivered
       ? result.decision
       : { approved: false, reason: result.reason };
@@ -127,10 +145,35 @@ export function createPermissionApprovalRequester(input: {
 
   async function dispatchSingleResult(
     request: PermissionApprovalRequest,
+    cancellationAliases: PermissionApprovalRequest[] = [],
   ): Promise<
     | { delivered: true; decision: PermissionApprovalDecision }
     | { delivered: false; reason: string }
   > {
+    const requestKey = permissionRequestScopeKey(request);
+    const cancellationKeys = [
+      requestKey,
+      ...cancellationAliases.map(permissionRequestScopeKey),
+    ].filter((key, index, keys) => keys.indexOf(key) === index);
+    const queuedCancellationKey = cancellationKeys.find((key) =>
+      queuedCancellations.has(key),
+    );
+    const queuedCancellation = queuedCancellationKey
+      ? queuedCancellations.get(queuedCancellationKey)
+      : undefined;
+    if (queuedCancellation) {
+      clearQueuedCancellation(queuedCancellationKey!);
+      return {
+        delivered: true,
+        decision: {
+          approved: false,
+          mode: 'cancel',
+          decidedBy: 'runtime',
+          reason: queuedCancellation.reason,
+          decisionClassification: 'user_reject',
+        },
+      };
+    }
     const routed = resolvePermissionApprovalTarget(request);
     if ('blockedReason' in routed) {
       return { delivered: false, reason: routed.blockedReason };
@@ -151,17 +194,55 @@ export function createPermissionApprovalRequester(input: {
     }
     try {
       let promptDelivered = false;
-      const decision = await approvalSurface.requestPermissionApproval(
-        routed.targetJid,
-        routed.request,
-        () => {
-          promptDelivered = true;
-          input.interactionLifecycle.resetStreaming?.(routed.targetJid, {
-            providerAccountId: routed.request.providerAccountId,
-            threadId: routed.request.threadId,
-          });
-        },
-      );
+      const cancelPending = (
+        cancellation: PermissionApprovalCancellation,
+      ): Promise<'settled' | 'already_decided' | 'retryable' | 'not_found'> =>
+        approvalSurface.cancelPendingPermission?.(cancellation) ??
+        Promise.resolve('not_found');
+      for (const key of cancellationKeys) {
+        activeCancellationHandlers.set(key, (cancellation) =>
+          cancelPending({ ...cancellation, requestId: request.requestId }),
+        );
+        activeCancellationTargets.set(key, routed.targetJid);
+      }
+      let decision: PermissionApprovalDecision;
+      try {
+        decision = await approvalSurface.requestPermissionApproval(
+          routed.targetJid,
+          routed.request,
+          () => {
+            promptDelivered = true;
+            input.interactionLifecycle.resetStreaming?.(routed.targetJid, {
+              providerAccountId: routed.request.providerAccountId,
+              threadId: routed.request.threadId,
+            });
+            for (const key of cancellationKeys) {
+              const cancellation = queuedCancellations.get(key);
+              if (cancellation) {
+                void settleQueuedCancellationSafely(cancellation);
+              }
+            }
+          },
+        );
+      } finally {
+        for (const key of cancellationKeys) {
+          activeCancellationHandlers.delete(key);
+          activeCancellationTargets.delete(key);
+        }
+      }
+      const cancellation = cancellationAliases.length
+        ? undefined
+        : queuedCancellations.get(requestKey);
+      if (cancellation) {
+        decision = {
+          approved: false,
+          mode: 'cancel',
+          decidedBy: 'runtime',
+          reason: cancellation.reason,
+          decisionClassification: 'user_reject',
+        };
+        clearQueuedCancellation(requestKey);
+      }
       return promptDelivered
         ? { delivered: true, decision }
         : {
@@ -182,6 +263,43 @@ export function createPermissionApprovalRequester(input: {
       }
       return { delivered: false, reason: 'Permission approval flow failed' };
     }
+  }
+
+  async function settleQueuedCancellation(
+    cancellation: PermissionApprovalCancellation,
+  ): Promise<'settled' | 'queued'> {
+    const key = permissionRequestScopeKey(cancellation);
+    const cancel = activeCancellationHandlers.get(key);
+    if (!cancel) return 'queued';
+    const result = await cancel(cancellation);
+    if (result === 'settled' || result === 'already_decided') {
+      clearQueuedCancellation(key);
+      return 'settled';
+    }
+    // The durable IPC directory owns retries; a local timer can race it and cannot survive restart.
+    return 'queued';
+  }
+
+  async function settleQueuedCancellationSafely(
+    cancellation: PermissionApprovalCancellation,
+  ): Promise<'settled' | 'queued'> {
+    const key = permissionRequestScopeKey(cancellation);
+    const targetJid = activeCancellationTargets.get(key);
+    try {
+      return await settleQueuedCancellation(cancellation);
+    } catch (err) {
+      input.interactionLifecycle.logger.error({
+        err,
+        targetJid,
+        requestId: cancellation.requestId,
+        message: 'Target channel permission cancellation failed',
+      });
+      return 'queued';
+    }
+  }
+
+  function clearQueuedCancellation(key: string): void {
+    queuedCancellations.delete(key);
   }
 
   async function dispatchBatch(batch: PermissionBatch): Promise<void> {
@@ -207,7 +325,7 @@ export function createPermissionApprovalRequester(input: {
       if (!summaries.every((summary) => summary.bulkEligible)) {
         batchRequest.decisionOptions = ['allow_persistent_rule', 'cancel'];
       }
-      batchDecision = await dispatchSingle(batchRequest);
+      batchDecision = await dispatchSingle(batchRequest, batch.requests);
       if (!batch.requests.every(hasBatchResolver)) {
         await releaseDecisionClaim(batchDecision);
         resolveIncompleteBatch(batch.requests);
@@ -239,22 +357,32 @@ export function createPermissionApprovalRequester(input: {
       }
       let fanOutComplete = true;
       for (const request of batch.requests) {
-        const derivedDecision = decisionForMode(
+        const key = permissionRequestScopeKey(request);
+        const cancellation = queuedCancellations.get(key);
+        const derivedDecision = cancellation
+          ? {
+              approved: false,
+              mode: 'cancel' as const,
+              decidedBy: 'runtime',
+              reason: cancellation.reason,
+              decisionClassification: 'user_reject' as const,
+            }
+          : decisionForMode(
+              request,
+              batchDecision.approved ? 'allow_once' : 'cancel',
+              batchDecision.decidedBy,
+            );
+        const resolved = resolveBatchRequest(
           request,
-          batchDecision.approved ? 'allow_once' : 'cancel',
-          batchDecision.decidedBy,
+          batchDecision.permissionCallbackClaim
+            ? {
+                ...derivedDecision,
+                permissionCallbackClaim: batchDecision.permissionCallbackClaim,
+              }
+            : derivedDecision,
         );
-        fanOutComplete =
-          resolveBatchRequest(
-            request,
-            batchDecision.permissionCallbackClaim
-              ? {
-                  ...derivedDecision,
-                  permissionCallbackClaim:
-                    batchDecision.permissionCallbackClaim,
-                }
-              : derivedDecision,
-          ) && fanOutComplete;
+        if (resolved && cancellation) clearQueuedCancellation(key);
+        fanOutComplete = resolved && fanOutComplete;
       }
       if (!fanOutComplete) {
         await releaseDecisionClaim(batchDecision);
@@ -315,7 +443,7 @@ export function createPermissionApprovalRequester(input: {
     return true;
   }
 
-  return (request) => {
+  const requestPermissionApproval: PermissionApprovalRequester = (request) => {
     if (!request.runId) return dispatchSingle(request);
     const key = permissionRequestScopeKey(request);
     const existing = pendingResolvers.get(key);
@@ -336,4 +464,12 @@ export function createPermissionApprovalRequester(input: {
     coalescer.enqueue(request);
     return promise;
   };
+  requestPermissionApproval.cancel = async (cancellation) => {
+    const key = permissionRequestScopeKey(cancellation);
+    queuedCancellations.set(key, cancellation);
+    const cancel = activeCancellationHandlers.get(key);
+    if (!cancel) return 'queued';
+    return settleQueuedCancellationSafely(cancellation);
+  };
+  return requestPermissionApproval;
 }

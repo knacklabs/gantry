@@ -106,10 +106,24 @@ async function requestDirectAnthropicCompletion(
             input_schema: {
               type: 'object',
               properties: {
-                decision: { type: 'string', enum: ['allow', 'ask'] },
+                risk_level: {
+                  type: 'string',
+                  enum: ['low', 'medium', 'high', 'critical'],
+                },
+                risk_category: {
+                  type: 'string',
+                  enum: [
+                    'destructive',
+                    'privileged',
+                    'secret',
+                    'network',
+                    'filesystem',
+                    'benign',
+                  ],
+                },
                 reason: { type: 'string' },
               },
-              required: ['decision', 'reason'],
+              required: ['risk_level', 'risk_category', 'reason'],
               additionalProperties: false,
             },
           },

@@ -64,7 +64,11 @@ export function mapSession(row: CanonicalControlRow): AppSessionRecord {
   return {
     sessionId: String(column(row, 'session_id', 'sessionId')),
     appId: String(column(row, 'app_id', 'appId')),
+    agentId,
     conversationId,
+    canonicalConversationId: String(
+      column(row, 'conversation_id', 'conversationId'),
+    ),
     chatJid:
       text(external.chatJid) ??
       text(external.externalConversationRef) ??
@@ -81,6 +85,19 @@ export function mapSession(row: CanonicalControlRow): AppSessionRecord {
     defaultWebhookId: text(
       column(row, 'default_webhook_id', 'defaultWebhookId'),
     ),
+    appUser:
+      typeof external.appUser === 'object' &&
+      external.appUser !== null &&
+      !Array.isArray(external.appUser) &&
+      typeof (external.appUser as Record<string, unknown>).authorityId ===
+        'string' &&
+      typeof (external.appUser as Record<string, unknown>).subject === 'string'
+        ? {
+            authorityId: (external.appUser as Record<string, string>)
+              .authorityId,
+            subject: (external.appUser as Record<string, string>).subject,
+          }
+        : null,
     createdAt: String(column(row, 'created_at', 'createdAt')),
     updatedAt: String(column(row, 'updated_at', 'updatedAt')),
   };

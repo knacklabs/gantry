@@ -53,7 +53,8 @@ type DelegatedRunAccess = Pick<
   | 'selectedSkillDisplays'
   | 'attachedMcpSourceIds'
   | 'semanticCapabilities'
->;
+> &
+  Pick<RunAgentOptions, 'accessSnapshot'>;
 
 export function createInlineAgentTaskLifecycle(input: {
   laneInput: InlineAgentLoopLaneInput;
@@ -66,7 +67,10 @@ export function createInlineAgentTaskLifecycle(input: {
     chatJid: string,
   ): Promise<ExecutionProviderId>;
   resolveRunAccess(agentId: string): Promise<DelegatedRunAccess>;
-  buildRunOptions(agentId: string): Promise<RunAgentOptions>;
+  buildRunOptions(
+    agentId: string,
+    runAccess: DelegatedRunAccess,
+  ): Promise<RunAgentOptions>;
 }): CoreTaskLifecycleBackend | undefined {
   const run = input.laneInput.input;
   if (!input.repository || !run.appId || !run.agentId) return undefined;
@@ -145,7 +149,7 @@ export function createInlineAgentTaskLifecycle(input: {
             }
             // AgentDelegation authorizes a bound-agent handoff; the child then
             // runs only with the target agent's selected authority.
-            const runAccess = sameAgent
+            const runAccess: DelegatedRunAccess = sameAgent
               ? {
                   toolPolicyRules: run.toolPolicyRules,
                   runtimeAccess: run.runtimeAccess,
@@ -153,8 +157,11 @@ export function createInlineAgentTaskLifecycle(input: {
                   selectedSkillDisplays: run.selectedSkillDisplays,
                   attachedMcpSourceIds: run.attachedMcpSourceIds,
                   semanticCapabilities: run.semanticCapabilities,
+                  accessSnapshot: input.laneInput.accessSnapshot,
                 }
               : await input.resolveRunAccess(targetAgentId);
+            const { accessSnapshot: _accessSnapshot, ...agentRunAccess } =
+              runAccess;
             const childRunId = turnContext?.agentSessionId
               ? await input.runRepository?.createSessionAgentRun?.({
                   agentSessionId: turnContext.agentSessionId,
@@ -183,7 +190,7 @@ export function createInlineAgentTaskLifecycle(input: {
                   ...(childRunId ? { runId: childRunId } : {}),
                   persona: targetGroup.agentConfig?.persona,
                   thinking: targetGroup.agentConfig?.thinking,
-                  ...runAccess,
+                  ...agentRunAccess,
                   ...(sameAgent ? { yoloMode: run.yoloMode } : {}),
                 },
                 (process) => {
@@ -210,7 +217,7 @@ export function createInlineAgentTaskLifecycle(input: {
                   await delegated.onProgress?.(agentOutput.result);
                 },
                 {
-                  ...(await input.buildRunOptions(targetAgentId)),
+                  ...(await input.buildRunOptions(targetAgentId, runAccess)),
                   conversationRoutes: input.getConversationRoutes(),
                   timeoutMs:
                     delegated.timeoutMs ?? DEFAULT_DELEGATED_AGENT_TIMEOUT_MS,

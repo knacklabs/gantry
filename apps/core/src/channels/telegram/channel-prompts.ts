@@ -6,6 +6,7 @@ import { ensurePrivateDirSync } from '../../shared/private-fs.js';
 import {
   PermissionApprovalDecision,
   PermissionApprovalRequest,
+  UserQuestionCancellation,
   UserQuestionRequest,
 } from '../../domain/types.js';
 import { writeTelegramFetchResponseToFile } from '../telegram-file-download.js';
@@ -30,6 +31,10 @@ import {
   truncateUtf8ToByteLimit,
 } from './channel-shared.js';
 import { claimAndSettleTelegramPermissionPrompt } from './permission-prompt-settlement.js';
+import {
+  cancelMatchingPendingQuestions,
+  type InteractionCancellationResult,
+} from '../interaction-settlement.js';
 const TELEGRAM_PERMISSION_FULL_VIEW_INLINE_MAX = 3200;
 export interface TelegramDownloadedFile {
   filePath: string;
@@ -43,6 +48,26 @@ export abstract class TelegramChannelPrompts extends TelegramChannelPolling {
     questionIndex: number,
   ): string {
     return JSON.stringify([appId, sourceAgentFolder, requestId, questionIndex]);
+  }
+  async cancelPendingQuestion(
+    cancellation: UserQuestionCancellation,
+  ): Promise<InteractionCancellationResult> {
+    return cancelMatchingPendingQuestions({
+      cancellation,
+      pending: this.pendingUserQuestions.values(),
+      request: (pending) => ({
+        requestId: pending.requestId,
+        appId: pending.appId,
+        sourceAgentFolder: pending.sourceAgentFolder,
+      }),
+      settle: (pending, reason) =>
+        this.finalizeUserQuestionPrompt(
+          pending,
+          pending.multiSelect ? [] : '',
+          undefined,
+          reason,
+        ),
+    });
   }
   protected formatUserQuestionButtonLabel(
     optionLabel: string,
@@ -616,8 +641,6 @@ export abstract class TelegramChannelPrompts extends TelegramChannelPolling {
       const localExt = path.extname(filename);
       const safeName = filename.replace(/[^a-zA-Z0-9._-]/g, '_');
       const finalName = localExt ? safeName : `${safeName}${tgExt}`;
-      const destPath = path.join(attachDir, finalName);
-      const storageRef = path.posix.join('attachments', finalName);
       const encodedPath = safeFilePath
         .split('/')
         .map((segment) => encodeURIComponent(segment))
@@ -631,11 +654,17 @@ export abstract class TelegramChannelPrompts extends TelegramChannelPolling {
         );
         return null;
       }
-      const wrote = await writeTelegramFetchResponseToFile(resp, destPath);
-      if (!wrote) return null;
+      const storageRef = await writeTelegramFetchResponseToFile(
+        resp,
+        groupDir,
+        finalName,
+      );
+      if (!storageRef) return null;
+      const destPath = path.join(groupDir, ...storageRef.split('/'));
       logger.info({ fileId, storageRef }, 'Telegram file downloaded');
       return { filePath: destPath, storageRef };
     } catch (err) {
+      if (isFileExistsError(err)) throw err;
       logger.error(
         { fileId, error: this.sanitizeErrorMessage(err) },
         'Failed to download Telegram file',
@@ -643,6 +672,15 @@ export abstract class TelegramChannelPrompts extends TelegramChannelPolling {
       return null;
     }
   }
+}
+
+function isFileExistsError(error: unknown): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    error.code === 'EEXIST'
+  );
 }
 
 function formatTelegramUserQuestionPlainText(

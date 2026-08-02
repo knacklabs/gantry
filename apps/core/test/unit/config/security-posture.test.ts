@@ -51,11 +51,20 @@ describe('runtime security posture', () => {
         GANTRY_RUNTIME_ENV: 'remote',
       }).requiresProductionSecrets,
     ).toBe(true);
+  });
+
+  it('never requires an enforcing sandbox regardless of posture (two-axis model)', () => {
     expect(
-      resolveRuntimeSecurityPosture({
-        GANTRY_SECURITY_POSTURE: 'remote',
-      }).requiresEnforcingSandbox,
-    ).toBe(true);
+      resolveRuntimeSecurityPosture({ NODE_ENV: 'production' })
+        .requiresEnforcingSandbox,
+    ).toBe(false);
+    expect(
+      resolveRuntimeSecurityPosture({ GANTRY_SECURITY_POSTURE: 'remote' })
+        .requiresEnforcingSandbox,
+    ).toBe(false);
+    expect(resolveRuntimeSecurityPosture({}).requiresEnforcingSandbox).toBe(
+      false,
+    );
   });
 
   it('allows local development without production secret material', () => {
@@ -73,7 +82,6 @@ describe('runtime security posture', () => {
 
     expect(failures).toEqual(
       expect.arrayContaining([
-        expect.stringContaining('runtime.sandbox.provider'),
         expect.stringContaining('SECRET_ENCRYPTION_KEY'),
         expect.stringContaining('GANTRY_IPC_AUTH_SECRET'),
         expect.stringContaining('REMOTE_CONTROL_AUTO_ACCEPT'),
@@ -153,7 +161,7 @@ describe('runtime security posture', () => {
     ).toEqual([]);
   });
 
-  it('requires sandbox_runtime only for production or remote posture', () => {
+  it('does not require sandbox_runtime for any posture (two-axis model)', () => {
     expect(
       validateProductionSecurityGate({
         env: {},
@@ -161,28 +169,24 @@ describe('runtime security posture', () => {
       }),
     ).toEqual([]);
 
-    const failures = validateProductionSecurityGate({
-      env: {
-        NODE_ENV: 'production',
-        SECRET_ENCRYPTION_KEY: encryptionKey,
-        GANTRY_IPC_AUTH_SECRET: strongIpcSecret,
-        GANTRY_CONTROL_API_KEYS_JSON: JSON.stringify([
-          {
-            kid: 'admin',
-            token: strongToken,
-            appId: 'default',
-            scopes: ['sessions:read'],
-          },
-        ]),
-      },
-      sandboxProvider: 'direct',
-    });
-
-    expect(failures).toEqual([
-      expect.stringContaining(
-        'runtime.sandbox.provider must be sandbox_runtime',
-      ),
-    ]);
+    expect(
+      validateProductionSecurityGate({
+        env: {
+          NODE_ENV: 'production',
+          SECRET_ENCRYPTION_KEY: encryptionKey,
+          GANTRY_IPC_AUTH_SECRET: strongIpcSecret,
+          GANTRY_CONTROL_API_KEYS_JSON: JSON.stringify([
+            {
+              kid: 'admin',
+              token: strongToken,
+              appId: 'default',
+              scopes: ['sessions:read'],
+            },
+          ]),
+        },
+        sandboxProvider: 'direct',
+      }),
+    ).toEqual([]);
   });
 
   it('rejects keyrings that do not match the credential crypto contract', () => {

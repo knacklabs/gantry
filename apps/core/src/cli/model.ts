@@ -1,8 +1,4 @@
 import {
-  preflightModelProvider,
-  type ModelProviderPreflightResult,
-} from '../adapters/llm/model-provider-preflight.js';
-import {
   DEFAULT_SETUP_MODEL_ALIAS,
   memoryModelDefaultsForProvider,
   resolveModelSelection,
@@ -40,15 +36,17 @@ import {
 import { controlApiRequest } from './control-api.js';
 import type { ModelPreviewResponse } from './model-preview-types.js';
 import { formatPreviewWhy, parseAgentFlag } from './model-preview-format.js';
+import {
+  runWithModelCommandPreflight,
+  type CliModelProviderPreflight,
+} from './model-command-preflight.js';
 type ModelCommandSettings = ReturnType<typeof ensureRuntimeSettings>;
 interface ModelCommandOptions {
-  preflightProvider?: (
-    runtimeHome: string,
-    providerId: string,
-    settings: ModelCommandSettings,
-    chatAlias?: string,
-  ) => Promise<ModelProviderPreflightResult>;
+  preflightProvider?: CliModelProviderPreflight;
 }
+type ModelCommandInnerOptions = ModelCommandOptions & {
+  preflightProvider: NonNullable<ModelCommandOptions['preflightProvider']>;
+};
 
 function usage(): string {
   return `Usage:
@@ -69,12 +67,7 @@ function usage(): string {
 async function preflightAliasProviders(input: {
   runtimeHome: string;
   settings: ModelCommandSettings;
-  preflight: (
-    runtimeHome: string,
-    providerId: string,
-    settings: ModelCommandSettings,
-    chatAlias?: string,
-  ) => Promise<ModelProviderPreflightResult>;
+  preflight: CliModelProviderPreflight;
   aliases: Array<{ alias: string | undefined; workload: ModelWorkload }>;
 }): Promise<boolean> {
   const providers = new Map<string, string | undefined>();
@@ -305,22 +298,14 @@ function parseProviderFlag(args: string[]): string | undefined {
       : undefined;
 }
 
-export async function runModelCommand(
+async function runModelCommandInner(
   runtimeHome: string,
   args: string[],
-  options: ModelCommandOptions = {},
+  options: ModelCommandInnerOptions,
 ): Promise<number> {
   const [action, target, alias] = args;
   const settings = ensureRuntimeSettings(runtimeHome);
-  const preflight =
-    options.preflightProvider ??
-    ((runtimeHome, providerId, settings, chatAlias) =>
-      preflightModelProvider({
-        runtimeHome,
-        providerId,
-        chatAlias,
-        settings,
-      }));
+  const preflight = options.preflightProvider;
 
   const persistSettings = async (
     previousSettings: RuntimeSettings,
@@ -709,4 +694,17 @@ export async function runModelCommand(
 
   console.error(usage());
   return 1;
+}
+
+export async function runModelCommand(
+  runtimeHome: string,
+  args: string[],
+  options: ModelCommandOptions = {},
+): Promise<number> {
+  return runWithModelCommandPreflight({
+    runtimeHome,
+    preflightProvider: options.preflightProvider,
+    run: (preflightProvider) =>
+      runModelCommandInner(runtimeHome, args, { preflightProvider }),
+  });
 }

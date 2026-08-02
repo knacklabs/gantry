@@ -146,6 +146,48 @@ describe('OpenAI memory LLM client', () => {
     expect(revokeMock).toHaveBeenCalledTimes(1);
   });
 
+  it('reports GPT-5.6 cache-write usage from a native OpenAI response', async () => {
+    const fetchMock = vi.fn(async () =>
+      Response.json({
+        choices: [{ message: { content: 'cached result' } }],
+        usage: {
+          prompt_tokens: 1000,
+          completion_tokens: 20,
+          prompt_tokens_details: {
+            cached_tokens: 400,
+            cache_write_tokens: 100,
+          },
+        },
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { createOpenAiMemoryLlmClient } =
+      await import('@core/adapters/llm/openai-memory/openai-memory-llm-client.js');
+    const usageSeen: MemoryLlmUsage[] = [];
+
+    await createOpenAiMemoryLlmClient().query({
+      appId: 'default' as never,
+      model: 'gpt-5.6-terra',
+      modelProfile: {
+        ...OPENAI_PROFILE,
+        alias: 'gpt-terra',
+        runnerModel: 'gpt-5.6-terra',
+      },
+      prompt: 'remember this',
+      onUsage: (usage) => usageSeen.push(usage),
+    });
+
+    expect(usageSeen).toEqual([
+      {
+        input_tokens: 500,
+        output_tokens: 20,
+        cache_read_input_tokens: 400,
+        cache_creation_input_tokens: 100,
+      },
+    ]);
+  });
+
   it('requires the permission verdict schema for single-request classifier queries', async () => {
     const fetchMock = vi.fn(
       async () =>

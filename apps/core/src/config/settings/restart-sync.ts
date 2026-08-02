@@ -6,6 +6,7 @@ import {
   type McpBindingAuthorityPrecondition,
 } from '../../domain/mcp/mcp-servers.js';
 import type { SettingsRevisionRepository } from '../../domain/ports/fleet-capability-state.js';
+import type { RuntimeLeasePort } from '../../domain/ports/runtime-lease.js';
 import type { SettingsRevisionMirror } from './settings-import-service.js';
 import type {
   SettingsDesiredStateOps,
@@ -49,6 +50,7 @@ export async function applyRuntimeSettingsDesiredState(input: {
   ops: SettingsDesiredStateOps;
   repositories: SettingsDesiredStateRepositories;
   appId?: AppId;
+  forwardCorrected: boolean;
   previousSettings?: RuntimeSettings;
   reloadRuntimeState?: () => Promise<void>;
   expectedMcpBindingAgentIds?: AgentId[];
@@ -107,8 +109,14 @@ export async function applyRuntimeSettingsDesiredState(input: {
     await input.reloadRuntimeState?.();
     activateRuntimeModelAliases(rollbackSettings);
   };
+  const reconcileBeforeSave =
+    expectedMcpBindingAgentIds !== undefined ||
+    input.expectedMcpBindings !== undefined;
   let forwardReconcileApplied = false;
   try {
+    if (!reconcileBeforeSave) {
+      saveRuntimeSettings(input.runtimeHome, settings);
+    }
     const reconcile = await service.reconcile(reconcileSettings, {
       expectedMcpBindingAgentIds,
       expectedMcpBindings: input.expectedMcpBindings,
@@ -119,14 +127,17 @@ export async function applyRuntimeSettingsDesiredState(input: {
       );
     }
     forwardReconcileApplied = true;
-    saveRuntimeSettings(input.runtimeHome, settings);
+    if (reconcileBeforeSave) {
+      saveRuntimeSettings(input.runtimeHome, settings);
+    }
     await input.reloadRuntimeState?.();
     activateRuntimeModelAliases(settings);
     return settings;
   } catch (err) {
     if (
-      forwardReconcileApplied ||
-      !(err instanceof McpBindingAuthorityChangedError)
+      !input.forwardCorrected &&
+      (forwardReconcileApplied ||
+        !(err instanceof McpBindingAuthorityChangedError))
     ) {
       await rollback();
     }
@@ -144,6 +155,7 @@ export async function syncRuntimeSettingsFromProjection(input: {
   pool?: SettingsRevisionMirror['pool'];
   createdBy?: string;
   overrides?: ProjectionSettingsOverrides;
+  leases?: RuntimeLeasePort;
 }): Promise<void> {
   const service = new SettingsDesiredStateService({
     ops: input.ops,
@@ -182,6 +194,7 @@ export async function syncRuntimeSettingsFromProjection(input: {
               createdBy: input.createdBy ?? 'projection-sync',
             },
             revisionMirrorRequired: true,
+            leases: input.leases,
           },
           exported,
         );
@@ -205,6 +218,7 @@ export async function syncRuntimeSettingsFromProjection(input: {
     await applyRuntimeSettingsDesiredState({
       ...input,
       settings: exported,
+      forwardCorrected: false,
       previousSettings: settings,
     });
     return;
@@ -224,6 +238,7 @@ export async function addAgentToolRulesToSyncedRuntimeSettings(input: {
   createdBy?: string;
   expectedMcpBindings?: McpBindingAuthorityPrecondition[];
   mcpCapabilityGrantToken?: string;
+  leases?: RuntimeLeasePort;
 }): Promise<void> {
   for (let attempt = 0; attempt <= MAX_STALE_SETTINGS_RETRIES; attempt += 1) {
     const base = await loadSyncedMutationBaseSettings({
@@ -300,6 +315,7 @@ export async function addAgentToolRulesToSyncedRuntimeSettings(input: {
               createdBy: input.createdBy ?? 'permission:persistent-tool-rule',
             },
             revisionMirrorRequired: true,
+            leases: input.leases,
             expectedRevision: base.expectedRevision,
             expectedMcpBindingAgentIds,
             expectedMcpBindings,
@@ -327,10 +343,11 @@ export async function addAgentToolRulesToSyncedRuntimeSettings(input: {
     await applyRuntimeSettingsDesiredState({
       runtimeHome: input.runtimeHome,
       settings: nextSettings,
-      previousSettings,
       ops: input.ops,
       repositories: input.repositories,
       appId: input.appId,
+      forwardCorrected: false,
+      previousSettings,
       reloadRuntimeState: input.reloadRuntimeState,
       expectedMcpBindingAgentIds,
       expectedMcpBindings,
@@ -516,6 +533,7 @@ export async function removeAgentToolRulesFromSyncedRuntimeSettings(input: {
   settingsRevisions?: SettingsRevisionRepository;
   pool?: SettingsRevisionMirror['pool'];
   createdBy?: string;
+  leases?: RuntimeLeasePort;
 }): Promise<void> {
   const base = await loadSyncedMutationBaseSettings({
     runtimeHome: input.runtimeHome,
@@ -566,6 +584,7 @@ export async function removeAgentToolRulesFromSyncedRuntimeSettings(input: {
           createdBy: input.createdBy ?? 'permission:persistent-tool-rule',
         },
         revisionMirrorRequired: true,
+        leases: input.leases,
         expectedRevision: base.expectedRevision,
         expectedMcpBindingAgentIds,
         expectedMcpBindings,
@@ -582,10 +601,11 @@ export async function removeAgentToolRulesFromSyncedRuntimeSettings(input: {
   await applyRuntimeSettingsDesiredState({
     runtimeHome: input.runtimeHome,
     settings: nextSettings,
-    previousSettings,
     ops: input.ops,
     repositories: input.repositories,
     appId: input.appId,
+    forwardCorrected: false,
+    previousSettings,
     reloadRuntimeState: input.reloadRuntimeState,
     expectedMcpBindingAgentIds,
     expectedMcpBindings,

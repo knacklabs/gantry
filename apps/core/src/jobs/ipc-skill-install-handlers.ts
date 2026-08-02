@@ -9,10 +9,13 @@ import {
   materializedSkillDirectoryNameFor,
   type SkillCatalogItem,
 } from '../domain/skills/skills.js';
-import { memoryAgentIdForWorkspaceFolder } from '../memory/app-memory-boundaries.js';
 import { formatNotApprovedMessage } from '../shared/user-visible-messages.js';
 import { createTaskResponder, toTrimmedString } from './ipc-shared.js';
 import type { TaskHandler } from './ipc-types.js';
+import {
+  resolveTaskAgentId,
+  validateSameChannelApprovalTarget,
+} from './ipc-skill-request-context.js';
 import { startSkillPermissionReview } from './ipc-skill-permission-review.js';
 import {
   formatArgvForDisplay,
@@ -33,6 +36,7 @@ import {
   skillNameForReceipt,
   type ApprovedCommandSkillInstallResult,
 } from './skill-install-assets.js';
+import { skillMaterializationLockKey } from '../shared/skill-install-lock.js';
 import { parseSkillPackageAssets } from './skill-package-ipc.js';
 import { claimPatternCandidateForSkillProposal } from './pattern-candidate-skill-proposal.js';
 import {
@@ -207,11 +211,12 @@ async function completeSkillInstallCommandReview(input: {
 }) {
   const { context } = input;
   const { data, deps, sourceAgentFolder } = context;
+  const agentId = resolveTaskAgentId(data, sourceAgentFolder);
   try {
     const decision = await deps.requestPermissionApproval({
       requestId: `skill-install-command-${globalThis.crypto.randomUUID()}`,
       appId: data.appId as never,
-      agentId: memoryAgentIdForWorkspaceFolder(sourceAgentFolder) as never,
+      agentId,
       sourceAgentFolder,
       targetJid: input.targetJid,
       threadId: data.authThreadId,
@@ -267,7 +272,7 @@ async function completeSkillInstallCommandReview(input: {
     }
     const installed = await installSkillFromApprovedCommand({
       appId: data.appId as never,
-      agentId: memoryAgentIdForWorkspaceFolder(sourceAgentFolder) as never,
+      agentId,
       sourceAgentFolder,
       installCommandArgv: input.installCommandArgv,
       requiredEnvVars: sanitizedStringList(
@@ -347,6 +352,7 @@ const requestSkillPackageHandler = async (
     );
     return;
   }
+  const agentId = resolveTaskAgentId(data, sourceAgentFolder);
   const reason = toTrimmedString(payload.reason, { maxLen: 2000 }) || '';
   if (!reason) {
     reject('Missing required field: reason.', 'invalid_request');
@@ -381,7 +387,7 @@ const requestSkillPackageHandler = async (
 
   const pendingKey = [
     data.appId,
-    sourceAgentFolder,
+    agentId,
     requestedTargetJid,
     data.authThreadId || '',
     input.requestToolName,
@@ -439,7 +445,7 @@ const requestSkillPackageHandler = async (
       syncApprovedCapabilitySettings:
         getRuntimeDeps().syncApprovedCapabilitySettings,
       appId: data.appId as never,
-      agentId: memoryAgentIdForWorkspaceFolder(sourceAgentFolder) as never,
+      agentId,
       sourceAgentFolder,
       targetJid: requestedTargetJid,
       threadId: data.authThreadId,
@@ -494,41 +500,6 @@ function skillInstallMessageOptions(data: Parameters<TaskHandler>[0]['data']) {
     : undefined;
 }
 
-function validateSameChannelApprovalTarget(input: {
-  data: Parameters<TaskHandler>[0]['data'];
-  sourceAgentFolderJids: string[];
-  requestKind: string;
-  reject: (error: string, code?: string, details?: string[]) => void;
-}): string | null {
-  const requestedTargetJid = toTrimmedString(input.data.chatJid, {
-    maxLen: 512,
-  });
-  const targetOverride = toTrimmedString(
-    input.data.targetJid || input.data.jid,
-    {
-      maxLen: 512,
-    },
-  );
-  if (targetOverride && targetOverride !== requestedTargetJid) {
-    input.reject(
-      `${input.requestKind} requests must use the originating chat as the approval target.`,
-      'forbidden',
-    );
-    return null;
-  }
-  if (
-    !requestedTargetJid ||
-    !input.sourceAgentFolderJids.includes(requestedTargetJid)
-  ) {
-    input.reject(
-      `${input.requestKind} requests must include the originating chat for this agent.`,
-      'forbidden',
-    );
-    return null;
-  }
-  return requestedTargetJid;
-}
-
 function skillPackageParseError(
   requestToolName: 'request_skill_install' | 'request_skill_proposal',
   error: string,
@@ -576,8 +547,10 @@ async function installSkillFromApprovedCommand(input: {
       try {
         const assets = collectInstalledSkillAssets(root);
         name = skillNameForReceipt(assets, name);
-        const materializationKey =
-          materializedSkillDirectoryNameFor(name).toLowerCase();
+        const materializationKey = skillMaterializationLockKey(
+          input.appId,
+          materializedSkillDirectoryNameFor(name),
+        );
         if (installedMaterializationKeys.has(materializationKey)) {
           throw new Error(`Duplicate skill name: ${name}.`);
         }

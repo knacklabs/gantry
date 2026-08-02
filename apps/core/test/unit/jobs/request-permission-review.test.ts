@@ -195,6 +195,86 @@ describe('request permission review helpers', () => {
     }
   });
 
+  it('suggests persistent grants for exact scheduler tool requests', () => {
+    for (const toolName of [
+      'mcp__gantry__scheduler_list_jobs',
+      'mcp__gantry__scheduler_run_now',
+    ]) {
+      expect(
+        requestPermissionReviewSuggestions({
+          permissionKind: 'tool',
+          toolName,
+          temporaryOnly: false,
+        }),
+      ).toEqual([
+        {
+          type: 'addRules',
+          behavior: 'allow',
+          destination: 'session',
+          rules: [{ toolName }],
+        },
+      ]);
+      expect(
+        requestPermissionSetupDecisionOptions({
+          permissionKind: 'tool',
+          toolName,
+          temporaryOnly: false,
+        }),
+      ).toContain('allow_persistent_rule');
+    }
+  });
+
+  it('suggests persistent grants for scheduler mutation tool requests', () => {
+    for (const toolName of [
+      'mcp__gantry__scheduler_upsert_job',
+      'mcp__gantry__scheduler_update_job',
+      'mcp__gantry__scheduler_delete_job',
+      'mcp__gantry__scheduler_pause_job',
+      'mcp__gantry__scheduler_resume_job',
+    ]) {
+      expect(
+        requestPermissionSetupDecisionOptions({
+          permissionKind: 'tool',
+          toolName,
+          temporaryOnly: false,
+        }),
+        toolName,
+      ).toContain('allow_persistent_rule');
+    }
+  });
+
+  it('suggests grantable admin tools but excludes all four non-durable categories', () => {
+    expect(
+      requestPermissionReviewSuggestions({
+        permissionKind: 'tool',
+        toolName: 'mcp__gantry__admin_permission_list',
+        temporaryOnly: false,
+      }),
+    ).toEqual([
+      {
+        type: 'addRules',
+        behavior: 'allow',
+        destination: 'session',
+        rules: [{ toolName: 'mcp__gantry__admin_permission_list' }],
+      },
+    ]);
+    for (const toolName of [
+      'mcp__gantry__mcp_call_tool',
+      'mcp__gantry__delegate_task',
+      'mcp__gantry__admin_permission_revoke',
+      'mcp__gantry__memory_review_decision',
+    ]) {
+      expect(
+        requestPermissionReviewSuggestions({
+          permissionKind: 'tool',
+          toolName,
+          temporaryOnly: false,
+        }),
+        toolName,
+      ).toBeUndefined();
+    }
+  });
+
   it('prefers explicit scoped RunCommand permission over capability metadata on setup requests', () => {
     expect(
       requestPermissionReviewSuggestions({
@@ -545,13 +625,13 @@ describe('request permission review helpers', () => {
     );
   });
 
-  it('binds exact admin MCP tools without creating synthetic wildcard grants', async () => {
+  it('binds grantable exact admin MCP tools without creating synthetic wildcard grants', async () => {
     const ipcDir = fs.mkdtempSync(
       path.join(os.tmpdir(), 'gantry-admin-live-tool-rules-'),
     );
     const repository = {
       getTool: vi.fn(async () => ({
-        id: 'tool:mcp__gantry__service_restart',
+        id: 'tool:mcp__gantry__admin_permission_list',
         appId: 'app:test',
         status: 'active',
         selectable: true,
@@ -573,19 +653,19 @@ describe('request permission review helpers', () => {
         {
           type: 'addRules',
           behavior: 'allow',
-          rules: [{ toolName: 'mcp__gantry__service_restart' }],
+          rules: [{ toolName: 'mcp__gantry__admin_permission_list' }],
         },
       ],
     });
 
-    expect(persisted).toEqual(['mcp__gantry__service_restart']);
+    expect(persisted).toEqual(['mcp__gantry__admin_permission_list']);
     expect(repository.getTool).toHaveBeenCalledWith(
-      'tool:mcp__gantry__service_restart',
+      'tool:mcp__gantry__admin_permission_list',
     );
     expect(repository.saveTool).not.toHaveBeenCalled();
     expect(repository.saveAgentToolBinding).toHaveBeenCalledWith(
       expect.objectContaining({
-        toolId: 'tool:mcp__gantry__service_restart',
+        toolId: 'tool:mcp__gantry__admin_permission_list',
         status: 'active',
       }),
     );
@@ -596,7 +676,7 @@ describe('request permission review helpers', () => {
           'utf-8',
         ),
       ),
-    ).toEqual(['mcp__gantry__service_restart']);
+    ).toEqual(['mcp__gantry__admin_permission_list']);
   });
 
   it('binds persistent Browser approvals to the catalog Browser tool and mirrors settings', async () => {
@@ -1299,6 +1379,57 @@ describe('request permission review helpers', () => {
     );
   });
 
+  it('binds exact scheduler MCP persistent approvals to scheduler catalog tools', async () => {
+    const mirrorAgentToolRulesToSettings = vi.fn(async () => undefined);
+    const repository = {
+      getTool: vi.fn(async (toolId: string) =>
+        toolId === 'tool:mcp__gantry__scheduler_run_now'
+          ? {
+              id: 'tool:mcp__gantry__scheduler_run_now',
+              appId: 'app:test',
+              name: 'mcp__gantry__scheduler_run_now',
+              status: 'active',
+              selectable: true,
+            }
+          : null,
+      ),
+      listTools: vi.fn(async () => []),
+      saveTool: vi.fn(async () => undefined),
+      saveAgentToolBinding: vi.fn(async () => undefined),
+      disableAgentToolBinding: vi.fn(async () => null),
+    };
+
+    const persisted = await persistRequestPermissionRules({
+      appId: 'app:test' as never,
+      agentId: 'agent:test' as never,
+      deps: {
+        getToolRepository: () => repository as never,
+        mirrorAgentToolRulesToSettings,
+      },
+      sourceAgentFolder: 'main_agent',
+      updates: [
+        {
+          type: 'addRules',
+          behavior: 'allow',
+          rules: [{ toolName: 'mcp__gantry__scheduler_run_now' }],
+        },
+      ],
+    });
+
+    expect(persisted).toEqual(['mcp__gantry__scheduler_run_now']);
+    expect(repository.saveTool).not.toHaveBeenCalled();
+    expect(repository.saveAgentToolBinding).toHaveBeenCalledWith(
+      expect.objectContaining({
+        toolId: 'tool:mcp__gantry__scheduler_run_now',
+      }),
+    );
+    expect(mirrorAgentToolRulesToSettings).toHaveBeenCalledWith(
+      'main_agent',
+      ['mcp__gantry__scheduler_run_now'],
+      { appId: 'app:test' },
+    );
+  });
+
   it('writes approved persistent tools to the current run live permission file', async () => {
     const ipcDir = fs.mkdtempSync(
       path.join(os.tmpdir(), 'gantry-live-tool-rules-'),
@@ -1707,7 +1838,7 @@ describe('request permission review helpers', () => {
   it('rejects scoped admin MCP tool approvals', async () => {
     const repository = {
       getTool: vi.fn(async () => ({
-        id: 'tool:mcp__gantry__service_restart',
+        id: 'tool:mcp__gantry__admin_permission_list',
         appId: 'app:test',
         status: 'active',
         selectable: true,
@@ -1730,7 +1861,7 @@ describe('request permission review helpers', () => {
             behavior: 'allow',
             rules: [
               {
-                toolName: 'mcp__gantry__service_restart',
+                toolName: 'mcp__gantry__admin_permission_list',
                 ruleContent: 'reason=test',
               },
             ],

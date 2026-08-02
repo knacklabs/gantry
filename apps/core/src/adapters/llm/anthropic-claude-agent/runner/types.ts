@@ -26,6 +26,7 @@ export interface AgentRunnerInput {
   memoryReviewerIsControlApprover?: boolean;
   persona?: AgentPersona;
   browserProfileName?: string;
+  browserTurnToken?: string;
   allowedTools?: string[];
   toolRules?: DeclarativeToolRule[];
   toolAccessRequirements?: string[];
@@ -119,6 +120,14 @@ export interface PermissionDecision {
   mode?: 'allow_once' | 'allow_persistent_rule' | 'cancel';
   decidedBy?: string;
   reason?: string;
+  risk_level?: 'low' | 'medium' | 'high' | 'critical';
+  risk_category?:
+    | 'destructive'
+    | 'privileged'
+    | 'secret'
+    | 'network'
+    | 'filesystem'
+    | 'benign';
   updatedPermissions?: unknown[];
   decisionClassification?: 'user_temporary' | 'user_permanent' | 'user_reject';
 }

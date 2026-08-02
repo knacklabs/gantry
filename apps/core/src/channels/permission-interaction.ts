@@ -35,6 +35,7 @@ import {
 } from './permission-agent-display.js';
 import {
   formatPermissionToolInputLines,
+  permissionRiskLines,
   runtimeDisplayCommand,
 } from './permission-tool-input-format.js';
 import {
@@ -82,6 +83,7 @@ const USER_FACING_TOOL_LABELS: Record<string, string> = {
   AgentDelegation: 'agent delegation',
   Agent: 'agent delegation',
   Task: 'agent delegation',
+  mcp__gantry__mcp_call_tool: 'MCP Call Tool (any connected server)',
 };
 
 export function permissionButtonLabel(
@@ -124,9 +126,8 @@ export function formatPermissionPromptText(
     );
   }
   const label = permissionAccessLabel(request);
-  const lines = [
-    `🔐 ${permissionPromptTitle(request.sourceAgentFolder, label)}`,
-  ];
+  const title = permissionPromptTitle(request.sourceAgentFolder, label);
+  const lines = [`🔐 ${title}`, ...permissionRiskLines(request)];
   const inputLines = formatPermissionToolInputLines(
     request,
     sanitizePermissionText,
@@ -188,17 +189,10 @@ function isMcpCapabilityProposal(
 
 export const PERMISSION_GLYPH = '🔐';
 
-/**
- * Structured view of a permission prompt for provider-native renderers
- * (Slack blocks, Telegram HTML). The plain-text `formatPermissionPromptText`
- * above remains the canonical fallback; keep both in sync when fields change.
- */
+/** Provider-native prompt view; keep in sync with the plain-text formatter. */
 export interface PermissionPromptParts {
-  /** Title without the glyph, e.g. "Allow exact command access?" */
   title: string;
-  /** Tool-input / field lines. May contain ``` fenced code regions. */
   bodyLines: string[];
-  /** Dim metadata lines (agent · source, routing note). */
   contextLines: string[];
   replyInMinutes: number;
   fullView?: PermissionPromptFullView;
@@ -221,7 +215,7 @@ export function buildPermissionPromptParts(
       request.sourceAgentFolder,
       capabilityName ?? permissionAccessLabel(request),
     );
-    const bodyLines: string[] = [];
+    const bodyLines = permissionRiskLines(request);
     const accountLabel = request.toolInput?.accountLabel;
     if (typeof accountLabel === 'string' && accountLabel.trim()) {
       bodyLines.push(
@@ -263,7 +257,7 @@ export function buildPermissionPromptParts(
   const capabilityName = semanticCapabilityName(request, rule);
   if (capabilityName) {
     const definition = semanticCapabilityDefinition(request, rule);
-    const bodyLines: string[] = [];
+    const bodyLines = permissionRiskLines(request);
     const accountLabel =
       definition?.accountLabel ?? request.toolInput?.accountLabel;
     if (typeof accountLabel === 'string' && accountLabel.trim()) {
@@ -271,8 +265,10 @@ export function buildPermissionPromptParts(
         `Account: ${sanitizePermissionText(accountLabel.trim(), 100, 40)}`,
       );
     }
-    if (definition?.risk) {
-      bodyLines.push(`Risk: ${humanizeIdentifier(definition.risk)}`);
+    if (!request.risk_category && definition?.risk) {
+      if (request.risk_level)
+        bodyLines[0] = `${bodyLines[0]} — ${humanizeIdentifier(definition.risk)}`;
+      else bodyLines.push(`Risk: ${humanizeIdentifier(definition.risk)}`);
     }
     const networkLine = semanticCapabilityNetworkLine(definition);
     if (networkLine) bodyLines.push(networkLine);
@@ -285,11 +281,12 @@ export function buildPermissionPromptParts(
     };
   }
   const label = permissionAccessLabel(request);
-  const bodyLines = formatPermissionToolInputLines(
-    request,
-    sanitizePermissionText,
-    { sanitizeCommandText: sanitizePermissionCommandText },
-  );
+  const bodyLines = [
+    ...permissionRiskLines(request),
+    ...formatPermissionToolInputLines(request, sanitizePermissionText, {
+      sanitizeCommandText: sanitizePermissionCommandText,
+    }),
+  ];
   if (request.blockedPath) {
     bodyLines.push(
       `Path: ${sanitizePermissionText(request.blockedPath, 250, 100)}`,
@@ -377,7 +374,7 @@ function formatInteractionPermissionPrompt(
     request.sourceAgentFolder,
     capabilityName ?? permissionAccessLabel(request),
   )}`;
-  const lines = [title];
+  const lines = [title, ...permissionRiskLines(request)];
   const accountLabel = request.toolInput?.accountLabel;
   if (typeof accountLabel === 'string' && accountLabel.trim()) {
     lines.push(
@@ -428,6 +425,7 @@ function formatSemanticPermissionPrompt(
   const definition = semanticCapabilityDefinition(request, rule);
   const lines = [
     `🔐 ${permissionPromptTitle(request.sourceAgentFolder, capabilityName)}`,
+    ...permissionRiskLines(request),
   ];
   const accountLabel =
     definition?.accountLabel ?? request.toolInput?.accountLabel;
@@ -436,8 +434,10 @@ function formatSemanticPermissionPrompt(
       `Account: ${sanitizePermissionText(accountLabel.trim(), 100, 40)}`,
     );
   }
-  if (definition?.risk) {
-    lines.push(`Risk: ${humanizeIdentifier(definition.risk)}`);
+  if (!request.risk_category && definition?.risk) {
+    if (request.risk_level)
+      lines[1] = `${lines[1]} — ${humanizeIdentifier(definition.risk)}`;
+    else lines.push(`Risk: ${humanizeIdentifier(definition.risk)}`);
   }
   const networkLine = semanticCapabilityNetworkLine(definition);
   if (networkLine) lines.push(networkLine);

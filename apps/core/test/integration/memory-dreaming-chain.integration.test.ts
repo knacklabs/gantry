@@ -69,10 +69,12 @@ const DM_USER_ID = 'tg:user-77';
 const DM_CHAT_JID = 'tg:dm-77';
 
 const CHANNEL_CONTEXT = {
+  appId: 'default',
   chatJid: CHANNEL_CHAT_JID,
   defaultScope: 'group' as const,
 };
 const DM_CONTEXT = {
+  appId: 'default',
   chatJid: DM_CHAT_JID,
   userId: DM_USER_ID,
   defaultScope: 'user' as const,

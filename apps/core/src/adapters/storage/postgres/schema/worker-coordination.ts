@@ -1,6 +1,7 @@
 import { sql } from 'drizzle-orm';
 import {
   type AnyPgColumn,
+  bigint,
   index,
   integer,
   jsonb,
@@ -371,4 +372,33 @@ export const transientGrantsPostgres = pgTable(
   (table) => ({
     runIdx: index('idx_transient_grants_run').on(table.runId, table.expiresAt),
   }),
+);
+
+/**
+ * Durable ownership generation per RuntimeLeasePort key.
+ *
+ * `run_leases` above already fences RUNS, but it is primary-keyed on
+ * (run_id, fencing_version) with NOT NULL foreign keys to agent_runs and
+ * worker_instances, so it cannot host arbitrary advisory-lease keys like
+ * `browser-profile:<name>` or `settings-projector:<appId>`. This table gives
+ * those keys the same monotonic-fence discipline: the generation is bumped on
+ * acquisition and handed to the holder, so a stale owner's late write can be
+ * rejected by comparing generations.
+ *
+ * The bump runs on the connection that already holds the advisory lock, which
+ * is what serializes it — there is no separate lock here.
+ */
+export const runtimeLeaseGenerationsPostgres = pgTable(
+  'runtime_lease_generations',
+  {
+    leaseKey: text('lease_key').primaryKey(),
+    generation: bigint('generation', { mode: 'number' }).notNull(),
+    // Diagnostic only: who most recently took the key. Never used for control
+    // decisions — the generation is the fence.
+    holder: text('holder'),
+    updatedAt: timestamp('updated_at', {
+      withTimezone: true,
+      mode: 'string',
+    }).notNull(),
+  },
 );

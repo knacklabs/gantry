@@ -7,8 +7,8 @@ import type {
 import type { NewMessage } from '../../domain/types.js';
 import type { LiveAdmissionWorkItemEnqueueResult } from '../../domain/ports/live-turns.js';
 import {
-  normalizeRuntimeEventConversationId,
-  normalizeRuntimeEventThreadId,
+  isRuntimeEventConversationFkId,
+  isRuntimeEventThreadFkId,
 } from '../../domain/events/runtime-event-conversation.js';
 import type { RuntimeEventRepository } from '../../domain/ports/repositories.js';
 import { runtimeEventMatchesFilter } from '../../domain/events/runtime-event-filter.js';
@@ -118,32 +118,74 @@ export class RuntimeEventExchange {
 function normalizeRuntimeEventPublishInput(
   input: RuntimeEventPublishInput,
 ): RuntimeEventPublishInput {
-  const conversationId = normalizeRuntimeEventConversationId(
-    input.conversationId,
-  );
-  const threadId = normalizeRuntimeEventThreadId({
-    conversationId,
-    threadId: input.threadId,
-  });
-  return conversationId === input.conversationId && threadId === input.threadId
-    ? input
-    : { ...input, conversationId, threadId };
+  // Only real FK ids ride the indexed columns; live route identifiers move
+  // into the payload. The previous normalize() merely prefixed a raw jid with
+  // 'conversation:', fabricating ids that reference no conversations row —
+  // a review asking to restore it was rejected for exactly that reason.
+  const routeConversationId = input.conversationId?.trim();
+  const routeThreadId = input.threadId?.trim();
+  const conversationId = isRuntimeEventConversationFkId(routeConversationId)
+    ? routeConversationId
+    : undefined;
+  const threadId = isRuntimeEventThreadFkId(routeThreadId)
+    ? routeThreadId
+    : undefined;
+  if (conversationId === input.conversationId && threadId === input.threadId) {
+    return input;
+  }
+  const {
+    conversationId: _inputConversationId,
+    threadId: _inputThreadId,
+    payload,
+    ...rest
+  } = input;
+  return {
+    ...rest,
+    ...(conversationId ? { conversationId } : {}),
+    ...(threadId ? { threadId } : {}),
+    payload: payloadWithRouteContext({
+      payload,
+      conversationJid:
+        routeConversationId && !conversationId
+          ? routeConversationId
+          : undefined,
+      threadId: routeThreadId && !threadId ? routeThreadId : undefined,
+    }),
+  };
+}
+
+function payloadWithRouteContext(input: {
+  payload: unknown;
+  conversationJid?: string;
+  threadId?: string;
+}): unknown {
+  if (
+    input.payload === null ||
+    typeof input.payload !== 'object' ||
+    Array.isArray(input.payload)
+  ) {
+    return input.payload;
+  }
+  const payload = input.payload as Record<string, unknown>;
+  return {
+    ...payload,
+    ...(!('conversationJid' in payload) && input.conversationJid
+      ? { conversationJid: input.conversationJid }
+      : {}),
+    ...(!('threadId' in payload) && input.threadId
+      ? { threadId: input.threadId }
+      : {}),
+  };
 }
 
 function normalizeRuntimeEventFilter(
   filter: RuntimeEventFilter,
 ): RuntimeEventFilter {
-  const conversationId = normalizeRuntimeEventConversationId(
-    filter.conversationId,
-  );
-  const threadId = normalizeRuntimeEventThreadId({
-    conversationId,
-    threadId: filter.threadId,
-  });
-  return conversationId === filter.conversationId &&
-    threadId === filter.threadId
-    ? filter
-    : { ...filter, conversationId, threadId };
+  // The stored columns hold only real FK ids (everything else rides the
+  // payload), so a filter value keeps its exact form: an FK-shaped id can
+  // match, any other value honestly matches nothing. Prefixing raw jids here
+  // would fabricate ids that match nothing anyway while LOOKING canonical.
+  return filter;
 }
 
 const MAX_SUBSCRIPTION_WAKE_WAIT_MS = 15_000;

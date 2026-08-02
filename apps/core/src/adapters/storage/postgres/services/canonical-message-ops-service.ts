@@ -51,6 +51,26 @@ function toStringValue(value: unknown): string | undefined {
   return typeof value === 'string' && value.length > 0 ? value : undefined;
 }
 
+function toIsoTimestamp(value: unknown): string | undefined {
+  const timestamp = toStringValue(value);
+  if (!timestamp) return undefined;
+  const ms = Date.parse(timestamp);
+  return Number.isFinite(ms) ? new Date(ms).toISOString() : timestamp;
+}
+
+function toProviderFetch(
+  value: unknown,
+): NewMessageAttachment['provider_fetch'] | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return undefined;
+  }
+  const record = value as Record<string, unknown>;
+  const provider = toStringValue(record.provider);
+  const kind = toStringValue(record.kind);
+  const id = toStringValue(record.id);
+  return provider && kind && id ? { ...record, provider, kind, id } : undefined;
+}
+
 function agentControlsFromExternalRef(
   ref: Record<string, unknown>,
 ): AgentControls | undefined {
@@ -120,7 +140,10 @@ function mapAttachment(value: unknown): NewMessageAttachment | undefined {
     typeof record.sizeBytes === 'number' && Number.isFinite(record.sizeBytes)
       ? record.sizeBytes
       : undefined;
+  const providerFetch = toProviderFetch(record.provider_fetch);
+  const deletedAt = toIsoTimestamp(record.deleted_at);
   return {
+    ...(toStringValue(record.id) ? { id: toStringValue(record.id) } : {}),
     kind,
     ...(toStringValue(record.contentType)
       ? { contentType: toStringValue(record.contentType) }
@@ -132,6 +155,11 @@ function mapAttachment(value: unknown): NewMessageAttachment | undefined {
     ...(toStringValue(record.storageRef)
       ? { storageRef: toStringValue(record.storageRef) }
       : {}),
+    ...(toStringValue(record.file_name)
+      ? { file_name: toStringValue(record.file_name) }
+      : {}),
+    ...(providerFetch ? { provider_fetch: providerFetch } : {}),
+    ...(deletedAt ? { deleted_at: deletedAt } : {}),
   };
 }
 
@@ -158,7 +186,7 @@ export class CanonicalMessageOpsService {
     const result = await this.repository.saveMessage(msg, {
       liveAdmission: admission,
     });
-    if (result) {
+    if (result && result.outcome !== 'overloaded') {
       await this.notifyLiveAdmissionWorkItem(result);
     }
     return result;
@@ -167,6 +195,7 @@ export class CanonicalMessageOpsService {
   async notifyLiveAdmissionWorkItem(
     result: LiveAdmissionWorkItemEnqueueResult,
   ): Promise<void> {
+    if (result.outcome === 'overloaded') return;
     await this.liveAdmissionNotifier?.notifyLiveAdmissionWorkItem({
       appId: result.item.appId,
       workItemId: result.item.id,

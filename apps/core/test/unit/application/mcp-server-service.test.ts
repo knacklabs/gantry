@@ -103,6 +103,25 @@ class MemoryMcpRepository implements McpServerRepository {
     );
   }
 
+  async listAgentMcpAccessSnapshot(input: { appId: string; agentId: string }) {
+    const activeBindings = (await this.listAgentBindings(input)).filter(
+      (binding) => binding.status === 'active',
+    );
+    const rows = activeBindings.map((binding) => ({
+      binding,
+      definition: this.servers.get(binding.serverId) ?? null,
+    }));
+    return {
+      activeBindings: rows,
+      materializedServers: rows.flatMap((row) =>
+        row.definition?.appId === input.appId &&
+        row.definition.status === 'active'
+          ? [{ binding: row.binding, definition: row.definition }]
+          : [],
+      ),
+    };
+  }
+
   async listAgentBindingsForAgents(input: {
     appId: string;
     agentIds: readonly string[];
@@ -476,6 +495,64 @@ describe('McpServerService', () => {
         agentId: 'agent:one' as never,
       }),
     ).rejects.toThrow(/Required MCP server failed to materialize: github/);
+  });
+
+  it('fails closed when snapshot MCP config belongs to another agent', async () => {
+    const { service } = serviceWithRepo();
+    const serverId = 'mcp:github' as McpServerId;
+
+    await expect(
+      service.materializeForAgent({
+        appId: 'app:one' as never,
+        agentId: 'agent:one' as never,
+        accessSnapshot: {
+          appId: 'app:one',
+          agentId: 'agent:one',
+          tools: { activeBindings: [], appActiveDefinitions: [] },
+          skills: { activeBindings: [], enabledDefinitions: [] },
+          mcp: {
+            activeBindings: [],
+            materializedServers: [
+              {
+                definition: {
+                  id: serverId,
+                  appId: 'app:one',
+                  name: 'github',
+                  status: 'active',
+                  transport: 'http',
+                  config: {
+                    transport: 'http',
+                    url: 'https://mcp.example.test/github',
+                  },
+                  allowedToolPatterns: ['search_*'],
+                  autoApproveToolPatterns: [],
+                  credentialRefs: [],
+                  networkHosts: ['mcp.example.test:443'],
+                  createdSource: 'admin',
+                  riskClass: 'medium',
+                  createdAt: '2026-06-02T00:00:00.000Z',
+                  updatedAt: '2026-06-02T00:00:00.000Z',
+                },
+                binding: {
+                  id: 'mcp-binding:one' as never,
+                  appId: 'app:one',
+                  agentId: 'agent:other',
+                  serverId,
+                  status: 'active',
+                  required: false,
+                  allowedToolPatterns: [],
+                  permissionPolicyIds: [],
+                  createdAt: '2026-06-02T00:00:00.000Z',
+                  updatedAt: '2026-06-02T00:00:00.000Z',
+                },
+              },
+            ],
+          },
+        },
+      }),
+    ).rejects.toThrow(
+      'MCP materialization MCP materialized snapshot row owner mismatch.',
+    );
   });
 
   it('rolls back a newly connected server so failed approvals are retryable', async () => {

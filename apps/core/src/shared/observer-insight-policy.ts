@@ -7,7 +7,11 @@ export type ObserverInsightFloorRejection =
   | 'evidence_count'
   | 'exact_insight_duplicate'
   | 'semantic_insight_duplicate'
-  | 'active_memory_duplicate';
+  | 'active_memory_duplicate'
+  // Owner suppressed this insight type (T1 time-boxed suppression). Dropped
+  // before embedding, so it is never produced by evaluateObserverInsightFloor;
+  // it is the reason vocabulary entry that makes the pre-embed skip observable.
+  | 'type_suppressed';
 
 export type ObserverInsightFloorDecision =
   | { accepted: true }

@@ -11,6 +11,8 @@ import {
   DEFAULT_BROWSER_USAGE_WINDOW_MS,
   DEFAULT_EMBED_DIMENSIONS,
   DEFAULT_EMBED_MODEL,
+  DEFAULT_LLM_GLOBAL_MAX_IN_FLIGHT,
+  DEFAULT_LLM_PER_APP_KEY_MAX_IN_FLIGHT,
   DEFAULT_MEMORY_BACKFILL_CRON,
   DEFAULT_MEMORY_BACKFILL_ENABLED,
   DEFAULT_MEMORY_BACKFILL_MAX_ITEMS_PER_RUN,
@@ -53,7 +55,7 @@ import {
 } from './runtime-settings-optional-blocks-renderer.js';
 import { resolveConfiguredAgentRuntime } from './runtime-settings-agent-runtime.js';
 import { renderProvidersYaml } from './runtime-settings-provider-renderer.js';
-const SYSTEM_DEFAULT_MODEL_ALIAS = 'opus';
+const MODEL = 'opus';
 
 function renderDefaultsYaml(
   lines: string[],
@@ -63,9 +65,7 @@ function renderDefaultsYaml(
   if (agent.name !== DEFAULT_AGENT_NAME) {
     lines.push(`  name: ${quoteYamlString(agent.name)}`);
   }
-  lines.push(
-    `  model: ${quoteYamlString(agent.defaultModel || SYSTEM_DEFAULT_MODEL_ALIAS)}`,
-  );
+  lines.push(`  model: ${quoteYamlString(agent.defaultModel || MODEL)}`);
   if (agent.agentHarness !== 'auto') {
     lines.push(`  agent_harness: ${quoteYamlString(agent.agentHarness)}`);
   }
@@ -193,6 +193,9 @@ function renderPermissionSettingsYaml(
     '  egress:',
     `    denylist: ${JSON.stringify(permissions.egress.denylist)}`,
   );
+  if (permissions.trustedRoots.length > 0) {
+    lines.push(`  trusted_roots: ${JSON.stringify(permissions.trustedRoots)}`);
+  }
   if (permissions.autoMode.model) {
     lines.push(
       '  auto_mode:',
@@ -443,7 +446,7 @@ function renderConversationsYaml(
     lines.push(
       '    sender_policy:',
       `      allow: ${conversation.senderPolicy.allow === '*' ? '"*"' : JSON.stringify(conversation.senderPolicy.allow)}`,
-      `      mode: ${conversation.senderPolicy.mode}`,
+      '      mode: trigger',
     );
     if (conversation.controlApprovers.length > 0) {
       lines.push(
@@ -562,11 +565,16 @@ function isDefaultRuntime(runtime: RuntimeSettings['runtime']): boolean {
     runtime.queue.maxMessageRuns === 3 &&
     runtime.queue.maxJobRuns === 4 &&
     runtime.queue.maxMessageBacklog === 0 &&
+    runtime.queue.maxLiveAdmissionBacklog === 100 &&
     runtime.queue.maxTaskBacklog === 0 &&
     runtime.queue.maxRetries === 5 &&
     runtime.queue.baseRetryMs === 5000 &&
     runtime.queue.drainDeadlineMs === 120000 &&
     runtime.liveTurns.enabled === true &&
+    runtime.llmAdmission.globalMaxInFlight ===
+      DEFAULT_LLM_GLOBAL_MAX_IN_FLIGHT &&
+    runtime.llmAdmission.perAppKeyMaxInFlight ===
+      DEFAULT_LLM_PER_APP_KEY_MAX_IN_FLIGHT &&
     runtime.sandbox.provider === 'direct' &&
     runtime.sandbox.resourceLimits.cpuSeconds === 0 &&
     runtime.sandbox.resourceLimits.memoryMb === 0 &&
@@ -597,6 +605,7 @@ function isDefaultPermissionSettings(
     permissions.yoloMode.denylist.length === 0 &&
     permissions.yoloMode.denylistPaths.length === 0 &&
     permissions.egress.denylist.length === 0 &&
+    permissions.trustedRoots.length === 0 &&
     permissions.autoMode.model === undefined
   );
 }
@@ -654,12 +663,16 @@ function renderRuntimeProcessYaml(
     `    max_message_runs: ${runtime.queue.maxMessageRuns}`,
     `    max_job_runs: ${runtime.queue.maxJobRuns}`,
     `    max_message_backlog: ${runtime.queue.maxMessageBacklog}`,
+    `    max_live_admission_backlog: ${runtime.queue.maxLiveAdmissionBacklog}`,
     `    max_task_backlog: ${runtime.queue.maxTaskBacklog}`,
     `    max_retries: ${runtime.queue.maxRetries}`,
     `    base_retry_ms: ${runtime.queue.baseRetryMs}`,
     `    drain_deadline_ms: ${runtime.queue.drainDeadlineMs}`,
     '  live_turns:',
     `    enabled: ${runtime.liveTurns.enabled ? 'true' : 'false'}`,
+    '  llm_admission:',
+    `    global_max_in_flight: ${runtime.llmAdmission.globalMaxInFlight}`,
+    `    per_app_key_max_in_flight: ${runtime.llmAdmission.perAppKeyMaxInFlight}`,
     '  sandbox:',
     `    provider: ${quoteYamlString(runtime.sandbox.provider)}`,
     '    resource_limits:',

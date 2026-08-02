@@ -22,7 +22,7 @@ export const extensionOpenApiSchemas: Record<string, JsonSchema> = {
       id: { type: 'string' },
       appId: { type: 'string' },
       agentId: { type: 'string' },
-      userId: { type: 'string' },
+      personId: { type: 'string' },
       groupId: { type: 'string' },
       channelId: { type: 'string' },
       threadId: { type: 'string' },
@@ -47,7 +47,7 @@ export const extensionOpenApiSchemas: Record<string, JsonSchema> = {
     properties: {
       appId: { type: 'string' },
       agentId: { type: 'string' },
-      userId: { type: 'string' },
+      personId: { type: 'string' },
       groupId: { type: 'string' },
       channelId: { type: 'string' },
       threadId: { type: 'string' },
@@ -67,7 +67,7 @@ export const extensionOpenApiSchemas: Record<string, JsonSchema> = {
       query: { type: 'string' },
       limit: { type: 'integer', minimum: 1 },
       agentId: { type: 'string' },
-      userId: { type: 'string' },
+      personId: { type: 'string' },
       groupId: { type: 'string' },
     },
   },
@@ -77,7 +77,7 @@ export const extensionOpenApiSchemas: Record<string, JsonSchema> = {
     properties: {
       appId: { type: 'string' },
       agentId: { type: 'string' },
-      userId: { type: 'string' },
+      personId: { type: 'string' },
       groupId: { type: 'string' },
       channelId: { type: 'string' },
       threadId: { type: 'string' },
@@ -91,6 +91,58 @@ export const extensionOpenApiSchemas: Record<string, JsonSchema> = {
       timeoutMs: { type: 'number', minimum: 0 },
       deadlineAtMs: { type: 'number', minimum: 0 },
     },
+  },
+  MemoryReviewPageResponse: {
+    type: 'object',
+    required: [
+      'reviews',
+      'total_count',
+      'returned_count',
+      'remaining_count',
+      'limit',
+      'offset',
+    ],
+    properties: {
+      reviews: { type: 'array', items: metadata },
+      review_page: metadata,
+      page_context: metadata,
+      total_count: { type: 'integer' },
+      returned_count: { type: 'integer' },
+      remaining_count: { type: 'integer' },
+      limit: { type: 'integer' },
+      offset: { type: 'integer' },
+      next_offset: { type: 'integer', nullable: true },
+    },
+  },
+  MemoryReviewDetailResponse: envelope('review', metadata),
+  MemoryReviewDecisionRequest: {
+    oneOf: [
+      {
+        type: 'object',
+        required: ['decision', 'editedValue'],
+        properties: {
+          decision: { type: 'string', const: 'edit_approve' },
+          editedValue: {
+            type: 'string',
+            minLength: 1,
+            pattern: '\\S',
+            description: 'Replacement value applied to the reviewed memory.',
+          },
+          reason: { type: 'string' },
+        },
+      },
+      {
+        type: 'object',
+        required: ['decision'],
+        properties: {
+          decision: { type: 'string', enum: ['approve', 'reject'] },
+          // Accepted-and-ignored for approve/reject (kept for back-compat).
+          editedValue: { type: 'string' },
+          reason: { type: 'string' },
+        },
+      },
+    ],
+    discriminator: { propertyName: 'decision' },
   },
   MemoryDreamingResponse: envelope('run', metadata),
   MemoryDreamingStatusResponse: envelope('runs', {
@@ -230,6 +282,115 @@ export const extensionOpenApiSchemas: Record<string, JsonSchema> = {
         items: { $ref: '#/components/schemas/ProactiveInsight' },
       },
       nextCursor: { type: ['string', 'null'] },
+    },
+  },
+  ObserverDigestPreviewInsight: {
+    type: 'object',
+    required: [
+      'id',
+      'subject',
+      'insightType',
+      'title',
+      'summary',
+      'confidence',
+      'priorityScore',
+    ],
+    properties: {
+      id: { type: 'string' },
+      subject: { type: 'string' },
+      insightType: {
+        type: 'string',
+        enum: [
+          'commitment',
+          'contradiction',
+          'open_question',
+          'stale_fact',
+          'decision_without_owner',
+          'duplicated_work',
+          'repetition',
+        ],
+      },
+      title: { type: 'string' },
+      summary: { type: 'string' },
+      confidence: { type: 'number', minimum: 0, maximum: 1 },
+      priorityScore: { type: 'number' },
+    },
+  },
+  ObserverDigestPreviewResponse: {
+    oneOf: [
+      {
+        type: 'object',
+        required: ['eligible', 'reason', 'message'],
+        properties: {
+          eligible: { const: false },
+          reason: { type: 'string' },
+          message: { type: 'string' },
+        },
+      },
+      {
+        type: 'object',
+        required: [
+          'eligible',
+          'recipient',
+          'localDay',
+          'renderedDigest',
+          'skippedReason',
+          'selected',
+        ],
+        properties: {
+          eligible: { const: true },
+          recipient: { type: 'string' },
+          localDay: { type: 'string' },
+          renderedDigest: { type: ['string', 'null'] },
+          skippedReason: {
+            type: ['string', 'null'],
+            enum: ['no_qualifying_insights', null],
+          },
+          selected: {
+            type: 'array',
+            items: {
+              $ref: '#/components/schemas/ObserverDigestPreviewInsight',
+            },
+          },
+        },
+      },
+    ],
+  },
+  ObserverDigestDelivery: {
+    type: 'object',
+    required: [
+      'id',
+      'localDay',
+      'state',
+      'insightCount',
+      'reservedAt',
+      'sentAt',
+      'settledAt',
+      'createdAt',
+    ],
+    properties: {
+      id: { type: 'string' },
+      localDay: { type: 'string' },
+      state: {
+        type: 'string',
+        enum: ['reserved', 'sent', 'settled', 'failed'],
+      },
+      insightCount: { type: 'integer', minimum: 0 },
+      reservedAt: { type: ['string', 'null'], format: 'date-time' },
+      sentAt: { type: ['string', 'null'], format: 'date-time' },
+      settledAt: { type: ['string', 'null'], format: 'date-time' },
+      createdAt: isoDateTime,
+    },
+  },
+  ObserverDigestDeliveryListResponse: {
+    type: 'object',
+    required: ['recipient', 'deliveries'],
+    properties: {
+      recipient: { type: ['string', 'null'] },
+      deliveries: {
+        type: 'array',
+        items: { $ref: '#/components/schemas/ObserverDigestDelivery' },
+      },
     },
   },
   Skill: {

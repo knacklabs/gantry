@@ -10,6 +10,11 @@ import { GANTRY_SHELL_TOOL_NAME } from '@core/adapters/llm/deepagents-langchain/
 import { DEEPAGENTS_GANTRY_FACADE_TOOL_NAMES } from '@core/adapters/llm/deepagents-langchain/runner/gantry-facade-tools.js';
 import { RunScopedToolSuccessLedger } from '@core/runner/tool-gate-core.js';
 
+const requestPermissionApprovalViaIpc = vi.hoisted(() => vi.fn());
+vi.mock('@core/runner/permission-ipc-client.js', () => ({
+  requestPermissionApprovalViaIpc,
+}));
+
 const mcpState = vi.hoisted(() => ({
   serverTools: {} as Record<string, unknown[]>,
   clientConfigs: [] as unknown[],
@@ -418,6 +423,7 @@ describe('declarative DeepAgents tool-rule wrapper', () => {
   });
 
   it('counts only a successful RunCommand with tool-call config toward require_prior', async () => {
+    requestPermissionApprovalViaIpc.mockResolvedValue({ approved: true });
     vi.stubEnv('GANTRY_MCP_SERVER_PATH', '/tmp/fake-gantry-mcp.js');
     vi.stubEnv('GANTRY_DEEPAGENTS_SHELL_ENABLED', '1');
     const memorySearch = vi.fn(async () => ({

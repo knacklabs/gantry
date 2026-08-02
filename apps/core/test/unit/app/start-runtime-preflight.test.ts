@@ -59,6 +59,7 @@ vi.mock('@core/adapters/storage/postgres/runtime-store.js', () => ({
   getRuntimeControlRepository: vi.fn(),
   getRuntimeEventExchange: vi.fn(() => ({ publish: vi.fn() })),
   getRuntimeSkillArtifactStore: vi.fn(),
+  resolveRuntimePersonIdentity: vi.fn(),
   getRuntimeStorage: vi.fn(() => ({
     ops: {},
     repositories: { capabilitySecrets: {} },
@@ -89,6 +90,7 @@ vi.mock('@core/config/index.js', () => ({
 }));
 vi.mock('@core/runtime/browser-capability.js', () => ({
   getBrowserStatus: vi.fn(),
+  registerBrowserProfileLockLeasePort: vi.fn(),
 }));
 vi.mock('@core/runtime/settings-reload-watcher.js', () => ({
   startSettingsReloadWatcher: vi.fn(() => ({ close: vi.fn() })),

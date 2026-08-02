@@ -14,6 +14,7 @@ import {
   type SkillSource,
 } from '@core/adapters/llm/anthropic-claude-agent/claude-skill-materializer.js';
 import type { SkillArtifactStore } from '@core/domain/ports/skill-artifact-store.js';
+import { hashSkillBundle } from '@core/shared/skill-artifact-helpers.js';
 import type { SkillCatalogRepository } from '@core/domain/ports/repositories.js';
 import type { SkillCatalogItem } from '@core/domain/skills/skills.js';
 
@@ -432,6 +433,9 @@ description: mismatch
   });
 
   it('forwards enabled skill filters to artifact sources', async () => {
+    const skillBundle = {
+      assets: [{ path: 'SKILL.md', content: Buffer.from('# Skill') }],
+    };
     const enabledSkill = {
       id: 'skill:enabled',
       appId: 'default',
@@ -445,7 +449,7 @@ description: mismatch
       storage: {
         storageType: 'local-filesystem',
         storageRef: 'skill-enabled',
-        contentHash: 'sha256:enabled',
+        contentHash: hashSkillBundle(skillBundle),
         sizeBytes: 1,
       },
       createdAt: '2026-04-28T00:00:00.000Z',
@@ -458,7 +462,7 @@ description: mismatch
       storage: {
         ...enabledSkill.storage,
         storageRef: 'skill-skipped',
-        contentHash: 'sha256:skipped',
+        contentHash: hashSkillBundle(skillBundle),
       },
     } satisfies SkillCatalogItem;
     const repo = {
@@ -468,9 +472,7 @@ description: mismatch
     const artifacts = {
       getSkillArtifact: async (storageRef: string) => {
         artifactRefs.push(storageRef);
-        return {
-          assets: [{ path: 'SKILL.md', content: Buffer.from('# Skill') }],
-        };
+        return skillBundle;
       },
     } as Partial<SkillArtifactStore> as SkillArtifactStore;
 

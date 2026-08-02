@@ -12,7 +12,16 @@ import type { ProactiveInsight } from '@core/domain/ports/observer-insights.js';
 const observerRepository = vi.hoisted(() => ({
   count: vi.fn(),
   list: vi.fn(),
+  listPendingForDigest: vi.fn(),
+  listDigestDeliveries: vi.fn(),
+  // Write paths — preview must never touch these.
+  claimPendingForDigest: vi.fn(),
+  reserveDigest: vi.fn(),
+  transitionState: vi.fn(),
+  settleDigest: vi.fn(),
+  recordDelivery: vi.fn(),
 }));
+const messagesSince = vi.hoisted(() => vi.fn(async () => [] as unknown[]));
 const brainStatus = vi.hoisted(() => vi.fn());
 const conversationRepository = vi.hoisted(() => ({
   getConversationByExternalRef: vi.fn(),
@@ -26,6 +35,7 @@ vi.mock('@core/adapters/storage/postgres/runtime-store.js', () => ({
       observerInsights: observerRepository,
       conversations: conversationRepository,
     },
+    ops: { getMessagesSince: messagesSince },
   }),
 }));
 
@@ -49,9 +59,9 @@ function responseRecorder(): TestResponse {
   } as TestResponse;
 }
 
-function request(): IncomingMessage {
+function request(method = 'GET'): IncomingMessage {
   return {
-    method: 'GET',
+    method,
     headers: { authorization: 'Bearer observer-test-token' },
   } as IncomingMessage;
 }
@@ -111,7 +121,53 @@ function configuredSettings() {
   return settings;
 }
 
+function deliveryConfiguredSettings() {
+  const settings = configuredSettings();
+  settings.memory.dreaming.enabled = true;
+  settings.observer.delivery = {
+    enabled: true,
+    timezone: 'UTC',
+    sendAt: '09:00',
+    maxInsights: 5,
+  };
+  return settings;
+}
+
 const SUBJECT = 'msu_33333333333333333333333333333333' as const;
+
+// A candidate the freshness probe can verify (account-qualified provenance) and
+// that clears the value floor, so preview selects it.
+const freshCandidate: ProactiveInsight = {
+  id: 'cand-1',
+  appId: 'default',
+  subject: 'observer:app',
+  insightType: 'commitment',
+  title: 'Ship the digest',
+  summary: 'The digest surface is the last blocker.',
+  evidenceRefs: [
+    {
+      conversationId: 'conversation:tg:observed',
+      messageId: 'm-1',
+      ts: '2026-07-24T00:00:00.000Z',
+      providerAccountId: 'telegram_default',
+      conversationJid: 'tg:observed',
+    },
+  ],
+  batchSnapshotAt: '2026-07-24T00:00:00.000Z',
+  evidenceVersion: 1,
+  canonicalSignature: 'commitment:ship',
+  signatureEmbeddingRef: null,
+  confidence: 0.9,
+  priorityScore: 0.9,
+  state: 'pending',
+  cooldownUntil: null,
+  resolvedAt: null,
+  surfacedAt: null,
+  recipient: 'owner-1',
+  deliveryId: null,
+  createdAt: '2026-07-24T01:00:00.000Z',
+  updatedAt: '2026-07-24T01:00:00.000Z',
+};
 
 const insight: ProactiveInsight = {
   id: 'insight-1',
@@ -467,5 +523,154 @@ describe('observer control routes', () => {
       error: { code: 'INVALID_REQUEST', message: 'subject is invalid' },
     });
     expect(observerRepository.list).not.toHaveBeenCalled();
+  });
+
+  it('previews the would-be digest without claiming, reserving, or sending', async () => {
+    observerRepository.listPendingForDigest.mockResolvedValue([freshCandidate]);
+    const res = responseRecorder();
+    const url = new URL('http://localhost/v1/observer/preview');
+
+    await expect(
+      handleObserverRoutes(
+        request('POST'),
+        res,
+        context(deliveryConfiguredSettings()),
+        url,
+        url.pathname,
+      ),
+    ).resolves.toBe(true);
+
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.body);
+    expect(body).toMatchObject({
+      eligible: true,
+      recipient: 'owner-1',
+      skippedReason: null,
+      selected: [{ id: 'cand-1', title: 'Ship the digest' }],
+    });
+    expect(body.renderedDigest).toContain('Ship the digest');
+
+    // Dry-run invariant: read the pending pool, touch NO write path.
+    expect(observerRepository.listPendingForDigest).toHaveBeenCalledWith({
+      appId: 'default',
+      recipient: 'owner-1',
+      limit: 30,
+      nowIso: expect.any(String),
+    });
+    expect(observerRepository.claimPendingForDigest).not.toHaveBeenCalled();
+    expect(observerRepository.reserveDigest).not.toHaveBeenCalled();
+    expect(observerRepository.transitionState).not.toHaveBeenCalled();
+    expect(observerRepository.recordDelivery).not.toHaveBeenCalled();
+  });
+
+  it('returns a why-skipped reason when no insight qualifies', async () => {
+    // Stale evidence (probe sees a later message) -> dropped -> nothing selected.
+    observerRepository.listPendingForDigest.mockResolvedValue([freshCandidate]);
+    messagesSince.mockResolvedValueOnce([{ id: 'later' }]);
+    const res = responseRecorder();
+    const url = new URL('http://localhost/v1/observer/preview');
+
+    await handleObserverRoutes(
+      request('POST'),
+      res,
+      context(deliveryConfiguredSettings()),
+      url,
+      url.pathname,
+    );
+
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toMatchObject({
+      eligible: true,
+      renderedDigest: null,
+      skippedReason: 'no_qualifying_insights',
+      selected: [],
+    });
+    expect(observerRepository.reserveDigest).not.toHaveBeenCalled();
+  });
+
+  it('reports ineligibility when delivery is not configured', async () => {
+    const res = responseRecorder();
+    const url = new URL('http://localhost/v1/observer/preview');
+
+    await handleObserverRoutes(
+      request('POST'),
+      res,
+      context(configuredSettings()),
+      url,
+      url.pathname,
+    );
+
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toMatchObject({
+      eligible: false,
+      reason: 'delivery_not_configured',
+    });
+    expect(observerRepository.listPendingForDigest).not.toHaveBeenCalled();
+  });
+
+  it('lists digest delivery history for the owner', async () => {
+    observerRepository.listDigestDeliveries.mockResolvedValue([
+      {
+        id: 'del-2',
+        localDay: '2026-07-24',
+        state: 'settled',
+        insightCount: 3,
+        reservedAt: '2026-07-24T09:00:00.000Z',
+        sentAt: '2026-07-24T09:00:01.000Z',
+        settledAt: '2026-07-24T09:00:02.000Z',
+        createdAt: '2026-07-24T09:00:00.000Z',
+      },
+    ]);
+    const res = responseRecorder();
+    const url = new URL('http://localhost/v1/observer/deliveries?limit=10');
+
+    await expect(
+      handleObserverRoutes(
+        request(),
+        res,
+        context(deliveryConfiguredSettings()),
+        url,
+        url.pathname,
+      ),
+    ).resolves.toBe(true);
+
+    expect(res.statusCode).toBe(200);
+    expect(observerRepository.listDigestDeliveries).toHaveBeenCalledWith({
+      appId: 'default',
+      recipient: 'owner-1',
+      limit: 10,
+    });
+    expect(JSON.parse(res.body)).toEqual({
+      recipient: 'owner-1',
+      deliveries: [
+        {
+          id: 'del-2',
+          localDay: '2026-07-24',
+          state: 'settled',
+          insightCount: 3,
+          reservedAt: '2026-07-24T09:00:00.000Z',
+          sentAt: '2026-07-24T09:00:01.000Z',
+          settledAt: '2026-07-24T09:00:02.000Z',
+          createdAt: '2026-07-24T09:00:00.000Z',
+        },
+      ],
+    });
+  });
+
+  it('rejects a wrong method on the preview route', async () => {
+    const res = responseRecorder();
+    const url = new URL('http://localhost/v1/observer/preview');
+
+    // GET on the POST-only preview route falls through (handled = false).
+    await expect(
+      handleObserverRoutes(
+        request('GET'),
+        res,
+        context(deliveryConfiguredSettings()),
+        url,
+        url.pathname,
+      ),
+    ).resolves.toBe(false);
+    expect(observerRepository.listPendingForDigest).not.toHaveBeenCalled();
   });
 });

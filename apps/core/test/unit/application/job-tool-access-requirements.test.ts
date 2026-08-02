@@ -16,6 +16,7 @@ describe('job tool access requirements', () => {
         'FileWrite',
         'AgentDelegation',
         'mcp__gantry__settings_desired_state',
+        'mcp__gantry__scheduler_run_now',
         'capability:example.records.append',
         'RunCommand(npm test *)',
         'Browser',
@@ -27,12 +28,13 @@ describe('job tool access requirements', () => {
       'FileWrite',
       'AgentDelegation',
       'mcp__gantry__settings_desired_state',
+      'mcp__gantry__scheduler_run_now',
       'capability:example.records.append',
       'RunCommand(npm test *)',
     ]);
   });
 
-  it('rejects raw browser and broad wildcard tool access requirement rules', () => {
+  it('rejects projected and host-private browser tools plus broad wildcards', () => {
     expect(() =>
       normalizeToolAccessRequirements([
         'mcp__browser' + '_' + 'backend' + '__navigate',
@@ -72,6 +74,14 @@ describe('job tool access requirements', () => {
       expect(() => normalizeToolAccessRequirements(rules)).toThrow(message);
     },
   );
+
+  it('builds request_access recovery for exact scheduler tool requirements', () => {
+    expect(
+      toolAccessRequirementRecoveryAction('mcp__gantry__scheduler_run_now'),
+    ).toBe(
+      'request_access {"target":{"kind":"tool","name":"mcp__gantry__scheduler_run_now"},"temporaryOnly":false,"reason":"This autonomous run requires mcp__gantry__scheduler_run_now access."}',
+    );
+  });
 
   it('reports missing tool access requirements without granting permission', () => {
     expect(
@@ -164,12 +174,28 @@ describe('job tool access requirements', () => {
     expect(delegationAction).toContain('"kind":"tool"');
     expect(delegationAction).toContain('"name":"AgentDelegation"');
 
-    const adminAction = toolAccessRequirementRecoveryAction(
+    for (const toolName of [
+      'mcp__gantry__scheduler_upsert_job',
+      'mcp__gantry__scheduler_update_job',
+      'mcp__gantry__scheduler_delete_job',
+      'mcp__gantry__scheduler_pause_job',
+      'mcp__gantry__scheduler_resume_job',
+    ]) {
+      const action = toolAccessRequirementRecoveryAction(toolName);
+      expect(action, toolName).toContain('"kind":"tool"');
+      expect(action, toolName).toContain(`"name":"${toolName}"`);
+    }
+
+    for (const toolName of [
+      'mcp__gantry__mcp_call_tool',
+      'mcp__gantry__delegate_task',
       'mcp__gantry__request_settings_update',
-    );
-    expect(adminAction).toContain('"kind":"tool"');
-    expect(adminAction).toContain(
-      '"name":"mcp__gantry__request_settings_update"',
-    );
+      'mcp__gantry__memory_review_decision',
+    ]) {
+      expect(
+        toolAccessRequirementRecoveryAction(toolName),
+        toolName,
+      ).not.toContain('"kind":"tool"');
+    }
   });
 });

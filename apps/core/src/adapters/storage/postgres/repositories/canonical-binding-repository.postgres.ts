@@ -55,15 +55,24 @@ function routeMemorySubject(
   conversationId: string,
   group: ConversationRoute,
 ): Record<string, unknown> {
+  const route: Record<string, unknown> = {
+    trigger: group.trigger,
+    requiresTrigger: group.requiresTrigger ?? true,
+    ...(group.agentConfig ? { agentConfig: group.agentConfig } : {}),
+    ...(group.senderIdentityEvidenceType
+      ? { senderIdentityEvidenceType: group.senderIdentityEvidenceType }
+      : {}),
+    ...(group.systemSenderIds?.length
+      ? { systemSenderIds: group.systemSenderIds }
+      : {}),
+  };
   return {
     kind: 'conversation',
     appId: CANONICAL_APP_ID,
     conversationId,
     route: {
       conversationId,
-      trigger: group.trigger,
-      requiresTrigger: group.requiresTrigger ?? true,
-      ...(group.agentConfig ? { agentConfig: group.agentConfig } : {}),
+      ...route,
     },
   };
 }
@@ -224,6 +233,12 @@ export class PostgresCanonicalBindingRepository {
       .where(
         and(
           eq(b.appId, CANONICAL_APP_ID),
+          // Route rows are canonical, but their joined conversation and
+          // provider account must belong to the same app. Without these
+          // guards, stale rows from another app can contaminate a default
+          // app settings export and make the document unparseable.
+          eq(c.appId, CANONICAL_APP_ID),
+          eq(pa.appId, CANONICAL_APP_ID),
           like(b.id, `${CONVERSATION_ROUTE_BINDING_ID_PREFIX}%`),
           eq(b.status, 'active'),
           eq(pa.status, 'active'),
@@ -245,6 +260,8 @@ export function bindingRowToGroup(
       agentConfig?: ConversationRoute['agentConfig'];
       trigger?: string;
       requiresTrigger?: boolean;
+      senderIdentityEvidenceType?: ConversationRoute['senderIdentityEvidenceType'];
+      systemSenderIds?: ConversationRoute['systemSenderIds'];
     };
   }>(row.memorySubjectJson, {});
   const jid = conversationRouteKeyFromBindingRow(row);
@@ -290,6 +307,9 @@ export function bindingRowToGroup(
   const folder =
     folderForAgentId(normalizedRowAgentId as AgentId) ?? row.agentId;
   const agentConfig = routeSubject.route?.agentConfig;
+  const senderIdentityEvidenceType =
+    routeSubject.route?.senderIdentityEvidenceType;
+  const systemSenderIds = routeSubject.route?.systemSenderIds;
   const conversationKind =
     row.conversationKind === 'direct' || row.conversationKind === 'dm'
       ? 'dm'
@@ -306,6 +326,8 @@ export function bindingRowToGroup(
       conversationKind,
       providerAccountId,
       ...(agentConfig ? { agentConfig } : {}),
+      ...(senderIdentityEvidenceType ? { senderIdentityEvidenceType } : {}),
+      ...(systemSenderIds?.length ? { systemSenderIds } : {}),
     },
   };
 }

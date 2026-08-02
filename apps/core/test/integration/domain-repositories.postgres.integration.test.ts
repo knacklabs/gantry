@@ -1,9 +1,15 @@
+import { createHash } from 'node:crypto';
+
+import { eq } from 'drizzle-orm';
+
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import {
   createPostgresDomainRepositories,
   type PostgresDomainRepositoryBundle,
 } from '@core/adapters/storage/postgres/repositories/domain-repositories.postgres.js';
+import { PostgresPersonIdentityRepository } from '@core/adapters/storage/postgres/repositories/person-identity-repository.postgres.js';
+import { PostgresCanonicalGraphRepository } from '@core/adapters/storage/postgres/repositories/canonical-graph-repository.postgres.js';
 import { PostgresCanonicalSessionRepository } from '@core/adapters/storage/postgres/repositories/canonical-session-repository.postgres.js';
 import { PostgresCapabilitySecretRepository } from '@core/adapters/storage/postgres/repositories/capability-secret-repository.postgres.js';
 import {
@@ -16,6 +22,7 @@ import {
   DEFAULT_LLM_PROFILE_ID,
   DEFAULT_PERMISSION_POLICY_ID,
 } from '@core/adapters/storage/postgres/seeds.js';
+import { measurePostgresOperations } from '../harness/response-latency-postgres.js';
 import type { AgentId } from '@core/domain/agent/agent.js';
 import type { AppId } from '@core/domain/app/app.js';
 import type {
@@ -29,7 +36,11 @@ import type {
 } from '@core/domain/conversation/conversation.js';
 import type { AgentRunId } from '@core/domain/events/events.js';
 import { RUNTIME_EVENT_TYPES } from '@core/domain/events/runtime-event-types.js';
-import type { MessageId } from '@core/domain/messages/messages.js';
+import * as pgSchema from '@core/adapters/storage/postgres/schema/schema.js';
+import type {
+  MessageAttachment,
+  MessageId,
+} from '@core/domain/messages/messages.js';
 import type { PermissionDecisionId } from '@core/domain/permissions/permissions.js';
 import type {
   AgentSessionDigestId,
@@ -45,7 +56,6 @@ const maybeDescribe = process.env.GANTRY_TEST_DATABASE_URL
   : describe.skip;
 const TEST_EXECUTION_PROVIDER_ID =
   'anthropic:claude-agent-sdk' as ExecutionProviderId;
-const TEST_CODEX_PROVIDER_ID = 'codex-sdk' as ExecutionProviderId;
 
 const appId = DEFAULT_APP_ID as AppId;
 const agentId = DEFAULT_AGENT_ID as AgentId;
@@ -73,6 +83,7 @@ function runtimeSecrets(): RuntimeSecretProvider {
 maybeDescribe('Postgres domain repositories', () => {
   let service: PostgresStorageService;
   let repositories: PostgresDomainRepositoryBundle;
+  let people: PostgresPersonIdentityRepository;
   let schemaName: string;
 
   beforeAll(async () => {
@@ -83,6 +94,7 @@ maybeDescribe('Postgres domain repositories', () => {
     );
     await service.migrate();
     repositories = createPostgresDomainRepositories(service.db, service.pool);
+    people = new PostgresPersonIdentityRepository(service.db);
 
     await repositories.providerAccounts.saveProviderAccount({
       id: providerAccountId,
@@ -149,6 +161,898 @@ maybeDescribe('Postgres domain repositories', () => {
         externalThreadId: '1700.1',
       }),
     ).resolves.toMatchObject({ id: threadId });
+  });
+
+  it('resolves aliases by exact app, provider, providerAccountId, and external user id', async () => {
+    const created = await people.resolveIdentity({
+      appId,
+      provider: 'slack',
+      providerAccountId,
+      externalUserId: 'U-person-1',
+      displayName: 'Slack User',
+      evidenceType: 'provider_user',
+      createIfMissing: true,
+    });
+
+    expect(created.personId).toBeTruthy();
+
+    await expect(
+      people.resolveIdentity({
+        appId,
+        provider: 'slack',
+        providerAccountId,
+        externalUserId: 'U-person-1',
+        evidenceType: 'provider_user',
+        createIfMissing: false,
+      }),
+    ).resolves.toMatchObject({
+      status: 'resolved',
+      personId: created.personId,
+      memoryHydrationEligible: true,
+    });
+
+    await expect(
+      people.resolveIdentity({
+        appId,
+        provider: 'slack',
+        providerAccountId:
+          'channel-providerAccount:test:other' as ProviderAccountId,
+        externalUserId: 'U-person-1',
+        evidenceType: 'provider_user',
+        createIfMissing: false,
+      }),
+    ).resolves.toMatchObject({
+      status: 'unresolved',
+      personId: null,
+      memoryHydrationEligible: false,
+    });
+
+    await expect(
+      people.resolveIdentity({
+        appId,
+        provider: 'slack',
+        providerAccountId,
+        externalUserId: 'u-PERSON-1',
+        evidenceType: 'provider_user',
+        createIfMissing: false,
+      }),
+    ).resolves.toMatchObject({
+      status: 'unresolved',
+      personId: null,
+      memoryHydrationEligible: false,
+    });
+
+    await expect(
+      people.resolveIdentity({
+        appId,
+        provider: 'slack',
+        providerAccountId,
+        externalUserId: 'U-person',
+        evidenceType: 'provider_user',
+        createIfMissing: false,
+      }),
+    ).resolves.toMatchObject({
+      status: 'unresolved',
+      personId: null,
+      memoryHydrationEligible: false,
+    });
+
+    await expect(
+      people.resolveIdentity({
+        appId,
+        provider: 'telegram',
+        providerAccountId,
+        externalUserId: 'U-person-1',
+        evidenceType: 'provider_user',
+        createIfMissing: false,
+      }),
+    ).resolves.toMatchObject({
+      status: 'unresolved',
+      personId: null,
+      memoryHydrationEligible: false,
+    });
+
+    await expect(
+      people.resolveIdentity({
+        appId: 'app-two' as AppId,
+        provider: 'slack',
+        providerAccountId,
+        externalUserId: 'U-person-1',
+        evidenceType: 'provider_user',
+        createIfMissing: false,
+      }),
+    ).resolves.toMatchObject({
+      status: 'unresolved',
+      personId: null,
+      memoryHydrationEligible: false,
+    });
+  });
+
+  it('allows duplicate display names without conflating people', async () => {
+    const [first, second] = await Promise.all([
+      people.resolveIdentity({
+        appId,
+        provider: 'slack',
+        providerAccountId,
+        externalUserId: 'U-same-name-1',
+        displayName: 'Same Name',
+        evidenceType: 'provider_user',
+        createIfMissing: true,
+      }),
+      people.resolveIdentity({
+        appId,
+        provider: 'slack',
+        providerAccountId,
+        externalUserId: 'U-same-name-2',
+        displayName: 'Same Name',
+        evidenceType: 'provider_user',
+        createIfMissing: true,
+      }),
+    ]);
+
+    expect(first.personId).not.toBe(second.personId);
+    await expect(
+      people.getPerson(appId, first.personId!),
+    ).resolves.toMatchObject({ displayName: 'Same Name' });
+    await expect(
+      people.getPerson(appId, second.personId!),
+    ).resolves.toMatchObject({ displayName: 'Same Name' });
+  });
+
+  it('never auto-links a provider identity on a contact value match', async () => {
+    const contact = await people.resolveIdentity({
+      appId,
+      provider: 'email',
+      externalUserId: 'person@example.com',
+      displayName: 'Person Example',
+      evidenceType: 'email',
+      createIfMissing: true,
+    });
+    const providerIdentity = await people.resolveIdentity({
+      appId,
+      provider: 'slack',
+      providerAccountId,
+      externalUserId: 'person@example.com',
+      displayName: 'Person Example',
+      evidenceType: 'provider_user',
+      createIfMissing: true,
+    });
+
+    expect(providerIdentity.personId).not.toBe(contact.personId);
+    await expect(
+      people.getPerson(appId, contact.personId!),
+    ).resolves.toMatchObject({
+      aliases: [
+        expect.objectContaining({
+          provider: 'email',
+          externalUserId: 'person@example.com',
+        }),
+      ],
+    });
+    await expect(
+      people.getPerson(appId, providerIdentity.personId!),
+    ).resolves.toMatchObject({
+      aliases: [
+        expect.objectContaining({
+          provider: 'slack',
+          externalUserId: 'person@example.com',
+        }),
+      ],
+    });
+  });
+
+  it('reuses active People aliases for participants without reviving retired aliases', async () => {
+    const graph = new PostgresCanonicalGraphRepository(service.db);
+    const created = await people.resolveIdentity({
+      appId,
+      provider: 'slack',
+      providerAccountId,
+      externalUserId: 'U-participant-alias',
+      displayName: 'Participant Alias',
+      evidenceType: 'provider_user',
+      createIfMissing: true,
+    });
+    const participantInput = {
+      conversationId,
+      providerId: 'slack',
+      providerAccountId,
+      externalUserId: 'U-participant-alias',
+      displayName: 'Participant Alias',
+      timestamp: now,
+    };
+
+    await expect(graph.ensureParticipant(participantInput)).resolves.toBe(
+      created.personId,
+    );
+    await people.retireAlias({
+      appId,
+      personId: created.personId!,
+      aliasId: created.createdAlias!.id,
+      actor: 'test',
+    });
+    await expect(
+      people.resolveIdentity({
+        appId,
+        provider: 'slack',
+        providerAccountId,
+        externalUserId: 'U-participant-alias',
+        evidenceType: 'provider_user',
+        createIfMissing: false,
+      }),
+    ).rejects.toThrow(/retired/);
+
+    await expect(
+      graph.ensureParticipant({
+        ...participantInput,
+        timestamp: '2026-04-27T00:00:01.000Z',
+      }),
+    ).resolves.toBeNull();
+    await expect(
+      people.resolveIdentity({
+        appId,
+        provider: 'slack',
+        providerAccountId,
+        externalUserId: 'U-participant-alias',
+        evidenceType: 'provider_user',
+        createIfMissing: false,
+      }),
+    ).rejects.toThrow(/retired/);
+
+    const aliases = await service.pool.query<{
+      user_id: string;
+      retired_at: string | null;
+    }>(
+      `SELECT user_id, retired_at
+       FROM user_aliases
+       WHERE app_id = $1
+         AND provider = $2
+         AND COALESCE(provider_account_id, '') = $3
+         AND external_user_id = $4
+       ORDER BY retired_at NULLS FIRST`,
+      [appId, 'slack', providerAccountId, 'U-participant-alias'],
+    );
+    expect(aliases.rows).toEqual([
+      { user_id: created.personId, retired_at: expect.any(Date) },
+    ]);
+    const index = await service.pool.query<{ indexdef: string }>(
+      `SELECT indexdef
+       FROM pg_indexes
+       WHERE schemaname = current_schema()
+         AND indexname = 'idx_user_aliases_active_provider_external'`,
+    );
+    expect(index.rows[0]?.indexdef).toContain('WHERE (retired_at IS NULL)');
+    const client = await service.pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query('SET LOCAL enable_seqscan = off');
+      const explain = await client.query<{ 'QUERY PLAN': unknown }>(
+        `EXPLAIN (FORMAT JSON)
+         SELECT *
+         FROM user_aliases
+         WHERE app_id = $1
+           AND provider = $2
+           AND COALESCE(provider_account_id, '') = $3
+           AND external_user_id = $4
+           AND retired_at IS NULL
+         ORDER BY updated_at DESC
+         LIMIT 1`,
+        [appId, 'slack', providerAccountId, 'U-participant-alias'],
+      );
+      expect(JSON.stringify(explain.rows[0]?.['QUERY PLAN'])).toContain(
+        'idx_user_aliases_active_provider_external',
+      );
+      const retiredExplain = await client.query<{ 'QUERY PLAN': unknown }>(
+        `EXPLAIN (FORMAT JSON)
+         SELECT *
+         FROM user_aliases
+         WHERE app_id = $1
+           AND provider = $2
+           AND COALESCE(provider_account_id, '') = $3
+           AND external_user_id = $4
+           AND retired_at IS NOT NULL
+         ORDER BY updated_at DESC
+         LIMIT 1`,
+        [appId, 'slack', providerAccountId, 'U-participant-alias'],
+      );
+      expect(JSON.stringify(retiredExplain.rows[0]?.['QUERY PLAN'])).toContain(
+        'idx_user_aliases_retired_provider_external',
+      );
+    } finally {
+      await client.query('ROLLBACK');
+      client.release();
+    }
+  });
+
+  it('accepts web_user and phone evidence with the same exact-match alias rules', async () => {
+    const web = await people.resolveIdentity({
+      appId,
+      provider: 'app',
+      externalUserId: 'web-user-1',
+      displayName: 'Web User',
+      evidenceType: 'web_user',
+      createIfMissing: true,
+    });
+    await people.addAlias({
+      appId,
+      personId: web.personId!,
+      provider: 'phone',
+      externalUserId: '+15551234567',
+      evidenceType: 'phone',
+      actor: 'test',
+    });
+
+    await expect(
+      people.resolveIdentity({
+        appId,
+        provider: 'app',
+        externalUserId: 'web-user-1',
+        evidenceType: 'web_user',
+        createIfMissing: false,
+      }),
+    ).resolves.toMatchObject({
+      status: 'resolved',
+      personId: web.personId,
+      memoryHydrationEligible: true,
+    });
+
+    await expect(
+      people.resolveIdentity({
+        appId,
+        provider: 'phone',
+        externalUserId: '+15551234567',
+        evidenceType: 'phone',
+        createIfMissing: false,
+      }),
+    ).resolves.toMatchObject({
+      status: 'resolved',
+      personId: web.personId,
+      memoryHydrationEligible: true,
+    });
+  });
+
+  it('allows an admin alias relink to reactivate a retired alias row', async () => {
+    const created = await people.resolveIdentity({
+      appId,
+      provider: 'slack',
+      providerAccountId,
+      externalUserId: 'U-reactivate-1',
+      displayName: 'Reactivate Me',
+      evidenceType: 'provider_user',
+      createIfMissing: true,
+    });
+    const retired = await people.retireAlias({
+      appId,
+      personId: created.personId!,
+      aliasId: created.createdAlias!.id,
+      actor: 'test',
+    });
+
+    expect(retired).toMatchObject({
+      verificationStatus: 'retired',
+    });
+
+    const relinked = await people.addAlias({
+      appId,
+      personId: created.personId!,
+      provider: 'slack',
+      providerAccountId,
+      externalUserId: 'U-reactivate-1',
+      displayName: 'Reactivate Me Again',
+      evidenceType: 'provider_user',
+      actor: 'test',
+    });
+
+    expect(relinked).toMatchObject({
+      id: created.createdAlias!.id,
+      personId: created.personId,
+      // API alias writes can never verify; verification is system-attested only.
+      verificationStatus: 'unverified',
+      retiredAt: null,
+      retiredBy: null,
+      displayName: 'Reactivate Me Again',
+    });
+  });
+
+  it('replaces a same-person alias evidence without verifying it', async () => {
+    const created = await people.resolveIdentity({
+      appId,
+      provider: 'slack',
+      providerAccountId,
+      externalUserId: 'U-promote-alias',
+      displayName: 'Before Review',
+      evidenceType: 'provider_user',
+      createIfMissing: true,
+    });
+
+    const promoted = await people.addAlias({
+      appId,
+      personId: created.personId!,
+      provider: 'slack',
+      providerAccountId,
+      externalUserId: 'U-promote-alias',
+      displayName: 'After Review',
+      evidenceType: 'provider_user',
+      evidence: { source: 'admin-review', confidence: 'high' },
+      actor: 'admin:test',
+    });
+
+    expect(promoted).toMatchObject({
+      id: created.createdAlias!.id,
+      // API alias writes can never verify; the evidence replacement still lands.
+      verificationStatus: 'unverified',
+      verifiedBy: null,
+      displayName: 'After Review',
+      evidence: {
+        source: 'admin-review',
+        confidence: 'high',
+        evidenceType: 'provider_user',
+      },
+    });
+    expect(promoted.verifiedAt).toBeNull();
+  });
+
+  it('paginates People without overlap and uses identity query indexes', async () => {
+    const pageAppId = `people-page-${process.pid}`;
+    const created = await Promise.all(
+      ['page-1', 'page-2', 'page-3'].map((externalUserId) =>
+        people.resolveIdentity({
+          appId: pageAppId,
+          provider: 'app',
+          externalUserId,
+          evidenceType: 'web_user',
+          createIfMissing: true,
+        }),
+      ),
+    );
+    await service.pool.query(
+      `UPDATE users
+       SET updated_at = CASE id
+         WHEN $1 THEN '2026-05-03T00:00:00.000Z'::timestamptz
+         WHEN $2 THEN '2026-05-02T00:00:00.000Z'::timestamptz
+         WHEN $3 THEN '2026-05-01T00:00:00.000Z'::timestamptz
+         ELSE updated_at
+       END
+       WHERE id = ANY($4::text[])`,
+      [
+        created[0]!.personId,
+        created[1]!.personId,
+        created[2]!.personId,
+        created.map((person) => person.personId),
+      ],
+    );
+
+    const first = await people.listPeople(pageAppId, { limit: 2 });
+    expect(first.people.map((person) => person.personId).slice(0, 2)).toEqual([
+      created[0]!.personId,
+      created[1]!.personId,
+    ]);
+    expect(first.nextCursor).toEqual({
+      updatedAt: expect.any(String),
+      personId: created[1]!.personId,
+    });
+    const second = await people.listPeople(pageAppId, {
+      limit: 2,
+      cursor: first.nextCursor!,
+    });
+    expect(second.people.map((person) => person.personId)).not.toContain(
+      created[1]!.personId,
+    );
+    expect(second.people.map((person) => person.personId)).toContain(
+      created[2]!.personId,
+    );
+
+    // The planner is free to sort a 3-row table instead of walking the ordered
+    // index, so pin the identity query indexes by existence, not plan choice.
+    const indexes = await service.pool.query<{ indexname: string }>(
+      `SELECT indexname FROM pg_indexes WHERE schemaname = current_schema()`,
+    );
+    const names = indexes.rows.map((row) => row.indexname);
+    expect(names).toContain('idx_users_app_updated_id');
+    expect(names).toContain('idx_user_aliases_app_user_updated');
+    expect(names).toContain('idx_memory_items_person_status_key');
+  });
+
+  it('never rebinds an alias when concurrent admins choose different people', async () => {
+    const [first, second] = await Promise.all([
+      people.resolveIdentity({
+        appId,
+        provider: 'app',
+        externalUserId: 'alias-race-person-1',
+        displayName: 'Alias Race',
+        evidenceType: 'web_user',
+        createIfMissing: true,
+      }),
+      people.resolveIdentity({
+        appId,
+        provider: 'app',
+        externalUserId: 'alias-race-person-2',
+        displayName: 'Alias Race',
+        evidenceType: 'web_user',
+        createIfMissing: true,
+      }),
+    ]);
+    const aliasInput = {
+      appId,
+      provider: 'phone',
+      externalUserId: '+15550000001',
+      evidenceType: 'phone' as const,
+      actor: 'test',
+    };
+    const attempts = await Promise.allSettled([
+      people.addAlias({ ...aliasInput, personId: first.personId! }),
+      people.addAlias({ ...aliasInput, personId: second.personId! }),
+    ]);
+
+    expect(attempts.map((attempt) => attempt.status).sort()).toEqual([
+      'fulfilled',
+      'rejected',
+    ]);
+    const winner = attempts.find((attempt) => attempt.status === 'fulfilled');
+    const loser = attempts.find((attempt) => attempt.status === 'rejected');
+    if (!winner || winner.status !== 'fulfilled') {
+      throw new Error('Expected one alias add to succeed.');
+    }
+    expect(String(loser?.reason)).toContain(
+      'Alias already belongs to another person.',
+    );
+    await expect(
+      people.resolveIdentity({
+        appId,
+        provider: aliasInput.provider,
+        externalUserId: aliasInput.externalUserId,
+        evidenceType: aliasInput.evidenceType,
+        createIfMissing: false,
+      }),
+    ).resolves.toMatchObject({ personId: winner.value.personId });
+    const activeOwners = await service.pool.query<{ user_id: string }>(
+      `SELECT user_id
+       FROM user_aliases
+       WHERE app_id = $1
+         AND provider = $2
+         AND provider_account_id IS NULL
+         AND external_user_id = $3
+         AND retired_at IS NULL`,
+      [appId, aliasInput.provider, aliasInput.externalUserId],
+    );
+    expect(activeOwners.rows).toEqual([{ user_id: winner.value.personId }]);
+  });
+
+  it('unmerges a real merge, restoring aliases, memory, and participants', async () => {
+    const [target, source] = await Promise.all([
+      people.resolveIdentity({
+        appId,
+        provider: 'app',
+        externalUserId: 'roundtrip-target',
+        displayName: 'Roundtrip Target',
+        evidenceType: 'web_user',
+        createIfMissing: true,
+      }),
+      people.resolveIdentity({
+        appId,
+        provider: 'app',
+        externalUserId: 'roundtrip-source',
+        displayName: 'Roundtrip Source',
+        evidenceType: 'web_user',
+        createIfMissing: true,
+      }),
+    ]);
+    await service.db.insert(pgSchema.memoryItemsPostgres).values([
+      {
+        id: 'memory:roundtrip:source',
+        appId,
+        agentId,
+        subjectType: 'user',
+        subjectId: 'msu_roundtrip_source_subject',
+        userId: source.personId,
+        kind: 'fact',
+        key: 'roundtrip-key',
+        valueJson: { value: 'source' },
+        confidence: 1,
+        sourceRefJson: { source: 'test' },
+        status: 'active',
+        lastObservedAt: '2026-01-01T00:00:00.000Z',
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+      },
+    ]);
+
+    const preview = await people.previewMerge({
+      appId,
+      targetPersonId: target.personId!,
+      sourcePersonId: source.personId!,
+      actor: 'admin:test',
+    });
+    const merged = await people.mergePeople({
+      appId,
+      targetPersonId: target.personId!,
+      sourcePersonId: source.personId!,
+      actor: 'admin:test',
+      conflictResolution: 'fail_on_conflict',
+      expectedFingerprint: preview.fingerprint!,
+    });
+    expect(merged.applied).toBe(true);
+
+    const unmerged = await people.unmergePerson({
+      appId,
+      targetPersonId: target.personId!,
+      auditId: merged.auditId,
+      expectedFingerprint: preview.fingerprint!,
+      actor: 'admin:test',
+    });
+    expect(unmerged.sourcePersonId).toBe(source.personId);
+    expect(unmerged.memoryRowsRestored).toBe(1);
+    expect(unmerged.restoredPerson.status).toBe('active');
+    expect(unmerged.aliasesRestored.map((alias) => alias.personId)).toEqual([
+      source.personId,
+    ]);
+
+    const [restoredMemory] = await service.db
+      .select({
+        userId: pgSchema.memoryItemsPostgres.userId,
+        subjectId: pgSchema.memoryItemsPostgres.subjectId,
+      })
+      .from(pgSchema.memoryItemsPostgres)
+      .where(eq(pgSchema.memoryItemsPostgres.id, 'memory:roundtrip:source'));
+    expect(restoredMemory).toMatchObject({
+      userId: source.personId,
+      subjectId: 'msu_roundtrip_source_subject',
+    });
+
+    // Replaying the unmerge must refuse: the audit is single-use.
+    await expect(
+      people.unmergePerson({
+        appId,
+        targetPersonId: target.personId!,
+        auditId: merged.auditId,
+        expectedFingerprint: preview.fingerprint!,
+        actor: 'admin:test',
+      }),
+    ).rejects.toMatchObject({
+      code: expect.stringMatching(/CONFLICT|NOT_FOUND/),
+    });
+  });
+
+  it('merges personal identity state atomically with stable idempotent results', async () => {
+    const [target, source] = await Promise.all([
+      people.resolveIdentity({
+        appId,
+        provider: 'app',
+        externalUserId: 'merge-target',
+        displayName: 'Merge Person',
+        evidenceType: 'web_user',
+        createIfMissing: true,
+      }),
+      people.resolveIdentity({
+        appId,
+        provider: 'app',
+        externalUserId: 'merge-source',
+        displayName: 'Merge Person',
+        evidenceType: 'web_user',
+        createIfMissing: true,
+      }),
+    ]);
+    const subjectHash = (personId: string) =>
+      `msu_${createHash('sha256')
+        .update(`${appId}:${agentId}:user:${personId}`)
+        .digest('hex')
+        .slice(0, 32)}`;
+    const sourceRef = (personId: string) => ({
+      source: 'test',
+      subject: {
+        subjectType: 'user',
+        subjectId: personId,
+        userId: personId,
+      },
+    });
+    await service.db.insert(pgSchema.memoryItemsPostgres).values([
+      {
+        id: 'memory:merge:target-conflict',
+        appId,
+        agentId,
+        subjectType: 'user',
+        subjectId: subjectHash(target.personId!),
+        userId: target.personId,
+        kind: 'fact',
+        key: 'shared-key',
+        valueJson: { value: 'target' },
+        sourceRefJson: sourceRef(target.personId!),
+        status: 'active',
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: 'memory:merge:source-conflict',
+        appId,
+        agentId,
+        subjectType: 'user',
+        subjectId: subjectHash(source.personId!),
+        userId: source.personId,
+        kind: 'fact',
+        key: 'shared-key',
+        valueJson: { value: 'source' },
+        sourceRefJson: sourceRef(source.personId!),
+        status: 'active',
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: 'memory:merge:source-unique',
+        appId,
+        agentId,
+        subjectType: 'user',
+        subjectId: subjectHash(source.personId!),
+        userId: source.personId,
+        kind: 'fact',
+        key: 'source-only',
+        valueJson: { value: 'source-only' },
+        sourceRefJson: sourceRef(source.personId!),
+        status: 'active',
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: 'memory:merge:source-group',
+        appId,
+        agentId,
+        subjectType: 'group',
+        subjectId: conversationId,
+        userId: source.personId,
+        conversationId,
+        kind: 'fact',
+        key: 'group-only',
+        valueJson: { value: 'group' },
+        sourceRefJson: {
+          source: 'test',
+          subject: { subjectType: 'group', subjectId: conversationId },
+        },
+        status: 'active',
+        createdAt: now,
+        updatedAt: now,
+      },
+    ]);
+    const mergeInput = {
+      appId,
+      sourcePersonId: source.personId!,
+      targetPersonId: target.personId!,
+      idempotencyKey: 'merge-idempotency-stable',
+      actor: 'test',
+      conflictResolution: 'keep_target' as const,
+    };
+    const preview = await people.previewMerge(mergeInput);
+    expect(preview).toMatchObject({
+      memoryRowsToMove: 2,
+      excludedMemoryScopes: { group: 1, channel: 0, common: 0 },
+      conflicts: [
+        expect.objectContaining({
+          type: 'memory',
+          sourceMemoryId: 'memory:merge:source-conflict',
+          targetMemoryId: 'memory:merge:target-conflict',
+        }),
+      ],
+    });
+
+    const attempts = await Promise.all([
+      people.mergePeople(mergeInput),
+      people.mergePeople(mergeInput),
+    ]);
+    expect(attempts.map((result) => result.applied).sort()).toEqual([
+      false,
+      true,
+    ]);
+    expect(new Set(attempts.map((result) => result.auditId))).toHaveProperty(
+      'size',
+      1,
+    );
+    expect(attempts[0]).toMatchObject({
+      aliasesToMove: preview.aliasesToMove,
+      memoryRowsToMove: preview.memoryRowsToMove,
+      excludedMemoryScopes: preview.excludedMemoryScopes,
+      conflicts: preview.conflicts,
+    });
+    expect(attempts[1]).toMatchObject({
+      aliasesToMove: preview.aliasesToMove,
+      memoryRowsToMove: preview.memoryRowsToMove,
+      excludedMemoryScopes: preview.excludedMemoryScopes,
+      conflicts: preview.conflicts,
+    });
+
+    const memory = await service.pool.query<{
+      id: string;
+      subject_type: string;
+      subject_id: string;
+      user_id: string;
+      status: string;
+      source_ref_json: {
+        subject?: { subjectType?: string; subjectId?: string; userId?: string };
+      };
+    }>(
+      `SELECT id, subject_type, subject_id, user_id, status, source_ref_json
+       FROM memory_items
+       WHERE id = ANY($1::text[])
+       ORDER BY id`,
+      [
+        [
+          'memory:merge:source-conflict',
+          'memory:merge:source-unique',
+          'memory:merge:source-group',
+        ],
+      ],
+    );
+    const byId = new Map(memory.rows.map((row) => [row.id, row]));
+    expect(byId.get('memory:merge:source-conflict')).toMatchObject({
+      subject_id: subjectHash(target.personId!),
+      user_id: target.personId,
+      status: 'superseded',
+      source_ref_json: {
+        subject: {
+          subjectType: 'user',
+          subjectId: target.personId,
+          userId: target.personId,
+        },
+      },
+    });
+    expect(byId.get('memory:merge:source-unique')).toMatchObject({
+      subject_id: subjectHash(target.personId!),
+      user_id: target.personId,
+      status: 'active',
+    });
+    expect(byId.get('memory:merge:source-group')).toMatchObject({
+      subject_type: 'group',
+      subject_id: conversationId,
+      user_id: source.personId,
+      status: 'active',
+    });
+    await expect(
+      people.getPerson(appId, source.personId!),
+    ).resolves.toMatchObject({ status: 'archived', aliases: [] });
+    await expect(
+      people.mergePeople({
+        ...mergeInput,
+        idempotencyKey: 'merge-already-completed',
+      }),
+    ).rejects.toThrow(/active and unmerged/);
+  });
+
+  it('locks reverse merges in one person-id order without deadlocking', async () => {
+    const [first, second] = await Promise.all([
+      people.resolveIdentity({
+        appId,
+        provider: 'app',
+        externalUserId: 'merge-lock-first',
+        evidenceType: 'web_user',
+        createIfMissing: true,
+      }),
+      people.resolveIdentity({
+        appId,
+        provider: 'app',
+        externalUserId: 'merge-lock-second',
+        evidenceType: 'web_user',
+        createIfMissing: true,
+      }),
+    ]);
+    const attempts = await Promise.allSettled([
+      people.mergePeople({
+        appId,
+        sourcePersonId: first.personId!,
+        targetPersonId: second.personId!,
+        idempotencyKey: 'merge-lock-forward',
+        actor: 'test',
+      }),
+      people.mergePeople({
+        appId,
+        sourcePersonId: second.personId!,
+        targetPersonId: first.personId!,
+        idempotencyKey: 'merge-lock-reverse',
+        actor: 'test',
+      }),
+    ]);
+
+    expect(attempts.map((attempt) => attempt.status).sort()).toEqual([
+      'fulfilled',
+      'rejected',
+    ]);
+    const rejected = attempts.find((attempt) => attempt.status === 'rejected');
+    expect(String(rejected?.reason)).toContain('active and unmerged');
   });
 
   it('stores capability secrets encrypted and resolves metadata separately', async () => {
@@ -829,6 +1733,369 @@ maybeDescribe('Postgres domain repositories', () => {
     );
   });
 
+  it('loads materialized agent access snapshot surfaces with one query each', async () => {
+    const updatedAt = '2026-07-27T22:45:00.000Z';
+    const selectedToolId = 'tool:lat2-selected-error' as never;
+    const activeInventoryToolId = 'tool:lat2-app-active' as never;
+    const selectedSkillId = 'skill:lat2-selected' as never;
+    const staleSkillId = 'skill:lat2-stale' as never;
+    const activeServerId = 'mcp:lat2-active' as never;
+    const inactiveServerId = 'mcp:lat2-inactive' as never;
+    const foreignAppId = 'app:lat2-foreign' as AppId;
+    const foreignToolId = 'tool:lat2-foreign' as never;
+    const foreignSkillId = 'skill:lat2-foreign' as never;
+    const foreignServerId = 'mcp:lat2-foreign' as never;
+
+    await repositories.apps.saveApp({
+      id: foreignAppId,
+      slug: 'lat2-foreign',
+      name: 'LAT2 Foreign',
+      status: 'active',
+      createdAt: updatedAt,
+      updatedAt,
+    });
+
+    await repositories.tools.saveTool({
+      id: selectedToolId,
+      appId,
+      name: 'capability:lat2.selected.error',
+      kind: 'host',
+      provider: 'test',
+      displayName: 'LAT2 selected error',
+      description: 'Selected definition keeps current catalog status.',
+      category: 'productivity',
+      inputSchema: {},
+      outputSchema: {},
+      risk: 'low',
+      selectable: true,
+      status: 'error',
+      adapterRef: 'test',
+      createdAt: updatedAt,
+      updatedAt,
+    });
+    await repositories.tools.saveTool({
+      id: foreignToolId,
+      appId: foreignAppId,
+      name: 'capability:lat2.foreign',
+      kind: 'host',
+      provider: 'test',
+      displayName: 'LAT2 foreign',
+      description: 'Foreign app definition must not join.',
+      category: 'productivity',
+      inputSchema: {},
+      outputSchema: {},
+      risk: 'low',
+      selectable: true,
+      status: 'active',
+      adapterRef: 'test',
+      createdAt: updatedAt,
+      updatedAt,
+    });
+    await repositories.tools.saveTool({
+      id: activeInventoryToolId,
+      appId,
+      name: 'capability:lat2.inventory.active',
+      kind: 'host',
+      provider: 'test',
+      displayName: 'LAT2 inventory active',
+      description: 'App-wide active inventory definition.',
+      category: 'productivity',
+      inputSchema: {},
+      outputSchema: {},
+      risk: 'low',
+      selectable: true,
+      status: 'active',
+      adapterRef: 'test',
+      createdAt: updatedAt,
+      updatedAt,
+    });
+    await repositories.skills.saveSkill({
+      id: foreignSkillId,
+      appId: foreignAppId,
+      name: 'lat2-foreign',
+      description: 'Foreign app skill must not join.',
+      source: 'admin_uploaded',
+      status: 'installed',
+      promptRefs: ['SKILL.md'],
+      toolIds: [],
+      workflowRefs: [],
+      requiredEnvVars: [],
+      actionPermissions: [],
+      createdAt: updatedAt,
+      updatedAt,
+    });
+    await repositories.skills.saveSkill({
+      id: selectedSkillId,
+      appId,
+      agentId,
+      name: 'lat2-selected',
+      description: 'Installed selected skill.',
+      source: 'admin_uploaded',
+      status: 'installed',
+      promptRefs: ['SKILL.md'],
+      toolIds: [],
+      workflowRefs: [],
+      requiredEnvVars: [],
+      actionPermissions: [],
+      createdAt: updatedAt,
+      updatedAt,
+    });
+    await repositories.mcpServers.saveServer({
+      id: foreignServerId,
+      appId: foreignAppId,
+      name: 'lat2foreign',
+      displayName: 'LAT2 Foreign',
+      description: 'Foreign app MCP source must not join or materialize.',
+      status: 'active',
+      createdSource: 'admin',
+      riskClass: 'medium',
+      transport: 'http',
+      config: {
+        transport: 'http',
+        url: 'https://lat2foreign.example.test/mcp',
+      },
+      allowedToolPatterns: ['read_*'],
+      autoApproveToolPatterns: [],
+      credentialRefs: [],
+      networkHosts: ['lat2foreign.example.test:443'],
+      createdAt: updatedAt,
+      updatedAt,
+    });
+    await repositories.skills.saveSkill({
+      id: staleSkillId,
+      appId,
+      agentId,
+      name: 'lat2-stale',
+      description: 'Disabled selected skill.',
+      source: 'admin_uploaded',
+      status: 'disabled',
+      promptRefs: ['SKILL.md'],
+      toolIds: [],
+      workflowRefs: [],
+      requiredEnvVars: [],
+      actionPermissions: [],
+      createdAt: updatedAt,
+      updatedAt,
+    });
+    await repositories.mcpServers.saveServer({
+      id: activeServerId,
+      appId,
+      name: 'lat2active',
+      displayName: 'LAT2 Active',
+      description: 'Active materialized source.',
+      status: 'active',
+      createdSource: 'admin',
+      riskClass: 'medium',
+      transport: 'http',
+      config: { transport: 'http', url: 'https://lat2.example.test/mcp' },
+      allowedToolPatterns: ['read_*'],
+      autoApproveToolPatterns: [],
+      credentialRefs: [],
+      networkHosts: ['lat2.example.test:443'],
+      createdAt: updatedAt,
+      updatedAt,
+    });
+    await repositories.mcpServers.saveServer({
+      id: inactiveServerId,
+      appId,
+      name: 'lat2inactive',
+      displayName: 'LAT2 Inactive',
+      description: 'Inactive but same-app attached source.',
+      status: 'disabled',
+      createdSource: 'admin',
+      riskClass: 'medium',
+      transport: 'http',
+      config: {
+        transport: 'http',
+        url: 'https://lat2inactive.example.test/mcp',
+      },
+      allowedToolPatterns: ['read_*'],
+      autoApproveToolPatterns: [],
+      credentialRefs: [],
+      networkHosts: ['lat2inactive.example.test:443'],
+      createdAt: updatedAt,
+      updatedAt,
+    });
+    await repositories.agents.replaceAgentCapabilityBindings({
+      appId,
+      agentId,
+      toolBindings: [
+        {
+          id: `agent-tool-binding:${agentId}:${selectedToolId}` as never,
+          appId,
+          agentId,
+          toolId: selectedToolId,
+          status: 'active',
+          createdAt: updatedAt,
+          updatedAt,
+        },
+        {
+          id: `agent-tool-binding:${agentId}:${foreignToolId}` as never,
+          appId,
+          agentId,
+          toolId: foreignToolId,
+          status: 'active',
+          createdAt: updatedAt,
+          updatedAt,
+        },
+      ],
+      skillBindings: [
+        {
+          id: `agent-skill-binding:${agentId}:${selectedSkillId}` as never,
+          appId,
+          agentId,
+          skillId: selectedSkillId,
+          status: 'active',
+          createdAt: updatedAt,
+          updatedAt,
+        },
+        {
+          id: `agent-skill-binding:${agentId}:${staleSkillId}` as never,
+          appId,
+          agentId,
+          skillId: staleSkillId,
+          status: 'active',
+          createdAt: updatedAt,
+          updatedAt,
+        },
+        {
+          id: `agent-skill-binding:${agentId}:${foreignSkillId}` as never,
+          appId,
+          agentId,
+          skillId: foreignSkillId,
+          status: 'active',
+          createdAt: updatedAt,
+          updatedAt,
+        },
+      ],
+      mcpBindings: [
+        {
+          id: `agent-mcp-binding:${agentId}:${activeServerId}` as never,
+          appId,
+          agentId,
+          serverId: activeServerId,
+          status: 'active',
+          required: false,
+          permissionPolicyIds: [],
+          allowedToolPatterns: ['read_*'],
+          createdAt: updatedAt,
+          updatedAt,
+        },
+        {
+          id: `agent-mcp-binding:${agentId}:${inactiveServerId}` as never,
+          appId,
+          agentId,
+          serverId: inactiveServerId,
+          status: 'active',
+          required: false,
+          permissionPolicyIds: [],
+          allowedToolPatterns: ['read_*'],
+          createdAt: updatedAt,
+          updatedAt,
+        },
+        {
+          id: `agent-mcp-binding:${agentId}:${foreignServerId}` as never,
+          appId,
+          agentId,
+          serverId: foreignServerId,
+          status: 'active',
+          required: false,
+          permissionPolicyIds: [],
+          allowedToolPatterns: ['read_*'],
+          createdAt: updatedAt,
+          updatedAt,
+        },
+      ],
+      updatedAt,
+    });
+
+    let toolSnapshot:
+      | Awaited<
+          ReturnType<typeof repositories.tools.listAgentToolAccessSnapshot>
+        >
+      | undefined;
+    let skillSnapshot:
+      | Awaited<
+          ReturnType<typeof repositories.skills.listAgentSkillAccessSnapshot>
+        >
+      | undefined;
+    let mcpSnapshot:
+      | Awaited<
+          ReturnType<typeof repositories.mcpServers.listAgentMcpAccessSnapshot>
+        >
+      | undefined;
+    const measurement = await measurePostgresOperations(
+      service.pool,
+      async () => {
+        toolSnapshot = await repositories.tools.listAgentToolAccessSnapshot({
+          appId,
+          agentId,
+        });
+        skillSnapshot = await repositories.skills.listAgentSkillAccessSnapshot({
+          appId,
+          agentId,
+        });
+        mcpSnapshot = await repositories.mcpServers.listAgentMcpAccessSnapshot({
+          appId,
+          agentId,
+        });
+      },
+    );
+
+    expect(measurement.counts).toEqual({
+      postgres_statements: 3,
+      postgres_transactions: 0,
+    });
+    expect(toolSnapshot?.activeBindings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          binding: expect.objectContaining({ toolId: selectedToolId }),
+          definition: expect.objectContaining({
+            id: selectedToolId,
+            status: 'error',
+          }),
+        }),
+        expect.objectContaining({
+          binding: expect.objectContaining({ toolId: foreignToolId }),
+          definition: null,
+        }),
+      ]),
+    );
+    expect(toolSnapshot?.appActiveDefinitions.map((tool) => tool.id)).toContain(
+      activeInventoryToolId,
+    );
+    expect(
+      skillSnapshot?.activeBindings.map((row) => row.binding.skillId),
+    ).toEqual(
+      expect.arrayContaining([selectedSkillId, staleSkillId, foreignSkillId]),
+    );
+    expect(
+      skillSnapshot?.activeBindings.find(
+        (row) => row.binding.skillId === foreignSkillId,
+      )?.definition,
+    ).toBeNull();
+    expect(skillSnapshot?.enabledDefinitions.map((skill) => skill.id)).toEqual([
+      selectedSkillId,
+    ]);
+    expect(
+      mcpSnapshot?.activeBindings.map((row) => row.binding.serverId),
+    ).toEqual(
+      expect.arrayContaining([
+        activeServerId,
+        inactiveServerId,
+        foreignServerId,
+      ]),
+    );
+    expect(
+      mcpSnapshot?.activeBindings.find(
+        (row) => row.binding.serverId === foreignServerId,
+      )?.definition,
+    ).toBeNull();
+    expect(
+      mcpSnapshot?.materializedServers.map((row) => row.definition.id),
+    ).toEqual([activeServerId]);
+  });
+
   it('inserts messages idempotently by provider redelivery key', async () => {
     await repositories.messages.saveMessage({
       id: 'message:test:first' as MessageId,
@@ -918,6 +2185,56 @@ maybeDescribe('Postgres domain repositories', () => {
     expect(matching[0]?.parts).toEqual([
       { kind: 'text', text: 'thread redelivered' },
     ]);
+  });
+
+  it('uses the external thread id to apply a deletion marker before domain message insert', async () => {
+    const externalMessageId = 'evt-thread-delete-before-insert';
+    const attachmentId =
+      'attachment:test:thread-delete-before-insert' as MessageAttachment['id'];
+    const messageId = 'message:test:thread-delete-before-insert' as MessageId;
+    await repositories.messageAttachments.setDeletedAtByMessageExternalIds({
+      appId,
+      providerId,
+      providerAccountIds: [providerAccountId],
+      channelId: '1700.1',
+      externalMessageIds: [externalMessageId],
+      deletedAt: '2026-08-01T00:00:00.000Z',
+    });
+
+    await repositories.messages.saveMessage({
+      id: messageId,
+      appId,
+      conversationId,
+      threadId,
+      externalRef: {
+        kind: 'message',
+        value: externalMessageId,
+        thread_id: '1700.1',
+      } as never,
+      direction: 'inbound',
+      senderUserId: userId,
+      senderDisplayName: 'Ravi',
+      trust: 'trusted',
+      createdAt: '2026-08-01T00:00:01.000Z',
+      parts: [{ kind: 'text', text: 'deleted before insert' }],
+      attachments: [
+        {
+          id: attachmentId,
+          messageId,
+          kind: 'file',
+          trust: 'trusted',
+        },
+      ],
+    });
+
+    await expect(
+      service.pool.query(
+        'SELECT deleted_at = $2::timestamptz AS tombstoned FROM message_attachments WHERE id = $1',
+        [attachmentId, '2026-08-01T00:00:00.000Z'],
+      ),
+    ).resolves.toMatchObject({
+      rows: [{ tombstoned: true }],
+    });
   });
 
   it('persists outbound delivery status and provider message id', async () => {

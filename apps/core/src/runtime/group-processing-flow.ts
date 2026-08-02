@@ -5,6 +5,7 @@ type GroupTurnRunResult = 'success' | 'error' | 'stopped';
 export async function handleFailure(input: {
   outputSentToUser: boolean;
   acknowledgeFailedTurn?: boolean;
+  preserveCursor?: boolean;
   groupName: string;
   queueJid: string;
   previousCursor: string;
@@ -28,6 +29,14 @@ export async function handleFailure(input: {
     input.logger.warn(
       { group: input.groupName },
       'Agent error on final retry, preserving message cursor to prevent stale replay',
+    );
+    return true;
+  }
+  if (input.preserveCursor) {
+    await input.deps.saveState();
+    input.logger.warn(
+      { group: input.groupName },
+      'Agent infrastructure error, preserving message cursor to prevent stale replay',
     );
     return true;
   }

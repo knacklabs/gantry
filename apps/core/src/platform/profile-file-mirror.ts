@@ -4,6 +4,7 @@ import type { FileHandle } from 'fs/promises';
 import { randomUUID } from 'node:crypto';
 import path from 'path';
 
+import { logger } from '../infrastructure/logging/logger.js';
 import { getRuntimeLayoutPaths } from './runtime-layout.js';
 import { resolveWorkspaceFolderPath } from './workspace-folder.js';
 import { isValidWorkspaceFolder } from './workspace-folder-rules.js';
@@ -16,6 +17,19 @@ import { isValidWorkspaceFolder } from './workspace-folder-rules.js';
 // inert until imported/approved. Stripped before content becomes durable.
 export const PROFILE_MIRROR_HEADER =
   '<!-- Managed by Gantry. Direct edits are not active until imported or approved. -->';
+
+interface MirrorWriteChain {
+  tail: Promise<void>;
+  // Highest version SUCCESSFULLY written by this chain.
+  appliedVersion?: number;
+  // Highest version ever ENQUEUED on this chain, recorded synchronously at call
+  // time. Tracked separately from appliedVersion so that a newer write which
+  // FAILS still blocks an older write queued behind it — otherwise appliedVersion
+  // stays unset and the stale write is let through.
+  highestSeenVersion?: number;
+}
+
+const mirrorWriteChainByTarget = new Map<string, MirrorWriteChain>();
 
 export function stripProfileMirrorHeader(content: string): string {
   const normalized = content.replace(/^\uFEFF/, '');
@@ -89,26 +103,84 @@ export async function writeProfileFileMirror(input: {
   agentFolder: string;
   fileName: string;
   content: string;
+  version?: number;
   runtimeHome?: string;
 }): Promise<void> {
   const dir = resolveProfileMirrorDir(input.agentFolder, input.runtimeHome);
   const mirrorFileName = profileMirrorFileName(input.fileName);
-  try {
-    const existingDirStat = await fsp.lstat(dir);
-    if (!existingDirStat.isDirectory() || existingDirStat.isSymbolicLink()) {
-      throw new Error(
-        `Profile mirror directory is not a safe directory: ${dir}`,
-      );
+  const targetPath = path.resolve(dir, mirrorFileName);
+  let chain = mirrorWriteChainByTarget.get(targetPath);
+  if (!chain) {
+    chain = { tail: Promise.resolve() };
+    mirrorWriteChainByTarget.set(targetPath, chain);
+  }
+  if (input.version !== undefined) {
+    chain.highestSeenVersion =
+      chain.highestSeenVersion === undefined
+        ? input.version
+        : Math.max(chain.highestSeenVersion, input.version);
+  }
+  const previousWrite = chain.tail;
+  const write = previousWrite.then(async () => {
+    await ensureSafeProfileMirrorDirectory(dir);
+    if (input.version !== undefined) {
+      // Below a newer version already queued (even if that one failed), or at/below
+      // one already written. `<` on highestSeen leaves an equal-version retry after
+      // a failed write free to proceed.
+      const belowHighestSeen =
+        chain.highestSeenVersion !== undefined &&
+        input.version < chain.highestSeenVersion;
+      const alreadyApplied =
+        chain.appliedVersion !== undefined &&
+        input.version <= chain.appliedVersion;
+      if (belowHighestSeen || alreadyApplied) {
+        logger.debug(
+          {
+            targetPath,
+            version: input.version,
+            appliedVersion: chain.appliedVersion,
+            highestSeenVersion: chain.highestSeenVersion,
+          },
+          'skipping stale profile mirror write',
+        );
+        return;
+      }
     }
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
-  }
-  await fsp.mkdir(dir, { recursive: true, mode: 0o700 });
-  const dirStat = await fsp.lstat(dir);
-  if (!dirStat.isDirectory() || dirStat.isSymbolicLink()) {
-    throw new Error(`Profile mirror directory is not a safe directory: ${dir}`);
-  }
-  const targetPath = path.join(dir, mirrorFileName);
+
+    await writeProfileFileMirrorAtomic({
+      dir,
+      mirrorFileName,
+      targetPath,
+      content: input.content,
+    });
+    if (input.version !== undefined) {
+      chain.appliedVersion = input.version;
+    }
+  });
+  const settledWrite = write.then(
+    () => undefined,
+    () => undefined,
+  );
+  chain.tail = settledWrite;
+  void settledWrite.then(() => {
+    if (
+      mirrorWriteChainByTarget.get(targetPath) === chain &&
+      chain.tail === settledWrite
+    ) {
+      mirrorWriteChainByTarget.delete(targetPath);
+    }
+  });
+  return write;
+}
+
+async function writeProfileFileMirrorAtomic(input: {
+  dir: string;
+  mirrorFileName: string;
+  targetPath: string;
+  content: string;
+}): Promise<void> {
+  const { dir, mirrorFileName, targetPath } = input;
+  await ensureSafeProfileMirrorDirectory(dir);
   const tmpPath = path.join(
     dir,
     `.${mirrorFileName}.${process.pid}.${randomUUID()}.tmp`,
@@ -126,6 +198,24 @@ export async function writeProfileFileMirror(input: {
     if (handle) await handle.close().catch(() => undefined);
     await fsp.rm(tmpPath, { force: true }).catch(() => undefined);
     throw err;
+  }
+}
+
+async function ensureSafeProfileMirrorDirectory(dir: string): Promise<void> {
+  try {
+    const existingDirStat = await fsp.lstat(dir);
+    if (!existingDirStat.isDirectory() || existingDirStat.isSymbolicLink()) {
+      throw new Error(
+        `Profile mirror directory is not a safe directory: ${dir}`,
+      );
+    }
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+  }
+  await fsp.mkdir(dir, { recursive: true, mode: 0o700 });
+  const dirStat = await fsp.lstat(dir);
+  if (!dirStat.isDirectory() || dirStat.isSymbolicLink()) {
+    throw new Error(`Profile mirror directory is not a safe directory: ${dir}`);
   }
 }
 

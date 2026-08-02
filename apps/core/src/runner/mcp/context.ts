@@ -42,6 +42,8 @@ export const BROWSER_REQUESTS_DIR = path.join(IPC_DIR, 'browser-requests');
 export const BROWSER_RESPONSES_DIR = path.join(IPC_DIR, 'browser-responses');
 export const TASK_RESPONSES_DIR = path.join(IPC_DIR, 'task-responses');
 export const IPC_AUTH_TOKEN = process.env.GANTRY_IPC_AUTH_TOKEN || '';
+export const ATTACHMENT_IPC_AUTH_TOKEN =
+  process.env.GANTRY_ATTACHMENT_IPC_AUTH_TOKEN || '';
 export const BROWSER_IPC_AUTH_TOKEN =
   process.env.GANTRY_BROWSER_IPC_AUTH_TOKEN || IPC_AUTH_TOKEN;
 export const MEMORY_IPC_AUTH_TOKEN =
@@ -63,6 +65,10 @@ export const workspaceFolder = process.env.GANTRY_WORKSPACE_KEY!;
 export const appId = process.env.GANTRY_APP_ID?.trim() || undefined;
 export const agentId = process.env.GANTRY_AGENT_ID?.trim() || undefined;
 export const jobId = process.env.GANTRY_JOB_ID?.trim() || undefined;
+export const permissionLane =
+  process.env.GANTRY_PERMISSION_LANE?.trim() === 'interactive'
+    ? 'interactive'
+    : 'autonomous';
 export const jobRunId = process.env.GANTRY_JOB_RUN_ID?.trim() || undefined;
 export const jobRunLeaseToken =
   process.env.GANTRY_JOB_RUN_LEASE_TOKEN?.trim() || undefined;
@@ -80,6 +86,9 @@ export const memoryIpcAllowedActions = normalizeMemoryIpcActions(
 );
 export const browserProfileName =
   process.env.GANTRY_BROWSER_PROFILE_NAME?.trim() || undefined;
+/** Per-turn browser credential; the host maps it to the profile this turn owns. */
+export const browserTurnToken =
+  process.env.GANTRY_BROWSER_TURN_TOKEN?.trim() || undefined;
 // Locked agents never see capability-request/approval machinery: the enabled
 // tool set parses fail-closed and introspection text shows only what is
 // currently provisioned.

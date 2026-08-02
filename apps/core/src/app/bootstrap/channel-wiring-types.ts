@@ -1,7 +1,11 @@
 import type {
   MessageDeliveryResult,
   MessageActionCallbackInput,
+  OnMemoryReviewMessageAction,
+  OnObserverFeedbackMessageAction,
+  OnBrainDreamReviewMessageAction,
   MessageSendOptions,
+  PermissionApprovalCancellation,
   PermissionApprovalDecision,
   PermissionApprovalRequest,
   ProgressUpdateOptions,
@@ -9,6 +13,7 @@ import type {
   StreamingChunkOptions,
   UserQuestionRequest,
   UserQuestionResponse,
+  UserQuestionCancellation,
 } from '../../domain/types.js';
 import type { RuntimeSettings } from '../../config/settings/runtime-settings.js';
 import type {
@@ -16,7 +21,6 @@ import type {
   isSenderAllowed,
   loadSenderControlAllowlist,
   loadSenderAllowlist,
-  shouldDropMessage,
   shouldLogDenied,
 } from '../../platform/sender-allowlist.js';
 import type {
@@ -34,10 +38,21 @@ import type {
   AgentTodoRender,
 } from '../../domain/ports/task-lifecycle.js';
 import type {
+  ConversationContextHydrationCoverage,
   ConversationContextHydrationRequest,
   ConversationContextHydrationResult,
+  HydrationRequestObservation,
 } from '../../channels/channel-provider.js';
 import type { BrainChannelHarvestTap } from '../../brain/brain-channel-harvest.js';
+import type {
+  HistoricalAttachmentFetcher,
+  HistoricalAttachmentFetchResult,
+} from '../../domain/ports/historical-attachment-fetcher.js';
+import type { MessageAttachmentRepository } from '../../domain/ports/message-attachment-repository.js';
+import type {
+  ConversationHistoryCoverageRepository,
+  ConversationHistoryDistrustEpoch,
+} from '../../domain/ports/conversation-history-coverage.js';
 
 export type ChannelWiringRepository = RuntimeChatMetadataRepository &
   RuntimeMessageRepository;
@@ -117,7 +132,6 @@ export interface ChannelWiringDeps {
   opsRepository?: ChannelWiringRepository;
   loadSenderAllowlist: typeof loadSenderAllowlist;
   loadSenderControlAllowlist: typeof loadSenderControlAllowlist;
-  shouldDropMessage: typeof shouldDropMessage;
   isSenderAllowed: typeof isSenderAllowed;
   isSenderControlAllowed: typeof isSenderControlAllowed;
   shouldLogDenied: typeof shouldLogDenied;
@@ -126,10 +140,16 @@ export interface ChannelWiringDeps {
   groupJoinOnboarding?: GroupJoinOnboardingCoordinator;
   publishRuntimeEvent?: (event: RuntimeEventPublishInput) => Promise<unknown>;
   brainHarvestTap?: BrainChannelHarvestTap;
+  historyCoverage?: ConversationHistoryCoverageRepository;
+  messageAttachments?: MessageAttachmentRepository;
 }
 
 export interface ChannelWiring {
   getRuntimeAppId: () => AppId;
+  normalizeProviderId: (providerId: string) => string;
+  getHistoryCoverageDistrustEpoch: (
+    providerAccountId: string,
+  ) => ConversationHistoryDistrustEpoch;
   describeDestinationJid: (jid: string) => {
     providerId?: string;
     internal: boolean;
@@ -149,6 +169,12 @@ export interface ChannelWiring {
     jid: string,
     options?: { providerAccountId?: string },
   ) => boolean;
+  fetchHistoricalAttachment: (
+    input: Parameters<
+      HistoricalAttachmentFetcher['fetchHistoricalAttachment']
+    >[0],
+  ) => Promise<HistoricalAttachmentFetchResult>;
+  getMessageAttachmentRepository: () => MessageAttachmentRepository;
   sendMessage: (
     jid: string,
     rawText: string,
@@ -180,6 +206,15 @@ export interface ChannelWiring {
   setMessageActionHandler: (
     handler: ((input: MessageActionCallbackInput) => Promise<void>) | undefined,
   ) => void;
+  setMemoryReviewMessageActionHandler: (
+    handler: OnMemoryReviewMessageAction | undefined,
+  ) => void;
+  setObserverFeedbackMessageActionHandler: (
+    handler: OnObserverFeedbackMessageAction | undefined,
+  ) => void;
+  setBrainDreamReviewMessageActionHandler: (
+    handler: OnBrainDreamReviewMessageAction | undefined,
+  ) => void;
   sendStreamingChunk: (
     jid: string,
     rawText: string,
@@ -206,9 +241,15 @@ export interface ChannelWiring {
   requestPermissionApproval: (
     request: PermissionApprovalRequest,
   ) => Promise<PermissionApprovalDecision>;
+  cancelPermissionApproval: (
+    cancellation: PermissionApprovalCancellation,
+  ) => Promise<'settled' | 'queued' | 'not_found'>;
   requestUserAnswer: (
     request: UserQuestionRequest,
   ) => Promise<UserQuestionResponse>;
+  cancelUserQuestion: (
+    cancellation: UserQuestionCancellation,
+  ) => Promise<'settled' | 'queued' | 'not_found'>;
   renderAgentTodo: (
     jid: string,
     render: AgentTodoRender,
@@ -243,6 +284,8 @@ export interface ChannelWiring {
 }
 
 export type {
+  ConversationContextHydrationCoverage,
   ConversationContextHydrationRequest,
   ConversationContextHydrationResult,
+  HydrationRequestObservation,
 };

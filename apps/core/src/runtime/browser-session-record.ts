@@ -8,6 +8,17 @@ export interface BrowserSessionRecord {
   startedAt: string;
   lastUsedAt: string;
   headless: boolean;
+  /**
+   * Ownership generation of the profile lease this session ran under: durable
+   * LOCAL provenance for the bytes in this directory.
+   *
+   * A later cleanup of a stray session cannot infer it from the lease key — the
+   * currently issued generation may belong to a DIFFERENT worker that has since
+   * owned and released the profile, and labelling these bytes with it would
+   * relabel stale local state as current. Absent for records written before
+   * this field existed, in which case no snapshot may be published.
+   */
+  leaseGeneration?: number;
 }
 
 export interface PersistableBrowserSession {
@@ -16,6 +27,7 @@ export interface PersistableBrowserSession {
   targetId?: string;
   lastUsedAt: number;
   headless: boolean;
+  leaseGeneration?: number;
 }
 
 function getBrowserSessionRecordPath(profile: { dir: string }): string {
@@ -77,6 +89,9 @@ export function writeBrowserSessionRecord(
     startedAt: readBrowserSessionRecord(profile)?.startedAt ?? now,
     lastUsedAt: now,
     headless: session.headless,
+    ...(session.leaseGeneration !== undefined
+      ? { leaseGeneration: session.leaseGeneration }
+      : {}),
   };
   const tmpPath = `${recordPath}.tmp`;
   fs.writeFileSync(tmpPath, JSON.stringify(payload, null, 2), {

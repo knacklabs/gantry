@@ -19,8 +19,19 @@ import {
 import { listTelegramRecentChats } from '@core/cli/telegram-chat-discovery.js';
 import { makeAgentThreadQueueKey } from '@core/shared/thread-queue-key.js';
 import { resolveGroupSelector } from '@core/cli/group-helpers.js';
+import { runtimeSecretNameForAgent } from '@core/domain/provider/provider-runtime-secret-keys.js';
 
 const groupsStore = vi.hoisted(() => new Map<string, any>());
+const defaultTelegramBotSecretName = runtimeSecretNameForAgent(
+  'telegram',
+  'main_agent',
+  'BOT_TOKEN',
+);
+const test2TelegramBotSecretName = runtimeSecretNameForAgent(
+  'telegram',
+  'test2',
+  'BOT_TOKEN',
+);
 const fileArtifacts = vi.hoisted(() => new Map<string, string>());
 const fileArtifactStore = vi.hoisted(() => ({
   async listFileArtifacts(input: any) {
@@ -543,7 +554,7 @@ describe('cli telegram helpers', () => {
     expect(code).toBe(0);
     expect(storeRuntimeSecretInput).toHaveBeenCalledWith({
       runtimeHome,
-      name: 'TELEGRAM_BOT_TOKEN',
+      name: defaultTelegramBotSecretName,
       value: 'telegram-token',
       actor: 'cli:telegram-connect',
     });
@@ -628,7 +639,7 @@ describe('cli telegram helpers', () => {
     );
     expect(storeRuntimeSecretInput).toHaveBeenCalledWith({
       runtimeHome,
-      name: 'TELEGRAM_BOT_TOKEN',
+      name: defaultTelegramBotSecretName,
       value: 'telegram-token',
       actor: 'cli:telegram-connect',
     });
@@ -637,9 +648,31 @@ describe('cli telegram helpers', () => {
   it('telegram connect enables session admin commands for an explicitly entered sender', async () => {
     vi.resetModules();
     const runtimeHome = makeRuntimeHome();
+    const existingSettings = loadRuntimeSettings(runtimeHome);
+    existingSettings.agents.main_agent = {
+      name: 'Default Agent',
+      folder: 'main_agent',
+      bindings: {},
+      sources: { skills: [], mcpServers: [], tools: [] },
+      capabilities: [],
+      accessPreset: 'full',
+    };
+    existingSettings.providerAccounts.telegram_default = {
+      agentId: 'main_agent',
+      provider: 'telegram',
+      label: 'Telegram Default',
+      runtimeSecretRefs: {
+        bot_token: `gantry-secret:${defaultTelegramBotSecretName}`,
+      },
+    };
+    saveRuntimeSettings(runtimeHome, existingSettings);
     const select = vi.fn(async () => 'tg:-100123');
     const text = vi.fn(async () => '5759865942');
-    mockRuntimeSecretStorage(runtimeHome);
+    const storeRuntimeSecretInput = mockRuntimeSecretStorage(runtimeHome);
+    const registerTelegramMainGroup = vi.fn(async () => ({
+      groupName: 'Test 2',
+      folder: 'test2',
+    }));
 
     vi.doMock('@clack/prompts', () => ({
       isCancel: () => false,
@@ -678,10 +711,7 @@ describe('cli telegram helpers', () => {
         return trimmed.startsWith('tg:') ? trimmed : `tg:${trimmed}`;
       }),
       readTelegramFromRuntimeEnv: vi.fn(() => ({ token: '' })),
-      registerTelegramMainGroup: vi.fn(async () => ({
-        groupName: 'Default Agent',
-        folder: 'main_agent',
-      })),
+      registerTelegramMainGroup,
       validateTelegramBotToken: vi.fn(async () => ({
         ok: true,
         message: 'ok',
@@ -696,13 +726,31 @@ describe('cli telegram helpers', () => {
 
     const { runTelegramConnectCommand } =
       await import('@core/cli/telegram-connect.js');
-    const code = await runTelegramConnectCommand(runtimeHome);
+    const code = await runTelegramConnectCommand(
+      runtimeHome,
+      'test2',
+      'Test 2',
+    );
 
     expect(code).toBe(0);
+    expect(storeRuntimeSecretInput).toHaveBeenCalledWith({
+      runtimeHome,
+      name: test2TelegramBotSecretName,
+      value: 'telegram-token',
+      actor: 'cli:telegram-connect',
+    });
+    expect(registerTelegramMainGroup).toHaveBeenCalledWith(
+      expect.objectContaining({
+        agentId: 'test2',
+        runtimeSecretRefs: {
+          bot_token: `gantry-secret:${test2TelegramBotSecretName}`,
+        },
+      }),
+    );
     const settings = loadRuntimeSettings(runtimeHome);
     expect(settings.providers.telegram.enabled).toBe(true);
     const conversation = Object.values(settings.conversations).find(
-      (entry) => entry.providerConnection === 'telegram_default',
+      (entry) => entry.providerConnection === 'telegram_test2',
     );
     expect(conversation?.senderPolicy.allow).toBe('*');
     expect(conversation?.controlApprovers).toEqual(['5759865942']);
@@ -976,5 +1024,137 @@ describe('cli telegram helpers', () => {
     expect(result.found).toBeNull();
     expect(result.error).toContain('ambiguous');
     expect(result.error).toContain('folder/agent selector');
+  });
+
+  it('resolves the canonical agent:<folder> id surfaced by status and jobs', () => {
+    const firstRouteKey = makeAgentThreadQueueKey(
+      'tg:123',
+      'agent:first_agent',
+    );
+    const secondRouteKey = makeAgentThreadQueueKey(
+      'tg:456',
+      'agent:second_agent',
+    );
+    const groups = {
+      [firstRouteKey]: {
+        name: 'First',
+        folder: 'first_agent',
+        trigger: '',
+        added_at: '2026-04-24T00:00:00.000Z',
+      },
+      [secondRouteKey]: {
+        name: 'Second',
+        folder: 'second_agent',
+        trigger: '',
+        added_at: '2026-04-24T00:00:00.000Z',
+      },
+    };
+
+    const byAgentId = resolveGroupSelector(groups, 'agent:second_agent');
+    expect(byAgentId.error).toBeUndefined();
+    expect(byAgentId.found?.jid).toBe(secondRouteKey);
+    expect(byAgentId.found?.group.folder).toBe('second_agent');
+
+    // Same agent, reachable by folder and by full route JID.
+    expect(resolveGroupSelector(groups, 'second_agent').found?.jid).toBe(
+      secondRouteKey,
+    );
+    expect(resolveGroupSelector(groups, secondRouteKey).found?.jid).toBe(
+      secondRouteKey,
+    );
+
+    // agent:<folder> is agent-only: unknown ids do not fall back to anything.
+    const unknown = resolveGroupSelector(groups, 'agent:missing_agent');
+    expect(unknown.found).toBeNull();
+    expect(unknown.error).toBeUndefined();
+  });
+
+  it('refuses a multi-route agent id rather than silently picking one route', () => {
+    const routeA = makeAgentThreadQueueKey('tg:123', 'agent:multi_agent');
+    const routeB = makeAgentThreadQueueKey('tg:456', 'agent:multi_agent');
+    const groups = {
+      [routeA]: {
+        name: 'Multi',
+        folder: 'multi_agent',
+        trigger: '',
+        added_at: '2026-04-24T00:00:00.000Z',
+      },
+      [routeB]: {
+        name: 'Multi',
+        folder: 'multi_agent',
+        trigger: '',
+        added_at: '2026-04-24T00:00:00.000Z',
+      },
+    };
+
+    const result = resolveGroupSelector(groups, 'agent:multi_agent');
+    expect(result.found).toBeNull();
+    expect(result.error).toContain('2 routes');
+    // The error must name every route so the user can pick one.
+    expect(result.error).toContain(routeA);
+    expect(result.error).toContain(routeB);
+
+    // Each route remains individually addressable by its exact JID.
+    expect(resolveGroupSelector(groups, routeA).found?.jid).toBe(routeA);
+    expect(resolveGroupSelector(groups, routeB).found?.jid).toBe(routeB);
+  });
+
+  it('keeps exact route-JID precedence, with agent:<folder> addressing the other agent', () => {
+    const collidingJid = 'tg:999';
+    const otherRouteKey = makeAgentThreadQueueKey('tg:123', 'agent:tg:999');
+    const groups = {
+      [collidingJid]: {
+        name: 'Direct route',
+        folder: 'direct_route',
+        trigger: '',
+        added_at: '2026-04-24T00:00:00.000Z',
+      },
+      [otherRouteKey]: {
+        name: 'Other',
+        folder: collidingJid,
+        trigger: '',
+        added_at: '2026-04-24T00:00:00.000Z',
+      },
+    };
+
+    // Exact route key wins -- and stays addressable.
+    const byJid = resolveGroupSelector(groups, collidingJid);
+    expect(byJid.error).toBeUndefined();
+    expect(byJid.found?.jid).toBe(collidingJid);
+    expect(byJid.found?.group.folder).toBe('direct_route');
+
+    // The agent whose FOLDER collides is reachable via its canonical id.
+    const byAgentId = resolveGroupSelector(groups, `agent:${collidingJid}`);
+    expect(byAgentId.error).toBeUndefined();
+    expect(byAgentId.found?.jid).toBe(otherRouteKey);
+    expect(byAgentId.found?.group.folder).toBe(collidingJid);
+  });
+
+  it('does not flag a collision when the colliding folder is the same agent', () => {
+    // One agent owning several routes, where its folder equals one route key,
+    // is an alias — not a cross-agent collision — and must still resolve.
+    const selfJid = 'tg:999';
+    const secondRoute = makeAgentThreadQueueKey('tg:123', 'agent:tg:999');
+    const result = resolveGroupSelector(
+      {
+        [selfJid]: {
+          name: 'Same agent',
+          folder: selfJid,
+          trigger: '',
+          added_at: '2026-04-24T00:00:00.000Z',
+        },
+        [secondRoute]: {
+          name: 'Same agent',
+          folder: selfJid,
+          trigger: '',
+          added_at: '2026-04-24T00:00:00.000Z',
+        },
+      },
+      selfJid,
+    );
+
+    expect(result.error).toBeUndefined();
+    expect(result.found?.jid).toBe(selfJid);
+    expect(result.found?.group.folder).toBe(selfJid);
   });
 });

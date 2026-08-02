@@ -44,10 +44,10 @@ export function limitPermissionMessage(
 
 export function sanitizeReceiptDetail(input: string): string | null {
   const result = sanitizeOutboundLlmText(input);
-  if (result.redacted || result.blocked) return null;
-  if (/\[REDACTED_(?:SECRET|POTENTIALLY_SENSITIVE)\]/.test(result.text)) {
-    return null;
-  }
+  // Only drop the whole detail when a secret couldn't be safely span-masked.
+  // When a real secret was span-redacted, show the command with just the span
+  // masked (result.text is the span-redacted text) rather than hiding it all.
+  if (result.blocked) return null;
   return headTailTruncate(result.text, 200, 100);
 }
 

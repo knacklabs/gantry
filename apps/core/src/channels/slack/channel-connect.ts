@@ -1,6 +1,12 @@
-import { App } from '@slack/bolt';
+import { App, SocketModeReceiver } from '@slack/bolt';
 
 import { logger } from '../../infrastructure/logging/logger.js';
+
+// SocketModeClient emits this transport event synchronously when the active
+// WebSocket closes, before its delayed reconnect and gateway discovery begin.
+export const SLACK_SOCKET_MODE_RECONNECT_EVENT = 'close' as const;
+export const SLACK_SOCKET_MODE_CONNECTED_EVENT = 'connected' as const;
+export const SLACK_SOCKET_MODE_DISCONNECTED_EVENT = 'disconnected' as const;
 
 export async function connectSlackApp(input: {
   botToken: string;
@@ -8,17 +14,53 @@ export async function connectSlackApp(input: {
   inboundEnabled: boolean;
   interactionCallbacksEnabled: boolean;
   registerBoltHandlers: (app: App) => void;
-}): Promise<{ app: App; botUserId: string | null }> {
+  onReconnect?: () => void;
+  onInboundStateChange?: (active: boolean) => void;
+  onDispatchFailure?: () => void;
+}): Promise<{
+  app: App;
+  botUserId: string | null;
+  deactivateInbound: () => void;
+}> {
+  const receiver = new SocketModeReceiver({ appToken: input.appToken });
   const app = new App({
     token: input.botToken,
-    appToken: input.appToken,
-    socketMode: true,
+    receiver,
   });
+  let inboundActive = false;
+  let inboundTerminal = false;
+  const deactivateInbound = (terminal = false) => {
+    if (!input.inboundEnabled) return;
+    if (terminal) inboundTerminal = true;
+    input.onInboundStateChange?.(false);
+    if (!inboundActive) return;
+    inboundActive = false;
+    input.onReconnect?.();
+  };
   if (input.inboundEnabled || input.interactionCallbacksEnabled) {
+    let reconnectNeedsRefence = false;
+    receiver.client.on(SLACK_SOCKET_MODE_RECONNECT_EVENT, () => {
+      reconnectNeedsRefence = true;
+      deactivateInbound();
+    });
+    receiver.client.on(SLACK_SOCKET_MODE_DISCONNECTED_EVENT, () => {
+      reconnectNeedsRefence = true;
+      deactivateInbound();
+    });
+    receiver.client.on(SLACK_SOCKET_MODE_CONNECTED_EVENT, () => {
+      if (!input.inboundEnabled || inboundTerminal) return;
+      if (reconnectNeedsRefence) {
+        reconnectNeedsRefence = false;
+        input.onReconnect?.();
+      }
+      inboundActive = true;
+      input.onInboundStateChange?.(true);
+    });
     input.registerBoltHandlers(app);
-    app.error(async (error: Error) =>
-      logger.error({ err: error }, 'Slack app error'),
-    );
+    app.error(async (error: Error) => {
+      if (input.inboundEnabled) input.onDispatchFailure?.();
+      logger.error({ err: error }, 'Slack app error');
+    });
     await app.start();
   }
   try {
@@ -39,9 +81,17 @@ export async function connectSlackApp(input: {
         ? 'Slack outbound delivery client initialized'
         : 'Slack Socket Mode connected',
     );
-    return { app, botUserId };
+    return {
+      app,
+      botUserId,
+      deactivateInbound: () => deactivateInbound(true),
+    };
   } catch (err) {
     logger.warn({ err }, 'Slack auth.test failed after Socket Mode start');
-    return { app, botUserId: null };
+    return {
+      app,
+      botUserId: null,
+      deactivateInbound: () => deactivateInbound(true),
+    };
   }
 }

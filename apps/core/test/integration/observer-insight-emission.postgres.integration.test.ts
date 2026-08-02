@@ -32,6 +32,7 @@ const DIMENSIONS = 1536;
 const MODEL = 'observer-test';
 const EMPTY_CANDIDATES_APP_ID = 'observer-empty-candidates-app';
 const ARRAY_PROPOSAL_APP_ID = 'observer-array-proposal-app';
+const SUPPRESSION_APP_ID = 'observer-suppression-app';
 
 maybeDescribe('observer insight emission postgres integration', () => {
   let runtime: PostgresIntegrationRuntime;
@@ -54,7 +55,11 @@ maybeDescribe('observer insight emission postgres integration', () => {
       MODEL,
       DIMENSIONS,
     );
-    for (const appId of [EMPTY_CANDIDATES_APP_ID, ARRAY_PROPOSAL_APP_ID]) {
+    for (const appId of [
+      EMPTY_CANDIDATES_APP_ID,
+      ARRAY_PROPOSAL_APP_ID,
+      SUPPRESSION_APP_ID,
+    ]) {
       await runtime.repositories.apps.saveApp({
         id: appId as never,
         slug: appId,
@@ -91,8 +96,14 @@ maybeDescribe('observer insight emission postgres integration', () => {
   }, 60_000);
 
   afterAll(async () => {
-    await closeRuntimeStorage().catch(() => undefined);
-    await runtime.cleanup();
+    // Drop the schema while the pool is still alive: closeRuntimeStorage ends
+    // the pool this harness owns, so cleanup() must run first. The finally
+    // still resets module state if the schema drop throws.
+    try {
+      await runtime.cleanup();
+    } finally {
+      await closeRuntimeStorage().catch(() => undefined);
+    }
   });
 
   it('applies floors and semantic dedup, persists structured evidence, and keeps unavailable retries cursor-safe', async () => {
@@ -130,6 +141,8 @@ maybeDescribe('observer insight emission postgres integration', () => {
         conversationId: subject,
         messageId: first.id,
         ts: first.updatedAt,
+        providerAccountId: 'slack-one',
+        conversationJid: 'slack:C123',
       },
     ]);
     expect(
@@ -440,6 +453,157 @@ maybeDescribe('observer insight emission postgres integration', () => {
         OBSERVER_CURSOR_SUBJECT,
       ),
     ).resolves.toBeNull();
+  });
+
+  it('skips actively-suppressed types before embedding, loads the suppressed set once, and resumes when the window expires', async () => {
+    const realRepo = runtime.repositories.observerInsights;
+    let suppressReadCount = 0;
+    const spyRepo = new Proxy(realRepo, {
+      get(target, prop, receiver) {
+        if (prop === 'listActiveSuppressedTypes') {
+          return (
+            args: Parameters<typeof target.listActiveSuppressedTypes>[0],
+          ) => {
+            suppressReadCount += 1;
+            return target.listActiveSuppressedTypes(args);
+          };
+        }
+        const value = Reflect.get(target, prop, receiver);
+        return typeof value === 'function' ? value.bind(target) : value;
+      },
+    });
+
+    const embeddedTexts: string[] = [];
+    const dimByText = new Map<string, number>();
+    const recordingEmbedding: EmbeddingProvider = {
+      isEnabled: () => true,
+      validateConfiguration: () => undefined,
+      expectedDimensions: () => DIMENSIONS,
+      embedMany: async (texts) => {
+        embeddedTexts.push(...texts);
+        return texts.map((text) => {
+          if (!dimByText.has(text)) dimByText.set(text, dimByText.size + 10);
+          const vector = new Array<number>(DIMENSIONS).fill(0);
+          vector[dimByText.get(text)!] = 1;
+          return vector;
+        });
+      },
+      embedOne: async (text) => {
+        const [vector] = await recordingEmbedding.embedMany([text]);
+        return vector!;
+      },
+    };
+
+    const suppressionRuntime: ObserverInsightEmissionRuntime & {
+      enabled: true;
+    } = {
+      enabled: true,
+      ownerRecipient: 'owner-1',
+      cursorSubject: OBSERVER_CURSOR_SUBJECT,
+      repository: spyRepo,
+      patterns: runtime.repositories.patternCandidates,
+      activeMemory: {
+        listActiveValues: (input) =>
+          listObserverActiveMemoryValues({ db: runtime.service.db, ...input }),
+      },
+      embedding: recordingEmbedding,
+      embeddingModel: MODEL,
+      embeddingDimensions: DIMENSIONS,
+    };
+    const proposer = {
+      propose: async ({ pages }: { pages: Array<{ id: string }> }) => ({
+        operations: [],
+        surfaceableInsights: [
+          insight('commitment', 'ship beta friday', 0.95, [pages[0]!.id]),
+          insight('open_question', 'distinct open question', 0.95, [
+            pages[0]!.id,
+          ]),
+        ],
+      }),
+    };
+
+    // Active suppression on the commitment type for this owner.
+    await runtime.service.db
+      .insert(pgSchema.observerInsightTypeSuppressionsPostgres)
+      .values({
+        appId: SUPPRESSION_APP_ID,
+        recipient: 'owner-1',
+        insightType: 'commitment',
+        negativeCount: 2,
+        suppressedUntil: '2099-01-01T00:00:00.000Z',
+        lastFeedbackAt: '2026-07-22T00:00:00.000Z',
+        updatedAt: '2026-07-22T00:00:00.000Z',
+      });
+
+    await writeChannelPage(
+      'observer-suppressed',
+      '2026-07-22T07:00:00.000Z',
+      SUPPRESSION_APP_ID,
+    );
+    const suppressedRun = await runBrainDreamBatch({
+      brain,
+      repository,
+      appId: SUPPRESSION_APP_ID,
+      proposer,
+      observer: suppressionRuntime,
+    });
+    // Only the non-suppressed open_question survives; commitment is dropped.
+    expect(suppressedRun.observer).toMatchObject({
+      persisted: 1,
+      deduplicated: 0,
+      filtered: 1,
+      typeSuppressed: 1,
+    });
+    // Loaded once per run, not once per candidate.
+    expect(suppressReadCount).toBe(1);
+    // The suppressed candidate never reached the embedder.
+    expect(embeddedTexts).toContain('distinct open question');
+    expect(embeddedTexts).not.toContain('ship beta friday');
+    const afterSuppressed = await runtime.repositories.observerInsights.list({
+      appId: SUPPRESSION_APP_ID,
+      limit: 20,
+    });
+    expect(afterSuppressed.map((row) => row.insightType)).toEqual([
+      'open_question',
+    ]);
+
+    // Expire the window: the type resumes on the next run.
+    await runtime.service.db
+      .update(pgSchema.observerInsightTypeSuppressionsPostgres)
+      .set({ suppressedUntil: '2000-01-01T00:00:00.000Z' })
+      .where(
+        eq(
+          pgSchema.observerInsightTypeSuppressionsPostgres.appId,
+          SUPPRESSION_APP_ID,
+        ),
+      );
+    suppressReadCount = 0;
+    await writeChannelPage(
+      'observer-suppressed-expired',
+      '2026-07-22T08:00:00.000Z',
+      SUPPRESSION_APP_ID,
+    );
+    const resumedRun = await runBrainDreamBatch({
+      brain,
+      repository,
+      appId: SUPPRESSION_APP_ID,
+      proposer,
+      observer: suppressionRuntime,
+    });
+    // commitment now emits; the repeated open_question is an exact duplicate.
+    expect(resumedRun.observer).toMatchObject({
+      persisted: 1,
+      deduplicated: 1,
+      typeSuppressed: 0,
+    });
+    expect(suppressReadCount).toBe(1);
+    expect(embeddedTexts).toContain('ship beta friday');
+    const afterResumed = await runtime.repositories.observerInsights.list({
+      appId: SUPPRESSION_APP_ID,
+      insightType: 'commitment',
+      limit: 20,
+    });
+    expect(afterResumed).toHaveLength(1);
   });
 });
 

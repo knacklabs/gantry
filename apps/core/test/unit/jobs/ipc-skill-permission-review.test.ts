@@ -2,16 +2,26 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { startSkillPermissionReview } from '@core/jobs/ipc-skill-permission-review.js';
 import { skillNameForReceipt } from '@core/jobs/skill-install-assets.js';
-import { withSkillMaterializationLock } from '@core/shared/skill-install-lock.js';
+import {
+  skillMaterializationLockKey,
+  withSkillMaterializationLock,
+} from '@core/shared/skill-install-lock.js';
 import { materializedSkillDirectoryNameFor } from '@core/domain/skills/skills.js';
 
 describe('skill permission review install sequence', () => {
+  it('composes lock keys from app id and lowercased materialized name', () => {
+    expect(skillMaterializationLockKey('app:one', 'Demo-Skill')).toBe(
+      'app:one:demo-skill',
+    );
+  });
+
   it('holds the materialization lock across install, bind failure, and rollback', async () => {
     const rawReason = 'RAW_SKILL_REVIEW_SENTINEL: bind failed';
     const order: string[] = [];
-    const key = materializedSkillDirectoryNameFor(
-      skillNameForReceipt([], 'demo-skill'),
-    ).toLowerCase();
+    const key = skillMaterializationLockKey(
+      'app:test',
+      materializedSkillDirectoryNameFor(skillNameForReceipt([], 'demo-skill')),
+    );
     const rollbackInstalledSkillBinding = vi.fn(async () => {
       order.push('rollback');
     });
@@ -167,6 +177,58 @@ describe('skill permission review install sequence', () => {
     expect(reject).toHaveBeenCalledWith(
       expect.stringContaining('demo-skill'),
       'permission_denied',
+    );
+  });
+
+  it('settles a denied skill review when the Slack receipt cannot be delivered', async () => {
+    const requestPermissionApproval = vi.fn(async () => ({
+      approved: false,
+      reason: 'approval prompt could not be delivered',
+    }));
+    const reject = vi.fn();
+    const logError = vi.fn();
+
+    await new Promise<void>((resolve) => {
+      startSkillPermissionReview({
+        deps: {
+          requestPermissionApproval,
+          sendMessage: vi.fn(async () => {
+            throw new Error('No channel for JID: sl:C123');
+          }),
+        },
+        responder: { acceptData: vi.fn(), reject },
+        logError,
+        service: {
+          installMaterializationCollisionForAgent: vi.fn(async () => null),
+        } as never,
+        syncApprovedCapabilitySettings: vi.fn(async () => undefined),
+        appId: 'app:test',
+        agentId: 'agent:test',
+        sourceAgentFolder: 'main_agent',
+        targetJid: 'sl:C123',
+        providerAccountId: 'slack_default',
+        skill: { name: 'demo-skill' },
+        assets: [],
+        fileSummaries: [],
+        skillMarkdownPreview: {
+          path: 'SKILL.md',
+          content: '',
+          truncated: false,
+        },
+        totalSizeBytes: 0,
+        reason: 'test install',
+        requestToolName: 'request_skill_install',
+        onSettled: resolve,
+      } as never);
+    });
+
+    expect(reject).toHaveBeenCalledWith(
+      expect.stringContaining('demo-skill'),
+      'permission_denied',
+    );
+    expect(logError).toHaveBeenCalledWith(
+      expect.objectContaining({ targetJid: 'sl:C123' }),
+      'Skill review outcome could not be delivered to the channel',
     );
   });
 

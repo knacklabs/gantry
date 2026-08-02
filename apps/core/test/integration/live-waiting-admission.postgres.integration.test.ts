@@ -132,6 +132,8 @@ maybeDescribe('live waiting admission signal', () => {
       role: 'live-worker',
       liveExecutionEnabled: true,
       currentWorkerInstanceId: () => 'w-waiting',
+      liveCapacityLimit: () => 1,
+      jobCapacityLimit: () => 1,
       oldestWaitingLiveAdmissionSeconds: () => 0,
     });
     // The DB-guarded live gauges executed (no throw → they are emitted).

@@ -68,6 +68,20 @@ export function estimateUsageCostUsd(
       1_000_000
     );
   }
+  const cacheWriteUsd = entry?.cacheWriteUsdPerMillionTokens;
+  if (typeof cacheWriteUsd === 'number') {
+    const freshInputTokens = Math.max(
+      0,
+      usage.inputTokens - usage.cacheReadTokens - usage.cacheWriteTokens,
+    );
+    return (
+      (freshInputTokens * inputUsd +
+        usage.cacheReadTokens * cachedInputUsd +
+        usage.cacheWriteTokens * cacheWriteUsd +
+        usage.outputTokens * outputUsd) /
+      1_000_000
+    );
+  }
   const freshInputTokens = Math.max(
     0,
     usage.inputTokens - usage.cacheReadTokens,

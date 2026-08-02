@@ -40,6 +40,41 @@ function makeApp(overrides: Partial<RuntimeApp> = {}): RuntimeApp {
 }
 
 describe('runStartup', () => {
+  it('sweeps pending message attachment deletions before loading app state', async () => {
+    const order: string[] = [];
+    const retryPendingMessageAttachmentDeletions = vi.fn(async () => {
+      order.push('sweep-deletions');
+      return false;
+    });
+    const app = makeApp({
+      loadState: vi.fn(async () => {
+        order.push('load-state');
+      }),
+    });
+
+    await runStartup(app, {
+      ensureRuntimeLayoutDirectories: vi.fn(),
+      initializeRuntimeStorage: vi.fn(async () => ({
+        repositories: {
+          messageAttachments: { retryPendingMessageAttachmentDeletions },
+        },
+      })) as never,
+      loadRuntimeSettings: vi.fn(
+        () =>
+          ({
+            providers: {},
+            storage: {
+              postgres: { urlEnv: 'GANTRY_DATABASE_URL', schema: 'gantry' },
+            },
+            memory: {},
+          }) as never,
+      ),
+      logger: { info: vi.fn(), warn: vi.fn() },
+    });
+
+    expect(order).toEqual(['sweep-deletions', 'load-state']);
+  });
+
   it('preserves startup order through host runtime startup', async () => {
     const order: string[] = [];
     const app = makeApp({
@@ -355,9 +390,15 @@ describe('runStartup', () => {
   });
 
   it('restores the latest revision when settings.yaml differs during revision-authority startup', async () => {
-    const revisionSettings = createDefaultRuntimeSettings();
+    const initialRevisionSettings = createDefaultRuntimeSettings();
+    initialRevisionSettings.agent.name = 'Initial Revision Agent';
+    const revisionSettings = structuredClone(
+      initialRevisionSettings,
+    ) as RuntimeSettings;
     revisionSettings.agent.name = 'Revision Agent';
-    const fileSettings = structuredClone(revisionSettings) as RuntimeSettings;
+    const fileSettings = structuredClone(
+      initialRevisionSettings,
+    ) as RuntimeSettings;
     fileSettings.agent.name = 'File Agent';
     const mcpBindingPrecondition = {
       id: 'agent-mcp-binding:agent:main_agent:mcp:sum',
@@ -369,17 +410,37 @@ describe('runStartup', () => {
       permissionPolicyIds: [],
       allowedToolPatterns: ['get-sum'],
     };
-    const latestRevision = {
+    const initialRevision = {
       revision: 1,
+      settingsDocument: settingsToRevisionDocument(initialRevisionSettings),
+    };
+    const latestRevision = {
+      revision: 2,
       settingsDocument: settingsToRevisionDocument(revisionSettings),
       mcpBindingPreconditions: [mcpBindingPrecondition],
     };
+    let leaseHeld = false;
     const settingsRevisions = {
-      getLatestSettingsRevision: vi.fn(async () => latestRevision),
+      getLatestSettingsRevision: vi
+        .fn()
+        .mockResolvedValueOnce(initialRevision)
+        .mockImplementation(async () => {
+          expect(leaseHeld).toBe(true);
+          return latestRevision;
+        }),
     };
-    const importWorkstationSettings = vi.fn(async () => ({
-      status: 'applied_no_revision' as const,
-    }));
+    const tryAcquire = vi.fn(async () => {
+      leaseHeld = true;
+      return {
+        release: vi.fn(async () => {
+          leaseHeld = false;
+        }),
+      };
+    });
+    const importWorkstationSettings = vi.fn(async () => {
+      expect(leaseHeld).toBe(true);
+      return { status: 'applied_no_revision' as const };
+    });
     const warn = vi.fn();
     const initializeRuntimeStorage = vi.fn(
       async () =>
@@ -402,9 +463,12 @@ describe('runStartup', () => {
       validateSettingsImportPreflight: vi.fn(() => ({ ok: true })),
       loadRuntimeSettings: vi.fn(() => fileSettings),
       importWorkstationSettings,
+      leases: { tryAcquire },
       logger: { info: vi.fn(), warn },
     });
 
+    expect(tryAcquire).toHaveBeenCalledWith('settings-projector:default');
+    expect(leaseHeld).toBe(false);
     expect(importWorkstationSettings).toHaveBeenCalledWith(
       expect.objectContaining({
         expectedMcpBindings: [mcpBindingPrecondition],
@@ -414,7 +478,7 @@ describe('runStartup', () => {
       }),
     );
     expect(warn).toHaveBeenCalledWith(
-      { appId: 'default', revision: 1 },
+      { appId: 'default', revision: 2 },
       'settings.yaml differs from latest settings revision; restoring revision-authority mirror',
     );
     expect(initializeRuntimeStorage).toHaveBeenCalledTimes(2);
@@ -503,6 +567,9 @@ describe('runStartup', () => {
         settingsAuthority: 'revision',
         settingsFileExists: vi.fn(() => true),
         loadRuntimeSettings: vi.fn(() => revisionSettings),
+        leases: {
+          tryAcquire: vi.fn(async () => ({ release: async () => {} })),
+        },
         logger: { info: vi.fn(), warn: vi.fn() },
       }),
     ).rejects.toThrow(
@@ -609,6 +676,9 @@ describe('runStartup', () => {
           throw new Error('invalid yaml');
         }),
         importWorkstationSettings,
+        leases: {
+          tryAcquire: vi.fn(async () => ({ release: async () => {} })),
+        },
         logger: { info: vi.fn(), warn },
       });
 

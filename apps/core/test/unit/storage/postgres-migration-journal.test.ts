@@ -4,6 +4,65 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 describe('Postgres migration journal', () => {
+  it('uses native timestamp-prefixed Drizzle migration tooling', () => {
+    const config = fs.readFileSync(
+      path.resolve('drizzle.postgres.config.ts'),
+      'utf8',
+    );
+    const packageJson = JSON.parse(
+      fs.readFileSync(path.resolve('package.json'), 'utf8'),
+    ) as { scripts: Record<string, string> };
+
+    expect(config).toContain(
+      "schema: './apps/core/src/adapters/storage/postgres/schema/schema.ts'",
+    );
+    expect(config).toContain(
+      "out: './apps/core/src/adapters/storage/postgres/schema/migrations'",
+    );
+    expect(config).toContain("prefix: 'timestamp'");
+    expect(config).not.toContain('dbCredentials');
+    expect(packageJson.scripts).toMatchObject({
+      'db:migrations:generate':
+        'drizzle-kit generate --config drizzle.postgres.config.ts',
+      'db:migrations:custom':
+        'drizzle-kit generate --config drizzle.postgres.config.ts --custom',
+      'db:migrations:check':
+        'drizzle-kit check --config drizzle.postgres.config.ts',
+    });
+  });
+
+  it('baselines generated migrations without changing the database', () => {
+    const migrationsDir = path.resolve(
+      'apps/core/src/adapters/storage/postgres/schema/migrations',
+    );
+    const journal = JSON.parse(
+      fs.readFileSync(path.join(migrationsDir, 'meta/_journal.json'), 'utf8'),
+    ) as { entries: Array<{ tag: string }> };
+    const baseline = journal.entries.find((entry) =>
+      entry.tag.endsWith('_schema_generation_baseline'),
+    );
+
+    expect(baseline?.tag).toMatch(/^\d{14}_schema_generation_baseline$/);
+    expect(
+      fs
+        .readFileSync(path.join(migrationsDir, `${baseline?.tag}.sql`), 'utf8')
+        .trim(),
+    ).toBe(
+      '-- Schema-generation baseline: historical migrations already applied this DDL.',
+    );
+    const snapshot = JSON.parse(
+      fs.readFileSync(
+        path.join(
+          migrationsDir,
+          'meta',
+          `${baseline?.tag.slice(0, 14)}_snapshot.json`,
+        ),
+        'utf8',
+      ),
+    ) as { tables: Record<string, unknown> };
+    expect(Object.keys(snapshot.tables)).toHaveLength(103);
+  });
+
   it('has a SQL file for every journal entry', () => {
     const journalPath = path.resolve(
       'apps/core/src/adapters/storage/postgres/schema/migrations/meta/_journal.json',
@@ -761,6 +820,54 @@ describe('Postgres migration journal', () => {
     );
     expect(schema).toContain('table.messageId');
     expect(schema).toContain('table.id');
+
+    const attachmentMetadata = journal.entries.find(
+      (entry) => entry.tag === '0117_message_attachment_metadata',
+    );
+    expect(attachmentMetadata).toMatchObject({ idx: 117 });
+
+    const metadataMigration = fs.readFileSync(
+      path.resolve(
+        'apps/core/src/adapters/storage/postgres/schema/migrations/0117_message_attachment_metadata.sql',
+      ),
+      'utf8',
+    );
+    expect(metadataMigration).toContain(
+      '"message_attachments" ADD COLUMN IF NOT EXISTS "file_name" text',
+    );
+    expect(metadataMigration).toContain(
+      '"message_attachments" ADD COLUMN IF NOT EXISTS "provider_fetch_json" jsonb',
+    );
+    expect(metadataMigration).toContain(
+      '"message_attachments" ADD COLUMN IF NOT EXISTS "deleted_at" timestamp with time zone',
+    );
+    expect(metadataMigration).toContain(
+      'SET "provider_fetch_json" = jsonb_build_object(',
+    );
+    expect(metadataMigration).toContain("'provider', 'slack'");
+    expect(metadataMigration).toContain("'kind', 'file_id'");
+    expect(metadataMigration).toContain('message."provider" = \'slack\'');
+    expect(metadataMigration).toContain(
+      'attachment."provider_fetch_json" IS NULL',
+    );
+    expect(metadataMigration).toContain(
+      "attachment.\"external_ref_json\"->>'kind' = 'message_attachment'",
+    );
+    expect(metadataMigration).toContain("'message-attachment:external:'");
+    expect(metadataMigration).toContain("'message-attachment:index:'");
+    expect(metadataMigration).toContain('row_number() OVER (');
+    expect(metadataMigration).toContain('generate_series(');
+    expect(metadataMigration).toContain('available.occurrence_ordinal');
+    expect(
+      metadataMigration,
+      'migration 0117 must assign each rewrite its collision-free target ID',
+    ).toContain('SET target_id = available.candidate_id');
+    expect(metadataMigration).toContain(
+      "jsonb_build_object('kind', 'message_attachment_index')",
+    );
+    expect(schema).toContain("fileName: text('file_name')");
+    expect(schema).toContain("providerFetchJson: jsonb('provider_fetch_json')");
+    expect(schema).toContain("deletedAt: timestamp('deleted_at'");
   });
 
   it('registers scope-key and digest scope columns/indexes without legacy backfill', () => {
@@ -1730,5 +1837,52 @@ describe('Postgres migration journal', () => {
     expect(migration).toContain('"status" text DEFAULT \'prompted\' NOT NULL');
     expect(migration).toContain('"group_join_onboarding_status_check"');
     expect(migration).toContain('"group_join_onboarding_provider_chat_unique"');
+  });
+
+  it('keeps durable conversation history coverage migration and schema in sync', () => {
+    const journalPath = path.resolve(
+      'apps/core/src/adapters/storage/postgres/schema/migrations/meta/_journal.json',
+    );
+    const journal = JSON.parse(fs.readFileSync(journalPath, 'utf8')) as {
+      entries: Array<{ idx: number; tag: string }>;
+    };
+    expect(
+      journal.entries.find(
+        (entry) => entry.tag === '20260801013511_conversation_history_coverage',
+      ),
+    ).toMatchObject({ idx: 121 });
+
+    const migration = fs.readFileSync(
+      path.resolve(
+        'apps/core/src/adapters/storage/postgres/schema/migrations/20260801013511_conversation_history_coverage.sql',
+      ),
+      'utf8',
+    );
+    expect(migration).toContain('CREATE TABLE "conversation_history_coverage"');
+    expect(migration).toContain(
+      'FOREIGN KEY ("conversation_id") REFERENCES "conversations"("id") ON DELETE cascade',
+    );
+    expect(migration).toContain(
+      'FOREIGN KEY ("provider_account_id") REFERENCES "provider_accounts"("id") ON DELETE cascade',
+    );
+    expect(migration).toContain('"uniq_conversation_history_coverage_scope"');
+    expect(migration).toContain(
+      'UNIQUE NULLS NOT DISTINCT("provider_account_id","conversation_id","scope_kind","scope_id")',
+    );
+    expect(migration).toContain('NULLS NOT DISTINCT');
+    expect(migration).toContain('"conversation_history_coverage_scope_check"');
+
+    const schema = fs.readFileSync(
+      path.resolve(
+        'apps/core/src/adapters/storage/postgres/schema/conversation-history-coverage.ts',
+      ),
+      'utf8',
+    );
+    expect(schema).toContain(
+      "unique('uniq_conversation_history_coverage_scope')",
+    );
+    expect(schema).toContain('table.providerAccountId');
+    expect(schema).toContain('.nullsNotDistinct()');
+    expect(schema).toContain("'conversation_history_coverage_scope_check'");
   });
 });

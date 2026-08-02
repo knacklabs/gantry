@@ -10,6 +10,8 @@ import type {
   SettingsRevision,
   SettingsRevisionRepository,
 } from '../../domain/ports/fleet-capability-state.js';
+import type { RuntimeLeasePort } from '../../domain/ports/runtime-lease.js';
+import { withSettingsProjectorLease } from '../../domain/ports/settings-projector-lease.js';
 import type {
   SettingsDesiredStateOps,
   SettingsDesiredStateRepositories,
@@ -111,6 +113,21 @@ export class SettingsStaleMutationError extends Error {
   }
 }
 
+export class SettingsIncompatibleReaderError extends Error {
+  constructor(
+    readonly revision: number,
+    readonly minReaderVersion: number,
+    readonly readerVersion: number,
+  ) {
+    super(
+      `Settings revision ${revision} requires settings reader version ` +
+        `${minReaderVersion}; this runtime supports ${readerVersion}. ` +
+        'Upgrade Gantry before applying this revision.',
+    );
+    this.name = 'SettingsIncompatibleReaderError';
+  }
+}
+
 export async function applySettingsRevisionWithMcpFenceRecovery(input: {
   runtimeHome: string;
   ops: SettingsDesiredStateOps;
@@ -144,6 +161,7 @@ export async function applySettingsRevisionWithMcpFenceRecovery(input: {
           ops: input.ops,
           repositories: input.repositories,
           appId: input.appId,
+          projectionAuthority: 'revision',
           reloadRuntimeState: input.reloadRuntimeState,
           expectedMcpBindingAgentIds: revision.mcpBindingPreconditionAgentIds,
           expectedMcpBindings: revision.mcpBindingPreconditions,
@@ -205,14 +223,7 @@ export async function applySettingsRevisionWithMcpFenceRecovery(input: {
   );
 }
 
-/**
- * Workstation import: validate, then write `settings.yaml` and reconcile through
- * the existing desired-state apply path. When a required revision mirror is
- * provided, append the `settings_revisions` row before mutating local runtime
- * projection. Fleet authority is the revision log; a failed local projection can
- * be retried from that committed revision without accepting an uncommitted file
- * change.
- */
+/** Validate, append any required revision, then project the settings. */
 export async function importWorkstationSettings(
   deps: SettingsImportServiceDeps & {
     previousSettings?: RuntimeSettings;
@@ -223,6 +234,8 @@ export async function importWorkstationSettings(
     expectedMcpBindingAgentIds?: AgentId[];
     expectedMcpBindings?: McpBindingAuthorityPrecondition[];
     mcpCapabilityGrantTokens?: Record<string, string>;
+    leases?: RuntimeLeasePort;
+    projectionAuthority?: 'file' | 'revision';
   },
   settings: RuntimeSettings,
 ): Promise<WorkstationSettingsImportOutcome> {
@@ -233,6 +246,14 @@ export async function importWorkstationSettings(
     throw new Error(
       'Settings mutation requires previous settings and a settings revision mirror for stale revision protection.',
     );
+  }
+  if (deps.revisionMirrorRequired && !deps.leases) {
+    throw new Error(
+      'Settings mutation requires a runtime lease port for serialized projection.',
+    );
+  }
+  if (deps.projectionAuthority !== 'revision' && !deps.previousSettings) {
+    throw new Error('File-authority import requires previous settings.');
   }
   const validation = await validateSettingsForImport(deps, settings);
   if (!validation.ok) {
@@ -329,18 +350,16 @@ export async function importWorkstationSettings(
       stableJson(latest.mcpCapabilityGrantTokens ?? {}) ===
         stableJson(prospectiveMcpCapabilityGrantTokens)
     ) {
-      await applyRuntimeSettingsDesiredState({
-        runtimeHome: deps.runtimeHome,
-        settings: revisionSettings,
-        ops: deps.ops,
-        repositories: deps.repositories,
-        appId: deps.appId,
-        previousSettings: deps.previousSettings,
-        reloadRuntimeState: deps.reloadRuntimeState,
+      await projectRequiredSettingsRevision({
+        deps,
+        appId,
+        revisionMirror: deps.revisionMirror,
+        leases: deps.leases!,
+        targetRevision: latest.revision,
+        targetSettings: revisionSettings,
         expectedMcpBindingAgentIds,
         expectedMcpBindings,
       });
-      activateRuntimeModelAliases(revisionSettings);
       return { status: 'no_op' };
     }
     await validateProjectionPreconditions({
@@ -362,6 +381,7 @@ export async function importWorkstationSettings(
       revisionSettings,
       {
         expectedRevision: deps.expectedRevision ?? actualRevision,
+        latestRevision: latest,
         expectedMcpBindingAgentIds,
         expectedMcpBindings,
         mcpCapabilityGrantTokens: deps.mcpCapabilityGrantTokens,
@@ -376,16 +396,14 @@ export async function importWorkstationSettings(
     if (outcome.status === 'conflict') {
       throw new SettingsRevisionConflictError(outcome);
     }
-    let appliedSettings: RuntimeSettings;
     try {
-      appliedSettings = await applyRuntimeSettingsDesiredState({
-        runtimeHome: deps.runtimeHome,
-        settings: revisionSettings,
-        ops: deps.ops,
-        repositories: deps.repositories,
-        appId: deps.appId,
-        previousSettings: deps.previousSettings,
-        reloadRuntimeState: deps.reloadRuntimeState,
+      await projectRequiredSettingsRevision({
+        deps,
+        appId,
+        revisionMirror: deps.revisionMirror,
+        leases: deps.leases!,
+        targetRevision: outcome.revision,
+        targetSettings: revisionSettings,
         expectedMcpBindingAgentIds,
         expectedMcpBindings,
       });
@@ -414,7 +432,6 @@ export async function importWorkstationSettings(
       }
       throw err;
     }
-    activateRuntimeModelAliases(appliedSettings);
     return { status: 'revision_created', revision: outcome.revision };
   }
   const appliedSettings = await applyRuntimeSettingsDesiredState({
@@ -423,6 +440,7 @@ export async function importWorkstationSettings(
     ops: deps.ops,
     repositories: deps.repositories,
     appId: deps.appId,
+    forwardCorrected: deps.projectionAuthority === 'revision',
     previousSettings: deps.previousSettings,
     reloadRuntimeState: deps.reloadRuntimeState,
     expectedMcpBindingAgentIds: deps.expectedMcpBindingAgentIds,
@@ -525,4 +543,53 @@ export async function importWorkstationSettings(
     );
     return { status: 'applied_no_revision' };
   }
+}
+async function projectRequiredSettingsRevision(input: {
+  deps: SettingsImportServiceDeps & {
+    previousSettings?: RuntimeSettings;
+    reloadRuntimeState?: () => Promise<void>;
+  };
+  appId: AppId;
+  revisionMirror: SettingsRevisionMirror;
+  leases: RuntimeLeasePort;
+  targetRevision: number;
+  targetSettings: RuntimeSettings;
+  expectedMcpBindingAgentIds?: AgentId[];
+  expectedMcpBindings?: McpBindingAuthorityPrecondition[];
+}): Promise<RuntimeSettings> {
+  return withSettingsProjectorLease(input.leases, input.appId, async () => {
+    const head =
+      await input.revisionMirror.settingsRevisions.getLatestSettingsRevision(
+        input.appId,
+      );
+    if (!head || head.revision < input.targetRevision) {
+      throw new Error(
+        `Settings projection revision ${input.targetRevision} is not present at the current head`,
+      );
+    }
+    const projectsTarget = head.revision === input.targetRevision;
+    if (head.minReaderVersion > CURRENT_SETTINGS_READER_VERSION) {
+      throw new SettingsIncompatibleReaderError(
+        head.revision,
+        head.minReaderVersion,
+        CURRENT_SETTINGS_READER_VERSION,
+      );
+    }
+    const settings = projectsTarget
+      ? input.targetSettings
+      : settingsFromRevisionDocument(head.settingsDocument);
+    const appliedSettings = await applyRuntimeSettingsDesiredState({
+      runtimeHome: input.deps.runtimeHome,
+      settings,
+      ops: input.deps.ops,
+      repositories: input.deps.repositories,
+      appId: input.appId,
+      forwardCorrected: true,
+      reloadRuntimeState: input.deps.reloadRuntimeState,
+      expectedMcpBindingAgentIds: input.expectedMcpBindingAgentIds,
+      expectedMcpBindings: input.expectedMcpBindings,
+    });
+    activateRuntimeModelAliases(appliedSettings);
+    return appliedSettings;
+  });
 }

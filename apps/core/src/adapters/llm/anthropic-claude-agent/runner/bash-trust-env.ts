@@ -34,20 +34,40 @@ export function applyBashTrustEnv(
   input: Record<string, unknown>,
   toolNetworkEnv: Record<string, string | undefined>,
 ): Record<string, unknown> {
-  if (toolName !== 'Bash' && toolName !== 'RunCommand') return input;
+  return applyBashTrustEnvWithProvenance(toolName, input, toolNetworkEnv)
+    .toolInput;
+}
 
+export function applyBashTrustEnvWithProvenance(
+  toolName: string,
+  input: Record<string, unknown>,
+  toolNetworkEnv: Record<string, string | undefined>,
+): {
+  toolInput: Record<string, unknown>;
+  hostInjectedCommandPrefix?: string;
+} {
+  if (toolName !== 'Bash' && toolName !== 'RunCommand') {
+    return { toolInput: input };
+  }
   const commandKey = bashCommandKey(input);
-  if (!commandKey) return input;
+  if (!commandKey) return { toolInput: input };
 
   const command = input[commandKey];
-  if (typeof command !== 'string' || !command.trim()) return input;
+  if (typeof command !== 'string' || !command.trim()) {
+    return { toolInput: input };
+  }
 
   const prefix = bashTrustEnvPrefix(toolNetworkEnv);
-  if (command.startsWith(`${prefix} `)) return input;
+  const toolInput = command.startsWith(`${prefix} `)
+    ? input
+    : {
+        ...input,
+        [commandKey]: `${prefix} ${command}`,
+      };
 
   return {
-    ...input,
-    [commandKey]: `${prefix} ${command}`,
+    toolInput,
+    hostInjectedCommandPrefix: prefix,
   };
 }
 

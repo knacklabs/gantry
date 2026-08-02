@@ -47,10 +47,13 @@ import {
 import { renderSlackRichInteraction } from './rich-interaction.js';
 import { addSlackReaction } from './reactions.js';
 import { requestSlackUserAnswer } from './user-question-delivery.js';
+import { historyCoverageInboundCallbacks } from '../conversation-history-coverage-lifecycle.js';
 const SLACK_STREAM_SNIPPET_FALLBACK_MIN_PARTS = 4;
 
 export abstract class SlackChannelDelivery extends SlackChannelInteractions {
+  readonly reportsHistoryCoverageInboundLiveness = true;
   private interactionCallbacksEnabled = true;
+  private deactivateHistoryCoverageInbound: (() => void) | null = null;
   private readonly reactionKeys = new Set<string>();
   protected async sendSnippetFallback(
     _input: SlackSnippetFallbackInput,
@@ -69,6 +72,12 @@ export abstract class SlackChannelDelivery extends SlackChannelInteractions {
       appToken: this.appToken,
       inboundEnabled,
       interactionCallbacksEnabled,
+      onReconnect: () =>
+        this.opts.distrustHistoryCoverage?.(
+          this.opts.inboundProviderAccountIds ??
+            (this.opts.providerAccountId ? [this.opts.providerAccountId] : []),
+        ),
+      ...historyCoverageInboundCallbacks(this.opts),
       registerBoltHandlers: (app) => {
         this.app = app;
         this.registerBoltHandlers({ inbound: inboundEnabled });
@@ -76,6 +85,7 @@ export abstract class SlackChannelDelivery extends SlackChannelInteractions {
     });
     this.app = connected.app;
     this.botUserId = connected.botUserId;
+    this.deactivateHistoryCoverageInbound = connected.deactivateInbound;
   }
   supportsInteractionCallbacks(): boolean {
     return this.interactionCallbacksEnabled;
@@ -558,8 +568,8 @@ export abstract class SlackChannelDelivery extends SlackChannelInteractions {
         parsed.channelId,
       ),
       pendingPermissionPrompts: this.pendingPermissionPrompts,
-      timeoutPermissionPrompt: (providerAlias) =>
-        this.timeoutPermissionPrompt(providerAlias),
+      timeoutPermissionPrompt: (providerAlias, retryWindowMs) =>
+        this.timeoutPermissionPrompt(providerAlias, retryWindowMs),
       onPromptDelivered,
     });
   }
@@ -632,6 +642,8 @@ export abstract class SlackChannelDelivery extends SlackChannelInteractions {
     return jid.startsWith('sl:');
   }
   async disconnect(): Promise<void> {
+    this.deactivateHistoryCoverageInbound?.();
+    this.deactivateHistoryCoverageInbound = null;
     this.streamResetEpochs.clear();
     for (const providerAlias of this.pendingPermissionPrompts.keys()) {
       const result = await this.claimAndResolvePermissionPrompt(

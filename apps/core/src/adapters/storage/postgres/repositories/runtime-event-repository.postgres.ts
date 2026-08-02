@@ -21,17 +21,19 @@ import {
 } from '../../../../domain/events/runtime-event-types.js';
 import type { RuntimeEventRepository } from '../../../../domain/ports/repositories.js';
 import { logger } from '../../../../infrastructure/logging/logger.js';
-import * as pgSchema from '../schema/schema.js';
-import type {
-  CanonicalDb,
-  CanonicalExecutor,
-} from './canonical-graph-repository.postgres.js';
 import { nowIso } from '../../../../shared/time/datetime.js';
+import * as pgSchema from '../schema/schema.js';
+import {
+  canonicalProviderThreadForIds,
+  type CanonicalDb,
+  type CanonicalExecutor,
+} from './canonical-graph-repository.postgres.js';
 import { PostgresEventBusPublisher } from './event-bus-outbox.postgres.js';
 import {
   type MessageLiveAdmissionInput,
   PostgresCanonicalMessageRepository,
 } from './canonical-message-repository.postgres.js';
+import type { ProviderAttachmentCleanup } from './provider-attachment-cleanup.postgres.js';
 
 type RuntimeEventRow = typeof pgSchema.runtimeEventsPostgres.$inferSelect;
 
@@ -95,17 +97,26 @@ export class PostgresRuntimeEventRepository implements RuntimeEventRepository {
     private readonly eventBus: EventBusPublisherPort<CanonicalExecutor> = new PostgresEventBusPublisher(
       db,
     ),
+    private readonly maxLiveAdmissionBacklog = 100,
+    private readonly cleanupProviderAttachment?: ProviderAttachmentCleanup,
   ) {}
 
   async appendRuntimeEvent(
     input: RuntimeEventPublishInput,
   ): Promise<RuntimeEvent> {
-    return this.db.transaction(async (tx) => {
-      const event = await this.insertRuntimeEvent(tx, input);
-      await this.eventBus.publish(eventBusInputForRuntimeEvent(event), tx);
-      await this.enqueueWebhookDeliveryIfNeeded(tx, event);
-      return event;
-    });
+    return this.db.transaction((tx) =>
+      this.appendRuntimeEventWithExecutor(tx, input),
+    );
+  }
+
+  async appendRuntimeEventWithExecutor(
+    executor: CanonicalExecutor,
+    input: RuntimeEventPublishInput,
+  ): Promise<RuntimeEvent> {
+    const event = await this.insertRuntimeEvent(executor, input);
+    await this.eventBus.publish(eventBusInputForRuntimeEvent(event), executor);
+    await this.enqueueWebhookDeliveryIfNeeded(executor, event);
+    return event;
   }
 
   async appendRuntimeEventAndStoreLiveAdmission(
@@ -118,9 +129,13 @@ export class PostgresRuntimeEventRepository implements RuntimeEventRepository {
     event: RuntimeEvent;
     liveAdmissionResult: LiveAdmissionWorkItemEnqueueResult | undefined;
   }> {
-    const messages = new PostgresCanonicalMessageRepository(this.db);
-    return this.db.transaction(async (tx) => {
-      const liveAdmissionResult = await messages.saveMessageWithExecutor(
+    const messages = new PostgresCanonicalMessageRepository(
+      this.db,
+      this.maxLiveAdmissionBacklog,
+      this.cleanupProviderAttachment,
+    );
+    const result = await this.db.transaction(async (tx) => {
+      const messageSaveResult = await messages.saveMessageWithExecutor(
         tx,
         admission.message,
         { liveAdmission: admission.liveAdmission },
@@ -128,25 +143,53 @@ export class PostgresRuntimeEventRepository implements RuntimeEventRepository {
       const event = await this.insertRuntimeEvent(tx, input);
       await this.eventBus.publish(eventBusInputForRuntimeEvent(event), tx);
       await this.enqueueWebhookDeliveryIfNeeded(tx, event);
-      return { event, liveAdmissionResult };
+      return { event, messageSaveResult };
     });
+    await messages.cleanupRemovedProviderAttachments(
+      result.messageSaveResult.removedProviderStorageRefs,
+    );
+    return {
+      event: result.event,
+      liveAdmissionResult: result.messageSaveResult.liveAdmissionResult,
+    };
   }
 
   private async insertRuntimeEvent(
     db: CanonicalExecutor,
     input: RuntimeEventPublishInput,
   ): Promise<RuntimeEvent> {
+    const appId = requiredId(input.appId, 'appId');
+    const conversationId = optionalId(input.conversationId);
+    const threadId = optionalId(input.threadId);
+    const providerThread = canonicalProviderThreadForIds({
+      appId,
+      conversationId,
+      threadId,
+    });
+    if (providerThread) {
+      await db
+        .insert(pgSchema.conversationThreadsPostgres)
+        .values({
+          id: providerThread.id,
+          appId: providerThread.appId,
+          conversationId: providerThread.conversationId,
+          externalRefJson: providerThread.externalRefJson,
+          updatedAt: currentIso(),
+        })
+        .onConflictDoNothing();
+    }
+
     const rows = await db
       .insert(pgSchema.runtimeEventsPostgres)
       .values({
-        appId: requiredId(input.appId, 'appId'),
+        appId,
         agentId: optionalId(input.agentId),
         sessionId: optionalId(input.sessionId),
         runId: optionalId(input.runId),
         jobId: optionalId(input.jobId),
         triggerId: optionalId(input.triggerId),
-        conversationId: optionalId(input.conversationId),
-        threadId: optionalId(input.threadId),
+        conversationId,
+        threadId,
         eventType: requireRuntimeEventType(input.eventType),
         actor: input.actor,
         correlationId: input.correlationId ?? null,
@@ -233,6 +276,14 @@ export class PostgresRuntimeEventRepository implements RuntimeEventRepository {
         eq(
           pgSchema.runtimeEventsPostgres.conversationId,
           filter.conversationId,
+        ),
+      );
+    }
+    if (filter.conversationIds?.length) {
+      conditions.push(
+        inArray(
+          pgSchema.runtimeEventsPostgres.conversationId,
+          filter.conversationIds,
         ),
       );
     }

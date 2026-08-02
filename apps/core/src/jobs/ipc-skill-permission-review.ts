@@ -3,6 +3,7 @@ import {
   skillNameForReceipt,
   withSkillMaterializationLock,
 } from './skill-install-assets.js';
+import { skillMaterializationLockKey } from '../shared/skill-install-lock.js';
 import { SkillService } from '../application/skills/skill-service.js';
 import type { AgentId } from '../domain/agent/agent.js';
 import type { AppId } from '../domain/app/app.js';
@@ -156,9 +157,12 @@ async function completeSkillPermissionReview(
     // so a concurrent same-name writer can never interleave with a partial
     // state from this path.
     installedSkill = await withSkillMaterializationLock(
-      materializedSkillDirectoryNameFor(
-        skillNameForReceipt(input.assets, input.skill.name),
-      ).toLowerCase(),
+      skillMaterializationLockKey(
+        input.appId,
+        materializedSkillDirectoryNameFor(
+          skillNameForReceipt(input.assets, input.skill.name),
+        ),
+      ),
       async () => {
         const collision =
           await input.service.installMaterializationCollisionForAgent({
@@ -213,14 +217,14 @@ async function completeSkillPermissionReview(
   );
   await notifyLifecycle(input.onApproved);
   const action = 'Installed';
-  await input.deps.sendMessage(
+  await sendSkillReviewOutcome(
+    input,
     input.targetJid,
     skillApprovalMessage(
       action,
       installedSkill.name,
       installedSkill.requiredEnvVars,
     ),
-    skillReviewMessageOptions(input),
   );
   input.responder.acceptData(
     skillApprovalMessage(
@@ -269,12 +273,39 @@ async function rejectSkillRequestFromPermission(
     name: input.skill.name,
     reason,
   });
-  await input.deps.sendMessage(
-    input.targetJid,
-    message,
-    skillReviewMessageOptions(input),
-  );
+  await sendSkillReviewOutcome(input, input.targetJid, message);
   input.responder.reject(message, 'permission_denied');
+}
+
+/**
+ * The IPC response is the source of truth for the requesting agent. The
+ * channel receipt is additional, so a stale route must not turn an approved
+ * or rejected review into a generic workflow failure.
+ */
+async function sendSkillReviewOutcome(
+  input: Parameters<typeof startSkillPermissionReview>[0],
+  targetJid: string,
+  message: string,
+): Promise<void> {
+  try {
+    await input.deps.sendMessage(
+      targetJid,
+      message,
+      skillReviewMessageOptions(input),
+    );
+  } catch (err) {
+    input.logError?.(
+      {
+        appId: input.appId,
+        agentId: input.agentId,
+        skillName: input.skill.name,
+        targetJid,
+        providerAccountId: input.providerAccountId,
+        err,
+      },
+      'Skill review outcome could not be delivered to the channel',
+    );
+  }
 }
 
 function skillReviewInteraction(

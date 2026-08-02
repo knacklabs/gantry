@@ -1,6 +1,7 @@
 import { ChildProcess } from 'child_process';
 import fs from 'fs';
 import path from 'path';
+import { randomUUID } from 'node:crypto';
 import {
   DATA_DIR,
   PERMISSION_APPROVAL_TIMEOUT_MS,
@@ -26,7 +27,6 @@ import {
 import { resolvePackageRootFromSourceDir } from '../platform/package-root.js';
 import {
   computeBrowserIpcAuthToken,
-  createIpcAuthEnvelope,
   computeMemoryIpcAuthToken,
   registerBrowserIpcAuthorization,
   revokeBrowserIpcAuthorization,
@@ -46,6 +46,7 @@ import {
   RunAgentOptions,
 } from './agent-spawn-types.js';
 import { selectedMemoryIpcActionsFromToolRules } from '../shared/memory-ipc-actions.js';
+import { memoryAgentIdForWorkspaceFolder } from '../memory/app-memory-boundaries.js';
 import { agentIdForFolder } from '../domain/agent/agent-folder-id.js';
 import { conversationBoundAgentIdsForRoute } from '../application/core-tools/callable-agent-tools.js';
 import { resolveMcpCredentialEnvForAgent } from '../application/capability-secrets/mcp-secret-projection.js';
@@ -70,6 +71,10 @@ import {
 import { formatGeneratedRuntimePathPermissionError } from './generated-runtime-path-error.js';
 import { writeRunnerMcpConfigFile } from './agent-spawn-mcp-config.js';
 import { withStdioMcpEgressEnv } from './agent-spawn-mcp-egress-env.js';
+import {
+  accessSnapshotForSpawnMcpProjection,
+  resolveSpawnMcpSourceRecords,
+} from './agent-spawn-mcp-source-records.js';
 import { publishRunnerHostStartupDiagnosticFromSpawn } from './agent-spawn-startup-diagnostic.js';
 import { resolveSelectedSkillEnvForSpawn } from './agent-spawn-selected-skill-env.js';
 import { configureSpawnAsyncCommandSandboxPolicy } from './async-command-sandbox-policy.js';
@@ -96,6 +101,7 @@ import {
   prepareAgentSpawn,
   prepareWorkerAuthorityProjection,
 } from './agent-spawn-preparation.js';
+import { setupPermissionRunRestriction } from './agent-spawn-permission-run-restriction.js';
 import { resolveSpawnExecutionAdapter } from './agent-spawn-execution-adapter.js';
 import {
   resolveAgentSpawnLogContext,
@@ -224,12 +230,17 @@ async function spawnAgentWithContext(
   const { runnerInput, browserIpcEnabled, trustedToolPolicyRules } =
     projectSpawnRunnerInput({
       agentInput: input,
-      workspaceFolder: group.folder,
+      group,
       callableAgentManifest,
       hideAuthorityTools,
       compiledSystemPrompt,
       permissions: runtimeSettings.permissions,
     });
+  // Per-turn browser credential: two concurrent turns for different accounts
+  // get different tokens, which a shared (workspace, chat, thread) key cannot.
+  const browserTurnToken = randomUUID();
+  const browserProfileForRun = runnerInput.browserProfileName ?? '';
+  runnerInput.browserTurnToken = browserTurnToken;
   const egressSettings = runtimeSettings.permissions.egress;
   const hostRuntime = host.prepareHostRuntimeContext(group);
   const adapterResolution = resolveSpawnExecutionAdapter(
@@ -245,10 +256,8 @@ async function spawnAgentWithContext(
   let egressGateway:
     | Awaited<ReturnType<typeof ensureEgressGateway>>
     | undefined;
-  const ipcAuth = createIpcAuthEnvelope(group.folder, input.threadId, {
-    appId: input.appId || 'default',
-    agentId: input.agentId,
-  });
+  const { ipcAuth, unregisterPermissionRunRestriction } =
+    setupPermissionRunRestriction(group.folder, input, hideAuthorityTools);
   let hostCredentials: Awaited<ReturnType<typeof credentials>> | undefined;
   let preparedExecution:
     | Awaited<ReturnType<typeof executionAdapter.prepare>>
@@ -329,17 +338,12 @@ async function spawnAgentWithContext(
     let projectedMcpSourceIds: string[] = [];
     let effectiveRuntimeAccess = input.runtimeAccess ?? [];
     await hostStartup.measureAsync('mcpProjectionMs', async () => {
-      const mcpSourceRecords =
-        options?.mcpServerRepository &&
-        options.mcpContext?.appId &&
-        options.mcpContext.agentId &&
-        attachedMcpSourceIds.length > 0
-          ? await options.mcpServerRepository.listMaterializedServersForAgent({
-              appId: options.mcpContext.appId as never,
-              agentId: options.mcpContext.agentId as never,
-              serverIds: attachedMcpSourceIds as never,
-            })
-          : [];
+      const accessSnapshot = accessSnapshotForSpawnMcpProjection(options);
+      const mcpSourceRecords = await resolveSpawnMcpSourceRecords({
+        attachedMcpSourceIds,
+        options,
+        accessSnapshot,
+      });
       selectedMcpServerNames = uniqueStrings([
         ...mcpSourceRecords.map((record) => record.definition.name),
         ...attachedMcpSourceIds.map((sourceId) =>
@@ -373,7 +377,9 @@ async function spawnAgentWithContext(
                 serverIds: projectedMcpSourceIds as never,
                 mcpServers: options.mcpServerRepository,
                 secrets: options.capabilitySecretRepository,
+                accessSnapshot,
               }),
+              accessSnapshot,
             })
           : [];
       effectiveRuntimeAccess = attachMcpSourceNetworkHosts(
@@ -388,6 +394,7 @@ async function spawnAgentWithContext(
     const memoryIpcAllowedActions = selectedMemoryIpcActionsFromToolRules(
       trustedToolPolicyRules ?? [],
       {
+        excludeAuthorityTools: hideAuthorityTools,
         memoryReviewerIsControlApprover: input.memoryReviewerIsControlApprover,
       },
     );
@@ -516,6 +523,7 @@ async function spawnAgentWithContext(
       workspaceIpcDir: hostRuntime.workspaceIpcDir,
       ipcInputDir,
       ipcAuthToken: ipcAuth.authToken,
+      browserTurnToken,
       chatJid: input.chatJid,
       providerAccountId: group.providerAccountId,
       jobId: input.jobId,
@@ -533,8 +541,10 @@ async function spawnAgentWithContext(
           )
         : undefined,
       memoryIpcAuthToken: computeMemoryIpcAuthToken(group.folder, {
+        appId: runnerAppId,
+        agentId: input.agentId ?? memoryAgentIdForWorkspaceFolder(group.folder),
         chatJid: input.chatJid,
-        userId: input.memoryUserId,
+        personId: input.memoryUserId,
         defaultScope: input.memoryDefaultScope || 'group',
         threadId: input.threadId,
         allowedActions: memoryIpcAllowedActions,
@@ -551,6 +561,7 @@ async function spawnAgentWithContext(
       agentAccessPreset: accessPreset,
       deploymentMode: getDeploymentMode(),
       permissionMode: input.permissionMode ?? 'ask',
+      permissionLane: input.isScheduledJob ? 'autonomous' : 'interactive',
       turnIntentSummary: input.prompt,
       permissionTimeoutMs: PERMISSION_APPROVAL_TIMEOUT_MS,
       egressProxyUrl: egressGateway.proxyUrl,
@@ -665,6 +676,9 @@ async function spawnAgentWithContext(
         workspaceKey: group.folder,
         chatJid: input.chatJid,
         threadId: input.threadId,
+        turnToken: browserTurnToken,
+        browserProfileName: browserProfileForRun,
+        turnQueueKey: input.turnQueueKey,
       });
     }
     sandboxConfigPath = path.join(
@@ -774,12 +788,14 @@ async function spawnAgentWithContext(
     });
     return output;
   } finally {
+    unregisterPermissionRunRestriction();
     cleanupRunnerTempDir(runnerTempDir, logger.warn.bind(logger));
     if (browserIpcEnabled) {
       revokeBrowserIpcAuthorization({
         workspaceKey: group.folder,
         chatJid: input.chatJid,
         threadId: input.threadId,
+        turnToken: browserTurnToken,
       });
     }
     cleanupRunnerMcpConfigFile(mcpConfigPath, logger.warn.bind(logger));

@@ -352,6 +352,13 @@ export class CanonicalJobOpsService {
     return rows.map((row) => this.mapRun(row));
   }
 
+  async listLatestJobRunsByJobIds(
+    jobIds: readonly string[],
+  ): Promise<Map<string, JobRun>> {
+    const rows = await this.repository.listLatestJobRunsByJobIds(jobIds);
+    return new Map(rows.map((row) => [row.jobId!, this.mapRun(row)] as const));
+  }
+
   async listDeadLetterRuns(limit = 50): Promise<JobRun[]> {
     const rows = await this.repository.listDeadLetterRuns(limit);
     return rows.map((row) => this.mapRun(row));

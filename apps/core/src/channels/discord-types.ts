@@ -15,6 +15,7 @@ export type DiscordMessageCreate = {
   id?: string;
   channel_id?: string;
   guild_id?: string;
+  flags?: number;
   content?: string;
   timestamp?: string;
   author?: DiscordUser;
@@ -35,6 +36,20 @@ export type DiscordMessageAttachment = {
   filename?: string;
   content_type?: string;
   size?: number;
+  url?: string;
+  ephemeral?: boolean;
+};
+
+export type DiscordMessageDelete = {
+  id?: string;
+  channel_id?: string;
+  guild_id?: string;
+};
+
+export type DiscordMessageDeleteBulk = {
+  ids?: string[];
+  channel_id?: string;
+  guild_id?: string;
 };
 
 export type DiscordChannelInfo = {
