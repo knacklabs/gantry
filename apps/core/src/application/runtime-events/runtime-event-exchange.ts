@@ -9,8 +9,6 @@ import type { LiveAdmissionWorkItemEnqueueResult } from '../../domain/ports/live
 import {
   isRuntimeEventConversationFkId,
   isRuntimeEventThreadFkId,
-  normalizeRuntimeEventConversationId,
-  normalizeRuntimeEventThreadId,
 } from '../../domain/events/runtime-event-conversation.js';
 import type { RuntimeEventRepository } from '../../domain/ports/repositories.js';
 import { runtimeEventMatchesFilter } from '../../domain/events/runtime-event-filter.js';
@@ -183,17 +181,11 @@ function payloadWithRouteContext(input: {
 function normalizeRuntimeEventFilter(
   filter: RuntimeEventFilter,
 ): RuntimeEventFilter {
-  const conversationId = normalizeRuntimeEventConversationId(
-    filter.conversationId,
-  );
-  const threadId = normalizeRuntimeEventThreadId({
-    conversationId,
-    threadId: filter.threadId,
-  });
-  return conversationId === filter.conversationId &&
-    threadId === filter.threadId
-    ? filter
-    : { ...filter, conversationId, threadId };
+  // The stored columns hold only real FK ids (everything else rides the
+  // payload), so a filter value keeps its exact form: an FK-shaped id can
+  // match, any other value honestly matches nothing. Prefixing raw jids here
+  // would fabricate ids that match nothing anyway while LOOKING canonical.
+  return filter;
 }
 
 const MAX_SUBSCRIPTION_WAKE_WAIT_MS = 15_000;

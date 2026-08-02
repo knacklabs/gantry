@@ -582,8 +582,9 @@ and intentionally outside this feature's source scope.
     not an unbounded N+1 query pattern.
 13. **Admin provider ids:** alias administration canonicalizes provider ids at
     the API boundary.
-14. **Alias re-linking:** re-adding an alias for the same person verifies it and
-    replaces evidence; it does not silently move aliases between people.
+14. **Alias re-linking:** re-adding an alias for the same person replaces its
+    evidence while the alias stays unverified (API writes can never verify);
+    it does not silently move aliases between people.
 15. **People path safety:** malformed encoded paths return controlled `400`
     errors.
 16. **Live-turn latency:** first progress acknowledgement is sent before
