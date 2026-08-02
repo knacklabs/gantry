@@ -22,6 +22,8 @@ export type ContinuationHandler = () => void;
 
 export interface GroupMessageRunContext {
   finalRetry: boolean;
+  retryCount: number;
+  maxRetries: number;
 }
 
 export type ProcessMessagesFn = (

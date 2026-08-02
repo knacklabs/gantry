@@ -22,10 +22,11 @@ export async function sendDiscordProgressUpdate(input: {
   options: ProgressUpdateOptions;
   post: DiscordProgressPost;
   edit: DiscordProgressEdit;
-}): Promise<void> {
+}): Promise<boolean> {
   const existingMessageId = input.activeMessages.get(input.key);
-  if (!existingMessageId && input.options.replaceOnly) return;
-  if (!existingMessageId && input.options.done && !input.text.trim()) return;
+  if (!existingMessageId && input.options.replaceOnly) return false;
+  if (!existingMessageId && input.options.done && !input.text.trim())
+    return false;
 
   const components = input.options.done
     ? []
@@ -40,7 +41,7 @@ export async function sendDiscordProgressUpdate(input: {
       components,
     });
     if (input.options.done) input.activeMessages.delete(input.key);
-    return;
+    return true;
   }
 
   if (existingMessageId) {
@@ -55,4 +56,5 @@ export async function sendDiscordProgressUpdate(input: {
   if (nextId && !input.options.done)
     input.activeMessages.set(input.key, nextId);
   if (input.options.done) input.activeMessages.delete(input.key);
+  return Boolean(existingMessageId || nextId || input.options.done);
 }

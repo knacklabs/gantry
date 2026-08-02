@@ -274,9 +274,9 @@ export class TeamsChannel implements ChannelAdapter {
     jid: string,
     text: string,
     options: ProgressUpdateOptions = {},
-  ): Promise<void> {
-    if (!this.outboundReady) return;
-    await sendTeamsProgressUpdate({
+  ): Promise<boolean> {
+    if (!this.outboundReady) return false;
+    return sendTeamsProgressUpdate({
       sdkClient: this.sdkClient,
       pendingProgress: this.pendingProgress,
       jid,

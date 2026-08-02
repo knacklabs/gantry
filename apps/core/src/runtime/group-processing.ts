@@ -30,12 +30,16 @@ import {
   shouldSendTurnFinalProgress,
   waitOutput,
 } from './group-processing-flow.js';
+import { sendGroupFinalProgress } from './group-final-progress-action.js';
 import { groupTurnHasRequiredTrigger } from './group-trigger-policy.js';
 import {
   createResponseProgressSenders,
   startInitialGroupProgress,
-  startGroupProgressHeartbeats,
 } from './group-progress-heartbeats.js';
+import {
+  createGroupTurnTypingSender,
+  startGroupLivenessHeartbeat,
+} from './group-liveness-state.js';
 import { createProgressChannelSender } from './group-progress-channel-sender.js';
 import {
   createGroupAgentRunner,
@@ -62,7 +66,7 @@ let streamingGenerationCounter = 0;
 const PERMISSION_BACKGROUND_DEMOTE_MS = 120_000;
 const PROVIDER_FAILOVER_EXHAUSTED_MESSAGE =
   "The AI provider is unavailable and your message couldn't be processed after several retries. Please try again shortly.";
-type ProgressHeartbeat = ReturnType<typeof startGroupProgressHeartbeats>;
+type ProgressHeartbeat = ReturnType<typeof startGroupLivenessHeartbeat>;
 
 function slackChannelRootThreadId(
   chatJid: string,
@@ -147,10 +151,12 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
     });
     const { buildMessageOptions, buildStreamingOptions, buildProgressOptions } =
       turnOptions;
-    const setTurnTyping = (isTyping: boolean) =>
-      channelAccount
-        ? deps.channelRuntime.setTyping(chatJid, isTyping, channelAccount)
-        : deps.channelRuntime.setTyping(chatJid, isTyping);
+    const setTurnTyping = createGroupTurnTypingSender({
+      channelRuntime: deps.channelRuntime,
+      chatJid,
+      providerAccountId: group.providerAccountId,
+      activeThreadId,
+    });
     const sendMessageToChannel = async (
       text: string,
       options?: MessageSendOptions,
@@ -340,6 +346,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
     };
     let userVisibleTurnProgressReady: Promise<void> | null = null;
     const startUserVisibleTurn = async () => {
+      progressHeartbeat?.resetStallEpoch();
       progressGeneration = streamGeneration = streamingGenerationCounter += 1;
       activeGenerationHasOutput = false;
       sentAnyTurnDoneProgress = false;
@@ -391,12 +398,15 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
       onSent: notifyFirstProgress,
       log: logger,
     });
-    progressHeartbeat = startGroupProgressHeartbeats({
+    progressHeartbeat = startGroupLivenessHeartbeat({
       supportsProgress,
       isTypingActive: () => typingActive,
       chatJid,
       providerAccountId: group.providerAccountId,
+      activeThreadId,
       groupName: group.name,
+      buildProgressOptions,
+      sendProgressToChannel,
       channelRuntime: deps.channelRuntime,
       log: logger,
     });
@@ -434,6 +444,12 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
     let sawDeliveryIncomplete = false;
     let sawTerminalDeliveryFailure = false;
     let awaitingResponseReceipt = false;
+    let firstVisibleOutputNotified = false;
+    const notifyFirstVisibleOutput = async () => {
+      if (firstVisibleOutputNotified) return;
+      firstVisibleOutputNotified = true;
+      await options.onFirstVisibleOutput?.();
+    };
     let outputCallbackError: unknown;
     const supportsStreamingChunks = deps.channelRuntime.supportsStreaming(
       chatJid,
@@ -475,6 +491,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
     };
     const resumeTurnProgress = async () => {
       if (!progressPaused) return;
+      progressHeartbeat?.resetStallEpoch();
       progressPaused = false;
       clearBackgroundDemoteTimer();
       progressHeartbeat?.resume();
@@ -516,6 +533,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
       buildMessageOptions,
       sendMessageToChannel,
       applyDeliverySettlement,
+      onVisibleOutputDelivered: notifyFirstVisibleOutput,
       getStreamedTranscriptDeliveryStatus: () =>
         streamedTranscriptDeliveryStatus,
       // Persistence is per completed generation, so the accounting has to be
@@ -571,6 +589,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
         await sendResponseReceipt();
       }
       if (result.result) {
+        progressHeartbeat?.resetStallEpoch();
         if (!typingActive) {
           await setTypingState(true);
         }
@@ -693,6 +712,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
       if (output === 'success' && pendingIdleBoundary) {
         notifyTurnIdle();
       }
+      await options.onTurnTerminal?.();
       await cancelTurnUiTimers();
       unregisterContinuationHandler?.();
       const activeCleanup = activeTurnUiCleanupByQueue.get(queueJid);
@@ -703,23 +723,14 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
     }
     let resultOk = true;
     if (output === 'error' || hadError) {
-      // A provider-infra failure (failover-eligible or missing-provider-session)
-      // is only "exhausted" once the queue has burned all its retries
-      // (options.finalRetry). Before that, a transient 429/502 must keep the
-      // normal rollback -> retry path so the provider gets time to recover;
-      // dropping it on the FIRST error silently loses the user's turn.
+      // Provider infrastructure is exhausted only after the queue has burned
+      // every retry; earlier failures keep the rollback-and-retry path.
       const failoverExhausted =
         options.finalRetry === true &&
         (isFailoverEligibleError(lastAgentError) ||
           isMissingProviderSessionError(lastAgentError));
-      // ponytail: interim guard against silent turn loss. The durable fix is a
-      // dead-letter re-drive of the dropped turn (issue #285). Until then, when
-      // failover is exhausted we stop the replay storm by preserving the cursor
-      // (below) AND surface an error + user-visible notice. We only CONSUME the
-      // turn once the user was actually informed; if the notice fails to deliver
-      // (channel down), we fall through to rollback->retry so the turn isn't
-      // silently dropped. The remaining edge (channel still down after the queue
-      // retry cap is exhausted) is covered by the durable dead-letter re-drive (#285).
+      // ponytail: preserve the cursor only after the user sees the exhausted
+      // notice. A failed notice rolls back; issue #285 owns durable re-drive.
       let failureNoticeDelivered = false;
       if (failoverExhausted && !outputSentToUser) {
         logger.error(
@@ -802,25 +813,23 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
         terminal: true,
       });
     }
-    const finalProgressState = resolveGroupTurnFinalProgressState({
+    await sendGroupFinalProgress({
       output,
       hadError,
       sawDeliveryIncomplete,
       sawTerminalDeliveryFailure,
       outputSentToUser,
+      options,
+      awaitingResponseReceipt,
+      sentAnyTurnDoneProgress,
+      activeGenerationHasOutput,
+      sentTurnDoneProgressGeneration,
+      progressGeneration,
+      supportsProgress,
+      buildProgressOptions,
+      sendProgress: sendProgressToChannel,
+      sendDone: sendTrackedDoneProgress,
     });
-    if (
-      shouldSendTurnFinalProgress({
-        finalProgressState,
-        awaitingResponseReceipt,
-        sentAnyTurnDoneProgress,
-        activeGenerationHasOutput,
-        sentTurnDoneProgressGeneration,
-        progressGeneration,
-      })
-    ) {
-      await sendTrackedDoneProgress(finalProgressState);
-    }
     await setTypingState(false);
     if (resultOk && replay.hasMore) deps.queue.enqueueMessageCheck(queueJid);
     options?.onRunResult?.(output);

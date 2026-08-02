@@ -5,6 +5,7 @@ import type { NewMessage } from '../../domain/types.js';
 import { logger } from '../../infrastructure/logging/logger.js';
 import { resolveRuntimeExecutionProviderId } from '../../runtime/execution-provider-id.js';
 import { collectPendingMessagesSince } from '../../runtime/pending-message-replay.js';
+import { acknowledgeContinuationReceipt } from '../../runtime/continuation-receipts.js';
 import { agentIdForFolder } from '../../domain/agent/agent-folder-id.js';
 import {
   findConversationRouteForQueue,
@@ -372,6 +373,12 @@ export async function routeScopeActiveLiveTurnAdmissionFromCursor(input: {
   routeMessage: NonNullable<
     Parameters<typeof routeScopeActiveLiveTurnAdmission>[0]['routeMessage']
   >;
+  addReaction?: (
+    jid: string,
+    messageRef: string,
+    emoji: string,
+    options?: { providerAccountId?: string; threadId?: string },
+  ) => Promise<void>;
   completeSessionAgentRun?: Parameters<
     typeof routeScopeActiveLiveTurnAdmission
   >[0]['completeSessionAgentRun'];
@@ -422,6 +429,22 @@ export async function routeScopeActiveLiveTurnAdmissionFromCursor(input: {
     }),
     routeMessage: input.routeMessage,
     completeSessionAgentRun: input.completeSessionAgentRun,
+  });
+  const { providerAccountId, threadId } = parseAgentThreadQueueKey(
+    input.queueJid,
+  );
+  await acknowledgeContinuationReceipt({
+    jid: input.chatJid,
+    messages: replayMessages,
+    ...(providerAccountId || threadId
+      ? {
+          options: {
+            ...(providerAccountId ? { providerAccountId } : {}),
+            ...(threadId ? { threadId } : {}),
+          },
+        }
+      : {}),
+    addReaction: input.addReaction,
   });
   if (routed && (replay?.hasMore || (controlIndex ?? -1) >= 0)) {
     input.enqueueMessageCheck?.(input.queueJid);

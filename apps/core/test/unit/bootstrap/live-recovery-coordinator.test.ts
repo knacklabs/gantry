@@ -520,6 +520,64 @@ describe('live-turn host lease acquisition', () => {
     );
   });
 
+  it.each([
+    ['queued_to_owner', true],
+    ['no_active_turn', false],
+  ] as const)(
+    'acknowledges direct-route continuations for %s outcomes',
+    async (routeOutcome, expectedResult) => {
+      const addReaction = vi.fn(async () => undefined);
+      const routeMessage = vi.fn(async () => routeOutcome);
+      const message = {
+        id: 1,
+        chat_jid: 'chat-1',
+        sender: 'user-1',
+        content: 'continue',
+        timestamp: '2024-01-01T00:00:01.000Z',
+        is_from_me: false,
+        message_id: 'msg-1',
+        external_message_id: 'provider-msg-1',
+        reply_to_message_id: null,
+        reply_to_content: null,
+        sender_name: 'Ravi',
+      };
+
+      await expect(
+        routeScopeActiveLiveTurnAdmissionFromCursor({
+          scope: {
+            appId: 'app:test',
+            agentSessionId: 'session-1',
+            conversationId: 'chat-1',
+            threadId: 'thread-1',
+          },
+          queueJid: makeAgentThreadQueueKey(
+            'chat-1',
+            'agent:alpha',
+            'thread-1',
+            'slack_beta',
+          ),
+          liveRunId: 'run-active',
+          chatJid: 'chat-1',
+          threadId: 'thread-1',
+          replayCursor: '2024-01-01T00:00:00.000Z::0',
+          messageFetchPageSize: 10,
+          timezone: 'UTC',
+          getMessagesSince: vi.fn(async () => [message]),
+          setAgentCursor: vi.fn(),
+          saveState: vi.fn(),
+          routeMessage,
+          addReaction,
+        }),
+      ).resolves.toBe(expectedResult);
+      expect(addReaction).toHaveBeenCalledWith(
+        'chat-1',
+        'provider-msg-1',
+        'seen',
+        { providerAccountId: 'slack_beta', threadId: 'thread-1' },
+      );
+    },
+  );
+
   it('routes only earlier replay messages before an active /compact', async () => {
     const routeMessage = vi.fn(async () => 'queued_to_owner' as const);
     const isActiveControlMessage = vi.fn(

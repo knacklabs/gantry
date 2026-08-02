@@ -602,15 +602,24 @@ export interface MessageSink {
     options?: MessageSendOptions,
   ): Promise<void | MessageDeliveryResult>;
 }
-
 export interface MessageReactionSink {
-  addReaction(jid: string, messageRef: string, emoji: string): Promise<void>;
+  addReaction(
+    jid: string,
+    messageRef: string,
+    emoji: string,
+    options?: { threadId?: string },
+  ): Promise<void>;
 }
-
+export interface MessageReactionRemovalSink {
+  removeReaction: MessageReactionSink['addReaction'];
+}
 export interface TypingSink {
-  setTyping(jid: string, isTyping: boolean): Promise<void>;
+  setTyping(
+    jid: string,
+    isTyping: boolean,
+    options?: { threadId?: string },
+  ): Promise<void>;
 }
-
 export interface StreamingSink {
   sendStreamingChunk(
     jid: string,
@@ -628,7 +637,7 @@ export interface ProgressSink {
     jid: string,
     text: string,
     options?: ProgressUpdateOptions,
-  ): Promise<void>;
+  ): Promise<void | boolean>;
 }
 
 export interface GroupDiscoverySource {

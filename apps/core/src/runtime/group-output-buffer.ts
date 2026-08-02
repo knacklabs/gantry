@@ -37,6 +37,7 @@ export function createGroupOutputBuffer(input: {
     settlement: DeliverySettlement,
     options: { streamed: boolean; terminal: boolean },
   ) => void;
+  onVisibleOutputDelivered?: () => Promise<void> | void;
   resetStreamedTranscriptDeliveryStatus?: () => void;
   /** A generation finished having delivered nothing to the user. */
   onGenerationUndelivered?: (text: string) => void;
@@ -100,6 +101,9 @@ export function createGroupOutputBuffer(input: {
         return 'not_delivered' as const;
       });
       input.applyDeliverySettlement(settlement, { streamed: true, terminal });
+      if (settlement !== 'not_delivered') {
+        await input.onVisibleOutputDelivered?.();
+      }
       // Verbatim, no separator: flush boundaries are a transport detail and
       // can fall mid-word, so appending a newline here would store "hel\nlo"
       // for a reply the user received as "hello".
@@ -151,6 +155,9 @@ export function createGroupOutputBuffer(input: {
         { scope: 'runtime-output-message-final', target: input.chatJid },
       );
       input.applyDeliverySettlement(settlement, { streamed: false, terminal });
+      if (settlement !== 'not_delivered') {
+        await input.onVisibleOutputDelivered?.();
+      }
     }
     userVisibleTranscript.append(`${text}\n`);
     return true;
@@ -177,6 +184,9 @@ export function createGroupOutputBuffer(input: {
         streamed: true,
         terminal: false,
       });
+      if (settlement !== 'not_delivered') {
+        await input.onVisibleOutputDelivered?.();
+      }
     },
     flushBufferedOutput,
     transcriptSnapshot: () => userVisibleTranscript.snapshot(),

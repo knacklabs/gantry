@@ -45,7 +45,7 @@ import {
   slackPermissionApproverIds,
 } from './permission-approval-delivery.js';
 import { renderSlackRichInteraction } from './rich-interaction.js';
-import { addSlackReaction } from './reactions.js';
+import { addSlackReaction, removeSlackReaction } from './reactions.js';
 import { requestSlackUserAnswer } from './user-question-delivery.js';
 import { historyCoverageInboundCallbacks } from '../conversation-history-coverage-lifecycle.js';
 const SLACK_STREAM_SNIPPET_FALLBACK_MIN_PARTS = 4;
@@ -123,6 +123,24 @@ export abstract class SlackChannelDelivery extends SlackChannelInteractions {
     const parsed = this.parseJid(jid);
     if (!parsed) return;
     await addSlackReaction({
+      app: this.app,
+      jid,
+      channelId: parsed.channelId,
+      messageRef,
+      emoji,
+      reactionKeys: this.reactionKeys,
+    });
+  }
+
+  async removeReaction(
+    jid: string,
+    messageRef: string,
+    emoji: string,
+  ): Promise<void> {
+    if (!this.app) return;
+    const parsed = this.parseJid(jid);
+    if (!parsed) return;
+    await removeSlackReaction({
       app: this.app,
       jid,
       channelId: parsed.channelId,
@@ -480,10 +498,10 @@ export abstract class SlackChannelDelivery extends SlackChannelInteractions {
     jid: string,
     text: string,
     options: ProgressUpdateOptions = {},
-  ): Promise<void> {
-    if (!this.app) return;
+  ): Promise<boolean> {
+    if (!this.app) return false;
     const parsed = this.parseJid(jid);
-    if (!parsed) return;
+    if (!parsed) return false;
     const key = this.progressKey(jid, options.threadId);
     this.loadPersistedProgress();
     if (options.done) {
@@ -500,9 +518,9 @@ export abstract class SlackChannelDelivery extends SlackChannelInteractions {
         },
         'Progress lifecycle slack dropped sealed generation',
       );
-      return;
+      return false;
     }
-    await sendSlackProgressUpdate({
+    return sendSlackProgressUpdate({
       app: this.app,
       channelId: parsed.channelId,
       key,

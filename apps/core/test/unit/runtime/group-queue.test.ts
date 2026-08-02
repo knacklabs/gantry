@@ -115,7 +115,10 @@ describe('GroupQueue', () => {
     await vi.advanceTimersByTimeAsync(10);
     await vi.advanceTimersByTimeAsync(10);
 
-    expect(seen).toEqual([{ finalRetry: false }, { finalRetry: false }]);
+    expect(seen).toEqual([
+      { finalRetry: false, retryCount: 0, maxRetries: 5 },
+      { finalRetry: false, retryCount: 0, maxRetries: 5 },
+    ]);
   });
 
   it('registers live-turn runner hooks with routing metadata', async () => {
@@ -537,6 +540,48 @@ describe('GroupQueue', () => {
     await vi.advanceTimersByTimeAsync(1000);
 
     expect(finalRetryValues).toEqual([false, false, true]);
+  });
+
+  it('threads retry numbering and the configured maximum through every attempt', async () => {
+    queue = new GroupQueue({ baseRetryMs: 0, maxRetries: 2 });
+    const contexts: Array<{
+      finalRetry: boolean;
+      retryCount: number;
+      maxRetries: number;
+    }> = [];
+    queue.setProcessMessagesFn(async (_groupJid, context) => {
+      contexts.push(context);
+      return false;
+    });
+
+    queue.enqueueMessageCheck('group1@g.us');
+    await vi.advanceTimersByTimeAsync(30);
+
+    expect(contexts).toEqual([
+      { finalRetry: false, retryCount: 0, maxRetries: 2 },
+      { finalRetry: false, retryCount: 1, maxRetries: 2 },
+      { finalRetry: true, retryCount: 2, maxRetries: 2 },
+    ]);
+  });
+
+  it('marks the initial attempt final when maxRetries is zero', async () => {
+    queue = new GroupQueue({ baseRetryMs: 0, maxRetries: 0 });
+    const contexts: Array<{
+      finalRetry: boolean;
+      retryCount: number;
+      maxRetries: number;
+    }> = [];
+    queue.setProcessMessagesFn(async (_groupJid, context) => {
+      contexts.push(context);
+      return false;
+    });
+
+    queue.enqueueMessageCheck('group1@g.us');
+    await vi.advanceTimersByTimeAsync(10);
+
+    expect(contexts).toEqual([
+      { finalRetry: true, retryCount: 0, maxRetries: 0 },
+    ]);
   });
 
   // --- Shutdown prevents new enqueues ---

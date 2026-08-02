@@ -774,6 +774,59 @@ describe('decision 0080 authoritative second pending-message fetch', () => {
 });
 
 describe('thread queue routing', () => {
+  it.each([true, false])(
+    'acknowledges the newest provider message when continuation acceptance is %s',
+    async (accepted) => {
+      const message = {
+        ...makePendingMessage(1),
+        external_message_id: 'provider-message-1',
+      };
+      mockGetMessagesSince.mockReturnValueOnce([message]);
+      const addReaction = vi.fn(async () => undefined);
+      const deps = makeDeps({
+        addReaction,
+        queue: {
+          ...makeDeps().queue,
+          sendMessage: vi.fn(() => accepted),
+        },
+      });
+
+      await processLiveAdmissionWorkItem(
+        deps,
+        makeAdmissionItem({
+          threadId: 'thread-1',
+          queueJid: makeAgentThreadQueueKey(
+            'group@g.us',
+            undefined,
+            'thread-1',
+          ),
+        }),
+      );
+
+      expect(addReaction).toHaveBeenCalledWith(
+        'group@g.us',
+        'provider-message-1',
+        'seen',
+        { threadId: 'thread-1' },
+      );
+    },
+  );
+
+  it('does not acknowledge a synthetic continuation reference', async () => {
+    mockGetMessagesSince.mockReturnValueOnce([
+      {
+        ...makePendingMessage(1),
+        external_message_id: 'external-ingress:message-1',
+      },
+    ]);
+    const addReaction = vi.fn(async () => undefined);
+    const deps = makeDeps({ addReaction });
+
+    await processLiveAdmissionWorkItem(deps, makeAdmissionItem());
+
+    expect(addReaction).not.toHaveBeenCalled();
+  });
+
   it('warns when a live admission item matches no messages', async () => {
     const queueJid = makeAgentThreadQueueKey(
       'group@g.us',

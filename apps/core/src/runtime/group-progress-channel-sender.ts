@@ -15,24 +15,28 @@ export function createProgressChannelSender(input: {
   return async (
     text: string,
     options?: ProgressUpdateOptions,
-  ): Promise<void> => {
+  ): Promise<boolean> => {
     if (
       options?.done !== true &&
       options?.generation !== undefined &&
       input.finalizingGenerations.has(options.generation)
     ) {
-      return;
+      return false;
     }
     try {
       if (options) {
-        await input.channelRuntime.sendProgressUpdate(
-          input.chatJid,
-          text,
-          options,
+        return (
+          (await input.channelRuntime.sendProgressUpdate(
+            input.chatJid,
+            text,
+            options,
+          )) !== false
         );
-      } else {
-        await input.channelRuntime.sendProgressUpdate(input.chatJid, text);
       }
+      return (
+        (await input.channelRuntime.sendProgressUpdate(input.chatJid, text)) !==
+        false
+      );
     } catch (err) {
       input.log.warn(
         {

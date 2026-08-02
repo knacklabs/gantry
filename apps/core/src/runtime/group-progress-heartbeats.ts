@@ -5,6 +5,7 @@ import type {
 import { buildReplaceOnlyProgressOptions } from './progress-updates.js';
 
 const TYPING_HEARTBEAT_INTERVAL_MS = 4_000;
+export const STALL_HEARTBEAT_THRESHOLD_MS = 180_000;
 
 type GroupProgressHeartbeatLogger = {
   debug(metadata: Record<string, unknown>, message: string): void;
@@ -30,7 +31,7 @@ export function startInitialGroupProgress(input: {
   sendProgressToChannel(
     text: string,
     options?: ProgressUpdateOptions,
-  ): Promise<void>;
+  ): Promise<void | boolean>;
   onSent?: () => Promise<void> | void;
   log: GroupProgressHeartbeatLogger;
 }): { cancel(): Promise<void> } {
@@ -79,7 +80,7 @@ export function createResponseProgressSenders(input: {
   sendProgressToChannel(
     text: string,
     options?: ProgressUpdateOptions,
-  ): Promise<void>;
+  ): Promise<void | boolean>;
 }) {
   return {
     sendWaitingProgress: () =>
@@ -116,12 +117,17 @@ export function startGroupProgressHeartbeats(input: {
   isTypingActive: () => boolean;
   chatJid: string;
   providerAccountId?: string;
+  activeThreadId?: string;
   groupName: string;
+  isStalled: () => boolean;
+  claimStallNotice: () => boolean;
+  releaseStallNotice: () => void;
+  sendStallProgress: () => Promise<boolean>;
   channelRuntime: {
     setTyping(
       jid: string,
       isTyping: boolean,
-      options?: { providerAccountId?: string },
+      options?: { providerAccountId?: string; threadId?: string },
     ): Promise<void>;
   };
   log: GroupProgressHeartbeatLogger;
@@ -131,19 +137,45 @@ export function startGroupProgressHeartbeats(input: {
   resume(): void;
 } {
   let paused = false;
-  const typingHeartbeatTimer = setInterval(() => {
-    if (paused || !input.isTypingActive()) return;
-    const typing = input.providerAccountId
-      ? input.channelRuntime.setTyping(input.chatJid, true, {
-          providerAccountId: input.providerAccountId,
-        })
-      : input.channelRuntime.setTyping(input.chatJid, true);
+  const refreshTyping = () => {
+    const typing =
+      input.providerAccountId || input.activeThreadId
+        ? input.channelRuntime.setTyping(input.chatJid, true, {
+            ...(input.providerAccountId
+              ? { providerAccountId: input.providerAccountId }
+              : {}),
+            ...(input.activeThreadId ? { threadId: input.activeThreadId } : {}),
+          })
+        : input.channelRuntime.setTyping(input.chatJid, true);
     void typing.catch((err) =>
       input.log.debug(
         { err, group: input.groupName },
         'Failed to refresh typing heartbeat',
       ),
     );
+  };
+  const typingHeartbeatTimer = setInterval(() => {
+    if (paused || !input.isTypingActive()) return;
+    const stalled = input.isStalled();
+    if (stalled && input.claimStallNotice()) {
+      void input
+        .sendStallProgress()
+        .then((landed) => {
+          if (landed) return;
+          input.releaseStallNotice();
+          refreshTyping();
+        })
+        .catch((err) => {
+          input.releaseStallNotice();
+          refreshTyping();
+          input.log.debug(
+            { err, group: input.groupName },
+            'Failed to send stalled progress heartbeat',
+          );
+        });
+    }
+    if (stalled) return;
+    refreshTyping();
   }, TYPING_HEARTBEAT_INTERVAL_MS);
   return {
     typingHeartbeatTimer,

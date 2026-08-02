@@ -69,11 +69,15 @@ export type GroupProcessOptions = {
   existingRunLeaseWorkerInstanceId?: string;
   existingRunLeaseFencingVersion?: number;
   finalRetry?: boolean;
+  retryCount?: number;
+  maxRetries?: number;
   onRunResult?: (result: GroupAgentRunResult) => void;
   onFirstProgress?: (input: {
     jid: string;
     messageRef: string;
   }) => Promise<void> | void;
+  onFirstVisibleOutput?: () => Promise<void> | void;
+  onTurnTerminal?: () => Promise<void> | void;
   onLiveStopActionToken?: (token: string) => Promise<void> | void;
 };
 
@@ -124,13 +128,13 @@ export interface GroupProcessingDeps {
     setTyping: (
       chatJid: string,
       isTyping: boolean,
-      options?: { providerAccountId?: string },
+      options?: { providerAccountId?: string; threadId?: string },
     ) => Promise<void>;
     sendProgressUpdate: (
       chatJid: string,
       text: string,
       options?: ProgressUpdateOptions,
-    ) => Promise<void>;
+    ) => Promise<void | boolean>;
     renderAgentTodo?: (
       chatJid: string,
       render: AgentTodoRender,

@@ -2116,6 +2116,7 @@ describe('createChannelWiring', () => {
       resetStreaming: vi.fn(),
       setTyping: vi.fn(async () => undefined),
       addReaction: vi.fn(async () => undefined),
+      removeReaction: vi.fn(async () => undefined),
       renderAgentTodo: vi.fn(async () => true),
       renderRichInteraction: vi.fn(async () => true),
     };
@@ -2123,6 +2124,7 @@ describe('createChannelWiring', () => {
       resetStreaming: vi.fn(),
       setTyping: vi.fn(async () => undefined),
       addReaction: vi.fn(async () => undefined),
+      removeReaction: vi.fn(async () => undefined),
       renderAgentTodo: vi.fn(async () => true),
       renderRichInteraction: vi.fn(async () => true),
     };
@@ -2156,8 +2158,18 @@ describe('createChannelWiring', () => {
 
     const account = { providerAccountId: 'slack_beta' };
     wiring.resetStreaming('sl:C123', account);
-    await wiring.setTyping('sl:C123', true, account);
-    await wiring.addReaction('sl:C123', 'm-1', 'eyes', account);
+    await wiring.setTyping('sl:C123', true, {
+      ...account,
+      threadId: 'thread-1',
+    });
+    await wiring.addReaction('sl:C123', 'm-1', 'eyes', {
+      ...account,
+      threadId: 'thread-1',
+    });
+    await wiring.removeReaction('sl:C123', 'm-1', 'eyes', {
+      ...account,
+      threadId: 'thread-1',
+    });
     await wiring.renderAgentTodo(
       'sl:C123',
       { summary: null, items: [{ id: '1', title: 'Work', status: 'pending' }] },
@@ -2183,11 +2195,19 @@ describe('createChannelWiring', () => {
     expect(alpha.setTyping).not.toHaveBeenCalled();
     expect(alpha.resetStreaming).not.toHaveBeenCalled();
     expect(alpha.addReaction).not.toHaveBeenCalled();
+    expect(alpha.removeReaction).not.toHaveBeenCalled();
     expect(alpha.renderAgentTodo).not.toHaveBeenCalled();
     expect(alpha.renderRichInteraction).not.toHaveBeenCalled();
     expect(beta.resetStreaming).toHaveBeenCalledWith('sl:C123');
-    expect(beta.setTyping).toHaveBeenCalledWith('sl:C123', true);
-    expect(beta.addReaction).toHaveBeenCalledWith('sl:C123', 'm-1', 'eyes');
+    expect(beta.setTyping).toHaveBeenCalledWith('sl:C123', true, {
+      threadId: 'thread-1',
+    });
+    expect(beta.addReaction).toHaveBeenCalledWith('sl:C123', 'm-1', 'eyes', {
+      threadId: 'thread-1',
+    });
+    expect(beta.removeReaction).toHaveBeenCalledWith('sl:C123', 'm-1', 'eyes', {
+      threadId: 'thread-1',
+    });
     expect(beta.renderAgentTodo).toHaveBeenCalledOnce();
     expect(beta.renderRichInteraction).toHaveBeenCalledOnce();
   });
