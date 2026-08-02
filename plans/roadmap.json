@@ -173,7 +173,7 @@
       ]
     },
     {
-      "status": "pending",
+      "status": "done",
       "key": "CAP-1",
       "title": "Close out the capability-authoring lane",
       "epic": "capability-search",
@@ -187,7 +187,9 @@
         "branch verified (typecheck + unit + relevant integration) and reviewed via one autoreview pass",
         "merged to main or explicitly split/reverted with a decision note",
         "mcp-tool-proxy.ts conflict window closed"
-      ]
+      ],
+      "completed_at": "2026-08-02T19:08:22+00:00",
+      "outcome": "Merged via PR #376. Agents can author MCP capabilities; approval cards are host-derived and fail-closed (agent input is not risk authority). Formal review fixed 12 findings incl. 3 security Highs (principal-required approvals, route-scoped credentials, tenant-scoped MCP client caches). mcp-tool-proxy conflict window closed."
     },
     {
       "status": "pending",
@@ -495,5 +497,5 @@
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-08-02T10:37:15+00:00"
+  "updated_at": "2026-08-02T11:03:02+00:00"
 }
