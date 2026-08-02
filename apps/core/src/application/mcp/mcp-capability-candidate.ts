@@ -29,7 +29,6 @@ export async function buildReviewedMcpCapabilityCandidate(input: {
   agentId: AgentId;
   serverName: string;
   tools: readonly string[];
-  risk: Extract<SemanticCapabilityRisk, 'read' | 'write'>;
   displayName: string;
   conversationId?: string;
   threadId?: string;
@@ -71,20 +70,21 @@ export async function buildReviewedMcpCapabilityCandidate(input: {
     requested: input.tools,
     definitionPatterns: effectiveSourcePatterns,
   }).sort();
+  const risk = reviewedMcpCapabilityRisk(server.riskClass, patterns);
   const displayName = input.displayName.trim();
   const serverDefinitionFingerprint = mcpServerDefinitionFingerprint(server);
   const capabilityId = mcpCapabilityCandidateId({
     appId: input.appId,
     serverName: server.name,
     serverDefinitionFingerprint,
-    risk: input.risk,
+    risk,
     patterns,
   });
   const definition: SemanticCapabilityDefinition = {
     capabilityId,
     displayName,
     category: 'MCP',
-    risk: input.risk,
+    risk,
     can: `Call reviewed ${server.name} MCP tools matching: ${patterns.join(', ')}.`,
     cannot: `Call other ${server.name} MCP tools or bypass the connected source scope.`,
     credentialSource: 'none',
@@ -122,11 +122,26 @@ export async function buildReviewedMcpCapabilityCandidate(input: {
   assertMcpCapabilityScopeReviewable({
     displayName,
     serverName: server.name,
-    risk: input.risk,
+    risk,
     patterns,
     resolvedTools,
   });
   return { definition, serverName: server.name, patterns, resolvedTools };
+}
+
+const READ_ONLY_MCP_TOOL_PREFIX =
+  /^(?:get|list|read|search|find|describe|query|fetch|lookup|check|status|view|inspect)(?:[_ .-]|$)/i;
+
+function reviewedMcpCapabilityRisk(
+  serverRisk: 'low' | 'medium' | 'high' | 'critical',
+  patterns: readonly string[],
+): Extract<SemanticCapabilityRisk, 'read' | 'write'> {
+  // Agent input is not risk authority. Unknown or broad operations are writes;
+  // only a low-risk reviewed server plus an explicitly read-shaped scope is read.
+  if (serverRisk !== 'low') return 'write';
+  return patterns.every((pattern) => READ_ONLY_MCP_TOOL_PREFIX.test(pattern))
+    ? 'read'
+    : 'write';
 }
 
 function mcpCapabilityCandidateId(input: {

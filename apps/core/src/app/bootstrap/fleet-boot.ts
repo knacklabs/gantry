@@ -187,23 +187,9 @@ export async function prepareFleetSettings(input: {
       );
       return { loaded: false, revision: latest.revision };
     }
-    const settings = settingsFromRevisionDocument(latest.settingsDocument);
-    // Apply through the single shared import path (validate → write settings.yaml
-    // → reconcile → reload runtime state), the same path the watcher and CLI use.
-    // Writing settings.yaml here is an internal loader reuse so the existing
-    // `loadRuntimeSettings` path can read fleet desired state; the file is NOT the
-    // fleet wire contract (the typed document in `settings_revisions` is).
-    await importWorkstationSettings(
-      {
-        runtimeHome: input.runtimeHome,
-        ops: storage.ops,
-        repositories: storage.repositories,
-        appId: input.appId,
-        projectionAuthority: 'revision',
-        reloadRuntimeState: () => input.app.loadState(),
-      },
-      settings,
-    );
+    // The fence-aware revision apply is the single fleet reconciliation path.
+    // It validates, writes settings.yaml, reconciles, reloads, and forward-corrects
+    // stale MCP binding authority without first repeating the full import.
     const applied = await applySettingsRevisionWithMcpFenceRecovery({
       runtimeHome: input.runtimeHome,
       ops: storage.ops,

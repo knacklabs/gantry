@@ -58,7 +58,6 @@ export async function attachReviewedMcpCapabilityCandidate(input: {
     input.review.toolInput.capabilityDisplayName,
     { maxLen: 200 },
   );
-  const risk = toTrimmedString(input.review.toolInput.risk, { maxLen: 16 });
   const tools = sanitizedStringList(
     Array.isArray(input.review.toolInput.mcpToolPatterns)
       ? input.review.toolInput.mcpToolPatterns
@@ -69,16 +68,12 @@ export async function attachReviewedMcpCapabilityCandidate(input: {
       'MCP capability proposals require serverName, displayName, and at least one tool.',
     );
   }
-  if (risk !== 'read' && risk !== 'write') {
-    throw new Error('MCP capability proposal risk must be read or write.');
-  }
   const candidate = await buildReviewedMcpCapabilityCandidate({
     mcpServers,
     appId: input.appId,
     agentId: input.agentId,
     serverName,
     tools,
-    risk,
     displayName,
     conversationId: input.conversationId,
     threadId: input.threadId,
@@ -188,7 +183,6 @@ export async function missingReviewedCapabilityCatalogEntry(input: {
           agentId: input.agentId as never,
           serverName: binding.mcpServer,
           tools: binding.mcpToolPatterns,
-          risk: existing.risk,
           displayName: existing.displayName,
           conversationId: input.conversationId,
           threadId: input.threadId,

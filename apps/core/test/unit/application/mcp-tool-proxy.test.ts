@@ -499,7 +499,7 @@ describe('McpToolProxy', () => {
       ],
     });
     await expect(
-      proxy.assertToolAllowed({
+      proxy.callTool({
         appId: 'app-one' as never,
         agentId: 'agent-one' as never,
         serverName: 'github',
@@ -595,7 +595,7 @@ describe('McpToolProxy', () => {
       ],
     });
     await expect(
-      proxy.assertToolAllowed({
+      proxy.callTool({
         appId: 'app-one' as never,
         agentId: 'agent-one' as never,
         serverName: 'github',
@@ -884,7 +884,7 @@ describe('McpToolProxy', () => {
       },
     });
     await expect(
-      proxy.assertToolAllowed({
+      proxy.callTool({
         appId: 'app-one' as never,
         agentId: 'agent-one' as never,
         serverName: 'github',
@@ -2293,28 +2293,54 @@ describe('McpToolProxy', () => {
   it('revalidates current network policy before reusing cached remote clients', async () => {
     vi.useFakeTimers();
     const denylist: string[] = [];
-    const options = {
+    mockCreateIssueToolDetail();
+    const proxy = new McpToolProxy(mcpRepository({ remote: true }), {
+      tools: toolRepository(),
       egressDenylist: denylist,
       lookupHostname: vi.fn(async () => [
         { address: '93.184.216.34', family: 4 as const },
       ]),
-    };
-    const connect = (capability: ReturnType<typeof remoteCapability>) =>
-      connectMcpToolProxyClient(
-        capability,
-        options,
-        MCP_TOOL_PROXY_CLIENT_ADAPTERS,
-      );
-    const capability = remoteCapability(['api.github.com:443']);
+    });
 
-    await connect(capability);
+    await describeCreateIssue(proxy);
 
-    await expect(connect(remoteCapability([]))).resolves.toBeTruthy();
+    clearMcpToolProxyInventoryCache();
     denylist.push('api.github.com');
-    await expect(connect(capability)).rejects.toThrow(
+    await expect(describeCreateIssue(proxy)).rejects.toThrow(
       /matches the egress denylist/,
     );
     expect(mcpSdkMocks.Client).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not reuse a stateful remote client across tenants or routes', async () => {
+    vi.useFakeTimers();
+    const options = {
+      lookupHostname: vi.fn(async () => [
+        { address: '93.184.216.34', family: 4 as const },
+      ]),
+    };
+
+    await connectMcpToolProxyClient(
+      remoteCapability({ appId: 'app-one', agentId: 'agent-one' }),
+      options,
+      MCP_TOOL_PROXY_CLIENT_ADAPTERS,
+    );
+    await connectMcpToolProxyClient(
+      remoteCapability({ appId: 'app-two', agentId: 'agent-two' }),
+      options,
+      MCP_TOOL_PROXY_CLIENT_ADAPTERS,
+    );
+    await connectMcpToolProxyClient(
+      remoteCapability({
+        appId: 'app-one',
+        agentId: 'agent-one',
+        conversationId: 'conversation:other',
+      }),
+      options,
+      MCP_TOOL_PROXY_CLIENT_ADAPTERS,
+    );
+
+    expect(mcpSdkMocks.Client).toHaveBeenCalledTimes(3);
   });
 });
 
@@ -2553,17 +2579,19 @@ function patternToolRepository() {
   } as never;
 }
 
-function remoteCapability(networkHosts: string[]) {
+function remoteCapability(input: {
+  appId: string;
+  agentId: string;
+  conversationId?: string;
+}) {
   return {
+    ...input,
+    conversationId: input.conversationId ?? 'conversation:shared',
+    threadId: 'thread:shared',
     name: 'github',
     serverId: 'mcp:github',
     bindingId: 'agent-mcp-binding:github',
-    sourceRevision: JSON.stringify({
-      serverId: 'mcp:github',
-      serverUpdatedAt: new Date(0).toISOString(),
-      bindingId: 'agent-mcp-binding:github',
-      bindingUpdatedAt: new Date(0).toISOString(),
-    }),
+    sourceRevision: 'revision:shared',
     config: {
       type: 'http' as const,
       url: 'https://api.github.com/mcp',
@@ -2572,7 +2600,7 @@ function remoteCapability(networkHosts: string[]) {
     autoApproveToolPatterns: ['*'],
     allowedToolNames: ['mcp__github__create_issue'],
     autoApproveToolNames: ['mcp__github__create_issue'],
-    networkHosts,
+    networkHosts: ['api.github.com:443'],
     required: false,
   };
 }

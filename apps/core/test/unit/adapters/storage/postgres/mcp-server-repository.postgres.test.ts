@@ -257,4 +257,41 @@ describe('PostgresMcpServerRepository capability approval locking', () => {
     expect(db.transaction).toHaveBeenCalledTimes(20);
     expect(maxActiveTransactions).toBe(1);
   });
+
+  it('does not queue MCP authorizations behind another app', async () => {
+    const rowLock = { for: vi.fn(async () => []) };
+    const tx = {
+      select: vi.fn(() => ({
+        from: () => ({ where: () => rowLock }),
+      })),
+    };
+    const db = {
+      transaction: vi.fn(
+        async (operation: (transaction: typeof tx) => Promise<unknown>) =>
+          operation(tx),
+      ),
+    };
+    const repository = new PostgresMcpServerRepository(db as never);
+    let releaseFirst!: () => void;
+    const firstGate = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    const first = repository.withMcpCapabilityAuthorizationLock({
+      appId: 'app:slow' as never,
+      operation: async () => {
+        await firstGate;
+        return 'slow';
+      },
+    });
+    const secondOperation = vi.fn(async () => 'independent');
+    const second = repository.withMcpCapabilityAuthorizationLock({
+      appId: 'app:independent' as never,
+      operation: secondOperation,
+    });
+
+    await expect(second).resolves.toBe('independent');
+    expect(secondOperation).toHaveBeenCalledOnce();
+    releaseFirst();
+    await expect(first).resolves.toBe('slow');
+  });
 });

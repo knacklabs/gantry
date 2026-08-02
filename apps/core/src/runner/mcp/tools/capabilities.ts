@@ -65,9 +65,6 @@ const McpCapabilityTargetSchema = z.object({
     .min(1)
     .max(50)
     .describe('Exact MCP tool names or trailing-star patterns to review'),
-  risk: z
-    .enum(['read', 'write'])
-    .describe('Whether the reviewed MCP actions read or mutate state'),
   displayName: z
     .string()
     .min(1)
@@ -237,7 +234,6 @@ export function registerAccessRequestTool(
               mcpServerName: target.serverName,
               mcpToolPatterns: target.tools,
               capabilityDisplayName: target.displayName,
-              risk: target.risk,
               temporaryOnly: false,
               broadAccess:
                 args.broadAccess ??

@@ -23,6 +23,7 @@ import {
   toTrimmedString,
 } from './ipc-shared.js';
 import { resolveMcpCredentialEnvForAgent } from '../application/capability-secrets/mcp-secret-projection.js';
+import { authorizedMcpServerIdsForAgent } from '../application/mcp/mcp-authorized-servers.js';
 import {
   isPermanentPermissionDecision,
   formatDurableAccessRulesForUser,
@@ -853,12 +854,21 @@ function mcpReviewMessageOptions(
 async function createMcpProxyForSourceGroup(input: {
   appId: import('../domain/app/app.js').AppId;
   agentId: import('../domain/agent/agent.js').AgentId;
+  conversationId?: string;
+  threadId?: string;
   deps: Parameters<TaskHandler>[0]['deps'];
   ipcDir?: string;
   runHandle?: string;
   runId?: string;
 }): Promise<McpToolProxy> {
   const storage = getRuntimeStorage();
+  const sourceServerIds = await authorizedMcpServerIdsForAgent({
+    mcpServers: storage.repositories.mcpServers,
+    appId: input.appId,
+    agentId: input.agentId,
+    conversationId: input.conversationId,
+    threadId: input.threadId,
+  });
   const credentialEnv = await resolveMcpCredentialEnvForAgent({
     appId: input.appId,
     agentId: input.agentId,
@@ -866,11 +876,13 @@ async function createMcpProxyForSourceGroup(input: {
     secrets:
       input.deps.getCapabilitySecretRepository?.() ??
       storage.repositories.capabilitySecrets,
+    serverIds: sourceServerIds as never,
   });
   return new McpToolProxy(storage.repositories.mcpServers, {
     tools: storage.repositories.tools,
     skills: storage.repositories.skills,
     credentialEnv,
+    sourceServerIds,
     liveToolRules: readLiveToolRules({
       ipcDir: input.ipcDir,
       runHandle: input.runHandle,

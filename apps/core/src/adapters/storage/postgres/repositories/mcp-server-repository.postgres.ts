@@ -79,7 +79,7 @@ function fromDbJson(value: unknown): Record<string, unknown> {
 }
 
 export class PostgresMcpServerRepository implements McpServerRepository {
-  private mcpCapabilityApprovalLockTail: Promise<void> = Promise.resolve();
+  private readonly mcpCapabilityLockTails = new Map<string, Promise<void>>();
 
   constructor(private readonly db: CanonicalDb) {}
 
@@ -88,7 +88,7 @@ export class PostgresMcpServerRepository implements McpServerRepository {
     serverNames: readonly string[];
     operation: () => Promise<T>;
   }): Promise<T> {
-    return this.withMcpCapabilityApprovalLockSlot(() =>
+    return this.withMcpCapabilityApprovalLockSlot(input.appId, () =>
       this.db.transaction(async (tx) => {
         // Lock only the definition row. The settings mirror in `operation`
         // rewrites agent MCP bindings on another connection; locking those rows
@@ -119,7 +119,7 @@ export class PostgresMcpServerRepository implements McpServerRepository {
     // performs repository reads through the shared pool, so letting a
     // pool-sized burst reserve one outer connection each could deadlock the
     // pool before any read obtains a connection.
-    return this.withMcpCapabilityApprovalLockSlot(() =>
+    return this.withMcpCapabilityApprovalLockSlot(input.appId, () =>
       this.db.transaction(async (tx) => {
         // Shared locks let ordinary MCP authorizations wait for an exclusive
         // capability-approval publication to settle across runtime instances.
@@ -134,18 +134,24 @@ export class PostgresMcpServerRepository implements McpServerRepository {
   }
 
   private async withMcpCapabilityApprovalLockSlot<T>(
+    appId: McpServerDefinition['appId'],
     operation: () => Promise<T>,
   ): Promise<T> {
     let release!: () => void;
-    const previous = this.mcpCapabilityApprovalLockTail;
-    this.mcpCapabilityApprovalLockTail = new Promise<void>((resolve) => {
+    const key = String(appId);
+    const previous = this.mcpCapabilityLockTails.get(key) ?? Promise.resolve();
+    const current = new Promise<void>((resolve) => {
       release = resolve;
     });
+    this.mcpCapabilityLockTails.set(key, current);
     await previous;
     try {
       return await operation();
     } finally {
       release();
+      if (this.mcpCapabilityLockTails.get(key) === current) {
+        this.mcpCapabilityLockTails.delete(key);
+      }
     }
   }
 

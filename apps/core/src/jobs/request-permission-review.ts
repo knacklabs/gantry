@@ -152,6 +152,7 @@ export function isPermanentPermissionDecision(
 ): boolean {
   return (
     decision.approved === true &&
+    Boolean(decision.decidedBy?.trim()) &&
     decision.mode === 'allow_persistent_rule' &&
     decision.decisionClassification === 'user_permanent' &&
     (decision.updatedPermissions?.length ?? 0) > 0

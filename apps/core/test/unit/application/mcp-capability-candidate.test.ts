@@ -10,6 +10,7 @@ function repositoryFor(input: {
   url?: string;
   conversationId?: string;
   threadId?: string;
+  riskClass?: 'low' | 'medium' | 'high' | 'critical';
 }): McpServerRepository {
   const server = {
     id: `mcp:${input.appId}:sum`,
@@ -17,7 +18,7 @@ function repositoryFor(input: {
     name: 'sum',
     status: 'active',
     createdSource: 'admin',
-    riskClass: 'low',
+    riskClass: input.riskClass ?? 'low',
     transport: 'http',
     config: {
       transport: 'http',
@@ -62,7 +63,6 @@ describe('reviewed MCP capability candidates', () => {
       agentId: 'agent:test' as never,
       serverName: 'sum',
       tools: ['get-sum'],
-      risk: 'read',
       displayName: 'Read sums',
     });
 
@@ -92,7 +92,6 @@ describe('reviewed MCP capability candidates', () => {
         agentId: 'agent:test' as never,
         serverName: 'sum',
         tools: ['get-sum'],
-        risk: 'read',
         displayName: 'Read sums',
       });
 
@@ -104,6 +103,23 @@ describe('reviewed MCP capability candidates', () => {
     expect(first.definition.capabilityId).not.toBe(
       second.definition.capabilityId,
     );
+  });
+
+  it('derives destructive MCP proposal risk from reviewed source scope', async () => {
+    const candidate = await buildReviewedMcpCapabilityCandidate({
+      mcpServers: repositoryFor({
+        appId: 'app:destructive',
+        allowedToolPatterns: ['delete_*'],
+      }),
+      appId: 'app:destructive' as never,
+      agentId: 'agent:test' as never,
+      serverName: 'sum',
+      tools: ['delete_*'],
+      displayName: 'Delete sums',
+    });
+
+    expect(candidate.definition.risk).toBe('write');
+    expect(candidate.definition.capabilityId).toContain('.write.');
   });
 
   it('rejects a proposal outside the connected binding conversation and thread', async () => {
@@ -122,7 +138,6 @@ describe('reviewed MCP capability candidates', () => {
         threadId,
         serverName: 'sum',
         tools: ['get-sum'],
-        risk: 'read',
         displayName: 'Read sums',
       });
 
@@ -149,7 +164,6 @@ describe('reviewed MCP capability candidates', () => {
         agentId: 'agent:test' as never,
         serverName: 'sum',
         tools: ['get-sum'],
-        risk: 'read',
         displayName: 'Read sums',
       });
 
@@ -180,7 +194,6 @@ describe('reviewed MCP capability candidates', () => {
         agentId: 'agent:test' as never,
         serverName: 'sum',
         tools,
-        risk: 'read',
         displayName: 'Oversized scope',
       }),
     ).rejects.toThrow('too large to display completely');
@@ -199,7 +212,6 @@ describe('reviewed MCP capability candidates', () => {
         agentId: 'agent:test' as never,
         serverName: 'sum',
         tools: [opaqueTool],
-        risk: 'read',
         displayName: 'Opaque scope',
       }),
     ).rejects.toThrow('cannot be displayed safely and completely');
@@ -225,7 +237,6 @@ describe('reviewed MCP capability candidates', () => {
           agentId: 'agent:test' as never,
           serverName: 'sum',
           tools: ['get-sum'],
-          risk: 'read',
           displayName,
         }),
       ).rejects.toThrow(error);

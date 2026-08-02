@@ -85,6 +85,35 @@ describe('authorizedMcpServerIdsForAgent', () => {
     expect(result).toEqual(['mcp:sum']);
   });
 
+  it('bounds active binding lookups and database fan-out', async () => {
+    const bindings = Array.from({ length: 600 }, (_, index) => ({
+      serverId: `mcp:${index}`,
+      status: 'active',
+    }));
+    let activeLookups = 0;
+    let maxActiveLookups = 0;
+    const getServer = vi.fn(async (id: string) => {
+      activeLookups += 1;
+      maxActiveLookups = Math.max(maxActiveLookups, activeLookups);
+      await Promise.resolve();
+      activeLookups -= 1;
+      return { id, appId: 'default', name: id };
+    });
+
+    const result = await authorizedMcpServerIdsForAgent({
+      mcpServers: {
+        listAgentBindings: async () => bindings,
+        getServer,
+      } as never,
+      appId: 'default',
+      agentId: 'agent:main',
+    });
+
+    expect(result).toHaveLength(500);
+    expect(getServer).toHaveBeenCalledTimes(500);
+    expect(maxActiveLookups).toBeLessThanOrEqual(10);
+  });
+
   it('fails closed for a thread-scoped binding without its parent conversation', () => {
     expect(
       mcpBindingMatchesRouteScope(

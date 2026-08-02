@@ -228,6 +228,7 @@ describe('prepareFleetSettings', () => {
         }),
       }),
     );
+    expect(importMock.importWorkstationSettings).not.toHaveBeenCalled();
     expect(lease.tryAcquire).toHaveBeenCalledWith('settings-projector:default');
     expect(loadState.markSettingsLoaded).toHaveBeenCalledOnce();
   });
@@ -235,7 +236,9 @@ describe('prepareFleetSettings', () => {
   it('leaves a failed boot projection for forward correction', async () => {
     latest.current = revisionRow(9);
     const failure = new Error('projection failed');
-    importMock.importWorkstationSettings.mockRejectedValueOnce(failure);
+    importMock.applySettingsRevisionWithMcpFenceRecovery.mockRejectedValueOnce(
+      failure,
+    );
 
     await expect(
       prepareFleetSettings({
@@ -246,10 +249,7 @@ describe('prepareFleetSettings', () => {
       }),
     ).rejects.toBe(failure);
 
-    expect(importMock.importWorkstationSettings).toHaveBeenCalledWith(
-      expect.objectContaining({ projectionAuthority: 'revision' }),
-      expect.anything(),
-    );
+    expect(importMock.importWorkstationSettings).not.toHaveBeenCalled();
     expect(loadState.markSettingsLoaded).not.toHaveBeenCalled();
   });
 

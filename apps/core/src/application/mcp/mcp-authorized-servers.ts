@@ -2,6 +2,9 @@ import type { McpServerRepository } from '../../domain/ports/repositories.js';
 import type { AgentMcpServerBinding } from '../../domain/mcp/mcp-servers.js';
 import type { AgentMcpAccessSnapshot } from '../../domain/ports/repositories.js';
 
+const MAX_AUTHORIZED_MCP_BINDINGS = 500;
+const MCP_SERVER_LOOKUP_CONCURRENCY = 10;
+
 // Discovery is not authorization: every ACTIVE bound MCP server is a projected
 // source (inventory-only connects included), regardless of which mcp__ tool
 // rules are selected. Action stays capability-gated at call time by the
@@ -17,16 +20,28 @@ export async function authorizedMcpServerIdsForAgent(input: {
     appId: input.appId as never,
     agentId: input.agentId as never,
   });
-  const activeBindings = bindings.filter(
-    (binding) =>
-      binding.status === 'active' &&
-      mcpBindingMatchesRouteScope(binding, input),
-  );
-  const servers = await Promise.all(
-    activeBindings.map((binding) =>
-      input.mcpServers.getServer(binding.serverId),
-    ),
-  );
+  const activeBindings = bindings
+    .filter(
+      (binding) =>
+        binding.status === 'active' &&
+        mcpBindingMatchesRouteScope(binding, input),
+    )
+    .slice(0, MAX_AUTHORIZED_MCP_BINDINGS);
+  const servers: Array<Awaited<ReturnType<McpServerRepository['getServer']>>> =
+    [];
+  for (
+    let offset = 0;
+    offset < activeBindings.length;
+    offset += MCP_SERVER_LOOKUP_CONCURRENCY
+  ) {
+    servers.push(
+      ...(await Promise.all(
+        activeBindings
+          .slice(offset, offset + MCP_SERVER_LOOKUP_CONCURRENCY)
+          .map((binding) => input.mcpServers.getServer(binding.serverId)),
+      )),
+    );
+  }
   return activeBindings.flatMap((binding, index) => {
     const server = servers[index];
     if (!server || server.appId !== input.appId) return [];

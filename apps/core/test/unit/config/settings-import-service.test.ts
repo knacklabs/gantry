@@ -874,6 +874,16 @@ describe('importFleetSettingsRevision', () => {
     targetSettings.agent.name = 'target';
     const supersedingSettings = createDefaultRuntimeSettings();
     supersedingSettings.agent.name = 'superseding';
+    const currentFence = {
+      id: 'agent-mcp-binding:agent:main:mcp:current',
+      appId: 'default',
+      agentId: 'agent:main',
+      serverId: 'mcp:current',
+      status: 'active',
+      required: false,
+      permissionPolicyIds: [],
+      allowedToolPatterns: ['read_*'],
+    } as McpBindingAuthorityPrecondition;
     const repo = new FakeRevisionRepo();
     const supersedingHead: SettingsRevision = {
       appId: 'default',
@@ -883,6 +893,8 @@ describe('importFleetSettingsRevision', () => {
       createdBy: 'test:newer-writer',
       note: null,
       createdAt: new Date().toISOString(),
+      mcpBindingPreconditionAgentIds: ['agent:main' as never],
+      mcpBindingPreconditions: [currentFence],
     };
     vi.spyOn(repo, 'getLatestSettingsRevision')
       .mockResolvedValueOnce(null)
@@ -922,6 +934,8 @@ describe('importFleetSettingsRevision', () => {
       appId: 'default',
       forwardCorrected: true,
       reloadRuntimeState: undefined,
+      expectedMcpBindingAgentIds: ['agent:main'],
+      expectedMcpBindings: [currentFence],
     });
     expect(releaseLease).toHaveBeenCalledOnce();
   });

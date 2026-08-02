@@ -578,6 +578,12 @@ async function projectRequiredSettingsRevision(input: {
     const settings = projectsTarget
       ? input.targetSettings
       : settingsFromRevisionDocument(head.settingsDocument);
+    const expectedMcpBindingAgentIds = projectsTarget
+      ? input.expectedMcpBindingAgentIds
+      : head.mcpBindingPreconditionAgentIds;
+    const expectedMcpBindings = projectsTarget
+      ? input.expectedMcpBindings
+      : head.mcpBindingPreconditions;
     const appliedSettings = await applyRuntimeSettingsDesiredState({
       runtimeHome: input.deps.runtimeHome,
       settings,
@@ -586,8 +592,8 @@ async function projectRequiredSettingsRevision(input: {
       appId: input.appId,
       forwardCorrected: true,
       reloadRuntimeState: input.deps.reloadRuntimeState,
-      expectedMcpBindingAgentIds: input.expectedMcpBindingAgentIds,
-      expectedMcpBindings: input.expectedMcpBindings,
+      expectedMcpBindingAgentIds,
+      expectedMcpBindings,
     });
     activateRuntimeModelAliases(appliedSettings);
     return appliedSettings;

@@ -24,16 +24,16 @@ import {
   mcpListToolsProxyInput,
 } from './ipc-mcp-list-tools-input.js';
 import { delegatedTaskAgentInScope } from './async-command-task-helpers.js';
-
 type CreateMcpProxyForSourceGroup = (input: {
   appId: import('../domain/app/app.js').AppId;
   agentId: import('../domain/agent/agent.js').AgentId;
+  conversationId?: string;
+  threadId?: string;
   deps: Parameters<TaskHandler>[0]['deps'];
   ipcDir?: string;
   runHandle?: string;
   runId?: string;
 }) => Promise<McpToolProxy>;
-
 export function createMcpToolHandlers(
   createMcpProxyForSourceGroup: CreateMcpProxyForSourceGroup,
 ): {
@@ -55,7 +55,6 @@ export function createMcpToolHandlers(
     ),
   };
 }
-
 function mcpSearchToolsHandler(
   createMcpProxyForSourceGroup: CreateMcpProxyForSourceGroup,
 ): TaskHandler {
@@ -95,6 +94,7 @@ function mcpSearchToolsHandler(
       const proxy = await createMcpProxyForSourceGroup({
         appId: data.appId as never,
         agentId,
+        ...routeScope,
         deps,
         ipcDir: context.ipcBaseDir
           ? path.join(context.ipcBaseDir, sourceAgentFolder)
@@ -154,6 +154,7 @@ function mcpListToolsHandler(
       const proxy = await createMcpProxyForSourceGroup({
         appId: data.appId as never,
         agentId,
+        ...routeScope,
         deps,
         ipcDir: context.ipcBaseDir
           ? path.join(context.ipcBaseDir, sourceAgentFolder)
@@ -219,6 +220,7 @@ function mcpDescribeToolHandler(
       const proxy = await createMcpProxyForSourceGroup({
         appId: data.appId as never,
         agentId,
+        ...routeScope,
         deps,
         ipcDir: context.ipcBaseDir
           ? path.join(context.ipcBaseDir, sourceAgentFolder)
@@ -300,6 +302,7 @@ function mcpCallToolHandler(
       const proxy = await createMcpProxyForSourceGroup({
         appId: data.appId as never,
         agentId,
+        ...routeScope,
         deps,
         ipcDir: context.ipcBaseDir
           ? path.join(context.ipcBaseDir, sourceAgentFolder)
@@ -501,6 +504,7 @@ function asyncMcpCallToolHandler(
       const proxy = await createMcpProxyForSourceGroup({
         appId: data.appId as never,
         agentId,
+        ...routeScope,
         deps,
         ipcDir: context.ipcBaseDir
           ? path.join(context.ipcBaseDir, sourceAgentFolder)
@@ -659,7 +663,6 @@ function validateSameChannelMcpTarget(input: {
   }
   return requestedTargetJid;
 }
-
 function resolveMcpRouteScope(
   context: TaskContext,
   targetJid: string,
