@@ -81,7 +81,8 @@ const EXPECTED_ENVELOPE_STATEMENTS_BY_PROVIDER: Record<string, number> = {
 export const STATEMENTS_SAVED_PER_PROVIDER = 9;
 export const LAT_4B_TOP_LEVEL_STATEMENTS_SAVED = 4;
 export const LAT_4B_THREAD_STATEMENTS_SAVED = 13;
-const EXPECTED_THREAD_ENVELOPE_STATEMENTS = 16;
+// LAT-4B's 16 plus ID-1's 3 first-contact sender-identity statements.
+const EXPECTED_THREAD_ENVELOPE_STATEMENTS = 19;
 const EXPECTED_ENSURE_CONVERSATION_CALLS = 1;
 
 const PRIVATE_CONVERSATION_JID = 'tg:400200';
@@ -339,7 +340,7 @@ describe.runIf(hasPostgresIntegrationDatabase)(
       },
     );
 
-    it('persists a first-contact Slack thread envelope in 16 statements', async () => {
+    it('persists a first-contact Slack thread envelope in 19 statements', async () => {
       const conversationJid = 'sl:C400116';
       const providerAccountId = 'slack_lat_4b_first_thread';
       const threadId = '1785283200.000116';
