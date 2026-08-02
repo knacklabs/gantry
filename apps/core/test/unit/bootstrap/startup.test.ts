@@ -400,6 +400,16 @@ describe('runStartup', () => {
       initialRevisionSettings,
     ) as RuntimeSettings;
     fileSettings.agent.name = 'File Agent';
+    const mcpBindingPrecondition = {
+      id: 'agent-mcp-binding:agent:main_agent:mcp:sum',
+      appId: 'default',
+      agentId: 'agent:main_agent',
+      serverId: 'mcp:sum',
+      status: 'active',
+      required: false,
+      permissionPolicyIds: [],
+      allowedToolPatterns: ['get-sum'],
+    };
     const initialRevision = {
       revision: 1,
       settingsDocument: settingsToRevisionDocument(initialRevisionSettings),
@@ -407,6 +417,7 @@ describe('runStartup', () => {
     const latestRevision = {
       revision: 2,
       settingsDocument: settingsToRevisionDocument(revisionSettings),
+      mcpBindingPreconditions: [mcpBindingPrecondition],
     };
     let leaseHeld = false;
     const settingsRevisions = {
@@ -459,7 +470,9 @@ describe('runStartup', () => {
     expect(tryAcquire).toHaveBeenCalledWith('settings-projector:default');
     expect(leaseHeld).toBe(false);
     expect(importWorkstationSettings).toHaveBeenCalledWith(
-      expect.any(Object),
+      expect.objectContaining({
+        expectedMcpBindings: [mcpBindingPrecondition],
+      }),
       expect.objectContaining({
         agent: expect.objectContaining({ name: 'Revision Agent' }),
       }),

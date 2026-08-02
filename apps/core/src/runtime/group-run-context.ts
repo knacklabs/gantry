@@ -138,11 +138,14 @@ export function resolveTurnSelectedSkillContextFromSnapshot(
 
 export function resolveTurnSelectedMcpServerIdsFromSnapshot(
   snapshot: AgentAccessSnapshot | undefined,
+  routeScope?: { conversationId?: string; threadId?: string },
 ): string[] | undefined {
   if (!snapshot) return undefined;
   return authorizedMcpServerIdsFromSnapshot({
     appId: snapshot.appId,
     activeRows: snapshot.mcp.activeBindings,
+    conversationId: routeScope?.conversationId,
+    threadId: routeScope?.threadId,
   });
 }
 

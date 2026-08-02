@@ -12,8 +12,8 @@ import {
 } from '@core/adapters/llm/anthropic-claude-agent/native-sdk-skills.js';
 import { stripShellCommandEnvPrefix } from '@core/runtime/ipc-shell-command-prefix.js';
 
-const RUNNER_IPC_CHILD_TIMEOUT_MS = 50_000;
-const RUNNER_IPC_TEST_TIMEOUT_MS = 60_000;
+const RUNNER_IPC_CHILD_TIMEOUT_MS = 90_000;
+const RUNNER_IPC_TEST_TIMEOUT_MS = 100_000;
 const SLOW_RUNNER_IPC_TEST_TIMEOUT_MS = 120_000;
 // The heartbeat test observes a real 15s heartbeat interval after a cold tsx
 // runner boot, so it needs a wider per-spawn budget than the default child

@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import {
   formatDurableAccessRulesForUser,
+  isPermanentPermissionDecision,
   persistRequestPermissionRules,
   requestPermissionDescription,
   requestPermissionQueuedMessage,
@@ -80,6 +81,23 @@ function depsWith(repository: unknown) {
 }
 
 describe('request permission review helpers', () => {
+  it('rejects a decidedBy-less persistent approval before persistence', () => {
+    expect(
+      isPermanentPermissionDecision({
+        approved: true,
+        mode: 'allow_persistent_rule',
+        decisionClassification: 'user_permanent',
+        updatedPermissions: [
+          {
+            type: 'addRules',
+            behavior: 'allow',
+            rules: [{ toolName: 'capability:acme.records.append' }],
+          },
+        ],
+      }),
+    ).toBe(false);
+  });
+
   it('keeps setup request_permission copy aligned with configured options', () => {
     expect(
       requestPermissionQueuedMessage({

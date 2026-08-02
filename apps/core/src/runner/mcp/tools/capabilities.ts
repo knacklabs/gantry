@@ -47,6 +47,31 @@ const CapabilityTargetSchema = z.object({
     .describe('Reviewed semantic capability id, such as app.resource.action'),
 });
 
+const McpCapabilityTargetSchema = z.object({
+  kind: z.literal('mcp_capability'),
+  serverName: z
+    .string()
+    .min(1)
+    .describe('Connected MCP server name from mcp_list_tools'),
+  tools: z
+    .array(
+      z
+        .string()
+        .regex(
+          /^[A-Za-z0-9_.-]+\*?$/,
+          'MCP tools must be exact names or trailing-star patterns',
+        ),
+    )
+    .min(1)
+    .max(50)
+    .describe('Exact MCP tool names or trailing-star patterns to review'),
+  displayName: z
+    .string()
+    .min(1)
+    .max(200)
+    .describe('Human-readable name for the proposed MCP capability'),
+});
+
 const RunCommandTargetSchema = z.object({
   kind: z.literal('run_command'),
   argvPattern: z
@@ -82,6 +107,7 @@ export function registerAccessRequestTool(
     [
       'Request agent access for review. Use this as the normal path when an action is missing.',
       'target.kind=capability requests an already-reviewed semantic capability by id.',
+      'target.kind=mcp_capability proposes reviewed access to specific tools on an already-connected MCP server; only a human persistent approval creates the capability.',
       'target.kind=tool requests an exact durable Gantry tool rule such as AgentDelegation or mcp__gantry__request_settings_update.',
       'target.kind=run_command requests a scoped temporary exact-command fallback such as "npm test *" when no reviewed capability fits.',
       'Set temporaryOnly=true for one-off transient access; leave it false for durable grants.',
@@ -90,6 +116,7 @@ export function registerAccessRequestTool(
     {
       target: z.discriminatedUnion('kind', [
         CapabilityTargetSchema,
+        McpCapabilityTargetSchema,
         ExactToolTargetSchema,
         RunCommandTargetSchema,
       ]),
@@ -134,6 +161,7 @@ export function registerAccessRequestTool(
                   text: [
                     `No reviewed capability matches id "${target.id}".`,
                     'Use the Agent Access summary in your run context to find a valid capability id. If setup is missing, request source setup through the Gantry access flow.',
+                    'If the action is visible on an attached MCP source but has no reviewed capability id, use target.kind=mcp_capability with its server name and scoped tools.',
                     SOURCE_INVENTORY_AUTHORITY_GUIDANCE,
                   ].join('\n'),
                 },
@@ -180,6 +208,36 @@ export function registerAccessRequestTool(
               temporaryOnly: args.temporaryOnly ?? false,
               broadAccess: args.broadAccess,
               riskClass: args.riskClass,
+              reason: args.reason,
+            },
+          );
+        }
+        case 'mcp_capability': {
+          if (args.temporaryOnly === true) {
+            return {
+              isError: true,
+              content: [
+                {
+                  type: 'text' as const,
+                  text: 'MCP capability proposals always let the human choose Allow once or Allow for future; omit temporaryOnly.',
+                },
+              ],
+            };
+          }
+          return submitCapabilityReviewTask(
+            'request_permission',
+            'MCP capability',
+            {
+              permissionKind: 'tool',
+              capabilityRequestSource: 'request_access',
+              capabilityProposalKind: 'mcp_capability',
+              mcpServerName: target.serverName,
+              mcpToolPatterns: target.tools,
+              capabilityDisplayName: target.displayName,
+              temporaryOnly: false,
+              broadAccess:
+                args.broadAccess ??
+                target.tools.some((pattern) => pattern.endsWith('*')),
               reason: args.reason,
             },
           );

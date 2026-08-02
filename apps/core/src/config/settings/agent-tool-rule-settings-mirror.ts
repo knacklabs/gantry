@@ -1,5 +1,6 @@
 import { GANTRY_HOME } from '../index.js';
 import type { SettingsRevisionRepository } from '../../domain/ports/fleet-capability-state.js';
+import type { McpBindingAuthorityPrecondition } from '../../domain/mcp/mcp-servers.js';
 import type { RuntimeLeasePort } from '../../domain/ports/runtime-lease.js';
 import type { RuntimeConversationRouteRepository } from '../../domain/repositories/ops-repo.js';
 import type { SettingsDesiredStateRepositories } from './desired-state-service.js';
@@ -22,7 +23,12 @@ export function createAgentToolRuleSettingsMirror(input: {
 }): (
   sourceAgentFolder: string,
   rules: string[],
-  options?: { appId?: string; mode?: 'add' | 'remove' },
+  options?: {
+    appId?: string;
+    mode?: 'add' | 'remove';
+    expectedMcpBindings?: McpBindingAuthorityPrecondition[];
+    mcpCapabilityGrantToken?: string;
+  },
 ) => Promise<void> | void {
   return (sourceAgentFolder, rules, options) => {
     if (input.repositories) {
@@ -35,6 +41,8 @@ export function createAgentToolRuleSettingsMirror(input: {
         appId: options?.appId as never,
         reloadRuntimeState: input.reloadRuntimeState,
         settingsRevisions: input.repositories.settingsRevisions,
+        expectedMcpBindings: options?.expectedMcpBindings,
+        mcpCapabilityGrantToken: options?.mcpCapabilityGrantToken,
         leases: input.leases,
       };
       return options?.mode === 'remove'

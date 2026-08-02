@@ -167,7 +167,12 @@ export interface IpcDeps {
   mirrorAgentToolRulesToSettings?: (
     sourceAgentFolder: string,
     rules: string[],
-    options?: { appId?: string; mode?: 'add' | 'remove' },
+    options?: {
+      appId?: string;
+      mode?: 'add' | 'remove';
+      expectedMcpBindings?: import('../domain/mcp/mcp-servers.js').McpBindingAuthorityPrecondition[];
+      mcpCapabilityGrantToken?: string;
+    },
   ) => Promise<void> | void;
   reloadRuntimeState?: () => Promise<void>;
   getCredentialBroker?: () => Promise<AgentCredentialBroker | undefined>;

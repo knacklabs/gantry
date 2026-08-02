@@ -19,6 +19,17 @@ import type { TaskContext } from './ipc-types.js';
 const TASK_IPC_RESPONSE_ID_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/;
 export { toTrimmedString };
 
+export function sanitizedStringList(values: unknown[]): string[] {
+  return [
+    ...new Set(
+      values
+        .slice(0, 50)
+        .map((item) => toTrimmedString(item, { maxLen: 512 }))
+        .filter((item): item is string => Boolean(item)),
+    ),
+  ];
+}
+
 function writeJsonAtomic(filePath: string, value: unknown): void {
   writeFileAtomic(filePath, JSON.stringify(value, null, 2));
 }

@@ -11,15 +11,19 @@ import type {
 import type { EffectiveControlRuntimeSettings } from '../application/control-plane/control-plane-storage-model.js';
 import {
   CURRENT_SETTINGS_READER_VERSION,
-  importWorkstationSettings,
-  settingsFromRevisionDocument,
+  applySettingsRevisionWithMcpFenceRecovery,
 } from '../config/settings/settings-import-service.js';
-import type { SettingsRevisionWakeupSource } from '../config/settings/settings-revision-notify.js';
+import type { SettingsRevisionMirror } from '../config/settings/settings-import-service.js';
 import {
   markSettingsLoaded,
   markSettingsNotLoaded,
 } from './settings-load-state.js';
 import { withSettingsProjectorLease } from '../domain/ports/settings-projector-lease.js';
+
+export interface SettingsRevisionWakeupSource {
+  subscribe(listener: () => void): () => void;
+  close(): Promise<void>;
+}
 
 export interface SettingsRevisionSkewAlert {
   appId: string;
@@ -32,6 +36,7 @@ export interface SettingsRevisionListenerDeps {
   appId: AppId;
   runtimeHome: string;
   settingsRevisions: SettingsRevisionRepository;
+  revisionPool?: SettingsRevisionMirror['pool'];
   leases: RuntimeLeasePort;
   ops: SettingsDesiredStateOps;
   repositories: SettingsDesiredStateRepositories;
@@ -177,8 +182,8 @@ export class SettingsRevisionListener {
           this.holdForSkew(head);
           return { result: 'held', revision: head.revision };
         }
-        await this.applyRevision(head);
-        return { result: 'applied', revision: head.revision };
+        const appliedRevision = await this.applyRevision(head);
+        return { result: 'applied', revision: appliedRevision };
       },
     );
   }
@@ -208,29 +213,32 @@ export class SettingsRevisionListener {
     );
   }
 
-  private async applyRevision(revision: SettingsRevision): Promise<void> {
-    const settings = settingsFromRevisionDocument(revision.settingsDocument);
-    await importWorkstationSettings(
-      {
-        runtimeHome: this.deps.runtimeHome,
-        ops: this.deps.ops,
-        repositories: this.deps.repositories,
-        appId: this.deps.appId,
-        projectionAuthority: 'revision',
-        reloadRuntimeState: this.deps.reloadRuntimeState,
+  private async applyRevision(revision: SettingsRevision): Promise<number> {
+    const applied = await applySettingsRevisionWithMcpFenceRecovery({
+      runtimeHome: this.deps.runtimeHome,
+      ops: this.deps.ops,
+      repositories: this.deps.repositories,
+      appId: this.deps.appId,
+      revision,
+      reloadRuntimeState: this.deps.reloadRuntimeState,
+      revisionMirror: {
+        settingsRevisions: this.deps.settingsRevisions,
+        pool: this.deps.revisionPool,
+        createdBy: 'settings-revision-listener:mcp-fence-recovery',
+        logWarn: this.deps.logWarn,
       },
-      settings,
-    );
+    });
     const previousRevision = this.appliedRevision;
     if (previousRevision === 0) {
-      await this.deps.onFirstRevisionApplied?.(settings);
+      await this.deps.onFirstRevisionApplied?.(applied.settings);
     }
-    this.appliedRevision = revision.revision;
+    this.appliedRevision = applied.revision;
     markSettingsLoaded();
     this.deps.logInfo?.(
-      { appId: revision.appId, revision: revision.revision },
+      { appId: revision.appId, revision: applied.revision },
       'Applied settings revision',
     );
+    return applied.revision;
   }
 
   /** Mark the worker as awaiting its first revision (red /readyz). */

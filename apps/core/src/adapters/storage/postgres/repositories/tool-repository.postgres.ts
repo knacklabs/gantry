@@ -116,6 +116,20 @@ export class PostgresToolCatalogRepository implements ToolCatalogRepository {
       });
   }
 
+  async saveToolIfAbsent(item: ToolCatalogItem): Promise<ToolCatalogItem> {
+    const rows = await this.db
+      .insert(pgSchema.toolCatalogPostgres)
+      .values(toolToRow(item))
+      .onConflictDoNothing({ target: pgSchema.toolCatalogPostgres.id })
+      .returning();
+    if (rows[0]) return this.mapTool(rows[0]);
+    const existing = await this.getTool(item.id);
+    if (!existing) {
+      throw new Error(`Tool catalog row ${item.id} could not be created.`);
+    }
+    return existing;
+  }
+
   async saveAgentToolBinding(binding: AgentToolBinding): Promise<void> {
     await this.db
       .insert(pgSchema.agentToolBindingsPostgres)
