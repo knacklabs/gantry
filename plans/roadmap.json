@@ -389,64 +389,24 @@
       "outcome": "Agent conversations on Slack and Discord now remember, durably in Postgres, what history they have already stored. Once a channel or thread is fully persisted, later turns skip the provider history call (measured 1 to 0 calls, for exactly one extra SQL statement), so replies start faster. The record is trusted only while a live inbound stream is delivering: reconnects, dropped sockets, outbound-only accounts, interaction-only sockets, failed dispatches and account rebinds all invalidate it, and the next turn re-fetches from the provider so nothing said while the agent was away is silently skipped. Telegram is unchanged. Known residual: a brief multi-process stale-trust window, deferred as D-0036."
     },
     {
-      "key": "FILE-1B",
-      "title": "Discord conversation-file parity",
-      "story": "As a Discord user sharing files with the agent, I want the agent to save, recall, and honestly account for my files exactly as it does on Slack, so that trust in shared files does not depend on which chat app I use.",
+      "key": "ID-1",
+      "title": "Identity management phases 2-3: reconcile, harden, land",
+      "story": "As an operator, I can resolve any sender to one app-scoped person across Slack/Telegram/Teams/app (and later OIDC/WhatsApp/email/phone), so the agent knows it is the same human and personal memory stays with the person while conversation memory stays with the room.",
       "acceptance_criteria": [
-        "Live Discord attachments persist file_name + durable fetch identity and bytes via the 0045 writer under the 50 MiB cap",
-        "Backfill re-fetch by (channelId,messageId,attachmentId) with fresh CDN URL; 404/absent-attachment tombstones; auth/network stay unreachable",
-        "MESSAGE_DELETE(_BULK) tombstones tracked attachments; deleted copy served with zero provider calls",
-        "Ephemeral messages and attachments never stored, live or hydrated",
-        "Conversation scoping refusal proven on real Postgres for Discord identities"
+        "PR 217 reconciled with main; its 7 migrations converted to the timestamped scheme with no drizzle drift",
+        "Contact aliases normalised at write time (email lowercase, phone E.164) with a collision-safe backfill",
+        "mergePeople gains a faithful unmerge restoring from person_merge_audit",
+        "verified is system-attested only and unsettable via the People API",
+        "Decision-8 boundary/invariant tests pass with reverted-guard negative controls; agents-as-service-kind invariants pinned"
       ],
       "order": 26,
       "status": "done",
+      "epic": "identity",
       "skill": "backend",
-      "kind": "feature",
-      "spec": "docs/specs/file-1b-discord-file-parity.md",
-      "completed_at": "2026-08-01T19:00:59+00:00",
-      "history": ".factory/history/FILE-1B/",
-      "outcome": "Files shared in Discord now behave like Slack files. The agent saves the bytes the moment a file is posted, remembers the filename and where it came from, and can fetch an old file it never saved the first time someone needs it. When a message is deleted on Discord, its files are honestly reported as deleted and the stored bytes are removed \u2014 durably, so a deletion that races message ingestion, hits a transient database error, or arrives for a not-yet-stored message still lands. Ephemeral content is never stored, downloads only ever come from Discord's CDN with no credentials attached, and every file stays locked to its own conversation. Remaining edges (attachment removal via message edits, marker retention hygiene) are recorded as deferrals with triggers."
-    },
-    {
-      "key": "FILE-2",
-      "title": "Slack deletion registration on the neutral attachment-deletion operation",
-      "story": "As a Slack user, when I delete a message whose files the agent saved, I want the agent to treat those files as deleted \u2014 honestly reported and bytes removed \u2014 the same way it already does on Discord.",
-      "acceptance_criteria": [
-        "Slack message_deleted routes to the neutral deletion callback with the deleted message's ts and the thread-or-jid channel key",
-        "Durability, retries, and ingest-race safety inherited from FILE-1B with no new repository operations or migrations",
-        "Interaction-only and live-turns-off connections never observe deletions (structural gate asserted)",
-        "Telegram documented as having no deletion signal for ordinary bot chats; 0094 matrix rows flipped with citations",
-        "Real-Postgres proof: Slack deletion event tombstones exactly the tracked attachments and the resolver serves the deleted copy with zero provider calls"
-      ],
-      "order": 27,
-      "status": "done",
-      "skill": "backend",
-      "kind": "feature",
-      "spec": "docs/specs/file-2-slack-deletion-registration.md",
-      "completed_at": "2026-08-02T06:06:47+00:00",
-      "history": ".factory/history/FILE-2/",
-      "outcome": "Deleting a Slack message whose files the agent saved now works like Discord: the files are honestly reported as deleted and the stored bytes are removed, durably \u2014 a deletion that races message ingestion or arrives before the message is stored still lands, threads included (Slack threads share the parent channel, so no thread bookkeeping is needed and events without thread metadata are handled). Interaction-only connections never observe deletions. Telegram is honestly documented as having no deletion signal for ordinary bot chats."
-    },
-    {
-      "key": "LAT-4B",
-      "title": "Graph-write reduction on the message hot path",
-      "story": "As anyone chatting with the agent, I want replies to start sooner because message persistence stops re-writing identities the database already knows.",
-      "acceptance_criteria": [
-        "Top-level envelope: exactly 15 statements (from 19), pinned per provider route on real Postgres",
-        "Thread envelope: exactly 16 statements (from 29), the first pinned thread measurement",
-        "First contact fully created by surviving statements (new conversation + new thread in one envelope)",
-        "Thread recency message-timestamped per decision 0096; isGroup survives thread traffic",
-        "Jobs and binding/setup flows unaffected"
-      ],
-      "order": 28,
-      "status": "done",
-      "skill": "backend",
-      "kind": "refactor",
-      "spec": "docs/specs/lat-4b-graph-write-reduction.md",
-      "completed_at": "2026-08-02T07:41:08+00:00",
-      "history": ".factory/history/LAT-4B/",
-      "outcome": "Message persistence stopped re-writing identities the database already knows. A normal message now persists in 15 SQL statements instead of 19, and a thread message in 16 instead of 29 \u2014 the same saving applies to the agent's own replies and to history backfill in threads. Thread activity now orders the chat list by the message's own time, exactly like normal messages (decision 0096), which also means a redelivered old message can no longer jump a conversation to the top, and thread messages no longer corrupt the conversation's group flag. The remaining identity writes need receipt plumbing and are deferred with a measured trigger (D-0041)."
+      "origin": "adhoc",
+      "spec": "docs/specs/person-identity-aliases.md",
+      "completed_at": "2026-08-02T10:24:13+00:00",
+      "outcome": "Merged via PR #373 (supersedes #217, credits Suraj). One canonical person per app with provider-neutral exact-match aliases; personal memory DM-only; audited merge with single-use all-or-nothing unmerge; People API + SDK incl. unmerge; boundaries pinned by revert-proven tests; 22 review rounds, ~50 fixes."
     }
   ],
   "epics": [
@@ -535,5 +495,5 @@
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-08-02T07:41:08+00:00"
+  "updated_at": "2026-08-02T10:37:15+00:00"
 }
