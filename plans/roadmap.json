@@ -427,6 +427,23 @@
       "completed_at": "2026-08-02T06:06:47+00:00",
       "history": ".factory/history/FILE-2/",
       "outcome": "Deleting a Slack message whose files the agent saved now works like Discord: the files are honestly reported as deleted and the stored bytes are removed, durably \u2014 a deletion that races message ingestion or arrives before the message is stored still lands, threads included (Slack threads share the parent channel, so no thread bookkeeping is needed and events without thread metadata are handled). Interaction-only connections never observe deletions. Telegram is honestly documented as having no deletion signal for ordinary bot chats."
+    },
+    {
+      "key": "LAT-4B",
+      "title": "Graph-write reduction on the message hot path",
+      "story": "As anyone chatting with the agent, I want replies to start sooner because message persistence stops re-writing identities the database already knows.",
+      "acceptance_criteria": [
+        "Top-level envelope: exactly 15 statements (from 19), pinned per provider route on real Postgres",
+        "Thread envelope: exactly 16 statements (from 29), the first pinned thread measurement",
+        "First contact fully created by surviving statements (new conversation + new thread in one envelope)",
+        "Thread recency message-timestamped per decision 0096; isGroup survives thread traffic",
+        "Jobs and binding/setup flows unaffected"
+      ],
+      "order": 28,
+      "status": "pending",
+      "skill": "backend",
+      "kind": "refactor",
+      "spec": "docs/specs/lat-4b-graph-write-reduction.md"
     }
   ],
   "epics": [
@@ -515,5 +532,5 @@
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-08-02T06:06:47+00:00"
+  "updated_at": "2026-08-02T06:34:32+00:00"
 }
