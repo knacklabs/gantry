@@ -1056,9 +1056,11 @@ Live provider-channel turns attempt sender identity resolution in both DMs and
 channels/groups when a sender id is present. SDK app-session turns use
 `evidenceType='web_user'` only for explicit `senderId` values; omitted
 `senderId` keeps the internal `sdk` sentinel and skips personal identity
-resolution. SDK sessions are app-channel turns, not DM/private routes: an
-explicit sender supplies identity evidence but does not add that person's
-long-term memory to the app-channel turn.
+resolution. SDK sessions default to app-channel turns, where an explicit
+sender supplies identity evidence but does not add that person's long-term
+memory to the turn. A session ensured with `conversationKind: 'dm'` and a
+bound `appUser` is a direct conversation: the bound person's identity
+resolves on every turn and their personal memory hydrates as in any DM.
 
 ```ts
 client.memory.save({

@@ -456,6 +456,35 @@ export class PostgresCanonicalGraphRepository {
     };
     const existingAlias = await findActiveAlias();
     let participantUserId = existingAlias?.userId;
+    if (participantUserId && input.displayName) {
+      // Provider-side name changes must keep flowing into people views; the
+      // reuse path previously froze both names at first observation.
+      const observedName = input.displayName;
+      const observedAt = currentIso();
+      await executor
+        .update(pgSchema.userAliasesPostgres)
+        .set({ displayName: observedName, updatedAt: observedAt })
+        .where(
+          and(
+            eq(pgSchema.userAliasesPostgres.appId, CANONICAL_APP_ID),
+            eq(pgSchema.userAliasesPostgres.provider, input.providerId),
+            sql`COALESCE(${pgSchema.userAliasesPostgres.providerAccountId}, '') = ${providerAccountId}`,
+            eq(pgSchema.userAliasesPostgres.externalUserId, externalUserId),
+            isNull(pgSchema.userAliasesPostgres.retiredAt),
+            sql`${pgSchema.userAliasesPostgres.displayName} IS DISTINCT FROM ${observedName}`,
+          ),
+        );
+      await executor
+        .update(pgSchema.usersPostgres)
+        .set({ displayName: observedName, updatedAt: observedAt })
+        .where(
+          and(
+            eq(pgSchema.usersPostgres.appId, CANONICAL_APP_ID),
+            eq(pgSchema.usersPostgres.id, participantUserId),
+            sql`${pgSchema.usersPostgres.displayName} IS DISTINCT FROM ${observedName}`,
+          ),
+        );
+    }
     if (!participantUserId) {
       const [retiredAlias] = await executor
         .select({ id: pgSchema.userAliasesPostgres.id })

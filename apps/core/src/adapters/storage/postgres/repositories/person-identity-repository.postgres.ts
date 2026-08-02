@@ -292,6 +292,28 @@ export class PostgresPersonIdentityRepository implements PersonIdentityRepositor
   ): Promise<PersonAliasRecord | null> {
     return this.db.transaction(async (tx) => {
       const timestamp = nowIso();
+      // Serialize with addAlias/ensureParticipant: read the alias key, take
+      // the same advisory alias-key lock they hold, then re-check under the
+      // lock — otherwise a retire can commit mid-add and be silently undone
+      // by the reuse upsert clearing retiredAt.
+      const [target] = await tx
+        .select()
+        .from(pgSchema.userAliasesPostgres)
+        .where(
+          and(
+            eq(pgSchema.userAliasesPostgres.appId, input.appId),
+            eq(pgSchema.userAliasesPostgres.userId, input.personId),
+            eq(pgSchema.userAliasesPostgres.id, input.aliasId),
+          ),
+        )
+        .limit(1);
+      if (!target) return null;
+      await lockPersonAliasKey(tx, {
+        appId: target.appId,
+        provider: target.provider,
+        providerAccountId: target.providerAccountId,
+        externalUserId: target.externalUserId,
+      });
       const [row] = await tx
         .update(pgSchema.userAliasesPostgres)
         .set({
