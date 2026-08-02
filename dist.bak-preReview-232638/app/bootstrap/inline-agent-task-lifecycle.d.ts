@@ -1,0 +1,20 @@
+import { type CoreTaskLifecycleBackend } from '../../application/core-tools/task-lifecycle.js';
+import type { AsyncTaskRepository } from '../../domain/ports/async-tasks.js';
+import type { ConversationRoute } from '../../domain/types.js';
+import type { RuntimeAgentSessionRepository, RuntimeMessageRepository } from '../../domain/repositories/ops-repo.js';
+import type { ExecutionProviderId } from '../../domain/sessions/sessions.js';
+import type { InlineAgentLoopLaneInput } from '../../runtime/agent-inline.js';
+import type { AgentInput, RunAgentOptions } from '../../runtime/agent-spawn-types.js';
+type DelegatedRunRepository = Pick<RuntimeAgentSessionRepository, 'getAgentTurnContext' | 'createSessionAgentRun' | 'completeSessionAgentRun'> & Pick<RuntimeMessageRepository, 'storeMessageWithLiveAdmission'>;
+type DelegatedRunAccess = Pick<AgentInput, 'toolPolicyRules' | 'runtimeAccess' | 'attachedSkillSourceIds' | 'selectedSkillDisplays' | 'attachedMcpSourceIds' | 'semanticCapabilities'>;
+export declare function createInlineAgentTaskLifecycle(input: {
+    laneInput: InlineAgentLoopLaneInput;
+    authorityToolName?: 'AgentDelegation';
+    repository?: AsyncTaskRepository;
+    runRepository?: DelegatedRunRepository;
+    getConversationRoutes(): Record<string, ConversationRoute>;
+    resolveExecutionProviderId(route: Pick<ConversationRoute, 'agentConfig' | 'folder'>, chatJid: string): Promise<ExecutionProviderId>;
+    resolveRunAccess(agentId: string): Promise<DelegatedRunAccess>;
+    buildRunOptions(agentId: string): Promise<RunAgentOptions>;
+}): CoreTaskLifecycleBackend | undefined;
+export {};

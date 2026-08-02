@@ -1,0 +1,22 @@
+import type { IncomingMessage, ServerResponse } from 'node:http';
+import { ApplicationError } from '../../application/common/application-error.js';
+export type ControlRequestLogEntry = {
+    route: string;
+    method: string;
+    statusCode: number;
+    apiKeyId?: string;
+    appId?: string;
+    modelAlias?: string;
+    modelRouteId?: string;
+    requestBodyBytes?: number;
+    responseBodyBytes?: number;
+    clientDisconnected?: boolean;
+};
+export type ControlRequestLogSink = (entry: ControlRequestLogEntry) => Promise<void> | void;
+export declare function configureControlRequestLogSink(sink: ControlRequestLogSink): () => void;
+export declare function recordControlRequestLog(entry: ControlRequestLogEntry): Promise<void>;
+export declare function readRawBody(req: IncomingMessage, maxBytes: number): Promise<Buffer>;
+export declare function readJson(req: IncomingMessage, maxBytes?: number): Promise<unknown>;
+export declare function sendJson(res: ServerResponse, status: number, body: unknown): void;
+export declare function sendError(res: ServerResponse, status: number, code: string, message: string, details?: Record<string, unknown>): void;
+export declare function sendApplicationError(res: ServerResponse, error: unknown, overrides?: Partial<Record<ApplicationError['code'], string>>): boolean;

@@ -1,0 +1,21 @@
+import type { ExecutionProviderId } from '../domain/sessions/sessions.js';
+import type { AgentHarness } from '../shared/agent-engine.js';
+import type { AgentInput, AgentOutput, spawnAgent } from '../runtime/agent-spawn.js';
+import type { RunAgentOptions } from '../runtime/agent-spawn-types.js';
+import type { ConversationRoute } from '../domain/types.js';
+import { type FailoverAdvanceDetails } from '../runtime/failover-candidate-loop.js';
+export declare function runJobAgentWithFailover(input: {
+    group: ConversationRoute;
+    candidates: readonly string[];
+    firstModel: string | undefined;
+    baseInput: Omit<AgentInput, 'model'>;
+    spawn: typeof spawnAgent;
+    onProcess: Parameters<typeof spawnAgent>[2];
+    streamHandler: (output: AgentOutput) => Promise<void>;
+    runOptions: RunAgentOptions;
+    fallbackProviderId: ExecutionProviderId;
+    agentHarness?: AgentHarness;
+    hasStreamedOutput: () => boolean;
+    onFailover: (toProviderId: ExecutionProviderId, details: FailoverAdvanceDetails) => Promise<ExecutionProviderId>;
+    log: (message: string) => void;
+}): Promise<AgentOutput>;

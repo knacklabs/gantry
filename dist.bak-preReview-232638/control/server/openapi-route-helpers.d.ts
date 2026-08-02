@@ -1,0 +1,38 @@
+export type JsonSchema = Record<string, unknown>;
+export type Method = 'delete' | 'get' | 'patch' | 'post' | 'put';
+export type BodyKind = 'json' | 'none' | 'zip';
+export type RouteDoc = {
+    method: Method;
+    path: string;
+    operationId: string;
+    tag: string;
+    summary: string;
+    description: string;
+    scopes?: string[];
+    status?: '200' | '201' | '202' | '409';
+    body?: BodyKind;
+    conflict?: boolean;
+    parameters?: JsonSchema[];
+};
+export declare const errors: Record<string, JsonSchema>;
+export declare const query: (name: string, description: string, schema?: JsonSchema) => JsonSchema;
+export declare const ids: {
+    readonly agent: JsonSchema;
+    readonly capability: JsonSchema;
+    readonly conversation: JsonSchema;
+    readonly file: JsonSchema;
+    readonly ingress: JsonSchema;
+    readonly interaction: JsonSchema;
+    readonly job: JsonSchema;
+    readonly memory: JsonSchema;
+    readonly modelCredentialProvider: JsonSchema;
+    readonly profileFileKind: JsonSchema;
+    readonly providerAccount: JsonSchema;
+    readonly run: JsonSchema;
+    readonly server: JsonSchema;
+    readonly session: JsonSchema;
+    readonly skill: JsonSchema;
+    readonly trigger: JsonSchema;
+    readonly webhook: JsonSchema;
+};
+export declare function doc(method: Method, path: string, operationId: string, tag: string, summary: string, description: string, scopes?: string[], options?: Pick<RouteDoc, 'body' | 'conflict' | 'parameters' | 'status'>): RouteDoc;

@@ -1,0 +1,124 @@
+import { doc, ids, query } from './openapi-route-helpers.js';
+export const coreOpenApiRouteDocs = [
+    doc('get', '/v1/status', 'getStatus', 'System', 'Get unified Gantry status', 'Returns the operator read model used by status surfaces.', ['agents:admin']),
+    doc('get', '/v1/health', 'getHealth', 'System', 'Check control server health', 'Returns runtime transport details and enabled feature flags.', ['sessions:read']),
+    doc('get', '/v1/doctor', 'getDoctor', 'System', 'Run lightweight control diagnostics', 'Reports control-plane readiness checks.', ['sessions:read']),
+    doc('post', '/v1/guided-actions/preview', 'previewGuidedAction', 'System', 'Preview a guided action', 'Returns the action authority preview (effect, approval, settings write, restart) for the supplied action or the current next action.', ['agents:admin'], { body: 'json' }),
+    doc('post', '/v1/guided-actions/execute', 'executeGuidedAction', 'System', 'Execute a guided action', 'Executes the supplied action or the current next action and returns a done, failed, or manual receipt. Base scope is agents:admin; resume_job execution also requires jobs:write.', ['agents:admin'], { body: 'json' }),
+    doc('get', '/v1/models', 'listModels', 'Models', 'List registered model aliases', 'Returns provider-neutral model catalog entries.', ['sessions:read']),
+    doc('get', '/v1/models/defaults', 'getModelDefaults', 'Models', 'Read configured and effective model defaults', 'Returns provider-neutral defaults for chat, jobs, and memory tasks.', ['sessions:read']),
+    doc('patch', '/v1/models/defaults', 'patchModelDefaults', 'Models', 'Update model defaults', 'Applies chat, jobs, and memory reset changes to settings.yaml.', ['agents:admin'], { body: 'json' }),
+    doc('post', '/v1/models/preview', 'previewModelSelection', 'Models', 'Preview model selection', 'Explains what model chat, jobs, or memory will use and why. Chat, jobs, and memory previews require sessions:read; stored job previews require jobs:read.', ['sessions:read', 'jobs:read'], { body: 'json' }),
+    doc('get', '/v1/credentials/models', 'listModelCredentials', 'Models', 'List model credential status', 'Returns redacted readiness for Gantry-managed model provider credentials.', ['credentials:read']),
+    doc('put', '/v1/credentials/models/{providerId}', 'putModelCredential', 'Models', 'Set one model provider credential', 'Fully replaces one provider credential and returns redacted status.', ['credentials:admin'], { body: 'json', parameters: [ids.modelCredentialProvider] }),
+    doc('patch', '/v1/credentials/models/{providerId}', 'patchModelCredential', 'Models', 'Rotate model provider credential fields', 'Partially updates fields for the existing provider credential auth mode and returns redacted status.', ['credentials:admin'], { body: 'json', parameters: [ids.modelCredentialProvider] }),
+    doc('delete', '/v1/credentials/models/{providerId}', 'disableModelCredential', 'Models', 'Disable one model provider credential', 'Disables future use of the provider credential without returning secret material.', ['credentials:admin'], { parameters: [ids.modelCredentialProvider] }),
+    doc('get', '/v1/settings', 'getSettings', 'Settings', 'Read public runtime settings', 'Returns the non-secret settings projection.', ['agents:admin']),
+    doc('patch', '/v1/settings', 'patchSettingsReadOnly', 'Settings', 'Attempt a settings mutation', 'The typed settings API is read-only and returns SETTINGS_READ_ONLY.', ['agents:admin'], { body: 'json', status: '409' }),
+    doc('get', '/v1/agents', 'listAgents', 'Agents', 'List agents', 'Lists user-facing agents in the API key app scope.', ['agents:admin']),
+    doc('post', '/v1/agents', 'createAgent', 'Agents', 'Create an agent', 'Creates an agent and syncs settings desired state.', ['agents:admin'], { body: 'json', status: '201' }),
+    doc('get', '/v1/agents/{agentId}', 'getAgent', 'Agents', 'Get an agent', 'Reads one agent by id.', ['agents:admin'], { parameters: [ids.agent] }),
+    doc('patch', '/v1/agents/{agentId}', 'updateAgent', 'Agents', 'Update an agent', 'Updates agent name or lifecycle status.', ['agents:admin'], { body: 'json', parameters: [ids.agent] }),
+    doc('get', '/v1/agents/{agentId}/delegates', 'getAgentDelegates', 'Agents', 'Get agent delegates', 'Returns configured delegate references and the conversation-bound callable roster.', ['agents:admin'], { parameters: [ids.agent] }),
+    doc('put', '/v1/agents/{agentId}/delegates', 'replaceAgentDelegates', 'Agents', 'Replace agent delegates', 'Replaces configured delegate references through revisioned settings desired state.', ['agents:admin'], { body: 'json', conflict: true, parameters: [ids.agent] }),
+    doc('get', '/v1/agents/{agentId}/admin', 'getAgentAdminSummary', 'Agents', 'Get agent admin summary', 'Returns agent metadata, capabilities, and bound conversations.', ['agents:admin'], { parameters: [ids.agent] }),
+    doc('get', '/v1/inventory', 'getInventory', 'Capabilities', 'List global inventory', 'Returns read-only global onboarded tools, skills, and MCP servers.', ['agents:admin']),
+    doc('get', '/v1/capabilities', 'listCapabilities', 'Capabilities', 'List approved capabilities', 'Returns approved immutable capability manifests.', ['agents:admin']),
+    doc('get', '/v1/capabilities/{capabilityId}', 'getCapability', 'Capabilities', 'Get one approved capability', 'Returns the immutable capability manifest and projection metadata.', ['agents:admin'], { parameters: [ids.capability] }),
+    doc('get', '/v1/agents/{agentId}/access', 'getAgentAccess', 'Access', 'Get agent access', 'Returns attached sources, selected access ids, and the canonical tool access view.', ['agents:admin'], { parameters: [ids.agent] }),
+    doc('put', '/v1/agents/{agentId}/access', 'replaceAgentAccess', 'Access', 'Replace agent access', 'Replaces the full access document (sources and selections) and exports readable settings entries.', ['agents:admin'], { body: 'json', parameters: [ids.agent] }),
+    doc('get', '/v1/agents/{agentId}/profile-files', 'listAgentProfileFiles', 'Agents', 'List agent profile files', 'Returns the agent SOUL.md and AGENTS.md profile files with version, hash, and size.', ['agents:admin'], { parameters: [ids.agent] }),
+    doc('get', '/v1/agents/{agentId}/profile-files/{kind}', 'getAgentProfileFile', 'Agents', 'Read an agent profile file', 'Returns the current content, version, and hash of a profile file (kind = soul | agents).', ['agents:admin'], { parameters: [ids.agent, ids.profileFileKind] }),
+    doc('put', '/v1/agents/{agentId}/profile-files/{kind}', 'setAgentProfileFile', 'Agents', 'Replace an agent profile file', 'Writes a new durable version of a profile file and refreshes its visible mirror. Supply expectedVersion for optimistic concurrency; a stale version returns 409.', ['agents:admin'], { body: 'json', parameters: [ids.agent, ids.profileFileKind] }),
+    doc('post', '/v1/sessions/ensure', 'ensureSession', 'Sessions', 'Ensure an SDK session', 'Creates or reuses an app-scoped durable session.', ['sessions:write'], { body: 'json' }),
+    doc('get', '/v1/sessions/{sessionId}', 'getSession', 'Sessions', 'Get session details', 'Returns app-scoped session metadata.', ['sessions:read'], { parameters: [ids.session] }),
+    doc('get', '/v1/sessions/{sessionId}/messages', 'listSessionMessages', 'Sessions', 'List session messages', 'Lists durable session message history.', ['sessions:read'], {
+        parameters: [
+            ids.session,
+            query('limit', 'Maximum number of messages.', {
+                type: 'integer',
+                minimum: 1,
+                maximum: 200,
+            }),
+        ],
+    }),
+    doc('post', '/v1/sessions/{sessionId}/messages', 'sendSessionMessage', 'Sessions', 'Accept a session message', 'Persists an inbound SDK message and enqueues processing. Optional response_schema and model controls apply to this turn.', ['sessions:write'], { body: 'json', parameters: [ids.session], status: '202' }),
+    doc('get', '/v1/sessions/{sessionId}/events', 'listOrStreamSessionEvents', 'Sessions', 'List or stream session events', 'Returns JSON history or Server-Sent Events.', ['sessions:read'], {
+        parameters: [
+            ids.session,
+            query('afterEventId', 'Event cursor.', {
+                type: 'integer',
+                minimum: 0,
+            }),
+        ],
+    }),
+    doc('get', '/v1/sessions/{sessionId}/wait', 'waitForSessionEvent', 'Sessions', 'Wait for the next visible session event', 'Long-polls for the next visible runtime event.', ['sessions:read'], {
+        parameters: [
+            ids.session,
+            query('afterEventId', 'Event cursor.', {
+                type: 'integer',
+                minimum: 0,
+            }),
+            query('timeoutMs', 'Timeout in milliseconds.', {
+                type: 'integer',
+                minimum: 1000,
+                maximum: 300000,
+            }),
+        ],
+    }),
+    doc('get', '/v1/sessions/{sessionId}/interactions', 'listSessionInteractions', 'Sessions', 'List pending session interactions', 'Lists pending permission and question interactions for the session conversation.', ['sessions:read'], { parameters: [ids.session] }),
+    doc('post', '/v1/sessions/{sessionId}/interactions/{interactionId}/respond', 'respondSessionInteraction', 'Sessions', 'Respond to a pending permission interaction', 'Decides a pending permission interaction (allow_once, allow_future, or deny) through the same durable resolution path channel approvers use. Question interactions are not supported.', ['approvals:write'], {
+        body: 'json',
+        parameters: [ids.session, ids.interaction],
+        conflict: true,
+    }),
+    doc('get', '/v1/sessions/{sessionId}/runs', 'listSessionRuns', 'Sessions', 'List session runs', 'Lists runtime runs associated with a session.', ['sessions:read'], {
+        parameters: [
+            ids.session,
+            query('limit', 'Maximum number of runs.', {
+                type: 'integer',
+                minimum: 1,
+                maximum: 200,
+            }),
+        ],
+    }),
+    doc('get', '/v1/providers', 'listProviders', 'Providers', 'List channel providers', 'Lists provider adapters that can be connected.', ['providers:read']),
+    doc('get', '/v1/provider-accounts', 'listProviderAccounts', 'Providers', 'List provider accounts', 'Lists installed provider accounts.', ['providers:read']),
+    doc('post', '/v1/provider-accounts', 'createProviderAccount', 'Providers', 'Create a provider account', 'Creates a provider account using runtime secret references.', ['providers:admin'], { body: 'json', status: '201' }),
+    doc('get', '/v1/provider-accounts/{providerAccountId}', 'getProviderAccount', 'Providers', 'Get provider account', 'Reads a provider account.', ['providers:read'], { parameters: [ids.providerAccount] }),
+    doc('patch', '/v1/provider-accounts/{providerAccountId}', 'updateProviderAccount', 'Providers', 'Update provider account', 'Updates provider account metadata, status, config, and secret refs.', ['providers:admin'], { body: 'json', parameters: [ids.providerAccount] }),
+    doc('delete', '/v1/provider-accounts/{providerAccountId}', 'disableProviderAccount', 'Providers', 'Disable provider account', 'Disables a provider account and syncs settings.', ['providers:admin'], { body: 'none', parameters: [ids.providerAccount] }),
+    doc('post', '/v1/provider-accounts/{providerAccountId}/discover-conversations', 'discoverProviderConversations', 'Providers', 'Discover provider conversations', 'Discovers provider-side conversations available for install.', ['providers:admin'], { body: 'json', parameters: [ids.providerAccount] }),
+    doc('get', '/v1/conversations', 'listConversations', 'Conversations', 'List conversations', 'Lists normalized conversations.', ['conversations:read'], {
+        parameters: [
+            query('providerAccountId', 'Filter by provider account id.'),
+        ],
+    }),
+    doc('get', '/v1/conversations/{conversationId}', 'getConversation', 'Conversations', 'Get conversation', 'Reads one normalized conversation.', ['conversations:read'], { parameters: [ids.conversation] }),
+    doc('get', '/v1/conversations/{conversationId}/approvers', 'listConversationApprovers', 'Conversations', 'List conversation approvers', 'Returns the control approver allowlist.', ['conversations:read'], { parameters: [ids.conversation] }),
+    doc('put', '/v1/conversations/{conversationId}/approvers', 'replaceConversationApprovers', 'Conversations', 'Replace conversation approvers', 'Replaces the allowlist after membership validation.', ['conversations:admin'], { body: 'json', parameters: [ids.conversation] }),
+    doc('get', '/v1/conversations/{conversationId}/threads', 'listConversationThreads', 'Conversations', 'List conversation threads', 'Lists normalized threads or topics.', ['conversations:read'], { parameters: [ids.conversation] }),
+    doc('get', '/v1/conversations/{conversationId}/messages', 'listConversationMessages', 'Conversations', 'List conversation messages', 'Lists durable messages, optionally scoped to a thread.', ['messages:read'], {
+        parameters: [
+            ids.conversation,
+            query('threadId', 'Thread or topic id.'),
+            query('after', 'Cursor or timestamp.'),
+            query('limit', 'Maximum number of messages.', {
+                type: 'integer',
+                minimum: 1,
+                maximum: 200,
+            }),
+        ],
+    }),
+    doc('get', '/v1/agents/{agentId}/conversation-installs', 'listConversationInstalls', 'Conversations', 'List conversation installs', 'Lists conversations where an agent is installed.', ['conversations:read'], { parameters: [ids.agent] }),
+    doc('put', '/v1/agents/{agentId}/conversation-installs/{conversationId}', 'enableConversationInstall', 'Conversations', 'Enable a conversation install', 'Installs an agent in a conversation and projects the runtime route.', ['agents:admin', 'conversations:admin'], { body: 'json', parameters: [ids.agent, ids.conversation] }),
+    doc('patch', '/v1/agents/{agentId}/conversation-installs/{conversationId}', 'updateConversationInstall', 'Conversations', 'Update a conversation install', 'Updates install metadata, memory, or thread policy.', ['agents:admin', 'conversations:admin'], { body: 'json', parameters: [ids.agent, ids.conversation] }),
+    doc('delete', '/v1/agents/{agentId}/conversation-installs/{conversationId}', 'disableConversationInstall', 'Conversations', 'Disable a conversation install', 'Disables an install and removes the live runtime route.', ['agents:admin', 'conversations:admin'], {
+        body: 'none',
+        parameters: [
+            ids.agent,
+            ids.conversation,
+            query('threadId', 'Optional thread install to disable.'),
+        ],
+    }),
+];

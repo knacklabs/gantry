@@ -1,0 +1,119 @@
+import { validateDurableAccessRule } from '../shared/durable-access-policy.js';
+import { permissionUpdateAllowedToolRules } from '../shared/permission-tool-rules.js';
+export const PERSISTENT_RULE_APPROVAL_MAX_RULES = 5;
+export function persistentPermissionUpdates(request) {
+    const candidates = (request.suggestions || []).filter((update) => (update.type === 'addRules' || update.type === 'replaceRules') &&
+        update.behavior === 'allow' &&
+        Array.isArray(update.rules) &&
+        update.rules.length > 0);
+    if (candidates.length !== 1)
+        return [];
+    const rules = candidates[0].rules ?? [];
+    if (rules.length > PERSISTENT_RULE_APPROVAL_MAX_RULES)
+        return [];
+    return rules.every((rule) => persistentRuleForSuggestion(rule, {
+        semanticCapabilityDefinitions: request.semanticCapabilityDefinitions,
+    }))
+        ? candidates
+        : [];
+}
+export function persistentRules(request) {
+    const [update] = persistentPermissionUpdates(request);
+    return (update?.rules || [])
+        .map((rule) => persistentRuleForSuggestion(rule, {
+        semanticCapabilityDefinitions: request.semanticCapabilityDefinitions,
+    }))
+        .filter((rule) => Boolean(rule));
+}
+export function firstPersistentRule(request) {
+    return persistentRules(request)[0];
+}
+function persistentRuleForSuggestion(rule, options = {}) {
+    if (!rule?.toolName)
+        return undefined;
+    const [persistentRule] = permissionUpdateAllowedToolRules([
+        {
+            type: 'addRules',
+            behavior: 'allow',
+            rules: [rule],
+        },
+    ]);
+    if (!persistentRule)
+        return undefined;
+    return validateDurableAccessRule(persistentRule, {
+        semanticCapabilityDefinitions: options.semanticCapabilityDefinitions,
+    }).ok
+        ? persistentRule
+        : undefined;
+}
+function isPermissionDecisionModeAllowed(request, mode) {
+    if (request.decisionOptions?.length) {
+        return request.decisionOptions.includes(mode);
+    }
+    if (mode === 'allow_persistent_rule') {
+        return Boolean(firstPersistentRule(request));
+    }
+    return mode === 'allow_once';
+}
+export function decisionForMode(request, mode, decidedBy) {
+    if (mode === 'cancel') {
+        return {
+            approved: false,
+            mode,
+            decidedBy,
+            reason: 'canceled',
+            decisionClassification: 'user_reject',
+        };
+    }
+    if (!isPermissionDecisionModeAllowed(request, mode)) {
+        return {
+            approved: false,
+            mode: 'cancel',
+            decidedBy,
+            reason: 'approval option unavailable',
+            decisionClassification: 'user_reject',
+        };
+    }
+    if (mode === 'allow_persistent_rule') {
+        const updates = persistentPermissionUpdates(request).map((update) => ({
+            ...update,
+            destination: 'session',
+        }));
+        if (updates.length === 0) {
+            // Learned-root ask-once (PERM-2 Task G): "remember this folder" carries no
+            // tool-rule suggestion, so approve it directly instead of collapsing to
+            // cancel. The coordinator turns this approval into the persisted grant.
+            if (request.trustedRootLearn) {
+                return {
+                    approved: true,
+                    mode,
+                    decidedBy,
+                    reason: 'trusted root remembered',
+                    decisionClassification: 'user_permanent',
+                };
+            }
+            return {
+                approved: false,
+                mode: 'cancel',
+                decidedBy,
+                reason: 'persistent rule unavailable',
+                decisionClassification: 'user_reject',
+            };
+        }
+        return {
+            approved: true,
+            mode,
+            decidedBy,
+            reason: 'persistent rule allowed',
+            updatedPermissions: updates,
+            decisionClassification: 'user_permanent',
+        };
+    }
+    return {
+        approved: true,
+        mode,
+        decidedBy,
+        reason: 'allowed once',
+        decisionClassification: 'user_temporary',
+    };
+}

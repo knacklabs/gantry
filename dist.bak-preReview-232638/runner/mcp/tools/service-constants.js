@@ -1,0 +1,3 @@
+export const SKILL_APPROVAL_WAIT_MS = 5 * 60 * 1000;
+export const SAME_SESSION_SKILL_CONTEXT_MAX_BYTES = 256 * 1024;
+export const MCP_PROXY_WAIT_MS = 60 * 1000;

@@ -1,0 +1,448 @@
+import { normalizeAccessRequirementsInput } from '../application/jobs/job-access-requirements.js';
+import { resolveModelSelectionForWorkload } from '../shared/model-catalog.js';
+import { isPlainObject, toTrimmedString } from '../shared/object.js';
+import { validateIpcAuthRequest } from './ipc-auth-validation.js';
+function toOptionalStringArray(value, maxItems = 100, maxLen = 255) {
+    if (!Array.isArray(value))
+        return undefined;
+    if (value.length > maxItems)
+        return undefined;
+    const out = [];
+    for (const entry of value) {
+        const parsed = toTrimmedString(entry, { maxLen });
+        if (!parsed)
+            return undefined;
+        out.push(parsed);
+    }
+    return out;
+}
+function toOptionalBoolean(value) {
+    return typeof value === 'boolean' ? value : undefined;
+}
+function toOptionalNumber(value, opts = {}) {
+    if (typeof value !== 'number' || !Number.isFinite(value))
+        return undefined;
+    if (opts.min !== undefined && value < opts.min)
+        return undefined;
+    if (opts.max !== undefined && value > opts.max)
+        return undefined;
+    return value;
+}
+function toScheduleType(value) {
+    const parsed = toTrimmedString(value, { maxLen: 32 });
+    if (parsed === 'cron' || parsed === 'interval' || parsed === 'once') {
+        return parsed;
+    }
+    return undefined;
+}
+const DISALLOWED_TASK_FIELDS = [
+    'task_id',
+    'job_id',
+    'model',
+    'model_alias',
+    'model_profile_id',
+    'schedule_type',
+    'schedule_value',
+    'context_mode',
+    'deliver_to',
+    'linked_sessions',
+    'workspace_key',
+    'thread_id',
+    'session_id',
+    'run_at',
+    'created_by',
+    'cleanup_after_ms',
+    'timeout_ms',
+    'max_retries',
+    'retry_backoff_ms',
+    'max_consecutive_failures',
+    'required_tools',
+    'tool_access_requirements',
+    'required_mcp_servers',
+    'execution_mode',
+    'executionMode',
+    'serialize',
+    'run_id',
+    'event_type',
+    'workspace_folder',
+    'chat_jid',
+    'target_jid',
+    'since_id',
+];
+const UNSUPPORTED_SCHEDULER_JOB_TASK_FIELDS = [
+    'script',
+    'linked_sessions',
+    'linkedSessions',
+    'deliver_to',
+    'deliverTo',
+    'notificationTarget',
+    'thread_id',
+    'sessionId',
+    'workspaceKey',
+    'capability_requirements',
+    'modelProfileId',
+    'allowedTools',
+    'requiredTools',
+    'executionMode',
+    'serialize',
+];
+function isSchedulerJobMutationTask(type) {
+    return type === 'scheduler_upsert_job' || type === 'scheduler_update_job';
+}
+function findDisallowedTaskFields(raw) {
+    const found = [];
+    for (const key of DISALLOWED_TASK_FIELDS) {
+        if (Object.prototype.hasOwnProperty.call(raw, key)) {
+            found.push(key);
+        }
+    }
+    return found;
+}
+function findUnsupportedSchedulerJobTaskFields(raw, type) {
+    if (!isSchedulerJobMutationTask(type))
+        return [];
+    const found = [];
+    for (const key of UNSUPPORTED_SCHEDULER_JOB_TASK_FIELDS) {
+        if (Object.prototype.hasOwnProperty.call(raw, key)) {
+            found.push(key);
+        }
+    }
+    if (Object.prototype.hasOwnProperty.call(raw, 'threadId')) {
+        found.push('threadId');
+    }
+    return found;
+}
+function assertNoRemovedExecutionScopeFields(value) {
+    if (!isPlainObject(value))
+        return;
+    if (Object.prototype.hasOwnProperty.call(value, 'groupScope')) {
+        throw new Error('groupScope is no longer accepted. Use workspaceKey.');
+    }
+    if (Object.prototype.hasOwnProperty.call(value, 'group_scope')) {
+        throw new Error('group_scope is no longer accepted. Use workspace_key.');
+    }
+}
+function assertNoDisallowedTaskFields(raw) {
+    assertNoRemovedExecutionScopeFields(raw);
+    assertNoRemovedExecutionScopeFields(raw.executionContext);
+    assertNoRemovedExecutionScopeFields(raw.execution_context);
+    const fields = findDisallowedTaskFields(raw);
+    if (fields.length === 0)
+        return;
+    if (fields.includes('required_tools')) {
+        throw new Error('Unsupported IPC task field: required_tools. Use camelCase toolAccessRequirements.');
+    }
+    if (fields.includes('tool_access_requirements')) {
+        throw new Error('Unsupported IPC task field: tool_access_requirements. Use camelCase accessRequirements.');
+    }
+    throw new Error(`Unsupported IPC task fields: ${fields.join(', ')}. IPC tasks accept camelCase fields only.`);
+}
+function assertNoUnsupportedSchedulerJobTaskFields(raw, type) {
+    const fields = findUnsupportedSchedulerJobTaskFields(raw, type);
+    if (fields.length === 0)
+        return;
+    if (fields.includes('requiredTools') || fields.includes('required_tools')) {
+        throw new Error('Unsupported scheduler job field: requiredTools. Use accessRequirements for access preflight checks.');
+    }
+    throw new Error(`Unsupported scheduler job fields: ${fields.join(', ')}. Use executionContext and notificationRoutes.`);
+}
+function toOptionalExecutionContext(value) {
+    if (value === undefined)
+        return undefined;
+    if (!isPlainObject(value)) {
+        throw new Error('executionContext must be an object');
+    }
+    const conversationJid = toTrimmedString(value.conversationJid, {
+        maxLen: 255,
+    });
+    const workspaceKey = toTrimmedString(value.workspaceKey, { maxLen: 128 });
+    const hasThreadId = Object.prototype.hasOwnProperty.call(value, 'threadId');
+    const threadIdRaw = value.threadId;
+    const threadId = threadIdRaw === null ? null : toTrimmedString(threadIdRaw, { maxLen: 255 });
+    const hasSessionId = Object.prototype.hasOwnProperty.call(value, 'sessionId');
+    const sessionIdRaw = value.sessionId;
+    const sessionId = sessionIdRaw === null
+        ? null
+        : toTrimmedString(sessionIdRaw, { maxLen: 255 });
+    if (!conversationJid || !workspaceKey || !hasThreadId) {
+        throw new Error('executionContext requires conversationJid, workspaceKey, and threadId.');
+    }
+    if (threadIdRaw !== null && !threadId) {
+        throw new Error('executionContext.threadId must be a string or null.');
+    }
+    if (hasSessionId && sessionIdRaw !== null && !sessionId) {
+        throw new Error('executionContext.sessionId must be a string or null.');
+    }
+    const normalizedThreadId = threadIdRaw === null ? null : threadId;
+    const normalizedSessionId = sessionIdRaw === null ? null : sessionId;
+    return {
+        conversationJid,
+        workspaceKey,
+        threadId: normalizedThreadId,
+        ...(hasSessionId ? { sessionId: normalizedSessionId } : {}),
+    };
+}
+function toOptionalNotificationRoutes(value) {
+    if (value === undefined)
+        return undefined;
+    if (!Array.isArray(value)) {
+        throw new Error('notificationRoutes must be an array');
+    }
+    const routes = [];
+    for (const entry of value) {
+        if (!isPlainObject(entry)) {
+            throw new Error('notificationRoutes entries must be objects');
+        }
+        const conversationJid = toTrimmedString(entry.conversationJid, {
+            maxLen: 255,
+        });
+        const hasThreadId = Object.prototype.hasOwnProperty.call(entry, 'threadId');
+        const threadId = entry.threadId === null
+            ? null
+            : toTrimmedString(entry.threadId, { maxLen: 255 });
+        const hasProviderAccountId = Object.prototype.hasOwnProperty.call(entry, 'providerAccountId');
+        const providerAccountId = entry.providerAccountId === null
+            ? null
+            : toTrimmedString(entry.providerAccountId, { maxLen: 255 });
+        const label = toTrimmedString(entry.label, { maxLen: 80 });
+        if (!conversationJid || !label || !hasThreadId) {
+            throw new Error('notificationRoutes entries require conversationJid, threadId, and label.');
+        }
+        if (entry.threadId !== null && !threadId) {
+            throw new Error('notificationRoutes entries threadId must be a string or null.');
+        }
+        if (hasProviderAccountId &&
+            entry.providerAccountId !== null &&
+            !providerAccountId) {
+            throw new Error('notificationRoutes entries providerAccountId must be a string or null.');
+        }
+        const normalizedThreadId = entry.threadId === null ? null : threadId;
+        const normalizedProviderAccountId = entry.providerAccountId === null ? null : providerAccountId;
+        routes.push({
+            conversationJid,
+            threadId: normalizedThreadId,
+            ...(hasProviderAccountId
+                ? { providerAccountId: normalizedProviderAccountId }
+                : {}),
+            label,
+        });
+    }
+    return routes;
+}
+function parseAgentConfigPayload(value) {
+    if (value === undefined)
+        return undefined;
+    if (!isPlainObject(value))
+        return undefined;
+    const model = toTrimmedString(value.model, { maxLen: 120 });
+    const timeout = toOptionalNumber(value.timeout, {
+        min: 1000,
+        max: 3_600_000,
+    });
+    const parsed = {};
+    if (model) {
+        const resolvedModel = resolveModelSelectionForWorkload(model, 'chat');
+        if (!resolvedModel.ok) {
+            throw new Error(`Invalid agentConfig.model: ${resolvedModel.message}`);
+        }
+        parsed.model = resolvedModel.alias;
+    }
+    if (timeout !== undefined)
+        parsed.timeout = Math.round(timeout);
+    return Object.keys(parsed).length > 0 ? parsed : undefined;
+}
+export function parseTaskIpcData(raw, sourceAgentFolder) {
+    if (!isPlainObject(raw))
+        throw new Error('Invalid IPC task payload');
+    assertNoDisallowedTaskFields(raw);
+    const threadBinding = validateIpcAuthRequest(raw, sourceAgentFolder, 'IPC task');
+    if (!threadBinding.responseKeyId) {
+        throw new Error('IPC task responseKeyId is required');
+    }
+    const type = toTrimmedString(raw.type, { maxLen: 80 });
+    if (!type)
+        throw new Error('IPC task type is required');
+    assertNoUnsupportedSchedulerJobTaskFields(raw, type);
+    const parsed = { type };
+    const taskId = toTrimmedString(raw.taskId, { maxLen: 128 });
+    const runHandle = toTrimmedString(raw.runHandle, { maxLen: 128 });
+    const prompt = toTrimmedString(raw.prompt, { maxLen: 20000 });
+    const hasModelAlias = Object.prototype.hasOwnProperty.call(raw, 'modelAlias');
+    const modelAlias = hasModelAlias && raw.modelAlias === null
+        ? null
+        : toTrimmedString(raw.modelAlias, { maxLen: 120 });
+    const scheduleType = toScheduleType(raw.scheduleType);
+    const scheduleValue = toTrimmedString(raw.scheduleValue, {
+        maxLen: 1024,
+        allowEmpty: true,
+    });
+    const contextMode = toTrimmedString(raw.contextMode, { maxLen: 64 });
+    const jobId = toTrimmedString(raw.jobId, { maxLen: 128 });
+    const executionContext = toOptionalExecutionContext(raw.executionContext);
+    const notificationRoutes = toOptionalNotificationRoutes(raw.notificationRoutes);
+    const accessRequirements = normalizeAccessRequirementsInput(raw.accessRequirements);
+    const workspaceKey = toTrimmedString(raw.workspaceKey, { maxLen: 128 });
+    const silent = toOptionalBoolean(raw.silent);
+    const confirm = toOptionalBoolean(raw.confirm);
+    const confirmationToken = toTrimmedString(raw.confirmationToken, {
+        maxLen: 512,
+    });
+    const createdByRaw = toTrimmedString(raw.createdBy, { maxLen: 16 });
+    const statuses = toOptionalStringArray(raw.statuses, 50, 64);
+    const runId = toTrimmedString(raw.runId, { maxLen: 128 });
+    const parentTaskId = toTrimmedString(raw.parentTaskId, { maxLen: 160 });
+    const liveStopActionToken = toTrimmedString(raw.liveStopActionToken, {
+        maxLen: 128,
+    });
+    const eventType = toTrimmedString(raw.eventType, { maxLen: 128 });
+    const since = toTrimmedString(raw.since, { maxLen: 128 });
+    const workspaceFolder = toTrimmedString(raw.workspaceFolder, { maxLen: 128 });
+    const chatJid = toTrimmedString(raw.chatJid, { maxLen: 255 });
+    const targetJid = toTrimmedString(raw.targetJid, { maxLen: 255 });
+    const providerAccountId = toTrimmedString(raw.providerAccountId, {
+        maxLen: 255,
+    });
+    const memoryUserId = toTrimmedString(raw.memoryUserId, { maxLen: 255 });
+    const jid = toTrimmedString(raw.jid, { maxLen: 255 });
+    const name = toTrimmedString(raw.name, { maxLen: 255 });
+    const folder = toTrimmedString(raw.folder, { maxLen: 128 });
+    const trigger = toTrimmedString(raw.trigger, { maxLen: 255 });
+    const requiresTrigger = toOptionalBoolean(raw.requiresTrigger);
+    const agentConfig = parseAgentConfigPayload(raw.agentConfig);
+    const payload = isPlainObject(raw.payload) ? raw.payload : undefined;
+    const numericFields = {
+        timeoutMs: toOptionalNumber(raw.timeoutMs, { min: 1000, max: 3_600_000 }),
+        cleanupAfterMs: toOptionalNumber(raw.cleanupAfterMs, {
+            min: 0,
+            max: 31_536_000_000,
+        }),
+        maxRetries: toOptionalNumber(raw.maxRetries, { min: 0, max: 100 }),
+        retryBackoffMs: toOptionalNumber(raw.retryBackoffMs, {
+            min: 0,
+            max: 86_400_000,
+        }),
+        maxConsecutiveFailures: toOptionalNumber(raw.maxConsecutiveFailures, {
+            min: 1,
+            max: 1000,
+        }),
+        sinceId: toOptionalNumber(raw.sinceId, {
+            min: 0,
+            max: Number.MAX_SAFE_INTEGER,
+        }),
+        limit: toOptionalNumber(raw.limit, { min: 1, max: 1000 }),
+    };
+    if (taskId)
+        parsed.taskId = taskId;
+    if (runHandle)
+        parsed.runHandle = runHandle;
+    if (prompt !== undefined)
+        parsed.prompt = prompt;
+    if (hasModelAlias && modelAlias !== undefined)
+        parsed.modelAlias = modelAlias;
+    if (scheduleType !== undefined)
+        parsed.scheduleType = scheduleType;
+    if (scheduleValue !== undefined)
+        parsed.scheduleValue = scheduleValue;
+    if (contextMode)
+        parsed.contextMode = contextMode;
+    if (jobId)
+        parsed.jobId = jobId;
+    if (executionContext !== undefined) {
+        parsed.executionContext = executionContext;
+    }
+    if (notificationRoutes !== undefined) {
+        parsed.notificationRoutes = notificationRoutes;
+    }
+    if (accessRequirements !== undefined)
+        parsed.accessRequirements = accessRequirements;
+    if (workspaceKey)
+        parsed.workspaceKey = workspaceKey;
+    if (threadBinding.authThreadId) {
+        parsed.authThreadId = threadBinding.authThreadId;
+    }
+    if (threadBinding.appId) {
+        parsed.appId = threadBinding.appId;
+    }
+    if (threadBinding.agentId) {
+        parsed.agentId = threadBinding.agentId;
+    }
+    if (threadBinding.providerAccountId) {
+        parsed.providerAccountId = threadBinding.providerAccountId;
+    }
+    if (threadBinding.responseKeyId) {
+        parsed.responseKeyId = threadBinding.responseKeyId;
+    }
+    if (threadBinding.payloadThreadId !== undefined) {
+        parsed.threadId = threadBinding.payloadThreadId;
+    }
+    if (silent !== undefined)
+        parsed.silent = silent;
+    if (confirm !== undefined)
+        parsed.confirm = confirm;
+    if (confirmationToken)
+        parsed.confirmationToken = confirmationToken;
+    if (createdByRaw === 'agent' || createdByRaw === 'human') {
+        parsed.createdBy = createdByRaw;
+    }
+    if (statuses !== undefined)
+        parsed.statuses = statuses;
+    if (runId)
+        parsed.runId = runId;
+    if (parentTaskId)
+        parsed.parentTaskId = parentTaskId;
+    if (liveStopActionToken)
+        parsed.liveStopActionToken = liveStopActionToken;
+    const runLeaseToken = toTrimmedString(raw.runLeaseToken, { maxLen: 255 });
+    if (runLeaseToken)
+        parsed.runLeaseToken = runLeaseToken;
+    const runLeaseFencingVersion = toOptionalNumber(raw.runLeaseFencingVersion, {
+        min: 0,
+        max: Number.MAX_SAFE_INTEGER,
+    });
+    if (runLeaseFencingVersion !== undefined) {
+        parsed.runLeaseFencingVersion = Math.round(runLeaseFencingVersion);
+    }
+    if (eventType)
+        parsed.eventType = eventType;
+    if (since)
+        parsed.since = since;
+    if (workspaceFolder)
+        parsed.workspaceFolder = workspaceFolder;
+    if (chatJid)
+        parsed.chatJid = chatJid;
+    if (targetJid)
+        parsed.targetJid = targetJid;
+    if (providerAccountId)
+        parsed.providerAccountId = providerAccountId;
+    if (memoryUserId)
+        parsed.memoryUserId = memoryUserId;
+    if (jid)
+        parsed.jid = jid;
+    if (name)
+        parsed.name = name;
+    if (folder)
+        parsed.folder = folder;
+    if (trigger)
+        parsed.trigger = trigger;
+    if (requiresTrigger !== undefined)
+        parsed.requiresTrigger = requiresTrigger;
+    if (agentConfig !== undefined)
+        parsed.agentConfig = agentConfig;
+    if (payload !== undefined)
+        parsed.payload = payload;
+    if (numericFields.timeoutMs !== undefined)
+        parsed.timeoutMs = Math.round(numericFields.timeoutMs);
+    if (numericFields.cleanupAfterMs !== undefined)
+        parsed.cleanupAfterMs = Math.round(numericFields.cleanupAfterMs);
+    if (numericFields.maxRetries !== undefined)
+        parsed.maxRetries = Math.round(numericFields.maxRetries);
+    if (numericFields.retryBackoffMs !== undefined)
+        parsed.retryBackoffMs = Math.round(numericFields.retryBackoffMs);
+    if (numericFields.maxConsecutiveFailures !== undefined)
+        parsed.maxConsecutiveFailures = Math.round(numericFields.maxConsecutiveFailures);
+    if (numericFields.sinceId !== undefined)
+        parsed.sinceId = Math.round(numericFields.sinceId);
+    if (numericFields.limit !== undefined)
+        parsed.limit = Math.round(numericFields.limit);
+    return parsed;
+}

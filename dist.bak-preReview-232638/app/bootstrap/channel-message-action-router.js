@@ -1,0 +1,24 @@
+function isLiveStopActionTokenValid(input) {
+    if (input.kind !== 'live_turn_stop')
+        return true;
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(input.actionToken ?? '');
+}
+function isMessageActionValid(input) {
+    if (input.kind === 'scheduler_run_now')
+        return input.jobId.trim().length > 0;
+    return isLiveStopActionTokenValid(input);
+}
+export function createChannelMessageActionRouter() {
+    let handler;
+    return {
+        handle: async (input) => {
+            if (!isMessageActionValid(input))
+                return;
+            await handler?.(input);
+        },
+        trackProgress: () => { },
+        set: (next) => {
+            handler = next;
+        },
+    };
+}

@@ -411,7 +411,7 @@
       "outcome": "Merged via PR #373 (supersedes #217, credits Suraj). One canonical person per app with provider-neutral exact-match aliases; personal memory DM-only; audited merge with single-use all-or-nothing unmerge; People API + SDK incl. unmerge; boundaries pinned by revert-proven tests; 22 review rounds, ~50 fixes."
     },
     {
-      "status": "pending",
+      "status": "done",
       "key": "SEC-2",
       "title": "Inbound attachments: one atomic O_NOFOLLOW writer for Telegram + Slack",
       "epic": "runtime-hardening-audit",
@@ -426,7 +426,9 @@
       "source_refs": [
         "docs/architecture/runtime-hardening-audit-2026-07-22.md"
       ],
-      "order": 27
+      "order": 27,
+      "completed_at": "2026-07-24T00:00:00+00:00",
+      "outcome": "Superseded: SEC-1 (PR #280) shipped shared/inbound-attachment-writer.ts \u2014 O_CREAT|O_EXCL|O_NOFOLLOW(_ANY) open, atomic rename finalize, size caps, sanitized storage refs \u2014 wired into Telegram, Slack, AND the Discord materialization path the Jul-23 lane implementation never covered. Verified by content 2026-08-03; the parallel worktree implementation was discarded."
     },
     {
       "status": "done",
@@ -687,5 +689,5 @@
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-08-02T11:03:02+00:00"
+  "updated_at": "2026-08-02T21:04:14+00:00"
 }
