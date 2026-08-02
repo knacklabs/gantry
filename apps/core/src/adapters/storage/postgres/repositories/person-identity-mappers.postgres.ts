@@ -199,10 +199,14 @@ export async function rekeyPersonalMemory(
     };
   }
   const movedMemoryIds = rows.map((row) => row.id);
+  // Record the POST-merge timestamp: the rekey below stamps every moved row
+  // with input.timestamp, and that is the value an untouched row still carries
+  // at unmerge time. Recording the pre-merge value would make every unmerge
+  // read as an edit and refuse.
   const movedMemoryRows = rows.map((row) => ({
     id: row.id,
     subjectId: row.subjectId ?? '',
-    updatedAt: row.updatedAt,
+    updatedAt: input.timestamp,
   }));
   const conflictSourceIds = new Set(input.conflictSourceIds);
   const supersededMemoryRows = rows
@@ -279,8 +283,16 @@ export async function restorePersonalMemory(
   const recordedUpdatedAt = new Map(
     input.movedMemoryRows.map((row) => [row.id, row.updatedAt]),
   );
+  // Compare as instants: the audit stores the ISO input timestamp while
+  // Postgres renders the same moment in its own text format.
   const editedIds = rows
-    .filter((row) => recordedUpdatedAt.get(row.id) !== row.updatedAt)
+    .filter((row) => {
+      const recorded = recordedUpdatedAt.get(row.id);
+      return (
+        recorded === undefined ||
+        new Date(recorded).getTime() !== new Date(row.updatedAt).getTime()
+      );
+    })
     .map((row) => row.id);
   if (editedIds.length > 0) {
     throw new ApplicationError(
@@ -290,8 +302,12 @@ export async function restorePersonalMemory(
   }
   // Restore each row's RECORDED pre-merge subject id: recomputing from the
   // source person would silently canonicalize any noncanonical original.
-  const restoredIds = input.movedMemoryRows.map((row) => row.id);
-  const restoredSubjects = input.movedMemoryRows.map((row) => row.subjectId);
+  const restoredPairs = JSON.stringify(
+    input.movedMemoryRows.map((row) => ({
+      id: row.id,
+      subjectId: row.subjectId,
+    })),
+  );
   await executor.execute(sql`
     UPDATE ${memory} AS m
     SET subject_id = v.subject_id,
@@ -299,8 +315,8 @@ export async function restorePersonalMemory(
         source_ref_json = (CASE WHEN jsonb_typeof(m.source_ref_json) = 'object' THEN m.source_ref_json ELSE '{}'::jsonb END) || jsonb_build_object('subject', (CASE WHEN jsonb_typeof(m.source_ref_json->'subject') = 'object' THEN m.source_ref_json->'subject' ELSE '{}'::jsonb END) || jsonb_build_object('subjectType', 'user', 'subjectId', ${input.sourcePersonId}::text, 'userId', ${input.sourcePersonId}::text)),
         updated_at = ${input.timestamp}
     FROM (
-      SELECT unnest(${restoredIds}::text[]) AS id,
-             unnest(${restoredSubjects}::text[]) AS subject_id
+      SELECT pair->>'id' AS id, pair->>'subjectId' AS subject_id
+      FROM jsonb_array_elements(${restoredPairs}::jsonb) AS pair
     ) v
     WHERE m.id = v.id AND m.app_id = ${input.appId}
   `);

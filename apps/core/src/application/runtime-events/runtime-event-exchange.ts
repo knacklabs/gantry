@@ -120,6 +120,10 @@ export class RuntimeEventExchange {
 function normalizeRuntimeEventPublishInput(
   input: RuntimeEventPublishInput,
 ): RuntimeEventPublishInput {
+  // Only real FK ids ride the indexed columns; live route identifiers move
+  // into the payload. The previous normalize() merely prefixed a raw jid with
+  // 'conversation:', fabricating ids that reference no conversations row —
+  // a review asking to restore it was rejected for exactly that reason.
   const routeConversationId = input.conversationId?.trim();
   const routeThreadId = input.threadId?.trim();
   const conversationId = isRuntimeEventConversationFkId(routeConversationId)

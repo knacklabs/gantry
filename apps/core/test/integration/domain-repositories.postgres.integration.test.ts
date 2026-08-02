@@ -1,5 +1,7 @@
 import { createHash } from 'node:crypto';
 
+import { eq } from 'drizzle-orm';
+
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import {
@@ -713,6 +715,101 @@ maybeDescribe('Postgres domain repositories', () => {
       [appId, aliasInput.provider, aliasInput.externalUserId],
     );
     expect(activeOwners.rows).toEqual([{ user_id: winner.value.personId }]);
+  });
+
+  it('unmerges a real merge, restoring aliases, memory, and participants', async () => {
+    const [target, source] = await Promise.all([
+      people.resolveIdentity({
+        appId,
+        provider: 'app',
+        externalUserId: 'roundtrip-target',
+        displayName: 'Roundtrip Target',
+        evidenceType: 'web_user',
+        createIfMissing: true,
+      }),
+      people.resolveIdentity({
+        appId,
+        provider: 'app',
+        externalUserId: 'roundtrip-source',
+        displayName: 'Roundtrip Source',
+        evidenceType: 'web_user',
+        createIfMissing: true,
+      }),
+    ]);
+    await service.db.insert(pgSchema.memoryItemsPostgres).values([
+      {
+        id: 'memory:roundtrip:source',
+        appId,
+        agentId,
+        subjectType: 'user',
+        subjectId: 'msu_roundtrip_source_subject',
+        userId: source.personId,
+        kind: 'fact',
+        key: 'roundtrip-key',
+        valueJson: { value: 'source' },
+        confidence: 1,
+        sourceRefJson: { source: 'test' },
+        status: 'active',
+        lastObservedAt: '2026-01-01T00:00:00.000Z',
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+      },
+    ]);
+
+    const preview = await people.previewMerge({
+      appId,
+      targetPersonId: target.personId!,
+      sourcePersonId: source.personId!,
+      actor: 'admin:test',
+    });
+    const merged = await people.mergePeople({
+      appId,
+      targetPersonId: target.personId!,
+      sourcePersonId: source.personId!,
+      actor: 'admin:test',
+      conflictResolution: 'fail_on_conflict',
+      expectedFingerprint: preview.fingerprint!,
+    });
+    expect(merged.applied).toBe(true);
+
+    const unmerged = await people.unmergePerson({
+      appId,
+      targetPersonId: target.personId!,
+      auditId: merged.auditId,
+      expectedFingerprint: preview.fingerprint!,
+      actor: 'admin:test',
+    });
+    expect(unmerged.sourcePersonId).toBe(source.personId);
+    expect(unmerged.memoryRowsRestored).toBe(1);
+    expect(unmerged.restoredPerson.status).toBe('active');
+    expect(unmerged.aliasesRestored.map((alias) => alias.personId)).toEqual([
+      source.personId,
+    ]);
+
+    const [restoredMemory] = await service.db
+      .select({
+        userId: pgSchema.memoryItemsPostgres.userId,
+        subjectId: pgSchema.memoryItemsPostgres.subjectId,
+      })
+      .from(pgSchema.memoryItemsPostgres)
+      .where(eq(pgSchema.memoryItemsPostgres.id, 'memory:roundtrip:source'));
+    expect(restoredMemory).toMatchObject({
+      userId: source.personId,
+      subjectId: 'msu_roundtrip_source_subject',
+    });
+
+    // Replaying the unmerge must refuse: the audit is single-use.
+    await expect(
+      people.unmergePerson({
+        appId,
+        targetPersonId: target.personId!,
+        auditId: merged.auditId,
+        expectedFingerprint: preview.fingerprint!,
+        actor: 'admin:test',
+      }),
+    ).rejects.toMatchObject({
+      code: expect.stringMatching(/CONFLICT|NOT_FOUND/),
+    });
   });
 
   it('merges personal identity state atomically with stable idempotent results', async () => {
