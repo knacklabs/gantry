@@ -300,8 +300,10 @@ These were important follow-up decisions that became part of the final result:
     ingress. Admin input such as `tg` or `sl` is stored as `telegram` or
     `slack`, so an API-created alias cannot become invisible to the runtime.
 22. We made explicit alias review meaningful. Adding an alias that already
-    belongs to the same person promotes an unverified alias to verified and
-    replaces its evidence; it never silently moves an alias between people.
+    belongs to the same person replaces its evidence while the alias stays
+    unverified — API alias writes can never set verified (verification is
+    system-attested only) — and it never silently moves an alias between
+    people.
 23. We made malformed percent-encoded People paths return a controlled
     `400 INVALID_REQUEST` instead of escaping route handling as an internal
     server error.

@@ -232,7 +232,7 @@ Agent-facing tools:
 
 - `send_message`: progress updates or direct channel messages while the agent is still running.
 - `ask_user_question`: structured choices with options, single-select, multi-select, preview/details, and channel-native buttons.
-- selected `continuity_summary`: inspect current durable continuity, staged
+- `continuity_summary` (baseline): inspect current durable continuity, staged
   memory candidates, reviewed memory state, and last injected context for the
   trusted subject.
 - `file`: list, read, write, or promote Gantry FileArtifacts by virtual scope/path; host filesystem paths and storage refs stay hidden.

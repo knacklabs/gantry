@@ -488,6 +488,16 @@ export class PostgresCanonicalGraphRepository {
           ),
         );
     }
+    if (participantUserId) {
+      // Settle ownership BEFORE any participant write, under FOR SHARE: it
+      // blocks while a concurrent merge holds the alias row and, once
+      // granted, prevents the alias moving until this transaction commits.
+      // Acquisition order stays person -> alias -> participant, the same as
+      // merge/unmerge, so there is no lock-order cycle in either direction.
+      const settledAlias = await findActiveAlias('share');
+      if (!settledAlias) return null;
+      participantUserId = settledAlias.userId;
+    }
     if (!participantUserId) {
       const [retiredAlias] = await executor
         .select({ id: pgSchema.userAliasesPostgres.id })
@@ -579,27 +589,6 @@ export class PostgresCanonicalGraphRepository {
         },
       });
 
-    // A merge moves aliases with row locks, not the advisory key this
-    // transaction holds, so the attribution read above can go stale before
-    // commit. Re-read under FOR SHARE: it blocks until any concurrent merge
-    // holding the alias row commits, then repairs this participant row if
-    // ownership moved. FOR SHARE (not FOR UPDATE) keeps the person-row write
-    // out of the picture, so there is no lock-order cycle with merges.
-    const settledAlias = await findActiveAlias('share');
-    if (settledAlias && settledAlias.userId !== participantUserId) {
-      await executor
-        .update(pgSchema.conversationParticipantsPostgres)
-        .set({ userId: settledAlias.userId })
-        .where(
-          and(
-            eq(
-              pgSchema.conversationParticipantsPostgres.appId,
-              CANONICAL_APP_ID,
-            ),
-            eq(pgSchema.conversationParticipantsPostgres.id, participantId),
-          ),
-        );
-    }
     return participantUserId;
   }
 

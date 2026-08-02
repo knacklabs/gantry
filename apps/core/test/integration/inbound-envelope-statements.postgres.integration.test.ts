@@ -65,6 +65,8 @@ import { measurePostgresOperations } from '../harness/response-latency-postgres.
 // ID-1 sender identity adds 3 statements on a first-seen sender: the alias-key
 // advisory lock, the active-alias lookup, and the retired-tombstone check (the
 // person + alias inserts replace the previous participant-only write pattern).
+// Repeat senders pay one more: the FOR SHARE ownership settlement that
+// serializes attribution against concurrent merges.
 const EXPECTED_ENVELOPE_STATEMENTS_BY_PROVIDER: Record<string, number> = {
   'Telegram text': 22,
   // FILE-1A dropped Slack from 20 to 19: the insert-vs-update split removed
