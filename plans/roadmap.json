@@ -427,6 +427,26 @@
       "completed_at": "2026-08-02T06:06:47+00:00",
       "history": ".factory/history/FILE-2/",
       "outcome": "Deleting a Slack message whose files the agent saved now works like Discord: the files are honestly reported as deleted and the stored bytes are removed, durably \u2014 a deletion that races message ingestion or arrives before the message is stored still lands, threads included (Slack threads share the parent channel, so no thread bookkeeping is needed and events without thread metadata are handled). Interaction-only connections never observe deletions. Telegram is honestly documented as having no deletion signal for ordinary bot chats."
+    },
+    {
+      "key": "LAT-4B",
+      "title": "Graph-write reduction on the message hot path",
+      "story": "As anyone chatting with the agent, I want replies to start sooner because message persistence stops re-writing identities the database already knows.",
+      "acceptance_criteria": [
+        "Top-level envelope: exactly 15 statements (from 19), pinned per provider route on real Postgres",
+        "Thread envelope: exactly 16 statements (from 29), the first pinned thread measurement",
+        "First contact fully created by surviving statements (new conversation + new thread in one envelope)",
+        "Thread recency message-timestamped per decision 0096; isGroup survives thread traffic",
+        "Jobs and binding/setup flows unaffected"
+      ],
+      "order": 28,
+      "status": "done",
+      "skill": "backend",
+      "kind": "refactor",
+      "spec": "docs/specs/lat-4b-graph-write-reduction.md",
+      "completed_at": "2026-08-02T07:41:08+00:00",
+      "history": ".factory/history/LAT-4B/",
+      "outcome": "Message persistence stopped re-writing identities the database already knows. A normal message now persists in 15 SQL statements instead of 19, and a thread message in 16 instead of 29 \u2014 the same saving applies to the agent's own replies and to history backfill in threads. Thread activity now orders the chat list by the message's own time, exactly like normal messages (decision 0096), which also means a redelivered old message can no longer jump a conversation to the top, and thread messages no longer corrupt the conversation's group flag. The remaining identity writes need receipt plumbing and are deferred with a measured trigger (D-0041)."
     }
   ],
   "epics": [
@@ -515,5 +535,5 @@
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-08-02T06:06:47+00:00"
+  "updated_at": "2026-08-02T07:41:08+00:00"
 }

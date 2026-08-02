@@ -57,3 +57,23 @@ implemented untested against the durable admission queue.
 
 Anyone reading "one inbound envelope transaction" should read it as
 "one per route", not "one per message", until D-0029 lands.
+
+
+## LAT-4B — graph-write reduction (2026-08-02, measured)
+
+LAT-4A's history above is unchanged. LAT-4B deleted the same-transaction
+redundant identity writes (decision 0096 pins thread recency to the message
+timestamp):
+
+| Route | Before | After | Saved |
+| --- | --- | --- | --- |
+| Registered top-level envelope (Telegram text / Slack / Teams) | 19 | **15** | 4 (apps + llm_profiles at two call sites; startup seeds prove them) |
+| Registered thread envelope (first pinned thread measurement) | 29 | **16** | 13 (the 8 nested identity/config repeats + the duplicate conversations write + the 4 above) |
+
+Proofs live in `inbound-envelope-statements.postgres.integration.test.ts`
+(exact-count pins per route, first-contact completeness for a brand-new
+conversation + thread in one envelope, monotonic message-timestamp recency,
+`isGroup` survival). What did not improve: the CONDITIONAL identity upserts
+(providers/agents/config/accounts, ~7 statements) remain pending the
+graph-ready receipt (D-0041); wall-clock latency is not measured — statement
+counts are the contract.
