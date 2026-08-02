@@ -1,6 +1,5 @@
 import { EventEmitter } from 'node:events';
 import http from 'node:http';
-import type { AddressInfo } from 'node:net';
 import { Readable } from 'node:stream';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -131,34 +130,23 @@ describe('resolvePinnedPublicMcpAddress', () => {
 
 describe('createGuardedMcpFetch', () => {
   it('allows loopback HTTP MCP fetches without DNS pinning', async () => {
-    const server = http.createServer((_request, response) => {
-      response.writeHead(200, { 'content-type': 'application/json' });
-      response.end('{"ok":true}');
+    const loopbackFetch = vi.fn(async () => new Response('{"ok":true}'));
+    vi.stubGlobal('fetch', loopbackFetch);
+    const lookupHostname = vi.fn(async () => {
+      throw new Error('loopback MCP fetch should not resolve DNS');
     });
-    await new Promise<void>((resolve) =>
-      server.listen(0, '127.0.0.1', resolve),
-    );
-    try {
-      const address = server.address() as AddressInfo;
-      const lookupHostname = vi.fn(async () => {
-        throw new Error('loopback MCP fetch should not resolve DNS');
-      });
-      const response = await createGuardedMcpFetch({
-        allowLoopbackHttp: true,
-        lookupHostname,
-      })(`http://127.0.0.1:${address.port}/mcp`, {
-        method: 'POST',
-        body: '{}',
-        redirect: 'error',
-      });
+    const response = await createGuardedMcpFetch({
+      allowLoopbackHttp: true,
+      lookupHostname,
+    })('http://127.0.0.1:8123/mcp', {
+      method: 'POST',
+      body: '{}',
+      redirect: 'error',
+    });
 
-      await expect(response.text()).resolves.toBe('{"ok":true}');
-      expect(lookupHostname).not.toHaveBeenCalled();
-    } finally {
-      await new Promise<void>((resolve, reject) =>
-        server.close((err) => (err ? reject(err) : resolve())),
-      );
-    }
+    await expect(response.text()).resolves.toBe('{"ok":true}');
+    expect(loopbackFetch).toHaveBeenCalledOnce();
+    expect(lookupHostname).not.toHaveBeenCalled();
   });
 
   it('rejects loopback pivots for remote-configured MCP transports', async () => {

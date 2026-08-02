@@ -173,7 +173,7 @@
       ]
     },
     {
-      "status": "active",
+      "status": "done",
       "key": "CAP-1",
       "title": "Close out the capability-authoring lane",
       "epic": "capability-search",
@@ -187,7 +187,10 @@
         "branch verified (typecheck + unit + relevant integration) and reviewed via one autoreview pass",
         "merged to main or explicitly split/reverted with a decision note",
         "mcp-tool-proxy.ts conflict window closed"
-      ]
+      ],
+      "completed_at": "2026-08-02T17:01:30+00:00",
+      "history": ".factory/history/CAP-1/",
+      "outcome": "The capability-authoring lane is closed out: agents can author MCP capabilities with scoped tool bindings, and everything an approver sees is host-derived \u2014 patterns, resolved tools, and a fail-closed risk label the agent cannot influence. The rescued work was reconciled with 358 commits of main (three superseded lane mechanisms adopted main's replacements, recorded in the reconciliation report), then a formal three-lens review found and fixed twelve defects including three security Highs: approvals now require an approving principal to persist, credentials resolve route-scoped, and MCP client caches are tenant-scoped. The mcp-tool-proxy conflict window is closed."
     },
     {
       "status": "pending",
@@ -495,5 +498,5 @@
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-08-02T10:37:15+00:00"
+  "updated_at": "2026-08-02T17:01:30+00:00"
 }
