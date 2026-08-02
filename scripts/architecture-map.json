@@ -12,7 +12,8 @@
     "docs/architecture/ponytail-audit-2026-07-14.md",
     "docs/architecture/pr237-final-review.md",
     "docs/architecture/pr237-validation.md",
-    "docs/architecture/permission-durable-storage-plan-validation.md"
+    "docs/architecture/permission-durable-storage-plan-validation.md",
+    "docs/architecture/runtime-hardening-audit-2026-07-22.md"
   ],
   "defaultLineBudget": 700,
   "lineBudgets": {

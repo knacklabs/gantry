@@ -30,6 +30,7 @@ historical records; the checker also skips `<placeholder>` template tokens.
   ponytail-audit-2026-07-14, ponytail-audit-2026-07-16,
   media-render-plan-validation, permission-durable-storage-plan-validation,
   agent-e2e-plan-validation-round2, outbound-attachments-audit-2026-07-19,
+  runtime-hardening-audit-2026-07-22,
   permission-floor-and-promotion-goal-prompt (superseded), plus the
   banner'd codex-harness and codex-self-improvement histories if needed.
 - Stamping any NEW doc requires updating this record in the same change;
