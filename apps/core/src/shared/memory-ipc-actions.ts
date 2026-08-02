@@ -51,6 +51,9 @@ const REVIEWER_MEMORY_REVIEW_IPC_ACTIONS = [
   'memory_review_decision',
 ] as const satisfies readonly GantryMemoryIpcAction[];
 const AUTHORITY_CHANGING_MEMORY_TOOL_NAMES = new Set<string>([
+  // Organization-wide brain writes change shared authority state and must not
+  // survive into authority-hidden runs.
+  'brain_write',
   'memory_patch',
   'memory_demote',
   'continuity_summary_patch',

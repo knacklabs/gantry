@@ -89,5 +89,42 @@ export async function findMemoryMergeConflicts(
       ),
     )
     .limit(PERSON_MERGE_DETAIL_LIMIT + 1);
-  return conflicts.map((conflict) => ({ type: 'memory', ...conflict }));
+  // The active-unique key is (app, agent, subject_type, subject_id, kind, key),
+  // so two same-key source rows
+  // with different (noncanonical) subject ids can coexist today — rekeying
+  // canonicalizes both to one subject id and would trip the index mid-merge.
+  // Surface those as conflicts up front instead of failing at the constraint.
+  const self = alias(pgSchema.memoryItemsPostgres, 'self_memory');
+  const collapses = await executor
+    .select({
+      agentId: self.agentId,
+      kind: self.kind,
+      key: self.key,
+    })
+    .from(self)
+    .where(
+      and(
+        eq(self.appId, input.appId),
+        eq(self.subjectType, 'user'),
+        eq(self.userId, input.sourcePersonId),
+        eq(self.status, 'active'),
+      ),
+    )
+    .groupBy(self.agentId, self.kind, self.key)
+    .having(sql`count(DISTINCT ${self.subjectId}) > 1`)
+    .limit(PERSON_MERGE_DETAIL_LIMIT + 1);
+  return [
+    ...conflicts.map(
+      (conflict) => ({ type: 'memory', ...conflict }) as PersonMergeConflict,
+    ),
+    ...collapses.map(
+      (row) =>
+        ({
+          type: 'memory',
+          agentId: row.agentId,
+          kind: row.kind,
+          key: `source-collapse:${row.key}`,
+        }) as PersonMergeConflict,
+    ),
+  ];
 }

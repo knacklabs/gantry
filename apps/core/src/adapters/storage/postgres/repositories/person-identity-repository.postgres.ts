@@ -942,6 +942,7 @@ export class PostgresPersonIdentityRepository implements PersonIdentityRepositor
   private async buildMergePreview(
     executor: Executor,
     input: PersonMergeInput,
+    // lockAliases also locks the fingerprinted memory rows on the apply path.
     options: { lockAliases?: boolean } = {},
   ): Promise<PersonMergePreview> {
     // The apply path locks the alias rows it fingerprints so a concurrent
@@ -963,7 +964,7 @@ export class PostgresPersonIdentityRepository implements PersonIdentityRepositor
       await (options.lockAliases ? aliasQuery.for('update') : aliasQuery)
     ).map(toAlias);
     assertDetailLimit('alias', aliases.length, PERSON_MERGE_DETAIL_LIMIT);
-    const sourceMemoryRows = await executor
+    const sourceMemoryQuery = executor
       .select({
         id: pgSchema.memoryItemsPostgres.id,
         updatedAt: pgSchema.memoryItemsPostgres.updatedAt,
@@ -979,9 +980,12 @@ export class PostgresPersonIdentityRepository implements PersonIdentityRepositor
           eq(pgSchema.memoryItemsPostgres.userId, input.sourcePersonId),
         ),
       );
+    const sourceMemoryRows = await (options.lockAliases
+      ? sourceMemoryQuery.for('update')
+      : sourceMemoryQuery);
     // Conflicts depend on BOTH sides: a target row inserted or archived after
     // preview must stale the fingerprint, not slip past it.
-    const targetMemoryRows = await executor
+    const targetMemoryQuery = executor
       .select({
         id: pgSchema.memoryItemsPostgres.id,
         updatedAt: pgSchema.memoryItemsPostgres.updatedAt,
@@ -997,6 +1001,9 @@ export class PostgresPersonIdentityRepository implements PersonIdentityRepositor
           eq(pgSchema.memoryItemsPostgres.userId, input.targetPersonId),
         ),
       );
+    const targetMemoryRows = await (options.lockAliases
+      ? targetMemoryQuery.for('update')
+      : targetMemoryQuery);
     const sourceMemoryFingerprint = stableSha256Json({
       source: sourceMemoryRows
         .map((row) => ({ ...row }))

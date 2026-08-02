@@ -96,6 +96,11 @@ WHERE (provider IN ('email', 'phone')
 -- same (provider, account) key. Colliding or junk values stay byte-for-byte
 -- untouched: an ambiguous tombstone is worse than an unnormalized one, and junk
 -- can never match a valid normalized request, so neither bypasses anything.
+-- Accepted residual: when EVERY colliding tombstone is a noncanonical spelling
+-- of a different person, none is normalized and a new normalized request will
+-- not hit any of them — there is no principled way to pick which person's
+-- tombstone should gate, so ambiguity resolves to no gate rather than a wrong
+-- one.
 WITH contact AS (
   SELECT
     id,
