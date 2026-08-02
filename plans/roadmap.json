@@ -447,6 +447,24 @@
       "completed_at": "2026-08-02T07:41:08+00:00",
       "history": ".factory/history/LAT-4B/",
       "outcome": "Message persistence stopped re-writing identities the database already knows. A normal message now persists in 15 SQL statements instead of 19, and a thread message in 16 instead of 29 \u2014 the same saving applies to the agent's own replies and to history backfill in threads. Thread activity now orders the chat list by the message's own time, exactly like normal messages (decision 0096), which also means a redelivered old message can no longer jump a conversation to the top, and thread messages no longer corrupt the conversation's group flag. The remaining identity writes need receipt plumbing and are deferred with a measured trigger (D-0041)."
+    },
+    {
+      "key": "LIVE-1",
+      "title": "Ambient liveness (Part B)",
+      "story": "As anyone waiting on the agent, I want honest ambient signals \u2014 a card that says it's still working when stalled, typing that stops lying, reactions that acknowledge my messages \u2014 without a single extra message in the conversation.",
+      "acceptance_criteria": [
+        "3-minute stall flips the existing progress card to plain 'Still working' (replace-only) and pauses typing; output resumes both",
+        "Discord TypingSink implemented; Slack stays truthfully sink-less",
+        "Seen->running reaction flip after ~5s without output, cleared on first output, on Slack/Telegram/Discord (first removeReaction implementations)",
+        "Accepted and deferred continuations both get a seen reaction at the single continuation seam",
+        "Retryable failures edit the same card ('retrying n/max'); only final failure finalizes it",
+        "Teams items deferred on the real-client trigger; goal-prompt doc Part B/C truth updated"
+      ],
+      "order": 29,
+      "status": "pending",
+      "skill": "backend",
+      "kind": "feature",
+      "spec": "docs/specs/live-1-ambient-liveness.md"
     }
   ],
   "epics": [
@@ -535,5 +553,5 @@
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-08-02T07:41:08+00:00"
+  "updated_at": "2026-08-02T08:54:36+00:00"
 }
