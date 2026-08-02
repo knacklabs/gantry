@@ -77,6 +77,17 @@ class InMemoryMcpServerRepository implements McpServerRepository {
     );
   }
 
+  async getAgentBinding(input: {
+    appId: AppId;
+    agentId: AgentId;
+    serverId: McpServerId;
+  }) {
+    return (
+      this.bindings.get(`${input.appId}:${input.agentId}:${input.serverId}`) ??
+      null
+    );
+  }
+
   async disableAgentBinding(input: {
     appId: AppId;
     agentId: AgentId;

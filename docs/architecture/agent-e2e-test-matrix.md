@@ -121,7 +121,7 @@ Legend: ✅ covered (cite) · 🔨 to build · 🏷 label-gated (live lane) · �
 | ------------------------------------------------------------------------------------------------- | ----------- | ---------------------------------------------------- |
 | Declare via settings surface → `capability:<id>` + scoped RunCommand rule projection              | integration | ✅ configured-agent-tools.test.ts                    |
 | local_cli pinning (path/version/hash/templates); unrelated command denied                         | integration | ✅ semantic-capabilities.test.ts                     |
-| Persisted selected binding → projection → real admission                                          | integration | 🔨                                                   |
+| Persisted selected binding → projection → real admission                                          | integration | ✅ mcp-capability-authoring.postgres.integration.test.ts |
 | Real-image preflight pass AND fail-closed                                                         | e2e         | 🔨                                                   |
 | Secret lifecycle store→retrieve→rotate→audit (all four in one test)                               | integration | 🔨                                                   |
 | Tampered ciphertext → integrity error → capability unavailable, no plaintext leak                 | integration | ✅ capability-secret units; 🔨 through-sandbox chain |

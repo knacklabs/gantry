@@ -76,6 +76,60 @@ export interface AgentMcpServerBinding {
   updatedAt: IsoTimestamp;
 }
 
+/**
+ * Durable semantic precondition for replaying a settings revision that was
+ * approved against an existing MCP source binding. Timestamps are excluded:
+ * applying the same authority may rewrite `updatedAt`, while any authority
+ * change must alter one of the fields below.
+ */
+export type McpBindingAuthorityPrecondition = Pick<
+  AgentMcpServerBinding,
+  | 'id'
+  | 'appId'
+  | 'agentId'
+  | 'serverId'
+  | 'status'
+  | 'required'
+  | 'permissionPolicyIds'
+  | 'allowedToolPatterns'
+  | 'conversationId'
+  | 'threadId'
+>;
+
+export function mcpBindingAuthorityPrecondition(
+  binding: AgentMcpServerBinding,
+): McpBindingAuthorityPrecondition {
+  return {
+    id: binding.id,
+    appId: binding.appId,
+    agentId: binding.agentId,
+    serverId: binding.serverId,
+    status: binding.status,
+    required: binding.required,
+    permissionPolicyIds: canonicalStringSet(binding.permissionPolicyIds),
+    allowedToolPatterns: canonicalStringSet(binding.allowedToolPatterns),
+    ...(binding.conversationId
+      ? { conversationId: binding.conversationId }
+      : {}),
+    ...(binding.threadId ? { threadId: binding.threadId } : {}),
+  };
+}
+
+export function canonicalStringSet<T extends string>(
+  values: readonly T[],
+): T[] {
+  return [...new Set(values)].sort((left, right) => left.localeCompare(right));
+}
+
+export class McpBindingAuthorityChangedError extends Error {
+  constructor(readonly serverId: string) {
+    super(
+      `MCP source binding ${serverId} changed during capability approval. Request the capability again.`,
+    );
+    this.name = 'McpBindingAuthorityChangedError';
+  }
+}
+
 export type McpServerAuditEventType =
   | 'request'
   | 'connect'

@@ -1099,11 +1099,11 @@
   "maxViolations": 1
  },
  {
-  "file": "apps/core/src/application/mcp/mcp-tool-proxy.ts",
+  "file": "apps/core/src/application/mcp/mcp-tool-proxy-connection.ts",
   "rule": "forbidden_external_import_by_layer",
-  "reason": "Current MCP proxy owns direct MCP SDK transport calls until the MCP proxy is split behind an adapter port; capped so additional SDK imports fail.",
+  "reason": "The MCP proxy client/transport adapters own direct MCP SDK construction until the MCP proxy is split behind an adapter port; capped so additional SDK imports fail.",
   "removeByPhase": "canonical-boundary-cleanup-phase",
-  "maxViolations": 4
+  "maxViolations": 3
  },
  {
   "file": "apps/core/src/messaging/text-styles.ts",

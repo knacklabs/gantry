@@ -369,7 +369,10 @@ async function runActiveJob(
           const semanticCapabilities =
             resolveTurnSemanticCapabilitiesFromSnapshot(accessSnapshot);
           const attachedMcpSourceIds =
-            resolveTurnSelectedMcpServerIdsFromSnapshot(accessSnapshot);
+            resolveTurnSelectedMcpServerIdsFromSnapshot(accessSnapshot, {
+              conversationId: execution.group.conversationId,
+              threadId: execution.threadId ?? undefined,
+            });
           const toolAccessRequirementPreflight =
             await assertToolAccessRequirementsReadyForRun({
               toolAccessRequirements: splitAccessRequirements(

@@ -16,6 +16,7 @@ export async function resolveGroupAgentAccessContext(input: {
   turnContext?: { appId: string; agentId: string } | null;
   catalogScope: { appId: string; agentId: string };
   agentFolder: string;
+  routeScope?: { conversationId?: string; threadId?: string };
 }) {
   const accessSnapshot = await loadAgentAccessSnapshot(
     input.deps,
@@ -33,8 +34,10 @@ export async function resolveGroupAgentAccessContext(input: {
     resolveTurnSelectedSkillContextFromSnapshot(accessSnapshot);
   const semanticCapabilities =
     resolveTurnSemanticCapabilitiesFromSnapshot(accessSnapshot);
-  const attachedMcpSourceIds =
-    resolveTurnSelectedMcpServerIdsFromSnapshot(accessSnapshot);
+  const attachedMcpSourceIds = resolveTurnSelectedMcpServerIdsFromSnapshot(
+    accessSnapshot,
+    input.routeScope,
+  );
   const capabilityCatalog =
     await resolveTurnPromptCapabilityCatalogFromSnapshot(
       catalogSnapshot,

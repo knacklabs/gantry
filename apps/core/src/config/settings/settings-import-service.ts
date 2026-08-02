@@ -1,55 +1,93 @@
 import type { Pool } from 'pg';
 
 import type { AppId } from '../../domain/app/app.js';
-import type { SettingsRevisionRepository } from '../../domain/ports/fleet-capability-state.js';
+import type { AgentId } from '../../domain/agent/agent.js';
+import {
+  McpBindingAuthorityChangedError,
+  type McpBindingAuthorityPrecondition,
+} from '../../domain/mcp/mcp-servers.js';
+import type {
+  SettingsRevision,
+  SettingsRevisionRepository,
+} from '../../domain/ports/fleet-capability-state.js';
 import type { RuntimeLeasePort } from '../../domain/ports/runtime-lease.js';
 import { withSettingsProjectorLease } from '../../domain/ports/settings-projector-lease.js';
-import { SettingsDesiredStateService } from './desired-state-service.js';
 import type {
   SettingsDesiredStateOps,
   SettingsDesiredStateRepositories,
 } from './desired-state-service.js';
-import { applyRuntimeSettingsDesiredState } from './restart-sync.js';
 import {
-  activateRuntimeModelAliases,
-  parseRuntimeSettings,
-  withRuntimeModelAliases,
-} from './runtime-settings.js';
-import { renderRuntimeSettingsYaml } from './runtime-settings-renderer.js';
+  addAllMcpSourcesToRuntimeSettings,
+  applyRuntimeSettingsDesiredState,
+  snapshotConfiguredMcpBindingAuthority,
+} from './restart-sync.js';
+import { activateRuntimeModelAliases } from './runtime-settings.js';
 import { normalizeConfiguredCapabilitiesInSettings } from './configured-capability-normalization.js';
-import { parseRuntimeSettingsObject } from './runtime-settings-parser.js';
-import { validateLoadedRuntimeSettings } from './runtime-settings-validation.js';
 import type { RuntimeSettings } from './runtime-settings-types.js';
+import { nextMcpCapabilityGrantTokens } from './mcp-capability-grant-provenance.js';
 import {
-  PostgresSettingsRevisionNotifier,
-  type SettingsRevisionWakeup,
-} from './settings-revision-notify.js';
+  capturePendingMcpSourceEdits,
+  restorePendingMcpSourceEdits,
+} from './mcp-source-projection-preservation.js';
+import {
+  CURRENT_SETTINGS_READER_VERSION,
+  SettingsRevisionConflictError,
+  appendRejectedMcpApprovalRecoveryRevision,
+  importFleetSettingsRevisionWithProjectionOps,
+  settingsWithoutMcpCapabilityGrantTokens,
+  validateProjectionPreconditions,
+  validateSettingsForImport,
+} from './settings-fleet-import.js';
 import type {
-  ProviderAccountId,
-  ProviderId,
-} from '../../domain/provider/provider.js';
-import { migrateLegacyAgentBindings } from './settings-revision-legacy-bindings.js';
+  FleetImportDeps,
+  FleetImportOptions,
+  FleetImportOutcome,
+  SettingsFleetProjectionOps,
+  SettingsImportServiceDeps,
+} from './settings-fleet-import.js';
+import {
+  agentIdsFromMcpBindingPreconditions,
+  revisionDocumentMatchesSettings,
+  revisionMcpBindingPreconditionsMatch,
+  settingsFromRevisionDocument,
+  stableJson,
+} from './settings-revision-document.js';
 
-/**
- * Reader version of the settings-revision contract this build understands. A
- * revision stamped with a higher `min_reader_version` than this is held (not
- * applied) by an older worker until it is upgraded (ADR-3 skew safety contract).
- * Bump this whenever a settings-schema change would break older readers.
- */
-export const CURRENT_SETTINGS_READER_VERSION = 15;
+export {
+  CURRENT_SETTINGS_READER_VERSION,
+  SettingsRevisionConflictError,
+  validateSettingsForImport,
+} from './settings-fleet-import.js';
+export type {
+  FleetImportDeps,
+  FleetImportOptions,
+  FleetImportOutcome,
+  SettingsImportServiceDeps,
+  SettingsImportValidationResult,
+} from './settings-fleet-import.js';
+export {
+  settingsFromRevisionDocument,
+  settingsMatchesLatestRevision,
+  settingsToRevisionDocument,
+  stableJson,
+} from './settings-revision-document.js';
 
-export interface SettingsImportValidationResult {
-  ok: boolean;
-  settings: RuntimeSettings;
-  /** Path-level error strings, identical for the YAML and API surfaces. */
-  errors: string[];
-}
+const SETTINGS_FLEET_PROJECTION_OPS: SettingsFleetProjectionOps = {
+  addAllMcpSourcesToRuntimeSettings,
+  snapshotConfiguredMcpBindingAuthority,
+};
 
-export interface SettingsImportServiceDeps {
-  runtimeHome: string;
-  ops: SettingsDesiredStateOps;
-  repositories: SettingsDesiredStateRepositories;
-  appId?: AppId;
+export async function importFleetSettingsRevision(
+  deps: FleetImportDeps,
+  settings: RuntimeSettings,
+  options: FleetImportOptions = {},
+): Promise<FleetImportOutcome> {
+  return importFleetSettingsRevisionWithProjectionOps(
+    deps,
+    settings,
+    options,
+    SETTINGS_FLEET_PROJECTION_OPS,
+  );
 }
 
 export interface SettingsRevisionMirror {
@@ -75,25 +113,6 @@ export class SettingsStaleMutationError extends Error {
   }
 }
 
-export class SettingsRevisionConflictError extends Error {
-  readonly expectedRevision: number;
-  readonly actualRevision: number;
-
-  constructor(input: {
-    expectedRevision: number;
-    actualRevision: number;
-    message?: string;
-  }) {
-    super(
-      input.message ??
-        `settings revision conflicted: expected revision ${input.expectedRevision}, actual revision ${input.actualRevision}`,
-    );
-    this.name = 'SettingsRevisionConflictError';
-    this.expectedRevision = input.expectedRevision;
-    this.actualRevision = input.actualRevision;
-  }
-}
-
 export class SettingsIncompatibleReaderError extends Error {
   constructor(
     readonly revision: number,
@@ -109,27 +128,99 @@ export class SettingsIncompatibleReaderError extends Error {
   }
 }
 
-/** Shared validation for YAML, CLI, and control API settings mutations. */
-export async function validateSettingsForImport(
-  deps: SettingsImportServiceDeps,
-  settings: RuntimeSettings,
-): Promise<SettingsImportValidationResult> {
-  const errors: string[] = [];
-  const schema = withRuntimeModelAliases(settings, () =>
-    validateLoadedRuntimeSettings(deps.runtimeHome, settings),
-  );
-  if (!schema.ok && schema.failure) {
-    errors.push(...schema.failure.details);
+export async function applySettingsRevisionWithMcpFenceRecovery(input: {
+  runtimeHome: string;
+  ops: SettingsDesiredStateOps;
+  repositories: SettingsDesiredStateRepositories;
+  appId: AppId;
+  revision: SettingsRevision;
+  reloadRuntimeState?: () => Promise<void>;
+  revisionMirror: SettingsRevisionMirror;
+  applySettings?: typeof importWorkstationSettings;
+}): Promise<{ settings: RuntimeSettings; revision: number }> {
+  let revision = input.revision;
+  const applySettings = input.applySettings ?? importWorkstationSettings;
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const current =
+      await input.revisionMirror.settingsRevisions.getLatestSettingsRevision(
+        input.appId,
+      );
+    if (current && current.revision > revision.revision) revision = current;
+    if (revision.minReaderVersion > CURRENT_SETTINGS_READER_VERSION) {
+      throw new Error(
+        `Settings revision ${revision.revision} requires settings reader version ` +
+          `${revision.minReaderVersion}; this runtime supports ${CURRENT_SETTINGS_READER_VERSION}. ` +
+          'Upgrade Gantry before applying this revision.',
+      );
+    }
+    const settings = settingsFromRevisionDocument(revision.settingsDocument);
+    try {
+      await applySettings(
+        {
+          runtimeHome: input.runtimeHome,
+          ops: input.ops,
+          repositories: input.repositories,
+          appId: input.appId,
+          projectionAuthority: 'revision',
+          reloadRuntimeState: input.reloadRuntimeState,
+          expectedMcpBindingAgentIds: revision.mcpBindingPreconditionAgentIds,
+          expectedMcpBindings: revision.mcpBindingPreconditions,
+        },
+        settings,
+      );
+      return { settings, revision: revision.revision };
+    } catch (err) {
+      if (
+        !(err instanceof McpBindingAuthorityChangedError) ||
+        (revision.mcpBindingPreconditionAgentIds?.length ?? 0) === 0
+      ) {
+        throw err;
+      }
+      const predecessor =
+        revision.revision > 1
+          ? await input.revisionMirror.settingsRevisions.getSettingsRevision({
+              appId: input.appId,
+              revision: revision.revision - 1,
+            })
+          : null;
+      await appendRejectedMcpApprovalRecoveryRevision({
+        deps: {
+          runtimeHome: input.runtimeHome,
+          ops: input.ops,
+          repositories: input.repositories,
+          appId: input.appId,
+          reloadRuntimeState: input.reloadRuntimeState,
+          revisionMirror: input.revisionMirror,
+          expectedMcpBindingAgentIds: revision.mcpBindingPreconditionAgentIds,
+          expectedMcpBindings: revision.mcpBindingPreconditions,
+        },
+        appId: input.appId,
+        failedRevision: revision.revision,
+        previousSettings: predecessor
+          ? settingsFromRevisionDocument(predecessor.settingsDocument)
+          : settingsWithoutMcpCapabilityGrantTokens(
+              settings,
+              revision.mcpCapabilityGrantTokens,
+            ),
+        rejectedSettings: settings,
+        rejectedMcpCapabilityGrantTokens: revision.mcpCapabilityGrantTokens,
+        projectionOps: SETTINGS_FLEET_PROJECTION_OPS,
+      });
+      const latest =
+        await input.revisionMirror.settingsRevisions.getLatestSettingsRevision(
+          input.appId,
+        );
+      if (!latest || latest.revision <= revision.revision) {
+        throw new Error(
+          'MCP fence recovery did not publish a successor settings revision.',
+        );
+      }
+      revision = latest;
+    }
   }
-  const service = new SettingsDesiredStateService({
-    ops: deps.ops,
-    repositories: deps.repositories,
-    appId: deps.appId,
-  });
-  const invalidReferences =
-    await service.validateCapabilityReferences(settings);
-  errors.push(...invalidReferences);
-  return { ok: errors.length === 0, settings, errors };
+  throw new Error(
+    'MCP binding authority changed repeatedly during settings revision recovery.',
+  );
 }
 
 /** Validate, append any required revision, then project the settings. */
@@ -140,6 +231,9 @@ export async function importWorkstationSettings(
     revisionMirror?: SettingsRevisionMirror;
     revisionMirrorRequired?: boolean;
     expectedRevision?: number | null;
+    expectedMcpBindingAgentIds?: AgentId[];
+    expectedMcpBindings?: McpBindingAuthorityPrecondition[];
+    mcpCapabilityGrantTokens?: Record<string, string>;
     leases?: RuntimeLeasePort;
     projectionAuthority?: 'file' | 'revision';
   },
@@ -207,9 +301,54 @@ export async function importWorkstationSettings(
     ) {
       throw new SettingsStaleMutationError();
     }
+    let expectedMcpBindingAgentIds =
+      deps.expectedMcpBindingAgentIds ??
+      agentIdsFromMcpBindingPreconditions(deps.expectedMcpBindings);
+    let expectedMcpBindings = deps.expectedMcpBindings;
+    if (
+      expectedMcpBindingAgentIds === undefined &&
+      expectedMcpBindings === undefined &&
+      (latest?.mcpBindingPreconditionAgentIds?.length ?? 0) > 0
+    ) {
+      const pendingMcpSourceEdits = capturePendingMcpSourceEdits({
+        settings: revisionSettings,
+        agentIds: latest?.mcpBindingPreconditionAgentIds,
+        bindings: latest?.mcpBindingPreconditions,
+      });
+      await addAllMcpSourcesToRuntimeSettings({
+        settings: revisionSettings,
+        repositories: deps.repositories,
+        appId,
+      });
+      restorePendingMcpSourceEdits(revisionSettings, pendingMcpSourceEdits);
+      const snapshot = await snapshotConfiguredMcpBindingAuthority({
+        settings: revisionSettings,
+        repositories: deps.repositories,
+        appId,
+        additionalAgentIds: latest?.mcpBindingPreconditionAgentIds,
+      });
+      expectedMcpBindingAgentIds = snapshot.agentIds;
+      expectedMcpBindings = snapshot.bindings;
+    }
+    const prospectiveMcpCapabilityGrantTokens = nextMcpCapabilityGrantTokens({
+      settings: revisionSettings,
+      previous: latest?.mcpCapabilityGrantTokens,
+      overrides: deps.mcpCapabilityGrantTokens,
+    });
     if (
       latest &&
-      revisionDocumentMatchesSettings(latest.settingsDocument, revisionSettings)
+      revisionDocumentMatchesSettings(
+        latest.settingsDocument,
+        revisionSettings,
+      ) &&
+      revisionMcpBindingPreconditionsMatch(
+        latest.mcpBindingPreconditionAgentIds,
+        latest.mcpBindingPreconditions,
+        expectedMcpBindingAgentIds,
+        expectedMcpBindings,
+      ) &&
+      stableJson(latest.mcpCapabilityGrantTokens ?? {}) ===
+        stableJson(prospectiveMcpCapabilityGrantTokens)
     ) {
       await projectRequiredSettingsRevision({
         deps,
@@ -218,6 +357,8 @@ export async function importWorkstationSettings(
         leases: deps.leases!,
         targetRevision: latest.revision,
         targetSettings: revisionSettings,
+        expectedMcpBindingAgentIds,
+        expectedMcpBindings,
       });
       return { status: 'no_op' };
     }
@@ -240,6 +381,10 @@ export async function importWorkstationSettings(
       revisionSettings,
       {
         expectedRevision: deps.expectedRevision ?? actualRevision,
+        latestRevision: latest,
+        expectedMcpBindingAgentIds,
+        expectedMcpBindings,
+        mcpCapabilityGrantTokens: deps.mcpCapabilityGrantTokens,
         note: deps.revisionMirror.note ?? null,
       },
     );
@@ -251,14 +396,42 @@ export async function importWorkstationSettings(
     if (outcome.status === 'conflict') {
       throw new SettingsRevisionConflictError(outcome);
     }
-    await projectRequiredSettingsRevision({
-      deps,
-      appId,
-      revisionMirror: deps.revisionMirror,
-      leases: deps.leases!,
-      targetRevision: outcome.revision,
-      targetSettings: revisionSettings,
-    });
+    try {
+      await projectRequiredSettingsRevision({
+        deps,
+        appId,
+        revisionMirror: deps.revisionMirror,
+        leases: deps.leases!,
+        targetRevision: outcome.revision,
+        targetSettings: revisionSettings,
+        expectedMcpBindingAgentIds,
+        expectedMcpBindings,
+      });
+    } catch (err) {
+      const hasRejectedMcpCapabilityGrant =
+        Object.keys(deps.mcpCapabilityGrantTokens ?? {}).length > 0;
+      if (
+        hasRejectedMcpCapabilityGrant ||
+        (err instanceof McpBindingAuthorityChangedError &&
+          (expectedMcpBindingAgentIds?.length ?? 0) > 0)
+      ) {
+        await appendRejectedMcpApprovalRecoveryRevision({
+          deps: {
+            ...deps,
+            revisionMirror: deps.revisionMirror,
+            expectedMcpBindingAgentIds,
+            expectedMcpBindings,
+          },
+          appId,
+          failedRevision: outcome.revision,
+          previousSettings: previousRevisionSettings,
+          rejectedSettings: revisionSettings,
+          rejectedMcpCapabilityGrantTokens: deps.mcpCapabilityGrantTokens,
+          projectionOps: SETTINGS_FLEET_PROJECTION_OPS,
+        });
+      }
+      throw err;
+    }
     return { status: 'revision_created', revision: outcome.revision };
   }
   const appliedSettings = await applyRuntimeSettingsDesiredState({
@@ -270,6 +443,8 @@ export async function importWorkstationSettings(
     forwardCorrected: deps.projectionAuthority === 'revision',
     previousSettings: deps.previousSettings,
     reloadRuntimeState: deps.reloadRuntimeState,
+    expectedMcpBindingAgentIds: deps.expectedMcpBindingAgentIds,
+    expectedMcpBindings: deps.expectedMcpBindings,
   });
   activateRuntimeModelAliases(appliedSettings);
   if (!deps.revisionMirror) return { status: 'applied_no_revision' };
@@ -278,9 +453,36 @@ export async function importWorkstationSettings(
       await deps.revisionMirror.settingsRevisions.getLatestSettingsRevision(
         appId,
       );
+    let mirrorMcpBindingAgentIds =
+      deps.expectedMcpBindingAgentIds ??
+      agentIdsFromMcpBindingPreconditions(deps.expectedMcpBindings);
+    let mirrorMcpBindings = deps.expectedMcpBindings;
+    if (
+      mirrorMcpBindingAgentIds === undefined &&
+      mirrorMcpBindings === undefined &&
+      (latest?.mcpBindingPreconditionAgentIds?.length ?? 0) > 0
+    ) {
+      const snapshot = await snapshotConfiguredMcpBindingAuthority({
+        settings: appliedSettings,
+        repositories: deps.repositories,
+        appId,
+        additionalAgentIds: latest?.mcpBindingPreconditionAgentIds,
+      });
+      mirrorMcpBindingAgentIds = snapshot.agentIds;
+      mirrorMcpBindings = snapshot.bindings;
+    }
     if (
       latest &&
-      revisionDocumentMatchesSettings(latest.settingsDocument, appliedSettings)
+      revisionDocumentMatchesSettings(
+        latest.settingsDocument,
+        appliedSettings,
+      ) &&
+      revisionMcpBindingPreconditionsMatch(
+        latest.mcpBindingPreconditionAgentIds,
+        latest.mcpBindingPreconditions,
+        mirrorMcpBindingAgentIds,
+        mirrorMcpBindings,
+      )
     ) {
       return { status: 'applied_no_revision' };
     }
@@ -297,6 +499,14 @@ export async function importWorkstationSettings(
       },
       appliedSettings,
       {
+        expectedRevision:
+          mirrorMcpBindingAgentIds !== undefined ||
+          mirrorMcpBindings !== undefined
+            ? (latest?.revision ?? 0)
+            : undefined,
+        expectedMcpBindingAgentIds: mirrorMcpBindingAgentIds,
+        expectedMcpBindings: mirrorMcpBindings,
+        mcpCapabilityGrantTokens: deps.mcpCapabilityGrantTokens,
         note: deps.revisionMirror.note ?? null,
       },
     );
@@ -334,7 +544,6 @@ export async function importWorkstationSettings(
     return { status: 'applied_no_revision' };
   }
 }
-
 async function projectRequiredSettingsRevision(input: {
   deps: SettingsImportServiceDeps & {
     previousSettings?: RuntimeSettings;
@@ -345,6 +554,8 @@ async function projectRequiredSettingsRevision(input: {
   leases: RuntimeLeasePort;
   targetRevision: number;
   targetSettings: RuntimeSettings;
+  expectedMcpBindingAgentIds?: AgentId[];
+  expectedMcpBindings?: McpBindingAuthorityPrecondition[];
 }): Promise<RuntimeSettings> {
   return withSettingsProjectorLease(input.leases, input.appId, async () => {
     const head =
@@ -367,6 +578,12 @@ async function projectRequiredSettingsRevision(input: {
     const settings = projectsTarget
       ? input.targetSettings
       : settingsFromRevisionDocument(head.settingsDocument);
+    const expectedMcpBindingAgentIds = projectsTarget
+      ? input.expectedMcpBindingAgentIds
+      : head.mcpBindingPreconditionAgentIds;
+    const expectedMcpBindings = projectsTarget
+      ? input.expectedMcpBindings
+      : head.mcpBindingPreconditions;
     const appliedSettings = await applyRuntimeSettingsDesiredState({
       runtimeHome: input.deps.runtimeHome,
       settings,
@@ -375,346 +592,10 @@ async function projectRequiredSettingsRevision(input: {
       appId: input.appId,
       forwardCorrected: true,
       reloadRuntimeState: input.deps.reloadRuntimeState,
+      expectedMcpBindingAgentIds,
+      expectedMcpBindings,
     });
     activateRuntimeModelAliases(appliedSettings);
     return appliedSettings;
   });
-}
-
-export type FleetImportOutcome =
-  | { status: 'applied'; revision: number }
-  | { status: 'invalid'; errors: string[] }
-  | { status: 'conflict'; expectedRevision: number; actualRevision: number };
-
-export interface FleetImportDeps extends SettingsImportServiceDeps {
-  settingsRevisions: SettingsRevisionRepository;
-  /** Pool used to publish the `pg_notify` wakeup after a successful append. */
-  pool?: Pool;
-  createdBy: string;
-  logWarn?: (context: Record<string, unknown>, message: string) => void;
-}
-
-/**
- * Fleet import: validate through the same path, enforce stale-revision
- * optimistic concurrency, append a `settings_revisions` row carrying
- * `CURRENT_SETTINGS_READER_VERSION`, and publish a `pg_notify` wakeup. Workers
- * converge by fetching the latest revision (NOTIFY + poll fallback). The
- * desired-state authority in fleet is Postgres, not the file (ADR-3).
- */
-export async function importFleetSettingsRevision(
-  deps: FleetImportDeps,
-  settings: RuntimeSettings,
-  options: { expectedRevision?: number | null; note?: string | null } = {},
-): Promise<FleetImportOutcome> {
-  const validation = await validateSettingsForImport(deps, settings);
-  if (!validation.ok) {
-    return { status: 'invalid', errors: validation.errors };
-  }
-  const appId = deps.appId ?? ('default' as AppId);
-  // Optimistic concurrency lives in the repository: with expectedRevision the
-  // append is a conditional insert at exactly expectedRevision + 1 — no
-  // check-then-act window, no retry past a conflict. The loser of a concurrent
-  // same-expectation race gets the contracted conflict, never a silent append.
-  const appended = await deps.settingsRevisions.appendSettingsRevision({
-    appId,
-    settingsDocument: settingsToRevisionDocument(settings),
-    minReaderVersion: CURRENT_SETTINGS_READER_VERSION,
-    createdBy: deps.createdBy,
-    note: options.note ?? null,
-    expectedRevision: options.expectedRevision ?? null,
-  });
-  if (appended.status === 'conflict') {
-    return {
-      status: 'conflict',
-      expectedRevision: appended.expectedRevision,
-      actualRevision: appended.actualRevision,
-    };
-  }
-  if (deps.pool) {
-    const notifier = new PostgresSettingsRevisionNotifier(
-      deps.pool,
-      deps.logWarn,
-    );
-    const wakeup: SettingsRevisionWakeup = {
-      appId,
-      revision: appended.revision.revision,
-    };
-    await notifier.notifyRevisionChanged(wakeup);
-  }
-  return { status: 'applied', revision: appended.revision.revision };
-}
-
-/**
- * Serialize desired state into the typed JSON settings document that the
- * control API/SDK transport and `settings_revisions` store as jsonb. YAML is the
- * human file format for the workstation file + CLI `--file` edge only; it never
- * appears on the wire. The document is the parser's native snake_case object
- * form, built directly from RuntimeSettings so JSON strings and numbers stay
- * lossless.
- */
-export function settingsToRevisionDocument(
-  settings: RuntimeSettings,
-): Record<string, unknown> {
-  // Canonicalize via a render→parse round-trip: the parser materializes
-  // defaults (persona, requires_trigger, kind aliases, default model) that
-  // in-memory objects omit, so documents built from memory and documents
-  // built from parsed files would otherwise never compare equal — feeding
-  // endless settings.yaml:auto-import echo revisions and stale-base errors.
-  return buildRevisionDocument(
-    parseRuntimeSettings(renderRuntimeSettingsYaml(settings)),
-  );
-}
-
-function buildRevisionDocument(
-  settings: RuntimeSettings,
-): Record<string, unknown> {
-  return stripUndefinedDeep({
-    desired_state: snakeRecord(settings.desiredState),
-    providers: mapRecord(settings.providers, snakeRecord),
-    provider_accounts: mapRecord(settings.providerAccounts, (account) => ({
-      agent: account.agentId,
-      provider: account.provider,
-      label: account.label,
-      status: account.status === 'disabled' ? account.status : undefined,
-      runtime_secret_refs: account.runtimeSecretRefs,
-      external_identity_ref: account.externalIdentityRef,
-      config:
-        Object.keys(account.config ?? {}).length > 0
-          ? account.config
-          : undefined,
-    })),
-    conversations: mapRecord(settings.conversations, (conversation) => ({
-      provider_account:
-        conversation.providerAccount ?? conversation.providerConnection,
-      external_id: conversation.externalId,
-      kind: conversation.kind,
-      display_name: conversation.displayName,
-      brain_harvest: conversation.brainHarvest ? true : undefined,
-      sender_policy: conversation.senderPolicy,
-      control_approvers: conversation.controlApprovers,
-      installed_agents: Object.fromEntries(
-        Object.entries(conversation.installedAgents ?? {}).map(
-          ([installId, install]) => [
-            installId,
-            {
-              provider_account: install.providerAccountId,
-              agent:
-                installId === install.agentId ? undefined : install.agentId,
-              thread_id: install.threadId,
-              status: install.status,
-              added_at: install.addedAt,
-              memory_scope: install.memoryScope,
-              trigger: install.trigger,
-              requires_trigger: install.requiresTrigger,
-              model: install.model,
-              permission_mode: install.permissionMode,
-            },
-          ],
-        ),
-      ),
-    })),
-    agents: mapRecord(settings.agents, (agent) => ({
-      name: agent.name,
-      persona: agent.persona,
-      delegates: agent.delegates.length > 0 ? agent.delegates : undefined,
-      relationship_mode:
-        agent.relationshipMode && agent.relationshipMode !== 'personal'
-          ? agent.relationshipMode
-          : undefined,
-      runtime: agent.runtime === 'inline' ? 'inline' : undefined,
-      max_turns: agent.maxTurns,
-      max_run_tokens: agent.maxRunTokens,
-      effort: agent.effort,
-      thinking:
-        agent.thinking?.budgetTokens === undefined
-          ? agent.thinking?.mode
-          : {
-              mode: agent.thinking.mode,
-              budget_tokens: agent.thinking.budgetTokens,
-            },
-      max_output_tokens: agent.maxOutputTokens,
-      model: agent.model,
-      agent_harness: agent.agentHarness,
-      permission_mode: agent.permissionMode,
-      one_time_job_default_model: agent.oneTimeJobDefaultModel,
-      recurring_job_default_model: agent.recurringJobDefaultModel,
-      tool_rules:
-        agent.toolRules && agent.toolRules.length > 0
-          ? agent.toolRules
-          : undefined,
-      access: {
-        preset: agent.accessPreset,
-        sources: {
-          skills: agent.sources.skills.map(snakeRecord),
-          mcp_servers: agent.sources.mcpServers.map(snakeRecord),
-          tools: agent.sources.tools.map(snakeRecord),
-        },
-        selections: agent.capabilities.map(snakeRecord),
-      },
-    })),
-    storage: {
-      postgres: {
-        url_env: settings.storage.postgres.urlEnv,
-        schema: settings.storage.postgres.schema,
-      },
-    },
-    agent: {
-      name: settings.agent.name,
-      default_model: settings.agent.defaultModel,
-      agent_harness: settings.agent.agentHarness,
-      one_time_job_default_model: settings.agent.oneTimeJobDefaultModel,
-      recurring_job_default_model: settings.agent.recurringJobDefaultModel,
-      sessions: {
-        memory_item_limit: settings.agent.sessions.memoryItemLimit,
-        max_memory_context_chars: settings.agent.sessions.maxMemoryContextChars,
-      },
-    },
-    model_access: {
-      enabled: settings.credentialBroker.mode === 'gantry',
-      gateway: {
-        bind_host: settings.credentialBroker.gateway.bindHost,
-      },
-    },
-    memory: snakeRecord(settings.memory),
-    runtime: snakeRecord(settings.runtime),
-    browser: {
-      usage: {
-        enabled: settings.browser.usage.enabled,
-        mode: settings.browser.usage.mode,
-        window_ms: settings.browser.usage.windowMs,
-        max_actions_per_window: settings.browser.usage.maxActionsPerWindow,
-        max_concurrent_per_site: settings.browser.usage.maxConcurrentPerSite,
-        overrides: mapRecord(settings.browser.usage.overrides, snakeRecord),
-      },
-    },
-    permissions: snakeRecord(settings.permissions),
-    observability: snakeRecord(settings.observability),
-    observer: snakeRecord(settings.observer),
-    model_aliases: mapRecord(settings.modelAliases, snakeRecord),
-    limits: mapRecord(settings.limits.providers, snakeRecord),
-    model_families: settings.modelFamilies,
-  }) as Record<string, unknown>;
-}
-
-/** Re-hydrate a typed settings document back into typed runtime settings. */
-export function settingsFromRevisionDocument(
-  document: Record<string, unknown>,
-): RuntimeSettings {
-  return parseRuntimeSettingsObject(migrateLegacyAgentBindings(document));
-}
-
-export async function settingsMatchesLatestRevision(input: {
-  appId: AppId;
-  settings: RuntimeSettings;
-  settingsRevisions: SettingsRevisionRepository;
-}): Promise<boolean> {
-  const latest = await input.settingsRevisions.getLatestSettingsRevision(
-    input.appId,
-  );
-  if (!latest) return false;
-  return revisionDocumentMatchesSettings(
-    latest.settingsDocument,
-    input.settings,
-  );
-}
-
-function revisionDocumentMatchesSettings(
-  document: Record<string, unknown>,
-  settings: RuntimeSettings,
-): boolean {
-  return (
-    stableJson(canonicalizeRevisionDocument(document)) ===
-    stableJson(
-      canonicalizeRevisionDocument(settingsToRevisionDocument(settings)),
-    )
-  );
-}
-
-function canonicalizeRevisionDocument(
-  document: Record<string, unknown>,
-): Record<string, unknown> {
-  try {
-    return settingsToRevisionDocument(settingsFromRevisionDocument(document));
-  } catch {
-    return document;
-  }
-}
-
-export function stableJson(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`;
-  if (value && typeof value === 'object') {
-    return `{${Object.entries(value as Record<string, unknown>)
-      .filter(([, nested]) => nested !== undefined)
-      .sort(([left], [right]) => left.localeCompare(right))
-      .map(([key, nested]) => `${JSON.stringify(key)}:${stableJson(nested)}`)
-      .join(',')}}`;
-  }
-  return JSON.stringify(value);
-}
-
-async function validateProjectionPreconditions(input: {
-  settings: RuntimeSettings;
-  repositories: SettingsDesiredStateRepositories;
-  appId: AppId;
-}): Promise<void> {
-  const providerAccounts = input.repositories.providerAccounts;
-  if (!providerAccounts) return;
-  for (const [accountId, account] of Object.entries(
-    input.settings.providerAccounts,
-  )) {
-    const existing = await providerAccounts.getProviderAccount(
-      accountId as ProviderAccountId,
-    );
-    if (!existing) continue;
-    if (existing.appId !== input.appId) {
-      throw new Error(
-        `provider_accounts.${accountId} already belongs to another app`,
-      );
-    }
-    if (existing.providerId !== (account.provider as ProviderId)) {
-      throw new Error(
-        `provider_accounts.${accountId}.provider cannot change from ${existing.providerId} to ${account.provider}; use a new provider account id.`,
-      );
-    }
-  }
-}
-
-function mapRecord<T>(
-  record: Record<string, T>,
-  mapValue: (value: T) => unknown,
-): Record<string, unknown> {
-  return Object.fromEntries(
-    Object.entries(record).map(([key, value]) => [key, mapValue(value)]),
-  );
-}
-
-function snakeRecord(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(snakeRecord);
-  if (typeof value !== 'object' || value === null) return value;
-  return stripUndefined(
-    Object.fromEntries(
-      Object.entries(value as Record<string, unknown>).map(([key, item]) => [
-        key.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`),
-        snakeRecord(item),
-      ]),
-    ),
-  );
-}
-
-function stripUndefined<T extends Record<string, unknown>>(record: T): T {
-  return stripUndefinedDeep(record) as T;
-}
-
-function stripUndefinedDeep(value: unknown): unknown {
-  if (Array.isArray(value)) {
-    return value.map(stripUndefinedDeep);
-  }
-  if (typeof value !== 'object' || value === null) {
-    return value;
-  }
-  return Object.fromEntries(
-    Object.entries(value as Record<string, unknown>).flatMap(([key, item]) =>
-      item === undefined ? [] : [[key, stripUndefinedDeep(item)]],
-    ),
-  );
 }
