@@ -74,7 +74,10 @@ skips provider-marked ephemeral content. The current owning surfaces are
 ### FILE-2 — Slack deletion registration
 
 Slack now routes `message_deleted` through the neutral scoped tombstone
-operation. Telegram ordinary bot chats remain signal-less: the Bot API exposes
+operation. Markers are conversation-keyed in every case (Slack threads share
+the parent channel), so an admitted deletion without thread metadata still
+guards the pre-insert race: the later insert, threaded or not, lands
+tombstoned. Telegram ordinary bot chats remain signal-less: the Bot API exposes
 only `deleted_business_messages`, which requires a Business connection Gantry
 does not model.
 
