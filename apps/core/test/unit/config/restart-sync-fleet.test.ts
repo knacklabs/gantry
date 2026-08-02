@@ -413,7 +413,7 @@ describe('syncRuntimeSettingsFromProjection fleet mode', () => {
       appId: 'app:test' as never,
       settingsRevisions,
       expectedMcpBindings: [reviewed as never],
-      mcpCapabilityGrantToken: 'permission-request:reviewed',
+      mcpCapabilityGrantToken: 'permission_request_reviewed',
     });
 
     expect(listAgentBindings).toHaveBeenCalledWith({
@@ -439,7 +439,7 @@ describe('syncRuntimeSettingsFromProjection fleet mode', () => {
         ],
         mcpCapabilityGrantTokens: {
           '["main","mcp.reviewed.read","builtin"]':
-            'permission-request:reviewed',
+            'permission_request_reviewed',
         },
       }),
       expect.objectContaining({

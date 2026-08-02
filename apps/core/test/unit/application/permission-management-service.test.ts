@@ -957,7 +957,7 @@ describe('PermissionManagementService', () => {
       appId: 'app:test' as never,
       agentId: 'agent:test' as never,
       sourceAgentFolder: 'main_agent',
-      requestId: 'permission-request:mcp-caw-ats',
+      requestId: 'permission_request_mcp_caw_ats',
       updates: [
         {
           type: 'addRules',
@@ -1014,7 +1014,7 @@ describe('PermissionManagementService', () => {
             allowedToolPatterns: ['ats_list_positions'],
           }),
         ],
-        mcpCapabilityGrantToken: 'permission-request:mcp-caw-ats',
+        mcpCapabilityGrantToken: 'permission_request_mcp_caw_ats',
       },
     );
   });

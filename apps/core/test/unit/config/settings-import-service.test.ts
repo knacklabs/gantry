@@ -201,7 +201,7 @@ describe('importFleetSettingsRevision', () => {
       settingsDocument: settingsToRevisionDocument(settings),
       minReaderVersion: CURRENT_SETTINGS_READER_VERSION,
       createdBy: 'seed',
-      mcpCapabilityGrantTokens: { [tokenKey]: 'grant:first' },
+      mcpCapabilityGrantTokens: { [tokenKey]: 'grant_first' },
     });
 
     const unrelatedSuccessor = structuredClone(settings);
@@ -210,17 +210,17 @@ describe('importFleetSettingsRevision', () => {
       expectedRevision: 1,
     });
     expect(repo.rows[1]?.mcpCapabilityGrantTokens).toEqual({
-      [tokenKey]: 'grant:first',
+      [tokenKey]: 'grant_first',
     });
 
     const reapprovedSuccessor = structuredClone(unrelatedSuccessor);
     reapprovedSuccessor.agents.main_agent.name = 'Renamed again';
     await importFleetSettingsRevision(baseDeps(repo), reapprovedSuccessor, {
       expectedRevision: 2,
-      mcpCapabilityGrantTokens: { [tokenKey]: 'grant:second' },
+      mcpCapabilityGrantTokens: { [tokenKey]: 'grant_second' },
     });
     expect(repo.rows[2]?.mcpCapabilityGrantTokens).toEqual({
-      [tokenKey]: 'grant:second',
+      [tokenKey]: 'grant_second',
     });
   });
 
@@ -438,7 +438,7 @@ describe('importFleetSettingsRevision', () => {
       settingsDocument: settingsToRevisionDocument(settings),
       minReaderVersion: CURRENT_SETTINGS_READER_VERSION,
       createdBy: 'seed',
-      mcpCapabilityGrantTokens: { [tokenKey]: 'grant:first' },
+      mcpCapabilityGrantTokens: { [tokenKey]: 'grant_first' },
     });
 
     const outcome = await importWorkstationSettings(
@@ -454,14 +454,14 @@ describe('importFleetSettingsRevision', () => {
         },
         leases,
         revisionMirrorRequired: true,
-        mcpCapabilityGrantTokens: { [tokenKey]: 'grant:second' },
+        mcpCapabilityGrantTokens: { [tokenKey]: 'grant_second' },
       },
       settings,
     );
 
     expect(outcome).toEqual({ status: 'revision_created', revision: 2 });
     expect(repo.rows[1]?.mcpCapabilityGrantTokens).toEqual({
-      [tokenKey]: 'grant:second',
+      [tokenKey]: 'grant_second',
     });
   });
 
@@ -1427,12 +1427,12 @@ describe('importFleetSettingsRevision', () => {
   it.each([
     {
       name: 'removes the inherited failed grant',
-      successorGrantToken: 'grant:first',
+      successorGrantToken: 'grant_first',
       preservesGrant: false,
     },
     {
       name: 'preserves a later grant of the same capability',
-      successorGrantToken: 'grant:second',
+      successorGrantToken: 'grant_second',
       preservesGrant: true,
     },
   ])('$name while rebasing a concurrent successor', async (scenario) => {
@@ -1462,7 +1462,7 @@ describe('importFleetSettingsRevision', () => {
       'main_agent',
       rejectedSettings.agents.main_agent.capabilities[0]!,
     );
-    const rejectedGrantTokens = { [grantTokenKey]: 'grant:first' };
+    const rejectedGrantTokens = { [grantTokenKey]: 'grant_first' };
     const reviewedFence = {
       id: 'agent-mcp-binding:agent:main_agent:mcp:sum',
       appId: 'default',
