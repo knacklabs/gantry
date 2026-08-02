@@ -1,6 +1,17 @@
 import { createHash } from 'node:crypto';
 
-import { and, asc, eq, gt, inArray, isNull, or, sql } from 'drizzle-orm';
+import {
+  and,
+  asc,
+  eq,
+  gt,
+  inArray,
+  isNull,
+  like,
+  notLike,
+  or,
+  sql,
+} from 'drizzle-orm';
 
 import type { MessageAttachmentDeletionScope } from '../../../../domain/ports/message-attachment-repository.js';
 import type {
@@ -17,7 +28,12 @@ export interface NormalizedMessageAttachmentDeletionPair {
   channelId: string;
   externalMessageId: string;
   deletedAt: string;
+  conversationScoped: boolean;
 }
+
+const DELETION_MARKER_ID_PREFIX = 'message-attachment-deletion:';
+const CONVERSATION_SCOPED_DELETION_MARKER_ID_PREFIX =
+  'message-attachment-conversation-deletion:';
 
 export function normalizeMessageAttachmentDeletionScope(
   input: MessageAttachmentDeletionScope,
@@ -26,7 +42,10 @@ export function normalizeMessageAttachmentDeletionScope(
   const externalMessageIds = normalizedStrings(input.externalMessageIds);
   const appId = input.appId.trim();
   const providerId = input.providerId.trim();
-  const channelId = input.channelId.trim();
+  const conversationScoped = input.fallbackMatchesThreadedRows === true;
+  const channelId = conversationScoped
+    ? (input.fallbackConversationJid?.trim() ?? '')
+    : input.channelId.trim();
   if (
     !appId ||
     !providerId ||
@@ -45,6 +64,7 @@ export function normalizeMessageAttachmentDeletionScope(
           providerAccountId,
           channelId,
           externalMessageId,
+          conversationScoped,
         }),
         appId,
         providerId,
@@ -52,6 +72,7 @@ export function normalizeMessageAttachmentDeletionScope(
         channelId,
         externalMessageId,
         deletedAt: input.deletedAt,
+        conversationScoped,
       };
     }),
   );
@@ -130,13 +151,18 @@ export async function admittedMessageAttachmentDeletionPairs(
           ),
           ...(fallbackConversationJid
             ? [
-                and(
-                  isNull(message.threadId),
-                  eq(
-                    sql<string>`${message.externalRefJson}::jsonb->>'chat_jid'`,
-                    fallbackConversationJid,
-                  ),
-                ),
+                input.fallbackMatchesThreadedRows
+                  ? eq(
+                      sql<string>`${message.externalRefJson}::jsonb->>'chat_jid'`,
+                      fallbackConversationJid,
+                    )
+                  : and(
+                      isNull(message.threadId),
+                      eq(
+                        sql<string>`${message.externalRefJson}::jsonb->>'chat_jid'`,
+                        fallbackConversationJid,
+                      ),
+                    ),
               ]
             : []),
         ),
@@ -144,20 +170,19 @@ export async function admittedMessageAttachmentDeletionPairs(
     );
   // A stored match proves the (channel, account) scope: every event id for an
   // admitted account persists (the in-flight sibling is the ingest race this
-  // mechanism exists for). Each pair's channel comes from ITS OWN stored
-  // match; ids without one inherit the raw event channel key — never another
-  // pair's mapping.
+  // mechanism exists for). Conversation-scoped inputs retain the matched jid;
+  // other inputs preserve the thread-or-jid convention.
   const channelIdByPair = new Map<string, string>();
-  // Per-account default for siblings without their own stored match: the raw
-  // event channel when a thread match proved it IS a thread, otherwise the
-  // admitted conversation JID mapping — a raw key that ingestion will never
-  // look up must not leak onto sibling markers.
+  // Per-account defaults let in-flight sibling ids inherit only a scope proven
+  // by a stored match for that account.
   const defaultChannelByAccount = new Map<string, string>();
   for (const row of matched) {
     const isThreadMatch = row.threadId === input.channelId.trim();
-    const admittedChannelId = isThreadMatch
-      ? input.channelId.trim()
-      : (row.conversationJid ?? fallbackConversationJid);
+    const admittedChannelId = input.fallbackMatchesThreadedRows
+      ? (row.conversationJid ?? fallbackConversationJid)
+      : isThreadMatch
+        ? input.channelId.trim()
+        : (row.conversationJid ?? fallbackConversationJid);
     if (!admittedChannelId) continue;
     const key = `${row.providerAccountId}\u0000${row.externalMessageId ?? ''}`;
     const existing = channelIdByPair.get(key);
@@ -193,6 +218,7 @@ function deletionMarkerId(
     | 'providerAccountId'
     | 'channelId'
     | 'externalMessageId'
+    | 'conversationScoped'
   >,
 ): string {
   const identity = JSON.stringify([
@@ -202,7 +228,10 @@ function deletionMarkerId(
     pair.channelId,
     pair.externalMessageId,
   ]);
-  return `message-attachment-deletion:${createHash('sha256').update(identity).digest('hex')}`;
+  const prefix = pair.conversationScoped
+    ? CONVERSATION_SCOPED_DELETION_MARKER_ID_PREFIX
+    : DELETION_MARKER_ID_PREFIX;
+  return `${prefix}${createHash('sha256').update(identity).digest('hex')}`;
 }
 
 export async function retryActionableMessageAttachmentDeletionMarkers(
@@ -235,15 +264,33 @@ export async function retryActionableMessageAttachmentDeletionMarkers(
           eq(conversation.providerAccountId, marker.providerAccountId),
           or(
             and(
-              isNull(message.threadId),
+              like(
+                marker.id,
+                `${CONVERSATION_SCOPED_DELETION_MARKER_ID_PREFIX}%`,
+              ),
               eq(
                 sql<string>`${conversation.externalRefJson}::jsonb->>'jid'`,
                 marker.channelId,
               ),
             ),
-            eq(
-              sql<string>`${message.externalRefJson}::jsonb->>'thread_id'`,
-              marker.channelId,
+            and(
+              notLike(
+                marker.id,
+                `${CONVERSATION_SCOPED_DELETION_MARKER_ID_PREFIX}%`,
+              ),
+              or(
+                and(
+                  isNull(message.threadId),
+                  eq(
+                    sql<string>`${conversation.externalRefJson}::jsonb->>'jid'`,
+                    marker.channelId,
+                  ),
+                ),
+                eq(
+                  sql<string>`${message.externalRefJson}::jsonb->>'thread_id'`,
+                  marker.channelId,
+                ),
+              ),
             ),
           ),
         ),
@@ -290,14 +337,26 @@ export async function deletionMarkerTimestampForMessage(
 ): Promise<{ deletedAt: string; providerId: string } | undefined> {
   if (!input.externalMessageId) return undefined;
   const marker = pgSchema.messageAttachmentDeletionMarkersPostgres;
-  const channelId = input.threadId ?? input.conversationJid.trim();
-  if (!channelId) return undefined;
+  const conversationJid = input.conversationJid.trim();
+  const threadOrConversationId = input.threadId ?? conversationJid;
+  // The thread id alone identifies the channel key; the conversation jid is
+  // only required for the conversation-scoped marker branch below.
+  if (!threadOrConversationId) return undefined;
   const scopeCondition = and(
     eq(marker.appId, input.appId),
     eq(marker.providerId, input.providerId),
     eq(marker.providerAccountId, input.providerAccountId),
-    eq(marker.channelId, channelId),
     eq(marker.externalMessageId, input.externalMessageId),
+    or(
+      and(
+        like(marker.id, `${CONVERSATION_SCOPED_DELETION_MARKER_ID_PREFIX}%`),
+        eq(marker.channelId, conversationJid),
+      ),
+      and(
+        notLike(marker.id, `${CONVERSATION_SCOPED_DELETION_MARKER_ID_PREFIX}%`),
+        eq(marker.channelId, threadOrConversationId),
+      ),
+    ),
   );
   // Lock the marker rows (marker-before-attachment order, matching the
   // processing path) so final consumption cannot slip between this read and
@@ -349,6 +408,9 @@ export function deletionPairFromMarker(
     channelId: row.channelId,
     externalMessageId: row.externalMessageId,
     deletedAt: row.deletedAt,
+    conversationScoped: row.id.startsWith(
+      CONVERSATION_SCOPED_DELETION_MARKER_ID_PREFIX,
+    ),
   };
 }
 

@@ -221,7 +221,7 @@ export class PostgresCanonicalMessageRepository {
       msg.chat_jid,
       msg.thread_id,
       tx,
-      { channel: providerId, providerAccountId },
+      { conversationId, providerAccountId },
     );
     let canonicalMessageId = messageIdFor(
       msg.chat_jid,

@@ -929,6 +929,55 @@ describe('Slack channel', () => {
     expect(distrustHistoryCoverage).not.toHaveBeenCalled();
   });
 
+  it('does not register Slack deletion routing on an interaction-only connection', async () => {
+    const onMessageAttachmentsDeleted = vi.fn(async () => undefined);
+    const channel = new SlackChannel('xoxb-token', 'xapp-token', {
+      ...createOpts(),
+      onMessageAttachmentsDeleted,
+    } as any);
+
+    await channel.connect({ inbound: false, interactionCallbacks: true });
+
+    expect(appRef.current.eventHandlers.get('message')).toBeUndefined();
+    expect(onMessageAttachmentsDeleted).not.toHaveBeenCalled();
+  });
+
+  it('routes Slack deletion callback failures through the Bolt error path', async () => {
+    const callbackError = new Error('tombstone rejected');
+    const onMessageAttachmentsDeleted = vi.fn(async () => {
+      throw callbackError;
+    });
+    const distrustHistoryCoverage = vi.fn();
+    const channel = new SlackChannel('xoxb-token', 'xapp-token', {
+      ...createOpts(),
+      providerAccountId: 'slack-one',
+      onMessageAttachmentsDeleted,
+      distrustHistoryCoverage,
+    } as any);
+    await channel.connect();
+    const handler = appRef.current.eventHandlers.get('message')?.[0];
+
+    try {
+      await handler!({
+        event: {
+          subtype: 'message_deleted',
+          channel: 'C123',
+          ts: 'event-ts',
+          deleted_ts: 'deleted-ts',
+        },
+      });
+    } catch (err) {
+      await appRef.current.errorHandler(err as Error);
+    }
+
+    expect(onMessageAttachmentsDeleted).toHaveBeenCalledOnce();
+    expect(distrustHistoryCoverage).toHaveBeenCalledWith(['slack-one']);
+    expect(logger.error).toHaveBeenCalledWith(
+      { err: callbackError },
+      'Slack app error',
+    );
+  });
+
   it('adds Slack reactions idempotently', async () => {
     const channel = new SlackChannel(
       'xoxb-token',

@@ -228,6 +228,7 @@ export class PostgresCanonicalSessionRepository {
       );
       if (canonicalThreadId) {
         await this.graph.ensureThread(input.chatJid, input.threadId, executor, {
+          conversationId,
           providerAccountId: input.providerAccountId,
         });
       }

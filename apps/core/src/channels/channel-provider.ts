@@ -74,6 +74,8 @@ export interface MessageAttachmentsDeleted {
   channelId: string;
   fallbackConversationJid?: string;
   requireStoredMessageMatch?: boolean;
+  /** Persist and match this deletion at conversation scope, including threaded rows. */
+  fallbackMatchesThreadedRows?: boolean;
   externalMessageIds: readonly string[];
   deletedAt: string;
 }
