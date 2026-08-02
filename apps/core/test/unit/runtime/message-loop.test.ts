@@ -812,6 +812,29 @@ describe('thread queue routing', () => {
     },
   );
 
+  it('re-enqueues immediately when a continuation receipt never settles', async () => {
+    const enqueueMessageCheck = vi.fn();
+    mockGetMessagesSince.mockReturnValueOnce([
+      {
+        ...makePendingMessage(1),
+        external_message_id: 'provider-message-1',
+      },
+    ]);
+    const deps = makeDeps({
+      addReaction: vi.fn(() => new Promise<void>(() => undefined)),
+      queue: {
+        ...makeDeps().queue,
+        sendMessage: vi.fn(() => false),
+        enqueueMessageCheck,
+      },
+    });
+
+    await expect(
+      processLiveAdmissionWorkItem(deps, makeAdmissionItem()),
+    ).resolves.toBe('completed');
+    expect(enqueueMessageCheck).toHaveBeenCalledWith('group@g.us');
+  });
+
   it('does not acknowledge a synthetic continuation reference', async () => {
     mockGetMessagesSince.mockReturnValueOnce([
       {

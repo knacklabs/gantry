@@ -567,6 +567,88 @@ describe('createProgressChannelSender', () => {
     expect(calls).toEqual(['Still working', 'Working', 'Working']);
   });
 
+  it('repairs a late provider-card generation without touching the next generation card', async () => {
+    const oldEdit = deferred<boolean>();
+    const calls: Array<{ text: string; generation?: number }> = [];
+    const channelRuntime = {
+      sendProgressUpdate: vi.fn(
+        async (
+          _jid: string,
+          text: string,
+          options?: { generation?: number },
+        ) => {
+          calls.push({ text, generation: options?.generation });
+          if (text === 'Still working') return oldEdit.promise;
+          return true;
+        },
+      ),
+    } as never;
+    const sender = createProgressChannelSender({
+      channelRuntime,
+      chatJid: 'discord:generation-key',
+      groupName: 'thread',
+      finalizingGenerations: new Set<number>(),
+      log: { warn: vi.fn() },
+    });
+
+    const stale = sender('Still working', {
+      threadId: 'thread',
+      generation: 70,
+      replaceOnly: true,
+    });
+    const oldDone = sender('Done generation 70.', {
+      threadId: 'thread',
+      generation: 70,
+      done: true,
+    });
+    const next = sender('Working generation 71.', {
+      threadId: 'thread',
+      generation: 71,
+    });
+
+    await expect(next).resolves.toBe(true);
+    await vi.advanceTimersByTimeAsync(2_000);
+    await expect(oldDone).resolves.toBe(true);
+    oldEdit.resolve(true);
+    await expect(stale).resolves.toBe(true);
+    await flushMicrotasks();
+
+    expect(calls).toEqual([
+      { text: 'Still working', generation: 70 },
+      { text: 'Working generation 71.', generation: 71 },
+      { text: 'Done generation 70.', generation: 70 },
+      { text: 'Done generation 70.', generation: 70 },
+    ]);
+  });
+
+  it('keeps undefined-generation control progress on one stable card key', async () => {
+    const first = deferred<boolean>();
+    const calls: string[] = [];
+    const sender = createProgressChannelSender({
+      channelRuntime: {
+        sendProgressUpdate: vi.fn(async (_jid: string, text: string) => {
+          calls.push(text);
+          if (text === 'Control one') return first.promise;
+          return true;
+        }),
+      } as never,
+      chatJid: 'discord:shared-control',
+      groupName: 'thread',
+      finalizingGenerations: new Set<number>(),
+      log: { warn: vi.fn() },
+    });
+
+    const one = sender('Control one', { threadId: 'thread' });
+    const two = sender('Control two', { threadId: 'thread' });
+    await flushMicrotasks();
+    expect(calls).toEqual(['Control one']);
+
+    first.resolve(true);
+    await expect(one).resolves.toBe(true);
+    await expect(two).resolves.toBe(true);
+    expect(calls).toEqual(['Control one', 'Control two']);
+  });
+
   it('keeps terminal state repairable after its sender retires', async () => {
     const stalled = deferred<boolean>();
     const calls: string[] = [];

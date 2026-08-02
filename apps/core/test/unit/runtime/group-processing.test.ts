@@ -3898,6 +3898,46 @@ describe('createGroupProcessor', () => {
       );
     });
 
+    it('fences heartbeat UI before detached terminal reaction cleanup', async () => {
+      const finish = deferred<AgentOutput>();
+      const terminalCleanup = vi.fn(() => new Promise<void>(() => undefined));
+      const sendProgressUpdate = vi.fn().mockResolvedValue(true);
+      const channel = makeChannel({ sendProgressUpdate });
+      const { deps } = setupHappyPath();
+      deps.channelRuntime = channel;
+      mockSpawnAgent.mockImplementation(async () => finish.promise);
+
+      const { processGroupMessages } = createGroupProcessor(deps);
+      const processing = processGroupMessages('group1@g.us', {
+        onTurnTerminal: terminalCleanup,
+      });
+      await vi.advanceTimersByTimeAsync(181_000);
+      expect(sendProgressUpdate).toHaveBeenCalledWith(
+        'group1@g.us',
+        'Still working',
+        expect.objectContaining({ replaceOnly: true }),
+      );
+
+      finish.resolve({ status: 'success', result: null });
+      await processing;
+      expect(terminalCleanup).toHaveBeenCalledOnce();
+      expect(sendProgressUpdate).toHaveBeenCalledWith(
+        'group1@g.us',
+        'Done.',
+        expect.objectContaining({ done: true }),
+      );
+
+      const progressCallsAfterTerminal = sendProgressUpdate.mock.calls.length;
+      const typingCallsAfterTerminal = (
+        channel.setTyping as ReturnType<typeof vi.fn>
+      ).mock.calls.length;
+      await vi.advanceTimersByTimeAsync(180_000);
+      expect(sendProgressUpdate).toHaveBeenCalledTimes(
+        progressCallsAfterTerminal,
+      );
+      expect(channel.setTyping).toHaveBeenCalledTimes(typingCallsAfterTerminal);
+    });
+
     it('suppresses a stall notice while candidate visible output delivery is in flight', async () => {
       const finish = deferred<AgentOutput>();
       const visibleDelivery = deferred<boolean>();

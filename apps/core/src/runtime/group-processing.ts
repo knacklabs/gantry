@@ -21,6 +21,7 @@ import { getConfiguredModelProvidersForApp } from '../adapters/storage/postgres/
 import { resolveGroupProcessingRouteContext } from './command-override-route-key.js';
 import { memoryScopeForConversationKind } from './group-run-context.js';
 import {
+  detachTerminalCleanup,
   handleFailure,
   resetGroupStreamingForTurn,
   resolveGroupTurnFinalProgressState,
@@ -68,7 +69,6 @@ const PERMISSION_BACKGROUND_DEMOTE_MS = 120_000;
 const PROVIDER_FAILOVER_EXHAUSTED_MESSAGE =
   "The AI provider is unavailable and your message couldn't be processed after several retries. Please try again shortly.";
 type ProgressHeartbeat = ReturnType<typeof startGroupLivenessHeartbeat>;
-
 function slackChannelRootThreadId(
   chatJid: string,
   externalMessageId: string | null | undefined,
@@ -712,8 +712,8 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
       if (output === 'success' && pendingIdleBoundary) {
         notifyTurnIdle();
       }
-      await options.onTurnTerminal?.();
       await cancelTurnUiTimers();
+      detachTerminalCleanup(options.onTurnTerminal);
       unregisterContinuationHandler?.();
       const activeCleanup = activeTurnUiCleanupByQueue.get(queueJid);
       if (activeCleanup?.token === turnUiToken) {

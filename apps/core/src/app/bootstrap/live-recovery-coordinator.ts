@@ -433,7 +433,7 @@ export async function routeScopeActiveLiveTurnAdmissionFromCursor(input: {
   const { providerAccountId, threadId } = parseAgentThreadQueueKey(
     input.queueJid,
   );
-  await acknowledgeContinuationReceipt({
+  void acknowledgeContinuationReceipt({
     jid: input.chatJid,
     messages: replayMessages,
     ...(providerAccountId || threadId
@@ -445,6 +445,11 @@ export async function routeScopeActiveLiveTurnAdmissionFromCursor(input: {
         }
       : {}),
     addReaction: input.addReaction,
+  }).catch((err) => {
+    logger.warn(
+      { err, chatJid: input.chatJid, queueJid: input.queueJid },
+      'Failed to acknowledge recovered continuation receipt',
+    );
   });
   if (routed && (replay?.hasMore || (controlIndex ?? -1) >= 0)) {
     input.enqueueMessageCheck?.(input.queueJid);

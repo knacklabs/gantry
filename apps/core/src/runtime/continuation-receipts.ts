@@ -15,9 +15,7 @@ export async function acknowledgeContinuationReceipt(input: {
   for (let index = input.messages.length - 1; index >= 0; index -= 1) {
     const ref = input.messages[index]?.external_message_id;
     if (!ref || ref.startsWith('external-ingress:')) continue;
-    await input
-      .addReaction(input.jid, ref, 'seen', input.options)
-      .catch(() => undefined);
+    await input.addReaction(input.jid, ref, 'seen', input.options);
     return;
   }
 }

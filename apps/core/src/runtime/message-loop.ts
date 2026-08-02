@@ -417,7 +417,7 @@ async function processQueueMessages(
     }),
     cursorAfter,
   });
-  await acknowledgeContinuationReceipt({
+  void acknowledgeContinuationReceipt({
     jid: chatJid,
     messages: initialBatch,
     ...(group.providerAccountId || threadId
@@ -431,6 +431,11 @@ async function processQueueMessages(
         }
       : {}),
     addReaction: deps.addReaction,
+  }).catch((err) => {
+    logger.warn(
+      { err, chatJid, queueJid },
+      'Failed to acknowledge continuation receipt',
+    );
   });
   if (!accepted) {
     return enqueueMessageCheck(deps, queueJid);

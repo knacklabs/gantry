@@ -92,11 +92,13 @@ function progressCardKey(input: {
   chatJid: string;
   providerAccountId?: string;
   threadId?: string;
+  generation?: number;
 }): string {
   return [
     input.chatJid,
     input.providerAccountId ?? '',
     input.threadId ?? '',
+    input.generation === undefined ? '' : String(input.generation),
   ].join('\n');
 }
 
@@ -377,6 +379,7 @@ export function createProgressChannelSender(input: {
       chatJid: input.chatJid,
       providerAccountId: options?.providerAccountId ?? input.providerAccountId,
       threadId: options?.threadId ?? input.threadId,
+      generation: options?.generation,
     });
 
   const claimCard = (key: string): ProgressSendChain | undefined => {
