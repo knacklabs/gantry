@@ -440,10 +440,13 @@
         "Jobs and binding/setup flows unaffected"
       ],
       "order": 28,
-      "status": "pending",
+      "status": "done",
       "skill": "backend",
       "kind": "refactor",
-      "spec": "docs/specs/lat-4b-graph-write-reduction.md"
+      "spec": "docs/specs/lat-4b-graph-write-reduction.md",
+      "completed_at": "2026-08-02T07:41:08+00:00",
+      "history": ".factory/history/LAT-4B/",
+      "outcome": "Message persistence stopped re-writing identities the database already knows. A normal message now persists in 15 SQL statements instead of 19, and a thread message in 16 instead of 29 \u2014 the same saving applies to the agent's own replies and to history backfill in threads. Thread activity now orders the chat list by the message's own time, exactly like normal messages (decision 0096), which also means a redelivered old message can no longer jump a conversation to the top, and thread messages no longer corrupt the conversation's group flag. The remaining identity writes need receipt plumbing and are deferred with a measured trigger (D-0041)."
     }
   ],
   "epics": [
@@ -532,5 +535,5 @@
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-08-02T06:34:32+00:00"
+  "updated_at": "2026-08-02T07:41:08+00:00"
 }
