@@ -34,13 +34,15 @@ for ordinary bot chats — a capability-matrix truth, not code.
    [`MessageDeletedEvent` type](https://docs.slack.dev/tools/node-slack-sdk/reference/types/interfaces/MessageDeletedEvent)
    declares it. When present, any nonblank `previous_message.thread_ts` is the
    stored thread key, matching ingest's current `thread_id: event.thread_ts`;
-   absent thread ts means the top-level `sl:<channel>` key. When
-   `previous_message` itself is absent, the
-   router uses `fallbackConversationJid:'sl:<channel>'` with
-   `requireStoredMessageMatch:true` and the repository recovers the exact
-   stored row's `threadId ?? conversationJid`. An unknown id writes no marker;
-   a pre-insert threaded deletion with no previous-message scope is explicitly
-   unknowable and must not write a falsely scoped marker.
+   absent thread ts means the top-level `sl:<channel>` key. Because Slack thread messages share the
+   parent's channel id, deletion markers are keyed by the conversation jid
+   in every case: an ADMITTED channel persists a conversation-scoped marker
+   even when `previous_message` is absent (this is exactly what protects the
+   pre-insert race — the later insert, threaded or not, consumes it under
+   the jid). Only an UNADMITTED channel defers to the durable stored-message
+   check (`fallbackConversationJid:'sl:<channel>'`,
+   `requireStoredMessageMatch:true`), where an id with no stored row writes
+   no marker.
 3. **Admission is account-fenced.** `findConversationRoutesForChat` is checked
    for each `inboundProviderAccountIds` entry, falling back to the channel's
    `providerAccountId`. A route belonging only to a different provider account
