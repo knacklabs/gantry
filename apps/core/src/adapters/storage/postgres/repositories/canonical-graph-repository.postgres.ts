@@ -458,9 +458,21 @@ export class PostgresCanonicalGraphRepository {
     let participantUserId = existingAlias?.userId;
     if (participantUserId && input.displayName) {
       // Provider-side name changes must keep flowing into people views; the
-      // reuse path previously froze both names at first observation.
+      // reuse path previously froze both names at first observation. Person
+      // row FIRST, alias second — merge/unmerge lock in that order, and a
+      // refresh holding the alias while waiting on the person would deadlock.
       const observedName = input.displayName;
       const observedAt = currentIso();
+      await executor
+        .update(pgSchema.usersPostgres)
+        .set({ displayName: observedName, updatedAt: observedAt })
+        .where(
+          and(
+            eq(pgSchema.usersPostgres.appId, CANONICAL_APP_ID),
+            eq(pgSchema.usersPostgres.id, participantUserId),
+            sql`${pgSchema.usersPostgres.displayName} IS DISTINCT FROM ${observedName}`,
+          ),
+        );
       await executor
         .update(pgSchema.userAliasesPostgres)
         .set({ displayName: observedName, updatedAt: observedAt })
@@ -472,16 +484,6 @@ export class PostgresCanonicalGraphRepository {
             eq(pgSchema.userAliasesPostgres.externalUserId, externalUserId),
             isNull(pgSchema.userAliasesPostgres.retiredAt),
             sql`${pgSchema.userAliasesPostgres.displayName} IS DISTINCT FROM ${observedName}`,
-          ),
-        );
-      await executor
-        .update(pgSchema.usersPostgres)
-        .set({ displayName: observedName, updatedAt: observedAt })
-        .where(
-          and(
-            eq(pgSchema.usersPostgres.appId, CANONICAL_APP_ID),
-            eq(pgSchema.usersPostgres.id, participantUserId),
-            sql`${pgSchema.usersPostgres.displayName} IS DISTINCT FROM ${observedName}`,
           ),
         );
     }

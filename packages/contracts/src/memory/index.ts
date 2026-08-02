@@ -49,6 +49,13 @@ export const MemorySearchRequestSchema = z.object({
   includeCommon: z.boolean().optional(),
   subjectTypes: z.array(MemorySubjectTypeSchema).optional(),
   metadata: ContractMetadataSchema.optional(),
+  // The person filter was renamed from userId; a non-strict parse would strip
+  // the old key and silently broaden the search to every subject.
+  userId: z
+    .custom<undefined>((value) => value === undefined, {
+      message: 'userId was renamed to personId; use personId',
+    })
+    .optional(),
 });
 export type MemorySearchRequest = z.infer<typeof MemorySearchRequestSchema>;
 
