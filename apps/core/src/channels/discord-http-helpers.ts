@@ -3,6 +3,18 @@ import type { DiscordUser } from './discord-types.js';
 const DISCORD_RETRY_DELAY_FALLBACK_MS = 1000;
 const DISCORD_RETRY_DELAY_MAX_MS = 5000;
 
+export class DiscordRestError extends Error {
+  readonly status: number;
+  readonly discordCode: number | undefined;
+
+  constructor(message: string, status: number, discordCode?: number) {
+    super(message);
+    this.name = 'DiscordRestError';
+    this.status = status;
+    this.discordCode = discordCode;
+  }
+}
+
 export function discordHeaders(token: string): Record<string, string> {
   return {
     authorization: `Bot ${token}`,
@@ -45,11 +57,70 @@ export function discordRateLimitRetryDelayMs(
   return DISCORD_RETRY_DELAY_FALLBACK_MS;
 }
 
-export async function waitDiscordRetryDelay(delayMs: number): Promise<void> {
-  await new Promise<void>((resolve) => {
-    const timer = setTimeout(resolve, delayMs);
+export async function waitDiscordRetryDelay(
+  delayMs: number,
+  signal?: AbortSignal | null,
+): Promise<void> {
+  if (signal?.aborted) throw signal.reason;
+  await new Promise<void>((resolve, reject) => {
+    const finish = () => {
+      signal?.removeEventListener('abort', abort);
+      resolve();
+    };
+    const abort = () => {
+      clearTimeout(timer);
+      reject(signal?.reason);
+    };
+    const timer = setTimeout(finish, delayMs);
     timer.unref?.();
+    signal?.addEventListener('abort', abort, { once: true });
   });
+}
+
+export async function requestDiscordJson<T>(input: {
+  url: string;
+  init: RequestInit;
+  errorMessage: string;
+  parseJson?: boolean;
+  fetcher?: typeof fetch;
+  onRetry?: (attempt: number, retryDelayMs: number) => void;
+}): Promise<T> {
+  const fetcher = input.fetcher ?? fetch;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const response = await fetcher(input.url, input.init);
+    if (response.ok) {
+      return input.parseJson === false
+        ? (undefined as T)
+        : ((await response.json()) as T);
+    }
+    const discordCode = await readDiscordErrorCode(response);
+    const retryDelayMs = discordRateLimitRetryDelayMs(response);
+    if (retryDelayMs === null || attempt >= 2) {
+      throw new DiscordRestError(
+        input.errorMessage,
+        response.status,
+        discordCode,
+      );
+    }
+    input.onRetry?.(attempt + 1, retryDelayMs);
+    await waitDiscordRetryDelay(retryDelayMs, input.init.signal);
+  }
+  throw new Error(input.errorMessage);
+}
+
+async function readDiscordErrorCode(
+  response: Response,
+): Promise<number | undefined> {
+  try {
+    const body = (await response.json()) as unknown;
+    if (!body || typeof body !== 'object' || Array.isArray(body)) {
+      return undefined;
+    }
+    const code = (body as Record<string, unknown>).code;
+    return typeof code === 'number' && Number.isFinite(code) ? code : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 export function userName(

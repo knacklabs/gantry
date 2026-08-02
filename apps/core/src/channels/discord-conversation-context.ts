@@ -303,6 +303,7 @@ export async function resolveDiscordConversationContext(input: {
   cache: DiscordConversationContextCache;
   headers(token: string): Record<string, string>;
   requestJson: DiscordContextRequestJson;
+  failClosed?: boolean;
 }): Promise<{ conversationJid: string; threadId?: string }> {
   const cached = input.cache.get(input.channelId);
   if (cached) return cached;
@@ -333,6 +334,7 @@ export async function resolveDiscordConversationContext(input: {
       },
       'Discord thread parent lookup failed',
     );
+    if (input.failClosed) throw err;
     return fallback;
   }
 }
@@ -347,9 +349,12 @@ function normalizeDiscordContextMessages(input: {
   const byExternalId = new Map<string, NewMessage>();
   for (const message of input.rawMessages) {
     if (byExternalId.size >= input.limit) break;
-    if (!message.id) continue;
+    if (!message.id || isDiscordEphemeralMessage(message)) continue;
     const content = message.content?.trim() || '';
-    const attachments = discordMessageAttachments(message);
+    const attachments = discordMessageAttachments(
+      message,
+      input.conversationJid,
+    );
     if (!content && attachments.length === 0) continue;
     const author = message.author || message.member?.user;
     const sender = author?.id || 'unknown';
@@ -380,17 +385,53 @@ function normalizeDiscordContextMessages(input: {
 
 export function discordMessageAttachments(
   message: DiscordMessageCreate,
+  conversationJid?: string,
 ): NonNullable<NewMessage['attachments']> {
-  return (message.attachments || []).map((attachment) => ({
-    id: attachment.id ? `discord-attachment:${attachment.id}` : undefined,
-    kind: attachment.content_type?.startsWith('image/') ? 'image' : 'file',
-    contentType: attachment.content_type,
-    sizeBytes:
-      typeof attachment.size === 'number' && Number.isFinite(attachment.size)
-        ? attachment.size
-        : undefined,
-    externalId: attachment.id,
-  }));
+  if (isDiscordEphemeralMessage(message)) return [];
+  const conversationChannelId = conversationJid
+    ? discordChannelIdFromJid(conversationJid)
+    : null;
+  return (message.attachments || [])
+    .filter((attachment) => attachment.ephemeral !== true)
+    .map((attachment) => ({
+      id: attachment.id ? `discord-attachment:${attachment.id}` : undefined,
+      kind: attachment.content_type?.startsWith('image/') ? 'image' : 'file',
+      contentType: attachment.content_type,
+      sizeBytes:
+        typeof attachment.size === 'number' && Number.isFinite(attachment.size)
+          ? attachment.size
+          : undefined,
+      externalId: attachment.id,
+      file_name: attachment.filename,
+      provider_fetch:
+        attachment.id && message.channel_id && message.id
+          ? {
+              provider: 'discord',
+              kind: 'attachment_id',
+              id: attachment.id,
+              channelId: message.channel_id,
+              messageId: message.id,
+              ...(conversationChannelId &&
+              conversationChannelId !== message.channel_id
+                ? { parentChannelId: conversationChannelId }
+                : {}),
+            }
+          : undefined,
+    }));
+}
+
+export function isDiscordEphemeralMessage(
+  message: DiscordMessageCreate,
+): boolean {
+  return ((message.flags ?? 0) & 64) !== 0;
+}
+
+export function isDiscordDurableIngressMessage(
+  message: DiscordMessageCreate,
+): message is DiscordMessageCreate & { id: string; channel_id: string } {
+  return Boolean(
+    message.id && message.channel_id && !isDiscordEphemeralMessage(message),
+  );
 }
 
 function userName(user: DiscordUser | undefined, fallback = 'unknown'): string {

@@ -40,6 +40,7 @@ import {
   attachmentsJsonForMessage,
   replaceCanonicalMessageAttachments,
 } from './canonical-message-attachments.postgres.js';
+import { deletionMarkerTimestampForMessage } from './message-attachment-deletion-markers.postgres.js';
 import {
   cleanupRemovedProviderAttachments as cleanupProviderAttachments,
   type ProviderAttachmentCleanup,
@@ -328,6 +329,23 @@ export class PostgresCanonicalMessageRepository {
             incomingAttachments: msg.attachments,
             messageInserted,
             trust: msg.is_bot_message ? 'system' : 'trusted',
+            deletionMarkerTimestamp:
+              msg.attachments.length > 0
+                ? await deletionMarkerTimestampForMessage(tx, {
+                    appId: CANONICAL_APP_ID,
+                    providerId,
+                    providerAccountId,
+                    conversationJid: msg.chat_jid,
+                    ...(msg.thread_id ? { threadId: msg.thread_id } : {}),
+                    externalMessageId,
+                    canonicalMessageId,
+                    incomingHasProviderRefs: msg.attachments.some(
+                      (incoming) =>
+                        typeof incoming.storageRef === 'string' &&
+                        incoming.storageRef.startsWith('provider-attachments/'),
+                    ),
+                  })
+                : undefined,
           });
     if (direction !== 'inbound' || !options.liveAdmission) {
       return { liveAdmissionResult: undefined, removedProviderStorageRefs };

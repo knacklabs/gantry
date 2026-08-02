@@ -387,6 +387,26 @@
       "completed_at": "2026-08-01T01:08:57+00:00",
       "history": ".factory/history/LAT-5B/",
       "outcome": "Agent conversations on Slack and Discord now remember, durably in Postgres, what history they have already stored. Once a channel or thread is fully persisted, later turns skip the provider history call (measured 1 to 0 calls, for exactly one extra SQL statement), so replies start faster. The record is trusted only while a live inbound stream is delivering: reconnects, dropped sockets, outbound-only accounts, interaction-only sockets, failed dispatches and account rebinds all invalidate it, and the next turn re-fetches from the provider so nothing said while the agent was away is silently skipped. Telegram is unchanged. Known residual: a brief multi-process stale-trust window, deferred as D-0036."
+    },
+    {
+      "key": "FILE-1B",
+      "title": "Discord conversation-file parity",
+      "story": "As a Discord user sharing files with the agent, I want the agent to save, recall, and honestly account for my files exactly as it does on Slack, so that trust in shared files does not depend on which chat app I use.",
+      "acceptance_criteria": [
+        "Live Discord attachments persist file_name + durable fetch identity and bytes via the 0045 writer under the 50 MiB cap",
+        "Backfill re-fetch by (channelId,messageId,attachmentId) with fresh CDN URL; 404/absent-attachment tombstones; auth/network stay unreachable",
+        "MESSAGE_DELETE(_BULK) tombstones tracked attachments; deleted copy served with zero provider calls",
+        "Ephemeral messages and attachments never stored, live or hydrated",
+        "Conversation scoping refusal proven on real Postgres for Discord identities"
+      ],
+      "order": 26,
+      "status": "done",
+      "skill": "backend",
+      "kind": "feature",
+      "spec": "docs/specs/file-1b-discord-file-parity.md",
+      "completed_at": "2026-08-01T19:00:59+00:00",
+      "history": ".factory/history/FILE-1B/",
+      "outcome": "Files shared in Discord now behave like Slack files. The agent saves the bytes the moment a file is posted, remembers the filename and where it came from, and can fetch an old file it never saved the first time someone needs it. When a message is deleted on Discord, its files are honestly reported as deleted and the stored bytes are removed \u2014 durably, so a deletion that races message ingestion, hits a transient database error, or arrives for a not-yet-stored message still lands. Ephemeral content is never stored, downloads only ever come from Discord's CDN with no credentials attached, and every file stays locked to its own conversation. Remaining edges (attachment removal via message edits, marker retention hygiene) are recorded as deferrals with triggers."
     }
   ],
   "epics": [
@@ -475,5 +495,5 @@
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-08-01T01:08:57+00:00"
+  "updated_at": "2026-08-01T19:00:59+00:00"
 }

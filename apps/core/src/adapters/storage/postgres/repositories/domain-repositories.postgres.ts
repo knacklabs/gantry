@@ -138,6 +138,7 @@ import { PostgresPermissionDecisionMemoryRepository } from './permission-decisio
 import { PostgresGroupJoinOnboardingRepository } from './group-join-onboarding-repository.postgres.js';
 import { PostgresMessageAttachmentRepository } from './message-attachment-repository.postgres.js';
 import { PostgresConversationHistoryCoverageRepository } from './conversation-history-coverage-repository.postgres.js';
+import { deletionMarkerTimestampForMessage } from './message-attachment-deletion-markers.postgres.js';
 export interface PostgresDomainRepositoryBundle {
   apps: AppRepository;
   agents: AgentRepository;
@@ -1172,6 +1173,7 @@ export class PostgresMessageRepository implements MessageRepository {
         .select({
           providerAccountId: c.providerAccountId,
           providerId: ci.providerId,
+          conversationJid: sql<string>`${c.externalRefJson}::jsonb->>'jid'`,
         })
         .from(c)
         .innerJoin(ci, eq(ci.id, c.providerAccountId))
@@ -1271,6 +1273,25 @@ export class PostgresMessageRepository implements MessageRepository {
             );
       const existingAttachmentsById =
         existingAttachmentMetadataMaps(existingAttachments).byId;
+      const externalThreadId = externalThreadIdFromMessage(message);
+      const deletionMarkerTimestamp =
+        message.attachments.length > 0 &&
+        (externalThreadId || channel.conversationJid)
+          ? await deletionMarkerTimestampForMessage(tx, {
+              appId: message.appId,
+              providerId: channel.providerId,
+              providerAccountId: channel.providerAccountId,
+              conversationJid: channel.conversationJid ?? '',
+              ...(externalThreadId ? { threadId: externalThreadId } : {}),
+              externalMessageId,
+              canonicalMessageId: targetMessageId,
+              incomingHasProviderRefs: message.attachments.some(
+                (incoming) =>
+                  typeof incoming.storageRef === 'string' &&
+                  incoming.storageRef.startsWith('provider-attachments/'),
+              ),
+            })
+          : undefined;
       const replacementAttachmentRows = message.attachments.map(
         (attachment) => {
           const idMatch = existingAttachmentsById.get(attachment.id);
@@ -1294,7 +1315,26 @@ export class PostgresMessageRepository implements MessageRepository {
             ),
             fileName: existing?.fileName ?? null,
             providerFetchJson: existing?.providerFetchJson ?? null,
-            deletedAt: existing?.deletedAt ?? null,
+            deletedAt: (() => {
+              const markerApplies =
+                deletionMarkerTimestamp !== undefined &&
+                (existing?.providerFetchJson === null ||
+                  existing?.providerFetchJson === undefined ||
+                  (existing.providerFetchJson as { provider?: unknown })
+                    .provider === undefined ||
+                  (existing.providerFetchJson as { provider?: unknown })
+                    .provider === deletionMarkerTimestamp.providerId);
+              const markerDeletedAt = markerApplies
+                ? deletionMarkerTimestamp.deletedAt
+                : undefined;
+              if (existing?.deletedAt && markerDeletedAt) {
+                return Date.parse(existing.deletedAt) <=
+                  Date.parse(markerDeletedAt)
+                  ? existing.deletedAt
+                  : markerDeletedAt;
+              }
+              return existing?.deletedAt ?? markerDeletedAt ?? null;
+            })(),
             trust: attachment.trust,
           };
         },
@@ -1536,6 +1576,13 @@ export class PostgresMessageRepository implements MessageRepository {
       ),
     } as unknown as Message;
   }
+}
+
+function externalThreadIdFromMessage(message: Message): string | undefined {
+  const threadId = (message.externalRef as JsonRecord | undefined)?.thread_id;
+  return typeof threadId === 'string' && threadId.trim()
+    ? threadId.trim()
+    : undefined;
 }
 export class PostgresAgentRunRepository implements AgentRunRepository {
   constructor(private readonly db: CanonicalDb) {}

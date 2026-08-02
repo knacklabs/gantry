@@ -85,50 +85,40 @@ export async function reclaimTombstonedProviderAttachment(
   pending: TombstonedProviderAttachment,
   cleanupProviderAttachment: ProviderAttachmentCleanup,
 ): Promise<void> {
-  try {
-    await db.transaction(async (tx) => {
-      await lockCanonicalMessageAttachments(tx, pending.messageId);
-      await lockProviderAttachmentStorageRef(tx, pending.storageRef);
-      const otherReference = await tx
-        .select({ id: pgSchema.messageAttachmentsPostgres.id })
-        .from(pgSchema.messageAttachmentsPostgres)
-        .where(
-          and(
-            eq(
-              pgSchema.messageAttachmentsPostgres.storageRef,
-              pending.storageRef,
-            ),
-            ne(pgSchema.messageAttachmentsPostgres.id, pending.attachmentId),
+  await db.transaction(async (tx) => {
+    await lockCanonicalMessageAttachments(tx, pending.messageId);
+    await lockProviderAttachmentStorageRef(tx, pending.storageRef);
+    const otherReference = await tx
+      .select({ id: pgSchema.messageAttachmentsPostgres.id })
+      .from(pgSchema.messageAttachmentsPostgres)
+      .where(
+        and(
+          eq(
+            pgSchema.messageAttachmentsPostgres.storageRef,
+            pending.storageRef,
           ),
-        )
-        .limit(1);
-      if (otherReference.length === 0) {
-        await cleanupProviderAttachment(pending.storageRef);
-      }
-      await tx
-        .update(pgSchema.messageAttachmentsPostgres)
-        .set({ storageRef: null })
-        .where(
-          and(
-            eq(pgSchema.messageAttachmentsPostgres.id, pending.attachmentId),
-            eq(
-              pgSchema.messageAttachmentsPostgres.messageId,
-              pending.messageId,
-            ),
-            eq(
-              pgSchema.messageAttachmentsPostgres.storageRef,
-              pending.storageRef,
-            ),
-            isNotNull(pgSchema.messageAttachmentsPostgres.deletedAt),
+          ne(pgSchema.messageAttachmentsPostgres.id, pending.attachmentId),
+        ),
+      )
+      .limit(1);
+    if (otherReference.length === 0) {
+      await cleanupProviderAttachment(pending.storageRef);
+    }
+    await tx
+      .update(pgSchema.messageAttachmentsPostgres)
+      .set({ storageRef: null })
+      .where(
+        and(
+          eq(pgSchema.messageAttachmentsPostgres.id, pending.attachmentId),
+          eq(pgSchema.messageAttachmentsPostgres.messageId, pending.messageId),
+          eq(
+            pgSchema.messageAttachmentsPostgres.storageRef,
+            pending.storageRef,
           ),
-        );
-    });
-  } catch (error) {
-    logger.warn(
-      { errorCode: errorCode(error) },
-      'Failed to reclaim tombstoned provider attachment materialization',
-    );
-  }
+          isNotNull(pgSchema.messageAttachmentsPostgres.deletedAt),
+        ),
+      );
+  });
 }
 
 function errorCode(error: unknown): string | undefined {

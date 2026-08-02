@@ -117,6 +117,14 @@ export async function runStartup(
     reclaimProviderAttachment,
   );
   resolved.logger.info('Database initialized');
+  await storage.repositories?.messageAttachments
+    ?.retryPendingMessageAttachmentDeletions()
+    .catch((err) =>
+      resolved.logger.warn(
+        { err },
+        'Failed to sweep pending message attachment deletions at startup',
+      ),
+    );
   const runtimeSettings = await (async () => {
     if (resolved.settingsAuthority !== 'revision') {
       return resolved.loadRuntimeSettings(GANTRY_HOME);

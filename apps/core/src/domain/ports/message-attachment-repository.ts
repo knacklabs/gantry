@@ -52,6 +52,24 @@ export interface AttachmentTombstoneResult {
   storageRef?: string;
 }
 
+export interface MessageAttachmentDeletionScope {
+  appId: string;
+  providerId: string;
+  providerAccountIds: readonly string[];
+  channelId: string;
+  fallbackConversationJid?: string;
+  requireStoredMessageMatch?: boolean;
+  externalMessageIds: readonly string[];
+  deletedAt: string;
+}
+
+export interface MessageAttachmentDeletionResult {
+  tombstonedAttachments: readonly {
+    attachmentId: string;
+    deletedAt: string;
+  }[];
+}
+
 export interface MessageAttachmentRepository {
   getResolvableAttachment(
     attachmentId: string,
@@ -78,6 +96,10 @@ export interface MessageAttachmentRepository {
     expectedProviderFetch: ProviderFetchIdentity;
     deletedAt: string;
   }): Promise<AttachmentTombstoneResult>;
+  setDeletedAtByMessageExternalIds(
+    input: MessageAttachmentDeletionScope,
+  ): Promise<MessageAttachmentDeletionResult>;
+  retryPendingMessageAttachmentDeletions(): Promise<boolean>;
   reclaimTombstonedStorageRef(input: {
     attachmentId: string;
     messageId: string;

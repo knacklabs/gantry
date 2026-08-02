@@ -11,6 +11,7 @@ import {
 import type { RuntimeApp } from './runtime-app.js';
 import type { AsyncTaskQueue } from './async-task-queue.js';
 import type { ChannelWiringDeps } from './channel-wiring-types.js';
+import { createRuntimeProviderAttachmentMaterializer } from './runtime-services.js';
 
 type ChannelPersistenceRepository = RuntimeChatMetadataRepository &
   RuntimeMessageRepository;
@@ -155,10 +156,12 @@ export function createChannelPersistenceHandlers({
 
   return {
     groupJoinOnboarding: resolved.groupJoinOnboarding,
+    materializeProviderAttachment:
+      createRuntimeProviderAttachmentMaterializer(app),
     ensureMessageRoute: ensureConfiguredConversationRoute,
     onMessage: async (chatJid: string, msg: NewMessage) => {
       const canRoute = await ensureConfiguredConversationRoute(chatJid, msg);
-      if (!canRoute) return;
+      if (!canRoute) return 'dropped' as const;
       const routes = routesForChat(
         chatJid,
         msg.thread_id,
@@ -220,6 +223,7 @@ export function createChannelPersistenceHandlers({
           'Persistence queue full; waiting to enqueue message persistence',
         ),
       );
+      return 'stored' as const;
     },
     onChatMetadata: async (
       chatJid: string,
