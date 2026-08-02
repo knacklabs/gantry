@@ -50,6 +50,27 @@ describe('PostgresMessageAttachmentRepository', () => {
     expect(first[0]?.markerId).not.toBe(second[0]?.markerId);
   });
 
+  it('normalizes Slack deletion markers to the conversation jid', () => {
+    expect(
+      normalizeMessageAttachmentDeletionScope({
+        appId: 'app-1',
+        providerId: 'slack',
+        providerAccountIds: ['account-1'],
+        channelId: 'thread-ts',
+        fallbackConversationJid: 'sl:C123',
+        fallbackMatchesThreadedRows: true,
+        externalMessageIds: ['message-1'],
+        deletedAt: '2026-08-01T00:00:00.000Z',
+      }),
+    ).toEqual([
+      expect.objectContaining({
+        providerId: 'slack',
+        channelId: 'sl:C123',
+        externalMessageId: 'message-1',
+      }),
+    ]);
+  });
+
   it('keyset-pages only deletion markers selected by the actionable join', async () => {
     const markers = Array.from({ length: 101 }, (_, index) => ({
       id: `marker-${String(index).padStart(3, '0')}`,
