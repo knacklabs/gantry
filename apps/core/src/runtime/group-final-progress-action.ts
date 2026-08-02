@@ -1,10 +1,36 @@
-import type { FinalProgressState } from './progress-updates.js';
+import {
+  sendFinalProgressUpdate,
+  type FinalProgressState,
+} from './progress-updates.js';
 import type { ProgressUpdateOptions } from '../domain/types.js';
 import type { GroupProcessOptions } from './group-processing-types.js';
 import {
   resolveGroupTurnFinalProgressState,
   shouldSendTurnFinalProgress,
 } from './group-processing-flow.js';
+
+export function createGroupDoneProgressSender(input: {
+  supportsProgress: boolean;
+  pause: () => void;
+  progressGeneration: () => number;
+  finalizingGenerations: Set<number>;
+  buildOptions: () => ProgressUpdateOptions;
+  send: (text: string, options?: ProgressUpdateOptions) => Promise<boolean>;
+  onError: (err: unknown) => void;
+}) {
+  return async (state: FinalProgressState) => {
+    if (!input.supportsProgress) return;
+    input.pause();
+    input.finalizingGenerations.add(input.progressGeneration());
+    await sendFinalProgressUpdate({
+      enabled: true,
+      state,
+      options: input.buildOptions(),
+      send: input.send,
+      onError: input.onError,
+    });
+  };
+}
 
 export function resolveGroupFinalProgressAction(input: {
   finalProgressState: FinalProgressState;

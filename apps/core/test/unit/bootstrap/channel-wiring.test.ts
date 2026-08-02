@@ -4011,6 +4011,35 @@ describe('createChannelWiring', () => {
     );
   });
 
+  it('reports a rejected provider progress update as not landed', async () => {
+    const app = makeApp({
+      'tg:group': { name: 'Group', folder: 'group' },
+    });
+    const channel = makeChannel({
+      ownsJid: vi.fn((jid: string) => jid === 'tg:group'),
+      sendProgressUpdate: vi.fn(async () => {
+        throw new Error('provider update rejected');
+      }),
+    });
+    const wiring = createChannelWiring(app, {
+      providerIds: [
+        makeProvider(
+          'telegram',
+          vi.fn(() => channel),
+        ),
+      ],
+    });
+    await wiring.connectEnabledChannels(
+      makeRuntimeSettings({ telegram: true, slack: false }),
+    );
+
+    await expect(
+      wiring.sendProgressUpdate('tg:group', 'Still working', {
+        replaceOnly: true,
+      }),
+    ).resolves.toBe(false);
+  });
+
   it('reports agent todo render failure when the channel surface returns false', async () => {
     const renderAgentTodo = vi.fn(async () => false);
     const render = createAgentTodoRenderer({

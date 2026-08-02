@@ -123,6 +123,8 @@ export function startGroupProgressHeartbeats(input: {
   claimStallNotice: () => boolean;
   releaseStallNotice: () => void;
   sendStallProgress: () => Promise<boolean>;
+  beforeVisibleDelivery: () => Promise<void>;
+  cancelPendingStallNotices: () => void;
   channelRuntime: {
     setTyping(
       jid: string,
@@ -135,8 +137,16 @@ export function startGroupProgressHeartbeats(input: {
   typingHeartbeatTimer: ReturnType<typeof setInterval>;
   pause(): void;
   resume(): void;
+  beginVisibleDelivery(): Promise<void>;
+  finishVisibleDelivery(delivered: boolean): void;
 } {
   let paused = false;
+  let visibleDeliveryInFlight = false;
+  let visibleDeliveryStartedAt = 0;
+  let lifecycleEpoch = 0;
+  const visibleDeliveryIsSuppressed = () =>
+    visibleDeliveryInFlight &&
+    Date.now() - visibleDeliveryStartedAt < STALL_HEARTBEAT_THRESHOLD_MS;
   const refreshTyping = () => {
     const typing =
       input.providerAccountId || input.activeThreadId
@@ -156,16 +166,35 @@ export function startGroupProgressHeartbeats(input: {
   };
   const typingHeartbeatTimer = setInterval(() => {
     if (paused || !input.isTypingActive()) return;
+    if (visibleDeliveryIsSuppressed()) {
+      refreshTyping();
+      return;
+    }
     const stalled = input.isStalled();
     if (stalled && input.claimStallNotice()) {
+      const requestEpoch = lifecycleEpoch;
       void input
         .sendStallProgress()
         .then((landed) => {
+          if (
+            paused ||
+            visibleDeliveryIsSuppressed() ||
+            requestEpoch !== lifecycleEpoch
+          ) {
+            return;
+          }
           if (landed) return;
           input.releaseStallNotice();
           refreshTyping();
         })
-        .catch((err) => {
+        .catch((err: unknown) => {
+          if (
+            paused ||
+            visibleDeliveryIsSuppressed() ||
+            requestEpoch !== lifecycleEpoch
+          ) {
+            return;
+          }
           input.releaseStallNotice();
           refreshTyping();
           input.log.debug(
@@ -181,9 +210,27 @@ export function startGroupProgressHeartbeats(input: {
     typingHeartbeatTimer,
     pause: () => {
       paused = true;
+      lifecycleEpoch += 1;
+      input.releaseStallNotice();
+      input.cancelPendingStallNotices();
     },
     resume: () => {
       paused = false;
+    },
+    beginVisibleDelivery: async () => {
+      visibleDeliveryInFlight = true;
+      visibleDeliveryStartedAt = Date.now();
+      lifecycleEpoch += 1;
+      input.releaseStallNotice();
+      input.cancelPendingStallNotices();
+      await input.beforeVisibleDelivery();
+    },
+    finishVisibleDelivery: (delivered) => {
+      visibleDeliveryInFlight = false;
+      if (delivered) {
+        lifecycleEpoch += 1;
+        input.releaseStallNotice();
+      }
     },
   };
 }

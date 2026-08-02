@@ -605,24 +605,11 @@ export interface MessageSink {
     options?: MessageSendOptions,
   ): Promise<void | MessageDeliveryResult>;
 }
-export interface MessageReactionSink {
-  addReaction(
-    jid: string,
-    messageRef: string,
-    emoji: string,
-    options?: { threadId?: string },
-  ): Promise<void>;
-}
-export interface MessageReactionRemovalSink {
-  removeReaction: MessageReactionSink['addReaction'];
-}
-export interface TypingSink {
-  setTyping(
-    jid: string,
-    isTyping: boolean,
-    options?: { threadId?: string },
-  ): Promise<void>;
-}
+export type {
+  MessageReactionRemovalSink,
+  MessageReactionSink,
+  TypingSink,
+} from './channel-live-ux.js';
 export interface StreamingSink {
   sendStreamingChunk(
     jid: string,
@@ -630,11 +617,9 @@ export interface StreamingSink {
     options?: StreamingChunkOptions,
   ): Promise<boolean>;
 }
-
 export interface StreamingStateSink {
   resetStreaming(jid: string, options?: { threadId?: string }): void;
 }
-
 export interface ProgressSink {
   sendProgressUpdate(
     jid: string,
@@ -642,7 +627,6 @@ export interface ProgressSink {
     options?: ProgressUpdateOptions,
   ): Promise<void | boolean>;
 }
-
 export interface GroupDiscoverySource {
   syncGroups(force: boolean): Promise<void>;
 }

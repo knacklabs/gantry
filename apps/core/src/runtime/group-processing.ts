@@ -27,7 +27,10 @@ import {
   shouldSendTurnFinalProgress,
   waitOutput,
 } from './group-processing-flow.js';
-import { sendGroupFinalProgress } from './group-final-progress-action.js';
+import {
+  createGroupDoneProgressSender,
+  sendGroupFinalProgress,
+} from './group-final-progress-action.js';
 import { groupTurnHasRequiredTrigger } from './group-trigger-policy.js';
 import {
   createResponseProgressSenders,
@@ -169,6 +172,8 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
       channelRuntime: deps.channelRuntime,
       chatJid,
       groupName: group.name,
+      providerAccountId: group.providerAccountId,
+      threadId: activeThreadId,
       finalizingGenerations: finalizingProgressGenerations,
       log: logger,
     });
@@ -231,7 +236,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
     });
     if (cmdResult.handled) {
       if (replay.hasMore) deps.queue.enqueueMessageCheck(queueJid);
-      return cmdResult.success;
+      return (sendProgressToChannel.retire(), cmdResult.success);
     }
     if (
       !(await groupTurnHasRequiredTrigger({
@@ -250,6 +255,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
       deps.setCursor(queueJid, cursorForMessage(latestMessage));
       await deps.saveState();
       if (replay.hasMore) deps.queue.enqueueMessageCheck(queueJid);
+      sendProgressToChannel.retire();
       return true;
     }
     await notifyFirstProgress();
@@ -320,22 +326,15 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
       await sendControlOnlyProgress();
       await notifyFirstProgress();
     };
-    const sendDoneProgress = async (state: progress.FinalProgressState) => {
-      if (!supportsProgress) return;
-      const generation = progressGeneration;
-      finalizingProgressGenerations.add(generation);
-      await progress.sendFinalProgressUpdate({
-        enabled: true,
-        state,
-        options: buildProgressOptions({ done: true }),
-        send: sendProgressToChannel,
-        onError: (err) =>
-          logger.warn(
-            { err, chatJid, group: group.name },
-            'Progress lifecycle final failed',
-          ),
-      });
-    };
+    const sendDoneProgress = createGroupDoneProgressSender({
+      supportsProgress,
+      pause: () => progressHeartbeat?.pause(),
+      progressGeneration: () => progressGeneration,
+      finalizingGenerations: finalizingProgressGenerations,
+      buildOptions: () => buildProgressOptions({ done: true }),
+      send: sendProgressToChannel,
+      onError: (err) => logger.warn({ err, chatJid }, 'Final progress failed'),
+    });
     let activeGenerationHasOutput = false;
     let sentAnyTurnDoneProgress = false;
     let sentTurnDoneProgressGeneration: number | null = null;
@@ -412,6 +411,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
       groupName: group.name,
       buildProgressOptions,
       sendProgressToChannel,
+      onFirstVisibleOutput: options.onFirstVisibleOutput,
       channelRuntime: deps.channelRuntime,
       log: logger,
     });
@@ -426,6 +426,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
         typingHeartbeatTimer = null;
       }
       clearBackgroundDemoteTimer();
+      progressHeartbeat?.pause();
       await initialProgress.cancel();
     };
     activeTurnUiCleanupByQueue.set(queueJid, {
@@ -449,12 +450,6 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
     let sawDeliveryIncomplete = false;
     let sawTerminalDeliveryFailure = false;
     let awaitingResponseReceipt = false;
-    let firstVisibleOutputNotified = false;
-    const notifyFirstVisibleOutput = async () => {
-      if (firstVisibleOutputNotified) return;
-      firstVisibleOutputNotified = true;
-      await options.onFirstVisibleOutput?.();
-    };
     let outputCallbackError: unknown;
     const supportsStreamingChunks = deps.channelRuntime.supportsStreaming(
       chatJid,
@@ -538,7 +533,8 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
       buildMessageOptions,
       sendMessageToChannel,
       applyDeliverySettlement,
-      onVisibleOutputDelivered: notifyFirstVisibleOutput,
+      onVisibleDeliveryStart: progressHeartbeat.beginVisibleDelivery,
+      onVisibleDeliveryFinish: progressHeartbeat.finishVisibleOutputDelivery,
       getStreamedTranscriptDeliveryStatus: () =>
         streamedTranscriptDeliveryStatus,
       // Persistence is per completed generation, so the accounting has to be
@@ -595,7 +591,6 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
         await sendResponseReceipt();
       }
       if (result.result) {
-        progressHeartbeat?.resetStallEpoch();
         if (!typingActive) {
           await setTypingState(true);
         }
@@ -836,6 +831,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
       sendDone: sendTrackedDoneProgress,
     });
     await setTypingState(false);
+    sendProgressToChannel.retire();
     if (resultOk && replay.hasMore) deps.queue.enqueueMessageCheck(queueJid);
     options?.onRunResult?.(output);
     return resultOk;
