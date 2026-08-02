@@ -236,11 +236,8 @@ function reconcile(
   const repairEligible = (payload: DesiredProgressPayload): boolean => {
     if (
       payload.options?.done !== true &&
-      (chain.currentOwner.retired ||
-        (payload.options?.generation !== undefined &&
-          chain.currentOwner.finalizingGenerations.has(
-            payload.options.generation,
-          )))
+      payload.options?.generation !== undefined &&
+      chain.currentOwner.finalizingGenerations.has(payload.options.generation)
     ) {
       if (chain.lastDesired?.sequence === payload.sequence) {
         chain.lastDesired = payload.previousDesired;

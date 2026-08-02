@@ -603,6 +603,45 @@ describe('createProgressChannelSender', () => {
     expect(progressOrderingRegistrySize(channelRuntime)).toBe(0);
   });
 
+  it('keeps a dispatched retry status repairable after its sender retires', async () => {
+    const stalled = deferred<boolean>();
+    const calls: string[] = [];
+    const channelRuntime = {
+      sendProgressUpdate: vi.fn(async (_jid: string, text: string) => {
+        calls.push(text);
+        if (text === 'Still working') return stalled.promise;
+        return true;
+      }),
+    } as never;
+    const sender = createProgressChannelSender({
+      channelRuntime,
+      chatJid: 'discord:retry-retirement',
+      groupName: 'thread',
+      finalizingGenerations: new Set<number>(),
+      log: { warn: vi.fn() },
+    });
+    const options = { threadId: 'thread', generation: 42 };
+
+    const stale = sender('Still working', {
+      ...options,
+      replaceOnly: true,
+    });
+    const retrying = sender('retrying 1/3', {
+      ...options,
+      replaceOnly: true,
+    });
+    await vi.advanceTimersByTimeAsync(2_000);
+    await expect(retrying).resolves.toBe(true);
+    sender.retire();
+
+    stalled.resolve(true);
+    await expect(stale).resolves.toBe(true);
+    await flushMicrotasks();
+
+    expect(calls).toEqual(['Still working', 'retrying 1/3', 'retrying 1/3']);
+    expect(progressOrderingRegistrySize(channelRuntime)).toBe(0);
+  });
+
   it('garbage-collects a card registry entry once every link is settled', async () => {
     const pending = deferred<boolean>();
     const channelRuntime = {
@@ -660,12 +699,14 @@ describe('createProgressChannelSender', () => {
   });
 
   it('never repairs a nonterminal update suppressed by the finalizing guard', async () => {
+    const stalled = deferred<boolean>();
     const calls: string[] = [];
     const finalizingGenerations = new Set<number>();
     const sender = createProgressChannelSender({
       channelRuntime: {
         sendProgressUpdate: vi.fn(async (_jid: string, text: string) => {
           calls.push(text);
+          if (text === 'Still working') return stalled.promise;
           return true;
         }),
       } as never,
@@ -676,14 +717,21 @@ describe('createProgressChannelSender', () => {
     });
     const options = { threadId: 'thread', generation: 47 };
 
-    await expect(sender('Done.', { ...options, done: true })).resolves.toBe(
-      true,
-    );
+    const stale = sender('Still working', {
+      ...options,
+      replaceOnly: true,
+    });
+    const done = sender('Done.', { ...options, done: true });
+    await vi.advanceTimersByTimeAsync(2_000);
+    await expect(done).resolves.toBe(true);
     finalizingGenerations.add(options.generation);
     await expect(sender('Suppressed update.', options)).resolves.toBe(false);
+    sender.retire();
+    stalled.resolve(true);
+    await expect(stale).resolves.toBe(true);
     await flushMicrotasks();
 
-    expect(calls).toEqual(['Done.']);
+    expect(calls).toEqual(['Still working', 'Done.', 'Done.']);
   });
 
   it('drops an older queued update after newer visible state completes', async () => {
