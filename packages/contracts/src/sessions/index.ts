@@ -41,7 +41,9 @@ export const CreateSessionRequestSchema = z
   .strict()
   .superRefine((value, ctx) => {
     // The runtime enforces this too; the contract states it so a bound
-    // channel session fails at parse time, not deep in the module.
+    // channel session fails at parse time, not deep in the module. A type-level
+    // discriminated union was reviewed and rejected: it would reshape the
+    // generated OpenAPI for marginal static safety the parse already enforces.
     if (value.appUser && value.conversationKind !== 'dm') {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
