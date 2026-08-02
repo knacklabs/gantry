@@ -646,18 +646,42 @@ export class PostgresPersonIdentityRepository implements PersonIdentityRepositor
           .map(toAlias);
       }
       if (snapshot.movedParticipantIds.length > 0) {
-        // Restore exactly the merge-recorded participant rows; rows that were
-        // re-pointed or created after the merge stay with the survivor.
+        // Restore exactly the merge-recorded participant rows, all-or-nothing
+        // like the alias and memory guards: a recorded row deleted or
+        // reassigned after the merge means the merge-owned state is no longer
+        // intact, and a partial restore must not report success.
+        const participantRows = await tx
+          .select({
+            id: pgSchema.conversationParticipantsPostgres.id,
+            userId: pgSchema.conversationParticipantsPostgres.userId,
+          })
+          .from(pgSchema.conversationParticipantsPostgres)
+          .where(
+            and(
+              eq(pgSchema.conversationParticipantsPostgres.appId, input.appId),
+              inArray(
+                pgSchema.conversationParticipantsPostgres.id,
+                snapshot.movedParticipantIds,
+              ),
+            ),
+          )
+          .orderBy(asc(pgSchema.conversationParticipantsPostgres.id))
+          .for('update');
+        const intact =
+          participantRows.length === snapshot.movedParticipantIds.length &&
+          participantRows.every((row) => row.userId === audit.targetPersonId);
+        if (!intact) {
+          throw new ApplicationError(
+            'CONFLICT',
+            'Merge-owned conversation participants are no longer intact; unmerge was refused.',
+          );
+        }
         await tx
           .update(pgSchema.conversationParticipantsPostgres)
           .set({ userId: audit.sourcePersonId, updatedAt: timestamp })
           .where(
             and(
               eq(pgSchema.conversationParticipantsPostgres.appId, input.appId),
-              eq(
-                pgSchema.conversationParticipantsPostgres.userId,
-                audit.targetPersonId,
-              ),
               inArray(
                 pgSchema.conversationParticipantsPostgres.id,
                 snapshot.movedParticipantIds,

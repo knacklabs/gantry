@@ -38,7 +38,18 @@ export const CreateSessionRequestSchema = z
     webhookId: z.string().optional(),
     metadata: ContractMetadataSchema.optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((value, ctx) => {
+    // The runtime enforces this too; the contract states it so a bound
+    // channel session fails at parse time, not deep in the module.
+    if (value.appUser && value.conversationKind !== 'dm') {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['appUser'],
+        message: "appUser requires conversationKind 'dm'",
+      });
+    }
+  });
 export type CreateSessionRequest = z.infer<typeof CreateSessionRequestSchema>;
 
 export const ResumeSessionRequestSchema = z

@@ -103,11 +103,20 @@ export const IdentityEvidenceTypeSchema = z.enum([
 ]);
 export type IdentityEvidenceType = z.infer<typeof IdentityEvidenceTypeSchema>;
 
+// Alias-key components: uniqueness coalesces a null account id to '', so a
+// whitespace-only string would silently collide with the null form. Refuse
+// empty and whitespace-only values at the contract.
+const AliasKeyStringSchema = z
+  .string()
+  .refine((value) => value.trim().length > 0, {
+    message: 'must not be empty or whitespace-only',
+  });
+
 export const IdentityResolveRequestSchema = z.object({
   appId: z.string().optional(),
-  provider: z.string(),
-  providerAccountId: z.string().nullable().optional(),
-  externalUserId: z.string(),
+  provider: AliasKeyStringSchema,
+  providerAccountId: AliasKeyStringSchema.nullable().optional(),
+  externalUserId: AliasKeyStringSchema,
   displayName: z.string().nullable().optional(),
   evidenceType: IdentityEvidenceTypeSchema,
   createIfMissing: z.boolean().optional(),
@@ -130,9 +139,9 @@ export type IdentityResolveResponse = z.infer<
 
 export const AddPersonAliasRequestSchema = z.object({
   appId: z.string().optional(),
-  provider: z.string(),
-  providerAccountId: z.string().nullable().optional(),
-  externalUserId: z.string(),
+  provider: AliasKeyStringSchema,
+  providerAccountId: AliasKeyStringSchema.nullable().optional(),
+  externalUserId: AliasKeyStringSchema,
   displayName: z.string().nullable().optional(),
   evidenceType: IdentityEvidenceTypeSchema,
   evidence: ContractMetadataSchema.optional(),
