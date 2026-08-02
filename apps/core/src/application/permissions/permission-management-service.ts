@@ -275,6 +275,7 @@ export class PermissionManagementService {
           savedBindings.push(binding);
         }
       }
+      const grantToken = input.requestId ?? globalThis.crypto.randomUUID();
       await input.mirrorAgentToolRulesToSettings(
         input.sourceAgentFolder,
         allowedRules,
@@ -283,8 +284,7 @@ export class PermissionManagementService {
           ...(ensuredMcpSources.proposalBindingSnapshots.length > 0
             ? {
                 expectedMcpBindings: ensuredMcpSources.proposalBindingSnapshots,
-                mcpCapabilityGrantToken:
-                  input.requestId ?? globalThis.crypto.randomUUID(),
+                mcpCapabilityGrantToken: grantToken,
               }
             : {}),
         },
