@@ -166,7 +166,7 @@ export async function rekeyPersonalMemory(
   },
 ): Promise<{
   movedMemoryIds: string[];
-  movedMemoryRows: Array<{ id: string; subjectId: string }>;
+  movedMemoryRows: Array<{ id: string; subjectId: string; updatedAt: string }>;
   supersededMemoryRows: Array<{ id: string; priorStatus: string }>;
 }> {
   // Accepted residual: a turn that resolved the source person BEFORE the
@@ -179,6 +179,7 @@ export async function rekeyPersonalMemory(
       id: memory.id,
       status: memory.status,
       subjectId: memory.subjectId,
+      updatedAt: memory.updatedAt,
     })
     .from(memory)
     .where(
@@ -201,6 +202,7 @@ export async function rekeyPersonalMemory(
   const movedMemoryRows = rows.map((row) => ({
     id: row.id,
     subjectId: row.subjectId ?? '',
+    updatedAt: row.updatedAt,
   }));
   const conflictSourceIds = new Set(input.conflictSourceIds);
   const supersededMemoryRows = rows
@@ -242,7 +244,11 @@ export async function restorePersonalMemory(
     sourcePersonId: string;
     targetPersonId: string;
     movedMemoryIds: string[];
-    movedMemoryRows: Array<{ id: string; subjectId: string }>;
+    movedMemoryRows: Array<{
+      id: string;
+      subjectId: string;
+      updatedAt: string;
+    }>;
     supersededMemoryRows: Array<{ id: string; priorStatus: string }>;
     timestamp: string;
   },
@@ -250,7 +256,7 @@ export async function restorePersonalMemory(
   if (input.movedMemoryIds.length === 0) return 0;
   const memory = pgSchema.memoryItemsPostgres;
   const rows = await executor
-    .select({ id: memory.id })
+    .select({ id: memory.id, updatedAt: memory.updatedAt })
     .from(memory)
     .where(
       and(
@@ -266,6 +272,20 @@ export async function restorePersonalMemory(
     throw new ApplicationError(
       'CONFLICT',
       'Merge-owned personal memory is no longer intact; unmerge was refused.',
+    );
+  }
+  // All-or-nothing, like every other unmerge guard: a moved row edited after
+  // the merge carries post-merge content and must not silently travel back.
+  const recordedUpdatedAt = new Map(
+    input.movedMemoryRows.map((row) => [row.id, row.updatedAt]),
+  );
+  const editedIds = rows
+    .filter((row) => recordedUpdatedAt.get(row.id) !== row.updatedAt)
+    .map((row) => row.id);
+  if (editedIds.length > 0) {
+    throw new ApplicationError(
+      'CONFLICT',
+      `Merge-owned personal memory changed after the merge; unmerge was refused: ${editedIds.join(', ')}`,
     );
   }
   // Restore each row's RECORDED pre-merge subject id: recomputing from the
@@ -362,7 +382,7 @@ export interface MergeUndoSnapshot {
   aliasesToMove: PersonAliasRecord[];
   movedAliasIds: string[];
   movedMemoryIds: string[];
-  movedMemoryRows: Array<{ id: string; subjectId: string }>;
+  movedMemoryRows: Array<{ id: string; subjectId: string; updatedAt: string }>;
   movedParticipantIds: string[];
   supersededMemoryRows: Array<{ id: string; priorStatus: string }>;
   fingerprint: string;
@@ -390,7 +410,8 @@ export function mergeUndoSnapshot(audit: AuditRow): MergeUndoSnapshot {
         typeof row === 'object' &&
         !Array.isArray(row) &&
         typeof (row as Record<string, unknown>).id === 'string' &&
-        typeof (row as Record<string, unknown>).subjectId === 'string',
+        typeof (row as Record<string, unknown>).subjectId === 'string' &&
+        typeof (row as Record<string, unknown>).updatedAt === 'string',
     ) &&
     [...movedMemoryRows]
       .map((row) => (row as Record<string, unknown>).id as string)
@@ -476,6 +497,7 @@ export function mergeUndoSnapshot(audit: AuditRow): MergeUndoSnapshot {
     movedMemoryRows: movedMemoryRows as Array<{
       id: string;
       subjectId: string;
+      updatedAt: string;
     }>,
     movedParticipantIds: movedParticipantIds as string[],
     supersededMemoryRows: supersededMemoryRows as Array<{

@@ -43,7 +43,13 @@ describe('person identity unmerge audit', () => {
         aliasesToMove: [movedAlias],
         movedAliasIds: ['alias-moved'],
         movedMemoryIds: ['memory-moved'],
-        movedMemoryRows: [{ id: 'memory-moved', subjectId: 'msu_original' }],
+        movedMemoryRows: [
+          {
+            id: 'memory-moved',
+            subjectId: 'msu_original',
+            updatedAt: '2026-01-01T00:00:00.000Z',
+          },
+        ],
         movedParticipantIds: [],
         supersededMemoryRows: [{ id: 'memory-moved', priorStatus: 'active' }],
         fingerprint: 'sha256:preview',
@@ -88,7 +94,7 @@ describe('person identity unmerge memory restore', () => {
 
   it('refuses when a superseded row status changed after the merge', async () => {
     const executor = fakeExecutor([
-      [{ id: 'memory-moved' }],
+      [{ id: 'memory-moved', updatedAt: '2026-01-01T00:00:00.000Z' }],
       [{ id: 'memory-superseded', status: 'active' }],
     ]);
     await expect(
@@ -97,7 +103,13 @@ describe('person identity unmerge memory restore', () => {
         sourcePersonId: 'person-source',
         targetPersonId: 'person-target',
         movedMemoryIds: ['memory-moved'],
-        movedMemoryRows: [{ id: 'memory-moved', subjectId: 'msu_original' }],
+        movedMemoryRows: [
+          {
+            id: 'memory-moved',
+            subjectId: 'msu_original',
+            updatedAt: '2026-01-01T00:00:00.000Z',
+          },
+        ],
         movedParticipantIds: [],
         supersededMemoryRows: [
           { id: 'memory-superseded', priorStatus: 'active' },
