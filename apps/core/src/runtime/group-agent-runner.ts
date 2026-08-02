@@ -121,7 +121,6 @@ export function createGroupAgentRunner(input: {
       executionAdapter: deps.executionAdapter,
       agentHarness,
     });
-    const initialModelSelection = initialProvider.initialModelSelection;
     const failoverCandidates = initialProvider.failoverCandidates;
     const firstModel = initialProvider.firstModel;
     let executionProviderId = initialProvider.executionProviderId;

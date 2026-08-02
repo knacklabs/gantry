@@ -104,12 +104,19 @@ export class PostgresRuntimeEventRepository implements RuntimeEventRepository {
   async appendRuntimeEvent(
     input: RuntimeEventPublishInput,
   ): Promise<RuntimeEvent> {
-    return this.db.transaction(async (tx) => {
-      const event = await this.insertRuntimeEvent(tx, input);
-      await this.eventBus.publish(eventBusInputForRuntimeEvent(event), tx);
-      await this.enqueueWebhookDeliveryIfNeeded(tx, event);
-      return event;
-    });
+    return this.db.transaction((tx) =>
+      this.appendRuntimeEventWithExecutor(tx, input),
+    );
+  }
+
+  async appendRuntimeEventWithExecutor(
+    executor: CanonicalExecutor,
+    input: RuntimeEventPublishInput,
+  ): Promise<RuntimeEvent> {
+    const event = await this.insertRuntimeEvent(executor, input);
+    await this.eventBus.publish(eventBusInputForRuntimeEvent(event), executor);
+    await this.enqueueWebhookDeliveryIfNeeded(executor, event);
+    return event;
   }
 
   async appendRuntimeEventAndStoreLiveAdmission(

@@ -24,6 +24,7 @@ import type { AgentId } from '../../domain/agent/agent.js';
 import { folderForAgentId } from '../../domain/agent/agent-folder-id.js';
 import type { IsoTimestamp } from '../../shared/time/primitives.js';
 import type { AgentRuntime } from '../../shared/agent-runtime.js';
+import type { AppUserAssertion } from '@gantry/contracts';
 import { ApplicationError } from '../common/application-error.js';
 import { isValidControlId } from '../../shared/control-id.js';
 import { nowMs as currentTimeMs } from '../../shared/time/datetime.js';
@@ -41,6 +42,7 @@ export type SessionAppRecord = {
   title?: string | null;
   defaultResponseMode: ControlResponseMode;
   defaultWebhookId: string | null;
+  appUser?: AppUserAssertion | null;
 };
 
 export type SessionResponseRouteRecord = {
@@ -58,6 +60,7 @@ export interface SessionControlPort {
     title?: string | null;
     defaultResponseMode?: ControlResponseMode;
     defaultWebhookId?: string | null;
+    appUser?: AppUserAssertion | null;
   }): Promise<SessionAppRecord>;
   getAppSessionById(sessionId: string): Promise<SessionAppRecord | undefined>;
   getAppSessionByChatJid(
@@ -113,9 +116,11 @@ export class SessionInteractionModule {
     assertedAppId?: string | null;
     agentId?: string | null;
     conversationId: string;
+    conversationKind?: 'dm' | 'channel';
     title?: string | null;
     responseMode?: unknown;
     webhookId?: string | null;
+    appUser?: AppUserAssertion | null;
   }): Promise<{
     session: SessionAppRecord;
     registerGroup: { conversationJid: string; group: AppGroupRegistration };
@@ -134,11 +139,19 @@ export class SessionInteractionModule {
         'appId and conversationId must contain only letters, numbers, dot, underscore, or dash',
       );
     }
+    const conversationKind = input.conversationKind ?? 'channel';
+    if (input.appUser && conversationKind !== 'dm') {
+      throw new ApplicationError(
+        'INVALID_REQUEST',
+        'appUser can only be bound to a direct-message session',
+      );
+    }
     const conversationJid = `app:${input.appId}:${conversationId}`;
     let group = makeAppGroup({
       appId: input.appId,
       conversationId,
       conversationJid,
+      conversationKind,
       identityHash: this.deps
         .stableHash(`${input.appId}\0${conversationId}`)
         .slice(0, 12),
@@ -181,6 +194,7 @@ export class SessionInteractionModule {
       title: input.title ?? null,
       defaultResponseMode: normalizeResponseMode(input.responseMode, 'sse'),
       defaultWebhookId,
+      appUser: input.appUser ?? null,
     });
     return { session, registerGroup: { conversationJid, group } };
   }
@@ -299,6 +313,28 @@ export class SessionInteractionModule {
     enqueue: SessionQueueIntent;
   }> {
     const session = await this.requireSession(input);
+    // Explicit sender ids may not contain ':' — the bound app-user identity
+    // serializes as `<authority>:<subject>` (percent-encoded), and keeping
+    // ':' out of raw sender ids makes that namespace unforgeable from an
+    // unbound session.
+    if (input.senderId !== undefined && input.senderId.includes(':')) {
+      throw new ApplicationError(
+        'INVALID_REQUEST',
+        'senderId must not contain ":"',
+      );
+    }
+    // An omitted senderId on a bound session means the bound user; only an
+    // EXPLICIT different sender is a conflict.
+    if (
+      session.appUser &&
+      input.senderId !== undefined &&
+      input.senderId.trim() !== session.appUser.subject
+    ) {
+      throw new ApplicationError(
+        'CONFLICT',
+        'SDK session is bound to a different app user.',
+      );
+    }
     const text = input.message.trim();
     if (!text) {
       throw new ApplicationError('INVALID_REQUEST', 'message is required');
@@ -327,7 +363,15 @@ export class SessionInteractionModule {
       id: messageId,
       chat_jid: session.conversationJid,
       provider: 'app',
-      sender: input.senderId ?? 'sdk',
+      // A bound app user is identified by (authorityId, subject): qualify the
+      // sender with BOTH parts percent-encoded so ':' inside either cannot
+      // alias two distinct tuples onto one identity.
+      // sender so equal subjects under different authorities stay different
+      // people — and so a subject literally named 'sdk' can never collide
+      // with the unbound system-sender sentinel.
+      sender: session.appUser
+        ? `${encodeURIComponent(session.appUser.authorityId)}:${encodeURIComponent(session.appUser.subject)}`
+        : (input.senderId ?? 'sdk'),
       sender_name: input.senderName ?? 'SDK',
       content: text,
       timestamp: now,
@@ -592,12 +636,16 @@ type AppGroupRegistration = {
   trigger: string;
   added_at: string;
   requiresTrigger: boolean;
+  senderIdentityEvidenceType: 'web_user';
+  systemSenderIds: string[];
+  conversationKind?: 'dm' | 'channel';
 };
 
 export function makeAppGroup(input: {
   appId: string;
   conversationId: string;
   conversationJid: string;
+  conversationKind?: 'dm' | 'channel';
   identityHash: string;
   addedAt: string;
 }): AppGroupRegistration {
@@ -616,6 +664,9 @@ export function makeAppGroup(input: {
     trigger: '',
     added_at: input.addedAt,
     requiresTrigger: false,
+    senderIdentityEvidenceType: 'web_user',
+    systemSenderIds: ['sdk'],
+    conversationKind: input.conversationKind ?? 'channel',
   };
 }
 

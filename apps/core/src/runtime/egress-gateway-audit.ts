@@ -1,4 +1,3 @@
-import { normalizeRuntimeEventConversationId } from '../domain/events/runtime-event-conversation.js';
 import {
   RUNTIME_EVENT_TYPES,
   type RuntimeEventType,
@@ -62,9 +61,11 @@ export async function auditConnect(
   };
   state.logger.info(payload, 'Egress CONNECT decision');
   if (!state.publishRuntimeEvent) return;
-  const eventConversationId = normalizeRuntimeEventConversationId(
-    state.principal.conversationId as never,
-  );
+  // Pass the principal's conversation id through untouched: the exchange
+  // keeps real FK ids on the indexed column and routes anything else into the
+  // payload. Prefixing here would fabricate a conversation id that passes the
+  // FK-shape check but references no row.
+  const eventConversationId = state.principal.conversationId as never;
   try {
     await state.publishRuntimeEvent({
       appId: state.principal.appId as never,

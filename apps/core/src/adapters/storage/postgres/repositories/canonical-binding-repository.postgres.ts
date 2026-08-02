@@ -55,15 +55,24 @@ function routeMemorySubject(
   conversationId: string,
   group: ConversationRoute,
 ): Record<string, unknown> {
+  const route: Record<string, unknown> = {
+    trigger: group.trigger,
+    requiresTrigger: group.requiresTrigger ?? true,
+    ...(group.agentConfig ? { agentConfig: group.agentConfig } : {}),
+    ...(group.senderIdentityEvidenceType
+      ? { senderIdentityEvidenceType: group.senderIdentityEvidenceType }
+      : {}),
+    ...(group.systemSenderIds?.length
+      ? { systemSenderIds: group.systemSenderIds }
+      : {}),
+  };
   return {
     kind: 'conversation',
     appId: CANONICAL_APP_ID,
     conversationId,
     route: {
       conversationId,
-      trigger: group.trigger,
-      requiresTrigger: group.requiresTrigger ?? true,
-      ...(group.agentConfig ? { agentConfig: group.agentConfig } : {}),
+      ...route,
     },
   };
 }
@@ -251,6 +260,8 @@ export function bindingRowToGroup(
       agentConfig?: ConversationRoute['agentConfig'];
       trigger?: string;
       requiresTrigger?: boolean;
+      senderIdentityEvidenceType?: ConversationRoute['senderIdentityEvidenceType'];
+      systemSenderIds?: ConversationRoute['systemSenderIds'];
     };
   }>(row.memorySubjectJson, {});
   const jid = conversationRouteKeyFromBindingRow(row);
@@ -296,6 +307,9 @@ export function bindingRowToGroup(
   const folder =
     folderForAgentId(normalizedRowAgentId as AgentId) ?? row.agentId;
   const agentConfig = routeSubject.route?.agentConfig;
+  const senderIdentityEvidenceType =
+    routeSubject.route?.senderIdentityEvidenceType;
+  const systemSenderIds = routeSubject.route?.systemSenderIds;
   const conversationKind =
     row.conversationKind === 'direct' || row.conversationKind === 'dm'
       ? 'dm'
@@ -312,6 +326,8 @@ export function bindingRowToGroup(
       conversationKind,
       providerAccountId,
       ...(agentConfig ? { agentConfig } : {}),
+      ...(senderIdentityEvidenceType ? { senderIdentityEvidenceType } : {}),
+      ...(systemSenderIds?.length ? { systemSenderIds } : {}),
     },
   };
 }

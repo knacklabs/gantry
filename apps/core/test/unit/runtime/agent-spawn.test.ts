@@ -1084,14 +1084,14 @@ describe('agent-spawn timeout behavior', () => {
         appId: 'app-one',
         agentId: 'agent-one',
         runId: 'run-one',
-        conversationId: 'conversation:test@g.us',
-        threadId: 'thread:test@g.us:reply-one',
         eventType: 'run.startup_diagnostic',
         actor: 'runtime',
         responseMode: 'none',
         payload: expect.objectContaining({
           provider: 'host',
           diagnostic: 'host_startup_projection',
+          conversationJid: 'test@g.us',
+          threadId: 'reply-one',
           executionProviderId: 'anthropic:claude-agent-sdk',
           toolPolicyRuleCount: 1,
           gantryMcpToolCount: 2,
@@ -1109,6 +1109,12 @@ describe('agent-spawn timeout behavior', () => {
           },
         }),
       }),
+    );
+    expect(publishRuntimeEvent.mock.calls[0]?.[0]).not.toHaveProperty(
+      'conversationId',
+    );
+    expect(publishRuntimeEvent.mock.calls[0]?.[0]).not.toHaveProperty(
+      'threadId',
     );
     expect(JSON.stringify(publishRuntimeEvent.mock.calls)).not.toContain(
       '/tmp/secret-path',
@@ -1223,6 +1229,7 @@ describe('agent-spawn timeout behavior', () => {
   it('projects chat scope so spawned memory IPC signatures validate with runner context', async () => {
     const input = {
       ...testInput,
+      agentId: 'agent:test-group',
       chatJid: 'tg:trusted-chat',
       threadId: 'thread-a',
       memoryUserId: 'user-a',
@@ -1248,9 +1255,11 @@ describe('agent-spawn timeout behavior', () => {
       env.GANTRY_MEMORY_IPC_ACTIONS_JSON,
     ) as string[];
     const runnerContext = {
+      appId: env.GANTRY_APP_ID,
+      agentId: env.GANTRY_AGENT_ID,
       chatJid: env.GANTRY_CHAT_JID,
       threadId: env.GANTRY_THREAD_ID,
-      userId: env.GANTRY_MEMORY_USER_ID,
+      personId: env.GANTRY_MEMORY_USER_ID,
       defaultScope: env.GANTRY_MEMORY_DEFAULT_SCOPE,
       allowedActions,
       responseKeyId: env.GANTRY_IPC_RESPONSE_KEY_ID,
@@ -1263,6 +1272,15 @@ describe('agent-spawn timeout behavior', () => {
       expiresAt: new Date(Date.now() + 60_000).toISOString(),
     };
 
+    expect(allowedActions).toEqual([
+      'memory_search',
+      'memory_save',
+      'brain_search',
+      'brain_query',
+      'brain_write',
+      'continuity_summary',
+      'procedure_save',
+    ]);
     expect(
       parseMemoryIpcRequest(
         createSignedIpcRequestEnvelope(
@@ -1274,9 +1292,10 @@ describe('agent-spawn timeout behavior', () => {
     ).toMatchObject({
       requestId: 'mem-spawn-chat-scope',
       context: {
+        agentId: 'agent:test-group',
         chatJid: 'tg:trusted-chat',
         threadId: 'thread-a',
-        userId: 'user-a',
+        personId: 'user-a',
         defaultScope: 'user',
       },
       allowedActions: [
@@ -1330,6 +1349,7 @@ describe('agent-spawn timeout behavior', () => {
   it('includes reviewer memory actions in spawned IPC signatures for control approvers', async () => {
     const input = {
       ...testInput,
+      agentId: 'agent:test-group',
       chatJid: 'tg:trusted-chat',
       memoryUserId: 'reviewer-a',
       memoryReviewerIsControlApprover: true,
@@ -1361,9 +1381,11 @@ describe('agent-spawn timeout behavior', () => {
           action: 'memory_review_pending',
           payload: { limit: 10 },
           context: {
+            appId: env.GANTRY_APP_ID,
+            agentId: env.GANTRY_AGENT_ID,
             chatJid: env.GANTRY_CHAT_JID,
             threadId: env.GANTRY_THREAD_ID,
-            userId: env.GANTRY_MEMORY_USER_ID,
+            personId: env.GANTRY_MEMORY_USER_ID,
             defaultScope: env.GANTRY_MEMORY_DEFAULT_SCOPE,
             allowedActions,
             reviewerIsControlApprover: true,
@@ -1380,7 +1402,8 @@ describe('agent-spawn timeout behavior', () => {
         'memory_review_decision',
       ]),
       context: {
-        userId: 'reviewer-a',
+        agentId: 'agent:test-group',
+        personId: 'reviewer-a',
         reviewerIsControlApprover: true,
       },
     });

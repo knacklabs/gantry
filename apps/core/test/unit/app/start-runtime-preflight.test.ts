@@ -59,6 +59,7 @@ vi.mock('@core/adapters/storage/postgres/runtime-store.js', () => ({
   getRuntimeControlRepository: vi.fn(),
   getRuntimeEventExchange: vi.fn(() => ({ publish: vi.fn() })),
   getRuntimeSkillArtifactStore: vi.fn(),
+  resolveRuntimePersonIdentity: vi.fn(),
   getRuntimeStorage: vi.fn(() => ({
     ops: {},
     repositories: { capabilitySecrets: {} },

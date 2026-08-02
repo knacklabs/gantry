@@ -302,6 +302,8 @@ export interface MemoryBoundaryContext {
   appId: string;
   /** Agent/runtime owner. For channel agents this is the configured Gantry agent folder/id. */
   agentId: string;
+  /** Public canonical person id for personal memory subjects. */
+  personId?: string;
   /** Human actor identity when known. */
   userId?: string;
   /** Logical Gantry/app group, not a provider-specific Telegram group. */

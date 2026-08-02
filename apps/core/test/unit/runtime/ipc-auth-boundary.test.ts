@@ -111,14 +111,20 @@ function signedMemoryPayload(
   payload: Record<string, unknown>,
   sourceAgentFolder = 'team',
   input: {
+    appId?: string;
+    agentId?: string;
     chatJid?: string;
-    userId?: string;
+    personId?: string;
     defaultScope?: 'user' | 'group';
     threadId?: string;
     allowedActions?: readonly string[];
   } = {},
 ): Record<string, unknown> {
-  const signingKey = computeMemoryIpcAuthToken(sourceAgentFolder, input);
+  const signingKey = computeMemoryIpcAuthToken(sourceAgentFolder, {
+    appId: input.appId || 'default',
+    agentId: input.agentId || 'agent:team',
+    ...input,
+  });
   return {
     ...payload,
     signature: signIpcRequestPayload(signingKey, payload),
@@ -672,7 +678,9 @@ describe('validateIpcAuthRequest', () => {
       action: 'memory_search',
       payload: { query: 'travel' },
       context: {
-        userId: 'u-1',
+        appId: 'default',
+        agentId: 'agent:team',
+        personId: 'u-1',
         defaultScope: 'user',
         allowedActions: ['memory_search'],
         responseKeyId: TEST_RESPONSE_KEY_ID,
@@ -682,7 +690,9 @@ describe('validateIpcAuthRequest', () => {
     expect(
       parseMemoryIpcRequest(
         signedMemoryPayload(payload, 'team', {
-          userId: 'u-1',
+          appId: 'default',
+          agentId: 'agent:team',
+          personId: 'u-1',
           defaultScope: 'user',
           allowedActions: ['memory_search'],
         }),
@@ -690,7 +700,7 @@ describe('validateIpcAuthRequest', () => {
       ),
     ).toMatchObject({
       requestId: 'mem-1',
-      context: { userId: 'u-1', defaultScope: 'user' },
+      context: { personId: 'u-1', defaultScope: 'user' },
       allowedActions: ['memory_search'],
       deadlineAtMs: Date.parse(expiresAt),
     });
@@ -700,7 +710,8 @@ describe('validateIpcAuthRequest', () => {
     expect(() =>
       parseMemoryIpcRequest(
         signedMemoryPayload(payload, 'team', {
-          userId: 'u-2',
+          appId: 'default',
+          personId: 'u-2',
           defaultScope: 'user',
           allowedActions: ['memory_search'],
         }),
@@ -717,6 +728,8 @@ describe('validateIpcAuthRequest', () => {
       action: 'memory_patch',
       payload: { id: 'mem-1', expected_version: 1 },
       context: {
+        appId: 'default',
+        agentId: 'agent:team',
         chatJid: 'tg:team',
         defaultScope: 'group',
         allowedActions: ['memory_search', 'memory_save'],
@@ -728,6 +741,7 @@ describe('validateIpcAuthRequest', () => {
       parseMemoryIpcRequest(
         signedMemoryPayload(payload, 'team', {
           chatJid: 'tg:team',
+          agentId: 'agent:team',
           defaultScope: 'group',
           allowedActions: ['memory_search', 'memory_save'],
         }),

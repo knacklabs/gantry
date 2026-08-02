@@ -1,4 +1,5 @@
 import {
+  foreignKey,
   index,
   pgTable,
   text,
@@ -71,10 +72,12 @@ export const conversationParticipantsPostgres = pgTable(
     conversationId: text('conversation_id')
       .notNull()
       .references(() => conversationsPostgres.id, { onDelete: 'cascade' }),
-    userId: text('user_id').references(() => usersPostgres.id, {
-      onDelete: 'cascade',
-    }),
-    externalUserId: text('external_user_id'),
+    provider: text('provider').notNull().default(''),
+    providerAccountId: text('provider_account_id').notNull().default(''),
+    // The single-column users(id) reference was dropped by the identity
+    // migrations in favour of the app-scoped composite FK declared below.
+    userId: text('user_id'),
+    externalUserId: text('external_user_id').notNull(),
     role: text('role').notNull().default('member'),
     status: text('status').notNull().default('active'),
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
@@ -89,6 +92,18 @@ export const conversationParticipantsPostgres = pgTable(
       table.conversationId,
       table.userId,
     ),
+    identityUnique: uniqueIndex('uniq_conversation_participants_identity').on(
+      table.appId,
+      table.conversationId,
+      table.provider,
+      table.providerAccountId,
+      table.externalUserId,
+    ),
+    appScopedPerson: foreignKey({
+      name: 'conversation_participants_app_user_fk',
+      columns: [table.appId, table.userId],
+      foreignColumns: [usersPostgres.appId, usersPostgres.id],
+    }),
   }),
 );
 

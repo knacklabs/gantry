@@ -63,17 +63,26 @@ import { measurePostgresOperations } from '../harness/response-latency-postgres.
 //   Slack           29 -> 20
 //   Teams           28 -> 19
 // A single shared constant would have been wrong for two of the four.
+// ID-1 sender identity adds 3 statements on a first-seen sender: the alias-key
+// advisory lock, the active-alias lookup, and the retired-tombstone check (the
+// person + alias inserts replace the previous participant-only write pattern).
+// Repeat senders pay one more: the FOR SHARE ownership settlement that
+// serializes attribution against concurrent merges.
 const EXPECTED_ENVELOPE_STATEMENTS_BY_PROVIDER: Record<string, number> = {
-  'Telegram text': 15,
-  Slack: 15,
-  Teams: 15,
+  // LAT-4B's graph-write reduction (19 -> 15) plus ID-1's 3 first-contact
+  // sender-identity statements (advisory lock, active-alias lookup,
+  // retired-tombstone check).
+  'Telegram text': 18,
+  Slack: 18,
+  Teams: 18,
 };
 // Referenced by docs/architecture/lat-4a-measurement.md; kept here so the number
 // and the assertions live together.
 export const STATEMENTS_SAVED_PER_PROVIDER = 9;
 export const LAT_4B_TOP_LEVEL_STATEMENTS_SAVED = 4;
 export const LAT_4B_THREAD_STATEMENTS_SAVED = 13;
-const EXPECTED_THREAD_ENVELOPE_STATEMENTS = 16;
+// LAT-4B's 16 plus ID-1's 3 first-contact sender-identity statements.
+const EXPECTED_THREAD_ENVELOPE_STATEMENTS = 19;
 const EXPECTED_ENSURE_CONVERSATION_CALLS = 1;
 
 const PRIVATE_CONVERSATION_JID = 'tg:400200';
@@ -331,7 +340,7 @@ describe.runIf(hasPostgresIntegrationDatabase)(
       },
     );
 
-    it('persists a first-contact Slack thread envelope in 16 statements', async () => {
+    it('persists a first-contact Slack thread envelope in 19 statements', async () => {
       const conversationJid = 'sl:C400116';
       const providerAccountId = 'slack_lat_4b_first_thread';
       const threadId = '1785283200.000116';

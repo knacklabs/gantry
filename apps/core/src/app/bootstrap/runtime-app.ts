@@ -56,6 +56,7 @@ import {
   getRuntimeRepositories,
   getRuntimeSkillArtifactStore,
   getRuntimeStorage,
+  resolveRuntimePersonIdentity,
 } from '../../adapters/storage/postgres/runtime-store.js';
 import type { ProcessRole } from './roles/process-role.js';
 import { applyHostCapacityToQueuePolicy } from '../../shared/host-capacity.js';
@@ -71,6 +72,7 @@ import type { ConversationHistoryCoverageRepository } from '../../domain/ports/c
 import { createMutableChannelRuntime } from './runtime-app-channel-runtime.js';
 import { resolveGroupRouteExecutionProviderId } from '../../runtime/group-initial-execution-provider.js';
 import { resolveRuntimeDefaultAdapters } from './runtime-default-adapters.js';
+import type { AvailableGroup } from '../../runtime/agent-spawn.js';
 export type RuntimeAppRepository = RuntimeRouterStateRepository &
   RuntimeMessageRepository &
   RuntimeConversationRouteRepository &
@@ -99,9 +101,7 @@ export interface RuntimeApp {
     thinking: ThinkingOverride | undefined,
   ) => Promise<void>;
   setGroupPermissionModeOverride: GroupProcessingDeps['setGroupPermissionModeOverride'];
-  getAvailableGroups: () => Promise<
-    import('../../runtime/agent-spawn.js').AvailableGroup[]
-  >;
+  getAvailableGroups: () => Promise<AvailableGroup[]>;
   setConversationRoutesForTest: (
     groups: Record<string, ConversationRoute>,
   ) => void;
@@ -134,6 +134,7 @@ export interface RuntimeApp {
   ) => Promise<ExecutionProviderId>;
   setAgentCursor: (chatJid: string, timestamp: string) => void;
   setChannelRuntime: (runtime: GroupProcessingDeps['channelRuntime']) => void;
+  setProviderIdNormalizer?: (normalize: (providerId: string) => string) => void;
   setHistoryCoverageDistrustEpochReader?: (
     reader: NonNullable<GroupProcessingDeps['getHistoryCoverageDistrustEpoch']>,
   ) => void;
@@ -163,6 +164,7 @@ export interface RuntimeAppOptions {
 export function createRuntimeApp(options: RuntimeAppOptions = {}): RuntimeApp {
   let conversationRoutes: Record<string, ConversationRoute> = {};
   let lastAgentTimestamp: Record<string, string> = {};
+  let normalizeProviderId: GroupProcessingDeps['normalizeProviderId'];
   let stateSaveInFlight: Promise<void> | undefined;
   let stateSaveDirty = false;
   const queue =
@@ -495,7 +497,6 @@ export function createRuntimeApp(options: RuntimeAppOptions = {}): RuntimeApp {
       (jid, group) => ops().setConversationRoute(jid, group),
     );
   }
-
   async function setGroupThinkingOverride(
     chatJid: string,
     thinking: ThinkingOverride | undefined,
@@ -507,7 +508,6 @@ export function createRuntimeApp(options: RuntimeAppOptions = {}): RuntimeApp {
       (jid, group) => ops().setConversationRoute(jid, group),
     );
   }
-
   const setGroupPermissionModeOverride: GroupProcessingDeps['setGroupPermissionModeOverride'] =
     async (chatJid, permissionMode) =>
       setGroupPermissionModeOverrideEntry(
@@ -516,12 +516,9 @@ export function createRuntimeApp(options: RuntimeAppOptions = {}): RuntimeApp {
         permissionMode,
         (jid, group) => ops().setConversationRoute(jid, group),
       );
-  async function getAvailableGroups(): Promise<
-    import('../../runtime/agent-spawn.js').AvailableGroup[]
-  > {
+  async function getAvailableGroups(): Promise<AvailableGroup[]> {
     return listAvailableGroups(await ops().getAllChats(), conversationRoutes);
   }
-
   function setConversationRoutesForTest(
     groups: Record<string, ConversationRoute>,
   ): void {
@@ -655,6 +652,9 @@ export function createRuntimeApp(options: RuntimeAppOptions = {}): RuntimeApp {
       options.skillArtifactStore ?? getRuntimeSkillArtifactStore,
     collectSessionMemory:
       options.collectSessionMemory ?? collectRuntimeSessionMemory,
+    normalizeProviderId: (providerId) =>
+      normalizeProviderId?.(providerId) ?? providerId.trim().toLowerCase(),
+    resolvePersonIdentity: resolveRuntimePersonIdentity,
     publishRuntimeEvent: options.publishRuntimeEvent,
     executionAdapter,
     executionAdapters,
@@ -695,6 +695,8 @@ export function createRuntimeApp(options: RuntimeAppOptions = {}): RuntimeApp {
     setChannelRuntime: (runtime) => {
       channelRuntime.set(runtime);
     },
+    setProviderIdNormalizer: (normalize) =>
+      void (normalizeProviderId = normalize),
     setHistoryCoverageDistrustEpochReader: (reader) => {
       readHistoryCoverageDistrustEpoch = reader;
     },
@@ -723,9 +725,7 @@ export function getDefaultRuntimeApp(
   return defaultRuntimeApp;
 }
 
-export function getAvailableGroups(): Promise<
-  import('../../runtime/agent-spawn.js').AvailableGroup[]
-> {
+export function getAvailableGroups(): Promise<AvailableGroup[]> {
   return getDefaultRuntimeApp().getAvailableGroups();
 }
 

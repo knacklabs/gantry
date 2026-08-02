@@ -187,15 +187,18 @@ export async function handleSessionRoutes(
         assertedAppId,
         agentId: body.agentId ?? null,
         conversationId,
+        conversationKind: body.conversationKind,
         title: body.title ?? null,
         responseMode: body.responseMode,
         webhookId: body.webhookId ?? null,
+        appUser: body.appUser ?? null,
       });
       sendJson(res, 200, {
         sessionId: result.session.sessionId,
         appId: result.session.appId,
         conversationId: result.session.conversationId,
         chatJid: result.session.conversationJid,
+        ...(result.session.appUser ? { appUser: result.session.appUser } : {}),
       });
     } catch (error) {
       if (!sendApplicationError(res, error)) throw error;
@@ -343,7 +346,7 @@ export async function handleSessionRoutes(
         appId: auth.appId,
         sessionId: sessionRoute.sessionId,
         message: String(body.message || ''),
-        senderId: typeof body.senderId === 'string' ? body.senderId : 'sdk',
+        senderId: typeof body.senderId === 'string' ? body.senderId : undefined,
         senderName:
           typeof body.senderName === 'string' ? body.senderName : 'SDK',
         threadId: typeof body.threadId === 'string' ? body.threadId : undefined,

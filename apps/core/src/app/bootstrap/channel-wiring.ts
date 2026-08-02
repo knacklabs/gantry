@@ -38,6 +38,7 @@ import {
 } from './channel-capability-ports.js';
 import {
   listChannelProviders,
+  normalizeProviderId,
   providerForJid,
   providerIdForJid,
 } from '../../channels/provider-registry.js';
@@ -89,6 +90,7 @@ export function createChannelWiring(
   app: RuntimeApp,
   deps: Partial<ChannelWiringDeps> = {},
 ): ChannelWiring {
+  app.setProviderIdNormalizer?.(normalizeProviderId);
   const resolved: ChannelWiringDeps = {
     appId: 'default' as AppId,
     providerIds: listChannelProviders(),
@@ -696,6 +698,7 @@ export function createChannelWiring(
   }
   return {
     getRuntimeAppId: () => resolved.appId,
+    normalizeProviderId,
     getHistoryCoverageDistrustEpoch: (id) => historyDistrust.readEpoch(id),
     // prettier-ignore
     setRuntimeSecrets: (provider) => { resolved.runtimeSecrets = provider; },

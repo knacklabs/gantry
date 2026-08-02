@@ -1,5 +1,9 @@
 import type { RuntimeEventPublishInput } from '../domain/events/events.js';
 import {
+  isRuntimeEventConversationFkId,
+  isRuntimeEventThreadFkId,
+} from '../domain/events/runtime-event-conversation.js';
+import {
   isRuntimeEventType,
   RUNTIME_EVENT_TYPES,
 } from '../domain/events/runtime-event-types.js';
@@ -34,6 +38,30 @@ function runtimeEventDedupKey(input: {
     input.threadId ?? '',
     payload,
   ].join('\u001f');
+}
+
+function payloadWithRouteContext(input: {
+  payload: unknown;
+  conversationJid?: string;
+  threadId?: string | null;
+}): unknown {
+  if (
+    input.payload === null ||
+    typeof input.payload !== 'object' ||
+    Array.isArray(input.payload)
+  ) {
+    return input.payload;
+  }
+  const payload = input.payload as Record<string, unknown>;
+  return {
+    ...payload,
+    ...(!('conversationJid' in payload) && input.conversationJid
+      ? { conversationJid: input.conversationJid }
+      : {}),
+    ...(!('threadId' in payload) && input.threadId
+      ? { threadId: input.threadId }
+      : {}),
+  };
 }
 
 export async function forwardRuntimeEvents(input: {

@@ -389,6 +389,26 @@
       "outcome": "Agent conversations on Slack and Discord now remember, durably in Postgres, what history they have already stored. Once a channel or thread is fully persisted, later turns skip the provider history call (measured 1 to 0 calls, for exactly one extra SQL statement), so replies start faster. The record is trusted only while a live inbound stream is delivering: reconnects, dropped sockets, outbound-only accounts, interaction-only sockets, failed dispatches and account rebinds all invalidate it, and the next turn re-fetches from the provider so nothing said while the agent was away is silently skipped. Telegram is unchanged. Known residual: a brief multi-process stale-trust window, deferred as D-0036."
     },
     {
+      "key": "ID-1",
+      "title": "Identity management phases 2-3: reconcile, harden, land",
+      "story": "As an operator, I can resolve any sender to one app-scoped person across Slack/Telegram/Teams/app (and later OIDC/WhatsApp/email/phone), so the agent knows it is the same human and personal memory stays with the person while conversation memory stays with the room.",
+      "acceptance_criteria": [
+        "PR 217 reconciled with main; its 7 migrations converted to the timestamped scheme with no drizzle drift",
+        "Contact aliases normalised at write time (email lowercase, phone E.164) with a collision-safe backfill",
+        "mergePeople gains a faithful unmerge restoring from person_merge_audit",
+        "verified is system-attested only and unsettable via the People API",
+        "Decision-8 boundary/invariant tests pass with reverted-guard negative controls; agents-as-service-kind invariants pinned"
+      ],
+      "order": 26,
+      "status": "done",
+      "epic": "identity",
+      "skill": "backend",
+      "origin": "adhoc",
+      "spec": "docs/specs/person-identity-aliases.md",
+      "completed_at": "2026-08-02T10:24:13+00:00",
+      "outcome": "Merged via PR #373 (supersedes #217, credits Suraj). One canonical person per app with provider-neutral exact-match aliases; personal memory DM-only; audited merge with single-use all-or-nothing unmerge; People API + SDK incl. unmerge; boundaries pinned by revert-proven tests; 22 review rounds, ~50 fixes."
+    },
+    {
       "key": "FILE-1B",
       "title": "Discord conversation-file parity",
       "story": "As a Discord user sharing files with the agent, I want the agent to save, recall, and honestly account for my files exactly as it does on Slack, so that trust in shared files does not depend on which chat app I use.",
@@ -553,5 +573,5 @@
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-08-02T08:54:36+00:00"
+  "updated_at": "2026-08-02T10:37:15+00:00"
 }

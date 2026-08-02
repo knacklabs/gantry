@@ -1,6 +1,7 @@
 import { doc, ids, query, type RouteDoc } from './openapi-route-helpers.js';
 import { mcpOpenApiRouteDocs } from './openapi-mcp-routes.js';
 import { memoryReviewRouteDocs } from './openapi-memory-review-routes.js';
+import { peopleOpenApiRouteDocs } from './openapi-people.js';
 
 export const extendedOpenApiRouteDocs: RouteDoc[] = [
   doc(
@@ -63,6 +64,7 @@ export const extendedOpenApiRouteDocs: RouteDoc[] = [
     ['llm:invoke'],
     { body: 'json' },
   ),
+  ...peopleOpenApiRouteDocs,
   doc(
     'get',
     '/v1/jobs',
@@ -396,7 +398,7 @@ export const extendedOpenApiRouteDocs: RouteDoc[] = [
       parameters: [
         query('appId', 'App id. Defaults to API key app.'),
         query('agentId', 'Agent id filter.'),
-        query('userId', 'User id filter.'),
+        query('personId', 'Canonical person id filter.'),
         query('groupId', 'Group id filter.'),
         query('channelId', 'Channel id filter.'),
         query('threadId', 'Thread id filter.'),
@@ -459,7 +461,7 @@ export const extendedOpenApiRouteDocs: RouteDoc[] = [
         ids.memory,
         query('appId', 'App id. Defaults to API key app.'),
         query('agentId', 'Agent id filter.'),
-        query('userId', 'User id filter.'),
+        query('personId', 'Canonical person id filter.'),
         query('groupId', 'Group id filter.'),
         query('channelId', 'Channel id filter.'),
         query('threadId', 'Thread id filter.'),

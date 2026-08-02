@@ -64,6 +64,7 @@ import { handleMemoryRoutes } from './routes/memory.js';
 import { handleObserverRoutes } from './routes/observer.js';
 import { handleMcpServerRoutes } from './routes/mcp-servers.js';
 import { handleModelRoutes } from './routes/models.js';
+import { handlePeopleRoutes } from './routes/people.js';
 import { handleOpenApiRoutes } from './routes/openapi.js';
 import { handleRunRoutes } from './routes/runs.js';
 import { handleSessionRoutes } from './routes/sessions.js';
@@ -168,6 +169,7 @@ function createControlRequestHandler(
       if (await handleSessionRoutes(req, res, ctx, url, pathname)) return;
       if (await handleProviderConversationRoutes(req, res, ctx, url, pathname))
         return;
+      if (await handlePeopleRoutes(req, res, ctx, url, pathname)) return;
       if (await handleMemoryRoutes(req, res, ctx, url, pathname)) return;
       if (await handleObserverRoutes(req, res, ctx, url, pathname)) return;
       if (await handleBrainRoutes(req, res, ctx, url, pathname)) return;

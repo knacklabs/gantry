@@ -123,7 +123,7 @@ function searchInputFromQuery(url: URL, appId: string): AppMemorySearchInput {
   return {
     appId,
     agentId: url.searchParams.get('agentId') || undefined,
-    userId: url.searchParams.get('userId') || undefined,
+    personId: url.searchParams.get('personId') || undefined,
     groupId: url.searchParams.get('groupId') || undefined,
     channelId: url.searchParams.get('channelId') || undefined,
     threadId: url.searchParams.get('threadId') || undefined,
@@ -165,6 +165,11 @@ function validateDirectSaveKind(
   return false;
 }
 
+function toPublicMemoryItem<T extends { userId?: string | null }>(item: T) {
+  const { userId, ...publicItem } = item;
+  return userId ? { ...publicItem, personId: userId } : publicItem;
+}
+
 export async function handleMemoryRoutes(
   req: IncomingMessage,
   res: ServerResponse,
@@ -192,7 +197,7 @@ export async function handleMemoryRoutes(
       appId,
       isAdminWrite: auth.scopes.has('memory:admin'),
     });
-    sendJson(res, 201, { memory: saved });
+    sendJson(res, 201, { memory: toPublicMemoryItem(saved) });
     return true;
   }
 
@@ -201,8 +206,34 @@ export async function handleMemoryRoutes(
     if (!auth) return true;
     const appId = url.searchParams.get('appId') || auth.appId;
     if (!assertAppAccess(res, appId, auth)) return true;
+    const knownParams = new Set([
+      'appId',
+      'agentId',
+      'personId',
+      'groupId',
+      'channelId',
+      'threadId',
+      'q',
+      'limit',
+      'includeCommon',
+      'subjectType',
+    ]);
+    const unknown = [...url.searchParams.keys()].filter(
+      (key) => !knownParams.has(key),
+    );
+    if (unknown.length > 0) {
+      // An unknown filter must fail loudly: silently ignoring one returns an
+      // unfiltered result set to a caller that asked for a subset.
+      sendError(
+        res,
+        400,
+        'INVALID_REQUEST',
+        `Unknown query parameter(s): ${unknown.join(', ')}`,
+      );
+      return true;
+    }
     const memories = await service.list(searchInputFromQuery(url, appId));
-    sendJson(res, 200, { memories });
+    sendJson(res, 200, { memories: memories.map(toPublicMemoryItem) });
     return true;
   }
 
@@ -216,7 +247,12 @@ export async function handleMemoryRoutes(
       ...(body as unknown as AppMemorySearchInput),
       appId,
     });
-    sendJson(res, 200, { results });
+    sendJson(res, 200, {
+      results: results.map((result) => ({
+        ...result,
+        item: toPublicMemoryItem(result.item),
+      })),
+    });
     return true;
   }
 
@@ -330,7 +366,7 @@ export async function handleMemoryRoutes(
               : {}),
             decision_source: 'control_api',
           },
-          context: { userId: reviewerId, reviewerIsControlApprover: true },
+          context: { personId: reviewerId, reviewerIsControlApprover: true },
         },
         subject,
       });
@@ -390,7 +426,7 @@ export async function handleMemoryRoutes(
       appId,
       isAdminWrite: auth.scopes.has('memory:admin'),
     });
-    sendJson(res, 200, { memory });
+    sendJson(res, 200, { memory: toPublicMemoryItem(memory) });
     return true;
   }
 
@@ -407,7 +443,7 @@ export async function handleMemoryRoutes(
       id: memoryId,
       appId,
       agentId: url.searchParams.get('agentId') || undefined,
-      userId: url.searchParams.get('userId') || undefined,
+      personId: url.searchParams.get('personId') || undefined,
       groupId: url.searchParams.get('groupId') || undefined,
       channelId: url.searchParams.get('channelId') || undefined,
       threadId: url.searchParams.get('threadId') || undefined,

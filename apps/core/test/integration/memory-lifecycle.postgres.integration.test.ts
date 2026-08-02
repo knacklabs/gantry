@@ -38,6 +38,8 @@ const AGENT_FOLDER = 'main_agent';
 const CHAT_JID = 'tg:memory-lifecycle';
 const SEARCH_TOKEN = 'cobalt-orchard-7319';
 const TURN_CONTEXT = {
+  appId: 'default',
+  agentId: 'agent:main_agent',
   chatJid: CHAT_JID,
   defaultScope: 'group' as const,
 };
