@@ -90,38 +90,52 @@ export async function findMemoryMergeConflicts(
     )
     .limit(PERSON_MERGE_DETAIL_LIMIT + 1);
   // The active-unique key is (app, agent, subject_type, subject_id, kind, key),
-  // so two same-key source rows
-  // with different (noncanonical) subject ids can coexist today — rekeying
-  // canonicalizes both to one subject id and would trip the index mid-merge.
-  // Surface those as conflicts up front instead of failing at the constraint.
-  const self = alias(pgSchema.memoryItemsPostgres, 'self_memory');
-  const collapses = await executor
-    .select({
-      agentId: self.agentId,
-      kind: self.kind,
-      key: self.key,
-    })
-    .from(self)
-    .where(
-      and(
-        eq(self.appId, input.appId),
-        eq(self.subjectType, 'user'),
-        eq(self.userId, input.sourcePersonId),
-        eq(self.status, 'active'),
-      ),
-    )
-    .groupBy(self.agentId, self.kind, self.key)
-    .having(sql`count(DISTINCT ${self.subjectId}) > 1`)
-    .limit(PERSON_MERGE_DETAIL_LIMIT + 1);
+  // so two same-key source rows with different (noncanonical) subject ids can
+  // coexist today — rekeying canonicalizes both to one subject id and would
+  // trip the index mid-merge. Surface every duplicate beyond the newest as a
+  // conflict WITH its sourceMemoryId, so fail_on_conflict reports it and
+  // keep_target supersedes it before the rekey.
+  const ranked = await executor.execute<{
+    id: string;
+    agent_id: string | null;
+    kind: string;
+    key: string;
+  }>(sql`
+    SELECT id, agent_id, kind, key
+    FROM (
+      SELECT id, agent_id, kind, key,
+             row_number() OVER (
+               PARTITION BY COALESCE(agent_id, ''), kind, key
+               ORDER BY updated_at DESC, id DESC
+             ) AS rn
+      FROM ${pgSchema.memoryItemsPostgres}
+      WHERE app_id = ${input.appId}
+        AND subject_type = 'user'
+        AND user_id = ${input.sourcePersonId}
+        AND status = 'active'
+    ) d
+    WHERE d.rn > 1
+    LIMIT ${PERSON_MERGE_DETAIL_LIMIT + 1}
+  `);
+  const collapseRows =
+    'rows' in ranked
+      ? (ranked.rows as Array<{
+          id: string;
+          agent_id: string | null;
+          kind: string;
+          key: string;
+        }>)
+      : [];
   return [
     ...conflicts.map(
       (conflict) => ({ type: 'memory', ...conflict }) as PersonMergeConflict,
     ),
-    ...collapses.map(
+    ...collapseRows.map(
       (row) =>
         ({
           type: 'memory',
-          agentId: row.agentId,
+          sourceMemoryId: row.id,
+          agentId: row.agent_id,
           kind: row.kind,
           key: `source-collapse:${row.key}`,
         }) as PersonMergeConflict,
