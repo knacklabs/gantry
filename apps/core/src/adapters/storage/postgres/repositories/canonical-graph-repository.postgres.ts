@@ -439,6 +439,9 @@ export class PostgresCanonicalGraphRepository {
     };
     await lockPersonAliasKey(executor, aliasKey);
     const findActiveAlias = async () => {
+      // FOR UPDATE: a concurrent merge moves this alias with a row lock, not
+      // the advisory key lock, so an unlocked read here could attribute the
+      // participant to a person archived before this transaction commits.
       const [row] = await executor
         .select({ userId: pgSchema.userAliasesPostgres.userId })
         .from(pgSchema.userAliasesPostgres)
@@ -451,7 +454,8 @@ export class PostgresCanonicalGraphRepository {
             isNull(pgSchema.userAliasesPostgres.retiredAt),
           ),
         )
-        .limit(1);
+        .limit(1)
+        .for('update');
       return row;
     };
     const existingAlias = await findActiveAlias();

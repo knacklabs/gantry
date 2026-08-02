@@ -50,7 +50,8 @@ export const CreateSessionRequestSchema = z
       });
     }
   });
-export type CreateSessionRequest = z.infer<typeof CreateSessionRequestSchema>;
+// z.input: the wire schema defaults conversationKind, so callers may omit it.
+export type CreateSessionRequest = z.input<typeof CreateSessionRequestSchema>;
 
 export const ResumeSessionRequestSchema = z
   .object({

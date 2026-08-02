@@ -989,17 +989,27 @@ export class PostgresPersonIdentityRepository implements PersonIdentityRepositor
     targetPersonId: string,
     sourcePersonId: string,
   ): Promise<UserRow[]> {
-    return executor
-      .select()
-      .from(pgSchema.usersPostgres)
-      .where(
-        and(
-          eq(pgSchema.usersPostgres.appId, appId),
-          inArray(pgSchema.usersPostgres.id, [targetPersonId, sourcePersonId]),
-        ),
-      )
-      .orderBy(asc(pgSchema.usersPostgres.id))
-      .for('update');
+    return (
+      executor
+        .select()
+        .from(pgSchema.usersPostgres)
+        .where(
+          and(
+            eq(pgSchema.usersPostgres.appId, appId),
+            inArray(pgSchema.usersPostgres.id, [
+              targetPersonId,
+              sourcePersonId,
+            ]),
+          ),
+        )
+        .orderBy(asc(pgSchema.usersPostgres.id))
+        // NO KEY UPDATE: merges never change the person id, and this must not
+        // conflict with the KEY SHARE a concurrent participant insert takes via
+        // the composite foreign key — that pairing is what lets an inflight
+        // message finish while a merge waits on the alias row instead of
+        // deadlocking against it.
+        .for('no key update')
+    );
   }
 
   private async buildMergePreview(
