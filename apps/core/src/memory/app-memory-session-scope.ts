@@ -41,7 +41,7 @@ export function conversationJidFromSession(
 function liveConversationJidFromCanonicalSuffix(value: string): string {
   const parts = value.split(':');
   if (parts.length < 3) return value;
-  if (parts[0]?.includes('providerAccount') && parts.length > 3) {
+  if (parts[0] === 'channel-providerAccount' && parts.length > 3) {
     // The marker account id is ALWAYS exactly three segments —
     // `channel-providerAccount:<appId>:<providerId>` (fallbackProviderAccountId
     // in channels/provider-registry.ts) — and appId/providerId are validated

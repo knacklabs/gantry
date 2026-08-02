@@ -346,7 +346,7 @@ export async function handleSessionRoutes(
         appId: auth.appId,
         sessionId: sessionRoute.sessionId,
         message: String(body.message || ''),
-        senderId: typeof body.senderId === 'string' ? body.senderId : 'sdk',
+        senderId: typeof body.senderId === 'string' ? body.senderId : undefined,
         senderName:
           typeof body.senderName === 'string' ? body.senderName : 'SDK',
         threadId: typeof body.threadId === 'string' ? body.threadId : undefined,

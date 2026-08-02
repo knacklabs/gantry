@@ -313,6 +313,16 @@ export class SessionInteractionModule {
     enqueue: SessionQueueIntent;
   }> {
     const session = await this.requireSession(input);
+    // Explicit sender ids may not contain ':' — the bound app-user identity
+    // serializes as `<authority>:<subject>` (percent-encoded), and keeping
+    // ':' out of raw sender ids makes that namespace unforgeable from an
+    // unbound session.
+    if (input.senderId !== undefined && input.senderId.includes(':')) {
+      throw new ApplicationError(
+        'INVALID_REQUEST',
+        'senderId must not contain ":"',
+      );
+    }
     // An omitted senderId on a bound session means the bound user; only an
     // EXPLICIT different sender is a conflict.
     if (
