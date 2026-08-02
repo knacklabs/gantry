@@ -309,11 +309,13 @@ function createRecoveredDelegatedAgentRun(
       resolveTurnSelectedSkillContextFromSnapshot(accessSnapshot);
     const semanticCapabilities =
       resolveTurnSemanticCapabilitiesFromSnapshot(accessSnapshot);
-    const attachedMcpSourceIds =
-      resolveTurnSelectedMcpServerIdsFromSnapshot(accessSnapshot, {
+    const attachedMcpSourceIds = resolveTurnSelectedMcpServerIdsFromSnapshot(
+      accessSnapshot,
+      {
         conversationId: group.conversationId,
         threadId: runInput.task.threadId ?? undefined,
-      });
+      },
+    );
     const runAgent = deps.runAgent ?? spawnAgent;
     let latestResult: string | null = null;
     let processHandlePersisted: Promise<void> | null = null;

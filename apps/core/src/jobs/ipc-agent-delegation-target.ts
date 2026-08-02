@@ -157,11 +157,13 @@ export async function resolveDelegatedAgentTarget(input: {
     resolveTurnSelectedSkillContextFromSnapshot(accessSnapshot);
   const semanticCapabilities =
     resolveTurnSemanticCapabilitiesFromSnapshot(accessSnapshot);
-  const attachedMcpSourceIds =
-    resolveTurnSelectedMcpServerIdsFromSnapshot(accessSnapshot, {
+  const attachedMcpSourceIds = resolveTurnSelectedMcpServerIdsFromSnapshot(
+    accessSnapshot,
+    {
       conversationId: group.conversationId,
       threadId: input.owner.threadId ?? undefined,
-    });
+    },
+  );
   return {
     ok: true as const,
     group,

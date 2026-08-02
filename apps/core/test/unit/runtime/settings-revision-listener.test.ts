@@ -164,7 +164,10 @@ describe('SettingsRevisionListener', () => {
           },
           settings,
         );
-        return { settings: settings as never, revision: input.revision.revision };
+        return {
+          settings: settings as never,
+          revision: input.revision.revision,
+        };
       },
     );
   });

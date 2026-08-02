@@ -34,11 +34,10 @@ export async function resolveGroupAgentAccessContext(input: {
     resolveTurnSelectedSkillContextFromSnapshot(accessSnapshot);
   const semanticCapabilities =
     resolveTurnSemanticCapabilitiesFromSnapshot(accessSnapshot);
-  const attachedMcpSourceIds =
-    resolveTurnSelectedMcpServerIdsFromSnapshot(
-      accessSnapshot,
-      input.routeScope,
-    );
+  const attachedMcpSourceIds = resolveTurnSelectedMcpServerIdsFromSnapshot(
+    accessSnapshot,
+    input.routeScope,
+  );
   const capabilityCatalog =
     await resolveTurnPromptCapabilityCatalogFromSnapshot(
       catalogSnapshot,

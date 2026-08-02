@@ -1,8 +1,6 @@
 import type { McpServerRepository } from '../../domain/ports/repositories.js';
 import type { AgentMcpServerBinding } from '../../domain/mcp/mcp-servers.js';
-import type {
-  AgentMcpAccessSnapshot,
-} from '../../domain/ports/repositories.js';
+import type { AgentMcpAccessSnapshot } from '../../domain/ports/repositories.js';
 
 // Discovery is not authorization: every ACTIVE bound MCP server is a projected
 // source (inventory-only connects included), regardless of which mcp__ tool

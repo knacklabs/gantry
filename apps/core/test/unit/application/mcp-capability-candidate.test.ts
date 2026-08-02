@@ -209,7 +209,7 @@ describe('reviewed MCP capability candidates', () => {
     ['control text', 'Read sums\nRisk: read', 'control characters'],
     [
       'credential-like text',
-      'api_key=abcdefghijklmnopqrstuvwxyz123456',
+      'api_key=test-fixture-not-a-real-value',
       'cannot be displayed safely and completely',
     ],
   ])(

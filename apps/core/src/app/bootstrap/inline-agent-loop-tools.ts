@@ -697,11 +697,13 @@ export function wireInlineAgentLoopTools(input: {
             runtimeAccess: toolPolicy.runtimeAccess,
             attachedSkillSourceIds: selectedSkills.ids,
             selectedSkillDisplays: selectedSkills.displays,
-            attachedMcpSourceIds:
-              resolveTurnSelectedMcpServerIdsFromSnapshot(accessSnapshot, {
+            attachedMcpSourceIds: resolveTurnSelectedMcpServerIdsFromSnapshot(
+              accessSnapshot,
+              {
                 conversationId: laneInput.group.conversationId,
                 threadId: laneInput.input.threadId ?? undefined,
-              }),
+              },
+            ),
             semanticCapabilities,
             accessSnapshot,
           };
