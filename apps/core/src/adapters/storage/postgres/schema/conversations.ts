@@ -74,9 +74,9 @@ export const conversationParticipantsPostgres = pgTable(
       .references(() => conversationsPostgres.id, { onDelete: 'cascade' }),
     provider: text('provider').notNull().default(''),
     providerAccountId: text('provider_account_id').notNull().default(''),
-    userId: text('user_id').references(() => usersPostgres.id, {
-      onDelete: 'cascade',
-    }),
+    // The single-column users(id) reference was dropped by the identity
+    // migrations in favour of the app-scoped composite FK declared below.
+    userId: text('user_id'),
     externalUserId: text('external_user_id').notNull(),
     role: text('role').notNull().default('member'),
     status: text('status').notNull().default('active'),

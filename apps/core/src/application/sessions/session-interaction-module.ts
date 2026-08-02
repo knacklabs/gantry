@@ -313,7 +313,13 @@ export class SessionInteractionModule {
     enqueue: SessionQueueIntent;
   }> {
     const session = await this.requireSession(input);
-    if (session.appUser && input.senderId?.trim() !== session.appUser.subject) {
+    // An omitted senderId on a bound session means the bound user; only an
+    // EXPLICIT different sender is a conflict.
+    if (
+      session.appUser &&
+      input.senderId !== undefined &&
+      input.senderId.trim() !== session.appUser.subject
+    ) {
       throw new ApplicationError(
         'CONFLICT',
         'SDK session is bound to a different app user.',

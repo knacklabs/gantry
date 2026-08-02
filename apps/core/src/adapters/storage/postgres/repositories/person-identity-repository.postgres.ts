@@ -441,6 +441,24 @@ export class PostgresPersonIdentityRepository implements PersonIdentityRepositor
         ),
         timestamp,
       });
+      // Participant rows are part of the canonical identity graph; leaving
+      // them on the archived source would keep surfacing a dead person in
+      // conversation views. Capture the ids so unmerge can restore exactly
+      // these rows.
+      const movedParticipants = await tx
+        .update(pgSchema.conversationParticipantsPostgres)
+        .set({ userId: input.targetPersonId, updatedAt: timestamp })
+        .where(
+          and(
+            eq(pgSchema.conversationParticipantsPostgres.appId, input.appId),
+            eq(
+              pgSchema.conversationParticipantsPostgres.userId,
+              input.sourcePersonId,
+            ),
+          ),
+        )
+        .returning({ id: pgSchema.conversationParticipantsPostgres.id });
+      const movedParticipantIds = movedParticipants.map((row) => row.id).sort();
       await tx
         .update(pgSchema.usersPostgres)
         .set({ status: 'archived', updatedAt: timestamp })
@@ -469,6 +487,7 @@ export class PostgresPersonIdentityRepository implements PersonIdentityRepositor
             movedAliasIds: preview.aliasesToMove.map((alias) => alias.id),
             movedMemoryIds: moved.movedMemoryIds,
             movedMemoryRows: moved.movedMemoryRows,
+            movedParticipantIds,
             supersededMemoryRows: moved.supersededMemoryRows,
             sourcePerson: {
               personId: sourcePerson.id,
@@ -625,6 +644,26 @@ export class PostgresPersonIdentityRepository implements PersonIdentityRepositor
         )
           .sort((a, b) => a.id.localeCompare(b.id))
           .map(toAlias);
+      }
+      if (snapshot.movedParticipantIds.length > 0) {
+        // Restore exactly the merge-recorded participant rows; rows that were
+        // re-pointed or created after the merge stay with the survivor.
+        await tx
+          .update(pgSchema.conversationParticipantsPostgres)
+          .set({ userId: audit.sourcePersonId, updatedAt: timestamp })
+          .where(
+            and(
+              eq(pgSchema.conversationParticipantsPostgres.appId, input.appId),
+              eq(
+                pgSchema.conversationParticipantsPostgres.userId,
+                audit.targetPersonId,
+              ),
+              inArray(
+                pgSchema.conversationParticipantsPostgres.id,
+                snapshot.movedParticipantIds,
+              ),
+            ),
+          );
       }
       const memoryRowsRestored = await restorePersonalMemory(tx, {
         appId: input.appId,

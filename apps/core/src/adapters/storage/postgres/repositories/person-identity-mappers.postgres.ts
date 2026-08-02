@@ -359,6 +359,7 @@ export interface MergeUndoSnapshot {
   movedAliasIds: string[];
   movedMemoryIds: string[];
   movedMemoryRows: Array<{ id: string; subjectId: string }>;
+  movedParticipantIds: string[];
   supersededMemoryRows: Array<{ id: string; priorStatus: string }>;
   fingerprint: string;
   unmergedAt?: string;
@@ -372,6 +373,10 @@ export function mergeUndoSnapshot(audit: AuditRow): MergeUndoSnapshot {
   const movedMemoryIds = jsonArray(stored.movedMemoryIds);
   const supersededMemoryRows = jsonArray(stored.supersededMemoryRows);
   const movedMemoryRows = jsonArray(stored.movedMemoryRows);
+  const movedParticipantIds = jsonArray(stored.movedParticipantIds);
+  const validMovedParticipantIds =
+    Array.isArray(stored.movedParticipantIds) &&
+    movedParticipantIds.every((id) => typeof id === 'string');
   const validMovedMemoryRows =
     Array.isArray(stored.movedMemoryRows) &&
     movedMemoryRows.length === movedMemoryIds.length &&
@@ -443,6 +448,7 @@ export function mergeUndoSnapshot(audit: AuditRow): MergeUndoSnapshot {
     !movedMemoryIds.every((id) => typeof id === 'string') ||
     !validSupersededRows ||
     !validMovedMemoryRows ||
+    !validMovedParticipantIds ||
     !aliasesMatch ||
     !uniqueAliasIds ||
     !uniqueMemoryIds ||
@@ -467,6 +473,7 @@ export function mergeUndoSnapshot(audit: AuditRow): MergeUndoSnapshot {
       id: string;
       subjectId: string;
     }>,
+    movedParticipantIds: movedParticipantIds as string[],
     supersededMemoryRows: supersededMemoryRows as Array<{
       id: string;
       priorStatus: string;

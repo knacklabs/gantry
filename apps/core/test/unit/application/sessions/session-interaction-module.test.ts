@@ -163,16 +163,14 @@ describe('SessionInteractionModule', () => {
       message: 'SDK session is bound to a different app user.',
     });
 
+    // An omitted senderId on a bound session means the bound user.
     await expect(
       module.acceptMessage({
         appId: 'app-one',
         sessionId: 'session-1',
         message: 'anonymous message',
       }),
-    ).rejects.toMatchObject({
-      code: 'CONFLICT',
-      message: 'SDK session is bound to a different app user.',
-    });
+    ).resolves.toMatchObject({ accepted: true });
   });
 
   it('rejects waits for sessions outside the authenticated app', async () => {
