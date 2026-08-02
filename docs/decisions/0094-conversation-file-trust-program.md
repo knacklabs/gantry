@@ -74,18 +74,18 @@ identity", with capability differences expressed as DATA the adapter reports
 (as the hydration-coverage port did in decision 0087) — no provider is the
 reference implementation, and a fifth provider inherits the shape.
 
-State on main @ `f1adbc682` per dimension:
+State after FILE-1B per dimension (citations name the current owning surface):
 
-| Dimension | Slack | Telegram | Discord | Teams |
-| --- | --- | --- | --- | --- |
-| Live byte capture (0045 writer, 50 MiB) | YES (`channel-state.ts:558`) | YES (`media-ingestion.ts:150`) | **NO** — metadata only (`discord.ts:550`) | **NO** — metadata only (`teams.ts:419`) |
-| storageRef persisted on message | YES | YES | **NO** | **NO** |
-| Filename persisted | YES | YES | **NO** — dropped (`canonical-message-repository.postgres.ts:332`) | **NO** |
-| Durable re-fetch identity for backfilled files | file id (needs files.info op) | N/A (no history hook) | **NO** — no URL, no filename; message external id only | **NO** — no hostedContents/driveItem locator |
-| Provider download op in adapter port | live-only (needs refetch op) | live-only | **NONE** | **NONE** (and default SDK client is null, `teams-sdk-client.ts:3`) |
-| Deletion events routed | **NO** (file_deleted/message_deleted unregistered) | **NO** | **NO** (MESSAGE_DELETE unhandled) | **NO** |
-| Ephemerality signal captured | **NO** (`is_ephemeral` not read) | **NO** (self-destruct media not read) | **NO** (ephemeral flag not read) | **NO** |
-| Rate-limit/auth lifecycle for deferred fetch | bot token in memory, no refresh path | bot token | JSON client retries 3x, no attachment op | Graph auth absent |
+| Dimension                                      | Slack                                                      | Telegram                              | Discord                                                                                                                                                                              | Teams                                                            |
+| ---------------------------------------------- | ---------------------------------------------------------- | ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------- |
+| Live byte capture (0045 writer, 50 MiB)        | YES (`apps/core/src/channels/slack/channel-state.ts`, live attachment enrichment) | YES (`apps/core/src/channels/telegram/media-ingestion.ts`)   | YES (`apps/core/src/channels/discord-live-attachment-capture.ts`, `deliverLiveDiscordMessage`)                                                                                                              | **NO** — metadata only (`apps/core/src/channels/teams.ts`)                              |
+| storageRef persisted on message                | YES                                                        | YES                                   | YES (`apps/core/src/channels/discord-live-attachment-capture.ts`)                                                                                                                                           | **NO**                                                           |
+| Filename persisted                             | YES                                                        | YES                                   | YES (`apps/core/src/channels/discord-conversation-context.ts`, `discordMessageAttachments`)                                                                                                                 | **NO**                                                           |
+| Durable re-fetch identity for backfilled files | file id (`apps/core/src/channels/slack/historical-attachment-fetcher.ts`)         | N/A (no history hook)                 | attachment + channel + message identity (`apps/core/src/channels/discord-conversation-context.ts`, `discordMessageAttachments`)                                                                             | **NO** — no hostedContents/driveItem locator                     |
+| Provider download op in adapter port           | YES (`apps/core/src/channels/slack/historical-attachment-fetcher.ts`)             | live-only                             | YES (`apps/core/src/channels/discord-historical-attachment-fetcher.ts`)                                                                                                                                     | **NONE** (and default SDK client is null, `apps/core/src/channels/teams-sdk-client.ts`) |
+| Deletion events routed                         | **NO** (file_deleted/message_deleted unregistered)         | **NO**                                | YES — one scoped atomic repository call per event (`apps/core/src/channels/discord-message-deletion.ts`, `routeDiscordDeletion`; `apps/core/src/adapters/storage/postgres/repositories/message-attachment-repository.postgres.ts`, `setDeletedAtByMessageExternalIds`) | **NO**                                                           |
+| Ephemerality signal captured                   | **NO** (`is_ephemeral` not read)                           | **NO** (self-destruct media not read) | YES (`apps/core/src/channels/discord-conversation-context.ts`, `isDiscordEphemeralMessage`)                                                                                                                 | **NO**                                                           |
+| Rate-limit/auth lifecycle for deferred fetch   | bot token in memory, no refresh path                       | bot token                             | REST lookup retries 3x with bot auth; fresh CDN URL download is unauthenticated (`apps/core/src/channels/discord-historical-attachment-fetcher.ts`) | Graph auth absent                                                |
 
 Work this implies, staged:
 
@@ -94,7 +94,7 @@ Work this implies, staged:
   migration; the conversation-scoped attachment resolver as the only agent
   path to bytes; Slack backfill re-fetch through the 0045 writer; Slack
   hydration persists the re-fetch identity it already receives.
-- **FILE-1B (next)**: Discord reaches full Slack/Telegram parity — live
+- **FILE-1B (implemented)**: Discord reaches the scoped program slice — live
   capture through the 0045 writer, filename + fetch identity persisted,
   backfill re-fetch via message-id attachment lookup, deletion event
   routing, ephemeral-flag handling.
@@ -109,3 +109,7 @@ Work this implies, staged:
 Nothing in this matrix may be silently narrowed: a provider that cannot
 support a dimension reports that as data (capability kind), and the docs
 state it per provider in plain language.
+
+FILE-1B does not claim that Slack or Telegram workspace reads moved behind the
+attachment resolver. Their deletion-event registration and workspace-ref
+migration remain pending.

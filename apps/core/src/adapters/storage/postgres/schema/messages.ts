@@ -128,3 +128,40 @@ export const messageAttachmentsPostgres = pgTable(
     ),
   }),
 );
+
+export const messageAttachmentDeletionMarkersPostgres = pgTable(
+  'message_attachment_deletion_markers',
+  {
+    id: text('id').primaryKey(),
+    appId: text('app_id').notNull(),
+    providerId: text('provider').notNull(),
+    providerAccountId: text('provider_account_id').notNull(),
+    channelId: text('channel_id').notNull(),
+    externalMessageId: text('external_message_id').notNull(),
+    deletedAt: timestamp('deleted_at', {
+      withTimezone: true,
+      mode: 'string',
+    }).notNull(),
+    createdAt: timestamp('created_at', {
+      withTimezone: true,
+      mode: 'string',
+    })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    pairUnique: uniqueIndex(
+      'idx_message_attachment_deletion_markers_scope_pair_unique',
+    ).on(
+      table.appId,
+      table.providerId,
+      table.providerAccountId,
+      table.channelId,
+      table.externalMessageId,
+    ),
+    pendingIdx: index('idx_message_attachment_deletion_markers_pending').on(
+      table.createdAt,
+      table.id,
+    ),
+  }),
+);

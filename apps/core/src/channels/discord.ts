@@ -37,7 +37,6 @@ import { getProviderRuntimeSecret } from './provider-runtime-secrets.js';
 import { nowMs as currentTimeMs } from '../shared/time/datetime.js';
 import { findConversationRoutesForChat } from '../shared/thread-queue-key.js';
 import type {
-  DiscordInteraction,
   DiscordMessageCreate,
   DiscordUser,
   WebSocketFactory,
@@ -46,19 +45,22 @@ import type {
 import {
   discordMessageAttachments,
   hydrateDiscordConversationContext,
+  isDiscordDurableIngressMessage,
   resolveDiscordConversationContext,
   type DiscordConversationContextCache,
 } from './discord-conversation-context.js';
+import { deliverLiveDiscordMessage } from './discord-live-attachment-capture.js';
 import { DiscordInteractionHandler } from './discord-interactions.js';
 import {
   discordHeaders,
-  discordRateLimitRetryDelayMs,
   discordReactionEmoji,
+  requestDiscordJson,
   userName,
-  waitDiscordRetryDelay,
 } from './discord-http-helpers.js';
+import { createDiscordHistoricalAttachmentFetcher } from './discord-historical-attachment-fetcher.js';
 import { StreamResetEpochs } from './stream-reset-epochs.js';
 import { resolveInboundConversationIdentity } from './inbound-conversation-identity.js';
+import { routeDiscordGatewayDispatch } from './discord-gateway-dispatch.js';
 
 export const DISCORD_JID_PREFIX = 'dc:';
 
@@ -119,6 +121,9 @@ export class DiscordChannel implements ChannelAdapter {
   private readonly channelContextCache: DiscordConversationContextCache =
     new Map();
   private readonly interactions: DiscordInteractionHandler;
+  readonly fetchHistoricalAttachment: ReturnType<
+    typeof createDiscordHistoricalAttachmentFetcher
+  >;
 
   constructor(
     private readonly botToken: string,
@@ -126,6 +131,8 @@ export class DiscordChannel implements ChannelAdapter {
     private readonly opts: ChannelOpts,
     private readonly createWebSocket: WebSocketFactory = websocketFactory,
   ) {
+    this.fetchHistoricalAttachment =
+      createDiscordHistoricalAttachmentFetcher(botToken);
     this.interactions = new DiscordInteractionHandler({
       botToken,
       applicationId,
@@ -478,20 +485,17 @@ export class DiscordChannel implements ChannelAdapter {
     errorMessage: string,
     parseJson = true,
   ): Promise<T> {
-    for (let attempt = 0; attempt < 3; attempt += 1) {
-      const response = await fetch(`${DISCORD_API_ROOT}${path}`, init);
-      if (response.ok) {
-        return parseJson ? ((await response.json()) as T) : (undefined as T);
-      }
-      const retryDelayMs = discordRateLimitRetryDelayMs(response);
-      if (retryDelayMs === null || attempt >= 2) throw new Error(errorMessage);
-      logger.warn(
-        { path, attempt: attempt + 1, retryDelayMs },
-        'Discord REST request rate-limited; retrying',
-      );
-      await waitDiscordRetryDelay(retryDelayMs);
-    }
-    throw new Error(errorMessage);
+    return requestDiscordJson<T>({
+      url: `${DISCORD_API_ROOT}${path}`,
+      init,
+      errorMessage,
+      parseJson,
+      onRetry: (attempt, retryDelayMs) =>
+        logger.warn(
+          { path, attempt, retryDelayMs },
+          'Discord REST request rate-limited; retrying',
+        ),
+    });
   }
 
   private async postJson<T>(path: string, body: unknown): Promise<T> {
@@ -537,29 +541,32 @@ export class DiscordChannel implements ChannelAdapter {
     t?: string | null;
     d?: unknown;
   }) {
-    if (payload.t === 'READY') {
-      const ready = payload.d as { user?: DiscordUser; session_id?: string };
-      this.botUserId = ready.user?.id || '';
-      return;
-    }
-    if (payload.t === 'MESSAGE_CREATE') {
-      await this.handleMessageCreate(payload.d as DiscordMessageCreate);
-      return;
-    }
-    if (payload.t === 'INTERACTION_CREATE') {
-      await this.interactions.handleInteraction(
-        payload.d as DiscordInteraction,
-      );
-    }
+    await routeDiscordGatewayDispatch(payload, {
+      cache: this.channelContextCache,
+      conversationRoutes: this.opts.conversationRoutes?.() ?? {},
+      providerAccountIds:
+        this.opts.inboundProviderAccountIds ??
+        (this.opts.providerAccountId ? [this.opts.providerAccountId] : []),
+      onReady: (ready) => {
+        this.botUserId = ready.user?.id || '';
+      },
+      onMessageCreate: (message) => this.handleMessageCreate(message),
+      onInteraction: (interaction) =>
+        this.interactions.handleInteraction(interaction),
+      onMessageAttachmentsDeleted: this.opts.onMessageAttachmentsDeleted,
+    });
   }
 
   private async handleMessageCreate(message: DiscordMessageCreate) {
-    if (!message.channel_id || !message.id) return;
+    if (!isDiscordDurableIngressMessage(message)) return;
     const author = message.author || message.member?.user;
     if (author?.bot || author?.id === this.botUserId) return;
-    const attachments = discordMessageAttachments(message);
     const context = await this.resolveInteractionConversationContext(
       message.channel_id,
+    );
+    const attachments = discordMessageAttachments(
+      message,
+      context.conversationJid,
     );
     if (context.threadId) {
       this.rememberMessageChannelId(
@@ -579,23 +586,7 @@ export class DiscordChannel implements ChannelAdapter {
       name: matchingRoutes[0]?.[1].name,
       isGroup: true,
     });
-    const metadataArgs = [
-      context.conversationJid,
-      message.timestamp || new Date().toISOString(),
-      identity.messageIdentity.name,
-      'discord',
-      true,
-    ] as const;
-    if (identity.needsStandaloneMetadataWrite) {
-      if (this.opts.providerAccountId) {
-        await this.opts.onChatMetadata(...metadataArgs, {
-          providerAccountId: this.opts.providerAccountId,
-        });
-      } else {
-        await this.opts.onChatMetadata(...metadataArgs);
-      }
-    }
-    await this.opts.onMessage(context.conversationJid, {
+    const inboundMessage = {
       id: message.id,
       chat_jid: context.conversationJid,
       ...identity.messageIdentity,
@@ -612,6 +603,15 @@ export class DiscordChannel implements ChannelAdapter {
       reply_to_message_content: message.referenced_message?.content,
       reply_to_sender_name: userName(message.referenced_message?.author, ''),
       ...(attachments.length > 0 ? { attachments } : {}),
+    };
+    await deliverLiveDiscordMessage({
+      opts: this.opts,
+      message,
+      conversationJid: context.conversationJid,
+      inboundMessage,
+      attachments,
+      metadataName: identity.messageIdentity.name,
+      needsStandaloneMetadataWrite: identity.needsStandaloneMetadataWrite,
     });
   }
 

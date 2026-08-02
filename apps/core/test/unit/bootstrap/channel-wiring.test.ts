@@ -52,6 +52,7 @@ import { AsyncTaskQueue } from '@core/app/bootstrap/async-task-queue.js';
 import { createChannelPersistenceHandlers } from '@core/app/bootstrap/channel-persistence-handlers.js';
 import { hydrateChannelConversationContext } from '@core/app/bootstrap/channel-wiring-conversation-context.js';
 import { createChannelWiring } from '@core/app/bootstrap/channel-wiring.js';
+import { createChannelAttachmentDeletionHandler } from '@core/app/bootstrap/channel-wiring-attachment-deletion.js';
 import {
   createAgentTodoRenderer,
   createRichInteractionRenderer,
@@ -242,6 +243,94 @@ describe('createChannelWiring', () => {
     expect(app.setConversationHistoryCoverageRepository).toHaveBeenCalledWith(
       historyCoverage,
     );
+  });
+
+  it('maps one provider-neutral deletion callback to one scoped repository call', async () => {
+    let onMessageAttachmentsDeleted: Parameters<
+      Provider['create']
+    >[0]['onMessageAttachmentsDeleted'];
+    const channel = makeChannel({ name: 'slack' });
+    const create = vi.fn<Provider['create']>(async (opts) => {
+      onMessageAttachmentsDeleted = opts.onMessageAttachmentsDeleted;
+      return channel;
+    });
+    const setDeletedAtByMessageExternalIds = vi.fn(async () => ({
+      tombstonedAttachments: [],
+    }));
+    const wiring = createChannelWiring(makeApp(), {
+      appId: 'app-one' as never,
+      providerIds: [makeProvider('slack', create)],
+      messageAttachments: { setDeletedAtByMessageExternalIds } as never,
+    });
+
+    await wiring.connectEnabledChannels(
+      makeRuntimeSettings({
+        telegram: false,
+        slack: true,
+      }),
+    );
+    await onMessageAttachmentsDeleted?.({
+      providerId: 'slack',
+      channelId: 'C123',
+      externalMessageIds: ['message-1'],
+      deletedAt: '2026-08-01T00:00:00.000Z',
+    });
+
+    expect(setDeletedAtByMessageExternalIds).toHaveBeenCalledOnce();
+    expect(setDeletedAtByMessageExternalIds).toHaveBeenCalledWith({
+      appId: 'app-one',
+      providerId: 'slack',
+      providerAccountIds: ['slack_default'],
+      channelId: 'C123',
+      externalMessageIds: ['message-1'],
+      deletedAt: '2026-08-01T00:00:00.000Z',
+    });
+    await wiring.disconnectChannels();
+  });
+
+  it('rejects a failed durable deletion and coalesces its background retry', async () => {
+    vi.useFakeTimers();
+    try {
+      const failure = new Error('tombstone failed once');
+      const setDeletedAtByMessageExternalIds = vi
+        .fn()
+        .mockRejectedValueOnce(failure)
+        .mockResolvedValue({ tombstonedAttachments: [] });
+      const retryPendingMessageAttachmentDeletions = vi.fn(async () => false);
+      const handler = createChannelAttachmentDeletionHandler(
+        'app-one',
+        () =>
+          ({
+            setDeletedAtByMessageExternalIds,
+            retryPendingMessageAttachmentDeletions,
+          }) as never,
+        { retryDelayMs: 10 },
+      );
+
+      await expect(
+        handler({
+          providerId: 'discord',
+          providerAccountIds: ['discord-one', 'discord-two'],
+          channelId: 'channel-1',
+          externalMessageIds: ['message-1', 'message-2'],
+          deletedAt: '2026-08-01T00:00:00.000Z',
+        }),
+      ).rejects.toBe(failure);
+      await vi.advanceTimersByTimeAsync(10);
+
+      expect(retryPendingMessageAttachmentDeletions).toHaveBeenCalledOnce();
+      expect(setDeletedAtByMessageExternalIds).toHaveBeenCalledTimes(2);
+      expect(setDeletedAtByMessageExternalIds).toHaveBeenLastCalledWith({
+        appId: 'app-one',
+        providerId: 'discord',
+        providerAccountIds: ['discord-one', 'discord-two'],
+        channelId: 'channel-1',
+        externalMessageIds: ['message-1', 'message-2'],
+        deletedAt: '2026-08-01T00:00:00.000Z',
+      });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('coalesces run permission requests into one live batch prompt', async () => {

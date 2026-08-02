@@ -30,7 +30,10 @@ import type {
 } from '@core/domain/conversation/conversation.js';
 import type { AgentRunId } from '@core/domain/events/events.js';
 import { RUNTIME_EVENT_TYPES } from '@core/domain/events/runtime-event-types.js';
-import type { MessageId } from '@core/domain/messages/messages.js';
+import type {
+  MessageAttachment,
+  MessageId,
+} from '@core/domain/messages/messages.js';
 import type { PermissionDecisionId } from '@core/domain/permissions/permissions.js';
 import type {
   AgentSessionDigestId,
@@ -1282,6 +1285,56 @@ maybeDescribe('Postgres domain repositories', () => {
     expect(matching[0]?.parts).toEqual([
       { kind: 'text', text: 'thread redelivered' },
     ]);
+  });
+
+  it('uses the external thread id to apply a deletion marker before domain message insert', async () => {
+    const externalMessageId = 'evt-thread-delete-before-insert';
+    const attachmentId =
+      'attachment:test:thread-delete-before-insert' as MessageAttachment['id'];
+    const messageId = 'message:test:thread-delete-before-insert' as MessageId;
+    await repositories.messageAttachments.setDeletedAtByMessageExternalIds({
+      appId,
+      providerId,
+      providerAccountIds: [providerAccountId],
+      channelId: '1700.1',
+      externalMessageIds: [externalMessageId],
+      deletedAt: '2026-08-01T00:00:00.000Z',
+    });
+
+    await repositories.messages.saveMessage({
+      id: messageId,
+      appId,
+      conversationId,
+      threadId,
+      externalRef: {
+        kind: 'message',
+        value: externalMessageId,
+        thread_id: '1700.1',
+      } as never,
+      direction: 'inbound',
+      senderUserId: userId,
+      senderDisplayName: 'Ravi',
+      trust: 'trusted',
+      createdAt: '2026-08-01T00:00:01.000Z',
+      parts: [{ kind: 'text', text: 'deleted before insert' }],
+      attachments: [
+        {
+          id: attachmentId,
+          messageId,
+          kind: 'file',
+          trust: 'trusted',
+        },
+      ],
+    });
+
+    await expect(
+      service.pool.query(
+        'SELECT deleted_at = $2::timestamptz AS tombstoned FROM message_attachments WHERE id = $1',
+        [attachmentId, '2026-08-01T00:00:00.000Z'],
+      ),
+    ).resolves.toMatchObject({
+      rows: [{ tombstoned: true }],
+    });
   });
 
   it('persists outbound delivery status and provider message id', async () => {

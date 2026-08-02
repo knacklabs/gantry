@@ -848,6 +848,13 @@
       "when": 1785564366568,
       "tag": "20260801060606_session_observability_index",
       "breakpoints": true
+    },
+    {
+      "idx": 124,
+      "version": "7",
+      "when": 1785587292354,
+      "tag": "20260801122812_durable_message_attachment_deletions",
+      "breakpoints": true
     }
   ]
 }
