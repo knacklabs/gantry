@@ -206,14 +206,29 @@ export async function handleMemoryRoutes(
     if (!auth) return true;
     const appId = url.searchParams.get('appId') || auth.appId;
     if (!assertAppAccess(res, appId, auth)) return true;
-    if (url.searchParams.has('userId')) {
-      // The filter was renamed; silently ignoring the old name would return
-      // an unfiltered result set to a caller asking for one person's memories.
+    const knownParams = new Set([
+      'appId',
+      'agentId',
+      'personId',
+      'groupId',
+      'channelId',
+      'threadId',
+      'q',
+      'limit',
+      'includeCommon',
+      'subjectType',
+    ]);
+    const unknown = [...url.searchParams.keys()].filter(
+      (key) => !knownParams.has(key),
+    );
+    if (unknown.length > 0) {
+      // An unknown filter must fail loudly: silently ignoring one returns an
+      // unfiltered result set to a caller that asked for a subset.
       sendError(
         res,
         400,
         'INVALID_REQUEST',
-        'userId was renamed to personId; use ?personId=...',
+        `Unknown query parameter(s): ${unknown.join(', ')}`,
       );
       return true;
     }

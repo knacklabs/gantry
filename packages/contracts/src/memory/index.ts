@@ -37,26 +37,23 @@ export const MemorySubjectRefSchema = z.object({
 });
 export type MemorySubjectRef = z.infer<typeof MemorySubjectRefSchema>;
 
-export const MemorySearchRequestSchema = z.object({
-  appId: z.string().optional(),
-  agentId: z.string().optional(),
-  personId: z.string().optional(),
-  groupId: z.string().optional(),
-  channelId: z.string().optional(),
-  conversationId: z.string().optional(),
-  query: z.string().optional(),
-  limit: z.number().int().min(1).max(100).optional(),
-  includeCommon: z.boolean().optional(),
-  subjectTypes: z.array(MemorySubjectTypeSchema).optional(),
-  metadata: ContractMetadataSchema.optional(),
-  // The person filter was renamed from userId; a non-strict parse would strip
-  // the old key and silently broaden the search to every subject.
-  userId: z
-    .custom<undefined>((value) => value === undefined, {
-      message: 'userId was renamed to personId; use personId',
-    })
-    .optional(),
-});
+export const MemorySearchRequestSchema = z
+  .object({
+    appId: z.string().optional(),
+    agentId: z.string().optional(),
+    personId: z.string().optional(),
+    groupId: z.string().optional(),
+    channelId: z.string().optional(),
+    conversationId: z.string().optional(),
+    query: z.string().optional(),
+    limit: z.number().int().min(1).max(100).optional(),
+    includeCommon: z.boolean().optional(),
+    subjectTypes: z.array(MemorySubjectTypeSchema).optional(),
+    metadata: ContractMetadataSchema.optional(),
+    // Strict: an unknown filter key must fail the parse, not be stripped —
+    // stripping a filter silently broadens the search to every subject.
+  })
+  .strict();
 export type MemorySearchRequest = z.infer<typeof MemorySearchRequestSchema>;
 
 export * from './pattern-candidates.js';
