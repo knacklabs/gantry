@@ -438,8 +438,7 @@ describe('syncRuntimeSettingsFromProjection fleet mode', () => {
           }),
         ],
         mcpCapabilityGrantTokens: {
-          '["main","mcp.reviewed.read","builtin"]':
-            'permission_request_reviewed',
+          '["main","mcp.reviewed.read","builtin"]': 'placeholder-grant-token',
         },
       }),
       expect.objectContaining({
