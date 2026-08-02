@@ -42,6 +42,37 @@ BEGIN
       'Cannot normalize contact aliases: an active phone alias is not valid E.164 input';
   END IF;
 
+  -- Same-person duplicates that collapse under normalization (Foo@ vs foo@)
+  -- are routine data, not an upgrade failure: keep the newest per normalized
+  -- key and retire the rest. Only CROSS-person collisions abort below —
+  -- those cannot be resolved without guessing which person owns the contact.
+  UPDATE user_aliases ua
+  SET retired_at = now(), retired_by = 'migration:normalize-contact-aliases',
+      verification_status = 'retired', updated_at = now()
+  FROM (
+    SELECT id, row_number() OVER (
+             PARTITION BY app_id, user_id, provider,
+                          COALESCE(provider_account_id, ''),
+                          CASE
+                            WHEN provider = 'email' OR evidence_json->>'evidenceType' = 'email'
+                              THEN lower(btrim(external_user_id))
+                            WHEN provider = 'phone' OR evidence_json->>'evidenceType' = 'phone'
+                              THEN CASE
+                                WHEN btrim(external_user_id) LIKE '00%'
+                                  THEN '+' || regexp_replace(substr(btrim(external_user_id), 3), '[^0-9]', '', 'g')
+                                ELSE '+' || regexp_replace(substr(btrim(external_user_id), 2), '[^0-9]', '', 'g')
+                              END
+                            ELSE external_user_id
+                          END
+             ORDER BY updated_at DESC, id DESC
+           ) AS rn
+    FROM user_aliases
+    WHERE retired_at IS NULL
+      AND (provider IN ('email', 'phone')
+        OR evidence_json->>'evidenceType' IN ('email', 'phone'))
+  ) dup
+  WHERE ua.id = dup.id AND dup.rn > 1;
+
   IF EXISTS (
     WITH normalized_aliases AS (
       SELECT

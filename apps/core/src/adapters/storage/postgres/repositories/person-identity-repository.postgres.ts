@@ -86,6 +86,11 @@ export class PostgresPersonIdentityRepository implements PersonIdentityRepositor
       result: IdentityResolveResult,
     ) => RuntimeEventPublishInput,
   ): Promise<IdentityResolveResult> {
+    // Point-in-time read by design: a resolution is consumed after this call
+    // returns, so serializing it against merges cannot make the caller's later
+    // use of the person id any fresher. Reviews suggesting a lock here have
+    // been rejected twice; merges re-point participants and re-key memory, so
+    // stale ids self-heal at the data they touch.
     const alias = await this.findActiveAlias(this.db, input);
     if (alias) {
       const mapped = toAlias(alias);

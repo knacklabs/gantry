@@ -438,11 +438,8 @@ export class PostgresCanonicalGraphRepository {
       externalUserId,
     };
     await lockPersonAliasKey(executor, aliasKey);
-    const findActiveAlias = async () => {
-      // FOR UPDATE: a concurrent merge moves this alias with a row lock, not
-      // the advisory key lock, so an unlocked read here could attribute the
-      // participant to a person archived before this transaction commits.
-      const [row] = await executor
+    const findActiveAlias = async (lock?: 'share') => {
+      const query = executor
         .select({ userId: pgSchema.userAliasesPostgres.userId })
         .from(pgSchema.userAliasesPostgres)
         .where(
@@ -454,8 +451,8 @@ export class PostgresCanonicalGraphRepository {
             isNull(pgSchema.userAliasesPostgres.retiredAt),
           ),
         )
-        .limit(1)
-        .for('update');
+        .limit(1);
+      const [row] = await (lock ? query.for('share') : query);
       return row;
     };
     const existingAlias = await findActiveAlias();
@@ -581,6 +578,28 @@ export class PostgresCanonicalGraphRepository {
           updatedAt: now,
         },
       });
+
+    // A merge moves aliases with row locks, not the advisory key this
+    // transaction holds, so the attribution read above can go stale before
+    // commit. Re-read under FOR SHARE: it blocks until any concurrent merge
+    // holding the alias row commits, then repairs this participant row if
+    // ownership moved. FOR SHARE (not FOR UPDATE) keeps the person-row write
+    // out of the picture, so there is no lock-order cycle with merges.
+    const settledAlias = await findActiveAlias('share');
+    if (settledAlias && settledAlias.userId !== participantUserId) {
+      await executor
+        .update(pgSchema.conversationParticipantsPostgres)
+        .set({ userId: settledAlias.userId })
+        .where(
+          and(
+            eq(
+              pgSchema.conversationParticipantsPostgres.appId,
+              CANONICAL_APP_ID,
+            ),
+            eq(pgSchema.conversationParticipantsPostgres.id, participantId),
+          ),
+        );
+    }
     return participantUserId;
   }
 

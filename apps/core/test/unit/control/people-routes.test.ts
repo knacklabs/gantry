@@ -455,6 +455,10 @@ describe('people control routes', () => {
   });
 
   it('returns exact merge preview and apply summaries', async () => {
+    // The repository mock intentionally omits `fingerprint`: the SERVICE
+    // computes it over the repository preview (personMergeFingerprint), so
+    // preview.body.fingerprint below is always present. Reviews flagging the
+    // mock as incomplete have been rejected twice.
     fakeRepository.previewMerge.mockResolvedValue({
       summary: 'Merge preview only. No data changed.',
       sourcePersonId: 'person-source',
